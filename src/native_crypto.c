@@ -124,7 +124,7 @@ static Value native_bytes_xor(Value *args, int argc, int line, int col) {
     if (a->count != b->count) ziman_error("runtime", line, col, "crypto.bytes_xor: lengths differ (%d vs %d)", a->count, b->count);
     uint8_t *out = zalloc_atomic((size_t)(a->count > 0 ? a->count : 1));
     for (int i = 0; i < a->count; i++) out[i] = (uint8_t)(array_get(a, i).as.by ^ array_get(b, i).as.by);
-    return value_array(byte_array_type(), array_obj_new_bytes(out, a->count));
+    return value_array(type_ref(byte_array_type()), array_obj_new_bytes(out, a->count));
 }
 
 /* true when both arrays hold the same bytes; the comparison of equal-length arrays takes
@@ -180,7 +180,7 @@ static int alphabet_value(const char *alphabet, char c) {
 }
 
 static Value base64_error(Type result_type, const char *message) {
-    return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(message))));
+    return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 /* Strict: no whitespace, no characters outside the alphabet, padding only at the very end.
@@ -214,7 +214,7 @@ static Value base64_decode_with(Value text, const char *alphabet, int padded) {
     }
     Value bytes = value_byte_array(out, o);
     free(out);
-    return value_result(result_type, result_obj_new(1, bytes));
+    return value_result(type_ref(result_type), result_obj_new(1, bytes));
 }
 
 static Value native_base64_decode(Value *args, int argc, int line, int col) {
@@ -230,11 +230,11 @@ static Value native_base64url_decode(Value *args, int argc, int line, int col) {
 /* ------------------------------------------------------------- password hashing */
 
 static Value string_result_ok(const char *text) {
-    return value_result(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING)), result_obj_new(1, value_string(ziman_xstrdup(text))));
+    return value_result(type_ref(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING))), result_obj_new(1, value_string(ziman_xstrdup(text))));
 }
 
 static Value string_result_err(const char *message) {
-    return value_result(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING)), result_obj_new(0, value_string(ziman_xstrdup(message))));
+    return value_result(type_ref(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING))), result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 static char *copy_cstring(Value v) {
@@ -297,7 +297,7 @@ static Value native_argon2id_raw(Value *args, int argc, int line, int col) {
     Type result_type = type_result(byte_array_type(), type_scalar(TY_STRING));
     int64_t memory = args[2].as.i, iterations = args[3].as.i, lanes = args[4].as.i, length = args[5].as.i;
     if (memory < 8 || memory > (1 << 22) || iterations < 1 || iterations > 1000 || lanes < 1 || lanes > 64 || length < 4 || length > 1024) {
-        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup("argon2id: parameters out of range"))));
+        return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup("argon2id: parameters out of range"))));
     }
     int pn = 0, sn = 0;
     uint8_t *pw = array_copy_bytes(args[0].as.arr, &pn);
@@ -316,8 +316,8 @@ static Value native_argon2id_raw(Value *args, int argc, int line, int col) {
     EVP_KDF *kdf = EVP_KDF_fetch(NULL, "ARGON2ID", NULL);
     EVP_KDF_CTX *ctx = kdf != NULL ? EVP_KDF_CTX_new(kdf) : NULL;
     int ok = ctx != NULL && EVP_KDF_derive(ctx, out, (size_t)length, params) == 1;
-    Value v = ok ? value_result(result_type, result_obj_new(1, value_byte_array(out, (size_t)length)))
-                 : value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup("argon2id: the derivation failed (a salt of at least 8 bytes is required)"))));
+    Value v = ok ? value_result(type_ref(result_type), result_obj_new(1, value_byte_array(out, (size_t)length)))
+                 : value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup("argon2id: the derivation failed (a salt of at least 8 bytes is required)"))));
     EVP_KDF_CTX_free(ctx);
     EVP_KDF_free(kdf);
     OPENSSL_cleanse(pw, (size_t)pn);
@@ -333,7 +333,7 @@ static const size_t aes_gcm_nonce_len = 12;
 static const size_t aes_gcm_tag_len = 16;
 
 static Value bytes_result_err(Type result_type, const char *message) {
-    return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(message))));
+    return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 /* aes_gcm_encrypt(key, plaintext): AES-256-GCM with a fresh random nonce, returned as
@@ -377,7 +377,7 @@ static Value native_aes_gcm_encrypt(Value *args, int argc, int line, int col) {
         memcpy(out, nonce, aes_gcm_nonce_len);
         memcpy(out + aes_gcm_nonce_len, ciphertext, (size_t)ciphertext_len);
         memcpy(out + aes_gcm_nonce_len + (size_t)ciphertext_len, tag, aes_gcm_tag_len);
-        v = value_result(result_type, result_obj_new(1, value_byte_array(out, total)));
+        v = value_result(type_ref(result_type), result_obj_new(1, value_byte_array(out, total)));
         free(out);
     } else {
         v = bytes_result_err(result_type, "aes_gcm_encrypt: encryption failed");
@@ -428,7 +428,7 @@ static Value native_aes_gcm_decrypt(Value *args, int argc, int line, int col) {
         if (ok) plaintext_len += len;
     }
     Value v = ok
-        ? value_result(result_type, result_obj_new(1, value_byte_array(plaintext, (size_t)plaintext_len)))
+        ? value_result(type_ref(result_type), result_obj_new(1, value_byte_array(plaintext, (size_t)plaintext_len)))
         : bytes_result_err(result_type, "aes_gcm_decrypt: decryption failed (the wrong key, or the data was altered)");
     if (ctx != NULL) EVP_CIPHER_CTX_free(ctx);
     OPENSSL_cleanse(key, (size_t)kn);

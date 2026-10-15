@@ -260,11 +260,11 @@ static Value err_result(Type ok_type, const char *category, const char *message)
     size_t n = strlen(category) + strlen(message) + 2;
     char *s = ziman_xmalloc(n);
     snprintf(s, n, "%s|%s", category, message);
-    return value_result(type_result(ok_type, string_type()), result_obj_new(0, value_string(s)));
+    return value_result(type_ref(type_result(ok_type, string_type())), result_obj_new(0, value_string(s)));
 }
 
 static Value ok_result(Type ok_type, Value v) {
-    return value_result(type_result(ok_type, string_type()), result_obj_new(1, v));
+    return value_result(type_ref(type_result(ok_type, string_type())), result_obj_new(1, v));
 }
 
 /* Classifies an errno from a socket call into a net.zm error category. */
@@ -995,7 +995,7 @@ static Value native_net_read_exact_raw(Value *args, int argc, int line, int col)
         if (n == 0) return err_result(arr_type, "closed", "connection closed before the requested bytes arrived");
         got += n;
     }
-    return ok_result(arr_type, value_array(arr_type, array_obj_new_bytes(buf, (int)want)));
+    return ok_result(arr_type, value_array(type_ref(arr_type), array_obj_new_bytes(buf, (int)want)));
 }
 
 static Value send_all(NetHandle *h, const unsigned char *data, size_t n) {

@@ -77,11 +77,11 @@ static Value err_result(Type ok_type, const char *category, const char *message)
     size_t n = strlen(category) + strlen(message) + 2;
     char *s = ziman_xmalloc(n);
     snprintf(s, n, "%s|%s", category, message);
-    return value_result(type_result(ok_type, string_type()), result_obj_new(0, value_string(s)));
+    return value_result(type_ref(type_result(ok_type, string_type())), result_obj_new(0, value_string(s)));
 }
 
 static Value ok_result(Type ok_type, Value v) {
-    return value_result(type_result(ok_type, string_type()), result_obj_new(1, v));
+    return value_result(type_ref(type_result(ok_type, string_type())), result_obj_new(1, v));
 }
 
 static const char *category_for(sqlite3 *db) {
@@ -384,7 +384,7 @@ static Value native_sqlite_query_raw(Value *args, int argc, int line, int col) {
         goto done;
     }
     sqlite3_finalize(stmt);
-    result = ok_result(arr_type, value_array(arr_type, array_obj_new(cells.items, cells.count)));
+    result = ok_result(arr_type, value_array(type_ref(arr_type), array_obj_new(cells.items, cells.count)));
 done:
     pthread_mutex_unlock(&c->mu);
     return result;
@@ -552,7 +552,7 @@ static Value native_sqlite_cursor_columns_raw(Value *args, int argc, int line, i
     if (cur->stmt != NULL) {
         for (int i = 0; i < cur->ncols; i++) cellvec_push(&names, ziman_xstrdup(sqlite3_column_name(cur->stmt, i)));
     }
-    return value_array(type_array(string_type()), array_obj_new(names.items, names.count));
+    return value_array(type_ref(type_array(string_type())), array_obj_new(names.items, names.count));
 }
 
 /* sqlite.cursor_next_raw(cursor) -> Result<[string], string>: the next row's tagged cells, or an empty
@@ -561,7 +561,7 @@ static Value native_sqlite_cursor_next_raw(Value *args, int argc, int line, int 
     (void)argc;
     Type arr_type = type_array(string_type());
     DbCursor *cur = cursor_get(args[0].as.i, line, col);
-    if (cur->done || cur->stmt == NULL) return ok_result(arr_type, value_array(arr_type, array_obj_new(NULL, 0)));
+    if (cur->done || cur->stmt == NULL) return ok_result(arr_type, value_array(type_ref(arr_type), array_obj_new(NULL, 0)));
     DbConn *c = cur->conn;
     pthread_mutex_lock(&c->mu);
     pending_drain(c);
@@ -575,12 +575,12 @@ static Value native_sqlite_cursor_next_raw(Value *args, int argc, int line, int 
     if (rc == SQLITE_ROW) {
         CellVec cells = {0};
         for (int i = 0; i < cur->ncols; i++) cellvec_push(&cells, encode_cell(cur->stmt, i));
-        result = ok_result(arr_type, value_array(arr_type, array_obj_new(cells.items, cells.count)));
+        result = ok_result(arr_type, value_array(type_ref(arr_type), array_obj_new(cells.items, cells.count)));
         goto done;
     }
     cur->done = 1;
     if (rc == SQLITE_DONE) {
-        result = ok_result(arr_type, value_array(arr_type, array_obj_new(NULL, 0)));
+        result = ok_result(arr_type, value_array(type_ref(arr_type), array_obj_new(NULL, 0)));
     } else {
         result = err_result(arr_type, category_for(c->db), sqlite3_errmsg(c->db));
     }

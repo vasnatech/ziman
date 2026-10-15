@@ -321,7 +321,7 @@ static void gc_mark_map(const Arena *a, MapObj *m) {
  * name is kept because all seven of its callers mean the same thing by it as before. A kind with no
  * children is finished on the spot rather than taking a slot. */
 static void gc_mark_into(const Arena *a, Value v) {
-    switch (v.type.kind) {
+    switch (v.type->kind) {
         case TY_STRING:
             mark_interior_capable(a, v.as.str.ptr);
             return;
@@ -365,13 +365,13 @@ static void gc_mark_into(const Arena *a, Value v) {
 /* One popped Value: marks what it names and pushes its children. Only the kinds gc_mark_into
  * pushes can arrive here. */
 static void mark_trace(const Arena *a, Value v) {
-    switch (v.type.kind) {
+    switch (v.type->kind) {
         case TY_ARRAY:
             gc_mark_array(a, v.as.arr);
             return;
         case TY_STRUCT:
             gc_mark_struct(a, v.as.st);
-            gc_mark_registered_contents(a, &v.type, v.as.st);
+            gc_mark_registered_contents(a, v.type, v.as.st);
             return;
         case TY_RESULT:
             gc_mark_result(a, v.as.res);

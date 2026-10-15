@@ -38,7 +38,7 @@ static Value gc_string(Arena *a, const char *s) {
     char *buf = gc_alloc(a, GC_ATOMIC, len + 1);
     memcpy(buf, s, len + 1);
     Value v;
-    v.type = type_scalar(TY_STRING);
+    v.type = type_scalar_ref(TY_STRING);
     v.as.str.ptr = buf;
     v.as.str.len = (uint32_t)len;
     v.as.str.term = 1;

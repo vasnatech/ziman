@@ -34,7 +34,7 @@ static Value gc_string(Arena *a, const char *s) {
     char *buf = gc_alloc(a, GC_ATOMIC, len + 1);
     memcpy(buf, s, len + 1);
     Value v;
-    v.type = type_scalar(TY_STRING);
+    v.type = type_scalar_ref(TY_STRING);
     v.as.str.ptr = buf;
     v.as.str.len = (uint32_t)len;
     v.as.str.term = 1;
@@ -90,9 +90,9 @@ int main(void) {
     st->fields = fields;
     st->count = 1;
     Value st_val;
-    st_val.type = type_struct("Named");
+    st_val.type = type_ref(type_struct("Named"));
     st_val.as.st = st;
-    env_define(with_struct, "obj", st_val.type, 0, st_val);
+    env_define(with_struct, "obj", *st_val.type, 0, st_val);
     gc_mark_env_chain(a, with_struct);
     check("a struct bound in a scope is marked", gc_is_marked(st));
     check("a struct bound in a scope has its own fields marked", gc_is_marked(fields[0].as.str.ptr));

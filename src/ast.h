@@ -30,6 +30,11 @@ typedef enum {
     TY_SET, /* Set<T>: `elem` is T. */
 } TypeKind;
 
+/* How many kinds there are, for a per-kind table (see type_scalar_ref). A macro rather than a
+ * sentinel in the enum itself: this codebase leans on exhaustive switches with no default arm,
+ * and a sentinel member would make every one of them warn. */
+#define TY_KIND_COUNT ((int)TY_SET + 1)
+
 /* A Type is a small value (kind + optional payload), not a heap object in
  * its own right -- only TY_ARRAY/TY_RESULT (via `elem`/`elem_err`) and
  * TY_STRUCT/TY_ENUM (via `struct_name`/`enum_name`) allocate anything, so
@@ -128,6 +133,14 @@ static inline Type type_scalar(TypeKind kind) {
     t.kind = kind;
     return t;
 }
+
+/* SPIKE (docs/MEMORY.md, "unboxing single-payload enum variants"): `Value.type` is a pointer, so
+ * a value's type must outlive it. A scalar kind carries nothing per instance, so one static per
+ * kind serves every value of that kind -- and the hot path stops zeroing 64 bytes per arithmetic
+ * result, becoming a constant address instead. Compound types allocate per call: an intern table
+ * was measured and made no difference (docs/MEMORY.md). */
+const Type *type_scalar_ref(TypeKind kind);
+const Type *type_ref(Type t);
 Type type_array(Type elem);
 Type type_struct(const char *name);
 Type type_result(Type ok_type, Type err_type);

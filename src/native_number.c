@@ -75,24 +75,24 @@ static Value native_bytes_from_hex(Value *args, int argc, int line, int col) {
     Type result_type = type_result(type_array(type_scalar(TY_BYTE)), type_scalar(TY_STRING));
     const char *s = args[0].as.str.ptr;
     size_t n = args[0].as.str.len;
-    if (n % 2 != 0) return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup("invalid hex: odd number of digits"))));
+    if (n % 2 != 0) return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup("invalid hex: odd number of digits"))));
     unsigned char *out = ziman_xmalloc(n / 2 + 1);
     for (size_t i = 0; i < n; i += 2) {
         int hi = hex_nibble(s[i]), lo = hex_nibble(s[i + 1]);
         if (hi < 0 || lo < 0) {
             free(out);
-            return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup("invalid hex: bad digit"))));
+            return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup("invalid hex: bad digit"))));
         }
         out[i / 2] = (unsigned char)(hi * 16 + lo);
     }
     Value bytes = value_byte_array(out, n / 2);
     free(out);
-    return value_result(result_type, result_obj_new(1, bytes));
+    return value_result(type_ref(result_type), result_obj_new(1, bytes));
 }
 
 /* ---- float text, hex of ints and bytes, big-endian integers -------------------------- */
 static Value err_result_of(Type ok_type, const char *message) {
-    return value_result(type_result(ok_type, type_scalar(TY_STRING)), result_obj_new(0, value_string(ziman_xstrdup(message))));
+    return value_result(type_ref(type_result(ok_type, type_scalar(TY_STRING))), result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 /* The shortest decimal text that reads back as the same double -- see value.c's
@@ -134,7 +134,7 @@ static Value native_int_from_hex(Value *args, int argc, int line, int col) {
         }
         v = v * 16 + (uint64_t)d;
     }
-    return value_result(type_result(it, type_scalar(TY_STRING)), result_obj_new(1, value_int((int64_t)v)));
+    return value_result(type_ref(type_result(it, type_scalar(TY_STRING))), result_obj_new(1, value_int((int64_t)v)));
 }
 
 static Value native_byte_to_hex(Value *args, int argc, int line, int col) {
@@ -159,7 +159,7 @@ static Value native_byte_from_hex(Value *args, int argc, int line, int col) {
         snprintf(msg, sizeof msg, "invalid hex digit '%c'", hi < 0 ? s[0] : s[1]);
         return err_result_of(bt, msg);
     }
-    return value_result(type_result(bt, type_scalar(TY_STRING)), result_obj_new(1, value_byte(hi * 16 + lo)));
+    return value_result(type_ref(type_result(bt, type_scalar(TY_STRING))), result_obj_new(1, value_byte(hi * 16 + lo)));
 }
 
 static Value be_to_bytes(Value n, int width, const char *name, int line, int col) {

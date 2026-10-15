@@ -37,9 +37,9 @@ typedef struct {
     size_t p;
     int strict;
     int exact; /* a fraction or exponent is read as a Decimal, not a Float */
-    Type json_type;
+    const Type *json_type;
     char *enum_name;
-    Type number_type;
+    const Type *number_type;
     char *number_enum_name;
     char err[320];
     int failed;
@@ -309,10 +309,10 @@ static Value parse_array(Parser *ps, int depth) {
     skip_ws(ps);
     size_t cap = 8, n = 0;
     Value *items = ziman_xmalloc(cap * sizeof(Value));
-    Type arr_type = type_array(ps->json_type);
+    Type arr_type = type_array(*ps->json_type);
     if (ps->p < ps->n && ps->s[ps->p] == ']') {
         ps->p++;
-        return make_json(ps, "JArray", 1, value_array(arr_type, array_obj_new(items, 0)));
+        return make_json(ps, "JArray", 1, value_array(type_ref(arr_type), array_obj_new(items, 0)));
     }
     while (1) {
         Value v = parse_value(ps, depth + 1);
@@ -323,7 +323,7 @@ static Value parse_array(Parser *ps, int depth) {
         if (ps->p >= ps->n) { fail(ps, "unterminated array"); return value_int(0); }
         char c = ps->s[ps->p];
         if (c == ',') { ps->p++; skip_ws(ps); }
-        else if (c == ']') { ps->p++; return make_json(ps, "JArray", 1, value_array(arr_type, array_obj_new(items, (int)n))); }
+        else if (c == ']') { ps->p++; return make_json(ps, "JArray", 1, value_array(type_ref(arr_type), array_obj_new(items, (int)n))); }
         else { fail(ps, "expected ',' or ']' at position %zu", ps->p); return value_int(0); }
     }
 }
@@ -332,10 +332,10 @@ static Value parse_object(Parser *ps, int depth) {
     ps->p++;
     skip_ws(ps);
     MapObj *m = mapobj_mut_new();
-    Type map_type = type_map(type_scalar(TY_STRING), ps->json_type);
+    Type map_type = type_map(type_scalar(TY_STRING), *ps->json_type);
     if (ps->p < ps->n && ps->s[ps->p] == '}') {
         ps->p++;
-        return make_json(ps, "JObject", 1, value_map(map_type, m));
+        return make_json(ps, "JObject", 1, value_map(type_ref(map_type), m));
     }
     while (1) {
         if (ps->p >= ps->n || ps->s[ps->p] != '"') { fail(ps, "expected string key at position %zu", ps->p); return value_int(0); }
@@ -358,7 +358,7 @@ static Value parse_object(Parser *ps, int depth) {
         if (ps->p >= ps->n) { fail(ps, "unterminated object"); return value_int(0); }
         char c = ps->s[ps->p];
         if (c == ',') { ps->p++; skip_ws(ps); }
-        else if (c == '}') { ps->p++; return make_json(ps, "JObject", 1, value_map(map_type, m)); }
+        else if (c == '}') { ps->p++; return make_json(ps, "JObject", 1, value_map(type_ref(map_type), m)); }
         else { fail(ps, "expected ',' or a closing brace at position %zu", ps->p); return value_int(0); }
     }
 }
@@ -415,14 +415,14 @@ static Value parse_json_text(const char *text, size_t n, Value sample, Value num
     ps.strict = strict;
     ps.exact = exact;
     Type string_type = type_scalar(TY_STRING);
-    Type result_type = type_result(ps.json_type, string_type);
+    Type result_type = type_result(*ps.json_type, string_type);
     Value v = parse_value(&ps, 0);
     if (!ps.failed) {
         skip_ws(&ps);
         if (ps.p != ps.n) fail(&ps, "trailing content at position %zu", ps.p);
     }
-    if (ps.failed) return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(ps.err))));
-    return value_result(result_type, result_obj_new(1, v));
+    if (ps.failed) return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(ps.err))));
+    return value_result(type_ref(result_type), result_obj_new(1, v));
 }
 
 static Value native_json_parse(Value *args, int argc, int line, int col) {
@@ -458,9 +458,9 @@ static int records_next(IterObj *it, Value *out) {
         char err[256];
         int r = line_source_next(st->lines, &line, &len, &number, err, sizeof err);
         if (r == 0) return 0;
-        Type json_type = st->sample.type;
+        const Type *json_type = st->sample.type;
         if (r < 0) {
-            *out = value_result(type_result(json_type, str), result_obj_new(0, value_string(ziman_xstrdup(err))));
+            *out = value_result(type_ref(type_result(*json_type, str)), result_obj_new(0, value_string(ziman_xstrdup(err))));
             return 1;
         }
         size_t a = 0;
@@ -473,7 +473,7 @@ static int records_next(IterObj *it, Value *out) {
             const char *msg = value_cstr(parsed.as.res->value);
             char buf[400];
             snprintf(buf, sizeof buf, "line %lld: %s", (long long)number, msg);
-            *out = value_result(type_result(json_type, str), result_obj_new(0, value_string(ziman_xstrdup(buf))));
+            *out = value_result(type_ref(type_result(*json_type, str)), result_obj_new(0, value_string(ziman_xstrdup(buf))));
         }
         return 1;
     }
@@ -493,7 +493,7 @@ static Value native_ndjson_records_raw(Value *args, int argc, int line, int col)
     if (ls == NULL) {
         char msg[1024];
         snprintf(msg, sizeof msg, "cannot read '%s': %s", path, strerror(errno));
-        return value_result(type_result(iter_type, str), result_obj_new(0, value_string(ziman_xstrdup(msg))));
+        return value_result(type_ref(type_result(iter_type, str)), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     RecordsState *st = ziman_xcalloc(1, sizeof(RecordsState));
     st->lines = ls;
@@ -503,7 +503,7 @@ static Value native_ndjson_records_raw(Value *args, int argc, int line, int col)
     it->next = records_next;
     it->release = records_release;
     it->state = st;
-    return value_result(type_result(iter_type, str), result_obj_new(1, iter_make(it)));
+    return value_result(type_ref(type_result(iter_type, str)), result_obj_new(1, iter_make(it)));
 }
 
 /* ---- serializer ---- */

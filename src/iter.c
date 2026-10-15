@@ -58,7 +58,7 @@ Value iter_make(IterObj *it) {
 #endif
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)it);
-    return value_struct(type_struct("Iter"), struct_obj_new(ITER_FIELD_NAMES, fields, 1));
+    return value_struct(type_ref(type_struct("Iter")), struct_obj_new(ITER_FIELD_NAMES, fields, 1));
 }
 
 int64_t iter_handle_of(Value iter) { return iter.as.st->fields[0].as.i; }
@@ -86,9 +86,9 @@ static Value native_iter_next(Value *args, int argc, int line, int col) {
     Value item;
     Type option = type_enum("Option");
     if (iter_advance(iter_handle_of(args[0]), &item, line, col)) {
-        return value_enum(option, enum_obj_new("Option", "Some", 1, item));
+        return value_enum(type_ref(option), enum_obj_new("Option", "Some", 1, item));
     }
-    return value_enum(option, enum_obj_new("Option", "None", 0, value_int(0)));
+    return value_enum(type_ref(option), enum_obj_new("Option", "None", 0, value_int(0)));
 }
 
 static Value native_iter_close(Value *args, int argc, int line, int col) {

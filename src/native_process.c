@@ -70,7 +70,7 @@ static HandleSet g_live = HANDLE_SET_INIT;
 static Type string_type(void) { return type_scalar(TY_STRING); }
 
 static Value err_result(Type ok_type, const char *message) {
-    return value_result(type_result(ok_type, string_type()), result_obj_new(0, value_string(ziman_xstrdup(message))));
+    return value_result(type_ref(type_result(ok_type, string_type())), result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 static Value err_resultf(Type ok_type, const char *what, int e) {
@@ -80,7 +80,7 @@ static Value err_resultf(Type ok_type, const char *what, int e) {
 }
 
 static Value ok_result(Type ok_type, Value v) {
-    return value_result(type_result(ok_type, string_type()), result_obj_new(1, v));
+    return value_result(type_ref(type_result(ok_type, string_type())), result_obj_new(1, v));
 }
 
 static Child *child_get(int64_t handle, int line, int col) {

@@ -82,9 +82,9 @@ static Value native_parse_int(Value *args, int argc, int line, int col) {
     if (!int_text_ok(str, args[0].as.str.len) || endptr == str || *endptr != '\0' || errno == ERANGE || strlen(str) != args[0].as.str.len) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as int", str);
-        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(msg))));
+        return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
-    return value_result(result_type, result_obj_new(1, value_int((int64_t)v)));
+    return value_result(type_ref(result_type), result_obj_new(1, value_int((int64_t)v)));
 }
 
 static Value native_parse_float(Value *args, int argc, int line, int col) {
@@ -113,9 +113,9 @@ static Value native_parse_float(Value *args, int argc, int line, int col) {
     if (!float_text_ok(str, args[0].as.str.len) || endptr == str || *endptr != '\0' || range_error || strlen(str) != args[0].as.str.len) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as float", str);
-        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(msg))));
+        return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
-    return value_result(result_type, result_obj_new(1, value_float(v)));
+    return value_result(type_ref(result_type), result_obj_new(1, value_float(v)));
 }
 
 static Value native_parse_bigint(Value *args, int argc, int line, int col) {
@@ -129,9 +129,9 @@ static Value native_parse_bigint(Value *args, int argc, int line, int col) {
     if (!ok) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as bigint", big_text);
-        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(msg))));
+        return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
-    return value_result(result_type, result_obj_new(1, value_bigint(n)));
+    return value_result(type_ref(result_type), result_obj_new(1, value_bigint(n)));
 }
 
 static Value native_parse_decimal(Value *args, int argc, int line, int col) {
@@ -145,9 +145,9 @@ static Value native_parse_decimal(Value *args, int argc, int line, int col) {
     if (!ok) {
         char msg[256];
         snprintf(msg, sizeof(msg), "cannot parse '%s' as decimal", dec_text);
-        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(msg))));
+        return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
-    return value_result(result_type, result_obj_new(1, value_decimal(d)));
+    return value_result(type_ref(result_type), result_obj_new(1, value_decimal(d)));
 }
 
 /* format_dynamic(template, args): `format` for a template that is a value, with string arguments: `{}` is the next one and
@@ -172,7 +172,7 @@ static Value native_format_dynamic(Value *args, int argc, int line, int col) {
         size_t src_len = piece.len;
         if (piece.placeholder) {
             if (piece.precision >= 0) {
-                return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(
+                return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(
                     "a precision ('{:.N}') needs a number, and format_dynamic's arguments are strings"))));
             }
             if (placeholders < given->count) {
@@ -191,14 +191,14 @@ static Value native_format_dynamic(Value *args, int argc, int line, int col) {
         memcpy(buf + len, src, src_len);
         len += src_len;
     }
-    if (r < 0) return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(err))));
+    if (r < 0) return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(err))));
     if (placeholders != given->count) {
         char msg[160];
         snprintf(msg, sizeof msg, "the template has %d placeholder(s) but %d argument(s) were given", placeholders, given->count);
-        return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(msg))));
+        return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     buf[len] = '\0';
-    return value_result(result_type, result_obj_new(1, value_string(buf)));
+    return value_result(type_ref(result_type), result_obj_new(1, value_string(buf)));
 }
 
 #define SPTR(v) ((v).as.str.ptr)
@@ -353,7 +353,7 @@ static Value native_split(Value *args, int argc, int line, int col) {
         if (found < 0) break;
         cursor = (size_t)found + ld;
     }
-    return value_array(type_array(type_scalar(TY_STRING)), array_obj_new(items, count));
+    return value_array(type_ref(type_array(type_scalar(TY_STRING))), array_obj_new(items, count));
 }
 
 static Value native_trim(Value *args, int argc, int line, int col) {
@@ -624,7 +624,7 @@ static Value native_mutable_string_new(Value *args, int argc, int line, int col)
 
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int(handle);
-    return value_struct(type_struct("MutableString"), struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
+    return value_struct(type_ref(type_struct("MutableString")), struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
 }
 
 static Value native_mutable_string_append(Value *args, int argc, int line, int col) {
@@ -833,7 +833,7 @@ static Value mutable_array_new_value(size_t capacity, double grow_factor) {
     int64_t handle = mutable_array_table_register(buf);
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int(handle);
-    return value_struct(type_struct("MutableArray"), struct_obj_new(ARRAYBUILDER_FIELD_NAMES, fields, 1));
+    return value_struct(type_ref(type_struct("MutableArray")), struct_obj_new(ARRAYBUILDER_FIELD_NAMES, fields, 1));
 }
 
 static Value native_mutable_array_new(Value *args, int argc, int line, int col) {
@@ -858,7 +858,7 @@ static Value native_mutable_array_new(Value *args, int argc, int line, int col) 
  * would box every int for the rest of its life while an append-first builder packed them. */
 static void mutable_array_adopt_pack_kind(MutableArrayBuf *buf, Value first_element) {
     if (buf->pkind != PK_NONE || buf->length != 0) return;
-    PackKind first = pack_kind_of_type(first_element.type.kind);
+    PackKind first = pack_kind_of_type(first_element.type->kind);
     if (first == PK_NONE) return;
     size_t cap = buf->capacity > 0 ? buf->capacity : (buf->reserved > 0 ? buf->reserved : 16);
     buf->items = NULL;
@@ -1118,14 +1118,14 @@ static Value native_bytes_to_string(Value *args, int argc, int line, int col) {
         char msg[80];
         snprintf(msg, sizeof msg, "bytes are not valid UTF-8 (invalid sequence at byte %ld)", bad);
         free(tmp);
-        return value_result(type_result(str_type, str_type), result_obj_new(0, value_string(ziman_xstrdup(msg))));
+        return value_result(type_ref(type_result(str_type, str_type)), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     if (memchr(tmp, 0, (size_t)n) != NULL) {
         free(tmp);
-        return value_result(type_result(str_type, str_type), result_obj_new(0, value_string(ziman_xstrdup("bytes contain a NUL byte and cannot be a string"))));
+        return value_result(type_ref(type_result(str_type, str_type)), result_obj_new(0, value_string(ziman_xstrdup("bytes contain a NUL byte and cannot be a string"))));
     }
     char *s = (char *)tmp; /* already NUL-terminated by array_copy_bytes */
-    return value_result(type_result(str_type, str_type), result_obj_new(1, value_string(s)));
+    return value_result(type_ref(type_result(str_type, str_type)), result_obj_new(1, value_string(s)));
 }
 
 /* One string per code point of `s` (never a raw byte): `chars("héllo")` is `[h, é, l, l, o]`,
@@ -1153,7 +1153,7 @@ static Value native_chars(Value *args, int argc, int line, int col) {
         items[count++] = string_slice(args[0], pos, (size_t)n);
         pos += (size_t)n;
     }
-    return value_array(type_array(type_scalar(TY_STRING)), array_obj_new(items, count));
+    return value_array(type_ref(type_array(type_scalar(TY_STRING))), array_obj_new(items, count));
 }
 
 /* The number of code points in `s` -- `char_count("héllo")` is 5, where `len("héllo")` (bytes)
@@ -1212,7 +1212,7 @@ static int scalar_sortable(const ArrayObj *a) {
     if (array_pack_kind(a) == PK_INT || array_pack_kind(a) == PK_FLOAT || array_pack_kind(a) == PK_BYTE) return 1;
     if (array_pack_kind(a) != PK_NONE) return 0; /* [bool] has no order */
     for (int i = 0; i < a->count; i++) {
-        if (a->boxed_items[i].type.kind != TY_STRING) return 0;
+        if (a->boxed_items[i].type->kind != TY_STRING) return 0;
     }
     return 1;
 }
@@ -1309,7 +1309,7 @@ static Value native_sort_scalar_order(Value *args, int argc, int line, int col) 
 
 /* `a` rearranged: element i of the result is a's element order[i]. One allocation, and a
  * packed array stays packed. Positions are 0-based and must be in range. */
-static Value permute_array(Type type, const ArrayObj *a, const int64_t *order, int n, int line, int col) {
+static Value permute_array(const Type *type, const ArrayObj *a, const int64_t *order, int n, int line, int col) {
     for (int i = 0; i < n; i++) {
         if (order[i] < 0 || order[i] >= a->count) {
             ziman_error("runtime", line, col, "permute: position %lld out of range for an array of length %d", (long long)order[i], a->count);
@@ -1372,7 +1372,7 @@ static Value native_concat_arrays(Value *args, int argc, int line, int col) {
             memcpy(buf + at, src, esz * (size_t)part->count);
             at += esz * (size_t)part->count;
         }
-        return value_array(type_scalar(TY_VOID), array_obj_new_packed(kind, buf, total));
+        return value_array(type_scalar_ref(TY_VOID), array_obj_new_packed(kind, buf, total));
     }
     Value *items = total > 0 ? ziman_xmalloc((size_t)total * sizeof(Value)) : NULL;
     int pos = 0;
@@ -1381,8 +1381,8 @@ static Value native_concat_arrays(Value *args, int argc, int line, int col) {
         for (int j = 0; j < part->count; j++) items[pos++] = array_get(part, j);
     }
     ArrayObj *packed = array_try_pack(items, total);
-    if (packed != NULL) return value_array(type_scalar(TY_VOID), packed);
-    return value_array(type_scalar(TY_VOID), array_obj_new(items, total));
+    if (packed != NULL) return value_array(type_scalar_ref(TY_VOID), packed);
+    return value_array(type_scalar_ref(TY_VOID), array_obj_new(items, total));
 }
 
 /* slice<T>(a, start, end): a zero-copy view. Arrays are immutable once built
@@ -1397,7 +1397,7 @@ static Value native_slice(Value *args, int argc, int line, int col) {
         ziman_error("runtime", line, col, "slice: range %lld..%lld is out of bounds for an array of length %d",
                     (long long)start, (long long)end, arr->count);
     }
-    return value_array(type_scalar(TY_VOID), array_obj_view(arr, (int)start, (int)end));
+    return value_array(type_scalar_ref(TY_VOID), array_obj_view(arr, (int)start, (int)end));
 }
 
 /* One element of a builder, whichever representation it is in -- `array_get`'s shape against the
@@ -1462,13 +1462,13 @@ static Value native_mutable_array_to_array(Value *args, int argc, int line, int 
         size_t esz = pack_elem_size(buf->pkind);
         unsigned char *out = zalloc_atomic(esz * buf->length);
         memcpy(out, buf->pdata, esz * buf->length);
-        return value_array(type_scalar(TY_VOID), array_obj_new_packed(buf->pkind, out, (int)buf->length));
+        return value_array(type_scalar_ref(TY_VOID), array_obj_new_packed(buf->pkind, out, (int)buf->length));
     }
     Value *items = buf->length > 0 ? ziman_xmalloc(buf->length * sizeof(Value)) : NULL;
     for (size_t i = 0; i < buf->length; i++) {
         items[i] = buf->items[i];
     }
-    return value_array(type_scalar(TY_VOID), array_obj_new(items, (int)buf->length));
+    return value_array(type_scalar_ref(TY_VOID), array_obj_new(items, (int)buf->length));
 }
 
 
@@ -1518,7 +1518,7 @@ static MutableMapBuf *mutable_map_get_buf(Value b) {
 static void mutable_map_mark_contents(const Arena *a, StructObj *st) {
     MutableMapBuf *buf = (MutableMapBuf *)(intptr_t)st->fields[0].as.i;
     Value v;
-    v.type = type_scalar(TY_MAP);
+    v.type = type_scalar_ref(TY_MAP);
     v.as.map = buf->m;
     gc_mark_value(a, v);
 }
@@ -1531,7 +1531,7 @@ static Value mutable_map_new_value(const char *type_name) {
     buf->shared = 0;
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)buf);
-    return value_struct(type_struct(type_name), struct_obj_new(MAPBUILDER_FIELD_NAMES, fields, 1));
+    return value_struct(type_ref(type_struct(type_name)), struct_obj_new(MAPBUILDER_FIELD_NAMES, fields, 1));
 }
 
 static Value native_mutable_map_new(Value *args, int argc, int line, int col) {
@@ -1570,8 +1570,8 @@ static Value native_mutable_map_get(Value *args, int argc, int line, int col) {
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     Type option = type_enum("Option");
     Value found;
-    if (mapobj_get(buf->m, args[1], &found)) return value_enum(option, enum_obj_new("Option", "Some", 1, found));
-    return value_enum(option, enum_obj_new("Option", "None", 0, value_int(0)));
+    if (mapobj_get(buf->m, args[1], &found)) return value_enum(type_ref(option), enum_obj_new("Option", "Some", 1, found));
+    return value_enum(type_ref(option), enum_obj_new("Option", "None", 0, value_int(0)));
 }
 
 /* A map's remove answers what was there, as `Option<V>`: the entry is otherwise gone and
@@ -1586,10 +1586,10 @@ static Value native_mutable_map_remove(Value *args, int argc, int line, int col)
     Type option = type_enum("Option");
     Value found;
     if (!mapobj_get(buf->m, args[1], &found)) {
-        return value_enum(option, enum_obj_new("Option", "None", 0, value_int(0)));
+        return value_enum(type_ref(option), enum_obj_new("Option", "None", 0, value_int(0)));
     }
     mapobj_remove_mut(buf->m, args[1]);
-    return value_enum(option, enum_obj_new("Option", "Some", 1, found));
+    return value_enum(type_ref(option), enum_obj_new("Option", "Some", 1, found));
 }
 
 static Value native_mutable_set_remove(Value *args, int argc, int line, int col) {
@@ -1609,7 +1609,7 @@ static Value native_mutable_map_snapshot(Value *args, int argc, int line, int co
     (void)argc; (void)line; (void)col;
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     buf->shared = 1;
-    return value_map(type_scalar(TY_VOID), mapobj_snapshot(buf->m));
+    return value_map(type_scalar_ref(TY_VOID), mapobj_snapshot(buf->m));
 }
 
 /* `len` on one of the four `#[thread_bound]` handles, for the interpreter's own `len` branch --
@@ -1620,7 +1620,7 @@ static Value native_mutable_map_snapshot(Value *args, int argc, int line, int co
  * from the wrong thread fails there rather than here. MutableMap and MutableSet share a buffer
  * kind, which is why one branch covers both. */
 int ziman_builder_length(Value v) {
-    const char *name = v.type.struct_name;
+    const char *name = v.type->struct_name;
     if (name != NULL && strcmp(name, "MutableArray") == 0) return (int)mutable_array_table_get(mutable_array_handle_of(v))->length;
     if (name != NULL && strcmp(name, "MutableString") == 0) return (int)mutable_string_table_get(mutable_string_handle_of(v))->length;
     return mutable_map_get_buf(v)->m->count;
@@ -1634,7 +1634,7 @@ int ziman_builder_length(Value v) {
  * is one builtin and must answer "is this present" the same way whichever container it is given,
  * so a NaN appended to a builder is found just as a NaN in a Set is. */
 int ziman_builder_contains(Value v, Value needle) {
-    const char *name = v.type.struct_name;
+    const char *name = v.type->struct_name;
     if (name != NULL && strcmp(name, "MutableArray") == 0) {
         const MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(v));
         for (size_t i = 0; i < buf->length; i++) {
@@ -1763,7 +1763,7 @@ int ziman_mutable_set_is_subset(Value s, Value source, int source_is_handle) {
 Value ziman_mutable_map_from(Value source, int is_set) {
     Value out = mutable_map_new_value(is_set ? "MutableSet" : "MutableMap");
     MutableMapBuf *buf = mutable_map_get_buf(out);
-    const MapObj *src = source.type.kind == TY_MAP || source.type.kind == TY_SET ? source.as.map : mutable_map_get_buf(source)->m;
+    const MapObj *src = source.type->kind == TY_MAP || source.type->kind == TY_SET ? source.as.map : mutable_map_get_buf(source)->m;
     buf->m = mapobj_snapshot(src);
     buf->shared = 1;
     return out;
@@ -1843,7 +1843,7 @@ Value ziman_mutable_array_from(Value source, int source_is_handle) {
  * these natives already require: native_mutable_map_snapshot returns a map tagged TY_VOID and the generic
  * natives are patched the same way in the interpreter's plain-call path. */
 Value ziman_builder_snapshot(Value v) {
-    const char *name = v.type.struct_name;
+    const char *name = v.type->struct_name;
     if (name != NULL && strcmp(name, "MutableArray") == 0) return native_mutable_array_to_array(&v, 1, 0, 0);
     if (name != NULL && strcmp(name, "MutableString") == 0) return native_mutable_string_to_string(&v, 1, 0, 0);
     return native_mutable_map_snapshot(&v, 1, 0, 0);
@@ -1860,7 +1860,7 @@ Value ziman_builder_snapshot(Value v) {
  * `mapobj_mut_new` allocates each time rather than handing back a singleton, which is what makes
  * that safe. Insertion order restarts from zero, which is what an empty builder means. */
 void ziman_builder_clear(Value v) {
-    const char *name = v.type.struct_name;
+    const char *name = v.type->struct_name;
     if (name != NULL && strcmp(name, "MutableArray") == 0) {
         mutable_array_table_get(mutable_array_handle_of(v))->length = 0;
         return;
@@ -1911,7 +1911,7 @@ static Value native_mutable_new(Value *args, int argc, int line, int col) {
     buf->value = args[0];
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)buf);
-    return value_struct(type_struct("Mutable"), struct_obj_new(MUTABLE_FIELD_NAMES, fields, 1));
+    return value_struct(type_ref(type_struct("Mutable")), struct_obj_new(MUTABLE_FIELD_NAMES, fields, 1));
 }
 
 static Value native_mutable_get(Value *args, int argc, int line, int col) {
@@ -1965,20 +1965,20 @@ static char *mutable_array_display(Value v, int nested) {
     const MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(v));
     if (nested) return handle_summary("MutableArray", (long long)buf->length, "item");
     Value arr = native_mutable_array_to_array(&v, 1, 0, 0);
-    arr.type = v.type.type_args.count > 0 ? type_array(v.type.type_args.items[0]) : type_array(type_scalar(TY_VOID));
+    arr.type = v.type->type_args.count > 0 ? type_ref(type_array(v.type->type_args.items[0])) : type_ref(type_array(type_scalar(TY_VOID)));
     return value_display_nested(arr);
 }
 
 static char *mutable_map_display(Value v, int nested) {
-    int is_set = v.type.struct_name != NULL && strcmp(v.type.struct_name, "MutableSet") == 0;
+    int is_set = v.type->struct_name != NULL && strcmp(v.type->struct_name, "MutableSet") == 0;
     const MutableMapBuf *buf = mutable_map_get_buf(v);
     if (nested) {
         return handle_summary(is_set ? "MutableSet" : "MutableMap", (long long)buf->m->count, is_set ? "item" : "entry");
     }
     Value snap = native_mutable_map_snapshot(&v, 1, 0, 0);
-    if (v.type.type_args.count > (is_set ? 0 : 1)) {
-        snap.type = is_set ? type_set(v.type.type_args.items[0])
-                           : type_map(v.type.type_args.items[0], v.type.type_args.items[1]);
+    if (v.type->type_args.count > (is_set ? 0 : 1)) {
+        snap.type = is_set ? type_ref(type_set(v.type->type_args.items[0]))
+                           : type_ref(type_map(v.type->type_args.items[0], v.type->type_args.items[1]));
     }
     return value_display_nested(snap);
 }
@@ -2070,7 +2070,7 @@ static Value native_guard_new(Value *args, int argc, int line, int col) {
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)g);
     static char *names[] = {"handle"};
-    return value_struct(type_struct("Guard"), struct_obj_new(names, fields, 1));
+    return value_struct(type_ref(type_struct("Guard")), struct_obj_new(names, fields, 1));
 }
 
 /* ---- array_map / array_filter / array_flat_map / array_reverse (collections) ---------
@@ -2088,9 +2088,9 @@ static Value native_array_map(Value *args, int argc, int line, int col) {
     ArrayObj *packed = array_try_pack(out, n);
     if (packed != NULL) {
         free(out);
-        return value_array(type_scalar(TY_VOID), packed);
+        return value_array(type_scalar_ref(TY_VOID), packed);
     }
-    return value_array(type_scalar(TY_VOID), array_obj_new(out, n));
+    return value_array(type_scalar_ref(TY_VOID), array_obj_new(out, n));
 }
 
 static Value native_array_filter(Value *args, int argc, int line, int col) {
@@ -2114,7 +2114,7 @@ static Value native_array_flat_map(Value *args, int argc, int line, int col) {
         Value x = array_get(a, i);
         parts[i] = native_call_closure(args[1], &x, 1, line, col);
     }
-    Value all = value_array(type_scalar(TY_VOID), array_obj_new(parts, n));
+    Value all = value_array(type_scalar_ref(TY_VOID), array_obj_new(parts, n));
     return native_concat_arrays(&all, 1, line, col);
 }
 

@@ -41,7 +41,7 @@ static Value gc_string(Arena *a, const char *s) {
     char *buf = gc_alloc(a, GC_ATOMIC, len + 1);
     memcpy(buf, s, len + 1);
     Value v;
-    v.type = type_scalar(TY_STRING);
+    v.type = type_scalar_ref(TY_STRING);
     v.as.str.ptr = buf;
     v.as.str.len = (uint32_t)len;
     v.as.str.term = 1;
@@ -60,7 +60,7 @@ static Value gc_array_of_ints(Arena *a, const int64_t *items, int count) {
     arr->count = count;
     arr->store = NULL;
     Value v;
-    v.type = type_array(type_scalar(TY_INT));
+    v.type = type_ref(type_array(type_scalar(TY_INT)));
     v.as.arr = arr;
     return v;
 }
@@ -76,7 +76,7 @@ static Value gc_point_struct(Arena *a, Value x, Value y) {
     st->fields = fields;
     st->count = 2;
     Value v;
-    v.type = type_struct("Point");
+    v.type = type_ref(type_struct("Point"));
     v.as.st = st;
     return v;
 }
@@ -137,7 +137,7 @@ int main(void) {
     shared_arr->count = 2;
     shared_arr->store = NULL;
     Value shared_val;
-    shared_val.type = type_array(point.type);
+    shared_val.type = type_ref(type_array(*point.type));
     shared_val.as.arr = shared_arr;
     gc_mark_value(a, shared_val);
     check("marking a value graph with shared substructure terminates and marks it", gc_is_marked(point.as.st));
@@ -149,7 +149,7 @@ int main(void) {
     BigNum *boxed_bi = gc_alloc(a, GC_ATOMIC, sizeof(BigNum));
     *boxed_bi = n;
     Value bi;
-    bi.type = type_scalar(TY_BIGINT);
+    bi.type = type_scalar_ref(TY_BIGINT);
     bi.as.bi = boxed_bi;
     gc_mark_value(a, bi);
     check("marking a bigint marks its own boxed wrapper", gc_is_marked(bi.as.bi));
@@ -160,7 +160,7 @@ int main(void) {
     res->is_ok = 1;
     res->value = gc_string(a, "ok-payload");
     Value res_val;
-    res_val.type = type_result(type_scalar(TY_STRING), type_scalar(TY_STRING));
+    res_val.type = type_ref(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING)));
     res_val.as.res = res;
     gc_mark_value(a, res_val);
     check("marking a Result marks the ResultObj itself", gc_is_marked(res_val.as.res));
@@ -172,7 +172,7 @@ int main(void) {
     en->has_payload = 1;
     en->payload = value_int(7);
     Value en_val;
-    en_val.type = type_enum("Shape");
+    en_val.type = type_ref(type_enum("Shape"));
     en_val.as.en = en;
     gc_mark_value(a, en_val);
     check("marking an enum marks the EnumObj itself", gc_is_marked(en_val.as.en));
@@ -185,7 +185,7 @@ int main(void) {
     clo->ncaptured = 1;
     clo->captured = captured;
     Value clo_val;
-    clo_val.type = type_func((TypeList){0}, type_scalar(TY_VOID));
+    clo_val.type = type_ref(type_func((TypeList){0}, type_scalar(TY_VOID)));
     clo_val.as.clo = clo;
     gc_mark_value(a, clo_val);
     check("marking a closure marks the ClosureObj itself", gc_is_marked(clo_val.as.clo));
@@ -196,7 +196,7 @@ int main(void) {
      * MEMORY.md's own design -- it belongs to no single thread's heap). */
     ChannelObj chan;
     memset(&chan, 0, sizeof(chan));
-    Value chan_val = value_channel(type_channel(type_scalar(TY_INT)), &chan);
+    Value chan_val = value_channel(type_ref(type_channel(type_scalar(TY_INT))), &chan);
     gc_mark_value(a, chan_val);
     check("marking a channel value does not crash and does not try to mark it", 1);
 

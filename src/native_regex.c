@@ -102,15 +102,15 @@ static Value native_regex_compile_raw(Value *args, int argc, int line, int col) 
     const char *pattern = args[0].as.str.ptr;
     size_t plen = args[0].as.str.len;
     RegexHandle *cached = cache_lookup(pattern, plen);
-    if (cached != NULL) return value_result(rt, result_obj_new(1, value_int((int64_t)(intptr_t)cached)));
+    if (cached != NULL) return value_result(type_ref(rt), result_obj_new(1, value_int((int64_t)(intptr_t)cached)));
     char err[256];
     Regex *re = regex_compile(pattern, plen, err, sizeof err);
-    if (re == NULL) return value_result(rt, result_obj_new(0, value_string(ziman_xstrdup(err))));
+    if (re == NULL) return value_result(type_ref(rt), result_obj_new(0, value_string(ziman_xstrdup(err))));
     RegexHandle *h = ziman_xmalloc(sizeof(RegexHandle));
     h->re = re;
     handleset_add(&g_regexes, h);
     cache_store(pattern, plen, h);
-    return value_result(rt, result_obj_new(1, value_int((int64_t)(intptr_t)h)));
+    return value_result(type_ref(rt), result_obj_new(1, value_int((int64_t)(intptr_t)h)));
 }
 
 static Value native_regex_group_count_raw(Value *args, int argc, int line, int col) {
@@ -200,7 +200,7 @@ static Value native_regex_group_names_raw(Value *args, int argc, int line, int c
         const char *name = regex_group_name(h->re, g);
         items[g - 1] = value_string(ziman_xstrdup(name != NULL ? name : ""));
     }
-    return value_array(type_array(type_scalar(TY_STRING)), array_obj_new(items, n));
+    return value_array(type_ref(type_array(type_scalar(TY_STRING))), array_obj_new(items, n));
 }
 
 void native_regex_register(void) {

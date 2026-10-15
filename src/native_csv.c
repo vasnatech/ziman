@@ -86,7 +86,7 @@ static Value scan_error(Type result_type, int line, const char *message, int oth
     char buf[160];
     if (other_line > 0) snprintf(buf, sizeof buf, "line %d: %s (opened on line %d)", line, message, other_line);
     else snprintf(buf, sizeof buf, "line %d: %s", line, message);
-    return value_result(result_type, result_obj_new(0, value_string(ziman_xstrdup(buf))));
+    return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(buf))));
 }
 
 static Value native_csv_scan_cells(Value *args, int argc, int line, int col) {
@@ -155,8 +155,8 @@ static Value native_csv_scan_cells(Value *args, int argc, int line, int col) {
     }
 #undef END_FIELD
     free(field);
-    Value items = value_array(type_array(string_type), array_obj_new(out.items != NULL ? out.items : ziman_xmalloc(sizeof(Value)), (int)out.count));
-    return value_result(result_type, result_obj_new(1, items));
+    Value items = value_array(type_ref(type_array(string_type)), array_obj_new(out.items != NULL ? out.items : ziman_xmalloc(sizeof(Value)), (int)out.count));
+    return value_result(type_ref(result_type), result_obj_new(1, items));
 }
 
 void native_csv_register(void) {
