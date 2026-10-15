@@ -1,0 +1,156 @@
+// Unit tests for `toml`, centred on how a document is assembled rather than how a value is
+// lexed (tests/lang/toml_basic.zm covers the lexing).
+//
+// These exist because the assembly step was rewritten: keys used to be written into the tree one
+// at a time, each walking from the root, and `set` on an array copies it -- so every key of every
+// `[[entry]]` recopied the whole array of entries and a 71 KB document took 3.5 seconds. The
+// parser now fills one table and writes it in once. That moved real code, so the cases below pin
+// the orderings and the conflicts that the move could plausibly have broken, and
+// `parsing_stays_linear` pins the reason it was done.
+
+use clock
+use json
+use test
+use toml
+
+fn parse(text: string) -> json.Json {
+    return test.assert_ok(toml.parse_toml(text))
+}
+
+fn as_json(text: string) -> string {
+    return json.json_to_string(parse(text))
+}
+
+#[test]
+fn an_array_of_tables_keeps_its_order() {
+    test.assert_eq(
+        "{\"entry\":[{\"id\":1},{\"id\":2},{\"id\":3}]}",
+        as_json("[[entry]]\nid = 1\n[[entry]]\nid = 2\n[[entry]]\nid = 3\n")
+    )
+}
+
+#[test]
+fn keys_keep_their_order_within_a_table() {
+    test.assert_eq(
+        "{\"t\":{\"z\":1,\"a\":2,\"m\":3}}",
+        as_json("[t]\nz = 1\na = 2\nm = 3\n")
+    )
+}
+
+#[test]
+fn keys_before_any_header_belong_to_the_root() {
+    test.assert_eq(
+        "{\"a\":1,\"b\":2,\"t\":{\"c\":3}}",
+        as_json("a = 1\nb = 2\n[t]\nc = 3\n")
+    )
+}
+
+#[test]
+fn a_table_may_be_empty() {
+    test.assert_eq("{\"a\":{},\"b\":{\"x\":1}}", as_json("[a]\n[b]\nx = 1\n"))
+    test.assert_eq("{\"a\":[{},{}]}", as_json("[[a]]\n[[a]]\n"))
+}
+
+#[test]
+fn a_sub_table_may_come_after_its_super_table() {
+    test.assert_eq(
+        "{\"a\":{\"x\":1,\"b\":{\"y\":2}}}",
+        as_json("[a]\nx = 1\n[a.b]\ny = 2\n")
+    )
+}
+
+#[test]
+fn a_super_table_may_come_after_its_sub_table() {
+    // `[a]` here merges into the `a` that `[a.b]` created implicitly, rather than colliding
+    // with it -- the case the rewrite was most likely to get wrong.
+    test.assert_eq(
+        "{\"a\":{\"b\":{\"y\":2},\"x\":1}}",
+        as_json("[a.b]\ny = 2\n[a]\nx = 1\n")
+    )
+}
+
+#[test]
+fn a_sub_table_attaches_to_the_last_element_of_an_array_of_tables() {
+    test.assert_eq(
+        "{\"a\":[{\"id\":1},{\"id\":2,\"sub\":{\"z\":3}}]}",
+        as_json("[[a]]\nid = 1\n[[a]]\nid = 2\n[a.sub]\nz = 3\n")
+    )
+}
+
+#[test]
+fn a_dotted_key_builds_a_table_inside_the_current_one() {
+    test.assert_eq(
+        "{\"t\":{\"a\":{\"b\":1,\"c\":2}}}",
+        as_json("[t]\na.b = 1\na.c = 2\n")
+    )
+}
+
+// ------------------------------------------------------------------ the conflicts
+
+#[test]
+fn the_same_table_twice_is_an_error() {
+    test.assert_err(toml.parse_toml("[t]\n[t]\n"))
+    test.assert_err(toml.parse_toml("[a.b]\nx = 1\n[a.b]\ny = 2\n"))
+}
+
+#[test]
+fn a_key_defined_twice_is_an_error_however_it_is_reached() {
+    test.assert_err(toml.parse_toml("a = 1\na = 2\n"))
+    test.assert_err(toml.parse_toml("[t]\na = 1\na = 2\n"))
+    test.assert_err(toml.parse_toml("[t]\na.b = 1\na.b = 2\n"))
+    // reached once as a dotted key at the root and once as a key inside the table
+    test.assert_err(toml.parse_toml("a.b = 1\n[a]\nb = 2\n"))
+}
+
+#[test]
+fn a_table_cannot_overwrite_a_value() {
+    test.assert_err(toml.parse_toml("a = 1\n[a]\nx = 2\n"))
+    test.assert_err(toml.parse_toml("a = 1\n[a.b]\nx = 2\n"))
+    test.assert_err(toml.parse_toml("a = 1\n[[a]]\nx = 2\n"))
+}
+
+#[test]
+fn a_table_and_an_array_of_tables_cannot_share_a_name() {
+    test.assert_err(toml.parse_toml("[a]\nx = 1\n[[a]]\ny = 2\n"))
+    test.assert_err(toml.parse_toml("[[a]]\nx = 1\n[a]\ny = 2\n"))
+}
+
+#[test]
+fn an_error_still_names_the_line_that_caused_it() {
+    // The table is written into the tree when the *next* header arrives, so the position has to
+    // be carried along with it; otherwise this would report line 4 instead of line 3.
+    val e = test.assert_err(toml.parse_toml("a = 1\n\n[a]\nx = 2\n\n[other]\ny = 3\n"))
+    test.assert(contains(e, "line 3"))
+}
+
+// ------------------------------------------------------------------ the reason for the rewrite
+
+#[test]
+fn parsing_stays_linear() {
+    // Four times the document should take roughly four times as long, not sixteen. The old
+    // shape was worse than quadratic -- 500 entries in 52 ms and 2000 in 3501 ms, a factor of
+    // 67 -- so the generous bound below still catches it with an order of magnitude to spare,
+    // while leaving room for a loaded machine and for the clock's resolution at these sizes.
+    val small = time_parse(500)
+    val large = time_parse(2000)
+    test.assert(large < (small + 1) * 20)
+}
+
+fn time_parse(entries: int) -> int {
+    val out = mutable_string_new()
+    var i = 0
+    while i < entries {
+        mutable_string_append(out, format("[[entry]]\nid = \"{}\"\ncode = \"R05\"\n\n", i))
+        i = i + 1
+    }
+    val text = snapshot(out)
+    val t0 = clock.monotonic_millis()
+    val parsed = test.assert_ok(toml.parse_toml(text))
+    val elapsed = clock.monotonic_millis() - t0
+    var found = 0
+    if JArray(items) = unwrap(json.json_object_get(parsed, "entry")) {
+        found = len(items)
+    }
+    test.assert_eq(entries, found)
+    return elapsed
+}
