@@ -1307,6 +1307,10 @@ pub fn empty(local: string) -> Element
 
 pub fn text_element(local: string, content: string) -> Element
 
+pub fn opt_element(local: string, value: Option<string>) -> Option<Node>
+
+pub fn req_element(local: string, value: string) -> Option<Node>
+
 pub fn attribute(local: string, value: string) -> Attribute
 
 pub fn document(root: Element) -> Document

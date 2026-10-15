@@ -145,9 +145,37 @@ pub fn empty(local: string) -> Element {
     return Element { name: name(local), attributes: [], children: [] }
 }
 
-// An element holding one run of text: `<name>text</name>`.
+// An element holding one run of text: `<name>text</name>`. Empty text gives an element with no
+// children at all rather than one holding an empty `Text`, because that is what reading
+// `<name></name>` back produces -- so a tree built here and the same tree parsed from its own
+// output compare equal, which they would not if one carried a child the other never makes.
 pub fn text_element(local: string, content: string) -> Element {
+    if content == "" {
+        return Element { name: name(local), attributes: [], children: [] }
+    }
     return Element { name: name(local), attributes: [], children: [Node.Text(content)] }
+}
+
+// A child element holding `value`, or nothing at all when there is no value -- the shape of
+// almost every field in an exported record, where an absent one is left out rather than written
+// empty. Pair it with `array_present`, which drops the nothings:
+//
+//     xml.element(xml.name("patient"), [], array_present<Node>(
+//         xml.opt_element("firstName", p.first_name),
+//         xml.opt_element("dateOfBirth", p.date_of_birth)
+//     ))
+pub fn opt_element(local: string, value: Option<string>) -> Option<Node> {
+    return switch value {
+        Some(v) { Option<Node>.Some(Node.Element(text_element(local, v))) }
+        None { Option<Node>.None }
+    }
+}
+
+// `opt_element` for a value that is always there, so a required field and an optional one can
+// stand side by side in one `array_present` list instead of the required one being lifted into
+// an `Option` by hand at the call site.
+pub fn req_element(local: string, value: string) -> Option<Node> {
+    return Option<Node>.Some(Node.Element(text_element(local, value)))
 }
 
 pub fn attribute(local: string, value: string) -> Attribute {

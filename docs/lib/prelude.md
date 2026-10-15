@@ -1068,6 +1068,31 @@ native fn array_reverse<T>(items: [T]) -> [T]
 
 See `array_map`.
 
+### `array_present`
+
+```
+fn array_present<T>(items: variadic Option<T>) -> [T]
+```
+
+The values that are actually there, in order, with the `None`s dropped. What builds a list out
+of fields that may each be absent, without an `if` per field:
+
+
+```
+xml.element(xml.name("patient"), [], array_present<xml.Node>(
+    xml.opt_element("firstName", p.first_name),
+    xml.opt_element("dateOfBirth", p.date_of_birth)
+))
+```
+
+Variadic rather than taking an array, because the call site is nearly always a written-out
+list of maybes rather than one already in hand; an array you do have goes in as
+`array_present<T>(items: existing)`, the same spelling `concat_arrays` takes.
+
+`array_filter` cannot do this: it keeps elements, so it would hand back `[Option<T>]` still
+wrapped, and `array_flat_map` only does it by turning each value into a one- or zero-element
+array, which allocates per element and reads like a puzzle.
+
 ### `array_sort`
 
 ```

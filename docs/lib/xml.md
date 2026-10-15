@@ -82,11 +82,16 @@ fn main() {
     print(xml.text_of(unwrap(xml.child(doc.root, "note"))))
     print(unwrap(doc.root.name.namespace))
 
-    // Building and writing. Escaping is the writer's job, so the `&` below cannot break the output.
-    val built = xml.document(xml.element(xml.name("visit"), [xml.attribute("id", "7")], [
-        xml.Node.Element(xml.text_element("reason", "cough & fever")),
-        xml.Node.Element(xml.empty("followUp"))
-    ]))
+    // Building and writing. Most fields of a record are optional, so `opt_element` makes one
+    // that may be absent, `req_element` one that is always there, and `array_present` keeps
+    // whichever turned up -- no `if` per field. Escaping is the writer's job, so the `&` below
+    // cannot break the output.
+    val missing = Option<string>.None
+    val built = xml.document(xml.element(xml.name("visit"), [xml.attribute("id", "7")], array_present<xml.Node>(
+        xml.req_element("reason", "cough & fever"),
+        xml.opt_element("temperature", Option<string>.Some("38.1")),
+        xml.opt_element("notes", missing)
+    )))
     print(trim(unwrap(xml.xml_to_string(built))))
 
     // There is no DTD, so the shapes that make XML dangerous simply do not parse.
@@ -107,7 +112,7 @@ allergies
 Take 2 tablets & rest.
 urn:hl7-org:v3
 <?xml version="1.0" encoding="UTF-8"?>
-<visit id="7"><reason>cough &amp; fever</reason><followUp/></visit>
+<visit id="7"><reason>cough &amp; fever</reason><temperature>38.1</temperature></visit>
 false
 true
 ```
@@ -263,7 +268,38 @@ An empty element: `<name/>`.
 pub fn text_element(local: string, content: string) -> Element
 ```
 
-An element holding one run of text: `<name>text</name>`.
+An element holding one run of text: `<name>text</name>`. Empty text gives an element with no
+children at all rather than one holding an empty `Text`, because that is what reading
+`<name></name>` back produces -- so a tree built here and the same tree parsed from its own
+output compare equal, which they would not if one carried a child the other never makes.
+
+### `opt_element`
+
+```
+pub fn opt_element(local: string, value: Option<string>) -> Option<Node>
+```
+
+A child element holding `value`, or nothing at all when there is no value -- the shape of
+almost every field in an exported record, where an absent one is left out rather than written
+empty. Pair it with `array_present`, which drops the nothings:
+
+
+```
+xml.element(xml.name("patient"), [], array_present<Node>(
+    xml.opt_element("firstName", p.first_name),
+    xml.opt_element("dateOfBirth", p.date_of_birth)
+))
+```
+
+### `req_element`
+
+```
+pub fn req_element(local: string, value: string) -> Option<Node>
+```
+
+`opt_element` for a value that is always there, so a required field and an optional one can
+stand side by side in one `array_present` list instead of the required one being lifted into
+an `Option` by hand at the call site.
 
 ### `attribute`
 

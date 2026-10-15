@@ -29,11 +29,16 @@ fn main() {
     print(xml.text_of(unwrap(xml.child(doc.root, "note"))))
     print(unwrap(doc.root.name.namespace))
 
-    // Building and writing. Escaping is the writer's job, so the `&` below cannot break the output.
-    val built = xml.document(xml.element(xml.name("visit"), [xml.attribute("id", "7")], [
-        xml.Node.Element(xml.text_element("reason", "cough & fever")),
-        xml.Node.Element(xml.empty("followUp"))
-    ]))
+    // Building and writing. Most fields of a record are optional, so `opt_element` makes one
+    // that may be absent, `req_element` one that is always there, and `array_present` keeps
+    // whichever turned up -- no `if` per field. Escaping is the writer's job, so the `&` below
+    // cannot break the output.
+    val missing = Option<string>.None
+    val built = xml.document(xml.element(xml.name("visit"), [xml.attribute("id", "7")], array_present<xml.Node>(
+        xml.req_element("reason", "cough & fever"),
+        xml.opt_element("temperature", Option<string>.Some("38.1")),
+        xml.opt_element("notes", missing)
+    )))
     print(trim(unwrap(xml.xml_to_string(built))))
 
     // There is no DTD, so the shapes that make XML dangerous simply do not parse.

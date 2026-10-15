@@ -2655,7 +2655,14 @@ a type error.
   helpers that `Map` and `Set` already have: `array_map<T, U>(items, f)`,
   `array_filter<T>(items, keep)`, `array_flat_map<T, U>(items, f)`, `array_reverse<T>(items)`,
   `array_sort<T: Ord>(items)`, `array_sort_desc<T: Ord>(items)` and
-  `array_sort_with<T>(items, cmp)`. All return a new array. The sorts are stable in both
+  `array_sort_with<T>(items, cmp)`. All return a new array.
+  `array_present<T>(items: variadic Option<T>)` is the odd one out: it takes *maybes* and
+  returns the values that are there, in order, which is how a list is built out of fields that
+  may each be absent without an `if` per field. It is variadic because the call site is nearly
+  always a written-out list (`array_present<Node>(opt_element(..), opt_element(..))`); an array
+  already in hand goes in as `array_present<T>(items: existing)`, the spelling `concat_arrays`
+  takes. `array_filter` cannot express it -- it keeps elements, so the results would still be
+  wrapped -- and `array_flat_map` only can by building a one- or zero-element array per value. The sorts are stable in both
   directions, so `array_sort_desc` is not `array_sort` reversed (that would flip ties).
   The rest of the array library is bare too, and needs no import either: `array_fold`,
   `array_find`, `array_first`, `array_last`, `array_min_by`, `array_max_by`, `array_count`,

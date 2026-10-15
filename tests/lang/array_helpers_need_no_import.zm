@@ -1,4 +1,4 @@
-// The seven bare array helpers, used with no `use` line at all -- which is the point of them:
+// The bare array helpers, used with no `use` line at all -- which is the point of them:
 // `Map` and `Set` have had bare `map_*`/`set_*` helpers all along, and arrays were the one
 // collection whose helpers needed an import. `array_map`/`filter`/`flat_map`/`reverse`/
 // `sort`/`sort_desc`/`sort_with` are wrappers over these and still work; these are canonical.
@@ -43,4 +43,13 @@ fn main() {
     print(tags(array_sort<P>(ps)))
     print(tags(array_sort_desc<P>(ps)))
     print(tags(array_sort_with<P>(ps, fn(a: P, b: P) -> int { return compare(a.key, b.key) })))
+
+    // array_present: the Nones dropped, the order kept. Variadic, because the call site is
+    // nearly always a written-out list of maybes.
+    print(array_present<int>(Option<int>.Some(1), Option<int>.None, Option<int>.Some(3)))
+    print(array_present<string>(Option<string>.None, Option<string>.None))
+    print(len(array_present<int>()))
+    // an array already in hand goes in under the parameter name, as concat_arrays takes one
+    val held = [Option<string>.Some("a"), Option<string>.None, Option<string>.Some("b")]
+    print(array_present<string>(items: held))
 }
