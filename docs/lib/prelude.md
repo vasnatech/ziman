@@ -1092,30 +1092,34 @@ list of maybes rather than one already in hand; an array you do have goes in as
 `array_filter` cannot do this: it keeps elements, so it would hand back `[Option<T>]` still
 wrapped, and `array_flat_map` only does it by turning each value into a one- or zero-element
 array, which allocates per element and reads like a puzzle.
-Plain value `push`, not a MutableArray, and the reason is that `T` is generic. All three
-spellings were measured over both a packed element type and a boxed one, and which wins
-depends on which `T` is -- so the one chosen here is the one whose worst case is mildest,
-not the one that wins anywhere in particular.
+Plain value `push`, not a MutableArray, and the reason is that `T` is generic: which spelling
+wins depends on whether `T` packs, so the one chosen here is the one whose worst case is
+mildest rather than the one that wins anywhere in particular.
 
-Per element type, filling from a list of maybes, times for the whole repeat count:
+Every item present, which is the heaviest case and the one where a capacity hint is exactly
+right rather than an over-estimate:
 
 
 ```
               n       push   builder   builder+capacity
-[int]      10,000    372 ms    288 ms         282 ms
-[int]     200,000    796 ms    596 ms         591 ms
-[string]   10,000    411 ms    927 ms        1913 ms
-[string]  200,000    873 ms   1123 ms        4199 ms
+[int]      10,000    480 ms    343 ms         352 ms
+[int]     200,000   1040 ms    760 ms         712 ms
+[string]   10,000    617 ms   1278 ms        1250 ms
+[string]  200,000   1396 ms   3028 ms        2669 ms
 ```
 
-A packed buffer (`int`, `float`, `byte`, `bool`) is unscanned, so a builder is about 30%
-ahead there and a capacity hint is free. A boxed buffer is scanned for pointers at every
-collection, and a builder ends up holding two large scanned regions at once -- the grown
-buffer and `snapshot`'s copy of it -- where `push` grows one array in place and never copies;
-so `push` is better by more than two to one, and presizing, which holds the buffer at full
-size for the whole fill, by nearly five. Worst case: `push` 1.3x, builder 2.3x, builder with
-a capacity 4.8x. Below a hundred elements, which is what the variadic form is nearly always
-called with, all three are inside the run-to-run noise.
+A packed buffer (`int`, `float`, `byte`, `bool`) is unscanned and a builder is about 1.4x
+ahead of value `push` there. A boxed buffer is scanned for pointers at every collection, and
+a builder ends up holding two large scanned regions at once -- the grown buffer and
+`snapshot`'s copy of it -- where `push` grows one array in place and never copies, so `push`
+is about 2x ahead instead. Worst case: `push` 1.4x, either builder 2.2x. Below a hundred
+elements, which is what the variadic form is nearly always called with, all three are inside
+the run-to-run noise.
+
+The capacity hint makes no material difference either way since the runtime stopped
+allocating a boxed array it was about to discard. Measure one spelling per process if these
+are ever re-run: taking all three in one gave the last of them a heap the earlier two had
+already grown, which read as a 4x spread that does not exist.
 
 ### `array_sort`
 
