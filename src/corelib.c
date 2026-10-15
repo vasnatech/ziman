@@ -44,6 +44,7 @@
 #include "ndjson_source.h"
 #include "csv_source.h"
 #include "toml_source.h"
+#include "markdown_source.h"
 #include "xml_source.h"
 #include "yaml_source.h"
 
@@ -97,6 +98,7 @@ static const CoreModule CORE_MODULES[] = {
     {"ndjson", NDJSON_SOURCE},
     {"csv", CSV_SOURCE},
     {"toml", TOML_SOURCE},
+    {"markdown", MARKDOWN_SOURCE},
     {"xml", XML_SOURCE},
     {"yaml", YAML_SOURCE},
 };

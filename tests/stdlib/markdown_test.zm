@@ -1,0 +1,326 @@
+// Unit tests for `markdown`.
+//
+// Two groups matter more than the rest. The escaping cases exist because Spring's
+// MarkdownExportService has no escaping at all -- 0 matches for `esc` in 483 lines, with
+// `s(m.getNotes())` going straight into table cells -- so one `|` in a patient's note shifts
+// every column after it. Those are the bugs this module exists to make unwritable.
+//
+// The strict-mode cases exist because Markdown has no syntax errors. Every other format here
+// can refuse what it does not handle; a Markdown reader given an indented code block or a
+// setext heading just returns something else, and the caller cannot tell. `parse_markdown`
+// does what Markdown says; `parse_markdown_strict` is the one that can say "I would have
+// misread this", and the tests below are what hold that line.
+
+use markdown
+use test
+
+fn parse(s: string) -> markdown.Document {
+    return test.assert_ok(markdown.parse_markdown(s))
+}
+
+fn write(doc: markdown.Document) -> string {
+    return test.assert_ok(markdown.markdown_to_string(doc))
+}
+
+fn round_trip(s: string) -> string {
+    return write(parse(s))
+}
+
+// ------------------------------------------------------------------ escaping: the point
+
+#[test]
+fn a_pipe_in_a_table_cell_cannot_break_the_table() {
+    val t = test.assert_ok(markdown.text_table(
+        ["Name", "Notes"],
+        [],
+        [["Salbutamol", "2 puffs | as needed"]]
+    ))
+    val out = write(markdown.document([t]))
+    test.assert(contains(out, "2 puffs \\| as needed"))
+    // and it reads back as the text it was, pipe included, still in one cell
+    val back = parse(out)
+    test.assert_eq("Name Notes \nSalbutamol 2 puffs | as needed \n", markdown.text_of(back))
+}
+
+#[test]
+fn formatting_characters_in_text_stay_text() {
+    val doc = markdown.document([markdown.paragraph("Take *2* tablets [see leaflet] a_b_c")])
+    val out = write(doc)
+    test.assert(contains(out, "\\*2\\*"))
+    test.assert(contains(out, "\\[see leaflet\\]"))
+    test.assert_eq("Take *2* tablets [see leaflet] a_b_c\n", markdown.text_of(parse(out)))
+}
+
+#[test]
+fn text_that_would_start_a_block_is_escaped_at_the_start_of_one() {
+    // A note beginning "# 1" is not a heading, and one beginning "1. " is not a list.
+    test.assert_eq("\\# not a heading\n", write(markdown.document([markdown.paragraph("# not a heading")])))
+    test.assert_eq("1\\. not a list\n", write(markdown.document([markdown.paragraph("1. not a list")])))
+    test.assert_eq("\\- not a bullet\n", write(markdown.document([markdown.paragraph("- not a bullet")])))
+    test.assert_eq("\\> not a quote\n", write(markdown.document([markdown.paragraph("> not a quote")])))
+    // and each reads back as the text it was
+    for raw in ["# not a heading", "1. not a list", "- not a bullet", "> not a quote"] {
+        val out = write(markdown.document([markdown.paragraph(raw)]))
+        test.assert_eq(concat(raw, "\n"), markdown.text_of(parse(out)))
+    }
+}
+
+#[test]
+fn a_code_span_is_fenced_longer_than_whatever_is_inside_it() {
+    val doc = markdown.document([markdown.Block.Paragraph([
+        markdown.Inline.Code("a ` b ``  c")
+    ])])
+    val out = write(doc)
+    test.assert(contains(out, "```a ` b ``  c```"))
+    test.assert_eq("a ` b ``  c\n", markdown.text_of(parse(out)))
+}
+
+#[test]
+fn a_code_block_is_fenced_longer_than_a_fence_inside_it() {
+    val doc = markdown.document([markdown.code_block("", "```\nnested fence\n```")])
+    val out = write(doc)
+    test.assert(starts_with(out, "````"))
+    test.assert_eq("```\nnested fence\n```\n", markdown.text_of(parse(out)))
+}
+
+#[test]
+fn a_link_destination_with_spaces_is_bracketed() {
+    val doc = markdown.document([markdown.Block.Paragraph([
+        markdown.link("report", "http://x.test/a file(1).pdf")
+    ])])
+    val out = write(doc)
+    test.assert(contains(out, "<http://x.test/a file(1).pdf>"))
+}
+
+// ------------------------------------------------------------------ what Markdown cannot do
+
+#[test]
+fn a_line_break_in_a_table_cell_is_refused_and_flatten_cell_is_the_answer() {
+    // GFM has no syntax for it, so writing one would silently corrupt the row. The check is on
+    // the text itself, not only on a break node: free text out of a database arrives as one
+    // string with a newline in it.
+    val bad = test.assert_ok(markdown.text_table(["Notes"], [], [["line one\nline two"]]))
+    val e = test.assert_err(markdown.markdown_to_string(markdown.document([bad])))
+    test.assert(contains(e, "line break"))
+    test.assert(contains(e, "row 0"))
+
+    val good = test.assert_ok(markdown.text_table(
+        ["Notes"],
+        [],
+        [[markdown.flatten_cell("line one\nline two")]]
+    ))
+    test.assert(contains(write(markdown.document([good])), "line one line two"))
+}
+
+#[test]
+fn a_ragged_table_is_refused_when_it_is_built() {
+    test.assert_err(markdown.text_table(["A", "B"], [], [["only one"]]))
+    test.assert_err(markdown.text_table(["A"], [markdown.Align.AlignLeft, markdown.Align.AlignRight], []))
+    test.assert_ok(markdown.text_table(["A", "B"], [], [["x", "y"]]))
+}
+
+// ------------------------------------------------------------------ reading
+
+#[test]
+fn headings_paragraphs_and_breaks() {
+    val doc = parse("# One\n\ntext\n\n### Three ###\n\n---\n")
+    test.assert_eq(4, len(doc.blocks))
+    if Heading(h) = doc.blocks[0] {
+        test.assert_eq(1, h.level)
+    }
+    if Heading(h) = doc.blocks[2] {
+        test.assert_eq(3, h.level)
+    }
+    test.assert_eq("One\ntext\nThree\n", markdown.text_of(doc))
+}
+
+#[test]
+fn a_hard_break_survives_being_read_and_written() {
+    // The two trailing spaces are the syntax, so trimming the line on the way in deletes it.
+    val doc = parse("Line one  \nline two.\n")
+    val out = write(doc)
+    test.assert(contains(out, "  \n"))
+    test.assert_eq(out, round_trip(out))
+}
+
+#[test]
+fn a_table_reads_with_its_alignments() {
+    val doc = parse("| A | B | C |\n| :--- | ---: | :---: |\n| 1 | 2 | 3 |\n")
+    if Table(t) = doc.blocks[0] {
+        test.assert_eq(3, len(t.alignments))
+        test.assert_eq(1, len(t.rows))
+        test.assert(t.alignments[0] == markdown.Align.AlignLeft)
+        test.assert(t.alignments[1] == markdown.Align.AlignRight)
+        test.assert(t.alignments[2] == markdown.Align.AlignCenter)
+    } else {
+        test.fail("expected a table")
+    }
+}
+
+#[test]
+fn a_pipe_table_needs_a_delimiter_row_to_be_a_table() {
+    // Otherwise it is a paragraph that happens to contain pipes, which is the common case in
+    // running text and must not be swallowed as a one-row table.
+    val doc = parse("this | that | the other\n")
+    if Table(_) = doc.blocks[0] {
+        test.fail("a line of pipes is not a table without a delimiter row")
+    }
+}
+
+#[test]
+fn lists_read_nested_and_keep_their_numbering() {
+    val doc = parse("- one\n- two\n  - nested\n")
+    if List(l) = doc.blocks[0] {
+        test.assert_false(l.ordered)
+        test.assert_eq(2, len(l.items))
+    } else {
+        test.fail("expected a list")
+    }
+    val ordered = parse("3. three\n4. four\n")
+    if List(l) = ordered.blocks[0] {
+        test.assert(l.ordered)
+        test.assert_eq(3, l.start)
+    } else {
+        test.fail("expected an ordered list")
+    }
+}
+
+#[test]
+fn a_tight_list_stays_tight_through_a_round_trip() {
+    // Writing a blank line before a nested list turns a tight list into a loose one, which
+    // changes how every item renders.
+    val src = "- one\n- two\n  - nested\n"
+    test.assert_eq(src, round_trip(src))
+}
+
+#[test]
+fn a_fenced_block_keeps_its_info_string_and_its_content_verbatim() {
+    val doc = parse("```ziman\nfn main() {\n    print(\"*hi*\")\n}\n```\n")
+    if CodeBlock(c) = doc.blocks[0] {
+        test.assert_eq("ziman", c.info)
+        test.assert_eq("fn main() {\n    print(\"*hi*\")\n}", c.text)
+    } else {
+        test.fail("expected a code block")
+    }
+}
+
+#[test]
+fn an_unclosed_fence_runs_to_the_end_rather_than_failing() {
+    val doc = parse("```\nstill code\n")
+    if CodeBlock(c) = doc.blocks[0] {
+        test.assert_eq("still code", c.text)
+    } else {
+        test.fail("expected a code block")
+    }
+}
+
+#[test]
+fn block_quotes_nest() {
+    val doc = parse("> outer\n>\n> > inner\n")
+    if BlockQuote(inner) = doc.blocks[0] {
+        test.assert_eq(2, len(inner))
+    } else {
+        test.fail("expected a block quote")
+    }
+}
+
+#[test]
+fn inline_emphasis_links_and_code_read() {
+    val doc = parse("a *b* **c** `d` [e](http://x.test) ![f](i.png)\n")
+    test.assert_eq("a b c d e f\n", markdown.text_of(doc))
+    test.assert_eq(doc.blocks[0] == doc.blocks[0], true)
+}
+
+#[test]
+fn an_unmatched_delimiter_is_just_text() {
+    test.assert_eq("2 * 3 = 6\n", markdown.text_of(parse("2 * 3 = 6\n")))
+    test.assert_eq("a `b\n", markdown.text_of(parse("a `b\n")))
+    test.assert_eq("[not a link\n", markdown.text_of(parse("[not a link\n")))
+}
+
+#[test]
+fn a_backslash_escape_is_honoured_on_the_way_in() {
+    test.assert_eq("*not emphasis*\n", markdown.text_of(parse("\\*not emphasis\\*\n")))
+}
+
+// ------------------------------------------------------------------ strict mode
+
+#[test]
+fn strict_refuses_an_indented_code_block() {
+    val src = "text\n\n    indented code\n"
+    test.assert_ok(markdown.parse_markdown(src))
+    val e = test.assert_err(markdown.parse_markdown_strict(src))
+    test.assert(contains(e, "indented code block"))
+    test.assert(contains(e, "line 3"))
+}
+
+#[test]
+fn strict_refuses_a_setext_heading() {
+    val src = "Title\n=====\n"
+    test.assert_ok(markdown.parse_markdown(src))
+    test.assert(contains(test.assert_err(markdown.parse_markdown_strict(src)), "setext"))
+}
+
+#[test]
+fn strict_refuses_a_link_reference_definition() {
+    val src = "[label]: http://x.test\n"
+    test.assert_ok(markdown.parse_markdown(src))
+    test.assert(contains(test.assert_err(markdown.parse_markdown_strict(src)), "link reference"))
+}
+
+#[test]
+fn strict_refuses_a_raw_html_block() {
+    val src = "<div>\nhello\n</div>\n"
+    test.assert_ok(markdown.parse_markdown(src))
+    test.assert(contains(test.assert_err(markdown.parse_markdown_strict(src)), "HTML"))
+}
+
+#[test]
+fn strict_accepts_everything_in_the_supported_subset() {
+    val src = concat(
+        "# Title\n\n",
+        "A paragraph with *emphasis* and a [link](http://x.test).\n\n",
+        "| A | B |\n| --- | ---: |\n| 1 | 2 |\n\n",
+        "- one\n- two\n\n",
+        "1. first\n\n",
+        "> quoted\n\n",
+        "```ziman\ncode\n```\n\n",
+        "---\n"
+    )
+    test.assert_ok(markdown.parse_markdown_strict(src))
+}
+
+// ------------------------------------------------------------------ round trips
+
+#[test]
+fn a_document_written_then_read_then_written_is_unchanged() {
+    val src = concat(
+        "# Health record\n\n",
+        "Exported for Ann Lee.\n\n",
+        "## Medications\n\n",
+        "| Name | Dose |\n",
+        "| :--- | ---: |\n",
+        "| Salbutamol | 2 puffs \\| prn |\n\n",
+        "- one\n",
+        "- two\n\n",
+        "> a note\n\n",
+        "```ziman\nfn main() { }\n```\n\n",
+        "---\n"
+    )
+    val once = round_trip(src)
+    test.assert_eq(once, round_trip(once))
+}
+
+#[test]
+fn an_empty_document_is_empty() {
+    test.assert_eq(0, len(parse("").blocks))
+    test.assert_eq(0, len(parse("\n\n   \n").blocks))
+    test.assert_eq("", write(markdown.document([])))
+}
+
+#[test]
+fn bytes_in() {
+    val doc = test.assert_ok(markdown.parse_markdown_bytes(string_to_bytes("# héllo\n")))
+    test.assert_eq("héllo\n", markdown.text_of(doc))
+    test.assert(contains(test.assert_ok(markdown.markdown_to_bytes(doc)), 35 as byte))
+}

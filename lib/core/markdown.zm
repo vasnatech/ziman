@@ -1,0 +1,1410 @@
+// markdown.zm -- Markdown as a document tree: a reader over a declared subset, a writer, and
+// the escaping that makes generated documents safe. Written in pure Ziman, like `toml`, `yaml`
+// and `xml`.
+//
+// Marked `#![experimental]` below: new, and no Ziman program depends on it yet.
+//
+// ## The thing to know before using the reader
+//
+// **Every string is valid Markdown.** That is what makes this module different from every other
+// format here. `xml` can refuse a DOCTYPE, `toml` can refuse `inf`, `yaml` can refuse an anchor
+// -- each says so and stops. Markdown has no syntax errors: a construct a reader does not
+// understand is not an error, it is a paragraph. So a partial Markdown reader does not fail on
+// what it is missing, it quietly returns something wrong, and the caller cannot tell.
+//
+// `parse_markdown` reads the subset listed below and treats anything else as text, which is
+// what Markdown itself prescribes. `parse_markdown_strict` reads the same subset but returns an
+// Err when it sees a construct it knows it does not handle -- an indented code block, a setext
+// heading, a link reference definition, a raw HTML block. That is the one that belongs in a
+// pipeline, because it is the one that can tell you it was given something it would misread.
+//
+// Reads: ATX headings (`# h`), paragraphs, fenced code blocks (``` and ~~~, with an info
+// string), block quotes, bullet and ordered lists (nested by indentation), GFM tables with
+// alignment, and thematic breaks. Inline: text, code spans, emphasis and strong, links, images
+// and hard line breaks.
+//
+// Does not read, and says so in strict mode: setext headings (`===` under a line), indented
+// code blocks, link reference definitions (`[x]: url`), raw HTML blocks, autolinks, footnotes,
+// task lists and nested emphasis beyond the simple cases.
+//
+// ## The writer is the point
+//
+// Generating Markdown by pasting strings together is how a table breaks: one `|` in a patient's
+// note and every column after it shifts. The writer escapes what each position needs -- `|` in
+// a table cell, the `*_[]#` family in text, a longer fence when the code itself contains one --
+// so a document built from this tree cannot be malformed by its own content.
+
+#![experimental]
+
+// ------------------------------------------------------------------ the model
+
+// How a table column is aligned, which GFM writes into the delimiter row as `:---`, `---:` or
+// `:---:`.
+pub enum Align {
+    AlignNone
+    AlignLeft
+    AlignRight
+    AlignCenter
+}
+
+pub struct Link {
+    text: [Inline]
+    destination: string
+    title: Option<string>
+}
+
+// A run of inline content. `Code` holds its text literally -- a code span is never escaped,
+// only fenced with enough backticks to contain it.
+pub enum Inline {
+    Text(string)
+    Emphasis([Inline])
+    Strong([Inline])
+    Code(string)
+    Link(Link)
+    Image(Link)
+    SoftBreak
+    HardBreak
+}
+
+pub struct Heading {
+    level: int
+    content: [Inline]
+}
+
+pub struct CodeBlock {
+    info: string
+    text: string
+}
+
+pub struct ListItem {
+    blocks: [Block]
+}
+
+// `start` is the first number of an ordered list; it is ignored for a bullet list. `tight` is
+// GFM's distinction between a list whose items are paragraphs and one whose items are not --
+// it decides whether blank lines separate the items when written.
+pub struct List {
+    ordered: bool
+    start: int
+    tight: bool
+    items: [ListItem]
+}
+
+pub struct Table {
+    headers: [[Inline]]
+    alignments: [Align]
+    rows: [[[Inline]]]
+}
+
+pub enum Block {
+    Heading(Heading)
+    Paragraph([Inline])
+    CodeBlock(CodeBlock)
+    BlockQuote([Block])
+    List(List)
+    Table(Table)
+    ThematicBreak
+}
+
+pub struct Document {
+    blocks: [Block]
+}
+
+// ------------------------------------------------------------------ building
+
+pub fn document(blocks: [Block]) -> Document {
+    return Document { blocks: blocks }
+}
+
+// A heading, with `level` clamped into 1..6 rather than written out as a line of hashes that no
+// reader would take as a heading.
+pub fn heading(level: int, text: string) -> Block {
+    var n = level
+    if n < 1 {
+        n = 1
+    }
+    if n > 6 {
+        n = 6
+    }
+    return Block.Heading(Heading { level: n, content: [Inline.Text(text)] })
+}
+
+pub fn paragraph(text: string) -> Block {
+    return Block.Paragraph([Inline.Text(text)])
+}
+
+pub fn code_block(info: string, text: string) -> Block {
+    return Block.CodeBlock(CodeBlock { info: info, text: text })
+}
+
+pub fn link(text: string, destination: string) -> Inline {
+    return Inline.Link(Link {
+        text: [Inline.Text(text)],
+        destination: destination,
+        title: Option<string>.None
+    })
+}
+
+pub fn image(alt: string, destination: string) -> Inline {
+    return Inline.Image(Link {
+        text: [Inline.Text(alt)],
+        destination: destination,
+        title: Option<string>.None
+    })
+}
+
+// A table of plain strings, which is what a report generator almost always has: `headers` names
+// the columns and each row must have the same number of cells. An Err otherwise, naming the row
+// -- a ragged table is a bug in the caller, and writing it out would corrupt every row after it.
+pub fn text_table(headers: [string], alignments: [Align], rows: [[string]]) -> Result<Block, string> {
+    if len(alignments) != 0 && len(alignments) != len(headers) {
+        return err(format(
+            "the table has {} columns but {} alignments",
+            len(headers),
+            len(alignments)
+        ))
+    }
+    var aligns = alignments
+    if len(aligns) == 0 {
+        var i = 0
+        while i < len(headers) {
+            aligns = push(aligns, Align.AlignNone)
+            i = i + 1
+        }
+    }
+    var head: [[Inline]] = []
+    for h in headers {
+        head = push(head, [Inline.Text(h)])
+    }
+    var body: [[[Inline]]] = []
+    var n = 0
+    for row in rows {
+        if len(row) != len(headers) {
+            return err(format(
+                "row {} has {} cells but the table has {} columns",
+                n,
+                len(row),
+                len(headers)
+            ))
+        }
+        var cells: [[Inline]] = []
+        for cell in row {
+            cells = push(cells, [Inline.Text(cell)])
+        }
+        body = push(body, cells)
+        n = n + 1
+    }
+    return ok(Block.Table(Table { headers: head, alignments: aligns, rows: body }))
+}
+
+// A bullet or ordered list whose items are each one paragraph of plain text.
+pub fn text_list(ordered: bool, items: [string]) -> Block {
+    var out: [ListItem] = []
+    for item in items {
+        out = push(out, ListItem { blocks: [Block.Paragraph([Inline.Text(item)])] })
+    }
+    return Block.List(List { ordered: ordered, start: 1, tight: true, items: out })
+}
+
+// ------------------------------------------------------------------ writing
+
+// The characters that start something when they lead a line, and so have to be escaped there
+// even though they are ordinary text in the middle of one.
+val line_start_punctuation = "#>-+=|"
+
+// Escaped anywhere: a backslash begins an escape, a backtick a code span, `*` and `_` emphasis,
+// `[` and `]` a link, `<` raw HTML. `&` is left alone -- escaping it would turn `AT&T` into
+// `AT\&T` in the source for no gain, and an entity that happens to be spelled out is a cost
+// worth paying for readable output.
+fn escape_inline_text(s: string, out: MutableString) {
+    var i = 0
+    while i < len(s) {
+        val c = char_at(s, i)
+        if c == "\\" || c == "`" || c == "*" || c == "_" || c == "[" || c == "]" || c == "<" {
+            mutable_string_append(out, "\\", c)
+        } else {
+            mutable_string_append(out, c)
+        }
+        i = i + 1
+    }
+}
+
+// Text at the start of a block, where a leading `#`, `>`, `-`, `+`, `=`, `|` or `1.` would be
+// read as structure rather than as the text it is.
+fn escape_block_leader(s: string) -> string {
+    if s == "" {
+        return s
+    }
+    val first = char_at(s, 0)
+    if index_of(line_start_punctuation, first, 0) >= 0 {
+        return concat("\\", s)
+    }
+    // `1.` or `1)` at the start of a line begins an ordered list
+    var i = 0
+    while i < len(s) && compare(char_at(s, i), "0") >= 0 && compare(char_at(s, i), "9") <= 0 {
+        i = i + 1
+    }
+    if i > 0 && i < len(s) && (is_char_at(s, i, ".") || is_char_at(s, i, ")")) {
+        return concat(substring(s, 0, i), "\\", substring(s, i, len(s)))
+    }
+    return s
+}
+
+// The longest run of backticks in `s`, so a code span or fence can be made longer than it.
+fn longest_backtick_run(s: string) -> int {
+    var best = 0
+    var run = 0
+    var i = 0
+    while i < len(s) {
+        if is_char_at(s, i, "`") {
+            run = run + 1
+            if run > best {
+                best = run
+            }
+        } else {
+            run = 0
+        }
+        i = i + 1
+    }
+    return best
+}
+
+fn repeat_char(c: string, n: int) -> string {
+    val out = mutable_string_new()
+    var i = 0
+    while i < n {
+        mutable_string_append(out, c)
+        i = i + 1
+    }
+    return snapshot(out)
+}
+
+// A code span, fenced with one more backtick than its longest internal run so the content
+// cannot end it early. A space is added inside when the content starts or ends with a backtick,
+// which is what keeps `` ` `` from closing immediately.
+fn write_code_span(text: string, out: MutableString) {
+    val fence = repeat_char("`", longest_backtick_run(text) + 1)
+    val pad = if starts_with(text, "`") || ends_with(text, "`") { " " } else { "" }
+    mutable_string_append(out, fence, pad, text, pad, fence)
+}
+
+fn write_inline(items: [Inline], out: MutableString, in_table: bool) -> Result<bool, string> {
+    for item in items {
+        switch item {
+            Text(t) {
+                if in_table {
+                    val _ = try escape_table_text(t, out)
+                } else {
+                    escape_inline_text(t, out)
+                }
+            }
+            Code(t) { write_code_span(t, out) }
+            Emphasis(inner) {
+                mutable_string_append(out, "*")
+                val _ = try write_inline(inner, out, in_table)
+                mutable_string_append(out, "*")
+            }
+            Strong(inner) {
+                mutable_string_append(out, "**")
+                val _ = try write_inline(inner, out, in_table)
+                mutable_string_append(out, "**")
+            }
+            Link(l) {
+                mutable_string_append(out, "[")
+                val _ = try write_inline(l.text, out, in_table)
+                mutable_string_append(out, "](", escape_destination(l.destination))
+                if Some(t) = l.title {
+                    mutable_string_append(out, " \"", replace(t, "\"", "\\\""), "\"")
+                }
+                mutable_string_append(out, ")")
+            }
+            Image(l) {
+                mutable_string_append(out, "![")
+                val _ = try write_inline(l.text, out, in_table)
+                mutable_string_append(out, "](", escape_destination(l.destination))
+                if Some(t) = l.title {
+                    mutable_string_append(out, " \"", replace(t, "\"", "\\\""), "\"")
+                }
+                mutable_string_append(out, ")")
+            }
+            SoftBreak {
+                if in_table {
+                    return err("a table cell cannot contain a line break")
+                }
+                mutable_string_append(out, "\n")
+            }
+            HardBreak {
+                if in_table {
+                    return err("a table cell cannot contain a line break")
+                }
+                mutable_string_append(out, "  \n")
+            }
+        }
+    }
+    return ok(true)
+}
+
+// A link destination. A space or a paren inside one ends it early, so such a destination is
+// written in angle brackets, and a `>` inside that is escaped.
+fn escape_destination(d: string) -> string {
+    if index_of(d, " ", 0) >= 0 || index_of(d, "(", 0) >= 0 || index_of(d, ")", 0) >= 0 {
+        return concat("<", replace(replace(d, "\\", "\\\\"), ">", "\\>"), ">")
+    }
+    return d
+}
+
+// Inside a table cell, `|` ends the cell wherever it appears -- including inside a code span,
+// where nothing else needs escaping. This is the escape that Spring's Markdown exporter does
+// not do at all, and the reason one pipe in a patient's note shifts every column after it.
+fn escape_table_text(s: string, out: MutableString) -> Result<bool, string> {
+    var i = 0
+    while i < len(s) {
+        val c = char_at(s, i)
+        if c == "\n" || c == "\r" {
+            // Checked here rather than only on a SoftBreak node, because free text carrying a
+            // newline is how this actually arrives -- a patient's note read from a database is
+            // one `Text`, not a run of inlines with breaks between them.
+            return err("a table cell cannot contain a line break (flatten_cell turns one into a space)")
+        }
+        if c == "|" {
+            mutable_string_append(out, "\\|")
+        } else if c == "\\" || c == "`" || c == "*" || c == "_" || c == "[" || c == "]" || c == "<" {
+            mutable_string_append(out, "\\", c)
+        } else {
+            mutable_string_append(out, c)
+        }
+        i = i + 1
+    }
+    return ok(true)
+}
+
+fn inline_to_text(items: [Inline], in_table: bool) -> Result<string, string> {
+    val out = mutable_string_new()
+    val _ = try write_inline(items, out, in_table)
+    return ok(snapshot(out))
+}
+
+fn align_marker(a: Align) -> string {
+    return switch a {
+        AlignNone { "---" }
+        AlignLeft { ":---" }
+        AlignRight { "---:" }
+        AlignCenter { ":---:" }
+    }
+}
+
+// Every line of `text` with `prefix` in front of it, for a block quote or a nested list item.
+// A blank line keeps the prefix trimmed of its trailing space, so the output has no trailing
+// whitespace for a linter to complain about.
+fn prefix_lines(text: string, first: string, rest: string) -> string {
+    val out = mutable_string_new()
+    var i = 0
+    for line in lines(text) {
+        val p = if i == 0 { first } else { rest }
+        if line == "" {
+            mutable_string_append(out, trim(p), "\n")
+        } else {
+            mutable_string_append(out, p, line, "\n")
+        }
+        i = i + 1
+    }
+    return snapshot(out)
+}
+
+// `tight` is set when these blocks are the body of an item in a tight list. A nested list then
+// follows its item's paragraph with no blank line between them -- write the blank and the list
+// becomes loose, which changes how every item of it renders.
+fn write_blocks(blocks: [Block], out: MutableString, tight: bool) -> Result<bool, string> {
+    var first = true
+    var previous_was_paragraph = false
+    for block in blocks {
+        var separate = !first
+        if tight && previous_was_paragraph {
+            if List(_) = block {
+                separate = false
+            }
+        }
+        if separate {
+            mutable_string_append(out, "\n")
+        }
+        first = false
+        previous_was_paragraph = false
+        if Paragraph(_) = block {
+            previous_was_paragraph = true
+        }
+        val _ = try write_block(block, out)
+    }
+    return ok(true)
+}
+
+fn write_block(block: Block, out: MutableString) -> Result<bool, string> {
+    switch block {
+        Heading(h) {
+            mutable_string_append(out, repeat_char("#", h.level), " ")
+            mutable_string_append(out, try inline_to_text(h.content, false))
+            mutable_string_append(out, "\n")
+        }
+        Paragraph(content) {
+            mutable_string_append(out, escape_block_leader(try inline_to_text(content, false)), "\n")
+        }
+        ThematicBreak {
+            mutable_string_append(out, "---\n")
+        }
+        CodeBlock(c) {
+            val fence = repeat_char("`", max(3, longest_backtick_run(c.text) + 1))
+            mutable_string_append(out, fence, c.info, "\n", c.text)
+            if !ends_with(c.text, "\n") && c.text != "" {
+                mutable_string_append(out, "\n")
+            }
+            mutable_string_append(out, fence, "\n")
+        }
+        BlockQuote(inner) {
+            val body = mutable_string_new()
+            val _ = try write_blocks(inner, body, false)
+            mutable_string_append(out, prefix_lines(snapshot(body), "> ", "> "))
+        }
+        List(l) {
+            val _ = try write_list(l, out)
+        }
+        Table(t) {
+            val _ = try write_table(t, out)
+        }
+    }
+    return ok(true)
+}
+
+fn write_list(l: List, out: MutableString) -> Result<bool, string> {
+    var n = l.start
+    var first = true
+    for item in l.items {
+        if !first && !l.tight {
+            mutable_string_append(out, "\n")
+        }
+        first = false
+        val marker = if l.ordered { format("{}. ", n) } else { "- " }
+        val body = mutable_string_new()
+        val _ = try write_blocks(item.blocks, body, l.tight)
+        mutable_string_append(out, prefix_lines(snapshot(body), marker, repeat_char(" ", len(marker))))
+        n = n + 1
+    }
+    return ok(true)
+}
+
+fn write_table(t: Table, out: MutableString) -> Result<bool, string> {
+    if len(t.headers) == 0 {
+        return err("a table must have at least one column")
+    }
+    if len(t.alignments) != len(t.headers) {
+        return err(format(
+            "the table has {} columns but {} alignments",
+            len(t.headers),
+            len(t.alignments)
+        ))
+    }
+    val _ = try write_row(t.headers, out, "header")
+    mutable_string_append(out, "|")
+    for a in t.alignments {
+        mutable_string_append(out, " ", align_marker(a), " |")
+    }
+    mutable_string_append(out, "\n")
+    var n = 0
+    for row in t.rows {
+        if len(row) != len(t.headers) {
+            return err(format(
+                "row {} has {} cells but the table has {} columns",
+                n,
+                len(row),
+                len(t.headers)
+            ))
+        }
+        val _ = try write_row(row, out, format("row {}", n))
+        n = n + 1
+    }
+    return ok(true)
+}
+
+fn write_row(cells: [[Inline]], out: MutableString, where_: string) -> Result<bool, string> {
+    mutable_string_append(out, "|")
+    for cell in cells {
+        val text = inline_to_text(cell, true)
+        if Err(e) = text {
+            return err(format("{}: {}", where_, e))
+        }
+        mutable_string_append(out, " ", unwrap(text), " |")
+    }
+    mutable_string_append(out, "\n")
+    return ok(true)
+}
+
+// `doc` as Markdown text, with a trailing newline. Blocks are separated by a blank line.
+//
+// Content is escaped for the position it sits in, which is the whole reason to build a document
+// rather than paste strings: `*` and `_` and `[` in running text, `|` in a table cell, a leading
+// `#` or `1.` that would otherwise start a heading or a list, a code span fenced with enough
+// backticks to hold whatever is inside it. Nothing a caller puts in a string can change the
+// structure of the output.
+//
+// An Err for the one thing Markdown cannot express: a line break inside a table cell, which GFM
+// has no syntax for. The message names the row. `flatten_cell` is the usual answer.
+pub fn markdown_to_string(doc: Document) -> Result<string, string> {
+    val out = mutable_string_new()
+    val _ = try write_blocks(doc.blocks, out, false)
+    return ok(snapshot(out))
+}
+
+// `markdown_to_string` as UTF-8 bytes: an HTTP body, or what `fs.write_bytes` takes.
+pub fn markdown_to_bytes(doc: Document) -> Result<[byte], string> {
+    val s = try markdown_to_string(doc)
+    return ok(string_to_bytes(s))
+}
+
+// One block as Markdown text, for embedding in a document built some other way.
+pub fn block_to_string(block: Block) -> Result<string, string> {
+    val out = mutable_string_new()
+    val _ = try write_block(block, out)
+    return ok(snapshot(out))
+}
+
+// Text made safe to put in a table cell: every line break becomes a space, since GFM has no
+// way to write one. Call it on free text -- a note, a comment -- before building a row, rather
+// than letting `markdown_to_string` refuse the document. The pipes do not need handling here;
+// the writer escapes those wherever they appear.
+pub fn flatten_cell(text: string) -> string {
+    return trim(replace(replace(replace(text, "\r\n", " "), "\n", " "), "\r", " "))
+}
+
+// ------------------------------------------------------------------ reading
+
+// Block quotes and lists nest, so reading them recurses. 64 is far past anything written on
+// purpose and far short of what would trouble the stack; past it the rest is read as text
+// rather than refused, because refusing is not something a Markdown reader may do.
+val max_nesting = 64
+
+fn indent_of(line: string) -> int {
+    var n = 0
+    while n < len(line) && is_char_at(line, n, " ") {
+        n = n + 1
+    }
+    return n
+}
+
+fn without_indent(line: string, n: int) -> string {
+    var drop = n
+    if drop > indent_of(line) {
+        drop = indent_of(line)
+    }
+    return substring(line, drop, len(line))
+}
+
+// `### text` -> level 3. None when the line is not an ATX heading.
+fn atx_heading(line: string) -> Option<Heading> {
+    val t = trim(line)
+    var level = 0
+    while level < len(t) && is_char_at(t, level, "#") {
+        level = level + 1
+    }
+    if level == 0 || level > 6 {
+        return Option<Heading>.None
+    }
+    if level < len(t) && !is_char_at(t, level, " ") {
+        return Option<Heading>.None
+    }
+    var text = trim(substring(t, level, len(t)))
+    // a closing run of hashes is decoration, not content
+    while ends_with(text, "#") {
+        text = trim(substring(text, 0, len(text) - 1))
+    }
+    return Option<Heading>.Some(Heading { level: level, content: parse_inlines(text) })
+}
+
+// ``` or ~~~, with the run length and the info string.
+fn fence_open(line: string) -> Option<[string]> {
+    val t = trim(line)
+    val c = if starts_with(t, "```") { "`" } else if starts_with(t, "~~~") { "~" } else { "" }
+    if c == "" {
+        return Option<[string]>.None
+    }
+    var n = 0
+    while n < len(t) && is_char_at(t, n, c) {
+        n = n + 1
+    }
+    val info = trim(substring(t, n, len(t)))
+    // A backtick fence's info string may not itself contain a backtick, or there would be no
+    // telling a fence from a paragraph that opens with a long code span -- `` ```a ` b``` ``
+    // is the latter, and reading it as a fence swallows the rest of the document.
+    if c == "`" && index_of(info, "`", 0) >= 0 {
+        return Option<[string]>.None
+    }
+    return Option<[string]>.Some([c, format("{}", n), info])
+}
+
+fn is_thematic_break(line: string) -> bool {
+    val t = replace(trim(line), " ", "")
+    if len(t) < 3 {
+        return false
+    }
+    val c = char_at(t, 0)
+    if c != "-" && c != "*" && c != "_" {
+        return false
+    }
+    var i = 0
+    while i < len(t) {
+        if !is_char_at(t, i, c) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// `- `, `* ` or `+ ` -> the marker width. None when the line does not start a bullet item.
+fn bullet_marker(line: string) -> int {
+    val t = without_indent(line, indent_of(line))
+    if len(t) >= 2 && (starts_with(t, "- ") || starts_with(t, "* ") || starts_with(t, "+ ")) {
+        return 2
+    }
+    if t == "-" || t == "*" || t == "+" {
+        return 1
+    }
+    return 0
+}
+
+// `12. ` or `12) ` -> [marker width, start number]. Width 0 when it is not an ordered item.
+fn ordered_marker(line: string) -> [int] {
+    val t = without_indent(line, indent_of(line))
+    var i = 0
+    while i < len(t) && compare(char_at(t, i), "0") >= 0 && compare(char_at(t, i), "9") <= 0 {
+        i = i + 1
+    }
+    if i == 0 || i > 9 {
+        return [0, 0]
+    }
+    if i >= len(t) || (!is_char_at(t, i, ".") && !is_char_at(t, i, ")")) {
+        return [0, 0]
+    }
+    if i + 1 < len(t) && !is_char_at(t, i + 1, " ") {
+        return [0, 0]
+    }
+    val n = unwrap(parse_int(substring(t, 0, i)))
+    return [if i + 1 < len(t) { i + 2 } else { i + 1 }, n]
+}
+
+// The `| --- | :--: |` row under a table's header, as one alignment per column. None when the
+// line is not a delimiter row.
+fn delimiter_row(line: string) -> Option<[Align]> {
+    val t = trim(line)
+    if index_of(t, "-", 0) < 0 {
+        return Option<[Align]>.None
+    }
+    var body = t
+    if starts_with(body, "|") {
+        body = substring(body, 1, len(body))
+    }
+    if ends_with(body, "|") {
+        body = substring(body, 0, len(body) - 1)
+    }
+    if trim(body) == "" {
+        return Option<[Align]>.None
+    }
+    var out: [Align] = []
+    for raw in split(body, "|") {
+        val cell = trim(raw)
+        if len(cell) == 0 {
+            return Option<[Align]>.None
+        }
+        val left = starts_with(cell, ":")
+        val right = ends_with(cell, ":")
+        var dashes = cell
+        if left {
+            dashes = substring(dashes, 1, len(dashes))
+        }
+        if right && len(dashes) > 0 {
+            dashes = substring(dashes, 0, len(dashes) - 1)
+        }
+        if len(dashes) == 0 {
+            return Option<[Align]>.None
+        }
+        var i = 0
+        while i < len(dashes) {
+            if !is_char_at(dashes, i, "-") {
+                return Option<[Align]>.None
+            }
+            i = i + 1
+        }
+        out = push(out, if left && right {
+            Align.AlignCenter
+        } else if left {
+            Align.AlignLeft
+        } else if right {
+            Align.AlignRight
+        } else {
+            Align.AlignNone
+        })
+    }
+    return Option<[Align]>.Some(out)
+}
+
+// One table row split on unescaped pipes, with the optional leading and trailing one dropped.
+fn table_cells(line: string) -> [string] {
+    val t = trim(line)
+    var body = t
+    if starts_with(body, "|") {
+        body = substring(body, 1, len(body))
+    }
+    if ends_with(body, "|") && !ends_with(body, "\\|") {
+        body = substring(body, 0, len(body) - 1)
+    }
+    var out: [string] = []
+    val cell = mutable_string_new()
+    var i = 0
+    while i < len(body) {
+        if is_char_at(body, i, "\\") && i + 1 < len(body) && is_char_at(body, i + 1, "|") {
+            mutable_string_append(cell, "|")
+            i = i + 2
+        } else if is_char_at(body, i, "|") {
+            out = push(out, trim(snapshot(cell)))
+            clear(cell)
+            i = i + 1
+        } else {
+            mutable_string_append(cell, char_at(body, i))
+            i = i + 1
+        }
+    }
+    out = push(out, trim(snapshot(cell)))
+    return out
+}
+
+// Everything a backslash may escape, per CommonMark. A backslash before anything else is a
+// literal backslash.
+val escapable = "\\`*_{}[]()#+-.!|<>~\"'$%&,/:;=?@^"
+
+fn flush_text(out: MutableArray<Inline>, text: MutableString) {
+    if len(text) > 0 {
+        mutable_array_push(out, Inline.Text(snapshot(text)))
+        clear(text)
+    }
+}
+
+// The index just past a run of `c` starting at `i`.
+fn run_end(s: string, i: int, c: string) -> int {
+    var n = i
+    while n < len(s) && is_char_at(s, n, c) {
+        n = n + 1
+    }
+    return n
+}
+
+// The first run of exactly `n` backticks at or after `from`, or -1.
+fn closing_backticks(s: string, from: int, n: int) -> int {
+    var i = from
+    while i < len(s) {
+        if is_char_at(s, i, "`") {
+            val end = run_end(s, i, "`")
+            if end - i == n {
+                return i
+            }
+            i = end
+        } else {
+            i = i + 1
+        }
+    }
+    return -1
+}
+
+// The index of the `]` closing the `[` at `open`, allowing one level of nesting, or -1.
+fn closing_bracket(s: string, open: int) -> int {
+    var depth = 0
+    var i = open
+    while i < len(s) {
+        if is_char_at(s, i, "\\") {
+            i = i + 2
+        } else if is_char_at(s, i, "[") {
+            depth = depth + 1
+            i = i + 1
+        } else if is_char_at(s, i, "]") {
+            depth = depth - 1
+            if depth == 0 {
+                return i
+            }
+            i = i + 1
+        } else {
+            i = i + 1
+        }
+    }
+    return -1
+}
+
+fn closing_paren(s: string, open: int) -> int {
+    var depth = 0
+    var i = open
+    while i < len(s) {
+        if is_char_at(s, i, "\\") {
+            i = i + 2
+        } else if is_char_at(s, i, "(") {
+            depth = depth + 1
+            i = i + 1
+        } else if is_char_at(s, i, ")") {
+            depth = depth - 1
+            if depth == 0 {
+                return i
+            }
+            i = i + 1
+        } else {
+            i = i + 1
+        }
+    }
+    return -1
+}
+
+// `dest` or `<dest>`, with an optional `"title"` after it.
+fn split_destination(raw: string) -> [string] {
+    val t = trim(raw)
+    if starts_with(t, "<") {
+        val close = index_of(t, ">", 1)
+        if close > 0 {
+            return [substring(t, 1, close), trim(substring(t, close + 1, len(t)))]
+        }
+    }
+    val space = index_of(t, " ", 0)
+    if space < 0 {
+        return [t, ""]
+    }
+    return [substring(t, 0, space), trim(substring(t, space + 1, len(t)))]
+}
+
+fn unquote_title(raw: string) -> Option<string> {
+    val t = trim(raw)
+    if len(t) >= 2 && (starts_with(t, "\"") && ends_with(t, "\"")) {
+        return Option<string>.Some(replace(substring(t, 1, len(t) - 1), "\\\"", "\""))
+    }
+    return Option<string>.None
+}
+
+// The closing delimiter matching a run of `n` `c`s, or -1. A delimiter inside a code span does
+// not close anything, which is the one interaction worth getting right -- `*a `*` b*` would
+// otherwise end at the backticked star.
+fn closing_delimiter(s: string, from: int, c: string, n: int) -> int {
+    var i = from
+    while i < len(s) {
+        if is_char_at(s, i, "\\") {
+            i = i + 2
+        } else if is_char_at(s, i, "`") {
+            val end = run_end(s, i, "`")
+            val close = closing_backticks(s, end, end - i)
+            i = if close < 0 { end } else { run_end(s, close, "`") }
+        } else if is_char_at(s, i, c) {
+            val end = run_end(s, i, c)
+            if end - i >= n {
+                return i
+            }
+            i = end
+        } else {
+            i = i + 1
+        }
+    }
+    return -1
+}
+
+// One run of inline content. There are no errors here: anything this does not recognise is
+// text, which is what Markdown says it is.
+fn parse_inlines(s: string) -> [Inline] {
+    val out = mutable_array_new<Inline>()
+    val text = mutable_string_new()
+    var i = 0
+    while i < len(s) {
+        val c = char_at(s, i)
+        if c == "\\" && i + 1 < len(s) && index_of(escapable, char_at(s, i + 1), 0) >= 0 {
+            mutable_string_append(text, char_at(s, i + 1))
+            i = i + 2
+        } else if c == "`" {
+            val end = run_end(s, i, "`")
+            val close = closing_backticks(s, end, end - i)
+            if close < 0 {
+                mutable_string_append(text, substring(s, i, end))
+                i = end
+            } else {
+                flush_text(out, text)
+                var body = substring(s, end, close)
+                if starts_with(body, " ") && ends_with(body, " ") && trim(body) != "" {
+                    body = substring(body, 1, len(body) - 1)
+                }
+                mutable_array_push(out, Inline.Code(body))
+                i = run_end(s, close, "`")
+            }
+        } else if (c == "!" && is_char_at(s, i + 1, "[")) || c == "[" {
+            val is_image = c == "!"
+            val open = if is_image { i + 1 } else { i }
+            val close = closing_bracket(s, open)
+            val paren = if close < 0 { -1 } else { closing_paren(s, close + 1) }
+            if close < 0 || !is_char_at(s, close + 1, "(") || paren < 0 {
+                mutable_string_append(text, c)
+                i = i + 1
+            } else {
+                flush_text(out, text)
+                val parts = split_destination(substring(s, close + 2, paren))
+                val l = Link {
+                    text: parse_inlines(substring(s, open + 1, close)),
+                    destination: parts[0],
+                    title: unquote_title(parts[1])
+                }
+                mutable_array_push(out, if is_image { Inline.Image(l) } else { Inline.Link(l) })
+                i = paren + 1
+            }
+        } else if c == "*" || c == "_" {
+            val end = run_end(s, i, c)
+            val n = if end - i >= 2 { 2 } else { 1 }
+            val close = closing_delimiter(s, i + n, c, n)
+            if close < 0 {
+                mutable_string_append(text, substring(s, i, end))
+                i = end
+            } else {
+                flush_text(out, text)
+                val inner = parse_inlines(substring(s, i + n, close))
+                mutable_array_push(out, if n == 2 { Inline.Strong(inner) } else { Inline.Emphasis(inner) })
+                i = close + n
+            }
+        } else if c == "\n" {
+            val so_far = snapshot(text)
+            if ends_with(so_far, "  ") {
+                clear(text)
+                mutable_string_append(text, trim_end_spaces(so_far))
+                flush_text(out, text)
+                mutable_array_push(out, Inline.HardBreak)
+            } else {
+                flush_text(out, text)
+                mutable_array_push(out, Inline.SoftBreak)
+            }
+            i = i + 1
+        } else {
+            mutable_string_append(text, c)
+            i = i + 1
+        }
+    }
+    flush_text(out, text)
+    return snapshot(out)
+}
+
+fn trim_end_spaces(s: string) -> string {
+    var n = len(s)
+    while n > 0 && is_char_at(s, n - 1, " ") {
+        n = n - 1
+    }
+    return substring(s, 0, n)
+}
+
+// What strict mode refuses: constructs this reader knows exist and does not handle. Lenient
+// mode reads each of them as a paragraph, which is what Markdown prescribes and is also how a
+// reader quietly gets a document wrong.
+fn unsupported(all: [string], i: int) -> string {
+    val line = all[i]
+    val t = trim(line)
+    if indent_of(line) >= 4 {
+        return "an indented code block (four spaces); use a fenced one (```) instead"
+    }
+    if starts_with(t, "<") && len(t) > 1 {
+        val c = char_at(t, 1)
+        if (compare(c, "a") >= 0 && compare(c, "z") <= 0) ||
+            (compare(c, "A") >= 0 && compare(c, "Z") <= 0) || c == "/" || c == "!" {
+            return "a raw HTML block"
+        }
+    }
+    if starts_with(t, "[") {
+        val close = closing_bracket(t, 0)
+        if close > 0 && is_char_at(t, close + 1, ":") {
+            return "a link reference definition ([label]: url)"
+        }
+    }
+    val next = trim(if i + 1 < len(all) { all[i + 1] } else { "" })
+    if t != "" && len(next) > 0 && !starts_with(t, "#") && !starts_with(t, ">") {
+        var all_equals = true
+        var k = 0
+        while k < len(next) {
+            if !is_char_at(next, k, "=") {
+                all_equals = false
+            }
+            k = k + 1
+        }
+        if all_equals {
+            return "a setext heading (=== under the text); use '# text' instead"
+        }
+    }
+    return ""
+}
+
+fn is_block_start(line: string) -> bool {
+    val t = trim(line)
+    if t == "" {
+        return true
+    }
+    if is_thematic_break(line) {
+        return true
+    }
+    if Some(_) = atx_heading(line) {
+        return true
+    }
+    if Some(_) = fence_open(line) {
+        return true
+    }
+    if starts_with(t, ">") {
+        return true
+    }
+    if bullet_marker(line) > 0 {
+        return true
+    }
+    return ordered_marker(line)[0] > 0
+}
+
+// The lines of the block quote starting at `i`, with their `>` markers removed.
+fn quote_body(all: [string], from: int) -> [string] {
+    var out: [string] = []
+    var i = from
+    while i < len(all) {
+        val t = trim(all[i])
+        if !starts_with(t, ">") {
+            return out
+        }
+        var rest = substring(t, 1, len(t))
+        if starts_with(rest, " ") {
+            rest = substring(rest, 1, len(rest))
+        }
+        out = push(out, rest)
+        i = i + 1
+    }
+    return out
+}
+
+struct BlockScan {
+    block: Block
+    next: int
+}
+
+struct TableScan {
+    table: Table
+    next: int
+}
+
+struct ParaScan {
+    text: string
+    next: int
+}
+
+// A fenced code block: everything up to a closing fence of at least the opening length, or the
+// end of the document when there is none (which is what CommonMark says, rather than an error).
+fn read_fenced(all: [string], from: int, fence: [string]) -> BlockScan {
+    val marker = fence[0]
+    val width = unwrap(parse_int(fence[1]))
+    val info = fence[2]
+    val body = mutable_string_new()
+    var i = from + 1
+    var first = true
+    while i < len(all) {
+        val t = trim(all[i])
+        if starts_with(t, marker) && run_end(
+            t,
+            0,
+            marker
+        ) >= width && trim(substring(t, run_end(t, 0, marker), len(t))) == "" {
+            return BlockScan {
+                block: Block.CodeBlock(CodeBlock { info: info, text: snapshot(body) }),
+                next: i + 1
+            }
+        }
+        if !first {
+            mutable_string_append(body, "\n")
+        }
+        first = false
+        mutable_string_append(body, all[i])
+        i = i + 1
+    }
+    return BlockScan {
+        block: Block.CodeBlock(CodeBlock { info: info, text: snapshot(body) }),
+        next: i
+    }
+}
+
+// A GFM table: a header row, a delimiter row that fixes the column count, then rows until a
+// line that is not one. A row with the wrong number of cells is padded or cut rather than
+// refused -- there is no such thing as a malformed Markdown document.
+fn try_table(all: [string], from: int) -> Option<TableScan> {
+    if index_of(all[from], "|", 0) < 0 {
+        return Option<TableScan>.None
+    }
+    if from + 1 >= len(all) {
+        return Option<TableScan>.None
+    }
+    val none_aligns: [Align] = []
+    val aligns = switch delimiter_row(all[from + 1]) {
+        Some(a) { a }
+        None { none_aligns }
+    }
+    if len(aligns) == 0 {
+        return Option<TableScan>.None
+    }
+    val header_cells = table_cells(all[from])
+    if len(header_cells) != len(aligns) {
+        return Option<TableScan>.None
+    }
+    var headers: [[Inline]] = []
+    for cell in header_cells {
+        headers = push(headers, parse_inlines(cell))
+    }
+    var rows: [[[Inline]]] = []
+    var i = from + 2
+    while i < len(all) && trim(all[i]) != "" && index_of(all[i], "|", 0) >= 0 {
+        val raw = table_cells(all[i])
+        var row: [[Inline]] = []
+        var c = 0
+        while c < len(aligns) {
+            row = push(row, parse_inlines(if c < len(raw) { raw[c] } else { "" }))
+            c = c + 1
+        }
+        rows = push(rows, row)
+        i = i + 1
+    }
+    return Option<TableScan>.Some(TableScan {
+        table: Table { headers: headers, alignments: aligns, rows: rows },
+        next: i
+    })
+}
+
+// The lines of one paragraph, joined with newlines so the inline reader can see a hard break.
+// Leading space goes; trailing space does *not*, when there are two or more of it, because that
+// is precisely how a hard break is written and trimming it here would silently delete one.
+fn read_paragraph(all: [string], from: int) -> ParaScan {
+    val out = mutable_string_new()
+    var i = from
+    var first = true
+    while i < len(all) && trim(all[i]) != "" && !(i > from && is_block_start(all[i])) {
+        if !first {
+            mutable_string_append(out, "\n")
+        }
+        first = false
+        val line = trim_start(all[i])
+        val last = i + 1 >= len(all) || trim(all[i + 1]) == ""
+        if !last && ends_with(line, "  ") {
+            mutable_string_append(out, trim_end_spaces(line), "  ")
+        } else {
+            mutable_string_append(out, trim_end_spaces(line))
+        }
+        i = i + 1
+    }
+    return ParaScan { text: snapshot(out), next: i }
+}
+
+struct ItemScan {
+    blocks: [Block]
+    next: int
+    blank_before_next: bool
+}
+
+// One list item: the text after its marker, plus every following line indented past the marker.
+// A blank line inside the item is kept, so a two-paragraph item stays two paragraphs.
+fn read_item(all: [string], from: int, marker_width: int, depth: int, strict: bool) -> Result<ItemScan, string> {
+    val indent = indent_of(all[from]) + marker_width
+    var body: [string] = [substring(trim_start(all[from]), marker_width, len(trim_start(all[from])))]
+    var i = from + 1
+    var trailing_blank = false
+    while i < len(all) {
+        if trim(all[i]) == "" {
+            // a blank line belongs to the item only if something indented follows it
+            var j = i
+            while j < len(all) && trim(all[j]) == "" {
+                j = j + 1
+            }
+            if j < len(all) && indent_of(all[j]) >= indent {
+                var k = i
+                while k < j {
+                    body = push(body, "")
+                    k = k + 1
+                }
+                i = j
+            } else {
+                trailing_blank = true
+                i = j
+                return ok(ItemScan {
+                    blocks: try parse_blocks(body, depth + 1, strict),
+                    next: i,
+                    blank_before_next: trailing_blank
+                })
+            }
+        } else if indent_of(all[i]) >= indent {
+            body = push(body, without_indent(all[i], indent))
+            i = i + 1
+        } else {
+            return ok(ItemScan {
+                blocks: try parse_blocks(body, depth + 1, strict),
+                next: i,
+                blank_before_next: false
+            })
+        }
+    }
+    return ok(ItemScan {
+        blocks: try parse_blocks(body, depth + 1, strict),
+        next: i,
+        blank_before_next: trailing_blank
+    })
+}
+
+fn trim_start(s: string) -> string {
+    return without_indent(s, indent_of(s))
+}
+
+// A run of list items at the same indentation and of the same kind. The list is loose -- items
+// separated by blank lines when written -- if any blank line fell between two of its items,
+// which is GFM's own rule.
+fn read_list(all: [string], from: int, depth: int, strict: bool) -> Result<BlockScan, string> {
+    val indent = indent_of(all[from])
+    val ordered = ordered_marker(all[from])[0] > 0
+    val start = if ordered { ordered_marker(all[from])[1] } else { 1 }
+    var items: [ListItem] = []
+    var loose = false
+    var i = from
+    while i < len(all) && trim(all[i]) != "" && indent_of(all[i]) == indent {
+        val width = if ordered { ordered_marker(all[i])[0] } else { bullet_marker(all[i]) }
+        if width == 0 {
+            i = i
+            break
+        }
+        val scan = try read_item(all, i, width, depth, strict)
+        items = push(items, ListItem { blocks: scan.blocks })
+        if scan.blank_before_next && scan.next < len(all) && indent_of(all[scan.next]) == indent {
+            val more = if ordered { ordered_marker(all[scan.next])[0] } else { bullet_marker(all[scan.next]) }
+            if more > 0 {
+                loose = true
+            }
+        }
+        i = scan.next
+    }
+    return ok(BlockScan {
+        block: Block.List(List { ordered: ordered, start: start, tight: !loose, items: items }),
+        next: i
+    })
+}
+
+fn parse_blocks(all: [string], depth: int, strict: bool) -> Result<[Block], string> {
+    var out: [Block] = []
+    var i = 0
+    while i < len(all) {
+        val line = all[i]
+        if trim(line) == "" {
+            i = i + 1
+        } else {
+            if strict {
+                val bad = unsupported(all, i)
+                if bad != "" {
+                    return err(format("line {}: {}", i + 1, bad))
+                }
+            }
+            if is_thematic_break(line) {
+                out = push(out, Block.ThematicBreak)
+                i = i + 1
+            } else if Some(h) = atx_heading(line) {
+                out = push(out, Block.Heading(h))
+                i = i + 1
+            } else if Some(f) = fence_open(line) {
+                val scan = read_fenced(all, i, f)
+                out = push(out, scan.block)
+                i = scan.next
+            } else if starts_with(trim(line), ">") && depth < max_nesting {
+                val body = quote_body(all, i)
+                out = push(out, Block.BlockQuote(try parse_blocks(body, depth + 1, strict)))
+                i = i + len(body)
+            } else if Some(t) = try_table(all, i) {
+                out = push(out, Block.Table(t.table))
+                i = t.next
+            } else if (bullet_marker(line) > 0 || ordered_marker(line)[0] > 0) && depth < max_nesting {
+                val scan = try read_list(all, i, depth, strict)
+                out = push(out, scan.block)
+                i = scan.next
+            } else {
+                val scan = read_paragraph(all, i)
+                out = push(out, Block.Paragraph(parse_inlines(scan.text)))
+                i = scan.next
+            }
+        }
+    }
+    return ok(out)
+}
+
+// Reads a Markdown document. Never fails on content: anything outside the subset in the module
+// header is read as text, which is what Markdown prescribes -- and which is exactly why
+// `parse_markdown_strict` exists.
+pub fn parse_markdown(text: string) -> Result<Document, string> {
+    return ok(Document { blocks: try parse_blocks(lines(text), 0, false) })
+}
+
+// `parse_markdown`, but an Err naming the line when the document uses a construct this reader
+// knows it does not handle: an indented code block, a setext heading, a link reference
+// definition, a raw HTML block. Use this one when something downstream depends on the document
+// having been understood, because the lenient reader cannot tell you that it was not.
+pub fn parse_markdown_strict(text: string) -> Result<Document, string> {
+    return ok(Document { blocks: try parse_blocks(lines(text), 0, true) })
+}
+
+// `parse_markdown` over the bytes of a document. The bytes must be UTF-8.
+pub fn parse_markdown_bytes(data: [byte]) -> Result<Document, string> {
+    return switch bytes_to_string(data) {
+        Ok(s) { parse_markdown(s) }
+        Err(e) { err(format("the document is not valid UTF-8: {}", e)) }
+    }
+}
+
+// All the text of a document with its formatting removed: headings, paragraphs and table cells
+// run together, one block per line. What a search index or a plain-text preview wants.
+pub fn text_of(doc: Document) -> string {
+    val out = mutable_string_new()
+    for block in doc.blocks {
+        gather_block_text(block, out)
+    }
+    return snapshot(out)
+}
+
+fn gather_block_text(block: Block, out: MutableString) {
+    switch block {
+        Heading(h) { gather_inline_text(h.content, out) mutable_string_append(out, "\n") }
+        Paragraph(c) { gather_inline_text(c, out) mutable_string_append(out, "\n") }
+        CodeBlock(c) { mutable_string_append(out, c.text, "\n") }
+        ThematicBreak {}
+        BlockQuote(inner) {
+            for b in inner {
+                gather_block_text(b, out)
+            }
+        }
+        List(l) {
+            for item in l.items {
+                for b in item.blocks {
+                    gather_block_text(b, out)
+                }
+            }
+        }
+        Table(t) {
+            for cell in t.headers {
+                gather_inline_text(cell, out)
+                mutable_string_append(out, " ")
+            }
+            mutable_string_append(out, "\n")
+            for row in t.rows {
+                for cell in row {
+                    gather_inline_text(cell, out)
+                    mutable_string_append(out, " ")
+                }
+                mutable_string_append(out, "\n")
+            }
+        }
+    }
+}
+
+fn gather_inline_text(items: [Inline], out: MutableString) {
+    for item in items {
+        switch item {
+            Text(t) { mutable_string_append(out, t) }
+            Code(t) { mutable_string_append(out, t) }
+            Emphasis(inner) { gather_inline_text(inner, out) }
+            Strong(inner) { gather_inline_text(inner, out) }
+            Link(l) { gather_inline_text(l.text, out) }
+            Image(l) { gather_inline_text(l.text, out) }
+            SoftBreak { mutable_string_append(out, " ") }
+            HardBreak { mutable_string_append(out, " ") }
+        }
+    }
+}

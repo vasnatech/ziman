@@ -17,7 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "lib")
 
 GROUPS = [
-    ("Data and formats", "core", ["json", "ndjson", "csv", "toml", "yaml", "xml", "properties",
+    ("Data and formats", "core", ["json", "ndjson", "csv", "toml", "yaml", "xml", "markdown", "properties",
                                    "number", "math", "bits", "uuid", "regex", "compress", "crypto", "jwt", "otp", "mime"]),
     ("Time", "time", ["time", "zone"]),
     ("System", "core", ["fs", "os", "process", "thread", "log", "metrics", "random", "clock"]),

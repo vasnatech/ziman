@@ -17,6 +17,7 @@ flowchart LR
         json["json"]
         jwt["jwt"]
         log["log"]
+        markdown["markdown"]
         math["math"]
         metrics["metrics"]
         mime["mime"]
@@ -151,7 +152,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread`, `xml` |
+| 0 | `bits`, `clock`, `compress`, `markdown`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread`, `xml` |
 | 1 | `crypto`, `json`, `os`, `url` |
 | 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `toml`, `yaml` |
 | 3 | `csv`, `log`, `mysql`, `pg`, `process`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
@@ -175,6 +176,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `json`, `number`, `os` | - |
+| `markdown` | - | - |
 | `math` | - | - |
 | `metrics` | `os` | `server` |
 | `migrate` | `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |

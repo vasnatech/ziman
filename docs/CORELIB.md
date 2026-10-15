@@ -526,6 +526,110 @@ pub fn error(l: Logger, message: string) { write(l, Level.Error, message) }
 
 ```
 
+## `markdown`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). Markdown as a document tree: a reader over a declared subset, a writer, and the escaping that makes a generated document safe. The writer is the point -- `|` in a table cell, the `*_[]` family in text, a leading `#` or `1.`, a code span fenced longer than whatever is inside it -- so nothing a caller puts in a string can change the structure of the output. Markdown has no syntax errors, so a reader cannot refuse what it does not handle: `parse_markdown` reads anything unsupported as text, and `parse_markdown_strict` returns an Err naming the line instead.
+
+```
+pub enum Align {
+    AlignNone
+    AlignLeft
+    AlignRight
+    AlignCenter
+}
+
+pub struct Link {
+    text: [Inline]
+    destination: string
+    title: Option<string>
+}
+
+pub enum Inline {
+    Text(string)
+    Emphasis([Inline])
+    Strong([Inline])
+    Code(string)
+    Link(Link)
+    Image(Link)
+    SoftBreak
+    HardBreak
+}
+
+pub struct Heading {
+    level: int
+    content: [Inline]
+}
+
+pub struct CodeBlock {
+    info: string
+    text: string
+}
+
+pub struct ListItem {
+    blocks: [Block]
+}
+
+pub struct List {
+    ordered: bool
+    start: int
+    tight: bool
+    items: [ListItem]
+}
+
+pub struct Table {
+    headers: [[Inline]]
+    alignments: [Align]
+    rows: [[[Inline]]]
+}
+
+pub enum Block {
+    Heading(Heading)
+    Paragraph([Inline])
+    CodeBlock(CodeBlock)
+    BlockQuote([Block])
+    List(List)
+    Table(Table)
+    ThematicBreak
+}
+
+pub struct Document {
+    blocks: [Block]
+}
+
+pub fn document(blocks: [Block]) -> Document
+
+pub fn heading(level: int, text: string) -> Block
+
+pub fn paragraph(text: string) -> Block
+
+pub fn code_block(info: string, text: string) -> Block
+
+pub fn link(text: string, destination: string) -> Inline
+
+pub fn image(alt: string, destination: string) -> Inline
+
+pub fn text_table(headers: [string], alignments: [Align], rows: [[string]]) -> Result<Block, string>
+
+pub fn text_list(ordered: bool, items: [string]) -> Block
+
+pub fn markdown_to_string(doc: Document) -> Result<string, string>
+
+pub fn markdown_to_bytes(doc: Document) -> Result<[byte], string>
+
+pub fn block_to_string(block: Block) -> Result<string, string>
+
+pub fn flatten_cell(text: string) -> string
+
+pub fn parse_markdown(text: string) -> Result<Document, string>
+
+pub fn parse_markdown_strict(text: string) -> Result<Document, string>
+
+pub fn parse_markdown_bytes(data: [byte]) -> Result<Document, string>
+
+pub fn text_of(doc: Document) -> string
+
+```
+
 ## `math`
 
 ```

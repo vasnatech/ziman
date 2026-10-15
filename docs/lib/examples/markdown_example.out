@@ -1,0 +1,21 @@
+# Health record
+
+Exported for Ann Lee.
+
+## Medications
+
+| Name | Dose | Notes |
+| :--- | ---: | --- |
+| Salbutamol | 100 mcg | 2 puffs \| as needed morning only |
+
+- bring inhaler
+- book review
+
+\# not a heading, because it is text
+
+blocks: 2
+Title
+A word and a link.
+
+true
+line 1: a setext heading (=== under the text); use '# text' instead
