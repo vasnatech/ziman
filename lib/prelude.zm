@@ -679,16 +679,26 @@ native fn array_reverse<T>(items: [T]) -> [T]
 // `array_filter` cannot do this: it keeps elements, so it would hand back `[Option<T>]` still
 // wrapped, and `array_flat_map` only does it by turning each value into a one- or zero-element
 // array, which allocates per element and reads like a puzzle.
-// A builder sized to the input up front, rather than `out = push(out, v)` into a value. Both
-// were measured, because which wins is not obvious -- `snapshot` is an O(n) copy, so a builder
-// is not free. Repeated value `push` was the fastest of the three at eight elements and the
-// slowest from a hundred up; a builder left to grow on its own was the reverse, about a
-// quarter faster at scale and about a quarter slower on the short lists this is usually called
-// with. Sizing it to `len(items)` is the one that never loses either way: level with value
-// `push` at eight, roughly a tenth faster from a hundred to two hundred thousand. The capacity
-// is an upper bound, since the `None`s drop out.
+// A builder, left to grow on its own rather than sized to the input up front. Both of those
+// and a plain `out = push(out, v)` into a value were measured, and the result is the opposite
+// of the obvious one: **presizing is slower**, and the bigger the input the worse it gets --
+// 703 ms against 586 ms for two hundred thousand elements.
+//
+// The profiles say why. Sizing the buffer does save the growth reallocations it is meant to
+// (180 samples in `mutable_array_push` against 199), but one large allocation per call costs
+// the collector far more than that: garbage collection goes from 9.6% of the run to 15.8%,
+// with `mutable_array_new` itself appearing at 2.8% where it had been below the cutoff. A
+// 1.6 MB block has to be found and later swept; the growth path's intermediate buffers are
+// small, come off the collector's size-segregated free lists and are handed back while still
+// warm. It is the same effect the runtime warns about directly -- "repeated allocation of very
+// large block ... may lead to poor performance".
+//
+// Below a hundred elements, which is what the variadic form is nearly always called with, all
+// three spellings sit inside the run-to-run noise, so nothing is given up by choosing the one
+// that wins at size. `snapshot` is an O(n) copy, which is why value `push` stays competitive
+// there at all.
 fn array_present<T>(items: variadic Option<T>) -> [T] {
-    val out = mutable_array_new<T>(capacity: len(items))
+    val out = mutable_array_new<T>()
     for item in items {
         if Some(value) = item {
             mutable_array_push(out, value)
