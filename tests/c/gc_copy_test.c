@@ -38,7 +38,7 @@ static void check(const char *label, int ok) {
 }
 
 static int str_eq(Value v, const char *expect) {
-    return v.type.kind == TY_STRING && v.as.str.len == strlen(expect) && memcmp(v.as.str.ptr, expect, v.as.str.len) == 0;
+    return v.type->kind == TY_STRING && v.as.str.len == strlen(expect) && memcmp(v.as.str.ptr, expect, v.as.str.len) == 0;
 }
 
 int main(void) {
@@ -48,7 +48,7 @@ int main(void) {
     /* Scalars: embedded in the Value itself, nothing to allocate -- copy is a no-op. */
     Value vi = value_int(42);
     Value vi2 = gc_copy_value(dest, dedup, vi);
-    check("an int copies as itself (no allocation)", vi2.type.kind == TY_INT && vi2.as.i == 42);
+    check("an int copies as itself (no allocation)", vi2.type->kind == TY_INT && vi2.as.i == 42);
 
     /* A plain string: independent buffer, same bytes, tracked with a GC_ATOMIC header. */
     Value s1 = value_string_copy("hello world", strlen("hello world"));
@@ -90,11 +90,11 @@ int main(void) {
     Value inner_items[] = {value_int(1), value_int(2)};
     ArrayObj *inner = array_obj_new(inner_items, 2);
     Type inner_type = type_array(type_scalar(TY_INT));
-    Value inner_val = value_array(inner_type, inner);
+    Value inner_val = value_array(type_ref(inner_type), inner);
     Value outer_items[] = {inner_val, inner_val}; /* same ArrayObj* twice */
     ArrayObj *outer = array_obj_new(outer_items, 2);
     Type outer_type = type_array(inner_type);
-    Value outer_val = value_array(outer_type, outer);
+    Value outer_val = value_array(type_ref(outer_type), outer);
     Value outer_c = gc_copy_value(dest, dedup, outer_val);
     check("a copied array has the right element count", outer_c.as.arr->count == 2);
     Value e0 = array_get(outer_c.as.arr, 0);
@@ -113,7 +113,7 @@ int main(void) {
     Value five_items[] = {value_int(10), value_int(20), value_int(30), value_int(40), value_int(50)};
     ArrayObj *five = array_obj_new(five_items, 5);
     ArrayObj *view = array_obj_view(five, 1, 4); /* [20, 30, 40] */
-    Value view_val = value_array(inner_type, view);
+    Value view_val = value_array(type_ref(inner_type), view);
     Value view_c = gc_copy_value(dest, dedup, view_val);
     check("a copied array view has the sliced element count", view_c.as.arr->count == 3);
     check("a copied array view has the sliced content, not the parent's", array_get(view_c.as.arr, 0).as.i == 20 &&
@@ -131,10 +131,10 @@ int main(void) {
     point->fields[1] = point_fields[1];
     point->count = 2;
     Type point_type = type_struct("Point");
-    Value point_val = value_struct(point_type, point);
+    Value point_val = value_struct(type_ref(point_type), point);
     Value pair_items[] = {point_val, point_val};
     ArrayObj *pair = array_obj_new(pair_items, 2);
-    Value pair_val = value_array(type_array(point_type), pair);
+    Value pair_val = value_array(type_ref(type_array(point_type)), pair);
     Value pair_c = gc_copy_value(dest, dedup, pair_val);
     Value p0 = array_get(pair_c.as.arr, 0);
     Value p1 = array_get(pair_c.as.arr, 1);
@@ -149,7 +149,7 @@ int main(void) {
     ResultObj *ok = malloc(sizeof(ResultObj));
     ok->is_ok = 1;
     ok->value = value_string_copy("ok-payload", strlen("ok-payload"));
-    Value res_val = value_result(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING)), ok);
+    Value res_val = value_result(type_ref(type_result(type_scalar(TY_STRING), type_scalar(TY_STRING))), ok);
     Value res_c = gc_copy_value(dest, dedup, res_val);
     check("a copied Result keeps is_ok", res_c.as.res->is_ok == 1);
     check("a copied Result's payload copied correctly", str_eq(res_c.as.res->value, "ok-payload"));
@@ -160,7 +160,7 @@ int main(void) {
     en->variant_name = "Circle";
     en->has_payload = 1;
     en->payload = value_int(7);
-    Value en_val = value_enum(type_enum("Shape"), en);
+    Value en_val = value_enum(type_ref(type_enum("Shape")), en);
     Value en_c = gc_copy_value(dest, dedup, en_val);
     check("a copied enum keeps its variant name (borrowed)", en_c.as.en->variant_name == en->variant_name);
     check("a copied enum's payload copied correctly", en_c.as.en->has_payload && en_c.as.en->payload.as.i == 7);
@@ -174,7 +174,7 @@ int main(void) {
     clo->captured = malloc(sizeof(Value));
     clo->captured[0] = captured[0];
     Value clo_val;
-    clo_val.type = type_func((TypeList){0}, type_scalar(TY_VOID));
+    clo_val.type = type_ref(type_func((TypeList){0}, type_scalar(TY_VOID)));
     clo_val.as.clo = clo;
     Value clo_c = gc_copy_value(dest, dedup, clo_val);
     check("a copied closure's fn stays borrowed", clo_c.as.clo->fn == clo->fn);
@@ -184,7 +184,7 @@ int main(void) {
     /* Channel: shared by identity, never copied -- same rule as value_copy.c. */
     ChannelObj chan;
     memset(&chan, 0, sizeof(chan));
-    Value chan_val = value_channel(type_channel(type_scalar(TY_INT)), &chan);
+    Value chan_val = value_channel(type_ref(type_channel(type_scalar(TY_INT))), &chan);
     Value chan_c = gc_copy_value(dest, dedup, chan_val);
     check("a channel is returned unchanged, not copied", chan_c.as.ch == &chan);
 

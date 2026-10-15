@@ -74,7 +74,12 @@ typedef struct StructObj {
 } StructObj;
 
 struct Value {
-    Type type;
+    /* SPIKE: a pointer, not an embedded Type. Takes `Value` from 80 bytes to 24, which shrinks
+     * every heap object that holds one -- EnumObj 104 -> 48, ResultObj 88 -> 32, both crossing a
+     * size class -- and so halves what the sweep phase has to zero. See docs/MEMORY.md. The
+     * pointee must outlive the value: scalars are per-kind statics, compound types are
+     * allocated by `type_ref`. */
+    const Type *type;
     union {
         int64_t i;
         double f;
@@ -183,28 +188,28 @@ typedef struct ChannelObj {
  * They are one assignment each; there is nothing for a call to amortise. */
 static inline Value value_int(int64_t i) {
     Value v;
-    v.type = type_scalar(TY_INT);
+    v.type = type_scalar_ref(TY_INT);
     v.as.i = i;
     return v;
 }
 
 static inline Value value_unit(void) {
     Value v;
-    v.type = type_scalar(TY_UNIT);
+    v.type = type_scalar_ref(TY_UNIT);
     v.as.i = 0;
     return v;
 }
 
 static inline Value value_float(double f) {
     Value v;
-    v.type = type_scalar(TY_FLOAT);
+    v.type = type_scalar_ref(TY_FLOAT);
     v.as.f = f;
     return v;
 }
 
 static inline Value value_bool(int b) {
     Value v;
-    v.type = type_scalar(TY_BOOL);
+    v.type = type_scalar_ref(TY_BOOL);
     v.as.b = b;
     return v;
 }
@@ -232,16 +237,16 @@ Value value_decimal(Decimal d); /* likewise, copies `d` onto the heap */
 /* Caller's responsibility to have already range-checked 0-255. Inline, see value_int above. */
 static inline Value value_byte(int b) {
     Value v;
-    v.type = type_scalar(TY_BYTE);
+    v.type = type_scalar_ref(TY_BYTE);
     v.as.by = b;
     return v;
 }
-Value value_array(Type array_type, ArrayObj *arr);
-Value value_struct(Type struct_type, StructObj *st);
-Value value_result(Type result_type, ResultObj *res);
-Value value_enum(Type enum_type, EnumObj *en);
-Value value_channel(Type channel_type, ChannelObj *ch);
-Value value_map(Type map_or_set_type, struct MapObj *m);
+Value value_array(const Type *array_type, ArrayObj *arr);
+Value value_struct(const Type *struct_type, StructObj *st);
+Value value_result(const Type *result_type, ResultObj *res);
+Value value_enum(const Type *enum_type, EnumObj *en);
+Value value_channel(const Type *channel_type, ChannelObj *ch);
+Value value_map(const Type *map_or_set_type, struct MapObj *m);
 /* The hash `hash()` returns before the sign bit is cleared: equal values hash equal. */
 uint64_t value_hash(Value v);
 

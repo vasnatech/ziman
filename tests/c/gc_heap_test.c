@@ -144,7 +144,7 @@ int main(void) {
     char *label_buf = gc_heap_alloc(h2, GC_ATOMIC, strlen("kept across a collection") + 1);
     memcpy(label_buf, "kept across a collection", strlen("kept across a collection") + 1);
     Value label_val;
-    label_val.type = type_scalar(TY_STRING);
+    label_val.type = type_scalar_ref(TY_STRING);
     label_val.as.str.ptr = label_buf;
     label_val.as.str.len = (uint32_t)strlen("kept across a collection");
     label_val.as.str.term = 1;
@@ -159,7 +159,7 @@ int main(void) {
 
     Value *arr_items = gc_heap_alloc(h2, GC_VALUES, 1 * sizeof(Value));
     Value point_val;
-    point_val.type = type_struct("Point");
+    point_val.type = type_ref(type_struct("Point"));
     point_val.as.st = point;
     arr_items[0] = point_val;
     ArrayObj *arr = gc_heap_alloc(h2, GC_ARRAY, sizeof(ArrayObj));
@@ -214,11 +214,11 @@ int main(void) {
     char *env_str_buf = gc_heap_alloc(h3, GC_ATOMIC, strlen(msg) + 1);
     memcpy(env_str_buf, msg, strlen(msg) + 1);
     Value env_str_val;
-    env_str_val.type = type_scalar(TY_STRING);
+    env_str_val.type = type_scalar_ref(TY_STRING);
     env_str_val.as.str.ptr = env_str_buf;
     env_str_val.as.str.len = (uint32_t)strlen(msg);
     env_str_val.as.str.term = 1;
-    env_define(env, "s", env_str_val.type, 0, env_str_val);
+    env_define(env, "s", *env_str_val.type, 0, env_str_val);
 
     gc_heap_collect(h3, mark_env_ctx, env);
 

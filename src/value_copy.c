@@ -20,7 +20,7 @@ static Value crossing_string_copy(const char *ptr, size_t len) {
     memcpy(buf, ptr, len);
     buf[len] = '\0';
     Value v;
-    v.type = type_scalar(TY_STRING);
+    v.type = type_scalar_ref(TY_STRING);
     v.as.str.ptr = buf;
     v.as.str.len = (uint32_t)len;
     v.as.str.term = 1;
@@ -43,7 +43,7 @@ static Value crossing_bigint(BigNum n) {
     BigNum *boxed = ziman_xmalloc(sizeof(BigNum));
     *boxed = crossing_bignum_copy(n);
     Value v;
-    v.type = type_scalar(TY_BIGINT);
+    v.type = type_scalar_ref(TY_BIGINT);
     v.as.bi = boxed;
     return v;
 }
@@ -53,14 +53,14 @@ static Value crossing_decimal(Decimal d) {
     Decimal *boxed = ziman_xmalloc(sizeof(Decimal));
     *boxed = d;
     Value v;
-    v.type = type_scalar(TY_DECIMAL);
+    v.type = type_scalar_ref(TY_DECIMAL);
     v.as.dec = boxed;
     return v;
 }
 
 static Value value_deep_copy_crossing(Value v);
 
-static Value crossing_array_copy(ArrayObj *a, Type array_type) {
+static Value crossing_array_copy(ArrayObj *a, const Type *array_type) {
     /* Copied element by element into a plain boxed array regardless of whether `a` was packed --
      * packed-vs-boxed is purely an internal storage optimisation, invisible to any program (see
      * docs/SYNTAX.md's Builtins section), so a value that crosses a thread coming back boxed is not
@@ -87,7 +87,7 @@ static Value crossing_array_copy(ArrayObj *a, Type array_type) {
     return v;
 }
 
-static Value crossing_struct_copy(StructObj *st, Type struct_type) {
+static Value crossing_struct_copy(StructObj *st, const Type *struct_type) {
     Value *fields = st->count > 0 ? ziman_xmalloc((size_t)st->count * sizeof(Value)) : NULL;
     for (int i = 0; i < st->count; i++) {
         fields[i] = value_deep_copy_crossing(st->fields[i]);
@@ -104,7 +104,7 @@ static Value crossing_struct_copy(StructObj *st, Type struct_type) {
     return v;
 }
 
-static Value crossing_result_copy(ResultObj *res, Type result_type) {
+static Value crossing_result_copy(ResultObj *res, const Type *result_type) {
     ResultObj *copy = ziman_xmalloc(sizeof(ResultObj));
     copy->is_ok = res->is_ok;
     copy->value = value_deep_copy_crossing(res->value);
@@ -114,7 +114,7 @@ static Value crossing_result_copy(ResultObj *res, Type result_type) {
     return v;
 }
 
-static Value crossing_enum_copy(EnumObj *en, Type enum_type) {
+static Value crossing_enum_copy(EnumObj *en, const Type *enum_type) {
     EnumObj *copy = ziman_xmalloc(sizeof(EnumObj));
     /* `payload` is unused when there is none to copy, but copying it across unconditionally keeps
      * this branch-free and matches what `value_copy_receive`'s own `ordinary_enum_copy` does. */
@@ -129,7 +129,7 @@ static Value crossing_enum_copy(EnumObj *en, Type enum_type) {
     return v;
 }
 
-static Value crossing_closure_copy(ClosureObj *clo, Type func_type) {
+static Value crossing_closure_copy(ClosureObj *clo, const Type *func_type) {
     Value *captured = clo->ncaptured > 0 ? ziman_xmalloc((size_t)clo->ncaptured * sizeof(Value)) : NULL;
     for (int i = 0; i < clo->ncaptured; i++) {
         captured[i] = value_deep_copy_crossing(clo->captured[i]);
@@ -152,7 +152,7 @@ static Value value_deep_copy_crossing(Value v) {
      * send still dumped core. Sending or receiving a deeply nested value had no guard at all
      * before this (F125). */
     ZIMAN_STACK_CHECK();
-    switch (v.type.kind) {
+    switch (v.type->kind) {
         case TY_STRING:
             return crossing_string_copy(v.as.str.ptr, v.as.str.len);
         case TY_BIGINT:
@@ -222,7 +222,7 @@ static BigNum ordinary_bignum_copy(BigNum n) {
     return n;
 }
 
-static Value ordinary_array_copy(ArrayObj *a, Type array_type) {
+static Value ordinary_array_copy(ArrayObj *a, const Type *array_type) {
     Value *items = a->count > 0 ? ziman_xmalloc((size_t)a->count * sizeof(Value)) : NULL;
     for (int i = 0; i < a->count; i++) {
         items[i] = value_copy_ordinary_into(array_get(a, i));
@@ -233,7 +233,7 @@ static Value ordinary_array_copy(ArrayObj *a, Type array_type) {
     return v;
 }
 
-static Value ordinary_struct_copy(StructObj *st, Type struct_type) {
+static Value ordinary_struct_copy(StructObj *st, const Type *struct_type) {
     Value *fields = st->count > 0 ? ziman_xmalloc((size_t)st->count * sizeof(Value)) : NULL;
     for (int i = 0; i < st->count; i++) {
         fields[i] = value_copy_ordinary_into(st->fields[i]);
@@ -244,14 +244,14 @@ static Value ordinary_struct_copy(StructObj *st, Type struct_type) {
     return v;
 }
 
-static Value ordinary_result_copy(ResultObj *res, Type result_type) {
+static Value ordinary_result_copy(ResultObj *res, const Type *result_type) {
     Value v;
     v.type = result_type;
     v.as.res = result_obj_new(res->is_ok, value_copy_ordinary_into(res->value));
     return v;
 }
 
-static Value ordinary_enum_copy(EnumObj *en, Type enum_type) {
+static Value ordinary_enum_copy(EnumObj *en, const Type *enum_type) {
     Value payload = en->has_payload ? value_copy_ordinary_into(en->payload) : en->payload;
     Value v;
     v.type = enum_type;
@@ -259,7 +259,7 @@ static Value ordinary_enum_copy(EnumObj *en, Type enum_type) {
     return v;
 }
 
-static Value ordinary_closure_copy(ClosureObj *clo, Type func_type) {
+static Value ordinary_closure_copy(ClosureObj *clo, const Type *func_type) {
     Value *captured = clo->ncaptured > 0 ? ziman_xmalloc((size_t)clo->ncaptured * sizeof(Value)) : NULL;
     for (int i = 0; i < clo->ncaptured; i++) {
         captured[i] = value_copy_ordinary_into(clo->captured[i]);
@@ -280,7 +280,7 @@ static Value ordinary_closure_copy(ClosureObj *clo, Type func_type) {
 
 static Value value_copy_ordinary_into(Value v) {
     ZIMAN_STACK_CHECK(); /* see value_deep_copy_crossing */
-    switch (v.type.kind) {
+    switch (v.type->kind) {
         case TY_STRING:
             return value_string_copy(v.as.str.ptr, v.as.str.len);
         case TY_BIGINT:

@@ -1484,3 +1484,50 @@ indistinguishable. Frequency trades mark against sweep and cannot reduce the tot
 *`ResultObj` survives 0% of the time.* 239,000 allocated, 23 MB, not one ever live at a collection:
 every `Result` in this workload is consumed before the next cycle. It is the clearest case for
 unboxing and still not enough to carry the change.
+
+### Measured: `Value.type` by pointer is the win; interning it is not
+
+The previous section argued against unboxing single-payload enum variants and pointed at `Type`
+interning instead, on the grounds that it was motivated by a demonstrated copy cost rather than an
+inferred one. Both halves were then built and measured, and the result splits cleanly.
+
+**`Value.type` as a pointer is worth about a fifth of the runtime.** `Value` goes from 80 bytes to
+24, and with it `EnumObj` 104 to 48 and `ResultObj` 88 to 32 -- both across a size class, so the
+objects the sweep phase walks and zeroes halve. Interleaved against the same build of `main`:
+
+    loop_bench            0.12-0.14 -> 0.09-0.11
+    scalar_arrays_bench   0.34-0.37 -> 0.30-0.34
+    fib_bench             0.05-0.06 -> 0.04-0.05
+    JSON decode/encode    0.35-0.39 -> 0.28-0.31
+
+The collector moves as the design predicted -- 202 collections to 84, bytes walked by the mark
+phase 111.5 MB to 19.5 MB, mark 10.0ms to 4.4ms, sweep 47.2ms to 38.5ms -- but that accounts for
+only a few points of it. The rest is that every `Value` copy in the interpreter, which is argument
+passing, array elements, struct fields and every return, moved 56 bytes less. Same cost the
+constructor-inlining work found, reached from the other side. `type_scalar` stops zeroing 64 bytes
+per arithmetic result and becomes a constant address, so the hottest path gets cheaper rather than
+dearer -- which is why the union's scalar-replacement regression does not transfer: a pointer does
+not defeat SRA, and 24 bytes is register-friendly where 80 never was.
+
+**Interning the types is worth nothing measurable, and cost two defects.** A fixed-size table with
+lock-free reads took a million `type_ref` lookups down to ten allocations of ten distinct types on
+the JSON workload, and the clock did not move -- the allocations it removed were cheap short-lived
+garbage, and a hash probe costs about what allocating 64 bytes did. It is on a branch, not merged.
+Two things went wrong in its ~120 lines, neither visible to 1028 fixtures or to two clean ASAN runs,
+and the second only reachable once the first was fixed:
+
+- A data race in the lazily-filled scalar table, under a comment of mine asserting it was safe
+  because every writer stores the same bytes. A 64-byte struct assignment is not atomic, and the C
+  memory model has no category for a benign race. Fixed by making the table a designated
+  initialiser in `.rodata`, which removes the race by having nothing to write and is faster too;
+  that fix is part of the pointer change and stays.
+- A write through `TypeList.items`, which copying a `Type` by value copies as a *pointer*, so
+  canonicalising `type_args` in place wrote into the caller's array -- normally AST-resident and
+  shared by every thread. Reported as a race; actually shared mutation that would have corrupted
+  the AST.
+
+So the standing advice on this page holds in a sharper form: a smaller struct is not automatically
+faster code, and the reverse is also true -- the indirection that makes the struct smaller was worth
+a fifth of the runtime while the deduplication that looked like the clever part was worth nothing.
+Interning remains reasonable for a long-running process that should not churn a `Type` per value for
+days, and should be judged on that rather than on speed.

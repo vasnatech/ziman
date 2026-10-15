@@ -10,6 +10,46 @@
 /* Every constructor below starts from a fully zeroed Type (including
  * `type_args`, itself a struct) so adding a new field never means hunting
  * down every constructor again. */
+/* One per TypeKind, built at compile time rather than on first use.
+ *
+ * The first version filled each slot lazily and argued the race was harmless, on the grounds
+ * that every writer stores the same bytes. ThreadSanitizer disagreed, and it was right: a
+ * 64-byte struct assignment is not atomic, so a concurrent reader can see a half-written slot,
+ * and "benign data race" is not a thing the C memory model has -- it is undefined behaviour
+ * whatever the bytes happen to be. A designated initialiser makes the whole table a constant in
+ * .rodata, which removes the race by having nothing to write, and is faster besides: no branch
+ * and no store on the hottest path in the interpreter. */
+static const Type g_scalar_types[TY_KIND_COUNT] = {
+    [TY_VOID] = {.kind = TY_VOID},       [TY_UNIT] = {.kind = TY_UNIT},
+    [TY_INT] = {.kind = TY_INT},         [TY_FLOAT] = {.kind = TY_FLOAT},
+    [TY_BOOL] = {.kind = TY_BOOL},       [TY_STRING] = {.kind = TY_STRING},
+    [TY_BIGINT] = {.kind = TY_BIGINT},   [TY_DECIMAL] = {.kind = TY_DECIMAL},
+    [TY_BYTE] = {.kind = TY_BYTE},       [TY_ARRAY] = {.kind = TY_ARRAY},
+    [TY_STRUCT] = {.kind = TY_STRUCT},   [TY_RESULT] = {.kind = TY_RESULT},
+    [TY_ENUM] = {.kind = TY_ENUM},       [TY_CHANNEL] = {.kind = TY_CHANNEL},
+    [TY_TYPEVAR] = {.kind = TY_TYPEVAR}, [TY_FUNC] = {.kind = TY_FUNC},
+    [TY_MAP] = {.kind = TY_MAP},         [TY_SET] = {.kind = TY_SET},
+};
+
+const Type *type_scalar_ref(TypeKind kind) {
+    return &g_scalar_types[kind];
+}
+
+/* A compound type that has to outlive the value carrying it.
+ *
+ * Allocated per call, not deduplicated. An intern table was built and measured (see
+ * docs/MEMORY.md): it took a million lookups down to ten allocations of ten distinct types on a
+ * JSON workload and made no measurable difference to the clock, because the allocations it
+ * removed were cheap short-lived garbage and a hash probe costs about what allocating 64 bytes
+ * did. It is worth revisiting for a long-running process that should not churn a Type per value
+ * for days, but it is not what makes this change worth having -- that is `Value` going from 80
+ * bytes to 24 -- and it cost two defects for no gain when it was tried. */
+const Type *type_ref(Type t) {
+    Type *out = ziman_xmalloc(sizeof(Type));
+    *out = t;
+    return out;
+}
+
 Type type_array(Type elem) {
     Type t = {0};
     t.kind = TY_ARRAY;

@@ -24,13 +24,13 @@ Value value_closure(FunctionDecl *fn, Value *captured, int ncaptured) {
     c->fn = fn;
     c->ncaptured = ncaptured;
     c->captured = captured;
-    v.type = function_value_type(fn);
+    v.type = type_ref(function_value_type(fn));
     /* function_value_type reads every parameter; a lambda's leading captured
      * ones are not part of its type. */
     if (ncaptured > 0) {
         TypeList params = {0};
         for (int i = ncaptured; i < fn->params.count; i++) type_list_push(&params, fn->params.items[i].type);
-        v.type = type_func(params, fn->return_type);
+        v.type = type_ref(type_func(params, fn->return_type));
     }
     v.as.clo = c;
     return v;
@@ -43,7 +43,7 @@ Value value_function(FunctionDecl *fn) {
 Value value_string_view(const char *ptr, size_t len, int term) {
     if (len > 0xffffffffu) ziman_error("runtime", 0, 0, "string too long (limit is 4 GiB)");
     Value v;
-    v.type = type_scalar(TY_STRING);
+    v.type = type_scalar_ref(TY_STRING);
     v.as.str.ptr = ptr;
     v.as.str.len = (uint32_t)len;
     v.as.str.term = term ? 1 : 0;
@@ -84,7 +84,7 @@ const char *value_cstr(Value v) {
 
 Value value_bigint(BigNum n) {
     Value v;
-    v.type = type_scalar(TY_BIGINT);
+    v.type = type_scalar_ref(TY_BIGINT);
     v.as.bi = ziman_xmalloc(sizeof(BigNum));
     *v.as.bi = n;
     return v;
@@ -92,14 +92,14 @@ Value value_bigint(BigNum n) {
 
 Value value_decimal(Decimal d) {
     Value v;
-    v.type = type_scalar(TY_DECIMAL);
+    v.type = type_scalar_ref(TY_DECIMAL);
     v.as.dec = ziman_xmalloc(sizeof(Decimal));
     *v.as.dec = d;
     return v;
 }
 
 
-Value value_array(Type array_type, ArrayObj *arr) {
+Value value_array(const Type *array_type, ArrayObj *arr) {
     Value v;
     v.type = array_type;
     v.as.arr = arr;
@@ -177,7 +177,7 @@ ArrayObj *array_obj_view(const ArrayObj *a, int start, int end) {
 
 ArrayObj *array_push(const ArrayObj *old, Value x) {
     PackKind k = array_pack_kind(old);
-    if (old->count == 0 && k == PK_NONE) k = pack_kind_of_type(x.type.kind); /* a `[]` that grows by push becomes packed on its first element */
+    if (old->count == 0 && k == PK_NONE) k = pack_kind_of_type(x.type->kind); /* a `[]` that grows by push becomes packed on its first element */
     size_t esz = k == PK_NONE ? sizeof(Value) : pack_elem_size(k);
     int n = old->count;
     /* take the next slot of the buffer in place, when `old` is the tip and there is room */
@@ -237,10 +237,10 @@ void pack_store(PackKind k, void *buf, int idx, Value v) {
 
 ArrayObj *array_try_pack(const Value *items, int count) {
     if (count == 0) return NULL; /* an empty array stays boxed: no element to type it by */
-    PackKind k = pack_kind_of_type(items[0].type.kind);
+    PackKind k = pack_kind_of_type(items[0].type->kind);
     if (k == PK_NONE) return NULL;
     for (int i = 1; i < count; i++) {
-        if (pack_kind_of_type(items[i].type.kind) != k) return NULL;
+        if (pack_kind_of_type(items[i].type->kind) != k) return NULL;
     }
     void *buf = zalloc_atomic(pack_elem_size(k) * (size_t)count);
     for (int i = 0; i < count; i++) pack_store(k, buf, i, items[i]);
@@ -279,13 +279,13 @@ ArrayObj *array_packed_edit(const ArrayObj *old, int mode, int at, Value x) {
 Value value_int_array(const int64_t *buf, size_t n) {
     int64_t *ints = zalloc_atomic(n > 0 ? n * sizeof(int64_t) : 1);
     if (n > 0) memcpy(ints, buf, n * sizeof(int64_t));
-    return value_array(type_array(type_scalar(TY_INT)), array_obj_new_packed(PK_INT, ints, (int)n));
+    return value_array(type_ref(type_array(type_scalar(TY_INT))), array_obj_new_packed(PK_INT, ints, (int)n));
 }
 
 Value value_byte_array(const uint8_t *buf, size_t n) {
     uint8_t *bytes = zalloc_atomic(n > 0 ? n : 1);
     if (n > 0) memcpy(bytes, buf, n);
-    return value_array(type_array(type_scalar(TY_BYTE)), array_obj_new_bytes(bytes, (int)n));
+    return value_array(type_ref(type_array(type_scalar(TY_BYTE))), array_obj_new_bytes(bytes, (int)n));
 }
 
 uint8_t *array_copy_bytes(const ArrayObj *a, int *out_len) {
@@ -300,7 +300,7 @@ uint8_t *array_copy_bytes(const ArrayObj *a, int *out_len) {
     return out;
 }
 
-Value value_struct(Type struct_type, StructObj *st) {
+Value value_struct(const Type *struct_type, StructObj *st) {
     Value v;
     v.type = struct_type;
     v.as.st = st;
@@ -323,7 +323,7 @@ StructObj *struct_obj_new(char **field_names, Value *fields, int count) {
     return s;
 }
 
-Value value_result(Type result_type, ResultObj *res) {
+Value value_result(const Type *result_type, ResultObj *res) {
     Value v;
     v.type = result_type;
     v.as.res = res;
@@ -342,7 +342,7 @@ ResultObj *result_obj_new(int is_ok, Value value) {
     return r;
 }
 
-Value value_enum(Type enum_type, EnumObj *en) {
+Value value_enum(const Type *enum_type, EnumObj *en) {
     Value v;
     v.type = enum_type;
     v.as.en = en;
@@ -364,14 +364,14 @@ EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Valu
     return e;
 }
 
-Value value_map(Type map_or_set_type, struct MapObj *m) {
+Value value_map(const Type *map_or_set_type, struct MapObj *m) {
     Value v;
     v.type = map_or_set_type;
     v.as.map = m;
     return v;
 }
 
-Value value_channel(Type channel_type, ChannelObj *ch) {
+Value value_channel(const Type *channel_type, ChannelObj *ch) {
     Value v;
     v.type = channel_type;
     v.as.ch = ch;
@@ -611,7 +611,7 @@ static int equals_inner(Value a, Value b, int nan_reflexive) {
      * only when every field is (recursively), a Result only when both its
      * Ok and Err types are (recursively), and a user-declared enum only
      * when every payload-carrying variant's payload type is. */
-    switch (a.type.kind) {
+    switch (a.type->kind) {
         case TY_INT: return a.as.i == b.as.i;
         case TY_FLOAT:
             /* `nan_reflexive` is the whole reason this function is shared. For `==` the answer is
@@ -691,7 +691,7 @@ static int equals_inner(Value a, Value b, int nan_reflexive) {
         case TY_SET: {
             /* Same entries in any order: same size, and every key of `a` present in `b` (with an equal value). */
             if (a.as.map->count != b.as.map->count) return 0;
-            int is_map = a.type.kind == TY_MAP;
+            int is_map = a.type->kind == TY_MAP;
             Value *keys, *vals = NULL;
             mapobj_entries(a.as.map, &keys, is_map ? &vals : NULL);
             for (int i = 0; i < a.as.map->count; i++) {
@@ -811,7 +811,7 @@ char *value_display_nested(Value v) {
 static char *display_at(Value v, int depth) {
     ZIMAN_STACK_CHECK();
     char buf[64];
-    switch (v.type.kind) {
+    switch (v.type->kind) {
         case TY_INT:
             snprintf(buf, sizeof(buf), "%lld", (long long)v.as.i);
             return ziman_xstrdup(buf);
@@ -878,10 +878,10 @@ static char *display_at(Value v, int depth) {
             return out;
         }
         case TY_STRUCT: {
-            char *(*render)(Value, int) = handle_display_for(v.type.struct_name);
+            char *(*render)(Value, int) = handle_display_for(v.type->struct_name);
             if (render != NULL) return render(v, depth > 0);
             StructObj *st = v.as.st;
-            const char *type_display_name = v.type.struct_name;
+            const char *type_display_name = v.type->struct_name;
             size_t cap = 32, len = 0;
             char *out = zalloc_atomic(cap);
             size_t name_len = strlen(type_display_name);
@@ -936,7 +936,7 @@ static char *display_at(Value v, int depth) {
         }
         case TY_MAP:
         case TY_SET: {
-            int is_map = v.type.kind == TY_MAP;
+            int is_map = v.type->kind == TY_MAP;
             Value *keys, *vals = NULL;
             mapobj_entries(v.as.map, &keys, is_map ? &vals : NULL);
             size_t cap = 32, len = 0;

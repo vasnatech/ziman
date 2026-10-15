@@ -41,15 +41,15 @@ static const char *errno_category(void) {
 static Value fs_err(Type ok_type, const char *what, const char *path) {
     char msg[1024];
     snprintf(msg, sizeof(msg), "%s|%s '%s': %s", errno_category(), what, path, strerror(errno));
-    return value_result(type_result(ok_type, string_type()), result_obj_new(0, value_string(ziman_xstrdup(msg))));
+    return value_result(type_ref(type_result(ok_type, string_type())), result_obj_new(0, value_string(ziman_xstrdup(msg))));
 }
 
 static Value fs_ok_int(int64_t n) {
-    return value_result(type_result(type_scalar(TY_INT), string_type()), result_obj_new(1, value_int(n)));
+    return value_result(type_ref(type_result(type_scalar(TY_INT), string_type())), result_obj_new(1, value_int(n)));
 }
 
 static Value fs_ok_unit(void) {
-    return value_result(type_result(type_scalar(TY_UNIT), string_type()), result_obj_new(1, value_unit()));
+    return value_result(type_ref(type_result(type_scalar(TY_UNIT), string_type())), result_obj_new(1, value_unit()));
 }
 
 static Value fs_write(Value *args, const char *mode, const char *what) {
@@ -140,9 +140,9 @@ static Value native_fs_read_text(Value *args, int argc, int line, int col) {
     if (strlen(buf) != n) {
         char msg[1024];
         snprintf(msg, sizeof(msg), "cannot read '%s': file contains a NUL byte", path);
-        return value_result(type_result(str, str), result_obj_new(0, value_string(ziman_xstrdup(msg))));
+        return value_result(type_ref(type_result(str, str)), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
-    return value_result(type_result(str, str), result_obj_new(1, value_string(buf)));
+    return value_result(type_ref(type_result(str, str)), result_obj_new(1, value_string(buf)));
 }
 
 static int compare_names(const void *a, const void *b) {
@@ -173,14 +173,14 @@ static Value native_fs_list_dir(Value *args, int argc, int line, int col) {
     Value *items = ziman_xmalloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
     for (int i = 0; i < n; i++) items[i] = value_string(names[i]);
     free(names);
-    Value arr = value_array(list_type, array_obj_new(items, n));
-    return value_result(type_result(list_type, string_type()), result_obj_new(1, arr));
+    Value arr = value_array(type_ref(list_type), array_obj_new(items, n));
+    return value_result(type_ref(type_result(list_type, string_type())), result_obj_new(1, arr));
 }
 
 /* ---- bytes, directories, copying, atomic writes -------------------------------------- */
 static Value fs_ok_bytes(uint8_t *buf, size_t n) {
     Type bt = type_array(type_scalar(TY_BYTE));
-    return value_result(type_result(bt, string_type()), result_obj_new(1, value_byte_array(buf, n)));
+    return value_result(type_ref(type_result(bt, string_type())), result_obj_new(1, value_byte_array(buf, n)));
 }
 
 static Value native_fs_read_bytes(Value *args, int argc, int line, int col) {
@@ -317,7 +317,7 @@ static Value native_fs_modified_seconds(Value *args, int argc, int line, int col
  * size uses memory for one line. */
 static Value line_item(int ok, Value v) {
     Type str = string_type();
-    return value_result(type_result(str, str), result_obj_new(ok, v));
+    return value_result(type_ref(type_result(str, str)), result_obj_new(ok, v));
 }
 
 static int lines_next(IterObj *it, Value *out) {
@@ -356,7 +356,7 @@ static Value native_fs_lines(Value *args, int argc, int line, int col) {
     it->next = lines_next;
     it->release = lines_release;
     it->state = ls;
-    return value_result(type_result(iter_type, string_type()), result_obj_new(1, iter_make(it)));
+    return value_result(type_ref(type_result(iter_type, string_type())), result_obj_new(1, iter_make(it)));
 }
 
 
@@ -371,7 +371,7 @@ typedef struct {
 
 static Value chunk_item(int ok, Value v) {
     Type bt = type_array(type_scalar(TY_BYTE));
-    return value_result(type_result(bt, string_type()), result_obj_new(ok, v));
+    return value_result(type_ref(type_result(bt, string_type())), result_obj_new(ok, v));
 }
 
 static int chunks_next(IterObj *it, Value *out) {
@@ -411,7 +411,7 @@ static Value native_fs_chunks(Value *args, int argc, int line, int col) {
     if (size < 1 || size > (int64_t)1 << 30) {
         char msg[128];
         snprintf(msg, sizeof msg, "chunk size %lld is out of range (1 to 1073741824)", (long long)size);
-        return value_result(type_result(iter_type, string_type()), result_obj_new(0, value_string(ziman_xstrdup(msg))));
+        return value_result(type_ref(type_result(iter_type, string_type())), result_obj_new(0, value_string(ziman_xstrdup(msg))));
     }
     FILE *f = fopen(path, "rb");
 #ifdef ZIMAN_GC
@@ -430,7 +430,7 @@ static Value native_fs_chunks(Value *args, int argc, int line, int col) {
     it->next = chunks_next;
     it->release = chunks_release;
     it->state = st;
-    return value_result(type_result(iter_type, string_type()), result_obj_new(1, iter_make(it)));
+    return value_result(type_ref(type_result(iter_type, string_type())), result_obj_new(1, iter_make(it)));
 }
 
 /* fs.walk(dir): a lazy, depth-first iterator over the files under `dir`, each directory in sorted
@@ -489,7 +489,7 @@ static int walk_push(WalkState *st, const char *path) {
 
 static Value walk_item(int ok, char *text) {
     Type str = string_type();
-    return value_result(type_result(str, str), result_obj_new(ok, value_string(text)));
+    return value_result(type_ref(type_result(str, str)), result_obj_new(ok, value_string(text)));
 }
 
 static int walk_next(IterObj *it, Value *out) {
@@ -535,7 +535,7 @@ static Value native_fs_walk(Value *args, int argc, int line, int col) {
     it->next = walk_next;
     it->release = walk_release;
     it->state = st;
-    return value_result(type_result(iter_type, string_type()), result_obj_new(1, iter_make(it)));
+    return value_result(type_ref(type_result(iter_type, string_type())), result_obj_new(1, iter_make(it)));
 }
 
 void native_fs_register(void) {

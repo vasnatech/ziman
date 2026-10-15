@@ -90,7 +90,7 @@ static Value gc_copy_string(Arena *dest, const char *ptr, size_t len) {
     memcpy(buf, ptr, len);
     buf[len] = '\0';
     Value v;
-    v.type = type_scalar(TY_STRING);
+    v.type = type_scalar_ref(TY_STRING);
     v.as.str.ptr = buf;
     v.as.str.len = (uint32_t)len;
     v.as.str.term = 1;
@@ -113,7 +113,7 @@ static BigNum gc_copy_bignum_digits(Arena *dest, BigNum n) {
 static Value gc_copy_bigint(Arena *dest, GcDedup *dedup, BigNum *src) {
     BigNum *cached = dedup_get(dedup, src);
     Value v;
-    v.type = type_scalar(TY_BIGINT);
+    v.type = type_scalar_ref(TY_BIGINT);
     if (cached != NULL) {
         v.as.bi = cached;
         return v;
@@ -128,7 +128,7 @@ static Value gc_copy_bigint(Arena *dest, GcDedup *dedup, BigNum *src) {
 static Value gc_copy_decimal(Arena *dest, GcDedup *dedup, Decimal *src) {
     Decimal *cached = dedup_get(dedup, src);
     Value v;
-    v.type = type_scalar(TY_DECIMAL);
+    v.type = type_scalar_ref(TY_DECIMAL);
     if (cached != NULL) {
         v.as.dec = cached;
         return v;
@@ -155,7 +155,7 @@ static Value *gc_copy_value_array(Arena *dest, GcDedup *dedup, const Value *src,
     return copy;
 }
 
-static Value gc_copy_array(Arena *dest, GcDedup *dedup, ArrayObj *a, Type array_type) {
+static Value gc_copy_array(Arena *dest, GcDedup *dedup, ArrayObj *a, const Type *array_type) {
     ArrayObj *cached = dedup_get(dedup, a);
     Value v;
     v.type = array_type;
@@ -185,7 +185,7 @@ static Value gc_copy_array(Arena *dest, GcDedup *dedup, ArrayObj *a, Type array_
     return v;
 }
 
-static Value gc_copy_struct(Arena *dest, GcDedup *dedup, StructObj *st, Type struct_type) {
+static Value gc_copy_struct(Arena *dest, GcDedup *dedup, StructObj *st, const Type *struct_type) {
     StructObj *cached = dedup_get(dedup, st);
     Value v;
     v.type = struct_type;
@@ -204,7 +204,7 @@ static Value gc_copy_struct(Arena *dest, GcDedup *dedup, StructObj *st, Type str
     return v;
 }
 
-static Value gc_copy_result(Arena *dest, GcDedup *dedup, ResultObj *res, Type result_type) {
+static Value gc_copy_result(Arena *dest, GcDedup *dedup, ResultObj *res, const Type *result_type) {
     ResultObj *cached = dedup_get(dedup, res);
     Value v;
     v.type = result_type;
@@ -220,7 +220,7 @@ static Value gc_copy_result(Arena *dest, GcDedup *dedup, ResultObj *res, Type re
     return v;
 }
 
-static Value gc_copy_enum(Arena *dest, GcDedup *dedup, EnumObj *en, Type enum_type) {
+static Value gc_copy_enum(Arena *dest, GcDedup *dedup, EnumObj *en, const Type *enum_type) {
     EnumObj *cached = dedup_get(dedup, en);
     Value v;
     v.type = enum_type;
@@ -239,7 +239,7 @@ static Value gc_copy_enum(Arena *dest, GcDedup *dedup, EnumObj *en, Type enum_ty
     return v;
 }
 
-static Value gc_copy_closure(Arena *dest, GcDedup *dedup, ClosureObj *clo, Type func_type) {
+static Value gc_copy_closure(Arena *dest, GcDedup *dedup, ClosureObj *clo, const Type *func_type) {
     ClosureObj *cached = dedup_get(dedup, clo);
     Value v;
     v.type = func_type;
@@ -258,7 +258,7 @@ static Value gc_copy_closure(Arena *dest, GcDedup *dedup, ClosureObj *clo, Type 
 }
 
 static Value gc_copy_into(Arena *dest, GcDedup *dedup, Value v) {
-    switch (v.type.kind) {
+    switch (v.type->kind) {
         case TY_STRING:
             return gc_copy_string(dest, v.as.str.ptr, v.as.str.len);
         case TY_BIGINT:

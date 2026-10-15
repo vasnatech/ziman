@@ -136,7 +136,7 @@ static Env *g_global_env = NULL;
  * non-variadic function, so the common case costs nothing extra.
  * `tail_is_array_spread` is check_call's own recorded verdict for the
  * one genuinely ambiguous shape (exactly one trailing argument) --
- * NOT re-derived here from `args[fixed_count].type.kind == TY_ARRAY`,
+ * NOT re-derived here from `args[fixed_count].type->kind == TY_ARRAY`,
  * which used to be this function's own check and is wrong whenever the
  * variadic element type is itself an array (`MutableArray<[T]>`'s
  * `mutable_array_push<[T]>`, for instance: a single element of type `[T]` also
@@ -163,7 +163,7 @@ static Value *collapse_variadic_args(FunctionDecl *fn, Value *args, int argc, in
         for (int i = 0; i < tail_count; i++) {
             items[i] = args[fixed_count + i];
         }
-        tail = value_array(type_array(fn->params.items[fixed_count].type), array_obj_new(items, tail_count));
+        tail = value_array(type_ref(type_array(fn->params.items[fixed_count].type)), array_obj_new(items, tail_count));
     }
     Value *collapsed = ziman_xmalloc((size_t)fn->params.count * sizeof(Value));
     for (int i = 0; i < fixed_count; i++) {
@@ -450,7 +450,7 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
         Value *self_captured = fn->self_ncaptured > 0 ? ziman_xmalloc((size_t)fn->self_ncaptured * sizeof(Value)) : NULL;
         for (int i = 0; i < fn->self_ncaptured; i++) self_captured[i] = args[i];
         Value self_value = value_closure(fn, self_captured, fn->self_ncaptured);
-        env_define(env, fn->self_name, self_value.type, 0, self_value);
+        env_define(env, fn->self_name, *self_value.type, 0, self_value);
     }
     if (args != raw_args) free(args);
     ExecResult result = {CTRL_NONE, value_int(0)};
@@ -606,39 +606,39 @@ static Value call_str(Value arg) {
 }
 
 static Value call_len(Value v) {
-    if (v.type.kind == TY_STRING) {
+    if (v.type->kind == TY_STRING) {
         return value_int((int64_t)v.as.str.len);
     }
-    if (v.type.kind == TY_MAP || v.type.kind == TY_SET) return value_int(v.as.map->count);
+    if (v.type->kind == TY_MAP || v.type->kind == TY_SET) return value_int(v.as.map->count);
     /* One of the four builders: a struct over a thread-bound handle, so the length lives in the
      * handle's own table rather than in the struct (see prelude.h's ziman_builder_length). A
      * `Mutable<T>` cell holds exactly one value, which needs no asking. */
-    if (v.type.kind == TY_STRUCT) {
-        if (v.type.struct_name != NULL && strcmp(v.type.struct_name, "Mutable") == 0) return value_int(1);
+    if (v.type->kind == TY_STRUCT) {
+        if (v.type->struct_name != NULL && strcmp(v.type->struct_name, "Mutable") == 0) return value_int(1);
         return value_int(ziman_builder_length(v));
     }
     return value_int(v.as.arr->count);
 }
 
 static Value call_contains(Value first, Value second) {
-    if (first.type.kind == TY_STRING) {
+    if (first.type->kind == TY_STRING) {
         return value_bool(value_str_find(first.as.str.ptr, first.as.str.len, second.as.str.ptr, second.as.str.len, 0) >= 0);
     }
-    if (first.type.kind == TY_MAP || first.type.kind == TY_SET) {
+    if (first.type->kind == TY_MAP || first.type->kind == TY_SET) {
         Value ignored;
         return value_bool(mapobj_get(first.as.map, second, &ignored));
     }
     /* One of the four builders, or a `Mutable<T>` cell: the contents live behind the handle, not
      * in the struct. */
-    if (first.type.kind == TY_STRUCT) {
-        if (first.type.struct_name != NULL && strcmp(first.type.struct_name, "Mutable") == 0) {
+    if (first.type->kind == TY_STRUCT) {
+        if (first.type->struct_name != NULL && strcmp(first.type->struct_name, "Mutable") == 0) {
             return value_bool(ziman_cell_contains(first, second));
         }
         return value_bool(ziman_builder_contains(first, second));
     }
     ArrayObj *arr = first.as.arr;
     if (arr->bytes != NULL) {
-        if (second.type.kind != TY_BYTE) return value_bool(0);
+        if (second.type->kind != TY_BYTE) return value_bool(0);
         return value_bool(memchr(arr->bytes, second.as.by, (size_t)arr->count) != NULL);
     }
     for (int i = 0; i < arr->count; i++) {
@@ -661,7 +661,7 @@ static Value call_contains(Value first, Value second) {
 uint64_t value_hash(Value v) {
     ZIMAN_STACK_CHECK();
     uint64_t h;
-    switch (v.type.kind) {
+    switch (v.type->kind) {
         case TY_INT:
             h = (uint64_t)v.as.i;
             break;
@@ -709,7 +709,7 @@ uint64_t value_hash(Value v) {
         case TY_SET: {
             /* Order-independent (equal maps hash equal whatever their insertion order): the
              * entries' hashes are combined with a commutative sum. */
-            int is_map = v.type.kind == TY_MAP;
+            int is_map = v.type->kind == TY_MAP;
             Value *keys, *vals = NULL;
             mapobj_entries(v.as.map, &keys, is_map ? &vals : NULL);
             h = 1469598103934665603ULL ^ (uint64_t)v.as.map->count;
@@ -821,14 +821,14 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
 static int value_compare(Module *module, Value a, Value b, int line, int col) {
     ZIMAN_STACK_CHECK();
     /* Option<T>: None before every Some, Somes by payload. */
-    if (a.type.kind == TY_ENUM && a.type.enum_name != NULL && strcmp(a.type.enum_name, "Option") == 0) {
+    if (a.type->kind == TY_ENUM && a.type->enum_name != NULL && strcmp(a.type->enum_name, "Option") == 0) {
         int a_some = strcmp(a.as.en->variant_name, "Some") == 0;
         int b_some = strcmp(b.as.en->variant_name, "Some") == 0;
         if (a_some != b_some) return a_some ? 1 : -1;
         if (!a_some) return 0;
         return value_compare(module, a.as.en->payload, b.as.en->payload, line, col);
     }
-    switch (a.type.kind) {
+    switch (a.type->kind) {
         case TY_INT: return a.as.i < b.as.i ? -1 : (a.as.i > b.as.i ? 1 : 0);
         case TY_FLOAT: return cmp_float_values(a.as.f, b.as.f);
         case TY_STRING: return cmp_string_values(a, b);
@@ -852,7 +852,7 @@ static int value_compare(Module *module, Value a, Value b, int line, int col) {
         }
         case TY_ENUM:
         case TY_STRUCT: {
-            const char *type_name_str = a.type.kind == TY_STRUCT ? a.type.struct_name : a.type.enum_name;
+            const char *type_name_str = a.type->kind == TY_STRUCT ? a.type->struct_name : a.type->enum_name;
             char *fn_name = ziman_compare_function_name(type_name_str);
             FunctionDecl *fn = find_function(module, fn_name);
             if (fn == NULL) fn = find_function(module, ziman_compare_function_name_flat(type_name_str));
@@ -872,22 +872,22 @@ static int value_compare(Module *module, Value a, Value b, int line, int col) {
  * case uses, just for `<snake_type>_message` instead of `_compare`, and enums only (checked
  * already at type-check time by find_message_function, so `fn` is never NULL here). */
 static Value value_error_message(Module *module, Value e, int line, int col) {
-    char *fn_name = ziman_message_function_name(e.type.enum_name);
+    char *fn_name = ziman_message_function_name(e.type->enum_name);
     FunctionDecl *fn = find_function(module, fn_name);
-    if (fn == NULL) ziman_error("runtime", line, col, "internal error: no message function '%s' for %s", fn_name, e.type.enum_name);
+    if (fn == NULL) ziman_error("runtime", line, col, "internal error: no message function '%s' for %s", fn_name, e.type->enum_name);
     Value args[1] = {e};
     return call_function(module, fn, args, 1, 0, line, col);
 }
 
 static Value call_abs(Value x, int line, int col) {
-    if (x.type.kind == TY_INT) {
+    if (x.type->kind == TY_INT) {
         if (x.as.i == INT64_MIN) int_overflow(line, col, "abs");
         return value_int(x.as.i < 0 ? -x.as.i : x.as.i);
     }
-    if (x.type.kind == TY_BIGINT) {
+    if (x.type->kind == TY_BIGINT) {
         return value_bigint(bignum_abs(*x.as.bi));
     }
-    if (x.type.kind == TY_DECIMAL) {
+    if (x.type->kind == TY_DECIMAL) {
         return value_decimal(decimal_abs(*x.as.dec));
     }
     return value_float(x.as.f < 0 ? -x.as.f : x.as.f);
@@ -904,7 +904,7 @@ static Value call_abs(Value x, int line, int col) {
 static Value value_min_max(Module *module, Value *args, int argc, int want_min, int line, int col) {
     Value best;
     int n;
-    if (argc == 1 && args[0].type.kind == TY_ARRAY) {
+    if (argc == 1 && args[0].type->kind == TY_ARRAY) {
         ArrayObj *arr = args[0].as.arr;
         n = arr->count;
         if (n == 0) ziman_error("runtime", line, col, "'%s' of an empty array", want_min ? "min" : "max");
@@ -930,7 +930,7 @@ static Value value_min_max(Module *module, Value *args, int argc, int want_min, 
  * plain struct copy into the new buffer is safe precisely because ArrayObj
  * is immutable once built (see value.h) -- there's nothing to alias into. */
 static Value call_push(Type array_type, Value arr, Value x) {
-    return value_array(array_type, array_push(arr.as.arr, x));
+    return value_array(type_ref(array_type), array_push(arr.as.arr, x));
 }
 
 static Value call_insert(Type array_type, Value arr, Value idx, Value x, int line, int col) {
@@ -939,14 +939,14 @@ static Value call_insert(Type array_type, Value arr, Value idx, Value x, int lin
     if (i < 0 || i > old->count) {
         ziman_error("runtime", line, col, "insert index %lld out of bounds (array length %d)", (long long)i, old->count);
     }
-    if (array_pack_kind(old) != PK_NONE) return value_array(array_type, array_packed_edit(old, 1, (int)i, x));
+    if (array_pack_kind(old) != PK_NONE) return value_array(type_ref(array_type), array_packed_edit(old, 1, (int)i, x));
     int new_count = old->count + 1;
     Value *items = ziman_xmalloc((size_t)new_count * sizeof(Value));
     memcpy(items, old->boxed_items, (size_t)i * sizeof(Value));
     items[i] = x;
     memcpy(items + i + 1, old->boxed_items + i, (size_t)(old->count - (int)i) * sizeof(Value));
     ArrayObj *packed = old->count == 0 ? array_try_pack(items, new_count) : NULL;
-    return value_array(array_type, packed != NULL ? packed : array_obj_new(items, new_count));
+    return value_array(type_ref(array_type), packed != NULL ? packed : array_obj_new(items, new_count));
 }
 
 static Value call_set(Type array_type, Value arr, Value idx, Value x, int line, int col) {
@@ -955,11 +955,11 @@ static Value call_set(Type array_type, Value arr, Value idx, Value x, int line, 
     if (i < 0 || i >= old->count) {
         ziman_error("runtime", line, col, "set index %lld out of bounds (array length %d)", (long long)i, old->count);
     }
-    if (array_pack_kind(old) != PK_NONE) return value_array(array_type, array_packed_edit(old, 2, (int)i, x));
+    if (array_pack_kind(old) != PK_NONE) return value_array(type_ref(array_type), array_packed_edit(old, 2, (int)i, x));
     Value *items = ziman_xmalloc((size_t)old->count * sizeof(Value));
     memcpy(items, old->boxed_items, (size_t)old->count * sizeof(Value));
     items[i] = x;
-    return value_array(array_type, array_obj_new(items, old->count));
+    return value_array(type_ref(array_type), array_obj_new(items, old->count));
 }
 
 static Value call_remove(Type array_type, Value arr, Value idx, int line, int col) {
@@ -968,24 +968,24 @@ static Value call_remove(Type array_type, Value arr, Value idx, int line, int co
     if (i < 0 || i >= old->count) {
         ziman_error("runtime", line, col, "remove index %lld out of bounds (array length %d)", (long long)i, old->count);
     }
-    if (array_pack_kind(old) != PK_NONE) return value_array(array_type, array_packed_edit(old, 3, (int)i, value_int(0)));
+    if (array_pack_kind(old) != PK_NONE) return value_array(type_ref(array_type), array_packed_edit(old, 3, (int)i, value_int(0)));
     int new_count = old->count - 1;
     Value *items = ziman_xmalloc((size_t)new_count * sizeof(Value));
     memcpy(items, old->boxed_items, (size_t)i * sizeof(Value));
     memcpy(items + i, old->boxed_items + i + 1, (size_t)(new_count - (int)i) * sizeof(Value));
-    return value_array(array_type, array_obj_new(items, new_count));
+    return value_array(type_ref(array_type), array_obj_new(items, new_count));
 }
 
 static Value call_ok(Type result_type, Value x) {
-    return value_result(result_type, result_obj_new(1, x));
+    return value_result(type_ref(result_type), result_obj_new(1, x));
 }
 
 static Value call_err(Type result_type, Value e) {
-    return value_result(result_type, result_obj_new(0, e));
+    return value_result(type_ref(result_type), result_obj_new(0, e));
 }
 
 static Value call_some(Type option_type, Value x) {
-    return value_enum(option_type, enum_obj_new("Option", "Some", 1, x));
+    return value_enum(type_ref(option_type), enum_obj_new("Option", "Some", 1, x));
 }
 
 static Value call_is_ok(Value r) {
@@ -1017,7 +1017,7 @@ static Value call_unwrap_err(Value r, int line, int col) {
  * binary value), a decimal half-up like decimal_round. */
 static char *format_placeholder(Value v, int precision) {
     if (precision < 0) return value_display(v);
-    if (v.type.kind == TY_DECIMAL) return decimal_to_string(decimal_round(*v.as.dec, precision));
+    if (v.type->kind == TY_DECIMAL) return decimal_to_string(decimal_round(*v.as.dec, precision));
     int len = snprintf(NULL, 0, "%.*f", precision, v.as.f);
     char *out = zalloc_atomic((size_t)len + 1);
     snprintf(out, (size_t)len + 1, "%.*f", precision, v.as.f);
@@ -1072,63 +1072,63 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
 
     switch (e->as.binary.op) {
         case OP_ADD:
-            if (l.type.kind == TY_INT) {
+            if (l.type->kind == TY_INT) {
                 int64_t sum;
                 if (__builtin_add_overflow(l.as.i, r.as.i, &sum)) int_overflow(e->line, e->col, "+");
                 return value_int(sum);
             }
-            if (l.type.kind == TY_BIGINT) return value_bigint(bignum_add(*l.as.bi, *r.as.bi));
-            if (l.type.kind == TY_DECIMAL) return value_decimal(decimal_add(*l.as.dec, *r.as.dec));
+            if (l.type->kind == TY_BIGINT) return value_bigint(bignum_add(*l.as.bi, *r.as.bi));
+            if (l.type->kind == TY_DECIMAL) return value_decimal(decimal_add(*l.as.dec, *r.as.dec));
             return value_float(l.as.f + r.as.f);
         case OP_SUB:
-            if (l.type.kind == TY_INT) {
+            if (l.type->kind == TY_INT) {
                 int64_t diff;
                 if (__builtin_sub_overflow(l.as.i, r.as.i, &diff)) int_overflow(e->line, e->col, "-");
                 return value_int(diff);
             }
-            if (l.type.kind == TY_BIGINT) return value_bigint(bignum_sub(*l.as.bi, *r.as.bi));
-            if (l.type.kind == TY_DECIMAL) return value_decimal(decimal_sub(*l.as.dec, *r.as.dec));
+            if (l.type->kind == TY_BIGINT) return value_bigint(bignum_sub(*l.as.bi, *r.as.bi));
+            if (l.type->kind == TY_DECIMAL) return value_decimal(decimal_sub(*l.as.dec, *r.as.dec));
             return value_float(l.as.f - r.as.f);
         case OP_MUL:
-            if (l.type.kind == TY_INT) {
+            if (l.type->kind == TY_INT) {
                 int64_t product;
                 if (__builtin_mul_overflow(l.as.i, r.as.i, &product)) int_overflow(e->line, e->col, "*");
                 return value_int(product);
             }
-            if (l.type.kind == TY_BIGINT) return value_bigint(bignum_mul(*l.as.bi, *r.as.bi));
-            if (l.type.kind == TY_DECIMAL) return value_decimal(decimal_mul(*l.as.dec, *r.as.dec));
+            if (l.type->kind == TY_BIGINT) return value_bigint(bignum_mul(*l.as.bi, *r.as.bi));
+            if (l.type->kind == TY_DECIMAL) return value_decimal(decimal_mul(*l.as.dec, *r.as.dec));
             return value_float(l.as.f * r.as.f);
         case OP_DIV:
-            if (l.type.kind == TY_INT) {
+            if (l.type->kind == TY_INT) {
                 if (r.as.i == 0) ziman_error("runtime", e->line, e->col, "division by zero");
                 if (l.as.i == INT64_MIN && r.as.i == -1) int_overflow(e->line, e->col, "/");
                 return value_int(l.as.i / r.as.i);
             }
-            if (l.type.kind == TY_BIGINT) {
+            if (l.type->kind == TY_BIGINT) {
                 if (bignum_is_zero(*r.as.bi)) ziman_error("runtime", e->line, e->col, "division by zero");
                 BigNum quot, rem;
                 bignum_divmod(*l.as.bi, *r.as.bi, &quot, &rem);
                 return value_bigint(quot);
             }
-            if (l.type.kind == TY_DECIMAL) {
+            if (l.type->kind == TY_DECIMAL) {
                 if (decimal_is_zero(*r.as.dec)) ziman_error("runtime", e->line, e->col, "division by zero");
                 return value_decimal(decimal_div(*l.as.dec, *r.as.dec));
             }
             if (r.as.f == 0.0) ziman_error("runtime", e->line, e->col, "division by zero");
             return value_float(l.as.f / r.as.f);
         case OP_MOD:
-            if (l.type.kind == TY_INT) {
+            if (l.type->kind == TY_INT) {
                 if (r.as.i == 0) ziman_error("runtime", e->line, e->col, "division by zero");
                 if (r.as.i == -1) return value_int(0);
                 return value_int(l.as.i % r.as.i);
             }
-            if (l.type.kind == TY_BIGINT) {
+            if (l.type->kind == TY_BIGINT) {
                 if (bignum_is_zero(*r.as.bi)) ziman_error("runtime", e->line, e->col, "division by zero");
                 BigNum quot, rem;
                 bignum_divmod(*l.as.bi, *r.as.bi, &quot, &rem);
                 return value_bigint(rem);
             }
-            if (l.type.kind == TY_DECIMAL) {
+            if (l.type->kind == TY_DECIMAL) {
                 if (decimal_is_zero(*r.as.dec)) ziman_error("runtime", e->line, e->col, "division by zero");
                 return value_decimal(decimal_mod(*l.as.dec, *r.as.dec));
             }
@@ -1137,32 +1137,32 @@ static Value eval_binary(Module *module, Env *env, Expr *e) {
         case OP_EQ: return value_bool(value_equals(l, r));
         case OP_NEQ: return value_bool(!value_equals(l, r));
         case OP_LT:
-            if (l.type.kind == TY_STRING) return value_bool(cmp_string_values(l, r) < 0);
-            if (l.type.kind == TY_BYTE) return value_bool(l.as.by < r.as.by);
-            if (l.type.kind == TY_INT) return value_bool(l.as.i < r.as.i);
-            if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) < 0);
-            if (l.type.kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) < 0);
+            if (l.type->kind == TY_STRING) return value_bool(cmp_string_values(l, r) < 0);
+            if (l.type->kind == TY_BYTE) return value_bool(l.as.by < r.as.by);
+            if (l.type->kind == TY_INT) return value_bool(l.as.i < r.as.i);
+            if (l.type->kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) < 0);
+            if (l.type->kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) < 0);
             return value_bool(l.as.f < r.as.f);
         case OP_GT:
-            if (l.type.kind == TY_STRING) return value_bool(cmp_string_values(l, r) > 0);
-            if (l.type.kind == TY_BYTE) return value_bool(l.as.by > r.as.by);
-            if (l.type.kind == TY_INT) return value_bool(l.as.i > r.as.i);
-            if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) > 0);
-            if (l.type.kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) > 0);
+            if (l.type->kind == TY_STRING) return value_bool(cmp_string_values(l, r) > 0);
+            if (l.type->kind == TY_BYTE) return value_bool(l.as.by > r.as.by);
+            if (l.type->kind == TY_INT) return value_bool(l.as.i > r.as.i);
+            if (l.type->kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) > 0);
+            if (l.type->kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) > 0);
             return value_bool(l.as.f > r.as.f);
         case OP_LE:
-            if (l.type.kind == TY_STRING) return value_bool(cmp_string_values(l, r) <= 0);
-            if (l.type.kind == TY_BYTE) return value_bool(l.as.by <= r.as.by);
-            if (l.type.kind == TY_INT) return value_bool(l.as.i <= r.as.i);
-            if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) <= 0);
-            if (l.type.kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) <= 0);
+            if (l.type->kind == TY_STRING) return value_bool(cmp_string_values(l, r) <= 0);
+            if (l.type->kind == TY_BYTE) return value_bool(l.as.by <= r.as.by);
+            if (l.type->kind == TY_INT) return value_bool(l.as.i <= r.as.i);
+            if (l.type->kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) <= 0);
+            if (l.type->kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) <= 0);
             return value_bool(l.as.f <= r.as.f);
         case OP_GE:
-            if (l.type.kind == TY_STRING) return value_bool(cmp_string_values(l, r) >= 0);
-            if (l.type.kind == TY_BYTE) return value_bool(l.as.by >= r.as.by);
-            if (l.type.kind == TY_INT) return value_bool(l.as.i >= r.as.i);
-            if (l.type.kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) >= 0);
-            if (l.type.kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) >= 0);
+            if (l.type->kind == TY_STRING) return value_bool(cmp_string_values(l, r) >= 0);
+            if (l.type->kind == TY_BYTE) return value_bool(l.as.by >= r.as.by);
+            if (l.type->kind == TY_INT) return value_bool(l.as.i >= r.as.i);
+            if (l.type->kind == TY_BIGINT) return value_bool(bignum_compare(*l.as.bi, *r.as.bi) >= 0);
+            if (l.type->kind == TY_DECIMAL) return value_bool(decimal_compare(*l.as.dec, *r.as.dec) >= 0);
             return value_bool(l.as.f >= r.as.f);
         default:
             ziman_error("runtime", e->line, e->col, "internal error: unhandled binary operator");
@@ -1184,7 +1184,7 @@ static Value eval_enum_access(Module *module, Env *env, Expr *e) {
         if (strcmp(v->name, member) != 0) continue;
         Value payload = v->has_payload ? eval_expr(module, env, e->as.enum_access.args.items[0]) : value_int(0);
         EnumObj *obj = enum_obj_new(decl->name, v->name, v->has_payload, payload);
-        return value_enum(e->resolved_type, obj);
+        return value_enum(&e->resolved_type, obj);
     }
 
     Value arg = eval_expr(module, env, e->as.enum_access.args.items[0]);
@@ -1226,12 +1226,12 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         case EXPR_UNARY: {
             Value v = eval_expr(module, env, e->as.unary.operand);
             if (e->as.unary.op == OP_NEG) {
-                if (v.type.kind == TY_INT) {
+                if (v.type->kind == TY_INT) {
                     if (v.as.i == INT64_MIN) int_overflow(e->line, e->col, "-");
                     return value_int(-v.as.i);
                 }
-                if (v.type.kind == TY_BIGINT) return value_bigint(bignum_negate(*v.as.bi));
-                if (v.type.kind == TY_DECIMAL) return value_decimal(decimal_negate(*v.as.dec));
+                if (v.type->kind == TY_BIGINT) return value_bigint(bignum_negate(*v.as.bi));
+                if (v.type->kind == TY_DECIMAL) return value_decimal(decimal_negate(*v.as.dec));
                 return value_float(-v.as.f);
             }
             return value_bool(!v.as.b);
@@ -1302,7 +1302,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 FunctionDecl *fn = (FunctionDecl *)e->call_fn;
                 result = call_function(module, fn, args, argc, e->as.call.variadic_tail_is_array_spread, e->line, e->col);
                 if (fn->is_native && fn->type_params.count > 0 && e->resolved_type.kind != TY_TYPEVAR) {
-                    result.type = e->resolved_type;
+                    result.type = &e->resolved_type;
                 }
             } else if (strcmp(e->as.call.callee, "print") == 0) {
                 result = call_print(args[0]);
@@ -1318,29 +1318,29 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (strcmp(e->as.call.callee, "len") == 0) {
                 result = call_len(args[0]);
             } else if (strcmp(e->as.call.callee, "mutable_array_push_all") == 0) {
-                ziman_mutable_array_push_all(args[0], args[1], args[1].type.kind == TY_STRUCT);
+                ziman_mutable_array_push_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
                 result = value_int(0);
             } else if (strcmp(e->as.call.callee, "mutable_map_set_all") == 0) {
-                ziman_mutable_map_set_all(args[0], args[1], args[1].type.kind == TY_STRUCT);
+                ziman_mutable_map_set_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
                 result = value_int(0);
             } else if (strcmp(e->as.call.callee, "mutable_set_union") == 0 ||
                        strcmp(e->as.call.callee, "mutable_set_intersect") == 0 ||
                        strcmp(e->as.call.callee, "mutable_set_difference") == 0) {
                 int op = e->as.call.callee[12] == 'u' ? 0 : e->as.call.callee[12] == 'i' ? 1 : 2;
-                ziman_mutable_set_combine(args[0], args[1], args[1].type.kind == TY_STRUCT, op);
+                ziman_mutable_set_combine(args[0], args[1], args[1].type->kind == TY_STRUCT, op);
                 result = value_int(0);
             } else if (strcmp(e->as.call.callee, "mutable_set_is_subset") == 0) {
-                result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type.kind == TY_STRUCT));
+                result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type->kind == TY_STRUCT));
             } else if (strcmp(e->as.call.callee, "mutable_array_from") == 0) {
-                result = ziman_mutable_array_from(args[0], args[0].type.kind == TY_STRUCT);
-                result.type = e->resolved_type;
+                result = ziman_mutable_array_from(args[0], args[0].type->kind == TY_STRUCT);
+                result.type = &e->resolved_type;
             } else if (strcmp(e->as.call.callee, "mutable_map_from") == 0 ||
                        strcmp(e->as.call.callee, "mutable_set_from") == 0) {
                 result = ziman_mutable_map_from(args[0], e->as.call.callee[8] == 's');
-                result.type = e->resolved_type;
+                result.type = &e->resolved_type;
             } else if (strcmp(e->as.call.callee, "mutable_set_from_array") == 0) {
-                result = ziman_mutable_set_from_array(args[0], args[0].type.kind == TY_STRUCT);
-                result.type = e->resolved_type;
+                result = ziman_mutable_set_from_array(args[0], args[0].type->kind == TY_STRUCT);
+                result.type = &e->resolved_type;
             } else if (strcmp(e->as.call.callee, "clear") == 0) {
                 ziman_builder_clear(args[0]);
                 result = value_int(0); /* void return, as `send` and the other effects do */
@@ -1349,21 +1349,21 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 /* The natives behind it tag their result TY_VOID or a placeholder element type, so
                  * the call's own resolved type is what makes it an `[int]` rather than an array of
                  * nothing -- the same patch the plain-call path applies to any generic native. */
-                result.type = e->resolved_type;
+                result.type = &e->resolved_type;
             } else if (strcmp(e->as.call.callee, "push") == 0) {
                 result = call_push(e->resolved_type, args[0], args[1]);
             } else if ((strcmp(e->as.call.callee, "set") == 0 || strcmp(e->as.call.callee, "insert") == 0) &&
-                       (args[0].type.kind == TY_MAP || args[0].type.kind == TY_SET)) {
-                Value stored = args[0].type.kind == TY_MAP ? args[2] : value_int(0);
+                       (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
+                Value stored = args[0].type->kind == TY_MAP ? args[2] : value_int(0);
                 result = value_map(args[0].type, mapobj_set(args[0].as.map, args[1], stored));
-            } else if (strcmp(e->as.call.callee, "remove") == 0 && (args[0].type.kind == TY_MAP || args[0].type.kind == TY_SET)) {
+            } else if (strcmp(e->as.call.callee, "remove") == 0 && (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
                 result = value_map(args[0].type, mapobj_remove(args[0].as.map, args[1]));
             } else if (strcmp(e->as.call.callee, "map_get") == 0) {
                 Value found;
                 if (mapobj_get(args[0].as.map, args[1], &found)) {
-                    result = value_enum(e->resolved_type, enum_obj_new("Option", "Some", 1, found));
+                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, found));
                 } else {
-                    result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
             } else if (strcmp(e->as.call.callee, "map_get_or") == 0) {
                 Value found;
@@ -1371,7 +1371,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (strcmp(e->as.call.callee, "map_merge") == 0 || strcmp(e->as.call.callee, "set_union") == 0) {
                 MapObj *m = args[0].as.map;
                 Value *keys, *vals = NULL;
-                int is_map = args[1].type.kind == TY_MAP;
+                int is_map = args[1].type->kind == TY_MAP;
                 mapobj_entries(args[1].as.map, &keys, is_map ? &vals : NULL);
                 for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_set(m, keys[i], is_map ? vals[i] : value_int(0));
                 result = value_map(args[0].type, m);
@@ -1393,7 +1393,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 for (int i = 0; i < args[0].as.map->count && subset; i++) subset = mapobj_get(args[1].as.map, keys[i], &ignored);
                 result = value_bool(subset);
             } else if (strcmp(e->as.call.callee, "map_filter") == 0 || strcmp(e->as.call.callee, "set_filter") == 0) {
-                int is_map = args[0].type.kind == TY_MAP;
+                int is_map = args[0].type->kind == TY_MAP;
                 Value *keys, *vals = NULL;
                 mapobj_entries(args[0].as.map, &keys, is_map ? &vals : NULL);
                 ClosureObj *clo = args[1].as.clo;
@@ -1431,21 +1431,21 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (strcmp(e->as.call.callee, "set_from_array") == 0) {
                 MapObj *m = mapobj_empty();
                 for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), value_int(0));
-                result = value_map(e->resolved_type, m);
+                result = value_map(&e->resolved_type, m);
             } else if (strcmp(e->as.call.callee, "map_from_arrays") == 0) {
                 if (args[0].as.arr->count != args[1].as.arr->count) {
                     ziman_error("runtime", e->line, e->col, "map_from_arrays: %d keys but %d values", args[0].as.arr->count, args[1].as.arr->count);
                 }
                 MapObj *m = mapobj_empty();
                 for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), array_get(args[1].as.arr, i));
-                result = value_map(e->resolved_type, m);
+                result = value_map(&e->resolved_type, m);
             } else if (strcmp(e->as.call.callee, "map_keys") == 0) {
                 /* the key set, in the map's insertion order */
                 Value *keys;
                 mapobj_entries(args[0].as.map, &keys, NULL);
                 MapObj *ks = mapobj_empty();
                 for (int i = 0; i < args[0].as.map->count; i++) ks = mapobj_set(ks, keys[i], value_int(0));
-                result = value_map(e->resolved_type, ks);
+                result = value_map(&e->resolved_type, ks);
             } else if (strcmp(e->as.call.callee, "map_values") == 0 || strcmp(e->as.call.callee, "set_items") == 0) {
                 int want_values = e->as.call.callee[0] == 'm';
                 Value *keys, *vals;
@@ -1453,14 +1453,14 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 int n = args[0].as.map->count;
                 Value *items = want_values ? vals : keys;
                 ArrayObj *packed = array_try_pack(items, n);
-                result = value_array(e->resolved_type, packed != NULL ? packed : array_obj_new(items, n));
+                result = value_array(&e->resolved_type, packed != NULL ? packed : array_obj_new(items, n));
             } else if (strcmp(e->as.call.callee, "$map_lit") == 0 || strcmp(e->as.call.callee, "$set_lit") == 0) {
                 int is_map = e->as.call.callee[1] == 'm';
                 MapObj *m = mapobj_empty();
                 for (int i = 0; i < argc; i += is_map ? 2 : 1) {
                     m = mapobj_set(m, args[i], is_map ? args[i + 1] : value_int(0));
                 }
-                result = value_map(e->resolved_type, m);
+                result = value_map(&e->resolved_type, m);
             } else if (strcmp(e->as.call.callee, "insert") == 0) {
                 result = call_insert(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
             } else if (strcmp(e->as.call.callee, "set") == 0) {
@@ -1474,7 +1474,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (strcmp(e->as.call.callee, "Some") == 0) {
                 result = call_some(e->resolved_type, args[0]);
             } else if (strcmp(e->as.call.callee, "None") == 0) {
-                result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
             } else if (strcmp(e->as.call.callee, "is_ok") == 0) {
                 result = call_is_ok(args[0]);
             } else if (strcmp(e->as.call.callee, "unwrap") == 0) {
@@ -1512,7 +1512,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     }
                     limit = (int)args[0].as.i;
                 }
-                result = value_channel(e->resolved_type, channel_obj_new(limit));
+                result = value_channel(&e->resolved_type, channel_obj_new(limit));
             } else if (strcmp(e->as.call.callee, "send") == 0) {
                 /* Deep-copied, not aliased -- see value_copy.h's own comment on why (one thread's
                  * memory must not depend on another's lifetime) and channel_send's own on
@@ -1537,9 +1537,9 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (strcmp(e->as.call.callee, "try_receive") == 0) {
                 Value got;
                 if (channel_try_receive(args[0].as.ch, &got)) {
-                    result = value_enum(e->resolved_type, enum_obj_new("Option", "Some", 1, got));
+                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, got));
                 } else {
-                    result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
             } else if (strcmp(e->as.call.callee, "receive") == 0) {
                 Value got;
@@ -1551,22 +1551,22 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (strcmp(e->as.call.callee, "receive_option") == 0) {
                 Value got;
                 if (channel_receive(args[0].as.ch, &got)) {
-                    result = value_enum(e->resolved_type, enum_obj_new("Option", "Some", 1, got));
+                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, got));
                 } else {
-                    result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
             } else if (strcmp(e->as.call.callee, "receive_timeout") == 0) {
                 Value got;
                 if (channel_receive_timeout(args[0].as.ch, args[1].as.i, &got)) {
-                    result = value_enum(e->resolved_type, enum_obj_new("Option", "Some", 1, got));
+                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, got));
                 } else {
-                    result = value_enum(e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
             } else if (strcmp(e->as.call.callee, "select2") == 0) {
                 Value got;
                 int first;
                 channel_select2(args[0].as.ch, args[1].as.ch, &first, &got);
-                result = value_enum(e->resolved_type, enum_obj_new("Selected", first ? "First" : "Second", 1, got));
+                result = value_enum(&e->resolved_type, enum_obj_new("Selected", first ? "First" : "Second", 1, got));
             } else {
                 FunctionDecl *fn = (FunctionDecl *)e->call_fn;
                 result = call_function(module, fn, args, argc, e->as.call.variadic_tail_is_array_spread, e->line, e->col);
@@ -1597,7 +1597,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                  * still the placeholder `T`, while the Value such a native hands back (one it was
                  * given earlier, not built) already carries its true runtime type. */
                 if (fn->is_native && fn->type_params.count > 0 && e->resolved_type.kind != TY_TYPEVAR) {
-                    result.type = e->resolved_type;
+                    result.type = &e->resolved_type;
                 }
             }
             /* Only a heap one is freed -- `free` is a no-op under the collector, but the plain build
@@ -1609,15 +1609,15 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
         }
         case EXPR_CAST: {
             Value v = eval_expr(module, env, e->as.cast.operand);
-            if ((e->as.cast.target_type.kind == TY_BIGINT || e->as.cast.target_type.kind == TY_DECIMAL) && v.type.kind == TY_FLOAT &&
+            if ((e->as.cast.target_type.kind == TY_BIGINT || e->as.cast.target_type.kind == TY_DECIMAL) && v.type->kind == TY_FLOAT &&
                 (isnan(v.as.f) || isinf(v.as.f))) {
                 ziman_error("runtime", e->line, e->col, "cannot convert %s to %s", isnan(v.as.f) ? "NaN" : "infinity",
                             e->as.cast.target_type.kind == TY_BIGINT ? "bigint" : "decimal");
             }
             TypeKind to = e->as.cast.target_type.kind;
             if (to == TY_FLOAT) {
-                if (v.type.kind == TY_INT) return value_float((double)v.as.i);
-                if (v.type.kind == TY_BIGINT) {
+                if (v.type->kind == TY_INT) return value_float((double)v.as.i);
+                if (v.type->kind == TY_BIGINT) {
                     /* Lossy in the digits, as `as float` always is, but not in the magnitude. This
                      * went through a saturating int64 round trip until 2026-10-06, which reported
                      * 9.2e18 for a bigint of 1.2e29 -- the previous comment reasoned that a huge
@@ -1626,19 +1626,19 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                      * the same way decimal_to_double already did. */
                     return value_float(bignum_to_double(*v.as.bi));
                 }
-                if (v.type.kind == TY_DECIMAL) return value_float(decimal_to_double(*v.as.dec));
+                if (v.type->kind == TY_DECIMAL) return value_float(decimal_to_double(*v.as.dec));
                 return value_float(v.as.f);
             }
             if (to == TY_BIGINT) {
-                if (v.type.kind == TY_INT) return value_bigint(bignum_from_i64(v.as.i));
-                if (v.type.kind == TY_FLOAT) return value_bigint(decimal_to_bignum_trunc(decimal_from_double_trunc(v.as.f)));
-                if (v.type.kind == TY_DECIMAL) return value_bigint(decimal_to_bignum_trunc(*v.as.dec));
+                if (v.type->kind == TY_INT) return value_bigint(bignum_from_i64(v.as.i));
+                if (v.type->kind == TY_FLOAT) return value_bigint(decimal_to_bignum_trunc(decimal_from_double_trunc(v.as.f)));
+                if (v.type->kind == TY_DECIMAL) return value_bigint(decimal_to_bignum_trunc(*v.as.dec));
                 return value_bigint(*v.as.bi); /* bigint as bigint: no-op */
             }
             if (to == TY_DECIMAL) {
-                if (v.type.kind == TY_INT) return value_decimal(decimal_from_bignum(bignum_from_i64(v.as.i)));
-                if (v.type.kind == TY_FLOAT) return value_decimal(decimal_from_double_trunc(v.as.f));
-                if (v.type.kind == TY_BIGINT) return value_decimal(decimal_from_bignum(*v.as.bi));
+                if (v.type->kind == TY_INT) return value_decimal(decimal_from_bignum(bignum_from_i64(v.as.i)));
+                if (v.type->kind == TY_FLOAT) return value_decimal(decimal_from_double_trunc(v.as.f));
+                if (v.type->kind == TY_BIGINT) return value_decimal(decimal_from_bignum(*v.as.bi));
                 return value_decimal(*v.as.dec); /* decimal as decimal: no-op */
             }
             if (to == TY_BYTE) {
@@ -1651,10 +1651,10 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 return value_byte((int)iv);
             }
             /* target is TY_INT */
-            if (v.type.kind == TY_FLOAT) return value_int(float_to_int_saturating(v.as.f));
-            if (v.type.kind == TY_BIGINT) return value_int(bignum_to_i64_saturating(*v.as.bi));
-            if (v.type.kind == TY_DECIMAL) return value_int(bignum_to_i64_saturating(decimal_to_bignum_trunc(*v.as.dec)));
-            if (v.type.kind == TY_BYTE) return value_int((int64_t)v.as.by);
+            if (v.type->kind == TY_FLOAT) return value_int(float_to_int_saturating(v.as.f));
+            if (v.type->kind == TY_BIGINT) return value_int(bignum_to_i64_saturating(*v.as.bi));
+            if (v.type->kind == TY_DECIMAL) return value_int(bignum_to_i64_saturating(decimal_to_bignum_trunc(*v.as.dec)));
+            if (v.type->kind == TY_BYTE) return value_int((int64_t)v.as.by);
             return value_int(v.as.i);
         }
         case EXPR_ARRAY_LIT: {
@@ -1666,8 +1666,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             }
             gc_unsafe_leave();
             ArrayObj *packed = array_try_pack(items, count);
-            if (packed != NULL) return value_array(e->resolved_type, packed);
-            return value_array(e->resolved_type, array_obj_new(items, count));
+            if (packed != NULL) return value_array(&e->resolved_type, packed);
+            return value_array(&e->resolved_type, array_obj_new(items, count));
         }
         case EXPR_INDEX: {
             Value arr = eval_expr(module, env, e->as.index.array);
@@ -1696,7 +1696,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 fields[i] = eval_expr(module, env, value_expr);
             }
             gc_unsafe_leave();
-            return value_struct(e->resolved_type, struct_obj_new(names, fields, count));
+            return value_struct(&e->resolved_type, struct_obj_new(names, fields, count));
         }
         case EXPR_FIELD_ACCESS: {
             if (e->fn_ref != NULL) return value_function((FunctionDecl *)e->fn_ref);
@@ -1732,7 +1732,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             gc_unsafe_leave();
             /* Reuses old->field_names directly (same struct type, same
              * field order) -- never mutates `old`, so sharing it is safe. */
-            return value_struct(e->resolved_type, struct_obj_new(old->field_names, fields, count));
+            return value_struct(&e->resolved_type, struct_obj_new(old->field_names, fields, count));
         }
         case EXPR_ENUM_ACCESS:
             return eval_enum_access(module, env, e);
@@ -1785,7 +1785,7 @@ static ExecResult no_ctrl(void) {
 static int eval_try_unwrap(Module *module, Env *env, Expr *e, Value *unwrapped, ExecResult *propagated) {
     Value v = eval_expr(module, env, e->as.try_unwrap.inner);
     Type propagated_type = e->as.try_unwrap.propagated_type;
-    if (v.type.kind == TY_RESULT) {
+    if (v.type->kind == TY_RESULT) {
         if (v.as.res->is_ok) {
             *unwrapped = v.as.res->value;
             return 1;
@@ -1793,9 +1793,9 @@ static int eval_try_unwrap(Module *module, Env *env, Expr *e, Value *unwrapped, 
         propagated->kind = CTRL_RETURN;
         Value failure = v.as.res->value;
         if (e->as.try_unwrap.convert_variant != NULL) {
-            failure = value_enum(*propagated_type.elem_err, enum_obj_new(propagated_type.elem_err->enum_name, e->as.try_unwrap.convert_variant, 1, failure));
+            failure = value_enum(type_ref(*propagated_type.elem_err), enum_obj_new(propagated_type.elem_err->enum_name, e->as.try_unwrap.convert_variant, 1, failure));
         }
-        propagated->value = value_result(propagated_type, result_obj_new(0, failure));
+        propagated->value = value_result(type_ref(propagated_type), result_obj_new(0, failure));
         return 0;
     }
     /* Option<T> -- the only other type check_try_unwrap ever allows. */
@@ -1804,7 +1804,7 @@ static int eval_try_unwrap(Module *module, Env *env, Expr *e, Value *unwrapped, 
         return 1;
     }
     propagated->kind = CTRL_RETURN;
-    propagated->value = value_enum(propagated_type, enum_obj_new("Option", "None", 0, value_int(0)));
+    propagated->value = value_enum(type_ref(propagated_type), enum_obj_new("Option", "None", 0, value_int(0)));
     return 0;
 }
 
@@ -2004,12 +2004,12 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 if (!eval_try_unwrap(module, env, s->as.decl.init, &unwrapped, &propagated)) {
                     return propagated;
                 }
-                Type t = s->as.decl.has_declared_type ? s->as.decl.declared_type : unwrapped.type;
+                Type t = s->as.decl.has_declared_type ? s->as.decl.declared_type : *unwrapped.type;
                 env_define(env, s->as.decl.name, t, s->kind == STMT_VAR, unwrapped);
                 return no_ctrl();
             }
             Value v = eval_expr(module, env, s->as.decl.init);
-            Type t = s->as.decl.has_declared_type ? s->as.decl.declared_type : v.type;
+            Type t = s->as.decl.has_declared_type ? s->as.decl.declared_type : *v.type;
             env_define(env, s->as.decl.name, t, s->kind == STMT_VAR, v);
             return no_ctrl();
         }
@@ -2078,7 +2078,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             }
 
             Value iterable = eval_expr(module, env, s->as.for_stmt.iterable);
-            if (iterable.type.kind == TY_STRUCT && iterable.type.struct_name != NULL && strcmp(iterable.type.struct_name, "Iter") == 0) {
+            if (iterable.type->kind == TY_STRUCT && iterable.type->struct_name != NULL && strcmp(iterable.type->struct_name, "Iter") == 0) {
                 /* a lazy source: ask for one item at a time, and release it however the loop is left */
                 int64_t handle = iter_handle_of(iterable);
                 Type item_type = s->as.for_stmt.iterable->resolved_type.type_args.items[0];
@@ -2107,8 +2107,8 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 env_pool_release(scope);
                 return no_ctrl();
             }
-            if (iterable.type.kind == TY_STRUCT && iterable.type.struct_name != NULL &&
-                strcmp(iterable.type.struct_name, "MutableArray") == 0) {
+            if (iterable.type->kind == TY_STRUCT && iterable.type->struct_name != NULL &&
+                strcmp(iterable.type->struct_name, "MutableArray") == 0) {
                 /* The live buffer, by index, re-reading its length every pass: a body that appends sees its
                  * own additions (as it would in the array this is becoming) and one that clears ends the
                  * loop, and neither can read past the end. Nothing is copied, which is the whole reason a
@@ -2130,16 +2130,16 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 env_pool_release(scope);
                 return no_ctrl();
             }
-            if (iterable.type.kind == TY_STRUCT && iterable.type.struct_name != NULL &&
-                (strcmp(iterable.type.struct_name, "MutableMap") == 0 ||
-                 strcmp(iterable.type.struct_name, "MutableSet") == 0)) {
+            if (iterable.type->kind == TY_STRUCT && iterable.type->struct_name != NULL &&
+                (strcmp(iterable.type->struct_name, "MutableMap") == 0 ||
+                 strcmp(iterable.type->struct_name, "MutableSet") == 0)) {
                 /* A snapshot of the entries, in insertion order -- deliberately unlike MutableArray
                  * just above, which walks its live buffer. A hashed handle has no cursor that could
                  * walk it in insertion order (that order lives in a per-entry sequence number the
                  * entries have to be sorted by) and a node's slots shift on insert, so this is a
                  * snapshot by construction. The body may therefore change the handle freely without
                  * affecting what the loop visits. */
-                int is_map = strcmp(iterable.type.struct_name, "MutableMap") == 0;
+                int is_map = strcmp(iterable.type->struct_name, "MutableMap") == 0;
                 Value *keys, *vals = NULL;
                 int count = ziman_mutable_map_entries(iterable, &keys, is_map ? &vals : NULL);
                 const TypeList *targs = &s->as.for_stmt.iterable->resolved_type.type_args;
@@ -2158,17 +2158,17 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 env_pool_release(scope);
                 return no_ctrl();
             }
-            if (iterable.type.kind == TY_MAP || iterable.type.kind == TY_SET) {
+            if (iterable.type->kind == TY_MAP || iterable.type->kind == TY_SET) {
                 /* iterates a snapshot in insertion order, so the body may rebind the collection freely */
-                int is_map = iterable.type.kind == TY_MAP;
+                int is_map = iterable.type->kind == TY_MAP;
                 Value *keys, *vals = NULL;
                 mapobj_entries(iterable.as.map, &keys, is_map ? &vals : NULL);
-                Type key_type = *iterable.type.elem;
+                Type key_type = *iterable.type->elem;
                 Env *scope = env_pool_acquire(env);
                 for (int i = 0; i < iterable.as.map->count; i++) {
                     env_reset(scope);
                     env_define(scope, s->as.for_stmt.binder1, key_type, 0, keys[i]);
-                    if (s->as.for_stmt.binder2 != NULL) env_define(scope, s->as.for_stmt.binder2, *iterable.type.elem_err, 0, vals[i]);
+                    if (s->as.for_stmt.binder2 != NULL) env_define(scope, s->as.for_stmt.binder2, *iterable.type->elem_err, 0, vals[i]);
                     ExecResult result = exec_stmts_in_scope(module, scope, s->as.for_stmt.body);
                     if (result.kind == CTRL_RETURN) { env_pool_release(scope); return result; }
                     if (result.kind == CTRL_BREAK) break;
@@ -2177,7 +2177,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
                 return no_ctrl();
             }
             ArrayObj *arr = iterable.as.arr;
-            Type elem_type = *iterable.type.elem;
+            Type elem_type = *iterable.type->elem;
             Env *scope = env_pool_acquire(env);
             for (int i = 0; i < arr->count; i++) {
                 env_reset(scope);
@@ -2299,7 +2299,7 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             switch (s->as.value_block.target) {
                 case STMT_VAL:
                 case STMT_VAR: {
-                    Type t = s->as.value_block.has_declared_type ? s->as.value_block.declared_type : v.type;
+                    Type t = s->as.value_block.has_declared_type ? s->as.value_block.declared_type : *v.type;
                     env_define(env, s->as.value_block.name, t, s->as.value_block.target == STMT_VAR, v);
                     return no_ctrl();
                 }

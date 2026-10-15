@@ -32,7 +32,7 @@ static Value native_random_bytes(Value *args, int argc, int line, int col) {
             ziman_error("runtime", line, col, "random_bytes: short read from /dev/urandom (wanted %lld, got %zu)", (long long)n, got);
         }
     }
-    return value_array(type_array(type_scalar(TY_BYTE)), array_obj_new_bytes(bytes, (int)n));
+    return value_array(type_ref(type_array(type_scalar(TY_BYTE))), array_obj_new_bytes(bytes, (int)n));
 }
 
 void native_random_register(void) {

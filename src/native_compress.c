@@ -16,7 +16,7 @@
  * only) auto-detect gzip or zlib. See lib/core/compress.zm. */
 
 static Value err_of(Type ok_type, const char *message) {
-    return value_result(type_result(ok_type, type_scalar(TY_STRING)), result_obj_new(0, value_string(ziman_xstrdup(message))));
+    return value_result(type_ref(type_result(ok_type, type_scalar(TY_STRING))), result_obj_new(0, value_string(ziman_xstrdup(message))));
 }
 
 static Value native_compress_raw(Value *args, int argc, int line, int col) {
@@ -90,7 +90,7 @@ static Value native_decompress_raw(Value *args, int argc, int line, int col) {
     }
     Value bytes = value_byte_array(out, len);
     free(out);
-    return value_result(type_result(bytes_type, type_scalar(TY_STRING)), result_obj_new(1, bytes));
+    return value_result(type_ref(type_result(bytes_type, type_scalar(TY_STRING))), result_obj_new(1, bytes));
 }
 
 void native_compress_register(void) {
