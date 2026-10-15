@@ -22,6 +22,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`csv`](csv.md) | CSV (RFC 4180) as `Json`: a table is a `Json` array of objects, one per data row and keyed by the header row, so any `#[derive(Json)]` type decodes from a row with its own `_from_json` and encodes back. |
 | [`toml`](toml.md) | TOML 1.0 on top of `json`: a document is a `Json` object, so any `#[derive(Json)]` type decodes from it with its own `_from_json`. |
 | [`yaml`](yaml.md) | A strict YAML 1.2 subset on top of `json`. |
+| [`xml`](xml.md) | XML 1.0 as a document tree: a reader, a writer, and a small path finder. |
 | [`properties`](properties.md) | Spring-Boot-style configuration. |
 | [`number`](number.md) | Numbers as text and as bytes: formatting and parsing with separators, hex, shortest-text floats, and the fixed-width big-endian integers binary protocols use. |
 | [`math`](math.md) | Floating-point math beyond the four basic operators, the rounding functions. |

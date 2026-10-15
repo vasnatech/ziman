@@ -1,0 +1,9 @@
+penicillin: high
+latex: low
+allergies
+Take 2 tablets & rest.
+urn:hl7-org:v3
+<?xml version="1.0" encoding="UTF-8"?>
+<visit id="7"><reason>cough &amp; fever</reason><followUp/></visit>
+false
+true

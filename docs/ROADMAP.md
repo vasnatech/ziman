@@ -386,9 +386,15 @@ against)**
   tree, so every `#[derive(Json)]` type works with all of them (docs/SYNTAX.md "Serialization
   formats"). `Json` gained `JInt` and Map-backed objects first (docs/DESIGN.md "JSON on Map").
   No `Serde` alias: `derive(Json)` is the data-model derive and a second derive name would only
-  duplicate it -- revisit if that reads badly.* Still open: MessagePack/CBOR (binary; bytes have
-  no `Json` form), XML (needs an attribute/text convention), YAML anchors/aliases, TOML dates as
-  a real type, CSV nesting beyond one level.
+  duplicate it -- revisit if that reads badly.*
+  *XML followed as `xml`, and the "attribute/text convention" this line waited for turned out to
+  be the wrong thing to look for: every such convention (`@attr` keys, text under `#text`) loses
+  either the order between text and elements or the difference between an attribute and a child,
+  so `xml` has a tree of its own -- `Document`/`Element`/`Node` -- and is the one format module
+  that does not go through `Json`. It reads and writes; it has no DTD at all, which is what rules
+  out entity-expansion and external-entity attacks, and `XmlLimits` caps size, depth and attribute
+  count.* Still open: MessagePack/CBOR (binary; bytes have no `Json` form), YAML anchors/aliases,
+  TOML dates as a real type, CSV nesting beyond one level.
 
 **F. Tooling and documentation**
 

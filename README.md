@@ -95,6 +95,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | `time` | `java.time`-shaped dates, times, durations, instants |
 | `uuid`, `number`, `crypto` | UUIDs, number formatting/parsing and binary encodings, SHA-256/HMAC/PBKDF2/base64 |
 | `json`, `ndjson`, `csv`, `toml`\*, `yaml`\* | JSON, and the other formats as converters to and from the same `Json` tree |
+| `xml`\* | XML 1.0 as a document tree of its own, not a `Json` tree, because text and elements interleave and attributes are not children; a reader with size, depth and attribute limits and no DTD at all, a writer, and a child-step path finder |
 | `properties`, `log`, `metrics`, `regex` | configuration files, levelled logging, counters/gauges/histograms in the Prometheus text format, regular expressions |
 | `net`, `http`, `server`, `client` | TCP and TLS, the types HTTP shares, an HTTP/1.1 server toolkit (with the peer address on each request, a per-key rate limiter and a per-client connection cap), an HTTP/HTTPS client |
 | `url` | percent-encoding, shared by `http` and `db` |

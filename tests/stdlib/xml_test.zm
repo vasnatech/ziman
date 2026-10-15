@@ -1,0 +1,468 @@
+// Unit tests for `xml`.
+//
+// The security cases are the point of this file, not an afterthought at the end of it. An XML
+// reader is the classic place where a parser written to be helpful becomes a way to read
+// /etc/passwd or to turn a kilobyte of input into gigabytes of memory, and `xml` answers both by
+// not having a DTD at all rather than by defaulting a flag to off. `doctype_is_refused` and
+// `billion_laughs_cannot_even_be_expressed` are what hold that line: if someone ever adds entity
+// support "just for internal entities", these fail.
+//
+// The round-trip tests are the other half. A tree that cannot be written back as the text it was
+// read from is a one-way street, and mixed content and CDATA are exactly where that breaks.
+
+use test
+use xml
+
+fn parse(s: string) -> xml.Document {
+    return test.assert_ok(xml.parse_xml(s))
+}
+
+fn round_trip(s: string) -> string {
+    return test.assert_ok(xml.xml_to_string(parse(s)))
+}
+
+// `xml_to_string` always writes a declaration and a trailing newline, so a fragment written
+// without one comes back with one. This is what the input would have had to be to come back
+// unchanged.
+fn with_declaration(s: string) -> string {
+    return concat("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n", s, "\n")
+}
+
+// ------------------------------------------------------------------ the shape of a document
+
+#[test]
+fn a_simple_document_parses() {
+    val doc = parse("<note><to>Ann</to><from>Ben</from></note>")
+    test.assert_eq("note", doc.root.name.local)
+    test.assert_eq(2, len(xml.children(doc.root)))
+    test.assert_eq("Ann", xml.text_of(test.assert_some(xml.child(doc.root, "to"))))
+}
+
+#[test]
+fn mixed_content_keeps_its_order() {
+    // The reason this module does not parse into a `Json` tree: text and elements interleave,
+    // and the order between them is the content.
+    val doc = parse("<p>Take <b>2</b> tablets <i>daily</i>.</p>")
+    test.assert_eq(5, len(doc.root.children))
+    test.assert_eq("Take 2 tablets daily.", xml.text_of(doc.root))
+    val text = "<p>Take <b>2</b> tablets <i>daily</i>.</p>"
+    test.assert_eq(with_declaration(text), round_trip(text))
+}
+
+#[test]
+fn attributes_keep_their_order_and_are_not_children() {
+    val doc = parse("<dose value=\"2\" unit=\"tablet\"/>")
+    test.assert_eq(2, len(doc.root.attributes))
+    test.assert_eq("value", doc.root.attributes[0].name.local)
+    test.assert_eq("unit", doc.root.attributes[1].name.local)
+    test.assert_eq(0, len(doc.root.children))
+    test.assert_eq("2", test.assert_some(xml.attr(doc.root, "value")))
+    test.assert_eq("mg", xml.attr_or(doc.root, "missing", "mg"))
+}
+
+#[test]
+fn an_attribute_cannot_appear_twice() {
+    test.assert_err(xml.parse_xml("<a x=\"1\" x=\"2\"/>"))
+}
+
+#[test]
+fn an_empty_element_round_trips_as_self_closing() {
+    test.assert_eq("<a/>", test.assert_ok(xml.element_to_string(xml.empty("a"))))
+    test.assert_eq("<a/>", test.assert_ok(xml.element_to_string(parse("<a></a>").root)))
+}
+
+// ------------------------------------------------------------------ no DTD, and what that buys
+
+#[test]
+fn doctype_is_refused() {
+    // Not "external entities are disabled" -- there is no DTD at all, so there is no flag to
+    // turn off and no default for a later change to get wrong.
+    val e = test.assert_err(xml.parse_xml("<!DOCTYPE note><note/>"))
+    test.assert(contains(e, "DOCTYPE"))
+}
+
+#[test]
+fn billion_laughs_cannot_even_be_expressed() {
+    // Without the DOCTYPE there is nowhere to declare `&lol1;`, so the attack needs a feature
+    // that does not exist. Both halves fail: the declaration, and the reference on its own.
+    val bomb = concat(
+        "<?xml version=\"1.0\"?>",
+        "<!DOCTYPE lolz [",
+        "  <!ENTITY lol \"lol\">",
+        "  <!ENTITY lol1 \"&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;\">",
+        "  <!ENTITY lol2 \"&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;&lol1;\">",
+        "]>",
+        "<lolz>&lol2;</lolz>"
+    )
+    test.assert_err(xml.parse_xml(bomb))
+    test.assert_err(xml.parse_xml("<lolz>&lol2;</lolz>"))
+}
+
+#[test]
+fn an_external_entity_has_nowhere_to_be_declared() {
+    val xxe = concat(
+        "<!DOCTYPE foo [<!ENTITY xxe SYSTEM \"file:///etc/passwd\">]>",
+        "<foo>&xxe;</foo>"
+    )
+    test.assert_err(xml.parse_xml(xxe))
+    // And the reference alone names the reason rather than silently leaving the text in place.
+    val e = test.assert_err(xml.parse_xml("<foo>&xxe;</foo>"))
+    test.assert(contains(e, "undefined entity"))
+}
+
+#[test]
+fn the_five_predefined_entities_and_numeric_references_still_work() {
+    val doc = parse("<a>&lt;&gt;&amp;&quot;&apos; &#65;&#x42;</a>")
+    test.assert_eq("<>&\"' AB", xml.text_of(doc.root))
+}
+
+#[test]
+fn a_character_reference_to_something_unrepresentable_is_refused() {
+    test.assert_err(xml.parse_xml("<a>&#0;</a>"))        // NUL: XML 1.0 has no escape for it
+    test.assert_err(xml.parse_xml("<a>&#xD800;</a>"))    // a surrogate is not a character
+    test.assert_err(xml.parse_xml("<a>&#x110000;</a>"))  // past the last code point
+}
+
+// ------------------------------------------------------------------ the other limits
+
+#[test]
+fn nesting_deeper_than_the_limit_is_refused() {
+    // A byte cap would not catch this: the input below is small and fifty levels deep.
+    var deep = ""
+    var i = 0
+    while i < 60 {
+        deep = concat(deep, "<a>")
+        i = i + 1
+    }
+    i = 0
+    while i < 60 {
+        deep = concat(deep, "</a>")
+        i = i + 1
+    }
+    test.assert_ok(xml.parse_xml(deep))
+    val shallow = xml.XmlLimits { max_bytes: 1048576, max_depth: 10, max_attributes: 64 }
+    val e = test.assert_err(xml.parse_xml_with(deep, shallow))
+    test.assert(contains(e, "deeper than 10"))
+}
+
+#[test]
+fn a_document_over_the_byte_limit_is_refused_before_parsing() {
+    val small = xml.XmlLimits { max_bytes: 16, max_depth: 512, max_attributes: 64 }
+    val e = test.assert_err(xml.parse_xml_with("<note><to>Ann</to></note>", small))
+    test.assert(contains(e, "over the 16-byte limit"))
+    test.assert_ok(xml.parse_xml_with("<a/>", small))
+}
+
+#[test]
+fn too_many_attributes_on_one_element_is_refused() {
+    val few = xml.XmlLimits { max_bytes: 1048576, max_depth: 512, max_attributes: 3 }
+    test.assert_ok(xml.parse_xml_with("<a x=\"1\" y=\"2\" z=\"3\"/>", few))
+    test.assert_err(xml.parse_xml_with("<a x=\"1\" y=\"2\" z=\"3\" w=\"4\"/>", few))
+}
+
+// ------------------------------------------------------------------ namespaces
+
+#[test]
+fn a_default_namespace_covers_elements() {
+    val doc = parse("<root xmlns=\"urn:hl7-org:v3\"><section/></root>")
+    test.assert_eq("urn:hl7-org:v3", test.assert_some(doc.root.name.namespace))
+    val section = test.assert_some(xml.child(doc.root, "section"))
+    test.assert_eq("urn:hl7-org:v3", test.assert_some(section.name.namespace))
+}
+
+#[test]
+fn a_default_namespace_does_not_cover_attributes() {
+    // The namespace rule people get wrong most often, and the reason `attr` looks for a name in
+    // no namespace rather than in the element's.
+    val doc = parse("<root xmlns=\"urn:hl7-org:v3\" code=\"x\"/>")
+    var found = false
+    for a in doc.root.attributes {
+        if a.name.local == "code" {
+            test.assert(is_None(a.name.namespace))
+            found = true
+        }
+    }
+    test.assert(found)
+    test.assert_eq("x", test.assert_some(xml.attr(doc.root, "code")))
+}
+
+#[test]
+fn a_prefix_resolves_to_its_uri_and_the_prefix_itself_does_not_matter() {
+    val a = parse("<p:root xmlns:p=\"urn:x\"><p:kid/></p:root>")
+    val b = parse("<q:root xmlns:q=\"urn:x\"><q:kid/></q:root>")
+    test.assert(xml.same_name(a.root.name, b.root.name))
+    test.assert_eq("urn:x", test.assert_some(a.root.name.namespace))
+    test.assert_eq("p", test.assert_some(a.root.name.prefix))
+    test.assert_eq("q", test.assert_some(b.root.name.prefix))
+}
+
+#[test]
+fn an_undeclared_prefix_is_refused() {
+    val e = test.assert_err(xml.parse_xml("<p:root/>"))
+    test.assert(contains(e, "undeclared namespace prefix 'p'"))
+}
+
+#[test]
+fn an_inner_declaration_applies_only_inside() {
+    val doc = parse("<root xmlns=\"urn:a\"><kid xmlns=\"urn:b\"><grandkid/></kid><other/></root>")
+    val kid = test.assert_some(xml.child(doc.root, "kid"))
+    val other = test.assert_some(xml.child(doc.root, "other"))
+    test.assert_eq("urn:b", test.assert_some(kid.name.namespace))
+    test.assert_eq("urn:b", test.assert_some(test.assert_some(xml.child(kid, "grandkid")).name.namespace))
+    test.assert_eq("urn:a", test.assert_some(other.name.namespace))
+}
+
+#[test]
+fn xmlns_declarations_survive_a_round_trip() {
+    val text = "<root xmlns=\"urn:a\" xmlns:p=\"urn:b\"><p:kid/></root>"
+    test.assert_eq(with_declaration(text), round_trip(text))
+}
+
+// ------------------------------------------------------------------ find
+
+#[test]
+fn find_walks_child_steps() {
+    val doc = parse(concat(
+        "<record><component><section><entry id=\"1\"/><entry id=\"2\"/></section>",
+        "<section><entry id=\"3\"/></section></component></record>"
+    ))
+    val entries = xml.find(doc.root, "component/section/entry")
+    test.assert_eq(3, len(entries))
+    test.assert_eq("1", test.assert_some(xml.attr(entries[0], "id")))
+    test.assert_eq("3", test.assert_some(xml.attr(entries[2], "id")))
+    test.assert_eq(
+        "1",
+        test.assert_some(xml.attr(test.assert_some(xml.find_first(doc.root, "component/section/entry")), "id"))
+    )
+}
+
+#[test]
+fn find_ignores_namespaces_but_find_ns_does_not() {
+    val doc = parse("<root xmlns=\"urn:a\"><kid/><other xmlns=\"urn:b\"><kid/></other></root>")
+    test.assert_eq(1, len(xml.find(doc.root, "kid")))
+    test.assert_eq(1, len(xml.find_ns(doc.root, "urn:a", "kid")))
+    test.assert_eq(0, len(xml.find_ns(doc.root, "urn:b", "kid")))
+    test.assert_eq(1, len(xml.find_ns(doc.root, "urn:b", "other/kid")))
+}
+
+#[test]
+fn a_star_step_matches_any_element() {
+    val doc = parse("<r><a><x/></a><b><x/></b></r>")
+    test.assert_eq(2, len(xml.find(doc.root, "*/x")))
+}
+
+#[test]
+fn a_path_that_matches_nothing_is_empty_rather_than_an_error() {
+    val doc = parse("<r><a/></r>")
+    test.assert_eq(0, len(xml.find(doc.root, "nope/at/all")))
+    test.assert(is_None(xml.find_first(doc.root, "nope")))
+    test.assert_eq(1, len(xml.find(doc.root, "")))
+}
+
+// ------------------------------------------------------------------ CDATA, comments, PIs
+
+#[test]
+fn cdata_stays_cdata_so_the_document_round_trips() {
+    val text = "<a><![CDATA[<not markup> & co]]></a>"
+    test.assert_eq(with_declaration(text), round_trip(text))
+    test.assert_eq("<not markup> & co", xml.text_of(parse(text).root))
+}
+
+#[test]
+fn comments_and_processing_instructions_round_trip() {
+    val text = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!--before-->\n<a><?target some data?><!--inside--></a>\n"
+    test.assert_eq(text, round_trip(text))
+}
+
+#[test]
+fn malformed_comments_and_cdata_are_refused() {
+    test.assert_err(xml.parse_xml("<a><!-- no -- double dashes --></a>"))
+    test.assert_err(xml.parse_xml("<a><!-- never closed </a>"))
+    test.assert_err(xml.parse_xml("<a><![CDATA[never closed</a>"))
+    test.assert_err(xml.parse_xml("<a>]]> bare</a>"))
+}
+
+// ------------------------------------------------------------------ what XML cannot carry
+
+#[test]
+fn a_control_character_is_refused_on_the_way_in() {
+    // NUL never reaches this module: `bytes_to_string` refuses it, so a Ziman `string` cannot
+    // hold one in the first place. The other C0 controls can, and are refused here.
+    test.assert_err(bytes_to_string([0 as byte]))
+    test.assert_err(xml.parse_xml(concat("<a>x", str_of_byte(7), "y</a>")))
+    test.assert_err(xml.parse_xml(concat("<a>x", str_of_byte(27), "y</a>")))
+    test.assert_err(xml.parse_xml(concat("<a note=\"x", str_of_byte(7), "\"/>")))
+    // tab, newline and return are the three that are legal
+    test.assert_ok(xml.parse_xml("<a>x\ty\nz\rw</a>"))
+}
+
+#[test]
+fn a_control_character_is_refused_on_the_way_out() {
+    // The asymmetry with `json_to_string`, which is infallible: JSON can write `\u0000` and XML
+    // has nothing at all to write, so the only honest answer is to refuse.
+    val bad = xml.document(xml.text_element("note", concat("before", str_of_byte(7), "after")))
+    val e = test.assert_err(xml.xml_to_string(bad))
+    test.assert(contains(e, "cannot represent"))
+}
+
+#[test]
+fn an_illegal_name_is_refused_on_the_way_out() {
+    test.assert_err(xml.element_to_string(xml.empty("2bad")))
+    test.assert_err(xml.element_to_string(xml.empty("has space")))
+    test.assert_err(xml.element_to_string(xml.empty("")))
+    test.assert_ok(xml.element_to_string(xml.empty("_ok-1.2")))
+}
+
+#[test]
+fn a_newline_in_an_attribute_survives_as_a_character_reference() {
+    // Written raw it would come back as a space: a reader normalises whitespace in attribute
+    // values. This is the one place where escaping more than the minimum is load-bearing.
+    val e = xml.element(xml.name("a"), [xml.attribute("note", "two\nlines")], [])
+    val text = test.assert_ok(xml.element_to_string(e))
+    test.assert(contains(text, "&#10;"))
+    val back = parse(concat(text))
+    test.assert_eq("two\nlines", test.assert_some(xml.attr(back.root, "note")))
+}
+
+// ------------------------------------------------------------------ the declaration
+
+#[test]
+fn a_document_with_no_declaration_gets_one_when_written() {
+    val out = test.assert_ok(xml.xml_to_string(xml.document(xml.empty("a"))))
+    test.assert_eq("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<a/>\n", out)
+}
+
+#[test]
+fn a_non_utf8_encoding_is_refused_rather_than_guessed() {
+    val e = test.assert_err(xml.parse_xml("<?xml version=\"1.0\" encoding=\"ISO-8859-1\"?><a/>"))
+    test.assert(contains(e, "ISO-8859-1"))
+}
+
+#[test]
+fn a_later_xml_version_is_refused() {
+    test.assert_err(xml.parse_xml("<?xml version=\"1.1\"?><a/>"))
+}
+
+#[test]
+fn standalone_round_trips() {
+    val text = "<?xml version=\"1.0\" encoding=\"UTF-8\" standalone=\"yes\"?>\n<a/>\n"
+    test.assert_eq(text, round_trip(text))
+}
+
+// ------------------------------------------------------------------ malformed documents
+
+#[test]
+fn mismatched_and_unclosed_tags_are_refused() {
+    val e = test.assert_err(xml.parse_xml("<a></b>"))
+    test.assert(contains(e, "</b> closes <a>"))
+    test.assert_err(xml.parse_xml("<a>"))
+    test.assert_err(xml.parse_xml("</a>"))
+    test.assert_err(xml.parse_xml("<a><b></a></b>"))
+}
+
+#[test]
+fn a_document_must_have_exactly_one_root() {
+    test.assert_err(xml.parse_xml(""))
+    test.assert_err(xml.parse_xml("   "))
+    test.assert_err(xml.parse_xml("<a/><b/>"))
+    test.assert_err(xml.parse_xml("text before <a/>"))
+    test.assert_err(xml.parse_xml("<a/> text after"))
+    test.assert_ok(xml.parse_xml("  <a/>  "))
+}
+
+#[test]
+fn broken_tags_are_refused() {
+    test.assert_err(xml.parse_xml("<a x/>"))
+    test.assert_err(xml.parse_xml("<a x=1/>"))
+    test.assert_err(xml.parse_xml("<a x=\"unterminated/>"))
+    test.assert_err(xml.parse_xml("<a x=\"<\"/>"))
+    test.assert_err(xml.parse_xml("<>"))
+}
+
+// ------------------------------------------------------------------ writing
+
+#[test]
+fn pretty_printing_indents_elements() {
+    val doc = parse("<r><a><b/></a><c/></r>")
+    val out = test.assert_ok(xml.xml_to_string_pretty(doc, "  "))
+    test.assert(contains(out, "\n  <a>"))
+    test.assert(contains(out, "\n    <b/>"))
+    test.assert(contains(out, "\n  <c/>"))
+}
+
+#[test]
+fn pretty_printing_never_touches_mixed_content() {
+    // Indenting inside `<p>Take <b>2</b></p>` would change the text the document carries, so an
+    // element holding any text at all stays on one line however deep it sits -- and its text is
+    // the same text after a read back.
+    val doc = parse("<r><p>Take <b>2</b> daily</p></r>")
+    val out = test.assert_ok(xml.xml_to_string_pretty(doc, "  "))
+    test.assert(contains(out, "<p>Take <b>2</b> daily</p>"))
+    val back = test.assert_ok(xml.parse_xml(out))
+    test.assert_eq("Take 2 daily", xml.text_of(test.assert_some(xml.child(back.root, "p"))))
+}
+
+#[test]
+fn pretty_printing_is_not_round_trip_safe_and_that_is_inherent() {
+    // The indentation between elements is itself text, and nothing in XML says whether it
+    // matters -- only a schema the parser does not have could say. So `xml_to_string` is the
+    // one to use when the bytes must come back the same, and `xml_to_string_pretty` is for a
+    // human reading the output. Pinned here so the difference is a decision, not a surprise.
+    val doc = parse("<r><a/></r>")
+    val compact = test.assert_ok(xml.xml_to_string(doc))
+    val pretty = test.assert_ok(xml.xml_to_string_pretty(doc, "  "))
+    test.assert(compact != pretty)
+    test.assert_eq("", xml.text_of(doc.root))
+    test.assert(xml.text_of(test.assert_ok(xml.parse_xml(pretty)).root) != "")
+    // the compact form, by contrast, is a fixed point
+    test.assert_eq(compact, test.assert_ok(xml.xml_to_string(test.assert_ok(xml.parse_xml(compact)))))
+}
+
+#[test]
+fn a_parsed_document_writes_back_as_the_text_it_came_from() {
+    val text = concat(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
+        "<record xmlns=\"urn:hl7-org:v3\" xmlns:x=\"urn:x\">",
+        "<title>Notes &amp; results</title>",
+        "<body>Take <em>2</em> &lt;tablets&gt;</body>",
+        "<x:code value=\"a&quot;b\"/>",
+        "<![CDATA[raw <stuff>]]>",
+        "</record>\n"
+    )
+    test.assert_eq(text, round_trip(text))
+    // and reading the written text again gives the same text a third time
+    test.assert_eq(text, round_trip(round_trip(text)))
+}
+
+#[test]
+fn bytes_in_and_bytes_out() {
+    val doc = test.assert_ok(xml.parse_xml_bytes(string_to_bytes("<a>héllo</a>")))
+    test.assert_eq("héllo", xml.text_of(doc.root))
+    val out = test.assert_ok(xml.xml_to_bytes(doc))
+    test.assert(contains(test.assert_ok(bytes_to_string(out)), "héllo"))
+}
+
+#[test]
+fn invalid_utf8_bytes_are_refused() {
+    val bad: [byte] = [60 as byte, 97 as byte, 62 as byte, 255 as byte, 60 as byte, 47 as byte, 97 as byte, 62 as byte]
+    test.assert_err(xml.parse_xml_bytes(bad))
+}
+
+#[test]
+fn a_byte_order_mark_is_not_content() {
+    val bom_bytes: [byte] = [239 as byte, 187 as byte, 191 as byte]
+    val bom = test.assert_ok(bytes_to_string(bom_bytes))
+    val doc = test.assert_ok(xml.parse_xml(concat(bom, "<a>x</a>")))
+    test.assert_eq("x", xml.text_of(doc.root))
+}
+
+#[test]
+fn windows_line_endings_normalise() {
+    val doc = parse("<a>one\r\ntwo\rthree</a>")
+    test.assert_eq("one\ntwo\nthree", xml.text_of(doc.root))
+}
+
+fn str_of_byte(b: int) -> string {
+    val arr: [byte] = [b as byte]
+    return unwrap(bytes_to_string(arr))
+}

@@ -34,6 +34,7 @@ flowchart LR
         toml["toml"]
         url["url"]
         uuid["uuid"]
+        xml["xml"]
         yaml["yaml"]
     end
     subgraph group_db["databases"]
@@ -150,7 +151,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread` |
+| 0 | `bits`, `clock`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread`, `xml` |
 | 1 | `crypto`, `json`, `os`, `url` |
 | 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `toml`, `yaml` |
 | 3 | `csv`, `log`, `mysql`, `pg`, `process`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
@@ -197,6 +198,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `toml` | `json`, `number` | - |
 | `url` | `number` | `db`, `http` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | - |
+| `xml` | - | - |
 | `yaml` | `json`, `number` | - |
 | `zone` | `fs`, `number`, `os` | `time` |
 

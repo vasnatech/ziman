@@ -1,0 +1,1286 @@
+// xml.zm -- XML 1.0 as a document tree: a reader, a writer, and a small path finder.
+// Written in pure Ziman, like `toml` and `yaml`; `json` and `csv` are native because they
+// sit on hot paths (a JSON body on every request), and XML does not.
+//
+// Marked `#![experimental]` below: new, and no Ziman program depends on it yet.
+//
+// Unlike `yaml` and `toml`, this does **not** parse into a `Json` tree, because XML does not
+// fit one. `<p>Take <b>2</b> tablets</p>` interleaves text and elements, so children are an
+// ordered list rather than a map; `<dose value="2"/>` and `<dose><value>2</value></dose>` are
+// different documents, so attributes are not children; and a name's identity is its namespace
+// URI, not its prefix. Flattening any of that into `Json` is the usual way an XML library
+// becomes a one-way street -- it can write a document it cannot read back.
+//
+// ## What it will not do, on purpose
+//
+// **There is no DTD.** `<!DOCTYPE ...>` is a parse error, not an option that defaults to off.
+// That single decision removes the billion-laughs entity expansion (a kilobyte of input
+// becoming gigabytes of output) and XXE (`<!ENTITY x SYSTEM "file:///etc/passwd">`, and the
+// same trick aimed at an internal URL) by construction rather than by configuration, so there
+// is no flag for a caller to turn off and no default for a future refactor to get wrong. The
+// five predefined entities and numeric character references still work: those are XML itself,
+// not DTD. Nothing here reads a file or opens a socket.
+//
+// The other limits are in `XmlLimits` and apply to every parse: input size, nesting depth and
+// attribute count. A byte cap alone would not be enough -- 100 KB of `<a>` is fifty thousand
+// levels deep -- so depth is counted separately, at the same 512 `parse_json` already uses.
+//
+// Also absent, and not planned: XSD or any other validation, XPath (`find` below is child-name
+// steps, nothing more), and XML 1.1.
+//
+// ## Namespaces
+//
+// `xmlns` and `xmlns:p` stay in `attributes` where they were written, *and* are used to resolve
+// names while reading, so `Name.namespace` holds the URI a name resolved to. An unprefixed
+// attribute is in no namespace, which is what the spec says and what trips people up -- a
+// default `xmlns` applies to elements only.
+//
+// The writer does not consult `namespace`: it emits `prefix:local` when a prefix is set and
+// `local` otherwise, and never invents a declaration. So a tree that came from `parse_xml`
+// writes back unchanged, and a tree built by hand needs its `xmlns` written as an ordinary
+// attribute, once, on the element that scopes it. `namespace` is what `==` and `find_ns`
+// compare; `prefix` is only ever a hint to the writer.
+
+#![experimental]
+
+// Everything XML 1.0 cannot represent at all: the C0 controls other than tab, newline and
+// carriage return. There is no escape for them -- `&#0;` is itself illegal -- so they are an
+// error on both sides rather than something silently dropped.
+val max_code_point = 1114111
+val surrogate_start = 55296
+val surrogate_end = 57343
+val hex_digits = "0123456789abcdef"
+
+// ------------------------------------------------------------------ the model
+
+// An expanded name: the namespace URI it resolved to (None when in no namespace), the local
+// part, and the prefix as written. Two names are the same name when `namespace` and `local`
+// match, whatever the prefixes; `same_name` says so, since `==` on the struct would compare
+// the prefix too.
+pub struct Name {
+    namespace: Option<string>
+    local: string
+    prefix: Option<string>
+}
+
+pub struct Attribute {
+    name: Name
+    value: string
+}
+
+// One piece of an element's content. `CData` is kept apart from `Text` so a document survives
+// a read/write round trip; the two mean the same thing to a reader of the data.
+// A `<?target data?>` processing instruction. `data` is everything after the target, verbatim,
+// and is "" when there is none.
+pub struct Instruction {
+    target: string
+    data: string
+}
+
+pub enum Node {
+    Element(Element)
+    Text(string)
+    CData(string)
+    Comment(string)
+    ProcessingInstruction(Instruction)
+}
+
+pub struct Element {
+    name: Name
+    attributes: [Attribute]
+    children: [Node]
+}
+
+// The `<?xml ... ?>` declaration, when the document has one.
+pub struct Declaration {
+    version: string
+    encoding: Option<string>
+    standalone: Option<bool>
+}
+
+// `prolog` and `epilog` are the comments and processing instructions before and after the root
+// element, kept so that writing a parsed document back gives the same text.
+pub struct Document {
+    declaration: Option<Declaration>
+    prolog: [Node]
+    root: Element
+    epilog: [Node]
+}
+
+// The reader's limits. `xml_limits()` has the defaults; pass your own to `parse_xml_with`.
+// There is deliberately no `allow_doctype`: see the module header.
+pub struct XmlLimits {
+    max_bytes: int
+    max_depth: int
+    max_attributes: int
+}
+
+// 16 MiB, 512 levels, 256 attributes per element. The depth matches `parse_json`'s, so the two
+// readers behave the same way on input built to exhaust a stack.
+pub fn xml_limits() -> XmlLimits {
+    return XmlLimits { max_bytes: 16777216, max_depth: 512, max_attributes: 256 }
+}
+
+// ------------------------------------------------------------------ building
+
+// A name in no namespace: what you want for an ordinary document.
+pub fn name(local: string) -> Name {
+    return Name { namespace: Option<string>.None, local: local, prefix: Option<string>.None }
+}
+
+// A name in namespace `uri` written with `prefix`. Pass "" for `prefix` to write it unprefixed,
+// which is right when the element is covered by a default `xmlns`.
+pub fn ns_name(uri: string, prefix: string, local: string) -> Name {
+    val p = if prefix == "" { Option<string>.None } else { Option<string>.Some(prefix) }
+    return Name { namespace: Option<string>.Some(uri), local: local, prefix: p }
+}
+
+// An element with attributes and children.
+pub fn element(n: Name, attributes: [Attribute], children: [Node]) -> Element {
+    return Element { name: n, attributes: attributes, children: children }
+}
+
+// An empty element: `<name/>`.
+pub fn empty(local: string) -> Element {
+    return Element { name: name(local), attributes: [], children: [] }
+}
+
+// An element holding one run of text: `<name>text</name>`.
+pub fn text_element(local: string, content: string) -> Element {
+    return Element { name: name(local), attributes: [], children: [Node.Text(content)] }
+}
+
+pub fn attribute(local: string, value: string) -> Attribute {
+    return Attribute { name: name(local), value: value }
+}
+
+// A document with no declaration and nothing around the root. `xml_to_string` writes a
+// `<?xml version="1.0" encoding="UTF-8"?>` line for a document whose declaration is None, so
+// the output is still a well-formed file.
+pub fn document(root: Element) -> Document {
+    return Document {
+        declaration: Option<Declaration>.None,
+        prolog: [],
+        root: root,
+        epilog: []
+    }
+}
+
+// ------------------------------------------------------------------ reading a tree
+
+// Whether two names are the same name: same namespace, same local part, prefixes ignored.
+pub fn same_name(a: Name, b: Name) -> bool {
+    if a.local != b.local {
+        return false
+    }
+    return switch a.namespace {
+        Some(x) {
+            switch b.namespace {
+                Some(y) { x == y }
+                None { false }
+            }
+        }
+        None {
+            switch b.namespace {
+                Some(_) { false }
+                None { true }
+            }
+        }
+    }
+}
+
+// The value of attribute `local` (in no namespace), or None.
+pub fn attr(e: Element, local: string) -> Option<string> {
+    for a in e.attributes {
+        if a.name.local == local {
+            if None = a.name.namespace {
+                return Option<string>.Some(a.value)
+            }
+        }
+    }
+    return Option<string>.None
+}
+
+// The value of the attribute named `local` in namespace `uri`, or None.
+pub fn attr_ns(e: Element, uri: string, local: string) -> Option<string> {
+    for a in e.attributes {
+        if a.name.local == local {
+            if Some(u) = a.name.namespace {
+                if u == uri {
+                    return Option<string>.Some(a.value)
+                }
+            }
+        }
+    }
+    return Option<string>.None
+}
+
+// `attr`, or `fallback` when the attribute is absent.
+pub fn attr_or(e: Element, local: string, fallback: string) -> string {
+    return switch attr(e, local) {
+        Some(v) { v }
+        None { fallback }
+    }
+}
+
+// Every child element, in order.
+pub fn children(e: Element) -> [Element] {
+    var out: [Element] = []
+    for child in e.children {
+        if Element(sub) = child {
+            out = push(out, sub)
+        }
+    }
+    return out
+}
+
+// The child elements with local name `local`, in order.
+pub fn children_named(e: Element, local: string) -> [Element] {
+    var out: [Element] = []
+    for child in e.children {
+        if Element(sub) = child {
+            if sub.name.local == local {
+                out = push(out, sub)
+            }
+        }
+    }
+    return out
+}
+
+// The first child element with local name `local`, or None.
+pub fn child(e: Element, local: string) -> Option<Element> {
+    for c in e.children {
+        if Element(sub) = c {
+            if sub.name.local == local {
+                return Option<Element>.Some(sub)
+            }
+        }
+    }
+    return Option<Element>.None
+}
+
+// All the text under `e`, with its elements flattened away and comments and processing
+// instructions left out: the usual way to read a leaf whose content may be split by a CDATA
+// section or an entity. `text_of(<p>Take <b>2</b></p>)` is "Take 2".
+pub fn text_of(e: Element) -> string {
+    val out = mutable_string_new()
+    gather_text(e, out)
+    return snapshot(out)
+}
+
+fn gather_text(e: Element, out: MutableString) {
+    for c in e.children {
+        switch c {
+            Text(t) { mutable_string_append(out, t) }
+            CData(t) { mutable_string_append(out, t) }
+            Element(sub) { gather_text(sub, out) }
+            Comment(_) {}
+            ProcessingInstruction(_) {}
+        }
+    }
+}
+
+// The elements reached by following `path`, a `/`-separated list of child steps starting at
+// `e`'s children: `find(root, "component/section/entry")`. A step of `*` matches any element.
+// Steps match the **local** name, ignoring namespaces, which is what makes a namespace-heavy
+// document (a CDA, a SOAP envelope) readable without spelling out a URI at every step; use
+// `find_ns` when a document mixes vocabularies and the distinction matters. An empty path
+// returns `[e]`, an unmatched step an empty array -- never an error, so a chain of `find`s on a
+// document shaped differently than expected gives nothing rather than blowing up.
+pub fn find(e: Element, path: string) -> [Element] {
+    if path == "" {
+        return [e]
+    }
+    var current = [e]
+    for step in split(path, "/") {
+        if step != "" {
+            var next: [Element] = []
+            for parent in current {
+                for c in parent.children {
+                    if Element(sub) = c {
+                        if step == "*" || sub.name.local == step {
+                            next = push(next, sub)
+                        }
+                    }
+                }
+            }
+            current = next
+        }
+    }
+    return current
+}
+
+// `find`, restricted to elements in namespace `uri`.
+pub fn find_ns(e: Element, uri: string, path: string) -> [Element] {
+    var out: [Element] = []
+    for found in find(e, path) {
+        if Some(u) = found.name.namespace {
+            if u == uri {
+                out = push(out, found)
+            }
+        }
+    }
+    return out
+}
+
+// The first element `find` reaches, or None.
+pub fn find_first(e: Element, path: string) -> Option<Element> {
+    val all = find(e, path)
+    if len(all) == 0 {
+        return Option<Element>.None
+    }
+    return Option<Element>.Some(all[0])
+}
+
+// ------------------------------------------------------------------ reading
+
+struct PStr {
+    text: string
+    next: int
+}
+
+struct PNode {
+    node: Node
+    next: int
+}
+
+struct PElem {
+    elem: Element
+    next: int
+}
+
+struct RawAttr {
+    qname: string
+    value: string
+    at: int
+}
+
+struct PAttrs {
+    attrs: [RawAttr]
+    next: int
+}
+
+fn line_of(s: string, p: int) -> int {
+    var line = 1
+    var i = 0
+    while i < p && i < len(s) {
+        if is_char_at(s, i, "\n") {
+            line = line + 1
+        }
+        i = i + 1
+    }
+    return line
+}
+
+fn fail(s: string, p: int, message: string) -> string {
+    return format("line {}: {}", line_of(s, p), message)
+}
+
+fn is_space_at(s: string, p: int) -> bool {
+    return is_char_at(s, p, " ") || is_char_at(s, p, "\t") ||
+        is_char_at(s, p, "\n") || is_char_at(s, p, "\r")
+}
+
+fn skip_space(s: string, pos: int) -> int {
+    var p = pos
+    while p < len(s) && is_space_at(s, p) {
+        p = p + 1
+    }
+    return p
+}
+
+// XML names: ASCII letters, `_` and `:` to start, plus digits, `.` and `-` after. Any byte of
+// 0x80 and up is accepted so that a name written in UTF-8 goes through; this is more permissive
+// than the spec's code-point ranges, which would reject a handful of characters this lets by.
+fn is_name_start(s: string, p: int) -> bool {
+    if p >= len(s) {
+        return false
+    }
+    val c = char_at(s, p)
+    if index_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_:", c, 0) >= 0 {
+        return true
+    }
+    return (string_to_bytes(c)[0] as int) >= 128
+}
+
+fn is_name_char(s: string, p: int) -> bool {
+    if is_name_start(s, p) {
+        return true
+    }
+    if p >= len(s) {
+        return false
+    }
+    val c = char_at(s, p)
+    return index_of("0123456789.-", c, 0) >= 0
+}
+
+fn read_name(s: string, pos: int) -> Result<PStr, string> {
+    if !is_name_start(s, pos) {
+        return err(fail(s, pos, "expected a name"))
+    }
+    var p = pos + 1
+    while is_name_char(s, p) {
+        p = p + 1
+    }
+    return ok(PStr { text: substring(s, pos, p), next: p })
+}
+
+// A character XML cannot carry at all: a C0 control other than tab, newline or return. There is
+// no escape for these, so they are refused on the way in rather than written back out broken.
+fn illegal_char(code: int) -> bool {
+    return code < 32 && code != 9 && code != 10 && code != 13
+}
+
+fn append_code_point(out: MutableString, cp: int) {
+    if cp < 128 {
+        mutable_string_append_byte(out, cp as byte)
+    } else if cp < 2048 {
+        mutable_string_append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
+    } else if cp < 65536 {
+        mutable_string_append_byte(
+            out,
+            (224 + cp / 4096) as byte,
+            (128 + cp / 64 % 64) as byte,
+            (128 + cp % 64) as byte
+        )
+    } else {
+        mutable_string_append_byte(
+            out,
+            (240 + cp / 262144) as byte,
+            (128 + cp / 4096 % 64) as byte,
+            (128 + cp / 64 % 64) as byte,
+            (128 + cp % 64) as byte
+        )
+    }
+}
+
+// One `&...;`. The five predefined entities and numeric character references are XML itself and
+// are expanded; anything else is a reference into a DTD this parser does not have, and saying so
+// is better than leaving `&patientName;` in the output looking like text.
+fn read_reference(s: string, pos: int, out: MutableString) -> Result<int, string> {
+    val end = index_of(s, ";", pos)
+    if end < 0 {
+        return err(fail(s, pos, "an entity reference with no ';'"))
+    }
+    val body = substring(s, pos + 1, end)
+    if body == "lt" {
+        mutable_string_append(out, "<")
+    } else if body == "gt" {
+        mutable_string_append(out, ">")
+    } else if body == "amp" {
+        mutable_string_append(out, "&")
+    } else if body == "quot" {
+        mutable_string_append(out, "\"")
+    } else if body == "apos" {
+        mutable_string_append(out, "'")
+    } else if starts_with(body, "#") {
+        val cp = try read_char_code(s, pos, body)
+        append_code_point(out, cp)
+    } else {
+        return err(fail(s, pos, format(
+            "undefined entity '&{};' -- this parser has no DTD, so only &lt; &gt; &amp; &quot; &apos; and &#...; are defined",
+            body
+        )))
+    }
+    return ok(end + 1)
+}
+
+fn read_char_code(s: string, pos: int, body: string) -> Result<int, string> {
+    var digits = substring(body, 1, len(body))
+    var base = 10
+    if starts_with(digits, "x") || starts_with(digits, "X") {
+        digits = substring(digits, 1, len(digits))
+        base = 16
+    }
+    if digits == "" {
+        return err(fail(s, pos, "a character reference with no digits"))
+    }
+    var value = 0
+    var i = 0
+    while i < len(digits) {
+        val d = index_of(hex_digits, to_lower(char_at(digits, i)), 0)
+        if d < 0 || d >= base {
+            return err(fail(s, pos, format("'&{};' is not a character reference", body)))
+        }
+        value = value * base + d
+        if value > max_code_point {
+            return err(fail(s, pos, format("character reference '&{};' is out of range", body)))
+        }
+        i = i + 1
+    }
+    if value > max_code_point || (value >= surrogate_start && value <= surrogate_end) {
+        return err(fail(s, pos, format("character reference '&{};' is not a character", body)))
+    }
+    if illegal_char(value) {
+        return err(fail(s, pos, format(
+            "character reference '&{};' is a control character XML cannot represent",
+            body
+        )))
+    }
+    return ok(value)
+}
+
+// Character data up to the next `<`. References are expanded; a raw `]]>` is refused because it
+// ends a CDATA section and so cannot appear literally in content.
+fn read_text(s: string, pos: int) -> Result<PStr, string> {
+    val out = mutable_string_new()
+    var p = pos
+    while p < len(s) && !is_char_at(s, p, "<") {
+        if is_char_at(s, p, "&") {
+            p = try read_reference(s, p, out)
+        } else {
+            val code = string_to_bytes(char_at(s, p))[0] as int
+            if illegal_char(code) {
+                return err(fail(s, p, "a control character XML cannot represent"))
+            }
+            if code == 93 && starts_with(substring(s, p, len(s)), "]]>") {
+                return err(fail(s, p, "']]>' cannot appear in content; write '&gt;' for the '>'"))
+            }
+            mutable_string_append(out, char_at(s, p))
+            p = p + 1
+        }
+    }
+    return ok(PStr { text: snapshot(out), next: p })
+}
+
+fn read_attr_value(s: string, pos: int) -> Result<PStr, string> {
+    if pos >= len(s) || (!is_char_at(s, pos, "\"") && !is_char_at(s, pos, "'")) {
+        return err(fail(s, pos, "an attribute value must be quoted"))
+    }
+    val quote = char_at(s, pos)
+    val out = mutable_string_new()
+    var p = pos + 1
+    while p < len(s) {
+        if is_char_at(s, p, quote) {
+            return ok(PStr { text: snapshot(out), next: p + 1 })
+        }
+        if is_char_at(s, p, "<") {
+            return err(fail(s, p, "'<' cannot appear in an attribute value; write '&lt;'"))
+        }
+        if is_char_at(s, p, "&") {
+            p = try read_reference(s, p, out)
+        } else {
+            val code = string_to_bytes(char_at(s, p))[0] as int
+            if illegal_char(code) {
+                return err(fail(s, p, "a control character XML cannot represent"))
+            }
+            mutable_string_append(out, char_at(s, p))
+            p = p + 1
+        }
+    }
+    return err(fail(s, pos, "an attribute value with no closing quote"))
+}
+
+val xml_ns = "http://www.w3.org/XML/1998/namespace"
+val xmlns_ns = "http://www.w3.org/2000/xmlns/"
+
+// A prefixed name against the namespaces in scope. An unprefixed *attribute* is in no
+// namespace however the default `xmlns` stands -- the default applies to elements only, which
+// is the one namespace rule nearly everyone gets wrong.
+fn resolve(s: string, at: int, qname: string, scope: Map<string, string>, is_attr: bool) -> Result<Name, string> {
+    val colon = index_of(qname, ":", 0)
+    if colon < 0 {
+        if is_attr {
+            return ok(Name { namespace: Option<string>.None, local: qname, prefix: Option<string>.None })
+        }
+        return switch map_get(scope, "") {
+            Some(uri) {
+                if uri == "" {
+                    ok(Name { namespace: Option<string>.None, local: qname, prefix: Option<string>.None })
+                } else {
+                    ok(Name { namespace: Option<string>.Some(uri), local: qname, prefix: Option<string>.None })
+                }
+            }
+            None { ok(Name { namespace: Option<string>.None, local: qname, prefix: Option<string>.None }) }
+        }
+    }
+    val prefix = substring(qname, 0, colon)
+    val local = substring(qname, colon + 1, len(qname))
+    if local == "" || index_of(local, ":", 0) >= 0 {
+        return err(fail(s, at, format("'{}' is not a valid name", qname)))
+    }
+    if prefix == "xml" {
+        return ok(named(xml_ns, prefix, local))
+    }
+    if prefix == "xmlns" {
+        return ok(named(xmlns_ns, prefix, local))
+    }
+    return switch map_get(scope, prefix) {
+        Some(uri) { ok(named(uri, prefix, local)) }
+        None { err(fail(s, at, format("undeclared namespace prefix '{}' in '{}'", prefix, qname))) }
+    }
+}
+
+fn named(uri: string, prefix: string, local: string) -> Name {
+    return Name {
+        namespace: Option<string>.Some(uri),
+        local: local,
+        prefix: Option<string>.Some(prefix)
+    }
+}
+
+// The `xmlns` declarations among `attrs`, layered over the scope they were found in. Maps are
+// values here, so an inner element's scope is simply its parent's with its own declarations
+// set -- leaving the element restores the outer one with nothing to unwind.
+fn extend_scope(scope: Map<string, string>, attrs: [RawAttr]) -> Map<string, string> {
+    var declares = false
+    for a in attrs {
+        if a.qname == "xmlns" || starts_with(a.qname, "xmlns:") {
+            declares = true
+        }
+    }
+    if !declares {
+        return scope
+    }
+    val out = mutable_map_new<string, string>()
+    for k, v in scope {
+        mutable_map_set(out, k, v)
+    }
+    for a in attrs {
+        if a.qname == "xmlns" {
+            mutable_map_set(out, "", a.value)
+        } else if starts_with(a.qname, "xmlns:") {
+            mutable_map_set(out, substring(a.qname, 6, len(a.qname)), a.value)
+        }
+    }
+    return snapshot(out)
+}
+
+fn read_attributes(s: string, pos: int, limits: XmlLimits) -> Result<PAttrs, string> {
+    var attrs: [RawAttr] = []
+    var p = pos
+    while true {
+        val before = p
+        p = skip_space(s, p)
+        if p >= len(s) {
+            return err(fail(s, pos, "a tag that is never closed"))
+        }
+        if is_char_at(s, p, ">") || starts_with(substring(s, p, len(s)), "/>") {
+            return ok(PAttrs { attrs: attrs, next: p })
+        }
+        if p == before {
+            return err(fail(s, p, "expected whitespace before an attribute"))
+        }
+        val at = p
+        val n = try read_name(s, p)
+        p = skip_space(s, n.next)
+        if !is_char_at(s, p, "=") {
+            return err(fail(s, p, format("expected '=' after attribute '{}'", n.text)))
+        }
+        p = skip_space(s, p + 1)
+        val v = try read_attr_value(s, p)
+        p = v.next
+        attrs = push(attrs, RawAttr { qname: n.text, value: v.text, at: at })
+        if len(attrs) > limits.max_attributes {
+            return err(fail(s, at, format(
+                "more than {} attributes on one element",
+                limits.max_attributes
+            )))
+        }
+    }
+    return err(fail(s, pos, "a tag that is never closed"))
+}
+
+fn read_comment(s: string, pos: int) -> Result<PStr, string> {
+    val end = index_of(s, "-->", pos + 4)
+    if end < 0 {
+        return err(fail(s, pos, "a comment that is never closed"))
+    }
+    val body = substring(s, pos + 4, end)
+    if index_of(body, "--", 0) >= 0 {
+        return err(fail(s, pos, "'--' cannot appear inside a comment"))
+    }
+    return ok(PStr { text: body, next: end + 3 })
+}
+
+fn read_cdata(s: string, pos: int) -> Result<PStr, string> {
+    val end = index_of(s, "]]>", pos + 9)
+    if end < 0 {
+        return err(fail(s, pos, "a CDATA section that is never closed"))
+    }
+    return ok(PStr { text: substring(s, pos + 9, end), next: end + 3 })
+}
+
+fn read_pi(s: string, pos: int) -> Result<PNode, string> {
+    val target = try read_name(s, pos + 2)
+    if equals_ignore_case(target.text, "xml") {
+        return err(fail(s, pos, "'<?xml' is only allowed as the declaration on the first line"))
+    }
+    val end = index_of(s, "?>", target.next)
+    if end < 0 {
+        return err(fail(s, pos, "a processing instruction that is never closed"))
+    }
+    val data = trim(substring(s, target.next, end))
+    return ok(PNode {
+        node: Node.ProcessingInstruction(Instruction { target: target.text, data: data }),
+        next: end + 2
+    })
+}
+
+// `<!...` is a comment, a CDATA section, or a DTD. The last is refused: see the module header.
+fn read_bang(s: string, pos: int) -> Result<PNode, string> {
+    val rest = substring(s, pos, len(s))
+    if starts_with(rest, "<!--") {
+        val c = try read_comment(s, pos)
+        return ok(PNode { node: Node.Comment(c.text), next: c.next })
+    }
+    if starts_with(rest, "<![CDATA[") {
+        val c = try read_cdata(s, pos)
+        return ok(PNode { node: Node.CData(c.text), next: c.next })
+    }
+    if starts_with(rest, "<!DOCTYPE") {
+        return err(fail(s, pos, concat(
+            "a DOCTYPE is not accepted: this parser has no DTD at all, which is what rules out ",
+            "entity-expansion and external-entity attacks. Remove the DOCTYPE and the document will parse."
+        )))
+    }
+    return err(fail(s, pos, "expected a comment or a CDATA section after '<!'"))
+}
+
+fn read_element(
+    s: string,
+    pos: int,
+    scope: Map<string, string>,
+    limits: XmlLimits,
+    depth: int
+) -> Result<PElem, string> {
+    if depth > limits.max_depth {
+        return err(fail(s, pos, format("nesting deeper than {} levels", limits.max_depth)))
+    }
+    val open = try read_name(s, pos + 1)
+    val raw = try read_attributes(s, open.next, limits)
+    val inner = extend_scope(scope, raw.attrs)
+
+    val elem_name = try resolve(s, pos, open.text, inner, false)
+    var attributes: [Attribute] = []
+    for a in raw.attrs {
+        val an = try resolve(s, a.at, a.qname, inner, true)
+        for seen in attributes {
+            if same_name(seen.name, an) {
+                return err(fail(s, a.at, format("attribute '{}' appears twice", a.qname)))
+            }
+        }
+        attributes = push(attributes, Attribute { name: an, value: a.value })
+    }
+
+    var p = raw.next
+    if starts_with(substring(s, p, len(s)), "/>") {
+        return ok(PElem {
+            elem: Element { name: elem_name, attributes: attributes, children: [] },
+            next: p + 2
+        })
+    }
+    p = p + 1
+    var kids: [Node] = []
+    while true {
+        if p >= len(s) {
+            return err(fail(s, pos, format("<{}> is never closed", open.text)))
+        }
+        if is_char_at(s, p, "<") {
+            val rest = substring(s, p, len(s))
+            if starts_with(rest, "</") {
+                val close = try read_name(s, p + 2)
+                if close.text != open.text {
+                    return err(fail(s, p, format(
+                        "</{}> closes <{}>",
+                        close.text,
+                        open.text
+                    )))
+                }
+                val after = skip_space(s, close.next)
+                if !is_char_at(s, after, ">") {
+                    return err(fail(s, after, format("expected '>' to end </{}>", close.text)))
+                }
+                return ok(PElem {
+                    elem: Element { name: elem_name, attributes: attributes, children: kids },
+                    next: after + 1
+                })
+            }
+            if starts_with(rest, "<!") {
+                val n = try read_bang(s, p)
+                kids = push(kids, n.node)
+                p = n.next
+            } else if starts_with(rest, "<?") {
+                val n = try read_pi(s, p)
+                kids = push(kids, n.node)
+                p = n.next
+            } else {
+                val sub = try read_element(s, p, inner, limits, depth + 1)
+                kids = push(kids, Node.Element(sub.elem))
+                p = sub.next
+            }
+        } else {
+            val t = try read_text(s, p)
+            if t.text != "" {
+                kids = push(kids, Node.Text(t.text))
+            }
+            p = t.next
+        }
+    }
+    return err(fail(s, pos, format("<{}> is never closed", open.text)))
+}
+
+fn read_declaration(s: string) -> Result<Option<Declaration>, string> {
+    if !starts_with(s, "<?xml") {
+        return ok(Option<Declaration>.None)
+    }
+    if len(s) > 5 && is_name_char(s, 5) {
+        return ok(Option<Declaration>.None)
+    }
+    val end = index_of(s, "?>", 0)
+    if end < 0 {
+        return err(fail(s, 0, "an XML declaration that is never closed"))
+    }
+    val limits = xml_limits()
+    val raw = try read_attributes(concat(substring(s, 0, end), ">"), 5, limits)
+    var version = ""
+    var encoding = Option<string>.None
+    var standalone = Option<bool>.None
+    for a in raw.attrs {
+        if a.qname == "version" {
+            version = a.value
+        } else if a.qname == "encoding" {
+            encoding = Option<string>.Some(a.value)
+        } else if a.qname == "standalone" {
+            if a.value == "yes" {
+                standalone = Option<bool>.Some(true)
+            } else if a.value == "no" {
+                standalone = Option<bool>.Some(false)
+            } else {
+                return err(fail(s, 0, "standalone must be 'yes' or 'no'"))
+            }
+        } else {
+            return err(fail(s, 0, format("'{}' is not part of an XML declaration", a.qname)))
+        }
+    }
+    if version == "" {
+        return err(fail(s, 0, "an XML declaration must state a version"))
+    }
+    if version != "1.0" {
+        return err(fail(s, 0, format("XML {} is not supported; this reader is XML 1.0", version)))
+    }
+    if Some(enc) = encoding {
+        if !equals_ignore_case(enc, "utf-8") && !equals_ignore_case(enc, "utf8") {
+            return err(fail(s, 0, format(
+                "encoding '{}' is not supported; this reader reads UTF-8, and guessing would misread the text",
+                enc
+            )))
+        }
+    }
+    return ok(Option<Declaration>.Some(Declaration {
+        version: version,
+        encoding: encoding,
+        standalone: standalone
+    }))
+}
+
+// A UTF-8 byte order mark, which an editor on Windows may have put there. It is not part of
+// the document, so it is dropped before parsing rather than becoming text before the root.
+fn has_bom(s: string) -> bool {
+    if len(s) < 3 {
+        return false
+    }
+    val b = string_to_bytes(substring(s, 0, 3))
+    return (b[0] as int) == 239 && (b[1] as int) == 187 && (b[2] as int) == 191
+}
+
+// XML normalises every line ending to a single newline before anything else looks at the text,
+// so a document written on Windows and one written on Unix parse to the same tree.
+fn normalise_newlines(s: string) -> string {
+    if index_of(s, "\r", 0) < 0 {
+        return s
+    }
+    return replace(replace(s, "\r\n", "\n"), "\r", "\n")
+}
+
+// Parses one XML document with the default limits (`xml_limits()`): at most 16 MiB, 512 levels
+// of nesting and 256 attributes on an element, and no DTD -- a `<!DOCTYPE>` is an error whose
+// message says why. An Err carries `line N: ...`.
+//
+// A leading byte order mark is ignored. Line endings are normalised to `\n`. Namespaces are
+// resolved as the document is read, so `Name.namespace` holds a URI and `find`/`same_name`
+// compare on it. Text that `&...;` references expand to is already expanded in `Node.Text`;
+// only the five predefined entities and numeric character references exist, there being no DTD
+// to define any others.
+pub fn parse_xml(text: string) -> Result<Document, string> {
+    return parse_xml_with(text, xml_limits())
+}
+
+// `parse_xml` with limits of your own. Tightening `max_bytes` is the usual reason -- a document
+// arriving from somewhere you do not control has a size you are willing to spend memory on, and
+// it is smaller than 16 MiB.
+pub fn parse_xml_with(text: string, limits: XmlLimits) -> Result<Document, string> {
+    if len(text) > limits.max_bytes {
+        return err(format(
+            "the document is {} bytes, over the {}-byte limit",
+            len(text),
+            limits.max_bytes
+        ))
+    }
+    var s = normalise_newlines(text)
+    if has_bom(s) {
+        s = substring(s, 3, len(s))
+    }
+    val decl = try read_declaration(s)
+    var p = 0
+    if Some(_) = decl {
+        p = index_of(s, "?>", 0) + 2
+    }
+
+    var prolog: [Node] = []
+    var root = Option<Element>.None
+    var epilog: [Node] = []
+    while true {
+        p = skip_space(s, p)
+        if p >= len(s) {
+            break
+        }
+        if !is_char_at(s, p, "<") {
+            return err(fail(s, p, "text is not allowed outside the root element"))
+        }
+        val rest = substring(s, p, len(s))
+        if starts_with(rest, "<!") {
+            val n = try read_bang(s, p)
+            if CData(_) = n.node {
+                return err(fail(s, p, "a CDATA section is not allowed outside the root element"))
+            }
+            if None = root {
+                prolog = push(prolog, n.node)
+            } else {
+                epilog = push(epilog, n.node)
+            }
+            p = n.next
+        } else if starts_with(rest, "<?") {
+            val n = try read_pi(s, p)
+            if None = root {
+                prolog = push(prolog, n.node)
+            } else {
+                epilog = push(epilog, n.node)
+            }
+            p = n.next
+        } else if starts_with(rest, "</") {
+            return err(fail(s, p, "a closing tag with nothing open"))
+        } else {
+            if Some(_) = root {
+                return err(fail(s, p, "a second root element: an XML document has exactly one"))
+            }
+            val e = try read_element(s, p, Map<string, string> {}, limits, 1)
+            root = Option<Element>.Some(e.elem)
+            p = e.next
+        }
+    }
+    return switch root {
+        Some(r) { ok(Document { declaration: decl, prolog: prolog, root: r, epilog: epilog }) }
+        None { err("the document has no root element") }
+    }
+}
+
+// `parse_xml` over the bytes of a document -- what `fs.read_bytes` gives, or an HTTP body. The
+// bytes must be UTF-8; invalid UTF-8 is an Err rather than a tree with broken text in it.
+pub fn parse_xml_bytes(data: [byte]) -> Result<Document, string> {
+    return parse_xml_bytes_with(data, xml_limits())
+}
+
+pub fn parse_xml_bytes_with(data: [byte], limits: XmlLimits) -> Result<Document, string> {
+    if len(data) > limits.max_bytes {
+        return err(format(
+            "the document is {} bytes, over the {}-byte limit",
+            len(data),
+            limits.max_bytes
+        ))
+    }
+    return switch bytes_to_string(data) {
+        Ok(s) { parse_xml_with(s, limits) }
+        Err(e) { err(format("the document is not valid UTF-8: {}", e)) }
+    }
+}
+
+// ------------------------------------------------------------------ writing
+
+// Character data, escaped. `>` does not strictly need escaping outside `]]>`, but escaping it
+// always costs nothing and removes a case where correctness depends on what came before.
+fn escape_text(s: string, out: MutableString) -> Result<bool, string> {
+    var i = 0
+    while i < len(s) {
+        val c = char_at(s, i)
+        val code = string_to_bytes(c)[0] as int
+        if illegal_char(code) {
+            return err(format(
+                "the text contains character {}, which XML 1.0 cannot represent in any form (there is no '&#{};')",
+                code,
+                code
+            ))
+        }
+        if c == "&" {
+            mutable_string_append(out, "&amp;")
+        } else if c == "<" {
+            mutable_string_append(out, "&lt;")
+        } else if c == ">" {
+            mutable_string_append(out, "&gt;")
+        } else {
+            mutable_string_append(out, c)
+        }
+        i = i + 1
+    }
+    return ok(true)
+}
+
+// An attribute value, escaped and written in double quotes. Tab, newline and return are written
+// as character references: a reader normalises a literal one to a space, so leaving them raw
+// would quietly change the value on the way back in.
+fn escape_attr(s: string, out: MutableString) -> Result<bool, string> {
+    var i = 0
+    while i < len(s) {
+        val c = char_at(s, i)
+        val code = string_to_bytes(c)[0] as int
+        if illegal_char(code) {
+            return err(format(
+                "an attribute value contains character {}, which XML 1.0 cannot represent",
+                code
+            ))
+        }
+        if c == "&" {
+            mutable_string_append(out, "&amp;")
+        } else if c == "<" {
+            mutable_string_append(out, "&lt;")
+        } else if c == ">" {
+            mutable_string_append(out, "&gt;")
+        } else if c == "\"" {
+            mutable_string_append(out, "&quot;")
+        } else if c == "\t" {
+            mutable_string_append(out, "&#9;")
+        } else if c == "\n" {
+            mutable_string_append(out, "&#10;")
+        } else if c == "\r" {
+            mutable_string_append(out, "&#13;")
+        } else {
+            mutable_string_append(out, c)
+        }
+        i = i + 1
+    }
+    return ok(true)
+}
+
+fn valid_name(n: string) -> bool {
+    if n == "" {
+        return false
+    }
+    if !is_name_start(n, 0) {
+        return false
+    }
+    var i = 1
+    while i < len(n) {
+        if !is_name_char(n, i) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+// A name as it is written: `prefix:local`, or `local` when there is no prefix. The namespace URI
+// is not consulted -- see the module header.
+fn write_name(n: Name, out: MutableString) -> Result<bool, string> {
+    if !valid_name(n.local) {
+        return err(format("'{}' is not a valid XML name", n.local))
+    }
+    if Some(p) = n.prefix {
+        if !valid_name(p) {
+            return err(format("'{}' is not a valid namespace prefix", p))
+        }
+        mutable_string_append(out, p, ":")
+    }
+    mutable_string_append(out, n.local)
+    return ok(true)
+}
+
+fn write_attributes(e: Element, out: MutableString) -> Result<bool, string> {
+    for a in e.attributes {
+        mutable_string_append(out, " ")
+        val _ = try write_name(a.name, out)
+        mutable_string_append(out, "=\"")
+        val _ = try escape_attr(a.value, out)
+        mutable_string_append(out, "\"")
+    }
+    return ok(true)
+}
+
+fn write_comment(body: string, out: MutableString) -> Result<bool, string> {
+    if index_of(body, "--", 0) >= 0 {
+        return err("a comment cannot contain '--'")
+    }
+    if ends_with(body, "-") {
+        return err("a comment cannot end with '-'")
+    }
+    mutable_string_append(out, "<!--", body, "-->")
+    return ok(true)
+}
+
+fn write_cdata(body: string, out: MutableString) -> Result<bool, string> {
+    if index_of(body, "]]>", 0) >= 0 {
+        return err("a CDATA section cannot contain ']]>'")
+    }
+    mutable_string_append(out, "<![CDATA[", body, "]]>")
+    return ok(true)
+}
+
+fn write_pi(pi: Instruction, out: MutableString) -> Result<bool, string> {
+    if !valid_name(pi.target) {
+        return err(format("'{}' is not a valid processing-instruction target", pi.target))
+    }
+    if equals_ignore_case(pi.target, "xml") {
+        return err("'xml' is reserved as a processing-instruction target")
+    }
+    if index_of(pi.data, "?>", 0) >= 0 {
+        return err("a processing instruction cannot contain '?>'")
+    }
+    if pi.data == "" {
+        mutable_string_append(out, "<?", pi.target, "?>")
+    } else {
+        mutable_string_append(out, "<?", pi.target, " ", pi.data, "?>")
+    }
+    return ok(true)
+}
+
+// Whether an element may be laid out over several lines. Adding a newline and an indent inside
+// mixed content changes the text the document carries, so an element holding any text at all is
+// written on one line however deep it sits.
+fn indentable(e: Element) -> bool {
+    if len(e.children) == 0 {
+        return false
+    }
+    for c in e.children {
+        switch c {
+            Text(_) { return false }
+            CData(_) { return false }
+            Element(_) {}
+            Comment(_) {}
+            ProcessingInstruction(_) {}
+        }
+    }
+    return true
+}
+
+fn write_node(n: Node, out: MutableString, indent: string, depth: int) -> Result<bool, string> {
+    return switch n {
+        Text(t) { escape_text(t, out) }
+        CData(t) { write_cdata(t, out) }
+        Comment(t) { write_comment(t, out) }
+        ProcessingInstruction(pi) { write_pi(pi, out) }
+        Element(e) { write_element(e, out, indent, depth) }
+    }
+}
+
+fn write_element(e: Element, out: MutableString, indent: string, depth: int) -> Result<bool, string> {
+    mutable_string_append(out, "<")
+    val _ = try write_name(e.name, out)
+    val _ = try write_attributes(e, out)
+    if len(e.children) == 0 {
+        mutable_string_append(out, "/>")
+        return ok(true)
+    }
+    mutable_string_append(out, ">")
+    val pretty = indent != "" && indentable(e)
+    for c in e.children {
+        if pretty {
+            mutable_string_append(out, "\n")
+            var i = 0
+            while i <= depth {
+                mutable_string_append(out, indent)
+                i = i + 1
+            }
+        }
+        val _ = try write_node(c, out, indent, depth + 1)
+    }
+    if pretty {
+        mutable_string_append(out, "\n")
+        var i = 0
+        while i < depth {
+            mutable_string_append(out, indent)
+            i = i + 1
+        }
+    }
+    mutable_string_append(out, "</")
+    val _ = try write_name(e.name, out)
+    mutable_string_append(out, ">")
+    return ok(true)
+}
+
+fn write_declaration(d: Option<Declaration>, out: MutableString) {
+    val decl = switch d {
+        Some(x) { x }
+        None {
+            Declaration {
+                version: "1.0",
+                encoding: Option<string>.Some("UTF-8"),
+                standalone: Option<bool>.None
+            }
+        }
+    }
+    mutable_string_append(out, "<?xml version=\"", decl.version, "\"")
+    if Some(enc) = decl.encoding {
+        mutable_string_append(out, " encoding=\"", enc, "\"")
+    }
+    if Some(sa) = decl.standalone {
+        mutable_string_append(out, " standalone=\"", if sa { "yes" } else { "no" }, "\"")
+    }
+    mutable_string_append(out, "?>")
+}
+
+fn write_document(doc: Document, indent: string) -> Result<string, string> {
+    val out = mutable_string_new()
+    write_declaration(doc.declaration, out)
+    mutable_string_append(out, "\n")
+    for n in doc.prolog {
+        val _ = try write_node(n, out, indent, 0)
+        mutable_string_append(out, "\n")
+    }
+    val _ = try write_element(doc.root, out, indent, 0)
+    mutable_string_append(out, "\n")
+    for n in doc.epilog {
+        val _ = try write_node(n, out, indent, 0)
+        mutable_string_append(out, "\n")
+    }
+    return ok(snapshot(out))
+}
+
+// `doc` as XML text on one line, with a declaration and a trailing newline. A document that came
+// from `parse_xml` writes back as the same tree -- reading the output gives an equal `Document`.
+//
+// Unlike `json_to_string` this can fail, because XML genuinely cannot carry some strings: a name
+// that is not a legal XML name, a comment containing `--`, a CDATA section containing `]]>`, and
+// above all text holding a C0 control character, for which XML 1.0 has no escape at all. JSON
+// writes that last one as `\u0000`; XML has nothing to write, so refusing is the only honest
+// answer. The message says which rule the tree broke. (NUL specifically never gets this far: a
+// Ziman `string` cannot hold one, because `bytes_to_string` refuses it at the boundary.)
+pub fn xml_to_string(doc: Document) -> Result<string, string> {
+    return write_document(doc, "")
+}
+
+// `xml_to_string` laid out over several lines, each level indented by `indent` (two spaces, a
+// tab -- whatever you pass). An element with any text in it stays on one line, because
+// indentation inside mixed content would change the text itself.
+//
+// **This is not round-trip safe, and cannot be.** The indentation between elements is text like
+// any other, and nothing in the document says whether it matters -- only a schema this reader
+// does not have could say. So reading the pretty output back gives a tree with whitespace in it
+// that the original did not have. Use `xml_to_string` when the bytes have to come back the
+// same (a signature, a checksum, a stored document) and this one when a person reads the
+// output.
+pub fn xml_to_string_pretty(doc: Document, indent: string) -> Result<string, string> {
+    return write_document(doc, indent)
+}
+
+// `xml_to_string` as UTF-8 bytes: an HTTP body, or what `fs.write_bytes` takes.
+pub fn xml_to_bytes(doc: Document) -> Result<[byte], string> {
+    val s = try xml_to_string(doc)
+    return ok(string_to_bytes(s))
+}
+
+// One element as XML text, with no declaration: a fragment to embed in a document being built
+// some other way.
+pub fn element_to_string(e: Element) -> Result<string, string> {
+    val out = mutable_string_new()
+    val _ = try write_element(e, out, "", 0)
+    return ok(snapshot(out))
+}

@@ -1241,6 +1241,116 @@ pub fn uuid_compare(a: Uuid, b: Uuid) -> int
 
 ```
 
+## `xml`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). XML 1.0 as a document tree: a reader, a writer and a small path finder, in pure Ziman. Not a `Json` tree -- XML interleaves text with elements, separates attributes from children and identifies a name by its namespace URI, none of which survive a map. There is no DTD at all, so `<!DOCTYPE>` is a parse error and entity-expansion and external-entity attacks have nowhere to stand; size, depth and attribute-count limits are in `XmlLimits`.
+
+```
+pub struct Name {
+    namespace: Option<string>
+    local: string
+    prefix: Option<string>
+}
+
+pub struct Attribute {
+    name: Name
+    value: string
+}
+
+pub struct Instruction {
+    target: string
+    data: string
+}
+
+pub enum Node {
+    Element(Element)
+    Text(string)
+    CData(string)
+    Comment(string)
+    ProcessingInstruction(Instruction)
+}
+
+pub struct Element {
+    name: Name
+    attributes: [Attribute]
+    children: [Node]
+}
+
+pub struct Declaration {
+    version: string
+    encoding: Option<string>
+    standalone: Option<bool>
+}
+
+pub struct Document {
+    declaration: Option<Declaration>
+    prolog: [Node]
+    root: Element
+    epilog: [Node]
+}
+
+pub struct XmlLimits {
+    max_bytes: int
+    max_depth: int
+    max_attributes: int
+}
+
+pub fn xml_limits() -> XmlLimits
+
+pub fn name(local: string) -> Name
+
+pub fn ns_name(uri: string, prefix: string, local: string) -> Name
+
+pub fn element(n: Name, attributes: [Attribute], children: [Node]) -> Element
+
+pub fn empty(local: string) -> Element
+
+pub fn text_element(local: string, content: string) -> Element
+
+pub fn attribute(local: string, value: string) -> Attribute
+
+pub fn document(root: Element) -> Document
+
+pub fn same_name(a: Name, b: Name) -> bool
+
+pub fn attr(e: Element, local: string) -> Option<string>
+
+pub fn attr_ns(e: Element, uri: string, local: string) -> Option<string>
+
+pub fn attr_or(e: Element, local: string, fallback: string) -> string
+
+pub fn children(e: Element) -> [Element]
+
+pub fn children_named(e: Element, local: string) -> [Element]
+
+pub fn child(e: Element, local: string) -> Option<Element>
+
+pub fn text_of(e: Element) -> string
+
+pub fn find(e: Element, path: string) -> [Element]
+
+pub fn find_ns(e: Element, uri: string, path: string) -> [Element]
+
+pub fn find_first(e: Element, path: string) -> Option<Element>
+
+pub fn parse_xml(text: string) -> Result<Document, string>
+
+pub fn parse_xml_with(text: string, limits: XmlLimits) -> Result<Document, string>
+
+pub fn parse_xml_bytes(data: [byte]) -> Result<Document, string>
+
+pub fn parse_xml_bytes_with(data: [byte], limits: XmlLimits) -> Result<Document, string>
+
+pub fn xml_to_string(doc: Document) -> Result<string, string>
+
+pub fn xml_to_string_pretty(doc: Document, indent: string) -> Result<string, string>
+
+pub fn xml_to_bytes(doc: Document) -> Result<[byte], string>
+
+pub fn element_to_string(e: Element) -> Result<string, string>
+
+```
+
 ## `yaml`
 
 **Experimental** (see docs/DESIGN.md "Experimental modules"). A strict YAML 1.2 subset to and from a `Json` tree: block and flow collections, quoted/plain/block scalars. Anchors, tags, merge keys and multiple documents are errors.
@@ -1383,6 +1493,17 @@ pub struct Migration {
 pub fn checksum(sql: string) -> string
 
 pub fn migration(version: int, name: string, sql: string) -> Migration
+
+pub struct TypeToken {
+    token: string
+    sqlite: string
+    postgres: string
+    mysql: string
+}
+
+pub val type_tokens = [
+
+pub fn substitute(sql: string, dialect: string, file: string) -> Result<string, DbError>
 
 pub fn split_statements(sql: string) -> [string]
 
@@ -1743,6 +1864,14 @@ pub struct Session {
     timeout_ms: int
     head_timeout_ms: int
     fresh: bool
+    // The largest request body `read_request` will accept, or 0 for this module's 1 MiB default.
+    // `serve` fills it from `ServeOptions.max_body_bytes`; the `open_session*` constructors leave it
+    // 0, so a caller reading requests off its own socket keeps the default until it says otherwise.
+    //
+    // It is here rather than only on `ServeOptions` because `read_request(session)` is the public
+    // entry point and the North Star backend calls it directly -- a limit the server knows has to
+    // reach it somehow, and widening that signature would break every such caller (D21, D22).
+    max_body_bytes: int
 }
 
 pub struct Exchange {
@@ -1937,6 +2066,10 @@ pub struct ServeOptions {
     header_timeout_ms: int
     max_connections: int
     log_requests: bool
+    // The largest request body to accept, or 0 for the library's 1 MiB default. A body over it is
+    // refused with 413 before the handler is reached, and the limit applies to what arrives on the
+    // wire -- the encoded body, `multipart` boundaries included.
+    max_body_bytes: int
     // How to render a rejection the server makes before the handler is ever reached -- a 400 for a malformed
     // request line, a 408 when the client stops mid-request, a 413 for too large a body, a 431 for too large a
     // header block, a 501 for a method the parser will not take. `None` uses the library's own JSON shape.

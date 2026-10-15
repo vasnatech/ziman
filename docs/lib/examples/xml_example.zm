@@ -1,0 +1,45 @@
+use xml
+
+// XML is a tree of its own, not a Json tree: text and elements interleave, attributes are not
+// children, and a name is identified by its namespace rather than its prefix.
+fn main() {
+    val doc = unwrap(xml.parse_xml("""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <record xmlns="urn:hl7-org:v3">
+          <patient><name>Ann Lee</name></patient>
+          <section code="allergies">
+            <entry substance="penicillin" severity="high"/>
+            <entry substance="latex" severity="low"/>
+          </section>
+          <note>Take <em>2</em> tablets &amp; rest.</note>
+        </record>
+        """))
+
+    // `find` follows child names; namespaces are resolved but do not have to be spelled out.
+    for entry in xml.find(doc.root, "section/entry") {
+        print(format(
+            "{}: {}",
+            unwrap(xml.attr(entry, "substance")),
+            unwrap(xml.attr(entry, "severity"))
+        ))
+    }
+    print(unwrap(xml.attr(unwrap(xml.find_first(doc.root, "section")), "code")))
+
+    // Mixed content keeps its order, and `text_of` flattens it.
+    print(xml.text_of(unwrap(xml.child(doc.root, "note"))))
+    print(unwrap(doc.root.name.namespace))
+
+    // Building and writing. Escaping is the writer's job, so the `&` below cannot break the output.
+    val built = xml.document(xml.element(xml.name("visit"), [xml.attribute("id", "7")], [
+        xml.Node.Element(xml.text_element("reason", "cough & fever")),
+        xml.Node.Element(xml.empty("followUp"))
+    ]))
+    print(trim(unwrap(xml.xml_to_string(built))))
+
+    // There is no DTD, so the shapes that make XML dangerous simply do not parse.
+    print(is_ok(xml.parse_xml("<!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><x>&e;</x>")))
+
+    // The limits are a value you can tighten for input you do not control.
+    val strict = xml.XmlLimits { max_bytes: 4096, max_depth: 8, max_attributes: 16 }
+    print(is_ok(xml.parse_xml_with("<a><b><c/></b></a>", strict)))
+}
