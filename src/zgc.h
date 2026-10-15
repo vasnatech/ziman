@@ -40,6 +40,15 @@ void ziman_alloc_note_heap(const char *file, int line, size_t n, int atomic);
  * the next mark phase will have to walk. Per object, then once per cycle. */
 void ziman_alloc_note_live(const char *kind, size_t bytes, int live);
 void ziman_alloc_note_collection(size_t live_bytes, size_t live_objects, size_t dead_objects);
+/* Mark and sweep separately, because the counts only let the split be inferred: sweep visits
+ * every object and mark only the reachable ones, so on a program whose live set is small the
+ * two are nothing alike and a single "collection" bucket hides which one to attack. */
+void ziman_alloc_note_phases(unsigned long long mark_ns, unsigned long long sweep_ns);
+/* Counted where they are allocated rather than where they die, because the question this
+ * answers is how many allocations could be avoided outright: a variant carrying no payload
+ * holds nothing that distinguishes one instance from another, so every one of them could be a
+ * single shared object instead of a fresh heap allocation. */
+void ziman_alloc_note_enum(const char *enum_name, const char *variant_name, int has_payload);
 #define malloc(n) ziman_alloc_malloc(__FILE__, __LINE__, (n))
 #define calloc(a, b) ziman_gc_calloc_at(__FILE__, __LINE__, (size_t)(a), (size_t)(b))
 #define realloc(p, n) ziman_alloc_realloc(__FILE__, __LINE__, (p), (n))

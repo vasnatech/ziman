@@ -2,6 +2,7 @@
 #include "gc_object.h"
 
 #include <stdlib.h>
+#include <time.h>
 #include <string.h>
 
 #include "arena.h"
@@ -161,12 +162,25 @@ size_t gc_heap_collect(GcHeap *h, void (*extra_roots)(const Arena *a, void *ctx)
      * site returns early almost every time, and adding calls to it was part of a measured 9%
      * regression on call-heavy code. Here the cost is two increments per actual collection. */
     ziman_profile_gc_enter();
+#ifdef ZIMAN_ALLOC_PROFILE
+    struct timespec t0, t1, t2;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+#endif
     if (!gc_scan_stack_roots(h->arena, mark_visit, h->arena)) {
         ziman_profile_gc_leave();
         return 0;
     }
     if (extra_roots != NULL) extra_roots(h->arena, ctx);
+#ifdef ZIMAN_ALLOC_PROFILE
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+#endif
     size_t reclaimed = gc_heap_sweep(h);
+#ifdef ZIMAN_ALLOC_PROFILE
+    clock_gettime(CLOCK_MONOTONIC, &t2);
+    ziman_alloc_note_phases(
+        (unsigned long long)(t1.tv_sec - t0.tv_sec) * 1000000000ULL + (unsigned long long)(t1.tv_nsec - t0.tv_nsec),
+        (unsigned long long)(t2.tv_sec - t1.tv_sec) * 1000000000ULL + (unsigned long long)(t2.tv_nsec - t1.tv_nsec));
+#endif
     ziman_profile_gc_leave();
     return reclaimed;
 }

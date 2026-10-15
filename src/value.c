@@ -353,6 +353,9 @@ Value value_enum(Type enum_type, EnumObj *en) {
  * enum_name/variant_name are borrowed from the permanent AST (EnumDecl), never this object's own to
  * free, so nothing else here needs migrating alongside it. */
 EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Value payload) {
+#ifdef ZIMAN_ALLOC_PROFILE
+    ziman_alloc_note_enum(enum_name, variant_name, has_payload);
+#endif
     EnumObj *e = gc_heap_alloc(ziman_thread_heap(), GC_ENUM, sizeof(EnumObj));
     e->enum_name = enum_name;
     e->variant_name = variant_name;

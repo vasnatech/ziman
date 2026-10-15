@@ -40,6 +40,23 @@ static KindStat g_kinds[KINDS];
 static int g_kn;
 static unsigned long long g_collections, g_peak_live_bytes, g_peak_live_objects;
 static unsigned long long g_total_live_bytes, g_total_live_objects, g_total_dead_objects;
+static unsigned long long g_mark_ns, g_sweep_ns;
+
+/* Enum allocations by variant. Compared by string, not by pointer: the names are borrowed from
+ * wherever the allocation came from, and the same variant reaches here under two different
+ * pointers -- once from the AST of the module that declared it, once from a native's own string
+ * literal (native_json.c builds `Json` values itself). Pointer comparison listed `Json.JString`
+ * twice, at 120600 and 120000, which reads as two different things. */
+#define VARIANTS 256
+typedef struct {
+    const char *enum_name;
+    const char *variant_name;
+    int has_payload;
+    unsigned long long count;
+} VariantStat;
+static VariantStat g_variants[VARIANTS];
+static int g_vn;
+static unsigned long long g_enum_allocs, g_enum_payloadless;
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 
 static void note_at(const char *file, int line, size_t n, int atomic, int heap) {
@@ -73,6 +90,35 @@ static void note(const char *file, int line, size_t n, int atomic) {
  * nothing to forward -- only the accounting happens here. */
 void ziman_alloc_note_heap(const char *file, int line, size_t n, int atomic) {
     note_at(file, line, n, atomic, 1);
+}
+
+void ziman_alloc_note_phases(unsigned long long mark_ns, unsigned long long sweep_ns) {
+    pthread_mutex_lock(&g_mu);
+    g_mark_ns += mark_ns;
+    g_sweep_ns += sweep_ns;
+    pthread_mutex_unlock(&g_mu);
+}
+
+void ziman_alloc_note_enum(const char *enum_name, const char *variant_name, int has_payload) {
+    pthread_mutex_lock(&g_mu);
+    g_enum_allocs++;
+    if (!has_payload) g_enum_payloadless++;
+    for (int i = 0; i < g_vn; i++) {
+        if (strcmp(g_variants[i].enum_name, enum_name) == 0 &&
+            strcmp(g_variants[i].variant_name, variant_name) == 0) {
+            g_variants[i].count++;
+            pthread_mutex_unlock(&g_mu);
+            return;
+        }
+    }
+    if (g_vn < VARIANTS) {
+        g_variants[g_vn].enum_name = enum_name;
+        g_variants[g_vn].variant_name = variant_name;
+        g_variants[g_vn].has_payload = has_payload;
+        g_variants[g_vn].count = 1;
+        g_vn++;
+    }
+    pthread_mutex_unlock(&g_mu);
 }
 
 void ziman_alloc_note_live(const char *kind, size_t bytes, int live) {
@@ -145,6 +191,11 @@ static int by_live_bytes(const void *a, const void *b) {
     return x->live_bytes < y->live_bytes ? 1 : x->live_bytes > y->live_bytes ? -1 : 0;
 }
 
+static int by_variant_count(const void *a, const void *b) {
+    const VariantStat *x = a, *y = b;
+    return x->count < y->count ? 1 : x->count > y->count ? -1 : 0;
+}
+
 static int by_bytes(const void *a, const void *b) {
     const Site *x = a, *y = b;
     return x->bytes < y->bytes ? 1 : x->bytes > y->bytes ? -1 : 0;
@@ -204,8 +255,30 @@ __attribute__((destructor)) static void dump(void) {
                     g_kinds[i].dead_bytes, g_kinds[i].dead_objects,
                     100.0 * (double)g_kinds[i].live_objects / (double)(seen ? seen : 1));
         }
+        unsigned long long gc_ns = g_mark_ns + g_sweep_ns;
+        fprintf(stderr, "   mark %.1f ms (%.1f%%), sweep %.1f ms (%.1f%%)\n",
+                (double)g_mark_ns / 1e6, 100.0 * (double)g_mark_ns / (double)(gc_ns ? gc_ns : 1),
+                (double)g_sweep_ns / 1e6, 100.0 * (double)g_sweep_ns / (double)(gc_ns ? gc_ns : 1));
         fprintf(stderr, "   (Boehm's own heap is not included: its mark phase is inside the\n"
                         "    collector, which this build does not instrument.)\n");
+    }
+    if (g_enum_allocs > 0) {
+        qsort(g_variants, (size_t)g_vn, sizeof g_variants[0], by_variant_count);
+        fprintf(stderr, "\n== enum allocations by variant: %llu total, %d variants ==\n",
+                g_enum_allocs, g_vn);
+        /* A payload-less variant holds nothing that distinguishes one instance from another, so
+         * this count is exactly how many allocations a shared singleton per variant would
+         * remove. A variant with a payload cannot be shared and is listed for scale only. */
+        fprintf(stderr, "   %llu of them carry no payload (%.1f%%), and so could be one shared\n"
+                        "   object per variant rather than an allocation each\n",
+                g_enum_payloadless,
+                100.0 * (double)g_enum_payloadless / (double)g_enum_allocs);
+        for (int i = 0; i < g_vn && i < 12; i++) {
+            fprintf(stderr, "%7.3f%%  %12llu  %-9s %s.%s\n",
+                    100.0 * (double)g_variants[i].count / (double)g_enum_allocs,
+                    g_variants[i].count, g_variants[i].has_payload ? "payload" : "EMPTY",
+                    g_variants[i].enum_name, g_variants[i].variant_name);
+        }
     }
     pthread_mutex_unlock(&g_mu);
 }
