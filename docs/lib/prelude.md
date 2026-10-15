@@ -1092,6 +1092,14 @@ list of maybes rather than one already in hand; an array you do have goes in as
 `array_filter` cannot do this: it keeps elements, so it would hand back `[Option<T>]` still
 wrapped, and `array_flat_map` only does it by turning each value into a one- or zero-element
 array, which allocates per element and reads like a puzzle.
+A builder sized to the input up front, rather than `out = push(out, v)` into a value. Both
+were measured, because which wins is not obvious -- `snapshot` is an O(n) copy, so a builder
+is not free. Repeated value `push` was the fastest of the three at eight elements and the
+slowest from a hundred up; a builder left to grow on its own was the reverse, about a
+quarter faster at scale and about a quarter slower on the short lists this is usually called
+with. Sizing it to `len(items)` is the one that never loses either way: level with value
+`push` at eight, roughly a tenth faster from a hundred to two hundred thousand. The capacity
+is an upper bound, since the `None`s drop out.
 
 ### `array_sort`
 
