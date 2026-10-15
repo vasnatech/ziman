@@ -12,7 +12,11 @@
  * program, so it is one of the few that can genuinely fail, and it used to come back NULL and be
  * memcpy'd into -- a segfault under a memory limit where the rest of the interpreter now reports
  * (docs/reviews/tasks.md A20). */
+#ifdef ZIMAN_ALLOC_PROFILE
+#define zalloc_atomic(n) ziman_xcheck(ziman_alloc_atomic(__FILE__, __LINE__, (n)))
+#else
 #define zalloc_atomic(n) ziman_xcheck(GC_MALLOC_ATOMIC(n))
+#endif
 #else
 #include <stdlib.h>
 #define zalloc_atomic(n) ziman_xmalloc(n)

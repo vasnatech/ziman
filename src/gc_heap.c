@@ -77,7 +77,7 @@ size_t gc_heap_reserved(const GcHeap *h) {
     return arena_reserved(h->arena);
 }
 
-void *gc_heap_alloc(GcHeap *h, GcKind kind, size_t payload_size) {
+static void *gc_heap_alloc_impl(GcHeap *h, GcKind kind, size_t payload_size) {
     size_t header = gc_header_span();
     /* Every class must leave room for at least a `void *` of payload, even when the caller asked
      * for less (or nothing): once this chunk is freed, the free list stores its own "next" link in
@@ -107,6 +107,19 @@ void *gc_heap_alloc(GcHeap *h, GcKind kind, size_t payload_size) {
 
     return gc_alloc(h->arena, kind, class_size - header);
 }
+
+/* The two entry points onto the body above. `GC_ATOMIC` is the only kind the mark phase does not
+ * trace into, so it is the one the profile reports as not walked; every other live kind is. */
+#ifdef ZIMAN_ALLOC_PROFILE
+void *gc_heap_alloc_at(GcHeap *h, GcKind kind, size_t payload_size, const char *file, int line) {
+    ziman_alloc_note_heap(file, line, payload_size, kind == GC_ATOMIC);
+    return gc_heap_alloc_impl(h, kind, payload_size);
+}
+#else
+void *gc_heap_alloc(GcHeap *h, GcKind kind, size_t payload_size) {
+    return gc_heap_alloc_impl(h, kind, payload_size);
+}
+#endif
 
 static void mark_visit(const void *obj, void *ctx) {
     gc_mark_object((const Arena *)ctx, obj);

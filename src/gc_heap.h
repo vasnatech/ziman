@@ -56,7 +56,17 @@ void gc_heap_destroy(GcHeap *h);
  * zero-filled, fresh or reused -- matching `arena_alloc`'s own guarantee, so a caller that only
  * sets some of its own fields explicitly (the same shape `calloc` was chosen for at a plain
  * allocation) doesn't need to know or care which case it got. */
+/* Under -DZIMAN_ALLOC_PROFILE every call carries its own file and line, so this heap's
+ * allocations show up in src/allocsites.c's dump beside Boehm's. Without it they were invisible,
+ * and a profile of a map-and-string-heavy program named only the parser -- this heap is where a
+ * `Value`'s own storage increasingly lives (value.c's `value_string_copy`, every MapObj and
+ * Leaf in mapobj.c), so leaving it out measured the compiler rather than the program. */
+#ifdef ZIMAN_ALLOC_PROFILE
+void *gc_heap_alloc_at(GcHeap *h, GcKind kind, size_t payload_size, const char *file, int line);
+#define gc_heap_alloc(h, k, n) gc_heap_alloc_at((h), (k), (n), __FILE__, __LINE__)
+#else
 void *gc_heap_alloc(GcHeap *h, GcKind kind, size_t payload_size);
+#endif
 
 /* Total bytes `h`'s own underlying arena has reserved from the OS (its own `arena_reserved`) -- for
  * a caller's own collection-trigger watermark, mirroring `arena_reserved`'s identical role for

@@ -25,6 +25,15 @@
 void *ziman_alloc_malloc(const char *file, int line, size_t n);
 void *ziman_alloc_realloc(const char *file, int line, void *p, size_t n);
 char *ziman_alloc_strdup(const char *file, int line, const char *s);
+/* `zalloc_atomic` (src/value.h) reaches GC_MALLOC_ATOMIC without passing through any of the
+ * three names above, so without this it was invisible: a profile of a string-heavy program
+ * showed only the parser, because every string and packed array it built was atomic. Counted
+ * apart rather than together, because the distinction is the whole point -- an atomic block is
+ * not walked by the mark phase, a scanned one is walked on every cycle it is live for. */
+void *ziman_alloc_atomic(const char *file, int line, size_t n);
+/* Ziman's own per-thread collector (src/gc_heap.c), which allocates from its own arena and so
+ * never touches any of the names above. Records only; the allocation itself is that heap's. */
+void ziman_alloc_note_heap(const char *file, int line, size_t n, int atomic);
 #define malloc(n) ziman_alloc_malloc(__FILE__, __LINE__, (n))
 #define calloc(a, b) ziman_gc_calloc_at(__FILE__, __LINE__, (size_t)(a), (size_t)(b))
 #define realloc(p, n) ziman_alloc_realloc(__FILE__, __LINE__, (p), (n))
