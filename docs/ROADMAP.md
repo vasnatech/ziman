@@ -393,8 +393,15 @@ against)**
   so `xml` has a tree of its own -- `Document`/`Element`/`Node` -- and is the one format module
   that does not go through `Json`. It reads and writes; it has no DTD at all, which is what rules
   out entity-expansion and external-entity attacks, and `XmlLimits` caps size, depth and attribute
-  count.* Still open: MessagePack/CBOR (binary; bytes have no `Json` form), YAML anchors/aliases,
-  TOML dates as a real type, CSV nesting beyond one level.
+  count.*
+  *Markdown followed as `markdown`, and it is the one format module whose reader cannot report
+  what it does not understand: Markdown has no syntax errors, so an unsupported construct is a
+  paragraph rather than a failure. `parse_markdown` does what Markdown prescribes and
+  `parse_markdown_strict` returns an Err naming the line, which is the only way a caller learns
+  it was handed something that would be misread. The writer is the part that earns its keep --
+  escaping chosen per position, so nothing a caller puts in a string can change the structure of
+  the output.* Still open: MessagePack/CBOR (binary; bytes have no `Json` form), YAML
+  anchors/aliases, TOML dates as a real type, CSV nesting beyond one level.
 
 **F. Tooling and documentation**
 
