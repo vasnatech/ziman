@@ -23,16 +23,27 @@ GC_FLAGS := -DZIMAN_GC -DGC_THREADS -include src/zgc.h -I$(GC_DIR)/include -D_GN
 # rejected as noise (414 -Wswitch-enum by design, -Wlogical-op on the correct EAGAIN||EWOULDBLOCK
 # idiom, and so on -- docs/reviews/tasks.md F14). -Wvla had exactly one hit in the tree and it was
 # a real bug: the 96 KB variable-length array inside the regex matcher's recursion (A16).
-PLAIN_CFLAGS := -std=c11 -O2 -fwrapv -Wall -Wextra -Wpedantic -Wvla -Wshadow -g -pthread
+# Objects, dependency files and the generated corelib headers all live under build/ rather than
+# beside the sources. Before 2026-10-14 they sat in src/, so a built tree showed 322 entries there
+# for 162 real files and `ls src/` stopped being a useful way to see what the interpreter is made
+# of. Nothing outside this file ever referenced one, which is why the move cost nothing: no comment
+# and no document cites a .o. `-I$(BUILD)` is in PLAIN_CFLAGS because corelib.c says
+# `#include "json_source.h"`, which used to resolve beside the file and now needs the path.
+BUILD := build
+PLAIN_CFLAGS := -std=c11 -O2 -fwrapv -Wall -Wextra -Wpedantic -Wvla -Wshadow -g -pthread -I$(BUILD)
 CFLAGS := $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)"' $(GC_FLAGS) -MMD -MP
 SRC := $(wildcard src/*.c)
-OBJ := $(SRC:.c=.o)
-DEP := $(SRC:.c=.d)
+OBJ := $(patsubst src/%.c,$(BUILD)/%.o,$(SRC))
+DEP := $(OBJ:.o=.d)
 BIN := ziman
 
-.PHONY: all check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
+# Stated rather than left to target order. `all` lives in make/c.mk, which is included at the foot
+# of this file, so the first target make sees here would otherwise be `check-fast` -- and a bare
+# `make` would run the gate instead of building the compiler. Caught by comparing .DEFAULT_GOAL
+# against the pre-split Makefile; nothing else would have noticed until someone typed `make`.
+.DEFAULT_GOAL := all
 
-all: $(BIN)
+.PHONY: all check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
 
 # Every gate that needs nothing but this repo and a C toolchain: the fixture suite on both builds,
 # the standalone unit tests, formatting, and the documentation guards. One command for "is this
@@ -56,41 +67,6 @@ install-hooks:
 	git config core.hooksPath tools/hooks
 	@echo "install-hooks: core.hooksPath = tools/hooks (pre-push runs check-fast; --no-verify bypasses it)"
 
-# The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
-# well under a second, so there is no reason to ever run them selectively. `lib-tests` is the same
-# idea one level up, in Ziman rather than C.
-unit-tests: test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy \
-            test-regex lib-tests \
-            test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots \
-            test-gc-interp-roots test-lsp
-
-# The `#[test]` units for the bundled modules, under tests/stdlib/. There were **zero** `#[test]`
-# functions in 50,000 lines of Ziman until F134, in a language that ships the attribute, the runner
-# and an assertion module -- C13 removed the stated reason (an unreachable sibling test directory)
-# and nothing followed. The argument for them is not principle but two defects: B12 (a missing
-# `ORDER BY`) and E25 (an unpadded fraction in a sort key) both live below the level any end-to-end
-# check can see, and both would have been one assertion here.
-#
-# They live outside lib/ on purpose. Bundling is driven by the explicit CORELIB_MODULES list, so a
-# test file in lib/ would not be embedded -- but docs/lib generation, `make lint` and
-# `make lib-coverage` all glob lib/**/*.zm and would each need an exception.
-lib-tests: $(BIN)
-	@./$(BIN) test tests/stdlib/*.zm
-
-$(GC_LIB): $(GC_DIR)/extra/gc.c $(wildcard $(GC_DIR)/*.c) $(wildcard $(GC_DIR)/include/*.h $(GC_DIR)/include/*/*.h)
-	$(CC) -O2 -DNDEBUG -I$(GC_DIR)/include -DGC_THREADS -DGC_BUILTIN_ATOMIC -DTHREAD_LOCAL_ALLOC -DPARALLEL_MARK \
-	    -DUSE_MMAP -DALL_INTERIOR_POINTERS -D_GNU_SOURCE -pthread -c $(GC_DIR)/extra/gc.c -o $(GC_DIR)/gc.o
-	rm -f $@
-	ar rcs $@ $(GC_DIR)/gc.o
-
-$(BIN): $(OBJ) $(GC_LIB)
-	$(CC) $(CFLAGS) -o $@ $(OBJ) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
-
-nogc: ziman-nogc
-
-test-nogc: ziman-nogc
-	BIN=./ziman-nogc ./tests/run_tests.sh
-
 # Bundled core modules (see src/corelib.c): each lib/core/<name>.zm file
 # is embedded as a C string constant, generated fresh from its .zm
 # source every build so the two never drift. Declared as a prerequisite
@@ -112,118 +88,13 @@ CORELIB_MODULES := process url fs log metrics regex client random uuid clock tim
 # drivers) lib/http (http, server, client) and lib/time (time, zone); `use` names are flat either way.
 vpath %.zm lib lib/core lib/db lib/http lib/time
 
-CORELIB_HEADERS := $(CORELIB_MODULES:%=src/%_source.h)
-
-$(OBJ): $(CORELIB_HEADERS)
-
-ziman-nogc: $(SRC) $(CORELIB_HEADERS)
-	$(CC) $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-nogc"' -o $@ $(SRC) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
-
-# lib/core/<name>.zm -> src/<name>_source.h, a
-# `#define <NAME>_SOURCE "..."` (module name uppercased). A #define, not
-# a `static const char *`, so it's usable as a constant initializer in
-# corelib.c's CORE_MODULES table -- a plain variable can't be (ISO C
-# requires a static initializer to itself be a constant expression). One
-# Every `?` is escaped as `\?` because trigraphs are active under `-std=c11`
-# (they are not under `-std=gnu11`): without it the nine `??x` sequences are
-# rewritten inside the embedded library before the compiler ever sees them, so
-# a Ziman source containing `??!` would arrive as `|`. Verified: `"a??!b"`
-# prints `a|b` under -std=c11 and `a??!b` under -std=gnu11. `\?` is a valid C
-# escape for `?` and breaks the sequence, so nothing else changes (F131).
-# quoted string literal per source line, backslash-newline-continued
-# across physical lines (same shape prelude.c's hand-written
-# PRELUDE_SOURCE uses) rather than one unreadable giant line -- adjacent
-# string literals concatenate into a single one regardless of how many
-# physical lines or trailing "" the macro's definition spans.
-src/%_source.h: %.zm
-	awk -v src="$<" -v macro="$(shell echo $* | tr a-z A-Z)_SOURCE" \
-	    'BEGIN { printf "/* Generated from %s -- do not edit directly. */\n#define %s \\\n", src, macro } \
-	     { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\?/, "\\?"); printf "    \"%s\\n\" \\\n", $$0 } \
-	     END { print "    \"\"" }' $< > $@
-
-%.o: %.c
-	$(CC) $(CFLAGS) -c -o $@ $<
+CORELIB_HEADERS := $(CORELIB_MODULES:%=$(BUILD)/%_source.h)
 
 -include $(DEP)
-
-test: $(BIN)
-	./tests/run_tests.sh
-
-# The Postgres driver tests: need docker/podman and a postgres:17 image
-# (see tests/run_pg_tests.sh), so they are not part of `make test`.
-test-pg: $(BIN)
-	./tests/run_pg_tests.sh
-
-# The MySQL driver tests: need docker/podman and a mysql:8.0 image
-# (see tests/run_mysql_tests.sh).
-test-mysql: $(BIN)
-	./tests/run_mysql_tests.sh
-
-# The TLS client tests: need the openssl binary (see tests/run_tls_tests.sh).
-# The bundled library and the extra test programs are kept formatted by `ziman --fmt`
-# (tests/lang is not: fixtures that test error positions depend on their exact layout).
-#
-# This repo only. The sample backend lives in a sibling checkout and has its own target below --
-# it used to be in this one, which made a gate on *this* repo fail for a file in another, and meant
-# anyone without that checkout could not run `make fmt-check` at all. Found when `make check` first
-# ran the whole set together: it had been failing on three of the backend's files.
-# `--canonical` as well as plain `--fmt`, added 2026-10-12 (docs/reviews/tasks.md F80). Both corpora
-# already passed it, so this changed no file -- what it changes is that they are now *held* to it
-# rather than happening to agree, and that the flag is exercised by something. The consequence worth
-# naming: `--canonical` settles brace placement, so this repo now requires K&R braces where plain
-# `--fmt` would also accept Allman.
-fmt-check: $(BIN)
-	./$(BIN) --fmt --check $$(find lib docs/lib/examples docs/reviews/benchmark/reference tests/integration/pg tests/integration/mysql tests/integration/tls tests/integration/shutdown tests/bench -name '*.zm')
-	./$(BIN) --fmt --canonical --check $$(find lib docs/lib/examples docs/reviews/benchmark/reference tests/integration/pg tests/integration/mysql tests/integration/tls tests/integration/shutdown tests/bench -name '*.zm')
 
 # The sample backend (health-record-backend-ziman), which is kept formatted the same way but lives
 # next door, so this is separate from `fmt-check` and skips cleanly when it is not checked out.
 BACKEND_DIR := ../health-record/health-record-backend-ziman
-fmt-check-backend: $(BIN)
-	@if [ -d "$(BACKEND_DIR)/src" ]; then \
-	    ./$(BIN) --fmt --check $$(find $(BACKEND_DIR)/src -name '*.zm') && \
-	    ./$(BIN) --fmt --canonical --check $$(find $(BACKEND_DIR)/src -name '*.zm'); \
-	else \
-	    echo "SKIP fmt-check-backend: $(BACKEND_DIR)/src is not checked out"; \
-	fi
-
-# In `make check` since 2026-10-12. It was not, which is how a `len(result) >= 5` assertion on
-# document highlight survived while the handler answered with every word that matched the text:
-# nothing in the gate ran the file that would have been strengthened (docs/reviews/tasks.md F77).
-test-lsp: $(BIN)
-	python3 tests/integration/lsp/lsp_test.py ./$(BIN)
-
-test-tls: $(BIN)
-	./tests/run_tls_tests.sh
-
-# The TLS suite as part of `make check`, when it can run. It needs `openssl` on PATH -- the harness
-# generates certificates with it and starts two `openssl s_server` processes -- which is why it was
-# left out of `check` in the first place. Leaving it out had a cost: **no TLS code path in this
-# project had ever run under a sanitizer**, and that is how a use-after-free on an `SSL` object
-# survived A24, a review specifically about races in that file (docs/reviews/tasks.md A36, and A32
-# for the bug). Skipped with a word rather than silently, so a machine without openssl still gets a
-# green `check` and knows what it did not run.
-# Type-checks and runs the North Star application -- the slice of the health-record backend
-# docs/ROADMAP.md's first section names as the target this language exists to reach. It lives in a
-# sibling checkout, so this follows tls-if-available: run it when it is there, say so when it is
-# not, never fail for its absence. It had been broken for some time before this existed
-# (docs/reviews/tasks.md F25), which is the argument for having it: nothing here was watching the
-# one application that defines "capable enough".
-# How `use` finds a module that is not beside the importing file: ZIMAN_MODULE_PATH, and a
-# `ziman.toml` marking the project root. A script rather than a fixture because the entry file has
-# to sit *below* the root, which tests/run_tests.sh's `name/main.zm` layout cannot express -- see
-# the script's own header.
-# `ziman --api`, which answers "what does this module offer" -- the question the 2026-10-09
-# generation benchmark measured as its largest cost. A script, not a fixture: it is a command that
-# takes no program.
-api-check: $(BIN)
-	@./tests/run_api.sh $(BIN)
-
-module-path-check: $(BIN)
-	@./tests/run_module_path.sh $(BIN)
-
-northstar-if-available: $(BIN)
-	@./tests/run_northstar.sh $(BIN)
 
 # The North Star's behavioural suite against BOTH database engines, which `check` deliberately does
 # not do: Postgres needs a container runtime, and the first run pulls an image.
@@ -240,219 +111,6 @@ northstar-if-available: $(BIN)
 # this exists at all. Still a command a person runs: there is no CI here.
 preflight: $(BIN)
 	@./tools/preflight.sh
-
-northstar-both: $(BIN)
-	@set -e; app=$${ZIMAN_NORTHSTAR:-../health-record/health-record-backend-ziman}; 	if [ ! -x "$$app/src/test/other/run-all.sh" ]; then 	    echo "northstar-both: no North Star checkout at $$app (set ZIMAN_NORTHSTAR)"; exit 1; 	fi; 	cd "$$app/src/test/other" && ZIMAN=$(abspath $(BIN)) ./run-all.sh --both
-
-# Both builds, because the TLS suite ran only against $(BIN) and that is exactly how A39 survived:
-# two `value_string` calls handed a borrowed pointer to a stack array, which the default build
-# happened to read back intact and `ziman-nogc` at -O2 did not -- `peer_certificate_subject`
-# returned "" for every certificate there, 3 of 3 runs, while the gate stayed green. The whole
-# suite takes under a second, so running it twice is the cheapest of the three gaps of this shape
-# this file has now grown a fix for (see B7's --postgres job and E21's --fmt --check).
-tls-if-available: $(BIN) ziman-nogc
-	@if command -v openssl >/dev/null 2>&1; then \
-	    ./tests/run_tls_tests.sh && BIN=./ziman-nogc ./tests/run_tls_tests.sh; \
-	else \
-	    echo "tls-if-available: skipped -- openssl is not on PATH, so the TLS suite cannot run"; \
-	fi
-
-# Unit tests for internal C modules that don't fit the language-level
-# tests/lang harness (e.g. bignum.c's own arithmetic correctness,
-# independent of any Ziman-level syntax). Each has its own main(), so it
-# lives outside src/ (which this Makefile wildcards into the ziman
-# binary) and is built/run standalone rather than joining $(OBJ).
-test-bignum: src/xalloc.c src/bignum.c tests/c/bignum_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_bignum_test src/xalloc.c src/bignum.c tests/c/bignum_test.c
-	/tmp/ziman_bignum_test
-
-test-regex: src/regex.c tests/c/regex_test.c
-	$(CC) $(PLAIN_CFLAGS) -Wl,--wrap=malloc -o /tmp/ziman_regex_test src/regex.c tests/c/regex_test.c
-	/tmp/ziman_regex_test
-
-test-handles: src/xalloc.c src/handles.c tests/c/handles_test.c
-	$(CC) $(PLAIN_CFLAGS) -Wl,--wrap=malloc -Wl,--wrap=calloc -o /tmp/ziman_handles_test src/xalloc.c src/handles.c tests/c/handles_test.c
-	/tmp/ziman_handles_test
-
-test-decimal: src/xalloc.c src/bignum.c src/decimal.c tests/c/decimal_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_decimal_test src/xalloc.c src/bignum.c src/decimal.c tests/c/decimal_test.c
-	/tmp/ziman_decimal_test
-
-# src/arena.c doesn't need the GC/plain distinction (it's built on mmap/munmap directly, never
-# malloc/free, precisely so it stays inert under either -- see its own header comment), but is
-# tested the same standalone way as the other C modules above rather than through the interpreter.
-# src/coverage.c alone: the lcov writer and, mainly, that writing into a file which already has
-# records adds to them rather than replacing them. The AST is built by hand in the test, so nothing
-# else links.
-test-coverage: src/xalloc.c src/coverage.c tests/c/coverage_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_coverage_test src/xalloc.c src/coverage.c tests/c/coverage_test.c
-	/tmp/ziman_coverage_test
-
-test-arena: src/xalloc.c src/arena.c tests/c/arena_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_arena_test src/xalloc.c src/arena.c tests/c/arena_test.c
-	/tmp/ziman_arena_test
-
-# src/gc_object.c sits on top of src/arena.c (Phase 3's object-header layer, docs/MEMORY.md) --
-# same standalone-test convention as arena.c itself, ahead of any mark/copy logic built on it.
-test-gc-object: src/xalloc.c src/arena.c src/gc_object.c tests/c/gc_object_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_object_test src/xalloc.c src/arena.c src/gc_object.c tests/c/gc_object_test.c
-	/tmp/ziman_gc_object_test
-
-# src/gc_copy.c is src/value_copy.c's logic generalised onto gc_object.c's headers, with a dedup
-# map added for sharing preservation (docs/MEMORY.md, "Phase 3 design"). Needs value.c's own
-# ArrayObj/StructObj/etc. constructors, and everything value.c itself needs (ast.c for Type, error.c
-# and stack.c for the runtime-error/recursion-depth paths value.c can hit, bignum.c/decimal.c,
-# mapobj.c) -- unlike arena.c/gc_object.c this can't stay dependency-free, since it exercises the
-# real Value representation, not a synthetic stand-in. value_hash (normally in src/interpreter.c,
-# not linked here) is stubbed inside the test itself; see its own header comment for why that's fine.
-# value.c's own value_string_copy now allocates through src/gc_thread_heap.c/gc_heap.c (docs/DESIGN.md's
-# "narrowest possible slice"), which pulls in gc_lookup.c/gc_scan.c/gc_mark.c transitively too.
-test-gc-copy: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_copy.c tests/c/gc_copy_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_copy_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_copy.c tests/c/gc_copy_test.c
-	/tmp/ziman_gc_copy_test
-
-# src/gc_lookup.c resolves a bare address (a future conservative stack scan's own candidate words,
-# docs/MEMORY.md Phase 3) to the gc_alloc'd object it falls within or inside, by walking arena.c's
-# own block layout via gc_object.c's gc_next_object -- no interpreter Value machinery needed, so
-# this stays as dependency-free as arena.c/gc_object.c's own tests, unlike gc_copy.c's.
-test-gc-lookup: src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c tests/c/gc_lookup_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_lookup_test src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c tests/c/gc_lookup_test.c
-	/tmp/ziman_gc_lookup_test
-
-# src/gc_scan.c conservatively scans the calling thread's own C stack for roots into an arena, using
-# src/stack.c's own stack-bounds computation (ziman_stack_bounds) and src/gc_lookup.c to resolve each
-# candidate word -- see its own header comment on why this test cannot be fully valgrind-clean in the
-# strict sense every earlier module here is: reading genuinely uninitialised stack memory and
-# comparing it as a possible pointer is what conservative scanning *is*, not a bug (the same
-# interaction Boehm's own collector has with valgrind).
-#
-# `valgrind --undef-value-errors=no` used to be the advice here, and it is no longer the best one:
-# it switches off memcheck's uninitialised-value checking *process-wide*, which is the one check
-# nothing else in this toolchain provides. `make valgrind` instead runs this test, its neighbours
-# and three fixtures with `tools/valgrind.supp`, which suppresses exactly the conservative scan's
-# own reads and leaves that checking on everywhere else -- 0 errors from 0 contexts, 215
-# suppressed (docs/reviews/tasks.md F23).
-test-gc-scan: src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/c/gc_scan_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_scan_test src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/c/gc_scan_test.c
-	/tmp/ziman_gc_scan_test
-
-# src/gc_heap.c is Phase 3's actual collected heap -- a free-list-capable allocator on top of
-# arena.c/gc_object.c, needed once Phase 3 switched from a copying design to mark-sweep (a
-# conservative stack scan's own roots can never safely be relocated; see gc_heap.h's own header
-# comment for why, and docs/MEMORY.md for the fuller story). gc_heap_collect wires gc_scan.c and
-# gc_mark.c together with gc_heap.c's own alloc/sweep, so this now needs their full dependency
-# chain too (real ArrayObj/StructObj/etc. construction for gc_mark.c, stack.c/error.c for
-# gc_scan.c), not just arena.c/gc_object.c on their own.
-test-gc-heap: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_env_roots.c src/gc_heap.c src/profile.c src/gc_thread_heap.c tests/c/gc_heap_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_heap_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_env_roots.c src/gc_heap.c src/profile.c src/gc_thread_heap.c tests/c/gc_heap_test.c
-	/tmp/ziman_gc_heap_test
-
-# src/gc_mark.c is the mark phase mark-sweep needs: walks a real Value graph by type.kind (mirroring
-# gc_copy.c's own per-kind structure) and calls gc_set_marked instead of copying. Needs the same
-# dependency chain as gc_copy_test.c's own (real ArrayObj/StructObj/etc. construction), plus
-# gc_lookup.c (interior-pointer resolution for string views and array slices during marking).
-# value.c's own value_string_copy now allocates through gc_thread_heap.c/gc_heap.c, which pulls in
-# gc_scan.c transitively too.
-test-gc-mark: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c tests/c/gc_mark_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_mark_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c tests/c/gc_mark_test.c
-	/tmp/ziman_gc_mark_test
-
-# src/gc_env_roots.c is the second root source a real collection cycle needs besides the
-# conservative stack scan: an Env (env.h) lives in the ordinary allocator's own heap, never a
-# thread's GcHeap arena, so once a Value is stored into a binding its own pointer fields move off
-# the C stack (where gc_scan_stack_roots could see them) into Env.items' own heap storage --
-# invisible to a scan that only reads raw stack bytes and never dereferences what it finds. Every
-# ordinary variable is affected, not just interpreter.c's t_defer_envs/t_env_pool, which is where
-# this gap was originally (too narrowly) expected to live -- see gc_env_roots.h's own header
-# comment and docs/MEMORY.md for the fuller story.
-test-gc-env-roots: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c tests/c/gc_env_roots_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_env_roots_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c tests/c/gc_env_roots_test.c
-	/tmp/ziman_gc_env_roots_test
-
-# src/gc_interp_roots.c aggregates every root source a real collection cycle needs beyond the
-# conservative stack scan: the global scope, every active call's own frame (via error.c's frame
-# tracking), and interpreter.c's own t_defer_envs/t_env_pool -- taken as explicit parameters rather
-# than read from interpreter.c's private state directly, since interpreter.c is too large to link
-# into a standalone test the way every other module here has been. This test builds synthetic
-# stand-ins for that state, exercising the identical code path a real interpreter would.
-test-gc-interp-roots: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c src/gc_interp_roots.c tests/c/gc_interp_roots_test.c
-	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_interp_roots_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/env.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_env_roots.c src/gc_interp_roots.c tests/c/gc_interp_roots_test.c
-	/tmp/ziman_gc_interp_roots_test
-
-# docs/CORELIB.md and the manual in docs/lib/ are generated from the lib/core and lib/db modules' own `pub` declarations
-# (see tools/gen_corelib_reference.sh) -- not run as part of `make`/`make
-# all` since it's a doc, not a build input; run by hand after touching
-# any core module's public API. The generated file is still checked into
-# git (unlike src/*_source.h) since it's meant to be read on GitHub, not
-# just consumed by the build.
-corelib-reference:
-	./tools/gen_corelib_reference.sh > docs/CORELIB.md
-	python3 tools/gen_lib_manual.py
-	python3 tools/gen_lib_deps.py
-
-# Fails when docs/lib is not what the current lib/ sources generate (run `make corelib-reference`).
-lib-manual-check: $(BIN)
-	python3 tools/gen_lib_manual.py
-	python3 tools/gen_lib_deps.py
-	git diff --exit-code --stat -- docs/lib
-
-# Fails when the generation benchmark's own reference solutions stop compiling or stop printing what
-# their task says they print. The benchmark is 50 task prompts with expected outputs
-# (docs/reviews/benchmark); an `expected.txt` records what Ziman did on the day it was written, not
-# what it must do forever, so a failure here means a language or library change has moved under the
-# task set and the *tasks* need revisiting. Half a second, because it is 50 small programs.
-benchmark-check: $(BIN)
-	@./docs/reviews/benchmark/run.sh docs/reviews/benchmark/reference ./$(BIN) | tail -1
-	@./docs/reviews/benchmark/run.sh docs/reviews/benchmark/reference ./$(BIN) | grep -q "50 compiled, 50 correct, 0 missing" \
-	    || { echo "benchmark-check: the reference solutions no longer match their expected output"; exit 1; }
-
-# Fails when the editor grammar stops giving a token the scope it is meant to. The grammar had no
-# test of any kind until 2026-10-12 -- nothing loaded it, nothing asserted a scope -- and three real
-# gaps sat in it unnoticed (`internal` matched nothing, `#![...]` was not an attribute, `val`/`var`
-# shared one scope). It needs no binary: the grammar is data and this reads it.
-grammar-check:
-	python3 tools/check_grammar.py
-
-# Fails when docs/SYNTAX.md or a lib/**/*.zm doc comment claims some `pub` name is "not yet"
-# supported when it's already declared -- see tools/check_not_yet.py's own header comment.
-not-yet-check:
-	python3 tools/check_not_yet.py
-
-# Fails when README.md's module table disagrees with the modules' own `#![experimental]`
-# attribute -- see tools/check_experimental.py's own header comment.
-experimental-check:
-	python3 tools/check_experimental.py
-
-# Fails when README.md, docs/TUTORIAL.md, docs/SYNTAX.md or docs/CHEATSHEET.md names a module that
-# lib/ no longer has, or a function a module no longer exports -- see tools/check_doc_modules.py's
-# own header comment. The generated docs (docs/lib/, docs/CORELIB.md) cannot go stale; these four
-# can, and F138 was one that did, for months, in the first file a newcomer reads.
-doc-module-check:
-	python3 tools/check_doc_modules.py
-
-# ./ziman-allocprofile: the collector build plus a count of every allocation against its source
-# site, dumped to stderr at exit, hottest first. Not a normal build and not fast -- it takes a mutex
-# per allocation -- but it answers "what actually allocates" exactly rather than by sampling, which is
-# how F7's three hottest sites were found (the review had named two different ones). See
-# src/allocsites.c. Run as: ./ziman-allocprofile <program.zm> 2>&1 | sed -n '/allocations by site/,$p'
-ziman-allocprofile: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
-	$(CC) $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-allocprofile"' $(GC_FLAGS) 	    -DZIMAN_ALLOC_PROFILE -o $@ $(SRC) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
-
-# Regenerates docs/DESIGN.md's section index in place -- see tools/gen_design_index.py.
-design-index:
-	python3 tools/gen_design_index.py
-
-# Fails when the committed index is not what the sections now are: the same `git diff` shape
-# lib-manual-check uses, because a hand-kept index of a file that size is wrong within a month.
-design-index-check:
-	python3 tools/gen_design_index.py
-	git diff --exit-code --stat -- docs/DESIGN.md
-
-# Fails when a Ziman example in docs/SYNTAX.md no longer compiles (or, if it is tagged `fails`,
-# when it starts compiling) -- see tools/check_syntax_examples.py's own header comment. Needs the
-# binary, since it compiles every example with it.
-syntax-check: $(BIN)
-	python3 tools/check_syntax_examples.py
 
 # Every guard that keeps the documentation from drifting from the sources it describes, in one
 # target, because each of these is only useful if something actually runs it: `lib-manual-check`
@@ -523,7 +181,7 @@ syntax-check: $(BIN)
 #
 # gcc's own libasan_preinit.o ships with the compiler, so the shared objects are the only part
 # `dnf download libasan libubsan libtsan` has to supply, and no root is needed.
-SAN_CFLAGS := -std=c11 -O1 -g -Wall -Wextra -Wpedantic -fno-omit-frame-pointer -pthread
+SAN_CFLAGS := -std=c11 -O1 -g -Wall -Wextra -Wpedantic -fno-omit-frame-pointer -pthread -I$(BUILD)
 SAN_LIBS := -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
 # Deliberately without -fwrapv, which the ordinary build carries: with it, signed overflow is
 # defined and UBSan's integer checks have nothing to say. This is the build that found A21.
@@ -546,108 +204,20 @@ ASAN_OPTS := detect_leaks=0:detect_stack_use_after_return=0:halt_on_error=1
 UBSAN_OPTS := print_stacktrace=1:halt_on_error=1
 TSAN_OPTS := halt_on_error=1:history_size=4
 
-asan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
-	$(call san_link,asan,,-fwrapv -fsanitize=address,libasan,,)
-	$(call san_link,asan,-gc,-fwrapv -fsanitize=address,libasan,$(GC_FLAGS),$(GC_LIB))
-	@for bin in ziman-asan ziman-asan-gc; do \
-	    echo "=== $$bin ==="; \
-	    ASAN_OPTIONS=$(ASAN_OPTS) BIN=./$$bin SKIP=stack_depth_deep_recursion_works \
-	        ./tests/run_tests.sh || exit 1; \
-	    if command -v openssl >/dev/null 2>&1; then \
-	        ASAN_OPTIONS=$(ASAN_OPTS) BIN=./$$bin ./tests/run_tls_tests.sh || exit 1; \
-	    else echo "make asan: TLS suite skipped -- openssl is not on PATH"; fi; \
-	done
-
-ubsan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
-	$(call san_link,ubsan,,$(UBSAN_CHECKS),libubsan,,)
-	$(call san_link,ubsan,-gc,$(UBSAN_CHECKS),libubsan,$(GC_FLAGS),$(GC_LIB))
-	@for bin in ziman-ubsan ziman-ubsan-gc; do \
-	    echo "=== $$bin ==="; \
-	    UBSAN_OPTIONS=$(UBSAN_OPTS) BIN=./$$bin ./tests/run_tests.sh || exit 1; \
-	    if command -v openssl >/dev/null 2>&1; then \
-	        UBSAN_OPTIONS=$(UBSAN_OPTS) BIN=./$$bin ./tests/run_tls_tests.sh || exit 1; \
-	    else echo "make ubsan: TLS suite skipped -- openssl is not on PATH"; fi; \
-	done
-
-tsan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
-	$(call san_link,tsan,,-fwrapv -fsanitize=thread,libtsan,,)
-	$(call san_link,tsan,-gc,-fwrapv -fsanitize=thread,libtsan,$(GC_FLAGS),$(GC_LIB))
-	@for bin in ziman-tsan ziman-tsan-gc; do \
-	    echo "=== $$bin ==="; \
-	    TSAN_OPTIONS=$(TSAN_OPTS) BIN=./$$bin SKIP=stack_depth_trace_bounded \
-	        ./tests/run_tests.sh || exit 1; \
-	    if command -v openssl >/dev/null 2>&1; then \
-	        TSAN_OPTIONS=$(TSAN_OPTS) BIN=./$$bin ./tests/run_tls_tests.sh || exit 1; \
-	    else echo "make tsan: TLS suite skipped -- openssl is not on PATH"; fi; \
-	done
-
-sanitizers: asan ubsan tsan
-
-# memcheck, narrowly -- see tests/run_valgrind.sh for what it covers and why it is not a whole-suite
-# sweep, and tools/valgrind.supp for the conservative-scanner suppressions it needs. Built with
-# -fno-omit-frame-pointer, without which those suppressions do not match (several contexts unwind
-# as `???` and the frame they key on never appears). Not in `make check`: valgrind is about 100x
-# slower than ASan. What it buys that the sanitizer targets cannot is uninitialised-value checking,
-# which ASan does not do and MSan is not here to do, plus the leak checker that found A26.
-ziman-vg: $(SRC) $(CORELIB_HEADERS)
-	$(CC) $(PLAIN_CFLAGS) -fno-omit-frame-pointer -DZIMAN_VERSION='"$(ZIMAN_VERSION)-vg"' \
-	    -o ziman-vg $(SRC) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
-
-valgrind: ziman-vg test-gc-scan test-gc-lookup test-arena test-gc-object test-gc-interp-roots test-handles test-coverage test-regex
-	./tests/run_valgrind.sh ./ziman-vg
-
-# GCC's static analyzer over both configurations. Clean as of 2026-10-08 and deliberately not part of
-# `make check`: it takes minutes per configuration, where every other check here takes seconds.
-analyze:
-	$(CC) -std=c11 -O1 -fwrapv -pthread -fanalyzer -fsyntax-only $(GC_FLAGS) $(SRC)
-	$(CC) -std=c11 -O1 -fwrapv -pthread -fanalyzer -fsyntax-only $(SRC)
-	@echo "analyze: -fanalyzer clean on both configurations"
-
-libc-free-check:
-	python3 tools/check_libc_free.py
-
-xalloc-check:
-	python3 tools/check_xalloc.py
-
-# A HandleSet without HANDLE_SET_INIT cannot fail a test on a machine whose libc zero-fills
-# PTHREAD_MUTEX_INITIALIZER, which is every glibc machine -- so only a check catches it (A45).
-handleset-check:
-	python3 tools/check_handle_sets.py
-
-# `--lint` over every library module. Two things had to be true before this could exist at all,
-# and neither was (docs/reviews/tasks.md F133).
-#
-# `--lint` refused a module with no `main`, so it could only ever be pointed at an entry point.
-# And a module reached through `use` is normally the *bundled* copy, whose declarations carry a
-# NULL `source_file` -- which is exactly the flag the lint uses to tell "your code" from the
-# standard library, so every finding in `lib/` was discarded before it was printed. Pointing
-# ZIMAN_MODULE_PATH at the sources makes them load from disk with real paths, and the findings
-# appear.
-#
-# What that was hiding: the `spawn` rule's own message is "whoever is waiting on that channel
-# waits for ever", which is A47 word for word, and it could not see the two `spawn serve` calls
-# that had it.
-#
-# NOT in `check` yet, deliberately. Three findings remain and all three are quadratic-accumulation
-# warnings on loops that are bounded in practice: `time.zm:280` accumulates the few literal
-# characters between two tokens of a format pattern and says so in a comment that predates this
-# target, and `yaml.zm:698`/`:709` have predicates (`flow_depth`, `quote_open`) that rescan the
-# accumulation every round, so a builder would snapshot per round and cost the same -- making
-# those linear needs the depth and quote state tracked incrementally. Gating needs either those
-# three resolved or a way to record "bounded, and here is why" in the source, the way
-# `xalloc-ok:` does for check_xalloc.py.
-lint: $(BIN)
-	@python3 tools/lint_lib.py
-
-# A line-coverage figure for lib/, merged across the whole fixture suite. Not in `check`: it runs
-# every fixture again under --coverage and takes a few minutes, which is a reporting job rather
-# than a gate. See tools/lib_coverage.py on why `lib/` was invisible to --coverage until now
-# (the same bundled-module blindness as F133's) and why the drivers are reported separately.
-lib-coverage: $(BIN)
-	@python3 tools/lib_coverage.py
-
-docs-check: lib-manual-check not-yet-check experimental-check doc-module-check syntax-check design-index-check
-
 clean:
 	rm -f $(BIN) ziman-nogc ziman-allocprofile ziman-asan ziman-ubsan ziman-tsan ziman-vg \
-	    ziman-asan-gc ziman-ubsan-gc ziman-tsan-gc src/*.o src/*.d src/*_source.h $(GC_DIR)/gc.o $(GC_LIB)
+	    ziman-asan-gc ziman-ubsan-gc ziman-tsan-gc $(GC_DIR)/gc.o $(GC_LIB)
+	rm -rf $(BUILD)
+# Generated headers from before they moved into build/. Harmless to remove when absent, and
+# actively worth removing when present: a quoted #include finds the stale one beside corelib.c
+# first, so a tree that still has them builds the old standard library without saying so.
+	rm -f src/*_source.h src/*.o src/*.d
+
+# ---------------------------------------------------------------- the three worlds
+#
+# Split out of this file on 2026-10-14. It had 61 targets in one place and no signal about which
+# of them built C, which ran Ziman and which wrote documentation. The variables all stay above, so
+# an included file can never be parsed before the thing it reads exists.
+include make/c.mk
+include make/ziman.mk
+include make/docs.mk
