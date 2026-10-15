@@ -1093,23 +1093,22 @@ list of maybes rather than one already in hand; an array you do have goes in as
 wrapped, and `array_flat_map` only does it by turning each value into a one- or zero-element
 array, which allocates per element and reads like a puzzle.
 A builder, left to grow on its own rather than sized to the input up front. Both of those
-and a plain `out = push(out, v)` into a value were measured, and the result is the opposite
+and a plain `out = push(out, v)` into a value were measured, and the answer is the opposite
 of the obvious one: **presizing is slower**, and the bigger the input the worse it gets --
-703 ms against 586 ms for two hundred thousand elements.
+703 ms against 586 ms at two hundred thousand elements, 327 against 276 at ten thousand.
+Below a hundred, which is what the variadic form is nearly always called with, all three
+spellings sit inside the run-to-run noise, so nothing is given up by picking the one that
+wins at size.
 
-The profiles say why. Sizing the buffer does save the growth reallocations it is meant to
-(180 samples in `mutable_array_push` against 199), but one large allocation per call costs
-the collector far more than that: garbage collection goes from 9.6% of the run to 15.8%,
-with `mutable_array_new` itself appearing at 2.8% where it had been below the cutoff. A
-1.6 MB block has to be found and later swept; the growth path's intermediate buffers are
-small, come off the collector's size-segregated free lists and are handed back while still
-warm. It is the same effect the runtime warns about directly -- "repeated allocation of very
-large block ... may lead to poor performance".
-
-Below a hundred elements, which is what the variadic form is nearly always called with, all
-three spellings sit inside the run-to-run noise, so nothing is given up by choosing the one
-that wins at size. `snapshot` is an O(n) copy, which is why value `push` stays competitive
-there at all.
+What the profiles show is that the cost moves rather than disappears. Sizing the buffer does
+save the growth work it is meant to -- 180 samples in `mutable_array_push` against 199 --
+but garbage collection rises from 9.6% of the run to 15.8% and `mutable_array_new` appears
+at 2.8% where it had been below the cutoff, which together more than undo it. The cost
+tracks the size of the *initial* request: a capacity of 20, the default, is indistinguishable
+from passing none, and a capacity sized to the exact result is still slower than growing, so
+it is not waste in an over-sized buffer. Why one large request should cost the collector more
+than reaching the same size through `ziman_xrealloc` is not established here -- only that it
+measurably does, which is enough to decide this call.
 
 ### `array_sort`
 
