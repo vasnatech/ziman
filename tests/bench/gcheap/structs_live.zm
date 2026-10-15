@@ -1,0 +1,26 @@
+// A large LIVE set of structs: the StructObj wrapper lives in the gc_heap arena while its `fields`
+// array is on Boehm's heap -- the cross-heap reference that is the real reason the arena has to be
+// handed to Boehm as a conservative root range at all (docs/MEMORY.md). Then a call-heavy loop, to
+// make Boehm collect repeatedly over that live arena.
+struct Row {
+    id: int
+    name: string
+    score: float
+}
+
+fn work(i: int) -> int {
+    return i + 1
+}
+
+fn main() {
+    val keep = mutable_array_new<Row>(capacity: 200000)
+    for i in 0..200000 {
+        mutable_array_push(keep, Row { id: i, name: concat("n", str(i)), score: 1.5 })
+    }
+    var sum = 0
+    for i in 0..2000000 {
+        sum = sum + work(i)
+    }
+    print(len(keep))
+    print(sum)
+}

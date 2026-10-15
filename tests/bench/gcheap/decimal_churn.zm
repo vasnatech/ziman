@@ -1,0 +1,23 @@
+// A large LIVE gc_heap arena (300k structs, tens of MB) plus a decimal-heavy loop, which
+// docs/MEMORY.md measured as spending ~42% of its time in Boehm. So both collectors are busy at
+// once: Ziman's own marks the live arena, and each of Boehm's collections hands that whole arena
+// over as a conservative root range. The workload here for the cost of running two collectors over
+// one object graph -- see docs/MEMORY.md, "the conservative arena root push is the only shape that
+// fits".
+struct Row {
+    id: int
+    name: string
+}
+
+fn main() {
+    val keep = mutable_array_new<Row>(capacity: 300000)
+    for i in 0..300000 {
+        mutable_array_push(keep, Row { id: i, name: concat("n", str(i)) })
+    }
+    var total = 0.0d
+    for i in 0..1500000 {
+        total = total + 1.01d
+    }
+    print(len(keep))
+    print(total)
+}

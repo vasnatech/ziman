@@ -1,0 +1,20 @@
+// A large live set built in the gc_heap, then a call-heavy loop that churns garbage on BOEHM's
+// heap. The interesting property is the ratio: 75 Ziman collections against 3 of Boehm's, with a
+// peak live set of a few hundred bytes and ~300k objects reclaimed -- an arena that is almost
+// entirely free chunks, which is the opposite end of the range from decimal_churn.
+fn work(i: int) -> int {
+    return i + 1
+}
+
+fn main() {
+    val keep = mutable_array_new<string>(capacity: 300000)
+    for i in 0..300000 {
+        mutable_array_push(keep, concat("row-", str(i)))
+    }
+    var sum = 0
+    for i in 0..2000000 {
+        sum = sum + work(i)
+    }
+    print(len(keep))
+    print(sum)
+}

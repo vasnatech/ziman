@@ -1,0 +1,19 @@
+// A large LIVE map: MapObj and Leaf live in the gc_heap arena, while the MapNode chain holding them
+// together is on Boehm's heap -- the same cross-heap shape as structs_live, through a different
+// type. Then a call-heavy loop, to make Boehm collect repeatedly over that live arena.
+fn work(i: int) -> int {
+    return i + 1
+}
+
+fn main() {
+    val m = mutable_map_new<string, int>()
+    for i in 0..150000 {
+        mutable_map_set(m, concat("k", str(i)), i)
+    }
+    var sum = 0
+    for i in 0..2000000 {
+        sum = sum + work(i)
+    }
+    print(len(m))
+    print(sum)
+}
