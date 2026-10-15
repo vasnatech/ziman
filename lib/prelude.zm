@@ -681,21 +681,26 @@ native fn array_reverse<T>(items: [T]) -> [T]
 // array, which allocates per element and reads like a puzzle.
 // A builder, left to grow on its own rather than sized to the input up front. Both of those
 // and a plain `out = push(out, v)` into a value were measured, and the answer is the opposite
-// of the obvious one: **presizing is slower**, and the bigger the input the worse it gets --
-// 703 ms against 586 ms at two hundred thousand elements, 327 against 276 at ten thousand.
-// Below a hundred, which is what the variadic form is nearly always called with, all three
-// spellings sit inside the run-to-run noise, so nothing is given up by picking the one that
-// wins at size.
+// of the obvious one: **presizing is slower**, the more so the larger the input -- 703 ms
+// against 586 ms at two hundred thousand elements. Below a hundred, which is what the variadic
+// form is nearly always called with, all three sit inside the run-to-run noise, so nothing is
+// given up by choosing the one that wins at size.
 //
-// What the profiles show is that the cost moves rather than disappears. Sizing the buffer does
-// save the growth work it is meant to -- 180 samples in `mutable_array_push` against 199 --
-// but garbage collection rises from 9.6% of the run to 15.8% and `mutable_array_new` appears
-// at 2.8% where it had been below the cutoff, which together more than undo it. The cost
-// tracks the size of the *initial* request: a capacity of 20, the default, is indistinguishable
-// from passing none, and a capacity sized to the exact result is still slower than growing, so
-// it is not waste in an over-sized buffer. Why one large request should cost the collector more
-// than reaching the same size through `ziman_xrealloc` is not established here -- only that it
-// measurably does, which is enough to decide this call.
+// Two costs, both proportional to the capacity asked for rather than to the elements actually
+// stored, which is why asking for a big one and pushing ten into it is already expensive:
+//
+//   - `mutable_array_new(capacity: n)` allocates `n * sizeof(Value)` of boxed storage at once,
+//     before the element type is known. For a packed type -- `int`, `float`, `byte`, `bool` --
+//     the first push then adopts a packed buffer and drops that array unused, so the whole
+//     allocation was waste (src/prelude.c, `ab_new_value` and `ab_adopt_pack_kind`).
+//   - While the boxed array is live, the collector scans all of it for pointers on every
+//     collection, since it comes from `GC_MALLOC` rather than `GC_MALLOC_ATOMIC`. Presized, it
+//     is at full size for the entire fill; grown, it averages about half that.
+//
+// The split shows plainly in the element type. Filling a hundred thousand with a capacity hint
+// costs 14% more for `[int]`, whose live buffer is packed and so never scanned, and 110% more
+// for `[string]`, which stays boxed and is scanned at full size throughout. `T` here is either,
+// so neither case wants the hint.
 fn array_present<T>(items: variadic Option<T>) -> [T] {
     val out = mutable_array_new<T>()
     for item in items {
