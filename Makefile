@@ -30,7 +30,7 @@ OBJ := $(SRC:.c=.o)
 DEP := $(SRC:.c=.d)
 BIN := ziman
 
-.PHONY: all check check-fast lint lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
+.PHONY: all check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
 
 all: $(BIN)
 
@@ -57,11 +57,25 @@ install-hooks:
 	@echo "install-hooks: core.hooksPath = tools/hooks (pre-push runs check-fast; --no-verify bypasses it)"
 
 # The standalone C unit tests -- each links a few src/*.c files with its own main() and runs in
-# well under a second, so there is no reason to ever run them selectively.
+# well under a second, so there is no reason to ever run them selectively. `lib-tests` is the same
+# idea one level up, in Ziman rather than C.
 unit-tests: test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy \
-            test-regex \
+            test-regex lib-tests \
             test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots \
             test-gc-interp-roots test-lsp
+
+# The `#[test]` units for the bundled modules, under tests/lib/. There were **zero** `#[test]`
+# functions in 50,000 lines of Ziman until F134, in a language that ships the attribute, the runner
+# and an assertion module -- C13 removed the stated reason (an unreachable sibling test directory)
+# and nothing followed. The argument for them is not principle but two defects: B12 (a missing
+# `ORDER BY`) and E25 (an unpadded fraction in a sort key) both live below the level any end-to-end
+# check can see, and both would have been one assertion here.
+#
+# They live outside lib/ on purpose. Bundling is driven by the explicit CORELIB_MODULES list, so a
+# test file in lib/ would not be embedded -- but docs/lib generation, `make lint` and
+# `make lib-coverage` all glob lib/**/*.zm and would each need an exception.
+lib-tests: $(BIN)
+	@./$(BIN) test tests/lib/*.zm
 
 $(GC_LIB): $(GC_DIR)/extra/gc.c $(wildcard $(GC_DIR)/*.c) $(wildcard $(GC_DIR)/include/*.h $(GC_DIR)/include/*/*.h)
 	$(CC) -O2 -DNDEBUG -I$(GC_DIR)/include -DGC_THREADS -DGC_BUILTIN_ATOMIC -DTHREAD_LOCAL_ALLOC -DPARALLEL_MARK \

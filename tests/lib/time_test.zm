@@ -1,0 +1,173 @@
+// Unit tests for `time` (F134).
+//
+// Aimed at the edges an end-to-end check cannot reach. Two of these exist because a real defect lived there:
+// E25 was `instant_to_string` padding a sub-second fraction, which only matters when the text is used as a
+// sort key, and D19 was `zoneoffset_from_string` reading `+05:99` as a valid offset. Both are pinned below.
+use test
+use time
+
+// ---------------------------------------------------------------- LocalDate
+
+#[test]
+fn localdate_of_rejects_out_of_range_fields() {
+    test.assert_err(time.localdate_of(2024, 0, 1))
+    test.assert_err(time.localdate_of(2024, 13, 1))
+    test.assert_err(time.localdate_of(2024, 1, 0))
+    test.assert_err(time.localdate_of(2024, 1, 32))
+    // the one that needs the calendar, not a range check
+    test.assert_err(time.localdate_of(2023, 2, 29))
+    test.assert_ok(time.localdate_of(2024, 2, 29))
+}
+
+#[test]
+fn localdate_of_accepts_bce_years() {
+    // Not an accident and not undefined: the Ides of March, 44 BCE, is a fixture elsewhere in this repo.
+    // `localdate_of`'s own doc comment once claimed BCE was rejected; it was the comment that was wrong.
+    val d = test.assert_ok(time.localdate_of(0 - 44, 3, 15))
+    test.assert_eq("-0044-03-15", time.localdate_to_string(d))
+}
+
+#[test]
+fn leap_year_follows_the_gregorian_rule() {
+    test.assert(time.localdate_is_leap_year(2024))
+    test.assert(time.localdate_is_leap_year(2000))
+    test.assert_false(time.localdate_is_leap_year(1900))
+    test.assert_false(time.localdate_is_leap_year(2023))
+}
+
+#[test]
+fn epoch_day_round_trips() {
+    val d = test.assert_ok(time.localdate_of(1970, 1, 1))
+    test.assert_eq(0, time.localdate_to_epoch_day(d))
+    val back = time.localdate_from_epoch_day(0)
+    test.assert_eq("1970-01-01", time.localdate_to_string(back))
+    // and across the epoch, where an off-by-one would hide
+    val before = time.localdate_from_epoch_day(0 - 1)
+    test.assert_eq("1969-12-31", time.localdate_to_string(before))
+}
+
+#[test]
+fn add_months_clamps_rather_than_overflowing_the_month() {
+    // 31 January plus one month has no 31st to land on. Clamping to the month's last day is what
+    // java.time does and what this library documents; rolling into March would be the other choice.
+    val jan31 = test.assert_ok(time.localdate_of(2024, 1, 31))
+    test.assert_eq("2024-02-29", time.localdate_to_string(time.localdate_add_months(jan31, 1)))
+    val leap_day = test.assert_ok(time.localdate_of(2024, 2, 29))
+    test.assert_eq("2025-02-28", time.localdate_to_string(time.localdate_add_years(leap_day, 1)))
+}
+
+#[test]
+fn diff_days_is_signed_and_antisymmetric() {
+    val a = test.assert_ok(time.localdate_of(2024, 3, 1))
+    val b = test.assert_ok(time.localdate_of(2024, 2, 1))
+    test.assert_eq(29, time.localdate_diff_days(a, b))
+    test.assert_eq(0 - 29, time.localdate_diff_days(b, a))
+    test.assert_eq(0, time.localdate_diff_days(a, a))
+}
+
+#[test]
+fn localdate_from_string_rejects_what_it_should() {
+    test.assert_ok(time.localdate_from_string("2024-02-29"))
+    test.assert_err(time.localdate_from_string("2023-02-29"))
+    test.assert_err(time.localdate_from_string("2024-2-9"))
+    test.assert_err(time.localdate_from_string(""))
+    test.assert_err(time.localdate_from_string("not a date"))
+}
+
+// ---------------------------------------------------------------- LocalTime
+
+#[test]
+fn localtime_of_rejects_out_of_range_fields() {
+    test.assert_ok(time.localtime_of(23, 59, 59, 999999999))
+    test.assert_err(time.localtime_of(24, 0, 0, 0))
+    test.assert_err(time.localtime_of(0, 60, 0, 0))
+    test.assert_err(time.localtime_of(0, 0, 60, 0))
+    test.assert_err(time.localtime_of(0, 0, 0, 1000000000))
+    test.assert_err(time.localtime_of(0 - 1, 0, 0, 0))
+}
+
+#[test]
+fn localtime_add_wraps_within_the_day() {
+    val t = test.assert_ok(time.localtime_of(23, 30, 0, 0))
+    test.assert_eq("00:30:00", time.localtime_to_string(time.localtime_add_hours(t, 1)))
+    val midnight = test.assert_ok(time.localtime_of(0, 0, 0, 0))
+    test.assert_eq("23:00:00", time.localtime_to_string(time.localtime_add_hours(midnight, 0 - 1)))
+}
+
+// ---------------------------------------------------------------- ZoneOffset
+
+#[test]
+fn zoneoffset_rejects_a_minute_field_over_59() {
+    // D19: `+05:99` was read as a valid offset and silently normalised to `+06:39`. A minutes field is
+    // 0..59 whatever the hours are, and an offset text that says otherwise is malformed, not arithmetic.
+    test.assert_err(time.zoneoffset_from_string("+05:99"))
+    test.assert_err(time.zoneoffset_from_string("-00:60"))
+    test.assert_ok(time.zoneoffset_from_string("+05:59"))
+}
+
+#[test]
+fn zoneoffset_round_trips_through_text() {
+    test.assert_eq("Z", time.zoneoffset_to_string(time.zoneoffset_utc()))
+    val plus = test.assert_ok(time.zoneoffset_of_hours_minutes(5, 30))
+    test.assert_eq("+05:30", time.zoneoffset_to_string(plus))
+    val parsed = test.assert_ok(time.zoneoffset_from_string("+05:30"))
+    test.assert_eq(0, time.zoneoffset_compare(plus, parsed))
+    val minus = test.assert_ok(time.zoneoffset_from_string("-08:00"))
+    test.assert_eq("-08:00", time.zoneoffset_to_string(minus))
+}
+
+// ---------------------------------------------------------------- Instant
+
+#[test]
+fn instant_to_string_pads_the_fraction_so_text_sorts_as_time_does() {
+    // E25. The sub-second part must be a fixed width, because these strings are compared as text: without
+    // padding, "…:00.9Z" sorts after "…:00.10Z" while the instants go the other way.
+    val early = time.instant_of(0, 9000000)
+    val later = time.instant_of(0, 100000000)
+    test.assert_lt(time.instant_compare(early, later), 0)
+    test.assert_lt(time.instant_to_string(early), time.instant_to_string(later))
+}
+
+#[test]
+fn instant_round_trips_through_text() {
+    val i = time.instant_of(1700000000, 123456789)
+    val back = test.assert_ok(time.instant_from_string(time.instant_to_string(i)))
+    test.assert_eq(0, time.instant_compare(i, back))
+}
+
+#[test]
+fn instant_and_localdatetime_convert_both_ways() {
+    val utc = time.zoneoffset_utc()
+    val i = time.instant_of(0, 0)
+    val dt = time.instant_to_localdatetime(i, utc)
+    test.assert_eq("1970-01-01T00:00:00", time.localdatetime_to_string(dt))
+    test.assert_eq(0, time.instant_compare(i, time.localdatetime_to_instant(dt, utc)))
+    // an offset actually shifts the wall clock
+    val plus_two = test.assert_ok(time.zoneoffset_of_hours_minutes(2, 0))
+    test.assert_eq(
+        "1970-01-01T02:00:00",
+        time.localdatetime_to_string(time.instant_to_localdatetime(i, plus_two))
+    )
+}
+
+// ---------------------------------------------------------------- Duration
+
+// The fraction is a fixed nine digits (`pad_left(nanos, 9)`), where java.time trims trailing zeros and
+// would print `PT2.1S`. That is deliberate here and `duration_from_string` is its exact inverse either way;
+// this test pins the width so the choice cannot be changed by accident.
+#[test]
+fn duration_arithmetic_normalises_nanos() {
+    val a = time.duration_of_seconds(1, 800000000)
+    val b = time.duration_of_seconds(0, 300000000)
+    test.assert_eq("PT2.100000000S", time.duration_to_string(time.duration_add(a, b)))
+    test.assert_eq("PT1.500000000S", time.duration_to_string(time.duration_subtract(a, b)))
+    test.assert_eq(0, time.duration_compare(time.duration_zero(), time.duration_of_seconds(0, 0)))
+    test.assert_lt(time.duration_compare(time.duration_negate(a), time.duration_zero()), 0)
+}
+
+#[test]
+fn duration_round_trips_through_text() {
+    val d = time.duration_of_seconds(3661, 500000000)
+    val back = test.assert_ok(time.duration_from_string(time.duration_to_string(d)))
+    test.assert_eq(0, time.duration_compare(d, back))
+}

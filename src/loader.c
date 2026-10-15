@@ -1753,24 +1753,42 @@ static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, const char *
 /* A folder may hold its own module under its own name: `use a/b` where a/b.zm does not exist but a/b/b.zm does
  * names the module a/b/b. A file of the shorter name wins when both exist. The path is rewritten in place, before
  * anything else reads it, so a module has one name however it was written. */
-static void canonicalize_use_path(Loader *ldr, UseDecl *u) {
-    char *file = resolve_file_path(ldr->project_root, u->path);
-    char *found = read_all(file);
+/* Whether `use_path` names a readable module file, by either route a `use` may take: beside the
+ * importing file (the project root) or through the marker directory / ZIMAN_MODULE_PATH.
+ *
+ * Both routes, not just the first, and that is the fix for a real asymmetry. Until 2026-10-14 the
+ * directory-module rewrite below consulted only the project root, so `use common` found
+ * common/common.zm when the entry file sat beside it and did not when the same directory was named
+ * by ZIMAN_MODULE_PATH -- which is precisely the arrangement that variable exists for. The manual
+ * says both mechanisms are "two ways to point one search path at a directory", so a module shape
+ * that resolves by one and not the other is a bug in the loader, not a rule. It made every
+ * directory module in a project unreachable from a test directory of its own; found while writing
+ * the backend's first #[test] units (docs/reviews/tasks.md F134). */
+static int module_file_exists(Loader *ldr, const char *use_path) {
+    char *file = resolve_file_path(ldr->project_root, use_path);
+    FILE *f = fopen(file, "rb");
     free(file);
-    if (found != NULL) {
-        free(found);
-        return;
+    if (f != NULL) {
+        fclose(f);
+        return 1;
     }
+    char *from_path = resolve_via_module_path(use_path, ldr->marker_dir);
+    if (from_path != NULL) {
+        free(from_path);
+        return 1;
+    }
+    return 0;
+}
+
+static void canonicalize_use_path(Loader *ldr, UseDecl *u) {
+    if (module_file_exists(ldr, u->path)) return;
+    /* `use foo` may instead name the directory module foo/foo.zm. */
     const char *slash = strrchr(u->path, '/');
     const char *last = slash != NULL ? slash + 1 : u->path;
     size_t n = strlen(u->path) + strlen(last) + 2;
     char *inner = ziman_xmalloc(n);
     snprintf(inner, n, "%s/%s", u->path, last);
-    file = resolve_file_path(ldr->project_root, inner);
-    found = read_all(file);
-    free(file);
-    if (found != NULL) {
-        free(found);
+    if (module_file_exists(ldr, inner)) {
         u->path = inner;
     } else {
         free(inner);

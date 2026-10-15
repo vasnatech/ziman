@@ -1,0 +1,166 @@
+// Unit tests for `number` and `mime` (F134).
+use mime
+use number
+use test
+
+// ---------------------------------------------------------------- hex
+
+#[test]
+fn hex_round_trips_in_both_directions() {
+    test.assert_eq("ff", number.byte_to_hex(255b))
+    test.assert_eq("00", number.byte_to_hex(0b))
+    test.assert_eq(255b, test.assert_ok(number.byte_from_hex("ff")))
+    // case does not matter on the way in
+    test.assert_eq(255b, test.assert_ok(number.byte_from_hex("FF")))
+}
+
+#[test]
+fn hex_rejects_what_is_not_hex() {
+    test.assert_err(number.byte_from_hex(""))
+    test.assert_err(number.byte_from_hex("g0"))
+    test.assert_err(number.byte_from_hex("100"))
+    test.assert_err(number.bytes_from_hex("abc"))
+}
+
+#[test]
+fn bytes_hex_round_trips() {
+    val data = [0b, 15b, 16b, 255b]
+    test.assert_eq("000f10ff", number.bytes_to_hex(data))
+    test.assert_eq(data, test.assert_ok(number.bytes_from_hex("000f10ff")))
+}
+
+// ---------------------------------------------------------------- fixed-width integer encoding
+
+#[test]
+fn u16_and_u32_round_trip_through_bytes() {
+    test.assert_eq(0, number.u16_from_bytes(number.u16_to_bytes(0), 0))
+    test.assert_eq(65535, number.u16_from_bytes(number.u16_to_bytes(65535), 0))
+    test.assert_eq(1, number.u16_from_bytes(number.u16_to_bytes(1), 0))
+    test.assert_eq(4294967295, number.u32_from_bytes(number.u32_to_bytes(4294967295), 0))
+}
+
+#[test]
+fn u16_is_big_endian() {
+    // Pinned because an endianness flip is invisible to a round-trip test on its own.
+    val b = number.u16_to_bytes(258)
+    test.assert_eq(2, len(b))
+    test.assert_eq(1b, b[0])
+    test.assert_eq(2b, b[1])
+}
+
+#[test]
+fn i32_is_signed_where_u32_is_not() {
+    val all_ones = number.u32_to_bytes(4294967295)
+    test.assert_eq(4294967295, number.u32_from_bytes(all_ones, 0))
+    test.assert_eq(0 - 1, number.i32_from_bytes(all_ones, 0))
+}
+
+#[test]
+fn f64_round_trips_exactly() {
+    val f = 3.141592653589793
+    test.assert_eq(f, number.f64_from_bytes(number.f64_to_bytes(f), 0))
+    test.assert_eq(0.0, number.f64_from_bytes(number.f64_to_bytes(0.0), 0))
+}
+
+// ---------------------------------------------------------------- formatting
+
+#[test]
+fn format_int_applies_a_grouping_pattern() {
+    val grouped = number.parse_pattern("#,##0")
+    test.assert_eq("1,234,567", number.format_int(1234567, grouped))
+    test.assert_eq("0", number.format_int(0, grouped))
+    test.assert_eq("-1,234", number.format_int(0 - 1234, grouped))
+}
+
+#[test]
+fn format_float_honours_the_fraction_width() {
+    val two = number.parse_pattern("0.00")
+    test.assert_eq("3.14", number.format_float(3.14159, two))
+    test.assert_eq("3.00", number.format_float(3.0, two))
+}
+
+// `float_to_text` is not `str`, and the difference is easy to break by "tidying" one to match the other.
+// `str(1.0)` is "1.0", because a displayed float must not read as an int; `float_to_text(1.0)` is "1",
+// because it writes the shortest text that reads back exactly and is what the json/toml/yaml/csv writers
+// use. Both are deliberate and both are pinned here.
+#[test]
+fn float_to_text_is_the_shortest_exact_text_not_the_display_form() {
+    test.assert_eq("1", number.float_to_text(1.0))
+    test.assert_eq("1.0", str(1.0))
+    test.assert_eq("0.1", number.float_to_text(0.1))
+    test.assert_eq("150", number.float_to_text(150.0))
+}
+
+// Both boundaries, from each side -- plain notation from 1e-7 up to but not including 1e21.
+#[test]
+fn float_to_text_switches_to_scientific_outside_the_plain_range() {
+    test.assert_eq("0.0000001", number.float_to_text(1e-7))
+    test.assert_eq("1e-08", number.float_to_text(1e-8))
+    test.assert_eq("100000000000000000000", number.float_to_text(1e20))
+    test.assert_eq("1e+21", number.float_to_text(1e21))
+}
+
+// ---------------------------------------------------------------- mime
+
+#[test]
+fn mime_parse_splits_essence_from_parameters() {
+    val m = test.assert_ok(mime.parse("text/plain; charset=utf-8"))
+    test.assert_eq("text/plain", mime.essence(m))
+    test.assert_eq("utf-8", test.assert_some(mime.charset(m)))
+    test.assert_none(mime.param(m, "boundary"))
+}
+
+#[test]
+fn mime_parse_is_case_insensitive_in_the_right_places() {
+    // Type and subtype fold to lower case; a parameter *value* is the sender's and is left alone.
+    val m = test.assert_ok(mime.parse("TEXT/PLAIN; Charset=UTF-8"))
+    test.assert_eq("text/plain", mime.essence(m))
+    test.assert_some(mime.charset(m))
+}
+
+#[test]
+fn mime_rejects_what_is_not_a_media_type() {
+    test.assert_err(mime.parse(""))
+    test.assert_err(mime.parse("text"))
+    test.assert_err(mime.parse("/plain"))
+    test.assert_err(mime.parse("text/"))
+}
+
+#[test]
+fn mime_matches_treats_a_star_as_a_wildcard() {
+    val json_type = mime.application_json()
+    val any_application = test.assert_ok(mime.parse("application/*"))
+    val any = test.assert_ok(mime.parse("*/*"))
+    test.assert(mime.matches(any, json_type))
+    test.assert(mime.matches(any_application, json_type))
+    test.assert_false(mime.matches(test.assert_ok(mime.parse("text/*")), json_type))
+    // the pattern is the first argument, not the second: a concrete type matches nothing but itself
+    test.assert_false(mime.matches(json_type, any))
+}
+
+#[test]
+fn mime_is_json_follows_the_suffix_not_only_the_essence() {
+    test.assert(mime.is_json(mime.application_json()))
+    // `+json` structured syntax suffix
+    val problem = test.assert_ok(mime.parse("application/problem+json"))
+    test.assert_eq("json", test.assert_some(mime.suffix(problem)))
+    test.assert(mime.is_json(problem))
+    test.assert_false(mime.is_json(mime.text_plain()))
+}
+
+#[test]
+fn mime_with_param_round_trips_through_text() {
+    val m = mime.with_param(mime.text_plain(), "charset", "utf-8")
+    val back = test.assert_ok(mime.parse(mime.to_string(m)))
+    test.assert_eq("text/plain", mime.essence(back))
+    test.assert_eq("utf-8", test.assert_some(mime.charset(back)))
+}
+
+#[test]
+fn mime_of_extension_and_of_path_agree() {
+    val by_ext = test.assert_some(mime.of_extension("json"))
+    val by_path = test.assert_some(mime.of_path("/tmp/dir.with.dots/data.json"))
+    test.assert_eq(mime.essence(by_ext), mime.essence(by_path))
+    test.assert_eq("application/json", mime.essence(by_ext))
+    test.assert_none(mime.of_extension("nosuchextension"))
+}

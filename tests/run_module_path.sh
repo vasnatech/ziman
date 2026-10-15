@@ -86,5 +86,52 @@ case "$out" in
 esac
 rm "$work/ziman.toml"
 
+# A **directory module** -- `use foo` finding foo/foo.zm -- through each of the three routes. Until
+# 2026-10-14 the rewrite that turns `foo` into `foo/foo` consulted only the importing file's own
+# directory, so a directory module resolved when the entry sat beside it and did not when the same
+# directory was named by ZIMAN_MODULE_PATH or by a marker. That is the one arrangement those two
+# exist for -- "letting tests live in a directory of their own", as the manual puts it -- so every
+# directory module in a project was unreachable from a test directory. Found while writing the
+# health-record backend's first `#[test]` units, where `use common` is exactly this shape
+# (docs/reviews/tasks.md F134).
+mkdir -p "$work/src/common"
+cat > "$work/src/common/common.zm" <<'ZM'
+pub fn greet() -> string {
+    return "hello from a directory module"
+}
+ZM
+cat > "$work/test/dir_module_test.zm" <<'ZM'
+use common
+
+fn main() {
+    print(common.greet())
+}
+ZM
+want="hello from a directory module"
+check "directory module via ZIMAN_MODULE_PATH" "$want" \
+    "$(ZIMAN_MODULE_PATH=$work/src/common "$BIN" "$work/test/dir_module_test.zm" 2>&1 | head -1)"
+
+# The parent of the directory is what gets named in practice (`ZIMAN_MODULE_PATH=src/main/ziman`
+# for `src/main/ziman/common/common.zm`), so that spelling is the one that matters most.
+check "directory module via ZIMAN_MODULE_PATH naming its parent" "$want" \
+    "$(ZIMAN_MODULE_PATH=$work/src "$BIN" "$work/test/dir_module_test.zm" 2>&1 | head -1)"
+
+# And via a marker, the other half of the same search path. The marker is found by walking up from
+# the entry file, so the module has to sit directly under the marker's own directory.
+mkdir -p "$work/common"
+cp "$work/src/common/common.zm" "$work/common/common.zm"
+touch "$work/ziman.toml"
+check "directory module via a ziman.toml marker" "$want" \
+    "$("$BIN" "$work/test/dir_module_test.zm" 2>&1 | head -1)"
+rm "$work/ziman.toml"
+rm -r "$work/common"
+
+# Still refused when no route names it, with the message naming what it looked for.
+out="$("$BIN" "$work/test/dir_module_test.zm" 2>&1 | head -1)"
+case "$out" in
+    *"cannot find module 'common'"*) check "directory module: refused when nothing names it" yes yes ;;
+    *) check "directory module: refused when nothing names it" yes "no ($out)" ;;
+esac
+
 echo "--- $pass passed, $fail failed"
 [ "$fail" -eq 0 ]
