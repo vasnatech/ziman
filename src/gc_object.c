@@ -37,6 +37,22 @@ static GcHeader *header_of(const void *obj) {
     return (GcHeader *)((const char *)obj - GC_HEADER_SPAN);
 }
 
+const char *gc_kind_name(GcKind kind) {
+    switch (kind) {
+    case GC_ATOMIC: return "atomic";
+    case GC_VALUES: return "values";
+    case GC_ARRAY: return "array";
+    case GC_STRUCT: return "struct";
+    case GC_RESULT: return "result";
+    case GC_ENUM: return "enum";
+    case GC_CLOSURE: return "closure";
+    case GC_MAP: return "map";
+    case GC_MAP_LEAF: return "map_leaf";
+    case GC_FREE: return "free";
+    }
+    return "?";
+}
+
 GcKind gc_kind_of(const void *obj) {
     return header_of(obj)->kind;
 }

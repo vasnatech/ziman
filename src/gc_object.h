@@ -47,6 +47,11 @@ void *gc_alloc(Arena *a, GcKind kind, size_t payload_size);
  * from the middle of an allocation (see MEMORY.md's own interior-pointer discussion); every caller
  * here already has the exact start address, either from another `gc_alloc` call or from a `Value`
  * field that was itself built by one. */
+/* The enum's own spelling, for a profile or a diagnostic that has to say which kind an object
+ * is. Unconditional rather than gated on a measurement build: an enum that cannot name itself
+ * is a small gap in every error message that ever wants to. */
+const char *gc_kind_name(GcKind kind);
+
 GcKind gc_kind_of(const void *obj);
 size_t gc_size_of(const void *obj);
 int gc_is_marked(const void *obj);

@@ -34,6 +34,12 @@ void *ziman_alloc_atomic(const char *file, int line, size_t n);
 /* Ziman's own per-thread collector (src/gc_heap.c), which allocates from its own arena and so
  * never touches any of the names above. Records only; the allocation itself is that heap's. */
 void ziman_alloc_note_heap(const char *file, int line, size_t n, int atomic);
+/* The live set, tallied by the sweep phase (src/gc_heap.c), which already visits every object
+ * and already knows whether the mark phase reached it. Allocation volume does not predict mark
+ * cost -- a short-lived object is never marked at all -- so this is the number that does: what
+ * the next mark phase will have to walk. Per object, then once per cycle. */
+void ziman_alloc_note_live(const char *kind, size_t bytes, int live);
+void ziman_alloc_note_collection(size_t live_bytes, size_t live_objects, size_t dead_objects);
 #define malloc(n) ziman_alloc_malloc(__FILE__, __LINE__, (n))
 #define calloc(a, b) ziman_gc_calloc_at(__FILE__, __LINE__, (size_t)(a), (size_t)(b))
 #define realloc(p, n) ziman_alloc_realloc(__FILE__, __LINE__, (p), (n))

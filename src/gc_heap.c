@@ -1,4 +1,5 @@
 #include "gc_heap.h"
+#include "gc_object.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -172,6 +173,12 @@ size_t gc_heap_collect(GcHeap *h, void (*extra_roots)(const Arena *a, void *ctx)
 
 size_t gc_heap_sweep(GcHeap *h) {
     size_t reclaimed = 0;
+#ifdef ZIMAN_ALLOC_PROFILE
+    /* Tallied here because this walk already visits every object and already has to ask each one
+     * whether the mark phase reached it -- so the measurement is a couple of adds, not a second
+     * traversal. */
+    size_t live_bytes = 0, live_objects = 0;
+#endif
     /* `prev` is whichever block this loop visited just before `b` -- arena_reclaim_block's own
      * requirement, tracked here rather than re-derived, since this is already a single forward walk
      * (arena_first_block/arena_next_block visit newest-first) with no other reason to look back. */
@@ -189,10 +196,18 @@ size_t gc_heap_sweep(GcHeap *h) {
         while ((obj = gc_next_object(&cursor, end)) != NULL) {
             if (gc_kind_of(obj) == GC_FREE) continue; /* already free, already linked -- leave it */
             if (gc_is_marked(obj)) {
+#ifdef ZIMAN_ALLOC_PROFILE
+                ziman_alloc_note_live(gc_kind_name(gc_kind_of(obj)), gc_size_of(obj), 1);
+                live_bytes += gc_size_of(obj);
+                live_objects++;
+#endif
                 gc_set_marked((void *)obj, 0); /* survives; ready for the next cycle's mark phase */
                 any_live = 1;
                 continue;
             }
+#ifdef ZIMAN_ALLOC_PROFILE
+            ziman_alloc_note_live(gc_kind_name(gc_kind_of(obj)), gc_size_of(obj), 0);
+#endif
             /* Dead: its own recorded size is already an exact class size (gc_heap_alloc's own
              * invariant), so it links straight onto that class's free list with no recomputation. */
             size_t class_size = gc_header_span() + gc_size_of(obj);
@@ -229,5 +244,8 @@ size_t gc_heap_sweep(GcHeap *h) {
         }
         b = next;
     }
+#ifdef ZIMAN_ALLOC_PROFILE
+    ziman_alloc_note_collection(live_bytes, live_objects, reclaimed);
+#endif
     return reclaimed;
 }

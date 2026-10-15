@@ -24,6 +24,22 @@ typedef struct {
 
 static Site g_sites[SITES];
 static int g_n;
+
+/* The live set, by kind, accumulated across every collection -- see zgc.h's comment on
+ * ziman_alloc_note_live. Summed rather than sampled: the total of what each cycle found live is
+ * the work the mark phase actually did over the run, which is the quantity mark time is
+ * proportional to. The dead column beside it is the garbage each cycle reclaimed, so the two
+ * together say whether a kind is expensive because it survives or merely because there is a lot
+ * of it. */
+#define KINDS 16
+typedef struct {
+    const char *kind;
+    unsigned long long live_objects, live_bytes, dead_objects, dead_bytes;
+} KindStat;
+static KindStat g_kinds[KINDS];
+static int g_kn;
+static unsigned long long g_collections, g_peak_live_bytes, g_peak_live_objects;
+static unsigned long long g_total_live_bytes, g_total_live_objects, g_total_dead_objects;
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
 
 static void note_at(const char *file, int line, size_t n, int atomic, int heap) {
@@ -59,6 +75,39 @@ void ziman_alloc_note_heap(const char *file, int line, size_t n, int atomic) {
     note_at(file, line, n, atomic, 1);
 }
 
+void ziman_alloc_note_live(const char *kind, size_t bytes, int live) {
+    pthread_mutex_lock(&g_mu);
+    KindStat *k = NULL;
+    for (int i = 0; i < g_kn; i++) {
+        if (g_kinds[i].kind == kind) { k = &g_kinds[i]; break; }
+    }
+    if (k == NULL && g_kn < KINDS) {
+        k = &g_kinds[g_kn++];
+        k->kind = kind;
+    }
+    if (k != NULL) {
+        if (live) {
+            k->live_objects++;
+            k->live_bytes += bytes;
+        } else {
+            k->dead_objects++;
+            k->dead_bytes += bytes;
+        }
+    }
+    pthread_mutex_unlock(&g_mu);
+}
+
+void ziman_alloc_note_collection(size_t live_bytes, size_t live_objects, size_t dead_objects) {
+    pthread_mutex_lock(&g_mu);
+    g_collections++;
+    g_total_live_bytes += live_bytes;
+    g_total_live_objects += live_objects;
+    g_total_dead_objects += dead_objects;
+    if (live_bytes > g_peak_live_bytes) g_peak_live_bytes = live_bytes;
+    if (live_objects > g_peak_live_objects) g_peak_live_objects = live_objects;
+    pthread_mutex_unlock(&g_mu);
+}
+
 /* GC_MALLOC and friends are named explicitly here: zgc.h has redefined `malloc` to come back through
  * this file, so calling it by that name would recurse. */
 void *ziman_alloc_malloc(const char *file, int line, size_t n) {
@@ -91,6 +140,11 @@ static int by_count(const void *a, const void *b) {
  * collection frequency, how many bytes it asks for drives the heap's size. A realloc site counts its
  * whole new size every time it grows, so a buffer that doubles its way to a megabyte is credited with
  * far more than it ever holds -- which is why the two lists disagree and why neither is "the" answer. */
+static int by_live_bytes(const void *a, const void *b) {
+    const KindStat *x = a, *y = b;
+    return x->live_bytes < y->live_bytes ? 1 : x->live_bytes > y->live_bytes ? -1 : 0;
+}
+
 static int by_bytes(const void *a, const void *b) {
     const Site *x = a, *y = b;
     return x->bytes < y->bytes ? 1 : x->bytes > y->bytes ? -1 : 0;
@@ -132,6 +186,26 @@ __attribute__((destructor)) static void dump(void) {
                 g_sites[i].bytes, g_sites[i].count, g_sites[i].heap ? "zheap" : "boehm",
                 g_sites[i].atomic ? "atomic" : "traced",
                 g_sites[i].file, g_sites[i].line);
+    }
+    if (g_collections > 0) {
+        qsort(g_kinds, (size_t)g_kn, sizeof g_kinds[0], by_live_bytes);
+        fprintf(stderr, "\n== live set in the per-thread heap: %llu collections ==\n", g_collections);
+        fprintf(stderr, "   summed over every cycle, this is what the mark phase walked:\n");
+        fprintf(stderr, "   %llu bytes in %llu objects live; %llu objects reclaimed\n",
+                g_total_live_bytes, g_total_live_objects, g_total_dead_objects);
+        fprintf(stderr, "   peak live in one cycle: %llu bytes in %llu objects\n",
+                g_peak_live_bytes, g_peak_live_objects);
+        fprintf(stderr, "   %-9s %14s %12s   %14s %12s  %s\n",
+                "kind", "live bytes", "live objs", "dead bytes", "dead objs", "survival");
+        for (int i = 0; i < g_kn; i++) {
+            unsigned long long seen = g_kinds[i].live_objects + g_kinds[i].dead_objects;
+            fprintf(stderr, "   %-9s %14llu %12llu   %14llu %12llu  %5.1f%%\n",
+                    g_kinds[i].kind, g_kinds[i].live_bytes, g_kinds[i].live_objects,
+                    g_kinds[i].dead_bytes, g_kinds[i].dead_objects,
+                    100.0 * (double)g_kinds[i].live_objects / (double)(seen ? seen : 1));
+        }
+        fprintf(stderr, "   (Boehm's own heap is not included: its mark phase is inside the\n"
+                        "    collector, which this build does not instrument.)\n");
     }
     pthread_mutex_unlock(&g_mu);
 }
