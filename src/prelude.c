@@ -541,13 +541,13 @@ typedef struct {
     double grow_factor;
 } MutableStringBuf;
 
-static int64_t sb_table_register(MutableStringBuf *buf) {
+static int64_t mutable_string_table_register(MutableStringBuf *buf) {
     buf->owner = pthread_self();
     handleset_add(&g_string_builders, buf);
     return (int64_t)(intptr_t)buf;
 }
 
-static MutableStringBuf *sb_table_get(int64_t handle) {
+static MutableStringBuf *mutable_string_table_get(int64_t handle) {
     MutableStringBuf *buf = (MutableStringBuf *)(intptr_t)handle;
     if (!handleset_has(&g_string_builders, buf)) ziman_error("runtime", 0, 0, "not a valid MutableString handle");
     builder_owner_check(buf->owner, "a MutableString");
@@ -579,11 +579,11 @@ static double option_float_or(Value opt, double fallback) {
 
 static char *STRINGBUILDER_FIELD_NAMES[] = {"handle"};
 
-static int64_t sb_handle_of(Value sb) {
+static int64_t mutable_string_handle_of(Value sb) {
     return sb.as.st->fields[0].as.i;
 }
 
-static void sb_ensure_capacity(MutableStringBuf *buf, size_t additional) {
+static void mutable_string_ensure_capacity(MutableStringBuf *buf, size_t additional) {
     size_t needed = buf->length + additional;
     if (needed <= buf->capacity) {
         return;
@@ -596,7 +596,7 @@ static void sb_ensure_capacity(MutableStringBuf *buf, size_t additional) {
     buf->capacity = new_capacity;
 }
 
-static Value native_sb_new(Value *args, int argc, int line, int col) {
+static Value native_mutable_string_new(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -607,7 +607,7 @@ static Value native_sb_new(Value *args, int argc, int line, int col) {
     }
     if (grow_factor <= 1.0) {
         /* A factor at or below 1.0 would never actually grow the buffer
-         * -- sb_ensure_capacity's while loop would spin forever. Falls
+         * -- mutable_string_ensure_capacity's while loop would spin forever. Falls
          * back to the same default mutable_string_new's own signature declares,
          * rather than erroring, since a MutableString is otherwise
          * perfectly usable with this one parameter simply ignored. */
@@ -620,24 +620,24 @@ static Value native_sb_new(Value *args, int argc, int line, int col) {
     buf->grow_factor = grow_factor;
     buf->data = buf->capacity > 0 ? zalloc_atomic(buf->capacity) : NULL;
 
-    int64_t handle = sb_table_register(buf);
+    int64_t handle = mutable_string_table_register(buf);
 
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int(handle);
     return value_struct(type_struct("MutableString"), struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
 }
 
-static Value native_sb_append(Value *args, int argc, int line, int col) {
+static Value native_mutable_string_append(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
     ArrayObj *pieces = args[1].as.arr;
     for (int i = 0; i < pieces->count; i++) {
         Value piece = array_get(pieces, i);
         const char *s = SPTR(piece);
         size_t len = SLEN(piece);
-        sb_ensure_capacity(buf, len);
+        mutable_string_ensure_capacity(buf, len);
         memcpy(buf->data + buf->length, s, len);
         buf->length += len;
     }
@@ -648,13 +648,13 @@ static Value native_sb_append(Value *args, int argc, int line, int col) {
  * from decoded bytes without a [byte] in between. A string can't hold a 0
  * byte, so if any of them is 0b nothing at all is appended and the result is
  * false. */
-static Value native_sb_append_byte(Value *args, int argc, int line, int col) {
+static Value native_mutable_string_append_byte(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
     ArrayObj *bytes = args[1].as.arr;
     if (bytes->bytes != NULL) {
         if (memchr(bytes->bytes, 0, (size_t)bytes->count) != NULL) return value_bool(0);
-        sb_ensure_capacity(buf, (size_t)bytes->count);
+        mutable_string_ensure_capacity(buf, (size_t)bytes->count);
         memcpy(buf->data + buf->length, bytes->bytes, (size_t)bytes->count);
         buf->length += (size_t)bytes->count;
         return value_bool(1);
@@ -662,7 +662,7 @@ static Value native_sb_append_byte(Value *args, int argc, int line, int col) {
     for (int i = 0; i < bytes->count; i++) {
         if (array_get(bytes, i).as.by == 0) return value_bool(0);
     }
-    sb_ensure_capacity(buf, (size_t)bytes->count);
+    mutable_string_ensure_capacity(buf, (size_t)bytes->count);
     for (int i = 0; i < bytes->count; i++) buf->data[buf->length++] = (char)(unsigned char)array_get(bytes, i).as.by;
     return value_bool(1);
 }
@@ -676,7 +676,7 @@ static Value native_sb_append_byte(Value *args, int argc, int line, int col) {
  * immutable strings long ago. */
 static Value native_mutable_string_get(Value *args, int argc, int line, int col) {
     (void)argc;
-    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
     int64_t i = args[1].as.i;
     if (i < 0 || (size_t)i >= buf->length) {
         ziman_error("runtime", line, col, "get index %lld out of bounds (MutableString length %lld)", (long long)i,
@@ -690,7 +690,7 @@ static Value native_mutable_string_get(Value *args, int argc, int line, int col)
  * length and `set` nowhere else in the language does that. */
 static Value native_mutable_string_set(Value *args, int argc, int line, int col) {
     (void)argc;
-    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
     int64_t i = args[1].as.i;
     if (i < 0 || (size_t)i >= buf->length) {
         ziman_error("runtime", line, col, "set index %lld out of bounds (MutableString length %lld)", (long long)i,
@@ -710,7 +710,7 @@ static Value native_mutable_string_set(Value *args, int argc, int line, int col)
  * `from` for the same reason -- its own twin does not. */
 static Value native_mutable_string_index_of(Value *args, int argc, int line, int col) {
     (void)argc;
-    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
     int64_t from = args[2].as.i;
     if (from < 0 || (size_t)from > buf->length) {
         ziman_error("runtime", line, col, "index_of 'from' %lld is outside 0..%lld (the MutableString's length)",
@@ -726,7 +726,7 @@ static Value native_mutable_string_last_index_of(Value *args, int argc, int line
     (void)argc;
     (void)line;
     (void)col;
-    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
     size_t needle_len = args[1].as.str.len;
     if (needle_len == 0) return value_int((int64_t)buf->length);
     int64_t best = -1;
@@ -740,11 +740,11 @@ static Value native_mutable_string_last_index_of(Value *args, int argc, int line
     return value_int(best);
 }
 
-static Value native_sb_to_string(Value *args, int argc, int line, int col) {
+static Value native_mutable_string_to_string(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    MutableStringBuf *buf = sb_table_get(sb_handle_of(args[0]));
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
     char *out = zalloc_atomic(buf->length + 1);
     memcpy(out, buf->data, buf->length);
     out[buf->length] = '\0';
@@ -1498,7 +1498,7 @@ typedef struct {
 
 static char *MAPBUILDER_FIELD_NAMES[] = {"handle"};
 
-static MutableMapBuf *mb_get_buf(Value b) {
+static MutableMapBuf *mutable_map_get_buf(Value b) {
     MutableMapBuf *buf = (MutableMapBuf *)(intptr_t)b.as.st->fields[0].as.i;
     if (!handleset_has(&g_map_builders, buf)) ziman_error("runtime", 0, 0, "not a valid MutableMap/MutableSet handle");
     builder_owner_check(buf->owner, "a MutableMap/MutableSet");
@@ -1515,7 +1515,7 @@ static MutableMapBuf *mb_get_buf(Value b) {
  * fields are fine.) Found the hard way: without this, buf->m's own wrapper looked unmarked on every
  * real collection and was swept -- map_set_builders.zm crashed inside GC_realloc, reallocating a
  * `root` MapNode pointer read back out of a wrapper struct that had already been zeroed. */
-static void mb_mark_contents(const Arena *a, StructObj *st) {
+static void mutable_map_mark_contents(const Arena *a, StructObj *st) {
     MutableMapBuf *buf = (MutableMapBuf *)(intptr_t)st->fields[0].as.i;
     Value v;
     v.type = type_scalar(TY_MAP);
@@ -1523,7 +1523,7 @@ static void mb_mark_contents(const Arena *a, StructObj *st) {
     gc_mark_value(a, v);
 }
 
-static Value mb_new_value(const char *type_name) {
+static Value mutable_map_new_value(const char *type_name) {
     MutableMapBuf *buf = ziman_xmalloc(sizeof(MutableMapBuf));
     buf->owner = pthread_self();
     handleset_add(&g_map_builders, buf);
@@ -1534,19 +1534,19 @@ static Value mb_new_value(const char *type_name) {
     return value_struct(type_struct(type_name), struct_obj_new(MAPBUILDER_FIELD_NAMES, fields, 1));
 }
 
-static Value native_mapb_new(Value *args, int argc, int line, int col) {
+static Value native_mutable_map_new(Value *args, int argc, int line, int col) {
     (void)args; (void)argc; (void)line; (void)col;
-    return mb_new_value("MutableMap");
+    return mutable_map_new_value("MutableMap");
 }
 
-static Value native_setb_new(Value *args, int argc, int line, int col) {
+static Value native_mutable_set_new(Value *args, int argc, int line, int col) {
     (void)args; (void)argc; (void)line; (void)col;
-    return mb_new_value("MutableSet");
+    return mutable_map_new_value("MutableSet");
 }
 
-static Value native_mapb_set(Value *args, int argc, int line, int col) {
+static Value native_mutable_map_set(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    MutableMapBuf *buf = mb_get_buf(args[0]);
+    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     mapobj_set_mut(buf->m, args[1], args[2], buf->shared);
     return value_int(0);
 }
@@ -1554,20 +1554,20 @@ static Value native_mapb_set(Value *args, int argc, int line, int col) {
 /* True when the element was not already there, so a caller can dedupe without a `contains` first.
  * Skips the store when it is present, which is equivalent -- a set's values are unused and
  * overwriting a key keeps its place -- and cheaper. */
-static Value native_setb_add(Value *args, int argc, int line, int col) {
+static Value native_mutable_set_add(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    MutableMapBuf *buf = mb_get_buf(args[0]);
+    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     Value ignored;
     if (mapobj_get(buf->m, args[1], &ignored)) return value_bool(0);
     mapobj_set_mut(buf->m, args[1], value_int(0), buf->shared);
     return value_bool(1);
 }
 
-static Value native_mapb_get(Value *args, int argc, int line, int col) {
+static Value native_mutable_map_get(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    MutableMapBuf *buf = mb_get_buf(args[0]);
+    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     Type option = type_enum("Option");
     Value found;
     if (mapobj_get(buf->m, args[1], &found)) return value_enum(option, enum_obj_new("Option", "Some", 1, found));
@@ -1582,7 +1582,7 @@ static Value native_mutable_map_remove(Value *args, int argc, int line, int col)
     (void)argc;
     (void)line;
     (void)col;
-    MutableMapBuf *buf = mb_get_buf(args[0]);
+    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     Type option = type_enum("Option");
     Value found;
     if (!mapobj_get(buf->m, args[1], &found)) {
@@ -1596,7 +1596,7 @@ static Value native_mutable_set_remove(Value *args, int argc, int line, int col)
     (void)argc;
     (void)line;
     (void)col;
-    MutableMapBuf *buf = mb_get_buf(args[0]);
+    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     Value ignored;
     int present = mapobj_get(buf->m, args[1], &ignored);
     if (present) mapobj_remove_mut(buf->m, args[1]);
@@ -1605,16 +1605,16 @@ static Value native_mutable_set_remove(Value *args, int argc, int line, int col)
 
 
 
-static Value native_mb_snapshot(Value *args, int argc, int line, int col) {
+static Value native_mutable_map_snapshot(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
-    MutableMapBuf *buf = mb_get_buf(args[0]);
+    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     buf->shared = 1;
     return value_map(type_scalar(TY_VOID), mapobj_snapshot(buf->m));
 }
 
 /* `len` on one of the four `#[thread_bound]` handles, for the interpreter's own `len` branch --
  * the same shape as ziman_array_builder_length above, which `for x in ab` (F96) already uses, and
- * placed here rather than beside it because `mb_get_buf` is defined above this line and not that
+ * placed here rather than beside it because `mutable_map_get_buf` is defined above this line and not that
  * one. The typechecker has already established that `v` is one of the four, so this only has to
  * pick the table; each accessor takes the handle's own thread-ownership check, so a builder read
  * from the wrong thread fails there rather than here. MutableMap and MutableSet share a buffer
@@ -1622,8 +1622,8 @@ static Value native_mb_snapshot(Value *args, int argc, int line, int col) {
 int ziman_builder_length(Value v) {
     const char *name = v.type.struct_name;
     if (name != NULL && strcmp(name, "MutableArray") == 0) return (int)mutable_array_table_get(mutable_array_handle_of(v))->length;
-    if (name != NULL && strcmp(name, "MutableString") == 0) return (int)sb_table_get(sb_handle_of(v))->length;
-    return mb_get_buf(v)->m->count;
+    if (name != NULL && strcmp(name, "MutableString") == 0) return (int)mutable_string_table_get(mutable_string_handle_of(v))->length;
+    return mutable_map_get_buf(v)->m->count;
 }
 
 /* `contains` on one of the four handles, for the interpreter's own `contains` branch. Answers the
@@ -1643,11 +1643,11 @@ int ziman_builder_contains(Value v, Value needle) {
         return 0;
     }
     if (name != NULL && strcmp(name, "MutableString") == 0) {
-        const MutableStringBuf *buf = sb_table_get(sb_handle_of(v));
+        const MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(v));
         return value_str_find(buf->data, buf->length, needle.as.str.ptr, needle.as.str.len, 0) >= 0;
     }
     Value ignored;
-    return mapobj_get(mb_get_buf(v)->m, needle, &ignored) != 0;
+    return mapobj_get(mutable_map_get_buf(v)->m, needle, &ignored) != 0;
 }
 
 /* One append, so that `push_all` does not repeat the adopt/grow/store dance per element. */
@@ -1679,10 +1679,10 @@ void ziman_mutable_array_push_all(Value xs, Value source, int source_is_handle) 
  * early return is not just an optimisation: without it this would be iterating a table it is
  * writing to. The second of the three aliasing answers. */
 void ziman_mutable_map_set_all(Value m, Value source, int source_is_handle) {
-    MutableMapBuf *dst = mb_get_buf(m);
+    MutableMapBuf *dst = mutable_map_get_buf(m);
     const MapObj *src;
     if (source_is_handle) {
-        MutableMapBuf *from = mb_get_buf(source);
+        MutableMapBuf *from = mutable_map_get_buf(source);
         if (from == dst) return;
         src = from->m;
     } else {
@@ -1704,10 +1704,10 @@ void ziman_mutable_map_set_all(Value m, Value source, int source_is_handle) {
  * Intersect and difference remove from the destination, so they walk a snapshot of its own keys
  * (`mapobj_entries`, which materialises them anyway) rather than the live trie. */
 void ziman_mutable_set_combine(Value s, Value source, int source_is_handle, int op) {
-    MutableMapBuf *dst = mb_get_buf(s);
+    MutableMapBuf *dst = mutable_map_get_buf(s);
     const MapObj *src;
     if (source_is_handle) {
-        MutableMapBuf *from = mb_get_buf(source);
+        MutableMapBuf *from = mutable_map_get_buf(source);
         if (from == dst) {
             if (op == 2) {
                 dst->m = mapobj_mut_new();
@@ -1739,8 +1739,8 @@ void ziman_mutable_set_combine(Value s, Value source, int source_is_handle, int 
 /* Reads only, so no aliasing question: a set is its own subset, which the identity check answers
  * without walking anything. */
 int ziman_mutable_set_is_subset(Value s, Value source, int source_is_handle) {
-    MutableMapBuf *dst = mb_get_buf(s);
-    const MapObj *src = source_is_handle ? mb_get_buf(source)->m : source.as.map;
+    MutableMapBuf *dst = mutable_map_get_buf(s);
+    const MapObj *src = source_is_handle ? mutable_map_get_buf(source)->m : source.as.map;
     if (src == dst->m) return 1;
     Value *mine;
     int n = dst->m->count;
@@ -1761,9 +1761,9 @@ int ziman_mutable_set_is_subset(Value s, Value source, int source_is_handle) {
  * a snapshot of these leaves exists elsewhere, so an overwrite must replace a leaf rather than
  * update it -- and it is what keeps the source untouched whichever world it came from. */
 Value ziman_mutable_map_from(Value source, int is_set) {
-    Value out = mb_new_value(is_set ? "MutableSet" : "MutableMap");
-    MutableMapBuf *buf = mb_get_buf(out);
-    const MapObj *src = source.type.kind == TY_MAP || source.type.kind == TY_SET ? source.as.map : mb_get_buf(source)->m;
+    Value out = mutable_map_new_value(is_set ? "MutableSet" : "MutableMap");
+    MutableMapBuf *buf = mutable_map_get_buf(out);
+    const MapObj *src = source.type.kind == TY_MAP || source.type.kind == TY_SET ? source.as.map : mutable_map_get_buf(source)->m;
     buf->m = mapobj_snapshot(src);
     buf->shared = 1;
     return out;
@@ -1773,8 +1773,8 @@ Value ziman_mutable_map_from(Value source, int is_set) {
  * repeat one and a set may not -- the deduplication is the whole difference between this and
  * `mutable_set_from`, and the reason it is a separate name rather than another overload. */
 Value ziman_mutable_set_from_array(Value source, int source_is_handle) {
-    Value out = mb_new_value("MutableSet");
-    MutableMapBuf *buf = mb_get_buf(out);
+    Value out = mutable_map_new_value("MutableSet");
+    MutableMapBuf *buf = mutable_map_get_buf(out);
     if (source_is_handle) {
         const MutableArrayBuf *src = mutable_array_table_get(mutable_array_handle_of(source));
         for (size_t i = 0; i < src->length; i++) mapobj_set_mut(buf->m, mutable_array_element_at(src, i), value_int(0), buf->shared);
@@ -1792,7 +1792,7 @@ Value ziman_mutable_set_from_array(Value source, int source_is_handle) {
  * by, so there is no cursor into the trie that could walk it in order, and a node's slots shift on
  * insert anyway. Pass NULL for `vals` on a set, whose values are unused. */
 int ziman_mutable_map_entries(Value m, Value **keys, Value **vals) {
-    MutableMapBuf *buf = mb_get_buf(m);
+    MutableMapBuf *buf = mutable_map_get_buf(m);
     mapobj_entries(buf->m, keys, vals);
     return buf->m->count;
 }
@@ -1840,13 +1840,13 @@ Value ziman_mutable_array_from(Value source, int source_is_handle) {
  * stays usable afterwards and a later change does not touch the copy, exactly as before.
  *
  * The result's own type is left for the caller to set from the call's resolved type, which is what
- * these natives already require: native_mb_snapshot returns a map tagged TY_VOID and the generic
+ * these natives already require: native_mutable_map_snapshot returns a map tagged TY_VOID and the generic
  * natives are patched the same way in the interpreter's plain-call path. */
 Value ziman_builder_snapshot(Value v) {
     const char *name = v.type.struct_name;
     if (name != NULL && strcmp(name, "MutableArray") == 0) return native_mutable_array_to_array(&v, 1, 0, 0);
-    if (name != NULL && strcmp(name, "MutableString") == 0) return native_sb_to_string(&v, 1, 0, 0);
-    return native_mb_snapshot(&v, 1, 0, 0);
+    if (name != NULL && strcmp(name, "MutableString") == 0) return native_mutable_string_to_string(&v, 1, 0, 0);
+    return native_mutable_map_snapshot(&v, 1, 0, 0);
 }
 
 /* `clear` on one of the four handles: empty it and leave it usable. A MutableArray or a
@@ -1866,10 +1866,10 @@ void ziman_builder_clear(Value v) {
         return;
     }
     if (name != NULL && strcmp(name, "MutableString") == 0) {
-        sb_table_get(sb_handle_of(v))->length = 0;
+        mutable_string_table_get(mutable_string_handle_of(v))->length = 0;
         return;
     }
-    MutableMapBuf *buf = mb_get_buf(v);
+    MutableMapBuf *buf = mutable_map_get_buf(v);
     buf->m = mapobj_mut_new();
     buf->shared = 0;
 }
@@ -1969,13 +1969,13 @@ static char *mutable_array_display(Value v, int nested) {
     return value_display_nested(arr);
 }
 
-static char *mb_display(Value v, int nested) {
+static char *mutable_map_display(Value v, int nested) {
     int is_set = v.type.struct_name != NULL && strcmp(v.type.struct_name, "MutableSet") == 0;
-    const MutableMapBuf *buf = mb_get_buf(v);
+    const MutableMapBuf *buf = mutable_map_get_buf(v);
     if (nested) {
         return handle_summary(is_set ? "MutableSet" : "MutableMap", (long long)buf->m->count, is_set ? "item" : "entry");
     }
-    Value snap = native_mb_snapshot(&v, 1, 0, 0);
+    Value snap = native_mutable_map_snapshot(&v, 1, 0, 0);
     if (v.type.type_args.count > (is_set ? 0 : 1)) {
         snap.type = is_set ? type_set(v.type.type_args.items[0])
                            : type_map(v.type.type_args.items[0], v.type.type_args.items[1]);
@@ -1983,10 +1983,10 @@ static char *mb_display(Value v, int nested) {
     return value_display_nested(snap);
 }
 
-static char *sb_display(Value v, int nested) {
-    const MutableStringBuf *buf = sb_table_get(sb_handle_of(v));
+static char *mutable_string_display(Value v, int nested) {
+    const MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(v));
     if (nested) return handle_summary("MutableString", (long long)buf->length, "byte");
-    return value_display_nested(native_sb_to_string(&v, 1, 0, 0));
+    return value_display_nested(native_mutable_string_to_string(&v, 1, 0, 0));
 }
 
 /* A cell follows one level into its value whether nested or not: that stays bounded precisely
@@ -2156,12 +2156,12 @@ void prelude_register(void) {
     native_register("sort_scalars", native_sort_scalars);
     native_register("permute", native_permute);
     native_register("sort_positions", native_sort_positions);
-    native_register("mutable_map_new", native_mapb_new);
-    native_register("mutable_map_set", native_mapb_set);
-    native_register("mutable_map_get", native_mapb_get);
+    native_register("mutable_map_new", native_mutable_map_new);
+    native_register("mutable_map_set", native_mutable_map_set);
+    native_register("mutable_map_get", native_mutable_map_get);
     native_register("mutable_map_remove", native_mutable_map_remove);
-    native_register("mutable_set_new", native_setb_new);
-    native_register("mutable_set_add", native_setb_add);
+    native_register("mutable_set_new", native_mutable_set_new);
+    native_register("mutable_set_add", native_mutable_set_add);
     native_register("mutable_set_remove", native_mutable_set_remove);
     native_register("guard_new", native_guard_new);
     native_register("bytes_index_of", native_bytes_index_of);
@@ -2179,9 +2179,9 @@ void prelude_register(void) {
     native_register("mutable_string_set", native_mutable_string_set);
     native_register("mutable_string_index_of", native_mutable_string_index_of);
     native_register("mutable_string_last_index_of", native_mutable_string_last_index_of);
-    native_register("mutable_string_new", native_sb_new);
-    native_register("mutable_string_append", native_sb_append);
-    native_register("mutable_string_append_byte", native_sb_append_byte);
+    native_register("mutable_string_new", native_mutable_string_new);
+    native_register("mutable_string_append", native_mutable_string_append);
+    native_register("mutable_string_append_byte", native_mutable_string_append_byte);
     native_register("mutable_new", native_mutable_new);
     native_register("mutable_get", native_mutable_get);
     native_register("mutable_set", native_mutable_set);
@@ -2195,15 +2195,15 @@ void prelude_register(void) {
     native_register("mutable_array_get", native_mutable_array_get);
     native_register("mutable_array_set", native_mutable_array_set);
 
-    /* See mutable_array_mark_contents/mb_mark_contents's own comments and gc_mark_register_struct_content_marker's
+    /* See mutable_array_mark_contents/mutable_map_mark_contents's own comments and gc_mark_register_struct_content_marker's
      * (gc_mark.h) for why these are needed at all. */
     gc_mark_register_struct_content_marker("MutableArray", mutable_array_mark_contents);
-    gc_mark_register_struct_content_marker("MutableMap", mb_mark_contents);
-    gc_mark_register_struct_content_marker("MutableSet", mb_mark_contents);
+    gc_mark_register_struct_content_marker("MutableMap", mutable_map_mark_contents);
+    gc_mark_register_struct_content_marker("MutableSet", mutable_map_mark_contents);
     gc_mark_register_struct_content_marker("Mutable", cell_mark_contents);
     value_register_handle_display("MutableArray", mutable_array_display);
-    value_register_handle_display("MutableMap", mb_display);
-    value_register_handle_display("MutableSet", mb_display);
-    value_register_handle_display("MutableString", sb_display);
+    value_register_handle_display("MutableMap", mutable_map_display);
+    value_register_handle_display("MutableSet", mutable_map_display);
+    value_register_handle_display("MutableString", mutable_string_display);
     value_register_handle_display("Mutable", cell_display);
 }
