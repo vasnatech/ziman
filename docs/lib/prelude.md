@@ -1092,23 +1092,30 @@ list of maybes rather than one already in hand; an array you do have goes in as
 `array_filter` cannot do this: it keeps elements, so it would hand back `[Option<T>]` still
 wrapped, and `array_flat_map` only does it by turning each value into a one- or zero-element
 array, which allocates per element and reads like a puzzle.
-A builder, left to grow on its own rather than sized to the input up front. `T` is the
-reason: a capacity hint is free for a packed element type and costs about double for a boxed
-one, and a generic function does not know which it has.
+Plain value `push`, not a MutableArray, and the reason is that `T` is generic. All three
+spellings were measured over both a packed element type and a boxed one, and which wins
+depends on which `T` is -- so the one chosen here is the one whose worst case is mildest,
+not the one that wins anywhere in particular.
 
-The gap is in how the collector treats the buffer. A packed buffer -- `int`, `float`, `byte`,
-`bool` -- comes from `GC_MALLOC_ATOMIC` and is never scanned, so reserving it up front costs
-only the allocation: filling a hundred thousand `int`s takes 168 ms presized against 166 ms
-grown, which is no difference at all. A boxed buffer comes from `GC_MALLOC` and is scanned
-for pointers at every collection while live, and presizing holds it at full size for the
-whole fill where growing averages about half of it: a hundred thousand `string`s take 2100 ms
-presized against 936 ms grown.
+Per element type, filling from a list of maybes, times for the whole repeat count:
 
-Below a hundred elements, which is what the variadic form is nearly always called with, the
-difference is inside the run-to-run noise either way, so nothing is given up by choosing the
-spelling that is safe for both. `snapshot` is an O(n) copy, which is why a plain
-`out = push(out, v)` into a value stays competitive at those sizes and loses from a hundred
-up -- it was measured too.
+
+```
+              n       push   builder   builder+capacity
+[int]      10,000    372 ms    288 ms         282 ms
+[int]     200,000    796 ms    596 ms         591 ms
+[string]   10,000    411 ms    927 ms        1913 ms
+[string]  200,000    873 ms   1123 ms        4199 ms
+```
+
+A packed buffer (`int`, `float`, `byte`, `bool`) is unscanned, so a builder is about 30%
+ahead there and a capacity hint is free. A boxed buffer is scanned for pointers at every
+collection, and a builder ends up holding two large scanned regions at once -- the grown
+buffer and `snapshot`'s copy of it -- where `push` grows one array in place and never copies;
+so `push` is better by more than two to one, and presizing, which holds the buffer at full
+size for the whole fill, by nearly five. Worst case: `push` 1.3x, builder 2.3x, builder with
+a capacity 4.8x. Below a hundred elements, which is what the variadic form is nearly always
+called with, all three are inside the run-to-run noise.
 
 ### `array_sort`
 
