@@ -37,6 +37,12 @@ cd "$(dirname "$0")/.."
 
 BIN=${BIN:-./ziman}
 SKIP=${SKIP:-}
+# Seconds each fixture gets before it is called a deadlock. Five is right for an ordinary
+# build and far too tight under a sanitizer: db_cursor_finalizer_no_self_deadlock, a
+# 1500-round finalizer stress fixture, runs in well under a second normally and 5.1-5.2s
+# under ziman-tsan-gc. Raising it for every build would weaken the guard; the sanitizer
+# targets pass a larger one instead.
+TIMEOUT=${TIMEOUT:-5}
 pass=0
 fail=0
 skipped=0
@@ -92,7 +98,7 @@ check_fixture() {
         read -r -a prog_args < "tests/lang/$name.progargs"
         prog_args=(-- "${prog_args[@]}")
     fi
-    stdout=$(env "${env_args[@]}" timeout 5 "$BIN" "${cli_args[@]+"${cli_args[@]}"}" "$entry" "${prog_args[@]+"${prog_args[@]}"}" 2>/tmp/ziman_test_stderr.$$)
+    stdout=$(env "${env_args[@]}" timeout "$TIMEOUT" "$BIN" "${cli_args[@]+"${cli_args[@]}"}" "$entry" "${prog_args[@]+"${prog_args[@]}"}" 2>/tmp/ziman_test_stderr.$$)
     status=$?
     stderr=$(cat /tmp/ziman_test_stderr.$$)
     rm -f /tmp/ziman_test_stderr.$$
@@ -179,7 +185,7 @@ done
 for zm in docs/lib/examples/*_example.zm; do
     [ -f "$zm" ] || continue
     name=$(basename "$zm" .zm)
-    if [ "$(timeout 5 "$BIN" "$zm" 2>&1)" = "$(cat "${zm%.zm}.out")" ]; then
+    if [ "$(timeout "$TIMEOUT" "$BIN" "$zm" 2>&1)" = "$(cat "${zm%.zm}.out")" ]; then
         echo "PASS $name"; pass=$((pass + 1))
     else
         echo "FAIL $name (docs/lib/examples/$(basename "$zm") does not print its .out)"; fail=$((fail + 1))

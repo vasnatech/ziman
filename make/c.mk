@@ -196,7 +196,7 @@ asan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
 	$(call san_link,asan,-gc,-fwrapv -fsanitize=address,libasan,$(GC_FLAGS),$(GC_LIB))
 	@for bin in ziman-asan ziman-asan-gc; do \
 	    echo "=== $$bin ==="; \
-	    ASAN_OPTIONS=$(ASAN_OPTS) BIN=./$$bin SKIP=stack_depth_deep_recursion_works \
+	    ASAN_OPTIONS=$(ASAN_OPTS) BIN=./$$bin SKIP=stack_depth_deep_recursion_works TIMEOUT=$(SAN_TIMEOUT) \
 	        ./tests/run_tests.sh || exit 1; \
 	    if command -v openssl >/dev/null 2>&1; then \
 	        ASAN_OPTIONS=$(ASAN_OPTS) BIN=./$$bin ./tests/run_tls_tests.sh || exit 1; \
@@ -208,7 +208,7 @@ ubsan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
 	$(call san_link,ubsan,-gc,$(UBSAN_CHECKS),libubsan,$(GC_FLAGS),$(GC_LIB))
 	@for bin in ziman-ubsan ziman-ubsan-gc; do \
 	    echo "=== $$bin ==="; \
-	    UBSAN_OPTIONS=$(UBSAN_OPTS) BIN=./$$bin ./tests/run_tests.sh || exit 1; \
+	    UBSAN_OPTIONS=$(UBSAN_OPTS) BIN=./$$bin TIMEOUT=$(SAN_TIMEOUT) ./tests/run_tests.sh || exit 1; \
 	    if command -v openssl >/dev/null 2>&1; then \
 	        UBSAN_OPTIONS=$(UBSAN_OPTS) BIN=./$$bin ./tests/run_tls_tests.sh || exit 1; \
 	    else echo "make ubsan: TLS suite skipped -- openssl is not on PATH"; fi; \
@@ -219,7 +219,7 @@ tsan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
 	$(call san_link,tsan,-gc,-fwrapv -fsanitize=thread,libtsan,$(GC_FLAGS),$(GC_LIB))
 	@for bin in ziman-tsan ziman-tsan-gc; do \
 	    echo "=== $$bin ==="; \
-	    TSAN_OPTIONS=$(TSAN_OPTS) BIN=./$$bin SKIP=stack_depth_trace_bounded \
+	    TSAN_OPTIONS=$(TSAN_OPTS) BIN=./$$bin SKIP=stack_depth_trace_bounded TIMEOUT=$(SAN_TIMEOUT) \
 	        ./tests/run_tests.sh || exit 1; \
 	    if command -v openssl >/dev/null 2>&1; then \
 	        TSAN_OPTIONS=$(TSAN_OPTS) BIN=./$$bin ./tests/run_tls_tests.sh || exit 1; \
