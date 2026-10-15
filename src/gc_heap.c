@@ -227,7 +227,16 @@ size_t gc_heap_sweep(GcHeap *h) {
             size_t class_size = gc_header_span() + gc_size_of(obj);
             int idx = class_index_of(class_size);
             void *slot = (void *)obj;
-            /* Zeroed before relinking, not left with whatever the object's own bytes last held:
+            /* Zeroed before relinking for two reasons, not one. The first is the conservative
+             * scan, described below. The second is `gc_heap_alloc`'s own documented guarantee
+             * that what it hands back is zero-filled "fresh or reused": on the reuse path it
+             * clears only the `sizeof(void *)` the free list wrote, and relies on this memset
+             * having done the rest. Cutting this to those eight bytes does not merely risk a
+             * late close -- the interpreter segfaults on the first reused object whose
+             * constructor does not write every field. So the zeroing is paid exactly once per
+             * object life-cycle either way, and there is nothing to win by moving it.
+             *
+             * Zeroed before relinking, not left with whatever the object's own bytes last held:
              * this arena is registered with the collector (arena_create_scanned), so a disguised
              * native-handle address (src/native_sqlite.c's own DbConn/g_live comment explains the
              * trick) sitting in an already-dead object's payload would otherwise still look like a

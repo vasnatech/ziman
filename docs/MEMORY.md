@@ -1388,3 +1388,99 @@ The cost is the twenty million *visits*, not what each does, so shaving the per-
 help. Next thing to try: stop the walk being linear -- a per-arena block index sorted by address and
 binary-searched, or a one-entry last-block-found cache, since marking walks leaves with real
 locality. Contained to arena.c/gc_lookup.c, with the benchmark already in place.
+
+### Design: unboxing single-payload enum variants, and the case against building it
+
+Written after instrumenting the collector (`ziman-allocprofile` now sees both heaps, the live set by
+kind, mark against sweep, and enum allocations by variant). The conclusion is not to build it. The
+reasoning is recorded because the idea is the obvious one to have, and because three of the
+measurements below are worth keeping whatever happens to it.
+
+**What prompted it.** On a workload shaped like the backend's hot path -- decode 40,000 four-field
+JSON rows into structs and re-encode them -- the collector is 16.6% of CPU time, and within that
+**sweep is 82.5% and mark 17.5%** (10.0ms against 47.2ms over 202 collections). The peak live set is
+780 KB in 3,948 objects, so there is almost nothing to mark; the cost is the sweep walk over 2.0M
+object visits. Sweep visits every object exactly once per life-cycle, so its total is proportional to
+**objects allocated** -- not to bytes, not to how often collection runs. Allocating fewer objects is
+the only lever on it.
+
+Of ~2M objects, 642,005 are enums, about 23 per decoded row:
+
+    37.476%        240600  payload   json::Json.JString
+    24.923%        160004  payload   Option.Some
+    12.523%         80400  payload   json::Number.Int
+    12.492%         80200  payload   json::Json.JNumber
+    12.492%         80200  payload   json::Json.JObject
+     0.062%           401  payload   json::Json.JArray
+     0.031%           200  EMPTY     json::Json.JNull
+
+A `Json` node is a heap object, a number is *two* of them (`JNumber(Number.Int(n))` nests), and every
+field lookup through `json_object_get` allocates an `Option.Some`. An `EnumObj` is ~104 bytes holding
+an 80-byte `Value`, rounded to a 128-byte size class.
+
+**The shape of the change.** A variant carrying one payload would live in the `Value` itself: the
+`Type` says which enum and which variant, and the `Value`'s 16-byte union holds the payload's own
+union bits. The payload's `Type` is not stored, because it is derivable -- the declaration says what
+each variant carries, and a generic enum's `type_args` supply the rest, so `Option<Json>.Some`'s
+payload is known to be `Json` from the value's own type.
+
+**The obvious place for the variant tag is closed, and measured closed.** `Type` is exactly 64 bytes
+with no spare padding (`func_captures_thread_bound` already took the four bytes after `kind`), so a
+new field grows `Type` to 72 and `Value` to 88 -- and `Value` is the most-copied object in the
+interpreter. Unioning the three mutually-exclusive name fields to make room is the natural answer and
+is **already recorded above as a failure: 40-160% slower**, because the union defeats GCC's scalar
+replacement of aggregates and structs that had been living in registers get materialised through
+memory. That result stands as a warning against exactly this move.
+
+**The one place left, and what it costs.** For `TY_ENUM`, `type_var_name` is unused (it is meaningful
+only for `TY_TYPEVAR`), so the variant name could simply live there: same type, same size, no union,
+no regression. The price is an invariant that reads wrong. Per-instance data would be sitting inside
+the *type*, so `type_equals` must ignore the variant while `value_equals` must honour it -- two
+functions that look symmetric and would have to disagree, with every assignability check,
+`Map`-key hash and `type_to_string` call needing to know which side it is on. That is a thin
+invariant to hang on a 3% optimisation.
+
+**The nested case is a wall, not a detail.** `Option<Json>.Some(Json.JString(s))` cannot have both
+enums unboxed: the outer value's union holds the inner payload's bits and its type reconstructs to
+`Json`, which does not say *which* `Json` variant. So the rule has to be "unbox a single-payload
+variant only when its payload is not itself an unboxed enum", a static property of each declaration
+that has to be computed, kept consistent across modules, and explained. Under it, `JString`,
+`Number.Int`, `JObject` and `JArray` unbox and `Option.Some` and `JNumber` do not -- 401,601 of
+642,005.
+
+**What it would buy, with the arithmetic shown.** 401,601 fewer objects out of ~2.0M swept is 20% of
+sweep, sweep is 82.5% of a collector that is 16.6% of the run: **about 2.7% of wall-clock time**,
+plus a little from the allocations themselves and from the heap growing more slowly. And the standing
+evidence is that a win this size does not reach a real application: inlining the value constructors
+was worth 25-45% on value construction and moved `server_concurrency.sh` from 637 to 639 req/s,
+because that workload is dominated by HTTP parsing, SQLite and the collector. A 2.7% microbenchmark
+win has less to surface through than that one did.
+
+**Recommendation: do not build it.** The win is small, the obvious implementation is a measured
+regression, the alternative implementation weakens a type invariant, and the rule it needs is
+partial and contagious across declarations. If object count is worth attacking, **interning `Type` so
+`Value.type` is a pointer** is the better-justified change already on this page: it takes `Value` from
+80 bytes to ~24, is motivated by a demonstrated copy cost rather than an inferred one, and shrinks
+every value rather than one kind of them. It should be prototyped and measured before being committed
+to, for the same reason the union is recorded here.
+
+**Three findings from the investigation that stand on their own.**
+
+*Sweep's `memset` is irreducible, and its comment understates why it is there.* It was priced by
+cutting it to the eight bytes the free list needs: the interpreter **segfaults immediately**. The
+comment explains one job -- a disguised native-handle address left in a dead payload keeps looking
+live to Boehm's conservative scan, holding a resource open past reachability. It is doing a second
+one it does not mention: `gc_heap_alloc` clears only `sizeof(void *)` when it reuses a chunk and
+relies on sweep having zeroed the rest, which is how it honours its documented "always zero-filled,
+fresh or reused" guarantee. Every object is therefore zeroed exactly once per life-cycle whichever
+phase does it, so there is nothing to win by moving it.
+
+*The collection trigger is already well tuned.* `ZIMAN_GC_TRIGGER_FLOOR` was swept over 64 KB, 256
+KB, 1 MB and 4 MB. At 4 MB collections drop from 202 to 48 and mark time halves (9.7ms to 4.4ms) --
+and sweep gets *worse* (46.6ms to 56.0ms), wall time worse, RSS 10% higher, because delaying
+collection lets more garbage accumulate for each sweep to walk. 64 KB through 1 MB are
+indistinguishable. Frequency trades mark against sweep and cannot reduce the total.
+
+*`ResultObj` survives 0% of the time.* 239,000 allocated, 23 MB, not one ever live at a collection:
+every `Result` in this workload is consumed before the next cycle. It is the clearest case for
+unboxing and still not enough to carry the change.
