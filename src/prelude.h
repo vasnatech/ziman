@@ -89,7 +89,7 @@ Value ziman_mutable_set_from_array(Value source, int source_is_handle);
 void ziman_mutable_array_push_all(Value xs, Value source, int source_is_handle);
 /* `mutable_array_push` and its one-element fast path -- see the comment on the latter in
  * prelude.c. Both are reached by pointer identity from interpreter.c, not by name. */
-Value ziman_ab_append(Value *args, int argc, int line, int col);
+Value ziman_mutable_array_push(Value *args, int argc, int line, int col);
 void ziman_mutable_array_push_one(Value ab, Value element);
 void ziman_mutable_map_set_all(Value m, Value source, int source_is_handle);
 void ziman_mutable_set_combine(Value s, Value source, int source_is_handle, int op);

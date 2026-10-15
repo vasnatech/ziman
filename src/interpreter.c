@@ -407,7 +407,7 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
      * name, so every other call pays two integer tests and a relaxed load. On the very first call
      * the pointer is not resolved yet and this falls through to the general path, once. */
     if (fn->is_native && raw_argc == 2 && !tail_is_array_spread &&
-        (NativeFn)__atomic_load_n(&fn->native_impl, __ATOMIC_RELAXED) == ziman_ab_append) {
+        (NativeFn)__atomic_load_n(&fn->native_impl, __ATOMIC_RELAXED) == ziman_mutable_array_push) {
         ziman_mutable_array_push_one(raw_args[0], raw_args[1]);
         ziman_pop_frame();
         return value_int(0);

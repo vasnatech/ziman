@@ -785,13 +785,13 @@ typedef struct {
 } MutableArrayBuf;
 
 /* Same pointer-as-handle scheme as MutableString above, for the same reason. */
-static int64_t ab_table_register(MutableArrayBuf *buf) {
+static int64_t mutable_array_table_register(MutableArrayBuf *buf) {
     buf->owner = pthread_self();
     handleset_add(&g_array_builders, buf);
     return (int64_t)(intptr_t)buf;
 }
 
-static MutableArrayBuf *ab_table_get(int64_t handle) {
+static MutableArrayBuf *mutable_array_table_get(int64_t handle) {
     MutableArrayBuf *buf = (MutableArrayBuf *)(intptr_t)handle;
     if (!handleset_has(&g_array_builders, buf)) ziman_error("runtime", 0, 0, "not a valid MutableArray handle");
     builder_owner_check(buf->owner, "a MutableArray");
@@ -800,11 +800,11 @@ static MutableArrayBuf *ab_table_get(int64_t handle) {
 
 static char *ARRAYBUILDER_FIELD_NAMES[] = {"handle"};
 
-static int64_t ab_handle_of(Value ab) {
+static int64_t mutable_array_handle_of(Value ab) {
     return ab.as.st->fields[0].as.i;
 }
 
-static void ab_ensure_capacity(MutableArrayBuf *buf, size_t additional) {
+static void mutable_array_ensure_capacity(MutableArrayBuf *buf, size_t additional) {
     size_t needed = buf->length + additional;
     if (needed <= buf->capacity) {
         return;
@@ -818,10 +818,10 @@ static void ab_ensure_capacity(MutableArrayBuf *buf, size_t additional) {
     buf->capacity = new_capacity;
 }
 
-/* An empty MutableArray with room for `capacity` elements. Factored out of native_ab_new so that
+/* An empty MutableArray with room for `capacity` elements. Factored out of native_mutable_array_new so that
  * `mutable_array_from` can size the buffer to its source in one allocation, where `new` plus a
  * loop of pushes would regrow it as it went. */
-static Value ab_new_value(size_t capacity, double grow_factor) {
+static Value mutable_array_new_value(size_t capacity, double grow_factor) {
     MutableArrayBuf *buf = ziman_xmalloc(sizeof(MutableArrayBuf));
     buf->length = 0;
     buf->grow_factor = grow_factor;
@@ -830,13 +830,13 @@ static Value ab_new_value(size_t capacity, double grow_factor) {
     buf->items = NULL;
     buf->pdata = NULL;
     buf->pkind = PK_NONE;
-    int64_t handle = ab_table_register(buf);
+    int64_t handle = mutable_array_table_register(buf);
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int(handle);
     return value_struct(type_struct("MutableArray"), struct_obj_new(ARRAYBUILDER_FIELD_NAMES, fields, 1));
 }
 
-static Value native_ab_new(Value *args, int argc, int line, int col) {
+static Value native_mutable_array_new(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -849,14 +849,14 @@ static Value native_ab_new(Value *args, int argc, int line, int col) {
         grow_factor = 2.0;
     }
 
-    return ab_new_value((size_t)capacity, grow_factor);
+    return mutable_array_new_value((size_t)capacity, grow_factor);
 }
 
 /* Picks the packed representation from the first element, when the builder is still empty and has
- * not already chosen one. Factored out of native_ab_append so that inserting into a *fresh*
+ * not already chosen one. Factored out of native_mutable_array_append so that inserting into a *fresh*
  * builder takes the same decision -- without it, `mutable_array_insert(xs, 0, 1)` on a new builder
  * would box every int for the rest of its life while an append-first builder packed them. */
-static void ab_adopt_pack_kind(MutableArrayBuf *buf, Value first_element) {
+static void mutable_array_adopt_pack_kind(MutableArrayBuf *buf, Value first_element) {
     if (buf->pkind != PK_NONE || buf->length != 0) return;
     PackKind first = pack_kind_of_type(first_element.type.kind);
     if (first == PK_NONE) return;
@@ -870,7 +870,7 @@ static void ab_adopt_pack_kind(MutableArrayBuf *buf, Value first_element) {
 /* Shifts `count` elements from `from` to `to`, in whichever representation this builder uses. One
  * helper because insert and remove differ only in direction, and getting the stride wrong for a
  * packed buffer would silently corrupt it rather than fail. */
-static void ab_move_elements(MutableArrayBuf *buf, size_t to, size_t from, size_t count) {
+static void mutable_array_move_elements(MutableArrayBuf *buf, size_t to, size_t from, size_t count) {
     if (count == 0) return;
     if (buf->pkind != PK_NONE) {
         size_t w = pack_elem_size(buf->pkind);
@@ -890,11 +890,11 @@ static void ab_move_elements(MutableArrayBuf *buf, size_t to, size_t from, size_
  * appends the Value itself and allocates nothing (D18).
  *
  * `interpreter.c`'s call_function picks it by comparing the resolved native pointer, which is why
- * `ziman_ab_append` is no longer static. */
+ * `ziman_mutable_array_push` is no longer static. */
 void ziman_mutable_array_push_one(Value ab, Value element) {
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(ab));
-    ab_adopt_pack_kind(buf, element);
-    ab_ensure_capacity(buf, 1);
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(ab));
+    mutable_array_adopt_pack_kind(buf, element);
+    mutable_array_ensure_capacity(buf, 1);
     if (buf->pkind != PK_NONE) {
         pack_store(buf->pkind, buf->pdata, (int)buf->length, element);
     } else {
@@ -903,15 +903,15 @@ void ziman_mutable_array_push_one(Value ab, Value element) {
     buf->length++;
 }
 
-Value ziman_ab_append(Value *args, int argc, int line, int col) {
+Value ziman_mutable_array_push(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
     ArrayObj *pieces = args[1].as.arr;
     if (pieces->count == 0) return value_int(0);
-    ab_adopt_pack_kind(buf, array_get(pieces, 0));
-    ab_ensure_capacity(buf, (size_t)pieces->count);
+    mutable_array_adopt_pack_kind(buf, array_get(pieces, 0));
+    mutable_array_ensure_capacity(buf, (size_t)pieces->count);
     if (buf->pkind != PK_NONE) {
         size_t esz = pack_elem_size(buf->pkind);
         if (array_pack_kind(pieces) == buf->pkind) {
@@ -933,24 +933,24 @@ Value ziman_ab_append(Value *args, int argc, int line, int col) {
 
 /* Defined further down with the other element accessors; declared here because `remove` has to
  * read the element before it shifts over it. */
-static Value ab_element_at(const MutableArrayBuf *buf, size_t i);
+static Value mutable_array_element_at(const MutableArrayBuf *buf, size_t i);
 
 /* O(n): everything after the index moves. `0..len` inclusive, exactly the immutable
  * `insert(arr, i, x)` rule, so inserting at the length appends and "add at the end" needs no second
  * function. A loop of `insert(xs, 0, v)` is quadratic, which is why there is no `push_front` --
  * see docs/DESIGN.md. */
-static Value native_ab_insert(Value *args, int argc, int line, int col) {
+static Value native_mutable_array_insert(Value *args, int argc, int line, int col) {
     (void)argc;
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
     int64_t i = args[1].as.i;
     if (i < 0 || (size_t)i > buf->length) {
         ziman_error("runtime", line, col,
                     "insert index %lld out of bounds (MutableArray length %lld; 0..length is allowed, and inserting at the length appends)",
                     (long long)i, (long long)buf->length);
     }
-    ab_adopt_pack_kind(buf, args[2]);
-    ab_ensure_capacity(buf, 1);
-    ab_move_elements(buf, (size_t)i + 1, (size_t)i, buf->length - (size_t)i);
+    mutable_array_adopt_pack_kind(buf, args[2]);
+    mutable_array_ensure_capacity(buf, 1);
+    mutable_array_move_elements(buf, (size_t)i + 1, (size_t)i, buf->length - (size_t)i);
     if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)i, args[2]);
     else buf->items[i] = args[2];
     buf->length++;
@@ -960,16 +960,16 @@ static Value native_ab_insert(Value *args, int argc, int line, int col) {
 /* O(n), and it answers what it removed -- which is why there is no `pop`:
  * `mutable_array_remove(xs, len(xs) - 1)` is one. The element is otherwise unrecoverable without a
  * `get` first. */
-static Value native_ab_remove(Value *args, int argc, int line, int col) {
+static Value native_mutable_array_remove(Value *args, int argc, int line, int col) {
     (void)argc;
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
     int64_t i = args[1].as.i;
     if (i < 0 || (size_t)i >= buf->length) {
         ziman_error("runtime", line, col, "remove index %lld out of bounds (MutableArray length %lld)", (long long)i,
                     (long long)buf->length);
     }
-    Value removed = ab_element_at(buf, (size_t)i);
-    ab_move_elements(buf, (size_t)i, (size_t)i + 1, buf->length - (size_t)i - 1);
+    Value removed = mutable_array_element_at(buf, (size_t)i);
+    mutable_array_move_elements(buf, (size_t)i, (size_t)i + 1, buf->length - (size_t)i - 1);
     buf->length--;
     return removed;
 }
@@ -977,9 +977,9 @@ static Value native_ab_remove(Value *args, int argc, int line, int col) {
 /* The only cheap shrink: drops the tail and keeps the buffer. A length at or above the current one
  * leaves it alone rather than erroring, because "keep at most n" is the useful meaning and there is
  * no immutable counterpart to disagree with. `clear(xs)` is this with 0. */
-static Value native_ab_truncate(Value *args, int argc, int line, int col) {
+static Value native_mutable_array_truncate(Value *args, int argc, int line, int col) {
     (void)argc;
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
     int64_t n = args[1].as.i;
     if (n < 0) {
         ziman_error("runtime", line, col, "truncate length %lld is negative", (long long)n);
@@ -1001,7 +1001,7 @@ static Value native_ab_truncate(Value *args, int argc, int line, int col) {
  * for a packed int/float/byte buffer, with no interpreter call per comparison, which is worth more
  * than the copies it costs. Telling "the type's own order, possibly reversed" from "an arbitrary
  * comparator" needs a direction, and the public signature of `sort_with` has nowhere to put one. */
-static void ab_permute_in_place(MutableArrayBuf *buf, const int64_t *order, size_t n) {
+static void mutable_array_permute_in_place(MutableArrayBuf *buf, const int64_t *order, size_t n) {
     unsigned char *placed = zalloc_atomic(n > 0 ? n : 1);
     for (size_t i = 0; i < n; i++) placed[i] = 0;
     for (size_t i = 0; i < n; i++) {
@@ -1009,12 +1009,12 @@ static void ab_permute_in_place(MutableArrayBuf *buf, const int64_t *order, size
         /* Walk this cycle, carrying the element displaced at its start until it lands. Nothing is
          * read after it has been overwritten: the write is always to `j` and the next read is from
          * `src`, which has not been written yet. */
-        Value carried = ab_element_at(buf, i);
+        Value carried = mutable_array_element_at(buf, i);
         size_t j = i;
         for (;;) {
             size_t src = (size_t)order[j];
             placed[j] = 1;
-            Value landing = src == i ? carried : ab_element_at(buf, src);
+            Value landing = src == i ? carried : mutable_array_element_at(buf, src);
             if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)j, landing);
             else buf->items[j] = landing;
             if (src == i) break;
@@ -1023,9 +1023,9 @@ static void ab_permute_in_place(MutableArrayBuf *buf, const int64_t *order, size
     }
 }
 
-static Value native_ab_sort_with(Value *args, int argc, int line, int col) {
+static Value native_mutable_array_sort_with(Value *args, int argc, int line, int col) {
     (void)argc;
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
     size_t n = buf->length;
     if (n < 2) return value_int(0);
     int64_t *order = zalloc_atomic(n * sizeof(int64_t));
@@ -1038,7 +1038,7 @@ static Value native_ab_sort_with(Value *args, int argc, int line, int col) {
             size_t hi = lo + 2 * width < n ? lo + 2 * width : n;
             size_t i = lo, j = mid;
             while (i < mid && j < hi) {
-                Value pair[2] = {ab_element_at(buf, (size_t)order[j]), ab_element_at(buf, (size_t)order[i])};
+                Value pair[2] = {mutable_array_element_at(buf, (size_t)order[j]), mutable_array_element_at(buf, (size_t)order[i])};
                 if (native_call_closure(args[1], pair, 2, line, col).as.i < 0) tmp[k++] = order[j++];
                 else tmp[k++] = order[i++];
             }
@@ -1049,7 +1049,7 @@ static Value native_ab_sort_with(Value *args, int argc, int line, int col) {
         order = tmp;
         tmp = swap;
     }
-    ab_permute_in_place(buf, order, n);
+    mutable_array_permute_in_place(buf, order, n);
     return value_int(0); /* void return -- the caller never uses this */
 }
 
@@ -1063,12 +1063,12 @@ static Value native_ab_sort_with(Value *args, int argc, int line, int col) {
  * `items`/`pdata` are re-read through it, so a reallocation inside the predicate cannot leave a
  * dangling pointer -- but what the rest of the walk then visits is the buffer mid-compaction, which
  * is the same class of thing as appending during a `for` and is documented the same way. */
-static Value native_ab_filter(Value *args, int argc, int line, int col) {
+static Value native_mutable_array_filter(Value *args, int argc, int line, int col) {
     (void)argc;
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
     size_t write = 0;
     for (size_t read = 0; read < buf->length; read++) {
-        Value element = ab_element_at(buf, read);
+        Value element = mutable_array_element_at(buf, read);
         if (!native_call_closure(args[1], &element, 1, line, col).as.b) continue;
         if (write != read) {
             if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)write, element);
@@ -1402,7 +1402,7 @@ static Value native_slice(Value *args, int argc, int line, int col) {
 
 /* One element of a builder, whichever representation it is in -- `array_get`'s shape against the
  * builder's own buffer rather than an ArrayObj. */
-static Value ab_element_at(const MutableArrayBuf *buf, size_t i) {
+static Value mutable_array_element_at(const MutableArrayBuf *buf, size_t i) {
     switch (buf->pkind) {
         case PK_BYTE: return value_byte(((unsigned char *)buf->pdata)[i]);
         case PK_BOOL: return value_bool(((unsigned char *)buf->pdata)[i] != 0);
@@ -1418,20 +1418,20 @@ static Value ab_element_at(const MutableArrayBuf *buf, size_t i) {
  * quadratic cost MutableArray exists to avoid (`--lint` already flags that shape; see
  * lint_builder_read_by_conversion). MutableMap and MutableSet have had `get`/`contains` from the start; this
  * is the same thing for the one builder that was append-only. */
-static Value native_ab_get(Value *args, int argc, int line, int col) {
+static Value native_mutable_array_get(Value *args, int argc, int line, int col) {
     (void)argc;
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
     int64_t i = args[1].as.i;
     if (i < 0 || (size_t)i >= buf->length) {
         ziman_error("runtime", line, col, "get index %lld out of bounds (MutableArray length %lld)",
                     (long long)i, (long long)buf->length);
     }
-    return ab_element_at(buf, (size_t)i);
+    return mutable_array_element_at(buf, (size_t)i);
 }
 
-static Value native_ab_set(Value *args, int argc, int line, int col) {
+static Value native_mutable_array_set(Value *args, int argc, int line, int col) {
     (void)argc;
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
     int64_t i = args[1].as.i;
     if (i < 0 || (size_t)i >= buf->length) {
         ziman_error("runtime", line, col, "set index %lld out of bounds (MutableArray length %lld)",
@@ -1444,20 +1444,20 @@ static Value native_ab_set(Value *args, int argc, int line, int col) {
 
 
 /* What the interpreter's `for x in builder` needs: the two of these are the whole of its access, and they
- * take the same ownership check every other builder call takes (ab_table_get). */
+ * take the same ownership check every other builder call takes (mutable_array_table_get). */
 int ziman_array_builder_length(Value ab) {
-    return (int)ab_table_get(ab_handle_of(ab))->length;
+    return (int)mutable_array_table_get(mutable_array_handle_of(ab))->length;
 }
 
 Value ziman_array_builder_at(Value ab, int i) {
-    return ab_element_at(ab_table_get(ab_handle_of(ab)), (size_t)i);
+    return mutable_array_element_at(mutable_array_table_get(mutable_array_handle_of(ab)), (size_t)i);
 }
 
-static Value native_ab_to_array(Value *args, int argc, int line, int col) {
+static Value native_mutable_array_to_array(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(args[0]));
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
     if (buf->pkind != PK_NONE) {
         size_t esz = pack_elem_size(buf->pkind);
         unsigned char *out = zalloc_atomic(esz * buf->length);
@@ -1477,8 +1477,8 @@ static Value native_ab_to_array(Value *args, int argc, int line, int col) {
  * already-appended, gc_heap-migrated element (a string, a struct, an array -- anything but a packed
  * scalar) that no longer has any other live reference once the loop that built it has moved on.
  * `st` is the MutableArray's own wrapper StructObj, not a Value -- its `fields[0]` is the same
- * disguised handle `ab_handle_of` reads off a Value, just reached a different way. */
-static void ab_mark_contents(const Arena *a, StructObj *st) {
+ * disguised handle `mutable_array_handle_of` reads off a Value, just reached a different way. */
+static void mutable_array_mark_contents(const Arena *a, StructObj *st) {
     MutableArrayBuf *buf = (MutableArrayBuf *)(intptr_t)st->fields[0].as.i;
     if (buf->pkind != PK_NONE) return; /* packed elements are raw scalar bytes, nothing to mark */
     for (size_t i = 0; i < buf->length; i++) gc_mark_value(a, buf->items[i]);
@@ -1505,7 +1505,7 @@ static MutableMapBuf *mb_get_buf(Value b) {
     return buf;
 }
 
-/* See ab_mark_contents's own comment -- identical reasoning, for a MutableMap/MutableSet's own
+/* See mutable_array_mark_contents's own comment -- identical reasoning, for a MutableMap/MutableSet's own
  * MapObj instead of a MutableArray's items buffer. `buf->m` is `mapobj_mut_new`'s own MapObj --
  * which, since MapObj migrated to gc_heap allocation (GC_MAP, gc_mark.c), now has a real header that
  * needs its own mark bit set, not just its entries traced: wrapping it in a throwaway TY_MAP Value
@@ -1621,7 +1621,7 @@ static Value native_mb_snapshot(Value *args, int argc, int line, int col) {
  * kind, which is why one branch covers both. */
 int ziman_builder_length(Value v) {
     const char *name = v.type.struct_name;
-    if (name != NULL && strcmp(name, "MutableArray") == 0) return (int)ab_table_get(ab_handle_of(v))->length;
+    if (name != NULL && strcmp(name, "MutableArray") == 0) return (int)mutable_array_table_get(mutable_array_handle_of(v))->length;
     if (name != NULL && strcmp(name, "MutableString") == 0) return (int)sb_table_get(sb_handle_of(v))->length;
     return mb_get_buf(v)->m->count;
 }
@@ -1636,9 +1636,9 @@ int ziman_builder_length(Value v) {
 int ziman_builder_contains(Value v, Value needle) {
     const char *name = v.type.struct_name;
     if (name != NULL && strcmp(name, "MutableArray") == 0) {
-        const MutableArrayBuf *buf = ab_table_get(ab_handle_of(v));
+        const MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(v));
         for (size_t i = 0; i < buf->length; i++) {
-            if (value_key_equals(ab_element_at(buf, i), needle)) return 1;
+            if (value_key_equals(mutable_array_element_at(buf, i), needle)) return 1;
         }
         return 0;
     }
@@ -1651,9 +1651,9 @@ int ziman_builder_contains(Value v, Value needle) {
 }
 
 /* One append, so that `push_all` does not repeat the adopt/grow/store dance per element. */
-static void ab_push_one(MutableArrayBuf *buf, Value element) {
-    ab_adopt_pack_kind(buf, element);
-    ab_ensure_capacity(buf, 1);
+static void mutable_array_push_one(MutableArrayBuf *buf, Value element) {
+    mutable_array_adopt_pack_kind(buf, element);
+    mutable_array_ensure_capacity(buf, 1);
     if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)buf->length, element);
     else buf->items[buf->length] = element;
     buf->length++;
@@ -1664,15 +1664,15 @@ static void ab_push_one(MutableArrayBuf *buf, Value element) {
  * chase a source growing under it and never terminate. This is the first of the three different
  * answers self-aliasing gets across the mutable types; the other two are below. */
 void ziman_mutable_array_push_all(Value xs, Value source, int source_is_handle) {
-    MutableArrayBuf *dst = ab_table_get(ab_handle_of(xs));
+    MutableArrayBuf *dst = mutable_array_table_get(mutable_array_handle_of(xs));
     if (source_is_handle) {
-        const MutableArrayBuf *src = ab_table_get(ab_handle_of(source));
+        const MutableArrayBuf *src = mutable_array_table_get(mutable_array_handle_of(source));
         size_t n = src->length;
-        for (size_t i = 0; i < n; i++) ab_push_one(dst, ab_element_at(src, i));
+        for (size_t i = 0; i < n; i++) mutable_array_push_one(dst, mutable_array_element_at(src, i));
         return;
     }
     ArrayObj *src = source.as.arr;
-    for (int i = 0; i < src->count; i++) ab_push_one(dst, array_get(src, i));
+    for (int i = 0; i < src->count; i++) mutable_array_push_one(dst, array_get(src, i));
 }
 
 /* `set_all(m, m)` is a no-op by definition -- every key already maps to its own value -- and the
@@ -1776,8 +1776,8 @@ Value ziman_mutable_set_from_array(Value source, int source_is_handle) {
     Value out = mb_new_value("MutableSet");
     MutableMapBuf *buf = mb_get_buf(out);
     if (source_is_handle) {
-        const MutableArrayBuf *src = ab_table_get(ab_handle_of(source));
-        for (size_t i = 0; i < src->length; i++) mapobj_set_mut(buf->m, ab_element_at(src, i), value_int(0), buf->shared);
+        const MutableArrayBuf *src = mutable_array_table_get(mutable_array_handle_of(source));
+        for (size_t i = 0; i < src->length; i++) mapobj_set_mut(buf->m, mutable_array_element_at(src, i), value_int(0), buf->shared);
     } else {
         ArrayObj *src = source.as.arr;
         for (int i = 0; i < src->count; i++) mapobj_set_mut(buf->m, array_get(src, i), value_int(0), buf->shared);
@@ -1800,23 +1800,23 @@ int ziman_mutable_map_entries(Value m, Value **keys, Value **vals) {
 /* A MutableArray holding a copy of what the argument holds. One allocation and one pass whichever
  * world the source is, where `new` plus a loop of pushes would regrow the buffer as it went. */
 Value ziman_mutable_array_from(Value source, int source_is_handle) {
-    size_t n = source_is_handle ? ab_table_get(ab_handle_of(source))->length : (size_t)source.as.arr->count;
-    Value out = ab_new_value(n > 0 ? n : 1, 2.0);
-    MutableArrayBuf *buf = ab_table_get(ab_handle_of(out));
+    size_t n = source_is_handle ? mutable_array_table_get(mutable_array_handle_of(source))->length : (size_t)source.as.arr->count;
+    Value out = mutable_array_new_value(n > 0 ? n : 1, 2.0);
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(out));
     /* The buffer is reserved, not allocated, until the first element says which representation
      * to use -- and the loops below write straight into it rather than going through
-     * ab_push_one, so the one allocation this function promises has to be asked for here. */
+     * mutable_array_push_one, so the one allocation this function promises has to be asked for here. */
     if (n > 0) {
-        Value first = source_is_handle ? ab_element_at(ab_table_get(ab_handle_of(source)), 0)
+        Value first = source_is_handle ? mutable_array_element_at(mutable_array_table_get(mutable_array_handle_of(source)), 0)
                                        : array_get(source.as.arr, 0);
-        ab_adopt_pack_kind(buf, first);
-        ab_ensure_capacity(buf, n);
+        mutable_array_adopt_pack_kind(buf, first);
+        mutable_array_ensure_capacity(buf, n);
     }
     if (source_is_handle) {
-        const MutableArrayBuf *src = ab_table_get(ab_handle_of(source));
+        const MutableArrayBuf *src = mutable_array_table_get(mutable_array_handle_of(source));
         for (size_t i = 0; i < src->length; i++) {
-            Value element = ab_element_at(src, i);
-            ab_adopt_pack_kind(buf, element);
+            Value element = mutable_array_element_at(src, i);
+            mutable_array_adopt_pack_kind(buf, element);
             if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)i, element);
             else buf->items[i] = element;
             buf->length++;
@@ -1825,7 +1825,7 @@ Value ziman_mutable_array_from(Value source, int source_is_handle) {
         ArrayObj *src = source.as.arr;
         for (int i = 0; i < src->count; i++) {
             Value element = array_get(src, i);
-            ab_adopt_pack_kind(buf, element);
+            mutable_array_adopt_pack_kind(buf, element);
             if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, i, element);
             else buf->items[i] = element;
             buf->length++;
@@ -1844,13 +1844,13 @@ Value ziman_mutable_array_from(Value source, int source_is_handle) {
  * natives are patched the same way in the interpreter's plain-call path. */
 Value ziman_builder_snapshot(Value v) {
     const char *name = v.type.struct_name;
-    if (name != NULL && strcmp(name, "MutableArray") == 0) return native_ab_to_array(&v, 1, 0, 0);
+    if (name != NULL && strcmp(name, "MutableArray") == 0) return native_mutable_array_to_array(&v, 1, 0, 0);
     if (name != NULL && strcmp(name, "MutableString") == 0) return native_sb_to_string(&v, 1, 0, 0);
     return native_mb_snapshot(&v, 1, 0, 0);
 }
 
 /* `clear` on one of the four handles: empty it and leave it usable. A MutableArray or a
- * MutableString keeps its buffer and resets the length, which is what native_ab_clear already did.
+ * MutableString keeps its buffer and resets the length, which is what native_mutable_array_clear already did.
  *
  * The two trie builders take a *fresh* empty trie rather than emptying the old one in place, which
  * is both simpler and what `shared` requires. A snapshot holds its own MapObj over the old nodes
@@ -1862,7 +1862,7 @@ Value ziman_builder_snapshot(Value v) {
 void ziman_builder_clear(Value v) {
     const char *name = v.type.struct_name;
     if (name != NULL && strcmp(name, "MutableArray") == 0) {
-        ab_table_get(ab_handle_of(v))->length = 0;
+        mutable_array_table_get(mutable_array_handle_of(v))->length = 0;
         return;
     }
     if (name != NULL && strcmp(name, "MutableString") == 0) {
@@ -1883,7 +1883,7 @@ void ziman_builder_clear(Value v) {
  *
  * Same pointer-as-handle scheme as the other four, and like MutableArray its payload is a `Value`
  * reachable only through an opaque int64 -- invisible to the stack scan and to a struct's own
- * field walk -- so it registers a content marker for exactly the reason ab_mark_contents does. */
+ * field walk -- so it registers a content marker for exactly the reason mutable_array_mark_contents does. */
 
 typedef struct {
     pthread_t owner;
@@ -1929,7 +1929,7 @@ static Value native_mutable_set(Value *args, int argc, int line, int col) {
     return value_int(0); /* void return -- the caller never uses this */
 }
 
-/* See ab_mark_contents: the one Value a cell holds is reachable only through the handle, so a
+/* See mutable_array_mark_contents: the one Value a cell holds is reachable only through the handle, so a
  * collection landing while a cell is the sole reference to it would sweep it. */
 static void cell_mark_contents(const Arena *a, StructObj *st) {
     MutableCellBuf *buf = (MutableCellBuf *)(intptr_t)st->fields[0].as.i;
@@ -1961,10 +1961,10 @@ static char *handle_summary(const char *type_name, long long n, const char *unit
     return out;
 }
 
-static char *ab_display(Value v, int nested) {
-    const MutableArrayBuf *buf = ab_table_get(ab_handle_of(v));
+static char *mutable_array_display(Value v, int nested) {
+    const MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(v));
     if (nested) return handle_summary("MutableArray", (long long)buf->length, "item");
-    Value arr = native_ab_to_array(&v, 1, 0, 0);
+    Value arr = native_mutable_array_to_array(&v, 1, 0, 0);
     arr.type = v.type.type_args.count > 0 ? type_array(v.type.type_args.items[0]) : type_array(type_scalar(TY_VOID));
     return value_display_nested(arr);
 }
@@ -2185,23 +2185,23 @@ void prelude_register(void) {
     native_register("mutable_new", native_mutable_new);
     native_register("mutable_get", native_mutable_get);
     native_register("mutable_set", native_mutable_set);
-    native_register("mutable_array_filter", native_ab_filter);
-    native_register("mutable_array_sort_with", native_ab_sort_with);
-    native_register("mutable_array_insert", native_ab_insert);
-    native_register("mutable_array_remove", native_ab_remove);
-    native_register("mutable_array_truncate", native_ab_truncate);
-    native_register("mutable_array_new", native_ab_new);
-    native_register("mutable_array_push", ziman_ab_append);
-    native_register("mutable_array_get", native_ab_get);
-    native_register("mutable_array_set", native_ab_set);
+    native_register("mutable_array_filter", native_mutable_array_filter);
+    native_register("mutable_array_sort_with", native_mutable_array_sort_with);
+    native_register("mutable_array_insert", native_mutable_array_insert);
+    native_register("mutable_array_remove", native_mutable_array_remove);
+    native_register("mutable_array_truncate", native_mutable_array_truncate);
+    native_register("mutable_array_new", native_mutable_array_new);
+    native_register("mutable_array_push", ziman_mutable_array_push);
+    native_register("mutable_array_get", native_mutable_array_get);
+    native_register("mutable_array_set", native_mutable_array_set);
 
-    /* See ab_mark_contents/mb_mark_contents's own comments and gc_mark_register_struct_content_marker's
+    /* See mutable_array_mark_contents/mb_mark_contents's own comments and gc_mark_register_struct_content_marker's
      * (gc_mark.h) for why these are needed at all. */
-    gc_mark_register_struct_content_marker("MutableArray", ab_mark_contents);
+    gc_mark_register_struct_content_marker("MutableArray", mutable_array_mark_contents);
     gc_mark_register_struct_content_marker("MutableMap", mb_mark_contents);
     gc_mark_register_struct_content_marker("MutableSet", mb_mark_contents);
     gc_mark_register_struct_content_marker("Mutable", cell_mark_contents);
-    value_register_handle_display("MutableArray", ab_display);
+    value_register_handle_display("MutableArray", mutable_array_display);
     value_register_handle_display("MutableMap", mb_display);
     value_register_handle_display("MutableSet", mb_display);
     value_register_handle_display("MutableString", sb_display);
