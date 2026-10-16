@@ -1,0 +1,65 @@
+// A concurrent HTTP server written in deliberately old, long-stable stdlib only, so that
+// interpreter binaries built weeks apart can all run it. That is the point of the file.
+//
+// The real backend cannot do this. `tests/bench/server_concurrency.sh` is the benchmark every
+// concurrency figure in docs/MEMORY.md and docs/DESIGN.md rests on, and it is unusable for
+// comparing two interpreters more than a few days apart, in *both* directions: a 2026-10-07 binary
+// cannot run today's backend (no `server.forwarded_for`), and today's binary cannot run the
+// 2026-10-07 backend (`collections` is no longer bundled). The backend also moved by 8,334
+// insertions across 153 files in that week, so two dated figures from it are not measurements of
+// the same thing. Mistaking that for a 2x interpreter regression is exactly what happened on
+// 2026-10-15 -- see docs/MEMORY.md.
+//
+// So: no builders (`mutable_array_*` is a 2026-10-14 rename of `ab_*`), no `snapshot`, nothing
+// newer than plain arrays, `push`, `concat`, `str`, structs and `spawn`. Each request allocates
+// real work -- 60 structs with their own strings, appended with immutable `push` so the array is
+// copied each time -- which is a deliberately different allocation profile from the backend's.
+//
+// Run it with tests/bench/portable_server.sh. Port 18600.
+use net
+
+struct Row {
+    id: int
+    name: string
+}
+
+fn build(n: int) -> string {
+    var rows: [Row] = []
+    for i in 0..n {
+        rows = push(rows, Row { id: i, name: concat("row-", str(i)) })
+    }
+    var total = 0
+    for i, r in rows {
+        total = total + r.id + len(r.name)
+    }
+    return str(total)
+}
+
+fn handle(s: net.Socket) {
+    defer net.close(s)
+    var acc = ""
+    while !contains(acc, "\r\n\r\n") {
+        if Ok(chunk) = net.read_text(s, 4096) {
+            if len(chunk) == 0 {
+                return
+            }
+            acc = concat(acc, chunk)
+        } else {
+            return
+        }
+    }
+    val body = build(60)
+    unwrap(net.write_text(s, concat("HTTP/1.1 200 OK\r\nContent-Length: ", str(len(body)), "\r\n\r\n", body)))
+}
+
+fn main() {
+    val port = 18600
+    val l = unwrap(net.listen("127.0.0.1", port))
+    while true {
+        val c = net.accept(l)
+        if !is_ok(c) {
+            return
+        }
+        spawn handle(unwrap(c))
+    }
+}

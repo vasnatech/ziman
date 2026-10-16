@@ -1811,3 +1811,48 @@ uncertain vintage), and that something in the `Value.type` or allocation-removal
 badly with a build where nothing is ever freed. Until that is settled, treat collector-vs-`nogc`
 comparisons on this page as unresolved, and the collector's own absolute figures -- which reproduce
 across two dates and two methodologies -- as the trustworthy part.
+
+### Item 2 resolved: `ziman-nogc` did not regress, and the benchmark cannot compare two dates
+
+The entry above flagged `ziman-nogc` as having halved since 2026-10-07 and called a 2x regression
+in the no-free build "a bug to find". It is not a bug, and the way it dissolved is worth more than
+the question was.
+
+**The two figures were never measurements of the same thing.** `server_concurrency.sh` serves the
+real backend, and that backend moved by **8,334 insertions across 153 files** between 2026-10-07
+and now, two whole feature-parity groups among them. Worse, the benchmark turns out to be unusable
+for cross-version comparison in *both* directions: the 2026-10-07 interpreter cannot run today's
+backend (`server.forwarded_for` landed that afternoon, hours after the F7 sweep was taken at
+09:50), and today's interpreter cannot run the 2026-10-07 backend (`collections` is no longer a
+bundled module). Pairing each interpreter with its contemporaneous backend already closed most of
+the gap -- the 2026-10-07 `nogc` binary on the 2026-10-07 backend gives 2144-2292 req/s at c=8
+against the 2711 recorded, not 1389.
+
+**With the workload actually held still, there is no regression.** `tests/bench/portable_server.zm`
+is written in deliberately old stdlib so both binaries can run it; three interleaved rounds,
+2,500 requests a level:
+
+| build | c=8 | c=16 | c=32 |
+| --- | --- | --- | --- |
+| `ziman-nogc` @ 2026-10-07 | 3915-4363 | 3736-5308 | 4841-7118 |
+| `ziman-nogc` @ today | 4199-4927 | 4692-5566 | 4901-5272 |
+
+Today's `nogc` is equal or better at c=8 and c=16 and within that noise at c=32. **The regression
+was an artifact of a moving workload, and the "the collector now beats `nogc`" headline two entries
+up is workload-specific rather than a general improvement** -- on the backend the collector does
+win, and on this synthetic profile `nogc` is 25-40% *faster* than the collector. Both are true of
+their own workload and neither generalises, which is the thing to carry forward.
+
+**And a caution that sharpens the one already recorded at c=256.** On this workload the collector
+build *does* decline with concurrency -- 3580 req/s at c=8 against 3047 at c=16, consistently --
+which looks exactly like the shape F2 and F7 named. It is not that shape. Pause accounting on the
+same runs puts stop-the-world time at **2.7% / 5.2% / 6.4%** of wall-clock at c=8/16/32, which
+cannot produce a 15% throughput drop. So the collector costs real throughput here (per-allocation
+cost and marking, not pauses), and **a decline against concurrency is not evidence about pauses**,
+on this workload or past c=128 on the backend. Twice now a decline has turned out not to be the
+thing this page was written about.
+
+**What to do differently.** Any future cross-date interpreter comparison uses
+`tests/bench/portable_server.zm`, not the backend. Every dated figure in this page and in
+DESIGN.md that came from `server_concurrency.sh` is a measurement of an interpreter *and* a
+backend, and the backend is the faster-moving of the two.
