@@ -1186,6 +1186,54 @@ from source.
 
 ## Larger, needs its own design pass
 
+- **`lib/graphics`: a 2D drawing model, with document and image backends -- designed, not started.**
+  Raised 2026-10-16 out of asking what reaching export parity with the Spring backend would take.
+  Of the reference backend's ~13 export formats, seven are reachable with the modules Ziman already
+  has (csv, flat-json, html, markdown, plain text, xml, vcard, all served by `csv`/`json`/`xml`/
+  `markdown`/`mime`) and four are named exclusions (FHIR, C-CDA, HL7 v2, SMART Health Cards).
+  **PDF is the only one Ziman cannot reach at all**, and a PDF writer on its own would be a
+  single-purpose answer to a question that is really "render a document, and also render an image".
+
+  **The design is written before the code**, one document per phase in `docs/graphics/`, with the
+  architecture and the shared invariants in its `README.md`. Tracked as **F141 to F145** in
+  docs/reviews/tasks.md:
+
+  | phase | modules | effort |
+  | --- | --- | --- |
+  | 1 | `geom`, `shape`, `paint`, `scene` -- value types, no rendering | M |
+  | 2 | `pdfobj`, `pdf` -- PDF with the standard fourteen fonts | L |
+  | 3 | `truetype`, `font` -- TrueType parsing, metrics, CID embedding | L |
+  | 4 | `image` -- pixel buffer, PNG, PDF image XObjects | M |
+  | 5 | `raster` -- scan-conversion, stroking, glyph rendering | L |
+
+  **Why it is shaped like Java 2D, and the three places it is not.** Java 2D's contribution is that
+  `Shape` bottoms out in a `PathIterator` of five segment types plus a winding rule, and that
+  vocabulary is almost exactly PDF's content stream -- so one backend is a serialiser and the other
+  a scan-converter over the same five cases. Not copied: `Paint` there is a pixel producer, so a
+  custom paint forces rasterisation (which is why PDF out of Java 2D degrades to embedded bitmaps),
+  and the paint set here is closed; `Graphics2D` is a mutable state machine, which fights a language
+  whose values are immutable and whose `Mutable*` types are thread-bound, so the model is an
+  immutable display list -- one scene renders to PDF *and* an image, and tests assert on structure
+  rather than pixels; and `getOutline()` is the right escape hatch for a raster device and the wrong
+  default for a document, so text stays a first-class operation.
+
+  Cairo, Skia, Quartz 2D, Direct2D, Canvas 2D, `lyon`/`tiny-skia` and ReportLab each contributed
+  something and the README says what. Two worth repeating here: cairo's pattern set is a closed
+  six-case enum, which independently confirms the closed-`Paint` decision, while its sixth case is a
+  callback pixel producer and its PDF backend rasterises fallback regions for anything it cannot
+  express natively -- the no-silent-degradation invariant's failure mode, in a mature library, from
+  one open escape hatch. And ReportLab points at what all five phases leave out.
+
+  **What they leave out, and the likely sixth phase: document layout.** Every phase is a drawing
+  API, and the motivating use case does not think in coordinates -- it thinks in headings,
+  paragraphs, tables and page breaks. ReportLab has a canvas *and* Platypus on top, because reports
+  written straight against a canvas become unmaintainable arithmetic. Deliberately not designed yet:
+  a drawing model nothing has used is the wrong moment to design a layout model over it, and the
+  export work will say what it needs. `pdf.render_pages` already takes a list of scenes for this.
+
+  **One prerequisite, found by checking:** `math` has no `atan2`, `asin` or `acos`, and arcs, round
+  joins and decomposing a matrix all need the first. That is part of phase 1.
+
 - **An interactive debugger: breakpoints, stepping, variable inspection.** Split out of F6 on
   2026-10-05 when the rest of that task closed (see docs/reviews/tasks.md), because it is the one
   part of it that is a project rather than a feature and should not sit behind a checkbox that looks
