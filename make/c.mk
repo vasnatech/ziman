@@ -15,7 +15,7 @@ all: $(BIN)
 unit-tests: test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy \
             test-regex lib-tests \
             test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots \
-            test-gc-interp-roots test-lsp
+            test-gc-interp-roots test-lsp test-maptable
 
 $(GC_LIB): $(GC_DIR)/extra/gc.c $(wildcard $(GC_DIR)/*.c) $(wildcard $(GC_DIR)/include/*.h $(GC_DIR)/include/*/*.h)
 	$(CC) -O2 -DNDEBUG -I$(GC_DIR)/include -DGC_THREADS -DGC_BUILTIN_ATOMIC -DTHREAD_LOCAL_ALLOC -DPARALLEL_MARK \
@@ -95,6 +95,13 @@ test-coverage: src/xalloc.c src/coverage.c tests/c/coverage_test.c
 test-arena: src/xalloc.c src/arena.c tests/c/arena_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_arena_test src/xalloc.c src/arena.c tests/c/arena_test.c
 	/tmp/ziman_arena_test
+
+# The flat table behind MutableMap/MutableSet. `value_hash`/`value_key_equals` live in
+# interpreter.c, so the test supplies its own -- which is also what lets it force every key to
+# collide and exercise the probe, the tombstones and the compaction deliberately.
+test-maptable: src/xalloc.c src/maptable.c tests/c/maptable_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_maptable_test src/xalloc.c src/maptable.c tests/c/maptable_test.c
+	/tmp/ziman_maptable_test
 
 # src/gc_object.c sits on top of src/arena.c (Phase 3's object-header layer, docs/MEMORY.md) --
 # same standalone-test convention as arena.c itself, ahead of any mark/copy logic built on it.
