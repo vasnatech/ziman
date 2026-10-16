@@ -1063,6 +1063,29 @@ from source.
   `MutableMap`, the same field read) and still a few nanoseconds on every builder call. (1) is
   closed by F31's correction and by the `get_or` fix above; (2) is done.
 
+  **(4) attempted and declined, 2026-10-16.** The replacement was built and measured --
+  `src/handleslot.c`, an index+generation table whose validation is a bounds check, a load and a
+  generation compare: **6.7-7.5ns for `handleset_has` against 1.0-1.1ns**. It is in the tree, inert,
+  and should stay that way until someone agrees the cost below, which is recorded in full in
+  `src/handleslot.h`. The blocker is rooting, not speed. Today the handle *is* the address, and an
+  integer indistinguishable from a pointer is what keeps the object alive under a conservative
+  collector; an index roots nothing, and a slot holding the pointer strongly would keep every handle
+  ever made alive. A **weak** slot (`GC_general_register_disappearing_link`) does not work either,
+  for two reasons found while rewiring the first caller: the collector would see every builder as
+  unreachable the moment it was made, so the first collection takes all of them; and the lock-free
+  lookup is unsound regardless, because `GC_stopped_mark` restarts the world before
+  `GC_finish_collection` clears the links, so a lookup can hand back an already-condemned object.
+  The sound shape is `{ addr, handle }` -- the address stays in a scanned field purely to root, the
+  index validates -- which costs a Ziman-visible second field on `net.Listener`, `MutableString` and
+  every other wrapper. A few nanoseconds does not buy that, in this of all files.
+
+  **What that attempt did find was worth more than the nanoseconds.** Five of the ten `HandleSet`s
+  never removed anything, so each entry outlived its object as a dangling pointer, and the four
+  builder sets were unbounded: 16,000,000 short-lived `mutable_string_new()` calls left a **268 MB**
+  table at ~16.8 bytes each. Peak RSS at 4,000,000 builders went **98.9 MB to 12.1 MB**, flat in
+  builder count instead of linear, at no measurable time cost. See `tools/check_handle_sets.py`,
+  which now requires every set to have a removal path and found a fifth leaking set on its first run.
+
   Needs nothing: `len` is already at parity, and the immutable `Map`'s `remove` at 128x is the worst
   row but is inherent to being persistent (path copy plus node collapse plus a fresh `MapObj` per
   removal) -- `MapBuilder.remove` at 4x is the one to use in a loop, which is what the builders are
