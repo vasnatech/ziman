@@ -1,0 +1,35 @@
+// Per-INSERT cost of a MutableMap, at three live-set sizes.
+//
+// Separate from map_ops.zm because that file cannot measure this: its `set` row reuses keys that
+// already exist, so it takes the overwrite path (`old->val = val`) and never grows a node. That is
+// why ROADMAP item 3 -- a capacity field on MapNode, to stop reallocing to exact fit per insert --
+// appeared to change nothing when measured against map_ops alone. It changes nothing when measured
+// here either (281-287 ns/insert against a 284-288 baseline), because glibc grows a small chunk in
+// place and the per-insert memmove is unaffected by capacity.
+//
+// What this file does show is why: per-insert cost RISES WITH THE LIVE SET -- 135 ns building to
+// 1,000 entries, 149 to 10,000, 291 to 100,000 -- because one Leaf is allocated per entry and a
+// tracing collector prices a short-lived allocation by what is alive. Same mechanism as `get`
+// (191/236/378 at those sizes, docs/ROADMAP.md). Any future attempt at the insert path should be
+// judged on whether it removes that allocation, not on how it grows a node.
+use clock
+
+fn measure(size: int, rounds: int) {
+    var acc = 0
+    val t = clock.monotonic_millis()
+    for r in 0..rounds {
+        val mb = mutable_map_new<int, int>()
+        for i in 0..size {
+            mutable_map_set<int, int>(mb, i, i)
+        }
+        acc = acc + len(mb)
+    }
+    val total = clock.monotonic_millis() - t
+    printf("  size {}  {} ns/insert\n", size, total * 1000 / (rounds * size / 1000))
+}
+
+fn main() {
+    measure(1000, 2000)
+    measure(10000, 200)
+    measure(100000, 20)
+}

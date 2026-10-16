@@ -870,10 +870,31 @@ from source.
      **And the cost is no longer quadratic in live heap size** -- four times the time for twice the
      heap became roughly two, which is what taking the block count out of the per-object question
      means. The numbers this entry reported for (2) are corrected below.
-  3. **`MapNode` has no capacity field**, so every insert `realloc`s the node to exact fit and
+  3. ~~**`MapNode` has no capacity field**, so every insert `realloc`s the node to exact fit and
      `memmove`s to open a slot: a node filling to 32 slots does ~32 reallocs where `dict` amortises
      by doubling. Growing capacity geometrically (4/8/16/32) is contained to `mapobj.c` and is the
-     insert-side fix for the 10x.
+     insert-side fix for the 10x.~~
+
+     ***Built and measured 2026-10-15; it changes nothing, and the reason retires this item.***
+     A `cap` field plus a doubling `node_reserve_mut` (from 1, not 4 -- these nodes are meant to be
+     sparse, and a floor of 4 hands every single-entry node three dead slots) gave
+     **281-287 ns/insert against the baseline's 284-288** on 2,000,000 inserts. The realloc *count*
+     was real; its *cost* was not, because glibc grows a small chunk in place rather than copying,
+     and the per-insert `memmove` that opens the slot is unchanged by capacity either way.
+
+     **What the insert actually costs is collection pressure, measured by varying the live set:
+     135 ns/insert building to 1,000 entries, 149 to 10,000, 291 to 100,000.** Same code path,
+     more than twice the cost, purely because more is alive -- one `Leaf` is allocated per entry,
+     and a tracing collector prices a short-lived allocation by the size of the live set. That is
+     the identical mechanism already measured for `get` (191/236/378 ns at the same three sizes),
+     so `MutableMap`'s insert gap and its lookup gap are one problem, not two.
+
+     **And that strengthens the case for a flat table behind `MutableMap` specifically** -- the
+     thing this entry's closing paragraph warns against starting with. `dict` stores its entries
+     inline in a dense array, so an insert allocates nothing amortised; the trie allocates a `Leaf`
+     per entry. Removing that allocation is the lever the measurement points at, and a flat table
+     removes it by construction. Not a licence to skip measuring: the warning below still stands,
+     and three "structurally obvious" changes measured worse than nothing on 2026-10-15 alone.
   4. **Every `mapb_*`/`setb_*` call validates its handle through `handleset_has`**, a hash probe paid
      per operation. Small, but it is on literally every builder call, and for `len` -- 108ns against
      the immutable `Map`'s 89ns for the same field read -- it is the entire cost.
