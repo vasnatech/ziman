@@ -165,6 +165,7 @@ them against the code.
 - [The `Row` bound, and why `from_row` cannot work the way `compare` does (2026-10-09, C18)](#the-row-bound-and-why-from_row-cannot-work-the-way-compare-does-2026-10-09-c18)
 - [Pattern matching, measured rather than argued (2026-10-11, F67)](#pattern-matching-measured-rather-than-argued-2026-10-11-f67)
 - [Four formatter rules that lived only in comments (2026-10-12, F73 and F79)](#four-formatter-rules-that-lived-only-in-comments-2026-10-12-f73-and-f79)
+- [`make tsan`'s collector configuration was linking an uninstrumented collector (2026-10-16)](#make-tsans-collector-configuration-was-linking-an-uninstrumented-collector-2026-10-16)
 
 <!-- end index -->
 
@@ -6776,3 +6777,45 @@ longest code line in the run plus two. So alignment survives as a group, not per
 hand-aligned column in a document will usually differ from the formatter's computed one, which is
 why a blanket `--fmt --check` over `docs/SYNTAX.md`'s examples disagrees with 40 of its 46 blocks
 without any of them being wrong (F74).
+
+## `make tsan`'s collector configuration was linking an uninstrumented collector (2026-10-16)
+
+`spawn_defer_gc_stress` failed in the `ziman-tsan-gc` configuration about one run in three, with
+bdwgc's own abort rather than a sanitizer report:
+
+    Signals delivery fails constantly at GC #2
+
+That is `GC_stop_world` giving up (`vendor/bdwgc/pthread_stop_world.c`): it signals every thread,
+waits for acknowledgements on a semaphore, resends, and aborts once `RESEND_SIGNALS_LIMIT` passes
+with no progress. ThreadSanitizer intercepts signal delivery, so the acknowledgements did not
+arrive.
+
+**The cause was in the build, not the collector.** `libgc.a` was compiled once, with no sanitizer
+flags, and that same archive was linked into `ziman`, `ziman-asan-gc`, `ziman-ubsan-gc` and
+`ziman-tsan-gc` alike. bdwgc *has* ThreadSanitizer adaptations of its own -- see
+`include/private/gc_locks.h` and `gc_atomic_ops.h`, guarded on `THREAD_SANITIZER` -- but that macro
+is derived from `__SANITIZE_THREAD__`, which a compiler defines **per translation unit**, only for
+code it is actually instrumenting. Compiling the collector without the flag therefore compiled every
+one of those adaptations out, and the instrumented interpreter was left calling into a collector
+that did not know it was running under a sanitizer.
+
+So `make tsan` now builds a second copy, `vendor/bdwgc/libgc-tsan.a`, with `-fsanitize=thread`, and
+links the `-gc` configuration against that instead. Measured on the fixture that failed, thirty runs
+each with the suite's own `TSAN_OPTIONS`:
+
+    uninstrumented libgc.a       21 passed, 9 aborted, 0 races
+    instrumented libgc-tsan.a    30 passed, 0 aborted, 0 races
+
+**Narrow on purpose: only `tsan`.** `asan` and `ubsan` keep the ordinary archive, because neither
+showed this failure and instrumenting a collector that does its own `mmap`, its own free lists and a
+conservative stack scan is a good way to acquire false positives from AddressSanitizer. The reason
+to instrument it here is specific -- bdwgc's own code adapts to TSan when told it is present -- and
+does not generalise to the other two.
+
+**What this does not change.** `tools/tsan.supp`'s single entry (`race:push_other_roots`) is still
+needed and still correct: the mark phase reads another thread's frame stack while that thread is
+stopped, and a signal-based suspend establishes no happens-before edge TSan can see. That is a
+report about Ziman's own code and is unaffected by how the collector was compiled. Running a fixture
+by hand with `TSAN_OPTIONS='...'` **replaces** the Makefile's `TSAN_OPTS`, suppressions path
+included, so that race reappears and looks like a new finding -- it is not. Reproduce with
+`TSAN_OPTIONS=halt_on_error=0:suppressions=tools/tsan.supp`.

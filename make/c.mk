@@ -17,11 +17,18 @@ unit-tests: test-bignum test-decimal test-handles test-arena test-coverage test-
             test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots \
             test-gc-interp-roots test-lsp test-maptable test-handleslot
 
-$(GC_LIB): $(GC_DIR)/extra/gc.c $(wildcard $(GC_DIR)/*.c) $(wildcard $(GC_DIR)/include/*.h $(GC_DIR)/include/*/*.h)
-	$(CC) -O2 -DNDEBUG -I$(GC_DIR)/include -DGC_THREADS -DGC_BUILTIN_ATOMIC -DTHREAD_LOCAL_ALLOC -DPARALLEL_MARK \
-	    -DUSE_MMAP -DALL_INTERIOR_POINTERS -D_GNU_SOURCE -pthread -c $(GC_DIR)/extra/gc.c -o $(GC_DIR)/gc.o
+GC_SRC := $(GC_DIR)/extra/gc.c $(wildcard $(GC_DIR)/*.c) $(wildcard $(GC_DIR)/include/*.h $(GC_DIR)/include/*/*.h)
+
+$(GC_LIB): $(GC_SRC)
+	$(CC) $(GC_BUILD_FLAGS) -pthread -c $(GC_DIR)/extra/gc.c -o $(GC_DIR)/gc.o
 	rm -f $@
 	ar rcs $@ $(GC_DIR)/gc.o
+
+# The instrumented collector -- see the top-level Makefile's GC_LIB_TSAN for why this exists.
+$(GC_LIB_TSAN): $(GC_SRC)
+	$(CC) $(GC_BUILD_FLAGS) -fsanitize=thread -pthread -c $(GC_DIR)/extra/gc.c -o $(GC_DIR)/gc-tsan.o
+	rm -f $@
+	ar rcs $@ $(GC_DIR)/gc-tsan.o
 
 $(BIN): $(OBJ) $(GC_LIB)
 	$(CC) $(CFLAGS) -o $@ $(OBJ) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
@@ -227,9 +234,9 @@ ubsan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
 	    else echo "make ubsan: TLS suite skipped -- openssl is not on PATH"; fi; \
 	done
 
-tsan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
+tsan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB_TSAN)
 	$(call san_link,tsan,,-fwrapv -fsanitize=thread,libtsan,,)
-	$(call san_link,tsan,-gc,-fwrapv -fsanitize=thread,libtsan,$(GC_FLAGS),$(GC_LIB))
+	$(call san_link,tsan,-gc,-fwrapv -fsanitize=thread,libtsan,$(GC_FLAGS),$(GC_LIB_TSAN))
 	@for bin in ziman-tsan ziman-tsan-gc; do \
 	    echo "=== $$bin ==="; \
 	    TSAN_OPTIONS=$(TSAN_OPTS) BIN=./$$bin SKIP=stack_depth_trace_bounded TIMEOUT=$(SAN_TIMEOUT) \

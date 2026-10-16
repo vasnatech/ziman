@@ -16,6 +16,23 @@ GC_DIR := vendor/bdwgc
 GC_LIB := $(GC_DIR)/libgc.a
 GC_FLAGS := -DZIMAN_GC -DGC_THREADS -include src/zgc.h -I$(GC_DIR)/include -D_GNU_SOURCE
 
+# The options the collector itself is compiled with, named once because there is now more than one
+# build of it (see GC_LIB_TSAN).
+GC_BUILD_FLAGS := -O2 -DNDEBUG -I$(GC_DIR)/include -DGC_THREADS -DGC_BUILTIN_ATOMIC \
+    -DTHREAD_LOCAL_ALLOC -DPARALLEL_MARK -DUSE_MMAP -DALL_INTERIOR_POINTERS -D_GNU_SOURCE
+
+# A second copy of the collector, instrumented, for `make tsan`'s `-gc` configuration.
+#
+# Why it cannot share $(GC_LIB): bdwgc has its own ThreadSanitizer adaptations (see
+# include/private/gc_locks.h and gc_atomic_ops.h, guarded on `THREAD_SANITIZER`), and that macro is
+# derived from `__SANITIZE_THREAD__`, which the compiler defines **per translation unit** -- only for
+# code it is actually instrumenting. Linking the ordinary $(GC_LIB) into a `-fsanitize=thread`
+# interpreter therefore compiled all of them out, so TSan's signal interception met Boehm's
+# signal-based stop-the-world unprepared: `GC_stop_world` resends its suspend signals and aborts
+# with "Signals delivery fails constantly at GC #N", which failed `spawn_defer_gc_stress` in roughly
+# one `make tsan` run in three. See docs/DESIGN.md's entry for the measurement.
+GC_LIB_TSAN := $(GC_DIR)/libgc-tsan.a
+
 # -fwrapv: signed overflow in the C code itself is well defined (wraps) instead of
 # undefined behaviour the optimiser may exploit. Ziman's own `int` arithmetic
 # does not rely on it -- it traps on overflow explicitly (see interpreter.c).
@@ -223,7 +240,8 @@ TSAN_OPTS := halt_on_error=1:history_size=4:suppressions=tools/tsan.supp
 
 clean:
 	rm -f $(BIN) ziman-nogc ziman-allocprofile ziman-asan ziman-ubsan ziman-tsan ziman-vg \
-	    ziman-asan-gc ziman-ubsan-gc ziman-tsan-gc $(GC_DIR)/gc.o $(GC_LIB)
+	    ziman-asan-gc ziman-ubsan-gc ziman-tsan-gc $(GC_DIR)/gc.o $(GC_LIB) \
+	    $(GC_DIR)/gc-tsan.o $(GC_LIB_TSAN)
 	rm -rf $(BUILD)
 # Generated headers from before they moved into build/. Harmless to remove when absent, and
 # actively worth removing when present: a quoted #include finds the stale one beside corelib.c

@@ -12,6 +12,7 @@ ziman-vg
 third_party/
 vendor/bdwgc/gc.o
 vendor/bdwgc/libgc.a
+vendor/bdwgc/libgc-tsan.a
 # Every build artefact now lands under build/ (objects, .d files and the generated *_source.h
 # headers); the bare *.o/*.d stay for the C unit tests, which build straight into /tmp but may be
 # compiled by hand beside their source.
