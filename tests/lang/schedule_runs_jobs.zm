@@ -1,0 +1,85 @@
+// `schedule.run_until` -- the periodic-work loop (lib/core/schedule.zm).
+//
+// Deterministic by construction rather than by sleeping and hoping: every assertion below waits on
+// a channel for a message the scheduler sends, so the test runs at the scheduler's pace. The daily
+// job is scheduled at 00:00 UTC, which has always already passed today whatever time the suite
+// runs at, so "a daily job fires on the first look" needs no timing window at all.
+use clock
+use schedule
+
+fn main() {
+    // Refusals first, since a scheduler built on a bad interval looks like a working one.
+    print(schedule.every_millis(0))
+    print(schedule.every_millis(-5))
+    print(schedule.daily_at_utc(24, 0))
+    print(schedule.daily_at_utc(8, 60))
+
+    val ticks: Channel<string> = channel_new()
+    val dailies: Channel<string> = channel_new()
+    val errors: Channel<string> = channel_new()
+    val stop: Channel<unit> = channel_new()
+
+    val jobs = [
+        // repeats
+        schedule.job("tick", unwrap(schedule.every_millis(20)), fn() -> Result<unit, string> {
+            send(ticks, "tick")
+            return ok(unit)
+        }),
+        // 00:00 UTC has always passed today, so this fires once on the first look and then the
+        // day guard must hold it until tomorrow.
+        schedule.job("daily", unwrap(schedule.daily_at_utc(0, 0)), fn() -> Result<unit, string> {
+            send(dailies, "daily")
+            return ok(unit)
+        }),
+        // an Err reaches on_error. A huge interval so it fires exactly once.
+        schedule.job("bad", unwrap(schedule.every_millis(600000)), fn() -> Result<unit, string> {
+            return err("nope")
+        }),
+        // an *abort* reaches on_error too, and must not stop the scheduler -- which is the whole
+        // reason a due job is spawned rather than called.
+        schedule.job("boom", unwrap(schedule.every_millis(600000)), fn() -> Result<unit, string> {
+            val nothing: Option<int> = None
+            val _boom = Option.unwrap_Some(nothing)
+            return ok(unit)
+        })
+    ]
+
+    spawn schedule.run_until(jobs, stop, fn(name: string, message: string) {
+        send(errors, concat(name, ": ", message))
+    })
+
+    // The repeating job keeps going after the other three have failed or finished.
+    var seen = 0
+    while seen < 3 {
+        val _tick = receive(ticks)
+        seen = seen + 1
+    }
+    print(format("tick fired {} times", seen))
+
+    print(concat("daily fired: ", receive(dailies)))
+    // ... and only once: the day guard holds it, so nothing more arrives.
+    clock.sleep_millis(200)
+    switch try_receive(dailies) {
+        Some(_) { print("daily fired twice -- the day guard is broken") }
+        None { print("daily fired once only") }
+    }
+
+    // Both failures arrive, in either order, so sort before printing.
+    val first = receive(errors)
+    val second = receive(errors)
+    for e in array_sort([summarise(first), summarise(second)]) {
+        print(e)
+    }
+
+    send(stop, unit)
+    print("stopped")
+}
+
+// The abort's message carries a line:col that moves whenever this file is edited, so report the
+// shape rather than the text.
+fn summarise(e: string) -> string {
+    if starts_with(e, "boom: ") {
+        return concat("boom aborted, reported: ", str(contains(e, "unwrap_Some")))
+    }
+    return e
+}

@@ -20,7 +20,7 @@ GROUPS = [
     ("Data and formats", "core", ["json", "ndjson", "csv", "toml", "yaml", "xml", "markdown", "properties",
                                    "number", "math", "bits", "uuid", "regex", "compress", "crypto", "jwt", "otp", "mime"]),
     ("Time", "time", ["time", "zone"]),
-    ("System", "core", ["fs", "os", "process", "thread", "log", "metrics", "random", "clock"]),
+    ("System", "core", ["fs", "os", "process", "thread", "log", "metrics", "random", "clock", "schedule"]),
     ("Networking", "core", ["net", "url"]),
     ("HTTP", "http", ["http", "server", "client"]),
     ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql"]),

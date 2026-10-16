@@ -1,0 +1,152 @@
+// schedule.zm -- periodic background work inside a long-running process.
+//
+// The gap this fills: `server.serve` owns the accept loop and never returns, so a program that
+// also has to do something *on a clock* -- a nightly scan, a cache refresh, an expiry sweep -- had
+// nowhere to put it. The pieces were all here (`spawn`, `Channel`, `clock.sleep_millis`), and the
+// loop that combines them is the part everyone would write slightly differently and one of them
+// would get wrong. So it lives here once.
+//
+// The shape is one scheduler thread holding every job's own next-due time, spawning each due job
+// as it falls due. `spawn` it beside the server and the two run independently:
+//
+//     val stop: Channel<unit> = channel_new()
+//     spawn schedule.run_until(jobs, stop, fn(name: string, message: string) {
+//         log.error(logger, concat("job ", name, " failed: ", message))
+//     })
+//     server.serve(listener, handler, options)
+//
+// **Why a due job is `spawn`ed rather than called.** A runtime error ends the thread it happens in
+// (docs/DESIGN.md), so a job that aborts -- an `unwrap` on a `None`, a database that went away --
+// would take the scheduler with it and silently stop every *other* job for the life of the
+// process. Spawned, it ends only itself and arrives at `on_error` instead. The cost of that choice,
+// stated plainly: nothing waits for a job to finish, so a job that takes longer than its own
+// interval will overlap with its next run. `EveryMillis` therefore means "start one every N
+// milliseconds", not "leave N milliseconds between them" -- keep a job shorter than its interval,
+// or have it hold its own lock if overlapping would be wrong.
+//
+// **UTC only, deliberately.** `daily_at_utc` is arithmetic on the epoch second (`% 86400`), which
+// is why this module needs no calendar and does not import `time`. A local-time daily schedule
+// would need `time`/`zone` *and* an answer for the two days a year when 02:30 happens twice or not
+// at all -- a real design question, not an oversight, and one worth settling only when something
+// asks for it. Every `@Scheduled` job in the reference backend is already `zone = "UTC"`.
+use clock
+
+// How often a job runs. Two forms, because these are the two questions that have come up: "every
+// so often" and "once a day at a fixed time".
+pub enum Schedule {
+    // Start a run every N milliseconds, the first one immediately.
+    EveryMillis(int)
+    // Run once a day, at this many seconds past 00:00:00 UTC.
+    DailyAtUtc(int)
+}
+
+// `every_millis(60000)` -- every minute. Refuses a non-positive interval, which would otherwise be
+// a spin loop that looks like a scheduler.
+pub fn every_millis(ms: int) -> Result<Schedule, string> {
+    if ms <= 0 {
+        return err(concat("schedule.every_millis needs a positive interval, got ", str(ms)))
+    }
+    return ok(Schedule.EveryMillis(ms))
+}
+
+// `daily_at_utc(8, 0)` -- 08:00 UTC every day.
+pub fn daily_at_utc(hour: int, minute: int) -> Result<Schedule, string> {
+    if hour < 0 || hour > 23 {
+        return err(concat("schedule.daily_at_utc needs an hour of 0..23, got ", str(hour)))
+    }
+    if minute < 0 || minute > 59 {
+        return err(concat("schedule.daily_at_utc needs a minute of 0..59, got ", str(minute)))
+    }
+    return ok(Schedule.DailyAtUtc(hour * 3600 + minute * 60))
+}
+
+// One scheduled job. `name` is what `on_error` is told, so make it the name you would want to read
+// in a log line at four in the morning.
+pub struct Job {
+    name: string
+    schedule: Schedule
+    run: fn() -> Result<unit, string>
+}
+
+pub fn job(name: string, schedule: Schedule, run: fn() -> Result<unit, string>) -> Job {
+    return Job { name: name, schedule: schedule, run: run }
+}
+
+// How long the loop will sleep before looking again. A job never fires late by more than this, and
+// `stop` is never noticed later than this. Fixed rather than configurable: 250ms is already far
+// below any schedule worth expressing here, and a knob on it would be one more thing to get wrong.
+val slice_ms: int = 250
+
+// Runs `jobs` until `stop` delivers anything, then returns. Intended to be `spawn`ed; a server that
+// wants the scheduler for the whole life of the process passes a channel it never sends on, and
+// process exit tears the thread down.
+//
+// `on_error(name, message)` is called for a job that returns an `Err` *and* for one that aborts, so
+// it is the one place a failure can be seen. It runs on the scheduler's own thread for an `Err` and
+// on the job's thread for an abort, so it must be safe to call from either -- which is why it takes
+// plain strings rather than anything thread-bound.
+pub fn run_until(jobs: [Job], stop: Channel<unit>, on_error: fn(string, string)) {
+    // Per-job state, parallel to `jobs`, owned by this thread and never shared.
+    //  - due_at: monotonic millisecond an `EveryMillis` job is next due. 0 means "now".
+    //  - last_day: epoch day a `DailyAtUtc` job last ran on, -1 for never.
+    val due_at = mutable_array_new<int>()
+    val last_day = mutable_array_new<int>()
+    for _ in jobs {
+        mutable_array_push(due_at, 0)
+        mutable_array_push(last_day, -1)
+    }
+
+    var running = true
+    while running {
+        if Some(_) = try_receive(stop) {
+            running = false
+        } else {
+            val now_mono = clock.monotonic_millis()
+            val now_secs = clock.now_raw()[0]
+            val epoch_day = now_secs / 86400
+            val sec_of_day = now_secs % 86400
+
+            var i = 0
+            while i < len(jobs) {
+                val j = jobs[i]
+                switch j.schedule {
+                    EveryMillis(ms) {
+                        if now_mono >= mutable_array_get(due_at, i) {
+                            start(j, on_error)
+                            // From now, not from when it was due: a process that was paused or a
+                            // job that ran long should not come back to a queue of missed runs it
+                            // then fires back to back.
+                            mutable_array_set(due_at, i, clock.monotonic_millis() + ms)
+                        }
+                    }
+                    DailyAtUtc(target) {
+                        // Fires on the first look after the target passes, and once a day: the day
+                        // guard is what stops it firing again on every slice until midnight.
+                        if sec_of_day >= target && epoch_day > mutable_array_get(last_day, i) {
+                            mutable_array_set(last_day, i, epoch_day)
+                            start(j, on_error)
+                        }
+                    }
+                }
+                i = i + 1
+            }
+            clock.sleep_millis(slice_ms)
+        }
+    }
+}
+
+// Spawns one run of `j`. Named rather than a lambda because `spawn` takes a function call, and the
+// job's own closure has to travel as an argument (`spawn j.run()` is not a thing -- Ziman has no
+// methods, and `spawn` wants a named function).
+fn start(j: Job, on_error: fn(string, string)) {
+    spawn run_once(j.name, j.run, on_error) on_error fn(message: string) {
+        on_error(j.name, message)
+    }
+}
+
+fn run_once(name: string, body: fn() -> Result<unit, string>, on_error: fn(string, string)) {
+    switch body() {
+        Ok(_) {}
+        Err(message) { on_error(name, message) }
+    }
+}

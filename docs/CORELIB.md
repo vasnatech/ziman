@@ -872,6 +872,8 @@ pub fn listener_port(l: Listener) -> int
 
 pub fn peer_address(s: Socket) -> Option<string>
 
+pub fn wait_readable(sockets: [Socket], timeout_ms: int) -> [int]
+
 pub fn accept(l: Listener) -> Result<Socket, NetError>
 
 pub fn read(s: Socket, max: int) -> Result<[byte], NetError>
@@ -1228,6 +1230,32 @@ pub fn replace_all(re: Regex, text: string, replacement: string) -> string
 pub fn split(re: Regex, text: string) -> [string]
 
 pub fn escape(text: string) -> string
+
+```
+
+## `schedule`
+
+```
+pub enum Schedule {
+    // Start a run every N milliseconds, the first one immediately.
+    EveryMillis(int)
+    // Run once a day, at this many seconds past 00:00:00 UTC.
+    DailyAtUtc(int)
+}
+
+pub fn every_millis(ms: int) -> Result<Schedule, string>
+
+pub fn daily_at_utc(hour: int, minute: int) -> Result<Schedule, string>
+
+pub struct Job {
+    name: string
+    schedule: Schedule
+    run: fn() -> Result<unit, string>
+}
+
+pub fn job(name: string, schedule: Schedule, run: fn() -> Result<unit, string>) -> Job
+
+pub fn run_until(jobs: [Job], stop: Channel<unit>, on_error: fn(string, string))
 
 ```
 
@@ -2172,6 +2200,20 @@ pub struct RequestLog {
 pub struct ServeOptions {
     idle_timeout_ms: int
     header_timeout_ms: int
+    // The most requests served at once -- not the most clients connected. A connection holds one
+    // of these only while it is actually serving a request; between requests it is parked with the
+    // poller and holds nothing, so a server can hold far more keep-alive clients than this number
+    // (`net.wait_readable`, and `park_loop` below).
+    //
+    // It used to mean the other thing, and the difference is worth knowing if you are carrying a
+    // size forward: a connection held a slot for its whole life, so under keep-alive an occupant
+    // kept one through `idle_timeout_ms` of doing nothing and a 65th client against a cap of 64
+    // waited for a *timeout* rather than for a request. 256 keep-alive clients against a cap of 64
+    // took one full idle timeout whatever the request count -- 31.5s -- where they now take
+    // 1.5-2.0s and a cap of 64 measures the same as a cap of 256 (docs/reviews/tasks.md F139).
+    //
+    // So size it by the concurrency of *work* you want to admit, which is what a thread-per-request
+    // server can usefully run at once, and let the client count follow from sockets.
     max_connections: int
     log_requests: bool
     // The largest request body to accept, or 0 for the library's 1 MiB default. A body over it is

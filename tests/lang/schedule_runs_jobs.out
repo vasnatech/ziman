@@ -1,0 +1,10 @@
+Err(schedule.every_millis needs a positive interval, got 0)
+Err(schedule.every_millis needs a positive interval, got -5)
+Err(schedule.daily_at_utc needs an hour of 0..23, got 24)
+Err(schedule.daily_at_utc needs a minute of 0..59, got 60)
+tick fired 3 times
+daily fired: daily
+daily fired once only
+bad: nope
+boom aborted, reported: true
+stopped

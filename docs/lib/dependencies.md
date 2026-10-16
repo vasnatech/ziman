@@ -30,6 +30,7 @@ flowchart LR
         properties["properties"]
         random["random"]
         regex["regex"]
+        schedule["schedule"]
         test["test"]
         thread["thread"]
         toml["toml"]
@@ -115,6 +116,7 @@ flowchart LR
     process --> os
     properties --> fs
     properties --> os
+    schedule --> clock
     server --> clock
     server --> compress
     server --> http
@@ -153,7 +155,7 @@ otherwise: everything on a layer depends only on lower layers.
 | Layer | Modules |
 |---|---|
 | 0 | `bits`, `clock`, `compress`, `markdown`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread`, `xml` |
-| 1 | `crypto`, `json`, `os`, `url` |
+| 1 | `crypto`, `json`, `os`, `schedule`, `url` |
 | 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `toml`, `yaml` |
 | 3 | `csv`, `log`, `mysql`, `pg`, `process`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
 | 4 | `datasource`, `time` |
@@ -165,7 +167,7 @@ otherwise: everything on a layer depends only on lower layers.
 |---|---|---|
 | `bits` | - | - |
 | `client` | `clock`, `compress`, `crypto`, `http`, `mime`, `net`, `number`, `os`, `time` | - |
-| `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `server`, `time`, `uuid` |
+| `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `schedule`, `server`, `time`, `uuid` |
 | `compress` | - | `client`, `server` |
 | `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
@@ -192,6 +194,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `properties` | `fs`, `os` | - |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `uuid` |
 | `regex` | - | - |
+| `schedule` | `clock` | - |
 | `server` | `clock`, `compress`, `http`, `json`, `metrics`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |
 | `test` | - | - |

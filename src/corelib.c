@@ -18,6 +18,7 @@
 #include "uuid_source.h"
 #include "clock_source.h"
 #include "time_source.h"
+#include "schedule_source.h"
 #include "json_source.h"
 #include "number_source.h"
 #include "math_source.h"
@@ -72,6 +73,7 @@ static const CoreModule CORE_MODULES[] = {
     {"uuid", UUID_SOURCE},
     {"clock", CLOCK_SOURCE},
     {"time", TIME_SOURCE},
+    {"schedule", SCHEDULE_SOURCE},
     {"json", JSON_SOURCE},
     {"number", NUMBER_SOURCE},
     {"math", MATH_SOURCE},
