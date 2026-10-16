@@ -14,6 +14,12 @@ A fifth review, and the second from the C prompt, ran on 2026-10-14: [c-implemen
 
 A sixth review, and the third from the developer-experience prompt, ran on 2026-10-14 alongside the C one: [developer-experience-code-review-2026-10-14.md](developer-experience-code-review-2026-10-14.md) (**DX3**), cited as `DX3 item 4` for its action list and `DX3 D4` for its own bug numbering. `DX3` rather than `D3`, for the same reason `SC` is not `S`: this report numbers its bugs `D1`-`D22` and `D` is already a section letter here, so a bare `D3` would be three different things. Its tasks are A47-A49, B12, B13, C20, C21, D17-D22, E22-E28 and F133-F138 below. Three things from it belong here rather than only in the report. **It re-ran every earlier P0 and P1 and found them genuinely closed**, which is now the second review in a row to verify the ticks in this file rather than trust them. **The scaling question the 2026-10-05 review called decisive is answered**: throughput rises to a plateau at 16 clients and holds at 64 (628 to 2,808 rps on `/health`, 472 to 1,689 on an authenticated read) where six weeks ago every column peaked at 4-8 clients and fell below its single-client figure by 64; registration-burst RSS went from 66 MB climbing to 1.09 GB to 244 MB and flat. And **three of its findings are follow-throughs on tasks this file already ticks**, which is the most useful thing it did: C13 made a sibling test directory reachable *so that* the backend could have unit tests, and 39,000 lines of Ziman still contain zero `#[test]` functions (F134); F13 shipped machine-readable coverage, and `lib/` still has no coverage number because `--coverage` cannot see a bundled module (F135); D8 added `jwt.verify_claims(issuer:, audience:)` to the library, and the backend still calls bare `jwt.verify` (B13). A capability added and never adopted is indistinguishable from one that was never added.
 
+F141 to F145 are the five phases of `lib/graphics`, a 2D drawing model with document and image
+backends, raised 2026-10-16 out of asking what it would take to reach export parity with the Spring
+backend (PDF is the one format Ziman cannot produce). They are the first tasks here that come from a
+design written before any code: `docs/graphics/` has one document per phase plus the architecture
+they share, so these entries say what each phase delivers and point there for how.
+
 Effort: **S** = a day or less, **M** = a few days, **L** = a week or more. Tick a box when the task is done; note the commit beside it.
 
 Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, and the web client depends on some of them), then C1, C2 and D1, which remove the most everyday friction, then E.
@@ -538,3 +544,70 @@ about persistent removal changed, only how far down the chain its name sat. The 
 are unmoved (loop 0.09-0.12s, fib 0.04-0.05s, scalar_arrays 0.29-0.33s, bytes 0.07-0.08s), so the
 one added relaxed load per call costs nothing measurable on paths that were already skipping the
 chain. The classification change is kept anyway: it removes genuinely redundant work, puts one documented exact test where three inexact-looking ones were, and stops the caller and callee each deriving the same fact from a string. The standard benchmarks are unmoved (loop 0.09-0.10s, fib 0.04-0.05s, scalar_arrays 0.29-0.32s, bytes 0.07-0.08s), as expected: they are dominated by arithmetic and array work, not by deep-chain builtins. Verified with 1028 fixtures on both builds, the 153 unit tests, the 50-task benchmark suite, and an explicit check of the `set`/`set`/`Set` trio whose overlapping names are the reason order is load-bearing.
+
+- [ ] **F141** **`lib/graphics` phase 1: geometry and the display list.** (raised 2026-10-16; M)
+  `geom` (`Point`, `Rect`, `Matrix`), `shape` (a `Path` of five segments, builders, bounds),
+  `paint` (`Color`, a **closed** `Paint`, `Stroke`) and `scene` (the immutable display list). Pure
+  value types, no rendering, no I/O, so it is testable without a backend. **Blocked on a native
+  addition:** `math` has no `atan2`, `asin` or `acos`, and arcs, round joins and matrix
+  decomposition all need the first -- that is part of this task, not a later surprise. Two
+  decisions are recorded rather than settled and should be read before starting: why `QuadTo` is
+  kept when cairo manages with four path elements, and whether to add Skia's conic for exact
+  circular arcs (cheap now, a breaking change to a switched enum once two backends exist). Also
+  registers `lib/graphics` on the Makefile's `vpath` and adds the "Graphics" group to
+  `tools/gen_lib_manual.py`, without which a new module fails `lib-manual-check`.
+  See `docs/graphics/phase-1-geometry-and-scene.md`.
+
+- [ ] **F142** **`lib/graphics` phase 2: the PDF backend, with the standard fonts.** (raised
+  2026-10-16; L) `pdfobj` (objects, dictionaries, streams, xref -- split out because a broken xref
+  and a broken transform are miserable to debug together) and `pdf` (`Scene` to a PDF document).
+  Paths, fills with both winding rules, strokes passed through as PDF's native `w`/`J`/`j`/`M`/`d`
+  rather than outlined, clips via `W n`, nested `q`/`Q` groups, and text in the fourteen standard
+  fonts. The Y axis is flipped exactly once, in the page transform, and text needs its own
+  compensating flip. **The Latin-1 limit must be an `Err` naming the character, never a substituted
+  `?` in a medical record** -- that is the architecture's no-silent-degradation invariant in its
+  most consequential instance. Verification is three-layered and the first layer matters most:
+  parse back what was written and check every `/Length`, `Ref` and xref offset, because that is the
+  entire class of "readers reject the file". Depends on F141.
+  See `docs/graphics/phase-2-pdf-backend.md`.
+
+- [ ] **F143** **`lib/graphics` phase 3: TrueType parsing, metrics, and font embedding.** (raised
+  2026-10-16; L) `truetype` (the table reader: `head`, `maxp`, `hmtx`, `cmap` formats 4 and 12,
+  `name`, `OS/2`, `loca`/`glyf` including **composite** glyphs) and `font` (metrics, and `covers`,
+  which answers *which* character a face cannot draw). `pdf` gains a `/Type0` font with
+  `/Encoding /Identity-H`, a `CIDFontType2` descendant, `/W` widths, `/FontFile2` carrying the whole
+  face Flate-compressed, and a `/ToUnicode` CMap built from `TextRun.clusters`. **No subsetting**
+  (~160 KB deflated per document, with the trade stated) and **no shaping** -- Arabic and Indic
+  would render as disconnected letters in logical order, which is named rather than approximated.
+  The one check that proves the encoding, the CMap and `/ToUnicode` all agree is a round trip:
+  render `ş`, `İ` and Cyrillic, then `pdftotext` the result and assert it equals the input.
+  Everything else can pass while that fails. Needs a decision on where test fonts live -- 800 KB of
+  binary in the repo, or read from the sibling health-record checkout. Depends on F142.
+  See `docs/graphics/phase-3-fonts.md`.
+
+- [ ] **F144** **`lib/graphics` phase 4: a pixel buffer, PNG, and PDF image XObjects.** (raised
+  2026-10-16; M) `image`: an immutable `Image` plus a `#[thread_bound]` builder (the same split the
+  language already makes between `[T]` and `MutableArray<T>`, because `with_pixel` on a value copies
+  the buffer and a rasteriser writes a million of them), three formats (Gray8/Rgb8/Rgba8), PNG
+  encode and decode, and JPEG **dimensions only** -- PDF's `DCTDecode` takes the compressed bytes
+  unchanged, so the document path gets JPEG for ~40 lines where a decoder is thousands. `pdf` gains
+  image XObjects, and **alpha becomes an `/SMask`** because PDF has no RGBA image; missing that
+  makes transparent PNGs render with black fringes, which reads as a rendering bug rather than a
+  format mistake. Decode takes a mandatory `max_pixels`, for the same reason `compress`'s
+  `max_size` is mandatory. Depends on F141; independent of F143.
+  See `docs/graphics/phase-4-images.md`.
+
+- [ ] **F145** **`lib/graphics` phase 5: the raster backend.** (raised 2026-10-16; L) `raster`:
+  `Scene` to `Image`. Much the largest phase, and three separable pieces worth landing in order --
+  scan-conversion (adaptive flattening, an edge list, both winding rules from one crossing list,
+  anti-aliasing by coverage rather than post-blur), stroking (caps, joins, **the miter limit falling
+  back to bevel**, without which a near-180° join spikes thousands of units), and glyph rendering
+  (`truetype.glyph_outline` from F143, with a cache keyed by face/glyph/size/subpixel offset --
+  a page of text is tens of thousands of fills of a few hundred shapes). Gradients interpolate in
+  **premultiplied** alpha or a fade to transparent darkens through the middle. Clipping is a
+  coverage mask, not a rectangle, with a rectangle fast path. The checks are chosen to be diagnostic
+  rather than golden: coverage sums, a star drawn under both winding rules differing at its centre,
+  distinct-colour counts rising with sample count. Build it obviously correct and measure before
+  making it fast -- this project's history is full of structurally obvious optimisations that
+  measured worse. Depends on F141, F143 and F144.
+  See `docs/graphics/phase-5-raster-backend.md`.
