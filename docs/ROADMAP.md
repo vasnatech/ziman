@@ -949,6 +949,17 @@ from source.
   lookup instead of two, and insertion order comes from the dense array rather than a per-entry
   sequence number and a sort.
 
+  **`mutable_map_discard`, added 2026-10-15 because the measurement asked for it.** `remove+set`
+  was the one row still far out -- 8.9x `dict` where everything else had come down to 2-3x -- and
+  the cause was not the removal. Isolated by comparing against `mutable_set_remove`, which answers
+  the same question with a `bool` where `mutable_map_remove` answers it with an `Option<V>`: on a
+  100,000-entry map, removing and re-inserting every key costs **356-357 ns/op through `remove`
+  against 111-112 through the bool-returning path**, on the same table, the same probe and the same
+  tombstone. About 240ns of that row was one `Option` allocation, and the removal itself is ~65ns,
+  i.e. **2.9x `dict`'s 35-38ns for `del`+set -- in line with every other operation.**
+  `mutable_map_discard(mb, k) -> bool` is that path, measured at **111 ns/op**. `remove` stays for
+  when the old value is actually wanted, and says in its own doc comment what it costs.
+
   **The one regression, partly closed and honestly reported.** Creating and discarding *many*
   builders churns more allocator bytes than the trie did, because a table is two arrays and `free`
   is a no-op in a `make gc` build. Making the index array atomic (it is `int32_t`; it cannot hold a

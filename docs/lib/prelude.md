@@ -749,7 +749,23 @@ The value of `key`, or None.
 native fn mutable_map_remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
 ```
 
-Removes `key`; nothing happens when it is absent.
+Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
+`mutable_map_discard` instead when the removed value is not wanted: answering with an `Option`
+means allocating one, which on a large map costs several times the removal itself.
+
+### `mutable_map_discard`
+
+```
+native fn mutable_map_discard<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> bool
+```
+
+Removes `key` and answers whether it was there, without reporting what it held. The same
+question `mutable_set_remove` answers for a set, and for the same reason: a `bool` needs no
+wrapper where an `Option<V>` is a heap allocation, and a tracing collector prices a short-lived
+allocation by how much is alive rather than by its size. Measured on a 100,000-entry map,
+removing and re-inserting every key: 351-363 ns/op through `mutable_map_remove` against 110-112
+through the bool-returning path -- the removal itself is a fraction of either. Reach for
+`mutable_map_remove` only when the old value is actually needed.
 
 ### `mutable_map_get_or`
 

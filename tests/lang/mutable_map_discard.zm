@@ -1,0 +1,35 @@
+// `mutable_map_discard` is `mutable_map_remove` without the `Option`: it answers whether the key
+// was there and not what it held, which is the same question `mutable_set_remove` answers for a
+// set. The point is that a bool needs no heap wrapper -- see lib/prelude.zm for the measurement.
+fn main() {
+    val m = mutable_map_new<string, int>()
+    mutable_map_set(m, "a", 1)
+    mutable_map_set(m, "b", 2)
+
+    print(mutable_map_discard(m, "a"))
+    print(mutable_map_discard(m, "a"))
+    print(len(m))
+    print(contains(m, "a"))
+    print(contains(m, "b"))
+    print(mutable_map_get_or(m, "b", -1))
+
+    // Absent from an empty map, and absent from a map that never had it.
+    val empty = mutable_map_new<int, bool>()
+    print(mutable_map_discard(empty, 7))
+
+    // Discarding then re-inserting: the key comes back, and goes last in insertion order.
+    mutable_map_set(m, "c", 3)
+    print(mutable_map_discard(m, "b"))
+    mutable_map_set(m, "b", 20)
+    for k, v in m {
+        printf("{}={} ", k, v)
+    }
+    print("")
+
+    // Every key discarded leaves an empty map that still works.
+    print(mutable_map_discard(m, "c"))
+    print(mutable_map_discard(m, "b"))
+    print(len(m))
+    mutable_map_set(m, "z", 9)
+    print(mutable_map_get_or(m, "z", -1))
+}

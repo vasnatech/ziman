@@ -1647,6 +1647,18 @@ static Value native_mutable_map_remove(Value *args, int argc, int line, int col)
     return value_enum(type_option_ref(), enum_obj_new("Option", "Some", 1, found));
 }
 
+/* `remove` without the `Option`. Same lookup, same tombstone; the only difference is that it does
+ * not have to box what it removed, which on a large map is most of the cost -- see prelude.zm's own
+ * comment for the figures, and ROADMAP.md's Map/Set entry for why an allocation's price is set by
+ * the live set rather than by its own size. */
+static Value native_mutable_map_discard(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
+    return value_bool(maptable_remove(&buf->t, args[1], NULL));
+}
+
 static Value native_mutable_set_remove(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -2222,6 +2234,7 @@ void prelude_register(void) {
     native_register("mutable_map_get", native_mutable_map_get);
     native_register("mutable_map_get_or", native_mutable_map_get_or);
     native_register("mutable_map_remove", native_mutable_map_remove);
+    native_register("mutable_map_discard", native_mutable_map_discard);
     native_register("mutable_set_new", native_mutable_set_new);
     native_register("mutable_set_add", native_mutable_set_add);
     native_register("mutable_set_remove", native_mutable_set_remove);
