@@ -25,11 +25,18 @@
 // five times further below each row. A negative figure here still means the same thing it meant
 // then: the row is at or below the measurement floor, not that it costs less than nothing. Compare against tests/bench/map_ops.py, which is the same workload on `dict`.
 //
-// Every measured loop is the baseline loop *plus exactly the operation*: it computes the same
-// `k = i % size` and does the same `acc = acc + ...`, so the subtraction is apples to apples. A
-// first version of this file skipped the key and the accumulate in the `len` and store rows, which
-// subtracted work those loops never did and reported `len` at 1 ns/op and CPython's `dict` store at
-// 1 ns/op -- both impossible, and the `dict len` row came out negative, which is what gave it away.
+// Every measured loop is a baseline loop *plus exactly the operation* -- and there are **two**
+// baselines, because there are two loop shapes. A row whose builtin returns a value folds it into
+// `acc` (an expression); a row whose builtin returns a bool has to branch on it, and
+// `if cond { acc = acc + 1 }` costs **32-33 ns/op on its own**. Subtracting the expression
+// baseline from an if-shaped row is what made `contains` look 20ns slower than `map_get_or` for
+// most of a day, when in truth it is faster: one `mapobj_get` and a bool, against one `mapobj_get`
+// plus a third argument expression. Each row now subtracts the baseline matching its own shape.
+//
+// This is the third time this file's subtraction has been wrong in the same way, so: a measured
+// loop must differ from its baseline by the operation and *nothing else*. The earlier two were
+// skipping the key and the accumulate in the `len` and store rows (which reported `dict len` at
+// -5 ns/op), and a sample count too low to resolve the cheap rows (`len` at -15 ns/op).
 use clock
 
 val size = 100000
@@ -55,7 +62,19 @@ fn main() {
         acc = acc + k
     }
     val base = clock.monotonic_millis() - t
-    printf("  (loop overhead {} ns/op, subtracted below)\n", base / 5)
+    printf("  (loop overhead {} ns/op, subtracted from the value-returning rows)\n", base / 5)
+
+    // The second shape: a bool-returning builtin has to be branched on, and the branch is not free.
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        if k >= 0 {
+            acc = acc + 1
+        }
+    }
+    val base_if = clock.monotonic_millis() - t
+    printf("  (if-shaped overhead {} ns/op, subtracted from the bool-returning rows)\n", base_if / 5)
 
     t = clock.monotonic_millis()
     for i in 0..ops {
@@ -82,7 +101,7 @@ fn main() {
             acc = acc + 1
         }
     }
-    report("Map         contains       ", clock.monotonic_millis() - t, base)
+    report("Map         contains       ", clock.monotonic_millis() - t, base_if)
 
     t = clock.monotonic_millis()
     for i in 0..ops {
@@ -130,7 +149,7 @@ fn main() {
             acc = acc + 1
         }
     }
-    report("MutableMap  contains       ", clock.monotonic_millis() - t, base)
+    report("MutableMap  contains       ", clock.monotonic_millis() - t, base_if)
 
     t = clock.monotonic_millis()
     for i in 0..ops {
@@ -181,7 +200,19 @@ fn main() {
         acc = acc + len(k)
     }
     val sbase = clock.monotonic_millis() - t
-    printf("  (loop overhead {} ns/op, subtracted below)\n", sbase / 5)
+    printf("  (loop overhead {} ns/op, subtracted from the value-returning rows)\n", sbase / 5)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val j = i % size
+        val k = keys[j]
+        acc = acc + len(k)
+        if j >= 0 {
+            acc = acc + 1
+        }
+    }
+    val sbase_if = clock.monotonic_millis() - t
+    printf("  (if-shaped overhead {} ns/op, subtracted from the bool-returning rows)\n", sbase_if / 5)
 
     t = clock.monotonic_millis()
     for i in 0..ops {
@@ -200,7 +231,7 @@ fn main() {
             acc = acc + 1
         }
     }
-    report("Map         contains       ", clock.monotonic_millis() - t, sbase)
+    report("Map         contains       ", clock.monotonic_millis() - t, sbase_if)
 
     t = clock.monotonic_millis()
     for i in 0..ops {

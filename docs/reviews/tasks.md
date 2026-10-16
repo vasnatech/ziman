@@ -419,6 +419,24 @@ subtracted baseline moves 60-80ms between runs -- `map_ops.zm`'s header now says
   | `Map remove` (persistent) | 1467-1476ns | **914-923ns** | 39ns |
   | `MutableMap contains` | 166-189ns | **101-103ns** | 32ns |
 
+  **Correction 2026-10-15, after the above shipped: every `contains` figure in this entry is
+  measured in a different loop shape from the `map_get_or` ones it was being compared against, so
+  the cross-row comparison that motivated half of this task was never valid.** The `contains` rows
+  sat inside `if contains(...) { acc = acc + 1 }` while the `get_or` rows were plain expressions,
+  and that `if` wrapper costs **32-33 ns/op measured on its own**. With each row subtracting a
+  baseline of its own shape, `Map contains` is **60 ns/op** against `map_get_or`'s 70-72 -- i.e.
+  `contains` is *faster*, which is what the code says: one `mapobj_get` and a bool, against one
+  `mapobj_get` plus a third argument expression.
+
+  The before/after numbers above still stand: they compare `contains` with itself in a fixed loop
+  shape, so the chain-position effect they measure is real. What was wrong was concluding from
+  `contains` vs `get_or` that a *second* dispatch cost remained. Acting on that conclusion produced
+  a type-checker specialisation of `contains`/`len` by static argument kind -- the
+  `BINARY_SUBSCR_DICT` idea, stamped in `check_expr` and guarded in the interpreter -- which
+  measured **no change at all** and was reverted. Two of the three things built in this task were
+  aimed at an artefact of the measurement; `map_ops.zm`'s header now carries all three ways its
+  subtraction has been wrong.
+
   `Map remove` moving by a third is the clearest confirmation that position was the cost: nothing
 about persistent removal changed, only how far down the chain its name sat. The standard benchmarks
 are unmoved (loop 0.09-0.12s, fib 0.04-0.05s, scalar_arrays 0.29-0.33s, bytes 0.07-0.08s), so the

@@ -5,9 +5,9 @@
 # comparison, with the caveat that a CPython `str` caches its hash on the object while a Ziman
 # string cannot.
 #
-# Every measured loop is the baseline loop plus exactly the operation -- same `k = i % SIZE`, same
-# accumulate -- because a first version did not do that for `len` and the store rows and reported
-# `len` at -5 ns/op and `[k] = v` at 1 ns/op.
+# Every measured loop is a baseline loop plus exactly the operation, and there are TWO baselines,
+# one per loop shape: a bool-returning operation has to be branched on, and the branch is not free.
+# See map_ops.zm's header for the three separate ways this subtraction has been got wrong.
 import time
 
 SIZE = 100_000
@@ -29,7 +29,16 @@ def main():
         k = i % SIZE
         acc += k
     base = time.perf_counter() - t
-    print(f"  (loop overhead {round(base * 1e9 / OPS)} ns/op, subtracted below)")
+    print(f"  (loop overhead {round(base * 1e9 / OPS)} ns/op, value-returning rows)")
+
+    t = time.perf_counter()
+    for i in range(OPS):
+        k = i % SIZE
+        acc += k
+        if k >= 0:
+            acc += 1
+    base_if = time.perf_counter() - t
+    print(f"  (if-shaped overhead {round(base_if * 1e9 / OPS)} ns/op, bool-returning rows)")
 
     t = time.perf_counter()
     for i in range(OPS):
@@ -49,7 +58,7 @@ def main():
         acc += k
         if k in d:
             acc += 1
-    report("dict  in             ", time.perf_counter() - t, base)
+    report("dict  in             ", time.perf_counter() - t, base_if)
 
     t = time.perf_counter()
     for i in range(OPS):
@@ -86,7 +95,16 @@ def main():
         k = keys[j]
         acc += len(k)
     sbase = time.perf_counter() - t
-    print(f"  (loop overhead {round(sbase * 1e9 / OPS)} ns/op, subtracted below)")
+    print(f"  (loop overhead {round(sbase * 1e9 / OPS)} ns/op, value-returning rows)")
+
+    t = time.perf_counter()
+    for i in range(OPS):
+        k = i % SIZE
+        acc += k
+        if k >= 0:
+            acc += 1
+    sbase_if = time.perf_counter() - t
+    print(f"  (if-shaped overhead {round(sbase_if * 1e9 / OPS)} ns/op, bool-returning rows)")
 
     t = time.perf_counter()
     for i in range(OPS):
@@ -102,7 +120,7 @@ def main():
         acc += len(k)
         if k in sd:
             acc += 1
-    report("dict  in             ", time.perf_counter() - t, sbase)
+    report("dict  in             ", time.perf_counter() - t, sbase_if)
 
     t = time.perf_counter()
     for i in range(OPS):

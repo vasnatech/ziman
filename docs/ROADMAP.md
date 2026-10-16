@@ -958,15 +958,30 @@ from source.
 
   | operation | int keys | string keys |
   | --- | --- | --- |
-  | `Map` get_or vs `dict.get` | 67-77 / 27ns = **2.5-2.9x** | 88-98 / 30ns = **2.9-3.3x** |
-  | `MutableMap` get_or | 77-91 / 27ns = **2.9-3.4x** | 102-120 / 30ns = **3.4-4.0x** |
-  | `Map` contains vs `in` | 87-88 / 32ns = **2.7-2.8x** | 106-136 / 36ns = **2.9-3.8x** |
-  | `MutableMap` set | 344-360 / 17ns = **20-21x** | 312-324 / 22ns = **14-15x** |
+  | `Map` get_or vs `dict.get` | 70-72 / 27ns = **2.6-2.7x** | 88-90 / 36ns = **2.4-2.5x** |
+  | `MutableMap` get_or | 76-86 / 27ns = **2.8-3.2x** | 93-94 / 36ns = **2.6x** |
+  | `Map` contains vs `in` | 60 / 32ns = **1.9x** | 83-85 / 17ns = **4.9-5.0x** |
+  | `MutableMap` contains | 71-78 / 32ns = **2.2-2.4x** | -- |
+  | `MutableMap` set | 335-346 / 19ns = **18x** | 320-324 / 19ns = **17x** |
 
-  The read ratios hold at roughly 3x whichever key type is used, and `set` looks *better* with
-  string keys because an int store is `dict`'s own fastest case. **So the remaining gap is a
-  property of the structures and the interpreter, not of a flattering key distribution** -- which
-  is worth knowing before anyone spends effort on hashing.
+  The read ratios sit around 2-3x whichever key type is used. **So the remaining gap is a property
+  of the structures and the interpreter, not of a flattering key distribution** -- worth knowing
+  before anyone spends effort on hashing.
+
+  **The `contains` figures above are corrected, and the correction is the lesson.** Every earlier
+  `contains` number on this page and in F140 was measured inside
+  `if contains(...) { acc = acc + 1 }` while the `get_or` rows were measured as plain expressions
+  -- and that `if` wrapper costs **32-33 ns/op on its own**, measured directly. So `contains` was
+  reported as ~20ns *slower* than `get_or` all day when it is in fact faster, which is what the
+  code says it should be: one `mapobj_get` and a bool, against one `mapobj_get` plus a third
+  argument expression. `map_ops` now keeps two baselines, one per loop shape, and each row
+  subtracts the one matching it.
+
+  Chasing that phantom produced a type-checker specialisation of `contains`/`len` by static
+  argument kind (the `BINARY_SUBSCR_DICT` idea), which measured **no change at all** and was
+  reverted -- it was built to fix something that was never there. The before/after figures in F140
+  are unaffected, since those compared `contains` against itself in a fixed loop shape; only the
+  cross-row comparison was invalid.
 
   **What is left of this entry, then:** (3) `MapNode`'s missing capacity field, which is the named
   mechanism behind `MutableMap` set at ~372 against `dict`'s 12 and is still untouched; and (4)'s
