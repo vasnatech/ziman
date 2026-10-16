@@ -1,0 +1,51 @@
+// `Option.None` is one shared `.rodata` constant rather than a fresh EnumObj per call
+// (src/value.c's enum_obj_option_none, docs/MEMORY.md's "Measured: `Option.None` as one shared
+// constant"). Sharing a value that used to be unique per instance is only sound if nothing
+// observable depends on its identity, so this pins the observable part.
+fn first_even(xs: [int]) -> Option<int> {
+    for x in xs {
+        if x % 2 == 0 { return Some(x) }
+    }
+    return None
+}
+
+// `try` propagates a None out of the function, which is one of the nine sites that used to
+// allocate one.
+fn doubled_first_even(xs: [int]) -> Option<int> {
+    val v = try first_even(xs)
+    return Some(v * 2)
+}
+
+fn sender(ch: Channel<Option<int>>) {
+    // Crossing a thread copies the value into the outbound arena, as it did before: a thread
+    // never shares this constant with another by accident, and does not need to.
+    send(ch, None)
+    send(ch, Some(9))
+}
+
+fn main() {
+    val a = first_even([1, 3])
+    val b = first_even([5, 7])
+    print(a == b)                // two Nones are equal: structural, not by identity
+    print(a == first_even([2]))  // a None is never equal to a Some
+    print(a)                     // displays as None
+    print(Option.is_Some(a))
+
+    print(doubled_first_even([1, 4, 5]))
+    print(doubled_first_even([1, 3, 5]))
+
+    // A None held in containers, and as a map value, alongside other Options
+    print([first_even([1]), first_even([2]), first_even([3])])
+    print(Map<string, Option<int>> { "none": a, "some": first_even([4]) })
+
+    val ch: Channel<Option<int>> = channel_new()
+    spawn sender(ch)
+    print(receive(ch))
+    print(receive(ch))
+
+    // A map miss is the hot path this change exists for: it must still read as None.
+    val mb = mutable_map_new<string, int>()
+    mutable_map_set(mb, "x", 1)
+    print(mutable_map_get(mb, "absent"))
+    print(mutable_map_get(mb, "x"))
+}

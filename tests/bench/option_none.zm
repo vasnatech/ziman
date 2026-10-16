@@ -1,0 +1,82 @@
+// What an `Option` costs on the hit path against the miss path, which are not the same question.
+//
+// A `Some` carries the value found, so each one is a distinct object and has to be allocated. A
+// `None` carries nothing, so every one of them holds identical bytes -- which is why
+// `enum_obj_option_none()` (src/value.c) is a single `.rodata` constant and nothing allocates on a
+// failed lookup any more. This file is what measured that; see docs/MEMORY.md, "Measured:
+// `Option.None` as one shared constant".
+//
+// **Read the rows against each other, not as absolutes.** Every row below has the *identical* loop
+// shape -- same key arithmetic, same accumulate, same `if Some(v) = ...` pattern match -- so the
+// loop baseline cancels when two rows are compared, which is the comparison being made. That is
+// deliberate: `map_ops.zm`'s header records three separate occasions where subtracting a baseline
+// of a *different* shape produced a wrong or negative figure, and the `get` row there still
+// subtracts the value-returning baseline from an if-shaped loop.
+//
+// **And compare a before/after by interleaving two binaries, not by two runs minutes apart.** The
+// first before/after taken here read 282 -> 97 ns/op from separate runs; interleaved on the same
+// machine moments apart it is 251-277 -> 85-94. The direction was right and the absolutes were not,
+// because an unrelated desktop process was taking 80% of a core for part of it. Build both and
+// alternate:
+//
+//     git stash && make ziman && cp ziman /tmp/before && git stash pop && make ziman
+//     for i in 1 2 3 4; do /tmp/before this.zm | grep misses; ./ziman this.zm | grep misses; done
+use clock
+
+fn main() {
+    val size = 100000
+    val ops = 5000000
+    val mb = mutable_map_new<int, int>()
+    for i in 0..size {
+        mutable_map_set(mb, i, i * 2)
+    }
+
+    var acc = 0
+    var t = 0
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+    }
+    val base = clock.monotonic_millis() - t
+    print(format("  baseline (loop + key)        {} ms", base))
+
+    // Allocates an Option.Some every iteration: unaffected by the shared None, and the row that
+    // shows what is left to win here (it is the declined unboxing, see docs/MEMORY.md).
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        if Some(v) = mutable_map_get<int, int>(mb, k) {
+            acc = acc + v
+        }
+    }
+    val hit = clock.monotonic_millis() - t
+    print(format("  get, always hits (Some)      {} ms -> {} ns/op", hit, (hit - base) * 1000000 / ops))
+
+    // Every key misses, so this used to allocate an Option.None every iteration and now allocates
+    // nothing at all.
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size + size
+        acc = acc + k
+        if Some(v) = mutable_map_get<int, int>(mb, k) {
+            acc = acc + v
+        }
+    }
+    val miss = clock.monotonic_millis() - t
+    print(format("  get, always misses (None)    {} ms -> {} ns/op", miss, (miss - base) * 1000000 / ops))
+
+    // The floor: the same lookup with no Option at all. The miss row should sit within the
+    // pattern-match shape's own cost of this one, and does.
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k + mutable_map_get_or(mb, k, 0)
+    }
+    val go = clock.monotonic_millis() - t
+    print(format("  get_or (no allocation)       {} ms -> {} ns/op", go, (go - base) * 1000000 / ops))
+
+    print(format("  (checksum {}, entries {})", acc % 1000, len(mb)))
+}

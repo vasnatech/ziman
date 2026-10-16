@@ -1638,7 +1638,7 @@ static Value native_mutable_map_get(Value *args, int argc, int line, int col) {
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     Value found;
     if (maptable_get(&buf->t, args[1], &found)) return value_enum(type_option_ref(), enum_obj_new("Option", "Some", 1, found));
-    return value_enum(type_option_ref(), enum_obj_new("Option", "None", 0, value_int(0)));
+    return value_enum(type_option_ref(), enum_obj_option_none());
 }
 
 /* `mutable_map_get_or` as a native rather than Ziman sugar over `mutable_map_get`, which is what it
@@ -1669,7 +1669,7 @@ static Value native_mutable_map_remove(Value *args, int argc, int line, int col)
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     Value found;
     if (!maptable_remove(&buf->t, args[1], &found)) {
-        return value_enum(type_option_ref(), enum_obj_new("Option", "None", 0, value_int(0)));
+        return value_enum(type_option_ref(), enum_obj_option_none());
     }
     return value_enum(type_option_ref(), enum_obj_new("Option", "Some", 1, found));
 }

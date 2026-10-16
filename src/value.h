@@ -301,6 +301,27 @@ Value value_byte_array(const uint8_t *buf, size_t n);
 StructObj *struct_obj_new(char **field_names, Value *fields, int count);
 ResultObj *result_obj_new(int is_ok, Value value);
 EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Value payload);
+
+/* `Option.None`, as one shared constant rather than an allocation per call -- the same move
+ * `type_option_ref` (src/ast.c) made for the `Option` *type*, for the same reason and with the same
+ * limit. `type_option_ref`'s own comment says a `mutable_map_get` "did three heap allocations where
+ * one (the `EnumObj`) is the only one carrying per-call information". That is true of `Some`, which
+ * holds the value found; it is not true of `None`, which carries no payload and so holds nothing
+ * that distinguishes one instance from another.
+ *
+ * Returned non-const because `value_enum` takes `EnumObj *` for the AST's sake; nothing ever writes
+ * through it, which is what makes the sharing sound. Checked rather than assumed: every reader
+ * gates on `has_payload` before touching `payload` (equality, `display`, both copy paths, the mark
+ * phase), equality compares `variant_name` with `strcmp` rather than by pointer, and nothing
+ * mutates an `EnumObj` after construction at all.
+ *
+ * The collector never writes to it either, which is the part that would fault on a `.rodata`
+ * object: `gc_mark_enum` only marks an `EnumObj` that `is_gc_heap_object` confirms lives in the
+ * arena (a bitmap test, no header read), the sweep walks only its own arena, and `gc_copy_enum`
+ * reads. A value crossing a `spawn`/`Channel` boundary is copied into the outbound arena as
+ * before, so a thread never shares this with another one by accident -- it does not need to, since
+ * the constant is immutable and in every thread's address space already. */
+EnumObj *enum_obj_option_none(void);
 ChannelObj *channel_obj_new(int limit);
 /* Blocks until sent or the channel is closed. Returns 1 if it was closed (nothing sent), 0 on
  * success -- the caller (interpreter.c) turns 1 into a runtime error, same as `channel_new`'s

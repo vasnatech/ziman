@@ -1535,7 +1535,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 if (mapobj_get(args[0].as.map, args[1], &found)) {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, found));
                 } else {
-                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                    result = value_enum(&e->resolved_type, enum_obj_option_none());
                 }
             } else if (bid == B_map_get_or) {
                 Value found;
@@ -1646,7 +1646,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (bid == B_Some) {
                 result = call_some(e->resolved_type, args[0]);
             } else if (bid == B_None) {
-                result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                result = value_enum(&e->resolved_type, enum_obj_option_none());
             } else if (bid == B_is_ok) {
                 result = call_is_ok(args[0]);
             } else if (bid == B_unwrap) {
@@ -1711,7 +1711,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 if (channel_try_receive(args[0].as.ch, &got)) {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, got));
                 } else {
-                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                    result = value_enum(&e->resolved_type, enum_obj_option_none());
                 }
             } else if (bid == B_receive) {
                 Value got;
@@ -1725,14 +1725,14 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 if (channel_receive(args[0].as.ch, &got)) {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, got));
                 } else {
-                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                    result = value_enum(&e->resolved_type, enum_obj_option_none());
                 }
             } else if (bid == B_receive_timeout) {
                 Value got;
                 if (channel_receive_timeout(args[0].as.ch, args[1].as.i, &got)) {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, got));
                 } else {
-                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
+                    result = value_enum(&e->resolved_type, enum_obj_option_none());
                 }
             } else if (bid == B_select2) {
                 Value got;
@@ -1976,7 +1976,7 @@ static int eval_try_unwrap(Module *module, Env *env, Expr *e, Value *unwrapped, 
         return 1;
     }
     propagated->kind = CTRL_RETURN;
-    propagated->value = value_enum(type_ref(propagated_type), enum_obj_new("Option", "None", 0, value_int(0)));
+    propagated->value = value_enum(type_ref(propagated_type), enum_obj_option_none());
     return 0;
 }
 

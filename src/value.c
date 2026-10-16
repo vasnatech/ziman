@@ -364,6 +364,20 @@ EnumObj *enum_obj_new(char *enum_name, char *variant_name, int has_payload, Valu
     return e;
 }
 
+/* See value.h for why this is sound, and what was checked to establish it. A designated
+ * initialiser in `.rodata`, not a lazily-filled static, for the reason `g_option_type` and
+ * `g_scalar_types` are: "every writer stores the same bytes" is not a defence. `payload` is left
+ * zeroed and is never read, because `has_payload` is 0 and every reader gates on it. */
+static const EnumObj g_option_none = {
+    .enum_name = (char *)"Option",
+    .variant_name = (char *)"None",
+    .has_payload = 0,
+};
+
+EnumObj *enum_obj_option_none(void) {
+    return (EnumObj *)&g_option_none;
+}
+
 Value value_map(const Type *map_or_set_type, struct MapObj *m) {
     Value v;
     v.type = map_or_set_type;

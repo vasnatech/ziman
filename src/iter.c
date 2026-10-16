@@ -87,7 +87,7 @@ static Value native_iter_next(Value *args, int argc, int line, int col) {
     if (iter_advance(iter_handle_of(args[0]), &item, line, col)) {
         return value_enum(type_option_ref(), enum_obj_new("Option", "Some", 1, item));
     }
-    return value_enum(type_option_ref(), enum_obj_new("Option", "None", 0, value_int(0)));
+    return value_enum(type_option_ref(), enum_obj_option_none());
 }
 
 static Value native_iter_close(Value *args, int argc, int line, int col) {

@@ -1527,6 +1527,59 @@ indistinguishable. Frequency trades mark against sweep and cannot reduce the tot
 every `Result` in this workload is consumed before the next cycle. It is the clearest case for
 unboxing and still not enough to carry the change.
 
+### Measured: `Option.None` as one shared constant, 2.9x on every failed lookup
+
+The section above declines unboxing single-payload variants and is right to; this is the half of the
+same problem that needed no new representation at all. A `Some` carries the value found, so each one
+is a distinct object. A **`None` carries nothing**, so every `None` the interpreter ever built held
+identical bytes -- and it built a fresh 104-byte `EnumObj` for each. `src/ast.c`'s `type_option_ref`
+comment had already drawn the line one step short of this, saying a `mutable_map_get` "did three heap
+allocations where one (the `EnumObj`) is the only one carrying per-call information". True of `Some`;
+not true of `None`.
+
+`enum_obj_option_none()` (src/value.c) is now a single `.rodata` constant, and the nine sites that
+built one -- six in the interpreter, two in the prelude, one in `iter.c` -- return it.
+
+Measured by `tests/bench/option_none.zm` on a 100,000-entry `MutableMap`, 5,000,000 lookups, every
+row the same loop shape so the baseline cancels between rows, and the before/after taken by
+**interleaving two binaries** rather than two runs minutes apart:
+
+    row                        before          after
+    get, always hits (Some)    320-338 ns/op   321-332 ns/op   (unchanged, as expected)
+    get, always misses (None)  251-277 ns/op   **85-94 ns/op**
+    get_or (no allocation)                     56-64 ns/op     (the floor, unchanged)
+
+The miss path is **3.0x faster** and is now within the `if Some(v) = ...` pattern-match shape's own
+cost of the allocation-free `get_or`, which `map_ops.zm` puts at 32-33 ns/op. So the allocation is
+not reduced, it is gone: what remains is the lookup plus the branch.
+
+*The interleaving mattered, and is worth copying.* The first before/after here was taken from two
+separate runs and read 282 -> 97. Same direction, wrong absolutes: an unrelated desktop process was
+taking 80% of a core for part of it, which also made a `map_ops.zm` table taken at the same moment
+read about twice its usual figures throughout. Comparing rows *within* one run was already immune to
+that; comparing two runs was not.
+
+**Why this is sound, checked rather than argued.** Nothing mutates an `EnumObj` after construction
+anywhere in the tree. Every reader gates on `has_payload` before touching `payload` (equality,
+`display`, `ordinary_enum_copy`, `gc_copy_enum`, `gc_mark_enum`), so the zeroed payload is never
+read. Equality compares `variant_name` with `strcmp`, not by pointer, so two `None`s still compare
+equal and a `None` still differs from a `Some`. And the collector never **writes** to it, which is
+what would fault on a `.rodata` object: `gc_mark_enum` marks only what `is_gc_heap_object` confirms
+is in the arena (a bitmap test, no header read), the sweep walks only its own arena, and
+`gc_copy_enum` reads. A value crossing a `spawn`/`Channel` boundary is copied into the outbound
+arena exactly as before.
+
+**What this does not do, and the generalisation left open.** It is one variant of one enum. The same
+argument covers *every* payload-less variant -- `json::Json.JNull`, and any user enum's bare variant
+like a state machine's terminal state -- and the natural home for those is the AST variant node they
+are constructed from (`enum_obj_new(decl->name, v->name, v->has_payload, payload)` in the
+interpreter), interned lazily the way `Expr.call_builtin` already is. That is **not built, and
+should not be until a workload shows it matters**: the one profile taken so far had 200 `JNull`
+allocations in 642,005 enums, 0.031%, which would buy nothing. `allocsites.c` already counts
+payload-less variants separately (`g_enum_payloadless`) and prints them as `EMPTY`, so the
+measurement that would justify it is one profile run away. `Option.None` earned the change on its
+own because a failed lookup is not a rare case -- it is half of what a map is asked.
+
 ### Measured: `Value.type` by pointer is the win; interning it is not
 
 The previous section argued against unboxing single-payload enum variants and pointed at `Type`

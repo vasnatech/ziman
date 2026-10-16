@@ -1,0 +1,12 @@
+true
+false
+None
+false
+Some(8)
+None
+[None, Some(2), None]
+{none: None, some: Some(4)}
+None
+Some(9)
+None
+Some(1)

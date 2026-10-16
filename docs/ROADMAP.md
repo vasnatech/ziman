@@ -1142,6 +1142,18 @@ from source.
   native per case, as `mutable_map_discard` was (356-357 → 111 ns/op, because ~240ns of
   `remove`+`set` was one `Option` allocation).*
 
+  **Half of that residue is now closed (2026-10-16): `Option.None` is one shared `.rodata` constant,
+  and every failed lookup is 3.0x faster** -- the miss path of `MutableMap get` goes from 251-277 to
+  **85-94 ns/op**, which is within the `if Some(v) = ...` shape's own 32-33 ns of the allocation-free
+  `get_or` at 56-64. Interleaved A/B, with `tests/bench/option_none.zm` checked in so it can be
+  retaken. So on a miss the allocation is gone rather than reduced. A `Some` carries the
+  value found and still allocates; a `None` carries nothing, so every one of them was a fresh
+  104-byte `EnumObj` holding identical bytes. This is not the declined unboxing -- it needs no new
+  representation, because the object it removes holds no information. See docs/MEMORY.md, "Measured:
+  `Option.None` as one shared constant", for why sharing it is sound and for the generalisation left
+  open (every payload-less variant, interned on its AST node, which the one profile taken so far
+  says would buy 0.031%).*
+
   **(4) attempted and declined, 2026-10-16.** The replacement was built and measured --
   `src/handleslot.c`, an index+generation table whose validation is a bounds check, a load and a
   generation compare: **6.7-7.5ns for `handleset_has` against 1.0-1.1ns**. It is in the tree, inert,
