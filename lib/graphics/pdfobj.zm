@@ -1,0 +1,528 @@
+// pdfobj.zm -- PDF's object layer: objects, dictionaries, streams, the cross-reference table.
+//
+// This module knows PDF's *syntax* and nothing about graphics: it has no idea what a path is. It is
+// split from `pdf` because the two fail differently -- this one gets byte offsets and escaping
+// wrong, that one gets transforms and winding rules wrong -- and debugging a broken xref table
+// while also debugging a matrix is miserable.
+//
+// A PDF file is: a header, a run of numbered objects, a table of their byte offsets, and a trailer
+// naming the root. `finish` is where that shape lives; everything above it just builds values.
+use compress.deflate
+
+pub struct Entry {
+    key: string
+    value: Obj
+}
+
+pub fn entry(key: string, value: Obj) -> Entry {
+    return Entry { key: key, value: value }
+}
+
+// A stream is a dictionary plus data. One payload per variant, so it is a struct.
+pub struct StreamObj {
+    dict: [Entry]
+    data: [byte]
+}
+
+pub enum Obj {
+    Null
+    Bool(bool)
+    Int(int)
+    Real(float)
+    // Written `/Name`.
+    Name(string)
+    // Written `(escaped)`.
+    Str(string)
+    // Written `<hex>` -- for a byte string, and for Identity-H text in phase 3, where two bytes per
+    // glyph is not representable as a literal.
+    Bytes([byte])
+    Array([Obj])
+    Dict([Entry])
+    Stream(StreamObj)
+    // `N 0 R`, an indirect reference.
+    Ref(int)
+}
+
+// `data` as a stream, with `/Length` added. Never compressed; see `flate_stream`.
+pub fn stream(dict: [Entry], data: [byte]) -> Obj {
+    return Obj.Stream(StreamObj { dict: dict, data: data })
+}
+
+// `data` deflated, with `/Filter /FlateDecode` and the compressed `/Length`.
+//
+// `compress.deflate` writes a zlib stream (RFC 1950), which is exactly what `FlateDecode` expects
+// -- no raw-deflate wrapper needed. Compression is explicit rather than decided by a size
+// threshold inside the writer, so a caller reading the output can tell which it got.
+pub fn flate_stream(dict: [Entry], data: [byte]) -> Obj {
+    val packed = deflate(data)
+    val with_filter = mutable_array_new<Entry>()
+    for e in dict {
+        mutable_array_push(with_filter, e)
+    }
+    mutable_array_push(with_filter, entry("Filter", Obj.Name("FlateDecode")))
+    return Obj.Stream(StreamObj { dict: snapshot(with_filter), data: packed })
+}
+
+// The document under construction. Object numbers are 1-based, as PDF's are.
+pub struct PdfWriter {
+    bodies: MutableArray<[byte]>
+    filled: MutableArray<bool>
+}
+
+pub fn writer() -> PdfWriter {
+    return PdfWriter { bodies: mutable_array_new<[byte]>(), filled: mutable_array_new<bool>() }
+}
+
+// Appends `o` and answers its object number.
+pub fn add(w: PdfWriter, o: Obj) -> int {
+    mutable_array_push(w.bodies, obj_bytes(o))
+    mutable_array_push(w.filled, true)
+    return len(w.bodies)
+}
+
+// An object number to point at before the object exists, filled later by `put`.
+//
+// The object graph has forward references -- a page names its parent page-tree node, which lists
+// every page, so one of the two must be written knowing only the other's number. Without
+// reserve-then-fill this module would need a second pass or a mutable graph.
+pub fn reserve(w: PdfWriter) -> int {
+    mutable_array_push(w.bodies, string_to_bytes(""))
+    mutable_array_push(w.filled, false)
+    return len(w.bodies)
+}
+
+pub fn put(w: PdfWriter, number: int, o: Obj) -> Result<unit, string> {
+    if number < 1 || number > len(w.bodies) {
+        return err(concat("pdfobj.put: no object ", str(number), " has been reserved"))
+    }
+    mutable_array_set(w.bodies, number - 1, obj_bytes(o))
+    mutable_array_set(w.filled, number - 1, true)
+    return unit
+}
+
+// The whole file. `root` is the object number of the catalog; `info` goes in a document
+// information dictionary, or is empty for none.
+pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> {
+    var i = 0
+    while i < len(w.filled) {
+        if !mutable_array_get(w.filled, i) {
+            return err(concat("pdfobj.finish: object ", str(i + 1), " was reserved and never put"))
+        }
+        i = i + 1
+    }
+    if root < 1 || root > len(w.bodies) {
+        return err(concat("pdfobj.finish: the root object ", str(root), " does not exist"))
+    }
+
+    // The information dictionary is an ordinary object, so it has to be added before any offset is
+    // computed -- which is why `finish` takes it rather than the caller adding it and passing a
+    // number: a caller adding it after the catalog would be getting the ordering right by luck.
+    var info_number = 0
+    if len(info) > 0 {
+        info_number = add(w, Obj.Dict(info))
+    }
+
+    val parts = mutable_array_new<[byte]>()
+    val offsets = mutable_array_new<int>()
+    // A binary comment on line two, so that anything deciding whether this file is text or binary
+    // decides binary. Every PDF writer does this.
+    val header = bytes_concat(
+        string_to_bytes("%PDF-1.7\n"),
+        [37 as byte, 226 as byte, 227 as byte, 239 as byte, 10 as byte]
+    )
+    mutable_array_push(parts, header)
+    var at = len(header)
+
+    var n = 0
+    while n < len(w.bodies) {
+        val body = mutable_array_get(w.bodies, n)
+        val opened = bytes_concat(string_to_bytes(concat(str(n + 1), " 0 obj\n")), body, string_to_bytes("\nendobj\n"))
+        mutable_array_push(offsets, at)
+        mutable_array_push(parts, opened)
+        at = at + len(opened)
+        n = n + 1
+    }
+
+    val count = len(w.bodies)
+    val xref_at = at
+    val xref = mutable_array_new<[byte]>()
+    mutable_array_push(xref, string_to_bytes(concat("xref\n0 ", str(count + 1), "\n")))
+    // Entry zero is the head of the free list, and the format is fixed-width: exactly 20 bytes per
+    // entry, which is what makes the table indexable by object number.
+    mutable_array_push(xref, string_to_bytes("0000000000 65535 f \n"))
+    var k = 0
+    while k < count {
+        mutable_array_push(xref, string_to_bytes(concat(pad10(mutable_array_get(offsets, k)), " 00000 n \n")))
+        k = k + 1
+    }
+    mutable_array_push(parts, bytes_concat_all(snapshot(xref)))
+
+    val trailer = mutable_array_new<Entry>()
+    mutable_array_push(trailer, entry("Size", Obj.Int(count + 1)))
+    mutable_array_push(trailer, entry("Root", Obj.Ref(root)))
+    if info_number > 0 {
+        mutable_array_push(trailer, entry("Info", Obj.Ref(info_number)))
+    }
+    val tail = bytes_concat(
+        string_to_bytes("trailer\n"),
+        obj_bytes(Obj.Dict(snapshot(trailer))),
+        string_to_bytes(concat("\nstartxref\n", str(xref_at), "\n%%EOF\n"))
+    )
+    mutable_array_push(parts, tail)
+    return ok(bytes_concat_all(snapshot(parts)))
+}
+
+fn bytes_concat_all(parts: [[byte]]) -> [byte] {
+    var out = string_to_bytes("")
+    for p in parts {
+        out = bytes_concat(out, p)
+    }
+    return out
+}
+
+fn pad10(n: int) -> string {
+    var s = str(n)
+    while len(s) < 10 {
+        s = concat("0", s)
+    }
+    return s
+}
+
+// ---- serialising one object
+
+fn obj_bytes(o: Obj) -> [byte] {
+    return switch o {
+        Null { string_to_bytes("null") }
+        Bool(b) { string_to_bytes(if b { "true" } else { "false" }) }
+        Int(n) { string_to_bytes(str(n)) }
+        Real(x) { string_to_bytes(real_text(x)) }
+        Name(n) { string_to_bytes(concat("/", n)) }
+        Str(s) { string_to_bytes(concat("(", escaped(s), ")")) }
+        Bytes(b) { string_to_bytes(concat("<", hex_of(b), ">")) }
+        Array(items) {
+            val parts = mutable_array_new<[byte]>()
+            mutable_array_push(parts, string_to_bytes("["))
+            var first = true
+            for it in items {
+                if !first {
+                    mutable_array_push(parts, string_to_bytes(" "))
+                }
+                first = false
+                mutable_array_push(parts, obj_bytes(it))
+            }
+            mutable_array_push(parts, string_to_bytes("]"))
+            bytes_concat_all(snapshot(parts))
+        }
+        Dict(entries) { dict_bytes(entries) }
+        Stream(s) {
+            // `/Length` is computed here and never supplied, because a hand-written length that
+            // disagrees with the data is the single most common way to produce a file readers
+            // reject.
+            val full = mutable_array_new<Entry>()
+            for e in s.dict {
+                mutable_array_push(full, e)
+            }
+            mutable_array_push(full, entry("Length", Obj.Int(len(s.data))))
+            bytes_concat(
+                dict_bytes(snapshot(full)),
+                string_to_bytes("\nstream\n"),
+                s.data,
+                string_to_bytes("\nendstream")
+            )
+        }
+        Ref(n) { string_to_bytes(concat(str(n), " 0 R")) }
+    }
+}
+
+fn dict_bytes(entries: [Entry]) -> [byte] {
+    val parts = mutable_array_new<[byte]>()
+    mutable_array_push(parts, string_to_bytes("<<"))
+    for e in entries {
+        mutable_array_push(parts, string_to_bytes(concat(" /", e.key, " ")))
+        mutable_array_push(parts, obj_bytes(e.value))
+    }
+    mutable_array_push(parts, string_to_bytes(" >>"))
+    return bytes_concat_all(snapshot(parts))
+}
+
+// Fixed-point, never scientific. A full float repr would write `0.30000000000000004` into a
+// content stream, and PDF has no exponent notation at all -- `1e-05` is a syntax error there.
+// Trailing zeros are trimmed because a page of coordinates is mostly zeros.
+pub fn real_text(x: float) -> string {
+    if x != x {
+        // NaN has no PDF representation; writing `nan` would be a syntax error, and a zero is at
+        // least a coordinate. The backends refuse non-finite geometry before it gets here.
+        return "0"
+    }
+    var s = format("{:.5}", x)
+    if contains(s, ".") {
+        while ends_with(s, "0") {
+            s = substring(s, 0, len(s) - 1)
+        }
+        if ends_with(s, ".") {
+            s = substring(s, 0, len(s) - 1)
+        }
+    }
+    if s == "-0" {
+        return "0"
+    }
+    return s
+}
+
+// `(`, `)` and `\` have to be escaped inside a literal string, and a byte above 126 or below 32 is
+// written as an octal escape rather than raw -- a stray byte in a literal is unparseable.
+fn escaped(s: string) -> string {
+    val out = mutable_string_new()
+    for b in string_to_bytes(s) {
+        val c = b as int
+        if c == 40 || c == 41 || c == 92 {
+            mutable_string_append(out, "\\", bytes_to_char(b))
+        } else if c < 32 || c > 126 {
+            mutable_string_append(out, "\\", octal3(c))
+        } else {
+            mutable_string_append(out, bytes_to_char(b))
+        }
+    }
+    return snapshot(out)
+}
+
+fn bytes_to_char(b: byte) -> string {
+    return switch bytes_to_string([b]) {
+        Ok(s) { s }
+        Err(_) { "?" }
+    }
+}
+
+fn octal3(c: int) -> string {
+    val digits = "01234567"
+    val a = (c / 64) % 8
+    val b = (c / 8) % 8
+    val d = c % 8
+    return concat(
+        substring(digits, a, a + 1),
+        substring(digits, b, b + 1),
+        substring(digits, d, d + 1)
+    )
+}
+
+pub fn hex_of(data: [byte]) -> string {
+    val digits = "0123456789ABCDEF"
+    val out = mutable_string_new()
+    for b in data {
+        val c = b as int
+        val hi = c / 16
+        val lo = c % 16
+        mutable_string_append(out, substring(digits, hi, hi + 1), substring(digits, lo, lo + 1))
+    }
+    return snapshot(out)
+}
+
+// ---- validating what this module wrote
+
+// Checks the structural invariants a reader relies on, and names the first one that fails.
+//
+// **This is the verification layer that matters**, because the whole class of "some readers open
+// the file and others reject it" is byte offsets and lengths rather than graphics. It checks that
+// the header is there, that `startxref` points at a real xref table, that **every xref offset lands
+// on the object header it claims**, that every declared `/Length` matches the bytes actually
+// between `stream` and `endstream`, and that the trailer's `/Root` names an object that exists and
+// is a `/Catalog`.
+//
+// It is a validator for *this writer's* output, not a general PDF parser: it assumes the fixed-width
+// xref table and the exact object framing `finish` emits. A general parser would have to cope with
+// cross-reference streams, incremental updates and object streams, none of which this module
+// produces.
+pub fn check(data: [byte]) -> Result<unit, string> {
+    if !starts_with_bytes(data, "%PDF-") {
+        return err("pdfobj.check: the file does not begin with %PDF-")
+    }
+    val sx = last_index_of_bytes(data, "startxref")
+    if sx < 0 {
+        return err("pdfobj.check: no startxref")
+    }
+    val xref_at = try int_after(data, sx + 9)
+    if xref_at < 0 || xref_at >= len(data) {
+        return err(concat("pdfobj.check: startxref points outside the file: ", str(xref_at)))
+    }
+    if !matches_at(data, xref_at, "xref") {
+        return err(concat("pdfobj.check: offset ", str(xref_at), " is not an xref table"))
+    }
+    // `xref\n0 N\n`
+    val count_at = index_of_bytes(data, "\n", xref_at) + 1
+    val size = try int_after(data, count_at + 2)
+    if size < 1 {
+        return err("pdfobj.check: the xref table declares no objects")
+    }
+    // The table's entries start after the `0 N\n` line, and each is exactly 20 bytes.
+    val entries_at = index_of_bytes(data, "\n", count_at) + 1
+    var n = 1
+    while n < size {
+        val at = entries_at + n * 20
+        if at + 20 > len(data) {
+            return err(concat("pdfobj.check: the xref table is truncated at entry ", str(n)))
+        }
+        val offset = try int_at(data, at, 10)
+        if !matches_at(data, offset, concat(str(n), " 0 obj")) {
+            return err(concat(
+                "pdfobj.check: xref says object ",
+                str(n),
+                " is at ",
+                str(offset),
+                ", but that is not where it starts"
+            ))
+        }
+        n = n + 1
+    }
+    try check_streams(data)
+    return check_root(data, sx)
+}
+
+fn check_streams(data: [byte]) -> Result<unit, string> {
+    var at = index_of_bytes(data, "\nstream\n", 0)
+    while at >= 0 {
+        val body = at + 8
+        val close = index_of_bytes(data, "\nendstream", body)
+        if close < 0 {
+            return err(concat("pdfobj.check: a stream at ", str(body), " has no endstream"))
+        }
+        val actual = close - body
+        // The `/Length` for this stream is the last one before it.
+        val length_at = last_index_of_bytes_before(data, "/Length ", at)
+        if length_at < 0 {
+            return err(concat("pdfobj.check: the stream at ", str(body), " has no /Length"))
+        }
+        val declared = try int_after(data, length_at + 8)
+        if declared != actual {
+            return err(concat(
+                "pdfobj.check: a stream declares /Length ",
+                str(declared),
+                " but holds ",
+                str(actual),
+                " bytes"
+            ))
+        }
+        at = index_of_bytes(data, "\nstream\n", close)
+    }
+    return unit
+}
+
+fn check_root(data: [byte], trailer_from: int) -> Result<unit, string> {
+    val t = last_index_of_bytes(data, "/Root ")
+    if t < 0 {
+        return err("pdfobj.check: the trailer names no /Root")
+    }
+    val root = try int_after(data, t + 6)
+    if !matches_at_search(data, concat(str(root), " 0 obj"), 0) {
+        return err(concat("pdfobj.check: /Root points at object ", str(root), ", which does not exist"))
+    }
+    val obj_at = index_of_bytes(data, concat("\n", str(root), " 0 obj"), 0)
+    val end = index_of_bytes(data, "endobj", obj_at)
+    if obj_at < 0 || end < 0 {
+        return err(concat("pdfobj.check: object ", str(root), " is malformed"))
+    }
+    if index_of_bytes_within(data, "/Type /Catalog", obj_at, end) < 0 {
+        return err(concat("pdfobj.check: /Root object ", str(root), " is not a /Catalog"))
+    }
+    return unit
+}
+
+// ---- byte scanning, since a PDF holds binary streams and cannot be turned into a string
+
+fn starts_with_bytes(data: [byte], text: string) -> bool {
+    return matches_at(data, 0, text)
+}
+
+fn matches_at(data: [byte], at: int, text: string) -> bool {
+    val needle = string_to_bytes(text)
+    if at < 0 || at + len(needle) > len(data) {
+        return false
+    }
+    var i = 0
+    while i < len(needle) {
+        if data[at + i] != needle[i] {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fn index_of_bytes(data: [byte], text: string, from: int) -> int {
+    return index_of_bytes_within(data, text, from, len(data))
+}
+
+fn index_of_bytes_within(data: [byte], text: string, from: int, until: int) -> int {
+    val needle = string_to_bytes(text)
+    var at = if from < 0 { 0 } else { from }
+    while at + len(needle) <= until {
+        if matches_at(data, at, text) {
+            return at
+        }
+        at = at + 1
+    }
+    return -1
+}
+
+fn matches_at_search(data: [byte], text: string, from: int) -> bool {
+    return index_of_bytes(data, text, from) >= 0
+}
+
+fn last_index_of_bytes(data: [byte], text: string) -> int {
+    return last_index_of_bytes_before(data, text, len(data))
+}
+
+fn last_index_of_bytes_before(data: [byte], text: string, before: int) -> int {
+    val needle = string_to_bytes(text)
+    var at = before - len(needle)
+    while at >= 0 {
+        if matches_at(data, at, text) {
+            return at
+        }
+        at = at - 1
+    }
+    return -1
+}
+
+// The integer starting at `at`, skipping leading whitespace. For reading an offset or a length back
+// out of the file.
+fn int_after(data: [byte], at: int) -> Result<int, string> {
+    var i = at
+    while i < len(data) && is_space(data[i]) {
+        i = i + 1
+    }
+    var value = 0
+    var digits = 0
+    while i < len(data) && is_digit(data[i]) {
+        value = value * 10 + ((data[i] as int) - 48)
+        digits = digits + 1
+        i = i + 1
+    }
+    if digits == 0 {
+        return err(concat("pdfobj.check: expected a number at offset ", str(at)))
+    }
+    return ok(value)
+}
+
+// Exactly `width` digits at `at` -- the xref table's fixed-width form.
+fn int_at(data: [byte], at: int, width: int) -> Result<int, string> {
+    var value = 0
+    var i = 0
+    while i < width {
+        if at + i >= len(data) || !is_digit(data[at + i]) {
+            return err(concat("pdfobj.check: expected ", str(width), " digits at offset ", str(at)))
+        }
+        value = value * 10 + ((data[at + i] as int) - 48)
+        i = i + 1
+    }
+    return ok(value)
+}
+
+fn is_digit(b: byte) -> bool {
+    val c = b as int
+    return c >= 48 && c <= 57
+}
+
+fn is_space(b: byte) -> bool {
+    val c = b as int
+    return c == 32 || c == 10 || c == 13 || c == 9
+}

@@ -1,0 +1,192 @@
+// `lib/graphics` phase 2: a `Scene` rendered to PDF (F142).
+//
+// Two of the design's three verification layers live here. **The structural one matters most**:
+// `pdfobj.check` reads the file back and confirms every xref offset lands on the object header it
+// claims, every declared `/Length` matches the bytes actually in its stream, and the trailer's
+// `/Root` names a real `/Catalog`. That is the entire class of "some readers open this and others
+// reject it", and none of it is visible by looking at the output.
+//
+// The third layer -- `pdfinfo` and `pdftotext`, which prove an *independent* implementation agrees
+// -- is `tests/run_pdf_tests.sh`, guarded on the tools existing the way the TLS suite guards on
+// openssl.
+use geom
+use paint
+use pdf
+use pdfobj
+use scene
+use shape
+
+fn ok_or_fail(label: string, r: Result<[byte], string>) -> [byte] {
+    return switch r {
+        Ok(bytes) {
+            switch pdfobj.check(bytes) {
+                Ok(_) { print(concat(label, ": ", str(len(bytes)), " bytes, structurally sound")) }
+                Err(why) { print(concat(label, ": STRUCTURALLY BROKEN -- ", why)) }
+            }
+            bytes
+        }
+        Err(why) {
+            print(concat(label, ": FAILED -- ", why))
+            string_to_bytes("")
+        }
+    }
+}
+
+fn rect(x: float, y: float, w: float, h: float) -> shape.Path {
+    return shape.rect_path(geom.rect_of(x, y, w, h))
+}
+
+fn main() {
+    val black = paint.solid(paint.black())
+
+    // ---- the simplest document that can be wrong
+    val one = ok_or_fail(
+        "a filled rect     ",
+        pdf.render(
+            scene.with_ops(scene.scene_of(200.0, 100.0), [scene.fill(rect(10.0, 10.0, 50.0, 30.0), black)]),
+            with pdf.options() {
+                compress: false
+            }
+        )
+    )
+
+    // Compression is a different code path through `pdfobj`, and its `/Length` is the *compressed*
+    // length -- exactly what a hand-written one would get wrong, and what `check` verifies.
+    //
+    // Measured on a page with enough repetition for deflate to win: on the single rect above the
+    // compressed file is actually a few bytes *larger*, because a zlib header costs more than it
+    // saves on 150 bytes of content. Asserting "smaller" there would have been asserting noise.
+    val many = mutable_array_new<scene.Op>()
+    var i = 0
+    while i < 400 {
+        mutable_array_push(many, scene.fill(rect(i as float, 1.0, 2.0, 2.0), black))
+        i = i + 1
+    }
+    val busy = scene.with_ops(scene.scene_of(800.0, 100.0), snapshot(many))
+    val plain = ok_or_fail("400 rects, plain  ", pdf.render(busy, with pdf.options() {
+        compress: false
+    }))
+    val packed = ok_or_fail("400 rects, deflated", pdf.render(busy, pdf.options()))
+    print(concat("deflate wins on a busy page:    ", str(len(packed) < len(plain) / 2)))
+    print(concat("and the small page is unharmed: ", str(len(one) > 0)))
+
+    // ---- every operator the phase claims, in one page
+    val star = shape.path_builder()
+    shape.move_to(star, geom.point_of(50.0, 10.0))
+    shape.line_to(star, geom.point_of(70.0, 70.0))
+    shape.line_to(star, geom.point_of(10.0, 30.0))
+    shape.line_to(star, geom.point_of(90.0, 30.0))
+    shape.line_to(star, geom.point_of(30.0, 70.0))
+    shape.close_path(star)
+
+    val gradient = paint.linear(
+        geom.point_of(0.0, 0.0),
+        geom.point_of(200.0, 0.0),
+        [
+            paint.stop_of(0.0, paint.rgb(1.0, 0.0, 0.0)),
+            paint.stop_of(0.5, paint.rgb(0.0, 1.0, 0.0)),
+            paint.stop_of(1.0, paint.rgb(0.0, 0.0, 1.0))
+        ]
+    )
+    val rich = scene.with_ops(
+        scene.with_background(scene.scene_of(200.0, 100.0), paint.solid(paint.gray(0.95))),
+        [
+            // even-odd winding, and a translucent colour, which needs an ExtGState
+            scene.fill(shape.built(star, shape.Winding.EvenOdd), paint.solid(paint.rgba(0.0, 0.0, 1.0, 0.5))),
+            // a dashed stroke of a curve
+            scene.stroke(
+                shape.circle_path(geom.point_of(150.0, 50.0), 30.0),
+                black,
+                paint.dashed(2.0, [4.0, 2.0])
+            ),
+            // a clip, and a gradient inside it
+            scene.clipped(rect(0.0, 0.0, 100.0, 50.0), [scene.fill(rect(0.0, 0.0, 200.0, 100.0), gradient)]),
+            // a quadratic, which PDF has no operator for and which is elevated to a cubic
+            scene.stroke(quad_hill(), black, paint.stroke_of(1.0)),
+            // a radial gradient
+            scene.fill(
+                shape.circle_path(geom.point_of(40.0, 80.0), 15.0),
+                paint.radial(
+                    geom.point_of(40.0, 80.0),
+                    15.0,
+                    [paint.stop_of(0.0, paint.white()), paint.stop_of(1.0, paint.black())]
+                )
+            ),
+            // a nested group with its own transform
+            scene.group(geom.translation(5.0, 5.0), [scene.fill(rect(0.0, 0.0, 4.0, 4.0), black)])
+        ]
+    )
+    val _ = ok_or_fail("every operator    ", pdf.render(rich, with pdf.options() {
+        compress: false
+    }))
+
+    // ---- several pages, two fonts, a title
+    val pages = [
+        scene.with_ops(
+            scene.scene_of(200.0, 100.0),
+            [scene.text_of("page one", geom.point_of(10.0, 50.0), 12.0, 0, black)]
+        ),
+        scene.with_ops(
+            scene.scene_of(200.0, 100.0),
+            [scene.text_of("page two", geom.point_of(10.0, 50.0), 12.0, 1, black)]
+        ),
+        scene.with_ops(
+            scene.scene_of(300.0, 150.0),
+            [scene.text_of("a wider page", geom.point_of(10.0, 50.0), 12.0, 0, black)]
+        )
+    ]
+    val _ = ok_or_fail(
+        "three pages       ",
+        pdf.render_pages(pages, with pdf.options() {
+            fonts: [pdf.StandardFont.Helvetica, pdf.StandardFont.TimesBold],
+            title: "Phase 2",
+            author: "lib/graphics",
+            compress: false
+        })
+    )
+
+    // ---- what it refuses, which is as much the contract as what it draws
+    print(concat("no pages:            ", refusal(pdf.render_pages([], pdf.options()))))
+    print(concat("font out of range:   ", refusal(pdf.render(
+        scene.with_ops(scene.scene_of(10.0, 10.0), [scene.text_of("x", geom.point_of(0.0, 0.0), 8.0, 7, black)]),
+        pdf.options()
+    ))))
+    print(concat("an image:            ", refusal(pdf.render(
+        scene.with_ops(scene.scene_of(10.0, 10.0), [scene.image(0, geom.rect_of(0.0, 0.0, 5.0, 5.0))]),
+        pdf.options()
+    ))))
+    print(concat("one gradient stop:   ", refusal(pdf.render(
+        scene.with_ops(scene.scene_of(10.0, 10.0), [
+            scene.fill(
+                rect(0.0, 0.0, 5.0, 5.0),
+                paint.linear(geom.point_of(0.0, 0.0), geom.point_of(5.0, 0.0), [paint.stop_of(0.0, paint.black())])
+            )
+        ]),
+        pdf.options()
+    ))))
+
+    // **The refusal that matters most.** WinAnsiEncoding has no `ş`, and writing a `?` into
+    // someone's medical record instead of saying so is the failure the no-silent-degradation
+    // invariant exists to prevent.
+    print(concat("out of encoding:     ", refusal(pdf.render(
+        scene.with_ops(scene.scene_of(10.0, 10.0), [scene.text_of("şeker", geom.point_of(0.0, 0.0), 8.0, 0, black)]),
+        pdf.options()
+    ))))
+    // The CP1252 block above Latin-1 *is* representable, and is what a document actually uses.
+    print(concat("em dash encodes:     ", str(len(unwrap(pdf.win_ansi("a — b"))))))
+    print(concat("curly quotes encode: ", str(len(unwrap(pdf.win_ansi("“quoted”"))))))
+}
+
+fn quad_hill() -> shape.Path {
+    val q = shape.path_builder()
+    shape.move_to(q, geom.point_of(100.0, 90.0))
+    shape.quad_to(q, geom.point_of(150.0, 20.0), geom.point_of(190.0, 90.0))
+    return shape.built(q, shape.Winding.NonZero)
+}
+
+fn refusal(r: Result<[byte], string>) -> string {
+    return switch r {
+        Ok(_) { "UNEXPECTEDLY ACCEPTED" }
+        Err(why) { why }
+    }
+}

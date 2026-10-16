@@ -1,0 +1,14 @@
+a filled rect     : 588 bytes, structurally sound
+400 rects, plain  : 18116 bytes, structurally sound
+400 rects, deflated: 4349 bytes, structurally sound
+deflate wins on a busy page:    true
+and the small page is unharmed: true
+every operator    : 1781 bytes, structurally sound
+three pages       : 1528 bytes, structurally sound
+no pages:            pdf.render_pages: a document needs at least one page
+font out of range:   pdf: a text run names font 7 but Options.fonts holds 1
+an image:            pdf: images need phase 4 (scene.DrawImage is not renderable yet)
+one gradient stop:   pdf: a gradient needs at least two stops, got 1
+out of encoding:     pdf: WinAnsiEncoding cannot represent U+015F in 'şeker'. The standard fonts are Latin-1 only; an embedded font (phase 3) is needed for this text
+em dash encodes:     5
+curly quotes encode: 8

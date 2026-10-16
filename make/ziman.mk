@@ -106,6 +106,17 @@ northstar-both: $(BIN)
 # returned "" for every certificate there, 3 of 3 runs, while the gate stayed green. The whole
 # suite takes under a second, so running it twice is the cheapest of the three gaps of this shape
 # this file has now grown a fix for (see B7's --postgres job and E21's --fmt --check).
+# Poppler's pdfinfo/pdftotext checking lib/graphics' PDF output -- an independent reader agreeing,
+# which `pdfobj.check` cannot be: that is this project's reader agreeing with its own writer, and a
+# malformed file can be perfectly self-consistent. Follows tls-if-available: run it when the tools
+# are there, say so when they are not, never fail for their absence.
+pdf-if-available: $(BIN)
+	@if command -v pdfinfo >/dev/null 2>&1 && command -v pdftotext >/dev/null 2>&1; then \
+	    ./tests/run_pdf_tests.sh $(BIN); \
+	else \
+	    echo "pdf-if-available: skipped -- no pdfinfo/pdftotext (poppler-utils)"; \
+	fi
+
 tls-if-available: $(BIN) ziman-nogc
 	@if command -v openssl >/dev/null 2>&1; then \
 	    ./tests/run_tls_tests.sh && BIN=./ziman-nogc ./tests/run_tls_tests.sh; \

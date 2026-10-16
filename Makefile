@@ -69,7 +69,7 @@ BIN := ziman
 # against the pre-split Makefile; nothing else would have noticed until someone typed `make`.
 .DEFAULT_GOAL := all
 
-.PHONY: all check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots test-maptable test-handleslot corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
+.PHONY: all check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots test-maptable test-handleslot corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available pdf-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
 
 # Every gate that needs nothing but this repo and a C toolchain: the fixture suite on both builds,
 # the standalone unit tests, formatting, and the documentation guards. One command for "is this
@@ -83,7 +83,7 @@ BIN := ziman
 # over half an hour for that one target alone (49 suites, each starting a real server), which is
 # what makes this usable as a pre-push hook -- and `api-check`, the 0.08s target that would have
 # caught the red HEAD of A46, is in here.
-check-fast: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available fmt-check docs-check grammar-check benchmark-check libc-free-check xalloc-check handleset-check
+check-fast: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available pdf-if-available fmt-check docs-check grammar-check benchmark-check libc-free-check xalloc-check handleset-check
 
 check: check-fast northstar-if-available
 
@@ -109,7 +109,7 @@ install-hooks:
 # header directly, and it's merged bare into every program by
 # loader.c's load_module_graph (see lib/prelude.zm's own header
 # comment), never through a `use`. Do not add it to corelib.c's table.
-CORELIB_MODULES := process url fs log metrics regex client random uuid clock time schedule json number math bits thread datasource sqlite mysql db net crypto pg http server os properties ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp test geom shape paint scene prelude
+CORELIB_MODULES := process url fs log metrics regex client random uuid clock time schedule json number math bits thread datasource sqlite mysql db net crypto pg http server os properties ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp test geom shape paint scene pdfobj pdf prelude
 # Bundled modules live in lib/core (general-purpose), lib/db (SQL
 # drivers) lib/http (http, server, client), lib/time (time, zone) and lib/graphics (the 2D model and
 # its backends); `use` names are flat either way.

@@ -1,0 +1,764 @@
+// pdf.zm -- a `scene.Scene` rendered to a PDF document.
+//
+// The mapping is nearly mechanical, which is the point of the model: PDF's content-stream
+// vocabulary is almost exactly `shape.Segment`'s five cases, so most of this file is a serialiser.
+// See docs/graphics/phase-2-pdf-backend.md for the operator table and the reasoning.
+use geom
+use geom.Matrix
+use geom.Point
+use geom.Rect
+use geom.identity
+use geom.matrix_concat
+use paint.Cap
+use paint.Color
+use paint.Join
+use paint.Paint
+use paint.Stop
+use paint.Stroke
+use pdfobj
+use pdfobj.Entry
+use pdfobj.Obj
+use pdfobj.entry
+use pdfobj.hex_of
+use pdfobj.real_text
+use scene
+use scene.Op
+use scene.Scene
+use shape
+use shape.Path
+use shape.Segment
+use shape.Winding
+
+pub struct PageSize {
+    width: float
+    height: float
+}
+
+// Functions rather than vals, so `pdf.a4()` works without a second import -- see geom's note.
+pub fn a4() -> PageSize {
+    return PageSize { width: 595.276, height: 841.89 }
+}
+
+pub fn letter() -> PageSize {
+    return PageSize { width: 612.0, height: 792.0 }
+}
+
+pub fn page_size_of(width: float, height: float) -> PageSize {
+    return PageSize { width: width, height: height }
+}
+
+// The fourteen fonts every conforming reader supplies, so none of them is embedded. Phase 3 adds
+// embedded faces; until then these are the only text available, and only Latin-1 text at that.
+pub enum StandardFont {
+    Helvetica
+    HelveticaBold
+    HelveticaOblique
+    HelveticaBoldOblique
+    Times
+    TimesBold
+    TimesItalic
+    TimesBoldItalic
+    Courier
+    CourierBold
+    CourierOblique
+    CourierBoldOblique
+    Symbol
+    ZapfDingbats
+}
+
+fn base_font_name(f: StandardFont) -> string {
+    return switch f {
+        Helvetica { "Helvetica" }
+        HelveticaBold { "Helvetica-Bold" }
+        HelveticaOblique { "Helvetica-Oblique" }
+        HelveticaBoldOblique { "Helvetica-BoldOblique" }
+        Times { "Times-Roman" }
+        TimesBold { "Times-Bold" }
+        TimesItalic { "Times-Italic" }
+        TimesBoldItalic { "Times-BoldItalic" }
+        Courier { "Courier" }
+        CourierBold { "Courier-Bold" }
+        CourierOblique { "Courier-Oblique" }
+        CourierBoldOblique { "Courier-BoldOblique" }
+        Symbol { "Symbol" }
+        ZapfDingbats { "ZapfDingbats" }
+    }
+}
+
+pub struct Options {
+    size: PageSize
+    // The fonts a scene's `TextRun.font` indexes into. Empty means no text may be drawn.
+    fonts: [StandardFont]
+    title: string
+    author: string
+    compress: bool
+}
+
+pub fn options() -> Options {
+    return Options {
+        size: a4(),
+        fonts: [StandardFont.Helvetica],
+        title: "",
+        author: "",
+        compress: true
+    }
+}
+
+pub fn render(s: Scene, o: Options) -> Result<[byte], string> {
+    return render_pages([s], o)
+}
+
+// A document is the normal case and one page the special case, so this is the primitive -- a
+// library that only writes one page gets a concatenation layer bolted on later, and the bolt is
+// always worse than the design.
+pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string> {
+    if len(pages) == 0 {
+        return err("pdf.render_pages: a document needs at least one page")
+    }
+    val w = pdfobj.writer()
+    val pages_number = pdfobj.reserve(w)
+
+    val kids = mutable_array_new<Obj>()
+    for page in pages {
+        val built = try page_content(page, o)
+        val content_dict: [Entry] = []
+        val content_number = if o.compress {
+            pdfobj.add(w, pdfobj.flate_stream(content_dict, string_to_bytes(built.stream)))
+        } else {
+            pdfobj.add(w, pdfobj.stream(content_dict, string_to_bytes(built.stream)))
+        }
+        val resources = font_resources(o, built)
+        val page_entries = mutable_array_new<Entry>()
+        mutable_array_push(page_entries, entry("Type", Obj.Name("Page")))
+        mutable_array_push(page_entries, entry("Parent", Obj.Ref(pages_number)))
+        mutable_array_push(page_entries, entry("MediaBox", media_box(page, o)))
+        mutable_array_push(page_entries, entry("Resources", resources))
+        mutable_array_push(page_entries, entry("Contents", Obj.Ref(content_number)))
+        mutable_array_push(kids, Obj.Ref(pdfobj.add(w, Obj.Dict(snapshot(page_entries)))))
+    }
+
+    val pages_entries = mutable_array_new<Entry>()
+    mutable_array_push(pages_entries, entry("Type", Obj.Name("Pages")))
+    mutable_array_push(pages_entries, entry("Count", Obj.Int(len(pages))))
+    mutable_array_push(pages_entries, entry("Kids", Obj.Array(snapshot(kids))))
+    try pdfobj.put(w, pages_number, Obj.Dict(snapshot(pages_entries)))
+
+    val catalog = mutable_array_new<Entry>()
+    mutable_array_push(catalog, entry("Type", Obj.Name("Catalog")))
+    mutable_array_push(catalog, entry("Pages", Obj.Ref(pages_number)))
+    val root = pdfobj.add(w, Obj.Dict(snapshot(catalog)))
+
+    val info = mutable_array_new<Entry>()
+    if len(o.title) > 0 {
+        mutable_array_push(info, entry("Title", Obj.Str(o.title)))
+    }
+    if len(o.author) > 0 {
+        mutable_array_push(info, entry("Author", Obj.Str(o.author)))
+    }
+    mutable_array_push(info, entry("Producer", Obj.Str("Ziman lib/graphics")))
+    return pdfobj.finish(w, root, snapshot(info))
+}
+
+fn media_box(page: Scene, o: Options) -> Obj {
+    var w = page.width
+    var h = page.height
+    if w <= 0.0 || h <= 0.0 {
+        w = o.size.width
+        h = o.size.height
+    }
+    return Obj.Array([Obj.Int(0), Obj.Int(0), Obj.Real(w), Obj.Real(h)])
+}
+
+// What one page's content stream came to, plus which resources it referred to.
+struct Built {
+    stream: string
+    fonts_used: MutableArray<int>
+    alphas: MutableArray<float>
+    shadings: MutableArray<Obj>
+}
+
+fn font_resources(o: Options, b: Built) -> Obj {
+    val res = mutable_array_new<Entry>()
+
+    val fonts = mutable_array_new<Entry>()
+    for i in snapshot(b.fonts_used) {
+        val f = o.fonts[i]
+        val font_dict: [Entry] = [
+            entry("Type", Obj.Name("Font")),
+            entry("Subtype", Obj.Name("Type1")),
+            entry("BaseFont", Obj.Name(base_font_name(f))),
+            entry("Encoding", Obj.Name("WinAnsiEncoding"))
+        ]
+        mutable_array_push(fonts, entry(concat("F", str(i)), Obj.Dict(font_dict)))
+    }
+    if len(fonts) > 0 {
+        mutable_array_push(res, entry("Font", Obj.Dict(snapshot(fonts))))
+    }
+
+    // Constant alpha lives in an ExtGState. Ignoring a translucent colour would be silent
+    // degradation, which invariant 2 forbids, and `/ca`/`/CA` is the cheap honest answer.
+    val gs = mutable_array_new<Entry>()
+    var gi = 0
+    for a in snapshot(b.alphas) {
+        mutable_array_push(
+            gs,
+            entry(concat("GS", str(gi)), Obj.Dict([entry("ca", Obj.Real(a)), entry("CA", Obj.Real(a))]))
+        )
+        gi = gi + 1
+    }
+    if len(gs) > 0 {
+        mutable_array_push(res, entry("ExtGState", Obj.Dict(snapshot(gs))))
+    }
+
+    val sh = mutable_array_new<Entry>()
+    var si = 0
+    for shading in snapshot(b.shadings) {
+        mutable_array_push(sh, entry(concat("Sh", str(si)), shading))
+        si = si + 1
+    }
+    if len(sh) > 0 {
+        mutable_array_push(res, entry("Shading", Obj.Dict(snapshot(sh))))
+    }
+    return Obj.Dict(snapshot(res))
+}
+
+fn page_content(page: Scene, o: Options) -> Result<Built, string> {
+    val out = mutable_string_new()
+    val b = Built {
+        stream: "",
+        fonts_used: mutable_array_new<int>(),
+        alphas: mutable_array_new<float>(),
+        shadings: mutable_array_new<Obj>()
+    }
+    var h = page.height
+    if h <= 0.0 {
+        h = o.size.height
+    }
+    // **The Y axis is flipped here and nowhere else.** The model has Y growing downward and PDF has
+    // it growing upward, so the whole page is drawn inside one flip. Text then needs its own
+    // compensating flip in its text matrix, which `emit_text` does -- that is the one cost of
+    // putting the flip here, and it is paid in one place.
+    mutable_string_append(out, "q\n1 0 0 -1 0 ", real_text(h), " cm\n")
+    if Some(bg) = page.background {
+        val box = shape.rect_path(geom.rect_of(0.0, 0.0, page.width, h))
+        try emit_fill(out, b, o, box, bg)
+    }
+    for op in page.ops {
+        try emit_op(out, b, o, op)
+    }
+    mutable_string_append(out, "Q\n")
+    return ok(with b {
+        stream: snapshot(out)
+    })
+}
+
+fn emit_op(out: MutableString, b: Built, o: Options, op: Op) -> Result<unit, string> {
+    switch op {
+        Fill(f) { return emit_fill(out, b, o, f.path, f.fill) }
+        StrokePath(s) { return emit_stroke(out, b, o, s.path, s.fill, s.stroke) }
+        Text(t) { return emit_text(out, b, o, t) }
+        DrawImage(_) {
+            return err("pdf: images need phase 4 (scene.DrawImage is not renderable yet)")
+        }
+        Nested(g) {
+            mutable_string_append(out, "q\n")
+            if !is_identity(g.transform) {
+                mutable_string_append(out, matrix_text(g.transform), " cm\n")
+            }
+            if Some(clip) = g.clip {
+                emit_path(out, clip)
+                // `W` marks the path as a clip and `n` is the no-op painting operator that ends it.
+                // Writing `W` alone leaves the path pending and the next operator does something
+                // surprising.
+                mutable_string_append(out, "W n\n")
+            }
+            for child in g.ops {
+                try emit_op(out, b, o, child)
+            }
+            mutable_string_append(out, "Q\n")
+            return unit
+        }
+    }
+}
+
+fn emit_fill(out: MutableString, b: Built, o: Options, p: Path, with_paint: Paint) -> Result<unit, string> {
+    switch with_paint {
+        Solid(c) {
+            try set_alpha(out, b, c.alpha)
+            mutable_string_append(out, colour_text(c), " rg\n")
+            emit_path(out, p)
+            mutable_string_append(out, fill_operator(p.winding), "\n")
+            return unit
+        }
+        LinearGradient(g) {
+            val name = try add_axial(b, g.from, g.to, g.stops)
+            return emit_shading_fill(out, p, name)
+        }
+        RadialGradient(g) {
+            val name = try add_radial(b, g.centre, g.radius, g.stops)
+            return emit_shading_fill(out, p, name)
+        }
+        Pattern(_) {
+            return err("pdf: an image pattern needs phase 4 (paint.Pattern is not renderable yet)")
+        }
+    }
+}
+
+// A shading is painted by clipping to the path and running `sh`, which is simpler and more portable
+// than a pattern colour space and produces the same ink.
+fn emit_shading_fill(out: MutableString, p: Path, name: string) -> Result<unit, string> {
+    mutable_string_append(out, "q\n")
+    emit_path(out, p)
+    mutable_string_append(out, if is_even_odd(p.winding) { "W* n\n" } else { "W n\n" })
+    mutable_string_append(out, "/", name, " sh\nQ\n")
+    return unit
+}
+
+fn emit_stroke(
+    out: MutableString,
+    b: Built,
+    o: Options,
+    p: Path,
+    with_paint: Paint,
+    how: Stroke
+) -> Result<unit, string> {
+    val c = switch with_paint {
+        Solid(colour) { colour }
+        LinearGradient(_) {
+            return err("pdf: a gradient-stroked path is not supported; fill the stroked outline instead")
+        }
+        RadialGradient(_) {
+            return err("pdf: a gradient-stroked path is not supported; fill the stroked outline instead")
+        }
+        Pattern(_) { return err("pdf: an image pattern needs phase 4") }
+    }
+    try set_alpha(out, b, c.alpha)
+    // **Stroke parameters pass straight through** rather than being turned into an outline, which
+    // is why a hairline stays a hairline at any zoom. Only the raster backend outlines (phase 5).
+    mutable_string_append(out, real_text(how.width), " w\n")
+    mutable_string_append(out, str(cap_code(how.cap)), " J\n")
+    mutable_string_append(out, str(join_code(how.join)), " j\n")
+    mutable_string_append(out, real_text(how.miter_limit), " M\n")
+    mutable_string_append(out, dash_text(how), " d\n")
+    mutable_string_append(out, colour_text(c), " RG\n")
+    emit_path(out, p)
+    mutable_string_append(out, "S\n")
+    return unit
+}
+
+fn emit_text(out: MutableString, b: Built, o: Options, t: scene.TextRun) -> Result<unit, string> {
+    if t.font < 0 || t.font >= len(o.fonts) {
+        return err(concat(
+            "pdf: a text run names font ",
+            str(t.font),
+            " but Options.fonts holds ",
+            str(len(o.fonts))
+        ))
+    }
+    val encoded = try win_ansi(t.text)
+    val c = switch t.fill {
+        Solid(colour) { colour }
+        LinearGradient(_) { return err("pdf: gradient-filled text is not supported") }
+        RadialGradient(_) { return err("pdf: gradient-filled text is not supported") }
+        Pattern(_) { return err("pdf: pattern-filled text is not supported") }
+    }
+    remember(b.fonts_used, t.font)
+    try set_alpha(out, b, c.alpha)
+    mutable_string_append(out, colour_text(c), " rg\n")
+    mutable_string_append(out, "BT\n/F", str(t.font), " ", real_text(t.size), " Tf\n")
+    // The compensating flip: the page CTM has `d = -1`, so a text matrix of `1 0 0 -1 x y` renders
+    // upright at the model's own (x, y). Without it every glyph is mirrored.
+    mutable_string_append(out, "1 0 0 -1 ", real_text(t.at.x), " ", real_text(t.at.y), " Tm\n")
+    mutable_string_append(out, "<", hex_of(encoded), "> Tj\nET\n")
+    return unit
+}
+
+// ---- paths
+
+fn emit_path(out: MutableString, p: Path) {
+    var current = geom.point_of(0.0, 0.0)
+    for s in p.segments {
+        switch s {
+            MoveTo(a) {
+                mutable_string_append(out, point_text(a), " m\n")
+                current = a
+            }
+            LineTo(a) {
+                mutable_string_append(out, point_text(a), " l\n")
+                current = a
+            }
+            QuadTo(q) {
+                // A quadratic *is* a cubic: the control points are exactly a third of the way from
+                // each end toward the quadratic's control point. No flattening, no tolerance.
+                val c1 = geom.point_of(
+                    current.x + 2.0 / 3.0 * (q.control.x - current.x),
+                    current.y + 2.0 / 3.0 * (q.control.y - current.y)
+                )
+                val c2 = geom.point_of(
+                    q.end.x + 2.0 / 3.0 * (q.control.x - q.end.x),
+                    q.end.y + 2.0 / 3.0 * (q.control.y - q.end.y)
+                )
+                mutable_string_append(out, point_text(c1), " ", point_text(c2), " ", point_text(q.end), " c\n")
+                current = q.end
+            }
+            CubicTo(c) {
+                mutable_string_append(
+                    out,
+                    point_text(c.control1),
+                    " ",
+                    point_text(c.control2),
+                    " ",
+                    point_text(c.end),
+                    " c\n"
+                )
+                current = c.end
+            }
+            Close { mutable_string_append(out, "h\n") }
+        }
+    }
+}
+
+fn point_text(p: Point) -> string {
+    return concat(real_text(p.x), " ", real_text(p.y))
+}
+
+fn matrix_text(m: Matrix) -> string {
+    return concat(
+        real_text(m.a),
+        " ",
+        real_text(m.b),
+        " ",
+        real_text(m.c),
+        " ",
+        real_text(m.d),
+        " ",
+        real_text(m.e),
+        " ",
+        real_text(m.f)
+    )
+}
+
+fn is_identity(m: Matrix) -> bool {
+    return m.a == 1.0 && m.b == 0.0 && m.c == 0.0 && m.d == 1.0 && m.e == 0.0 && m.f == 0.0
+}
+
+fn is_even_odd(w: Winding) -> bool {
+    return switch w {
+        NonZero { false }
+        EvenOdd { true }
+    }
+}
+
+fn fill_operator(w: Winding) -> string {
+    return if is_even_odd(w) { "f*" } else { "f" }
+}
+
+fn colour_text(c: Color) -> string {
+    return concat(real_text(c.red), " ", real_text(c.green), " ", real_text(c.blue))
+}
+
+fn cap_code(c: Cap) -> int {
+    return switch c {
+        Butt { 0 }
+        Round { 1 }
+        Square { 2 }
+    }
+}
+
+fn join_code(j: Join) -> int {
+    return switch j {
+        Miter { 0 }
+        Round { 1 }
+        Bevel { 2 }
+    }
+}
+
+fn dash_text(s: Stroke) -> string {
+    if len(s.dash) == 0 {
+        return "[] 0"
+    }
+    val out = mutable_string_new()
+    mutable_string_append(out, "[")
+    var first = true
+    for d in s.dash {
+        if !first {
+            mutable_string_append(out, " ")
+        }
+        first = false
+        mutable_string_append(out, real_text(d))
+    }
+    mutable_string_append(out, "] ", real_text(s.dash_phase))
+    return snapshot(out)
+}
+
+fn set_alpha(out: MutableString, b: Built, alpha: float) -> Result<unit, string> {
+    if alpha >= 1.0 {
+        return unit
+    }
+    if alpha < 0.0 {
+        return err(concat("pdf: an alpha of ", real_text(alpha), " is not a colour"))
+    }
+    var at = -1
+    var i = 0
+    for a in snapshot(b.alphas) {
+        if a == alpha {
+            at = i
+        }
+        i = i + 1
+    }
+    if at < 0 {
+        mutable_array_push(b.alphas, alpha)
+        at = len(b.alphas) - 1
+    }
+    mutable_string_append(out, "/GS", str(at), " gs\n")
+    return unit
+}
+
+fn remember(seen: MutableArray<int>, value: int) -> unit {
+    for v in snapshot(seen) {
+        if v == value {
+            return unit
+        }
+    }
+    mutable_array_push(seen, value)
+}
+
+// ---- gradients, as PDF shading dictionaries
+
+fn add_axial(b: Built, from: Point, to: Point, stops: [Stop]) -> Result<string, string> {
+    val fn_obj = try stop_function(stops)
+    val sh: [Entry] = [
+        entry("ShadingType", Obj.Int(2)),
+        entry("ColorSpace", Obj.Name("DeviceRGB")),
+        entry("Coords", Obj.Array([Obj.Real(from.x), Obj.Real(from.y), Obj.Real(to.x), Obj.Real(to.y)])),
+        entry("Extend", Obj.Array([Obj.Bool(true), Obj.Bool(true)])),
+        entry("Function", fn_obj)
+    ]
+    mutable_array_push(b.shadings, Obj.Dict(sh))
+    return ok(concat("Sh", str(len(b.shadings) - 1)))
+}
+
+fn add_radial(b: Built, centre: Point, radius: float, stops: [Stop]) -> Result<string, string> {
+    if radius <= 0.0 {
+        return err("pdf: a radial gradient needs a positive radius")
+    }
+    val fn_obj = try stop_function(stops)
+    val sh: [Entry] = [
+        entry("ShadingType", Obj.Int(3)),
+        entry("ColorSpace", Obj.Name("DeviceRGB")),
+        entry(
+            "Coords",
+            Obj.Array([
+                Obj.Real(centre.x),
+                Obj.Real(centre.y),
+                Obj.Real(0.0),
+                Obj.Real(centre.x),
+                Obj.Real(centre.y),
+                Obj.Real(radius)
+            ])
+        ),
+        entry("Extend", Obj.Array([Obj.Bool(true), Obj.Bool(true)])),
+        entry("Function", fn_obj)
+    ]
+    mutable_array_push(b.shadings, Obj.Dict(sh))
+    return ok(concat("Sh", str(len(b.shadings) - 1)))
+}
+
+// Stops become a stitching function (type 3) over one exponential ramp (type 2) per adjacent pair.
+// Two stops need no stitching, which is the common case and is written directly.
+fn stop_function(stops: [Stop]) -> Result<Obj, string> {
+    if len(stops) < 2 {
+        return err(concat("pdf: a gradient needs at least two stops, got ", str(len(stops))))
+    }
+    if len(stops) == 2 {
+        return ok(ramp(stops[0].color, stops[1].color))
+    }
+    val functions = mutable_array_new<Obj>()
+    val bounds = mutable_array_new<Obj>()
+    val encode = mutable_array_new<Obj>()
+    var i = 0
+    while i < len(stops) - 1 {
+        mutable_array_push(functions, ramp(stops[i].color, stops[i + 1].color))
+        mutable_array_push(encode, Obj.Int(0))
+        mutable_array_push(encode, Obj.Int(1))
+        if i > 0 {
+            mutable_array_push(bounds, Obj.Real(stops[i].offset))
+        }
+        i = i + 1
+    }
+    return ok(Obj.Dict([
+        entry("FunctionType", Obj.Int(3)),
+        entry("Domain", Obj.Array([Obj.Int(0), Obj.Int(1)])),
+        entry("Functions", Obj.Array(snapshot(functions))),
+        entry("Bounds", Obj.Array(snapshot(bounds))),
+        entry("Encode", Obj.Array(snapshot(encode)))
+    ]))
+}
+
+fn ramp(from: Color, to: Color) -> Obj {
+    return Obj.Dict([
+        entry("FunctionType", Obj.Int(2)),
+        entry("Domain", Obj.Array([Obj.Int(0), Obj.Int(1)])),
+        entry("C0", Obj.Array([Obj.Real(from.red), Obj.Real(from.green), Obj.Real(from.blue)])),
+        entry("C1", Obj.Array([Obj.Real(to.red), Obj.Real(to.green), Obj.Real(to.blue)])),
+        entry("N", Obj.Int(1))
+    ])
+}
+
+// ---- WinAnsiEncoding
+
+// `text` as WinAnsi bytes, or an `Err` naming the first character the encoding cannot represent.
+//
+// **This refuses rather than substitutes, and that is the point.** `WinAnsiEncoding` has no `ş`,
+// no `İ`, no Cyrillic and no CJK, and quietly writing `?` into someone's medical record is the
+// failure invariant 2 exists to prevent. The error says which character and points at phase 3.
+pub fn win_ansi(text: string) -> Result<[byte], string> {
+    val out = mutable_array_new<byte>()
+    for ch in chars(text) {
+        val cp = codepoint_of(ch)
+        val b = win_ansi_byte(cp)
+        if b < 0 {
+            return err(concat(
+                "pdf: WinAnsiEncoding cannot represent U+",
+                hex4(cp),
+                " in '",
+                text,
+                "'. The standard fonts are Latin-1 only; an embedded font (phase 3) is needed for this text"
+            ))
+        }
+        mutable_array_push(out, b as byte)
+    }
+    return ok(snapshot(out))
+}
+
+// The numeric code point of a one-character string. `chars` splits a string into code points but
+// hands each back as a string, and WinAnsi is a mapping from numbers, so the UTF-8 is decoded here.
+fn codepoint_of(ch: string) -> int {
+    val b = string_to_bytes(ch)
+    if len(b) == 0 {
+        return -1
+    }
+    val b0 = b[0] as int
+    if b0 < 128 {
+        return b0
+    }
+    if b0 < 224 && len(b) >= 2 {
+        return (b0 - 192) * 64 + ((b[1] as int) - 128)
+    }
+    if b0 < 240 && len(b) >= 3 {
+        return (b0 - 224) * 4096 + ((b[1] as int) - 128) * 64 + ((b[2] as int) - 128)
+    }
+    if len(b) >= 4 {
+        return (b0 - 240) * 262144 + ((b[1] as int) - 128) * 4096 + ((b[2] as int) - 128) * 64 +
+            ((b[3] as int) - 128)
+    }
+    return -1
+}
+
+fn win_ansi_byte(cp: int) -> int {
+    // The Latin-1 ranges map one to one.
+    if cp >= 32 && cp <= 126 {
+        return cp
+    }
+    if cp >= 160 && cp <= 255 {
+        return cp
+    }
+    // CP1252's own block, where WinAnsi differs from Latin-1: the typographic characters a document
+    // actually uses -- curly quotes, dashes, the euro sign.
+    if cp == 8364 {
+        return 128
+    }
+    if cp == 8218 {
+        return 130
+    }
+    if cp == 402 {
+        return 131
+    }
+    if cp == 8222 {
+        return 132
+    }
+    if cp == 8230 {
+        return 133
+    }
+    if cp == 8224 {
+        return 134
+    }
+    if cp == 8225 {
+        return 135
+    }
+    if cp == 710 {
+        return 136
+    }
+    if cp == 8240 {
+        return 137
+    }
+    if cp == 352 {
+        return 138
+    }
+    if cp == 8249 {
+        return 139
+    }
+    if cp == 338 {
+        return 140
+    }
+    if cp == 381 {
+        return 142
+    }
+    if cp == 8216 {
+        return 145
+    }
+    if cp == 8217 {
+        return 146
+    }
+    if cp == 8220 {
+        return 147
+    }
+    if cp == 8221 {
+        return 148
+    }
+    if cp == 8226 {
+        return 149
+    }
+    if cp == 8211 {
+        return 150
+    }
+    if cp == 8212 {
+        return 151
+    }
+    if cp == 732 {
+        return 152
+    }
+    if cp == 8482 {
+        return 153
+    }
+    if cp == 353 {
+        return 154
+    }
+    if cp == 8250 {
+        return 155
+    }
+    if cp == 339 {
+        return 156
+    }
+    if cp == 382 {
+        return 158
+    }
+    if cp == 376 {
+        return 159
+    }
+    return -1
+}
+
+fn hex4(cp: int) -> string {
+    val digits = "0123456789ABCDEF"
+    var n = cp
+    var out = ""
+    var i = 0
+    while i < 4 {
+        val d = n % 16
+        out = concat(substring(digits, d, d + 1), out)
+        n = n / 16
+        i = i + 1
+    }
+    return out
+}

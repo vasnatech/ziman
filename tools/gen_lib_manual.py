@@ -25,7 +25,7 @@ GROUPS = [
     ("HTTP", "http", ["http", "server", "client"]),
     ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql"]),
     ("Testing", "core", ["test"]),
-    ("Graphics", "graphics", ["geom", "shape", "paint", "scene"]),
+    ("Graphics", "graphics", ["geom", "shape", "paint", "scene", "pdfobj", "pdf"]),
 ]
 
 
