@@ -1621,3 +1621,62 @@ root push. Noted for whoever opens that fork: `tests/bench/gcheap/` on the spike
 four workloads written for this, and they are the only benchmarks in the tree that put a large *live*
 set in the per-thread heap -- every existing one leaves it nearly empty (`scalar_arrays_bench`: 384
 bytes in 4 objects), which is why none of them can see this cost at all.
+
+### Re-measured: the problem this whole document exists to solve does not reproduce
+
+Asked the plain question "what is left here" and re-ran the benchmark the page opens with, rather
+than answering from the page. The founding diagnosis -- the one every design below it is a response
+to -- is **inverted on today's build**. `tests/bench/server_concurrency.sh` against the real backend,
+three interleaved rounds per build, `ziman-nogc` rebuilt from the same source first:
+
+| c | `ziman` (collector) | `ziman-nogc` |
+| --- | --- | --- |
+| 1 | 487, 487, 490 | 453, 465, 468 |
+| 4 | 1196, 1216, 1225 | 1226, 1259, 1277 |
+| 8 | 1388, 1389, 1431 | 1389, 1394, 1406 |
+| 16 | 1477, 1518, 1554 | 1254, 1266, 1285 |
+
+And pushed further out, two more rounds, because a decline can move right rather than disappear:
+
+| c | `ziman` | `ziman-nogc` |
+| --- | --- | --- |
+| 16 | 1450, 1479 | 1271, 1284 |
+| 32 | 1487, 1503 | 1187, 1191 |
+| 64 | 1444, 1479 | 1177, 1178 |
+
+Compare what this page says at the top: "the collector build peaks around c=4 and then *declines*
+as concurrency rises further (c=16 is worse than c=1), while `ziman-nogc` climbs smoothly the whole
+way and is several times faster by c=16." Today the collector build **climbs to c=8, plateaus flat
+through c=64, and beats `nogc` at every level above c=4** -- by 22-26% at c=64. It is `nogc` that
+now peaks (c=8) and declines. The spread between the two builds at c=16 and above does not overlap
+across rounds, so this is not noise between consecutive runs of the kind this page has been caught
+by before.
+
+**What to make of it, carefully.** This is one benchmark on one machine on one day, and the absolute
+c=1 figure (487) is well below the 637-689 this page recorded historically, so the machine or its
+state is slower overall than when the originals were taken -- which is a reason to read the *shape*
+and the *A/B against nogc* rather than the absolute numbers. It is also the benchmark whose own
+limits are already recorded here: the app is dominated by HTTP parsing, SQLite and the collector, so
+it converts interpreter wins poorly and may be bottlenecked somewhere other than the thing under
+test. None of that explains a reversal this size, and the nogc reference was rebuilt from the same
+source immediately before the runs.
+
+**The honest reading is that the accumulated work closed it, and that this page repeatedly said it
+could not.** Env pooling, slot resolution and call-dispatch caching, the constructor inlining, the
+`Value.type` pointer, the scaled `ZIMAN_GC_TRIGGER_BYTES` (which removed a genuinely quadratic
+collection trigger), the channel-buffer livelock fix, and the `GC_INITIAL_HEAP_SIZE` tuning each
+landed with a note that the "underlying structural problem -- one shared heap, stopped for everyone
+-- is unaffected". Individually that was true. The sum of them appears not to be: allocating far
+less per request, and collecting proportionally rather than quadratically, is apparently enough to
+take the stop-the-world pause out of the critical path at this concurrency on this workload.
+
+**So the fork recorded in the entries above should not be opened yet.** Both branches of it --
+finish the migration so the arena can stop being a Boehm root, or retire the gc_heap and keep Boehm
+plus tuning -- are answers to a scaling problem that the measurement above says is not currently
+present. The next step on this page is therefore not architecture. It is to establish whether that
+reversal is real: more rounds, a second machine if one is available, `GC_PRINT_STATS` pause
+accounting at c=16 and c=64 to see whether the pauses that drove the original diagnosis (21% of
+wall-clock at c=1, 30% at c=16) are still there, and the `tests/bench/gcheap/` workloads for the
+two-collector cost that this backend cannot see at all. If it holds, the per-thread-heap design
+becomes history to keep rather than work to schedule, and the right deliverable is to say so at the
+top of this page instead of leaving a design pointing at a problem that has gone.
