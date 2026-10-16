@@ -33,6 +33,15 @@ BUILD := build
 PLAIN_CFLAGS := -std=c11 -O2 -fwrapv -Wall -Wextra -Wpedantic -Wvla -Wshadow -g -pthread -I$(BUILD)
 CFLAGS := $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)"' $(GC_FLAGS) -MMD -MP
 SRC := $(wildcard src/*.c)
+# Every header, as a blunt prerequisite for the targets that compile all of $(SRC) in one `cc`
+# invocation (ziman-nogc, ziman-allocprofile, ziman-vg -- see make/c.mk). Those have no depfile to
+# track includes with, unlike $(OBJ)'s own -MMD -MP, so listing only $(SRC) left them never
+# rebuilding on a header change: `touch src/value.h && make ziman-nogc` answered "up to date",
+# which meant `make test-nogc` -- and so `make check-fast` -- could validate a stale binary after a
+# change to a struct layout, an inline function or a macro. `struct Value` itself lives in a header.
+# Blunt rather than precise on purpose: those recipes recompile every file anyway, so per-file
+# accuracy would buy nothing.
+HDR := $(wildcard src/*.h)
 OBJ := $(patsubst src/%.c,$(BUILD)/%.o,$(SRC))
 DEP := $(OBJ:.o=.d)
 BIN := ziman

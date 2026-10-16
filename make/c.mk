@@ -30,7 +30,7 @@ nogc: ziman-nogc
 
 $(OBJ): $(CORELIB_HEADERS)
 
-ziman-nogc: $(SRC) $(CORELIB_HEADERS)
+ziman-nogc: $(SRC) $(HDR) $(CORELIB_HEADERS)
 	$(CC) $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-nogc"' -o $@ $(SRC) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
 
 # lib/core/<name>.zm -> build/<name>_source.h, a
@@ -188,7 +188,7 @@ test-gc-interp-roots: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.
 # per allocation -- but it answers "what actually allocates" exactly rather than by sampling, which is
 # how F7's three hottest sites were found (the review had named two different ones). See
 # src/allocsites.c. Run as: ./ziman-allocprofile <program.zm> 2>&1 | sed -n '/allocations by site/,$p'
-ziman-allocprofile: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
+ziman-allocprofile: $(SRC) $(HDR) $(CORELIB_HEADERS) $(GC_LIB)
 	$(CC) $(PLAIN_CFLAGS) -DZIMAN_VERSION='"$(ZIMAN_VERSION)-allocprofile"' $(GC_FLAGS) 	    -DZIMAN_ALLOC_PROFILE -o $@ $(SRC) $(GC_LIB) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
 
 asan: $(SRC) $(CORELIB_HEADERS) $(GC_LIB)
@@ -234,7 +234,7 @@ sanitizers: asan ubsan tsan
 # as `???` and the frame they key on never appears). Not in `make check`: valgrind is about 100x
 # slower than ASan. What it buys that the sanitizer targets cannot is uninitialised-value checking,
 # which ASan does not do and MSan is not here to do, plus the leak checker that found A26.
-ziman-vg: $(SRC) $(CORELIB_HEADERS)
+ziman-vg: $(SRC) $(HDR) $(CORELIB_HEADERS)
 	$(CC) $(PLAIN_CFLAGS) -fno-omit-frame-pointer -DZIMAN_VERSION='"$(ZIMAN_VERSION)-vg"' \
 	    -o ziman-vg $(SRC) -lm -lsqlite3 -lssl -lcrypto -lcrypt -lz -pthread
 
