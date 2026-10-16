@@ -2,10 +2,14 @@
  * outside src/ since it has its own main(). Run via `make test-handleslot`.
  *
  * Built without ZIMAN_GC, so the weak-reference half (a slot cleared by the collector) is not
- * exercised here -- that needs a real collector and belongs in a Ziman-level fixture once anything
- * uses this. What this pins is everything else: packing, reuse, and above all that a stale handle
- * is rejected after its slot is handed to someone else, which is the hazard the address-keyed
- * HandleSet cannot catch. */
+ * exercised here -- that needs a real collector. What this pins is everything else: packing, reuse,
+ * and above all that a stale handle is rejected after its slot is handed to someone else, which is
+ * the hazard the address-keyed HandleSet cannot catch.
+ *
+ * Worth knowing what that gap hid: these assertions all passed on a design that cannot work,
+ * because a weak slot roots nothing and so the first collection would take every live handle in the
+ * program. A test that never collects cannot see it. See src/handleslot.h, which now records the
+ * blocker and what a sound version needs; nothing uses this module. */
 #include <stdio.h>
 #include <string.h>
 
