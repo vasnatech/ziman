@@ -32,11 +32,29 @@ static size_t hash_ptr(void *p) {
  *
  * The edge in that argument, since it rests on where the integer lives rather than on what it is: a
  * packed `[int]` array is `zalloc_atomic` too (`src/value.c`'s pack_kind path), so an address stored
- * *there* would root nothing. That is reachable today only halfway -- `it.handle` is an ordinary int
- * field and a Ziman program can read it (it prints a raw address) and put it in an array -- and it
- * is harmless only because nothing in the language takes a bare int as a handle: every builtin wants
- * the `Iter` or `Socket` value, which does the rooting. A native that accepted a handle integer
- * directly would break this, and that is the thing to notice before adding one. */
+ * *there* would root nothing. `it.handle` is an ordinary int field, so a Ziman program can read the
+ * address out and put it in such an array.
+ *
+ * This comment used to add that the gap was harmless "because nothing in the language takes a bare
+ * int as a handle: every builtin wants the `Iter` or `Socket` value, which does the rooting."
+ * **That is false, and was checked rather than reasoned about (2026-10-15).** These wrappers are
+ * ordinary `pub struct`s with an ordinary `int` field, so a program can write
+ * `net.Listener { handle: someInt }` and hand it to any of these functions -- the struct is a box,
+ * not a capability. Verified both ways: rewrapping a *live* handle produces a working value
+ * (`net.listener_port` on the copy answers the same port as the original), and a made-up handle is
+ * rejected cleanly by this very table, with a runtime error rather than a dereference.
+ *
+ * So the safety property holds -- a fabricated handle cannot crash anything, which is what this
+ * table is for -- and only the rooting claim was overstated. The residual hazard is narrow and was
+ * *not* demonstrated: stash a real handle in a packed `[int]`, drop the wrapper, let the object be
+ * collected and its finalizer close the descriptor, let a new object land at the same address, then
+ * rewrap the stale integer -- which would silently operate on the wrong object, since the address is
+ * live again and this table would say yes. An attempt to produce that (a listener stashed from a
+ * dead scope, 800,000 string allocations of churn, 60 further listeners opened to reuse the address)
+ * came back with the original still alive and answering its own port, so either the collection
+ * pressure was not enough or something else still roots it. Worth knowing before trusting address
+ * identity anywhere: `handles.h`'s own generation-counter idea would close it, and a validation
+ * cache keyed on the address alone would widen it. */
 static void **alloc_slots(size_t n) {
     void **slots = zalloc_atomic(n * sizeof(void *)); /* never scanned by the collector -- see above */
     memset(slots, 0, n * sizeof(void *));
