@@ -391,4 +391,36 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 
   **A follow-on, and it measured nothing -- recorded because the diagnosis it corrects is the useful part.** After the above, `contains` on a `MutableMap` was still ~25ns slower than the equivalent `mutable_map_get_or`, and the visible suspect was a second name-based dispatch below the chain: `call_contains` does a `strcmp` against `"Mutable"` to rule out the cell, then `ziman_builder_contains` does two more against `"MutableArray"` and `"MutableString"` -- and none of those can short-circuit on the first character, because all five mutable types are named `Mutable`+suffix. Classifying once (`ziman_mutable_kind`, prelude.h, switching on the index-7 divergence and confirming with a short suffix `strcmp`) and passing the result into `ziman_builder_length`/`ziman_builder_contains` removed two of the three comparisons. `MutableMap contains` went 99-110 -> 103-127 ns/op: **no change, inside the noise.**
 
-  So the residual is not those `strcmp`s. It is the guarded chain's own length: `CALLEE_IS` made each comparison a byte compare rather than a call, but `contains` still performs 44 of them against `map_get_or`'s 22, and ~20ns is what that difference is worth. Which means the full fix this entry originally described -- a resolved id stamped on the call node, so dispatch is O(1) rather than O(position) -- is the only thing left that can close it, and the mechanical trick above has been taken as far as it goes. The classification change is kept anyway: it removes genuinely redundant work, puts one documented exact test where three inexact-looking ones were, and stops the caller and callee each deriving the same fact from a string. The standard benchmarks are unmoved (loop 0.09-0.10s, fib 0.04-0.05s, scalar_arrays 0.29-0.32s, bytes 0.07-0.08s), as expected: they are dominated by arithmetic and array work, not by deep-chain builtins. Verified with 1028 fixtures on both builds, the 153 unit tests, the 50-task benchmark suite, and an explicit check of the `set`/`set`/`Set` trio whose overlapping names are the reason order is load-bearing.
+  So the residual is not those `strcmp`s. It is the guarded chain's own length: `CALLEE_IS` made each comparison a byte compare rather than a call, but `contains` still performs 44 of them against `map_get_or`'s 22, and ~20ns is what that difference is worth. Which means the full fix this entry originally described -- a resolved id stamped on the call node, so dispatch is O(1) rather than O(position) -- is the only thing left that can close it, and the mechanical trick above has been taken as far as it goes.
+
+  **The resolved id, done 2026-10-15, which is this entry's own answer and does close it.** `Expr`
+gains `call_builtin` (ast.h): 0 "not looked up", -1 "not a builtin", positive = a `BuiltinId`. The
+interpreter resolves it on the node's first evaluation with a linear scan over the 63 names -- once
+per call *site*, never per call -- and every one of the 66 branches is now an integer compare, which
+is a shape GCC can turn into a jump table. Filled lazily rather than by the type checker, which
+recognises builtins in a dispatch of its own well before it reaches `call_fn`'s assignment, and read
+and written with relaxed atomics because threads share one AST: two may resolve the same node at
+once and both compute the same value, so the requirement is only that the int store be
+well-defined rather than a data race.
+
+  Chain order is untouched, which still matters -- and it is three names, not one: `set`, `insert`
+and `remove` are each tested in two branches, so first-match-wins decides the handler in all three
+cases.
+
+  **Measured at 5,000,000 samples a row** (the count had to go up: at 1,000,000 the cheap rows had
+got faster than the benchmark could resolve, and `len` reported -15 ns/op once because the
+subtracted baseline moves 60-80ms between runs -- `map_ops.zm`'s header now says so):
+
+  | operation | before F140 | after the id | CPython 3.14 `dict` |
+  | --- | --- | --- | --- |
+  | `Map contains` | 182-220ns | **87-88ns** | 32ns |
+  | `Map map_get_or` | 87-119ns | **67-77ns** | 27ns |
+  | `Map len` | 89ns (2026-10-05) | **18-20ns** | 17ns |
+  | `Map remove` (persistent) | 1467-1476ns | **914-923ns** | 39ns |
+  | `MutableMap contains` | 166-189ns | **101-103ns** | 32ns |
+
+  `Map remove` moving by a third is the clearest confirmation that position was the cost: nothing
+about persistent removal changed, only how far down the chain its name sat. The standard benchmarks
+are unmoved (loop 0.09-0.12s, fib 0.04-0.05s, scalar_arrays 0.29-0.33s, bytes 0.07-0.08s), so the
+one added relaxed load per call costs nothing measurable on paths that were already skipping the
+chain. The classification change is kept anyway: it removes genuinely redundant work, puts one documented exact test where three inexact-looking ones were, and stops the caller and callee each deriving the same fact from a string. The standard benchmarks are unmoved (loop 0.09-0.10s, fib 0.04-0.05s, scalar_arrays 0.29-0.32s, bytes 0.07-0.08s), as expected: they are dominated by arithmetic and array work, not by deep-chain builtins. Verified with 1028 fixtures on both builds, the 153 unit tests, the 50-task benchmark suite, and an explicit check of the `set`/`set`/`Set` trio whose overlapping names are the reason order is load-bearing.

@@ -265,6 +265,22 @@ struct Expr {
      * practice, but they answer different questions and are kept as different fields for that
      * reason. See docs/DESIGN.md's interpreter-speed entry. */
     void *call_fn;
+    /* EXPR_CALL, the same "resolve once, reuse every time" idea as call_fn just above, for the
+     * other half of the dispatch: which *builtin* this call names, as a small integer, so the
+     * interpreter compares an int instead of walking a chain of name comparisons. 0 means "not
+     * looked up yet", -1 means "looked up, not a builtin" (an ordinary call, which call_fn above
+     * already answers), and anything positive is a builtin id.
+     *
+     * Needed because builtins were the one call shape paying the chain on every call: an ordinary
+     * named call is resolved once into call_fn at type-check time and skips the chain entirely,
+     * while a builtin matched a `strcmp` partway down it and so paid for every branch above
+     * itself -- measurably, since `contains` sits 44th and `map_get_or` 22nd (docs/reviews/tasks.md
+     * F140). Filled lazily by the interpreter rather than by the type checker, which recognises
+     * builtins in a dispatch of its own well before it reaches call_fn's assignment, and read and
+     * written with relaxed atomics: threads share one AST, two of them may resolve the same node
+     * at once, and both compute the same value -- so the only requirement is that the int store
+     * be well-defined rather than a data race, which `__atomic_*` gives at no cost on x86. */
+    int call_builtin;
     /* EXPR_LAMBDA: `fn(x: int) -> int { ... }`. `lambda_decl` (a FunctionDecl *)
      * holds the parameters, return type and body as written. The type checker
      * finds which enclosing `val`s the body uses (captures, by value) and puts

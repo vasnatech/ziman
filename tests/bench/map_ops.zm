@@ -6,9 +6,24 @@
 // sorted block index (F56), the scaled `ZIMAN_GC_TRIGGER_BYTES`, and `Value.type` as a pointer.
 // This file exists so the next person does not have to reconstruct it.
 //
-// Loop overhead is measured and subtracted. OPS is exactly 1,000,000, which makes elapsed
-// milliseconds read directly as nanoseconds per operation -- do not change it without changing
-// the reporting. Compare against tests/bench/map_ops.py, which is the same workload on `dict`.
+// Two key types, because they are not the same question. With int keys CPython is at its very
+// best: `hash(i) == i` for a small int and the slot is `hash & mask`, so keys 0..n-1 land one per
+// slot with no collisions and no hashing cost at all. Ziman deliberately does the opposite --
+// `map_hash` (mapobj.c) runs a murmur3 finalizer over the identity hash precisely so that
+// consecutive keys do not pile into one subtrie of a 32-way trie -- so it pays ~5 arithmetic ops
+// the other side skips. String keys move the comparison the other way in one respect and not in
+// another: both sides hash the bytes, but a CPython `str` caches its hash on the object while a
+// Ziman string is a {ptr,len,term} view with nowhere to keep one, so FNV-1a runs per lookup.
+//
+// Loop overhead is measured and subtracted. `ops` and `report` are a pair: ns/op is
+// millis * 1e6 / ops, so changing one means changing the other.
+//
+// It was 1,000,000, which made elapsed milliseconds read directly as ns/op -- neat, but once the
+// cheap rows got fast enough it stopped being able to resolve them: `len` reported **-15 ns/op**
+// once, because the subtracted baseline itself moves 60-80ms between runs and the row being
+// measured was smaller than that movement. Five million samples puts the baseline's own noise
+// five times further below each row. A negative figure here still means the same thing it meant
+// then: the row is at or below the measurement floor, not that it costs less than nothing. Compare against tests/bench/map_ops.py, which is the same workload on `dict`.
 //
 // Every measured loop is the baseline loop *plus exactly the operation*: it computes the same
 // `k = i % size` and does the same `acc = acc + ...`, so the subtraction is apples to apples. A
@@ -18,11 +33,11 @@
 use clock
 
 val size = 100000
-val ops = 1000000
+val ops = 5000000
 
 fn report(label: string, millis: int, base: int) {
-    // ops == 1,000,000, so elapsed ms is ns/op.
-    printf("  {}  {} ns/op\n", label, millis - base)
+    // ns/op is millis * 1e6 / ops, which at ops == 5,000,000 is millis / 5.
+    printf("  {}  {} ns/op\n", label, (millis - base) / 5)
 }
 
 fn main() {
@@ -40,7 +55,7 @@ fn main() {
         acc = acc + k
     }
     val base = clock.monotonic_millis() - t
-    printf("  (loop overhead {} ns/op, subtracted below)\n", base)
+    printf("  (loop overhead {} ns/op, subtracted below)\n", base / 5)
 
     t = clock.monotonic_millis()
     for i in 0..ops {
@@ -143,4 +158,66 @@ fn main() {
     report("MutableMap  remove+set     ", clock.monotonic_millis() - t, base)
 
     printf("  (checksum {}, entries {})\n", acc, len(mb))
+
+    // ---- the same questions with string keys ----
+    val kb = mutable_array_new<string>(capacity: size)
+    for i in 0..size {
+        mutable_array_push(kb, concat("key-", str(i)))
+    }
+    val keys = snapshot(kb)
+    val smb = mutable_map_new<string, int>()
+    for i in 0..size {
+        mutable_map_set<string, int>(smb, keys[i], i)
+    }
+    val sm = snapshot(smb)
+    printf("\nSame over {} string keys (pre-built, so no key construction is measured)\n", size)
+
+    // The baseline indexes the key array and reads the key's length, exactly as each row below
+    // does, so only the map operation is left after subtraction.
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val j = i % size
+        val k = keys[j]
+        acc = acc + len(k)
+    }
+    val sbase = clock.monotonic_millis() - t
+    printf("  (loop overhead {} ns/op, subtracted below)\n", sbase / 5)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val j = i % size
+        val k = keys[j]
+        acc = acc + len(k) + map_get_or(sm, k, 0)
+    }
+    report("Map         map_get_or     ", clock.monotonic_millis() - t, sbase)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val j = i % size
+        val k = keys[j]
+        acc = acc + len(k)
+        if contains(sm, k) {
+            acc = acc + 1
+        }
+    }
+    report("Map         contains       ", clock.monotonic_millis() - t, sbase)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val j = i % size
+        val k = keys[j]
+        acc = acc + len(k) + mutable_map_get_or(smb, k, 0)
+    }
+    report("MutableMap  get_or         ", clock.monotonic_millis() - t, sbase)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val j = i % size
+        val k = keys[j]
+        acc = acc + len(k)
+        mutable_map_set<string, int>(smb, k, j)
+    }
+    report("MutableMap  set            ", clock.monotonic_millis() - t, sbase)
+
+    printf("  (checksum {}, entries {})\n", acc, len(smb))
 }

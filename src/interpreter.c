@@ -1206,27 +1206,166 @@ static Value eval_enum_access(Module *module, Env *env, Expr *e) {
     return obj->payload;
 }
 
-/* The builtin-dispatch chain in eval_expr's EXPR_CALL case is 62 sequential name comparisons, and
- * a builtin pays one per branch above it: `len` sits 5th, `map_get_or` 22nd, `contains` 44th, and
- * the measured per-operation costs tracked exactly that order -- 19-39ns, 87-119ns and 182-220ns
- * on a 100,000-entry map. Hoisting `contains` to 5th, changing nothing else, took it to 78-124ns,
- * so ~95ns of a `contains` call was string comparison (docs/reviews/tasks.md F140).
+/* Every builtin name the dispatch chain in eval_expr tests, as an integer each call node caches
+ * (ast.h's `call_builtin`). The chain then compares ints, which GCC can turn into a jump table,
+ * instead of comparing names -- and a builtin stops paying for every branch above it.
  *
- * This guards each comparison with the first character, which for a literal is a compile-time
- * constant -- so a branch whose name starts with a different letter costs one byte compare instead
- * of a call into `strcmp`. Exactly equivalent to `strcmp(callee, lit) == 0`: `callee[0]` is always
- * readable (the chain is only reached for a named call, where the name is a NUL-terminated string
- * of at least one character), and a first character that matches falls through to the same
- * `strcmp` as before.
+ * The chain's *order* is still load-bearing and is unchanged: `set`, `insert` and `remove` are each
+ * tested in two different branches (an array/map one and a `Set`/`Map` constructor one), so
+ * first-match-wins decides which handler a call reaches. Ids do not change that; they only make
+ * each test cheap.
  *
- * Deliberately *not* done by reordering the chain, which is the obvious fix and is wrong: `"set"`
- * is matched in two separate branches (an `||` in the array/map `set`, and the `Set` constructor
- * further down), so first-match-wins makes the order load-bearing. Deliberately not done by
- * stamping a resolved id on the node either, which is the better long-term answer F140 describes
- * but needs an id assigned in all 62 branches; this is the whole of the win for a mechanical,
- * order-preserving edit. The ordinary-function path already has its own "resolve once" cache
- * (`e->call_fn`, below), which is why only builtins were paying this at all. */
-#define CALLEE_IS(lit) (callee[0] == (lit)[0] && strcmp(callee, lit) == 0)
+ * The measurements this replaces, for the record: with a plain `strcmp` per branch, `len` (5th)
+ * cost 19-39 ns/op, `map_get_or` (22nd) 87-119 and `contains` (44th) 182-220 on a 100,000-entry
+ * map, and hoisting `contains` to 5th took it to 78-124 -- so position was the whole story.
+ * Guarding each `strcmp` with the literal's first character took `contains` to 93-94, and this
+ * removes what that left: 44 byte-compares against `map_get_or`'s 22. */
+typedef enum {
+    B_NONE = 0,
+    B_print,
+    B_str,
+    B_format,
+    B_printf,
+    B_len,
+    B_mutable_array_push_all,
+    B_mutable_map_set_all,
+    B_mutable_set_union,
+    B_mutable_set_intersect,
+    B_mutable_set_difference,
+    B_mutable_set_is_subset,
+    B_mutable_array_from,
+    B_mutable_map_from,
+    B_mutable_set_from,
+    B_mutable_set_from_array,
+    B_clear,
+    B_snapshot,
+    B_push,
+    B_set,
+    B_insert,
+    B_remove,
+    B_map_get,
+    B_map_get_or,
+    B_map_merge,
+    B_set_union,
+    B_set_intersect,
+    B_set_difference,
+    B_set_is_subset,
+    B_map_filter,
+    B_set_filter,
+    B_map_remove_all,
+    B_set_insert_all,
+    B_set_from_array,
+    B_map_from_arrays,
+    B_map_keys,
+    B_map_values,
+    B_set_items,
+    B_map_lit,
+    B_set_lit,
+    B_ok,
+    B_err,
+    B_Some,
+    B_None,
+    B_is_ok,
+    B_unwrap,
+    B_unwrap_err,
+    B_contains,
+    B_hash,
+    B_compare,
+    B_error_message,
+    B_abs,
+    B_min,
+    B_max,
+    B_channel_new,
+    B_send,
+    B_try_send,
+    B_channel_close,
+    B_channel_len,
+    B_try_receive,
+    B_receive,
+    B_receive_option,
+    B_receive_timeout,
+    B_select2
+} BuiltinId;
+
+static const struct { const char *name; int id; } g_builtins[] = {
+    {"print", B_print},
+    {"str", B_str},
+    {"format", B_format},
+    {"printf", B_printf},
+    {"len", B_len},
+    {"mutable_array_push_all", B_mutable_array_push_all},
+    {"mutable_map_set_all", B_mutable_map_set_all},
+    {"mutable_set_union", B_mutable_set_union},
+    {"mutable_set_intersect", B_mutable_set_intersect},
+    {"mutable_set_difference", B_mutable_set_difference},
+    {"mutable_set_is_subset", B_mutable_set_is_subset},
+    {"mutable_array_from", B_mutable_array_from},
+    {"mutable_map_from", B_mutable_map_from},
+    {"mutable_set_from", B_mutable_set_from},
+    {"mutable_set_from_array", B_mutable_set_from_array},
+    {"clear", B_clear},
+    {"snapshot", B_snapshot},
+    {"push", B_push},
+    {"set", B_set},
+    {"insert", B_insert},
+    {"remove", B_remove},
+    {"map_get", B_map_get},
+    {"map_get_or", B_map_get_or},
+    {"map_merge", B_map_merge},
+    {"set_union", B_set_union},
+    {"set_intersect", B_set_intersect},
+    {"set_difference", B_set_difference},
+    {"set_is_subset", B_set_is_subset},
+    {"map_filter", B_map_filter},
+    {"set_filter", B_set_filter},
+    {"map_remove_all", B_map_remove_all},
+    {"set_insert_all", B_set_insert_all},
+    {"set_from_array", B_set_from_array},
+    {"map_from_arrays", B_map_from_arrays},
+    {"map_keys", B_map_keys},
+    {"map_values", B_map_values},
+    {"set_items", B_set_items},
+    {"$map_lit", B_map_lit},
+    {"$set_lit", B_set_lit},
+    {"ok", B_ok},
+    {"err", B_err},
+    {"Some", B_Some},
+    {"None", B_None},
+    {"is_ok", B_is_ok},
+    {"unwrap", B_unwrap},
+    {"unwrap_err", B_unwrap_err},
+    {"contains", B_contains},
+    {"hash", B_hash},
+    {"compare", B_compare},
+    {"error_message", B_error_message},
+    {"abs", B_abs},
+    {"min", B_min},
+    {"max", B_max},
+    {"channel_new", B_channel_new},
+    {"send", B_send},
+    {"try_send", B_try_send},
+    {"channel_close", B_channel_close},
+    {"channel_len", B_channel_len},
+    {"try_receive", B_try_receive},
+    {"receive", B_receive},
+    {"receive_option", B_receive_option},
+    {"receive_timeout", B_receive_timeout},
+    {"select2", B_select2},
+};
+
+/* Runs once per call site, not per call -- the result lands in the node. A linear scan is
+ * therefore the right shape: it costs one walk over 63 names the first time a given call
+ * expression is evaluated, and nothing ever again. Returns -1 for a name that is not a builtin,
+ * which the caller caches too, so an ordinary call never scans twice either. */
+static int resolve_builtin(const char *name) {
+    for (size_t i = 0; i < sizeof(g_builtins) / sizeof(g_builtins[0]); i++) {
+        if (name[0] == g_builtins[i].name[0] && strcmp(name, g_builtins[i].name) == 0) {
+            return g_builtins[i].id;
+        }
+    }
+    return -1;
+}
+
 
 static Value eval_expr(Module *module, Env *env, Expr *e) {
     ZIMAN_STACK_CHECK();
@@ -1282,9 +1421,17 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             }
             gc_unsafe_leave();
             Value result;
-            /* For CALLEE_IS (above). NULL only for a call through a value, which the first branch
-             * takes before any comparison runs. */
+            /* NULL only for a call through a value, which the first branch takes before any
+             * dispatch runs. `bid` is this node's cached builtin id -- see ast.h's call_builtin. */
             const char *callee = e->as.call.callee;
+            int bid = 0;
+            if (callee != NULL) {
+                bid = __atomic_load_n(&e->call_builtin, __ATOMIC_RELAXED);
+                if (bid == 0) {
+                    bid = resolve_builtin(callee);
+                    __atomic_store_n(&e->call_builtin, bid, __ATOMIC_RELAXED);
+                }
+            }
             if (e->as.call.through_value || e->as.call.callee_expr != NULL) {
                 /* A call through a function value. Either a local of function type (a parameter, a val),
                  * or -- when `callee_expr` is set -- a struct field holding one, `handler.run(21)`, whose
@@ -1329,78 +1476,78 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 if (fn->is_native && fn->type_params.count > 0 && e->resolved_type.kind != TY_TYPEVAR) {
                     result.type = &e->resolved_type;
                 }
-            } else if (CALLEE_IS("print")) {
+            } else if (bid == B_print) {
                 result = call_print(args[0]);
-            } else if (CALLEE_IS("str")) {
+            } else if (bid == B_str) {
                 result = call_str(args[0]);
-            } else if (CALLEE_IS("format")) {
+            } else if (bid == B_format) {
                 result = call_format(args, argc);
-            } else if (CALLEE_IS("printf")) {
+            } else if (bid == B_printf) {
                 Value text = call_format(args, argc);
                 fwrite(text.as.str.ptr, 1, text.as.str.len, stdout);
                 fflush(stdout);
                 result = value_int(0);
-            } else if (CALLEE_IS("len")) {
+            } else if (bid == B_len) {
                 result = call_len(args[0]);
-            } else if (CALLEE_IS("mutable_array_push_all")) {
+            } else if (bid == B_mutable_array_push_all) {
                 ziman_mutable_array_push_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
                 result = value_int(0);
-            } else if (CALLEE_IS("mutable_map_set_all")) {
+            } else if (bid == B_mutable_map_set_all) {
                 ziman_mutable_map_set_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
                 result = value_int(0);
-            } else if (CALLEE_IS("mutable_set_union") ||
-                       CALLEE_IS("mutable_set_intersect") ||
-                       CALLEE_IS("mutable_set_difference")) {
+            } else if (bid == B_mutable_set_union ||
+                       bid == B_mutable_set_intersect ||
+                       bid == B_mutable_set_difference) {
                 int op = e->as.call.callee[12] == 'u' ? 0 : e->as.call.callee[12] == 'i' ? 1 : 2;
                 ziman_mutable_set_combine(args[0], args[1], args[1].type->kind == TY_STRUCT, op);
                 result = value_int(0);
-            } else if (CALLEE_IS("mutable_set_is_subset")) {
+            } else if (bid == B_mutable_set_is_subset) {
                 result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type->kind == TY_STRUCT));
-            } else if (CALLEE_IS("mutable_array_from")) {
+            } else if (bid == B_mutable_array_from) {
                 result = ziman_mutable_array_from(args[0], args[0].type->kind == TY_STRUCT);
                 result.type = &e->resolved_type;
-            } else if (CALLEE_IS("mutable_map_from") ||
-                       CALLEE_IS("mutable_set_from")) {
+            } else if (bid == B_mutable_map_from ||
+                       bid == B_mutable_set_from) {
                 result = ziman_mutable_map_from(args[0], e->as.call.callee[8] == 's');
                 result.type = &e->resolved_type;
-            } else if (CALLEE_IS("mutable_set_from_array")) {
+            } else if (bid == B_mutable_set_from_array) {
                 result = ziman_mutable_set_from_array(args[0], args[0].type->kind == TY_STRUCT);
                 result.type = &e->resolved_type;
-            } else if (CALLEE_IS("clear")) {
+            } else if (bid == B_clear) {
                 ziman_builder_clear(args[0]);
                 result = value_int(0); /* void return, as `send` and the other effects do */
-            } else if (CALLEE_IS("snapshot")) {
+            } else if (bid == B_snapshot) {
                 result = ziman_builder_snapshot(args[0]);
                 /* The natives behind it tag their result TY_VOID or a placeholder element type, so
                  * the call's own resolved type is what makes it an `[int]` rather than an array of
                  * nothing -- the same patch the plain-call path applies to any generic native. */
                 result.type = &e->resolved_type;
-            } else if (CALLEE_IS("push")) {
+            } else if (bid == B_push) {
                 result = call_push(e->resolved_type, args[0], args[1]);
-            } else if ((CALLEE_IS("set") || CALLEE_IS("insert")) &&
+            } else if ((bid == B_set || bid == B_insert) &&
                        (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
                 Value stored = args[0].type->kind == TY_MAP ? args[2] : value_int(0);
                 result = value_map(args[0].type, mapobj_set(args[0].as.map, args[1], stored));
-            } else if (CALLEE_IS("remove") && (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
+            } else if (bid == B_remove && (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
                 result = value_map(args[0].type, mapobj_remove(args[0].as.map, args[1]));
-            } else if (CALLEE_IS("map_get")) {
+            } else if (bid == B_map_get) {
                 Value found;
                 if (mapobj_get(args[0].as.map, args[1], &found)) {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, found));
                 } else {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
-            } else if (CALLEE_IS("map_get_or")) {
+            } else if (bid == B_map_get_or) {
                 Value found;
                 result = mapobj_get(args[0].as.map, args[1], &found) ? found : args[2];
-            } else if (CALLEE_IS("map_merge") || CALLEE_IS("set_union")) {
+            } else if (bid == B_map_merge || bid == B_set_union) {
                 MapObj *m = args[0].as.map;
                 Value *keys, *vals = NULL;
                 int is_map = args[1].type->kind == TY_MAP;
                 mapobj_entries(args[1].as.map, &keys, is_map ? &vals : NULL);
                 for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_set(m, keys[i], is_map ? vals[i] : value_int(0));
                 result = value_map(args[0].type, m);
-            } else if (CALLEE_IS("set_intersect") || CALLEE_IS("set_difference")) {
+            } else if (bid == B_set_intersect || bid == B_set_difference) {
                 int keep_present = e->as.call.callee[4] == 'i';
                 Value *keys;
                 Value ignored;
@@ -1410,14 +1557,14 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     if (mapobj_get(args[1].as.map, keys[i], &ignored) == keep_present) m = mapobj_set(m, keys[i], value_int(0));
                 }
                 result = value_map(args[0].type, m);
-            } else if (CALLEE_IS("set_is_subset")) {
+            } else if (bid == B_set_is_subset) {
                 Value *keys;
                 Value ignored;
                 int subset = 1;
                 mapobj_entries(args[0].as.map, &keys, NULL);
                 for (int i = 0; i < args[0].as.map->count && subset; i++) subset = mapobj_get(args[1].as.map, keys[i], &ignored);
                 result = value_bool(subset);
-            } else if (CALLEE_IS("map_filter") || CALLEE_IS("set_filter")) {
+            } else if (bid == B_map_filter || bid == B_set_filter) {
                 int is_map = args[0].type->kind == TY_MAP;
                 Value *keys, *vals = NULL;
                 mapobj_entries(args[0].as.map, &keys, is_map ? &vals : NULL);
@@ -1445,33 +1592,33 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 }
                 gc_unsafe_leave();
                 result = value_map(args[0].type, m);
-            } else if (CALLEE_IS("map_remove_all")) {
+            } else if (bid == B_map_remove_all) {
                 MapObj *m = args[0].as.map;
                 for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_remove(m, array_get(args[1].as.arr, i));
                 result = value_map(args[0].type, m);
-            } else if (CALLEE_IS("set_insert_all")) {
+            } else if (bid == B_set_insert_all) {
                 MapObj *m = args[0].as.map;
                 for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_set(m, array_get(args[1].as.arr, i), value_int(0));
                 result = value_map(args[0].type, m);
-            } else if (CALLEE_IS("set_from_array")) {
+            } else if (bid == B_set_from_array) {
                 MapObj *m = mapobj_empty();
                 for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), value_int(0));
                 result = value_map(&e->resolved_type, m);
-            } else if (CALLEE_IS("map_from_arrays")) {
+            } else if (bid == B_map_from_arrays) {
                 if (args[0].as.arr->count != args[1].as.arr->count) {
                     ziman_error("runtime", e->line, e->col, "map_from_arrays: %d keys but %d values", args[0].as.arr->count, args[1].as.arr->count);
                 }
                 MapObj *m = mapobj_empty();
                 for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), array_get(args[1].as.arr, i));
                 result = value_map(&e->resolved_type, m);
-            } else if (CALLEE_IS("map_keys")) {
+            } else if (bid == B_map_keys) {
                 /* the key set, in the map's insertion order */
                 Value *keys;
                 mapobj_entries(args[0].as.map, &keys, NULL);
                 MapObj *ks = mapobj_empty();
                 for (int i = 0; i < args[0].as.map->count; i++) ks = mapobj_set(ks, keys[i], value_int(0));
                 result = value_map(&e->resolved_type, ks);
-            } else if (CALLEE_IS("map_values") || CALLEE_IS("set_items")) {
+            } else if (bid == B_map_values || bid == B_set_items) {
                 int want_values = e->as.call.callee[0] == 'm';
                 Value *keys, *vals;
                 mapobj_entries(args[0].as.map, want_values ? NULL : &keys, want_values ? &vals : NULL);
@@ -1479,48 +1626,48 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 Value *items = want_values ? vals : keys;
                 ArrayObj *packed = array_try_pack(items, n);
                 result = value_array(&e->resolved_type, packed != NULL ? packed : array_obj_new(items, n));
-            } else if (CALLEE_IS("$map_lit") || CALLEE_IS("$set_lit")) {
+            } else if (bid == B_map_lit || bid == B_set_lit) {
                 int is_map = e->as.call.callee[1] == 'm';
                 MapObj *m = mapobj_empty();
                 for (int i = 0; i < argc; i += is_map ? 2 : 1) {
                     m = mapobj_set(m, args[i], is_map ? args[i + 1] : value_int(0));
                 }
                 result = value_map(&e->resolved_type, m);
-            } else if (CALLEE_IS("insert")) {
+            } else if (bid == B_insert) {
                 result = call_insert(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
-            } else if (CALLEE_IS("set")) {
+            } else if (bid == B_set) {
                 result = call_set(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
-            } else if (CALLEE_IS("remove")) {
+            } else if (bid == B_remove) {
                 result = call_remove(e->resolved_type, args[0], args[1], e->line, e->col);
-            } else if (CALLEE_IS("ok")) {
+            } else if (bid == B_ok) {
                 result = call_ok(e->resolved_type, args[0]);
-            } else if (CALLEE_IS("err")) {
+            } else if (bid == B_err) {
                 result = call_err(e->resolved_type, args[0]);
-            } else if (CALLEE_IS("Some")) {
+            } else if (bid == B_Some) {
                 result = call_some(e->resolved_type, args[0]);
-            } else if (CALLEE_IS("None")) {
+            } else if (bid == B_None) {
                 result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
-            } else if (CALLEE_IS("is_ok")) {
+            } else if (bid == B_is_ok) {
                 result = call_is_ok(args[0]);
-            } else if (CALLEE_IS("unwrap")) {
+            } else if (bid == B_unwrap) {
                 result = call_unwrap(args[0], e->line, e->col);
-            } else if (CALLEE_IS("unwrap_err")) {
+            } else if (bid == B_unwrap_err) {
                 result = call_unwrap_err(args[0], e->line, e->col);
-            } else if (CALLEE_IS("contains")) {
+            } else if (bid == B_contains) {
                 result = call_contains(args[0], args[1]);
-            } else if (CALLEE_IS("hash")) {
+            } else if (bid == B_hash) {
                 result = call_hash(args[0]);
-            } else if (CALLEE_IS("compare")) {
+            } else if (bid == B_compare) {
                 result = value_int(value_compare(module, args[0], args[1], e->line, e->col));
-            } else if (CALLEE_IS("error_message")) {
+            } else if (bid == B_error_message) {
                 result = value_error_message(module, args[0], e->line, e->col);
-            } else if (CALLEE_IS("abs")) {
+            } else if (bid == B_abs) {
                 result = call_abs(args[0], e->line, e->col);
-            } else if (CALLEE_IS("min")) {
+            } else if (bid == B_min) {
                 result = value_min_max(module, args, argc, 1, e->line, e->col);
-            } else if (CALLEE_IS("max")) {
+            } else if (bid == B_max) {
                 result = value_min_max(module, args, argc, 0, e->line, e->col);
-            } else if (CALLEE_IS("channel_new")) {
+            } else if (bid == B_channel_new) {
                 int limit = 0;
                 if (argc > 0) {
                     /* Both ends checked before the narrowing, not after. `(int)args[0].as.i` for a
@@ -1538,7 +1685,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     limit = (int)args[0].as.i;
                 }
                 result = value_channel(&e->resolved_type, channel_obj_new(limit));
-            } else if (CALLEE_IS("send")) {
+            } else if (bid == B_send) {
                 /* Deep-copied, not aliased -- see value_copy.h's own comment on why (one thread's
                  * memory must not depend on another's lifetime) and channel_send's own on
                  * needs_receive (what copies it back out again on the receiving side). */
@@ -1547,47 +1694,47 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     ziman_error("runtime", e->line, e->col, "send on a closed channel");
                 }
                 result = value_int(0);
-            } else if (CALLEE_IS("try_send")) {
+            } else if (bid == B_try_send) {
                 Value copy = value_copy_send(args[1]);
                 int status = channel_try_send_status(args[0].as.ch, copy, 1);
                 if (status == 2) {
                     ziman_error("runtime", e->line, e->col, "try_send on a closed channel");
                 }
                 result = value_bool(status == 0);
-            } else if (CALLEE_IS("channel_close")) {
+            } else if (bid == B_channel_close) {
                 channel_close(args[0].as.ch);
                 result = value_int(0);
-            } else if (CALLEE_IS("channel_len")) {
+            } else if (bid == B_channel_len) {
                 result = value_int(channel_length(args[0].as.ch));
-            } else if (CALLEE_IS("try_receive")) {
+            } else if (bid == B_try_receive) {
                 Value got;
                 if (channel_try_receive(args[0].as.ch, &got)) {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, got));
                 } else {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
-            } else if (CALLEE_IS("receive")) {
+            } else if (bid == B_receive) {
                 Value got;
                 if (!channel_receive(args[0].as.ch, &got)) {
                     ziman_error("runtime", e->line, e->col,
                                 "receive on a closed, empty channel (use receive_option to handle a channel being closed)");
                 }
                 result = got;
-            } else if (CALLEE_IS("receive_option")) {
+            } else if (bid == B_receive_option) {
                 Value got;
                 if (channel_receive(args[0].as.ch, &got)) {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, got));
                 } else {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
-            } else if (CALLEE_IS("receive_timeout")) {
+            } else if (bid == B_receive_timeout) {
                 Value got;
                 if (channel_receive_timeout(args[0].as.ch, args[1].as.i, &got)) {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, got));
                 } else {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
-            } else if (CALLEE_IS("select2")) {
+            } else if (bid == B_select2) {
                 Value got;
                 int first;
                 channel_select2(args[0].as.ch, args[1].as.ch, &first, &got);

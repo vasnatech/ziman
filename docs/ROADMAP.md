@@ -947,6 +947,27 @@ from source.
   pays its own share of that, so it is worth more than anything left in this entry -- see F140,
   including why reordering the chain is *not* the fix.
 
+  **Checked whether the int keys were flattering CPython, 2026-10-15: they are, and it does not
+  matter.** `hash(i) == i` for a small int and the slot is `hash & mask`, so keys 0..n-1 land one
+  per slot in a `dict` with no collisions and no hashing cost, while `map_hash` (mapobj.c) runs a
+  murmur3 finalizer over the identity hash precisely so consecutive keys do not pile into one
+  subtrie of a 32-way trie -- Ziman pays ~5 arithmetic ops the other side skips. String keys also
+  cut the other way in one respect: a CPython `str` caches its hash on the object, where a Ziman
+  string is a `{ptr,len,term}` view with nowhere to keep one, so FNV-1a runs per lookup. So
+  `map_ops` now measures both, with the keys pre-built either way so no key construction is timed:
+
+  | operation | int keys | string keys |
+  | --- | --- | --- |
+  | `Map` get_or vs `dict.get` | 67-77 / 27ns = **2.5-2.9x** | 88-98 / 30ns = **2.9-3.3x** |
+  | `MutableMap` get_or | 77-91 / 27ns = **2.9-3.4x** | 102-120 / 30ns = **3.4-4.0x** |
+  | `Map` contains vs `in` | 87-88 / 32ns = **2.7-2.8x** | 106-136 / 36ns = **2.9-3.8x** |
+  | `MutableMap` set | 344-360 / 17ns = **20-21x** | 312-324 / 22ns = **14-15x** |
+
+  The read ratios hold at roughly 3x whichever key type is used, and `set` looks *better* with
+  string keys because an int store is `dict`'s own fastest case. **So the remaining gap is a
+  property of the structures and the interpreter, not of a flattering key distribution** -- which
+  is worth knowing before anyone spends effort on hashing.
+
   **What is left of this entry, then:** (3) `MapNode`'s missing capacity field, which is the named
   mechanism behind `MutableMap` set at ~372 against `dict`'s 12 and is still untouched; and (4)'s
   `handleset_has` toll, now visible as the `len` gap (8-31 for `Map` against 24-39 for

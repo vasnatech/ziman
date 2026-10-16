@@ -1,5 +1,9 @@
 # The CPython `dict` side of tests/bench/map_ops.zm -- same container size, same operation count,
-# same loop-overhead subtraction, so the two tables are directly comparable. See that file.
+# same loop-overhead subtraction, so the two tables are directly comparable. See that file -- in
+# particular its note on why int keys are CPython's best case (hash(i) == i, slot is hash & mask,
+# no collisions, no hashing cost) and why the string-key section below is the fairer half of the
+# comparison, with the caveat that a CPython `str` caches its hash on the object while a Ziman
+# string cannot.
 #
 # Every measured loop is the baseline loop plus exactly the operation -- same `k = i % SIZE`, same
 # accumulate -- because a first version did not do that for `len` and the store rows and reported
@@ -7,12 +11,12 @@
 import time
 
 SIZE = 100_000
-OPS = 1_000_000
+OPS = 5_000_000
 
 
 def report(label, secs, base):
-    # OPS == 1,000,000, so elapsed seconds * 1000 is ns/op.
-    print(f"  {label}  {round((secs - base) * 1000)} ns/op")
+    # ns/op is (secs * 1e9) / OPS; matches map_ops.zm's own ops/report pairing.
+    print(f"  {label}  {round((secs - base) * 1e9 / OPS)} ns/op")
 
 
 def main():
@@ -25,7 +29,7 @@ def main():
         k = i % SIZE
         acc += k
     base = time.perf_counter() - t
-    print(f"  (loop overhead {round(base * 1000)} ns/op, subtracted below)")
+    print(f"  (loop overhead {round(base * 1e9 / OPS)} ns/op, subtracted below)")
 
     t = time.perf_counter()
     for i in range(OPS):
@@ -69,6 +73,46 @@ def main():
     report("dict  del + set      ", time.perf_counter() - t, base)
 
     print(f"  (checksum {acc}, entries {len(d)})")
+
+    # ---- the same questions with string keys ----
+    keys = [f"key-{i}" for i in range(SIZE)]
+    sd = {keys[i]: i for i in range(SIZE)}
+    print(f"\nSame over {SIZE} string keys (pre-built, so no key construction is measured)")
+
+    # The baseline indexes the key list and reads the key's length, as each row below does.
+    t = time.perf_counter()
+    for i in range(OPS):
+        j = i % SIZE
+        k = keys[j]
+        acc += len(k)
+    sbase = time.perf_counter() - t
+    print(f"  (loop overhead {round(sbase * 1e9 / OPS)} ns/op, subtracted below)")
+
+    t = time.perf_counter()
+    for i in range(OPS):
+        j = i % SIZE
+        k = keys[j]
+        acc += len(k) + sd.get(k, 0)
+    report("dict  get(k, default)", time.perf_counter() - t, sbase)
+
+    t = time.perf_counter()
+    for i in range(OPS):
+        j = i % SIZE
+        k = keys[j]
+        acc += len(k)
+        if k in sd:
+            acc += 1
+    report("dict  in             ", time.perf_counter() - t, sbase)
+
+    t = time.perf_counter()
+    for i in range(OPS):
+        j = i % SIZE
+        k = keys[j]
+        acc += len(k)
+        sd[k] = j
+    report("dict  [k] = v        ", time.perf_counter() - t, sbase)
+
+    print(f"  (checksum {acc}, entries {len(sd)})")
 
 
 main()
