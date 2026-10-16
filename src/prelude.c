@@ -1574,6 +1574,23 @@ static Value native_mutable_map_get(Value *args, int argc, int line, int col) {
     return value_enum(type_ref(option), enum_obj_new("Option", "None", 0, value_int(0)));
 }
 
+/* `mutable_map_get_or` as a native rather than Ziman sugar over `mutable_map_get`, which is what it
+ * was. The sugar version switched on the `Option` the native above builds, so the one call whose
+ * whole point is to avoid allocating a wrapper allocated one anyway -- and measured *slower* than
+ * the `Option`-returning `get` it wraps (580-612 ns/op against 534-572 on a 100,000-entry map),
+ * where the immutable `Map`'s own `map_get_or` (a builtin in interpreter.c, no wrapper) is 5-6x
+ * faster than its `map_get`. Same shape as that builtin now. The idiom this exists for is the
+ * word-count line in prelude.zm's own comment, which runs it once per input word. */
+static Value native_mutable_map_get_or(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
+    Value found;
+    if (mapobj_get(buf->m, args[1], &found)) return found;
+    return args[2];
+}
+
 /* A map's remove answers what was there, as `Option<V>`: the entry is otherwise gone and
  * recovering it would need a `get` first. A set's answers whether it was there at all, since its
  * values are unused -- which is why these can no longer share one native as they did when both
@@ -2159,6 +2176,7 @@ void prelude_register(void) {
     native_register("mutable_map_new", native_mutable_map_new);
     native_register("mutable_map_set", native_mutable_map_set);
     native_register("mutable_map_get", native_mutable_map_get);
+    native_register("mutable_map_get_or", native_mutable_map_get_or);
     native_register("mutable_map_remove", native_mutable_map_remove);
     native_register("mutable_set_new", native_mutable_set_new);
     native_register("mutable_set_add", native_mutable_set_add);

@@ -426,12 +426,7 @@ native fn mutable_map_remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> O
 // The value stored under `key`, or `default_value` when there is none -- `map_get_or` for a builder.
 // Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
 // loop (`mutable_map_set(counts, k, mutable_map_get_or(counts, k, 0) + 1)`) reads as one line instead of four.
-fn mutable_map_get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V {
-    return switch mutable_map_get<K, V>(mb, key) {
-        Some(v) { v }
-        None { default_value }
-    }
-}
+native fn mutable_map_get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
 
 // An empty set builder.
 native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>

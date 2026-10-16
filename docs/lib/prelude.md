@@ -754,7 +754,7 @@ Removes `key`; nothing happens when it is absent.
 ### `mutable_map_get_or`
 
 ```
-fn mutable_map_get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
+native fn mutable_map_get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
 ```
 
 The value stored under `key`, or `default_value` when there is none -- `map_get_or` for a builder.

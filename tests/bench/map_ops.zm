@@ -1,0 +1,146 @@
+// Per-operation cost of `Map`, `Set`, `MutableMap` and `MutableSet` against a 100,000-entry
+// container, which is the table in docs/ROADMAP.md's "Make `Map`/`Set` operations faster" entry.
+//
+// That table was measured ad hoc on 2026-10-05 and had no checked-in source, so it could not be
+// retaken -- and three changes that bear on exactly this workload landed after it: the per-arena
+// sorted block index (F56), the scaled `ZIMAN_GC_TRIGGER_BYTES`, and `Value.type` as a pointer.
+// This file exists so the next person does not have to reconstruct it.
+//
+// Loop overhead is measured and subtracted. OPS is exactly 1,000,000, which makes elapsed
+// milliseconds read directly as nanoseconds per operation -- do not change it without changing
+// the reporting. Compare against tests/bench/map_ops.py, which is the same workload on `dict`.
+//
+// Every measured loop is the baseline loop *plus exactly the operation*: it computes the same
+// `k = i % size` and does the same `acc = acc + ...`, so the subtraction is apples to apples. A
+// first version of this file skipped the key and the accumulate in the `len` and store rows, which
+// subtracted work those loops never did and reported `len` at 1 ns/op and CPython's `dict` store at
+// 1 ns/op -- both impossible, and the `dict len` row came out negative, which is what gave it away.
+use clock
+
+val size = 100000
+val ops = 1000000
+
+fn report(label: string, millis: int, base: int) {
+    // ops == 1,000,000, so elapsed ms is ns/op.
+    printf("  {}  {} ns/op\n", label, millis - base)
+}
+
+fn main() {
+    val mb = mutable_map_new<int, int>()
+    for i in 0..size {
+        mutable_map_set<int, int>(mb, i, i)
+    }
+    val m = snapshot(mb)
+    printf("Map/MutableMap over {} entries, {} ops each, loop overhead subtracted\n", size, ops)
+
+    var acc = 0
+    var t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+    }
+    val base = clock.monotonic_millis() - t
+    printf("  (loop overhead {} ns/op, subtracted below)\n", base)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        if Some(v) = map_get(m, k) {
+            acc = acc + v
+        }
+    }
+    report("Map         map_get        ", clock.monotonic_millis() - t, base)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k + map_get_or(m, k, 0)
+    }
+    report("Map         map_get_or     ", clock.monotonic_millis() - t, base)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        if contains(m, k) {
+            acc = acc + 1
+        }
+    }
+    report("Map         contains       ", clock.monotonic_millis() - t, base)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k + len(m)
+    }
+    report("Map         len            ", clock.monotonic_millis() - t, base)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k + len(set(m, k, i))
+    }
+    report("Map         set (persist)  ", clock.monotonic_millis() - t, base)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k + len(remove(m, k))
+    }
+    report("Map         remove (persist)", clock.monotonic_millis() - t, base)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        if Some(v) = mutable_map_get<int, int>(mb, k) {
+            acc = acc + v
+        }
+    }
+    report("MutableMap  get            ", clock.monotonic_millis() - t, base)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k + mutable_map_get_or(mb, k, 0)
+    }
+    report("MutableMap  get_or         ", clock.monotonic_millis() - t, base)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        if contains(mb, k) {
+            acc = acc + 1
+        }
+    }
+    report("MutableMap  contains       ", clock.monotonic_millis() - t, base)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k + len(mb)
+    }
+    report("MutableMap  len            ", clock.monotonic_millis() - t, base)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        mutable_map_set<int, int>(mb, k, i)
+    }
+    report("MutableMap  set            ", clock.monotonic_millis() - t, base)
+
+    // remove then put back, so the container stays the same size across the measurement.
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        mutable_map_remove<int, int>(mb, k)
+        mutable_map_set<int, int>(mb, k, k)
+    }
+    report("MutableMap  remove+set     ", clock.monotonic_millis() - t, base)
+
+    printf("  (checksum {}, entries {})\n", acc, len(mb))
+}

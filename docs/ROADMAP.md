@@ -878,6 +878,44 @@ from source.
      per operation. Small, but it is on literally every builder call, and for `len` -- 108ns against
      the immutable `Map`'s 89ns for the same field read -- it is the entire cost.
 
+  **Re-measured 2026-10-15, with a checked-in benchmark this time (`tests/bench/map_ops.zm` and
+  `map_ops.py`).** The table at the top of this entry had no source and so could not be retaken,
+  while three changes that bear on exactly this workload landed after it: (2)'s block index (F56),
+  the scaled `ZIMAN_GC_TRIGGER_BYTES`, and `Value.type` as a pointer. Two runs, 100,000 entries,
+  1,000,000 operations, loop overhead measured and subtracted:
+
+  | operation | CPython 3.14 `dict` | Ziman `Map` | Ziman `MutableMap` |
+  | --- | --- | --- | --- |
+  | get (`Option`) | 12 (`d[k]`) | 493-502 | 533-562 |
+  | get_or | 30 (`.get`) | 79-94 | **70-81** (was 580-612) |
+  | contains | 27 | 178-253 | 164-172 |
+  | len | 15 | 8-31 | 24-39 |
+  | set | 12 | 1316-1335 (persistent) | 349-395 |
+  | remove | 61 (`del`+set) | 1467-1476 (persistent) | 998-1014 (incl. a set) |
+
+  **Ziman's absolute costs are 2-6x better than the 2026-10-05 figures** -- `Map` get 2989 -> ~497,
+  `Map` remove 5249 -> ~1471, `MutableMap` get 1856 -> ~553, `MutableMap` set 850 -> ~372 -- which
+  is (2) and the trigger fix arriving. **The *multiples* in the old table cannot be carried
+  forward**, because its CPython column was measured on an older Python and with a subtraction this
+  benchmark had to fix: a first version of `map_ops.zm`/`.py` did not make each measured loop the
+  baseline loop *plus* the operation, which reported `dict len` at **-5 ns/op** and `dict [k] = v`
+  at 1 ns/op. Compare absolute Ziman columns across dates; treat any ratio as belonging to its own
+  sitting.
+
+  **One row was backwards, and fixing it is done.** `mutable_map_get_or` measured *slower* than the
+  `Option`-allocating `mutable_map_get` it wrapped, because it was Ziman sugar that switched on that
+  `Option` -- so the one call whose purpose is to avoid a wrapper allocated one anyway, while the
+  immutable `Map`'s `map_get_or` (a builtin in `interpreter.c`) was 5-6x faster than its `map_get`.
+  Now a native of the same shape: **580-612 -> 70-81 ns/op, about 7.5x**, and the two `get_or`s
+  agree as they always should have. This is the word-count idiom in prelude.zm's own comment, run
+  once per input word.
+
+  **What is left of this entry, then:** (3) `MapNode`'s missing capacity field, which is the named
+  mechanism behind `MutableMap` set at ~372 against `dict`'s 12 and is still untouched; and (4)'s
+  `handleset_has` toll, now visible as the `len` gap (8-31 for `Map` against 24-39 for
+  `MutableMap`, the same field read) and still a few nanoseconds on every builder call. (1) is
+  closed by F31's correction and by the `get_or` fix above; (2) is done.
+
   Needs nothing: `len` is already at parity, and the immutable `Map`'s `remove` at 128x is the worst
   row but is inherent to being persistent (path copy plus node collapse plus a fresh `MapObj` per
   removal) -- `MapBuilder.remove` at 4x is the one to use in a loop, which is what the builders are
