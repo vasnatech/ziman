@@ -15,7 +15,7 @@ all: $(BIN)
 unit-tests: test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy \
             test-regex lib-tests \
             test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots \
-            test-gc-interp-roots test-lsp test-maptable
+            test-gc-interp-roots test-lsp test-maptable test-handleslot
 
 $(GC_LIB): $(GC_DIR)/extra/gc.c $(wildcard $(GC_DIR)/*.c) $(wildcard $(GC_DIR)/include/*.h $(GC_DIR)/include/*/*.h)
 	$(CC) -O2 -DNDEBUG -I$(GC_DIR)/include -DGC_THREADS -DGC_BUILTIN_ATOMIC -DTHREAD_LOCAL_ALLOC -DPARALLEL_MARK \
@@ -99,6 +99,12 @@ test-arena: src/xalloc.c src/arena.c tests/c/arena_test.c
 # The flat table behind MutableMap/MutableSet. `value_hash`/`value_key_equals` live in
 # interpreter.c, so the test supplies its own -- which is also what lets it force every key to
 # collide and exercise the probe, the tombstones and the compaction deliberately.
+# The index+generation handle table (F139's neighbour: handles.h's own "real answer"). Built
+# without ZIMAN_GC, so the weak-slot half is not exercised here -- that needs a real collector.
+test-handleslot: src/xalloc.c src/handleslot.c tests/c/handleslot_test.c
+	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_handleslot_test src/xalloc.c src/handleslot.c tests/c/handleslot_test.c
+	/tmp/ziman_handleslot_test
+
 test-maptable: src/xalloc.c src/maptable.c tests/c/maptable_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_maptable_test src/xalloc.c src/maptable.c tests/c/maptable_test.c
 	/tmp/ziman_maptable_test
