@@ -140,6 +140,11 @@ static inline Type type_scalar(TypeKind kind) {
  * Compound types allocate per call: an intern table was measured and made no difference
  * (docs/MEMORY.md, "`Value.type` by pointer is the win; interning it is not"). */
 const Type *type_scalar_ref(TypeKind kind);
+
+/* The `Option` enum type as one shared constant, for a native returning `Option` on a hot path --
+ * see ast.c for why building it per call cost two of the three allocations such a native makes,
+ * and why one shared value is sound. */
+const Type *type_option_ref(void);
 const Type *type_ref(Type t);
 Type type_array(Type elem);
 Type type_struct(const char *name);

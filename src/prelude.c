@@ -1568,10 +1568,9 @@ static Value native_mutable_set_add(Value *args, int argc, int line, int col) {
 static Value native_mutable_map_get(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
-    Type option = type_enum("Option");
     Value found;
-    if (mapobj_get(buf->m, args[1], &found)) return value_enum(type_ref(option), enum_obj_new("Option", "Some", 1, found));
-    return value_enum(type_ref(option), enum_obj_new("Option", "None", 0, value_int(0)));
+    if (mapobj_get(buf->m, args[1], &found)) return value_enum(type_option_ref(), enum_obj_new("Option", "Some", 1, found));
+    return value_enum(type_option_ref(), enum_obj_new("Option", "None", 0, value_int(0)));
 }
 
 /* `mutable_map_get_or` as a native rather than Ziman sugar over `mutable_map_get`, which is what it
@@ -1600,13 +1599,12 @@ static Value native_mutable_map_remove(Value *args, int argc, int line, int col)
     (void)line;
     (void)col;
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
-    Type option = type_enum("Option");
     Value found;
     if (!mapobj_get(buf->m, args[1], &found)) {
-        return value_enum(type_ref(option), enum_obj_new("Option", "None", 0, value_int(0)));
+        return value_enum(type_option_ref(), enum_obj_new("Option", "None", 0, value_int(0)));
     }
     mapobj_remove_mut(buf->m, args[1]);
-    return value_enum(type_ref(option), enum_obj_new("Option", "Some", 1, found));
+    return value_enum(type_option_ref(), enum_obj_new("Option", "Some", 1, found));
 }
 
 static Value native_mutable_set_remove(Value *args, int argc, int line, int col) {

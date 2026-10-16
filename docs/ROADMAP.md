@@ -918,6 +918,35 @@ from source.
   agree as they always should have. This is the word-count idiom in prelude.zm's own comment, run
   once per input word.
 
+  **Then cut the gap further, 2026-10-15, and found most of it is not the map.** Decomposed `get` on
+  the same binary: the lookup is ~92ns (that is `get_or`), the `Option` allocation ~310ns, the
+  `if Some(v) =` destructure ~35ns. Two fixes landed. The `Option` *type* was being rebuilt per
+  call -- `type_enum("Option")` strdups the name and `type_ref` mallocs 64 bytes -- so every
+  Option-returning native did three heap allocations where only the `EnumObj` carries per-call
+  information; it is now one shared constant in `.rodata` (`type_option_ref`, src/ast.c), taking
+  `get`'s allocation-only cost from 402 to 274-294 ns/op and `MutableMap get` from 533-562 to
+  480-486. And `mutable_map_get_or` became a native, 580-612 -> 70-81 ns/op.
+
+  **What remains of `get` is collection pressure, and it is measured, not assumed.** The same
+  1,000,000 Option-allocating lookups cost **191 ns/op against a 100-entry live map, 236 at 10,000
+  and 378 at 100,000** -- identical allocation and identical lookup, twice the cost purely because
+  more is alive. That is the structural difference from `dict`: a tracing collector makes a
+  short-lived allocation cost a function of the live set, while CPython's refcounting frees that
+  `Option` immediately at constant cost. A per-operation allocation in a hot loop over a large
+  container is the worst case for one and the best case for the other. So the lever is "do not
+  allocate per operation" -- which is `get_or`, now at 64-119ns against `dict.get`'s 30ns -- and
+  not "make the allocation cheaper", whose cost is somewhere else entirely. Removing the
+  allocation from `get` itself means unboxing single-payload variants, which docs/MEMORY.md
+  analysed and recommended against on its own measurements.
+
+  **And one finding that is not about maps at all, filed as F140.** `contains` measured 182-220ns
+  while the allocation-free `get_or` measured 87-119, for the same trie descent and no wrapper.
+  The cause is that `exec_call` dispatches every builtin through a chain of **60 sequential
+  `strcmp`s** on the callee name, and `contains` sits 44th where `map_get_or` sits 22nd. Hoisting
+  it to 5th, changing nothing else, took it to 78-124 ns/op. Every builtin call in every program
+  pays its own share of that, so it is worth more than anything left in this entry -- see F140,
+  including why reordering the chain is *not* the fix.
+
   **What is left of this entry, then:** (3) `MapNode`'s missing capacity field, which is the named
   mechanism behind `MutableMap` set at ~372 against `dict`'s 12 and is still untouched; and (4)'s
   `handleset_has` toll, now visible as the `len` gap (8-31 for `Map` against 24-39 for

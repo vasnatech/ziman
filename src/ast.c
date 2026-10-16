@@ -35,6 +35,25 @@ const Type *type_scalar_ref(TypeKind kind) {
     return &g_scalar_types[kind];
 }
 
+/* The `Option` enum type, as one shared constant, for the natives that return an `Option` on a hot
+ * path. They used to build it per call -- `type_enum("Option")` strdups the name and `type_ref`
+ * mallocs 64 bytes for the `Type` -- so a `mutable_map_get` did three heap allocations where one
+ * (the `EnumObj`) is the only one carrying per-call information. Measured on a 100,000-entry map,
+ * 1,000,000 lookups: the allocation-free `mutable_map_get_or` costs 92 ns/op against `get`'s 402,
+ * and that 310 ns gap is these two allocations plus the collection they drive.
+ *
+ * Sound as one shared value because `type_enum` sets only `kind` and the name: `type_args` stays
+ * zeroed, so `Option<int>` and `Option<string>` already produced byte-identical `Type`s here. A
+ * designated initialiser in .rodata rather than a lazily-filled static, for exactly the reason
+ * g_scalar_types above is one -- see its comment on why "every writer stores the same bytes" is
+ * not a defence. The cast is because `enum_name` is `char *` for the AST's sake; nothing ever
+ * writes through this one. */
+static const Type g_option_type = {.kind = TY_ENUM, .enum_name = (char *)"Option"};
+
+const Type *type_option_ref(void) {
+    return &g_option_type;
+}
+
 /* A compound type that has to outlive the value carrying it.
  *
  * Allocated per call, not deduplicated. An intern table was built and measured (see
