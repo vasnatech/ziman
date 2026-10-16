@@ -2217,7 +2217,7 @@ from source.
   rule out at compile time, not just tidy up.
 
 - **`Cell<T>`: one primitive that makes the mutable layer open to library code -- done 2026-10-14 as
-  `Mutable<T>` (F108); one residue, the worked actor example, still unwritten.** Raised 2026-10-13 by
+  `Mutable<T>` (F108); the worked actor example followed on 2026-10-16 and closed the entry.** Raised 2026-10-13 by
   Menderes, out of planning to use Ziman on other projects -- UI applications among them -- where the
   objection is structural rather than about any one type: *"every time we hit a wall we have to change ziman
   itself to add mutable types instead of implementing one with ziman."* That is correct today, and it is the
@@ -2282,6 +2282,18 @@ from source.
   mutable struct fields, the cost, and "do it when a real program asks" -- is unchanged. See
   docs/DESIGN.md, "`Mutable<T>`: the root of the family, and why there is no `MutableInt`" and "The
   builders become mutable collections".*
+
+  *Update 2026-10-16: the worked actor example is written --
+  `tests/lang/actor_owns_mutable_state.zm` -- and its answer is that
+  process-lifetime mutable state needs nothing new. One actor owns a `MutableMap`, a `Mutable<int>`
+  and a `MutableString` at once and serves four threads making a hundred requests over one
+  `Channel`, with no lock, because one thread is the only thing that touches them; the state is
+  created inside the actor, so the `#[thread_bound]` refusals never arise -- they are what makes
+  this shape the one that works. Writing it did find one gap, now fixed: `send` gave its value
+  argument no type context, so `send(replies, Some(n))` was unwritable even with `replies` declared
+  `Channel<Option<int>>`, which is the natural shape for a cache `get`. See docs/DESIGN.md's
+  "Cost, and when" for both that and the one subtlety worth copying (each client needs its own
+  reply channel).*
 
   *Update 2026-10-14: built, F108. So "do it when a real program asks" below was not the test it
   ended up taking -- the whole mutable-collection rename (F103/F104) made `Mutable<T>` the root of a

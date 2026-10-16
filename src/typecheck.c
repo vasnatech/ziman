@@ -2918,8 +2918,15 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         if (chan_type.kind != TY_CHANNEL) {
             ziman_error("type", chan_arg->line, chan_arg->col, "argument 1 of 'send' expects a Channel, found %s", type_name(chan_type));
         }
+        /* check_expr_expecting, not check_expr: the channel's element type is exactly the context an
+         * `Option`/`Result`/`channel_new()` argument needs, and without it `send(replies, Some(n))`
+         * could not be written at all even with `replies` declared `Channel<Option<int>>` -- the
+         * error told the caller to find "an argument whose parameter type says which Option it is",
+         * which this is. Found 2026-10-16 writing tests/lang/actor_owns_mutable_state.zm, where a
+         * reply channel of `Option<int>` is the natural shape and every send into it had to be
+         * spelled `Option<int>.Some(...)`. The slot form, since it may rewrite the argument node. */
+        Type val_type = check_expr_expecting(module, env, &e->as.call.args.items[1], *chan_type.elem);
         Expr *val_arg = e->as.call.args.items[1];
-        Type val_type = check_expr(module, env, val_arg);
         require_not_void(val_arg, "as a channel value");
         if (!type_equals(val_type, *chan_type.elem)) {
             ziman_error("type", val_arg->line, val_arg->col,
@@ -2944,8 +2951,15 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         if (chan_type.kind != TY_CHANNEL) {
             ziman_error("type", chan_arg->line, chan_arg->col, "argument 1 of 'try_send' expects a Channel, found %s", type_name(chan_type));
         }
+        /* check_expr_expecting, not check_expr: the channel's element type is exactly the context an
+         * `Option`/`Result`/`channel_new()` argument needs, and without it `send(replies, Some(n))`
+         * could not be written at all even with `replies` declared `Channel<Option<int>>` -- the
+         * error told the caller to find "an argument whose parameter type says which Option it is",
+         * which this is. Found 2026-10-16 writing tests/lang/actor_owns_mutable_state.zm, where a
+         * reply channel of `Option<int>` is the natural shape and every send into it had to be
+         * spelled `Option<int>.Some(...)`. The slot form, since it may rewrite the argument node. */
+        Type val_type = check_expr_expecting(module, env, &e->as.call.args.items[1], *chan_type.elem);
         Expr *val_arg = e->as.call.args.items[1];
-        Type val_type = check_expr(module, env, val_arg);
         require_not_void(val_arg, "as a channel value");
         if (!type_equals(val_type, *chan_type.elem)) {
             ziman_error("type", val_arg->line, val_arg->col,

@@ -1,0 +1,103 @@
+// A worked actor: process-lifetime mutable state owned by one spawned loop and reached over a
+// Channel. This is the positive half of the thread-bound story -- the `thread_bound_*` fixtures
+// beside this one show the refusals (a Mutable* value cannot be a Channel element, a spawn
+// argument or a module-level val), and those refusals are the reason this shape is the one that
+// works: the state is created inside the actor, so it never crosses a thread at all.
+//
+// Named in docs/DESIGN.md's mutability discussion as the thing that "shows the thread-bound story
+// working rather than asserting it", and in docs/ROADMAP.md's `Mutable<T>` entry.
+//
+// Two things worth copying from here. First, the state is three different Mutable* types held
+// together (a map, a counter, a log) -- an actor owns a little world, not one cell, and none of it
+// needs a lock because one thread is the only thing that ever touches it. Second, **each client
+// makes its own reply channel**: a single shared one would hand a thread somebody else's answer,
+// since a Channel delivers to whoever receives first, not to whoever asked.
+enum Op {
+    Get(string)
+    Put(string)
+    Bump
+    Total
+    Stop
+}
+
+struct Request {
+    op: Op
+    value: int
+    reply: Channel<Option<int>>
+}
+
+fn cache(requests: Channel<Request>) {
+    // All three live here for the actor's whole life, and are visible to nothing else.
+    val store = mutable_map_new<string, int>()
+    val hits = mutable_new(0)
+    val log = mutable_string_new()
+
+    var running = true
+    while running {
+        val r = receive(requests)
+        switch r.op {
+            Get(k) {
+                val found = mutable_map_get(store, k)
+                if Option.is_Some(found) { mutable_set(hits, mutable_get(hits) + 1) }
+                mutable_string_append(log, "g")
+                send(r.reply, found)
+            }
+            Put(k) {
+                mutable_map_set(store, k, r.value)
+                mutable_string_append(log, "p")
+                send(r.reply, Some(r.value))
+            }
+            Bump {
+                mutable_set(hits, mutable_get(hits) + 1)
+                send(r.reply, Some(mutable_get(hits)))
+            }
+            Total { send(r.reply, Some(mutable_get(hits))) }
+            Stop {
+                running = false
+                // The log proves the state is the *same* state across every request, not a fresh
+                // one per message: it has one character per Get/Put the actor ever served.
+                print(format("log: {} ({} chars)", snapshot(log), len(log)))
+                send(r.reply, Some(mutable_get(hits)))
+            }
+        }
+    }
+}
+
+fn ask(requests: Channel<Request>, reply: Channel<Option<int>>, op: Op, value: int) -> Option<int> {
+    send(requests, Request { op: op, value: value, reply: reply })
+    return receive(reply)
+}
+
+// Each worker bumps the shared counter through the actor. Nothing here holds the counter; the
+// actor does, and that is what makes this safe without a lock.
+fn worker(id: int, requests: Channel<Request>, done: Channel<int>, bumps: int) {
+    val reply: Channel<Option<int>> = channel_new()  // one per thread -- see the header note
+    for _ in 0..bumps {
+        ask(requests, reply, Op.Bump, 0)
+    }
+    send(done, id)
+}
+
+fn main() {
+    val requests: Channel<Request> = channel_new()
+    spawn cache(requests)
+
+    val reply: Channel<Option<int>> = channel_new()
+    print(ask(requests, reply, Op.Put("a"), 1))
+    print(ask(requests, reply, Op.Get("a"), 0))
+    print(ask(requests, reply, Op.Get("missing"), 0))
+
+    // Four threads, twenty-five bumps each, all through the one actor. The total is deterministic
+    // although the interleaving is not, which is the property worth having -- and the count is high
+    // enough that a lost update would show up as a wrong total rather than passing by luck.
+    val done: Channel<int> = channel_new()
+    for id in 0..4 {
+        spawn worker(id, requests, done, 25)
+    }
+    for _ in 0..4 {
+        receive(done)
+    }
+    // One hit from the Get above, plus a hundred bumps.
+    print(ask(requests, reply, Op.Total, 0))
+    print(ask(requests, reply, Op.Stop, 0))
+}

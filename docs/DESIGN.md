@@ -4036,6 +4036,32 @@ caller. The cheapest thing to do ahead of it is still a worked actor example: a 
 cache owned by a spawned loop and talked to over a `Channel`, which is what shows the thread-bound
 story working rather than asserting it.
 
+*Update 2026-10-16: written, as `tests/lang/actor_owns_mutable_state.zm`. **The answer this was
+asked for -- whether process-lifetime mutable state needs anything new -- is no, with one exception
+that is now fixed.*** The actor owns three `Mutable*` values at once (a `MutableMap` cache, a
+`Mutable<int>` counter, a `MutableString` log), serves four threads making a hundred requests
+through one `Channel`, and needs no lock, because one thread is the only thing that ever touches
+them. Nothing crosses a thread: the state is created *inside* the actor, which is why the
+`#[thread_bound]` refusals (the `thread_bound_*` fixtures) never come up -- they are what makes
+this the shape that works, not an obstacle to it. The total is exact while the interleaving is not,
+and the count is high enough that a lost update would fail the fixture rather than pass by luck.
+
+Two things the exercise found that asserting it would not have.
+
+**A gap, now closed: `send` gave its value argument no type context.** `send(replies, Some(n))` could
+not be written at all, even with `replies` declared `Channel<Option<int>>` -- and the error asked
+the caller to supply "an argument whose parameter type says which Option it is", which a channel's
+element type is. Every reply in the first draft had to be spelled `Option<int>.Some(...)`, which is
+the natural shape for a cache `get` and so would have met anyone writing this. `send` and `try_send`
+now go through `check_expr_expecting` with the channel's element type, like the `Map`/`Set` builtins
+already did; `ok(...)`/`err(...)`/`channel_new()` gain the same context, since they infer the same
+way.
+
+**A subtlety worth copying, not a gap: each client needs its own reply channel.** A single shared
+one hands a thread somebody else's answer, because a `Channel` delivers to whoever receives first
+rather than to whoever asked. The example gives each worker its own and says so, since this is the
+kind of thing that works in a single-client test and fails under load.
+
 ## What the AI-first goal does and does not justify
 
 (External review, roadmap R20, 2026-09-24.) "Cheap for an LLM to generate
