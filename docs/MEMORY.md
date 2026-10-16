@@ -1,10 +1,43 @@
 # Memory management and garbage collection
 
-Where Ziman's memory story is today, why the current default (a shared Boehm-collected heap)
-doesn't scale under concurrency, and the design for what replaces it: one independently-collected
-heap per thread. This is a design document for work not yet started, not a record of something
-shipped — see docs/DESIGN.md for what's actually built and measured so far (the collector becoming
-the default build, its tuning, the concurrency diagnosis this document continues from).
+Where Ziman's memory story is today: a shared Boehm-collected heap, plus the design of what was
+once meant to replace it (one independently-collected heap per thread) and the measurements that
+parked that design instead of building it. Read this page as history with a live summary on top,
+not as a plan. docs/DESIGN.md has what is actually built and measured in the collector itself.
+
+**Current position (2026-10-15). The problem this document was written to solve does not
+reproduce, so none of the architecture below is scheduled work.** The shared heap now scales: the
+collector build climbs to c=8, holds flat through c=64 at ~1,450-1,550 req/s, and beats
+`ziman-nogc` at every level above c=4 — the reverse of the diagnosis in "Where things stand" just
+below, which is kept verbatim as the record of what was true in September. Pause cost fell with it,
+from 21-30% of wall-clock to 3-15%, by way of roughly ten times fewer collections and six times
+less total pause time.
+
+**None of that is news, and this page is the last document to learn it.** docs/DESIGN.md's "Three
+allocation sites, and what they did to F7" (2026-10-07) already states "**the shape F2 and F7 named
+is gone**" with the full sweep behind it, and docs/ROADMAP.md's own entry already warns that "a
+reader following the design below is following the abandoned path". The cause is recorded there and
+it is not the one it would be natural to guess: **removing allocation, not moving it**. Three sites
+were 74% of all allocation calls on an authenticated-read workload -- `env.c`'s `strdup` of every
+binding name (25.7%), `interpreter.c`'s per-call argument array (24.5%), and a scratch array of
+every leaf built *inside the mark phase* in `mapobj.c` (24.0%) -- and all three went away rather
+than being tuned, taking allocation calls from 9.96M to 2.57M, with a fourth (loop scopes onto the
+`Env` pool) after them. The gain grew with concurrency, which is the signature of a fix to
+collection *frequency*. The scaled `ZIMAN_GC_TRIGGER_BYTES` and the `Value.type` pointer helped,
+but F7 was closed by those four sites.
+
+What that leaves, in one line each — the two entries at the end of this page carry the numbers:
+
+- **The pause mechanism is intact, just smaller.** Average pause still grows with client count
+  exactly as the original diagnosis said it would (16 ms at c=1, 31 ms at c=128), and one shared
+  heap stopped for everyone still costs 12-15% of wall-clock at c=16 and above. It no longer
+  produces a collapse, which is the only thing that changed.
+- **The limit past c=128 is not the collector.** Throughput does fall off eventually, and the
+  pause *share falls with it*, so stop-the-world time is not what binds there. That is a separate,
+  unmeasured question (thread-per-connection scheduling is the suspect).
+- **Reopening any of this starts by retaking the tables**, with
+  `tests/bench/pause_accounting.sh` and `tests/bench/gcheap/`, and wants a workload where pause
+  share is the thing in the way — which, on the evidence here, the sample backend is not.
 
 ## Where things stand
 
@@ -26,7 +59,11 @@ doing its job.
 worse tail latency (p99 10 ms vs. 2 ms, max 13 ms vs. 3 ms) — the signature of an occasional pause,
 not a systemic cost. Fine for ordinary traffic.
 
-**It does not scale with concurrent clients, and that is the open problem.**
+**It does not scale with concurrent clients, and that is the open problem.** *(As measured
+2026-09-29. Superseded 2026-10-15 — this no longer reproduces; see the current-position summary at
+the top of this page and the two entries that close it. Kept verbatim because every design below
+is a response to it, and because the shape of the reasoning still holds even though the magnitude
+that made it urgent does not.)*
 `tests/bench/server_concurrency.sh` against the real backend: the collector build peaks around
 c=4 and then *declines* as concurrency rises further (c=16 is worse than c=1), while `ziman-nogc`
 climbs smoothly the whole way and is several times faster by c=16. This isn't lock contention on
@@ -51,6 +88,11 @@ helped here as a side effect of allocating less per call, narrowing the gap at c
 about 3.5x combined with the heap tuning — real, free progress, but the underlying structural
 problem (one shared heap, stopped for everyone, however briefly, to collect anyone's garbage) is
 unaffected by either lever. Closing it needs a different heap architecture, not more tuning.
+
+*That last sentence is the one the 2026-10-15 re-measurement disproved, and it is worth leaving
+standing as a caution. Each lever landed with a note that the structural problem was untouched, and
+each note was true on its own; the sum of them closed the gap anyway. "Only an architecture can fix
+this" was a reasonable inference from the measurements available, and it was wrong.*
 
 ## Prior approaches considered and revised
 
@@ -1728,3 +1770,44 @@ as history: a correct response to a 21-30% pause cost that is now 3-15%, parked 
 abandoned, with the measurements above as the reason it was parked. Anyone reopening it should
 re-take this table first, and should want a workload where the pause share is the thing in the way
 -- which, on the evidence here, this backend is not.
+
+### Correction to the two entries above, and one discrepancy they exposed
+
+Both entries above were written as discoveries. They are not, and the error is worth recording
+more than the measurements were.
+
+**1. F7 was already closed, and already written up, eight days earlier.** docs/DESIGN.md's "Three
+allocation sites, and what they did to F7" (2026-10-07) states "**the shape F2 and F7 named is
+gone**" and carries the sweep that shows it; docs/ROADMAP.md's memory entry carries the same update
+and even warns a reader that "a reader following the design below is following the abandoned path".
+Re-running `server_concurrency.sh` reproduced a result those two documents already had. What was
+actually wrong was narrower and duller than "the diagnosis is inverted": **this page had not been
+updated**, so it still opened by calling the scaling problem open. Three documents, one of them
+stale, and the stale one is the one that looks authoritative on its own subject.
+
+**2. The attribution in the first entry was wrong.** It credited the scaled
+`ZIMAN_GC_TRIGGER_BYTES` "above all", with `Env` pooling and the `Value.type` pointer behind it.
+The recorded cause is **removing allocation rather than moving it**: three sites at 74% of all
+allocation calls (`env.c`'s per-binding `strdup`, `interpreter.c`'s per-call argument array, and a
+per-map scratch array built inside the mark phase in `mapobj.c`), 9.96M allocation calls down to
+2.57M, plus loop scopes onto the `Env` pool. That the gain *grew* with concurrency is the evidence
+distinguishing them, and it was already in DESIGN.md. The trigger fix is real and matters for the
+`MapBuilder` workloads it was found on; it is not what closed F7.
+
+**3. The one thing that genuinely does not line up: `ziman-nogc` now measures about half what it
+did.** DESIGN.md's 2026-10-07 sweep records `ziman-nogc` at 2711 / 2979 / 2745 / 2652 req/s for
+c=8/16/32/64. Rebuilt from today's source and measured three interleaved rounds, it gives
+1389-1406 / 1254-1285 / 1187-1191 / 1177-1178 -- roughly half, and consistently. The collector
+build's own numbers agree closely across the two dates (c=1 463-535 then against 485-497 now, c=16
+1429-1574 against 1453, c=64 1436-1495 against 1396-1402), so this is not the machine being slower.
+
+That matters because it undercuts the headline the first entry led with. "The collector now beats
+`nogc` at every level above c=4" is true of today's measurements, but the better explanation on this
+evidence is that **`nogc` regressed**, not that the collector overtook it -- and a 2x regression in
+the no-free build is its own bug to find, not a win to report. Candidates worth checking in order:
+that `ziman-nogc` was until today never rebuilt on a header change (fixed in the same session, so
+*every* `nogc` figure on this page and in DESIGN.md predating the fix was taken against a binary of
+uncertain vintage), and that something in the `Value.type` or allocation-removal work interacts
+badly with a build where nothing is ever freed. Until that is settled, treat collector-vs-`nogc`
+comparisons on this page as unresolved, and the collector's own absolute figures -- which reproduce
+across two dates and two methodologies -- as the trustworthy part.
