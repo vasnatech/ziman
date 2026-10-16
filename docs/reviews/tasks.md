@@ -545,7 +545,7 @@ are unmoved (loop 0.09-0.12s, fib 0.04-0.05s, scalar_arrays 0.29-0.33s, bytes 0.
 one added relaxed load per call costs nothing measurable on paths that were already skipping the
 chain. The classification change is kept anyway: it removes genuinely redundant work, puts one documented exact test where three inexact-looking ones were, and stops the caller and callee each deriving the same fact from a string. The standard benchmarks are unmoved (loop 0.09-0.10s, fib 0.04-0.05s, scalar_arrays 0.29-0.32s, bytes 0.07-0.08s), as expected: they are dominated by arithmetic and array work, not by deep-chain builtins. Verified with 1028 fixtures on both builds, the 153 unit tests, the 50-task benchmark suite, and an explicit check of the `set`/`set`/`Set` trio whose overlapping names are the reason order is load-bearing.
 
-- [ ] **F141** **`lib/graphics` phase 1: geometry and the display list.** (raised 2026-10-16; M)
+- [x] **F141** **`lib/graphics` phase 1: geometry and the display list.** (raised 2026-10-16; M)
   `geom` (`Point`, `Rect`, `Matrix`), `shape` (a `Path` of five segments, builders, bounds),
   `paint` (`Color`, a **closed** `Paint`, `Stroke`) and `scene` (the immutable display list). Pure
   value types, no rendering, no I/O, so it is testable without a backend. **Blocked on a native
@@ -557,6 +557,17 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   registers `lib/graphics` on the Makefile's `vpath` and adds the "Graphics" group to
   `tools/gen_lib_manual.py`, without which a new module fails `lib-manual-check`.
   See `docs/graphics/phase-1-geometry-and-scene.md`.
+
+  *Done 2026-10-16 in `e2ec63c`.* `math` gained `atan2`, `asin`, `acos` and `atan`; phase 1's own
+  API needs the first two (`rotation_of`, `shear_of`) and phase 5 needs the rest. Four names differ
+  from the design's first draft and the document now says why: `matrix_concat` because `concat` is a
+  builtin; `Segment`'s curve cases carry named structs because a variant holds zero or one payload;
+  the constants are functions (`identity()`, `paint.black()`) because a qualified global val is not
+  reachable, so `geom.identity` is a type error -- `math.pi` has the same wrinkle and is where it
+  was found; and `fill(path, using)` because `with` is a keyword. The fixture's load-bearing
+  assertion is an arch whose control-point bounds are -90 against tight bounds of -67.5: hand-solving
+  gives t=0.5 and -(6/8)*90, so if those two ever agree the solver has stopped solving. 1036/1036 on
+  both builds.
 
 - [ ] **F142** **`lib/graphics` phase 2: the PDF backend, with the standard fonts.** (raised
   2026-10-16; L) `pdfobj` (objects, dictionaries, streams, xref -- split out because a broken xref
