@@ -454,6 +454,19 @@ a fix, and none is applied.
   What is left of this entry: `max_connections`'s default of 64 is no longer a client ceiling, so
   the question of raising it is closed by the change rather than by a decision.
 
+  **Postscript 2026-10-16: this broke the North Star application's behavioural suite, and nothing
+  here noticed for most of a day.** `lifecycle_test.py` and its `lifecycle_test.zm` twin asserted
+  "a client over the limit waits" and "it is served once a slot frees" -- precisely the behaviour
+  this change removed -- so both failed the moment it landed. Fixed in the backend checkout
+  (`health-record` `5522188`) by asserting the current contract instead; the thread bound beside
+  them, 4 clients against a limit of 2 staying within base + 2 threads, was always the real
+  resource limit and still passes untouched.
+  **Worth generalising:** `make check-fast` does not run the North Star suite -- only `make check`
+  does, via `northstar-if-available` -- so a change to a *documented `serve` contract* can be green
+  across 1033 fixtures here and still be broken downstream, because the only assertions about that
+  contract live in the sibling checkout. `tests/run_northstar.sh` exists for exactly this (F25) and
+  was simply not run. Run `make check`, not `check-fast`, after changing what `serve` promises.
+
   Three things to settle, in order. **(1)** Whether this is the intended contract. If it is, `max_connections` needs documenting as "the maximum number of concurrent clients" rather than a resource limit, and the default of 64 needs revisiting, because browsers hold connections open and a 65th visitor is not an overload condition. **(2)** Whether Spring/Tomcat diverges here, which matters because this backend is a parity project: a thread-pool NIO connector multiplexes idle keep-alive connections over fewer threads and so should have no such cliff -- not measured, and worth measuring against the Spring backend in the same repo before any redesign. **(3)** Only then, whether `serve` should multiplex idle connections rather than hold a thread per connection, which is a real design change, not a tuning fix.
 
   Two measurement findings came out of the same work and stand on their own, because every concurrency figure in docs/MEMORY.md and docs/DESIGN.md is affected by both. **`server_concurrency.sh` does not use keep-alive**, so it has been measuring TCP connection setup and thread creation as much as request handling: turning it on is worth 2.3x at c=16 (1677 -> 3913 rps) and 1.8x at c=64 (1608 -> 2846). And it **runs `ab` on the same cores as the server**, which costs 16-19% (c=16: 1434 shared against 1661 pinned; c=64: 1356 against 1620). Neither invalidates the A/B comparisons those documents draw, since both sides paid the same cost, but the absolute numbers are low and the shape past c=64 is partly the harness.
