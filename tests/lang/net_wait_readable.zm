@@ -1,0 +1,60 @@
+// `net.wait_readable` is the primitive a server needs to hold more connections than threads: it
+// answers which sockets have something to read, so an idle keep-alive connection can wait without
+// a thread of its own (docs/reviews/tasks.md F139).
+use clock
+use net
+
+fn serve_one(l: net.Listener, done: Channel<string>) {
+    if Ok(s) = net.accept(l) {
+        // Read whatever arrives, echo a marker back, then wait to be told to finish.
+        val got = unwrap(net.read_text(s, 64))
+        unwrap(net.write_text(s, concat("echo:", got)))
+        send(done, got)
+        clock.sleep_millis(50)
+        net.close(s)
+    }
+}
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    val done: Channel<string> = channel_new()
+    spawn serve_one(l, done) on_error fn(message: string) {
+        print(concat("server: ", message))
+    }
+
+    val a = unwrap(net.connect("127.0.0.1", port))
+    val b = unwrap(net.connect("127.0.0.1", port))
+
+    // Nothing has been sent, so nothing is readable and the timeout is what returns.
+    print(len(net.wait_readable([a, b], 50)))
+
+    // An empty list answers empty without waiting.
+    print(len(net.wait_readable([], 1000)))
+
+    // Send on `a` only: the server echoes, so `a` becomes readable and `b` does not. The answer is
+    // an index into the array given, which is 0 here.
+    unwrap(net.write_text(a, "ping"))
+    print(receive(done))
+    var ready: [int] = []
+    for attempt in 0..40 {
+        if len(ready) == 0 {
+            ready = net.wait_readable([a, b], 100)
+        }
+    }
+    print(len(ready))
+    print(ready[0])
+    print(unwrap(net.read_text(a, 64)))
+
+    // Order follows the array given, not readiness: b first means b is index 0.
+    var ready2: [int] = []
+    for attempt in 0..40 {
+        if len(ready2) == 0 {
+            ready2 = net.wait_readable([b, a], 100)
+        }
+    }
+    print(ready2[0] == 1)
+
+    net.close(a)
+    net.close(b)
+}

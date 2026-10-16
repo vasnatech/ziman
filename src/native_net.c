@@ -759,6 +759,79 @@ static Value native_net_peer_address_raw(Value *args, int argc, int line, int co
     return value_string(ziman_xstrdup(out));
 }
 
+/* wait_readable_raw(handles: [int], timeout_ms: int) -> [int]
+ *
+ * The indices of those handles that have something to read -- data, an EOF from the peer, or an
+ * error -- or an empty array if `timeout_ms` passed with none of them ready. The primitive
+ * `serve` needs to hold more connections than it has threads: an idle keep-alive connection can
+ * wait here with no thread of its own, and only costs one when a request actually arrives
+ * (docs/reviews/tasks.md F139).
+ *
+ * Indices rather than handles, so the caller can index whatever it is keeping alongside the socket
+ * (a deadline, a connection key) without this having to construct anything.
+ *
+ * `timeout_ms` is bounded on purpose and a negative value is treated as zero: a caller polls in
+ * slices and checks for a shutdown between them, exactly as `accept_raw` above does for the same
+ * reason -- there is no way to interrupt a `poll` that was told to wait forever.
+ *
+ * Two passes over the handles, for A31's reason applied to many fds instead of one. The first
+ * validates every handle and raises on a bad one, holding nothing, so there is no half-acquired
+ * state to unwind through `ziman_error`. The second takes a reference on each for the duration of
+ * the poll, so a `close` on another thread cannot free a descriptor number this is about to poll
+ * and let the OS hand it to something else. A handle closed *between* the two passes is reported
+ * ready rather than skipped: the caller's next read on it is where that belongs, and it will get
+ * the real error from there instead of a silent omission here. */
+static Value native_net_wait_readable_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    ArrayObj *arr = args[0].as.arr;
+    int n = arr == NULL ? 0 : arr->count;
+    int64_t timeout = args[1].as.i;
+    if (timeout < 0) timeout = 0;
+    if (n == 0) return value_int_array(NULL, 0);
+
+    for (int i = 0; i < n; i++) {
+        (void)require_handle(array_get(arr, i).as.i, "wait_readable", line, col);
+    }
+
+    NetHandle **held = ziman_xcalloc((size_t)n, sizeof(NetHandle *));
+    struct pollfd *fds = ziman_xcalloc((size_t)n, sizeof(struct pollfd));
+    int *index_of = ziman_xcalloc((size_t)n, sizeof(int));
+    int64_t *ready = ziman_xmalloc((size_t)n * sizeof(int64_t));
+    int nready = 0;
+    int polled = 0;
+    for (int i = 0; i < n; i++) {
+        NetHandle *h = handle_use(array_get(arr, i).as.i);
+        if (h == NULL) {
+            ready[nready++] = i; /* closed since the first pass -- see above */
+            continue;
+        }
+        held[polled] = h;
+        fds[polled].fd = __atomic_load_n(&h->fd, __ATOMIC_ACQUIRE);
+        fds[polled].events = POLLIN;
+        index_of[polled] = i;
+        polled++;
+    }
+
+    /* Only wait when nothing is already known ready, so a closed handle is reported at once. */
+    int r = 0;
+    do {
+        r = poll(fds, (nfds_t)polled, nready > 0 ? 0 : (int)timeout);
+    } while (r < 0 && errno == EINTR);
+    if (r > 0) {
+        for (int i = 0; i < polled; i++) {
+            if (fds[i].revents != 0) ready[nready++] = index_of[i];
+        }
+    }
+    for (int i = 0; i < polled; i++) handle_unuse(held[i]);
+
+    Value out = value_int_array(ready, (size_t)nready);
+    free(held);
+    free(fds);
+    free(index_of);
+    free(ready);
+    return out;
+}
+
 static Value native_net_accept_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     Type int_type = type_scalar(TY_INT);
@@ -1277,6 +1350,7 @@ void native_net_register(void) {
     native_register("net::listener_port_raw", native_net_listener_port_raw);
     native_register("net::peer_address_raw", native_net_peer_address_raw);
     native_register("net::accept_raw", native_net_accept_raw);
+    native_register("net::wait_readable_raw", native_net_wait_readable_raw);
     native_register("net::idle_put_raw", native_net_idle_put_raw);
     native_register("net::idle_take_raw", native_net_idle_take_raw);
     native_register("net::idle_clear_raw", native_net_idle_clear_raw);

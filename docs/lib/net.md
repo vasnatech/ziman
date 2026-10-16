@@ -314,6 +314,29 @@ backwards for the thing an address is usually wanted for -- telling one client f
 to rate-limit. An application that sits behind a proxy it trusts has to say so itself, and read the
 header itself, knowing how many hops it owns. This library will not guess at that.
 
+### `wait_readable`
+
+```
+pub fn wait_readable(sockets: [Socket], timeout_ms: int) -> [int]
+```
+
+Which of `sockets` have something to read -- data, an EOF from the peer, or an error -- as
+indices into the array given, or empty when `timeout_ms` passes with none of them ready.
+
+This is what lets a server hold more connections than it has threads. A connection waiting for
+its next keep-alive request needs no thread of its own: park it here, and spend a thread only
+when a request actually arrives. Without it, `serve`'s one-thread-per-connection shape makes
+`max_connections` a ceiling on concurrent *clients*, so a client past the cap waits for an
+occupant's `idle_timeout_ms` rather than for a request to finish (docs/reviews/tasks.md F139).
+
+`timeout_ms` must be bounded, and a negative value counts as zero. There is no way to interrupt
+a wait that was told to last forever, so poll in slices and check whatever you need to check
+between them -- a shutdown request, a deadline -- which is how `accept` is written underneath for
+the same reason. An empty `sockets` answers empty immediately rather than waiting.
+
+An index is reported ready, rather than omitted, for a socket closed while this was waiting: the
+read you were about to do is where that belongs, and it will tell you what happened.
+
 ### `accept`
 
 ```

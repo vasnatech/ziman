@@ -1,0 +1,13 @@
+// A socket closed before the call is a program error, and `wait_readable` validates every handle
+// before it holds a reference to any of them -- so a bad one is rejected cleanly rather than
+// leaving half the list referenced (see native_net.c's own comment on the two passes).
+use net
+
+fn main() {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val port = net.listener_port(l)
+    val s = unwrap(net.connect("127.0.0.1", port))
+    net.close(s)
+    print("closed")
+    val _ = net.wait_readable([s], 10)
+}
