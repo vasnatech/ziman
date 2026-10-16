@@ -939,6 +939,28 @@ from source.
   agree as they always should have. This is the word-count idiom in prelude.zm's own comment, run
   once per input word.
 
+  **The builders are a flat hash table now (2026-10-15).** `src/maptable.c`, behind
+  `MutableMap`/`MutableSet`; `Map`/`Set` keep the trie, which is right for a *value* whose `set`
+  must leave the old map intact. Per the measurement above, the lever was the trie's per-entry
+  `Leaf` allocation, and a dense entries array removes it. Against CPython 3.14 `dict`, 100,000
+  entries: **set 335-346 -> 47-49 ns/op** (dict 14-15, so 18x -> 3.2x), **contains 71-78 -> 34-39**,
+  **get_or 76-86 -> 45**, **remove+set 1107 -> 336-350**, and filling one map 741-762 -> **112-117
+  ns/insert**, 6.5x. `shared` disappeared with the leaf sharing that needed it, `set_add` is one
+  lookup instead of two, and insertion order comes from the dense array rather than a per-entry
+  sequence number and a sort.
+
+  **The one regression, partly closed and honestly reported.** Creating and discarding *many*
+  builders churns more allocator bytes than the trie did, because a table is two arrays and `free`
+  is a no-op in a `make gc` build. Making the index array atomic (it is `int32_t`; it cannot hold a
+  pointer), allocated fresh rather than `realloc`'d-then-overwritten, and sized by the load factor
+  alone rather than a third larger took it from 122/259/320 to **125/230/263 ns/insert** at
+  1,000/10,000/100,000 entries against the trie's 135/146/281 -- so the 1,000 and 100,000 cases are
+  now at or better than the trie, and the 10,000 case is ~1.6x worse. Two further attempts are
+  recorded in `maptable.c` as measured failures: fixed 1024-entry chunks (fixed it, and cost
+  csv_extended 0.16s -> 6.8s by allocating 57 KB per small builder) and
+  `GC_malloc_ignore_off_page` (removed the large-block warning, and gave up `GC_REALLOC`'s in-place
+  growth, 262 -> 322-356).
+
   **Then cut the gap further, 2026-10-15, and found most of it is not the map.** Decomposed `get` on
   the same binary: the lookup is ~92ns (that is `get_or`), the `Option` allocation ~310ns, the
   `if Some(v) =` destructure ~35ns. Two fixes landed. The `Option` *type* was being rebuilt per

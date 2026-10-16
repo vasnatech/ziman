@@ -8,6 +8,23 @@
 #define MAPTABLE_DUMMY (-2)
 #define MAPTABLE_MIN_INDEX 8
 
+/* Two attempts at the single large `entries` block, both measured and both reverted -- recorded so
+ * they are not repeated. A table of 100,000 entries is one 5.6 MB array, and repeatedly allocating
+ * a block that size makes the collector emit "Repeated allocation of very large block"; main.c's
+ * warn proc caps that at three lines, so it is noise rather than a flood.
+ *
+ * Fixed 1024-entry chunks fixed the warning and removed the growth copying, and allocated 57 KB on
+ * the first insert of every builder -- csv_extended went from 0.16s to 6.8s, because it builds a
+ * small map per row. `GC_malloc_ignore_off_page` (the documented remedy, whose precondition does
+ * hold here: `t->entries` is the only reference and points at the start) removed the warning
+ * without that cost, but it cannot be `realloc`'d, and allocate-and-copy gave up the in-place
+ * growth `GC_REALLOC` manages for large blocks: the many-small-builders benchmark went 262 ->
+ * 322-356 ns/insert.
+ *
+ * The sizes to serve are two-entry maps and hundred-thousand-entry maps at once, which is what
+ * makes this harder than it looks. */
+
+
 /* The index array is kept at most two-thirds full, the same load factor `dict` uses: open
  * addressing degrades sharply past that, and the probe below is only pseudo-random. */
 static int index_is_full(const MapTable *t) {
@@ -67,11 +84,18 @@ static void rehash(MapTable *t, size_t want_entries) {
     }
 
     /* Three slots per two live entries at the smallest, so a table that has just filled gets real
-     * headroom rather than rehashing again on the next insert. */
+     * headroom rather than rehashing again on the next insert. Sized by that rule alone: an
+     * earlier version also forced `index_cap >= want_entries * 2`, which made every index array a
+     * third larger than the load factor asks for, and every byte of that is garbage the moment the
+     * builder is dropped.
+     *
+     * Allocated fresh rather than `realloc`'d, and *atomic*. Fresh because the memset below
+     * overwrites every slot, so a realloc would copy the old contents only to discard them. Atomic
+     * because an index array is `int32_t` and cannot hold a pointer by construction, so the
+     * collector has no reason to scan it. */
     size_t index_cap = MAPTABLE_MIN_INDEX;
     while (index_cap * 2 < (live + 1) * 3) index_cap *= 2;
-    while (index_cap < want_entries * 2) index_cap *= 2;
-    t->indices = ziman_xrealloc(t->indices, index_cap * sizeof(int32_t));
+    t->indices = zalloc_atomic(index_cap * sizeof(int32_t));
     t->index_cap = index_cap;
     memset(t->indices, 0xff, index_cap * sizeof(int32_t)); /* 0xff.. is MAPTABLE_EMPTY */
 
