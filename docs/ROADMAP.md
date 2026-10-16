@@ -2412,9 +2412,49 @@ from source.
   something); and whether `order_of`, which is private, wants to be the one public primitive the
   sort family is written over, the way `sort_positions` already is for the natives.
 
-- **Interval notation for ranges: `[a..b]`, `(a..b)`, `[a..b)`, `(a..b]`.** Raised 2026-10-12 by
-  Menderes. **Undecided, and may well be declined** -- recorded so that both the option and its price
-  are on the record rather than rediscovered. The idea is that each end's bracket states its own
+- ~~**Interval notation for ranges: `[a..b]`, `(a..b)`, `[a..b)`, `(a..b]`.**~~ **Declined
+  2026-10-16 by Menderes, after reviewing the evidence below.** `a..b` stays the one range form, and
+  `..=` is not taken either; the reasoning is in the update note under this paragraph. Raised
+  2026-10-12 by Menderes. ~~**Undecided, and may well be declined**~~ -- recorded so that both the
+  option and its price are on the record rather than rediscovered.
+
+  *Update 2026-10-16: **declined**, and the decision recorded here rather than left open, because an
+  entry that reads as pending work has its own cost -- this file twice sent a reader to recommend
+  already-finished items on the day this was decided.*
+
+  ***The argument that settled it is one this entry had as a sub-point rather than the whole case:
+  the proposal's value and its structural cost are the same forms.*** The pitch is that all four
+  combinations become expressible. But the nesting-safe subset is only `[a..b]` and `(a..b)` --
+  inclusive-both and exclusive-both -- while the ends anyone actually reaches for are exclusive
+  (`a..b`, which exists) and **inclusive-end**, i.e. `a..b]`, a *mixed* form. So the useful half of
+  the feature is exactly the half that breaks the delimiter-matching invariant the formatter's
+  continuation indent (F72), the TextMate grammar and every editor's bracket matcher rely on. Drop
+  the mixed forms to keep that invariant and nothing of value is left to ship.
+
+  **Declining also keeps `[a..b]` in reserve, which is worth more than this feature.** This entry
+  listed "slicing landing as `xs[a..b]`" as a *reopen* trigger; it cuts the other way. `xs[0..2]` is
+  a clean `expected ']', found '..'` today (verified), slicing exists only as the function
+  `slice<T>(a, start, end)`, and subscript slicing is a far more commonly wanted feature -- Python,
+  Rust and Go all have it. Spending `[a..b]` on a range *value* forecloses it permanently, so
+  keeping it free is a decision in its own right and not a deferral.
+
+  **`..=` is declined too, which is the part that needed a reason rather than a cost.** It is cheap,
+  nesting-safe, leaves `[` and `(` alone, matches a real latent habit (1 of 50 cold attempts reached
+  for it) and the existing diagnostic already names the concept. Against that: it puts **two
+  spellings on the single most common construct in the language**, and the count below is now **260**
+  `for ... in a..b` sites in `lib`/`tests`/`examples` (277 counting docs) -- grown from the 235
+  recorded here on 2026-10-12. Every counted loop would become a choice between `0..n + 1` and
+  `0..=n`, and a model choosing between near-synonyms is the failure mode the AI-first goal exists to
+  avoid. No cold run has ever *needed* an inclusive range; the measured failure was four runs
+  **avoiding** ranges to dodge an off-by-one, which is hesitation, and hesitation is what F93's
+  diagnostics already address. The current message is doing that work well: "a range is written
+  `a..b` and stops before `b`, so an inclusive end is written `a..b + 1`".
+
+  **The reopen trigger, tightened.** The one signal that would reopen either half is a run that
+  writes an off-by-one `+ 1` and **gets it wrong** -- a defect, not a hesitation. The avoidance
+  already measured is explicitly *not* that signal, and should not be read as evidence the feature is
+  needed; mistaking the two is what would reopen this on no new information. Slicing landing as
+  `xs[a..b]` no longer reopens anything: it is now the reason `[a..b]` stays unspent. The idea is that each end's bracket states its own
   inclusivity, so a reader never has to know a convention: `[` and `]` include the endpoint, `(` and
   `)` exclude it, and all four combinations are expressible. That is a real argument and the same one
   that favours Kotlin's `until` over a bare `..`: self-documenting beats diagnosed.
