@@ -24,16 +24,45 @@
  * read at an address the caller chose. `regex.Regex { handle: 1, ... }` is ordinary Ziman and
  * segfaulted the process. `handleset_has` answers from a table of addresses we put there.
  *
- * Nothing is ever removed from the set, because a compiled pattern is never freed. That also
- * means a handle cannot go stale, so this is a membership test and not a liveness one -- unlike
- * `native_net.c`'s, which needs `handleset_has_then` to close the window before a concurrent
- * close. Being in the set roots nothing (the slots are unscanned); what keeps a `RegexHandle`
- * alive is the Ziman `Regex` value holding its address, exactly as `src/handles.c` describes. */
+ * Being in the set roots nothing (the slots are unscanned); what keeps a `RegexHandle` alive is
+ * the Ziman `Regex` value holding its address, or `g_cache` below holding it in scanned static
+ * storage, exactly as `src/handles.c` describes.
+ *
+ * This comment used to say that nothing is ever removed from the set "because a compiled pattern
+ * is never freed", and therefore that a handle cannot go stale, making this a membership test
+ * rather than a liveness one. **That was wrong on both halves (2026-10-16).** The cache holds the
+ * last 256 distinct patterns and *replaces* the oldest, so an evicted pattern no Ziman value still
+ * holds is unreachable and is collected like anything else -- leaving its address in this set for
+ * the life of the process, pointing at memory the collector has taken back. 200,000 distinct
+ * compiles is a 3.4 MB table of such entries, and the next `RegexHandle` to land on a collected
+ * address would make a stale handle validate.
+ *
+ * So the set does need a removal, and `regex_drop_finalizer` is it -- which also restores the
+ * property the old comment assumed: a handle stops validating when its pattern dies, instead of
+ * validating forever against an address that has moved on. A live `Regex` value is unaffected,
+ * since holding one is what roots the handle in the first place. */
 typedef struct {
     Regex *re;
 } RegexHandle;
 
 static HandleSet g_regexes = HANDLE_SET_INIT;
+
+#ifdef ZIMAN_GC
+/* Takes a collected pattern out of `g_regexes`; see the discussion above. Removal only, and
+ * NO_ORDER: a `Regex` owns no descriptor and nothing else has to stay alive to forget it. */
+static void regex_drop_finalizer(void *obj, void *client_data) {
+    (void)client_data;
+    handleset_remove(&g_regexes, obj);
+}
+#endif
+
+static void regex_register_drop(RegexHandle *h) {
+#ifdef ZIMAN_GC
+    GC_REGISTER_FINALIZER_NO_ORDER(h, regex_drop_finalizer, NULL, NULL, NULL);
+#else
+    (void)h;
+#endif
+}
 
 static RegexHandle *handle_of(Value v, int line, int col) {
     RegexHandle *h = (RegexHandle *)(intptr_t)v.as.i;
@@ -109,6 +138,7 @@ static Value native_regex_compile_raw(Value *args, int argc, int line, int col) 
     RegexHandle *h = ziman_xmalloc(sizeof(RegexHandle));
     h->re = re;
     handleset_add(&g_regexes, h);
+    regex_register_drop(h);
     cache_store(pattern, plen, h);
     return value_result(type_ref(rt), result_obj_new(1, value_int((int64_t)(intptr_t)h)));
 }

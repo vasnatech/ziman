@@ -525,6 +525,30 @@ static HandleSet g_array_builders = HANDLE_SET_INIT;
 static HandleSet g_map_builders = HANDLE_SET_INIT;
 static HandleSet g_cells = HANDLE_SET_INIT;
 
+#ifdef ZIMAN_GC
+/* Takes a dead builder out of its validation set.
+ *
+ * Without this the four sets above only ever grow: nothing else removes from them, because unlike a
+ * socket or a cursor a builder owns no descriptor and so had no reason to be closed. The entry is
+ * not a root (see src/handles.c), so the pointer in it dangles the moment the collector takes the
+ * object -- the same shape `iter_drop_finalizer` describes as leaving a pointer behind "for the life
+ * of the process", except that builders are the handles a program churns through fastest. Measured
+ * before this existed: 16,000,000 short-lived `mutable_string_new()` calls left a 268 MB table
+ * (one permanent entry each, ~16.8 bytes), and the growth is linear and unbounded.
+ *
+ * Removal only, and NO_ORDER: there is nothing to close, the set is the only thing that has to
+ * forget this object, and no other finalizable object needs to be kept alive to do it. */
+static void builder_drop_finalizer(void *obj, void *client_data) {
+    handleset_remove((HandleSet *)client_data, obj);
+}
+
+static void builder_register_drop(void *buf, HandleSet *set) {
+    GC_REGISTER_FINALIZER_NO_ORDER(buf, builder_drop_finalizer, set, NULL, NULL);
+}
+#else
+static void builder_register_drop(void *buf, HandleSet *set) { (void)buf; (void)set; }
+#endif
+
 /* The check every builder operation makes: `what` names the builder type for the message. */
 static void builder_owner_check(pthread_t owner, const char *what) {
     if (!pthread_equal(owner, pthread_self())) {
@@ -545,6 +569,7 @@ typedef struct {
 static int64_t mutable_string_table_register(MutableStringBuf *buf) {
     buf->owner = pthread_self();
     handleset_add(&g_string_builders, buf);
+    builder_register_drop(buf, &g_string_builders);
     return (int64_t)(intptr_t)buf;
 }
 
@@ -789,6 +814,7 @@ typedef struct {
 static int64_t mutable_array_table_register(MutableArrayBuf *buf) {
     buf->owner = pthread_self();
     handleset_add(&g_array_builders, buf);
+    builder_register_drop(buf, &g_array_builders);
     return (int64_t)(intptr_t)buf;
 }
 
@@ -1570,6 +1596,7 @@ static Value mutable_map_new_value(const char *type_name) {
     MutableMapBuf *buf = ziman_xmalloc(sizeof(MutableMapBuf));
     buf->owner = pthread_self();
     handleset_add(&g_map_builders, buf);
+    builder_register_drop(buf, &g_map_builders);
     maptable_init(&buf->t);
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)buf);
@@ -1981,6 +2008,7 @@ static Value native_mutable_new(Value *args, int argc, int line, int col) {
     MutableCellBuf *buf = ziman_xmalloc(sizeof(MutableCellBuf));
     buf->owner = pthread_self();
     handleset_add(&g_cells, buf);
+    builder_register_drop(buf, &g_cells);
     buf->value = args[0];
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)buf);
