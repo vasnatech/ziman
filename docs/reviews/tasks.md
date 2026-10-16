@@ -569,7 +569,7 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   gives t=0.5 and -(6/8)*90, so if those two ever agree the solver has stopped solving. 1036/1036 on
   both builds.
 
-- [ ] **F142** **`lib/graphics` phase 2: the PDF backend, with the standard fonts.** (raised
+- [x] **F142** **`lib/graphics` phase 2: the PDF backend, with the standard fonts.** (raised
   2026-10-16; L) `pdfobj` (objects, dictionaries, streams, xref -- split out because a broken xref
   and a broken transform are miserable to debug together) and `pdf` (`Scene` to a PDF document).
   Paths, fills with both winding rules, strokes passed through as PDF's native `w`/`J`/`j`/`M`/`d`
@@ -581,6 +581,20 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   parse back what was written and check every `/Length`, `Ref` and xref offset, because that is the
   entire class of "readers reject the file". Depends on F141.
   See `docs/graphics/phase-2-pdf-backend.md`.
+
+  *Done 2026-10-16 in `1efe7dc`.* All three verification layers exist:
+  `pdfobj.check` reads the file back (xref offsets landing on their object headers, every
+  `/Length` matching its stream, `/Root` being a real `/Catalog`); `tests/run_pdf_tests.sh` checks
+  that **Poppler** agrees, wired in as `pdf-if-available` and guarded on the binaries the way TLS
+  guards on openssl -- 9 checks, of which the two that earn their keep are that `pdftotext` extracts
+  the text at all (so it went out as text, not paths) and that the em dash and curly quotes survive,
+  the CP1252 block where WinAnsi differs from Latin-1; and the fixture asserts the refusals,
+  including `ş` being an `Err` naming the character rather than a substituted `?`.
+  Two measurement traps recorded in the script rather than left for the next person: `pdftotext`
+  splits a **rotated** baseline into fragments ("rotated text" extracts as "rota / ted t / e / xt"),
+  which is its layout analysis and not a defect -- I treated it as one for a while because `head`
+  hid the rest; and deflate makes a *single small rect* larger, since a zlib header outweighs 150
+  bytes of content, so compression is measured on 400 rects (18,116 to 4,349) instead.
 
 - [ ] **F143** **`lib/graphics` phase 3: TrueType parsing, metrics, and font embedding.** (raised
   2026-10-16; L) `truetype` (the table reader: `head`, `maxp`, `hmtx`, `cmap` formats 4 and 12,
