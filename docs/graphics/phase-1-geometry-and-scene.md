@@ -84,6 +84,25 @@ derivative of each cubic, which matters for "shrink the page to the ink" and for
 Offering only the tight one would make every cheap caller pay; offering only the loose one would
 make the one caller that needs precision write it themselves.
 
+**Why `QuadTo` exists at all, since a quadratic *is* a cubic.** Cairo's path vocabulary has only
+four elements -- move, line, cubic, close -- and elevates quadratics on the way in; the elevation is
+exact (control points at `start + 2/3*(c - start)` and `end + 2/3*(c - end)`), so nothing is lost
+and the model is one case smaller. It is kept here for one reason: **TrueType outlines are
+quadratic**, and phase 5 rasterises glyph outlines at every size a document uses. Elevating each
+glyph on every use, rather than storing what the font already said, is work for nothing. The PDF
+backend elevates once at serialisation (phase 2), where it costs one pass over a path that is about
+to be written out anyway. If phase 5 never happens, cairo's four-element path is the better model
+and this is the decision to revisit.
+
+**Open question: conics, for arcs that are exact rather than close.** Skia's `SkPath` has a verb
+neither Java 2D nor cairo does -- a *conic*, a rational quadratic with a weight, which represents a
+circular arc **exactly**. The four-cubic ellipse below is within about 0.02% of the radius, which is
+invisible in a document and not invisible in a large-radius arc on a chart. Adding `ConicTo(Point,
+Point, float)` later is a breaking change to a `switch`ed enum in every backend, which argues for
+deciding now; against it, both backends would have to lower conics anyway (PDF has no conic
+operator either), so the exactness survives only as far as the first serialisation. Recorded rather
+than decided: it is cheap while there are no backends and expensive once there are two.
+
 **Ellipses are cubics, not a primitive.** Four cubic arcs with the magic constant
 `0.5523` (`4/3 * (sqrt(2) - 1)`) approximate a quarter circle to within about 0.02% of the radius.
 PDF has no ellipse operator either, so a primitive would have to be lowered anyway; lowering it

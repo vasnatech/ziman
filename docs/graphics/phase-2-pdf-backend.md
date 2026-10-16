@@ -131,8 +131,29 @@ pub struct TextRun {    // the `scene.Text` payload, declared in phase 1, filled
     size: float
     font: FontRef       // StandardFont in phase 2; an embedded face in phase 3
     paint: Paint
+    // Which bytes of `text` each run of glyphs came from. Empty in phase 2, where the mapping is
+    // one glyph per character and can be recomputed; carried here from the start so that adding it
+    // later is not a change to a struct every backend reads. See below.
+    clusters: [Cluster]
 }
+
+// `glyphs` consecutive glyphs were produced from `bytes` bytes of the source text.
+pub struct Cluster { bytes: int  glyphs: int }
 ```
+
+**`clusters` is here because of cairo, and it is the field most likely to look unnecessary.** Cairo
+offers text at three levels -- `cairo_show_text(utf8)`, `cairo_show_glyphs(glyphs)`, and
+`cairo_show_text_glyphs(utf8, glyphs, clusters)` -- and the third exists because once anything
+reorders or combines characters, the glyph sequence no longer corresponds to the text positionally.
+That matters here for one concrete reason: PDF's `/ToUnicode` CMap (phase 3) has to say which
+characters a glyph came from, and text extraction is wrong without it.
+
+In phase 2 and phase 3 the mapping is trivial -- one glyph per codepoint, left to right -- so
+`clusters` may be left empty and the backend derives it. It stops being trivial the moment shaping
+exists (an Arabic initial form is one glyph from one character but a different glyph than the
+isolated form; a Devanagari cluster is several characters to one glyph, sometimes reordered). The
+field costs nothing now and is the difference between adding shaping later and redesigning the text
+operation later.
 
 **The limitation is Latin-1 and it must be an error, not a mangling.** `WinAnsiEncoding` cannot
 represent `ş`, `İ`, Cyrillic or CJK. A character outside it makes `render` return an `Err` naming the

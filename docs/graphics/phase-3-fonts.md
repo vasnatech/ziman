@@ -71,13 +71,23 @@ pub fn covers(f: FontRef, text: string) -> Option<int>   // Some(codepoint) for 
 fonts, or producing an error, needs to name the character; a bool would make every caller re-scan to
 find it. This is the same reasoning as `Option`-returning lookups elsewhere in the library.
 
+**`/ToUnicode` is built from `TextRun.clusters`, or from the trivial mapping when it is empty.**
+Phase 2 added that field for this: the CMap has to state which characters each glyph came from, and
+with one glyph per codepoint the backend can derive it. The derivation is what stops working under
+shaping, which is why the field exists rather than the mapping being assumed.
+
 **No shaping, and that is a deliberate limit with a stated cost.** Text is mapped codepoint to
 glyph, left to right, advancing by `hmtx`. That is correct for Latin, Greek, Cyrillic, CJK and
 Turkish, and **wrong for Arabic, Hebrew and Indic scripts**, which need contextual joining,
 reordering and ligature substitution from `GSUB`/`GPOS`. Those are not approximated here: `covers`
 reports what the font lacks, but nothing reports that a script needs shaping, so Arabic would render
 as disconnected letters in logical order. If that becomes a requirement it is its own phase, not a
-patch to this one.
+patch to this one -- and the shape that phase should take is already visible in two other libraries:
+**Skia pushes shaping out entirely** (`SkTextBlob` holds pre-shaped glyph ids and positions, with
+HarfBuzz doing the shaping), and cairo's `show_text_glyphs` takes the same three-part input. So the
+boundary is: something produces positioned glyphs plus clusters, and this library draws them. That
+is why `TextRun` carries `clusters` and why `font` exposes `glyph_for`/`advance_of` separately from
+`advance` -- a shaper needs the per-glyph primitives, not the string-level convenience.
 
 ## PDF embedding — `CIDFontType2` with Identity-H
 
