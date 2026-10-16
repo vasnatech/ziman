@@ -1122,11 +1122,25 @@ from source.
   are unaffected, since those compared `contains` against itself in a fixed loop shape; only the
   cross-row comparison was invalid.
 
-  **What is left of this entry, then:** (3) `MapNode`'s missing capacity field, which is the named
+  ~~**What is left of this entry, then:** (3) `MapNode`'s missing capacity field, which is the named
   mechanism behind `MutableMap` set at ~372 against `dict`'s 12 and is still untouched; and (4)'s
   `handleset_has` toll, now visible as the `len` gap (8-31 for `Map` against 24-39 for
-  `MutableMap`, the same field read) and still a few nanoseconds on every builder call. (1) is
+  `MutableMap`, the same field read) and still a few nanoseconds on every builder call.~~ (1) is
   closed by F31's correction and by the `get_or` fix above; (2) is done.
+
+  *Update 2026-10-16: that sentence is struck because **all four are now closed**, and it had gone
+  stale twice over -- once when (3) was retired and again when (4) was, each time by a note added
+  underneath it rather than a correction to it. (3) was measured and retired in `070d922`: node
+  growth is not the insert cost (281-287 against 284-288 ns/insert, since glibc grows small chunks
+  in place), and `MutableMap`/`MutableSet` then left the trie for a flat table anyway (`308503b`),
+  so the field it asks for is on a structure they no longer use. (4) is the attempt-and-decline
+  recorded below. **What is actually left of this entry is one thing, and it is not in this list:**
+  `Option` boxing on `get`/`remove`-shaped natives, which keeps those rows far out -- `get` at
+  344-348ns against `dict`'s 12 is allocation-bound, not lookup-bound. The general fix is unboxing
+  single-payload variants, analysed and declined in docs/MEMORY.md ("Design: unboxing single-payload
+  enum variants, and the case against building it"); the pattern that works instead is an additive
+  native per case, as `mutable_map_discard` was (356-357 → 111 ns/op, because ~240ns of
+  `remove`+`set` was one `Option` allocation).*
 
   **(4) attempted and declined, 2026-10-16.** The replacement was built and measured --
   `src/handleslot.c`, an index+generation table whose validation is a bounds check, a load and a
