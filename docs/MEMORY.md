@@ -1680,3 +1680,51 @@ wall-clock at c=1, 30% at c=16) are still there, and the `tests/bench/gcheap/` w
 two-collector cost that this backend cannot see at all. If it holds, the per-thread-heap design
 becomes history to keep rather than work to schedule, and the right deliverable is to say so at the
 top of this page instead of leaving a design pointing at a problem that has gone.
+
+### Confirmed with pause accounting: the pause mechanism is intact and about six times smaller
+
+The entry above re-measured throughput and found the founding diagnosis inverted; this is the
+pause accounting that says *why*, taken the same way the original table was (`GC_PRINT_STATS=1` on
+the real backend, one server per concurrency level so pauses attribute cleanly, collections counted
+only after the runner's token is in hand so startup is excluded). Two rounds at each of c=1/16/64,
+one at c=128/256:
+
+| c | rps | wall | collections | total STW pause | avg pause | % of wall-clock paused |
+| --- | --- | --- | --- | --- | --- | --- |
+| 1 | 485-497 | 6.0-6.2 s | 12 | 194-198 ms | 16.2-16.5 ms | 3.1-3.3% |
+| 16 | 1453 | 2.06 s | 12 | 242-254 ms | 20.2-21.2 ms | 11.7-12.3% |
+| 64 | 1396-1402 | 2.15 s | 11 | 262-273 ms | 23.8-24.8 ms | 12.2-12.8% |
+| 128 | 1364 | 2.20 s | 11 | 331 ms | 30.1 ms | 15.0% |
+| 256 | 1105 | 2.71 s | 11 | 273 ms | 24.8 ms | 10.1% |
+
+Against this page's founding table: **c=1 was 128 collections, 8.0 ms average, 1,023 ms total,
+~21% of a 4.8 s run; c=16 was 114 collections, 14.9 ms average, 1,695 ms total, ~30% of a 5.6 s
+run.** The original's own wall-clock figures confirm the throughput story independently -- 3,000
+requests in 5.6 s at c=16 is ~536 rps, against 1,453 today.
+
+**What actually changed is the collection *count*, not the pause.** Collections fell about tenfold
+(128 -> 12 at c=1, 114 -> 12 at c=16) and total pause time about sixfold (1,023 -> 196 ms,
+1,695 -> 248 ms). That is the scaled `ZIMAN_GC_TRIGGER_BYTES` doing exactly what its entry claimed:
+O(log n) collections instead of O(n). Average pause went *up*, 8.0 -> 16.3 ms at c=1, which is the
+same change seen from the other side -- each collection now covers more heap growth.
+
+**The mechanism the original diagnosis described is still there, unchanged in kind.** Average pause
+still grows with client count exactly as that diagnosis predicted ("each stop-the-world collection
+takes longer -- more concurrently-live thread stacks and data to trace"): 16.3 ms at c=1, 20.7 at
+c=16, 24.3 at c=64, 30.1 at c=128. Nothing about that was fixed or designed away. It is simply six
+times smaller in total, which was enough to move the knee from c=4 out past c=64.
+
+**And the falloff past c=128 is not the collector.** Throughput does decline eventually -- 1,364 rps
+at c=128, 1,105 at c=256 -- but the pause *share* falls with it (15.0% -> 10.1%), so whatever limits
+that end is not stop-the-world time. Thread-per-connection scheduling is the obvious suspect and
+would need its own measurement. Worth stating plainly because it is the trap this page has fallen
+into twice: a decline at high concurrency is no longer evidence about the collector.
+
+**Verdict on the design below.** One shared heap, stopped for everyone, is still the architecture
+and still costs 12-15% of wall-clock in pauses at c=16 and above -- a real number, not nothing. But
+it no longer produces the collapse the per-thread-heap design was written to prevent, and the
+binding constraint at the concurrency this backend sees is elsewhere. So that design should be read
+as history: a correct response to a 21-30% pause cost that is now 3-15%, parked rather than
+abandoned, with the measurements above as the reason it was parked. Anyone reopening it should
+re-take this table first, and should want a workload where the pause share is the thing in the way
+-- which, on the evidence here, this backend is not.
