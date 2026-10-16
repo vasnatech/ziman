@@ -123,6 +123,38 @@ pub native fn cos(x: float) -> float
 pub native fn tan(x: float) -> float
 ```
 
+### `asin`
+
+```
+pub native fn asin(x: float) -> float
+```
+
+The inverses, in radians. `asin` and `acos` answer NaN outside -1..1, which is this module's
+convention for a domain error rather than a trap -- see the header.
+
+### `acos`
+
+```
+pub native fn acos(x: float) -> float
+```
+
+### `atan`
+
+```
+pub native fn atan(x: float) -> float
+```
+
+### `atan2`
+
+```
+pub native fn atan2(y: float, x: float) -> float
+```
+
+The angle of the point (`x`, `y`) from the positive x axis, in radians, in -pi..pi -- and the one
+that actually gets used, because it is right in all four quadrants where `atan(y / x)` is not,
+and it survives `x` being zero. **Note the argument order: `y` first**, as C, Java, Python and
+JavaScript all have it. It looks wrong and it is what every caller will expect.
+
 ### `floor`
 
 ```

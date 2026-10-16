@@ -1,0 +1,427 @@
+// shape.zm -- paths, and the five segment types everything drawable reduces to.
+//
+// This vocabulary is the narrow waist of the whole library (docs/graphics/README.md): a rectangle,
+// an ellipse, a glyph outline and an arbitrary curve are all the same five cases, so the PDF
+// backend is a serialiser over them and the raster backend a scan-converter over them.
+use geom.Matrix
+use geom.Point
+use geom.Rect
+use geom.bottom
+use geom.empty_rect
+use geom.normalized
+use geom.point_of
+use geom.rect_of
+use geom.right
+use geom.transform_point
+use math.sqrt
+
+// A path is a sequence of these. Nothing else is ever needed, and nothing more is ever accepted.
+//
+// `QuadTo` is kept even though a quadratic *is* exactly a cubic, and cairo manages with four cases
+// by elevating on input. The reason is that TrueType outlines are quadratic and the raster backend
+// will rasterise glyph outlines at every size a document uses, so elevating per glyph per use is
+// work for nothing. The PDF backend elevates once at serialisation, where it costs one pass over a
+// path about to be written out anyway. See docs/graphics/phase-1-geometry-and-scene.md.
+// A variant holds zero or one payload (docs/SYNTAX.md), so the two curve segments carry a named
+// struct rather than a tuple. That reads better at the use sites anyway: `q.control` beats `q.0`.
+pub struct Quad {
+    control: Point
+    end: Point
+}
+
+pub struct Cubic {
+    control1: Point
+    control2: Point
+    end: Point
+}
+
+pub enum Segment {
+    MoveTo(Point)
+    LineTo(Point)
+    QuadTo(Quad)
+    CubicTo(Cubic)
+    Close
+}
+
+// Which side of a path counts as inside, where it overlaps itself. `NonZero` sums the direction of
+// each crossing and fills where the sum is not zero; `EvenOdd` counts them and fills on odd. A star
+// drawn one way is solid and the other way has a hole.
+pub enum Winding {
+    NonZero
+    EvenOdd
+}
+
+pub struct Path {
+    segments: [Segment]
+    winding: Winding
+}
+
+// Building one. Thread-bound by holding a `MutableArray`, which is what makes a builder a builder
+// here -- see the mutability discussion in docs/DESIGN.md.
+pub struct PathBuilder {
+    segments: MutableArray<Segment>
+}
+
+pub fn path_builder() -> PathBuilder {
+    return PathBuilder { segments: mutable_array_new<Segment>() }
+}
+
+pub fn move_to(b: PathBuilder, p: Point) {
+    mutable_array_push(b.segments, Segment.MoveTo(p))
+}
+
+pub fn line_to(b: PathBuilder, p: Point) {
+    mutable_array_push(b.segments, Segment.LineTo(p))
+}
+
+pub fn quad_to(b: PathBuilder, control: Point, p: Point) {
+    mutable_array_push(b.segments, Segment.QuadTo(Quad { control: control, end: p }))
+}
+
+pub fn cubic_to(b: PathBuilder, c1: Point, c2: Point, p: Point) {
+    mutable_array_push(b.segments, Segment.CubicTo(Cubic { control1: c1, control2: c2, end: p }))
+}
+
+pub fn close_path(b: PathBuilder) {
+    mutable_array_push(b.segments, Segment.Close)
+}
+
+pub fn built(b: PathBuilder, winding: Winding) -> Path {
+    return Path { segments: snapshot(b.segments), winding: winding }
+}
+
+pub fn path_of(segments: [Segment], winding: Winding) -> Path {
+    return Path { segments: segments, winding: winding }
+}
+
+pub fn empty_path() -> Path {
+    return Path { segments: [], winding: Winding.NonZero }
+}
+
+// ---- the shapes everyone actually draws
+
+pub fn line_path(from: Point, to: Point) -> Path {
+    return Path { segments: [Segment.MoveTo(from), Segment.LineTo(to)], winding: Winding.NonZero }
+}
+
+pub fn rect_path(r: Rect) -> Path {
+    val n = normalized(r)
+    return Path {
+        segments: [
+            Segment.MoveTo(point_of(n.x, n.y)),
+            Segment.LineTo(point_of(right(n), n.y)),
+            Segment.LineTo(point_of(right(n), bottom(n))),
+            Segment.LineTo(point_of(n.x, bottom(n))),
+            Segment.Close
+        ],
+        winding: Winding.NonZero
+    }
+}
+
+pub fn polygon_path(points: [Point], closed: bool) -> Path {
+    if len(points) == 0 {
+        return empty_path()
+    }
+    val b = path_builder()
+    move_to(b, points[0])
+    var i = 1
+    while i < len(points) {
+        line_to(b, points[i])
+        i = i + 1
+    }
+    if closed {
+        close_path(b)
+    }
+    return built(b, Winding.NonZero)
+}
+
+// A quarter-circle's worth of cubic control-point offset, `4/3 * (sqrt(2) - 1)`.
+//
+// This approximates a circular quadrant to within about 0.02% of the radius, which is the standard
+// trick and invisible at any size a document uses. It is why there is no arc primitive: PDF has no
+// arc operator either, so a primitive would have to be lowered anyway, and lowering it once here
+// means both backends get the same curve. Skia's exact alternative -- a conic -- is recorded as an
+// open question in the phase document.
+val kappa: float = 0.5522847498307933
+
+pub fn ellipse_path(r: Rect) -> Path {
+    val n = normalized(r)
+    val rx = n.width / 2.0
+    val ry = n.height / 2.0
+    val cx = n.x + rx
+    val cy = n.y + ry
+    val ox = rx * kappa
+    val oy = ry * kappa
+    val b = path_builder()
+    move_to(b, point_of(cx, n.y))
+    cubic_to(b, point_of(cx + ox, n.y), point_of(right(n), cy - oy), point_of(right(n), cy))
+    cubic_to(b, point_of(right(n), cy + oy), point_of(cx + ox, bottom(n)), point_of(cx, bottom(n)))
+    cubic_to(b, point_of(cx - ox, bottom(n)), point_of(n.x, cy + oy), point_of(n.x, cy))
+    cubic_to(b, point_of(n.x, cy - oy), point_of(cx - ox, n.y), point_of(cx, n.y))
+    close_path(b)
+    return built(b, Winding.NonZero)
+}
+
+pub fn circle_path(centre: Point, radius: float) -> Path {
+    return ellipse_path(rect_of(centre.x - radius, centre.y - radius, radius * 2.0, radius * 2.0))
+}
+
+// A rectangle with rounded corners. A radius past half the shorter side is clamped, rather than
+// refused, because that is what every other drawing API does with it and the alternative is an
+// error for something with an obvious meaning.
+pub fn round_rect_path(r: Rect, radius: float) -> Path {
+    val n = normalized(r)
+    val limit = if n.width < n.height { n.width / 2.0 } else { n.height / 2.0 }
+    var rad = radius
+    if rad > limit {
+        rad = limit
+    }
+    if rad <= 0.0 {
+        return rect_path(n)
+    }
+    val o = rad * kappa
+    val b = path_builder()
+    move_to(b, point_of(n.x + rad, n.y))
+    line_to(b, point_of(right(n) - rad, n.y))
+    cubic_to(b, point_of(right(n) - rad + o, n.y), point_of(right(n), n.y + rad - o), point_of(right(n), n.y + rad))
+    line_to(b, point_of(right(n), bottom(n) - rad))
+    cubic_to(
+        b,
+        point_of(right(n), bottom(n) - rad + o),
+        point_of(right(n) - rad + o, bottom(n)),
+        point_of(right(n) - rad, bottom(n))
+    )
+    line_to(b, point_of(n.x + rad, bottom(n)))
+    cubic_to(b, point_of(n.x + rad - o, bottom(n)), point_of(n.x, bottom(n) - rad + o), point_of(n.x, bottom(n) - rad))
+    line_to(b, point_of(n.x, n.y + rad))
+    cubic_to(b, point_of(n.x, n.y + rad - o), point_of(n.x + rad - o, n.y), point_of(n.x + rad, n.y))
+    close_path(b)
+    return built(b, Winding.NonZero)
+}
+
+// ---- transforming and measuring
+
+pub fn transform_path(p: Path, m: Matrix) -> Path {
+    val out = mutable_array_new<Segment>()
+    for s in p.segments {
+        switch s {
+            MoveTo(a) { mutable_array_push(out, Segment.MoveTo(transform_point(m, a))) }
+            LineTo(a) { mutable_array_push(out, Segment.LineTo(transform_point(m, a))) }
+            QuadTo(q) {
+                mutable_array_push(
+                    out,
+                    Segment.QuadTo(Quad {
+                        control: transform_point(m, q.control),
+                        end: transform_point(m, q.end)
+                    })
+                )
+            }
+            CubicTo(c) {
+                mutable_array_push(
+                    out,
+                    Segment.CubicTo(Cubic {
+                        control1: transform_point(m, c.control1),
+                        control2: transform_point(m, c.control2),
+                        end: transform_point(m, c.end)
+                    })
+                )
+            }
+            Close { mutable_array_push(out, Segment.Close) }
+        }
+    }
+    return Path { segments: snapshot(out), winding: p.winding }
+}
+
+// Every point mentioned by the path, enclosed: the control-point hull.
+//
+// Always encloses the curve, because a Bézier lies within the convex hull of its control points,
+// and is cheap -- which is all a clip test or a page-fit check needs. For the real extrema, see
+// `path_tight_bounds`, and read its comment for why both exist.
+pub fn path_bounds(p: Path) -> Rect {
+    val acc = bounds_builder()
+    for s in p.segments {
+        switch s {
+            MoveTo(a) { include(acc, a) }
+            LineTo(a) { include(acc, a) }
+            QuadTo(q) {
+                include(acc, q.control)
+                include(acc, q.end)
+            }
+            CubicTo(c) {
+                include(acc, c.control1)
+                include(acc, c.control2)
+                include(acc, c.end)
+            }
+            Close {}
+        }
+    }
+    return bounds_of(acc)
+}
+
+// The curve's actual extent: endpoints, plus each curve's turning points.
+//
+// A cubic whose control points sit far outside its own curve has much looser control-point bounds
+// than real ones -- which is exactly the case the fixture checks, because if the two agree the
+// solver is not doing anything. Costs a quadratic solve per curve, so it is the one to call when
+// fitting ink to a page and not the one to call per clip test.
+pub fn path_tight_bounds(p: Path) -> Rect {
+    val acc = bounds_builder()
+    var current = point_of(0.0, 0.0)
+    for s in p.segments {
+        switch s {
+            MoveTo(a) {
+                include(acc, a)
+                current = a
+            }
+            LineTo(a) {
+                include(acc, a)
+                current = a
+            }
+            QuadTo(q) {
+                include(acc, current)
+                include(acc, q.end)
+                include_quad_extrema(acc, current, q.control, q.end)
+                current = q.end
+            }
+            CubicTo(c) {
+                include(acc, current)
+                include(acc, c.end)
+                include_cubic_extrema(acc, current, c.control1, c.control2, c.end)
+                current = c.end
+            }
+            Close {}
+        }
+    }
+    return bounds_of(acc)
+}
+
+// ---- the bounds accumulator, and the curve solvers behind the tight one
+
+struct BoundsAcc {
+    seen: MutableArray<bool>
+    min_x: MutableArray<float>
+    min_y: MutableArray<float>
+    max_x: MutableArray<float>
+    max_y: MutableArray<float>
+}
+
+fn bounds_builder() -> BoundsAcc {
+    val acc = BoundsAcc {
+        seen: mutable_array_new<bool>(),
+        min_x: mutable_array_new<float>(),
+        min_y: mutable_array_new<float>(),
+        max_x: mutable_array_new<float>(),
+        max_y: mutable_array_new<float>()
+    }
+    mutable_array_push(acc.seen, false)
+    mutable_array_push(acc.min_x, 0.0)
+    mutable_array_push(acc.min_y, 0.0)
+    mutable_array_push(acc.max_x, 0.0)
+    mutable_array_push(acc.max_y, 0.0)
+    return acc
+}
+
+fn include(acc: BoundsAcc, p: Point) {
+    if !mutable_array_get(acc.seen, 0) {
+        mutable_array_set(acc.seen, 0, true)
+        mutable_array_set(acc.min_x, 0, p.x)
+        mutable_array_set(acc.min_y, 0, p.y)
+        mutable_array_set(acc.max_x, 0, p.x)
+        mutable_array_set(acc.max_y, 0, p.y)
+        return
+    }
+    if p.x < mutable_array_get(acc.min_x, 0) {
+        mutable_array_set(acc.min_x, 0, p.x)
+    }
+    if p.y < mutable_array_get(acc.min_y, 0) {
+        mutable_array_set(acc.min_y, 0, p.y)
+    }
+    if p.x > mutable_array_get(acc.max_x, 0) {
+        mutable_array_set(acc.max_x, 0, p.x)
+    }
+    if p.y > mutable_array_get(acc.max_y, 0) {
+        mutable_array_set(acc.max_y, 0, p.y)
+    }
+}
+
+fn bounds_of(acc: BoundsAcc) -> Rect {
+    if !mutable_array_get(acc.seen, 0) {
+        return empty_rect()
+    }
+    val x = mutable_array_get(acc.min_x, 0)
+    val y = mutable_array_get(acc.min_y, 0)
+    return rect_of(x, y, mutable_array_get(acc.max_x, 0) - x, mutable_array_get(acc.max_y, 0) - y)
+}
+
+// A quadratic's derivative is linear, so there is at most one turning point per axis.
+fn include_quad_extrema(acc: BoundsAcc, p0: Point, c: Point, p1: Point) {
+    val tx = quad_root(p0.x, c.x, p1.x)
+    if tx > 0.0 && tx < 1.0 {
+        include(acc, quad_at(p0, c, p1, tx))
+    }
+    val ty = quad_root(p0.y, c.y, p1.y)
+    if ty > 0.0 && ty < 1.0 {
+        include(acc, quad_at(p0, c, p1, ty))
+    }
+}
+
+fn quad_root(a: float, b: float, c: float) -> float {
+    val denom = a - 2.0 * b + c
+    if denom == 0.0 {
+        return -1.0
+    }
+    return (a - b) / denom
+}
+
+fn quad_at(p0: Point, c: Point, p1: Point, t: float) -> Point {
+    val u = 1.0 - t
+    return point_of(
+        u * u * p0.x + 2.0 * u * t * c.x + t * t * p1.x,
+        u * u * p0.y + 2.0 * u * t * c.y + t * t * p1.y
+    )
+}
+
+// A cubic's derivative is quadratic: up to two turning points per axis.
+fn include_cubic_extrema(acc: BoundsAcc, p0: Point, c1: Point, c2: Point, p1: Point) {
+    for t in cubic_roots(p0.x, c1.x, c2.x, p1.x) {
+        if t > 0.0 && t < 1.0 {
+            include(acc, cubic_at(p0, c1, c2, p1, t))
+        }
+    }
+    for t in cubic_roots(p0.y, c1.y, c2.y, p1.y) {
+        if t > 0.0 && t < 1.0 {
+            include(acc, cubic_at(p0, c1, c2, p1, t))
+        }
+    }
+}
+
+// Roots of the derivative `A t^2 + B t + C`, where the cubic is p0, c1, c2, p1 on one axis.
+fn cubic_roots(p0: float, c1: float, c2: float, p1: float) -> [float] {
+    val a = -p0 + 3.0 * c1 - 3.0 * c2 + p1
+    val b = 2.0 * p0 - 4.0 * c1 + 2.0 * c2
+    val c = c1 - p0
+    if a == 0.0 {
+        if b == 0.0 {
+            return []
+        }
+        return [-c / b]
+    }
+    val disc = b * b - 4.0 * a * c
+    if disc < 0.0 {
+        return []
+    }
+    val root = sqrt(disc)
+    return [(-b + root) / (2.0 * a), (-b - root) / (2.0 * a)]
+}
+
+fn cubic_at(p0: Point, c1: Point, c2: Point, p1: Point, t: float) -> Point {
+    val u = 1.0 - t
+    val a = u * u * u
+    val b = 3.0 * u * u * t
+    val c = 3.0 * u * t * t
+    val d = t * t * t
+    return point_of(
+        a * p0.x + b * c1.x + c * c2.x + d * p1.x,
+        a * p0.y + b * c1.y + c * c2.y + d * p1.y
+    )
+}

@@ -1,0 +1,36 @@
+identity:            (2.0000, 3.0000)
+translate(10, 20):   (12.0000, 23.0000)
+scale(2, 3):         (4.0000, 9.0000)
+concat(move, scale): (14.0000, 29.0000)
+rotate 90 of (1,0):  (0.0000, 1.0000)
+rotation_of:         1.5708
+scale_x_of(2,3):     2.0000
+scale_y_of(2,3):     3.0000
+invert round trip:   (2.0000, 3.0000)
+invert singular:     Err(geom.invert: the matrix is singular (determinant 0) and has no inverse)
+transform_rect:      (-4.0000, 0.0000 4.0000x2.0000)
+union:               (0.0000, 0.0000 4.0000x6.0000)
+union with empty:    (3.0000, 1.0000 1.0000x5.0000)
+negative normalized: (6.0000, 4.0000 4.0000x6.0000)
+contains inside:     true
+contains outside:    false
+rect path segments:  5
+rect path bounds:    (1.0000, 2.0000 10.0000x5.0000)
+ellipse segments:    6
+ellipse tight bounds:(0.0000, 0.0000 100.0000x50.0000)
+arch control bounds: (0.0000, -90.0000 100.0000x90.0000)
+arch tight bounds:   (0.0000, -67.5000 100.0000x67.5000)
+quad control bounds: (0.0000, -100.0000 100.0000x100.0000)
+quad tight bounds:   (0.0000, -50.0000 100.0000x50.0000)
+moved rect bounds:   (101.0000, 2.0000 10.0000x5.0000)
+round rect bounds:   (0.0000, 0.0000 10.0000x6.0000)
+zero radius is rect: 5
+empty polygon:       0
+hex #336699:         paint::Color { red: 0.2, green: 0.4, blue: 0.6, alpha: 1.0 }
+hex fff is white:    true
+hex with alpha:      0.5020
+hex bad digit:       Err(paint.hex: 'x' is not a hex digit, in '#xyz')
+hex bad length:      Err(paint.hex: expected 3, 6 or 8 hex digits, got '#12345')
+default stroke:      10.0000
+scene ops (nested):  5
+scene size:          200.0000x100.0000

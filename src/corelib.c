@@ -41,6 +41,10 @@
 #include "migrate_source.h"
 #include "otp_source.h"
 #include "test_source.h"
+#include "geom_source.h"
+#include "shape_source.h"
+#include "paint_source.h"
+#include "scene_source.h"
 #include "zone_source.h"
 #include "ndjson_source.h"
 #include "csv_source.h"
@@ -96,6 +100,10 @@ static const CoreModule CORE_MODULES[] = {
     {"migrate", MIGRATE_SOURCE},
     {"otp", OTP_SOURCE},
     {"test", TEST_SOURCE},
+    {"geom", GEOM_SOURCE},
+    {"shape", SHAPE_SOURCE},
+    {"paint", PAINT_SOURCE},
+    {"scene", SCENE_SOURCE},
     {"zone", ZONE_SOURCE},
     {"ndjson", NDJSON_SOURCE},
     {"csv", CSV_SOURCE},

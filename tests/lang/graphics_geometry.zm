@@ -1,0 +1,148 @@
+// `lib/graphics` phase 1: geometry, paths, paint and the display list (F141).
+//
+// Every assertion here is arithmetic on value types -- there is no backend yet, which is the point
+// of the phase. The checks are chosen to be diagnostic rather than decorative: each one fails for a
+// specific, nameable reason, and several exist to catch a particular bug that this kind of code is
+// prone to (a transposed matrix field, a swapped rotation sign, a bounds solver that is not
+// solving anything).
+use geom
+use math.pi
+use paint
+use scene
+use shape
+
+fn round4(x: float) -> string {
+    return format("{:.4}", x)
+}
+
+fn show_point(p: geom.Point) -> string {
+    return concat("(", round4(p.x), ", ", round4(p.y), ")")
+}
+
+fn show_rect(r: geom.Rect) -> string {
+    return concat("(", round4(r.x), ", ", round4(r.y), " ", round4(r.width), "x", round4(r.height), ")")
+}
+
+fn main() {
+    // ---- transforms
+    val p = geom.point_of(2.0, 3.0)
+    print(concat("identity:            ", show_point(geom.transform_point(geom.identity(), p))))
+    print(concat("translate(10, 20):   ", show_point(geom.transform_point(geom.translation(10.0, 20.0), p))))
+    print(concat("scale(2, 3):         ", show_point(geom.transform_point(geom.scaling(2.0, 3.0), p))))
+
+    // `inner` first, then `outer`: scaling applies before the translation, so this is (14, 29) and
+    // not (24, 69). Getting the order backwards is the usual bug and it is visible here.
+    val scale_then_move = geom.matrix_concat(geom.translation(10.0, 20.0), geom.scaling(2.0, 3.0))
+    print(concat("concat(move, scale): ", show_point(geom.transform_point(scale_then_move, p))))
+
+    // Rotating a quarter turn takes (1, 0) to (0, 1). With Y growing downward that is clockwise on
+    // screen; the sign of `b` is what this catches.
+    val quarter = geom.rotation(pi / 2.0)
+    print(concat("rotate 90 of (1,0):  ", show_point(geom.transform_point(quarter, geom.point_of(1.0, 0.0)))))
+
+    // A transform taken apart again.
+    print(concat("rotation_of:         ", round4(geom.rotation_of(quarter))))
+    print(concat("scale_x_of(2,3):     ", round4(geom.scale_x_of(geom.scaling(2.0, 3.0)))))
+    print(concat("scale_y_of(2,3):     ", round4(geom.scale_y_of(geom.scaling(2.0, 3.0)))))
+
+    // Inverting and coming back to where we started.
+    val m = geom.matrix_concat(
+        geom.rotation(0.7),
+        geom.matrix_concat(geom.translation(5.0, -2.0), geom.scaling(3.0, 4.0))
+    )
+    val back = geom.transform_point(unwrap(geom.invert(m)), geom.transform_point(m, p))
+    print(concat("invert round trip:   ", show_point(back)))
+    print(concat("invert singular:     ", format("{}", geom.invert(geom.scaling(0.0, 1.0)))))
+
+    // A rotated rectangle is not a rectangle, so this is the bounding box of the four corners.
+    print(concat("transform_rect:      ", show_rect(geom.transform_rect(quarter, geom.rect_of(0.0, 0.0, 2.0, 4.0)))))
+
+    // ---- rects
+    print(concat(
+        "union:               ",
+        show_rect(geom.rect_union(geom.rect_of(0.0, 0.0, 2.0, 2.0), geom.rect_of(3.0, 1.0, 1.0, 5.0)))
+    ))
+    print(concat(
+        "union with empty:    ",
+        show_rect(geom.rect_union(geom.empty_rect(), geom.rect_of(3.0, 1.0, 1.0, 5.0)))
+    ))
+    print(concat("negative normalized: ", show_rect(geom.normalized(geom.rect_of(10.0, 10.0, -4.0, -6.0)))))
+    print(concat(
+        "contains inside:     ",
+        str(geom.rect_contains(geom.rect_of(0.0, 0.0, 4.0, 4.0), geom.point_of(2.0, 2.0)))
+    ))
+    print(concat(
+        "contains outside:    ",
+        str(geom.rect_contains(geom.rect_of(0.0, 0.0, 4.0, 4.0), geom.point_of(5.0, 2.0)))
+    ))
+
+    // ---- paths
+    val r = shape.rect_path(geom.rect_of(1.0, 2.0, 10.0, 5.0))
+    print(concat("rect path segments:  ", str(len(r.segments))))
+    print(concat("rect path bounds:    ", show_rect(shape.path_bounds(r))))
+
+    // The cubic approximation of a quarter circle is within about 0.02% of the radius, so an
+    // ellipse's bounds come back as its own rect to four decimals.
+    val e = shape.ellipse_path(geom.rect_of(0.0, 0.0, 100.0, 50.0))
+    print(concat("ellipse segments:    ", str(len(e.segments))))
+    print(concat("ellipse tight bounds:", show_rect(shape.path_tight_bounds(e))))
+
+    // **The two bounds must differ here.** This cubic's control points sit far above the curve it
+    // actually draws, so control-point bounds are much taller than the real ones -- and if these
+    // two print the same thing, `path_tight_bounds` is not solving anything.
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(0.0, 0.0))
+    shape.cubic_to(b, geom.point_of(0.0, -90.0), geom.point_of(100.0, -90.0), geom.point_of(100.0, 0.0))
+    val arch = shape.built(b, shape.Winding.NonZero)
+    print(concat("arch control bounds: ", show_rect(shape.path_bounds(arch))))
+    print(concat("arch tight bounds:   ", show_rect(shape.path_tight_bounds(arch))))
+
+    // A quadratic, whose derivative is linear: one turning point per axis.
+    val q = shape.path_builder()
+    shape.move_to(q, geom.point_of(0.0, 0.0))
+    shape.quad_to(q, geom.point_of(50.0, -100.0), geom.point_of(100.0, 0.0))
+    val hill = shape.built(q, shape.Winding.NonZero)
+    print(concat("quad control bounds: ", show_rect(shape.path_bounds(hill))))
+    print(concat("quad tight bounds:   ", show_rect(shape.path_tight_bounds(hill))))
+
+    // Transforming a path moves every point it mentions, control points included.
+    print(concat(
+        "moved rect bounds:   ",
+        show_rect(shape.path_bounds(shape.transform_path(r, geom.translation(100.0, 0.0))))
+    ))
+
+    // A radius past half the shorter side is clamped rather than refused.
+    val rr = shape.round_rect_path(geom.rect_of(0.0, 0.0, 10.0, 6.0), 99.0)
+    print(concat("round rect bounds:   ", show_rect(shape.path_bounds(rr))))
+    print(concat(
+        "zero radius is rect: ",
+        str(len(shape.round_rect_path(geom.rect_of(0.0, 0.0, 10.0, 6.0), 0.0).segments))
+    ))
+
+    print(concat("empty polygon:       ", str(len(shape.polygon_path([], true).segments))))
+
+    // ---- paint
+    print(concat("hex #336699:         ", format("{}", unwrap(paint.hex("#336699")))))
+    print(concat("hex fff is white:    ", str(unwrap(paint.hex("fff")) == paint.white())))
+    print(concat("hex with alpha:      ", round4(unwrap(paint.hex("#00000080")).alpha)))
+    print(concat("hex bad digit:       ", format("{}", paint.hex("#xyz"))))
+    print(concat("hex bad length:      ", format("{}", paint.hex("#12345"))))
+    print(concat("default stroke:      ", round4(paint.stroke_of(2.0).miter_limit)))
+
+    // ---- the display list
+    val s = scene.with_ops(
+        scene.scene_of(200.0, 100.0),
+        [
+            scene.fill(r, paint.solid(paint.black())),
+            scene.stroke(e, paint.solid(paint.white()), paint.stroke_of(1.5)),
+            scene.group(
+                geom.translation(10.0, 10.0),
+                [scene.fill(rr, paint.solid(paint.gray(0.5))),
+                    scene.text_of("hi", geom.point_of(0.0, 0.0), 12.0, 0, paint.solid(paint.black()))]
+            )
+        ]
+    )
+    // Counting into groups: three top-level ops, one of which is a group holding two more.
+    print(concat("scene ops (nested):  ", str(scene.op_count(s))))
+    print(concat("scene size:          ", concat(round4(s.width), "x", round4(s.height))))
+}

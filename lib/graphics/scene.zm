@@ -1,0 +1,177 @@
+// scene.zm -- the display list: drawing operations as values, and a scene as a tree of them.
+//
+// **This is where the library stops looking like Java 2D.** `Graphics2D` is a mutable cursor --
+// set a paint, set a transform, draw, repeat -- which is a poor fit for a language whose values are
+// immutable, which has no methods, and whose `Mutable*` types are thread-bound. A scene is instead
+// a value, and a backend is a function from it to bytes.
+//
+// Three things that buys, none of which a stateful cursor can: the same scene renders to PDF *and*
+// to an image with no redrawing; a scene is inspectable data, so a test asserts on structure rather
+// than on pixels; and scenes compose as values. PDF's own `q`/`Q` nesting is a tree anyway, so a
+// tree is closer to the target than a cursor is. Skia's `SkPicture` is the same idea.
+use geom.Matrix
+use geom.Point
+use geom.Rect
+use geom.identity
+use paint.Paint
+use paint.Stroke
+use shape.Path
+
+// Text is a first-class operation, **not lowered to paths**. A PDF backend emits it as text
+// (`BT`/`Tf`/`Tj`) so it stays selectable, searchable and copyable, and the file stays small; only
+// a raster backend, which has no font machinery of its own, turns it into outlines. Java 2D offers
+// `GlyphVector.getOutline()` and it is the right escape hatch for the second case and the wrong
+// default for the first.
+//
+// `font` is an index into the scene's font table, for the same reason `Tiled.image` is an index:
+// a face is embedded once per document however many runs use it.
+pub struct TextRun {
+    text: string
+    at: Point
+    size: float
+    font: int
+    fill: Paint
+    // Which bytes of `text` each run of glyphs came from. Empty means one glyph per codepoint, left
+    // to right, which a backend can derive for itself -- and which stops being true the moment
+    // shaping exists. Carried from the start because PDF's `/ToUnicode` needs it (phase 3) and
+    // because adding it later would change a struct every backend reads. Cairo's
+    // `cairo_show_text_glyphs` takes the same three-part input for the same reason.
+    clusters: [Cluster]
+}
+
+// `glyphs` consecutive glyphs came from `bytes` bytes of the source text.
+pub struct Cluster {
+    bytes: int
+    glyphs: int
+}
+
+pub struct Filled {
+    path: Path
+    fill: Paint
+}
+
+pub struct Stroked {
+    path: Path
+    fill: Paint
+    stroke: Stroke
+}
+
+// An image from the scene's table, drawn into `into`. PDF draws images into the unit square and
+// places them by matrix, so a rect is the portable way to say where it goes.
+pub struct Placed {
+    image: int
+    into: Rect
+}
+
+// A transform and a clip applied to a list of operations -- exactly PDF's `q ... Q`. Transform and
+// clip live here rather than on individual operations because nesting is how both compose, and
+// because the common case (a table of rows at an offset) would otherwise repeat the matrix on every
+// cell.
+pub struct Group {
+    transform: Matrix
+    clip: Option<Path>
+    ops: [Op]
+}
+
+pub enum Op {
+    Fill(Filled)
+    StrokePath(Stroked)
+    Text(TextRun)
+    DrawImage(Placed)
+    Nested(Group)
+}
+
+pub fn fill(path: Path, using: Paint) -> Op {
+    return Op.Fill(Filled { path: path, fill: using })
+}
+
+pub fn stroke(path: Path, using: Paint, how: Stroke) -> Op {
+    return Op.StrokePath(Stroked { path: path, fill: using, stroke: how })
+}
+
+pub fn text(run: TextRun) -> Op {
+    return Op.Text(run)
+}
+
+pub fn text_of(content: string, at: Point, size: float, font: int, using: Paint) -> Op {
+    return Op.Text(TextRun {
+        text: content,
+        at: at,
+        size: size,
+        font: font,
+        fill: using,
+        clusters: []
+    })
+}
+
+pub fn image(handle: int, into: Rect) -> Op {
+    return Op.DrawImage(Placed { image: handle, into: into })
+}
+
+pub fn group(transform: Matrix, ops: [Op]) -> Op {
+    return Op.Nested(Group { transform: transform, clip: Option<Path>.None, ops: ops })
+}
+
+pub fn clipped(clip: Path, ops: [Op]) -> Op {
+    return Op.Nested(Group { transform: identity(), clip: Option<Path>.Some(clip), ops: ops })
+}
+
+pub fn group_of(transform: Matrix, clip: Option<Path>, ops: [Op]) -> Op {
+    return Op.Nested(Group { transform: transform, clip: clip, ops: ops })
+}
+
+// A page, or an image to be. `width` and `height` are points for a document and pixels for a
+// raster target -- the model does not know which, and the backend decides what a unit means.
+pub struct Scene {
+    width: float
+    height: float
+    background: Option<Paint>
+    ops: [Op]
+}
+
+pub fn scene_of(width: float, height: float) -> Scene {
+    return Scene {
+        width: width,
+        height: height,
+        background: Option<Paint>.None,
+        ops: []
+    }
+}
+
+pub fn with_ops(s: Scene, ops: [Op]) -> Scene {
+    return with s {
+        ops: ops
+    }
+}
+
+pub fn with_background(s: Scene, p: Paint) -> Scene {
+    return with s {
+        background: Option<Paint>.Some(p)
+    }
+}
+
+// How many operations the scene holds, counting into groups. For a test asserting on structure, and
+// for a backend deciding whether a page is worth compressing.
+pub fn op_count(s: Scene) -> int {
+    var total = 0
+    for o in s.ops {
+        total = total + count_op(o)
+    }
+    return total
+}
+
+fn count_op(o: Op) -> int {
+    return switch o {
+        Fill(_) { 1 }
+        StrokePath(_) { 1 }
+        Text(_) { 1 }
+        DrawImage(_) { 1 }
+        Nested(g) {
+            var inner = 1
+            for child in g.ops {
+                inner = inner + count_op(child)
+            }
+            inner
+        }
+    }
+}

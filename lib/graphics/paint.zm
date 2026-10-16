@@ -1,0 +1,189 @@
+// paint.zm -- what fills a region, and how a line is drawn.
+//
+// **The paint set is closed, and that is the central decision of this library.** Java 2D's `Paint`
+// is an interface whose implementations produce pixels (`createContext` hands back a `Raster`), so
+// any paint a backend does not recognise forces rasterisation -- which is why PDF output from Java
+// 2D quietly degrades to embedded bitmaps. Cairo makes the same set closed (six cases) and then
+// reopens it with one callback variant, and its PDF backend rasterises "fallback regions" for
+// exactly that reason.
+//
+// These four cases are what PDF has native shading dictionaries for, so every paint here survives
+// as vectors in both backends. Adding a fifth means adding it to both, on purpose.
+use geom.Matrix
+use geom.Point
+
+// Components are 0.0 to 1.0, not bytes, because PDF writes colour as decimals (`rg`, `RG`) and a
+// raster backend converts to bytes once at the end. Bytes in the middle would lose precision in a
+// gradient for nothing.
+pub struct Color {
+    red: float
+    green: float
+    blue: float
+    alpha: float
+}
+
+pub fn rgb(r: float, g: float, b: float) -> Color {
+    return Color { red: r, green: g, blue: b, alpha: 1.0 }
+}
+
+pub fn rgba(r: float, g: float, b: float, a: float) -> Color {
+    return Color { red: r, green: g, blue: b, alpha: a }
+}
+
+pub fn gray(level: float) -> Color {
+    return Color { red: level, green: level, blue: level, alpha: 1.0 }
+}
+
+// Functions rather than `pub val`s: a module-qualified global val is not reachable as
+// `paint.black` -- Ziman asks for `use paint.black` and a bare name -- and a caller who has written
+// `use paint` should not then need a second import per colour. The same reason `identity()` and
+// `empty_rect()` in `geom` are functions.
+pub fn black() -> Color {
+    return Color { red: 0.0, green: 0.0, blue: 0.0, alpha: 1.0 }
+}
+
+pub fn white() -> Color {
+    return Color { red: 1.0, green: 1.0, blue: 1.0, alpha: 1.0 }
+}
+
+pub fn transparent() -> Color {
+    return Color { red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0 }
+}
+
+// `#rgb`, `#rrggbb` or `#rrggbbaa`, with or without the leading `#`. An Err names what it could not
+// read, since a colour typo is otherwise a silent black.
+pub fn hex(text: string) -> Result<Color, string> {
+    var body = trim(text)
+    if starts_with(body, "#") {
+        body = substring(body, 1, len(body))
+    }
+    val n = len(body)
+    if n != 3 && n != 6 && n != 8 {
+        return err(concat("paint.hex: expected 3, 6 or 8 hex digits, got '", text, "'"))
+    }
+    if n == 3 {
+        val r = try nibble(body, 0, text)
+        val g = try nibble(body, 1, text)
+        val b = try nibble(body, 2, text)
+        // `#abc` means `#aabbcc`, so each digit is doubled rather than scaled -- `#fff` is white.
+        return ok(rgba(r * 17.0 / 255.0, g * 17.0 / 255.0, b * 17.0 / 255.0, 1.0))
+    }
+    val r = try byte_at(body, 0, text)
+    val g = try byte_at(body, 2, text)
+    val b = try byte_at(body, 4, text)
+    var a = 1.0
+    if n == 8 {
+        a = try byte_at(body, 6, text)
+    }
+    return ok(rgba(r, g, b, a))
+}
+
+fn nibble(body: string, at: int, whole: string) -> Result<float, string> {
+    val digits = "0123456789abcdef"
+    val c = to_lower(substring(body, at, at + 1))
+    val i = index_of(digits, c, 0)
+    if i < 0 {
+        return err(concat("paint.hex: '", c, "' is not a hex digit, in '", whole, "'"))
+    }
+    return ok(i as float)
+}
+
+fn byte_at(body: string, at: int, whole: string) -> Result<float, string> {
+    val hi = try nibble(body, at, whole)
+    val lo = try nibble(body, at + 1, whole)
+    return ok((hi * 16.0 + lo) / 255.0)
+}
+
+// One stop of a gradient: `offset` runs 0.0 to 1.0 along the gradient's own axis.
+pub struct Stop {
+    offset: float
+    color: Color
+}
+
+pub fn stop_of(offset: float, color: Color) -> Stop {
+    return Stop { offset: offset, color: color }
+}
+
+pub struct Linear {
+    from: Point
+    to: Point
+    stops: [Stop]
+}
+
+pub struct Radial {
+    centre: Point
+    radius: float
+    stops: [Stop]
+}
+
+// An image, placed by a matrix. The handle is an index into the scene's image table (phase 4);
+// paints do not own images, so the same image can back several paints and be written once.
+pub struct Tiled {
+    image: int
+    transform: Matrix
+}
+
+pub enum Paint {
+    Solid(Color)
+    LinearGradient(Linear)
+    RadialGradient(Radial)
+    Pattern(Tiled)
+}
+
+pub fn solid(c: Color) -> Paint {
+    return Paint.Solid(c)
+}
+
+pub fn linear(from: Point, to: Point, stops: [Stop]) -> Paint {
+    return Paint.LinearGradient(Linear { from: from, to: to, stops: stops })
+}
+
+pub fn radial(centre: Point, radius: float, stops: [Stop]) -> Paint {
+    return Paint.RadialGradient(Radial { centre: centre, radius: radius, stops: stops })
+}
+
+pub enum Cap {
+    Butt
+    Round
+    Square
+}
+
+pub enum Join {
+    Miter
+    Round
+    Bevel
+}
+
+// How a line is drawn. **Parameters, not an outline**: PDF has native `w`, `J`, `j`, `M` and `d`
+// operators, so the PDF backend passes these straight through and a stroked hairline stays a
+// hairline at any zoom. Only the raster backend turns a stroke into a fillable outline (phase 5).
+// Java 2D's `Stroke.createStrokedShape` is the right fallback and the wrong only path.
+pub struct Stroke {
+    width: float
+    cap: Cap
+    join: Join
+    // Past this ratio a miter join becomes a bevel. Without the fallback a near-180 degree join
+    // produces a spike thousands of units long, which is the classic stroking bug.
+    miter_limit: float
+    // Empty for a solid line. Otherwise alternating on and off lengths.
+    dash: [float]
+    dash_phase: float
+}
+
+// The common case: butt caps, miter joins, PDF's and PostScript's default limit of 10, no dash.
+pub fn stroke_of(width: float) -> Stroke {
+    return Stroke {
+        width: width,
+        cap: Cap.Butt,
+        join: Join.Miter,
+        miter_limit: 10.0,
+        dash: [],
+        dash_phase: 0.0
+    }
+}
+
+pub fn dashed(width: float, dash: [float]) -> Stroke {
+    return with stroke_of(width) {
+        dash: dash
+    }
+}

@@ -50,6 +50,30 @@ static Value native_math_tan(Value *args, int argc, int line, int col) {
     return value_float(tan(args[0].as.f));
 }
 
+/* The inverse trigonometric three. `atan2` takes y before x, as C, Java and every other standard
+ * library does -- the order looks wrong and is the one everybody copies, so it is not changed here.
+ * `asin`/`acos` outside -1..1 return NaN, which is this file's existing convention for a domain
+ * error (see its header comment); nothing traps. */
+static Value native_math_asin(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_float(asin(args[0].as.f));
+}
+
+static Value native_math_acos(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_float(acos(args[0].as.f));
+}
+
+static Value native_math_atan(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_float(atan(args[0].as.f));
+}
+
+static Value native_math_atan2(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_float(atan2(args[0].as.f, args[1].as.f));
+}
+
 static Value native_math_floor_float(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     return value_float(floor(args[0].as.f));
@@ -118,6 +142,10 @@ void native_math_register(void) {
     native_register("math::sin", native_math_sin);
     native_register("math::cos", native_math_cos);
     native_register("math::tan", native_math_tan);
+    native_register("math::asin", native_math_asin);
+    native_register("math::acos", native_math_acos);
+    native_register("math::atan", native_math_atan);
+    native_register("math::atan2", native_math_atan2);
     native_register("math::floor_float", native_math_floor_float);
     native_register("math::ceil_float", native_math_ceil_float);
     native_register("math::round_float", native_math_round_float);

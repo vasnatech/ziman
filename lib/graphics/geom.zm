@@ -1,0 +1,220 @@
+// geom.zm -- points, rectangles and affine transforms. The coordinate vocabulary everything else in
+// `lib/graphics` is written in. Pure value types: no rendering, no I/O, no state.
+//
+// **Y grows downward**, as it does in Java 2D, Canvas and SVG, so a reader coming from any of those
+// is not surprised. PDF's own Y axis grows *upward*, and the PDF backend flips it exactly once in
+// its page transform -- see docs/graphics/README.md's invariant 4 for why that belongs there and
+// nowhere else.
+use math.acos
+use math.atan2
+use math.cos
+use math.sin
+use math.sqrt
+
+pub struct Point {
+    x: float
+    y: float
+}
+
+pub fn point_of(x: float, y: float) -> Point {
+    return Point { x: x, y: y }
+}
+
+// A rectangle by its origin and size. Width or height may be negative, and `normalized` is what
+// fixes that -- rather than refusing it, because a rect computed by subtracting two corners is a
+// natural thing to write and flipping it is the caller's business, not an error.
+pub struct Rect {
+    x: float
+    y: float
+    width: float
+    height: float
+}
+
+pub fn rect_of(x: float, y: float, width: float, height: float) -> Rect {
+    return Rect { x: x, y: y, width: width, height: height }
+}
+
+// The rect through two opposite corners, in either order.
+pub fn rect_between(a: Point, b: Point) -> Rect {
+    return normalized(Rect { x: a.x, y: a.y, width: b.x - a.x, height: b.y - a.y })
+}
+
+// The same rectangle with a non-negative width and height.
+pub fn normalized(r: Rect) -> Rect {
+    var x = r.x
+    var y = r.y
+    var w = r.width
+    var h = r.height
+    if w < 0.0 {
+        x = x + w
+        w = -w
+    }
+    if h < 0.0 {
+        y = y + h
+        h = -h
+    }
+    return Rect { x: x, y: y, width: w, height: h }
+}
+
+pub fn right(r: Rect) -> float {
+    return r.x + r.width
+}
+
+pub fn bottom(r: Rect) -> float {
+    return r.y + r.height
+}
+
+pub fn is_empty(r: Rect) -> bool {
+    return r.width <= 0.0 || r.height <= 0.0
+}
+
+pub fn rect_contains(r: Rect, p: Point) -> bool {
+    val n = normalized(r)
+    return p.x >= n.x && p.x <= right(n) && p.y >= n.y && p.y <= bottom(n)
+}
+
+// The smallest rect containing both. An empty rect contributes nothing, so a union over a list can
+// start from `empty_rect` without the first iteration being a special case.
+pub fn rect_union(a: Rect, b: Rect) -> Rect {
+    if is_empty(a) {
+        return normalized(b)
+    }
+    if is_empty(b) {
+        return normalized(a)
+    }
+    val m = normalized(a)
+    val n = normalized(b)
+    val x = if m.x < n.x { m.x } else { n.x }
+    val y = if m.y < n.y { m.y } else { n.y }
+    val r = if right(m) > right(n) { right(m) } else { right(n) }
+    val bo = if bottom(m) > bottom(n) { bottom(m) } else { bottom(n) }
+    return Rect { x: x, y: y, width: r - x, height: bo - y }
+}
+
+pub fn empty_rect() -> Rect {
+    return Rect { x: 0.0, y: 0.0, width: 0.0, height: 0.0 }
+}
+
+// An affine transform. Six numbers, laid out so that
+//
+//     x' = a*x + c*y + e
+//     y' = b*x + d*y + f
+//
+// **The field order is PDF's `a b c d e f cm` order, deliberately.** The PDF backend writes these
+// six out in this order with no reshuffling, which removes the one bug this code is most prone to:
+// transposing `b` and `c`. Nothing else about the model knows that PDF exists.
+pub struct Matrix {
+    a: float
+    b: float
+    c: float
+    d: float
+    e: float
+    f: float
+}
+
+// A function, not a `pub val`: a qualified global val is not reachable as `geom.identity`, and a
+// caller who wrote `use geom` should not need a second import for it.
+pub fn identity() -> Matrix {
+    return Matrix { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: 0.0, f: 0.0 }
+}
+
+pub fn translation(dx: float, dy: float) -> Matrix {
+    return Matrix { a: 1.0, b: 0.0, c: 0.0, d: 1.0, e: dx, f: dy }
+}
+
+pub fn scaling(sx: float, sy: float) -> Matrix {
+    return Matrix { a: sx, b: 0.0, c: 0.0, d: sy, e: 0.0, f: 0.0 }
+}
+
+// Rotation by `radians`. With Y growing downward this turns clockwise on screen, which is what the
+// same call does in Canvas and Java 2D -- the handedness follows from the axis, not from a choice
+// made here.
+pub fn rotation(radians: float) -> Matrix {
+    val c = cos(radians)
+    val s = sin(radians)
+    return Matrix { a: c, b: s, c: -s, d: c, e: 0.0, f: 0.0 }
+}
+
+pub fn shearing(sx: float, sy: float) -> Matrix {
+    return Matrix { a: 1.0, b: sy, c: sx, d: 1.0, e: 0.0, f: 0.0 }
+}
+
+// `inner` first, then `outer`: `transform_point(matrix_concat(o, i), p)` is
+// `transform_point(o, transform_point(i, p))`.
+//
+// Named `matrix_concat` rather than `concat` because `concat` is a builtin: a module function of
+// that name would read as the string one at every call site inside this file.
+pub fn matrix_concat(outer: Matrix, inner: Matrix) -> Matrix {
+    return Matrix {
+        a: outer.a * inner.a + outer.c * inner.b,
+        b: outer.b * inner.a + outer.d * inner.b,
+        c: outer.a * inner.c + outer.c * inner.d,
+        d: outer.b * inner.c + outer.d * inner.d,
+        e: outer.a * inner.e + outer.c * inner.f + outer.e,
+        f: outer.b * inner.e + outer.d * inner.f + outer.f
+    }
+}
+
+pub fn transform_point(m: Matrix, p: Point) -> Point {
+    return Point { x: m.a * p.x + m.c * p.y + m.e, y: m.b * p.x + m.d * p.y + m.f }
+}
+
+// The transformed rect's **bounding box**, not a rect -- a rotated rectangle is not a rectangle, so
+// all four corners are transformed and enclosed. Callers that wanted the parallelogram want a path
+// (`shape.rect_path` then `shape.transform_path`).
+pub fn transform_rect(m: Matrix, r: Rect) -> Rect {
+    val n = normalized(r)
+    val p1 = transform_point(m, Point { x: n.x, y: n.y })
+    val p2 = transform_point(m, Point { x: right(n), y: n.y })
+    val p3 = transform_point(m, Point { x: right(n), y: bottom(n) })
+    val p4 = transform_point(m, Point { x: n.x, y: bottom(n) })
+    return rect_union(rect_between(p1, p3), rect_between(p2, p4))
+}
+
+pub fn determinant(m: Matrix) -> float {
+    return m.a * m.d - m.c * m.b
+}
+
+// The inverse, or an `Err` naming the problem.
+//
+// A `Result` rather than a trap because a singular matrix is something a caller can build by
+// accident -- `scaling(0.0, 1.0)` is one -- and both backends need to detect it rather than divide
+// by zero and emit a page of NaNs.
+pub fn invert(m: Matrix) -> Result<Matrix, string> {
+    val det = determinant(m)
+    if det == 0.0 {
+        return err("geom.invert: the matrix is singular (determinant 0) and has no inverse")
+    }
+    return ok(Matrix {
+        a: m.d / det,
+        b: -m.b / det,
+        c: -m.c / det,
+        d: m.a / det,
+        e: (m.c * m.f - m.d * m.e) / det,
+        f: (m.b * m.e - m.a * m.f) / det
+    })
+}
+
+// What a transform does, taken apart. For a backend asking "does this rotate text" or "how thick is
+// a hairline after this", which is otherwise six numbers and some trigonometry at the call site.
+pub fn rotation_of(m: Matrix) -> float {
+    return atan2(m.b, m.a)
+}
+
+pub fn scale_x_of(m: Matrix) -> float {
+    return sqrt(m.a * m.a + m.b * m.b)
+}
+
+pub fn scale_y_of(m: Matrix) -> float {
+    return sqrt(m.c * m.c + m.d * m.d)
+}
+
+// The angle between the transformed axes, in radians: `pi/2` for any transform that does not shear.
+pub fn shear_of(m: Matrix) -> float {
+    val sx = scale_x_of(m)
+    val sy = scale_y_of(m)
+    if sx == 0.0 || sy == 0.0 {
+        return 0.0
+    }
+    return acos((m.a * m.c + m.b * m.d) / (sx * sy))
+}

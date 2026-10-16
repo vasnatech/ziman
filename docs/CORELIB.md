@@ -651,6 +651,14 @@ pub native fn cos(x: float) -> float
 
 pub native fn tan(x: float) -> float
 
+pub native fn asin(x: float) -> float
+
+pub native fn acos(x: float) -> float
+
+pub native fn atan(x: float) -> float
+
+pub native fn atan2(y: float, x: float) -> float
+
 pub native fn floor(x: float) -> int
 
 pub native fn ceil(x: float) -> int

@@ -89,6 +89,15 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 |---|---|
 | [`test`](test.md) | Assertions for #[test] functions. |
 
+## Graphics
+
+| Module | What it is |
+|---|---|
+| [`geom`](geom.md) | Points, rectangles and affine transforms. |
+| [`shape`](shape.md) | Paths, and the five segment types everything drawable reduces to. |
+| [`paint`](paint.md) | What fills a region, and how a line is drawn. |
+| [`scene`](scene.md) | The display list: drawing operations as values, and a scene as a tree of them. |
+
 ## Always available
 
 | Module | What it is |

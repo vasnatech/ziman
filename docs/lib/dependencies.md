@@ -78,6 +78,7 @@ flowchart LR
     db --> number
     db --> url
     fs --> os
+    geom --> math
     http --> mime
     http --> number
     http --> random
@@ -107,6 +108,7 @@ flowchart LR
     os --> clock
     otp --> crypto
     otp --> random
+    paint --> geom
     pg --> crypto
     pg --> db
     pg --> net
@@ -116,6 +118,9 @@ flowchart LR
     process --> os
     properties --> fs
     properties --> os
+    scene --> geom
+    scene --> paint
+    scene --> shape
     schedule --> clock
     schedule --> time
     server --> clock
@@ -127,6 +132,8 @@ flowchart LR
     server --> net
     server --> number
     server --> os
+    shape --> geom
+    shape --> math
     sqlite --> db
     sqlite --> number
     time --> clock
@@ -156,9 +163,9 @@ otherwise: everything on a layer depends only on lower layers.
 | Layer | Modules |
 |---|---|
 | 0 | `bits`, `clock`, `compress`, `markdown`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread`, `xml` |
-| 1 | `crypto`, `json`, `os`, `url` |
-| 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `toml`, `yaml` |
-| 3 | `csv`, `log`, `mysql`, `pg`, `process`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
+| 1 | `crypto`, `geom`, `json`, `os`, `url` |
+| 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `paint`, `shape`, `toml`, `yaml` |
+| 3 | `csv`, `log`, `mysql`, `pg`, `process`, `properties`, `scene`, `server`, `sqlite`, `uuid`, `zone` |
 | 4 | `datasource`, `time` |
 | 5 | `client`, `migrate`, `schedule` |
 
@@ -175,12 +182,13 @@ otherwise: everything on a layer depends only on lower layers.
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | `migrate` |
 | `db` | `net`, `number`, `url` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `zone` |
+| `geom` | `math` | `paint`, `scene`, `shape` |
 | `http` | `mime`, `number`, `random`, `url` | `client`, `server` |
 | `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `json`, `number`, `os` | - |
 | `markdown` | - | - |
-| `math` | - | - |
+| `math` | - | `geom`, `shape` |
 | `metrics` | `os` | `server` |
 | `migrate` | `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |
 | `mime` | - | `client`, `http`, `server` |
@@ -190,13 +198,16 @@ otherwise: everything on a layer depends only on lower layers.
 | `number` | - | `client`, `csv`, `db`, `http`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
 | `os` | `clock` | `client`, `fs`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `random` | - |
+| `paint` | `geom` | `scene` |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `process` | `fs`, `os` | - |
 | `properties` | `fs`, `os` | - |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `uuid` |
 | `regex` | - | - |
+| `scene` | `geom`, `paint`, `shape` | - |
 | `schedule` | `clock`, `time` | - |
 | `server` | `clock`, `compress`, `http`, `json`, `metrics`, `mime`, `net`, `number`, `os` | - |
+| `shape` | `geom`, `math` | `scene` |
 | `sqlite` | `db`, `number` | `datasource` |
 | `test` | - | - |
 | `thread` | - | - |

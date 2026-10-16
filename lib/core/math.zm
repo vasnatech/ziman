@@ -34,6 +34,18 @@ pub native fn sin(x: float) -> float
 pub native fn cos(x: float) -> float
 pub native fn tan(x: float) -> float
 
+// The inverses, in radians. `asin` and `acos` answer NaN outside -1..1, which is this module's
+// convention for a domain error rather than a trap -- see the header.
+pub native fn asin(x: float) -> float
+pub native fn acos(x: float) -> float
+pub native fn atan(x: float) -> float
+
+// The angle of the point (`x`, `y`) from the positive x axis, in radians, in -pi..pi -- and the one
+// that actually gets used, because it is right in all four quadrants where `atan(y / x)` is not,
+// and it survives `x` being zero. **Note the argument order: `y` first**, as C, Java, Python and
+// JavaScript all have it. It looks wrong and it is what every caller will expect.
+pub native fn atan2(y: float, x: float) -> float
+
 // The largest whole number not above `x`: `floor(-1.5)` is -2.
 pub native fn floor(x: float) -> int
 

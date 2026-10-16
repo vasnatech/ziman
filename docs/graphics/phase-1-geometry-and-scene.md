@@ -23,12 +23,25 @@ pub fn identity() -> Matrix
 pub fn translation(dx: float, dy: float) -> Matrix
 pub fn scaling(sx: float, sy: float) -> Matrix
 pub fn rotation(radians: float) -> Matrix
-pub fn concat(outer: Matrix, inner: Matrix) -> Matrix
-pub fn apply(m: Matrix, p: Point) -> Point
+pub fn matrix_concat(outer: Matrix, inner: Matrix) -> Matrix
+pub fn transform_point(m: Matrix, p: Point) -> Point
+pub fn transform_rect(m: Matrix, r: Rect) -> Rect    // the bounding box; a rotated rect is not one
 pub fn invert(m: Matrix) -> Result<Matrix, string>   // Err on a singular matrix
+pub fn rotation_of(m: Matrix) -> float               // the decomposition; needs atan2
+pub fn scale_x_of(m: Matrix) -> float
+pub fn scale_y_of(m: Matrix) -> float
 pub fn rect_union(a: Rect, b: Rect) -> Rect
 pub fn rect_contains(r: Rect, p: Point) -> bool
 ```
+
+**Three names differ from the first draft of this document, each for a reason the language gave.**
+`matrix_concat` rather than `concat`, because `concat` is a builtin and a module function of that
+name reads as the string one at every call site inside the file. `transform_point` rather than
+`apply`, which says what it does. And the constants -- `identity()`, `empty_rect()`, `paint.black()`
+-- are **functions rather than `pub val`s**, because a qualified global val is not reachable:
+`geom.identity` is a type error asking for `use geom.identity` and a bare name, so a caller who
+wrote `use geom` would need a second import per constant. `math.pi` has the same wrinkle and is
+where it was found.
 
 **The six numbers are in PDF's order on purpose.** PDF's `a b c d e f cm` is the same affine
 matrix; keeping the field order identical means the backend writes them out with no reshuffling and
@@ -41,12 +54,18 @@ construct by accident (`scaling(0.0, 1.0)`), and the backends need to detect it 
 
 The five segments, and nothing else:
 
+A variant holds zero or one payload (docs/SYNTAX.md: "never a tuple or inline struct-shaped one"),
+so the two curve cases carry a named struct -- which reads better at the use sites anyway:
+
 ```ziman
+pub struct Quad  { control: Point  end: Point }
+pub struct Cubic { control1: Point  control2: Point  end: Point }
+
 pub enum Segment {
     MoveTo(Point)
     LineTo(Point)
-    QuadTo(Point, Point)          // control, end
-    CubicTo(Point, Point, Point)  // control 1, control 2, end
+    QuadTo(Quad)
+    CubicTo(Cubic)
     Close
 }
 
@@ -212,5 +231,11 @@ Entirely in-process, no golden files:
 
 ## Build changes
 
-`vpath` gains `lib/graphics`; four modules registered; the "Graphics" doc group added; **`math`
-gains `atan2`** (and `asin`/`acos` while the native boundary is open). See the README's build note.
+`vpath` gains `lib/graphics`; four modules registered in `CORELIB_MODULES` and `src/corelib.c`; the
+"Graphics" doc group added to `tools/gen_lib_manual.py`; **`math` gains `atan2`, `asin`, `acos` and
+`atan`** as natives in `src/native_math.c`.
+
+*Built 2026-10-16.* Phase 1's own API needs only `atan2`, for `rotation_of`; `asin` is used by
+`shear_of` and `acos`/`atan` are there because the native boundary was open and phase 5 needs them
+for round joins. All four follow this module's existing convention of answering NaN on a domain
+error rather than trapping, and `atan2` takes `y` before `x` as every other standard library does.
