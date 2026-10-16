@@ -16,6 +16,7 @@
 #include "bignum.h"
 #include "handles.h"
 #include "mapobj.h"
+#include "maptable.h"
 #include "decimal.h"
 #include "error.h"
 #include "fmtstr.h"
@@ -1485,15 +1486,21 @@ static void mutable_array_mark_contents(const Arena *a, StructObj *st) {
 }
 
 /* --- MutableMap<K, V> and MutableSet<T> -------------------------------------------------
- * Mutable counterparts of Map and Set, for building one up entry by entry without the
- * persistent map's per-insert node copying. Same pointer-as-handle scheme as MutableArray;
- * the buffer owns a MapObj nobody else can see and changes it in place (mapobj_set_mut).
- * `to_map` / `to_set` snapshot it (an O(n) copy of the trie's nodes) and the builder stays
- * usable, like snapshot. */
+ * Mutable counterparts of Map and Set, for building one up entry by entry. Same
+ * pointer-as-handle scheme as MutableArray; the buffer owns a MapTable (src/maptable.h) nobody
+ * else can see and changes it in place. `to_map` / `to_set` build an immutable Map from it and the
+ * builder stays usable, like snapshot.
+ *
+ * The storage used to be the same persistent trie `Map` uses, mutated in place. That cost a `Leaf`
+ * allocation per entry, which made per-insert cost rise with the *live set* (135 ns/insert at 1,000
+ * entries, 291 at 100,000) because a tracing collector prices a short-lived allocation by what is
+ * alive -- see maptable.h. A builder needs no persistence at all: it is `#[thread_bound]`, mutated
+ * in place, and exists to be the staging area. The `shared` flag went with the trie: it meant "a
+ * snapshot shares these leaves, so an overwrite must replace rather than update", and a table
+ * shares nothing with the Map built from it. */
 typedef struct {
     pthread_t owner;
-    MapObj *m;
-    int shared; /* a snapshot exists: overwritten leaves must be replaced, not updated */
+    MapTable t;
 } MutableMapBuf;
 
 static char *MAPBUILDER_FIELD_NAMES[] = {"handle"};
@@ -1505,30 +1512,65 @@ static MutableMapBuf *mutable_map_get_buf(Value b) {
     return buf;
 }
 
-/* See mutable_array_mark_contents's own comment -- identical reasoning, for a MutableMap/MutableSet's own
- * MapObj instead of a MutableArray's items buffer. `buf->m` is `mapobj_mut_new`'s own MapObj --
- * which, since MapObj migrated to gc_heap allocation (GC_MAP, gc_mark.c), now has a real header that
- * needs its own mark bit set, not just its entries traced: wrapping it in a throwaway TY_MAP Value
- * and calling the already-public gc_mark_value reuses gc_mark_map's own is_gc_heap_object-gated
- * header handling exactly, rather than duplicating it here. (A bare .kind is all gc_mark_map ever
- * reads off a Value -- elem/struct_name and the rest are never touched, so type_scalar's own zeroed
- * fields are fine.) Found the hard way: without this, buf->m's own wrapper looked unmarked on every
- * real collection and was swept -- map_set_builders.zm crashed inside GC_realloc, reallocating a
- * `root` MapNode pointer read back out of a wrapper struct that had already been zeroed. */
+/* See mutable_array_mark_contents's own comment -- identical reasoning, for a
+ * MutableMap/MutableSet's own table instead of a MutableArray's items buffer.
+ *
+ * This got simpler when the builder stopped being a trie, and the reason is worth keeping. The trie
+ * version had to mark a *header*: `MapObj` is gc_heap-allocated (GC_MAP), so the builder's private
+ * wrapper needed its own mark bit set and not merely its entries traced, which is why that version
+ * fabricated a throwaway TY_MAP Value and called gc_mark_value to reuse gc_mark_map's
+ * is_gc_heap_object-gated handling. Getting that wrong was found the hard way: without it the
+ * wrapper looked unmarked on every real collection and was swept, and map_set_builders.zm crashed
+ * inside GC_realloc on a `root` MapNode pointer read back out of a struct that had already been
+ * zeroed. A MapTable has no gc_heap object anywhere in it -- both its arrays come from
+ * `ziman_xmalloc`, which the ordinary allocator owns and scans itself -- so there is no header to
+ * mark and that whole failure mode is gone. Only what the entries point at needs tracing. */
+static void mark_table_entry(Value key, Value val, void *ctx) {
+    gc_mark_value((const Arena *)ctx, key);
+    gc_mark_value((const Arena *)ctx, val);
+}
+
+/* The table's own arrays need no marking -- they are `ziman_xmalloc`'d, so the ordinary allocator
+ * owns them and scans them itself. What needs marking is what the entries *point at*, which can be
+ * anywhere in this thread's gc_heap. This used to fabricate a TY_MAP Value over the builder's
+ * private trie so that gc_mark_map would walk its leaves; a table has no leaves to mark, only
+ * entries to visit. */
 static void mutable_map_mark_contents(const Arena *a, StructObj *st) {
     MutableMapBuf *buf = (MutableMapBuf *)(intptr_t)st->fields[0].as.i;
-    Value v;
-    v.type = type_scalar_ref(TY_MAP);
-    v.as.map = buf->m;
-    gc_mark_value(a, v);
+    maptable_visit(&buf->t, mark_table_entry, (void *)a);
+}
+
+/* A source for the set/map operations below, which may be given either world: another builder's
+ * table or an immutable Map/Set. Both are materialised into fresh arrays in insertion order, which
+ * every caller wants anyway -- intersect and difference have to walk a snapshot rather than the
+ * live table they are removing from. `vals` may be NULL to skip values. */
+typedef struct {
+    Value *keys;
+    Value *vals;
+    size_t n;
+} EntryCollector;
+
+static void collect_entry(Value key, Value val, void *ctx) {
+    EntryCollector *c = (EntryCollector *)ctx;
+    c->keys[c->n] = key;
+    if (c->vals != NULL) c->vals[c->n] = val;
+    c->n++;
+}
+
+static int maptable_entries(const MapTable *t, Value **keys, Value **vals) {
+    size_t n = maptable_len(t);
+    *keys = ziman_xmalloc((n > 0 ? n : 1) * sizeof(Value));
+    if (vals != NULL) *vals = ziman_xmalloc((n > 0 ? n : 1) * sizeof(Value));
+    EntryCollector c = {*keys, vals != NULL ? *vals : NULL, 0};
+    maptable_visit(t, collect_entry, &c);
+    return (int)n;
 }
 
 static Value mutable_map_new_value(const char *type_name) {
     MutableMapBuf *buf = ziman_xmalloc(sizeof(MutableMapBuf));
     buf->owner = pthread_self();
     handleset_add(&g_map_builders, buf);
-    buf->m = mapobj_mut_new();
-    buf->shared = 0;
+    maptable_init(&buf->t);
     Value *fields = ziman_xmalloc(sizeof(Value));
     fields[0] = value_int((int64_t)(intptr_t)buf);
     return value_struct(type_ref(type_struct(type_name)), struct_obj_new(MAPBUILDER_FIELD_NAMES, fields, 1));
@@ -1547,7 +1589,7 @@ static Value native_mutable_set_new(Value *args, int argc, int line, int col) {
 static Value native_mutable_map_set(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
-    mapobj_set_mut(buf->m, args[1], args[2], buf->shared);
+    maptable_set(&buf->t, args[1], args[2]);
     return value_int(0);
 }
 
@@ -1559,17 +1601,16 @@ static Value native_mutable_set_add(Value *args, int argc, int line, int col) {
     (void)line;
     (void)col;
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
-    Value ignored;
-    if (mapobj_get(buf->m, args[1], &ignored)) return value_bool(0);
-    mapobj_set_mut(buf->m, args[1], value_int(0), buf->shared);
-    return value_bool(1);
+    /* One lookup, not two: the table reports whether the key was new, where the trie needed a
+     * `get` first to answer the same question. */
+    return value_bool(maptable_set(&buf->t, args[1], value_int(0)));
 }
 
 static Value native_mutable_map_get(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     Value found;
-    if (mapobj_get(buf->m, args[1], &found)) return value_enum(type_option_ref(), enum_obj_new("Option", "Some", 1, found));
+    if (maptable_get(&buf->t, args[1], &found)) return value_enum(type_option_ref(), enum_obj_new("Option", "Some", 1, found));
     return value_enum(type_option_ref(), enum_obj_new("Option", "None", 0, value_int(0)));
 }
 
@@ -1586,7 +1627,7 @@ static Value native_mutable_map_get_or(Value *args, int argc, int line, int col)
     (void)col;
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     Value found;
-    if (mapobj_get(buf->m, args[1], &found)) return found;
+    if (maptable_get(&buf->t, args[1], &found)) return found;
     return args[2];
 }
 
@@ -1600,10 +1641,9 @@ static Value native_mutable_map_remove(Value *args, int argc, int line, int col)
     (void)col;
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
     Value found;
-    if (!mapobj_get(buf->m, args[1], &found)) {
+    if (!maptable_remove(&buf->t, args[1], &found)) {
         return value_enum(type_option_ref(), enum_obj_new("Option", "None", 0, value_int(0)));
     }
-    mapobj_remove_mut(buf->m, args[1]);
     return value_enum(type_option_ref(), enum_obj_new("Option", "Some", 1, found));
 }
 
@@ -1612,10 +1652,7 @@ static Value native_mutable_set_remove(Value *args, int argc, int line, int col)
     (void)line;
     (void)col;
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
-    Value ignored;
-    int present = mapobj_get(buf->m, args[1], &ignored);
-    if (present) mapobj_remove_mut(buf->m, args[1]);
-    return value_bool(present);
+    return value_bool(maptable_remove(&buf->t, args[1], NULL));
 }
 
 
@@ -1623,8 +1660,15 @@ static Value native_mutable_set_remove(Value *args, int argc, int line, int col)
 static Value native_mutable_map_snapshot(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
-    buf->shared = 1;
-    return value_map(type_scalar_ref(TY_VOID), mapobj_snapshot(buf->m));
+    /* Builds the trie rather than copying one. The trie's own snapshot copied its nodes and shared
+     * its leaves, which was cheaper per snapshot than inserting every entry -- the cost moved here
+     * when the builder stopped being a trie, and it is the one operation this change makes slower.
+     * `shared` is gone with it: this MapObj is freshly built and nobody else holds it. */
+    MapObj *m = mapobj_mut_new();
+    Value *keys, *vals;
+    int n = maptable_entries(&buf->t, &keys, &vals);
+    for (int i = 0; i < n; i++) mapobj_set_mut(m, keys[i], vals[i], 0);
+    return value_map(type_scalar_ref(TY_VOID), m);
 }
 
 /* `len` on one of the four `#[thread_bound]` handles, for the interpreter's own `len` branch --
@@ -1639,7 +1683,7 @@ int ziman_builder_length(Value v, MutableKind kind) {
      * prelude.h's ziman_mutable_kind on why re-deriving it from the name is what this used to cost. */
     if (kind == MUTABLE_ARRAY) return (int)mutable_array_table_get(mutable_array_handle_of(v))->length;
     if (kind == MUTABLE_STRING) return (int)mutable_string_table_get(mutable_string_handle_of(v))->length;
-    return mutable_map_get_buf(v)->m->count;
+    return (int)maptable_len(&mutable_map_get_buf(v)->t);
 }
 
 /* `contains` on one of the four handles, for the interpreter's own `contains` branch. Answers the
@@ -1662,8 +1706,7 @@ int ziman_builder_contains(Value v, Value needle, MutableKind kind) {
         const MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(v));
         return value_str_find(buf->data, buf->length, needle.as.str.ptr, needle.as.str.len, 0) >= 0;
     }
-    Value ignored;
-    return mapobj_get(mutable_map_get_buf(v)->m, needle, &ignored) != 0;
+    return maptable_get(&mutable_map_get_buf(v)->t, needle, NULL) != 0;
 }
 
 /* One append, so that `push_all` does not repeat the adopt/grow/store dance per element. */
@@ -1697,17 +1740,18 @@ void ziman_mutable_array_push_all(Value xs, Value source, int source_is_handle) 
 void ziman_mutable_map_set_all(Value m, Value source, int source_is_handle) {
     MutableMapBuf *dst = mutable_map_get_buf(m);
     const MapObj *src;
+    Value *keys, *vals;
+    int n;
     if (source_is_handle) {
         MutableMapBuf *from = mutable_map_get_buf(source);
         if (from == dst) return;
-        src = from->m;
+        n = maptable_entries(&from->t, &keys, &vals);
     } else {
         src = source.as.map;
+        n = src->count;
+        mapobj_entries(src, &keys, &vals);
     }
-    Value *keys, *vals;
-    int n = src->count;
-    mapobj_entries(src, &keys, &vals);
-    for (int i = 0; i < n; i++) mapobj_set_mut(dst->m, keys[i], vals[i], dst->shared);
+    for (int i = 0; i < n; i++) maptable_set(&dst->t, keys[i], vals[i]);
 }
 
 /* Union, intersect and difference in place. `op` is 0, 1, 2 in that order.
@@ -1718,37 +1762,33 @@ void ziman_mutable_map_set_all(Value m, Value source, int source_is_handle) {
  * intersect with yourself are genuine no-ops.
  *
  * Intersect and difference remove from the destination, so they walk a snapshot of its own keys
- * (`mapobj_entries`, which materialises them anyway) rather than the live trie. */
+ * (materialised anyway) rather than the live table. */
 void ziman_mutable_set_combine(Value s, Value source, int source_is_handle, int op) {
     MutableMapBuf *dst = mutable_map_get_buf(s);
-    const MapObj *src;
+    MutableMapBuf *from = NULL;
     if (source_is_handle) {
-        MutableMapBuf *from = mutable_map_get_buf(source);
+        from = mutable_map_get_buf(source);
         if (from == dst) {
-            if (op == 2) {
-                dst->m = mapobj_mut_new();
-                dst->shared = 0;
-            }
+            if (op == 2) maptable_clear(&dst->t);
             return;
         }
-        src = from->m;
-    } else {
-        src = source.as.map;
     }
     if (op == 0) {
         Value *keys;
-        int n = src->count;
-        mapobj_entries(src, &keys, NULL);
-        for (int i = 0; i < n; i++) mapobj_set_mut(dst->m, keys[i], value_int(0), dst->shared);
+        int n = from != NULL ? maptable_entries(&from->t, &keys, NULL) : source.as.map->count;
+        if (from == NULL) mapobj_entries(source.as.map, &keys, NULL);
+        for (int i = 0; i < n; i++) maptable_set(&dst->t, keys[i], value_int(0));
         return;
     }
     Value *mine;
-    int n = dst->m->count;
-    mapobj_entries(dst->m, &mine, NULL);
+    int n = maptable_entries(&dst->t, &mine, NULL);
     for (int i = 0; i < n; i++) {
+        /* `mapobj_get` writes through its out-parameter unconditionally, unlike maptable_get,
+         * so it gets somewhere to write even though the value is unused here. */
         Value ignored;
-        int in_source = mapobj_get(src, mine[i], &ignored);
-        if (op == 1 ? !in_source : in_source) mapobj_remove_mut(dst->m, mine[i]);
+        int in_source = from != NULL ? maptable_get(&from->t, mine[i], NULL)
+                                     : mapobj_get(source.as.map, mine[i], &ignored);
+        if (op == 1 ? !in_source : in_source) maptable_remove(&dst->t, mine[i], NULL);
     }
 }
 
@@ -1756,14 +1796,15 @@ void ziman_mutable_set_combine(Value s, Value source, int source_is_handle, int 
  * without walking anything. */
 int ziman_mutable_set_is_subset(Value s, Value source, int source_is_handle) {
     MutableMapBuf *dst = mutable_map_get_buf(s);
-    const MapObj *src = source_is_handle ? mutable_map_get_buf(source)->m : source.as.map;
-    if (src == dst->m) return 1;
+    MutableMapBuf *from = source_is_handle ? mutable_map_get_buf(source) : NULL;
+    if (from == dst) return 1;
     Value *mine;
-    int n = dst->m->count;
-    mapobj_entries(dst->m, &mine, NULL);
+    int n = maptable_entries(&dst->t, &mine, NULL);
     for (int i = 0; i < n; i++) {
-        Value ignored;
-        if (!mapobj_get(src, mine[i], &ignored)) return 0;
+        Value ignored; /* mapobj_get always writes through this; see ziman_mutable_set_combine. */
+        int in_source = from != NULL ? maptable_get(&from->t, mine[i], NULL)
+                                     : mapobj_get(source.as.map, mine[i], &ignored);
+        if (!in_source) return 0;
     }
     return 1;
 }
@@ -1771,17 +1812,24 @@ int ziman_mutable_set_is_subset(Value s, Value source, int source_is_handle) {
 /* The `from` constructors: a handle holding what the argument holds, taking either world. The
  * typechecker has already established which, so these only have to read it.
  *
- * For the two hashed shapes this is where `from` earns its name over `new` plus a loop:
- * `mapobj_snapshot` copies the trie's *nodes* with the leaves shared, where re-inserting every
- * entry would hash and place each one again. `shared` is then 1, which is exactly its meaning --
- * a snapshot of these leaves exists elsewhere, so an overwrite must replace a leaf rather than
- * update it -- and it is what keeps the source untouched whichever world it came from. */
+ * For the two hashed shapes this used to be where `from` earned its name over `new` plus a loop:
+ * when a builder was a trie, `mapobj_snapshot` copied its nodes and shared its leaves, where
+ * re-inserting every entry hashes and places each one again. A builder is a flat table now, so
+ * there is no trie to copy into it and this inserts -- the same cost `to_map` moved to for the same
+ * reason, and the other half of that trade. The source is untouched either way, which is what
+ * `from` promises. */
 Value ziman_mutable_map_from(Value source, int is_set) {
     Value out = mutable_map_new_value(is_set ? "MutableSet" : "MutableMap");
     MutableMapBuf *buf = mutable_map_get_buf(out);
-    const MapObj *src = source.type->kind == TY_MAP || source.type->kind == TY_SET ? source.as.map : mutable_map_get_buf(source)->m;
-    buf->m = mapobj_snapshot(src);
-    buf->shared = 1;
+    Value *keys, *vals;
+    int n;
+    if (source.type->kind == TY_MAP || source.type->kind == TY_SET) {
+        n = source.as.map->count;
+        mapobj_entries(source.as.map, &keys, &vals);
+    } else {
+        n = maptable_entries(&mutable_map_get_buf(source)->t, &keys, &vals);
+    }
+    for (int i = 0; i < n; i++) maptable_set(&buf->t, keys[i], vals[i]);
     return out;
 }
 
@@ -1793,24 +1841,23 @@ Value ziman_mutable_set_from_array(Value source, int source_is_handle) {
     MutableMapBuf *buf = mutable_map_get_buf(out);
     if (source_is_handle) {
         const MutableArrayBuf *src = mutable_array_table_get(mutable_array_handle_of(source));
-        for (size_t i = 0; i < src->length; i++) mapobj_set_mut(buf->m, mutable_array_element_at(src, i), value_int(0), buf->shared);
+        for (size_t i = 0; i < src->length; i++) maptable_set(&buf->t, mutable_array_element_at(src, i), value_int(0));
     } else {
         ArrayObj *src = source.as.arr;
-        for (int i = 0; i < src->count; i++) mapobj_set_mut(buf->m, array_get(src, i), value_int(0), buf->shared);
+        for (int i = 0; i < src->count; i++) maptable_set(&buf->t, array_get(src, i), value_int(0));
     }
     return out;
 }
 
 /* The entries of a MutableMap or MutableSet in insertion order, for the interpreter's own `for`
  * branch: fresh arrays of `count` keys and, for a map, values. This is a *snapshot by
- * construction* rather than by choice, which is the difference from MutableArray's live-buffer
- * walk -- insertion order comes from a per-entry sequence number that `mapobj_entries` has to sort
- * by, so there is no cursor into the trie that could walk it in order, and a node's slots shift on
- * insert anyway. Pass NULL for `vals` on a set, whose values are unused. */
+ * construction*, which is the difference from MutableArray's live-buffer walk: the body may change
+ * the handle freely without affecting what the loop visits. It stays a snapshot by choice now
+ * rather than by necessity -- the table's dense entries array *is* in insertion order, so a cursor
+ * over it would be possible, where the trie needed a per-entry sequence number and a sort. Keeping
+ * the copy keeps the existing guarantee. Pass NULL for `vals` on a set, whose values are unused. */
 int ziman_mutable_map_entries(Value m, Value **keys, Value **vals) {
-    MutableMapBuf *buf = mutable_map_get_buf(m);
-    mapobj_entries(buf->m, keys, vals);
-    return buf->m->count;
+    return maptable_entries(&mutable_map_get_buf(m)->t, keys, vals);
 }
 
 /* A MutableArray holding a copy of what the argument holds. One allocation and one pass whichever
@@ -1885,9 +1932,7 @@ void ziman_builder_clear(Value v) {
         mutable_string_table_get(mutable_string_handle_of(v))->length = 0;
         return;
     }
-    MutableMapBuf *buf = mutable_map_get_buf(v);
-    buf->m = mapobj_mut_new();
-    buf->shared = 0;
+    maptable_clear(&mutable_map_get_buf(v)->t);
 }
 
 /* --- Mutable<T> -------------------------------------------------------------------------
@@ -1989,7 +2034,7 @@ static char *mutable_map_display(Value v, int nested) {
     int is_set = v.type->struct_name != NULL && strcmp(v.type->struct_name, "MutableSet") == 0;
     const MutableMapBuf *buf = mutable_map_get_buf(v);
     if (nested) {
-        return handle_summary(is_set ? "MutableSet" : "MutableMap", (long long)buf->m->count, is_set ? "item" : "entry");
+        return handle_summary(is_set ? "MutableSet" : "MutableMap", (long long)maptable_len(&buf->t), is_set ? "item" : "entry");
     }
     Value snap = native_mutable_map_snapshot(&v, 1, 0, 0);
     if (v.type->type_args.count > (is_set ? 0 : 1)) {
