@@ -132,5 +132,55 @@ def main():
 
     print(f"  (checksum {acc}, entries {len(sd)})")
 
+    # ---- set, matching map_ops.zm's Set/MutableSet section ----
+    ss = set(range(SIZE))
+    print(f"\nset over {SIZE} items, {OPS} ops each")
+
+    t = time.perf_counter()
+    for i in range(OPS):
+        k = i % SIZE
+        acc += k
+    setbase = time.perf_counter() - t
+    t = time.perf_counter()
+    for i in range(OPS):
+        k = i % SIZE
+        acc += k
+        if k >= 0:
+            acc += 1
+    setbase_if = time.perf_counter() - t
+    print(f"  (loop overhead {round(setbase * 1e9 / OPS)} ns/op value-returning,"
+          f" {round(setbase_if * 1e9 / OPS)} ns/op if-shaped)")
+
+    t = time.perf_counter()
+    for i in range(OPS):
+        k = i % SIZE
+        acc += k
+        if k in ss:
+            acc += 1
+    report("set  in              ", time.perf_counter() - t, setbase_if)
+
+    t = time.perf_counter()
+    for i in range(OPS):
+        k = i % SIZE
+        acc += k + len(ss)
+    report("set  len             ", time.perf_counter() - t, setbase)
+
+    t = time.perf_counter()
+    for i in range(OPS):
+        k = i % SIZE
+        acc += k
+        ss.add(k)
+    report("set  add (present)   ", time.perf_counter() - t, setbase)
+
+    t = time.perf_counter()
+    for i in range(OPS):
+        k = i % SIZE
+        acc += k
+        ss.discard(k)
+        ss.add(k)
+    report("set  discard + add   ", time.perf_counter() - t, setbase)
+
+    print(f"  (checksum {acc}, items {len(ss)})")
+
 
 main()

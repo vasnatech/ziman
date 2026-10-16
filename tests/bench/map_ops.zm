@@ -251,4 +251,102 @@ fn main() {
     report("MutableMap  set            ", clock.monotonic_millis() - t, sbase)
 
     printf("  (checksum {}, entries {})\n", acc, len(smb))
+
+    // ---- Set and MutableSet, the same questions a set can answer ----
+    //
+    // `MutableSet` shares its storage with `MutableMap` (the same MutableMapBuf over the same
+    // MapTable), so the flat-table work applies to it unchanged -- these rows exist to show that
+    // rather than assume it. `Set` keeps the persistent trie for the same reason `Map` does: it is
+    // a value, and `insert(s, x)` must leave the old set intact.
+    //
+    // There is no `discard` row and no need for one: `mutable_set_remove` already answers with a
+    // `bool`, where `mutable_map_remove` answered with an `Option<V>` -- which is exactly the cost
+    // `mutable_map_discard` was added to avoid.
+    val setb = mutable_set_new<int>()
+    for i in 0..size {
+        mutable_set_add<int>(setb, i)
+    }
+    val st = snapshot(setb)
+    printf("\nSet/MutableSet over {} items, {} ops each\n", size, ops)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+    }
+    val setbase = clock.monotonic_millis() - t
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        if k >= 0 {
+            acc = acc + 1
+        }
+    }
+    val setbase_if = clock.monotonic_millis() - t
+    printf("  (loop overhead {} ns/op value-returning, {} ns/op if-shaped)\n", setbase / 5, setbase_if / 5)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        if contains(st, k) {
+            acc = acc + 1
+        }
+    }
+    report("Set         contains       ", clock.monotonic_millis() - t, setbase_if)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k + len(st)
+    }
+    report("Set         len            ", clock.monotonic_millis() - t, setbase)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k + len(insert(st, size + k))
+    }
+    report("Set         insert (persist)", clock.monotonic_millis() - t, setbase)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        if contains(setb, k) {
+            acc = acc + 1
+        }
+    }
+    report("MutableSet  contains       ", clock.monotonic_millis() - t, setbase_if)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k + len(setb)
+    }
+    report("MutableSet  len            ", clock.monotonic_millis() - t, setbase)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        if mutable_set_add<int>(setb, k) {
+            acc = acc + 1
+        }
+    }
+    report("MutableSet  add (present)  ", clock.monotonic_millis() - t, setbase_if)
+
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        acc = acc + k
+        if mutable_set_remove<int>(setb, k) {
+            acc = acc + 1
+        }
+        mutable_set_add<int>(setb, k)
+    }
+    report("MutableSet  remove+add     ", clock.monotonic_millis() - t, setbase_if)
+
+    printf("  (checksum {}, items {} {})\n", acc, len(setb), len(st))
 }

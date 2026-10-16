@@ -949,6 +949,26 @@ from source.
   lookup instead of two, and insertion order comes from the dense array rather than a per-entry
   sequence number and a sort.
 
+  **`Set`/`MutableSet` need no separate work, now measured rather than assumed (2026-10-15).**
+  `MutableSet` already shares its storage with `MutableMap` -- the same `MutableMapBuf` over the
+  same `MapTable`, the same content marker, every native through `mutable_map_get_buf` -- so the
+  flat table applied to it unchanged, and `Set` keeps the trie for the same reason `Map` does.
+  `map_ops` had no set rows at all, which meant a session's worth of optimisation went unverified
+  on half the types; it has them now, with a matching `set` section on the CPython side:
+
+  | operation | CPython `set` | Ziman | note |
+  | --- | --- | --- | --- |
+  | contains / `in` | 7ns | `Set` 59ns, `MutableSet` 24-36ns | tracks `Map`/`MutableMap` exactly |
+  | len | 14ns | `Set` 19-20ns, `MutableSet` 41-52ns | as for maps |
+  | add, already present | 15ns | `MutableSet` 12-25ns | short-circuits on the first lookup |
+  | remove + add | 36ns | `MutableSet` 104-126ns | 2.9-3.5x |
+  | insert, persistent | -- | `Set` 1595-1650ns | path copying, as `Map`'s own `set` |
+
+  **And there is no `discard` for sets because there is nothing to fix:** `mutable_set_remove`
+  already answers with a `bool`, which is exactly the shape `mutable_map_discard` had to be added to
+  provide. The set side of the API had the cheaper design all along -- and `MutableSet remove+add`
+  at 104-126ns against `MutableMap discard+set` at 111ns is the measurement that says so.
+
   **`mutable_map_discard`, added 2026-10-15 because the measurement asked for it.** `remove+set`
   was the one row still far out -- 8.9x `dict` where everything else had come down to 2-3x -- and
   the cause was not the removal. Isolated by comparing against `mutable_set_remove`, which answers
