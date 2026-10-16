@@ -57,8 +57,9 @@ sentences are true of their date by design, so scanning it would report history 
 
 **Shape four: a "Still missing" list in docs/ROADMAP.md**, added 2026-10-16 after the North Star
 section was found still listing `replace` and `index_of` among what the language lacked -- both
-shipped, and that section's prose turned out to be the stalest part of the file precisely because
-the detailed entries below it get maintained while a summary paragraph near the top does not.
+shipped. (The first sweep read that as the North Star prose being the stalest part of the file;
+asking the file one more question turned up four more stale entries in "Larger, needs its own design
+pass", so the pattern is not sectional -- see ROADMAP.md's own preamble for what it actually is.)
 
 It needed one new vocabulary of its own: a **builtin** is not a `pub fn` either. `replace` and
 `index_of` are registered in C (`native_register("replace", ...)` in src/prelude.c) or dispatched

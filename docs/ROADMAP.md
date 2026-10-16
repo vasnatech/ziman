@@ -18,19 +18,36 @@ wrong** — an entry like "HTTP/2 -- not started" is followed by a paragraph men
 `byte_and` and a dozen other real things, none of which it claims are missing. The check works on a terse
 `Not yet: a, b, c` list and this file is discursive prose, so the guard here is the habit, not a tool.
 
-**Where to look first, learned 2026-10-16.** A sweep prompted by this file recommending two
-*finished* items in one sitting found four stale claims, and all four were in the North Star section
-at the top -- the `io` module (replaced by `fs` long ago, and the entry still describes `io.zm` as
-one of two embedded modules), "Still missing: `replace`, and a general `index_of`/`find`" (all
-three are builtins), the unbounded queue (bounded channels landed 2026-09-24, which R10's own entry
-already recorded) and generics "in progress, staged struct → enum → function" (all five stages
-shipped 2026-10-10). Nothing in "Near-term, likely next" was wrong; it has two unstruck items left
-and both are current. **The reason is structural, so it should keep holding:** the entries below are
-written when work is in flight and get a dated note when it lands, while the North Star prose is
-summary-level, was written once at the start, and describes the same subjects from further away --
-so it goes stale silently and reads as authoritative precisely because it is at the top. The habit
-this preamble asks for needs applying there first, and the two items that misled a reader were both
-*nested* bullets, which is where a status word is easiest to miss.
+**What goes stale, learned 2026-10-16 over two sweeps.** The first sweep was prompted by this file
+recommending two *finished* items in one sitting, and found four stale claims all in the North Star
+section -- the `io` module (replaced by `fs` long ago), "Still missing: `replace`, and a general
+`index_of`/`find`" (all three are builtins), the unbounded queue (bounded channels landed
+2026-09-24, which R10's own entry already recorded) and generics "in progress, staged struct → enum
+→ function" (all five stages shipped 2026-10-10). That looked structural, and the conclusion written
+here was that the North Star prose is where the rot lives because it was written once at the start.
+
+**That was too narrow, and the next question asked of this file found four more elsewhere** -- in
+"Larger, needs its own design pass": the `Cell<T>` entry (built 2026-10-14 and its headline never
+said so), the `collections` refactor (raised and overtaken the same day, F120 at 00:17), the LLM
+benchmark (its own body said "done 2026-10-10" two lines above a sentence still calling the
+directory a 10-task set) and the memory entry, whose headline stopped being true on 2026-09-29.
+"Near-term, likely next" remains the one section with nothing wrong in it.
+
+**The sharper pattern, and the one to check for:** in all four of the second batch the *body* had
+been updated and the **headline had not**. That is the more dangerous shape, because an entry whose
+body carries a dated "*Update ... done*" note looks maintained, while the headline is the only part
+a reader scans when asking what is left -- so a half-revisited entry misleads more reliably than an
+untouched one. Closing a task therefore means fixing the status *in the headline*, not only adding
+a note underneath, and reading an entry means reading past its headline before trusting it.
+
+A check for exactly this was prototyped and **dropped**: flag an unstruck item whose body says
+something landed while its headline carries no status word. After the fixes above it reported three
+items, all false positives -- `Everything above the native floor is real Ziman code`,
+`Generics: the "just hardcode it" strategy stopped scaling` and `First-class functions / closures`
+are topics and principles, not status claims, and headlines like those are common here. Making it
+sound would mean requiring every headline to carry a status, which is the convention this preamble
+states and dozens of entries do not follow. So this stays in the habit column too, with the
+narrower "Still missing" shape being the only part that mechanized (see tools/check_not_yet.py).
 
 That sweep also found the opposite of the 40-false-positive result above, in one narrow case:
 `check_not_yet.py` now has a "Still missing" shape, which works for the same reason the "Not yet"
@@ -1174,7 +1191,8 @@ from source.
   elsewhere, since the LLM benchmark's own finding was that diagnostics -- not step-debugging --
   were what let a model correct itself.
 
-- **Grow the LLM-generation benchmark from 10 tasks to the 50 the review asked for.**
+- ~~**Grow the LLM-generation benchmark from 10 tasks to the 50 the review asked for.**~~
+  **Done 2026-10-10; what replaces it is variance, not scope.**
   *Done 2026-10-10 (F26 wrote the 50 tasks; F27/F34/F36/F49 ran them).* All 50 tasks exist and have
   now been run at least once: round 1 is **0 of 50** across five independent batches with five
   different habit mixes, and round 2 talked every cold attempt on tasks 11-50 into compiling using
@@ -1185,7 +1203,9 @@ from source.
   attempts rather than the score: it scored 10/10 in round 2 and still contained three real
   diagnostic defects (F50, F51). Also split out
   of F6 on 2026-10-05 rather than closed with it, because 10 tasks is a fifth of the asked-for scope
-  and calling that done would misrepresent it. `tests/bench/llm_tasks/` holds the fixed 10-task set
+  and calling that done would misrepresent it. `tests/bench/llm_tasks/` holds the fixed task set
+  (**50 tasks plus a README as of 2026-10-10** -- this sentence said "the fixed 10-task set" until
+  2026-10-16, contradicting the note above it in its own entry)
   and docs/reviews/llm-benchmark-2026-09-28.md the method -- each task run cold with zero Ziman
   context, then iterated against the compiler alone for up to five fix attempts, two independent
   fresh model instances per task.
@@ -1197,9 +1217,11 @@ from source.
   cannot separate a real effect from which error a given run happened to look at first, which is
   exactly what the third task's inconclusive result came down to.
 
-- **Memory is never reclaimed while a program runs (in the default build)
+- ~~**Memory is never reclaimed while a program runs (in the default build)
   — fine for a short-lived script, a real problem for the North Star goal
-  of an always-on backend.** *Update 2026-09-23: `make gc` builds
+  of an always-on backend.**~~ **The headline stopped being true on 2026-09-29, when the collector
+  became the default build; the updates below have said so since, but the headline a reader scans
+  did not (struck 2026-10-16).** *Update 2026-09-23: `make gc` builds
   `ziman-gc`, which routes every allocation through the Boehm collector;
   the two plans below (refcounting, per-thread arenas) were not built and
   are kept for their reasoning. See docs/DESIGN.md's "Memory
@@ -2302,9 +2324,26 @@ from source.
   check (F106) all applied to it without a line of new code. The worked actor example named at the
   end of this entry is still not written.*
 
-- **Refactor the `collections` module: seven duplicate spellings, one family split across two
-  namespaces, and one name that can never move.** Raised 2026-10-14 by Menderes, out of asking
+- ~~**Refactor the `collections` module: seven duplicate spellings, one family split across two
+  namespaces, and one name that can never move.**~~ **Done 2026-10-14 (F120): the module is deleted
+  and the whole family is `array_*`.** Raised 2026-10-14 by Menderes, out of asking
   whether `collections.sort*` should simply be deleted now that `array_sort*` exists.
+
+  *Update 2026-10-16: raised on 2026-10-14 and overtaken the same day -- F120 stage 3 landed at
+  00:17 -- with no note added, so everything below read as an open question that was already
+  settled. **And it was settled in the opposite direction to the one this entry weighs.** The entry
+  asks "where does the sort family live", concludes the answer needs a trigger (promote
+  `is_sorted`/`binary_search`/... once something sorts a `MutableArray` and then searches it), and
+  says that until then the seven wrappers should stay and the 167 call sites be left alone. F120
+  instead deleted `lib/core/collections.zm` outright and moved the call sites (stage 2), so arrays
+  now have the shape `Map` and `Set` always had: one bare `array_*` family and no module. Nothing
+  was promoted into the flat global namespace, which is the cost this entry was trying to avoid --
+  `array_find`, `array_sort_with`, `array_frequencies` and the rest all carry the prefix, verified
+  by running them. Both "hard constraints" dissolved with the module: `collections.join` never
+  needed to be able to move, because it became `array_join`. The removal also dragged along five of
+  the compiler's own suggestion strings, eight comments and two fixtures, recorded in `65591bf`.
+  The reasoning below is kept for why promoting names into a flat namespace is expensive, which is
+  still the live argument whenever a new bare name is proposed.*
 
   **The state.** Seven functions exist under two names: `map`, `filter`, `flat_map`, `reverse`,
   `sort`, `sort_desc` and `sort_with` are bare `array_*` in `lib/prelude.zm` *and* one-line
