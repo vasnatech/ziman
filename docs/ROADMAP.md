@@ -61,6 +61,15 @@ one that never lands. The architecture to get there:
   recoverable, not fatal — see "Recoverable error handling" below);
   `write_file` is not yet migrated and still fails fatally on a write
   error.
+  *Update 2026-10-16: **there is no `io` module any more**, so everything this
+  item says about one describes a state that no longer exists. `fs` replaced it:
+  `read_text`/`read_bytes`/`write_text`/`write_bytes`, plus
+  `write_text_atomic`, each returning `Result<_, FsError>` -- so the
+  "`write_file` is not yet migrated and still fails fatally" gap closed by the
+  function being replaced rather than migrated, and `lib/core/` now holds 29
+  modules rather than the two this item describes as embedded. Kept for the
+  reasoning about the native floor, which still holds and is what the entry is
+  for; read `fs` for the shape that shipped.*
   Today's built-ins (`print`/`concat`/`str`/`format`/`len`/`push`/
   `insert`/`set`) are conceptually the same idea already, but stay
   special-cased and unqualified for now rather than being migrated into
@@ -143,9 +152,13 @@ a time mid-implementation:
   `len` (also accepts `string`), `substring`, `split`, `trim`,
   `to_upper`/`to_lower`, `parse_int`/`parse_float`, and `contains`
   (string-in-string, and array membership for scalar `[T]`) — see
-  docs/SYNTAX.md "Builtins". Still missing: `replace`, and a general
+  docs/SYNTAX.md "Builtins". ~~Still missing: `replace`, and a general
   `index_of`/`find` (deferred — see the `index_of` entry below on why it
-  needs `Option<T>` or a Result-shaped decision first). Numeric builtins
+  needs `Option<T>` or a Result-shaped decision first).~~ *Update 2026-10-16:
+  both shipped and this clause had gone stale. `replace(s, old, new)`,
+  `index_of(s, needle, from)` and `last_index_of(s, needle)` are builtins
+  (docs/SYNTAX.md "Builtins"), and the Result-shaped decision the deferral was
+  waiting on was settled by returning `-1` rather than an `Option<int>`.* Numeric builtins
   now also exist: `abs`/`min`/`max`/`floor`/`ceil`/`round`. Array
   `remove(arr, i)` exists, and `==`/`!=` on arrays is now allowed when
   the element type is scalar (structs, Results, and nested arrays still
@@ -165,10 +178,15 @@ a time mid-implementation:
   state-threading works within one request's own call chain, but doesn't
   answer how *multiple concurrent* requests reach one shared,
   consistently-updated store. Still open, not yet decided:
-  - **Unbounded queue.** `send` never blocks in v0 — no backpressure/
+  - ~~**Unbounded queue.** `send` never blocks in v0 — no backpressure/
     capacity limit, a real production concern (a runaway producer could
     exhaust memory) but not a correctness one. Revisit if a real program
-    needs bounded backpressure.
+    needs bounded backpressure.~~ *Update 2026-10-16: answered on 2026-09-24
+    and this item never caught up -- R10's own entry records it. A channel is
+    unbounded (`channel_new()`: `send` never blocks) or **bounded**
+    (`channel_new(8)`: `send` blocks while full, which is the backpressure
+    asked for here), with `try_send`/`try_receive`/`channel_len` alongside
+    and `channel_bounded.zm` pinning it.*
   - **No thread-handle/join mechanism.** A spawned function must return
     `void`; its result, if any, can only come back through a `Channel`
     it's explicitly given. Revisit only if a concrete need for "wait for
@@ -186,12 +204,19 @@ a time mid-implementation:
   `enum Option<T> { Some(T) None }`), but combined with real type
   parameters it would let `Option<T>` — and anything Result/Option-shaped
   a user wants — be written as ordinary Ziman, not another C builtin.
-  Generics themselves are the still-missing other half, tracked as its
+  Generics themselves were the still-missing other half, tracked as its
   own design pass below (parser syntax for `<T>` on `struct`/`enum`/`fn`
-  declarations, and a monomorphization-or-erasure runtime strategy) — in
-  progress, staged struct → enum → function; generic structs are done
-  (see the "Larger, needs its own design pass" entry below for the
-  current state).
+  declarations, and a monomorphization-or-erasure runtime strategy).
+  *Update 2026-10-16: **done, and this paragraph had gone stale** -- it still
+  read "in progress, staged struct → enum → function; generic structs are
+  done", which is the state of some weeks ago. All five stages shipped
+  2026-10-10 (F39): generic structs, bounded type parameters, generic enums,
+  cross-module generics and generic functions. `Option<T>` is now ordinary
+  Ziman built on them rather than another C builtin, which is what this entry
+  wanted. The one residue is stated in that entry: a generic function body can
+  do nothing with an abstract `T` beyond `Eq`/`Hash`/`Ord`, and extending that
+  was the `Row` bound, withdrawn 2026-10-09 (C18) on finding it cannot work the
+  way `compare` does.*
 
 ## External review follow-ups (2026-09-23)
 

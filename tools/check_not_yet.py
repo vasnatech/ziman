@@ -55,6 +55,26 @@ deliberately narrows it: "No optional/nullable type" would not be caught, becaus
 substitute for reading the file. ROADMAP.md only -- docs/DESIGN.md is a dated log whose "No X"
 sentences are true of their date by design, so scanning it would report history as staleness.
 
+**Shape four: a "Still missing" list in docs/ROADMAP.md**, added 2026-10-16 after the North Star
+section was found still listing `replace` and `index_of` among what the language lacked -- both
+shipped, and that section's prose turned out to be the stalest part of the file precisely because
+the detailed entries below it get maintained while a summary paragraph near the top does not.
+
+It needed one new vocabulary of its own: a **builtin** is not a `pub fn` either. `replace` and
+`index_of` are registered in C (`native_register("replace", ...)` in src/prelude.c) or dispatched
+from src/interpreter.c's name table, so every check here read straight past them -- they exist in
+neither lib/ nor as a module. Both tables are read from the source for the same reason
+HARDCODED_GENERIC_TYPES is: a new builtin should not need an edit in this file to be known about.
+Builtins are folded into the identifier index every shape here uses, not just this one.
+
+What this still cannot see, and what the 2026-10-16 sweep had to find by hand: a claim naming no
+identifier at all. "Unbounded queue -- `send` never blocks in v0" names `send`, which exists and
+always did; what changed is that `channel_new(8)` now bounds it. And "in progress, staged struct ->
+enum -> function" names nothing, while every stage it refers to is struck through further down the
+same file. Both were stale for weeks. A rule for either would have to compare a claim against
+another *entry* rather than against the source, which is a different kind of check and is not
+attempted here.
+
 Run directly, or via `make not-yet-check`. Exits 1 and prints each mismatch found; exits 0
 ("no stale 'not yet' claims found") otherwise.
 """
@@ -81,6 +101,13 @@ ABSENCE_HEADLINE = re.compile(r"^\s*-\s+(~~)?\*\*(No\b[^*]*)\*\*")
 # `http` are not `pub fn` declarations, so the original check read right past an entry whose whole
 # "still ahead" list had shipped (docs/reviews/tasks.md, the 2026-10-09 North Star correction).
 STILL_AHEAD = re.compile(r"Still ahead\b[:,]?\s*(.*)")
+# "Still missing: `replace`, and a general `index_of`/`find`" -- the same shape as a "Not yet"
+# claim, in the one file where such a list is a roadmap item rather than a doc sentence.
+STILL_MISSING = re.compile(r"Still missing\b[:,]?\s*(.*)")
+# A builtin's own registration, and the interpreter's dispatch table: `native_register("replace",`
+# and `{"len", B_len},`. Read from the source so a new builtin needs no edit here.
+NATIVE_REGISTER = re.compile(r'native_register\(\s*"([A-Za-z_][A-Za-z0-9_]*)"')
+BUILTIN_ROW = re.compile(r'\{\s*"([A-Za-z_][A-Za-z0-9_]*)"\s*,\s*B_[A-Za-z0-9_]+\s*\}')
 # An "*Update <date>:*" note inside the same item means the claim above it has already been
 # answered in place, which is this file's convention for a resolved entry -- the stale sentence is
 # deliberately left standing with the correction underneath it. Without this, the check would fire
@@ -119,6 +146,49 @@ def module_names():
         base = os.path.basename(path)[:-3]
         found.setdefault(base, os.path.relpath(path, ROOT))
     return found
+
+
+def builtin_names():
+    """Every builtin's name, from its C registration or the interpreter's dispatch table. These are
+    neither `pub fn` declarations nor modules, so nothing else here would find them."""
+    found = {}
+    for path in glob.glob(os.path.join(ROOT, "src", "*.c")):
+        rel = os.path.relpath(path, ROOT)
+        with open(path) as f:
+            text = f.read()
+        for lineno, line in enumerate(text.split("\n"), start=1):
+            for m in list(NATIVE_REGISTER.finditer(line)) + list(BUILTIN_ROW.finditer(line)):
+                found.setdefault(m.group(1), (rel, lineno))
+    return found
+
+
+def still_missing_problems(names):
+    """ROADMAP list items whose "Still missing" names something that now exists."""
+    path = os.path.join(ROOT, "docs", "ROADMAP.md")
+    rel = os.path.relpath(path, ROOT)
+    with open(path) as f:
+        lines = f.read().split("\n")
+    starts = [i for i, l in enumerate(lines) if re.match(r"^\s*-\s", l)]
+    problems = []
+    for idx, start in enumerate(starts):
+        end = starts[idx + 1] if idx + 1 < len(starts) else len(lines)
+        body = "\n".join(lines[start:end])
+        if UPDATE_NOTE.search(body):
+            continue  # answered in place, which is how this file records a resolution
+        m = STILL_MISSING.search(body)
+        if m is None:
+            continue
+        for name in BACKTICK_NAME.findall(m.group(1)):
+            bare = name.rsplit(".", 1)[-1]
+            if bare in names:
+                decl_file, decl_line = names[bare]
+                problems.append(
+                    "%s:%d: says `%s` is still missing, but it already exists at %s:%d. If it has "
+                    "landed, strike the clause through and add an \"*Update <date>: ...*\" note "
+                    "saying so, as the other resolved entries do."
+                    % (rel, start + 1, name, decl_file, decl_line)
+                )
+    return problems
 
 
 def still_ahead_problems(modules):
@@ -238,6 +308,10 @@ def not_yet_claims(path):
 
 def main():
     names = pub_names()
+    # Builtins count as existing for every check here, not just the "Still missing" one. Measured
+    # when this was wired in: it adds no findings today (0 of the existing claims name a builtin)
+    # and so no false positives either -- it is here to cover the next claim that names one.
+    names.update(builtin_names())
     sources = [os.path.join(ROOT, "docs", "SYNTAX.md"), os.path.join(ROOT, "docs", "DESIGN.md")] + glob.glob(
         os.path.join(ROOT, "lib", "**", "*.zm"), recursive=True
     )
@@ -258,6 +332,7 @@ def main():
                     )
     problems += absence_problems(names, builtin_type_names())
     problems += still_ahead_problems(module_names())
+    problems += still_missing_problems(names)
     if problems:
         for p in problems:
             print("check_not_yet.py: %s" % p, file=sys.stderr)
