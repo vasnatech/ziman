@@ -1206,6 +1206,28 @@ static Value eval_enum_access(Module *module, Env *env, Expr *e) {
     return obj->payload;
 }
 
+/* The builtin-dispatch chain in eval_expr's EXPR_CALL case is 62 sequential name comparisons, and
+ * a builtin pays one per branch above it: `len` sits 5th, `map_get_or` 22nd, `contains` 44th, and
+ * the measured per-operation costs tracked exactly that order -- 19-39ns, 87-119ns and 182-220ns
+ * on a 100,000-entry map. Hoisting `contains` to 5th, changing nothing else, took it to 78-124ns,
+ * so ~95ns of a `contains` call was string comparison (docs/reviews/tasks.md F140).
+ *
+ * This guards each comparison with the first character, which for a literal is a compile-time
+ * constant -- so a branch whose name starts with a different letter costs one byte compare instead
+ * of a call into `strcmp`. Exactly equivalent to `strcmp(callee, lit) == 0`: `callee[0]` is always
+ * readable (the chain is only reached for a named call, where the name is a NUL-terminated string
+ * of at least one character), and a first character that matches falls through to the same
+ * `strcmp` as before.
+ *
+ * Deliberately *not* done by reordering the chain, which is the obvious fix and is wrong: `"set"`
+ * is matched in two separate branches (an `||` in the array/map `set`, and the `Set` constructor
+ * further down), so first-match-wins makes the order load-bearing. Deliberately not done by
+ * stamping a resolved id on the node either, which is the better long-term answer F140 describes
+ * but needs an id assigned in all 62 branches; this is the whole of the win for a mechanical,
+ * order-preserving edit. The ordinary-function path already has its own "resolve once" cache
+ * (`e->call_fn`, below), which is why only builtins were paying this at all. */
+#define CALLEE_IS(lit) (callee[0] == (lit)[0] && strcmp(callee, lit) == 0)
+
 static Value eval_expr(Module *module, Env *env, Expr *e) {
     ZIMAN_STACK_CHECK();
     switch (e->kind) {
@@ -1260,6 +1282,9 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             }
             gc_unsafe_leave();
             Value result;
+            /* For CALLEE_IS (above). NULL only for a call through a value, which the first branch
+             * takes before any comparison runs. */
+            const char *callee = e->as.call.callee;
             if (e->as.call.through_value || e->as.call.callee_expr != NULL) {
                 /* A call through a function value. Either a local of function type (a parameter, a val),
                  * or -- when `callee_expr` is set -- a struct field holding one, `handler.run(21)`, whose
@@ -1304,78 +1329,78 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 if (fn->is_native && fn->type_params.count > 0 && e->resolved_type.kind != TY_TYPEVAR) {
                     result.type = &e->resolved_type;
                 }
-            } else if (strcmp(e->as.call.callee, "print") == 0) {
+            } else if (CALLEE_IS("print")) {
                 result = call_print(args[0]);
-            } else if (strcmp(e->as.call.callee, "str") == 0) {
+            } else if (CALLEE_IS("str")) {
                 result = call_str(args[0]);
-            } else if (strcmp(e->as.call.callee, "format") == 0) {
+            } else if (CALLEE_IS("format")) {
                 result = call_format(args, argc);
-            } else if (strcmp(e->as.call.callee, "printf") == 0) {
+            } else if (CALLEE_IS("printf")) {
                 Value text = call_format(args, argc);
                 fwrite(text.as.str.ptr, 1, text.as.str.len, stdout);
                 fflush(stdout);
                 result = value_int(0);
-            } else if (strcmp(e->as.call.callee, "len") == 0) {
+            } else if (CALLEE_IS("len")) {
                 result = call_len(args[0]);
-            } else if (strcmp(e->as.call.callee, "mutable_array_push_all") == 0) {
+            } else if (CALLEE_IS("mutable_array_push_all")) {
                 ziman_mutable_array_push_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
                 result = value_int(0);
-            } else if (strcmp(e->as.call.callee, "mutable_map_set_all") == 0) {
+            } else if (CALLEE_IS("mutable_map_set_all")) {
                 ziman_mutable_map_set_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
                 result = value_int(0);
-            } else if (strcmp(e->as.call.callee, "mutable_set_union") == 0 ||
-                       strcmp(e->as.call.callee, "mutable_set_intersect") == 0 ||
-                       strcmp(e->as.call.callee, "mutable_set_difference") == 0) {
+            } else if (CALLEE_IS("mutable_set_union") ||
+                       CALLEE_IS("mutable_set_intersect") ||
+                       CALLEE_IS("mutable_set_difference")) {
                 int op = e->as.call.callee[12] == 'u' ? 0 : e->as.call.callee[12] == 'i' ? 1 : 2;
                 ziman_mutable_set_combine(args[0], args[1], args[1].type->kind == TY_STRUCT, op);
                 result = value_int(0);
-            } else if (strcmp(e->as.call.callee, "mutable_set_is_subset") == 0) {
+            } else if (CALLEE_IS("mutable_set_is_subset")) {
                 result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type->kind == TY_STRUCT));
-            } else if (strcmp(e->as.call.callee, "mutable_array_from") == 0) {
+            } else if (CALLEE_IS("mutable_array_from")) {
                 result = ziman_mutable_array_from(args[0], args[0].type->kind == TY_STRUCT);
                 result.type = &e->resolved_type;
-            } else if (strcmp(e->as.call.callee, "mutable_map_from") == 0 ||
-                       strcmp(e->as.call.callee, "mutable_set_from") == 0) {
+            } else if (CALLEE_IS("mutable_map_from") ||
+                       CALLEE_IS("mutable_set_from")) {
                 result = ziman_mutable_map_from(args[0], e->as.call.callee[8] == 's');
                 result.type = &e->resolved_type;
-            } else if (strcmp(e->as.call.callee, "mutable_set_from_array") == 0) {
+            } else if (CALLEE_IS("mutable_set_from_array")) {
                 result = ziman_mutable_set_from_array(args[0], args[0].type->kind == TY_STRUCT);
                 result.type = &e->resolved_type;
-            } else if (strcmp(e->as.call.callee, "clear") == 0) {
+            } else if (CALLEE_IS("clear")) {
                 ziman_builder_clear(args[0]);
                 result = value_int(0); /* void return, as `send` and the other effects do */
-            } else if (strcmp(e->as.call.callee, "snapshot") == 0) {
+            } else if (CALLEE_IS("snapshot")) {
                 result = ziman_builder_snapshot(args[0]);
                 /* The natives behind it tag their result TY_VOID or a placeholder element type, so
                  * the call's own resolved type is what makes it an `[int]` rather than an array of
                  * nothing -- the same patch the plain-call path applies to any generic native. */
                 result.type = &e->resolved_type;
-            } else if (strcmp(e->as.call.callee, "push") == 0) {
+            } else if (CALLEE_IS("push")) {
                 result = call_push(e->resolved_type, args[0], args[1]);
-            } else if ((strcmp(e->as.call.callee, "set") == 0 || strcmp(e->as.call.callee, "insert") == 0) &&
+            } else if ((CALLEE_IS("set") || CALLEE_IS("insert")) &&
                        (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
                 Value stored = args[0].type->kind == TY_MAP ? args[2] : value_int(0);
                 result = value_map(args[0].type, mapobj_set(args[0].as.map, args[1], stored));
-            } else if (strcmp(e->as.call.callee, "remove") == 0 && (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
+            } else if (CALLEE_IS("remove") && (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
                 result = value_map(args[0].type, mapobj_remove(args[0].as.map, args[1]));
-            } else if (strcmp(e->as.call.callee, "map_get") == 0) {
+            } else if (CALLEE_IS("map_get")) {
                 Value found;
                 if (mapobj_get(args[0].as.map, args[1], &found)) {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, found));
                 } else {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
-            } else if (strcmp(e->as.call.callee, "map_get_or") == 0) {
+            } else if (CALLEE_IS("map_get_or")) {
                 Value found;
                 result = mapobj_get(args[0].as.map, args[1], &found) ? found : args[2];
-            } else if (strcmp(e->as.call.callee, "map_merge") == 0 || strcmp(e->as.call.callee, "set_union") == 0) {
+            } else if (CALLEE_IS("map_merge") || CALLEE_IS("set_union")) {
                 MapObj *m = args[0].as.map;
                 Value *keys, *vals = NULL;
                 int is_map = args[1].type->kind == TY_MAP;
                 mapobj_entries(args[1].as.map, &keys, is_map ? &vals : NULL);
                 for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_set(m, keys[i], is_map ? vals[i] : value_int(0));
                 result = value_map(args[0].type, m);
-            } else if (strcmp(e->as.call.callee, "set_intersect") == 0 || strcmp(e->as.call.callee, "set_difference") == 0) {
+            } else if (CALLEE_IS("set_intersect") || CALLEE_IS("set_difference")) {
                 int keep_present = e->as.call.callee[4] == 'i';
                 Value *keys;
                 Value ignored;
@@ -1385,14 +1410,14 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     if (mapobj_get(args[1].as.map, keys[i], &ignored) == keep_present) m = mapobj_set(m, keys[i], value_int(0));
                 }
                 result = value_map(args[0].type, m);
-            } else if (strcmp(e->as.call.callee, "set_is_subset") == 0) {
+            } else if (CALLEE_IS("set_is_subset")) {
                 Value *keys;
                 Value ignored;
                 int subset = 1;
                 mapobj_entries(args[0].as.map, &keys, NULL);
                 for (int i = 0; i < args[0].as.map->count && subset; i++) subset = mapobj_get(args[1].as.map, keys[i], &ignored);
                 result = value_bool(subset);
-            } else if (strcmp(e->as.call.callee, "map_filter") == 0 || strcmp(e->as.call.callee, "set_filter") == 0) {
+            } else if (CALLEE_IS("map_filter") || CALLEE_IS("set_filter")) {
                 int is_map = args[0].type->kind == TY_MAP;
                 Value *keys, *vals = NULL;
                 mapobj_entries(args[0].as.map, &keys, is_map ? &vals : NULL);
@@ -1420,33 +1445,33 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 }
                 gc_unsafe_leave();
                 result = value_map(args[0].type, m);
-            } else if (strcmp(e->as.call.callee, "map_remove_all") == 0) {
+            } else if (CALLEE_IS("map_remove_all")) {
                 MapObj *m = args[0].as.map;
                 for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_remove(m, array_get(args[1].as.arr, i));
                 result = value_map(args[0].type, m);
-            } else if (strcmp(e->as.call.callee, "set_insert_all") == 0) {
+            } else if (CALLEE_IS("set_insert_all")) {
                 MapObj *m = args[0].as.map;
                 for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_set(m, array_get(args[1].as.arr, i), value_int(0));
                 result = value_map(args[0].type, m);
-            } else if (strcmp(e->as.call.callee, "set_from_array") == 0) {
+            } else if (CALLEE_IS("set_from_array")) {
                 MapObj *m = mapobj_empty();
                 for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), value_int(0));
                 result = value_map(&e->resolved_type, m);
-            } else if (strcmp(e->as.call.callee, "map_from_arrays") == 0) {
+            } else if (CALLEE_IS("map_from_arrays")) {
                 if (args[0].as.arr->count != args[1].as.arr->count) {
                     ziman_error("runtime", e->line, e->col, "map_from_arrays: %d keys but %d values", args[0].as.arr->count, args[1].as.arr->count);
                 }
                 MapObj *m = mapobj_empty();
                 for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), array_get(args[1].as.arr, i));
                 result = value_map(&e->resolved_type, m);
-            } else if (strcmp(e->as.call.callee, "map_keys") == 0) {
+            } else if (CALLEE_IS("map_keys")) {
                 /* the key set, in the map's insertion order */
                 Value *keys;
                 mapobj_entries(args[0].as.map, &keys, NULL);
                 MapObj *ks = mapobj_empty();
                 for (int i = 0; i < args[0].as.map->count; i++) ks = mapobj_set(ks, keys[i], value_int(0));
                 result = value_map(&e->resolved_type, ks);
-            } else if (strcmp(e->as.call.callee, "map_values") == 0 || strcmp(e->as.call.callee, "set_items") == 0) {
+            } else if (CALLEE_IS("map_values") || CALLEE_IS("set_items")) {
                 int want_values = e->as.call.callee[0] == 'm';
                 Value *keys, *vals;
                 mapobj_entries(args[0].as.map, want_values ? NULL : &keys, want_values ? &vals : NULL);
@@ -1454,48 +1479,48 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 Value *items = want_values ? vals : keys;
                 ArrayObj *packed = array_try_pack(items, n);
                 result = value_array(&e->resolved_type, packed != NULL ? packed : array_obj_new(items, n));
-            } else if (strcmp(e->as.call.callee, "$map_lit") == 0 || strcmp(e->as.call.callee, "$set_lit") == 0) {
+            } else if (CALLEE_IS("$map_lit") || CALLEE_IS("$set_lit")) {
                 int is_map = e->as.call.callee[1] == 'm';
                 MapObj *m = mapobj_empty();
                 for (int i = 0; i < argc; i += is_map ? 2 : 1) {
                     m = mapobj_set(m, args[i], is_map ? args[i + 1] : value_int(0));
                 }
                 result = value_map(&e->resolved_type, m);
-            } else if (strcmp(e->as.call.callee, "insert") == 0) {
+            } else if (CALLEE_IS("insert")) {
                 result = call_insert(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
-            } else if (strcmp(e->as.call.callee, "set") == 0) {
+            } else if (CALLEE_IS("set")) {
                 result = call_set(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
-            } else if (strcmp(e->as.call.callee, "remove") == 0) {
+            } else if (CALLEE_IS("remove")) {
                 result = call_remove(e->resolved_type, args[0], args[1], e->line, e->col);
-            } else if (strcmp(e->as.call.callee, "ok") == 0) {
+            } else if (CALLEE_IS("ok")) {
                 result = call_ok(e->resolved_type, args[0]);
-            } else if (strcmp(e->as.call.callee, "err") == 0) {
+            } else if (CALLEE_IS("err")) {
                 result = call_err(e->resolved_type, args[0]);
-            } else if (strcmp(e->as.call.callee, "Some") == 0) {
+            } else if (CALLEE_IS("Some")) {
                 result = call_some(e->resolved_type, args[0]);
-            } else if (strcmp(e->as.call.callee, "None") == 0) {
+            } else if (CALLEE_IS("None")) {
                 result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
-            } else if (strcmp(e->as.call.callee, "is_ok") == 0) {
+            } else if (CALLEE_IS("is_ok")) {
                 result = call_is_ok(args[0]);
-            } else if (strcmp(e->as.call.callee, "unwrap") == 0) {
+            } else if (CALLEE_IS("unwrap")) {
                 result = call_unwrap(args[0], e->line, e->col);
-            } else if (strcmp(e->as.call.callee, "unwrap_err") == 0) {
+            } else if (CALLEE_IS("unwrap_err")) {
                 result = call_unwrap_err(args[0], e->line, e->col);
-            } else if (strcmp(e->as.call.callee, "contains") == 0) {
+            } else if (CALLEE_IS("contains")) {
                 result = call_contains(args[0], args[1]);
-            } else if (strcmp(e->as.call.callee, "hash") == 0) {
+            } else if (CALLEE_IS("hash")) {
                 result = call_hash(args[0]);
-            } else if (strcmp(e->as.call.callee, "compare") == 0) {
+            } else if (CALLEE_IS("compare")) {
                 result = value_int(value_compare(module, args[0], args[1], e->line, e->col));
-            } else if (strcmp(e->as.call.callee, "error_message") == 0) {
+            } else if (CALLEE_IS("error_message")) {
                 result = value_error_message(module, args[0], e->line, e->col);
-            } else if (strcmp(e->as.call.callee, "abs") == 0) {
+            } else if (CALLEE_IS("abs")) {
                 result = call_abs(args[0], e->line, e->col);
-            } else if (strcmp(e->as.call.callee, "min") == 0) {
+            } else if (CALLEE_IS("min")) {
                 result = value_min_max(module, args, argc, 1, e->line, e->col);
-            } else if (strcmp(e->as.call.callee, "max") == 0) {
+            } else if (CALLEE_IS("max")) {
                 result = value_min_max(module, args, argc, 0, e->line, e->col);
-            } else if (strcmp(e->as.call.callee, "channel_new") == 0) {
+            } else if (CALLEE_IS("channel_new")) {
                 int limit = 0;
                 if (argc > 0) {
                     /* Both ends checked before the narrowing, not after. `(int)args[0].as.i` for a
@@ -1513,7 +1538,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     limit = (int)args[0].as.i;
                 }
                 result = value_channel(&e->resolved_type, channel_obj_new(limit));
-            } else if (strcmp(e->as.call.callee, "send") == 0) {
+            } else if (CALLEE_IS("send")) {
                 /* Deep-copied, not aliased -- see value_copy.h's own comment on why (one thread's
                  * memory must not depend on another's lifetime) and channel_send's own on
                  * needs_receive (what copies it back out again on the receiving side). */
@@ -1522,47 +1547,47 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     ziman_error("runtime", e->line, e->col, "send on a closed channel");
                 }
                 result = value_int(0);
-            } else if (strcmp(e->as.call.callee, "try_send") == 0) {
+            } else if (CALLEE_IS("try_send")) {
                 Value copy = value_copy_send(args[1]);
                 int status = channel_try_send_status(args[0].as.ch, copy, 1);
                 if (status == 2) {
                     ziman_error("runtime", e->line, e->col, "try_send on a closed channel");
                 }
                 result = value_bool(status == 0);
-            } else if (strcmp(e->as.call.callee, "channel_close") == 0) {
+            } else if (CALLEE_IS("channel_close")) {
                 channel_close(args[0].as.ch);
                 result = value_int(0);
-            } else if (strcmp(e->as.call.callee, "channel_len") == 0) {
+            } else if (CALLEE_IS("channel_len")) {
                 result = value_int(channel_length(args[0].as.ch));
-            } else if (strcmp(e->as.call.callee, "try_receive") == 0) {
+            } else if (CALLEE_IS("try_receive")) {
                 Value got;
                 if (channel_try_receive(args[0].as.ch, &got)) {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, got));
                 } else {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
-            } else if (strcmp(e->as.call.callee, "receive") == 0) {
+            } else if (CALLEE_IS("receive")) {
                 Value got;
                 if (!channel_receive(args[0].as.ch, &got)) {
                     ziman_error("runtime", e->line, e->col,
                                 "receive on a closed, empty channel (use receive_option to handle a channel being closed)");
                 }
                 result = got;
-            } else if (strcmp(e->as.call.callee, "receive_option") == 0) {
+            } else if (CALLEE_IS("receive_option")) {
                 Value got;
                 if (channel_receive(args[0].as.ch, &got)) {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, got));
                 } else {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
-            } else if (strcmp(e->as.call.callee, "receive_timeout") == 0) {
+            } else if (CALLEE_IS("receive_timeout")) {
                 Value got;
                 if (channel_receive_timeout(args[0].as.ch, args[1].as.i, &got)) {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, got));
                 } else {
                     result = value_enum(&e->resolved_type, enum_obj_new("Option", "None", 0, value_int(0)));
                 }
-            } else if (strcmp(e->as.call.callee, "select2") == 0) {
+            } else if (CALLEE_IS("select2")) {
                 Value got;
                 int first;
                 channel_select2(args[0].as.ch, args[1].as.ch, &first, &got);
