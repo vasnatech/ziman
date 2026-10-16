@@ -44,6 +44,17 @@
 
 val read_chunk_bytes = 4096
 val accept_error_backoff_ms = 10
+
+// How long the poller waits on a batch of idle connections before looking around again. Bounded for
+// the same reason `accept` polls in slices underneath: a shutdown has to be noticed, and there is no
+// way to interrupt a wait told to last forever. 250ms matches what accept_raw uses.
+val poll_slice_ms = 250
+
+// How long a worker waits for a keep-alive connection's next request before handing it back to the
+// poller. Small on purpose: it is a bet that a busy connection's next request is already arriving,
+// and the cost of losing the bet is one wasted wait, where the cost of not betting is a thread
+// spawn and two channel hops per request (see serve_burst).
+val keepalive_grace_ms = 5
 val http_1_0 = "HTTP/1.0"
 val http_1_1 = "HTTP/1.1"
 val continue_response = "HTTP/1.1 100 Continue\r\n\r\n"
@@ -2420,6 +2431,23 @@ pub struct ServeOptions {
 // What a connection's thread does when a runtime error in the handler (or anywhere in the thread) ends it: the error goes to stderr, and the client is answered
 // `500` with a generic body, as best it can be (the connection may be half way through a response) -- nothing about the error reaches the client. The thread's
 // own deferred calls (giving its slot back, closing the socket) run after this, and the server goes on serving everyone else.
+// A connection the poller is holding: everything about it that outlives a single request, which is
+// more than the socket. `client_key` is what the per-client cap counted it under and must be
+// released exactly once; `deadline_ms` is when an idle connection has waited long enough.
+struct Parked {
+    session: Session
+    client_key: string
+    deadline_ms: int
+}
+
+// What one burst of serving answers: the connection as it now stands, and whether it should stay
+// open. Two values, so a struct -- `open` cannot be folded into the session, since a connection
+// that must close still has one.
+struct Served {
+    conn: Parked
+    open: bool
+}
+
 fn fail_connection(sock: Socket, message: string) {
     os.write_stderr(format(
         "ziman: {}\nziman: a request handler failed; the client is answered 500 and the server goes on\n",
@@ -2443,38 +2471,27 @@ fn connection_key(sock: Socket, limit: int) -> string {
     return option_unwrap_or<string>(net.peer_address(sock), "")
 }
 
-fn serve_connection(
-    sock: Socket,
+// One burst of serving on a connection the poller handed over: requests are served while the next
+// one is already buffered, and the moment nothing more is there this returns rather than blocking
+// on a read. That return is the whole point -- a connection waiting for its next keep-alive request
+// goes back to the poller and costs no thread, where this function used to sit in `read_request`
+// holding one for up to `idle_timeout_ms` (docs/reviews/tasks.md F139).
+//
+// Draining the buffer before returning is not an optimisation but a correctness requirement: a
+// pipelined request is already *in* the session's buffer, so a connection parked with bytes pending
+// would wait for the socket to become readable again and might wait forever.
+fn serve_burst(
+    start: Parked,
     handler: fn(Request) -> Response,
-    idle_timeout_ms: int,
-    header_timeout_ms: int,
     log_requests: bool,
     compress_responses: bool,
     fault: Option<fn(int, string) -> Response>,
     on_request: Option<fn(RequestLog)>,
-    meter: bool,
-    client_key: string,
-    slots: Channel<int>,
-    body_cap: int
-) {
-    defer send(slots, 1)  // the slot is returned on every way out
-    defer net.close(sock)
-    // On every way out too, including a handler that failed: a release that is skipped leaks the cap
-    // downwards until the address can open nothing at all. `conn_release_raw` ignores an empty key, so
-    // this needs no condition -- see `connection_key`.
-    defer conn_release_raw(client_key)
-    if meter {
-        metrics.gauge_add(connections_metric, 1.0)
-    }
-    // Decremented on every way out of the *function*, including a handler that failed: a gauge that
-    // only counts up reads as a connection leak, and it is the first number anyone looks at. The
-    // check is inside the helper rather than around the `defer`, because `defer` runs when its
-    // enclosing *block* ends -- putting this one inside the `if` above made it fire immediately, so
-    // the gauge went up and straight back down and read 0 while connections were plainly open.
-    defer connection_closed(meter)
-    val head_ms = if header_timeout_ms > 0 && header_timeout_ms < idle_timeout_ms { header_timeout_ms } else { idle_timeout_ms }
-    unwrap(net.set_timeout(sock, head_ms))                                                                      // a client that never speaks can't hold this thread for long
-    var session = with open_session_with_timeouts(sock, idle_timeout_ms, head_ms) { max_body_bytes: body_cap }  // nor one that drips a request in
+    meter: bool
+) -> Served {
+    var conn = start
+    var sock = conn.session.sock
+    var session = conn.session
     var open = true
     while open {
         val next = read_request(session)
@@ -2533,9 +2550,183 @@ fn serve_connection(
                 })
             }
         }
+        // Nothing more is buffered. Before giving the connection back to the poller, wait a
+        // moment to see whether the next request is already on its way -- which on a keep-alive
+        // connection doing back-to-back requests it almost always is.
+        //
+        // This is what keeps the parking cheap. Handing every request through the poller costs a
+        // thread spawn and two channel hops, and paying that per *request* rather than per
+        // *connection* measured at 9,876 -> 3,000 rps on 256 keep-alive clients. A few
+        // milliseconds of grace amortises it back across a busy connection's requests while a
+        // connection that is genuinely idle still parks and still costs no thread.
+        //
+        // `wait_readable` rather than a short read: a read that times out is indistinguishable
+        // from a client that stalled mid-request, and `read_request` would answer that with a 408.
+        // Peeking asks the question without consuming anything or deciding anything.
+        if open && len(session.buffer) == 0 {
+            if len(net.wait_readable([sock], keepalive_grace_ms)) == 0 {
+                return Served { conn: with conn { session: session }, open: true }
+            }
+        }
     }
+    return Served { conn: with conn { session: session }, open: false }
 }
 
+// A worker: holds one of `slots` for exactly as long as it is serving, which is what makes
+// `max_connections` a limit on concurrent *requests* rather than on connected clients. Parks the
+// connection back with the poller when it stays open, and owns closing it when it does not --
+// including the per-client release and the gauge, each of which must happen once per connection and
+// so cannot live in `serve_burst`, which may run many times for one connection.
+fn worker(
+    conn: Parked,
+    handler: fn(Request) -> Response,
+    returns: Channel<Parked>,
+    slots: Channel<int>,
+    idle_timeout_ms: int,
+    log_requests: bool,
+    compress_responses: bool,
+    fault: Option<fn(int, string) -> Response>,
+    on_request: Option<fn(RequestLog)>,
+    meter: bool
+) {
+    defer send(slots, 1)
+    val served = serve_burst(conn, handler, log_requests, compress_responses, fault, on_request, meter)
+    if served.open {
+        send(returns, with served.conn { deadline_ms: clock.monotonic_millis() + idle_timeout_ms })
+        return
+    }
+    net.close(served.conn.session.sock)
+    conn_release_raw(served.conn.client_key)
+    connection_closed(meter)
+}
+
+// The poller, and the reason `serve` can now hold more connections than it has threads: it owns
+// every parked connection and spends a thread on one only when a request has actually arrived.
+//
+// It owns them because it must: `parked` is a `MutableArray`, which is `#[thread_bound]`, so one
+// thread has to be the single place connections live. Workers hand them over on `returns`, which
+// is also what keeps this loop from having to lock anything. A *newly accepted* connection never
+// comes here -- see the accept loop for why.
+//
+// Three things are checked every cycle, in this order. Connections that have waited past their
+// deadline are closed -- that is where `idle_timeout_ms` is now enforced, rather than inside a
+// blocking read. Connections whose next request is already buffered are ready without asking the
+// socket at all. And the rest are handed to `net.wait_readable` in a bounded slice, so a shutdown
+// is noticed between slices exactly as `accept` manages underneath.
+//
+// A slot is taken with `try_receive`, never `receive`: blocking here would stop the poller
+// reaping idle connections while every slot was busy, which is the failure this whole change is
+// about. A connection that finds no slot simply stays parked and is tried again next cycle.
+fn park_loop(
+    returns: Channel<Parked>,
+    slots: Channel<int>,
+    handler: fn(Request) -> Response,
+    idle_timeout_ms: int,
+    log_requests: bool,
+    compress_responses: bool,
+    fault: Option<fn(int, string) -> Response>,
+    on_request: Option<fn(RequestLog)>,
+    meter: bool
+) {
+    val parked = mutable_array_new<Parked>()
+    var running = true
+    while running {
+        var taking = true
+        while taking {
+            switch try_receive(returns) {
+                Some(c) { mutable_array_push(parked, c) }
+                None { taking = false }
+            }
+        }
+        if os.shutdown_requested() && len(parked) == 0 {
+            running = false
+        }
+        val now = clock.monotonic_millis()
+        // Highest index first, so removing one does not shift the next one being examined.
+        var i = len(parked) - 1
+        while i >= 0 {
+            val c = mutable_array_get(parked, i)
+            val buffered = len(c.session.buffer) > 0
+            val expired = now >= c.deadline_ms
+            if expired && !buffered {
+                mutable_array_remove(parked, i)
+                net.close(c.session.sock)
+                conn_release_raw(c.client_key)
+                connection_closed(meter)
+            } else if buffered {
+                if Some(_) = try_receive(slots) {
+                    mutable_array_remove(parked, i)
+                    spawn worker(
+                        c,
+                        handler,
+                        returns,
+                        slots,
+                        idle_timeout_ms,
+                        log_requests,
+                        compress_responses,
+                        fault,
+                        on_request,
+                        meter
+                    ) on_error fn(message: string) {
+                        // A handler that failed leaves the connection ours to finish. The worker's own
+                        // `defer` still returns the slot -- a defer runs even when a spawned function
+                        // aborts -- but closing the socket, releasing the per-client count and
+                        // decrementing the gauge each happen exactly once per connection, and the path
+                        // that would have done them did not run.
+                        fail_connection(c.session.sock, message)
+                        net.close(c.session.sock)
+                        conn_release_raw(c.client_key)
+                        connection_closed(meter)
+                    }
+                }
+            }
+            i = i - 1
+        }
+        if len(parked) > 0 {
+            var socks: [Socket] = []
+            for idx, c in snapshot(parked) {
+                socks = push(socks, c.session.sock)
+            }
+            val ready = net.wait_readable(socks, poll_slice_ms)
+            // Again highest first: these are indices into `parked` and removal shifts the rest.
+            var r = len(ready) - 1
+            while r >= 0 {
+                val at = ready[r]
+                if at < len(parked) {
+                    val c = mutable_array_get(parked, at)
+                    if Some(_) = try_receive(slots) {
+                        mutable_array_remove(parked, at)
+                        spawn worker(
+                            c,
+                            handler,
+                            returns,
+                            slots,
+                            idle_timeout_ms,
+                            log_requests,
+                            compress_responses,
+                            fault,
+                            on_request,
+                            meter
+                        ) on_error fn(message: string) {
+                            // A handler that failed leaves the connection ours to finish. The worker's own
+                            // `defer` still returns the slot -- a defer runs even when a spawned function
+                            // aborts -- but closing the socket, releasing the per-client count and
+                            // decrementing the gauge each happen exactly once per connection, and the path
+                            // that would have done them did not run.
+                            fail_connection(c.session.sock, message)
+                            net.close(c.session.sock)
+                            conn_release_raw(c.client_key)
+                            connection_closed(meter)
+                        }
+                    }
+                }
+                r = r - 1
+            }
+        } else if running {
+            clock.sleep_millis(poll_slice_ms)  // nothing parked: do not spin
+        }
+    }
+}
 // Serves `listener` until a shutdown is requested, answering each request with `handler`; see
 // `ServeOptions` for the limits and the description above for how connections and shutdown behave.
 // `ServeOptions` with defaults a small server can take as they are, to be narrowed with `with`:
@@ -2593,6 +2784,26 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
     for i in 0..limit {
         send(slots, 1)
     }
+    // Connections live with the poller, not with a thread each. This loop only admits them.
+    val returns: Channel<Parked> = channel_new()
+    val head_ms = if options.header_timeout_ms > 0 && options.header_timeout_ms < options.idle_timeout_ms {
+        options.header_timeout_ms
+    } else {
+        options.idle_timeout_ms
+    }
+    spawn park_loop(
+        returns,
+        slots,
+        handler,
+        options.idle_timeout_ms,
+        options.log_requests,
+        options.compress_responses,
+        options.fault,
+        options.on_request,
+        options.metrics
+    ) on_error fn(message: string) {
+        os.write_stderr(format("ziman: the connection poller failed: {}\n", message))
+    }
     while !os.shutdown_requested() {
         val client = net.accept(listener)
         if Ok(accepted) = client {
@@ -2605,24 +2816,45 @@ pub fn serve(listener: Listener, handler: fn(Request) -> Response, options: Serv
                 net.close(accepted)
                 continue
             }
-            val _ = receive(slots)  // waits here while every slot is in use
-            spawn serve_connection(
-                accepted,
+            if options.metrics {
+                metrics.gauge_add(connections_metric, 1.0)
+            }
+            unwrap(net.set_timeout(accepted, head_ms))
+            // Served directly, not handed to the poller: a connection that has just been accepted
+            // has a request on its way, so there is nothing to park and nothing to wait for. Only
+            // a connection that has *finished* a request and may get another one goes to the
+            // poller. Routing new connections through it instead cost up to a `poll_slice_ms`
+            // of latency each -- the poller can be part-way through its wait when one arrives --
+            // which collapsed throughput on connection-per-request load badly enough that
+            // tests/bench/server_concurrency.sh stopped finishing inside ten minutes.
+            //
+            // So this blocks on a slot exactly as it did before the poller existed, and that is
+            // the right back-pressure now that a slot means "a request in flight" rather than "a
+            // client connected": connections past it wait in the kernel's accept queue.
+            val _ = receive(slots)
+            val fresh_conn = Parked {
+                session: with open_session_with_timeouts(accepted, options.idle_timeout_ms, head_ms) {
+                    max_body_bytes: options.max_body_bytes
+                },
+                client_key: client_key,
+                deadline_ms: clock.monotonic_millis() + options.idle_timeout_ms
+            }
+            spawn worker(
+                fresh_conn,
                 handler,
+                returns,
+                slots,
                 options.idle_timeout_ms,
-                options.header_timeout_ms,
                 options.log_requests,
                 options.compress_responses,
                 options.fault,
                 options.on_request,
-                options.metrics,
-                client_key,
-                slots,
-                options.max_body_bytes
-            ) on_error fn(
-                message: string
-            ) {
+                options.metrics
+            ) on_error fn(message: string) {
                 fail_connection(accepted, message)
+                net.close(accepted)
+                conn_release_raw(client_key)
+                connection_closed(options.metrics)
             }
         } else if !os.shutdown_requested() {
             clock.sleep_millis(accept_error_backoff_ms)  // an accept error must not become a busy loop
