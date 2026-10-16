@@ -134,11 +134,11 @@ static inline Type type_scalar(TypeKind kind) {
     return t;
 }
 
-/* SPIKE (docs/MEMORY.md, "unboxing single-payload enum variants"): `Value.type` is a pointer, so
- * a value's type must outlive it. A scalar kind carries nothing per instance, so one static per
- * kind serves every value of that kind -- and the hot path stops zeroing 64 bytes per arithmetic
- * result, becoming a constant address instead. Compound types allocate per call: an intern table
- * was measured and made no difference (docs/MEMORY.md). */
+/* `Value.type` is a pointer (src/value.h), so a value's type must outlive it. A scalar kind
+ * carries nothing per instance, so one static per kind serves every value of that kind -- and the
+ * hot path stops zeroing 64 bytes per arithmetic result, becoming a constant address instead.
+ * Compound types allocate per call: an intern table was measured and made no difference
+ * (docs/MEMORY.md, "`Value.type` by pointer is the win; interning it is not"). */
 const Type *type_scalar_ref(TypeKind kind);
 const Type *type_ref(Type t);
 Type type_array(Type elem);

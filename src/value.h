@@ -74,11 +74,28 @@ typedef struct StructObj {
 } StructObj;
 
 struct Value {
-    /* SPIKE: a pointer, not an embedded Type. Takes `Value` from 80 bytes to 24, which shrinks
-     * every heap object that holds one -- EnumObj 104 -> 48, ResultObj 88 -> 32, both crossing a
-     * size class -- and so halves what the sweep phase has to zero. See docs/MEMORY.md. The
-     * pointee must outlive the value: scalars are per-kind statics, compound types are
-     * allocated by `type_ref`. */
+    /* A pointer, not an embedded `Type`. Ziman is statically typed, so carrying a whole 64-byte
+     * type descriptor inside the most-copied struct in the interpreter was paying at runtime for
+     * what the checker already proved. This takes `Value` from 80 bytes to 24, and with it every
+     * heap object that holds one -- EnumObj 104 -> 48, ResultObj 88 -> 32, both crossing a size
+     * class, so the sweep phase walks and zeroes half as much.
+     *
+     * Worth about a fifth of the runtime, and mostly not for the reason it looks like: the
+     * collector does move as intended (bytes walked by the mark phase 111.5 MB -> 19.5 MB), but
+     * that is a few points of it. The rest is that every `Value` copy -- argument passing, array
+     * elements, struct fields, every return -- moves 56 bytes less, and `type_scalar` stops
+     * zeroing 64 bytes per arithmetic result and becomes a constant address. 24 bytes is also
+     * register-friendly where 80 never was, which is why this does not hit the scalar-replacement
+     * regression that unioning `Type`'s name fields did (docs/MEMORY.md records that attempt and
+     * why a smaller struct is not automatically faster code).
+     *
+     * The pointee must outlive the value. Scalars are per-kind statics -- a designated initialiser
+     * in `.rodata`, which is what makes them safe to point at from any thread without a lazily
+     * filled table to race over -- and compound types are allocated by `type_ref`.
+     *
+     * Deduplicating the pointees is measured as worth nothing and is not worth retrying for
+     * speed: a fixed-size interning table took a million `type_ref` lookups down to ten
+     * allocations and the clock did not move (docs/MEMORY.md). */
     const Type *type;
     union {
         int64_t i;
