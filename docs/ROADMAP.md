@@ -2216,7 +2216,8 @@ from source.
   `E`s in the same file -- the exact copy-paste-mismatch class this bound exists to
   rule out at compile time, not just tidy up.
 
-- **`Cell<T>`: one primitive that makes the mutable layer open to library code.** Raised 2026-10-13 by
+- **`Cell<T>`: one primitive that makes the mutable layer open to library code -- done 2026-10-14 as
+  `Mutable<T>` (F108); one residue, the worked actor example, still unwritten.** Raised 2026-10-13 by
   Menderes, out of planning to use Ziman on other projects -- UI applications among them -- where the
   objection is structural rather than about any one type: *"every time we hit a wall we have to change ziman
   itself to add mutable types instead of implementing one with ziman."* That is correct today, and it is the
