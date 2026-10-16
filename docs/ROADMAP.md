@@ -884,14 +884,22 @@ from source.
   the scaled `ZIMAN_GC_TRIGGER_BYTES`, and `Value.type` as a pointer. Two runs, 100,000 entries,
   1,000,000 operations, loop overhead measured and subtracted:
 
+  All figures are **nanoseconds per operation**, loop overhead subtracted, two runs shown as a
+  range -- the same unit as the 2026-10-05 table above, which carries it on each cell instead.
+
   | operation | CPython 3.14 `dict` | Ziman `Map` | Ziman `MutableMap` |
   | --- | --- | --- | --- |
-  | get (`Option`) | 12 (`d[k]`) | 493-502 | 533-562 |
-  | get_or | 30 (`.get`) | 79-94 | **70-81** (was 580-612) |
-  | contains | 27 | 178-253 | 164-172 |
-  | len | 15 | 8-31 | 24-39 |
-  | set | 12 | 1316-1335 (persistent) | 349-395 |
-  | remove | 61 (`del`+set) | 1467-1476 (persistent) | 998-1014 (incl. a set) |
+  | get (`Option`) | 12ns (`d[k]`) | 493-502ns | 533-562ns |
+  | get_or | 30ns (`.get`) | 79-94ns | **70-81ns** (was 580-612) |
+  | contains | 27ns | 178-253ns | 164-172ns |
+  | len | 15ns | 8-31ns | 24-39ns |
+  | set | 12ns | 1316-1335ns (persistent) | 349-395ns |
+  | remove | 61ns (`del`+set) | 1467-1476ns (persistent) | 998-1014ns (incl. a set) |
+
+  The cheap rows (`len`, `contains`) carry a wider error bar than the spread suggests: the clock is
+  `clock.monotonic_millis`, so a row's cost is a millisecond count over exactly 1,000,000
+  operations, and the subtracted loop overhead itself measured 63-81ns across runs. Read single
+  digits there as "at parity", not as a figure.
 
   **Ziman's absolute costs are 2-6x better than the 2026-10-05 figures** -- `Map` get 2989 -> ~497,
   `Map` remove 5249 -> ~1471, `MutableMap` get 1856 -> ~553, `MutableMap` set 850 -> ~372 -- which
