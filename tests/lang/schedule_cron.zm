@@ -1,0 +1,87 @@
+// `schedule.cron` -- the six-field cron form, what it refuses, and what it matches.
+//
+// The matching half is checked with `schedule.cron_matches_at` at instants built from fixed dates
+// rather than by waiting for a clock, so every assertion here is deterministic and can ask about a
+// Sunday in October from whatever day the suite runs on. The weekdays below were confirmed against
+// `date -u`: 2026-10-16 is a Friday, 2026-10-18 a Sunday, 2026-10-01 a Thursday.
+use clock
+use schedule
+use time.localdate_of
+use time.localdate_to_epoch_day
+
+fn at(y: int, mo: int, d: int, h: int, mi: int, se: int) -> int {
+    val day = localdate_to_epoch_day(unwrap(localdate_of(y, mo, d)))
+    return day * 86400 + h * 3600 + mi * 60 + se
+}
+
+// `cron` answers a `Schedule`; these tests want the spec inside it.
+fn spec_of(expr: string) -> schedule.CronSpec {
+    switch unwrap(schedule.cron(expr)) {
+        Cron(s) { return s }
+        EveryMillis(_) { return spec_of("0 0 0 * * *") }
+        DailyAtUtc(_) { return spec_of("0 0 0 * * *") }
+    }
+}
+
+fn check(expr: string, label: string, t: int) {
+    print(format("{} at {} -> {}", expr, label, schedule.cron_matches_at(spec_of(expr), t)))
+}
+
+fn refusal(expr: string) {
+    switch schedule.cron(expr) {
+        Ok(_) { print(concat("UNEXPECTEDLY ACCEPTED: ", expr)) }
+        Err(m) { print(concat("refused: ", m)) }
+    }
+}
+
+fn main() {
+    // A five-field expression is refused by count rather than guessed at, because the dialects
+    // collide silently -- see the module header.
+    refusal("0 8 * * *")
+    refusal("0 0 8 *")
+    refusal("0 0 8 L * *")
+    refusal("0 0 8 1 * MON")
+    refusal("0 0 99 * * *")
+    refusal("0 0 8-3 * * *")
+    refusal("0 0 8 * * NOTADAY")
+    refusal("0 0 8 * * */0")
+
+    // Second, minute and hour.
+    check("0 0 8 * * *", "Fri 08:00:00", at(2026, 10, 16, 8, 0, 0))
+    check("0 0 8 * * *", "Fri 08:00:01", at(2026, 10, 16, 8, 0, 1))
+    check("0 0 8 * * *", "Fri 09:00:00", at(2026, 10, 16, 9, 0, 0))
+    check("0 30 9-17 * * *", "Fri 13:30:00", at(2026, 10, 16, 13, 30, 0))
+    check("0 30 9-17 * * *", "Fri 18:30:00", at(2026, 10, 16, 18, 30, 0))
+
+    // Steps, and day-of-week by name.
+    check("*/15 * * * * MON-FRI", "Fri 08:00:15", at(2026, 10, 16, 8, 0, 15))
+    check("*/15 * * * * MON-FRI", "Fri 08:00:16", at(2026, 10, 16, 8, 0, 16))
+    check("*/15 * * * * MON-FRI", "Sun 08:00:15", at(2026, 10, 18, 8, 0, 15))
+
+    // Day-of-month, month by name, and 7 as a second spelling of Sunday.
+    check("0 0 8 1 * *", "Thu Oct 1", at(2026, 10, 1, 8, 0, 0))
+    check("0 0 8 1 * *", "Fri Oct 16", at(2026, 10, 16, 8, 0, 0))
+    check("0 0 8 * JAN *", "Jan 5", at(2026, 1, 5, 8, 0, 0))
+    check("0 0 8 * JAN *", "Oct 16", at(2026, 10, 16, 8, 0, 0))
+    check("0 0 8 * * SUN", "Sun 08:00:00", at(2026, 10, 18, 8, 0, 0))
+    check("0 0 8 * * 7", "Sun 08:00:00", at(2026, 10, 18, 8, 0, 0))
+
+    // And one that really runs: every second, so it fires within a second of the loop starting.
+    val fired: Channel<string> = channel_new()
+    val stop: Channel<unit> = channel_new()
+    val jobs = [
+        schedule.job("every-second", unwrap(schedule.cron("* * * * * *")), fn() -> Result<unit, string> {
+            send(fired, "fired")
+            return ok(unit)
+        })
+    ]
+    spawn schedule.run_until(jobs, stop, fn(name: string, message: string) {
+        print(concat("unexpected failure in ", name, ": ", message))
+    })
+    print(concat("cron job ", receive(fired)))
+    // The second guard holds it to one run per second, so a second run means a second has passed
+    // rather than the loop firing on every look.
+    print(concat("cron job ", receive(fired)))
+    send(stop, unit)
+    print("stopped")
+}

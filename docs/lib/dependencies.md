@@ -117,6 +117,7 @@ flowchart LR
     properties --> fs
     properties --> os
     schedule --> clock
+    schedule --> time
     server --> clock
     server --> compress
     server --> http
@@ -155,11 +156,11 @@ otherwise: everything on a layer depends only on lower layers.
 | Layer | Modules |
 |---|---|
 | 0 | `bits`, `clock`, `compress`, `markdown`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread`, `xml` |
-| 1 | `crypto`, `json`, `os`, `schedule`, `url` |
+| 1 | `crypto`, `json`, `os`, `url` |
 | 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `toml`, `yaml` |
 | 3 | `csv`, `log`, `mysql`, `pg`, `process`, `properties`, `server`, `sqlite`, `uuid`, `zone` |
 | 4 | `datasource`, `time` |
-| 5 | `client`, `migrate` |
+| 5 | `client`, `migrate`, `schedule` |
 
 ## Each module
 
@@ -194,12 +195,12 @@ otherwise: everything on a layer depends only on lower layers.
 | `properties` | `fs`, `os` | - |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `uuid` |
 | `regex` | - | - |
-| `schedule` | `clock` | - |
+| `schedule` | `clock`, `time` | - |
 | `server` | `clock`, `compress`, `http`, `json`, `metrics`, `mime`, `net`, `number`, `os` | - |
 | `sqlite` | `db`, `number` | `datasource` |
 | `test` | - | - |
 | `thread` | - | - |
-| `time` | `clock`, `db`, `json`, `zone` | `client`, `migrate` |
+| `time` | `clock`, `db`, `json`, `zone` | `client`, `migrate`, `schedule` |
 | `toml` | `json`, `number` | - |
 | `url` | `number` | `db`, `http` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | - |

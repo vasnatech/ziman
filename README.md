@@ -92,7 +92,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | Module | What it is |
 | --- | --- |
 | `fs`, `os`, `clock`, `random` | files, environment and process, time source, entropy |
-| `schedule` | periodic background work in a long-running process: an interval or a daily UTC time, each due job run on its own thread so one failure cannot stop the rest |
+| `schedule` | periodic background work in a long-running process: an interval, a daily UTC time or a six-field cron pattern, each due job run on its own thread so one failure cannot stop the rest |
 | `time` | `java.time`-shaped dates, times, durations, instants |
 | `uuid`, `number`, `crypto` | UUIDs, number formatting/parsing and binary encodings, SHA-256/HMAC/PBKDF2/base64 |
 | `json`, `ndjson`, `csv`, `toml`\*, `yaml`\* | JSON, and the other formats as converters to and from the same `Json` tree |

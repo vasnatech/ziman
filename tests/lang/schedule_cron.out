@@ -1,0 +1,25 @@
+refused: schedule.cron takes six fields (second minute hour day-of-month month day-of-week), and got five: '0 8 * * *'. A five-field expression is the Unix crontab form, which has no seconds field -- it is refused rather than assumed because the dialects collide: '0 8 * * *' is 08:00 daily to crontab and every hour at 8 minutes past here. Add a leading seconds field, so '0 8 * * *' becomes '0 0 8 * * *'.
+refused: schedule.cron takes six fields (second minute hour day-of-month month day-of-week), got 4: '0 0 8 *'
+refused: schedule.cron does not implement 'L', 'W' or '#' (the day-of-month field is 'L'): they need a calendar rule this module has no answer for yet
+refused: schedule.cron refuses an expression that restricts both day-of-month and day-of-week ('1' and 'MON'), because the established answers disagree: Vixie cron fires when either matches, Quartz forbids the pair. Write '*' or '?' in whichever does not apply.
+refused: schedule.cron needs 0-23 in the hour field, got '99'
+refused: schedule.cron got a reversed range in the hour field: '8-3'
+refused: schedule.cron could not read the day-of-week field entry 'NOTADAY'
+refused: schedule.cron needs a positive step in the day-of-week field, got '*/0'
+0 0 8 * * * at Fri 08:00:00 -> true
+0 0 8 * * * at Fri 08:00:01 -> false
+0 0 8 * * * at Fri 09:00:00 -> false
+0 30 9-17 * * * at Fri 13:30:00 -> true
+0 30 9-17 * * * at Fri 18:30:00 -> false
+*/15 * * * * MON-FRI at Fri 08:00:15 -> true
+*/15 * * * * MON-FRI at Fri 08:00:16 -> false
+*/15 * * * * MON-FRI at Sun 08:00:15 -> false
+0 0 8 1 * * at Thu Oct 1 -> true
+0 0 8 1 * * at Fri Oct 16 -> false
+0 0 8 * JAN * at Jan 5 -> true
+0 0 8 * JAN * at Oct 16 -> false
+0 0 8 * * SUN at Sun 08:00:00 -> true
+0 0 8 * * 7 at Sun 08:00:00 -> true
+cron job fired
+cron job fired
+stopped

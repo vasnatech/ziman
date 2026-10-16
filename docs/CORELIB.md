@@ -1241,11 +1241,26 @@ pub enum Schedule {
     EveryMillis(int)
     // Run once a day, at this many seconds past 00:00:00 UTC.
     DailyAtUtc(int)
+    // Run whenever the UTC wall clock matches a cron pattern (`cron`).
+    Cron(CronSpec)
+}
+
+pub struct CronSpec {
+    seconds: [bool]
+    minutes: [bool]
+    hours: [bool]
+    days_of_month: [bool]
+    months: [bool]
+    days_of_week: [bool]
+    dom_restricted: bool
+    dow_restricted: bool
 }
 
 pub fn every_millis(ms: int) -> Result<Schedule, string>
 
 pub fn daily_at_utc(hour: int, minute: int) -> Result<Schedule, string>
+
+pub fn cron(expr: string) -> Result<Schedule, string>
 
 pub struct Job {
     name: string
@@ -1256,6 +1271,8 @@ pub struct Job {
 pub fn job(name: string, schedule: Schedule, run: fn() -> Result<unit, string>) -> Job
 
 pub fn run_until(jobs: [Job], stop: Channel<unit>, on_error: fn(string, string))
+
+pub fn cron_matches_at(spec: CronSpec, epoch_second: int) -> bool
 
 ```
 
