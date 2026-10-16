@@ -18,6 +18,29 @@ wrong** — an entry like "HTTP/2 -- not started" is followed by a paragraph men
 `byte_and` and a dozen other real things, none of which it claims are missing. The check works on a terse
 `Not yet: a, b, c` list and this file is discursive prose, so the guard here is the habit, not a tool.
 
+**Where to look first, learned 2026-10-16.** A sweep prompted by this file recommending two
+*finished* items in one sitting found four stale claims, and all four were in the North Star section
+at the top -- the `io` module (replaced by `fs` long ago, and the entry still describes `io.zm` as
+one of two embedded modules), "Still missing: `replace`, and a general `index_of`/`find`" (all
+three are builtins), the unbounded queue (bounded channels landed 2026-09-24, which R10's own entry
+already recorded) and generics "in progress, staged struct → enum → function" (all five stages
+shipped 2026-10-10). Nothing in "Near-term, likely next" was wrong; it has two unstruck items left
+and both are current. **The reason is structural, so it should keep holding:** the entries below are
+written when work is in flight and get a dated note when it lands, while the North Star prose is
+summary-level, was written once at the start, and describes the same subjects from further away --
+so it goes stale silently and reads as authoritative precisely because it is at the top. The habit
+this preamble asks for needs applying there first, and the two items that misled a reader were both
+*nested* bullets, which is where a status word is easiest to miss.
+
+That sweep also found the opposite of the 40-false-positive result above, in one narrow case:
+`check_not_yet.py` now has a "Still missing" shape, which works for the same reason the "Not yet"
+one does -- it reads only the terse list after the marker, inside one item, skipping any item
+carrying an Update note. It caught the `replace`/`index_of` clause and reports nothing else in the
+file. It also learned that a **builtin** is neither a `pub fn` nor a module, which is why `replace`
+was invisible to every earlier shape. That does not reopen the preamble's conclusion: the discursive
+prose is still unguardable, and three of the four stale claims above are things no script will find
+-- one names no identifier at all, and another names `send`, which exists and always did.
+
 **Opening a task carries the same obligation, which 2026-10-08 is the first demonstration of.** The C
 implementation review (docs/reviews/c-implementation-review-2026-10-08.md) opened twelve, and four entries
 here read optimistically because of them -- the regex engine's "linear-time", the formatter, the collector's
