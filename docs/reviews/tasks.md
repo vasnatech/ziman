@@ -371,6 +371,52 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 
   A 34x cliff the moment the keep-alive client count crosses the cap, and the ~64 rps either side of it is the arithmetic of the timeout rather than of any work: 2,000 requests at 64 rps is 31 s, against a 30 s `idle_timeout_ms`, so the run is one timeout cycle. Nothing is overloaded -- at cap=256 the same clients get 2,176 rps with no failures on the same cores.
 
+  **Items (1) and (2) answered 2026-10-16, with measurements -- and the first figure in this entry
+is corrected by them.** The "34x cliff / 64 rps" above is an artefact of measuring with
+`ab -n 2000`: the over-cap run is gated by `idle_timeout_ms`, not by throughput, so its *elapsed
+time* is ~30s whatever the request count and the rps figure is just (requests / 30s). Measured on
+`/health` at cap=64, c=256 keep-alive: **2,000 requests -> 30.5s (65 rps), 20,000 -> 31.5s,
+50,000 -> 32.9s (~1,510 rps)**. Throughput is not the defect. The defect is that **192 of 256
+clients are held for a full idle timeout before being served at all**, in silence.
+
+  **(2) Yes, Tomcat diverges, and not in the way this entry guessed.** Measured against a minimal
+Spring Boot app on the real Tomcat connector (the parity backend itself would not build -- its
+pinned Lombok emits `ClassFormatError: Invalid method Code length 0` on this machine's JDK 25, so
+the probe was compiled with JDK 21 and Maven's compiler plugin bypassed). Same endpoint shape,
+20,000 requests, 256 keep-alive clients:
+
+    cap >= clients   tomcat 9,271-9,728 rps, 0 failed   ziman 9,876 rps, 20,000 in 2.0s
+    cap = 64         tomcat 19,813 done in 14.3s (~1,380 rps), then a connection reset
+                     ziman  19,837 done in 31.5s (~630 rps), in silence
+
+  So Tomcat is *not* multiplexing its way out of this -- it is also bounded, and it also fails to
+serve everyone promptly. **The difference is where the limit is applied.** Tomcat limits at accept:
+excess connections are never accepted, the OS backlog fills, and clients get an immediate reset
+they can retry. `serve` accepts first and *then* blocks on `receive(slots)` **inside the accept
+loop** (`lib/http/server.zm:2596`), so an already-accepted client holds an open socket with no
+thread behind it until an occupant's `idle_timeout_ms` expires -- and the loop is not accepting
+anything meanwhile. Fail-fast against fail-slow, not multiplexed against thread-per-connection.
+
+  **(3) is therefore much smaller than "should `serve` multiplex idle connections".** Three
+candidates, with the constraint that rules the obvious one out:
+
+  - *Take the slot before accepting.* The clean fix -- the loop then refuses to accept what it
+    cannot serve, and the OS does the rejecting exactly as Tomcat's does. **But it breaks shutdown
+    responsiveness:** `accept` returns on a shutdown request (accept_raw polls
+    `ziman_shutdown_requested` in 250ms slices), while a blocking `receive(slots)` has no such
+    wakeup, so a shutdown with every slot busy would hang the accept loop until a connection
+    finishes. It needs a `try_receive` poll loop with a shutdown check, which is the shape
+    accept_raw already uses for the same reason.
+  - *Accept, then `try_receive`, and close immediately when no slot is free.* No reordering and no
+    shutdown concern, and it turns a 30s silence into an immediate signal. Harsher than today on a
+    transient burst -- a 65th connection against a cap of 64 is closed even if a slot would free in
+    2ms -- though that is exactly what Tomcat does past `max-connections`.
+  - *The same, with a bounded wait before closing.* Graceful for transient bursts, bounded for real
+    overload; needs a name and a default, which makes it the one real API decision here.
+
+  All three are behaviour changes to a shipped server contract, so they are a decision rather than
+a fix, and none is applied.
+
   Three things to settle, in order. **(1)** Whether this is the intended contract. If it is, `max_connections` needs documenting as "the maximum number of concurrent clients" rather than a resource limit, and the default of 64 needs revisiting, because browsers hold connections open and a 65th visitor is not an overload condition. **(2)** Whether Spring/Tomcat diverges here, which matters because this backend is a parity project: a thread-pool NIO connector multiplexes idle keep-alive connections over fewer threads and so should have no such cliff -- not measured, and worth measuring against the Spring backend in the same repo before any redesign. **(3)** Only then, whether `serve` should multiplex idle connections rather than hold a thread per connection, which is a real design change, not a tuning fix.
 
   Two measurement findings came out of the same work and stand on their own, because every concurrency figure in docs/MEMORY.md and docs/DESIGN.md is affected by both. **`server_concurrency.sh` does not use keep-alive**, so it has been measuring TCP connection setup and thread creation as much as request handling: turning it on is worth 2.3x at c=16 (1677 -> 3913 rps) and 1.8x at c=64 (1608 -> 2846). And it **runs `ab` on the same cores as the server**, which costs 16-19% (c=16: 1434 shared against 1661 pinned; c=64: 1356 against 1620). Neither invalidates the A/B comparisons those documents draw, since both sides paid the same cost, but the absolute numbers are low and the shape past c=64 is partly the harness.

@@ -2342,6 +2342,17 @@ pub struct RequestLog {
 pub struct ServeOptions {
     idle_timeout_ms: int
     header_timeout_ms: int
+    // The most connections served at once. Read it as a ceiling on concurrent *clients*, not as a
+    // resource limit that sheds load: a connection is accepted first and only then waits for a
+    // slot, and with keep-alive an occupant holds its slot until `idle_timeout_ms` rather than
+    // releasing it after each request. So a client past the cap waits for a *timeout*, not for a
+    // request to finish, and it waits with an open socket and no reply. Measured at a cap of 64
+    // with 256 keep-alive clients: every run takes one full idle timeout (~30s) whatever the
+    // request count, and the clients past the cap are served only as slots expire
+    // (docs/reviews/tasks.md F139, which also compares Tomcat -- it applies its own limit at
+    // accept, so excess clients get an immediate reset instead). Size this above the number of
+    // clients you expect to be connected, not above the requests you expect per second: browsers
+    // hold connections open, so a 65th visitor against a cap of 64 is not an overload condition.
     max_connections: int
     log_requests: bool
     // The largest request body to accept, or 0 for the library's 1 MiB default. A body over it is
