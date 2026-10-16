@@ -1634,10 +1634,11 @@ static Value native_mutable_map_snapshot(Value *args, int argc, int line, int co
  * pick the table; each accessor takes the handle's own thread-ownership check, so a builder read
  * from the wrong thread fails there rather than here. MutableMap and MutableSet share a buffer
  * kind, which is why one branch covers both. */
-int ziman_builder_length(Value v) {
-    const char *name = v.type->struct_name;
-    if (name != NULL && strcmp(name, "MutableArray") == 0) return (int)mutable_array_table_get(mutable_array_handle_of(v))->length;
-    if (name != NULL && strcmp(name, "MutableString") == 0) return (int)mutable_string_table_get(mutable_string_handle_of(v))->length;
+int ziman_builder_length(Value v, MutableKind kind) {
+    /* `kind` comes from the caller, which already had to classify the value to get here -- see
+     * prelude.h's ziman_mutable_kind on why re-deriving it from the name is what this used to cost. */
+    if (kind == MUTABLE_ARRAY) return (int)mutable_array_table_get(mutable_array_handle_of(v))->length;
+    if (kind == MUTABLE_STRING) return (int)mutable_string_table_get(mutable_string_handle_of(v))->length;
     return mutable_map_get_buf(v)->m->count;
 }
 
@@ -1648,16 +1649,16 @@ int ziman_builder_length(Value v) {
  * `value_key_equals` rather than `==`, matching call_contains's array branch exactly: `contains`
  * is one builtin and must answer "is this present" the same way whichever container it is given,
  * so a NaN appended to a builder is found just as a NaN in a Set is. */
-int ziman_builder_contains(Value v, Value needle) {
-    const char *name = v.type->struct_name;
-    if (name != NULL && strcmp(name, "MutableArray") == 0) {
+int ziman_builder_contains(Value v, Value needle, MutableKind kind) {
+    /* `kind` from the caller, same reason as ziman_builder_length above. */
+    if (kind == MUTABLE_ARRAY) {
         const MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(v));
         for (size_t i = 0; i < buf->length; i++) {
             if (value_key_equals(mutable_array_element_at(buf, i), needle)) return 1;
         }
         return 0;
     }
-    if (name != NULL && strcmp(name, "MutableString") == 0) {
+    if (kind == MUTABLE_STRING) {
         const MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(v));
         return value_str_find(buf->data, buf->length, needle.as.str.ptr, needle.as.str.len, 0) >= 0;
     }

@@ -1,6 +1,8 @@
 #ifndef ZIMAN_PRELUDE_H
 #define ZIMAN_PRELUDE_H
 
+#include <string.h>
+
 #include "value.h"
 
 /* Ziman's prelude: everything declared in lib/prelude.zm -- native
@@ -51,12 +53,52 @@ Value ziman_array_builder_at(Value ab, int i);
 /* The length of any of the four builders, for the bare `len` builtin: a MutableArray's or
  * MutableString's element/byte count, a MutableMap's entries or a MutableSet's elements. Only
  * called once the typechecker has established the argument is one of them. */
-int ziman_builder_length(Value v);
+/* Which of the five mutable types a value is, in one cheap test instead of a run of `strcmp`s.
+ *
+ * They are all named `Mutable`+suffix (`Mutable`, `MutableString`, `MutableArray`, `MutableMap`,
+ * `MutableSet`), which is exactly why the obvious dispatch is slow: every one of those names
+ * shares a seven-character prefix, so a `strcmp` against any of them compares eight bytes before
+ * it can differ, and F140's trick of guarding on the first character is useless here because they
+ * all start with `M`. `contains` on a `MutableMap` was paying three such comparisons -- one in
+ * `call_contains` to rule out the `Mutable` cell, then two more inside `ziman_builder_contains` to
+ * rule out `MutableArray` and `MutableString` -- which measured ~25ns against the equivalent
+ * `mutable_map_get_or`, a native that does no type dispatch at all.
+ *
+ * The suffixes diverge at index 7, so one switch there picks a single candidate, and a `strcmp` of
+ * the short suffix confirms it. Confirming matters: it keeps this exact, so a user struct named
+ * `MutableMapOfThings` answers NONE rather than being taken for a `MutableMap`, which a bare
+ * `n[7] == 'M'` test would get wrong. `strncmp` rather than `memcmp` for the prefix, since a
+ * struct named `Row` is only three bytes long and `memcmp` would read past it. */
+typedef enum {
+    MUTABLE_NONE = 0, /* not one of the five */
+    MUTABLE_CELL,     /* Mutable<T> */
+    MUTABLE_STRING,
+    MUTABLE_ARRAY,
+    MUTABLE_MAP,
+    MUTABLE_SET
+} MutableKind;
+
+static inline MutableKind ziman_mutable_kind(const Type *t) {
+    if (t->kind != TY_STRUCT || t->struct_name == NULL) return MUTABLE_NONE;
+    const char *n = t->struct_name;
+    if (strncmp(n, "Mutable", 7) != 0) return MUTABLE_NONE;
+    switch (n[7]) {
+        case '\0': return MUTABLE_CELL;
+        case 'A': return strcmp(n + 7, "Array") == 0 ? MUTABLE_ARRAY : MUTABLE_NONE;
+        case 'M': return strcmp(n + 7, "Map") == 0 ? MUTABLE_MAP : MUTABLE_NONE;
+        case 'S':
+            if (strcmp(n + 7, "String") == 0) return MUTABLE_STRING;
+            return strcmp(n + 7, "Set") == 0 ? MUTABLE_SET : MUTABLE_NONE;
+        default: return MUTABLE_NONE;
+    }
+}
+
+int ziman_builder_length(Value v, MutableKind kind);
 
 /* Whether a builder holds `needle`: a substring of a MutableString, a key of a MutableMap, an
  * element of a MutableSet, or -- the one O(n) case -- an element of a MutableArray. Only called
  * once the typechecker has established the argument types. */
-int ziman_builder_contains(Value v, Value needle);
+int ziman_builder_contains(Value v, Value needle, MutableKind kind);
 
 /* A builder's contents copied out as the immutable value it corresponds to: an `[T]`, a
  * `Map<K, V>`, a `Set<T>` or a `string`. The caller sets the result's type from the call's

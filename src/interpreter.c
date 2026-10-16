@@ -614,8 +614,9 @@ static Value call_len(Value v) {
      * handle's own table rather than in the struct (see prelude.h's ziman_builder_length). A
      * `Mutable<T>` cell holds exactly one value, which needs no asking. */
     if (v.type->kind == TY_STRUCT) {
-        if (v.type->struct_name != NULL && strcmp(v.type->struct_name, "Mutable") == 0) return value_int(1);
-        return value_int(ziman_builder_length(v));
+        MutableKind kind = ziman_mutable_kind(v.type);
+        if (kind == MUTABLE_CELL) return value_int(1);
+        return value_int(ziman_builder_length(v, kind));
     }
     return value_int(v.as.arr->count);
 }
@@ -631,10 +632,9 @@ static Value call_contains(Value first, Value second) {
     /* One of the four builders, or a `Mutable<T>` cell: the contents live behind the handle, not
      * in the struct. */
     if (first.type->kind == TY_STRUCT) {
-        if (first.type->struct_name != NULL && strcmp(first.type->struct_name, "Mutable") == 0) {
-            return value_bool(ziman_cell_contains(first, second));
-        }
-        return value_bool(ziman_builder_contains(first, second));
+        MutableKind kind = ziman_mutable_kind(first.type);
+        if (kind == MUTABLE_CELL) return value_bool(ziman_cell_contains(first, second));
+        return value_bool(ziman_builder_contains(first, second, kind));
     }
     ArrayObj *arr = first.as.arr;
     if (arr->bytes != NULL) {
