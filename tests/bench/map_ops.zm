@@ -349,4 +349,28 @@ fn main() {
     report("MutableSet  remove+add     ", clock.monotonic_millis() - t, setbase_if)
 
     printf("  (checksum {}, items {} {})\n", acc, len(setb), len(st))
+
+    // ---- the composite, the one row that compares across languages ----
+    //
+    // One read-modify-write workload timed whole: no baseline, nothing subtracted. Every other row
+    // in this file subtracts a baseline loop, which is sound here and in map_ops.py (a tree-walker
+    // and a bytecode VM neither reorder nor eliminate across a loop) and is *not* sound in
+    // map_ops.java, where a JIT optimises the baseline harder than the measurement -- see that
+    // file's header for the two ways it went wrong. This row has no second loop to get wrong, so
+    // it is the one to quote between languages. All three print the same checksum.
+    val cm = mutable_map_new<int, int>()
+    for i in 0..size {
+        mutable_map_set<int, int>(cm, i, 0)
+    }
+    t = clock.monotonic_millis()
+    for i in 0..ops {
+        val k = i % size
+        mutable_map_set<int, int>(cm, k, mutable_map_get_or(cm, k, 0) + 1)
+    }
+    val cms = clock.monotonic_millis() - t
+    printf(
+        "\nCOMPOSITE read-modify-write, no subtraction: {} ns/op  (checksum {})\n",
+        cms * 1000 / (ops / 1000),
+        mutable_map_get_or(cm, 7, -1)
+    )
 }

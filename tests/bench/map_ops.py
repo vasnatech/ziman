@@ -182,5 +182,17 @@ def main():
 
     print(f"  (checksum {acc}, items {len(ss)})")
 
+    # ---- the composite, the one row that compares across languages ----
+    # One read-modify-write workload timed whole: no baseline, nothing subtracted. See
+    # map_ops.java's header for why the per-row method cannot be trusted on a JIT, and map_ops.zm
+    # for this row's rationale. All three print the same checksum.
+    c = {i: 0 for i in range(SIZE)}
+    t = time.perf_counter()
+    for i in range(OPS):
+        k = i % SIZE
+        c[k] = c.get(k, 0) + 1
+    ns = (time.perf_counter() - t) * 1e9 / OPS
+    print(f"\nCOMPOSITE read-modify-write, no subtraction: {ns:.1f} ns/op  (checksum {c[7]})")
+
 
 main()
