@@ -1092,17 +1092,20 @@ is measured *after* `compressed` has had its say, so it is what went on the wire
 pub struct ServeOptions {
     idle_timeout_ms: int
     header_timeout_ms: int
-    // The most connections served at once. Read it as a ceiling on concurrent *clients*, not as a
-    // resource limit that sheds load: a connection is accepted first and only then waits for a
-    // slot, and with keep-alive an occupant holds its slot until `idle_timeout_ms` rather than
-    // releasing it after each request. So a client past the cap waits for a *timeout*, not for a
-    // request to finish, and it waits with an open socket and no reply. Measured at a cap of 64
-    // with 256 keep-alive clients: every run takes one full idle timeout (~30s) whatever the
-    // request count, and the clients past the cap are served only as slots expire
-    // (docs/reviews/tasks.md F139, which also compares Tomcat -- it applies its own limit at
-    // accept, so excess clients get an immediate reset instead). Size this above the number of
-    // clients you expect to be connected, not above the requests you expect per second: browsers
-    // hold connections open, so a 65th visitor against a cap of 64 is not an overload condition.
+    // The most requests served at once -- not the most clients connected. A connection holds one
+    // of these only while it is actually serving a request; between requests it is parked with the
+    // poller and holds nothing, so a server can hold far more keep-alive clients than this number
+    // (`net.wait_readable`, and `park_loop` below).
+    //
+    // It used to mean the other thing, and the difference is worth knowing if you are carrying a
+    // size forward: a connection held a slot for its whole life, so under keep-alive an occupant
+    // kept one through `idle_timeout_ms` of doing nothing and a 65th client against a cap of 64
+    // waited for a *timeout* rather than for a request. 256 keep-alive clients against a cap of 64
+    // took one full idle timeout whatever the request count -- 31.5s -- where they now take
+    // 1.5-2.0s and a cap of 64 measures the same as a cap of 256 (docs/reviews/tasks.md F139).
+    //
+    // So size it by the concurrency of *work* you want to admit, which is what a thread-per-request
+    // server can usefully run at once, and let the client count follow from sockets.
     max_connections: int
     log_requests: bool
     // The largest request body to accept, or 0 for the library's 1 MiB default. A body over it is
@@ -1191,7 +1194,9 @@ default.
 
 The defaults, and why: a 30-second idle timeout and 10-second header timeout, which are long
 enough for a slow mobile client and short enough that a stalled one frees its thread; 64
-connections, since each is a thread; no request logging, because a log line per request is a
+connections -- which since F139 is a limit on requests in flight rather than on connected
+clients, so it no longer caps how many clients a server can hold; no request logging, because a
+log line per request is a
 decision about volume; no `fault` renderer, so the library's own JSON shape is used; no metrics
 and no response compression, both off for the reasons their own comments give; and no per-client
 connection cap, which is wrong by default behind a reverse proxy where every connection carries

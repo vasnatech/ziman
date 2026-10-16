@@ -360,7 +360,7 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 - [x] **F137** A generated parity table enumerating the 58 Spring endpoints that are absent, which cluster almost perfectly by feature (37 device/EHR integrations, 6 sharing, 3 attachments -- needing multipart, which `server` does not have -- 4 admin DB browser, plus terminology, food search and export). `README.md` states the scope up front, so this is scope rather than defect, but without the enumeration a reader cannot tell "not ported" from "forgotten". (DX3 item 25 third clause, section 4; S) Done 2026-10-14 in the backend (1730d5c). `tools/parity_table.py` reads both trees and writes `docs/PARITY.md`: every `@*Mapping` across Spring's 62 controllers against `routes.zm`'s literal patterns plus the five endpoints `crud_endpoints` generates per resource, with path parameters normalised on both sides. **226 / 168 present / 58 absent -- the same three numbers the review reached independently**, which is the best available evidence that the extraction reads both sides correctly, and the 58 cluster exactly where it said (4 admin database browser, 4 admin, 3 attachments, 3 shared links, 3 food search, 2 public share, the rest device and EHR integrations). Generated rather than written, and `--check` fails when it is stale, run by `run-all.sh` beside the formatter gate -- a table nothing verifies would drift the same way the README's controller count did. Verified both ways. README now links the table instead of quoting a number.
 - [x] **F138** Fix `docs/TUTORIAL.md:247`, delete the orphaned `collections_example.out`, and repair or remove `tests/bench/server_load.sh`. (DX3 items 12 and 13, D17, D13; trivial) Done 2026-10-14 in `372fcc3`, each re-verified first. TUTORIAL.md:247 was the single live `collections` reference the F120-F122 sweep missed, because TUTORIAL.md was never opened; the other nine matching files are the English word, a GC metric, or history correctly in the past tense -- so the report's "sweep ROADMAP's forward-looking mentions" does not apply, those being a dated `- [x]` record and a historical note, which this file's convention does not rewrite. `server_load.sh` was repaired rather than deleted, because README.md and DESIGN.md both cite it and nothing else measures RSS under load directly: it launched `server.zm`, a path the backend has not had since its entry point became `src/main/ziman/serve.zm`, and lacked the resource path and two secrets besides, so the server died at once, `rss()` read a `/proc` entry already gone, and three phases timed `curl` against a closed port and printed `p50=0.0002s`. Then exit 0, because `set -uo pipefail` carries no `-e` and awk over an empty file prints zeroes. It now boots the way `src/test/other/*_test.py` does, measures `/api/me/allergies`, checks every status, and exits non-zero on the first bad one or on a server that will not start. The review's word for the old numbers was "fabricated": they were real `curl` timings, of nothing, which is worse than fabricated because they look measured.
 
-- [ ] **F139** **`server.max_connections` is a hard ceiling on concurrent keep-alive *clients*, and past it the server does not degrade -- it stalls.** (found 2026-10-15 while measuring MEMORY.md item 3; M) `serve`'s own doc says "one thread per connection, at most `max_connections` at once (the limit is a channel used as a counting semaphore: a client past it waits in the kernel's accept queue)", which is accurate and reads like back-pressure. With keep-alive it is not back-pressure, because an occupant does not release its slot at the end of a request -- it holds it until `idle_timeout_ms`. So clients past the cap wait for a timeout, not for a request. **Measured** on the reference backend (`server.max-connections=64`, `server.idle-timeout-ms=30000`), 2,000 requests, `ab -k -c 256`, server and client pinned to disjoint CPU sets:
+- [x] **F139** **`server.max_connections` is a hard ceiling on concurrent keep-alive *clients*, and past it the server does not degrade -- it stalls.** (found 2026-10-15 while measuring MEMORY.md item 3; M) `serve`'s own doc says "one thread per connection, at most `max_connections` at once (the limit is a channel used as a counting semaphore: a client past it waits in the kernel's accept queue)", which is accurate and reads like back-pressure. With keep-alive it is not back-pressure, because an occupant does not release its slot at the end of a request -- it holds it until `idle_timeout_ms`. So clients past the cap wait for a timeout, not for a request. **Measured** on the reference backend (`server.max-connections=64`, `server.idle-timeout-ms=30000`), 2,000 requests, `ab -k -c 256`, server and client pinned to disjoint CPU sets:
 
     | cap | rps | failed |
     | --- | --- | --- |
@@ -416,6 +416,43 @@ candidates, with the constraint that rules the obvious one out:
 
   All three are behaviour changes to a shipped server contract, so they are a decision rather than
 a fix, and none is applied.
+
+  **Done 2026-10-16, and the design intent that settled it was "serve should support more
+  concurrent clients than threads".** None of the three candidates above is what shipped: each one
+  only changes *where* a client waits, and the measurement that killed them is that waiting was
+  never the cost. A slot was held for a connection's whole life, so an occupant doing nothing kept
+  it through `idle_timeout_ms` -- which is why elapsed time was one idle timeout whatever the
+  request count.
+
+  So a slot now means **a request in flight**, not a client connected. A connection that has
+  finished a request goes to a poller thread that owns every parked connection and holds none open
+  with a thread of its own; `net.wait_readable` (a new `net` primitive, landed separately in
+  `d52a975` with its own fixtures) says which have a request to serve, and only then is a slot
+  taken and a worker spawned.
+
+  | cap=64, 256 keep-alive clients | before | after |
+  | --- | --- | --- |
+  | elapsed | 31.5s | **1.5-2.0s** |
+  | completed of 20,000 | 19,808, then an abort | **20,000** |
+
+  cap=64 and cap=256 now measure the same, where they were 20x apart -- which is the whole claim.
+  Non-keep-alive throughput *improved*, since a slot is no longer held across an idle connection:
+  c=1 487-497 -> 530-637, c=4 1196-1225 -> 1587-1630, c=8 1388-1431 -> 2199-2208, c=16 1477-1554 ->
+  2140-2146.
+
+  Three wrong turns are recorded in `server.zm` where each happened, because each is the kind a
+  reader would reintroduce: routing *newly accepted* connections through the poller (a fresh
+  connection has a request on its way, and the poller may be part-way through a 250ms wait, so
+  connection-per-request paid that in latency and `server_concurrency.sh` stopped finishing inside
+  ten minutes); parking after every single request (a thread spawn and two channel hops per
+  *request* rather than per *connection*, 9,876 -> ~3,000 rps, fixed by peeking with
+  `wait_readable([sock], 5)` before parking -- a peek rather than a short read, since a read that
+  times out cannot be told from a client stalling mid-request and `read_request` answers that with
+  a 408); and cleaning up only on the normal path, which leaked a connection whenever a handler
+  failed.
+
+  What is left of this entry: `max_connections`'s default of 64 is no longer a client ceiling, so
+  the question of raising it is closed by the change rather than by a decision.
 
   Three things to settle, in order. **(1)** Whether this is the intended contract. If it is, `max_connections` needs documenting as "the maximum number of concurrent clients" rather than a resource limit, and the default of 64 needs revisiting, because browsers hold connections open and a 65th visitor is not an overload condition. **(2)** Whether Spring/Tomcat diverges here, which matters because this backend is a parity project: a thread-pool NIO connector multiplexes idle keep-alive connections over fewer threads and so should have no such cliff -- not measured, and worth measuring against the Spring backend in the same repo before any redesign. **(3)** Only then, whether `serve` should multiplex idle connections rather than hold a thread per connection, which is a real design change, not a tuning fix.
 
