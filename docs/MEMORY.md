@@ -1856,3 +1856,43 @@ thing this page was written about.
 `tests/bench/portable_server.zm`, not the backend. Every dated figure in this page and in
 DESIGN.md that came from `server_concurrency.sh` is a measurement of an interpreter *and* a
 backend, and the backend is the faster-moving of the two.
+
+### Item 3 resolved: the falloff is not the collector, and the benchmark was hiding two larger effects
+
+The falloff past c=128 was flagged two entries up as "not the collector" on the strength of the
+pause share falling while throughput dropped. That holds, and chasing it down produced three
+results, none of them about memory.
+
+**It is not the connection cap either, and raising the cap makes it worse.** `serve` is one thread
+per connection with at most `max_connections` at once, and the reference backend sets 64 -- so at
+c=128 and c=256 the benchmark is past the cap, which was the obvious suspect. Varying it says
+otherwise (2,500 requests, no keep-alive):
+
+| | cap=64 | cap=128 | cap=256 |
+| --- | --- | --- | --- |
+| c=64 | 1338 | 1355 | 1307 |
+| c=128 | 1292 | 1196 | 1242 |
+| c=256 | 1306 | 1306 | 1161 |
+
+Sixteen cores, so 64 threads is already fourfold oversubscription and 256 is sixteenfold. The cap
+is doing nothing to limit throughput at 64 and is *protecting* it at 256.
+
+**Two things the benchmark itself contributes, both larger than the effect being chased.** It runs
+`ab` on the same cores as the server, which costs **16-19%** (c=16: 1434 shared against 1661 with
+the server on CPUs 0-11 and `ab` on 12-15; c=64: 1356 against 1620). And it does not use
+keep-alive, so it has been measuring TCP setup and thread creation as much as request handling --
+turning it on is worth **2.3x at c=16** (1677 -> 3913) and **1.8x at c=64** (1608 -> 2846). Neither
+invalidates any A/B on this page, since both sides of every comparison paid both costs, but the
+absolute figures are depressed and the shape past c=64 is partly the harness measuring itself.
+
+**And one real defect, filed as F139.** With keep-alive, `max_connections` is a ceiling on
+concurrent *clients*, not a resource limit, because an occupant holds its slot until
+`idle_timeout_ms` rather than releasing it after a request. Cross the cap and the server stalls
+instead of degrading: at c=256 with keep-alive, cap=64 gives **64 rps with failures** and cap=256
+gives **2,177 rps with none** on the same cores -- a 34x cliff, and the ~64 rps is the arithmetic of
+the 30-second timeout rather than of any work. See F139 for what to settle and in what order.
+
+**Which closes item 3 with the answer that it was never a memory question.** The pause share was
+the right signal to follow and it pointed out of this document: what limits the backend past c=64
+is the harness, the core count, and a connection-lifecycle contract -- in that order of size. The
+collector is not in the list.
