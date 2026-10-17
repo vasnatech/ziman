@@ -704,6 +704,17 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   instead of four floats (what Cairo and Skia do), estimated at **13%** against an 8-bit precision
   loss and a rewrite of every pixel path; not taken, estimate recorded so nobody re-derives it.
 
+  *Then a review question -- "should `Color` hold 4 bytes instead of 4 floats, or one int?" -- found
+  the largest win of the exercise, by being wrong in an instructive way.* A `Color` is not a
+  per-pixel value (a handful per scene), so its size is irrelevant; floats are also what PDF output
+  and gradient interpolation both want. But **constructing** them per pixel was 21% of a profile:
+  `ramp_at` re-premultiplied both stops on every pixel (three allocations a pixel for two values
+  that never change), and `sample_image` went through `image.pixel_at`, which allocates a `Result`,
+  a `Color` and then the `Premul` converted from it. The paint is now prepared once per fill
+  (`prepare`/`Ready`), which also lifts its error cases out of the pixel loop, and `sample_image`
+  reads the buffer directly. Full-page gradient **2553 to 2080 ms**, full-page image **2494 to
+  2138**, GC 21.1% to 14.2%, every fixture byte-identical.
+
   *Part 2 of 3 done 2026-10-16: stroking.* Caps, joins, the miter limit and dashes, in a **separate
   `stroker` module** rather than inside `raster`: widening a path is device-independent, and `pdf`
   refuses gradient strokes with "fill the stroked outline instead", so putting it in `raster` would

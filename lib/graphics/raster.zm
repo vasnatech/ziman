@@ -431,7 +431,14 @@ fn blit(
         Ok(i) { i }
         Err(why) { return err(concat("raster: this group's transform cannot be inverted (", why, ")")) }
     }
-    val flat = flat_ink(k)
+    val ready = try prepare(k, o.images)
+    val flat = switch ready {
+        Flat(c) { Option<Premul>.Some(c) }
+        Axial(_) { Option<Premul>.None }
+        Radial(_) { Option<Premul>.None }
+        Tiled(_) { Option<Premul>.None }
+        Placed(_) { Option<Premul>.None }
+    }
     var ty = 0
     while ty < tile.height {
         val py = iy + tile.top + ty
@@ -450,7 +457,7 @@ fn blit(
                             val c = switch flat {
                                 Some(constant) { constant }
                                 None {
-                                    try ink_at(k, inv, o.images, point_of((px as float) + 0.5, (py as float) + 0.5))
+                                    ready_at(ready, inv, point_of((px as float) + 0.5, (py as float) + 0.5))
                                 }
                             }
                             composite(t, px, py, c, cov * through)
@@ -542,7 +549,7 @@ fn fill_shape(
     // A solid colour is the same at every pixel, so it is evaluated once instead of per pixel --
     // which also skips the inverse transform there. Every other ink genuinely varies with position.
     // Worth 1.33x on the same page (2253 ms to 1667 ms, interleaved), and `Solid` is the common case.
-    val flat = flat_ink(k)
+    val ready = try prepare(k, o.images)
     val row = mutable_array_new<float>()
     var i = 0
     while i < t.width {
@@ -565,13 +572,20 @@ fn fill_shape(
         Some(m) { m }
         None { no_mask }
     }
-    val is_flat = switch flat {
-        Some(_) { true }
-        None { false }
+    // A solid colour is the same at every pixel, so the loop reads it rather than asking.
+    val is_flat = switch ready {
+        Flat(_) { true }
+        Axial(_) { false }
+        Radial(_) { false }
+        Tiled(_) { false }
+        Placed(_) { false }
     }
-    val flat_ink_value = switch flat {
-        Some(c) { c }
-        None { Premul { red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0 } }
+    val flat_ink_value = switch ready {
+        Flat(c) { c }
+        Axial(_) { Premul { red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0 } }
+        Radial(_) { Premul { red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0 } }
+        Tiled(_) { Premul { red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0 } }
+        Placed(_) { Premul { red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0 } }
     }
     var y = first_row
     while y <= last_row {
@@ -589,7 +603,7 @@ fn fill_shape(
                     val c = if is_flat {
                         flat_ink_value
                     } else {
-                        try ink_at(k, inv, o.images, point_of((x as float) + 0.5, (y as float) + 0.5))
+                        ready_at(ready, inv, point_of((x as float) + 0.5, (y as float) + 0.5))
                     }
                     composite(t, x, y, c, cov * through)
                 }
@@ -883,86 +897,156 @@ fn composite(t: Target, x: int, y: int, c: Premul, cov: float) {
 
 // ---- paints
 
-// A paint that is the same at every pixel, so it can be evaluated once per fill instead of once
-// per pixel -- which also skips the inverse transform there. Every other ink varies with position.
-fn flat_ink(k: Ink) -> Option<Premul> {
+// A paint with everything that does not change per pixel already done: the stops premultiplied,
+// the gradient's axis reduced to the numbers the projection needs, an image's inverse matrix taken.
+//
+// **This is where the paint's errors are raised**, once per fill rather than once per pixel --
+// the same messages, from a place that runs a few hundred times a page instead of a few hundred
+// thousand. Preparing it is also what stopped `ramp_at` re-premultiplying both of its stops on
+// every pixel, which was three allocations a pixel for two values that never change.
+struct ReadyStop {
+    offset: float
+    colour: Premul
+}
+
+struct ReadyAxial {
+    from: Point
+    dx: float
+    dy: float
+    span: float
+    stops: [ReadyStop]
+}
+
+struct ReadyRadial {
+    centre: Point
+    radius: float
+    stops: [ReadyStop]
+}
+
+struct ReadyTiled {
+    img: image.Image
+    inverse: Matrix
+}
+
+struct ReadyPlaced {
+    img: image.Image
+    into: Rect
+}
+
+enum Ready {
+    Flat(Premul)
+    Axial(ReadyAxial)
+    Radial(ReadyRadial)
+    Tiled(ReadyTiled)
+    Placed(ReadyPlaced)
+}
+
+fn prepare(k: Ink, images: [image.Image]) -> Result<Ready, string> {
     return switch k {
+        FromImage(tile) {
+            ok(Ready.Placed(ReadyPlaced { img: images[tile.handle], into: tile.into }))
+        }
         FromPaint(p) {
             switch p {
-                Solid(c) { Option<Premul>.Some(premul_of(c)) }
-                LinearGradient(_) { Option<Premul>.None }
-                RadialGradient(_) { Option<Premul>.None }
-                Pattern(_) { Option<Premul>.None }
+                Solid(c) { ok(Ready.Flat(premul_of(c))) }
+                LinearGradient(g) {
+                    val dx = g.to.x - g.from.x
+                    val dy = g.to.y - g.from.y
+                    val span = dx * dx + dy * dy
+                    if span <= 0.0 {
+                        return err("raster: a linear gradient whose two points are the same has no axis")
+                    }
+                    ok(Ready.Axial(ReadyAxial {
+                        from: g.from,
+                        dx: dx,
+                        dy: dy,
+                        span: span,
+                        stops: try ready_stops(g.stops)
+                    }))
+                }
+                RadialGradient(g) {
+                    if g.radius <= 0.0 {
+                        return err(concat(
+                            "raster: a radial gradient needs a positive radius, got ",
+                            format("{}", g.radius)
+                        ))
+                    }
+                    ok(Ready.Radial(ReadyRadial {
+                        centre: g.centre,
+                        radius: g.radius,
+                        stops: try ready_stops(g.stops)
+                    }))
+                }
+                Pattern(tiled) {
+                    if tiled.image < 0 || tiled.image >= len(images) {
+                        return err(concat(
+                            "raster: a pattern names image ",
+                            str(tiled.image),
+                            " but Options.images holds ",
+                            str(len(images))
+                        ))
+                    }
+                    // **The raster backend can draw this and the PDF one cannot**, which is the
+                    // asymmetry invariant 2 exists for: a backend says what it cannot do instead
+                    // of approximating. Sampling is nearest-neighbour, which is honest and
+                    // obviously improvable, where a half-finished bilinear would be neither.
+                    switch invert(tiled.transform) {
+                        Ok(i) { ok(Ready.Tiled(ReadyTiled { img: images[tiled.image], inverse: i })) }
+                        Err(why) {
+                            err(concat("raster: this pattern's matrix cannot be inverted (", why, ")"))
+                        }
+                    }
+                }
             }
         }
-        FromImage(_) { Option<Premul>.None }
     }
 }
 
-fn ink_at(k: Ink, inv: Matrix, images: [image.Image], device: Point) -> Result<Premul, string> {
-    val user = transform_point(inv, device)
-    return switch k {
-        FromPaint(p) { paint_at(p, user, inv, images) }
-        FromImage(tile) {
-            val r = tile.into
-            val u = (user.x - r.x) / r.width
-            val v = (user.y - r.y) / r.height
-            ok(sample_image(images[tile.handle], u, v))
-        }
+fn ready_stops(stops: [Stop]) -> Result<[ReadyStop], string> {
+    if len(stops) < 2 {
+        return err(concat("raster: a gradient needs at least two stops, got ", str(len(stops))))
     }
+    val out = mutable_array_new<ReadyStop>(capacity: len(stops))
+    for s in stops {
+        mutable_array_push(out, ReadyStop { offset: s.offset, colour: premul_of(s.color) })
+    }
+    return ok(snapshot(out))
 }
 
-fn paint_at(p: Paint, user: Point, inv: Matrix, images: [image.Image]) -> Result<Premul, string> {
-    return switch p {
-        Solid(c) { ok(premul_of(c)) }
-        LinearGradient(g) {
-            val dx = g.to.x - g.from.x
-            val dy = g.to.y - g.from.y
-            val span = dx * dx + dy * dy
-            if span <= 0.0 {
-                return err("raster: a linear gradient whose two points are the same has no axis")
-            }
+fn ready_at(r: Ready, inv: Matrix, device: Point) -> Premul {
+    return switch r {
+        Flat(c) { c }
+        Axial(g) {
+            val user = transform_point(inv, device)
             // The projection of the point onto the axis, as a fraction of its length.
-            ramp_at(g.stops, ((user.x - g.from.x) * dx + (user.y - g.from.y) * dy) / span)
+            ramp_at(g.stops, ((user.x - g.from.x) * g.dx + (user.y - g.from.y) * g.dy) / g.span)
         }
-        RadialGradient(g) {
-            if g.radius <= 0.0 {
-                return err(concat("raster: a radial gradient needs a positive radius, got ", format("{}", g.radius)))
-            }
+        Radial(g) {
+            val user = transform_point(inv, device)
             val dx = user.x - g.centre.x
             val dy = user.y - g.centre.y
             ramp_at(g.stops, sqrt(dx * dx + dy * dy) / g.radius)
         }
-        Pattern(tiled) {
-            if tiled.image < 0 || tiled.image >= len(images) {
-                return err(concat(
-                    "raster: a pattern names image ",
-                    str(tiled.image),
-                    " but Options.images holds ",
-                    str(len(images))
-                ))
-            }
-            // **The raster backend can draw this and the PDF one cannot**, which is the asymmetry
-            // invariant 2 exists for: a backend says what it cannot do instead of approximating.
-            // Sampling is nearest-neighbour, which is honest and obviously improvable, where a
-            // half-finished bilinear would be neither.
-            val img = images[tiled.image]
-            val local = switch invert(tiled.transform) {
-                Ok(i) { transform_point(i, user) }
-                Err(why) { return err(concat("raster: this pattern's matrix cannot be inverted (", why, ")")) }
-            }
-            ok(sample_image(img, local.x / (img.width as float), local.y / (img.height as float)))
+        Tiled(tile) {
+            val local = transform_point(tile.inverse, transform_point(inv, device))
+            sample_image(
+                tile.img,
+                local.x / (tile.img.width as float),
+                local.y / (tile.img.height as float)
+            )
+        }
+        Placed(tile) {
+            val user = transform_point(inv, device)
+            val r2 = tile.into
+            sample_image(tile.img, (user.x - r2.x) / r2.width, (user.y - r2.y) / r2.height)
         }
     }
 }
 
-// Interpolation **in premultiplied alpha**. Done on straight colour, a ramp from opaque red to
-// transparent passes through a dark red halfway along, because the transparent stop's own RGB gets
-// averaged in at full weight.
-fn ramp_at(stops: [Stop], raw: float) -> Result<Premul, string> {
-    if len(stops) < 2 {
-        return err(concat("raster: a gradient needs at least two stops, got ", str(len(stops))))
-    }
+// Interpolation **in premultiplied alpha**, over stops that were premultiplied once. Done on
+// straight colour, a ramp from opaque red to transparent passes through a dark red halfway along,
+// because the transparent stop's own RGB gets averaged in at full weight.
+fn ramp_at(stops: [ReadyStop], raw: float) -> Premul {
     var t = raw
     if t < 0.0 {
         t = 0.0
@@ -971,7 +1055,7 @@ fn ramp_at(stops: [Stop], raw: float) -> Result<Premul, string> {
         t = 1.0
     }
     if t <= stops[0].offset {
-        return ok(premul_of(stops[0].color))
+        return stops[0].colour
     }
     var i = 1
     while i < len(stops) {
@@ -980,30 +1064,54 @@ fn ramp_at(stops: [Stop], raw: float) -> Result<Premul, string> {
         if t <= hi.offset {
             val width = hi.offset - lo.offset
             val f = if width > 0.0 { (t - lo.offset) / width } else { 0.0 }
-            val a = premul_of(lo.color)
-            val b = premul_of(hi.color)
-            return ok(Premul {
+            val a = lo.colour
+            val b = hi.colour
+            return Premul {
                 red: a.red + (b.red - a.red) * f,
                 green: a.green + (b.green - a.green) * f,
                 blue: a.blue + (b.blue - a.blue) * f,
                 alpha: a.alpha + (b.alpha - a.alpha) * f
-            })
+            }
         }
         i = i + 1
     }
-    return ok(premul_of(stops[len(stops) - 1].color))
+    return stops[len(stops) - 1].colour
 }
 
 // Nearest-neighbour, clamped at the edges. `u` and `v` are in 0..1 across the image.
+// Nearest-neighbour, clamped at the edges, straight out of the buffer.
+//
+// **Not through `image.pixel_at`**, which is the obvious way to write this and allocates three
+// values a pixel for it: a `Result`, the `Color` inside it, and the `Premul` this converts that
+// into. At a page-sized image that is over a million allocations whose only purpose is to be
+// discarded, and the collector was 21% of a profile because of it. The layout read here is
+// `pixel_at`'s own -- row-major, `width * channels` per row -- and that function stays the
+// reference for it; premultiplying is this module's business and not `image`'s, which is why the
+// conversion lives on this side.
 fn sample_image(img: image.Image, u: float, v: float) -> Premul {
     val x = clamp_int(floor(u * (img.width as float)), 0, img.width - 1)
     val y = clamp_int(floor(v * (img.height as float)), 0, img.height - 1)
-    return switch image.pixel_at(img, x, y) {
-        Ok(c) { premul_of(c) }
-        // Unreachable: the coordinates are clamped to the image above. An `Err` here would mean
-        // `pixel_at` and `clamp_int` disagree about the bounds, so it says that rather than
-        // pretending a transparent pixel was the answer.
-        Err(_) { Premul { red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0 } }
+    val n = image.channels_of(img.format)
+    val at = (y * img.width + x) * n
+    if n == 1 {
+        val g = ((img.data[at] as int) as float) / 255.0
+        return Premul { red: g, green: g, blue: g, alpha: 1.0 }
+    }
+    if n == 3 {
+        return Premul {
+            red: ((img.data[at] as int) as float) / 255.0,
+            green: ((img.data[at + 1] as int) as float) / 255.0,
+            blue: ((img.data[at + 2] as int) as float) / 255.0,
+            alpha: 1.0
+        }
+    }
+    // `image.Image` stores un-premultiplied RGBA, so the alpha multiplies in here.
+    val a = ((img.data[at + 3] as int) as float) / 255.0
+    return Premul {
+        red: ((img.data[at] as int) as float) / 255.0 * a,
+        green: ((img.data[at + 1] as int) as float) / 255.0 * a,
+        blue: ((img.data[at + 2] as int) as float) / 255.0 * a,
+        alpha: a
     }
 }
 

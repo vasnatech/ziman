@@ -381,3 +381,44 @@ the same conclusion in one reading rather than by rebuilding it.
 The honest summary: **this backend is interpreter-bound on per-pixel work**, and ~5% was what was
 available without changing what it computes. A further step would be native help, which is a
 different kind of decision for a project whose point is that it is written in itself.
+
+### Should `Color` hold bytes, or one packed int?
+
+Asked after the profiling above, and the answer is **no** -- but finding out why produced the
+largest win of the whole exercise, so the question was the right one.
+
+**A `Color` is not a per-pixel value.** A scene holds a handful of them: one per `Solid`, two per
+gradient stop. Shrinking a type that exists a dozen times saves nothing measurable. Floats are also
+what its two consumers want -- PDF writes colour as reals in 0..1, and gradient interpolation,
+alpha and the greyscale luminance weights are all float arithmetic, so a byte `Color` would be
+converted back at every use.
+
+**What cost 21% of a profile was *constructing* them per pixel, which is a different problem.**
+Filling a page-sized gradient or image was nearly twice as slow as the same page of solid
+rectangles, and the collector was the largest single entry. Two causes, both now fixed:
+
+* `ramp_at` called `premul_of` on **both** of its stops for every pixel -- three allocations a
+  pixel, two of them for values that never change. The paint is now *prepared* once per fill
+  (`prepare`/`Ready`): stops premultiplied, the gradient axis reduced to the numbers the projection
+  needs, a pattern's inverse matrix taken. That also moved the paint's error cases -- too few
+  stops, a zero-length axis, a bad image index, a singular pattern matrix -- out of the pixel loop,
+  so they are raised once per fill with the same messages.
+* `sample_image` went through `image.pixel_at`, the obvious spelling, which allocates a `Result`,
+  the `Color` in it and then the `Premul` that is converted from it: three throwaway values per
+  sample. It now reads the buffer directly, with `pixel_at` named as the reference for the layout.
+
+| workload | before | after |
+| --- | --- | --- |
+| 400 round rectangles, 600x800 | 1436 ms | 1360 ms |
+| a page of text | 664 ms | 628 ms |
+| tall edge-heavy path | 1651 ms | 1584 ms |
+| **full-page gradient** | **2553 ms** | **2080 ms** |
+| **full-page image** | **2494 ms** | **2138 ms** |
+
+Garbage collection fell from 21.1% of that profile to 14.2%. Output is byte-identical everywhere.
+
+**Where a packed representation would still pay is the target buffer**, not `Color`: four floats a
+pixel is 1.9 million array slots for a 600x800 canvas, and one packed `int` would quarter the array
+operations in `new_target`, `composite` and `finish`. That is the 13% estimated above, and it still
+carries the same 8-bit precision cost. The distinction worth keeping is that the expensive
+representation was never the one in the public API.
