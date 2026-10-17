@@ -25,7 +25,8 @@ Where the two differ, the one that cannot do something **says so** rather than a
 (invariant 2): `paint.Pattern` draws in the raster backend and is refused by PDF, and a standard
 font names a face a PDF reader resolves but a raster device cannot.
 
-A sixth phase is likely but not designed: a **document layout layer** (flows, paragraph wrapping,
+A sixth phase is **designed but not built**, in `docs/graphics/phase-6-layout.md`: a **document
+layout layer** (flows, paragraph wrapping,
 tables, pagination) over phases 1-3. `docs/graphics/README.md` says why it is deliberately not
 folded into the five -- a drawing model nothing has used yet is the wrong moment to design a layout
 model on top of it.

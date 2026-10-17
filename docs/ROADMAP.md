@@ -1190,8 +1190,9 @@ from source.
   built (F141-F145).** One `Scene` renders two ways: to PDF (vector paths, gradients, the standard
   fourteen fonts, an embedded TrueType face carrying Unicode text, images with alpha) and to an
   image (anti-aliased fills under both winding rules, stroking with caps/joins/dashes, clip paths,
-  cached glyph rendering). A candidate **phase 6, a document layout layer, is deliberately not
-  designed yet** -- see the note below.
+  cached glyph rendering). **Phase 6, a document layout layer, is now designed and not built**
+  (`docs/graphics/phase-6-layout.md`, F146) -- and that document says plainly that it is a guess,
+  because nothing has used the drawing model yet.
   Raised 2026-10-16 out of asking what reaching export parity with the Spring backend would take.
   Of the reference backend's ~13 export formats, seven are reachable with the modules Ziman already
   has (csv, flat-json, html, markdown, plain text, xml, vcard, all served by `csv`/`json`/`xml`/
@@ -1232,9 +1233,12 @@ from source.
   **What they leave out, and the likely sixth phase: document layout.** Every phase is a drawing
   API, and the motivating use case does not think in coordinates -- it thinks in headings,
   paragraphs, tables and page breaks. ReportLab has a canvas *and* Platypus on top, because reports
-  written straight against a canvas become unmaintainable arithmetic. Deliberately not designed yet:
-  a drawing model nothing has used is the wrong moment to design a layout model over it, and the
-  export work will say what it needs. `pdf.render_pages` already takes a list of scenes for this.
+  written straight against a canvas become unmaintainable arithmetic. **Designed 2026-10-16** in
+  `docs/graphics/phase-6-layout.md` and tracked as F146, with the original reservation kept at the
+  top of it: a drawing model nothing has used is the wrong moment to design a layout model over it,
+  and the export work will say what it needs. `pdf.render_pages` already takes a list of scenes for
+  this. The document's own advice is to write one real export page against `scene` and `pdf` first
+  and let what hurts become the requirements.
 
   **One prerequisite, found by checking:** `math` has no `atan2`, `asin` or `acos`, and arcs, round
   joins and decomposing a matrix all need the first. That is part of phase 1.

@@ -724,3 +724,30 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   only one that catches a flipped Y), ten glyphs at exactly 10.000x one, and a mixed run equal to
   the sum of its parts -- that last needing 18 alternating letters, because "oi" passes even with
   the glyph id removed from the key, the two letters landing on different subpixel quanta anyway.
+
+- [ ] **F146** **`lib/graphics` phase 6: document layout -- flows, wrapping, tables, pagination.**
+  (raised 2026-10-16; L) `layout`: one module, one entry point,
+  `paginate(doc, page) -> Result<[Scene], string>`, because `pdf.render_pages` already takes a list
+  of scenes for exactly this reason. A closed `Block` enum (paragraph, table, spacer, rule, picture,
+  keep-together, page break) with three exhaustive switches over it -- measure, split, draw --
+  rather than the "any block that measures itself" interface a language with methods would reach
+  for. Greedy line breaking, not Knuth-Plass, with the measurement that would justify changing it
+  named. Page numbers by **laying out twice**, which is the only one of the three options that does
+  not change a type elsewhere. Depends on F141-F143; needs neither backend.
+  See `docs/graphics/phase-6-layout.md`.
+
+  **Do not start with the module.** The design document says so at both ends, and it is the one
+  instruction in it worth following over the rest: phases 1-5 were each designed against something
+  concrete and this one was not, because nothing has used the drawing model yet -- the health-record
+  backend imports no `lib/graphics` module at all. **Step one is one real export page written
+  directly against `scene` and `pdf`**; what hurts about it is this task's actual requirements, and
+  the export is allowed to contradict the document. Building all of `Block` first is the failure
+  mode the document is most likely to cause.
+
+  Two findings already folded in, both checked against the language rather than assumed:
+  `PageSize` lives in `pdf`, so `layout` reusing it would depend on a backend it is meant to feed --
+  phase 3's `StandardFont` circularity exactly, and the fix is to move `PageSize` down into `geom`.
+  And a function in a struct field works, closures included, but `(band.draw)(page, total)` is a
+  syntax error: the call needs a local binding first. Also recorded: `font.advance` refuses for a
+  proportional standard font, so layout over the standard fourteen works monospaced and not
+  otherwise, and that refusal is to be let through rather than papered over with an estimate.

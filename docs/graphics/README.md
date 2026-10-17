@@ -38,7 +38,7 @@ against it, which is the distinction that matters when deciding where something 
   structure to validate what this library wrote; it is not a reader.)
 - Text shaping, so Arabic and Indic join correctly -- named in phase 3 and refused there rather
   than approximated.
-- A document layout layer, which is the candidate phase 6 below.
+- A document layout layer, which is phase 6 (`phase-6-layout.md`), designed and not built.
 
 ## The architecture, and why it is Java 2D's
 
@@ -119,7 +119,11 @@ in a pure-language rasteriser.
 
 **ReportLab** points at what all five phases leave out; see the next section.
 
-## The layer above: document layout (a candidate phase 6)
+## The layer above: document layout (phase 6)
+
+**Designed as of 2026-10-16, in `phase-6-layout.md`** -- and that document opens by saying it is a
+guess, because the export it exists for still has not been written. The argument below is why it
+exists; the document is the shape it should take, and the export is allowed to contradict it.
 
 Every phase here is a *drawing* API: it puts a path or a glyph at a coordinate. The motivating use
 case -- a health record exported as a PDF -- does not think in coordinates. It thinks in headings,
@@ -130,7 +134,7 @@ ReportLab is the instructive case: it has a coordinate-level canvas *and* a layo
 exists because reports written directly against the canvas become unmaintainable arithmetic. The
 same will be true here: the export will otherwise accumulate its own private layout code, badly.
 
-So a sixth phase is likely, over phases 1-3: a flow model (block, paragraph, table), text wrapping
+So a sixth phase, over phases 1-3: a flow model (block, paragraph, table), text wrapping
 using `font.advance`, and pagination that emits one `Scene` per page -- `pdf.render_pages` already
 takes a list of scenes for exactly this reason. It is deliberately *not* folded into the phases
 above, because a drawing model that has not been used yet is the wrong moment to design a layout
