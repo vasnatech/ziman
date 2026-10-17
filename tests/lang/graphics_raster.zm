@@ -1,0 +1,396 @@
+// `lib/graphics` phase 5, part 1: scan-conversion (F145).
+//
+// Pixels are hard to assert on, so these checks are the ones the design chose for being
+// *diagnostic* -- each fails for a nameable reason rather than looking slightly different. There
+// are no golden images here at all: every number below is either exact arithmetic or a comparison
+// between two renders that must differ.
+//
+// Stroking (part 2) and text (part 3) are not implemented, and the refusals at the end are the
+// contract until they are.
+use geom
+use image
+use paint
+use raster
+use scene
+use shape
+
+fn round4(x: float) -> string {
+    return format("{:.4}", x)
+}
+
+// The sum of alpha over every pixel, which is the total coverage the rasteriser laid down. This is
+// the number an off-by-one in the span loop changes and a visual comparison does not.
+fn ink_sum(img: image.Image) -> float {
+    var total = 0.0
+    var y = 0
+    while y < img.height {
+        var x = 0
+        while x < img.width {
+            total = total + unwrap(image.pixel_at(img, x, y)).alpha
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return total
+}
+
+// How many distinct alpha levels appear, which is how anti-aliasing is visible to a test.
+fn distinct_alphas(img: image.Image) -> int {
+    val seen = mutable_array_new<int>()
+    var y = 0
+    while y < img.height {
+        var x = 0
+        while x < img.width {
+            val level = (unwrap(image.pixel_at(img, x, y)).alpha * 255.0 + 0.5) as int
+            var found = false
+            var i = 0
+            while i < len(seen) {
+                if mutable_array_get(seen, i) == level {
+                    found = true
+                }
+                i = i + 1
+            }
+            if !found {
+                mutable_array_push(seen, level)
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return len(seen)
+}
+
+fn triple(img: image.Image, x: int, y: int) -> string {
+    val c = unwrap(image.pixel_at(img, x, y))
+    return concat(format("{:.1}", c.red), ",", format("{:.1}", c.green), ",", format("{:.1}", c.blue))
+}
+
+fn refusal<T>(r: Result<T, string>) -> string {
+    return switch r {
+        Ok(_) { "UNEXPECTEDLY ACCEPTED" }
+        Err(why) { why }
+    }
+}
+
+fn one_fill(w: float, h: float, p: shape.Path, using: paint.Paint, samples: int) -> image.Image {
+    return unwrap(raster.render(
+        scene.with_ops(scene.scene_of(w, h), [scene.fill(p, using)]),
+        with raster.options() { samples: samples }
+    ))
+}
+
+// A five-pointed star as one self-crossing subpath. Drawn non-zero it is solid; drawn even-odd the
+// pentagon in the middle is a hole. **The same path, the same code, one predicate apart.**
+fn star(winding: shape.Winding) -> shape.Path {
+    val b = shape.path_builder()
+    val cx = 20.0
+    val cy = 20.0
+    var i = 0
+    while i < 5 {
+        // Every second point, which is what makes the subpath cross itself.
+        val a = 0.0 - 1.5707963267948966 + (i as float) * 2.0 * 2.0 * 3.141592653589793 / 5.0
+        val px = cx + 18.0 * math.cos(a)
+        val py = cy + 18.0 * math.sin(a)
+        if i == 0 {
+            shape.move_to(b, geom.point_of(px, py))
+        } else {
+            shape.line_to(b, geom.point_of(px, py))
+        }
+        i = i + 1
+    }
+    shape.close_path(b)
+    return shape.built(b, winding)
+}
+
+fn main() {
+    val red = paint.solid(paint.rgb(1.0, 0.0, 0.0))
+
+    // ---- coverage arithmetic
+    //
+    // A fill of the whole canvas gives every pixel the paint's colour *exactly*. Not "close to":
+    // the span loop covers each pixel once, so any double-counting or any lost edge shows here
+    // before it shows anywhere subtler.
+    val full = one_fill(16.0, 16.0, shape.rect_path(geom.rect_of(0.0, 0.0, 16.0, 16.0)), red, 4)
+    val mid = unwrap(image.pixel_at(full, 8, 8))
+    print(concat("full canvas is the paint:  ", round4(mid.red), " ", round4(mid.alpha)))
+    print(concat("full canvas ink = 256:     ", round4(ink_sum(full))))
+
+    // Exactly half, on a pixel boundary: an integer answer, so an off-by-one is a visible 16.
+    val half = one_fill(16.0, 16.0, shape.rect_path(geom.rect_of(0.0, 0.0, 16.0, 8.0)), red, 4)
+    print(concat("top half ink = 128:        ", round4(ink_sum(half))))
+
+    // A right triangle of area w*h/2, which is half the canvas through *partial* coverage on the
+    // diagonal rather than on a pixel boundary. Anti-aliasing has to conserve area for this to
+    // land on 128, which is the property that matters.
+    val tri = shape.path_builder()
+    shape.move_to(tri, geom.point_of(0.0, 0.0))
+    shape.line_to(tri, geom.point_of(16.0, 0.0))
+    shape.line_to(tri, geom.point_of(0.0, 16.0))
+    shape.close_path(tri)
+    val diag = shape.built(tri, shape.Winding.NonZero)
+    print(concat("half by diagonal ~128:     ", round4(ink_sum(one_fill(16.0, 16.0, diag, red, 16)))))
+
+    // ---- the two winding rules, against each other
+    val solid = one_fill(40.0, 40.0, star(shape.Winding.NonZero), red, 4)
+    val holed = one_fill(40.0, 40.0, star(shape.Winding.EvenOdd), red, 4)
+    print(concat("star centre, non-zero:     ", round4(unwrap(image.pixel_at(solid, 20, 20)).alpha)))
+    print(concat("star centre, even-odd:     ", round4(unwrap(image.pixel_at(holed, 20, 20)).alpha)))
+    // A point out on a limb is inside under both rules, so this is what proves the two images
+    // differ *only* in the middle rather than one of them being empty.
+    print(concat("star limb, both rules:     ", concat(
+        round4(unwrap(image.pixel_at(solid, 20, 5)).alpha),
+        " ",
+        round4(unwrap(image.pixel_at(holed, 20, 5)).alpha)
+    )))
+
+    // ---- anti-aliasing
+    //
+    // **Not on the 45-degree diagonal above**, which cannot show this however many samples are
+    // taken: its partial pixels all have *the same* coverage, so the level count is 3 at every
+    // setting. (The design expected a diagonal to work here, because it assumed the horizontal
+    // direction is sampled too. It is not -- `add_span` is exact -- so only a shallow edge
+    // separates the settings.)
+    //
+    // A 1-in-8 slope sweeps eight pixels per row, so vertical sampling is what decides whether
+    // those eight are binary or a ramp. The count has to *increase*: an implementation that
+    // ignored `samples` would print the same number three times.
+    val shallow = shape.path_builder()
+    shape.move_to(shallow, geom.point_of(0.0, 0.0))
+    shape.line_to(shallow, geom.point_of(32.0, 4.0))
+    shape.line_to(shallow, geom.point_of(32.0, 0.0))
+    shape.close_path(shallow)
+    val wedge = shape.built(shallow, shape.Winding.NonZero)
+    print(concat("levels at 1 / 4 / 16:      ", concat(
+        str(distinct_alphas(one_fill(32.0, 4.0, wedge, red, 1))),
+        " ",
+        str(distinct_alphas(one_fill(32.0, 4.0, wedge, red, 4))),
+        " ",
+        str(distinct_alphas(one_fill(32.0, 4.0, wedge, red, 16)))
+    )))
+    // And the area is conserved at every setting, which is what says the extra levels are coverage
+    // and not noise: the wedge is 32*4/2 = 64.
+    print(concat("wedge ink at 1 / 16 = 64:  ", concat(
+        round4(ink_sum(one_fill(32.0, 4.0, wedge, red, 1))),
+        " ",
+        round4(ink_sum(one_fill(32.0, 4.0, wedge, red, 16)))
+    )))
+
+    // ---- gradients, interpolated in premultiplied alpha
+    //
+    // **The check that catches the classic bug**, and it took a second attempt to make it do so.
+    // The obvious fixture -- opaque red to *transparent red* -- cannot: both stops have the same
+    // RGB, so premultiplied and straight interpolation agree, and so do opaque-to-transparent-black
+    // for the same reason. The two only diverge when the transparent stop carries a colour of its
+    // own, which is exactly how `rgba(255,255,255,0)` gets written in practice.
+    //
+    // So: opaque **black** fading to transparent **white**. Halfway along, the ink is still black,
+    // at half alpha. Interpolated on straight colour the transparent stop's white averages in at
+    // full weight and the midpoint comes back white instead -- the whole bug, as 0.0 against 1.0.
+    val ghost = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(32.0, 4.0), [scene.fill(
+            shape.rect_path(geom.rect_of(0.0, 0.0, 32.0, 4.0)),
+            paint.linear(geom.point_of(0.0, 0.0), geom.point_of(32.0, 0.0), [
+                paint.stop_of(0.0, paint.rgba(0.0, 0.0, 0.0, 1.0)),
+                paint.stop_of(1.0, paint.rgba(1.0, 1.0, 1.0, 0.0))
+            ])
+        )]),
+        raster.options()
+    ))
+    val ghost_mid = unwrap(image.pixel_at(ghost, 16, 2))
+    print(concat("black-to-clear stays black:", round4(ghost_mid.red), " at alpha ", round4(ghost_mid.alpha)))
+
+    // And the common authoring case, which checks the alpha ramp itself: one colour fading out.
+    val fade = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(32.0, 4.0), [scene.fill(
+            shape.rect_path(geom.rect_of(0.0, 0.0, 32.0, 4.0)),
+            paint.linear(geom.point_of(0.0, 0.0), geom.point_of(32.0, 0.0), [
+                paint.stop_of(0.0, paint.rgba(1.0, 0.0, 0.0, 1.0)),
+                paint.stop_of(1.0, paint.rgba(1.0, 0.0, 0.0, 0.0))
+            ])
+        )]),
+        raster.options()
+    ))
+    val middle = unwrap(image.pixel_at(fade, 16, 2))
+    print(concat("red fade keeps its hue:    ", round4(middle.red), " at alpha ", round4(middle.alpha)))
+
+    // A radial gradient is the same ramp on a different parameter: the centre is the first stop and
+    // past the radius is the last.
+    val ball = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(32.0, 32.0), [scene.fill(
+            shape.rect_path(geom.rect_of(0.0, 0.0, 32.0, 32.0)),
+            paint.radial(geom.point_of(16.0, 16.0), 10.0, [
+                paint.stop_of(0.0, paint.white()),
+                paint.stop_of(1.0, paint.black())
+            ])
+        )]),
+        raster.options()
+    ))
+    // The centre pixel reads 0.93 rather than 1.0 and that is correct: its *centre* is at
+    // (16.5, 16.5), which is 0.707 from the gradient's origin, so the ramp is 7% along. A renderer
+    // that sampled pixel corners would print 1.0 here and be half a pixel out everywhere.
+    print(concat("radial centre vs corner:   ", concat(
+        round4(unwrap(image.pixel_at(ball, 16, 16)).red),
+        " ",
+        round4(unwrap(image.pixel_at(ball, 1, 1)).red)
+    )))
+
+    // ---- clipping is a coverage mask, not a rectangle
+    //
+    // A circular clip over a full-canvas fill. The centre is inside it and a corner is not, and
+    // the corner being empty is the whole point: a `Group` whose clip was quietly dropped would
+    // paint it.
+    val clipped = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(32.0, 32.0), [scene.clipped(
+            shape.circle_path(geom.point_of(16.0, 16.0), 10.0),
+            [scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, 32.0, 32.0)), red)]
+        )]),
+        raster.options()
+    ))
+    print(concat("clip centre vs corner:     ", concat(
+        round4(unwrap(image.pixel_at(clipped, 16, 16)).alpha),
+        " ",
+        round4(unwrap(image.pixel_at(clipped, 1, 1)).alpha)
+    )))
+    // **The assertion that proves the mask rather than the picture.** Clipping a full-canvas fill
+    // to a disc must lay down exactly the ink that filling that disc directly does -- same
+    // coverage machinery, reached two different ways, so any scaling or rounding in the mask shows
+    // up as a difference in the last digit. Measured against `pi*100 = 314.1593` instead, this
+    // reads as 0.6% short, which is not the clip: it is the flattened polygon being *inscribed* in
+    // the arc. That deficit falls to 0.012% at radius 100 and 0.004% at radius 300, which is an
+    // absolute tolerance behaving as designed and is why the comparison here is against the direct
+    // fill and not against the circle.
+    val disc_direct = one_fill(32.0, 32.0, shape.circle_path(geom.point_of(16.0, 16.0), 10.0), red, 4)
+    print(concat("clipped ink == disc ink:   ", concat(
+        round4(ink_sum(clipped)),
+        " and ",
+        round4(ink_sum(disc_direct))
+    )))
+
+    // ---- a group's transform composes
+    val moved = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(32.0, 32.0), [scene.group(
+            geom.translation(16.0, 0.0),
+            [scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, 8.0, 8.0)), red)]
+        )]),
+        raster.options()
+    ))
+    print(concat("group moved the fill:      ", concat(
+        round4(unwrap(image.pixel_at(moved, 4, 4)).alpha),
+        " then ",
+        round4(unwrap(image.pixel_at(moved, 20, 4)).alpha)
+    )))
+
+    // ---- images
+    //
+    // An image drawn into a rect, and the same image as a `paint.Pattern` -- **which this backend
+    // can draw and the PDF one cannot**. That asymmetry is invariant 2 working as intended: a
+    // backend says what it cannot do instead of approximating it.
+    val c = unwrap(image.canvas(2, 2, image.Pixels.Rgb8))
+    val _ = unwrap(image.set(c, 0, 0, paint.rgb(1.0, 0.0, 0.0)))
+    val _ = unwrap(image.set(c, 1, 0, paint.rgb(0.0, 1.0, 0.0)))
+    val _ = unwrap(image.set(c, 0, 1, paint.rgb(0.0, 0.0, 1.0)))
+    val _ = unwrap(image.set(c, 1, 1, paint.white()))
+    val four = image.snapshot_image(c)
+
+    val placed = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(16.0, 16.0), [scene.image(0, geom.rect_of(0.0, 0.0, 16.0, 16.0))]),
+        with raster.options() { images: [four] }
+    ))
+    // The whole triple per quadrant, not one channel each: printing only `.red` for the red corner
+    // and only `.green` for the green one reads as four 1.0s whether the sampling works or the
+    // image came back white.
+    print(concat("image top-left  is red:    ", triple(placed, 4, 4)))
+    print(concat("image top-right is green:  ", triple(placed, 12, 4)))
+    print(concat("image bottom-l  is blue:   ", triple(placed, 4, 12)))
+    print(concat("image bottom-r  is white:  ", triple(placed, 12, 12)))
+
+    val tiled = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(16.0, 16.0), [scene.fill(
+            shape.rect_path(geom.rect_of(0.0, 0.0, 16.0, 16.0)),
+            paint.pattern(0, geom.scaling(8.0, 8.0))
+        )]),
+        with raster.options() { images: [four] }
+    ))
+    // Scaled 8x, so the 2x2 image covers the 16x16 canvas in the same four quadrants -- which is
+    // what says the *inverse* pattern matrix is being applied and not the forward one.
+    print(concat("pattern quadrants:         ", concat(
+        triple(tiled, 2, 2),
+        " ",
+        triple(tiled, 13, 2),
+        " ",
+        triple(tiled, 2, 13),
+        " ",
+        triple(tiled, 13, 13)
+    )))
+
+    // ---- output formats
+    val grey = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(4.0, 4.0), [scene.fill(
+            shape.rect_path(geom.rect_of(0.0, 0.0, 4.0, 4.0)),
+            paint.solid(paint.rgb(0.0, 1.0, 0.0))
+        )]),
+        with raster.options() { format: image.Pixels.Gray8 }
+    ))
+    print(concat("green as Gray8 luminance:  ", round4(unwrap(image.pixel_at(grey, 2, 2)).red)))
+
+    // A background shows where nothing was drawn, and an `Rgb8` output has nowhere to keep alpha.
+    val over = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(8.0, 8.0), [scene.fill(
+            shape.rect_path(geom.rect_of(0.0, 0.0, 4.0, 8.0)),
+            paint.solid(paint.rgba(0.0, 0.0, 1.0, 0.5))
+        )]),
+        with raster.options() { format: image.Pixels.Rgb8, background: Option<paint.Color>.Some(paint.white()) }
+    ))
+    print(concat("half-blue over white:      ", concat(
+        round4(unwrap(image.pixel_at(over, 1, 1)).red),
+        " ",
+        round4(unwrap(image.pixel_at(over, 1, 1)).blue)
+    )))
+    print(concat("untouched stays white:     ", round4(unwrap(image.pixel_at(over, 6, 1)).red)))
+
+    // ---- shapes that fall outside the canvas
+    //
+    // Bounding a fill to its own extent means the clamps have to be right at both ends: a shape
+    // entirely off one side must draw nothing, and one straddling an edge must draw exactly the
+    // part that is on the canvas. A clamp that collapsed to a single column would paint a stripe.
+    val off_left = one_fill(16.0, 16.0, shape.rect_path(geom.rect_of(0.0 - 40.0, 0.0, 20.0, 16.0)), red, 4)
+    val off_right = one_fill(16.0, 16.0, shape.rect_path(geom.rect_of(40.0, 0.0, 20.0, 16.0)), red, 4)
+    val straddling = one_fill(16.0, 16.0, shape.rect_path(geom.rect_of(0.0 - 8.0, 0.0, 16.0, 16.0)), red, 4)
+    print(concat("off-canvas draws nothing:  ", concat(round4(ink_sum(off_left)), " ", round4(ink_sum(off_right)))))
+    print(concat("straddling draws 8 of 16:  ", round4(ink_sum(straddling))))
+
+    // ---- what it refuses, which is as much the contract as what it draws
+    print(concat("stroking:            ", refusal(raster.render(
+        scene.with_ops(scene.scene_of(8.0, 8.0), [scene.stroke(
+            shape.rect_path(geom.rect_of(1.0, 1.0, 4.0, 4.0)),
+            red,
+            paint.stroke_of(1.0)
+        )]),
+        raster.options()
+    ))))
+    print(concat("text:                ", refusal(raster.render(
+        scene.with_ops(scene.scene_of(8.0, 8.0), [scene.text_of("hi", geom.point_of(0.0, 4.0), 8.0, 0, red)]),
+        raster.options()
+    ))))
+    print(concat("samples out of range:", refusal(raster.render(
+        scene.with_ops(scene.scene_of(8.0, 8.0), []),
+        with raster.options() { samples: 64 }
+    ))))
+    print(concat("past the pixel cap:  ", refusal(raster.render(
+        scene.with_ops(scene.scene_of(4000.0, 4000.0), []),
+        with raster.options() { max_pixels: 1000 }
+    ))))
+    print(concat("image out of range:  ", refusal(raster.render(
+        scene.with_ops(scene.scene_of(8.0, 8.0), [scene.image(3, geom.rect_of(0.0, 0.0, 4.0, 4.0))]),
+        raster.options()
+    ))))
+    print(concat("one gradient stop:   ", refusal(raster.render(
+        scene.with_ops(scene.scene_of(8.0, 8.0), [scene.fill(
+            shape.rect_path(geom.rect_of(0.0, 0.0, 8.0, 8.0)),
+            paint.linear(geom.point_of(0.0, 0.0), geom.point_of(8.0, 0.0), [paint.stop_of(0.0, paint.black())])
+        )]),
+        raster.options()
+    ))))
+    print(concat("a zero-size scene:   ", refusal(raster.render(scene.scene_of(0.0, 10.0), raster.options()))))
+}
+use math

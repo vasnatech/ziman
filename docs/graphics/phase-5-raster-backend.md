@@ -124,3 +124,70 @@ possible:
 
 One module registered. No native code. Possibly `math.atan2` is not enough and `asin`/`acos` are
 needed for arc joins -- phase 1's build note already adds them.
+
+## As built: part 1 (scan-conversion)
+
+Landed 2026-10-16. `raster.render` fills paths with both winding rules, both gradients, image
+patterns and `DrawImage`, under an arbitrary clip path and nested group transforms, to `Gray8`,
+`Rgb8` or `Rgba8`. **Stroking and text are not implemented** and both return an `Err` naming the
+part that will do them -- which is invariant 2, not a placeholder.
+
+**`Options` gained two fields the sketch above does not have.** `images: [image.Image]`, because
+`DrawImage` and `paint.Pattern` index a table and the sketch gave them nowhere to index into --
+`pdf.Options` carries the same field for the same reason. And `max_pixels`, the guard
+`image.decode_png` takes: a scene's size can come from a request, so a 50000x50000 page should be a
+message rather than 40 GB of allocation.
+
+**`paint.Pattern` renders here, and does not in the PDF backend.** That asymmetry is the point of
+invariant 2: a raster device can sample an image through an inverse matrix, a PDF content stream
+would need a `/Pattern` colour space, and the one that cannot do it says so rather than
+approximating. Sampling is nearest-neighbour, as designed.
+
+**Where the design's verification was wrong, and what replaced it.** Three of the listed checks did
+not work as written:
+
+- *"A diagonal edge at `samples: 1` has only the two extreme colours; at `samples: 16` it has
+  intermediate ones."* It does not, because this implementation computes horizontal coverage
+  **exactly** (`add_span` takes each span's real overlap with each pixel) and only quantises
+  vertically. A 45-degree edge therefore gives every partial pixel *the same* coverage, and the
+  distinct-level count is 3 at every sample setting. The check now uses a 1-in-8 slope, where
+  vertical sampling is what decides whether the eight pixels under the edge are binary or a ramp:
+  the count goes 2, 5, 10 for samples 1, 4, 16, while the area stays exactly 64 at both ends.
+- *"A fill of exactly half the canvas gives a sum of coverage equal to half the pixels."* Kept, and
+  it is the best check here -- 256.0000 for a full 16x16 canvas and 128.0000 for half, exactly, plus
+  128.0314 for a triangle of the same area where the diagonal runs through partial pixels.
+- *"Assert the XObject..."* -- the clip check was written against `pi*r^2` and should not be. A disc
+  of radius 10 measures 312.30 against 314.16, which reads as a 0.6% bug and is not one: the
+  flattened polygon is **inscribed** in the arc, and the deficit falls to 0.128% at radius 30,
+  0.0122% at 100 and 0.0039% at 300 -- an absolute tolerance behaving exactly as designed. The
+  check now compares clipping a full-canvas fill to a disc against *filling that disc directly*,
+  which agree to every digit printed, and which is what actually proves the mask.
+
+**The premultiplication check needed two attempts.** "A gradient to transparent darkens through the
+middle" cannot be caught by a ramp from opaque red to transparent *red*: both stops have the same
+RGB, so premultiplied and straight interpolation agree exactly, and so does fading to transparent
+*black*. Interpolating on straight colour was mutated in and the first fixture passed anyway. The
+two only diverge when the transparent stop carries a colour of its own, so the check is now opaque
+**black** fading to transparent **white**: correct gives 0.0 at the midpoint, straight-colour
+interpolation gives 1.0.
+
+**Performance: measured, and two things kept because they measured.** Both left the output
+byte-identical, and both were timed interleaved rather than across runs:
+
+| | 600x800, 400 round rects, `samples: 4` |
+| --- | --- |
+| first working version | 3592 ms |
+| + fill bounded to its own horizontal extent | 2253 ms (1.6x) |
+| + `Solid` evaluated once per fill, not per pixel | 1667 ms (1.33x, 2.2x total) |
+
+The first is why a 26-pixel-wide rectangle no longer costs 600 pixels a row; 1.6x rather than the
+23x the widths suggest, because the rest is elsewhere. **What is still slow is named rather than
+fixed**: `crossings_at` walks the whole edge list per sub-scanline, and holding the scene fixed while
+raising `samples` from 1 to 8 moves the page from 1730 ms to 2863 ms -- about 160 ms per sample step
+in the edge scan, leaving ~1570 ms that sampling does not touch (the per-pixel loop and interpreter
+overhead). An active edge table is the textbook fix and is deferred to part 3, because text is the
+workload with the most edges and is the right thing to measure it against.
+
+**Still owed by this phase:** stroking (part 2), glyph rendering and its cache (part 3), and the
+round trip against the document path -- "render the same `Scene` to PDF and to an image, run
+`pdftotext` on the PDF and assert the text matches" -- which needs text to exist first.

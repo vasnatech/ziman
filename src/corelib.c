@@ -50,6 +50,7 @@
 #include "truetype_source.h"
 #include "font_source.h"
 #include "image_source.h"
+#include "raster_source.h"
 #include "zone_source.h"
 #include "ndjson_source.h"
 #include "csv_source.h"
@@ -114,6 +115,7 @@ static const CoreModule CORE_MODULES[] = {
     {"truetype", TRUETYPE_SOURCE},
     {"font", FONT_SOURCE},
     {"image", IMAGE_SOURCE},
+    {"raster", RASTER_SOURCE},
     {"zone", ZONE_SOURCE},
     {"ndjson", NDJSON_SOURCE},
     {"csv", CSV_SOURCE},

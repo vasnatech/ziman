@@ -131,6 +131,12 @@ flowchart LR
     process --> os
     properties --> fs
     properties --> os
+    raster --> geom
+    raster --> image
+    raster --> math
+    raster --> paint
+    raster --> scene
+    raster --> shape
     scene --> geom
     scene --> paint
     scene --> shape
@@ -181,7 +187,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 1 | `crypto`, `geom`, `json`, `os`, `pdfobj`, `url` |
 | 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `paint`, `shape`, `toml`, `yaml` |
 | 3 | `csv`, `image`, `log`, `mysql`, `pg`, `process`, `properties`, `scene`, `server`, `sqlite`, `truetype`, `uuid`, `zone` |
-| 4 | `datasource`, `font`, `time` |
+| 4 | `datasource`, `font`, `raster`, `time` |
 | 5 | `client`, `migrate`, `pdf`, `schedule` |
 
 ## Each module
@@ -198,14 +204,14 @@ otherwise: everything on a layer depends only on lower layers.
 | `db` | `net`, `number`, `url` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
 | `font` | `truetype` | `pdf` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `zone` |
-| `geom` | `math` | `paint`, `pdf`, `scene`, `shape`, `truetype` |
+| `geom` | `math` | `paint`, `pdf`, `raster`, `scene`, `shape`, `truetype` |
 | `http` | `mime`, `number`, `random`, `url` | `client`, `server` |
-| `image` | `bits`, `compress`, `paint` | `pdf` |
+| `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
 | `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `json`, `number`, `os` | - |
 | `markdown` | - | - |
-| `math` | - | `geom`, `shape` |
+| `math` | - | `geom`, `raster`, `shape` |
 | `metrics` | `os` | `server` |
 | `migrate` | `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |
 | `mime` | - | `client`, `http`, `server` |
@@ -215,18 +221,19 @@ otherwise: everything on a layer depends only on lower layers.
 | `number` | - | `client`, `csv`, `db`, `http`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
 | `os` | `clock` | `client`, `fs`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `random` | - |
-| `paint` | `geom` | `image`, `pdf`, `scene` |
+| `paint` | `geom` | `image`, `pdf`, `raster`, `scene` |
 | `pdf` | `font`, `geom`, `image`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
 | `pdfobj` | `compress` | `pdf` |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `process` | `fs`, `os` | - |
 | `properties` | `fs`, `os` | - |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `uuid` |
+| `raster` | `geom`, `image`, `math`, `paint`, `scene`, `shape` | - |
 | `regex` | - | - |
-| `scene` | `geom`, `paint`, `shape` | `pdf` |
+| `scene` | `geom`, `paint`, `shape` | `pdf`, `raster` |
 | `schedule` | `clock`, `time` | - |
 | `server` | `clock`, `compress`, `http`, `json`, `metrics`, `mime`, `net`, `number`, `os` | - |
-| `shape` | `geom`, `math` | `pdf`, `scene`, `truetype` |
+| `shape` | `geom`, `math` | `pdf`, `raster`, `scene`, `truetype` |
 | `sqlite` | `db`, `number` | `datasource` |
 | `test` | - | - |
 | `thread` | - | - |

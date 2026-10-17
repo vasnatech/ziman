@@ -668,3 +668,24 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   making it fast -- this project's history is full of structurally obvious optimisations that
   measured worse. Depends on F141, F143 and F144.
   See `docs/graphics/phase-5-raster-backend.md`.
+
+  *Part 1 of 3 done 2026-10-16: scan-conversion.* Fills with both winding rules, both gradients,
+  image patterns and `DrawImage`, under an arbitrary clip path and nested transforms, to all three
+  pixel formats. Stroking and text return an `Err` naming their part. **`paint.Pattern` renders here
+  and not in the PDF backend**, which is what invariant 2 is for. Coverage is exact horizontally and
+  supersampled vertically -- and *that is why three of the design's own checks had to be replaced*:
+  a 45-degree edge gives every partial pixel the same coverage, so the distinct-level count cannot
+  move with `samples` (it is 3 at every setting); the replacement uses a 1-in-8 slope and reads
+  2/5/10 at samples 1/4/16 with the area exactly 64 throughout. The clip check was written against
+  `pi*r^2`, where a disc of radius 10 measures 0.6% short -- not a bug but the flattened polygon
+  being *inscribed*, confirmed by the deficit falling to 0.0039% at radius 300 -- so it now compares
+  a clipped full-canvas fill against filling the same disc directly, which agree to every digit.
+  The premultiplication check needed two attempts: a fade from opaque red to transparent *red*
+  cannot catch straight-colour interpolation, because both stops share an RGB and the two methods
+  agree exactly; the mutation passed until the fixture became opaque black to transparent white,
+  which gives 0.0 against 1.0. **Measured, not guessed**: bounding a fill to its own horizontal
+  extent (3592 ms to 2253 ms) and evaluating a `Solid` once per fill rather than per pixel (to
+  1667 ms) on a 600x800 page of 400 round rectangles, both interleaved and both byte-identical in
+  output. The remaining hotspot is named and left alone -- `crossings_at` walks every edge per
+  sub-scanline, and an active edge table is deferred to part 3 so it can be measured against text,
+  which is the workload with the edges.

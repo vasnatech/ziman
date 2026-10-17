@@ -1,0 +1,32 @@
+full canvas is the paint:  1.0000 1.0000
+full canvas ink = 256:     256.0000
+top half ink = 128:        128.0000
+half by diagonal ~128:     128.0314
+star centre, non-zero:     1.0000
+star centre, even-odd:     0.0000
+star limb, both rules:     1.0000 1.0000
+levels at 1 / 4 / 16:      2 5 10
+wedge ink at 1 / 16 = 64:  64.0000 64.0000
+black-to-clear stays black:0.0000 at alpha 0.4863
+red fade keeps its hue:    1.0000 at alpha 0.4863
+radial centre vs corner:   0.9294 0.0000
+clip centre vs corner:     1.0000 0.0000
+clipped ink == disc ink:   312.2980 and 312.2980
+group moved the fill:      0.0000 then 1.0000
+image top-left  is red:    1.0,0.0,0.0
+image top-right is green:  0.0,1.0,0.0
+image bottom-l  is blue:   0.0,0.0,1.0
+image bottom-r  is white:  1.0,1.0,1.0
+pattern quadrants:         1.0,0.0,0.0 0.0,1.0,0.0 0.0,0.0,1.0 1.0,1.0,1.0
+green as Gray8 luminance:  0.5882
+half-blue over white:      0.5020 1.0000
+untouched stays white:     1.0000
+off-canvas draws nothing:  0.0000 0.0000
+straddling draws 8 of 16:  128.0000
+stroking:            raster: stroking is not implemented yet (phase 5 part 2); fill the outline instead
+text:                raster: text is not implemented yet (phase 5 part 3); render to PDF for text today
+samples out of range:raster: samples must be between 1 and 16, got 64 (1 is no anti-aliasing, 4 is good, 16 is as much as vertical supersampling gives)
+past the pixel cap:  raster: 4000x4000 is 16000000 pixels, past the 1000 allowed
+image out of range:  raster: a draw names image 3 but Options.images holds 0
+one gradient stop:   raster: a gradient needs at least two stops, got 1
+a zero-size scene:   raster: a 0.0x10.0 scene has no pixels

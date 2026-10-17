@@ -1,0 +1,859 @@
+// raster.zm -- the second backend: a `Scene` to an `Image`.
+//
+// The PDF backend is a serialiser; this one has to *do* what a PDF reader was doing. Three
+// separable pieces live here -- scan-conversion, stroking, and glyph rendering -- and they land in
+// that order, because each is testable without the next and the first is the one the other two are
+// written in terms of.
+//
+// **Correct first, and measured rather than guessed at.** The design note for this phase says the
+// first version should be obviously correct and measured before it is made fast, because this
+// project's history is full of structurally obvious optimisations that measured worse. Two were
+// kept because they were measured, both with the output byte-identical: bounding a fill to its own
+// horizontal extent (1.6x) and evaluating a `Solid` paint once per fill instead of once per pixel
+// (a further 1.33x). Together 3592 ms to 1667 ms for a 600x800 page of 400 round rectangles at
+// `samples: 4`.
+//
+// **What is still slow, measured and not fixed here.** `crossings_at` walks the whole edge list for
+// every sub-scanline, so cost grows with (rows x samples x edges). Holding the samples at 1 and
+// raising them to 8 moves that page from 1730 ms to 2863 ms, which puts roughly 160 ms per sample
+// step in the edge scan and leaves about 1570 ms that sampling does not touch -- the per-pixel loop
+// and plain interpreter overhead. The textbook fix is an active edge table (edges sorted by y, a
+// list maintained across scanlines), which would cut the scan by about the edge count; it is not
+// here because part 1's job is to be right, and because that is a change worth measuring against
+// text, which is the workload with the most edges and does not exist yet.
+use geom.Matrix
+use geom.Point
+use geom.Rect
+use geom.identity
+use geom.invert
+use geom.matrix_concat
+use geom.point_of
+use geom.rect_of
+use geom.transform_point
+use image
+use math.ceil
+use math.floor
+use math.sqrt
+use paint.Color
+use paint.Paint
+use paint.Stop
+use scene.Op
+use scene.Scene
+use shape.Path
+use shape.Segment
+use shape.Winding
+
+// Quarter of a pixel, which is the tolerance the design settled on: looser and a large circle
+// visibly facets, tighter and a page of text costs many times what it should for a difference
+// nobody can see.
+val flatten_tolerance: float = 0.25
+
+// Subdivision is adaptive, so this cap is not the quality knob -- it only bounds the work a
+// pathological curve (a cusp, or control points at infinity) can ask for.
+val max_subdivision: int = 16
+
+pub struct Options {
+    format: image.Pixels
+    // Anti-aliasing: vertical sub-scanlines per pixel row. 1 is none, 4 is good, 16 is as much as
+    // this method can usefully give. Horizontal coverage is *exact* either way -- see `add_span` --
+    // so this number only quantises the vertical direction.
+    samples: int
+    // What the canvas starts as. `None` is transparent, which an `Rgb8` or `Gray8` output then
+    // flattens to black, because those formats have nowhere to keep the transparency.
+    background: Option<Color>
+    // The images `DrawImage` and `paint.Pattern` index into, exactly as `pdf.Options` carries them.
+    images: [image.Image]
+    // The same guard `image.decode_png` takes, for the same reason: a scene's size can come from a
+    // request, and a 50000x50000 page should be a message rather than 40 GB of allocation.
+    max_pixels: int
+}
+
+pub fn options() -> Options {
+    return Options {
+        format: image.Pixels.Rgba8,
+        samples: 4,
+        background: Option<Color>.None,
+        images: [],
+        max_pixels: 4000000
+    }
+}
+
+// Premultiplied, because every blend here is in premultiplied alpha. Gradient interpolation
+// especially: lerping *un*-premultiplied colour toward a transparent stop darkens through the
+// middle, which reads as a rendering bug rather than as the arithmetic mistake it is.
+struct Premul {
+    red: float
+    green: float
+    blue: float
+    alpha: float
+}
+
+fn premul_of(c: Color) -> Premul {
+    return Premul { red: c.red * c.alpha, green: c.green * c.alpha, blue: c.blue * c.alpha, alpha: c.alpha }
+}
+
+// An image placed into a rectangle. `DrawImage` is not a `Paint`, but it is the same operation from
+// the span loop's point of view -- a function from a point to a colour -- so it joins the paints
+// here rather than growing a second fill path.
+struct Tile {
+    handle: int
+    into: Rect
+}
+
+enum Ink {
+    FromPaint(Paint)
+    FromImage(Tile)
+}
+
+// The accumulation buffer: premultiplied RGBA, four floats a pixel. `[float]` is packed storage in
+// this language, so this is 16 bytes a pixel of pointer-free memory the collector never scans, not
+// four boxed values.
+struct Target {
+    width: int
+    height: int
+    data: MutableArray<float>
+}
+
+// Non-horizontal edges only, four floats each (x0, y0, x1, y1), in device space. A horizontal edge
+// crosses no scanline, so dropping it here means the span loop never has to special-case the
+// division by zero.
+struct Edges {
+    xy: [float]
+    min_x: float
+    max_x: float
+    min_y: float
+    max_y: float
+}
+
+pub fn render(s: Scene, o: Options) -> Result<image.Image, string> {
+    if o.samples < 1 || o.samples > 16 {
+        return err(concat(
+            "raster: samples must be between 1 and 16, got ",
+            str(o.samples),
+            " (1 is no anti-aliasing, 4 is good, 16 is as much as vertical supersampling gives)"
+        ))
+    }
+    if s.width <= 0.0 || s.height <= 0.0 {
+        return err(concat("raster: a ", format("{}", s.width), "x", format("{}", s.height), " scene has no pixels"))
+    }
+    val width = ceil(s.width)
+    val height = ceil(s.height)
+    if width * height > o.max_pixels {
+        return err(concat(
+            "raster: ",
+            str(width),
+            "x",
+            str(height),
+            " is ",
+            str(width * height),
+            " pixels, past the ",
+            str(o.max_pixels),
+            " allowed"
+        ))
+    }
+    val t = new_target(width, height)
+    switch o.background {
+        Some(c) { clear_to(t, premul_of(c)) }
+        None { unit }
+    }
+    // The scene's own background is a `Paint`, so it is a fill of the whole canvas rather than a
+    // memset -- that is what makes a gradient background work.
+    switch s.background {
+        Some(p) {
+            try fill_shape(
+                t,
+                shape.rect_path(rect_of(0.0, 0.0, s.width, s.height)),
+                Ink.FromPaint(p),
+                identity(),
+                Option<[float]>.None,
+                o
+            )
+        }
+        None { unit }
+    }
+    try draw_ops(t, s.ops, identity(), Option<[float]>.None, o)
+    return finish(t, o.format)
+}
+
+fn new_target(width: int, height: int) -> Target {
+    val data = mutable_array_new<float>()
+    var i = 0
+    val total = width * height * 4
+    while i < total {
+        mutable_array_push(data, 0.0)
+        i = i + 1
+    }
+    return Target { width: width, height: height, data: data }
+}
+
+fn clear_to(t: Target, c: Premul) {
+    var i = 0
+    val total = t.width * t.height
+    while i < total {
+        mutable_array_set(t.data, i * 4, c.red)
+        mutable_array_set(t.data, i * 4 + 1, c.green)
+        mutable_array_set(t.data, i * 4 + 2, c.blue)
+        mutable_array_set(t.data, i * 4 + 3, c.alpha)
+        i = i + 1
+    }
+}
+
+// ---- the scene walk
+
+fn draw_ops(t: Target, ops: [Op], m: Matrix, clip: Option<[float]>, o: Options) -> Result<unit, string> {
+    for op in ops {
+        switch op {
+            Fill(f) { try fill_shape(t, f.path, Ink.FromPaint(f.fill), m, clip, o) }
+            StrokePath(_) {
+                return err(
+                    "raster: stroking is not implemented yet (phase 5 part 2); fill the outline instead"
+                )
+            }
+            Text(_) {
+                return err(
+                    "raster: text is not implemented yet (phase 5 part 3); render to PDF for text today"
+                )
+            }
+            DrawImage(p) {
+                if p.image < 0 || p.image >= len(o.images) {
+                    return err(concat(
+                        "raster: a draw names image ",
+                        str(p.image),
+                        " but Options.images holds ",
+                        str(len(o.images))
+                    ))
+                }
+                try fill_shape(
+                    t,
+                    shape.rect_path(p.into),
+                    Ink.FromImage(Tile { handle: p.image, into: geom.normalized(p.into) }),
+                    m,
+                    clip,
+                    o
+                )
+            }
+            Nested(g) {
+                val inner = matrix_concat(m, g.transform)
+                val narrowed = switch g.clip {
+                    Some(path) { Option<[float]>.Some(try clip_mask(t, path, m, clip, o)) }
+                    None { clip }
+                }
+                try draw_ops(t, g.ops, inner, narrowed, o)
+            }
+        }
+    }
+    return unit
+}
+
+// A clip is a **coverage mask**, not a rectangle: an arbitrary clip path is rasterised once into a
+// Gray-ish buffer and multiplied into everything the group draws. A rectangle fast path is worth
+// having later (almost every clip is one), but the general case has to exist, because a `Group`
+// whose clip was silently ignored is exactly what invariant 2 forbids.
+fn clip_mask(
+    t: Target,
+    path: Path,
+    m: Matrix,
+    existing: Option<[float]>,
+    o: Options
+) -> Result<[float], string> {
+    val device = shape.transform_path(path, m)
+    val e = edges_of(device)
+    val mask = mutable_array_new<float>()
+    val row = mutable_array_new<float>()
+    var i = 0
+    while i < t.width {
+        mutable_array_push(row, 0.0)
+        i = i + 1
+    }
+    var y = 0
+    while y < t.height {
+        row_coverage(row, t.width, e, device.winding, o.samples, y, 0, t.width - 1)
+        var x = 0
+        while x < t.width {
+            val here = mutable_array_get(row, x)
+            val before = switch existing {
+                Some(prev) { prev[y * t.width + x] }
+                None { 1.0 }
+            }
+            mutable_array_push(mask, here * before)
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return ok(snapshot(mask))
+}
+
+// ---- filling
+
+fn fill_shape(
+    t: Target,
+    path: Path,
+    k: Ink,
+    m: Matrix,
+    clip: Option<[float]>,
+    o: Options
+) -> Result<unit, string> {
+    // The paint is evaluated in **user space**, by mapping each covered pixel's centre back through
+    // the inverse. The alternative -- transforming the gradient's own geometry forward -- cannot be
+    // right under a non-uniform scale, where a radial gradient's circle becomes an ellipse and its
+    // `radius` has no single value to carry. So a singular matrix is refused rather than guessed
+    // at; it also means the shape has no area, so nothing is lost.
+    val inv = switch invert(m) {
+        Ok(i) { i }
+        Err(why) { return err(concat("raster: this group's transform cannot be inverted (", why, ")")) }
+    }
+    val device = shape.transform_path(path, m)
+    val e = edges_of(device)
+    if len(e.xy) == 0 {
+        return unit
+    }
+    val first_row = clamp_int(floor(e.min_y), 0, t.height - 1)
+    val last_row = clamp_int(ceil(e.max_y), 0, t.height - 1)
+    // **The shape's own horizontal extent, not the canvas's.** A 26-pixel-wide rectangle on a
+    // 600-pixel canvas otherwise costs 600 pixels a row instead of 26. Interleaved A/B on a page of
+    // 400 of them: 3592 ms to 2253 ms, so 1.6x -- not the 23x the ratio of widths suggests, because
+    // most of the remaining time is the edge scan and the interpreter, not this loop.
+    val first_col = clamp_int(floor(e.min_x), 0, t.width - 1)
+    val last_col = clamp_int(ceil(e.max_x), 0, t.width - 1)
+    // A solid colour is the same at every pixel, so it is evaluated once instead of per pixel --
+    // which also skips the inverse transform there. Every other ink genuinely varies with position.
+    // Worth 1.33x on the same page (2253 ms to 1667 ms, interleaved), and `Solid` is the common case.
+    val flat = switch k {
+        FromPaint(p) {
+            switch p {
+                Solid(c) { Option<Premul>.Some(premul_of(c)) }
+                LinearGradient(_) { Option<Premul>.None }
+                RadialGradient(_) { Option<Premul>.None }
+                Pattern(_) { Option<Premul>.None }
+            }
+        }
+        FromImage(_) { Option<Premul>.None }
+    }
+    val row = mutable_array_new<float>()
+    var i = 0
+    while i < t.width {
+        mutable_array_push(row, 0.0)
+        i = i + 1
+    }
+    var y = first_row
+    while y <= last_row {
+        row_coverage(row, t.width, e, device.winding, o.samples, y, first_col, last_col)
+        var x = first_col
+        while x <= last_col {
+            val cov = mutable_array_get(row, x)
+            // Below a 255th of a level there is nothing to add to an 8-bit channel, and skipping
+            // it is what keeps a full-page fill from evaluating a gradient outside its own bounds.
+            if cov > 0.002 {
+                val through = switch clip {
+                    Some(mask) { mask[y * t.width + x] }
+                    None { 1.0 }
+                }
+                if through > 0.002 {
+                    val c = switch flat {
+                        Some(constant) { constant }
+                        None {
+                            try ink_at(k, inv, o.images, point_of((x as float) + 0.5, (y as float) + 0.5))
+                        }
+                    }
+                    composite(t, x, y, c, cov * through)
+                }
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return unit
+}
+
+// One pixel row's coverage, as a fraction in 0..1 per pixel.
+//
+// Vertically the row is sampled `samples` times; horizontally each span contributes its **exact**
+// overlap with each pixel. That asymmetry is deliberate: horizontal exactness is free (it is one
+// subtraction per span end) and it is the direction a near-vertical edge needs most.
+fn row_coverage(
+    row: MutableArray<float>,
+    width: int,
+    e: Edges,
+    winding: Winding,
+    samples: int,
+    y: int,
+    from_x: int,
+    to_x: int
+) {
+    // Only the window the shape can touch is cleared. Every crossing comes from an edge, and every
+    // edge lies within `[min_x, max_x]`, so no span can write outside it.
+    var i = from_x
+    while i <= to_x {
+        mutable_array_set(row, i, 0.0)
+        i = i + 1
+    }
+    val weight = 1.0 / (samples as float)
+    val xs = mutable_array_new<float>()
+    val dirs = mutable_array_new<int>()
+    var s = 0
+    while s < samples {
+        val sy = (y as float) + ((s as float) + 0.5) * weight
+        mutable_array_truncate(xs, 0)
+        mutable_array_truncate(dirs, 0)
+        crossings_at(e, sy, xs, dirs)
+        spans_from(xs, dirs, winding, row, width, weight)
+        s = s + 1
+    }
+}
+
+// Where the edge list crosses one horizontal line, inserted in x order as they are found.
+//
+// The half-open rule -- `y0 <= sy < y1` -- is what stops a vertex shared by two edges being counted
+// twice. Getting it wrong produces a one-pixel seam along every shared boundary, which looks like a
+// rounding problem and is not one.
+fn crossings_at(e: Edges, sy: float, xs: MutableArray<float>, dirs: MutableArray<int>) {
+    var i = 0
+    while i + 3 < len(e.xy) {
+        val x0 = e.xy[i]
+        val y0 = e.xy[i + 1]
+        val x1 = e.xy[i + 2]
+        val y1 = e.xy[i + 3]
+        val low = if y0 < y1 { y0 } else { y1 }
+        val high = if y0 < y1 { y1 } else { y0 }
+        if sy >= low && sy < high {
+            val x = x0 + (sy - y0) * (x1 - x0) / (y1 - y0)
+            val dir = if y1 > y0 { 1 } else { 0 - 1 }
+            // Insertion sort: a scanline crosses a handful of edges even on a complex path, and
+            // this keeps the two arrays parallel without a comparator over a struct.
+            var at = len(xs)
+            mutable_array_push(xs, x)
+            mutable_array_push(dirs, dir)
+            while at > 0 && mutable_array_get(xs, at - 1) > x {
+                mutable_array_set(xs, at, mutable_array_get(xs, at - 1))
+                mutable_array_set(dirs, at, mutable_array_get(dirs, at - 1))
+                mutable_array_set(xs, at - 1, x)
+                mutable_array_set(dirs, at - 1, dir)
+                at = at - 1
+            }
+        }
+        i = i + 4
+    }
+}
+
+// **Both winding rules out of the same crossing list**, which is the whole reason to keep them
+// together: they differ only in the predicate that decides where a span opens and closes. Writing
+// one and adding the other later would mean rewriting this loop.
+fn spans_from(
+    xs: MutableArray<float>,
+    dirs: MutableArray<int>,
+    winding: Winding,
+    row: MutableArray<float>,
+    width: int,
+    weight: float
+) {
+    val n = len(xs)
+    var inside = 0
+    var start = 0.0
+    var i = 0
+    while i < n {
+        val was_inside = switch winding {
+            NonZero { inside != 0 }
+            EvenOdd { inside % 2 != 0 }
+        }
+        inside = switch winding {
+            NonZero { inside + mutable_array_get(dirs, i) }
+            EvenOdd { inside + 1 }
+        }
+        val now_inside = switch winding {
+            NonZero { inside != 0 }
+            EvenOdd { inside % 2 != 0 }
+        }
+        if !was_inside && now_inside {
+            start = mutable_array_get(xs, i)
+        } else if was_inside && !now_inside {
+            add_span(row, width, start, mutable_array_get(xs, i), weight)
+        }
+        i = i + 1
+    }
+}
+
+// A span's exact overlap with each pixel it touches.
+fn add_span(row: MutableArray<float>, width: int, from: float, to: float, weight: float) {
+    var xa = from
+    var xb = to
+    if xa < 0.0 {
+        xa = 0.0
+    }
+    if xb > width as float {
+        xb = width as float
+    }
+    if xb <= xa {
+        return
+    }
+    val ia = clamp_int(floor(xa), 0, width - 1)
+    val ib = clamp_int(floor(xb), 0, width - 1)
+    if ia == ib {
+        mutable_array_set(row, ia, mutable_array_get(row, ia) + (xb - xa) * weight)
+        return
+    }
+    // The partial pixel at each end, and whole pixels between.
+    mutable_array_set(row, ia, mutable_array_get(row, ia) + (((ia + 1) as float) - xa) * weight)
+    var i = ia + 1
+    while i < ib {
+        mutable_array_set(row, i, mutable_array_get(row, i) + weight)
+        i = i + 1
+    }
+    mutable_array_set(row, ib, mutable_array_get(row, ib) + (xb - (ib as float)) * weight)
+    return
+}
+
+// Source-over in premultiplied alpha, which is two multiplies and an add per channel and the reason
+// the buffer is premultiplied in the first place.
+fn composite(t: Target, x: int, y: int, c: Premul, cov: float) {
+    val at = (y * t.width + x) * 4
+    val keep = 1.0 - c.alpha * cov
+    mutable_array_set(t.data, at, c.red * cov + mutable_array_get(t.data, at) * keep)
+    mutable_array_set(t.data, at + 1, c.green * cov + mutable_array_get(t.data, at + 1) * keep)
+    mutable_array_set(t.data, at + 2, c.blue * cov + mutable_array_get(t.data, at + 2) * keep)
+    mutable_array_set(t.data, at + 3, c.alpha * cov + mutable_array_get(t.data, at + 3) * keep)
+}
+
+// ---- paints
+
+fn ink_at(k: Ink, inv: Matrix, images: [image.Image], device: Point) -> Result<Premul, string> {
+    val user = transform_point(inv, device)
+    return switch k {
+        FromPaint(p) { paint_at(p, user, inv, images) }
+        FromImage(tile) {
+            val r = tile.into
+            val u = (user.x - r.x) / r.width
+            val v = (user.y - r.y) / r.height
+            ok(sample_image(images[tile.handle], u, v))
+        }
+    }
+}
+
+fn paint_at(p: Paint, user: Point, inv: Matrix, images: [image.Image]) -> Result<Premul, string> {
+    return switch p {
+        Solid(c) { ok(premul_of(c)) }
+        LinearGradient(g) {
+            val dx = g.to.x - g.from.x
+            val dy = g.to.y - g.from.y
+            val span = dx * dx + dy * dy
+            if span <= 0.0 {
+                return err("raster: a linear gradient whose two points are the same has no axis")
+            }
+            // The projection of the point onto the axis, as a fraction of its length.
+            ramp_at(g.stops, ((user.x - g.from.x) * dx + (user.y - g.from.y) * dy) / span)
+        }
+        RadialGradient(g) {
+            if g.radius <= 0.0 {
+                return err(concat("raster: a radial gradient needs a positive radius, got ", format("{}", g.radius)))
+            }
+            val dx = user.x - g.centre.x
+            val dy = user.y - g.centre.y
+            ramp_at(g.stops, sqrt(dx * dx + dy * dy) / g.radius)
+        }
+        Pattern(tiled) {
+            if tiled.image < 0 || tiled.image >= len(images) {
+                return err(concat(
+                    "raster: a pattern names image ",
+                    str(tiled.image),
+                    " but Options.images holds ",
+                    str(len(images))
+                ))
+            }
+            // **The raster backend can draw this and the PDF one cannot**, which is the asymmetry
+            // invariant 2 exists for: a backend says what it cannot do instead of approximating.
+            // Sampling is nearest-neighbour, which is honest and obviously improvable, where a
+            // half-finished bilinear would be neither.
+            val img = images[tiled.image]
+            val local = switch invert(tiled.transform) {
+                Ok(i) { transform_point(i, user) }
+                Err(why) { return err(concat("raster: this pattern's matrix cannot be inverted (", why, ")")) }
+            }
+            ok(sample_image(img, local.x / (img.width as float), local.y / (img.height as float)))
+        }
+    }
+}
+
+// Interpolation **in premultiplied alpha**. Done on straight colour, a ramp from opaque red to
+// transparent passes through a dark red halfway along, because the transparent stop's own RGB gets
+// averaged in at full weight.
+fn ramp_at(stops: [Stop], raw: float) -> Result<Premul, string> {
+    if len(stops) < 2 {
+        return err(concat("raster: a gradient needs at least two stops, got ", str(len(stops))))
+    }
+    var t = raw
+    if t < 0.0 {
+        t = 0.0
+    }
+    if t > 1.0 {
+        t = 1.0
+    }
+    if t <= stops[0].offset {
+        return ok(premul_of(stops[0].color))
+    }
+    var i = 1
+    while i < len(stops) {
+        val lo = stops[i - 1]
+        val hi = stops[i]
+        if t <= hi.offset {
+            val width = hi.offset - lo.offset
+            val f = if width > 0.0 { (t - lo.offset) / width } else { 0.0 }
+            val a = premul_of(lo.color)
+            val b = premul_of(hi.color)
+            return ok(Premul {
+                red: a.red + (b.red - a.red) * f,
+                green: a.green + (b.green - a.green) * f,
+                blue: a.blue + (b.blue - a.blue) * f,
+                alpha: a.alpha + (b.alpha - a.alpha) * f
+            })
+        }
+        i = i + 1
+    }
+    return ok(premul_of(stops[len(stops) - 1].color))
+}
+
+// Nearest-neighbour, clamped at the edges. `u` and `v` are in 0..1 across the image.
+fn sample_image(img: image.Image, u: float, v: float) -> Premul {
+    val x = clamp_int(floor(u * (img.width as float)), 0, img.width - 1)
+    val y = clamp_int(floor(v * (img.height as float)), 0, img.height - 1)
+    return switch image.pixel_at(img, x, y) {
+        Ok(c) { premul_of(c) }
+        // Unreachable: the coordinates are clamped to the image above. An `Err` here would mean
+        // `pixel_at` and `clamp_int` disagree about the bounds, so it says that rather than
+        // pretending a transparent pixel was the answer.
+        Err(_) { Premul { red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0 } }
+    }
+}
+
+// ---- flattening
+
+// Every curve becomes line segments, by **adaptive** subdivision on flatness. A fixed number of
+// steps is wrong at both ends: it facets a large circle while spending the same work on one a
+// pixel across.
+fn edges_of(p: Path) -> Edges {
+    val xy = mutable_array_new<float>()
+    var sx = 0.0
+    var sy = 0.0
+    var cx = 0.0
+    var cy = 0.0
+    var started = false
+    for seg in p.segments {
+        switch seg {
+            MoveTo(pt) {
+                if started {
+                    push_edge(xy, cx, cy, sx, sy)
+                }
+                sx = pt.x
+                sy = pt.y
+                cx = pt.x
+                cy = pt.y
+                started = true
+            }
+            LineTo(pt) {
+                push_edge(xy, cx, cy, pt.x, pt.y)
+                cx = pt.x
+                cy = pt.y
+            }
+            QuadTo(q) {
+                // Elevated to a cubic rather than given its own subdivider: the two control points
+                // of the equivalent cubic are exact, so this loses nothing and halves the code that
+                // has to be right.
+                val c1x = cx + 2.0 / 3.0 * (q.control.x - cx)
+                val c1y = cy + 2.0 / 3.0 * (q.control.y - cy)
+                val c2x = q.end.x + 2.0 / 3.0 * (q.control.x - q.end.x)
+                val c2y = q.end.y + 2.0 / 3.0 * (q.control.y - q.end.y)
+                flatten_cubic(xy, cx, cy, c1x, c1y, c2x, c2y, q.end.x, q.end.y, 0)
+                cx = q.end.x
+                cy = q.end.y
+            }
+            CubicTo(c) {
+                flatten_cubic(xy, cx, cy, c.control1.x, c.control1.y, c.control2.x, c.control2.y, c.end.x, c.end.y, 0)
+                cx = c.end.x
+                cy = c.end.y
+            }
+            Close {
+                push_edge(xy, cx, cy, sx, sy)
+                cx = sx
+                cy = sy
+            }
+        }
+    }
+    // **A fill always closes.** An unclosed subpath still bounds a region, and leaving the last
+    // edge out would let the span loop pair a crossing with one from the next subpath.
+    if started {
+        push_edge(xy, cx, cy, sx, sy)
+    }
+    // The extent of the whole edge list, in both directions. The horizontal half is what keeps a
+    // narrow shape from costing a full canvas row per scanline -- see `fill_shape`.
+    var min_x = 0.0
+    var max_x = 0.0
+    var min_y = 0.0
+    var max_y = 0.0
+    var i = 0
+    while i + 3 < len(xy) {
+        var k = 0
+        while k < 4 {
+            val v = mutable_array_get(xy, i + k)
+            val is_x = k % 2 == 0
+            if i == 0 && k < 2 {
+                min_x = mutable_array_get(xy, 0)
+                max_x = min_x
+                min_y = mutable_array_get(xy, 1)
+                max_y = min_y
+            }
+            if is_x && v < min_x {
+                min_x = v
+            }
+            if is_x && v > max_x {
+                max_x = v
+            }
+            if !is_x && v < min_y {
+                min_y = v
+            }
+            if !is_x && v > max_y {
+                max_y = v
+            }
+            k = k + 1
+        }
+        i = i + 4
+    }
+    return Edges { xy: snapshot(xy), min_x: min_x, max_x: max_x, min_y: min_y, max_y: max_y }
+}
+
+fn push_edge(xy: MutableArray<float>, x0: float, y0: float, x1: float, y1: float) {
+    // A horizontal edge crosses no scanline. Dropping it here is why `crossings_at` never divides
+    // by zero.
+    if y0 == y1 {
+        return
+    }
+    mutable_array_push(xy, x0)
+    mutable_array_push(xy, y0)
+    mutable_array_push(xy, x1)
+    mutable_array_push(xy, y1)
+    return
+}
+
+fn flatten_cubic(
+    xy: MutableArray<float>,
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    x3: float,
+    y3: float,
+    depth: int
+) {
+    if depth >= max_subdivision || flat_enough(x0, y0, x1, y1, x2, y2, x3, y3) {
+        push_edge(xy, x0, y0, x3, y3)
+        return
+    }
+    // de Casteljau at the midpoint.
+    val ax = (x0 + x1) / 2.0
+    val ay = (y0 + y1) / 2.0
+    val bx = (x1 + x2) / 2.0
+    val by = (y1 + y2) / 2.0
+    val cx = (x2 + x3) / 2.0
+    val cy = (y2 + y3) / 2.0
+    val dx = (ax + bx) / 2.0
+    val dy = (ay + by) / 2.0
+    val ex = (bx + cx) / 2.0
+    val ey = (by + cy) / 2.0
+    val mx = (dx + ex) / 2.0
+    val my = (dy + ey) / 2.0
+    flatten_cubic(xy, x0, y0, ax, ay, dx, dy, mx, my, depth + 1)
+    flatten_cubic(xy, mx, my, ex, ey, cx, cy, x3, y3, depth + 1)
+    return
+}
+
+// Both control points within the tolerance of the chord, measured as the cross product (an area)
+// against the chord length, so there is no square root in the inner test.
+fn flat_enough(
+    x0: float,
+    y0: float,
+    x1: float,
+    y1: float,
+    x2: float,
+    y2: float,
+    x3: float,
+    y3: float
+) -> bool {
+    val dx = x3 - x0
+    val dy = y3 - y0
+    val chord = dx * dx + dy * dy
+    // **A closed loop, where the chord is a point.** The cross products are then both zero and the
+    // naive test would call a full loop flat and collapse it to nothing. Fall back to measuring the
+    // control points against the start.
+    if chord < 1e-12 {
+        val a = (x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)
+        val b = (x2 - x0) * (x2 - x0) + (y2 - y0) * (y2 - y0)
+        val worst = if a > b { a } else { b }
+        return worst <= flatten_tolerance * flatten_tolerance
+    }
+    val d1 = abs_float((x1 - x0) * dy - (y1 - y0) * dx)
+    val d2 = abs_float((x2 - x0) * dy - (y2 - y0) * dx)
+    val sum = d1 + d2
+    return sum * sum <= flatten_tolerance * flatten_tolerance * chord
+}
+
+// ---- output
+
+fn finish(t: Target, format: image.Pixels) -> Result<image.Image, string> {
+    val out = mutable_array_new<byte>()
+    val n = image.channels_of(format)
+    var i = 0
+    val total = t.width * t.height
+    while i < total {
+        val r = mutable_array_get(t.data, i * 4)
+        val g = mutable_array_get(t.data, i * 4 + 1)
+        val b = mutable_array_get(t.data, i * 4 + 2)
+        val a = mutable_array_get(t.data, i * 4 + 3)
+        if n == 4 {
+            // Un-premultiplied, because that is what `image.Image` holds and what PNG stores.
+            val inv_a = if a > 0.0 { 1.0 / a } else { 0.0 }
+            mutable_array_push(out, to_byte(r * inv_a))
+            mutable_array_push(out, to_byte(g * inv_a))
+            mutable_array_push(out, to_byte(b * inv_a))
+            mutable_array_push(out, to_byte(a))
+        } else if n == 3 {
+            // Already composited over whatever the canvas started as, so the premultiplied value
+            // *is* the colour over that background. With no background that is black.
+            mutable_array_push(out, to_byte(r))
+            mutable_array_push(out, to_byte(g))
+            mutable_array_push(out, to_byte(b))
+        } else {
+            mutable_array_push(out, to_byte(0.299 * r + 0.587 * g + 0.114 * b))
+        }
+        i = i + 1
+    }
+    return image.image_of(t.width, t.height, format, snapshot(out))
+}
+
+fn to_byte(v: float) -> byte {
+    var x = v * 255.0 + 0.5
+    if x < 0.0 {
+        x = 0.0
+    }
+    if x > 255.0 {
+        x = 255.0
+    }
+    return (x as int) as byte
+}
+
+fn clamp_int(v: int, low: int, high: int) -> int {
+    if v < low {
+        return low
+    }
+    if v > high {
+        return high
+    }
+    return v
+}
+
+fn abs_float(v: float) -> float {
+    if v < 0.0 {
+        return 0.0 - v
+    }
+    return v
+}
+use geom
+use shape
