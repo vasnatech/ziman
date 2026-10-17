@@ -309,6 +309,59 @@ One module registered, the usual five places (`Makefile`'s `CORELIB_MODULES`, `s
 include and table row, `tools/gen_lib_manual.py`'s `GROUPS`). No native code. No new dependency
 outside `lib/graphics` except `font`, which it already shares with both backends.
 
+## What the export experiment found
+
+The step this document asks for at the end has now been taken, in miniature: one real page of the
+health-record export written directly against `scene` and `pdf`, with a patient title block, a mint
+rule, a five-column medication table and wrapped note text under each row. **It is 131 lines and it
+produces a better page than the reference implementation does** -- `PdfExportService` in the Spring
+backend wraps nothing at all (`showText` with no width check) and has no table.
+
+Then it was made to paginate forty medications, and that is where it went wrong.
+
+**1. The page-break estimate is a guess, and the guess fails silently.** The condition is
+
+```ziman
+if y > page_h - margin - leading * 3.0 { ... start a new page ... }
+```
+
+and the `3.0` means "a row, plus about two lines of notes". It is the only thing that can be written
+without measuring. Given a note that wraps to six lines, **three of five pages print 17pt past the
+bottom margin** -- not an error, not a warning, just text in the margin, and with a slightly longer
+note it would run off the paper.
+
+This is the whole argument for `measure` and `split` being separate from `draw`. A break cannot be
+decided without knowing the height of what comes next; the height cannot be known without wrapping;
+and wrapping is what `draw` was about to do anyway. A caller doing its own layout has no way to ask
+the question, so it guesses, and the guess is wrong exactly when the content is unusual -- which in
+a medical record is the case that matters most.
+
+**2. Pagination cost 27% more code, and none of it is separable.** 131 lines to 167. The new code
+is not a block at the top or a wrapper at the bottom; it is interleaved with the content, because
+the break has to happen *between* two particular rows.
+
+**3. The header-drawing code is duplicated verbatim.** Once before the loop, once inside the break
+branch. That is `Table.header` in the model above earning its keep before the module exists: the
+field is not a convenience, it is the thing that stops this copy-paste.
+
+**4. Column positions are magic numbers.** `[margin, margin + 150, margin + 230, ...]`, tuned until
+it looked right. Nothing measures the content, so a long drug name silently overlaps the next
+column. `ColumnWidth.Auto` is what that wants.
+
+**5. Greedy `wrap` has now been written three times in one sitting** -- in two prototypes and in the
+export. Nineteen lines each time, and the third one is where the measure-per-word trick had to be
+remembered rather than rediscovered. That is the clearest possible signal that it belongs in a
+module.
+
+**6. "Page 3 of 17" was not attempted**, because the total is not known while the pages are being
+built. The two-pass decision above is what it needs.
+
+None of this changes the design. All six are things the model already has an answer for, which is
+mildly reassuring and should not be over-read: the experiment was run by the person who wrote the
+model. What it does establish is that the answers are **needed** -- in particular that `measure`,
+`split` and `draw` being three separate functions is not an aesthetic preference but the fix for a
+page that silently prints into its own margin.
+
 ## The question this phase should answer first
 
 Before any of the above is built, write one real page of the health-record export directly against
@@ -319,7 +372,7 @@ page, start with `Table` and `header`.
 
 Building all of `Block` first is the failure mode this document is most likely to cause.
 
-**A 40-line prototype has already run**, which is why the three decisions above are stated as
+**Two prototypes and a real export page have already run**, which is why the three decisions above are stated as
 confidently as they are. It wraps a paragraph greedily with `font.advance`, breaks it into pages by
 `font.line_height`, emits one `Scene` per page, and renders an 11-page PDF that `pdfobj.check`
 validates and `pdftotext` reads back in reading order. **Nothing had to change for it to work.**

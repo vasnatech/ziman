@@ -744,7 +744,20 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   the export is allowed to contradict the document. Building all of `Block` first is the failure
   mode the document is most likely to cause.
 
-  **Nothing needs to change first, and that was checked rather than assumed.** A 40-line prototype
+  **The export experiment has been run, and it found a silent correctness bug in the hand-written
+  version.** One real page -- patient block, mint rule, five-column medication table, wrapped notes
+  -- is 131 lines against `scene`/`pdf` and already beats the Spring reference, which wraps nothing
+  (`showText` with no width check) and has no table. Paginating forty medications cost 27% more code
+  (131 to 167 lines), interleaved rather than separable, duplicated the header-drawing code verbatim
+  into the break branch, and **printed 17pt past the bottom margin on three of five pages** once a
+  note wrapped to six lines. The break condition can only be `y > page_h - margin - leading * 3.0`,
+  and that `3.0` is a guess at the height of what comes next: a caller doing its own layout has no
+  way to ask. That is the argument for `measure`/`split`/`draw` being three functions rather than
+  one, and it is a correctness argument, not an aesthetic one. Also found: column positions are
+  hand-tuned magic numbers that silently overlap on a long name (wants `ColumnWidth.Auto`), and
+  greedy `wrap` has now been written three times in one sitting.
+
+  **Nothing needs to change in the library first, and that was checked rather than assumed.** A 40-line prototype
   wraps, paginates and renders an 11-page PDF that `pdfobj.check` validates and `pdftotext` reads
   back in order, against today's API with no library change: `split`, `font.advance`,
   `font.ascent`/`line_height`, `scene.text_of` and `pdf.render_pages` taking each page's size from
