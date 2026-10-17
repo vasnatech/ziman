@@ -957,12 +957,12 @@ fn ramp(from: Color, to: Color) -> Obj {
 pub fn win_ansi(text: string) -> Result<[byte], string> {
     val out = mutable_array_new<byte>()
     for ch in chars(text) {
-        val cp = codepoint_of(ch)
+        val cp = font.codepoint_of(ch)
         val b = win_ansi_byte(cp)
         if b < 0 {
             return err(concat(
                 "pdf: WinAnsiEncoding cannot represent U+",
-                hex4(cp),
+                font.hex4(cp),
                 " in '",
                 text,
                 "'. The standard fonts are Latin-1 only; an embedded font (phase 3) is needed for this text"
@@ -975,28 +975,6 @@ pub fn win_ansi(text: string) -> Result<[byte], string> {
 
 // The numeric code point of a one-character string. `chars` splits a string into code points but
 // hands each back as a string, and WinAnsi is a mapping from numbers, so the UTF-8 is decoded here.
-fn codepoint_of(ch: string) -> int {
-    val b = string_to_bytes(ch)
-    if len(b) == 0 {
-        return -1
-    }
-    val b0 = b[0] as int
-    if b0 < 128 {
-        return b0
-    }
-    if b0 < 224 && len(b) >= 2 {
-        return (b0 - 192) * 64 + ((b[1] as int) - 128)
-    }
-    if b0 < 240 && len(b) >= 3 {
-        return (b0 - 224) * 4096 + ((b[1] as int) - 128) * 64 + ((b[2] as int) - 128)
-    }
-    if len(b) >= 4 {
-        return (b0 - 240) * 262144 + ((b[1] as int) - 128) * 4096 + ((b[2] as int) - 128) * 64 +
-            ((b[3] as int) - 128)
-    }
-    return -1
-}
-
 fn win_ansi_byte(cp: int) -> int {
     // The Latin-1 ranges map one to one.
     if cp >= 32 && cp <= 126 {
@@ -1089,18 +1067,4 @@ fn win_ansi_byte(cp: int) -> int {
         return 159
     }
     return -1
-}
-
-fn hex4(cp: int) -> string {
-    val digits = "0123456789ABCDEF"
-    var n = cp
-    var out = ""
-    var i = 0
-    while i < 4 {
-        val d = n % 16
-        out = concat(substring(digits, d, d + 1), out)
-        n = n / 16
-        i = i + 1
-    }
-    return out
 }

@@ -88,7 +88,9 @@ pub fn load(data: [byte]) -> Result<FontRef, string> {
 // find it.
 pub fn covers(f: FontRef, text: string) -> Result<Option<int>, string> {
     switch f {
-        Standard(s) {
+        // Which of the fourteen it is does not matter here: they share one encoding, so what a
+        // standard font covers is the same for all of them.
+        Standard(_) {
             for ch in chars(text) {
                 val cp = codepoint_of(ch)
                 if !standard_covers(cp) {
