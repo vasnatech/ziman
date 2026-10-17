@@ -1,8 +1,9 @@
 # `lib/graphics`
 
-A device-independent 2D drawing model, and backends that render it: PDF now, raster images next.
+A device-independent 2D drawing model, and two backends that render it: PDF documents and raster
+images.
 
-**Phases 1 to 4 are built; phase 5 is designed and not started.** The design is written first, one
+**All five phases are built.** The design was written first, one
 document per phase, under `docs/graphics/` -- start with its `README.md`, which carries the
 architecture and the invariants every phase shares. A built phase's document ends with an
 *As built* section recording where the code went a different way and why.
@@ -13,11 +14,16 @@ architecture and the invariants every phase shares. A built phase's document end
 | 2 | `pdfobj`, `pdf` | built | `docs/graphics/phase-2-pdf-backend.md` |
 | 3 | `truetype`, `font` | built | `docs/graphics/phase-3-fonts.md` |
 | 4 | `image` | built | `docs/graphics/phase-4-images.md` |
-| 5 | `raster` | designed | `docs/graphics/phase-5-raster-backend.md` |
+| 5 | `raster`, `stroker` | built | `docs/graphics/phase-5-raster-backend.md` |
 
-So a PDF today can carry vector paths, gradients, the standard fourteen fonts, an embedded TrueType
-face with Unicode text, and images with alpha. What it cannot do is produce a *raster* image of a
-scene, which is phase 5.
+So one `Scene` renders two ways. A PDF carries vector paths, gradients, the standard fourteen fonts,
+an embedded TrueType face with Unicode text, and images with alpha; the raster backend turns the
+same scene into a `Gray8`, `Rgb8` or `Rgba8` image, with anti-aliased fills under both winding
+rules, stroking with caps, joins and dashes, arbitrary clip paths, and cached glyph rendering.
+
+Where the two differ, the one that cannot do something **says so** rather than approximating it
+(invariant 2): `paint.Pattern` draws in the raster backend and is refused by PDF, and a standard
+font names a face a PDF reader resolves but a raster device cannot.
 
 A sixth phase is likely but not designed: a **document layout layer** (flows, paragraph wrapping,
 tables, pagination) over phases 1-3. `docs/graphics/README.md` says why it is deliberately not
