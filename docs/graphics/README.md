@@ -9,6 +9,37 @@ Two outputs from one drawing model: **documents** (PDF first) and **images** (ra
 motivating case is the health-record backend's export, where PDF is the one format Ziman cannot
 produce at all -- but the point of the model is that laying a report out once should yield both.
 
+## What "graphics" does not mean here
+
+The folder is called `graphics` because that is what Cairo, Skia and Java 2D call this -- a
+device-independent 2D drawing model with backends. **The word is broader elsewhere than it is here**,
+so the bound is worth stating rather than leaving a reader to infer it from nine module names.
+
+Not in scope, and not planned -- each would be a different library, not a later phase:
+
+- **3D.** No projection, no depth, no lighting. The display list is two-dimensional by
+  construction, and a `Matrix` is 2x3.
+- **The GPU.** A backend is a pure function from `Scene` to bytes (invariant 1). No device
+  contexts, no shaders, no surfaces owned by a driver. Phase 5 scan-converts in Ziman.
+- **A screen.** No windows, no event loop, no input. Nothing here is interactive; the outputs are
+  a file's bytes.
+- **Animation or video.** A `Scene` is one still frame.
+- **Image *processing*.** `image` is a buffer plus a codec, not a filter pipeline: no blur, no
+  convolution, no colour correction. (Phase 5 needs *sampling* to draw an image under a transform,
+  which is drawing, and belongs there.)
+
+Absent but **additive** -- these fit the architecture and would be new work inside it rather than
+against it, which is the distinction that matters when deciding where something belongs:
+
+- CMYK, 16-bit channels and ICC colour management (`image`'s three formats are a deliberate floor,
+  not a colour model system).
+- More codecs in or out: JPEG *decoding*, GIF, WebP, TIFF.
+- Vector *input*: nothing turns a file back into a `Scene`, which is built in code. (`pdfobj.check` reads a PDF's
+  structure to validate what this library wrote; it is not a reader.)
+- Text shaping, so Arabic and Indic join correctly -- named in phase 3 and refused there rather
+  than approximated.
+- A document layout layer, which is the candidate phase 6 below.
+
 ## The architecture, and why it is Java 2D's
 
 Java 2D's real contribution is not its class count, it is that `Shape` bottoms out in a
