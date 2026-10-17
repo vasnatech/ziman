@@ -978,8 +978,26 @@ static void require_not_void(Expr *e, const char *context) {
 }
 
 static Type check_binary(Module *module, Env *env, Expr *e) {
-    Type lt = check_expr(module, env, e->as.binary.left);
-    Type rt = check_expr(module, env, e->as.binary.right);
+    /* `==`/`!=` compare two values of the same type, so each side is the other's context: that is
+     * what lets `record.status != Some("ACTIVE")` stand where it needed the qualified spelling
+     * before. Whichever side can be typed on its own goes first and the other is checked against
+     * it; when neither can, both fall through to the ordinary error. Only the two equality
+     * operators do this -- the arithmetic and ordering ones take no Option, so offering one would
+     * only produce a stranger message for the same mistake. */
+    int is_equality = e->as.binary.op == OP_EQ || e->as.binary.op == OP_NEQ;
+    Type lt;
+    Type rt;
+    if (is_equality && expr_needs_expected_type(e->as.binary.left) &&
+        !expr_needs_expected_type(e->as.binary.right)) {
+        rt = check_expr(module, env, e->as.binary.right);
+        lt = check_expr_expecting(module, env, &e->as.binary.left, rt);
+    } else if (is_equality && expr_needs_expected_type(e->as.binary.right)) {
+        lt = check_expr(module, env, e->as.binary.left);
+        rt = check_expr_expecting(module, env, &e->as.binary.right, lt);
+    } else {
+        lt = check_expr(module, env, e->as.binary.left);
+        rt = check_expr(module, env, e->as.binary.right);
+    }
     require_not_void(e->as.binary.left, "as an operand");
     require_not_void(e->as.binary.right, "as an operand");
 
@@ -4957,13 +4975,12 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             if (!b->is_mutable) {
                 ziman_error("type", s->line, s->col, "cannot assign to '%s' because it was declared with 'val' (use 'var' to make it mutable)", s->as.assign.name);
             }
-            Type value_type;
-            if (s->as.assign.value->kind == EXPR_LAMBDA && b->type.kind == TY_FUNC) {
-                value_type = check_lambda_expecting(module, env, s->as.assign.value, &b->type);
-                s->as.assign.value->resolved_type = value_type;
-            } else {
-                value_type = check_expr(module, env, s->as.assign.value);
-            }
+            /* The variable's declared type is the context the value needs, exactly as it is in the
+             * `val`/`var` declaration one case up -- which already accepts `val a: Option<int> = 5`
+             * and a bare `Some(x)`. Assignment was checking its value with no context at all, so
+             * `found = Some(x)` was refused where `var found: Option<string> = None` beside it was
+             * fine. check_expr_expecting subsumes the lambda case this used to handle by hand. */
+            Type value_type = check_expr_expecting(module, env, &s->as.assign.value, b->type);
             require_not_void(s->as.assign.value, "in an assignment");
             if (!type_equals(value_type, b->type)) {
                 ziman_error("type", s->as.assign.value->line, s->as.assign.value->col,

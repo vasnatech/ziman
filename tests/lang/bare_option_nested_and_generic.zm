@@ -34,6 +34,31 @@ fn same<T: Eq>(a: T, b: T) -> bool {
     return a == b
 }
 
+// 5. **Assigning to an already-declared variable.** The declaration offers its type (`var found:
+//    Option<string> = None` has always worked, and so has `val a: Option<int> = 5`, which the bare
+//    value auto-wrap turns into `Some(5)`); the assignment one line below it offered nothing.
+// 6. **Either side of `==`/`!=`.** The two sides of an equality compare the same type, so each is
+//    the other's context -- which is what lets `record.status != Some("ACTIVE")` stand. Only the
+//    equality operators: the arithmetic and ordering ones take no Option, so offering one there
+//    would make a stranger message for the same mistake.
+struct Record {
+    status: Option<string>
+}
+
+fn describe(r: Record) -> string {
+    var found: Option<string> = None
+    if r.status != Some("ACTIVE") {
+        found = Some("inactive")
+    }
+    if Some("ACTIVE") == r.status {
+        found = Some("active")
+    }
+    return switch found {
+        Some(s) { s }
+        None { "unknown" }
+    }
+}
+
 // 4. **Through the Result bare-value auto-wrap.** A `Result<Option<T>, E>` already accepted a bare
 //    `Option<T>` and wrapped it in `ok(...)` -- but only once that value had a type of its own, so
 //    `return Option<int>.Some(x)` worked and `return Some(x)` did not. This is the shape every
@@ -56,6 +81,14 @@ fn main() {
     print(concat("Some(Some(4)):   ", format("{}", nested())))
     print(concat("ok(Some(Some)):  ", format("{}", deeper())))
     print(concat("Result wrap:     ", format("{}", lookup(true)), " ", format("{}", lookup(false))))
+    print(concat(
+        "assign/compare:  ",
+        describe(Record { status: Some("ACTIVE") }),
+        " ",
+        describe(Record { status: Some("ENDED") }),
+        " ",
+        describe(Record { status: None })
+    ))
 
     // A generic parameter, with the type bound by the *other* argument -- in either position.
     val nothing: Option<string> = None

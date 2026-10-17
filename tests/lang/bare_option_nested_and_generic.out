@@ -3,6 +3,7 @@ ok(None):        Ok(None)
 Some(Some(4)):   Some(Some(4))
 ok(Some(Some)):  Ok(Some(Some(9)))
 Result wrap:     Ok(Some(7)) Ok(None)
+assign/compare:  active inactive inactive
 None first:      true
 None second:     true
 Some first:      true
