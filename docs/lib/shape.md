@@ -210,3 +210,28 @@ A cubic whose control points sit far outside its own curve has much looser contr
 than real ones -- which is exactly the case the fixture checks, because if the two agree the
 solver is not doing anything. Costs a quadratic solve per curve, so it is the one to call when
 fitting ink to a page and not the one to call per clip test.
+
+## Flattening
+
+### `Polyline`
+
+```
+pub struct Polyline {
+    points: [Point]
+    closed: bool
+}
+```
+
+A subpath, after flattening: a run of points, and whether the last joins back to the first.
+`closed` is carried rather than inferred, because an open polyline and a closed one with the same
+points are different strokes -- the closed one has a join where the open one has two caps.
+
+### `flattened`
+
+```
+pub fn flattened(p: Path, tolerance: float) -> [Polyline]
+```
+
+`tolerance` is the greatest distance a chord may sit from the curve it replaces, in the path's own
+units. A quarter of a pixel is what both backends ask for; the cost of halving it is roughly
+another 40% of the segments, and the cost of doubling it is a visibly faceted large circle.

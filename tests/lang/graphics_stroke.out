@@ -1,0 +1,26 @@
+rect winds positive:    50.000
+circle winds positive:  312.229
+butt cap = 40:          40.000
+square cap = 56:        56.000
+round cap = 52.25:      52.251
+miter joins = 80:       80.000
+bevel joins = 78:       78.008
+round joins = 78.82:    78.824
+closed ignores the cap: 80.000
+limit 10 bounds:        9.978,8.000 90.044x6.000
+limit 1000 bounds:      -170.011,8.000 270.033x6.000
+reach past the vertex:  0.022 limited, 180.011 not
+the limit is load-bearing: true
+ring asymmetry (want 0,0): 0 0
+dash 4/4 = 24:          24.000
+dash 4/4 phase 4 = 16:  16.000
+odd pattern [5] = 20:   20.000
+dot, round cap = 27.55: 27.545
+dot, square cap = 36:   36.000
+dot, butt cap = 0:      0.000
+annulus = 125.52:       125.522
+zero width:          stroker: a stroke needs a positive width, got 0.0
+miter limit below 1: stroker: a miter limit below 1 bevels every join; the ratio it bounds is 1/sin(angle/2), which is at least 1. Got 0.5
+negative dash:       stroker: a dash length cannot be negative, got -1.0
+all-zero dash:       stroker: a dash pattern needs at least one positive length
+negative phase:      stroker: a dash phase cannot be negative, got -1.0

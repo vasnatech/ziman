@@ -425,3 +425,137 @@ fn cubic_at(p0: Point, c1: Point, c2: Point, p1: Point, t: float) -> Point {
         a * p0.y + b * c1.y + c * c2.y + d * p1.y
     )
 }
+
+// ---- flattening
+//
+// Every curve reduced to line segments. This lives here rather than in a backend because it is a
+// property of the *path* and not of any device: the raster backend builds its edge list from these
+// polylines, and `stroker` offsets them. Two implementations of adaptive subdivision would be two
+// chances to get the same arithmetic wrong.
+
+// A subpath, after flattening: a run of points, and whether the last joins back to the first.
+// `closed` is carried rather than inferred, because an open polyline and a closed one with the same
+// points are different strokes -- the closed one has a join where the open one has two caps.
+pub struct Polyline {
+    points: [Point]
+    closed: bool
+}
+
+// `tolerance` is the greatest distance a chord may sit from the curve it replaces, in the path's own
+// units. A quarter of a pixel is what both backends ask for; the cost of halving it is roughly
+// another 40% of the segments, and the cost of doubling it is a visibly faceted large circle.
+pub fn flattened(p: Path, tolerance: float) -> [Polyline] {
+    val out = mutable_array_new<Polyline>()
+    val current = mutable_array_new<Point>()
+    var start = point_of(0.0, 0.0)
+    var at = point_of(0.0, 0.0)
+    var started = false
+    val tol = if tolerance > 0.0 { tolerance } else { 0.25 }
+    for seg in p.segments {
+        switch seg {
+            MoveTo(pt) {
+                if started && len(current) > 1 {
+                    mutable_array_push(out, Polyline { points: snapshot(current), closed: false })
+                }
+                mutable_array_truncate(current, 0)
+                mutable_array_push(current, pt)
+                start = pt
+                at = pt
+                started = true
+            }
+            LineTo(pt) {
+                mutable_array_push(current, pt)
+                at = pt
+            }
+            QuadTo(q) {
+                // Elevated to a cubic, whose two control points are exact for a quadratic -- so
+                // this loses nothing and there is one subdivider to get right instead of two.
+                flatten_cubic_into(
+                    current,
+                    at,
+                    point_of(at.x + 2.0 / 3.0 * (q.control.x - at.x), at.y + 2.0 / 3.0 * (q.control.y - at.y)),
+                    point_of(
+                        q.end.x + 2.0 / 3.0 * (q.control.x - q.end.x),
+                        q.end.y + 2.0 / 3.0 * (q.control.y - q.end.y)
+                    ),
+                    q.end,
+                    tol,
+                    0
+                )
+                at = q.end
+            }
+            CubicTo(c) {
+                flatten_cubic_into(current, at, c.control1, c.control2, c.end, tol, 0)
+                at = c.end
+            }
+            Close {
+                if len(current) > 1 {
+                    mutable_array_push(out, Polyline { points: snapshot(current), closed: true })
+                }
+                mutable_array_truncate(current, 0)
+                mutable_array_push(current, start)
+                at = start
+            }
+        }
+    }
+    if started && len(current) > 1 {
+        mutable_array_push(out, Polyline { points: snapshot(current), closed: false })
+    }
+    return snapshot(out)
+}
+
+// Adaptive subdivision, which is the only kind worth having: a fixed step count facets a large
+// curve while spending the same work on one a pixel across.
+fn flatten_cubic_into(
+    out: MutableArray<Point>,
+    p0: Point,
+    c1: Point,
+    c2: Point,
+    p1: Point,
+    tol: float,
+    depth: int
+) {
+    if depth >= 16 || cubic_is_flat(p0, c1, c2, p1, tol) {
+        mutable_array_push(out, p1)
+        return
+    }
+    val a = midpoint(p0, c1)
+    val b = midpoint(c1, c2)
+    val c = midpoint(c2, p1)
+    val d = midpoint(a, b)
+    val e = midpoint(b, c)
+    val m = midpoint(d, e)
+    flatten_cubic_into(out, p0, a, d, m, tol, depth + 1)
+    flatten_cubic_into(out, m, e, c, p1, tol, depth + 1)
+}
+
+fn midpoint(a: Point, b: Point) -> Point {
+    return point_of((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
+}
+
+// Both control points within `tol` of the chord, measured as a cross product (an area) against the
+// chord's squared length, so the inner test needs no square root.
+fn cubic_is_flat(p0: Point, c1: Point, c2: Point, p1: Point, tol: float) -> bool {
+    val dx = p1.x - p0.x
+    val dy = p1.y - p0.y
+    val chord = dx * dx + dy * dy
+    // **A loop, where the chord is a point.** Both cross products are then zero and the naive test
+    // would call a full loop flat and collapse it to nothing. Measure the control points against
+    // the start instead.
+    if chord < 1e-12 {
+        val a = (c1.x - p0.x) * (c1.x - p0.x) + (c1.y - p0.y) * (c1.y - p0.y)
+        val b = (c2.x - p0.x) * (c2.x - p0.x) + (c2.y - p0.y) * (c2.y - p0.y)
+        return (if a > b { a } else { b }) <= tol * tol
+    }
+    val d1 = abs_of((c1.x - p0.x) * dy - (c1.y - p0.y) * dx)
+    val d2 = abs_of((c2.x - p0.x) * dy - (c2.y - p0.y) * dx)
+    val sum = d1 + d2
+    return sum * sum <= tol * tol * chord
+}
+
+fn abs_of(v: float) -> float {
+    if v < 0.0 {
+        return 0.0 - v
+    }
+    return v
+}

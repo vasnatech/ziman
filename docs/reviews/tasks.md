@@ -689,3 +689,19 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   output. The remaining hotspot is named and left alone -- `crossings_at` walks every edge per
   sub-scanline, and an active edge table is deferred to part 3 so it can be measured against text,
   which is the workload with the edges.
+
+  *Part 2 of 3 done 2026-10-16: stroking.* Caps, joins, the miter limit and dashes, in a **separate
+  `stroker` module** rather than inside `raster`: widening a path is device-independent, and `pdf`
+  refuses gradient strokes with "fill the stroked outline instead", so putting it in `raster` would
+  have made one backend depend on its sibling to take its own advice. Adaptive flattening moved to
+  `shape.flattened`, shared by both -- numerically identical, 1730 ms against 1740 ms (noise), 107
+  lines removed, and it avoids leaving two copies of one subdivider in the library a commit after
+  deleting two copies of `codepoint_of`. The outline is a **union of simple contours** filled
+  `NonZero` rather than one offset curve, which sidesteps self-intersection entirely and makes a
+  round cap a whole circle. That union's hazard is now pinned: a contour wound against its
+  neighbours cancels instead of joining, and reversing the winding in a mutation drops the round cap
+  from 52.251 to exactly 40.000. Every area is computed by hand -- butt cap 40.000, square 56.000,
+  a closed box with miter joins **80.000** (= perimeter x width, exact only if all four corners
+  fill), bevel 78, round 78.824, dashes 24.000 and 16.000 at phase 4, symmetry 0 and 0 mismatches.
+  The miter limit reaches 0.022 past the vertex limited against 180 unlimited, and removing the
+  fallback makes both read 180.

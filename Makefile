@@ -109,7 +109,7 @@ install-hooks:
 # header directly, and it's merged bare into every program by
 # loader.c's load_module_graph (see lib/prelude.zm's own header
 # comment), never through a `use`. Do not add it to corelib.c's table.
-CORELIB_MODULES := process url fs log metrics regex client random uuid clock time schedule json number math bits thread datasource sqlite mysql db net crypto pg http server os properties ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp test geom shape paint scene pdfobj pdf truetype font image raster prelude
+CORELIB_MODULES := process url fs log metrics regex client random uuid clock time schedule json number math bits thread datasource sqlite mysql db net crypto pg http server os properties ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp test geom shape paint scene pdfobj pdf truetype font image stroker raster prelude
 # Bundled modules live in lib/core (general-purpose), lib/db (SQL
 # drivers) lib/http (http, server, client), lib/time (time, zone) and lib/graphics (the 2D model and
 # its backends); `use` names are flat either way.

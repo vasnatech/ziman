@@ -191,3 +191,62 @@ workload with the most edges and is the right thing to measure it against.
 **Still owed by this phase:** stroking (part 2), glyph rendering and its cache (part 3), and the
 round trip against the document path -- "render the same `Scene` to PDF and to an image, run
 `pdftotext` on the PDF and assert the text matches" -- which needs text to exist first.
+
+## As built: part 2 (stroking)
+
+Landed 2026-10-16. `StrokePath` renders: caps, joins, the miter limit, and dashes.
+
+**It is its own module, `stroker`, not part of `raster`.** Widening a path is a path-to-path
+operation with no device in it, and `pdf` refuses a gradient-stroked path with *"fill the stroked
+outline instead"* -- advice that now names a real function. Had the stroker lived inside `raster`,
+reaching it from `pdf` would have made one backend depend on the other, which is the wrong shape for
+two siblings. `stroker` sits at layer 3 (`geom`, `paint`, `shape`) and `raster` calls it.
+
+**Adaptive flattening moved into `shape.flattened`**, which both the stroker and the rasteriser now
+use. Keeping raster's private copy would have left two implementations of the same subdivision in
+one library -- the thing the previous commit had just removed from `pdf`. The swap is numerically
+identical (every fixture number unchanged) and costs nothing measurable: 1730 ms against 1740 ms on
+the same page, interleaved, which is noise. It removed 107 lines.
+
+**The outline is a union of simple contours, not one offset curve.** Each flattened segment
+contributes a rectangle, each interior vertex a join wedge, each end a cap, all wound the same way
+and filled `NonZero`. The textbook alternative walks a single offset up one side and back down the
+other, which has to solve self-intersection wherever the path turns tighter than its own width --
+and that is the part that produces visible artefacts when it is nearly right. The union needs none
+of it, and for filling it is exactly equivalent: one fill operation, so a self-overlapping stroke
+blends once rather than twice. A round cap or join is therefore a **whole circle**, since the half
+inside the adjoining rectangle is already covered. What it costs is more edges for the rasteriser,
+and an outline nobody could usefully stroke *again*; neither backend needs either.
+
+**That union has one real hazard, and it is now pinned by a test.** `NonZero` fills where crossing
+directions sum to non-zero, so a contour wound *against* its neighbours punches a hole through the
+overlap instead of joining it. All of `shape`'s builders are positively wound, so `stroker` emits
+positive contours too -- and `tests/lang/graphics_stroke.zm` asserts `shape`'s orientation directly,
+because the coupling is invisible otherwise. Reversing it in a mutation drops the round cap from
+52.251 to **40.000**: the circle cancels the rectangle exactly, so the cap contributes nothing.
+
+**Verification is areas computed by hand, not pixels blessed after the fact.** A 10-unit line of
+width 4 is 40 square units with butt caps and 56 with square ones -- both exact to three decimals.
+A closed 10x10 box stroked at width 2 is the band between a 12x12 and an 8x8 square, so 144-64 =
+**80.000**, which is also perimeter times width and is exact *only* if all four miter joins fill
+their corners; bevel cuts each by a 1x1 triangle for 78, and round replaces each with a quarter disc
+for 78.824 (79.142 in exact arithmetic, less the 0.31 an inscribed radius-1 circle loses at this
+tolerance). Dashes: a 20-long line at 4-on-4-off is 12 units of length, so 24.000, and 16.000 at
+phase 4. The design's stroke-symmetry check passes with **0 and 0** mismatched pixels about both
+axes.
+
+**The miter limit** got the assertion the design asked for and it is decisively load-bearing. Two
+segments meeting at about 2 degrees reach 180 units past their vertex unlimited, against 0.022 with
+the limit in force -- and removing the fallback makes both cases read 180, so the test fails loudly
+rather than subtly.
+
+**Degenerate subpaths** are implemented deliberately, not left to fall out: a zero-length subpath is
+a dot with a round cap (27.545, against pi*9 = 28.274 for an inscribed radius-3 circle), a square
+with a square cap (36.000 exactly), and **nothing at all** with a butt cap (0.000). All three are
+correct and the difference gets reported as a bug either way, so all three are pinned.
+
+Dashing a *closed* subpath produces open runs that are capped at the start point rather than joined
+across it. Most renderers do the same; it is recorded here rather than discovered later.
+
+**Still owed:** glyph rendering and its cache (part 3), the active edge table deferred from part 1 so
+it can be measured against text, and the round trip against the document path, which needs text.

@@ -102,6 +102,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`truetype`](truetype.md) | Reading the TrueType tables the rest of `lib/graphics` needs, and nothing else. |
 | [`font`](font.md) | The font model: which faces a document may use, and what they measure. |
 | [`image`](image.md) | A pixel buffer, PNG in and out, and enough of JPEG to put one in a PDF. |
+| [`stroker`](stroker.md) | The outline of a stroked path, as a path. |
 | [`raster`](raster.md) | The second backend: a `Scene` to an `Image`. |
 
 ## Always available

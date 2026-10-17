@@ -1,0 +1,245 @@
+// `lib/graphics` phase 5, part 2: stroking (F145).
+//
+// Stroking is the piece of a 2D library most likely to be subtly wrong, so almost every number here
+// is an **area computed by hand** rather than a measurement blessed after the fact. A stroked
+// 10-unit line of width 4 covers 40 square units and nothing else; a square stroked with miter
+// joins covers its perimeter times its width exactly. Those are the assertions that catch a
+// half-width on one side, a missing join, or a cap applied to the wrong end.
+use geom
+use image
+use paint
+use raster
+use scene
+use shape
+use stroker
+
+fn ink(img: image.Image) -> float {
+    var total = 0.0
+    var y = 0
+    while y < img.height {
+        var x = 0
+        while x < img.width {
+            total = total + unwrap(image.pixel_at(img, x, y)).alpha
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return total
+}
+
+// The ink a stroke lays down, at enough samples that the number is the geometry and not the
+// sampling.
+fn stroke_ink(w: float, h: float, p: shape.Path, how: paint.Stroke) -> float {
+    return ink(unwrap(raster.render(
+        scene.with_ops(scene.scene_of(w, h), [scene.stroke(p, paint.solid(paint.black()), how)]),
+        with raster.options() { samples: 16 }
+    )))
+}
+
+fn round3(x: float) -> string {
+    return format("{:.3}", x)
+}
+
+fn show_rect(r: geom.Rect) -> string {
+    return concat(round3(r.x), ",", round3(r.y), " ", round3(r.width), "x", round3(r.height))
+}
+
+fn signed_area(pts: [geom.Point]) -> float {
+    var a = 0.0
+    var i = 0
+    while i < len(pts) {
+        val p = pts[i]
+        val q = pts[(i + 1) % len(pts)]
+        a = a + (p.x * q.y - q.x * p.y)
+        i = i + 1
+    }
+    return a / 2.0
+}
+
+fn refusal<T>(r: Result<T, string>) -> string {
+    return switch r {
+        Ok(_) { "UNEXPECTEDLY ACCEPTED" }
+        Err(why) { why }
+    }
+}
+
+fn main() {
+    val black = paint.solid(paint.black())
+
+    // ---- the coupling this module rests on
+    //
+    // `stroker` emits every contour positively wound, because the union is filled `NonZero` and a
+    // contour wound against the others would punch a hole through their overlap rather than join
+    // it. That is only safe while `shape`'s own builders agree, so this asserts it: if `rect_path`
+    // or `circle_path` ever reverses, round joins and caps start cutting holes, and the failure
+    // would otherwise show up as a visual oddity a long way from the cause.
+    for pl in shape.flattened(shape.rect_path(geom.rect_of(0.0, 0.0, 10.0, 5.0)), 0.25) {
+        print(concat("rect winds positive:    ", round3(signed_area(pl.points))))
+    }
+    for pl in shape.flattened(shape.circle_path(geom.point_of(0.0, 0.0), 10.0), 0.25) {
+        print(concat("circle winds positive:  ", round3(signed_area(pl.points))))
+    }
+
+    // ---- caps, as exact areas
+    //
+    // A 10-long line of width 4. Butt is 10x4. Square adds half a width at each end, so 14x4.
+    // Round adds two half-discs of radius 2, so 40 + pi*4 = 52.566 -- and reads 52.251 because the
+    // flattened circle is inscribed in the arc, 0.6% low at radius 10 and proportionally more at
+    // radius 2. That is the tolerance working, not a defect; see phase 5's notes.
+    val line = shape.line_path(geom.point_of(5.0, 10.0), geom.point_of(15.0, 10.0))
+    print(concat("butt cap = 40:          ", round3(stroke_ink(24.0, 20.0, line, with paint.stroke_of(4.0) {
+        cap: paint.Cap.Butt
+    }))))
+    print(concat("square cap = 56:        ", round3(stroke_ink(24.0, 20.0, line, with paint.stroke_of(4.0) {
+        cap: paint.Cap.Square
+    }))))
+    print(concat("round cap = 52.25:      ", round3(stroke_ink(24.0, 20.0, line, with paint.stroke_of(4.0) {
+        cap: paint.Cap.Round
+    }))))
+
+    // ---- joins, also as exact areas
+    //
+    // A closed 10x10 square stroked at width 2 is a band from the 12x12 outer square to the 8x8
+    // inner one: 144 - 64 = **80**, which is also perimeter x width, and is exact only when the
+    // four miter joins fill their corners completely. Bevel cuts each corner by a 1x1 triangle, so
+    // 80 - 4*0.5 = 78. Round replaces each corner with a quarter disc: 80 - 4*(1 - pi/4) = 79.142
+    // in exact arithmetic, and 78.824 here, because four quarter-circles of radius 1 are one
+    // inscribed circle of radius 1, whose flattened area is 0.31 short of pi at this tolerance --
+    // the same effect as the round cap above, and large in relative terms only because the radius
+    // is 1. Three different numbers from one path, each wrong in a different way if a join is.
+    val box = shape.rect_path(geom.rect_of(5.0, 5.0, 10.0, 10.0))
+    print(concat("miter joins = 80:       ", round3(stroke_ink(20.0, 20.0, box, with paint.stroke_of(2.0) {
+        join: paint.Join.Miter
+    }))))
+    print(concat("bevel joins = 78:       ", round3(stroke_ink(20.0, 20.0, box, with paint.stroke_of(2.0) {
+        join: paint.Join.Bevel
+    }))))
+    print(concat("round joins = 78.82:    ", round3(stroke_ink(20.0, 20.0, box, with paint.stroke_of(2.0) {
+        join: paint.Join.Round
+    }))))
+    // A closed path has joins and **no caps**, so the cap setting cannot change its ink.
+    print(concat("closed ignores the cap: ", round3(stroke_ink(20.0, 20.0, box, with paint.stroke_of(2.0) {
+        join: paint.Join.Miter,
+        cap: paint.Cap.Square
+    }))))
+
+    // ---- the miter limit
+    //
+    // **The check the design singled out.** Two segments meeting at a sliver of an angle have a
+    // miter point that runs away to infinity: the reach is `h/sin(angle/2)`, so at about 2 degrees
+    // it is 57 times the half-width. With the limit in force the join bevels and the outline stays
+    // the size of the stroke; without it, the spike is the bug -- and it looks fine on every
+    // fixture that has no sharp corner, which is why it needs its own assertion.
+    val spike = shape.path_builder()
+    shape.move_to(spike, geom.point_of(100.0, 10.0))
+    shape.line_to(spike, geom.point_of(10.0, 11.0))
+    shape.line_to(spike, geom.point_of(100.0, 12.0))
+    val vee = shape.built(spike, shape.Winding.NonZero)
+    val limited = with paint.stroke_of(4.0) { join: paint.Join.Miter, miter_limit: 10.0 }
+    val unlimited = with paint.stroke_of(4.0) { join: paint.Join.Miter, miter_limit: 1000.0 }
+    print(concat("limit 10 bounds:        ", show_rect(shape.path_bounds(unwrap(stroker.outline(vee, limited))))))
+    print(concat("limit 1000 bounds:      ", show_rect(shape.path_bounds(unwrap(stroker.outline(vee, unlimited))))))
+    // One number: how far left of the vertex the outline reaches. Bevelled it is about the
+    // half-width; unlimited it is hundreds.
+    val reach_limited = 10.0 - shape.path_bounds(unwrap(stroker.outline(vee, limited))).x
+    val reach_unlimited = 10.0 - shape.path_bounds(unwrap(stroker.outline(vee, unlimited))).x
+    print(concat("reach past the vertex:  ", round3(reach_limited), " limited, ", round3(reach_unlimited), " not"))
+    print(concat("the limit is load-bearing: ", str(reach_unlimited > reach_limited * 20.0)))
+
+    // ---- symmetry
+    //
+    // Stroking a centred circle gives an image symmetric about both axes. Cheap, and it catches a
+    // half-width applied to one side only -- which no area assertion can see, because the total is
+    // unchanged by moving ink from one side to the other.
+    val ring = unwrap(raster.render(
+        scene.with_ops(scene.scene_of(32.0, 32.0), [
+            scene.stroke(shape.circle_path(geom.point_of(16.0, 16.0), 10.0), black, paint.stroke_of(3.0))
+        ]),
+        with raster.options() { samples: 16 }
+    ))
+    var mirrored = 0
+    var flipped = 0
+    var y = 0
+    while y < 32 {
+        var x = 0
+        while x < 32 {
+            val here = unwrap(image.pixel_at(ring, x, y)).alpha
+            if abs_diff(here, unwrap(image.pixel_at(ring, 31 - x, y)).alpha) > 0.004 {
+                mirrored = mirrored + 1
+            }
+            if abs_diff(here, unwrap(image.pixel_at(ring, x, 31 - y)).alpha) > 0.004 {
+                flipped = flipped + 1
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    print(concat("ring asymmetry (want 0,0): ", str(mirrored), " ", str(flipped)))
+
+    // ---- dashes
+    //
+    // A 20-long line with a 4-on 4-off pattern has its on-runs at 0-4, 8-12 and 16-20, so 12 units
+    // of length at width 2 is **24**. The phase shifts the pattern along: at phase 4 the first run
+    // is off, leaving 4-8 and 12-16 on, which is 8 units and so 16.
+    val long_line = shape.line_path(geom.point_of(2.0, 6.0), geom.point_of(22.0, 6.0))
+    print(concat("dash 4/4 = 24:          ", round3(stroke_ink(24.0, 12.0, long_line, paint.dashed(2.0, [4.0, 4.0])))))
+    print(concat(
+        "dash 4/4 phase 4 = 16:  ",
+        round3(stroke_ink(24.0, 12.0, long_line, with paint.dashed(2.0, [4.0, 4.0]) {
+            dash_phase: 4.0
+        }))
+    ))
+    // An odd-length pattern inverts on each repeat, which is what the spec says and what cycling
+    // the index while flipping on/off gives for free: 5 on, 5 off, 5 on, 5 off for a 20-long line.
+    print(concat("odd pattern [5] = 20:   ", round3(stroke_ink(24.0, 12.0, long_line, paint.dashed(2.0, [5.0])))))
+
+    // ---- degenerate subpaths
+    //
+    // A subpath with no length. With a round cap it is a dot of the stroke's width, with a square
+    // cap a square of it, and with a butt cap **nothing at all**. All three are correct, and the
+    // difference is the kind of thing that gets reported as a bug either way, so all three are
+    // pinned here.
+    val speck = shape.path_builder()
+    shape.move_to(speck, geom.point_of(10.0, 10.0))
+    shape.line_to(speck, geom.point_of(10.0, 10.0))
+    val nothing = shape.built(speck, shape.Winding.NonZero)
+    // pi*9 = 28.274 exactly; 27.545 for an inscribed circle of radius 3.
+    print(concat("dot, round cap = 27.55: ", round3(stroke_ink(20.0, 20.0, nothing, with paint.stroke_of(6.0) {
+        cap: paint.Cap.Round
+    }))))
+    print(concat("dot, square cap = 36:   ", round3(stroke_ink(20.0, 20.0, nothing, with paint.stroke_of(6.0) {
+        cap: paint.Cap.Square
+    }))))
+    print(concat("dot, butt cap = 0:      ", round3(stroke_ink(20.0, 20.0, nothing, with paint.stroke_of(6.0) {
+        cap: paint.Cap.Butt
+    }))))
+
+    // ---- curves get stroked too, through the same flattening the fill uses
+    //
+    // A circle of radius 10 stroked at width 2 is an annulus between radius 11 and 9: pi*(121-81) =
+    // 125.66, a little under that for the inscribed flattening.
+    print(concat("annulus = 125.52:       ", round3(stroke_ink(
+        32.0,
+        32.0,
+        shape.circle_path(geom.point_of(16.0, 16.0), 10.0),
+        paint.stroke_of(2.0)
+    ))))
+
+    // ---- what it refuses
+    print(concat("zero width:          ", refusal(stroker.outline(line, paint.stroke_of(0.0)))))
+    print(concat("miter limit below 1: ", refusal(stroker.outline(line, with paint.stroke_of(2.0) {
+        miter_limit: 0.5
+    }))))
+    print(concat("negative dash:       ", refusal(stroker.outline(line, paint.dashed(2.0, [4.0, 0.0 - 1.0])))))
+    print(concat("all-zero dash:       ", refusal(stroker.outline(line, paint.dashed(2.0, [0.0, 0.0])))))
+    print(concat("negative phase:      ", refusal(stroker.outline(line, with paint.dashed(2.0, [4.0, 4.0]) {
+        dash_phase: 0.0 - 1.0
+    }))))
+}
+
+fn abs_diff(a: float, b: float) -> float {
+    if a > b {
+        return a - b
+    }
+    return b - a
+}

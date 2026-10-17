@@ -1,0 +1,422 @@
+// stroker.zm -- the outline of a stroked path, as a path.
+//
+// `BasicStroke.createStrokedShape`'s job, and phase 5's part 2. It is a **path to path** operation
+// with no device in it, which is why it is its own module rather than part of `raster`: the PDF
+// backend refuses a gradient-stroked path today with "fill the stroked outline instead", and that
+// refusal becomes an implementation the moment something calls this. A stroker inside `raster`
+// would have made `pdf` depend on the raster backend to reach it, which is the wrong way round for
+// two sibling backends.
+//
+// **The outline is a union of simple contours, not a single offset curve.** Each flattened segment
+// contributes a rectangle, each interior vertex a join wedge, each end a cap -- all wound the same
+// way and filled `NonZero`, where overlapping contours accumulate rather than cancel. The textbook
+// alternative is to walk one offset curve up one side and back down the other, which has to solve
+// self-intersection where the path turns tighter than its own width: a hard problem that produces
+// visible artefacts when it is got slightly wrong. The union needs none of that, and for *filling*
+// it is exactly equivalent -- one fill operation, so a self-overlapping stroke still blends once
+// rather than twice.
+//
+// What it costs: more contours, so more edges for the rasteriser, and the result is not a clean
+// outline anyone could stroke *again*. Neither is needed by either backend.
+use geom.Point
+use geom.point_of
+use math.sqrt
+use paint.Stroke
+use shape
+use shape.Path
+use shape.Polyline
+use shape.Segment
+use shape.Winding
+
+val default_tolerance: float = 0.25
+
+// Points closer together than this are one point. Dedup has to happen before anything normalises a
+// direction, because the direction between two coincident points is a division by zero and the NaN
+// it produces would travel a long way before anyone noticed.
+val point_epsilon: float = 0.000000001
+
+pub fn outline(p: Path, how: Stroke) -> Result<Path, string> {
+    return outline_with(p, how, default_tolerance)
+}
+
+pub fn outline_with(p: Path, how: Stroke, tolerance: float) -> Result<Path, string> {
+    if how.width <= 0.0 {
+        return err(concat("stroker: a stroke needs a positive width, got ", format("{}", how.width)))
+    }
+    // The ratio a miter limit bounds is `1/sin(angle/2)`, which is never below 1, so a limit under
+    // 1 would bevel every join including a straight one -- a mistake rather than a choice.
+    if how.miter_limit < 1.0 {
+        return err(concat(
+            "stroker: a miter limit below 1 bevels every join; the ratio it bounds is 1/sin(angle/2), which is at least 1. Got ",
+            format("{}", how.miter_limit)
+        ))
+    }
+    val h = how.width / 2.0
+    val segs = mutable_array_new<Segment>()
+    val flat = shape.flattened(p, tolerance)
+    val lines = if len(how.dash) > 0 { try dashed(flat, how.dash, how.dash_phase) } else { flat }
+    for line in lines {
+        stroke_one(segs, line, how, h)
+    }
+    return ok(shape.path_of(snapshot(segs), Winding.NonZero))
+}
+
+fn stroke_one(segs: MutableArray<Segment>, line: Polyline, how: Stroke, h: float) {
+    val pts = deduped(line.points, line.closed)
+    val n = len(pts)
+    if n == 0 {
+        return
+    }
+    // **A subpath with no length.** With a round cap it is a dot, with a square cap a square, and
+    // with a butt cap it is *nothing at all*. All three are correct and the difference surprises
+    // people, so it is implemented deliberately rather than falling out.
+    if n == 1 {
+        dot(segs, pts[0], how, h)
+        return
+    }
+    val count = if line.closed { n } else { n - 1 }
+    var i = 0
+    while i < count {
+        bar(segs, pts[i], pts[(i + 1) % n], h)
+        i = i + 1
+    }
+    if line.closed {
+        var k = 0
+        while k < n {
+            join_at(segs, pts[(k + n - 1) % n], pts[k], pts[(k + 1) % n], how, h)
+            k = k + 1
+        }
+    } else {
+        var k = 1
+        while k < n - 1 {
+            join_at(segs, pts[k - 1], pts[k], pts[k + 1], how, h)
+            k = k + 1
+        }
+        cap_at(segs, pts[1], pts[0], how, h)
+        cap_at(segs, pts[n - 2], pts[n - 1], how, h)
+    }
+}
+
+// One segment's rectangle: the segment pushed out by half the width on each side.
+fn bar(segs: MutableArray<Segment>, a: Point, c: Point, h: float) {
+    val d = unit(a, c)
+    if d.x == 0.0 && d.y == 0.0 {
+        return
+    }
+    val nx = 0.0 - d.y * h
+    val ny = d.x * h
+    polygon(segs, [
+        point_of(a.x + nx, a.y + ny),
+        point_of(c.x + nx, c.y + ny),
+        point_of(c.x - nx, c.y - ny),
+        point_of(a.x - nx, a.y - ny)
+    ])
+}
+
+fn join_at(segs: MutableArray<Segment>, prev: Point, v: Point, next: Point, how: Stroke, h: float) {
+    val d0 = unit(prev, v)
+    val d1 = unit(v, next)
+    if (d0.x == 0.0 && d0.y == 0.0) || (d1.x == 0.0 && d1.y == 0.0) {
+        return
+    }
+    val cross = d0.x * d1.y - d0.y * d1.x
+    val along = d0.x * d1.x + d0.y * d1.y
+    // Straight through: the two rectangles already meet flush and a join would add nothing.
+    if abs_of(cross) < point_epsilon && along > 0.0 {
+        return
+    }
+    switch how.join {
+        Round {
+            // A whole circle, not an arc. Under the union the half that falls inside the two
+            // rectangles is already covered, so the visible result is exactly the arc -- for a
+            // quarter of the arithmetic and none of the orientation questions.
+            circle(segs, v, h)
+        }
+        Bevel { bevel(segs, v, d0, d1, cross, h) }
+        Miter { miter(segs, v, d0, d1, cross, h, how.miter_limit) }
+    }
+}
+
+// The outer side of a turn, which is the side the join has to fill. The inner side needs nothing:
+// the two rectangles already overlap there.
+fn outer_sign(cross: float) -> float {
+    if cross > 0.0 {
+        return 0.0 - 1.0
+    }
+    return 1.0
+}
+
+fn bevel(segs: MutableArray<Segment>, v: Point, d0: Point, d1: Point, cross: float, h: float) {
+    val o = outer_sign(cross)
+    polygon(segs, [v, offset(v, d0, h, o), offset(v, d1, h, o)])
+}
+
+// **The miter limit, which is the whole reason `Stroke` carries one.** Two nearly-opposite segments
+// meet at a point that runs away to infinity as the angle closes: at 1 degree the miter is 115
+// times the stroke width. Without the fallback that is a spike across the page, and it is the
+// classic stroking bug precisely because it looks fine on every test case that has no sharp corner.
+fn miter(
+    segs: MutableArray<Segment>,
+    v: Point,
+    d0: Point,
+    d1: Point,
+    cross: float,
+    h: float,
+    limit: float
+) {
+    // A straight reversal. The two offset lines are parallel, so there is no intersection to find
+    // and the miter is infinite by definition -- which is past every finite limit.
+    if abs_of(cross) < point_epsilon {
+        bevel(segs, v, d0, d1, cross, h)
+        return
+    }
+    val o = outer_sign(cross)
+    val a = offset(v, d0, h, o)
+    val b = offset(v, d1, h, o)
+    // Where the two offset lines cross: `a + t*d0 = b + s*d1`, solved by crossing with `d1`.
+    val t = ((b.x - a.x) * d1.y - (b.y - a.y) * d1.x) / cross
+    val m = point_of(a.x + d0.x * t, a.y + d0.y * t)
+    val reach = sqrt((m.x - v.x) * (m.x - v.x) + (m.y - v.y) * (m.y - v.y))
+    if reach > limit * h {
+        bevel(segs, v, d0, d1, cross, h)
+        return
+    }
+    polygon(segs, [v, a, m, b])
+}
+
+fn cap_at(segs: MutableArray<Segment>, from: Point, tip: Point, how: Stroke, h: float) {
+    switch how.cap {
+        Butt { unit }
+        Round { circle(segs, tip, h) }
+        Square {
+            val d = unit(from, tip)
+            if d.x == 0.0 && d.y == 0.0 {
+                return
+            }
+            val nx = 0.0 - d.y * h
+            val ny = d.x * h
+            // Half a width beyond the tip, which is what `Square` means: the same rectangle the
+            // segment has, pushed past the end.
+            polygon(segs, [
+                point_of(tip.x + nx, tip.y + ny),
+                point_of(tip.x + nx + d.x * h, tip.y + ny + d.y * h),
+                point_of(tip.x - nx + d.x * h, tip.y - ny + d.y * h),
+                point_of(tip.x - nx, tip.y - ny)
+            ])
+        }
+    }
+}
+
+fn dot(segs: MutableArray<Segment>, p: Point, how: Stroke, h: float) {
+    switch how.cap {
+        Butt { unit }
+        Round { circle(segs, p, h) }
+        // No direction to align to, so axis-aligned.
+        Square {
+            polygon(segs, [
+                point_of(p.x - h, p.y - h),
+                point_of(p.x + h, p.y - h),
+                point_of(p.x + h, p.y + h),
+                point_of(p.x - h, p.y + h)
+            ])
+        }
+    }
+}
+
+fn offset(v: Point, d: Point, h: float, side: float) -> Point {
+    return point_of(v.x - d.y * h * side, v.y + d.x * h * side)
+}
+
+// Every contour is emitted **wound the same way**, which the union depends on: `NonZero` fills
+// where the crossing directions sum to something other than zero, so one contour wound against the
+// others would punch a hole through their overlap instead of joining it. `shape`'s own builders are
+// all positively wound (asserted in tests/lang/graphics_stroke.zm, because this file depends on
+// it), so positive is the direction chosen here.
+fn polygon(segs: MutableArray<Segment>, pts: [Point]) {
+    if len(pts) < 3 {
+        return
+    }
+    val forward = signed_area(pts) >= 0.0
+    var i = 0
+    while i < len(pts) {
+        val p = if forward { pts[i] } else { pts[len(pts) - 1 - i] }
+        if i == 0 {
+            mutable_array_push(segs, Segment.MoveTo(p))
+        } else {
+            mutable_array_push(segs, Segment.LineTo(p))
+        }
+        i = i + 1
+    }
+    mutable_array_push(segs, Segment.Close)
+}
+
+fn circle(segs: MutableArray<Segment>, c: Point, r: float) {
+    for s in shape.circle_path(c, r).segments {
+        mutable_array_push(segs, s)
+    }
+}
+
+fn signed_area(pts: [Point]) -> float {
+    var a = 0.0
+    var i = 0
+    while i < len(pts) {
+        val p = pts[i]
+        val q = pts[(i + 1) % len(pts)]
+        a = a + (p.x * q.y - q.x * p.y)
+        i = i + 1
+    }
+    return a / 2.0
+}
+
+fn unit(from: Point, to: Point) -> Point {
+    val dx = to.x - from.x
+    val dy = to.y - from.y
+    val l = sqrt(dx * dx + dy * dy)
+    // `deduped` has already merged points closer than `point_epsilon`, so this is positive at every
+    // call site. Guarded rather than asserted because the alternative is a NaN direction that
+    // produces a blank shape several hundred lines away.
+    if l <= 0.0 {
+        return point_of(0.0, 0.0)
+    }
+    return point_of(dx / l, dy / l)
+}
+
+fn deduped(pts: [Point], closed: bool) -> [Point] {
+    val out = mutable_array_new<Point>()
+    for p in pts {
+        if len(out) == 0 || !same_point(mutable_array_get(out, len(out) - 1), p) {
+            mutable_array_push(out, p)
+        }
+    }
+    // A closed subpath written with an explicit final point back at the start. Dropping it is only
+    // right when the subpath *is* closed -- an open polyline that happens to end where it began
+    // still has that last segment, and dropping its endpoint would quietly shorten the stroke.
+    if closed && len(out) > 1 &&
+        same_point(mutable_array_get(out, 0), mutable_array_get(out, len(out) - 1)) {
+        val _ = mutable_array_remove(out, len(out) - 1)
+    }
+    return snapshot(out)
+}
+
+fn same_point(a: Point, b: Point) -> bool {
+    return abs_of(a.x - b.x) < point_epsilon && abs_of(a.y - b.y) < point_epsilon
+}
+
+fn abs_of(v: float) -> float {
+    if v < 0.0 {
+        return 0.0 - v
+    }
+    return v
+}
+
+// ---- dashes
+
+// Arc length measured on the **flattened** segments, which is the only place it can be measured:
+// the arc length of a cubic has no closed form. It is also the right place, because it is the same
+// polyline the stroke itself is built from, so a dash boundary lands exactly where the outline
+// turns rather than a fraction of a pixel away.
+fn dashed(lines: [Polyline], dash: [float], phase: float) -> Result<[Polyline], string> {
+    var total = 0.0
+    for d in dash {
+        if d < 0.0 {
+            return err(concat("stroker: a dash length cannot be negative, got ", format("{}", d)))
+        }
+        total = total + d
+    }
+    if total <= 0.0 {
+        return err("stroker: a dash pattern needs at least one positive length")
+    }
+    if phase < 0.0 {
+        return err(concat("stroker: a dash phase cannot be negative, got ", format("{}", phase)))
+    }
+    val out = mutable_array_new<Polyline>()
+    for line in lines {
+        val pts = line.points
+        val n = len(pts)
+        if n < 2 {
+            mutable_array_push(out, line)
+        } else {
+            dash_one(out, pts, n, line.closed, dash, phase, total)
+        }
+    }
+    return ok(snapshot(out))
+}
+
+fn dash_one(
+    out: MutableArray<Polyline>,
+    pts: [Point],
+    n: int,
+    closed: bool,
+    dash: [float],
+    phase: float,
+    total: float
+) {
+    // Where in the pattern the walk starts. An odd-length pattern inverts on each repeat, which
+    // falls out of cycling the index and flipping `on` together rather than needing a special case.
+    var idx = 0
+    var left = dash[0]
+    var on = true
+    var skip = phase - floor_mult(phase, total)
+    while skip > 0.0 {
+        if skip >= left {
+            skip = skip - left
+            idx = (idx + 1) % len(dash)
+            left = dash[idx]
+            on = !on
+        } else {
+            left = left - skip
+            skip = 0.0
+        }
+    }
+    val run = mutable_array_new<Point>()
+    val count = if closed { n } else { n - 1 }
+    var i = 0
+    while i < count {
+        val a = pts[i]
+        val b = pts[(i + 1) % n]
+        val length = sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y))
+        if length > 0.0 {
+            var done = 0.0
+            while done < length {
+                val step = if left < length - done { left } else { length - done }
+                if on {
+                    if len(run) == 0 {
+                        mutable_array_push(run, lerp(a, b, done / length))
+                    }
+                    mutable_array_push(run, lerp(a, b, (done + step) / length))
+                }
+                done = done + step
+                left = left - step
+                if left <= point_epsilon {
+                    // A dash ends here. A run of one point is kept rather than dropped: a
+                    // zero-length "on" dash is a dot, which `stroke_one` draws or not depending on
+                    // the cap, and that is the documented behaviour rather than an accident.
+                    if on && len(run) > 0 {
+                        mutable_array_push(out, Polyline { points: snapshot(run), closed: false })
+                    }
+                    mutable_array_truncate(run, 0)
+                    on = !on
+                    idx = (idx + 1) % len(dash)
+                    left = dash[idx]
+                }
+            }
+        }
+        i = i + 1
+    }
+    if on && len(run) > 0 {
+        mutable_array_push(out, Polyline { points: snapshot(run), closed: false })
+    }
+}
+
+fn lerp(a: Point, b: Point, t: float) -> Point {
+    return point_of(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
+}
+
+// `phase` reduced into one repeat of the pattern, without `%` on floats.
+fn floor_mult(value: float, step: float) -> float {
+    var k = 0.0
+    while (k + 1.0) * step <= value {
+        k = k + 1.0
+    }
+    return k * step
+}

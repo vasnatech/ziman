@@ -625,11 +625,18 @@ fn emit_stroke(
 ) -> Result<unit, string> {
     val c = switch with_paint {
         Solid(colour) { colour }
+        // Still refused rather than done, but the advice now names a real function: `stroker`
+        // (phase 5 part 2) widens a path to its outline device-independently, so a caller who
+        // wants this can pass `stroker.outline(path, stroke)` to `scene.fill` with the gradient.
         LinearGradient(_) {
-            return err("pdf: a gradient-stroked path is not supported; fill the stroked outline instead")
+            return err(
+                "pdf: a gradient-stroked path is not supported; fill stroker.outline(path, stroke) with the gradient instead"
+            )
         }
         RadialGradient(_) {
-            return err("pdf: a gradient-stroked path is not supported; fill the stroked outline instead")
+            return err(
+                "pdf: a gradient-stroked path is not supported; fill stroker.outline(path, stroke) with the gradient instead"
+            )
         }
         Pattern(_) {
             return err("pdf: an image pattern (paint.Pattern) is not implemented; draw the image with scene.image instead")

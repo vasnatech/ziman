@@ -359,15 +359,21 @@ fn main() {
     print(concat("off-canvas draws nothing:  ", concat(round4(ink_sum(off_left)), " ", round4(ink_sum(off_right)))))
     print(concat("straddling draws 8 of 16:  ", round4(ink_sum(straddling))))
 
-    // ---- what it refuses, which is as much the contract as what it draws
-    print(concat("stroking:            ", refusal(raster.render(
-        scene.with_ops(scene.scene_of(8.0, 8.0), [scene.stroke(
-            shape.rect_path(geom.rect_of(1.0, 1.0, 4.0, 4.0)),
+    // ---- strokes, which part 2 added (tests/lang/graphics_stroke.zm has the geometry)
+    //
+    // Here only that the op is wired: a 4x4 box stroked at width 2 covers its perimeter times its
+    // width, 16*2 = 32, which is also what says `raster` is passing the stroke through the stroker
+    // rather than filling the path it was given.
+    print(concat("a stroked box = 32:        ", round4(ink_sum(unwrap(raster.render(
+        scene.with_ops(scene.scene_of(16.0, 16.0), [scene.stroke(
+            shape.rect_path(geom.rect_of(6.0, 6.0, 4.0, 4.0)),
             red,
-            paint.stroke_of(1.0)
+            paint.stroke_of(2.0)
         )]),
-        raster.options()
-    ))))
+        with raster.options() { samples: 16 }
+    ))))))
+
+    // ---- what it refuses, which is as much the contract as what it draws
     print(concat("text:                ", refusal(raster.render(
         scene.with_ops(scene.scene_of(8.0, 8.0), [scene.text_of("hi", geom.point_of(0.0, 4.0), 8.0, 0, red)]),
         raster.options()
