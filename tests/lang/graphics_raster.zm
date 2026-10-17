@@ -7,6 +7,7 @@
 //
 // Stroking (part 2) and text (part 3) are not implemented, and the refusals at the end are the
 // contract until they are.
+use font
 use geom
 use image
 use paint
@@ -374,9 +375,24 @@ fn main() {
     ))))))
 
     // ---- what it refuses, which is as much the contract as what it draws
-    print(concat("text:                ", refusal(raster.render(
+    // ---- text (part 3)
+    //
+    // Drawing it needs a real face, so the geometry is checked in `tests/run_pdf_tests.sh` against
+    // a system font. What is checkable without one is what the backend *refuses*, and the first of
+    // these is the interesting one: the standard fourteen are names a PDF reader resolves against
+    // fonts it already has, and a raster device has no such library -- so asking for Helvetica
+    // here is not a missing feature, it is a category error, and the message says which.
+    print(concat("text with no fonts:  ", refusal(raster.render(
         scene.with_ops(scene.scene_of(8.0, 8.0), [scene.text_of("hi", geom.point_of(0.0, 4.0), 8.0, 0, red)]),
         raster.options()
+    ))))
+    print(concat("a standard font:     ", refusal(raster.render(
+        scene.with_ops(scene.scene_of(8.0, 8.0), [scene.text_of("hi", geom.point_of(0.0, 4.0), 8.0, 0, red)]),
+        with raster.options() { fonts: [font.standard(font.StandardFont.Helvetica)] }
+    ))))
+    print(concat("text at size 0:      ", refusal(raster.render(
+        scene.with_ops(scene.scene_of(8.0, 8.0), [scene.text_of("hi", geom.point_of(0.0, 4.0), 0.0, 0, red)]),
+        with raster.options() { fonts: [font.standard(font.StandardFont.Helvetica)] }
     ))))
     print(concat("samples out of range:", refusal(raster.render(
         scene.with_ops(scene.scene_of(8.0, 8.0), []),

@@ -40,6 +40,10 @@ pub struct Options {
     background: Option<Color>
     // The images `DrawImage` and `paint.Pattern` index into, exactly as `pdf.Options` carries them.
     images: [image.Image]
+    // The faces a `TextRun` indexes, the same table `pdf.Options` has. **Only embedded faces can be
+    // drawn here**: the standard fourteen are names a PDF reader resolves against fonts it already
+    // has, and a raster device has no such library to resolve against.
+    fonts: [font.FontRef]
     // The same guard `image.decode_png` takes, for the same reason: a scene's size can come from a
     // request, and a 50000x50000 page should be a message rather than 40 GB of allocation.
     max_pixels: int

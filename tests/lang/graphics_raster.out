@@ -24,7 +24,9 @@ untouched stays white:     1.0000
 off-canvas draws nothing:  0.0000 0.0000
 straddling draws 8 of 16:  128.0000
 a stroked box = 32:        32.0000
-text:                raster: text is not implemented yet (phase 5 part 3); render to PDF for text today
+text with no fonts:  raster: a text run names font 0 but Options.fonts holds 0
+a standard font:     raster: 'Helvetica' is one of the standard fourteen, which carry no outlines -- a PDF reader resolves them against fonts it already has, and this backend has no such library. Load a TrueType face with font.load
+text at size 0:      raster: a text run needs a positive size, got 0.0
 samples out of range:raster: samples must be between 1 and 16, got 64 (1 is no anti-aliasing, 4 is good, 16 is as much as vertical supersampling gives)
 past the pixel cap:  raster: 4000x4000 is 16000000 pixels, past the 1000 allowed
 image out of range:  raster: a draw names image 3 but Options.images holds 0

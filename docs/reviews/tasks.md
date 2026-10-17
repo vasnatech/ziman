@@ -654,7 +654,7 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   first symptom was a correct file being reported as corrupt, which sends the next reader to the
   wrong place entirely.
 
-- [ ] **F145** **`lib/graphics` phase 5: the raster backend.** (raised 2026-10-16; L) `raster`:
+- [x] **F145** **`lib/graphics` phase 5: the raster backend.** (raised 2026-10-16; L) `raster`:
   `Scene` to `Image`. Much the largest phase, and three separable pieces worth landing in order --
   scan-conversion (adaptive flattening, an edge list, both winding rules from one crossing list,
   anti-aliasing by coverage rather than post-blur), stroking (caps, joins, **the miter limit falling
@@ -705,3 +705,22 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   fill), bevel 78, round 78.824, dashes 24.000 and 16.000 at phase 4, symmetry 0 and 0 mismatches.
   The miter limit reaches 0.022 past the vertex limited against 180 unlimited, and removing the
   fallback makes both read 180.
+
+  *Part 3 of 3 done 2026-10-16: glyph rendering. **F145 complete.*** Outlines from
+  `truetype.glyph_outline`, scaled, Y-flipped, advanced by `hmtx`, filled and cached; a standard
+  font is refused because the fourteen are names a PDF reader resolves and a raster device has no
+  library to resolve against. **Measured before optimised, and the measurement redirected the
+  work**: of 1850 ms for 2160 glyphs, outline extraction was 132 ms and flattening ~110 ms, so 87%
+  was the span loop and a glyph *path* cache could never have beaten 13%. The cache holds rasterised
+  coverage tiles instead, keyed by transform, glyph and subpixel offset rounded to the nearest
+  quarter pixel -- rounded rather than floored, because flooring drifts every line left by an eighth
+  of a pixel on average. **2.4x on a page of text** (1630 to 674 ms). The active edge table deferred
+  from part 1 was finally measured against text and is worth **12%, not the 3-4x predicted**: an
+  11pt glyph is 8 rows tall with 24 edges, so nearly every edge is active on nearly every row; the
+  same 12-14% appeared on round rectangles and on a 600-row 200-vertex path built to be its best
+  case. Kept for being consistently positive and asymptotically right, not for being the win
+  expected. The design's cross-backend round trip (one `Scene` to PDF and to an image, `pdftotext`
+  on the PDF) plus four diagnostics: the square law at 4.010, a descender below the baseline (the
+  only one that catches a flipped Y), ten glyphs at exactly 10.000x one, and a mixed run equal to
+  the sum of its parts -- that last needing 18 alternating letters, because "oi" passes even with
+  the glyph id removed from the key, the two letters landing on different subpixel quanta anyway.

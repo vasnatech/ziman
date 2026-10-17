@@ -388,5 +388,153 @@ PYEOF
     fi
 fi
 
+# ---- the raster backend's text, and the round trip between the two backends
+#
+# This is the check phase 5's design names: render **one scene** to PDF and to an image, and assert
+# the text comes back out of the PDF. The two outputs cannot be compared to each other -- one is
+# glyph ids in a content stream and the other is pixels -- but both coming from a single `Scene` is
+# the property the whole library is built around, and it is the only check that exercises both
+# backends against the same input.
+cat > "$WORK/both.zm" <<'ZM'
+use font
+use fs
+use geom
+use image
+use os
+use paint
+use pdf
+use raster
+use scene
+fn ink(img: image.Image) -> float {
+    var t = 0.0
+    var y = 0
+    while y < img.height {
+        var x = 0
+        while x < img.width {
+            t = t + unwrap(image.pixel_at(img, x, y)).alpha
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return t
+}
+fn text_scene(s: string, size: float, at: geom.Point) -> scene.Scene {
+    return scene.with_ops(scene.scene_of(320.0, 80.0), [
+        scene.text_of(s, at, size, 0, paint.solid(paint.black()))
+    ])
+}
+fn main() {
+    val face = unwrap(font.load(unwrap(fs.read_bytes(os.args()[0]))))
+    val one = text_scene("Round trip 123", 18.0, geom.point_of(10.0, 50.0))
+
+    // The same scene, both ways.
+    val _n = unwrap(fs.write_bytes(os.args()[1], unwrap(pdf.render(one, with pdf.options() {
+        size: pdf.page_size_of(320.0, 80.0),
+        fonts: [face]
+    }))))
+    val ro = with raster.options() { samples: 16, fonts: [face] }
+    val img = unwrap(raster.render(one, ro))
+    val _m = unwrap(fs.write_bytes(os.args()[2], image.encode_png(img)))
+    print(concat("raster ink: ", format("{:.1}", ink(img))))
+
+    // Area scales with the square of the size: 36pt covers about 4x what 18pt does. This is what
+    // catches a glyph scaled by the wrong factor, which a visual check would call "looks about
+    // right" at any size.
+    val big = ink(unwrap(raster.render(text_scene("Round trip 123", 36.0, geom.point_of(10.0, 70.0)), ro)))
+    val small = ink(unwrap(raster.render(text_scene("Round trip 123", 18.0, geom.point_of(10.0, 50.0)), ro)))
+    print(concat("double size ink ratio: ", format("{:.3}", big / small)))
+
+    // **Which way is up.** A descender drops below the baseline and a round letter does not, so
+    // the lowest inked row of "g" sits below that of "o". A flipped Y axis passes every area check
+    // ever written and fails this one.
+    print(concat("g descends below o: ", str(lowest_row(ro, "g") > lowest_row(ro, "o"))))
+
+    // Cache faithfulness: ten of one glyph lay down ten times the ink of one. The first is a miss
+    // and the other nine are hits, so a hit returning the wrong tile shows up here.
+    val once = ink(unwrap(raster.render(text_scene("o", 24.0, geom.point_of(10.0, 50.0)), ro)))
+    val ten = ink(unwrap(raster.render(text_scene("oooooooooo", 24.0, geom.point_of(10.0, 50.0)), ro)))
+    print(concat("ten glyphs / one: ", format("{:.3}", ten / once)))
+
+    // **What pins the cache key**, and it took a second attempt to do so. The obvious fixture --
+    // "oi" against "o" plus "i" -- passes even with the glyph id removed from the key, because the
+    // two letters land on *different* subpixel quanta and so get different entries anyway. A
+    // collision needs two different glyphs at the same quarter-pixel offset, which one pair cannot
+    // be relied on to produce.
+    //
+    // Eighteen alternating letters can: their offsets walk through all four quanta, so some "i"
+    // lands where an "o" already sits. The total ink of a glyph does not depend on where in a pixel
+    // it falls -- anti-aliasing moves coverage between pixels but conserves it -- so the sum of the
+    // parts is the right comparison, and a shared entry draws nine "o" too many.
+    val dot_i = ink(unwrap(raster.render(text_scene("i", 24.0, geom.point_of(10.0, 50.0)), ro)))
+    val mixed = ink(unwrap(raster.render(
+        text_scene("oioioioioioioioioi", 24.0, geom.point_of(10.0, 50.0)),
+        ro
+    )))
+    print(concat("mixed run vs its parts: ", format("{:.4}", mixed / (9.0 * once + 9.0 * dot_i))))
+}
+fn lowest_row(ro: raster.Options, s: string) -> int {
+    val img = unwrap(raster.render(text_scene(s, 40.0, geom.point_of(10.0, 50.0)), ro))
+    var lowest = 0
+    var y = 0
+    while y < img.height {
+        var x = 0
+        while x < img.width {
+            if unwrap(image.pixel_at(img, x, y)).alpha > 0.5 {
+                lowest = y
+            }
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return lowest
+}
+ZM
+
+if ! out=$("$BIN" "$WORK/both.zm" -- "$FONT" "$WORK/both.pdf" "$WORK/both.png" 2>&1); then
+    fail "one scene renders to both backends" "$(head -3 <<<"$out")"
+else
+    pass "one scene renders to both backends"
+    # The design's round trip: the text survives the PDF path.
+    got=$(pdftotext "$WORK/both.pdf" - 2>&1 | tr -d '\n\f')
+    if [ "$got" = "Round trip 123" ]; then
+        pass "the PDF half round-trips its text"
+    else
+        fail "the PDF half round-trips its text" "wanted 'Round trip 123', got '$got'"
+    fi
+    # And the raster half put ink on the page rather than producing an empty image.
+    inked=$(grep -o 'raster ink: [0-9.]*' <<<"$out" | cut -d' ' -f3)
+    if [ -n "$inked" ] && awk "BEGIN{exit !($inked > 200)}"; then
+        pass "the raster half drew the glyphs ($inked square units)"
+    else
+        fail "the raster half drew the glyphs" "$out"
+    fi
+    # Area goes as the square of the size, so doubling it is about 4x. Loose bounds, because the
+    # hinting-free outline at 18pt is not exactly a quarter of the one at 36pt.
+    ratio=$(grep -o 'double size ink ratio: [0-9.]*' <<<"$out" | cut -d' ' -f5)
+    if [ -n "$ratio" ] && awk "BEGIN{exit !($ratio > 3.5 && $ratio < 4.5)}"; then
+        pass "doubling the size quadruples the ink ($ratio)"
+    else
+        fail "doubling the size quadruples the ink" "got $ratio, wanted 3.5-4.5"
+    fi
+    if grep -q "g descends below o: true" <<<"$out"; then
+        pass "the glyph Y axis points the right way"
+    else
+        fail "the glyph Y axis points the right way" "$out"
+    fi
+    # Ten cache hits of one glyph are ten times one glyph, within anti-aliasing.
+    tenth=$(grep -o 'ten glyphs / one: [0-9.]*' <<<"$out" | cut -d' ' -f5)
+    if [ -n "$tenth" ] && awk "BEGIN{exit !($tenth > 9.8 && $tenth < 10.2)}"; then
+        pass "cached glyphs are faithful ($tenth x one glyph)"
+    else
+        fail "cached glyphs are faithful" "got $tenth, wanted 9.8-10.2"
+    fi
+    mixed=$(grep -o 'mixed run vs its parts: [0-9.]*' <<<"$out" | cut -d' ' -f6)
+    if [ -n "$mixed" ] && awk "BEGIN{exit !($mixed > 0.99 && $mixed < 1.01)}"; then
+        pass "two glyphs do not share a cache entry ($mixed)"
+    else
+        fail "two glyphs do not share a cache entry" "got $mixed, wanted ~1.0"
+    fi
+fi
+
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]

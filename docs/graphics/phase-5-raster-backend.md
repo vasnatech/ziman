@@ -250,3 +250,84 @@ across it. Most renderers do the same; it is recorded here rather than discovere
 
 **Still owed:** glyph rendering and its cache (part 3), the active edge table deferred from part 1 so
 it can be measured against text, and the round trip against the document path, which needs text.
+
+## As built: part 3 (glyph rendering), and the phase's performance story
+
+Landed 2026-10-16. `Text` renders: outlines from `truetype.glyph_outline`, scaled by
+`size / units_per_em`, flipped in Y, advanced by `hmtx`, filled -- and cached. `raster.Options`
+gained `fonts: [font.FontRef]`, the table `pdf.Options` already had.
+
+**A standard font is refused, and that is not a missing feature.** The standard fourteen are *names*
+a PDF reader resolves against fonts it already has; a raster device has no such library to resolve
+against, so asking for Helvetica here is a category error and the message says so. No hinting (an
+interpreter for a bytecode language inside the font, a project in itself) and no kerning (`kern` and
+GPOS were not read in phase 3), both named rather than hidden.
+
+### The glyph cache, which is where the time was
+
+Measured first, as the phase required. Of ~1850 ms for 2160 glyphs, `truetype.glyph_outline`
+accounted for 132 ms and flattening about 110 ms -- **87% was the span loop**, so caching glyph
+*paths* could never have been more than a 13% win. The cache therefore holds rasterised **coverage
+tiles**, keyed by the run's linear transform, the glyph, and the subpixel offset, and the draw
+becomes a blit.
+
+Subpixel offsets are quantised to a quarter of a pixel: snapping to whole pixels makes spacing
+visibly uneven, and keeping the exact fraction makes every glyph a miss. They are **rounded to the
+nearest** quarter rather than floored -- flooring shifts every glyph left by an eighth of a pixel on
+average, which is a systematic drift of the whole line rather than an error that cancels. Rounding
+also halved the largest pixel difference against the uncached path, from 40/255 to 28/255, with the
+total ink identical at 1695.8 either way.
+
+The cache lives on the `Target`, so its lifetime is one `render` -- no invalidation when a face
+changes, and no way for a long-lived process to grow one without bound.
+
+### Performance across the whole phase
+
+All interleaved, all byte-identical in output except where noted:
+
+| | 600x800, 40 lines x 54 chars at 11pt | 600x800, 400 round rects |
+| --- | --- | --- |
+| part 1 as first written | — | 3592 ms |
+| + fill bounded to its extent, `Solid` hoisted | — | 1667 ms |
+| part 3, before the table and the cache | 1817 ms | 1696 ms |
+| + active edge table | 1630 ms | 1513 ms |
+| + glyph cache | **674 ms** | 1547 ms (unchanged) |
+
+**The active edge table is a 12% win, and I predicted 3-4x.** That prediction was wrong and the
+reason is worth keeping: an 11pt glyph is about 8 rows tall with 24 edges, so nearly every edge is
+active on nearly every row and there is almost nothing to exclude. The same 12-14% showed up on
+400 round rectangles and on a deliberately tall, 200-vertex, 600-row path, which was built
+specifically to be the case the table should win big on. The dominant cost is not the edge scan; it
+is interpreter overhead spread across the span loop. The table is kept because it is consistently
+positive on every workload and makes the asymptotics right, not because it was the win it was
+expected to be.
+
+The glyph cache, by contrast, did what the design said it would: **2.4x** on a page of text.
+
+### Verification
+
+The design's own cross-backend check is in `tests/run_pdf_tests.sh`: one `Scene` rendered to PDF
+*and* to an image, with `pdftotext` asserting the text survives the PDF path. Alongside it, four
+checks that are each diagnostic rather than decorative -- doubling the point size quadruples the ink
+(4.010 measured, the square law, which catches a glyph scaled by the wrong factor where a visual
+check would call any size "about right"); a descender drops below the baseline where a round letter
+does not (**the only check that catches a flipped Y axis** -- every area assertion passes upside
+down, and removing the flip fails this one); ten of one glyph lay down exactly 10.000 times the ink
+of one; and a mixed run equals the sum of its parts.
+
+**That last one took two attempts.** The obvious fixture -- "oi" against "o" plus "i" -- passes with
+the glyph id removed from the cache key, because those two letters land on *different* subpixel
+quanta and so get separate entries regardless. A collision needs two different glyphs at the same
+quarter-pixel offset, which one pair cannot be relied on to produce. Eighteen alternating letters
+walk through all four quanta and force it: with the id dropped the ratio reads 1.0805 instead of
+1.0000.
+
+A process note from the same session: two earlier mutation runs "passed" because the formatter had
+re-indented the lines being patched, so the mutation never applied. A mutation that does not change
+the source proves nothing, and the patch has to assert it matched.
+
+### What the phase does not do
+
+Hinting, subpixel (LCD) anti-aliasing, blend modes, JPEG sources, colour management, SIMD, and
+shaping -- Arabic and Indic render as disconnected letters in logical order, as phase 3 said. A
+layout layer above this is the candidate phase 6.

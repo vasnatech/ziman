@@ -21,6 +21,7 @@
 // list maintained across scanlines), which would cut the scan by about the edge count; it is not
 // here because part 1's job is to be right, and because that is a change worth measuring against
 // text, which is the workload with the most edges and does not exist yet.
+use font
 use geom.Matrix
 use geom.Point
 use geom.Rect
@@ -33,16 +34,19 @@ use geom.transform_point
 use image
 use math.ceil
 use math.floor
+use math.round
 use math.sqrt
 use paint.Color
 use paint.Paint
 use paint.Stop
+use scene
 use scene.Op
 use scene.Scene
 use shape.Path
 use shape.Segment
 use shape.Winding
 use stroker
+use truetype
 
 // Quarter of a pixel, which is the tolerance the design settled on: looser and a large circle
 // visibly facets, tighter and a page of text costs many times what it should for a difference
@@ -64,6 +68,10 @@ pub struct Options {
     background: Option<Color>
     // The images `DrawImage` and `paint.Pattern` index into, exactly as `pdf.Options` carries them.
     images: [image.Image]
+    // The faces a `TextRun` indexes, the same table `pdf.Options` has. **Only embedded faces can be
+    // drawn here**: the standard fourteen are names a PDF reader resolves against fonts it already
+    // has, and a raster device has no such library to resolve against.
+    fonts: [font.FontRef]
     // The same guard `image.decode_png` takes, for the same reason: a scene's size can come from a
     // request, and a 50000x50000 page should be a message rather than 40 GB of allocation.
     max_pixels: int
@@ -75,6 +83,7 @@ pub fn options() -> Options {
         samples: 4,
         background: Option<Color>.None,
         images: [],
+        fonts: [],
         max_pixels: 4000000
     }
 }
@@ -113,6 +122,20 @@ struct Target {
     width: int
     height: int
     data: MutableArray<float>
+    // Rasterised glyphs, keyed by shape and subpixel position. Per *render*, deliberately: a cache
+    // that outlived the call would need invalidating when a face changed and bounding so a
+    // long-lived process could not grow one forever. A page is where the reuse is anyway.
+    glyphs: MutableMap<string, GlyphTile>
+}
+
+// One glyph, already rasterised: coverage in 0..1 over a small box, with the box's position given
+// relative to the integer pixel the pen landed on.
+struct GlyphTile {
+    left: int
+    top: int
+    width: int
+    height: int
+    cover: [float]
 }
 
 // Non-horizontal edges only, four floats each (x0, y0, x1, y1), in device space. A horizontal edge
@@ -184,7 +207,12 @@ fn new_target(width: int, height: int) -> Target {
         mutable_array_push(data, 0.0)
         i = i + 1
     }
-    return Target { width: width, height: height, data: data }
+    return Target {
+        width: width,
+        height: height,
+        data: data,
+        glyphs: mutable_map_new<string, GlyphTile>()
+    }
 }
 
 fn clear_to(t: Target, c: Premul) {
@@ -213,11 +241,7 @@ fn draw_ops(t: Target, ops: [Op], m: Matrix, clip: Option<[float]>, o: Options) 
                 val widened = try stroker.outline(s.path, s.stroke)
                 try fill_shape(t, widened, Ink.FromPaint(s.fill), m, clip, o)
             }
-            Text(_) {
-                return err(
-                    "raster: text is not implemented yet (phase 5 part 3); render to PDF for text today"
-                )
-            }
+            Text(run) { try draw_text(t, run, m, clip, o) }
             DrawImage(p) {
                 if p.image < 0 || p.image >= len(o.images) {
                     return err(concat(
@@ -249,6 +273,196 @@ fn draw_ops(t: Target, ops: [Op], m: Matrix, clip: Option<[float]>, o: Options) 
     return unit
 }
 
+// Text is lowered to outlines and filled -- the one place where `GlyphVector.getOutline()`'s
+// equivalent is the *right* answer, because a raster device has no font machinery of its own to
+// defer to. `truetype.glyph_outline` was written in phase 3 for exactly this.
+//
+// **No hinting and no kerning.** Hinting is an interpreter for a bytecode language embedded in the
+// font and is a project in itself; unhinted small text is blurrier than a hinted renderer's, which
+// is a real cost and is named rather than hidden. Kerning needs `kern` or GPOS, which phase 3 did
+// not read: advances come from `hmtx` alone, so "AV" sits further apart here than in a shaped
+// renderer.
+fn draw_text(
+    t: Target,
+    run: scene.TextRun,
+    m: Matrix,
+    clip: Option<[float]>,
+    o: Options
+) -> Result<unit, string> {
+    if run.font < 0 || run.font >= len(o.fonts) {
+        return err(concat(
+            "raster: a text run names font ",
+            str(run.font),
+            " but Options.fonts holds ",
+            str(len(o.fonts))
+        ))
+    }
+    if run.size <= 0.0 {
+        return err(concat("raster: a text run needs a positive size, got ", format("{}", run.size)))
+    }
+    val face = switch o.fonts[run.font] {
+        Embedded(f) { f }
+        Standard(s) {
+            return err(concat(
+                "raster: '",
+                font.base_font_name(s),
+                "' is one of the standard fourteen, which carry no outlines -- a PDF reader resolves them against fonts it already has, and this backend has no such library. Load a TrueType face with font.load"
+            ))
+        }
+    }
+    val ids = try font.glyphs_of(face, run.text)
+    // The linear part of the glyph transform is the same for every glyph in the run -- only the
+    // pen moves -- so it keys the whole run, and a rotated or scaled run simply gets its own
+    // entries rather than falling off the cache.
+    val linear = matrix_concat(m, geom.scaling(run.size / (face.units_per_em as float), 0.0 - run.size /
+            (face.units_per_em as float)))
+    val prefix = concat(
+        format("{:.5}", linear.a),
+        ",",
+        format("{:.5}", linear.b),
+        ",",
+        format("{:.5}", linear.c),
+        ",",
+        format("{:.5}", linear.d)
+    )
+    // Font units to scene units. The **negative Y** is the whole conversion: a glyph outline has Y
+    // growing upward from its baseline, and this library's coordinates grow downward.
+    val scale = run.size / (face.units_per_em as float)
+    var pen = run.at.x
+    for g in ids {
+        val origin = transform_point(m, point_of(pen, run.at.y))
+        // **Subpixel position, quantised to a quarter of a pixel.** Snapping glyphs to whole
+        // pixels would make their spacing visibly uneven; keeping the exact fraction would make
+        // every glyph a cache miss. A quarter is the usual compromise.
+        //
+        // Rounded to the *nearest* quarter, not floored: flooring shifts every glyph left by up to
+        // a quarter pixel and by an eighth on average, which is a systematic drift of the whole
+        // line rather than a rounding error that cancels. Rounding bounds the error at an eighth
+        // and centres it on zero. A fraction that rounds up to 1 is the next pixel at offset zero.
+        var ix = floor(origin.x)
+        var iy = floor(origin.y)
+        var nx = round((origin.x - (ix as float)) * 4.0)
+        var ny = round((origin.y - (iy as float)) * 4.0)
+        if nx == 4 {
+            nx = 0
+            ix = ix + 1
+        }
+        if ny == 4 {
+            ny = 0
+            iy = iy + 1
+        }
+        val qx = (nx as float) / 4.0
+        val qy = (ny as float) / 4.0
+        val key = concat(prefix, "/", str(g), "/", str(nx), ",", str(ny))
+        val tile = switch mutable_map_get(t.glyphs, key) {
+            Some(cached) { cached }
+            None {
+                val outline = try truetype.glyph_outline(face, g)
+                val made = rasterise_tile(
+                    outline,
+                    matrix_concat(geom.translation(qx, qy), linear),
+                    o.samples
+                )
+                mutable_map_set(t.glyphs, key, made)
+                made
+            }
+        }
+        try blit(t, tile, ix, iy, Ink.FromPaint(run.fill), m, clip, o)
+        pen = pen + ((try truetype.advance_of(face, g)) as float) * scale
+    }
+    return unit
+}
+
+// A glyph rasterised on its own, into a box just big enough to hold it. This is `fill_shape`'s row
+// loop writing coverage into a buffer instead of compositing it, which is the only part of the two
+// that differs.
+fn rasterise_tile(outline: Path, gm: Matrix, samples: int) -> GlyphTile {
+    val device = shape.transform_path(outline, gm)
+    val e = edges_of(device)
+    if len(e.xy) == 0 {
+        return GlyphTile { left: 0, top: 0, width: 0, height: 0, cover: [] }
+    }
+    val left = floor(e.min_x)
+    val top = floor(e.min_y)
+    val width = ceil(e.max_x) - left + 1
+    val height = ceil(e.max_y) - top + 1
+    val cover = mutable_array_new<float>()
+    val row = mutable_array_new<float>()
+    var i = 0
+    while i < width {
+        mutable_array_push(row, 0.0)
+        i = i + 1
+    }
+    val plan = plan_of(e, top, top + height - 1)
+    val live = mutable_array_new<int>()
+    var cursor = 0
+    var y = top
+    while y < top + height {
+        cursor = advance_active(plan, live, cursor, y)
+        // The row buffer is in *tile* coordinates, so the edge list is shifted by `left` on the way
+        // in and the spans come out already local.
+        row_coverage_shifted(row, width, e, live, device.winding, samples, y, left)
+        var x = 0
+        while x < width {
+            mutable_array_push(cover, mutable_array_get(row, x))
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return GlyphTile { left: left, top: top, width: width, height: height, cover: snapshot(cover) }
+}
+
+fn blit(
+    t: Target,
+    tile: GlyphTile,
+    ix: int,
+    iy: int,
+    k: Ink,
+    m: Matrix,
+    clip: Option<[float]>,
+    o: Options
+) -> Result<unit, string> {
+    if tile.width == 0 {
+        return unit
+    }
+    val inv = switch invert(m) {
+        Ok(i) { i }
+        Err(why) { return err(concat("raster: this group's transform cannot be inverted (", why, ")")) }
+    }
+    val flat = flat_ink(k)
+    var ty = 0
+    while ty < tile.height {
+        val py = iy + tile.top + ty
+        if py >= 0 && py < t.height {
+            var tx = 0
+            while tx < tile.width {
+                val px = ix + tile.left + tx
+                if px >= 0 && px < t.width {
+                    val cov = tile.cover[ty * tile.width + tx]
+                    if cov > 0.002 {
+                        val through = switch clip {
+                            Some(mask) { mask[py * t.width + px] }
+                            None { 1.0 }
+                        }
+                        if through > 0.002 {
+                            val c = switch flat {
+                                Some(constant) { constant }
+                                None {
+                                    try ink_at(k, inv, o.images, point_of((px as float) + 0.5, (py as float) + 0.5))
+                                }
+                            }
+                            composite(t, px, py, c, cov * through)
+                        }
+                    }
+                }
+                tx = tx + 1
+            }
+        }
+        ty = ty + 1
+    }
+    return unit
+}
+
 // A clip is a **coverage mask**, not a rectangle: an arbitrary clip path is rasterised once into a
 // Gray-ish buffer and multiplied into everything the group draws. A rectangle fast path is worth
 // having later (almost every clip is one), but the general case has to exist, because a `Group`
@@ -269,9 +483,13 @@ fn clip_mask(
         mutable_array_push(row, 0.0)
         i = i + 1
     }
+    val plan = plan_of(e, 0, t.height - 1)
+    val live = mutable_array_new<int>()
+    var cursor = 0
     var y = 0
     while y < t.height {
-        row_coverage(row, t.width, e, device.winding, o.samples, y, 0, t.width - 1)
+        cursor = advance_active(plan, live, cursor, y)
+        row_coverage(row, t.width, e, live, device.winding, o.samples, y, 0, t.width - 1)
         var x = 0
         while x < t.width {
             val here = mutable_array_get(row, x)
@@ -322,26 +540,20 @@ fn fill_shape(
     // A solid colour is the same at every pixel, so it is evaluated once instead of per pixel --
     // which also skips the inverse transform there. Every other ink genuinely varies with position.
     // Worth 1.33x on the same page (2253 ms to 1667 ms, interleaved), and `Solid` is the common case.
-    val flat = switch k {
-        FromPaint(p) {
-            switch p {
-                Solid(c) { Option<Premul>.Some(premul_of(c)) }
-                LinearGradient(_) { Option<Premul>.None }
-                RadialGradient(_) { Option<Premul>.None }
-                Pattern(_) { Option<Premul>.None }
-            }
-        }
-        FromImage(_) { Option<Premul>.None }
-    }
+    val flat = flat_ink(k)
     val row = mutable_array_new<float>()
     var i = 0
     while i < t.width {
         mutable_array_push(row, 0.0)
         i = i + 1
     }
+    val plan = plan_of(e, first_row, last_row)
+    val live = mutable_array_new<int>()
+    var cursor = 0
     var y = first_row
     while y <= last_row {
-        row_coverage(row, t.width, e, device.winding, o.samples, y, first_col, last_col)
+        cursor = advance_active(plan, live, cursor, y)
+        row_coverage(row, t.width, e, live, device.winding, o.samples, y, first_col, last_col)
         var x = first_col
         while x <= last_col {
             val cov = mutable_array_get(row, x)
@@ -369,6 +581,98 @@ fn fill_shape(
     return unit
 }
 
+// ---- the active edge table
+//
+// Part 1 scanned **every** edge of a path for every sub-scanline, which is fine for a rectangle and
+// ruinous for a page of text: measured at 2160 glyphs, 87% of the time was in that scan. The fix is
+// the textbook one, deferred until there was text to measure it against.
+//
+// Edges are ordered by the first row they touch (a counting sort over rows, so O(edges + rows) and
+// no comparator), and a live list is carried down the page: each row admits the edges that start on
+// it and drops the ones that ended above it. Because `y` and then `sy` both increase monotonically,
+// each edge is added once and removed once however tall the shape is.
+struct Plan {
+    // Edge indices, ordered by `start`.
+    order: [int]
+    // Per edge: the first row it can touch, and the largest y it reaches.
+    start: [int]
+    high: [float]
+}
+
+fn plan_of(e: Edges, first_row: int, last_row: int) -> Plan {
+    val count = len(e.xy) / 4
+    val start = mutable_array_new<int>()
+    val high = mutable_array_new<float>()
+    var i = 0
+    while i < count {
+        val y0 = e.xy[i * 4 + 1]
+        val y1 = e.xy[i * 4 + 3]
+        val lo = if y0 < y1 { y0 } else { y1 }
+        val hi = if y0 < y1 { y1 } else { y0 }
+        mutable_array_push(start, clamp_int(floor(lo), first_row, last_row))
+        mutable_array_push(high, hi)
+        i = i + 1
+    }
+    // Counting sort by start row. The bucket array is one per row of the shape, not of the canvas.
+    val rows = last_row - first_row + 1
+    val counts = mutable_array_new<int>()
+    var k = 0
+    while k <= rows {
+        mutable_array_push(counts, 0)
+        k = k + 1
+    }
+    i = 0
+    while i < count {
+        val b = mutable_array_get(start, i) - first_row
+        mutable_array_set(counts, b, mutable_array_get(counts, b) + 1)
+        i = i + 1
+    }
+    var running = 0
+    k = 0
+    while k <= rows {
+        val here = mutable_array_get(counts, k)
+        mutable_array_set(counts, k, running)
+        running = running + here
+        k = k + 1
+    }
+    val order = mutable_array_new<int>()
+    i = 0
+    while i < count {
+        mutable_array_push(order, 0)
+        i = i + 1
+    }
+    i = 0
+    while i < count {
+        val b = mutable_array_get(start, i) - first_row
+        mutable_array_set(order, mutable_array_get(counts, b), i)
+        mutable_array_set(counts, b, mutable_array_get(counts, b) + 1)
+        i = i + 1
+    }
+    return Plan { order: snapshot(order), start: snapshot(start), high: snapshot(high) }
+}
+
+// Admit the edges that start on this row, drop those that ended above it, and report where the
+// cursor got to. The cursor is returned rather than held in the struct because a `Plan` is a value.
+fn advance_active(p: Plan, live: MutableArray<int>, cursor: int, y: int) -> int {
+    var next = cursor
+    while next < len(p.order) && p.start[p.order[next]] <= y {
+        mutable_array_push(live, p.order[next])
+        next = next + 1
+    }
+    var write = 0
+    var read = 0
+    while read < len(live) {
+        val idx = mutable_array_get(live, read)
+        if p.high[idx] > (y as float) {
+            mutable_array_set(live, write, idx)
+            write = write + 1
+        }
+        read = read + 1
+    }
+    mutable_array_truncate(live, write)
+    return next
+}
+
 // One pixel row's coverage, as a fraction in 0..1 per pixel.
 //
 // Vertically the row is sampled `samples` times; horizontally each span contributes its **exact**
@@ -378,11 +682,43 @@ fn row_coverage(
     row: MutableArray<float>,
     width: int,
     e: Edges,
+    live: MutableArray<int>,
     winding: Winding,
     samples: int,
     y: int,
     from_x: int,
     to_x: int
+) {
+    row_coverage_at(row, width, e, live, winding, samples, y, from_x, to_x, 0)
+}
+
+// A glyph tile's row buffer is in tile coordinates, so its spans come back shifted left by the
+// tile's own origin. Everything else is identical, which is why it is one parameter rather than a
+// second copy of the loop.
+fn row_coverage_shifted(
+    row: MutableArray<float>,
+    width: int,
+    e: Edges,
+    live: MutableArray<int>,
+    winding: Winding,
+    samples: int,
+    y: int,
+    shift: int
+) {
+    row_coverage_at(row, width, e, live, winding, samples, y, 0, width - 1, shift)
+}
+
+fn row_coverage_at(
+    row: MutableArray<float>,
+    width: int,
+    e: Edges,
+    live: MutableArray<int>,
+    winding: Winding,
+    samples: int,
+    y: int,
+    from_x: int,
+    to_x: int,
+    shift: int
 ) {
     // Only the window the shape can touch is cleared. Every crossing comes from an edge, and every
     // edge lies within `[min_x, max_x]`, so no span can write outside it.
@@ -399,8 +735,8 @@ fn row_coverage(
         val sy = (y as float) + ((s as float) + 0.5) * weight
         mutable_array_truncate(xs, 0)
         mutable_array_truncate(dirs, 0)
-        crossings_at(e, sy, xs, dirs)
-        spans_from(xs, dirs, winding, row, width, weight)
+        crossings_at(e, live, sy, xs, dirs)
+        spans_from(xs, dirs, winding, row, width, weight, shift)
         s = s + 1
     }
 }
@@ -410,9 +746,16 @@ fn row_coverage(
 // The half-open rule -- `y0 <= sy < y1` -- is what stops a vertex shared by two edges being counted
 // twice. Getting it wrong produces a one-pixel seam along every shared boundary, which looks like a
 // rounding problem and is not one.
-fn crossings_at(e: Edges, sy: float, xs: MutableArray<float>, dirs: MutableArray<int>) {
-    var i = 0
-    while i + 3 < len(e.xy) {
+fn crossings_at(
+    e: Edges,
+    live: MutableArray<int>,
+    sy: float,
+    xs: MutableArray<float>,
+    dirs: MutableArray<int>
+) {
+    var at = 0
+    while at < len(live) {
+        val i = mutable_array_get(live, at) * 4
         val x0 = e.xy[i]
         val y0 = e.xy[i + 1]
         val x1 = e.xy[i + 2]
@@ -435,7 +778,7 @@ fn crossings_at(e: Edges, sy: float, xs: MutableArray<float>, dirs: MutableArray
                 at = at - 1
             }
         }
-        i = i + 4
+        at = at + 1
     }
 }
 
@@ -448,7 +791,8 @@ fn spans_from(
     winding: Winding,
     row: MutableArray<float>,
     width: int,
-    weight: float
+    weight: float,
+    shift: int
 ) {
     val n = len(xs)
     var inside = 0
@@ -470,7 +814,7 @@ fn spans_from(
         if !was_inside && now_inside {
             start = mutable_array_get(xs, i)
         } else if was_inside && !now_inside {
-            add_span(row, width, start, mutable_array_get(xs, i), weight)
+            add_span(row, width, start - (shift as float), mutable_array_get(xs, i) - (shift as float), weight)
         }
         i = i + 1
     }
@@ -518,6 +862,22 @@ fn composite(t: Target, x: int, y: int, c: Premul, cov: float) {
 }
 
 // ---- paints
+
+// A paint that is the same at every pixel, so it can be evaluated once per fill instead of once
+// per pixel -- which also skips the inverse transform there. Every other ink varies with position.
+fn flat_ink(k: Ink) -> Option<Premul> {
+    return switch k {
+        FromPaint(p) {
+            switch p {
+                Solid(c) { Option<Premul>.Some(premul_of(c)) }
+                LinearGradient(_) { Option<Premul>.None }
+                RadialGradient(_) { Option<Premul>.None }
+                Pattern(_) { Option<Premul>.None }
+            }
+        }
+        FromImage(_) { Option<Premul>.None }
+    }
+}
 
 fn ink_at(k: Ink, inv: Matrix, images: [image.Image], device: Point) -> Result<Premul, string> {
     val user = transform_point(inv, device)
