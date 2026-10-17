@@ -380,3 +380,62 @@ Everything layout needs -- `split`, `font.advance`, `font.ascent`, `font.line_he
 `scene.text_of`, `pdf.render_pages` taking per-page sizes from each scene -- already exists and fits
 together. What the prototype found was not a missing feature but the quadratic measuring loop above,
 which is a layout-side mistake and is now written down before anyone makes it again.
+
+## As built
+
+Landed 2026-10-16. `layout.paginate(doc, template) -> Result<[Scene], string>`, a closed `Block`
+enum (`Paragraph`, `Table`, `Spacer`, `Rule`, `PageBreak`) and the three exhaustive switches over
+it. Wrapping across spans, all four alignments, widows and orphans, tables with `Fixed`,
+`Proportional` and `Auto` columns, repeating headers, and header/footer bands that get the page
+number and the total.
+
+**The module is measured against the bug that motivated it.** The same forty-medication table that
+printed 17pt past its own bottom margin on three of five pages by hand produces, through `layout`,
+**zero words below the frame** -- asserted in `tests/run_pdf_tests.sh` using Poppler's own word
+geometry, so it is not this project agreeing with itself. It also needs three pages where the hand
+version took five, because `Auto` columns size to content instead of to numbers tuned by eye.
+
+### Four things the build found that the design above did not
+
+**Pagination needs one pass, not two.** The design chose "lay out twice" for page numbers, and that
+was unnecessary: a band's *height* is fixed even though its *content* needs the total, so the frame
+is identical on every page and the content can be paginated before the total is known. The bands
+are drawn afterwards, when it is. The design's reasoning about the three options was right; the
+premise that pagination depends on the footer was not.
+
+**`split_block`, not `split`.** `split` is the string builtin this very module needs for wrapping,
+and a module function of that name shadows it throughout the file. Phase 1 hit the same wall with
+`concat` and came away with `matrix_concat`.
+
+**`Split { fits: None, rest: None }` means "consumed, end the page"**, and that fourth case is load
+bearing. The first implementation used it only for `PageBreak` and gave an oversized `Spacer` the
+same answer by accident -- so thirty 20pt spacers in a 100pt frame rendered as **one** page, with
+twenty-five of them silently dropped and no break. Reading all four combinations as meaningful
+fixes it and deletes the special case `PageBreak` used to need. A spacer that does not fit is still
+*consumed* rather than carried, because space at a page break is the break; thirty spacers give
+five pages where thirty rules give six, and both numbers are right.
+
+**A page can hold content that draws nothing.** The final page was being dropped when its op list
+was empty, which is wrong for a page of spacers and wrong after an explicit `PageBreak` -- the test
+asked for two pages and got one. The condition is on the cursor, not on the op count.
+
+### On the verification
+
+The lang fixture uses **Courier**, the one standard font this library can measure, at exactly
+0.6 em a character. At 10pt that is 6pt a character, so every break position is arithmetic and no
+font file is needed. The display list being inspectable data is what makes it checkable at all: the
+test reads back the `Text` ops to recover the lines that were drawn, which is the property phase 1
+claimed for an immutable display list and the first time it has been used for that.
+
+Two checks were confirmed by mutation, and **the first attempt at one of them was worthless**:
+conservation under splitting was being checked on a paragraph with no `space_before` or
+`space_after`, so removing the code that redistributes them changed nothing and the mutation passed.
+Checked on a spaced paragraph it fails loudly (24 + 19 against 36). Dropping the header from a
+split table's continuation is caught too -- page 2 starts "drug4" instead of "Name".
+
+### Still not built
+
+`Together` (keep-with-next) and `Picture`, which the enum does not yet have; justified text is
+implemented but hyphenation is not, so a narrow measure sets loose lines; and nothing recurses into
+a table inside a table beyond what `measure`/`draw` already do by construction. Rows do not split,
+by design -- a row taller than the frame is an error rather than a clipped row.

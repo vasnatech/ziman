@@ -51,6 +51,7 @@
 #include "font_source.h"
 #include "image_source.h"
 #include "raster_source.h"
+#include "layout_source.h"
 #include "stroker_source.h"
 #include "zone_source.h"
 #include "ndjson_source.h"
@@ -118,6 +119,7 @@ static const CoreModule CORE_MODULES[] = {
     {"image", IMAGE_SOURCE},
     {"stroker", STROKER_SOURCE},
     {"raster", RASTER_SOURCE},
+    {"layout", LAYOUT_SOURCE},
     {"zone", ZONE_SOURCE},
     {"ndjson", NDJSON_SOURCE},
     {"csv", CSV_SOURCE},

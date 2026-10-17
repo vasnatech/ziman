@@ -1,0 +1,912 @@
+// layout.zm -- flows, wrapping, tables and pagination: the layer that turns headings, paragraphs
+// and tables into coordinates.
+//
+// Everything else in `lib/graphics` is a drawing API that puts a path or a glyph at a point. This
+// one is why that is not enough. The design is `docs/graphics/phase-6-layout.md`, and it was
+// written after a hand-made export page **silently printed 17pt past its own bottom margin** on
+// three of five pages: the break condition could only guess how tall the next row would be, because
+// a caller doing its own layout has no way to ask.
+//
+// So the whole module is three functions over one closed enum -- `measure`, `split` and `draw` --
+// and that separation is the fix for that bug, not a matter of taste. A break is decided by asking
+// a block its height, which it answers by doing the same wrapping it would have drawn.
+use font
+use font.FontRef
+use geom
+use geom.Point
+use geom.point_of
+use paint.Paint
+use scene
+use scene.Op
+use scene.Scene
+use shape
+use shape.Path
+
+// ---- the model
+
+pub enum Align {
+    Left
+    Right
+    Centre
+    Justify
+}
+
+// A run of text in one face at one size. A paragraph is a list of these, because **bold inside a
+// sentence** is the first thing a real document needs and retrofitting it would change every
+// signature that touches a paragraph.
+pub struct Span {
+    text: string
+    font: int
+    size: float
+    fill: Paint
+}
+
+pub fn span_of(text: string, face: int, size: float, fill: Paint) -> Span {
+    return Span { text: text, font: face, size: size, fill: fill }
+}
+
+pub struct ParaStyle {
+    align: Align
+    // Baseline to baseline. Zero means "from the fonts on the line", which is the usual case.
+    leading: float
+    space_before: float
+    space_after: float
+    indent_first: float
+    indent_left: float
+    indent_right: float
+    // Lines that may not be stranded at the bottom or the top of a page. 2 and 2 is the
+    // typographic convention; 0 turns the rule off.
+    orphans: int
+    widows: int
+}
+
+pub fn para_style() -> ParaStyle {
+    return ParaStyle {
+        align: Align.Left,
+        leading: 0.0,
+        space_before: 0.0,
+        space_after: 0.0,
+        indent_first: 0.0,
+        indent_left: 0.0,
+        indent_right: 0.0,
+        orphans: 2,
+        widows: 2
+    }
+}
+
+pub struct Para {
+    spans: [Span]
+    style: ParaStyle
+}
+
+pub struct RuleLine {
+    thickness: float
+    fill: Paint
+    space_before: float
+    space_after: float
+}
+
+// How wide a column is. `Auto` measures the widest thing in it, which is what stops a long drug
+// name silently overlapping its neighbour -- the failure the hand-written export had.
+pub enum ColumnWidth {
+    Fixed(float)
+    Proportional(float)
+    Auto
+}
+
+pub struct Column {
+    width: ColumnWidth
+    align: Align
+}
+
+pub fn column(width: ColumnWidth, align: Align) -> Column {
+    return Column { width: width, align: align }
+}
+
+// A cell holds blocks, not a string, which is what lets it contain a wrapped paragraph or another
+// table. It costs nothing: `measure`, `split_block` and `draw` already recurse.
+pub struct Cell {
+    blocks: [Block]
+}
+
+pub fn cell(blocks: [Block]) -> Cell {
+    return Cell { blocks: blocks }
+}
+
+pub struct Row {
+    cells: [Cell]
+}
+
+pub fn row(cells: [Cell]) -> Row {
+    return Row { cells: cells }
+}
+
+pub struct TableStyle {
+    // A rule under the header. Zero for none.
+    header_rule: float
+    rule_fill: Paint
+    cell_padding: float
+    row_gap: float
+}
+
+pub struct Grid {
+    columns: [Column]
+    // Repeated at the top of every page the table continues onto. Separate from `rows` and not a
+    // flag on the first one, because repeating it is the single thing that makes a long table
+    // readable -- and because a hand-written export has to copy the header-drawing code into its
+    // page-break branch to get it.
+    header: [Row]
+    rows: [Row]
+    style: TableStyle
+}
+
+pub enum Block {
+    Paragraph(Para)
+    Table(Grid)
+    Spacer(float)
+    Rule(RuleLine)
+    PageBreak
+}
+
+pub fn table_style(padding: float, gap: float, rule: float, rule_fill: Paint) -> TableStyle {
+    return TableStyle {
+        header_rule: rule,
+        rule_fill: rule_fill,
+        cell_padding: padding,
+        row_gap: gap
+    }
+}
+
+pub fn table(columns: [Column], header: [Row], rows: [Row], style: TableStyle) -> Block {
+    return Block.Table(Grid { columns: columns, header: header, rows: rows, style: style })
+}
+
+pub fn paragraph(spans: [Span], style: ParaStyle) -> Block {
+    return Block.Paragraph(Para { spans: spans, style: style })
+}
+
+// The common case: one run of text in one face.
+pub fn text_block(body: string, face: int, size: float, fill: Paint, style: ParaStyle) -> Block {
+    return paragraph([span_of(body, face, size, fill)], style)
+}
+
+pub fn spacer(height: float) -> Block {
+    return Block.Spacer(height)
+}
+
+pub fn rule(thickness: float, fill: Paint, before: float, after: float) -> Block {
+    return Block.Rule(RuleLine {
+        thickness: thickness,
+        fill: fill,
+        space_before: before,
+        space_after: after
+    })
+}
+
+pub struct Insets {
+    top: float
+    right: float
+    bottom: float
+    left: float
+}
+
+pub fn insets(all: float) -> Insets {
+    return Insets { top: all, right: all, bottom: all, left: all }
+}
+
+// A header or footer. `draw` takes the page number and the total and returns ops positioned
+// relative to the band's own top-left corner.
+//
+// **Calling it needs a local binding** -- `(band.draw)(page, total)` is a syntax error, so every
+// call site here does `val render = band.draw` first. Checked, not assumed.
+pub struct Band {
+    height: float
+    draw: fn(int, int) -> [Op]
+}
+
+pub struct PageTemplate {
+    width: float
+    height: float
+    margins: Insets
+    header: Option<Band>
+    footer: Option<Band>
+}
+
+pub fn page_template(width: float, height: float, margin: float) -> PageTemplate {
+    return PageTemplate {
+        width: width,
+        height: height,
+        margins: insets(margin),
+        header: Option<Band>.None,
+        footer: Option<Band>.None
+    }
+}
+
+pub struct Document {
+    blocks: [Block]
+    fonts: [FontRef]
+}
+
+pub fn document(blocks: [Block], fonts: [FontRef]) -> Document {
+    return Document { blocks: blocks, fonts: fonts }
+}
+
+// ---- wrapping
+//
+// A line is fragments of text, each from one span, already measured. Keeping the span index rather
+// than the resolved font is what lets a line carry two faces and still know its own height.
+struct Frag {
+    text: string
+    span: int
+    width: float
+}
+
+struct Line {
+    frags: [Frag]
+    // Used width, before alignment.
+    width: float
+    ascent: float
+    height: float
+    // The last line of a paragraph is never justified, so it has to know.
+    last: bool
+}
+
+// One word, with the span it came from and its measured width.
+struct Item {
+    text: string
+    span: int
+    width: float
+    space: float
+}
+
+fn items_of(p: Para, d: Document) -> Result<[Item], string> {
+    val out = mutable_array_new<Item>()
+    var i = 0
+    while i < len(p.spans) {
+        val s = p.spans[i]
+        if s.font < 0 || s.font >= len(d.fonts) {
+            return err(concat(
+                "layout: a span names font ",
+                str(s.font),
+                " but the document holds ",
+                str(len(d.fonts))
+            ))
+        }
+        val face = d.fonts[s.font]
+        // **Measured once per word and summed**, never by re-measuring the growing line, which is
+        // quadratic: 808 ms against 86 ms on a 1365-word document. That is exact only because
+        // nothing here kerns -- `font.advance` sums `hmtx` advances with no pair adjustment. If a
+        // `kern` or GPOS reader is ever added, this overestimates every line and wraps early, with
+        // no error anywhere, so it is the first place to look.
+        val space = try font.advance(face, " ", s.size)
+        for word in split(s.text, " ") {
+            if word != "" {
+                mutable_array_push(out, Item {
+                    text: word,
+                    span: i,
+                    width: try font.advance(face, word, s.size),
+                    space: space
+                })
+            }
+        }
+        i = i + 1
+    }
+    return ok(snapshot(out))
+}
+
+fn wrap_para(p: Para, width: float, d: Document) -> Result<[Line], string> {
+    val items = try items_of(p, d)
+    val lines = mutable_array_new<Line>()
+    val frags = mutable_array_new<Frag>()
+    var used = 0.0
+    var first = true
+    val inner = width - p.style.indent_left - p.style.indent_right
+    var i = 0
+    while i < len(items) {
+        val it = items[i]
+        val avail = inner - (if first { p.style.indent_first } else { 0.0 })
+        val need = if len(frags) == 0 { it.width } else { used + it.space + it.width }
+        if len(frags) > 0 && need > avail {
+            mutable_array_push(lines, try line_of(snapshot(frags), used, p, d, false))
+            mutable_array_truncate(frags, 0)
+            used = it.width
+            first = false
+            mutable_array_push(frags, Frag { text: it.text, span: it.span, width: it.width })
+        } else {
+            if len(frags) > 0 {
+                // The space is carried on the fragment that follows it, so a justified line can
+                // widen it without the text changing.
+                mutable_array_push(frags, Frag { text: " ", span: it.span, width: it.space })
+            }
+            mutable_array_push(frags, Frag { text: it.text, span: it.span, width: it.width })
+            used = need
+        }
+        i = i + 1
+    }
+    if len(frags) > 0 {
+        mutable_array_push(lines, try line_of(snapshot(frags), used, p, d, true))
+    }
+    return ok(snapshot(lines))
+}
+
+fn line_of(frags: [Frag], width: float, p: Para, d: Document, last: bool) -> Result<Line, string> {
+    var ascent = 0.0
+    var height = 0.0
+    for f in frags {
+        val s = p.spans[f.span]
+        val face = d.fonts[s.font]
+        val a = font.ascent(face, s.size)
+        if a > ascent {
+            ascent = a
+        }
+        val h = font.line_height(face, s.size)
+        if h > height {
+            height = h
+        }
+    }
+    if p.style.leading > 0.0 {
+        height = p.style.leading
+    }
+    return ok(Line { frags: frags, width: width, ascent: ascent, height: height, last: last })
+}
+
+// ---- tables
+
+// The natural width of a block: how wide it would be with no wrapping at all. Only `Auto` columns
+// need it, and only paragraphs have one worth asking about.
+fn natural_width(b: Block, d: Document) -> Result<float, string> {
+    return switch b {
+        Paragraph(p) {
+            var total = p.style.indent_left + p.style.indent_right
+            var first = true
+            for it in try items_of(p, d) {
+                total = total + it.width + (if first { 0.0 } else { it.space })
+                first = false
+            }
+            ok(total)
+        }
+        Table(g) {
+            var total = 0.0
+            for c in try columns_of(g, 1000000.0, d) {
+                total = total + c
+            }
+            ok(total)
+        }
+        Spacer(_) { ok(0.0) }
+        Rule(_) { ok(0.0) }
+        PageBreak { ok(0.0) }
+    }
+}
+
+// Each column's width in points. Fixed first, then `Auto` from its content, then whatever is left
+// shared among the proportional ones.
+fn columns_of(g: Grid, width: float, d: Document) -> Result<[float], string> {
+    val out = mutable_array_new<float>()
+    var fixed = 0.0
+    var shares = 0.0
+    var i = 0
+    while i < len(g.columns) {
+        val w = switch g.columns[i].width {
+            Fixed(x) { x }
+            Proportional(x) {
+                shares = shares + x
+                0.0
+            }
+            Auto {
+                var widest = 0.0
+                for r in all_rows(g) {
+                    if i < len(r.cells) {
+                        for b in r.cells[i].blocks {
+                            val n = try natural_width(b, d)
+                            if n > widest {
+                                widest = n
+                            }
+                        }
+                    }
+                }
+                widest + g.style.cell_padding * 2.0
+            }
+        }
+        fixed = fixed + w
+        mutable_array_push(out, w)
+        i = i + 1
+    }
+    if fixed > width && shares <= 0.0 {
+        // Every column has a width of its own and together they do not fit. Scaling them silently
+        // is what a spreadsheet does; here the caller asked for specific widths, so the honest
+        // answer is that they do not fit.
+        return err(concat(
+            "layout: this table's columns need ",
+            format("{:.1}", fixed),
+            "pt and the frame is ",
+            format("{:.1}", width),
+            "pt wide"
+        ))
+    }
+    val spare = width - fixed
+    if shares > 0.0 {
+        if spare <= 0.0 {
+            return err(concat(
+                "layout: this table's fixed and auto columns already use ",
+                format("{:.1}", fixed),
+                "pt of a ",
+                format("{:.1}", width),
+                "pt frame, leaving nothing for its proportional ones"
+            ))
+        }
+        i = 0
+        while i < len(g.columns) {
+            switch g.columns[i].width {
+                Proportional(x) { mutable_array_set(out, i, spare * x / shares) }
+                Fixed(_) { unit }
+                Auto { unit }
+            }
+            i = i + 1
+        }
+    }
+    return ok(snapshot(out))
+}
+
+fn all_rows(g: Grid) -> [Row] {
+    val out = mutable_array_new<Row>()
+    for r in g.header {
+        mutable_array_push(out, r)
+    }
+    for r in g.rows {
+        mutable_array_push(out, r)
+    }
+    return snapshot(out)
+}
+
+// A row is as tall as its tallest cell. **Rows do not split**: a row that will not fit moves to the
+// next page whole, which is what a reader expects of a table and what every report generator does.
+// A row taller than the frame is an error, not a clipped row.
+fn row_height(r: Row, g: Grid, widths: [float], d: Document) -> Result<float, string> {
+    var tallest = 0.0
+    var i = 0
+    while i < len(r.cells) && i < len(widths) {
+        var h = 0.0
+        for b in r.cells[i].blocks {
+            h = h + (try measure(b, widths[i] - g.style.cell_padding * 2.0, d))
+        }
+        if h > tallest {
+            tallest = h
+        }
+        i = i + 1
+    }
+    return ok(tallest + g.style.cell_padding * 2.0)
+}
+
+fn header_height(g: Grid, widths: [float], d: Document) -> Result<float, string> {
+    var total = 0.0
+    for r in g.header {
+        total = total + (try row_height(r, g, widths, d)) + g.style.row_gap
+    }
+    if len(g.header) > 0 {
+        total = total + g.style.header_rule
+    }
+    return ok(total)
+}
+
+fn draw_rows(
+    ops: MutableArray<Op>,
+    rows: [Row],
+    g: Grid,
+    widths: [float],
+    at: Point,
+    d: Document
+) -> Result<float, string> {
+    var y = at.y
+    for r in rows {
+        var x = at.x
+        var i = 0
+        while i < len(r.cells) && i < len(widths) {
+            var cy = y + g.style.cell_padding
+            for b in r.cells[i].blocks {
+                val inner = widths[i] - g.style.cell_padding * 2.0
+                for op in try draw(b, point_of(x + g.style.cell_padding, cy), inner, d) {
+                    mutable_array_push(ops, op)
+                }
+                cy = cy + (try measure(b, inner, d))
+            }
+            x = x + widths[i]
+            i = i + 1
+        }
+        y = y + (try row_height(r, g, widths, d)) + g.style.row_gap
+    }
+    return ok(y)
+}
+
+// ---- measure, split, draw
+
+pub fn measure(b: Block, width: float, d: Document) -> Result<float, string> {
+    return switch b {
+        Paragraph(p) {
+            var total = p.style.space_before + p.style.space_after
+            for line in try wrap_para(p, width, d) {
+                total = total + line.height
+            }
+            ok(total)
+        }
+        Table(g) {
+            val widths = try columns_of(g, width, d)
+            var total = try header_height(g, widths, d)
+            for r in g.rows {
+                total = total + (try row_height(r, g, widths, d)) + g.style.row_gap
+            }
+            ok(total)
+        }
+        Spacer(h) { ok(h) }
+        Rule(r) { ok(r.space_before + r.thickness + r.space_after) }
+        PageBreak { ok(0.0) }
+    }
+}
+
+pub struct Split {
+    fits: Option<Block>
+    rest: Option<Block>
+}
+
+// `fits` and `rest` are both optional because every combination means something real:
+//
+//   * `fits` only -- the block is done, carry on down the page
+//   * both -- part of it is placed and the remainder goes to the next page
+//   * `rest` only -- nothing fits here; start a new page and try again there
+//   * **neither -- the block is consumed and the page ends**, which is what `PageBreak` and an
+//     overlarge `Spacer` both answer
+//
+// A sentinel empty block in place of an `Option` would have to be checked for at every call site,
+// and the fourth case would have had no way to say itself at all.
+//
+// **`split_block` and not `split`**, because `split` is the string builtin this very file needs for
+// wrapping, and a module function of that name shadows it everywhere inside the file. The same
+// collision gave phase 1 `matrix_concat` instead of `concat`; it is worth the extra word.
+pub fn split_block(b: Block, width: float, room: float, d: Document) -> Result<Split, string> {
+    return switch b {
+        Paragraph(p) { split_para(p, width, room, d) }
+        Table(g) { split_table(g, width, room, d) }
+        Spacer(h) {
+            if h <= room {
+                ok(Split { fits: Option<Block>.Some(b), rest: Option<Block>.None })
+            } else {
+                // **Neither half: consumed, and the page ends here.** A spacer never carries over,
+                // because space at a page break *is* the break -- carrying it would indent the top
+                // of the next page by the leftover. This is the same answer `PageBreak` gives, and
+                // the pagination loop treats them identically rather than special-casing one.
+                ok(Split { fits: Option<Block>.None, rest: Option<Block>.None })
+            }
+        }
+        Rule(r) {
+            if r.space_before + r.thickness + r.space_after <= room {
+                ok(Split { fits: Option<Block>.Some(b), rest: Option<Block>.None })
+            } else {
+                ok(Split { fits: Option<Block>.None, rest: Option<Block>.Some(b) })
+            }
+        }
+        PageBreak { ok(Split { fits: Option<Block>.None, rest: Option<Block>.None }) }
+    }
+}
+
+// **The header repeats because it is in both halves.** Splitting a table hands the same `header`
+// to the part that stays and the part that carries over, so the continuation draws it again
+// without anyone writing a second copy of the header-drawing code -- which is exactly what the
+// hand-written export had to do.
+fn split_table(g: Grid, width: float, room: float, d: Document) -> Result<Split, string> {
+    val widths = try columns_of(g, width, d)
+    val head_h = try header_height(g, widths, d)
+    var used = head_h
+    var taken = 0
+    while taken < len(g.rows) {
+        val h = (try row_height(g.rows[taken], g, widths, d)) + g.style.row_gap
+        if used + h > room {
+            break
+        }
+        used = used + h
+        taken = taken + 1
+    }
+    if taken >= len(g.rows) {
+        return ok(Split { fits: Option<Block>.Some(Block.Table(g)), rest: Option<Block>.None })
+    }
+    if taken == 0 {
+        // Not even one row fits beneath the header, so the whole table moves on. Splitting here
+        // would leave a header with nothing under it, which is worse than a short page.
+        return ok(Split { fits: Option<Block>.None, rest: Option<Block>.Some(Block.Table(g)) })
+    }
+    val here = mutable_array_new<Row>()
+    val later = mutable_array_new<Row>()
+    var i = 0
+    while i < len(g.rows) {
+        if i < taken {
+            mutable_array_push(here, g.rows[i])
+        } else {
+            mutable_array_push(later, g.rows[i])
+        }
+        i = i + 1
+    }
+    return ok(Split {
+        fits: Option<Block>.Some(Block.Table(with g { rows: snapshot(here) })),
+        rest: Option<Block>.Some(Block.Table(with g { rows: snapshot(later) }))
+    })
+}
+
+fn split_para(p: Para, width: float, room: float, d: Document) -> Result<Split, string> {
+    val lines = try wrap_para(p, width, d)
+    var taken = 0
+    var used = p.style.space_before
+    while taken < len(lines) && used + lines[taken].height <= room {
+        used = used + lines[taken].height
+        taken = taken + 1
+    }
+    if taken >= len(lines) {
+        return ok(Split { fits: Option<Block>.Some(Block.Paragraph(p)), rest: Option<Block>.None })
+    }
+    // **Widows and orphans.** Leaving one line behind, or carrying one line over, is the thing a
+    // reader notices without knowing why. Moving the whole paragraph is the simple fix and the
+    // one that cannot make it worse.
+    val left_behind = len(lines) - taken
+    if taken < p.style.orphans || left_behind < p.style.widows {
+        return ok(Split { fits: Option<Block>.None, rest: Option<Block>.Some(Block.Paragraph(p)) })
+    }
+    if taken == 0 {
+        return ok(Split { fits: Option<Block>.None, rest: Option<Block>.Some(Block.Paragraph(p)) })
+    }
+    val head = Para {
+        spans: try spans_from(lines, 0, taken, p),
+        style: with p.style { space_after: 0.0 }
+    }
+    val tail = Para {
+        spans: try spans_from(lines, taken, len(lines), p),
+        style: with p.style { space_before: 0.0, indent_first: 0.0 }
+    }
+    return ok(Split {
+        fits: Option<Block>.Some(Block.Paragraph(head)),
+        rest: Option<Block>.Some(Block.Paragraph(tail))
+    })
+}
+
+// Rebuild spans from a run of wrapped lines, merging neighbouring fragments that came from the
+// same span. A split paragraph has to come back as a `Para`, because `Block` is the unit the
+// pagination loop works in.
+fn spans_from(lines: [Line], from: int, until: int, p: Para) -> Result<[Span], string> {
+    val out = mutable_array_new<Span>()
+    var current = -1
+    var buffer = ""
+    var i = from
+    while i < until {
+        val line = lines[i]
+        var k = 0
+        while k < len(line.frags) {
+            val f = line.frags[k]
+            // The space fragments are rebuilt by the next wrap, so they are dropped here and a
+            // single space is put between words instead.
+            if f.text != " " {
+                if f.span != current {
+                    if current >= 0 {
+                        mutable_array_push(out, with p.spans[current] { text: buffer })
+                    }
+                    current = f.span
+                    buffer = f.text
+                } else {
+                    buffer = if buffer == "" { f.text } else { concat(buffer, " ", f.text) }
+                }
+            }
+            k = k + 1
+        }
+        i = i + 1
+    }
+    if current >= 0 {
+        mutable_array_push(out, with p.spans[current] { text: buffer })
+    }
+    return ok(snapshot(out))
+}
+
+pub fn draw(b: Block, at: Point, width: float, d: Document) -> Result<[Op], string> {
+    val ops = mutable_array_new<Op>()
+    switch b {
+        Paragraph(p) {
+            var y = at.y + p.style.space_before
+            val lines = try wrap_para(p, width, d)
+            var i = 0
+            while i < len(lines) {
+                val line = lines[i]
+                val indent = if i == 0 { p.style.indent_first } else { 0.0 }
+                val inner = width - p.style.indent_left - p.style.indent_right - indent
+                var x = at.x + p.style.indent_left + indent
+                var extra = 0.0
+                switch p.style.align {
+                    Left { x = x }
+                    Right { x = x + (inner - line.width) }
+                    Centre { x = x + (inner - line.width) / 2.0 }
+                    Justify {
+                        // The last line of a paragraph is set ragged, which is what every
+                        // typesetter does and what stops a two-word final line being stretched
+                        // across the measure.
+                        if !line.last {
+                            var gaps = 0
+                            for f in line.frags {
+                                if f.text == " " {
+                                    gaps = gaps + 1
+                                }
+                            }
+                            if gaps > 0 {
+                                extra = (inner - line.width) / (gaps as float)
+                            }
+                        }
+                    }
+                }
+                val baseline = y + line.ascent
+                for f in line.frags {
+                    if f.text != " " {
+                        val s = p.spans[f.span]
+                        mutable_array_push(ops, scene.text_of(
+                            f.text,
+                            point_of(x, baseline),
+                            s.size,
+                            s.font,
+                            s.fill
+                        ))
+                    }
+                    x = x + f.width + (if f.text == " " { extra } else { 0.0 })
+                }
+                y = y + line.height
+                i = i + 1
+            }
+        }
+        Table(g) {
+            val widths = try columns_of(g, width, d)
+            var y = at.y
+            if len(g.header) > 0 {
+                y = try draw_rows(ops, g.header, g, widths, point_of(at.x, y), d)
+                if g.style.header_rule > 0.0 {
+                    mutable_array_push(ops, scene.fill(
+                        shape.rect_path(geom.rect_of(at.x, y, width, g.style.header_rule)),
+                        g.style.rule_fill
+                    ))
+                    y = y + g.style.header_rule
+                }
+            }
+            val _ = try draw_rows(ops, g.rows, g, widths, point_of(at.x, y), d)
+        }
+        Spacer(_) { unit }
+        Rule(r) {
+            mutable_array_push(ops, scene.fill(
+                shape.rect_path(geom.rect_of(at.x, at.y + r.space_before, width, r.thickness)),
+                r.fill
+            ))
+        }
+        PageBreak { unit }
+    }
+    return ok(snapshot(ops))
+}
+
+// ---- pagination
+
+pub fn paginate(d: Document, t: PageTemplate) -> Result<[Scene], string> {
+    val frame_x = t.margins.left
+    val frame_w = t.width - t.margins.left - t.margins.right
+    if frame_w <= 0.0 {
+        return err(concat(
+            "layout: margins of ",
+            format("{}", t.margins.left),
+            " and ",
+            format("{}", t.margins.right),
+            " leave no width on a ",
+            format("{}", t.width),
+            "pt page"
+        ))
+    }
+    val head_h = switch t.header {
+        Some(b) { b.height }
+        None { 0.0 }
+    }
+    val foot_h = switch t.footer {
+        Some(b) { b.height }
+        None { 0.0 }
+    }
+    val frame_y = t.margins.top + head_h
+    val frame_h = t.height - frame_y - t.margins.bottom - foot_h
+    if frame_h <= 0.0 {
+        return err(concat(
+            "layout: the margins and bands leave no height on a ",
+            format("{}", t.height),
+            "pt page"
+        ))
+    }
+
+    // **One pass, not the two the design expected.** A footer's *height* is fixed even though its
+    // *content* needs the page total, so the frame is the same on every page and the content can
+    // be paginated before the total is known. The bands are drawn afterwards, when it is.
+    val pages = mutable_array_new<[Op]>()
+    val current = mutable_array_new<Op>()
+    var y = 0.0
+    val queue = mutable_array_new<Block>()
+    for b in d.blocks {
+        mutable_array_push(queue, b)
+    }
+    var at = 0
+    while at < len(queue) {
+        val b = mutable_array_get(queue, at)
+        at = at + 1
+        val room = frame_h - y
+        val s = try split_block(b, frame_w, room, d)
+        var placed = false
+        switch s.fits {
+            Some(part) {
+                for op in try draw(part, point_of(frame_x, frame_y + y), frame_w, d) {
+                    mutable_array_push(current, op)
+                }
+                y = y + (try measure(part, frame_w, d))
+                placed = true
+            }
+            None { unit }
+        }
+        switch s.rest {
+            Some(part) {
+                // Nothing fit and the page is already empty: the block is taller than any page
+                // this template can produce, so saying so is the only honest answer. Silently
+                // clipping it is what the hand-written export did, 17pt into its own margin.
+                if !placed && y == 0.0 {
+                    return err(concat(
+                        "layout: a block ",
+                        format("{:.1}", try measure(part, frame_w, d)),
+                        "pt tall cannot fit a ",
+                        format("{:.1}", frame_h),
+                        "pt frame, even on an empty page"
+                    ))
+                }
+                mutable_array_push(pages, snapshot(current))
+                mutable_array_truncate(current, 0)
+                y = 0.0
+                // Put the remainder back at the front of the queue.
+                mutable_array_insert(queue, at, part)
+            }
+            None {
+                // Consumed with nothing carried: a page break, or a spacer too big for what is
+                // left. Either way this page is finished.
+                if !placed {
+                    mutable_array_push(pages, snapshot(current))
+                    mutable_array_truncate(current, 0)
+                    y = 0.0
+                }
+            }
+        }
+    }
+    // `y > 0` and not `len(current) > 0`: a page can hold content that draws nothing -- a column of
+    // spacers emits no ops at all -- and dropping it because it looks empty loses a real page. The
+    // `len(pages) == 0` arm is the empty document, which is one blank page rather than none.
+    if y > 0.0 || len(current) > 0 || len(pages) == 0 {
+        mutable_array_push(pages, snapshot(current))
+    }
+
+    // Now the total is known, so the bands can be drawn.
+    val out = mutable_array_new<Scene>()
+    val total = len(pages)
+    var n = 0
+    while n < total {
+        val ops = mutable_array_new<Op>()
+        switch t.header {
+            Some(band) {
+                val render = band.draw
+                for op in render(n + 1, total) {
+                    mutable_array_push(ops, op)
+                }
+            }
+            None { unit }
+        }
+        for op in mutable_array_get(pages, n) {
+            mutable_array_push(ops, op)
+        }
+        switch t.footer {
+            Some(band) {
+                val render = band.draw
+                for op in render(n + 1, total) {
+                    mutable_array_push(ops, op)
+                }
+            }
+            None { unit }
+        }
+        mutable_array_push(out, scene.with_ops(scene.scene_of(t.width, t.height), snapshot(ops)))
+        n = n + 1
+    }
+    return ok(snapshot(out))
+}

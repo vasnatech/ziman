@@ -536,5 +536,95 @@ else
     fi
 fi
 
+# ---- layout (phase 6): the property the module exists for
+#
+# `tests/lang/graphics_layout.zm` checks the arithmetic with Courier, which needs no font file.
+# What it cannot check is the thing that motivated the module: a hand-written export silently
+# printed **17pt past its own bottom margin** on three of five pages, because its page-break
+# condition had to guess the height of the next row. So this renders a real document -- a table of
+# forty medications with notes that wrap to five lines -- through `layout`, and asserts with
+# Poppler's own geometry that **no content lands below the frame**.
+cat > "$WORK/laid_out.zm" <<'ZM'
+use font
+use fs
+use geom
+use layout
+use os
+use paint
+use pdf
+use scene
+fn main() {
+    val face = unwrap(font.load(unwrap(fs.read_bytes(os.args()[0]))))
+    val ink = paint.solid(paint.black())
+    val note = concat(
+        "Rinse the mouth after each use and carry the inhaler at all times. Check the dose counter ",
+        "weekly and replace the canister when it reads under twenty doses remaining. Bring the ",
+        "spent canister to the next review appointment so the record can be reconciled against the ",
+        "dispensing history held by the pharmacy."
+    )
+    val tight = with layout.para_style() { orphans: 0, widows: 0 }
+    val rows = mutable_array_new<layout.Row>()
+    var i = 0
+    while i < 40 {
+        val first = mutable_array_new<layout.Block>()
+        mutable_array_push(first, layout.text_block(concat("Drug ", str(i)), 0, 10.0, ink, tight))
+        if i % 2 == 0 {
+            mutable_array_push(first, layout.text_block(note, 0, 8.0, ink, tight))
+        }
+        mutable_array_push(rows, layout.row([
+            layout.cell(snapshot(first)),
+            layout.cell([layout.text_block("10 mg", 0, 10.0, ink, tight)])
+        ]))
+        i = i + 1
+    }
+    val grid = layout.table(
+        [
+            layout.column(layout.ColumnWidth.Proportional(4.0), layout.Align.Left),
+            layout.column(layout.ColumnWidth.Auto, layout.Align.Left)
+        ],
+        [layout.row([
+            layout.cell([layout.text_block("Name", 0, 9.0, ink, tight)]),
+            layout.cell([layout.text_block("Dose", 0, 9.0, ink, tight)])
+        ])],
+        snapshot(rows),
+        layout.table_style(2.0, 2.0, 0.5, ink)
+    )
+    val doc = layout.document([layout.text_block("Health Record", 0, 18.0, ink, tight), grid], [face])
+    val pages = unwrap(layout.paginate(doc, layout.page_template(612.0, 792.0, 40.0)))
+    print(concat("pages ", str(len(pages))))
+    val _ = unwrap(fs.write_bytes(os.args()[1], unwrap(pdf.render_pages(pages, with pdf.options() {
+        size: pdf.page_size_of(612.0, 792.0),
+        fonts: [face]
+    }))))
+}
+ZM
+
+if ! out=$("$BIN" "$WORK/laid_out.zm" -- "$FONT" "$WORK/layout.pdf" 2>&1); then
+    fail "a laid-out document is produced" "$(head -3 <<<"$out")"
+else
+    pass "a laid-out document is produced ($(grep -o 'pages [0-9]*' <<<"$out"))"
+    # The frame bottom is 792 - 40 = 752. Poppler reports each word's box, so this is its
+    # geometry and not ours agreeing with itself.
+    over=$(pdftotext -bbox "$WORK/layout.pdf" - 2>/dev/null |
+        grep -o 'yMax="[0-9.]*"' | cut -d'"' -f2 |
+        awk '$1 > 752.5 { n++ } END { print n + 0 }')
+    if [ "$over" = "0" ]; then
+        pass "no content falls below the frame"
+    else
+        fail "no content falls below the frame" "$over words past 752pt"
+    fi
+    # Every page the table continues onto repeats its header, which is what stops a continuation
+    # page being a wall of unlabelled numbers.
+    npages=$(pdfinfo "$WORK/layout.pdf" | awk '/^Pages:/ { print $2 }')
+    # The form feed that starts each page after the first lands on the same line as its first
+    # word, so page 2's header reads as "\fName" and an anchored match misses it.
+    heads=$(pdftotext "$WORK/layout.pdf" - 2>/dev/null | tr -d '\f' | grep -c '^Name$')
+    if [ "$npages" -gt 1 ] && [ "$heads" = "$npages" ]; then
+        pass "the table header repeats on all $npages pages"
+    else
+        fail "the table header repeats on every page" "$heads headers across $npages pages"
+    fi
+fi
+
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]

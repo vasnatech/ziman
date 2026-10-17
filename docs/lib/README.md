@@ -104,6 +104,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`image`](image.md) | A pixel buffer, PNG in and out, and enough of JPEG to put one in a PDF. |
 | [`stroker`](stroker.md) | The outline of a stroked path, as a path. |
 | [`raster`](raster.md) | The second backend: a `Scene` to an `Image`. |
+| [`layout`](layout.md) | Flows, wrapping, tables and pagination. |
 
 ## Always available
 

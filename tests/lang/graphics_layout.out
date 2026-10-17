@@ -1,0 +1,22 @@
+width 84 gives:   [aaaabbbbcccc, ddddeeeeffff]
+width 54 gives:   [aaaabbbb, ccccdddd, eeeeffff]
+an over-wide word:[aaaaaaaaaaaaaaaaaaaa, bb]
+2 lines + 12pt:   36.00
+split conserves 36.00pt at every cut: true
+rules off, splits:    true
+rules on, moves whole:true
+30 rules of 20 in 100: 6 pages
+30 spacers, consumed:  5 pages
+an explicit break:    2 pages
+table of 9 rows:      108.00
+page 1 starts:        NameDose
+page 2 starts:        NameDose
+rows split 1 / 2:     5 and 5
+auto column is 30pt:  30.00
+  aligned at x =     0.00
+  aligned at x =     76.00
+  aligned at x =     38.00
+font out of range:  layout: a span names font 4 but the document holds 1
+block taller than page: layout: a block 240.0pt tall cannot fit a 100.0pt frame, even on an empty page
+margins eat the width:  layout: margins of 30.0 and 30.0 leave no width on a 40.0pt page
+columns do not fit: layout: this table's columns need 300.0pt and the frame is 200.0pt wide

@@ -1,0 +1,295 @@
+// `lib/graphics` phase 6: flows, wrapping, tables and pagination (F146).
+//
+// **Every number here is computable by hand**, because the fixture uses Courier -- the one standard
+// font this library can measure, at exactly 0.6 em a character. At 10pt that is 6pt a character, so
+// a 240pt frame holds exactly 40 characters and the break positions are arithmetic rather than
+// something to eyeball. No font file is needed, which is why this is a lang fixture and not part of
+// the Poppler script.
+//
+// The checks are the ones the design named, and the first of them exists because of a specific
+// bug: a hand-written export silently printed 17pt past its own bottom margin, because its break
+// condition had to *guess* the height of the next row. `measure` being separate from `draw` is the
+// fix, so conservation under splitting is the property that matters most here.
+use font
+use geom
+use layout
+use paint
+use scene
+
+fn courier() -> font.FontRef {
+    return font.standard(font.StandardFont.Courier)
+}
+
+fn doc_of(blocks: [layout.Block]) -> layout.Document {
+    return layout.document(blocks, [courier()])
+}
+
+fn round2(x: float) -> string {
+    return format("{:.2}", x)
+}
+
+// The text of every line a block draws, in order, by reading the display list back. A `Scene` is
+// inspectable data rather than a pixel buffer, which is what makes this possible at all.
+fn lines_drawn(b: layout.Block, width: float, d: layout.Document) -> [string] {
+    val out = mutable_array_new<string>()
+    var last_y = 0.0 - 1.0
+    var current = mutable_string_new()
+    for op in unwrap(layout.draw(b, geom.point_of(0.0, 0.0), width, d)) {
+        switch op {
+            Text(run) {
+                if run.at.y != last_y {
+                    if len(current) > 0 {
+                        mutable_array_push(out, snapshot(current))
+                    }
+                    current = mutable_string_new()
+                    mutable_string_append(current, run.text)
+                    last_y = run.at.y
+                } else {
+                    mutable_string_append(current, run.text)
+                }
+            }
+            Fill(_) { unit }
+            StrokePath(_) { unit }
+            DrawImage(_) { unit }
+            Nested(_) { unit }
+        }
+    }
+    if len(current) > 0 {
+        mutable_array_push(out, snapshot(current))
+    }
+    return snapshot(out)
+}
+
+fn refusal<T>(r: Result<T, string>) -> string {
+    return switch r {
+        Ok(_) { "UNEXPECTEDLY ACCEPTED" }
+        Err(why) { why }
+    }
+}
+
+fn main() {
+    val ink = paint.solid(paint.black())
+    val plain = with layout.para_style() { orphans: 0, widows: 0 }
+
+    // ---- wrapping, against advances that are exact
+    //
+    // Six words of four characters. At 6pt a character a word is 24pt and a space is 6pt, so two
+    // words need 54pt and three need 84pt. In an 84pt frame the break is after exactly the third.
+    val six = layout.text_block("aaaa bbbb cccc dddd eeee ffff", 0, 10.0, ink, plain)
+    val d6 = doc_of([six])
+    print(concat("width 84 gives:   ", format("{}", lines_drawn(six, 84.0, d6))))
+    print(concat("width 54 gives:   ", format("{}", lines_drawn(six, 54.0, d6))))
+    // One word wider than the frame still occupies a line of its own: breaking inside a word would
+    // need hyphenation, which this phase does not do, so it overflows rather than vanishing.
+    val longword = layout.text_block("aaaaaaaaaaaaaaaaaaaa bb", 0, 10.0, ink, plain)
+    print(concat("an over-wide word:", format("{}", lines_drawn(longword, 60.0, doc_of([longword])))))
+
+    // ---- heights
+    //
+    // Courier's line height at 10pt is the conventional 1.2 em, so three lines is 36pt and the
+    // space before and after is added on top.
+    val spaced = layout.text_block("aaaa bbbb cccc dddd eeee ffff", 0, 10.0, ink, with plain {
+        space_before: 5.0,
+        space_after: 7.0
+    })
+    print(concat("2 lines + 12pt:   ", round2(unwrap(layout.measure(spaced, 84.0, doc_of([spaced]))))))
+
+    // ---- **conservation under splitting**, the check that matters most
+    //
+    // However the paragraph is cut, the two halves have to account for exactly the height the
+    // whole one did. This is phase 5's coverage-sum check wearing different clothes, and it fails
+    // for the same kind of reason: a fragment dropped, or counted twice.
+    // The *spaced* paragraph, not the plain one: `space_before` and `space_after` are the part
+    // that has to be redistributed when a paragraph is cut -- the head keeps the space before and
+    // drops the space after, the tail does the reverse -- and a fixture with neither cannot tell
+    // whether that happened. Found by mutating it away and watching this pass anyway.
+    val ds = doc_of([spaced])
+    val whole = unwrap(layout.measure(spaced, 84.0, ds))
+    var room = 12.0
+    var conserved = true
+    while room < whole {
+        val s = unwrap(layout.split_block(spaced, 84.0, room, ds))
+        val head = switch s.fits {
+            Some(x) { unwrap(layout.measure(x, 84.0, ds)) }
+            None { 0.0 }
+        }
+        val tail = switch s.rest {
+            Some(x) { unwrap(layout.measure(x, 84.0, ds)) }
+            None { 0.0 }
+        }
+        if head + tail != whole {
+            conserved = false
+            print(concat("  LOST at room ", round2(room), ": ", round2(head), " + ", round2(tail)))
+        }
+        room = room + 6.0
+    }
+    print(concat("split conserves ", round2(whole), "pt at every cut: ", str(conserved)))
+
+    // ---- widows and orphans
+    //
+    // The same paragraph and the same room, twice. With the rules off it splits; with them on it
+    // moves whole rather than strand a single line. **That difference is the feature.**
+    val loose = layout.text_block("aaaa bbbb cccc dddd eeee ffff", 0, 10.0, ink, with plain {
+        orphans: 2,
+        widows: 2
+    })
+    val dl = doc_of([loose])
+    val cut = unwrap(layout.split_block(six, 84.0, 13.0, d6))
+    val kept = unwrap(layout.split_block(loose, 84.0, 13.0, dl))
+    print(concat("rules off, splits:    ", str(switch cut.fits {
+        Some(_) { true }
+        None { false }
+    })))
+    print(concat("rules on, moves whole:", str(switch kept.fits {
+        Some(_) { false }
+        None { true }
+    })))
+
+    // ---- pagination is exact
+    //
+    // Thirty rules of 20pt in a frame of 100pt is six pages, not five and not seven. An off-by-one
+    // in "does it fit" is a page count, which is a number a test can hold.
+    //
+    // **Rules and not spacers**, which is a distinction worth stating: a rule that does not fit is
+    // carried to the next page, while a spacer that does not fit is *consumed* -- space at a page
+    // break is the break, and carrying it would indent the top of the next page by the leftover.
+    // So thirty spacers give five pages, not six, and both numbers are correct.
+    val many = mutable_array_new<layout.Block>()
+    val spacers = mutable_array_new<layout.Block>()
+    var i = 0
+    while i < 30 {
+        mutable_array_push(many, layout.rule(20.0, ink, 0.0, 0.0))
+        mutable_array_push(spacers, layout.spacer(20.0))
+        i = i + 1
+    }
+    val template = layout.page_template(200.0, 140.0, 20.0)
+    print(concat("30 rules of 20 in 100: ", str(len(unwrap(layout.paginate(
+        layout.document(snapshot(many), [courier()]),
+        template
+    )))), " pages"))
+    print(concat("30 spacers, consumed:  ", str(len(unwrap(layout.paginate(
+        layout.document(snapshot(spacers), [courier()]),
+        template
+    )))), " pages"))
+
+    // An explicit page break starts a new page even with room to spare.
+    print(concat("an explicit break:    ", str(len(unwrap(layout.paginate(
+        layout.document([layout.spacer(10.0), layout.Block.PageBreak, layout.spacer(10.0)], [courier()]),
+        template
+    )))), " pages"))
+
+    // ---- tables
+    val cell_of = fn(s: string) -> layout.Cell {
+        layout.cell([layout.text_block(s, 0, 10.0, ink, plain)])
+    }
+    val head = layout.row([cell_of("Name"), cell_of("Dose")])
+    val body = mutable_array_new<layout.Row>()
+    var r = 0
+    while r < 8 {
+        mutable_array_push(body, layout.row([cell_of(concat("drug", str(r))), cell_of("10mg")]))
+        r = r + 1
+    }
+    val style = layout.table_style(0.0, 0.0, 0.0, ink)
+    val grid = layout.table(
+        [
+            layout.column(layout.ColumnWidth.Auto, layout.Align.Left),
+            layout.column(layout.ColumnWidth.Proportional(1.0), layout.Align.Left)
+        ],
+        [head],
+        snapshot(body),
+        style
+    )
+    val dt = doc_of([grid])
+    // Nine rows of 12pt is 108pt.
+    print(concat("table of 9 rows:      ", round2(unwrap(layout.measure(grid, 200.0, dt)))))
+
+    // **The header repeats because it is in both halves.** Splitting at 60pt keeps the header and
+    // four rows, and the remainder carries the same header -- which is what stops a continuation
+    // page being a wall of unlabelled numbers, and what the hand-written export needed a second
+    // copy of its header-drawing code to achieve.
+    val cut_table = unwrap(layout.split_block(grid, 200.0, 60.0, dt))
+    val nothing: [string] = []
+    val shown = switch cut_table.fits {
+        Some(x) { lines_drawn(x, 200.0, dt) }
+        None { nothing }
+    }
+    val carried = switch cut_table.rest {
+        Some(x) { lines_drawn(x, 200.0, dt) }
+        None { nothing }
+    }
+    print(concat("page 1 starts:        ", format("{}", shown[0])))
+    print(concat("page 2 starts:        ", format("{}", carried[0])))
+    print(concat("rows split 1 / 2:     ", str(len(shown)), " and ", str(len(carried))))
+
+    // `Auto` sizes a column to its widest content, which is the fix for the hand-tuned magic
+    // numbers that silently overlapped a long name. "drug0" is five characters at 6pt, so the
+    // second column has to begin at exactly 30pt -- read back from where its text was placed.
+    val sized = layout.table(
+        [
+            layout.column(layout.ColumnWidth.Auto, layout.Align.Left),
+            layout.column(layout.ColumnWidth.Proportional(1.0), layout.Align.Left)
+        ],
+        [],
+        [layout.row([cell_of("drug0"), cell_of("mg")]), layout.row([cell_of("x"), cell_of("mg")])],
+        style
+    )
+    var second = 0.0
+    for op in unwrap(layout.draw(sized, geom.point_of(0.0, 0.0), 200.0, doc_of([sized]))) {
+        switch op {
+            Text(run) {
+                if run.text == "mg" && second == 0.0 {
+                    second = run.at.x
+                }
+            }
+            Fill(_) { unit }
+            StrokePath(_) { unit }
+            DrawImage(_) { unit }
+            Nested(_) { unit }
+        }
+    }
+    print(concat("auto column is 30pt:  ", round2(second)))
+
+    // ---- alignment places the same line differently
+    val one = "aaaa"
+    for align in [layout.Align.Left, layout.Align.Right, layout.Align.Centre] {
+        val b = layout.text_block(one, 0, 10.0, ink, with plain { align: align })
+        var x = 0.0
+        for op in unwrap(layout.draw(b, geom.point_of(0.0, 0.0), 100.0, doc_of([b]))) {
+            switch op {
+                Text(run) { x = run.at.x }
+                Fill(_) { unit }
+                StrokePath(_) { unit }
+                DrawImage(_) { unit }
+                Nested(_) { unit }
+            }
+        }
+        print(concat("  aligned at x =     ", round2(x)))
+    }
+
+    // ---- what it refuses
+    print(concat("font out of range:  ", refusal(layout.measure(
+        layout.text_block("x", 4, 10.0, ink, plain),
+        100.0,
+        doc_of([layout.spacer(1.0)])
+    ))))
+    // One line at 200pt is 240pt tall, which no 100pt frame can hold. The hand-written export
+    // printed this into its own margin; here it is a message.
+    print(concat("block taller than page: ", refusal(layout.paginate(
+        layout.document([layout.text_block("x", 0, 200.0, ink, plain)], [courier()]),
+        template
+    ))))
+    print(concat("margins eat the width:  ", refusal(layout.paginate(
+        layout.document([layout.spacer(1.0)], [courier()]),
+        layout.page_template(40.0, 200.0, 30.0)
+    ))))
+    val too_wide = layout.table(
+        [
+            layout.column(layout.ColumnWidth.Fixed(150.0), layout.Align.Left),
+            layout.column(layout.ColumnWidth.Fixed(150.0), layout.Align.Left)
+        ],
+        [],
+        [layout.row([cell_of("a"), cell_of("b")])],
+        style
+    )
+    print(concat("columns do not fit: ", refusal(layout.measure(too_wide, 200.0, doc_of([too_wide])))))
+}

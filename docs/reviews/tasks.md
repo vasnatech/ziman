@@ -725,7 +725,7 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   the sum of its parts -- that last needing 18 alternating letters, because "oi" passes even with
   the glyph id removed from the key, the two letters landing on different subpixel quanta anyway.
 
-- [ ] **F146** **`lib/graphics` phase 6: document layout -- flows, wrapping, tables, pagination.**
+- [x] **F146** **`lib/graphics` phase 6: document layout -- flows, wrapping, tables, pagination.**
   (raised 2026-10-16; L) `layout`: one module, one entry point,
   `paginate(doc, page) -> Result<[Scene], string>`, because `pdf.render_pages` already takes a list
   of scenes for exactly this reason. A closed `Block` enum (paragraph, table, spacer, rule, picture,
@@ -777,3 +777,19 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   syntax error: the call needs a local binding first. Also recorded: `font.advance` refuses for a
   proportional standard font, so layout over the standard fourteen works monospaced and not
   otherwise, and that refusal is to be let through rather than papered over with an estimate.
+
+  *Done 2026-10-16.* `paginate` plus the closed `Block` enum and three exhaustive switches.
+  **Measured against the bug that motivated it**: the same forty-medication table that printed 17pt
+  past its bottom margin on three of five pages by hand produces zero words below the frame through
+  `layout`, asserted with Poppler's own word geometry, in three pages instead of five because
+  `Auto` columns size to content. Four things the design got wrong or missed: pagination needs
+  **one** pass, not two, because a band's height is fixed even though its content needs the total;
+  `split_block` because `split` is the string builtin the module itself needs; `Split` with neither
+  half means **consumed, end the page**, and reading that fourth case as meaningful fixed a bug
+  where thirty spacers rendered as one page with twenty-five silently dropped; and a page can hold
+  content that draws nothing, so the final-page test is on the cursor and not the op count. The
+  lang fixture needs no font file -- Courier is exactly 0.6 em a character, so every break position
+  is arithmetic -- and it reads lines back out of the display list, which is the first use of the
+  inspectability phase 1 claimed for it. One mutation showed a check was worthless: conservation
+  under splitting was being asserted on a paragraph with no space before or after, so the code that
+  redistributes them could be deleted without failing anything.
