@@ -9,6 +9,7 @@
 // The third layer -- `pdfinfo` and `pdftotext`, which prove an *independent* implementation agrees
 // -- is `tests/run_pdf_tests.sh`, guarded on the tools existing the way the TLS suite guards on
 // openssl.
+use font
 use geom
 use paint
 use pdf
@@ -138,7 +139,7 @@ fn main() {
     val _ = ok_or_fail(
         "three pages       ",
         pdf.render_pages(pages, with pdf.options() {
-            fonts: [pdf.StandardFont.Helvetica, pdf.StandardFont.TimesBold],
+            fonts: [font.standard(font.StandardFont.Helvetica), font.standard(font.StandardFont.TimesBold)],
             title: "Phase 2",
             author: "lib/graphics",
             compress: false

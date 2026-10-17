@@ -99,6 +99,8 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`scene`](scene.md) | The display list: drawing operations as values, and a scene as a tree of them. |
 | [`pdfobj`](pdfobj.md) | PDF's object layer: objects, dictionaries, streams, the cross-reference table. |
 | [`pdf`](pdf.md) | A `scene.Scene` rendered to a PDF document. |
+| [`truetype`](truetype.md) | Reading the TrueType tables the rest of `lib/graphics` needs, and nothing else. |
+| [`font`](font.md) | The font model: which faces a document may use, and what they measure. |
 
 ## Always available
 

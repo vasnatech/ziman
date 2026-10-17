@@ -1,0 +1,734 @@
+// truetype.zm -- reading the TrueType tables the rest of `lib/graphics` needs, and nothing else.
+//
+// A TrueType/OpenType file is a table directory followed by tables. This module has no opinions:
+// it reports what the font says. Decisions about fallback, metrics and what to do when a glyph is
+// missing live in `font`.
+//
+// Tables read: `head` (units per em, bounding box, the loca format), `maxp` (glyph count), `hhea`
+// and `hmtx` (advances), `cmap` (character to glyph), `name` (the PostScript and family names),
+// `OS/2` (weight and the descriptor's metrics), `loca` and `glyf` (outlines, including composite
+// glyphs). Everything else in the file is ignored.
+use geom
+use geom.Rect
+use geom.rect_of
+use shape
+
+pub struct Face {
+    data: [byte]
+    units_per_em: int
+    glyph_count: int
+    // `loca` holds u32 offsets rather than u16 halves.
+    long_loca: bool
+    // Table offsets, or -1 when the table is absent.
+    head: int
+    hhea: int
+    hmtx: int
+    maxp: int
+    cmap: int
+    name: int
+    os2: int
+    loca: int
+    glyf: int
+    num_h_metrics: int
+    ascender: int
+    descender: int
+    line_gap: int
+    x_min: int
+    y_min: int
+    x_max: int
+    y_max: int
+}
+
+// Reads the table directory and the handful of fixed-position fields everything else needs.
+//
+// An `Err` names what was wrong rather than returning a half-built face: a font this module cannot
+// read is a caller's problem to report, and a `Face` that lies about its own glyph count would
+// produce a PDF that readers reject for reasons nothing here could explain.
+pub fn parse(data: [byte]) -> Result<Face, string> {
+    if len(data) < 12 {
+        return err("truetype: not a font (fewer than 12 bytes)")
+    }
+    val tag = try u32_at(data, 0)
+    // 0x00010000 is TrueType outlines; 'OTTO' is CFF outlines, which this module does not read;
+    // 'true'/'ttcf' are Apple's variants.
+    if tag == 1330926671 {
+        return err("truetype: this is an OpenType/CFF font ('OTTO'); only TrueType outlines are read")
+    }
+    if tag == 1953784678 {
+        return err("truetype: this is a font collection ('ttcf'); extract a single face first")
+    }
+    if tag != 65536 && tag != 1953658213 {
+        return err(concat("truetype: unrecognised sfnt version 0x", hex8(tag)))
+    }
+    val num_tables = try u16_at(data, 4)
+    var head = -1
+    var hhea = -1
+    var hmtx = -1
+    var maxp = -1
+    var cmap = -1
+    var name = -1
+    var os2 = -1
+    var loca = -1
+    var glyf = -1
+    var i = 0
+    while i < num_tables {
+        val rec = 12 + i * 16
+        if rec + 16 > len(data) {
+            return err("truetype: the table directory is truncated")
+        }
+        val t = try tag_at(data, rec)
+        val off = try u32_at(data, rec + 8)
+        if off >= len(data) {
+            return err(concat("truetype: table '", t, "' points past the end of the file"))
+        }
+        if t == "head" {
+            head = off
+        } else if t == "hhea" {
+            hhea = off
+        } else if t == "hmtx" {
+            hmtx = off
+        } else if t == "maxp" {
+            maxp = off
+        } else if t == "cmap" {
+            cmap = off
+        } else if t == "name" {
+            name = off
+        } else if t == "OS/2" {
+            os2 = off
+        } else if t == "loca" {
+            loca = off
+        } else if t == "glyf" {
+            glyf = off
+        }
+        i = i + 1
+    }
+    if head < 0 {
+        return err("truetype: no 'head' table")
+    }
+    if maxp < 0 {
+        return err("truetype: no 'maxp' table")
+    }
+    val upem = try u16_at(data, head + 18)
+    if upem == 0 {
+        return err("truetype: 'head' says zero units per em")
+    }
+    val loc_format = try u16_at(data, head + 50)
+    var ascent = 0
+    var descent = 0
+    var gap = 0
+    var metrics = 0
+    if hhea >= 0 {
+        ascent = try i16_at(data, hhea + 4)
+        descent = try i16_at(data, hhea + 6)
+        gap = try i16_at(data, hhea + 8)
+        metrics = try u16_at(data, hhea + 34)
+    }
+    return ok(Face {
+        data: data,
+        units_per_em: upem,
+        glyph_count: try u16_at(data, maxp + 4),
+        long_loca: loc_format == 1,
+        head: head,
+        hhea: hhea,
+        hmtx: hmtx,
+        maxp: maxp,
+        cmap: cmap,
+        name: name,
+        os2: os2,
+        loca: loca,
+        glyf: glyf,
+        num_h_metrics: metrics,
+        ascender: ascent,
+        descender: descent,
+        line_gap: gap,
+        x_min: try i16_at(data, head + 36),
+        y_min: try i16_at(data, head + 38),
+        x_max: try i16_at(data, head + 40),
+        y_max: try i16_at(data, head + 42)
+    })
+}
+
+// The font's bounding box, in font units.
+pub fn bbox(f: Face) -> Rect {
+    return rect_of(
+        f.x_min as float,
+        f.y_min as float,
+        (f.x_max - f.x_min) as float,
+        (f.y_max - f.y_min) as float
+    )
+}
+
+// The glyph for a code point, or `None` when the font has none.
+//
+// Only `cmap` subtable formats **4** and **12** are read: format 4 is the basic-plane segment
+// mapping every font has, and 12 is the full-Unicode one any font with astral characters has.
+// Formats 0, 2, 6 and 13 belong to fonts old enough not to matter here, and an unrecognised format
+// is reported rather than silently answering "no glyph for anything".
+pub fn glyph_for(f: Face, codepoint: int) -> Result<Option<int>, string> {
+    if f.cmap < 0 {
+        return err("truetype: the font has no 'cmap' table, so no character can be looked up")
+    }
+    val best = try best_subtable(f)
+    if best < 0 {
+        return err("truetype: no 'cmap' subtable in format 4 or 12")
+    }
+    val format = try u16_at(f.data, best)
+    if format == 4 {
+        return lookup4(f, best, codepoint)
+    }
+    return lookup12(f, best, codepoint)
+}
+
+// Prefers a format 12 subtable (full Unicode) over a format 4 (basic plane), and a Windows platform
+// record over a Unicode one, which is the order real fonts expect.
+fn best_subtable(f: Face) -> Result<int, string> {
+    val count = try u16_at(f.data, f.cmap + 2)
+    var found4 = -1
+    var found12 = -1
+    var i = 0
+    while i < count {
+        val rec = f.cmap + 4 + i * 8
+        val platform = try u16_at(f.data, rec)
+        val encoding = try u16_at(f.data, rec + 2)
+        val off = f.cmap + (try u32_at(f.data, rec + 4))
+        if off + 2 <= len(f.data) {
+            val format = try u16_at(f.data, off)
+            val unicode = platform == 0 || (platform == 3 && (encoding == 1 || encoding == 10))
+            if unicode && format == 4 && found4 < 0 {
+                found4 = off
+            }
+            if unicode && format == 12 && found12 < 0 {
+                found12 = off
+            }
+        }
+        i = i + 1
+    }
+    if found12 >= 0 {
+        return ok(found12)
+    }
+    return ok(found4)
+}
+
+// Format 4: parallel arrays of segment ends, starts, deltas and range offsets.
+fn lookup4(f: Face, at: int, cp: int) -> Result<Option<int>, string> {
+    if cp > 65535 {
+        return ok(Option<int>.None)
+    }
+    val seg_x2 = try u16_at(f.data, at + 6)
+    val segs = seg_x2 / 2
+    val ends = at + 14
+    val starts = ends + seg_x2 + 2
+    val deltas = starts + seg_x2
+    val ranges = deltas + seg_x2
+    var i = 0
+    while i < segs {
+        val end = try u16_at(f.data, ends + i * 2)
+        if cp <= end {
+            val start = try u16_at(f.data, starts + i * 2)
+            if cp < start {
+                return ok(Option<int>.None)
+            }
+            val range_at = ranges + i * 2
+            val range_offset = try u16_at(f.data, range_at)
+            if range_offset == 0 {
+                val delta = try i16_at(f.data, deltas + i * 2)
+                return ok(Option<int>.Some(wrap16(cp + delta)))
+            }
+            // The indirection the format is known for: the offset is from the range entry's own
+            // address, not from the table.
+            val glyph_at = range_at + range_offset + (cp - start) * 2
+            val g = try u16_at(f.data, glyph_at)
+            if g == 0 {
+                return ok(Option<int>.None)
+            }
+            val delta = try i16_at(f.data, deltas + i * 2)
+            return ok(Option<int>.Some(wrap16(g + delta)))
+        }
+        i = i + 1
+    }
+    return ok(Option<int>.None)
+}
+
+// Format 12: sorted groups of (start, end, start glyph), binary-searchable.
+fn lookup12(f: Face, at: int, cp: int) -> Result<Option<int>, string> {
+    val groups = try u32_at(f.data, at + 12)
+    var lo = 0
+    var hi = groups - 1
+    while lo <= hi {
+        val mid = (lo + hi) / 2
+        val g = at + 16 + mid * 12
+        val start = try u32_at(f.data, g)
+        val end = try u32_at(f.data, g + 4)
+        if cp < start {
+            hi = mid - 1
+        } else if cp > end {
+            lo = mid + 1
+        } else {
+            val first = try u32_at(f.data, g + 8)
+            return ok(Option<int>.Some(first + (cp - start)))
+        }
+    }
+    return ok(Option<int>.None)
+}
+
+fn wrap16(n: int) -> int {
+    var v = n % 65536
+    if v < 0 {
+        v = v + 65536
+    }
+    return v
+}
+
+// The glyph's advance width, in font units.
+//
+// `hmtx` holds `num_h_metrics` entries and then leaves the rest implicit: every glyph past that
+// point has the *last* listed advance, which is how a monospaced font stores one width for
+// thousands of glyphs. Reading past the array instead of clamping is the classic bug here, and it
+// returns whatever bytes follow.
+pub fn advance_of(f: Face, glyph: int) -> Result<int, string> {
+    if f.hmtx < 0 || f.num_h_metrics == 0 {
+        return err("truetype: the font has no 'hmtx' metrics")
+    }
+    var g = glyph
+    if g >= f.num_h_metrics {
+        g = f.num_h_metrics - 1
+    }
+    return u16_at(f.data, f.hmtx + g * 4)
+}
+
+// A name-table string, by name id: 1 is the family, 4 the full name, 6 the PostScript name.
+//
+// Prefers a Windows record, whose strings are UTF-16BE, and falls back to a Macintosh record, whose
+// strings are single-byte. Both are decoded to a Ziman string; a record in any other encoding is
+// skipped rather than mangled.
+pub fn name_of(f: Face, name_id: int) -> Result<Option<string>, string> {
+    if f.name < 0 {
+        return ok(Option<string>.None)
+    }
+    val count = try u16_at(f.data, f.name + 2)
+    val storage = f.name + (try u16_at(f.data, f.name + 4))
+    var best = ""
+    var found = false
+    var i = 0
+    while i < count {
+        val rec = f.name + 6 + i * 12
+        val platform = try u16_at(f.data, rec)
+        val id = try u16_at(f.data, rec + 6)
+        val length = try u16_at(f.data, rec + 8)
+        val offset = try u16_at(f.data, rec + 10)
+        if id == name_id && storage + offset + length <= len(f.data) {
+            if platform == 3 {
+                best = try utf16be_text(f.data, storage + offset, length)
+                found = true
+            } else if platform == 1 && !found {
+                best = try latin_text(f.data, storage + offset, length)
+                found = true
+            }
+        }
+        i = i + 1
+    }
+    if !found {
+        return ok(Option<string>.None)
+    }
+    return ok(Option<string>.Some(best))
+}
+
+// `OS/2`'s weight class (400 regular, 700 bold), or 400 when the table is absent.
+pub fn weight_of(f: Face) -> Result<int, string> {
+    if f.os2 < 0 {
+        return ok(400)
+    }
+    return u16_at(f.data, f.os2 + 4)
+}
+
+// `OS/2`'s cap height, or an estimate when the table is too old to carry one (version 0 and 1 stop
+// before this field).
+pub fn cap_height_of(f: Face) -> Result<int, string> {
+    if f.os2 >= 0 {
+        val version = try u16_at(f.data, f.os2)
+        if version >= 2 {
+            return i16_at(f.data, f.os2 + 88)
+        }
+    }
+    return ok(f.ascender * 7 / 10)
+}
+
+pub fn is_italic(f: Face) -> Result<bool, string> {
+    if f.os2 < 0 {
+        return ok(false)
+    }
+    val selection = try u16_at(f.data, f.os2 + 62)
+    return ok(selection % 2 == 1)
+}
+
+// ---- byte reading. Everything in a font file is big-endian.
+
+fn u8_at(data: [byte], at: int) -> Result<int, string> {
+    if at < 0 || at >= len(data) {
+        return err(concat("truetype: read past the end of the font at ", str(at)))
+    }
+    return ok(data[at] as int)
+}
+
+fn u16_at(data: [byte], at: int) -> Result<int, string> {
+    val hi = try u8_at(data, at)
+    val lo = try u8_at(data, at + 1)
+    return ok(hi * 256 + lo)
+}
+
+fn i16_at(data: [byte], at: int) -> Result<int, string> {
+    val v = try u16_at(data, at)
+    if v >= 32768 {
+        return ok(v - 65536)
+    }
+    return ok(v)
+}
+
+fn u32_at(data: [byte], at: int) -> Result<int, string> {
+    val a = try u8_at(data, at)
+    val b = try u8_at(data, at + 1)
+    val c = try u8_at(data, at + 2)
+    val d = try u8_at(data, at + 3)
+    return ok(((a * 256 + b) * 256 + c) * 256 + d)
+}
+
+fn tag_at(data: [byte], at: int) -> Result<string, string> {
+    if at + 4 > len(data) {
+        return err("truetype: read past the end of the font reading a table tag")
+    }
+    return switch bytes_to_string(slice<byte>(data, at, at + 4)) {
+        Ok(s) { ok(s) }
+        // A tag is four bytes that happen to be ASCII in every real font; one that is not is
+        // reported rather than failing the whole parse, since the table is one this module
+        // probably does not want anyway.
+        Err(_) { ok("????") }
+    }
+}
+
+fn hex8(n: int) -> string {
+    val digits = "0123456789ABCDEF"
+    var v = n
+    var out = ""
+    var i = 0
+    while i < 8 {
+        val d = v % 16
+        out = concat(substring(digits, d, d + 1), out)
+        v = v / 16
+        i = i + 1
+    }
+    return out
+}
+
+fn utf16be_text(data: [byte], at: int, length: int) -> Result<string, string> {
+    val out = mutable_string_new()
+    var i = 0
+    while i + 1 < length {
+        val unit = try u16_at(data, at + i)
+        // Surrogate pairs are not decoded: a font name outside the basic plane is not a thing that
+        // happens, and guessing would be worse than the two replacement characters.
+        if unit >= 55296 && unit <= 57343 {
+            mutable_string_append(out, "?")
+        } else {
+            mutable_string_append(out, codepoint_text(unit))
+        }
+        i = i + 2
+    }
+    return ok(snapshot(out))
+}
+
+fn latin_text(data: [byte], at: int, length: int) -> Result<string, string> {
+    val out = mutable_string_new()
+    var i = 0
+    while i < length {
+        mutable_string_append(out, codepoint_text(try u8_at(data, at + i)))
+        i = i + 1
+    }
+    return ok(snapshot(out))
+}
+
+// A code point as a one-character string, by building its UTF-8 by hand -- the inverse of what
+// `pdf` does to read one, and needed because nothing in the prelude turns a number into a
+// character.
+fn codepoint_text(cp: int) -> string {
+    val bytes = mutable_array_new<byte>()
+    if cp < 128 {
+        mutable_array_push(bytes, cp as byte)
+    } else if cp < 2048 {
+        mutable_array_push(bytes, (192 + cp / 64) as byte)
+        mutable_array_push(bytes, (128 + cp % 64) as byte)
+    } else {
+        mutable_array_push(bytes, (224 + cp / 4096) as byte)
+        mutable_array_push(bytes, (128 + (cp / 64) % 64) as byte)
+        mutable_array_push(bytes, (128 + cp % 64) as byte)
+    }
+    return switch bytes_to_string(snapshot(bytes)) {
+        Ok(s) { s }
+        Err(_) { "?" }
+    }
+}
+
+// ---- glyph outlines
+
+// The glyph's outline in **font units**, y up, as a path of quadratic segments.
+//
+// Implemented in this phase even though PDF embedding does not need it: it is what the raster
+// backend rasterises (phase 5), and parsing `glyf` while this reader is being written and tested is
+// far cheaper than coming back for it.
+//
+// **Composite glyphs are followed**, because that is how most accented letters are built -- `ä` is
+// a reference to `a` plus a reference to the diaeresis, with an offset. Skipping them would make
+// accented text silently blank, which is the kind of defect that looks like a font problem rather
+// than a parser one. Nesting is bounded (see `max_component_depth`) because a font can, in
+// principle, reference itself.
+pub fn glyph_outline(f: Face, glyph: int) -> Result<shape.Path, string> {
+    val b = shape.path_builder()
+    try append_glyph(f, glyph, 0.0, 0.0, b, 0)
+    // Non-zero winding: TrueType's outer contours run clockwise and holes counter-clockwise, which
+    // is exactly what non-zero is for.
+    return ok(shape.built(b, shape.Winding.NonZero))
+}
+
+val max_component_depth = 8
+
+fn append_glyph(f: Face, glyph: int, dx: float, dy: float, b: shape.PathBuilder, depth: int) -> Result<unit, string> {
+    if depth > max_component_depth {
+        return err(concat("truetype: composite glyphs nest more than ", str(max_component_depth), " deep"))
+    }
+    if f.loca < 0 || f.glyf < 0 {
+        return err("truetype: the font has no 'glyf' outlines (it may be a CFF font)")
+    }
+    if glyph < 0 || glyph >= f.glyph_count {
+        return err(concat("truetype: no glyph ", str(glyph), " (the font has ", str(f.glyph_count), ")"))
+    }
+    val from = try loca_at(f, glyph)
+    val to = try loca_at(f, glyph + 1)
+    // An empty range is a glyph with no outline -- a space, most often. Not an error.
+    if to <= from {
+        return unit
+    }
+    val at = f.glyf + from
+    val contours = try i16_at(f.data, at)
+    if contours >= 0 {
+        return append_simple(f, at, contours, dx, dy, b)
+    }
+    return append_composite(f, at, dx, dy, b, depth)
+}
+
+fn loca_at(f: Face, glyph: int) -> Result<int, string> {
+    if f.long_loca {
+        return u32_at(f.data, f.loca + glyph * 4)
+    }
+    val half = try u16_at(f.data, f.loca + glyph * 2)
+    // The short format stores offsets divided by two, which is why it only reaches 128 KB of
+    // outlines and why `head`'s indexToLocFormat exists at all.
+    return ok(half * 2)
+}
+
+fn append_simple(f: Face, at: int, contours: int, dx: float, dy: float, b: shape.PathBuilder) -> Result<unit, string> {
+    val ends = at + 10
+    val point_count = if contours == 0 { 0 } else { (try u16_at(f.data, ends + (contours - 1) * 2)) + 1 }
+    if point_count == 0 {
+        return unit
+    }
+    val instruction_len = try u16_at(f.data, ends + contours * 2)
+    var p = ends + contours * 2 + 2 + instruction_len
+
+    // Flags, which carry a repeat count rather than being one byte per point.
+    val flags = mutable_array_new<int>()
+    while len(flags) < point_count {
+        val flag = try u8_at(f.data, p)
+        p = p + 1
+        mutable_array_push(flags, flag)
+        if flag / 8 % 2 == 1 {
+            val repeats = try u8_at(f.data, p)
+            p = p + 1
+            var r = 0
+            while r < repeats && len(flags) < point_count {
+                mutable_array_push(flags, flag)
+                r = r + 1
+            }
+        }
+    }
+
+    // Coordinates are deltas, and each axis is stored as a whole run after the flags.
+    val xs = mutable_array_new<float>()
+    var x = 0
+    var i = 0
+    while i < point_count {
+        val flag = mutable_array_get(flags, i)
+        val short = flag / 2 % 2 == 1
+        val same_or_positive = flag / 16 % 2 == 1
+        if short {
+            val d = try u8_at(f.data, p)
+            p = p + 1
+            x = if same_or_positive { x + d } else { x - d }
+        } else if !same_or_positive {
+            x = x + (try i16_at(f.data, p))
+            p = p + 2
+        }
+        mutable_array_push(xs, x as float)
+        i = i + 1
+    }
+    val ys = mutable_array_new<float>()
+    var y = 0
+    i = 0
+    while i < point_count {
+        val flag = mutable_array_get(flags, i)
+        val short = flag / 4 % 2 == 1
+        val same_or_positive = flag / 32 % 2 == 1
+        if short {
+            val d = try u8_at(f.data, p)
+            p = p + 1
+            y = if same_or_positive { y + d } else { y - d }
+        } else if !same_or_positive {
+            y = y + (try i16_at(f.data, p))
+            p = p + 2
+        }
+        mutable_array_push(ys, y as float)
+        i = i + 1
+    }
+
+    var start = 0
+    var c = 0
+    while c < contours {
+        val end = try u16_at(f.data, ends + c * 2)
+        try emit_contour(f, flags, xs, ys, start, end, dx, dy, b)
+        start = end + 1
+        c = c + 1
+    }
+    return unit
+}
+
+// One contour, from TrueType's on/off-curve points to quadratic segments.
+//
+// The format's one subtlety: **two consecutive off-curve points imply an on-curve point halfway
+// between them**, so a run of control points describes a chain of quadratics rather than being
+// malformed. A parser that ignores that draws straight lines through curves.
+fn emit_contour(
+    f: Face,
+    flags: MutableArray<int>,
+    xs: MutableArray<float>,
+    ys: MutableArray<float>,
+    start: int,
+    end: int,
+    dx: float,
+    dy: float,
+    b: shape.PathBuilder
+) -> Result<unit, string> {
+    val n = end - start + 1
+    if n <= 0 {
+        return unit
+    }
+    // Where to begin: the first on-curve point, or the midpoint of the last and first when the
+    // contour starts on a control point (which is legal and common).
+    var first_on = -1
+    var k = 0
+    while k < n {
+        if on_curve(flags, start + k) {
+            first_on = k
+        }
+        if first_on >= 0 {
+            k = n
+        } else {
+            k = k + 1
+        }
+    }
+    var cursor = geom.point_of(0.0, 0.0)
+    if first_on < 0 {
+        cursor = mid(point_at(xs, ys, start, dx, dy), point_at(xs, ys, end, dx, dy))
+        first_on = 0
+    } else {
+        cursor = point_at(xs, ys, start + first_on, dx, dy)
+    }
+    shape.move_to(b, cursor)
+
+    var pending_control = Option<geom.Point>.None
+    var step = 1
+    while step <= n {
+        val index = start + (first_on + step) % n
+        val p = point_at(xs, ys, index, dx, dy)
+        if on_curve(flags, index) {
+            switch pending_control {
+                Some(c) { shape.quad_to(b, c, p) }
+                None { shape.line_to(b, p) }
+            }
+            pending_control = Option<geom.Point>.None
+        } else {
+            switch pending_control {
+                Some(c) {
+                    // Two controls in a row: the implied on-curve point sits between them.
+                    shape.quad_to(b, c, mid(c, p))
+                }
+                None {}
+            }
+            pending_control = Option<geom.Point>.Some(p)
+        }
+        step = step + 1
+    }
+    if Some(c) = pending_control {
+        shape.quad_to(b, c, cursor)
+    }
+    shape.close_path(b)
+    return unit
+}
+
+fn on_curve(flags: MutableArray<int>, at: int) -> bool {
+    return mutable_array_get(flags, at) % 2 == 1
+}
+
+fn point_at(xs: MutableArray<float>, ys: MutableArray<float>, at: int, dx: float, dy: float) -> geom.Point {
+    return geom.point_of(mutable_array_get(xs, at) + dx, mutable_array_get(ys, at) + dy)
+}
+
+fn mid(a: geom.Point, b: geom.Point) -> geom.Point {
+    return geom.point_of((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
+}
+
+// A composite glyph: references to other glyphs, each with an offset.
+//
+// Only the offset form (`ARGS_ARE_XY_VALUES`) is followed, and a component's scale is read past but
+// not applied -- a scaled component is rare outside synthetic obliques, and applying it wrongly
+// would be worse than the error this returns.
+fn append_composite(f: Face, at: int, dx: float, dy: float, b: shape.PathBuilder, depth: int) -> Result<unit, string> {
+    var p = at + 10
+    var more = true
+    while more {
+        val flags = try u16_at(f.data, p)
+        val component = try u16_at(f.data, p + 2)
+        p = p + 4
+        val words = flags % 2 == 1
+        val xy_values = flags / 2 % 2 == 1
+        var a1 = 0
+        var a2 = 0
+        if words {
+            a1 = try i16_at(f.data, p)
+            a2 = try i16_at(f.data, p + 2)
+            p = p + 4
+        } else {
+            a1 = try i8_at(f.data, p)
+            a2 = try i8_at(f.data, p + 1)
+            p = p + 2
+        }
+        if flags / 8 % 2 == 1 {
+            p = p + 2
+        } else if flags / 64 % 2 == 1 {
+            p = p + 4
+        } else if flags / 128 % 2 == 1 {
+            p = p + 8
+        }
+        if !xy_values {
+            return err("truetype: a composite glyph positions a component by matching points, which is not supported")
+        }
+        try append_glyph(f, component, dx + (a1 as float), dy + (a2 as float), b, depth + 1)
+        more = flags / 32 % 2 == 1
+    }
+    return unit
+}
+
+fn i8_at(data: [byte], at: int) -> Result<int, string> {
+    val v = try u8_at(data, at)
+    if v >= 128 {
+        return ok(v - 256)
+    }
+    return ok(v)
+}

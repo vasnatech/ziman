@@ -37,37 +37,13 @@ pub fn letter() -> PageSize
 pub fn page_size_of(width: float, height: float) -> PageSize
 ```
 
-### `StandardFont`
-
-```
-pub enum StandardFont {
-    Helvetica
-    HelveticaBold
-    HelveticaOblique
-    HelveticaBoldOblique
-    Times
-    TimesBold
-    TimesItalic
-    TimesBoldItalic
-    Courier
-    CourierBold
-    CourierOblique
-    CourierBoldOblique
-    Symbol
-    ZapfDingbats
-}
-```
-
-The fourteen fonts every conforming reader supplies, so none of them is embedded. Phase 3 adds
-embedded faces; until then these are the only text available, and only Latin-1 text at that.
-
 ### `Options`
 
 ```
 pub struct Options {
     size: PageSize
-    // The fonts a scene's `TextRun.font` indexes into. Empty means no text may be drawn.
-    fonts: [StandardFont]
+    // The faces a scene's `TextRun.font` indexes into -- standard or embedded, mixed freely.
+    fonts: [FontRef]
     title: string
     author: string
     compress: bool

@@ -1,0 +1,258 @@
+// font.zm -- the font model: which faces a document may use, and what they measure.
+//
+// `truetype` reports what a font file says; this module decides what a *caller* needs -- metrics
+// scaled to a size, whether a face can draw a string at all, and the choice between an embedded
+// face and one of the fourteen standard fonts a reader already has.
+//
+// `StandardFont` lives here rather than in `pdf` so that nothing is circular: `pdf` needs this
+// module to embed a face, and this module must not need `pdf` to name a built-in one.
+use truetype
+use truetype.Face
+
+// The fourteen fonts every conforming PDF reader supplies, so none of them is embedded or needs a
+// font file. Latin-1 only, which is what `pdf.win_ansi` refuses past.
+pub enum StandardFont {
+    Helvetica
+    HelveticaBold
+    HelveticaOblique
+    HelveticaBoldOblique
+    Times
+    TimesBold
+    TimesItalic
+    TimesBoldItalic
+    Courier
+    CourierBold
+    CourierOblique
+    CourierBoldOblique
+    Symbol
+    ZapfDingbats
+}
+
+pub fn base_font_name(f: StandardFont) -> string {
+    return switch f {
+        Helvetica { "Helvetica" }
+        HelveticaBold { "Helvetica-Bold" }
+        HelveticaOblique { "Helvetica-Oblique" }
+        HelveticaBoldOblique { "Helvetica-BoldOblique" }
+        Times { "Times-Roman" }
+        TimesBold { "Times-Bold" }
+        TimesItalic { "Times-Italic" }
+        TimesBoldItalic { "Times-BoldItalic" }
+        Courier { "Courier" }
+        CourierBold { "Courier-Bold" }
+        CourierOblique { "Courier-Oblique" }
+        CourierBoldOblique { "Courier-BoldOblique" }
+        Symbol { "Symbol" }
+        ZapfDingbats { "ZapfDingbats" }
+    }
+}
+
+fn is_courier(f: StandardFont) -> bool {
+    return switch f {
+        Courier { true }
+        CourierBold { true }
+        CourierOblique { true }
+        CourierBoldOblique { true }
+        Helvetica { false }
+        HelveticaBold { false }
+        HelveticaOblique { false }
+        HelveticaBoldOblique { false }
+        Times { false }
+        TimesBold { false }
+        TimesItalic { false }
+        TimesBoldItalic { false }
+        Symbol { false }
+        ZapfDingbats { false }
+    }
+}
+
+pub enum FontRef {
+    Standard(StandardFont)
+    Embedded(Face)
+}
+
+pub fn standard(f: StandardFont) -> FontRef {
+    return FontRef.Standard(f)
+}
+
+// A TrueType face from its bytes. Nothing here reads a file: fonts arrive as `[byte]`, which keeps
+// the whole library pure and leaves loading to `fs`.
+pub fn load(data: [byte]) -> Result<FontRef, string> {
+    return ok(FontRef.Embedded(try truetype.parse(data)))
+}
+
+// The first code point `f` cannot draw, or `None` when it can draw all of `text`.
+//
+// **Answers *which* character is missing, not whether any is**, because a caller choosing between
+// faces or producing an error needs to name it, and a bool would make every caller scan again to
+// find it.
+pub fn covers(f: FontRef, text: string) -> Result<Option<int>, string> {
+    switch f {
+        Standard(s) {
+            for ch in chars(text) {
+                val cp = codepoint_of(ch)
+                if !standard_covers(cp) {
+                    return ok(Option<int>.Some(cp))
+                }
+            }
+            return ok(Option<int>.None)
+        }
+        Embedded(face) {
+            for ch in chars(text) {
+                val cp = codepoint_of(ch)
+                if None = try truetype.glyph_for(face, cp) {
+                    return ok(Option<int>.Some(cp))
+                }
+            }
+            return ok(Option<int>.None)
+        }
+    }
+}
+
+// WinAnsiEncoding's reach, which is what a standard font is limited to. The CP1252 block above
+// Latin-1 is included because a document uses it -- curly quotes, dashes, the euro sign.
+fn standard_covers(cp: int) -> bool {
+    if cp >= 32 && cp <= 126 {
+        return true
+    }
+    if cp >= 160 && cp <= 255 {
+        return true
+    }
+    return cp == 8364 || cp == 8218 || cp == 402 || cp == 8222 || cp == 8230 || cp == 8224 ||
+        cp == 8225 || cp == 710 || cp == 8240 || cp == 352 || cp == 8249 || cp == 338 ||
+        cp == 381 || cp == 8216 || cp == 8217 || cp == 8220 || cp == 8221 || cp == 8226 ||
+        cp == 8211 || cp == 8212 || cp == 732 || cp == 8482 || cp == 353 || cp == 8250 ||
+        cp == 339 || cp == 382 || cp == 376
+}
+
+// How wide `text` is at `size`, in the same units as `size`.
+//
+// **Measurement needs real metrics, so a proportional standard font is an `Err`.** Courier is
+// monospaced at exactly 600/1000 em per glyph and is answered exactly; Helvetica and Times would
+// need their published AFM width tables, about three thousand numbers for something an embedded
+// face answers properly. Rather than ship a half-table or guess, this says so and names the fix.
+pub fn advance(f: FontRef, text: string, size: float) -> Result<float, string> {
+    switch f {
+        Standard(s) {
+            if is_courier(s) {
+                return ok((char_count(text) as float) * 0.6 * size)
+            }
+            return err(concat(
+                "font.advance: ",
+                base_font_name(s),
+                " is a standard font with no width table here; measure with an embedded face, or use Courier, which is monospaced"
+            ))
+        }
+        Embedded(face) {
+            var total = 0
+            for ch in chars(text) {
+                val cp = codepoint_of(ch)
+                switch try truetype.glyph_for(face, cp) {
+                    Some(g) { total = total + (try truetype.advance_of(face, g)) }
+                    None {
+                        return err(concat(
+                            "font.advance: the face cannot draw U+",
+                            hex4(cp),
+                            "; check `covers` first"
+                        ))
+                    }
+                }
+            }
+            return ok((total as float) * size / (face.units_per_em as float))
+        }
+    }
+}
+
+// How far above the baseline the face reaches, at `size`. The standard fonts use the conventional
+// 0.75/0.25 split, which is what a reader's own metrics give within a percent or two.
+pub fn ascent(f: FontRef, size: float) -> float {
+    return switch f {
+        Standard(_) { size * 0.75 }
+        Embedded(face) { (face.ascender as float) * size / (face.units_per_em as float) }
+    }
+}
+
+// Below the baseline, as a positive number -- the opposite sign to `hhea`'s own descender, which is
+// negative. Returning the font's sign would make every caller remember which convention it is.
+pub fn descent(f: FontRef, size: float) -> float {
+    return switch f {
+        Standard(_) { size * 0.25 }
+        Embedded(face) { -(face.descender as float) * size / (face.units_per_em as float) }
+    }
+}
+
+pub fn line_height(f: FontRef, size: float) -> float {
+    return switch f {
+        Standard(_) { size * 1.2 }
+        Embedded(face) {
+            ((face.ascender - face.descender + face.line_gap) as float) * size /
+                (face.units_per_em as float)
+        }
+    }
+}
+
+// The glyphs `text` becomes, in order, with the cluster mapping a `scene.TextRun` carries.
+//
+// One glyph per code point, left to right, advancing by `hmtx` -- correct for Latin, Greek,
+// Cyrillic, CJK and Turkish, and **wrong for Arabic, Hebrew and Indic**, which need contextual
+// joining, reordering and ligature substitution from `GSUB`/`GPOS`. That is not approximated here;
+// see the phase document. When shaping arrives it produces this same shape -- positioned glyphs
+// plus clusters -- which is why this returns both.
+pub fn glyphs_of(f: Face, text: string) -> Result<[int], string> {
+    val out = mutable_array_new<int>()
+    for ch in chars(text) {
+        val cp = codepoint_of(ch)
+        switch try truetype.glyph_for(f, cp) {
+            Some(g) { mutable_array_push(out, g) }
+            None {
+                return err(concat("font.glyphs_of: the face cannot draw U+", hex4(cp)))
+            }
+        }
+    }
+    return ok(snapshot(out))
+}
+
+// The code points of `text`, which `/ToUnicode` needs alongside the glyphs.
+pub fn codepoints_of(text: string) -> [int] {
+    val out = mutable_array_new<int>()
+    for ch in chars(text) {
+        mutable_array_push(out, codepoint_of(ch))
+    }
+    return snapshot(out)
+}
+
+pub fn codepoint_of(ch: string) -> int {
+    val b = string_to_bytes(ch)
+    if len(b) == 0 {
+        return -1
+    }
+    val b0 = b[0] as int
+    if b0 < 128 {
+        return b0
+    }
+    if b0 < 224 && len(b) >= 2 {
+        return (b0 - 192) * 64 + ((b[1] as int) - 128)
+    }
+    if b0 < 240 && len(b) >= 3 {
+        return (b0 - 224) * 4096 + ((b[1] as int) - 128) * 64 + ((b[2] as int) - 128)
+    }
+    if len(b) >= 4 {
+        return (b0 - 240) * 262144 + ((b[1] as int) - 128) * 4096 + ((b[2] as int) - 128) * 64 +
+            ((b[3] as int) - 128)
+    }
+    return -1
+}
+
+pub fn hex4(cp: int) -> string {
+    val digits = "0123456789ABCDEF"
+    var n = cp
+    var out = ""
+    var i = 0
+    while i < 4 {
+        val d = n % 16
+        out = concat(substring(digits, d, d + 1), out)
+        n = n / 16
+        i = i + 1
+    }
+    return out
+}

@@ -3,6 +3,8 @@
 // The mapping is nearly mechanical, which is the point of the model: PDF's content-stream
 // vocabulary is almost exactly `shape.Segment`'s five cases, so most of this file is a serialiser.
 // See docs/graphics/phase-2-pdf-backend.md for the operator table and the reasoning.
+use font
+use font.FontRef
 use geom
 use geom.Matrix
 use geom.Point
@@ -28,6 +30,7 @@ use shape
 use shape.Path
 use shape.Segment
 use shape.Winding
+use truetype
 
 pub struct PageSize {
     width: float
@@ -47,48 +50,10 @@ pub fn page_size_of(width: float, height: float) -> PageSize {
     return PageSize { width: width, height: height }
 }
 
-// The fourteen fonts every conforming reader supplies, so none of them is embedded. Phase 3 adds
-// embedded faces; until then these are the only text available, and only Latin-1 text at that.
-pub enum StandardFont {
-    Helvetica
-    HelveticaBold
-    HelveticaOblique
-    HelveticaBoldOblique
-    Times
-    TimesBold
-    TimesItalic
-    TimesBoldItalic
-    Courier
-    CourierBold
-    CourierOblique
-    CourierBoldOblique
-    Symbol
-    ZapfDingbats
-}
-
-fn base_font_name(f: StandardFont) -> string {
-    return switch f {
-        Helvetica { "Helvetica" }
-        HelveticaBold { "Helvetica-Bold" }
-        HelveticaOblique { "Helvetica-Oblique" }
-        HelveticaBoldOblique { "Helvetica-BoldOblique" }
-        Times { "Times-Roman" }
-        TimesBold { "Times-Bold" }
-        TimesItalic { "Times-Italic" }
-        TimesBoldItalic { "Times-BoldItalic" }
-        Courier { "Courier" }
-        CourierBold { "Courier-Bold" }
-        CourierOblique { "Courier-Oblique" }
-        CourierBoldOblique { "Courier-BoldOblique" }
-        Symbol { "Symbol" }
-        ZapfDingbats { "ZapfDingbats" }
-    }
-}
-
 pub struct Options {
     size: PageSize
-    // The fonts a scene's `TextRun.font` indexes into. Empty means no text may be drawn.
-    fonts: [StandardFont]
+    // The faces a scene's `TextRun.font` indexes into -- standard or embedded, mixed freely.
+    fonts: [FontRef]
     title: string
     author: string
     compress: bool
@@ -97,7 +62,7 @@ pub struct Options {
 pub fn options() -> Options {
     return Options {
         size: a4(),
-        fonts: [StandardFont.Helvetica],
+        fonts: [font.standard(font.StandardFont.Helvetica)],
         title: "",
         author: "",
         compress: true
@@ -118,23 +83,53 @@ pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string> {
     val w = pdfobj.writer()
     val pages_number = pdfobj.reserve(w)
 
+    // **Font object numbers are reserved before any page is built**, because a page's `/Resources`
+    // has to name them while the fonts themselves cannot be written yet: an embedded face's `/W`
+    // array lists the widths of the glyphs *actually used*, which is only known once every page has
+    // been laid out. This is what `pdfobj.reserve`/`put` exists for.
+    val font_numbers = mutable_array_new<int>()
+    val glyphs_used = mutable_array_new<[int]>()
+    var fi = 0
+    while fi < len(o.fonts) {
+        mutable_array_push(font_numbers, pdfobj.reserve(w))
+        val no_glyphs: [int] = []
+        mutable_array_push(glyphs_used, no_glyphs)
+        fi = fi + 1
+    }
+
     val kids = mutable_array_new<Obj>()
     for page in pages {
         val built = try page_content(page, o)
+        // Fold this page's glyph use into the document's.
+        var gi = 0
+        while gi < len(o.fonts) {
+            val page_glyphs = mutable_array_get(built.glyphs, gi)
+            if len(page_glyphs) > 0 {
+                mutable_array_set(glyphs_used, gi, merged(mutable_array_get(glyphs_used, gi), page_glyphs))
+            }
+            gi = gi + 1
+        }
         val content_dict: [Entry] = []
         val content_number = if o.compress {
             pdfobj.add(w, pdfobj.flate_stream(content_dict, string_to_bytes(built.stream)))
         } else {
             pdfobj.add(w, pdfobj.stream(content_dict, string_to_bytes(built.stream)))
         }
-        val resources = font_resources(o, built)
         val page_entries = mutable_array_new<Entry>()
         mutable_array_push(page_entries, entry("Type", Obj.Name("Page")))
         mutable_array_push(page_entries, entry("Parent", Obj.Ref(pages_number)))
         mutable_array_push(page_entries, entry("MediaBox", media_box(page, o)))
-        mutable_array_push(page_entries, entry("Resources", resources))
+        mutable_array_push(page_entries, entry("Resources", page_resources(o, built, font_numbers)))
         mutable_array_push(page_entries, entry("Contents", Obj.Ref(content_number)))
         mutable_array_push(kids, Obj.Ref(pdfobj.add(w, Obj.Dict(snapshot(page_entries)))))
+    }
+
+    // Now every font's glyph set is known, so the font objects can be written.
+    var k = 0
+    while k < len(o.fonts) {
+        val used = mutable_array_get(glyphs_used, k)
+        try pdfobj.put(w, mutable_array_get(font_numbers, k), try font_object(w, o.fonts[k], used))
+        k = k + 1
     }
 
     val pages_entries = mutable_array_new<Entry>()
@@ -159,6 +154,25 @@ pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string> {
     return pdfobj.finish(w, root, snapshot(info))
 }
 
+fn merged(a: [int], b: [int]) -> [int] {
+    val out = mutable_array_new<int>()
+    for v in a {
+        mutable_array_push(out, v)
+    }
+    for v in b {
+        var seen = false
+        for existing in snapshot(out) {
+            if existing == v {
+                seen = true
+            }
+        }
+        if !seen {
+            mutable_array_push(out, v)
+        }
+    }
+    return snapshot(out)
+}
+
 fn media_box(page: Scene, o: Options) -> Obj {
     var w = page.width
     var h = page.height
@@ -173,23 +187,19 @@ fn media_box(page: Scene, o: Options) -> Obj {
 struct Built {
     stream: string
     fonts_used: MutableArray<int>
+    // Per font index, the glyph ids this page drew with it. Empty for a standard font, which is
+    // drawn by character code and embeds nothing.
+    glyphs: MutableArray<[int]>
     alphas: MutableArray<float>
     shadings: MutableArray<Obj>
 }
 
-fn font_resources(o: Options, b: Built) -> Obj {
+fn page_resources(o: Options, b: Built, font_numbers: MutableArray<int>) -> Obj {
     val res = mutable_array_new<Entry>()
 
     val fonts = mutable_array_new<Entry>()
     for i in snapshot(b.fonts_used) {
-        val f = o.fonts[i]
-        val font_dict: [Entry] = [
-            entry("Type", Obj.Name("Font")),
-            entry("Subtype", Obj.Name("Type1")),
-            entry("BaseFont", Obj.Name(base_font_name(f))),
-            entry("Encoding", Obj.Name("WinAnsiEncoding"))
-        ]
-        mutable_array_push(fonts, entry(concat("F", str(i)), Obj.Dict(font_dict)))
+        mutable_array_push(fonts, entry(concat("F", str(i)), Obj.Ref(mutable_array_get(font_numbers, i))))
     }
     if len(fonts) > 0 {
         mutable_array_push(res, entry("Font", Obj.Dict(snapshot(fonts))))
@@ -222,11 +232,208 @@ fn font_resources(o: Options, b: Built) -> Obj {
     return Obj.Dict(snapshot(res))
 }
 
+// One font object: a simple Type1 dictionary for a standard font, or a full Type0/CIDFontType2
+// with the face embedded.
+fn font_object(w: pdfobj.PdfWriter, f: FontRef, used: [int]) -> Result<Obj, string> {
+    switch f {
+        Standard(s) {
+            return ok(Obj.Dict([
+                entry("Type", Obj.Name("Font")),
+                entry("Subtype", Obj.Name("Type1")),
+                entry("BaseFont", Obj.Name(font.base_font_name(s))),
+                entry("Encoding", Obj.Name("WinAnsiEncoding"))
+            ]))
+        }
+        Embedded(face) { return embedded_font(w, face, used) }
+    }
+}
+
+// A `/Type0` font with `/Identity-H`: a CID *is* a glyph id, so text is two bytes per glyph and
+// `/CIDToGIDMap` is `/Identity`.
+//
+// **The whole face goes in, uncut.** Subsetting means rewriting `glyf` and `loca` and chasing
+// composite-glyph dependencies, and its failure mode is a file one reader opens and another
+// rejects. The cost is stated rather than hidden: around 400 KB of face, about 160 KB after
+// deflate, per document.
+fn embedded_font(w: pdfobj.PdfWriter, face: truetype.Face, used: [int]) -> Result<Obj, string> {
+    val name = switch try truetype.name_of(face, 6) {
+        Some(n) { sanitised(n) }
+        None { "EmbeddedFace" }
+    }
+    val scale = 1000.0 / (face.units_per_em as float)
+
+    // `/FontFile2` carries the file, with `/Length1` the *uncompressed* size, which a reader needs
+    // in order to know what it is decompressing into.
+    val file_number = pdfobj.add(
+        w,
+        pdfobj.flate_stream([entry("Length1", Obj.Int(len(face.data)))], face.data)
+    )
+
+    val bbox = truetype.bbox(face)
+    val descriptor: [Entry] = [
+        entry("Type", Obj.Name("FontDescriptor")),
+        entry("FontName", Obj.Name(name)),
+        // Bit 3 (value 4) is "symbolic", bit 6 (32) is "nonsymbolic". An Identity-H font is reached
+        // by glyph id rather than by character name, and readers expect symbolic here.
+        entry("Flags", Obj.Int(4)),
+        entry(
+            "FontBBox",
+            Obj.Array([
+                Obj.Int(scaled(bbox.x, scale)),
+                Obj.Int(scaled(bbox.y, scale)),
+                Obj.Int(scaled(bbox.x + bbox.width, scale)),
+                Obj.Int(scaled(bbox.y + bbox.height, scale))
+            ])
+        ),
+        entry("ItalicAngle", Obj.Int(0)),
+        entry("Ascent", Obj.Int(scaled(face.ascender as float, scale))),
+        entry("Descent", Obj.Int(scaled(face.descender as float, scale))),
+        entry("CapHeight", Obj.Int(scaled((try truetype.cap_height_of(face)) as float, scale))),
+        // A nominal stem width: readers want the key present and use it only for synthetic bolding.
+        entry("StemV", Obj.Int(80)),
+        entry("FontFile2", Obj.Ref(file_number))
+    ]
+    val descriptor_number = pdfobj.add(w, Obj.Dict(descriptor))
+
+    val descendant: [Entry] = [
+        entry("Type", Obj.Name("Font")),
+        entry("Subtype", Obj.Name("CIDFontType2")),
+        entry("BaseFont", Obj.Name(name)),
+        entry(
+            "CIDSystemInfo",
+            Obj.Dict([
+                entry("Registry", Obj.Str("Adobe")),
+                entry("Ordering", Obj.Str("Identity")),
+                entry("Supplement", Obj.Int(0))
+            ])
+        ),
+        entry("FontDescriptor", Obj.Ref(descriptor_number)),
+        entry("DW", Obj.Int(1000)),
+        entry("W", try widths_array(face, used, scale)),
+        entry("CIDToGIDMap", Obj.Name("Identity"))
+    ]
+    val to_unicode = pdfobj.add(
+        w,
+        pdfobj.flate_stream([], string_to_bytes(try to_unicode_cmap(face, used)))
+    )
+    return ok(Obj.Dict([
+        entry("Type", Obj.Name("Font")),
+        entry("Subtype", Obj.Name("Type0")),
+        entry("BaseFont", Obj.Name(name)),
+        entry("Encoding", Obj.Name("Identity-H")),
+        entry("DescendantFonts", Obj.Array([Obj.Dict(descendant)])),
+        entry("ToUnicode", Obj.Ref(to_unicode))
+    ]))
+}
+
+fn scaled(v: float, scale: float) -> int {
+    return (v * scale) as int
+}
+
+// `/W` lists the advance of each glyph actually used, in 1000ths of an em. One `[cid [w]]` pair per
+// glyph rather than ranges: a run-length encoding would be smaller and this is already a few
+// hundred bytes.
+fn widths_array(face: truetype.Face, used: [int], scale: float) -> Result<Obj, string> {
+    val out = mutable_array_new<Obj>()
+    for g in used {
+        val advance = try truetype.advance_of(face, g)
+        mutable_array_push(out, Obj.Int(g))
+        mutable_array_push(out, Obj.Array([Obj.Int(scaled(advance as float, scale))]))
+    }
+    return ok(Obj.Array(snapshot(out)))
+}
+
+// The `/ToUnicode` CMap, mapping each glyph back to the character it came from.
+//
+// **Not optional.** Without it the text draws correctly and *extracts* as mojibake -- the failure
+// nobody notices until someone copies a medication name out of a record. It is also what the
+// Poppler cross-check verifies.
+fn to_unicode_cmap(face: truetype.Face, used: [int]) -> Result<string, string> {
+    val out = mutable_string_new()
+    mutable_string_append(out, "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n")
+    mutable_string_append(
+        out,
+        "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
+    )
+    mutable_string_append(out, "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n")
+    mutable_string_append(out, "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n")
+    val pairs = mutable_array_new<string>()
+    for g in used {
+        if Some(cp) = reverse_lookup(face, g) {
+            mutable_array_push(pairs, concat("<", font.hex4(g), "> <", font.hex4(cp), ">"))
+        }
+    }
+    val all = snapshot(pairs)
+    // `bfchar` takes at most 100 entries per block, which is a hard limit in the specification
+    // rather than a convention.
+    var i = 0
+    while i < len(all) {
+        var upto = i + 100
+        if upto > len(all) {
+            upto = len(all)
+        }
+        mutable_string_append(out, str(upto - i), " beginbfchar\n")
+        var j = i
+        while j < upto {
+            mutable_string_append(out, all[j], "\n")
+            j = j + 1
+        }
+        mutable_string_append(out, "endbfchar\n")
+        i = upto
+    }
+    mutable_string_append(out, "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")
+    return ok(snapshot(out))
+}
+
+// Which character produced a glyph. The font maps the other way, so this scans -- over the Latin,
+// Greek, Cyrillic and punctuation ranges a document actually uses, rather than all of Unicode,
+// because the scan is per glyph and 150,000 lookups per glyph would be absurd.
+fn reverse_lookup(face: truetype.Face, glyph: int) -> Option<int> {
+    val ranges = [32, 591, 880, 1279, 7680, 7935, 8192, 8303, 8352, 8399]
+    var r = 0
+    while r + 1 < len(ranges) {
+        var cp = ranges[r]
+        while cp <= ranges[r + 1] {
+            if Ok(found) = truetype.glyph_for(face, cp) {
+                if Some(g) = found {
+                    if g == glyph {
+                        return Option<int>.Some(cp)
+                    }
+                }
+            }
+            cp = cp + 1
+        }
+        r = r + 2
+    }
+    return Option<int>.None
+}
+
+// A PostScript name may not contain spaces, parentheses or delimiters.
+fn sanitised(name: string) -> string {
+    val out = mutable_string_new()
+    for ch in chars(name) {
+        if ch == " " || ch == "(" || ch == ")" || ch == "/" || ch == "<" || ch == ">" {
+            mutable_string_append(out, "-")
+        } else {
+            mutable_string_append(out, ch)
+        }
+    }
+    return snapshot(out)
+}
+
 fn page_content(page: Scene, o: Options) -> Result<Built, string> {
     val out = mutable_string_new()
+    val glyphs = mutable_array_new<[int]>()
+    var gi = 0
+    while gi < len(o.fonts) {
+        val none_yet: [int] = []
+        mutable_array_push(glyphs, none_yet)
+        gi = gi + 1
+    }
     val b = Built {
         stream: "",
         fonts_used: mutable_array_new<int>(),
+        glyphs: glyphs,
         alphas: mutable_array_new<float>(),
         shadings: mutable_array_new<Obj>()
     }
@@ -355,12 +562,21 @@ fn emit_text(out: MutableString, b: Built, o: Options, t: scene.TextRun) -> Resu
             str(len(o.fonts))
         ))
     }
-    val encoded = try win_ansi(t.text)
     val c = switch t.fill {
         Solid(colour) { colour }
         LinearGradient(_) { return err("pdf: gradient-filled text is not supported") }
         RadialGradient(_) { return err("pdf: gradient-filled text is not supported") }
         Pattern(_) { return err("pdf: pattern-filled text is not supported") }
+    }
+    // Standard fonts are addressed by character code in WinAnsi; an embedded face is addressed by
+    // **glyph id**, two bytes each, because its encoding is Identity-H. Same `Tj`, different bytes.
+    val encoded = switch o.fonts[t.font] {
+        Standard(_) { try win_ansi(t.text) }
+        Embedded(face) {
+            val ids = try font.glyphs_of(face, t.text)
+            remember_glyphs(b, t.font, ids)
+            glyph_bytes(ids)
+        }
     }
     remember(b.fonts_used, t.font)
     try set_alpha(out, b, c.alpha)
@@ -371,6 +587,36 @@ fn emit_text(out: MutableString, b: Built, o: Options, t: scene.TextRun) -> Resu
     mutable_string_append(out, "1 0 0 -1 ", real_text(t.at.x), " ", real_text(t.at.y), " Tm\n")
     mutable_string_append(out, "<", hex_of(encoded), "> Tj\nET\n")
     return unit
+}
+
+// Glyph ids as two big-endian bytes each, which is what Identity-H reads.
+fn glyph_bytes(ids: [int]) -> [byte] {
+    val out = mutable_array_new<byte>()
+    for g in ids {
+        mutable_array_push(out, (g / 256) as byte)
+        mutable_array_push(out, (g % 256) as byte)
+    }
+    return snapshot(out)
+}
+
+fn remember_glyphs(b: Built, font_index: int, ids: [int]) -> unit {
+    val existing = mutable_array_get(b.glyphs, font_index)
+    val out = mutable_array_new<int>()
+    for g in existing {
+        mutable_array_push(out, g)
+    }
+    for g in ids {
+        var seen = false
+        for already in snapshot(out) {
+            if already == g {
+                seen = true
+            }
+        }
+        if !seen {
+            mutable_array_push(out, g)
+        }
+    }
+    mutable_array_set(b.glyphs, font_index, snapshot(out))
 }
 
 // ---- paths

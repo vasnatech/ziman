@@ -134,13 +134,38 @@ for another one).
 - **Round trip through PDF**: render text containing `ş`, `İ` and a Cyrillic word, then `pdftotext`
   the result and assert the extracted text equals the input. This is the single check that proves
   the CMap, the `/ToUnicode` and the encoding all agree; everything else can be right while this
-  fails.
+  fails. *Built and passing:* `şeker İstanbul — Привет` comes back byte-identical, and `pdffonts`
+  reports the face as `CID TrueType / Identity-H / emb yes / sub no / uni yes` -- which also makes
+  the no-subsetting decision visible rather than merely documented.
 - **The phase-2 error goes away**: the fixture that asserted `Err` on an out-of-encoding character
   now asserts it renders, with the standard-font case still erroring.
 
 ## Build changes
 
-Two modules registered. No native code -- TrueType parsing is `[byte]` reads and `bits`. Fonts for
-tests need a home: either read from the health-record checkout (fragile, it is a sibling) or a copy
-under `tests/resources/fonts/`, which is 800 KB of binary in the repo and should be a deliberate
-decision rather than a side effect.
+Two modules registered. No native code -- TrueType parsing is `[byte]` reads and ordinary
+arithmetic; `bits` turned out not to be needed, since big-endian assembly is `hi * 256 + lo`.
+
+*Built 2026-10-16.* Four decisions the implementation settled, none of them in this document's
+first draft:
+
+**Test fonts come from the system, via `fc-match`, and neither option this document offered was
+taken.** Not the sibling checkout (fragile) and not a copy in the repository (400 KB of binary that
+every clone carries forever to test a parser). `tests/run_pdf_tests.sh` asks fontconfig for
+Liberation Sans and skips when there is none, the same shape as the openssl and Poppler guards. The
+cost, stated: a machine without fontconfig tests the error paths only -- which is what
+`tests/lang/graphics_font.zm` covers, and it is the half that needs no font.
+
+**`StandardFont` moved from `pdf` into `font`**, because `pdf` needs `font` in order to embed a face
+and `font` must not need `pdf` in order to name a built-in one. `Options.fonts` is now
+`[font.FontRef]`, so standard and embedded faces mix freely in one document.
+
+**`font.advance` refuses for a proportional standard font**, rather than shipping a width table or
+guessing. Courier is monospaced at exactly 600/1000 em and is answered exactly; Helvetica and Times
+would need their published AFM metrics, about three thousand numbers for something an embedded face
+answers properly. The error names Courier and embedding as the two ways forward.
+
+**`/ToUnicode` needs the reverse mapping, which a font does not have.** `cmap` maps characters to
+glyphs, and the CMap needs the opposite, so it is found by scanning -- over Latin, Greek, Cyrillic,
+the Latin Extended Additional block and punctuation, rather than all of Unicode, because the scan
+runs per glyph. A glyph reachable only from a code point outside those ranges gets no `/ToUnicode`
+entry and so extracts as nothing; the ranges are listed in one place in `pdf.zm` for that reason.

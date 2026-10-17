@@ -31,6 +31,7 @@ fail() { echo "FAIL $1 -- $2"; fails=$((fails + 1)); }
 # fragments on separate lines ("rotated text" comes back as "rota / ted t / e / xt"), which is its
 # layout analysis working and not a defect in the file. Checking it would be testing `pdftotext`.
 cat > "$WORK/make.zm" <<'ZM'
+use font
 use fs
 use geom
 use paint
@@ -50,7 +51,7 @@ fn main() {
         ])
     ]
     val o = with pdf.options() {
-        fonts: [pdf.StandardFont.Helvetica, pdf.StandardFont.TimesBold],
+        fonts: [font.standard(font.StandardFont.Helvetica), font.standard(font.StandardFont.TimesBold)],
         title: "Poppler check",
         author: "lib/graphics"
     }
@@ -83,6 +84,61 @@ if echo "$text" | grep -q "second page"; then pass "page 2 text extracts"; else 
 # The CP1252 block above Latin-1, which is where WinAnsi differs from ISO-8859-1.
 if echo "$text" | grep -q "em dash"; then pass "the em dash survives WinAnsi"; else fail "the em dash survives WinAnsi" "$text"; fi
 if echo "$text" | grep -q "quotes"; then pass "curly quotes survive WinAnsi"; else fail "curly quotes survive WinAnsi" "$text"; fi
+
+# ---- an embedded TrueType face, which is phase 3's whole point
+#
+# The font comes from the system via fc-match rather than from the repository: Liberation Sans is
+# 400 KB of binary, and checking it in to test a parser is a cost every clone pays forever. If
+# fontconfig finds nothing, this part skips.
+FONT=$(fc-match -f '%{file}' 'Liberation Sans' 2>/dev/null || true)
+if [ -z "$FONT" ] || [ ! -r "$FONT" ] || ! command -v pdffonts >/dev/null; then
+    echo "SKIP: no system TrueType font via fc-match, or no pdffonts"
+    echo "$fails failure(s)"
+    [ "$fails" -eq 0 ]
+    exit $?
+fi
+
+cat > "$WORK/embed.zm" <<'ZM'
+use font
+use fs
+use geom
+use os
+use paint
+use pdf
+use scene
+fn main() {
+    val face = unwrap(font.load(unwrap(fs.read_bytes(os.args()[0]))))
+    val s = scene.with_ops(scene.scene_of(300.0, 100.0), [
+        scene.text_of("şeker İstanbul — Привет", geom.point_of(15.0, 50.0), 14.0, 0, paint.solid(paint.black()))
+    ])
+    val _n = unwrap(fs.write_bytes(os.args()[1], unwrap(pdf.render(s, with pdf.options() { fonts: [face] }))))
+}
+ZM
+
+if ! "$BIN" "$WORK/embed.zm" -- "$FONT" "$WORK/embed.pdf" 2>"$WORK/err2"; then
+    fail "the embedded-font document is produced" "$(head -3 "$WORK/err2")"
+else
+    pass "the embedded-font document is produced"
+    fonts=$(pdffonts "$WORK/embed.pdf" 2>&1)
+    # The three columns that matter: it is a CID font, Identity-H, and actually embedded.
+    if echo "$fonts" | grep -q "CID TrueType"; then pass "the face is a CID TrueType"; else fail "the face is a CID TrueType" "$fonts"; fi
+    if echo "$fonts" | grep -q "Identity-H"; then pass "the encoding is Identity-H"; else fail "the encoding is Identity-H" "$fonts"; fi
+    # The `emb` column sits immediately after the encoding, so match on that rather than counting
+    # fields from the end -- a font name containing a space shifts every column.
+    if echo "$fonts" | grep -qE "Identity-H +yes"; then pass "the font file is embedded"; else fail "the font file is embedded" "$fonts"; fi
+    # `sub no` is the design's decision made visible: the whole face goes in, unsubsetted.
+    if echo "$fonts" | grep -qE "Identity-H +yes +no"; then pass "the face is not subsetted, as designed"; else fail "the face is not subsetted, as designed" "$fonts"; fi
+
+    # **The check that proves the whole chain.** Encoding, CIDToGIDMap and /ToUnicode all have to
+    # agree for this to come back: Turkish ş and İ, an em dash, and Cyrillic.
+    got=$(pdftotext "$WORK/embed.pdf" - 2>&1 | tr -d '\n\f')
+    want="şeker İstanbul — Привет"
+    if [ "$got" = "$want" ]; then
+        pass "Unicode text round-trips through /ToUnicode"
+    else
+        fail "Unicode text round-trips through /ToUnicode" "wanted '$want', got '$got'"
+    fi
+fi
 
 echo "$fails failure(s)"
 [ "$fails" -eq 0 ]

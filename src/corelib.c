@@ -47,6 +47,8 @@
 #include "scene_source.h"
 #include "pdfobj_source.h"
 #include "pdf_source.h"
+#include "truetype_source.h"
+#include "font_source.h"
 #include "zone_source.h"
 #include "ndjson_source.h"
 #include "csv_source.h"
@@ -108,6 +110,8 @@ static const CoreModule CORE_MODULES[] = {
     {"scene", SCENE_SOURCE},
     {"pdfobj", PDFOBJ_SOURCE},
     {"pdf", PDF_SOURCE},
+    {"truetype", TRUETYPE_SOURCE},
+    {"font", FONT_SOURCE},
     {"zone", ZONE_SOURCE},
     {"ndjson", NDJSON_SOURCE},
     {"csv", CSV_SOURCE},

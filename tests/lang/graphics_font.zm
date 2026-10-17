@@ -1,0 +1,112 @@
+// `lib/graphics` phase 3: `truetype` and `font`, the parts that need no font file (F143).
+//
+// **Where the real-font tests are, and why they are not here.** Parsing is only convincingly tested
+// against a real face, and a real face is 400 KB of binary that every clone would carry forever to
+// test a parser. So `tests/run_pdf_tests.sh` takes one from the system via `fc-match` and checks
+// the whole chain through Poppler -- that the face embeds as a CID TrueType with Identity-H, is not
+// subsetted, and that `şeker İstanbul — Привет` survives a round trip through `/ToUnicode`, which is
+// the single assertion proving the encoding, the CIDToGIDMap and the CMap all agree.
+//
+// What is left for here is the half that does not need a font: every way a font file can be wrong.
+// Those are worth pinning because a parser's error paths are what a caller actually meets, and they
+// are unreachable with a valid file.
+use font
+use truetype
+
+fn refusal(r: Result<truetype.Face, string>) -> string {
+    return switch r {
+        Ok(f) { concat("UNEXPECTEDLY PARSED: ", str(f.glyph_count), " glyphs") }
+        Err(why) { why }
+    }
+}
+
+// A four-byte big-endian tag, as a font file's header carries it.
+fn tagged(a: int, b: int, c: int, d: int) -> [byte] {
+    return [a as byte, b as byte, c as byte, d as byte]
+}
+
+fn main() {
+    val empty: [byte] = []
+    print(concat("empty:            ", refusal(truetype.parse(empty))))
+    print(concat("too short:        ", refusal(truetype.parse(tagged(0, 1, 0, 0)))))
+
+    // 'OTTO' -- an OpenType font with CFF outlines rather than TrueType ones. A different format
+    // inside the same container, and worth naming rather than failing obscurely later.
+    val otto = bytes_concat(tagged(79, 84, 84, 79), tagged(0, 0, 0, 0), tagged(0, 0, 0, 0))
+    print(concat("CFF (OTTO):       ", refusal(truetype.parse(otto))))
+
+    // 'ttcf' -- a collection holding several faces.
+    val ttcf = bytes_concat(tagged(116, 116, 99, 102), tagged(0, 0, 0, 0), tagged(0, 0, 0, 0))
+    print(concat("collection:       ", refusal(truetype.parse(ttcf))))
+
+    val nonsense = bytes_concat(tagged(1, 2, 3, 4), tagged(0, 0, 0, 0), tagged(0, 0, 0, 0))
+    print(concat("not a font:       ", refusal(truetype.parse(nonsense))))
+
+    // A valid sfnt version claiming one table, with the directory truncated.
+    val truncated = bytes_concat(tagged(0, 1, 0, 0), tagged(0, 1, 0, 0), tagged(0, 0, 0, 0))
+    print(concat("short directory:  ", refusal(truetype.parse(truncated))))
+
+    // A directory whose table points past the end of the file -- the check that stops every later
+    // read from wandering into whatever follows.
+    val bad_offset = bytes_concat(
+        tagged(0, 1, 0, 0),
+        tagged(0, 1, 0, 0),
+        tagged(0, 0, 0, 0),
+        tagged(104, 101, 97, 100),
+        tagged(0, 0, 0, 0),
+        tagged(0, 0, 255, 255),
+        tagged(0, 0, 0, 54)
+    )
+    print(concat("offset past end:  ", refusal(truetype.parse(bad_offset))))
+
+    // ---- the standard fonts, which need no file at all
+    val helv = font.standard(font.StandardFont.Helvetica)
+    val courier = font.standard(font.StandardFont.Courier)
+    print(concat("helvetica name:   ", font.base_font_name(font.StandardFont.Helvetica)))
+    print(concat("times bold name:  ", font.base_font_name(font.StandardFont.TimesBold)))
+
+    // Courier is monospaced at exactly 600/1000 em, so its measurement is exact without a width
+    // table. Helvetica's would need its published AFM metrics -- about three thousand numbers --
+    // so it refuses rather than guessing, and says what to do instead.
+    print(concat("courier 'iii' 10: ", format("{:.2}", unwrap(font.advance(courier, "iii", 10.0)))))
+    print(concat("courier 'WWW' 10: ", format("{:.2}", unwrap(font.advance(courier, "WWW", 10.0)))))
+    print(concat(
+        "courier is exact: ",
+        str(unwrap(font.advance(courier, "iii", 10.0)) == unwrap(font.advance(courier, "WWW", 10.0)))
+    ))
+    print(concat("helvetica refuses:", advance_refusal(font.advance(helv, "iii", 10.0))))
+
+    print(concat("standard metrics: ", concat(
+        "ascent ",
+        format("{:.2}", font.ascent(helv, 12.0)),
+        "  descent ",
+        format("{:.2}", font.descent(helv, 12.0)),
+        "  line ",
+        format("{:.2}", font.line_height(helv, 12.0))
+    )))
+
+    // `covers` answers *which* character is missing rather than whether any is, because a caller
+    // producing an error needs to name it.
+    print(concat("covers ascii:     ", format("{}", unwrap(font.covers(helv, "Hello, world!")))))
+    print(concat("covers em dash:   ", format("{}", unwrap(font.covers(helv, "a — b")))))
+    print(concat("covers turkish:   ", format("{}", unwrap(font.covers(helv, "şeker")))))
+    print(concat("U+015F is:        ", font.hex4(351)))
+
+    // The code-point decoder the encodings are built on, across all four UTF-8 lengths.
+    print(concat("codepoints:       ", concat(
+        str(font.codepoint_of("A")),
+        " ",
+        str(font.codepoint_of("ş")),
+        " ",
+        str(font.codepoint_of("—")),
+        " ",
+        str(font.codepoint_of("𝄞"))
+    )))
+}
+
+fn advance_refusal(r: Result<float, string>) -> string {
+    return switch r {
+        Ok(v) { concat("UNEXPECTEDLY MEASURED ", str(v)) }
+        Err(why) { why }
+    }
+}

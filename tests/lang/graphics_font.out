@@ -1,0 +1,19 @@
+empty:            truetype: not a font (fewer than 12 bytes)
+too short:        truetype: not a font (fewer than 12 bytes)
+CFF (OTTO):       truetype: this is an OpenType/CFF font ('OTTO'); only TrueType outlines are read
+collection:       truetype: this is a font collection ('ttcf'); extract a single face first
+not a font:       truetype: unrecognised sfnt version 0x01020304
+short directory:  truetype: the table directory is truncated
+offset past end:  truetype: table 'head' points past the end of the file
+helvetica name:   Helvetica
+times bold name:  Times-Bold
+courier 'iii' 10: 18.00
+courier 'WWW' 10: 18.00
+courier is exact: true
+helvetica refuses:font.advance: Helvetica is a standard font with no width table here; measure with an embedded face, or use Courier, which is monospaced
+standard metrics: ascent 9.00  descent 3.00  line 14.40
+covers ascii:     None
+covers em dash:   None
+covers turkish:   Some(351)
+U+015F is:        015F
+codepoints:       65 351 8212 119070
