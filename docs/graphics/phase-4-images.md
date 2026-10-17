@@ -1,7 +1,8 @@
 # Phase 4 — images: a pixel buffer, PNG, and PDF image XObjects
 
 Gives the library pixels: an image value, encoding and decoding PNG, and placing images in a PDF.
-This is also what makes `Paint.Pattern` work and what phase 5 renders *into*.
+This is what phase 5 renders *into*. It was also meant to make `Paint.Pattern` work; it does not,
+and the "As built" section at the end says why.
 
 Read `README.md` first.
 
@@ -102,8 +103,8 @@ support for almost nothing.
   holding the alpha channel. An `Rgba8` image is therefore split into an RGB XObject and a Gray8
   `/SMask`. Missing this makes transparent PNGs render with black fringes, which is the kind of
   defect that looks like a rendering bug rather than a format mistake.
-- `Paint.Pattern(handle, matrix)` becomes a tiling pattern whose content stream draws the image
-  once; the matrix is the pattern matrix.
+- ~~`Paint.Pattern(handle, matrix)` becomes a tiling pattern whose content stream draws the image
+  once; the matrix is the pattern matrix.~~ **Not built** -- see "As built".
 
 ## What phase 4 does *not* do
 
@@ -127,3 +128,41 @@ phase 5 will need sampling and that belongs there). Colour management.
 
 One module registered. No native code. Test images should be *generated* by the tests rather than
 checked in, except the handful of foreign PNGs needed to exercise the five decode filters.
+
+## As built
+
+Three things came out differently from the plan above, recorded here rather than quietly left as a
+difference between the document and the code.
+
+**`Paint.Pattern` is deferred, and says so.** A tiling pattern is not an image XObject with a
+matrix: it is a `/Pattern` colour space, a pattern object carrying its own `/Resources` and content
+stream, and `scn` instead of `rg` -- a fourth resource category, written for a caller that does not
+exist yet. `scene.image` already places an image anywhere a matrix can put it, which is what phase 4
+was actually for. So `paint.pattern()` constructs the variant, and every backend that meets it
+returns `Err("pdf: an image pattern (paint.Pattern) is not implemented; draw the image with
+scene.image instead")`. Deferring it is a decision; drawing nothing would have been a silent
+degradation, which the library's first invariant forbids.
+
+**The foreign PNGs are generated, not checked in.** "Build changes" above allowed a handful of
+foreign files for the five decode filters. They are not in the repository: `tests/run_pdf_tests.sh`
+has python3's `zlib` write one PNG per filter type over identical pixels and asserts all five decode
+to the same bytes. That is strictly better than a fixture, because the encoder is independent of
+this decoder -- *the* property that matters here, since a predictor that is wrong in both directions
+cancels itself out and a self-encoded fixture cannot see it. The check is load-bearing: replacing
+the Paeth predictor with the naive `a + b - c` fails filter 4 and nothing else.
+
+**Row filters are validated by the filter byte, not by the result.** The first implementation left
+`value = -1` as a "no branch matched" sentinel and reported `value < 0` as an unknown filter. With a
+correct predictor that can never happen, so it read as defensive; with a *wrong* one it reports a
+broken predictor as a corrupt file, which sends anyone debugging it to the wrong place. The filter
+byte is now range-checked once per row, where the only thing that can actually be out of range is.
+This was found by mutating the predictor to see whether the new test failed, and the first failure
+it produced was that misleading message.
+
+The verification the design called the decisive one -- "assert the XObject has an `/SMask` whose
+dimensions match. This is the one that catches the black-fringe bug" -- is in both layers, and both
+were checked by mutation. `tests/lang/graphics_image.zm` asserts the key is in the file;
+`tests/run_pdf_tests.sh` has `pdfimages -list` confirm Poppler resolves it to an 8x8 greyscale soft
+mask, then rasterises the page with `pdftoppm` and samples it to confirm the transparent squares
+show the page through. Suppressing the `/SMask` entry fails all three, the last of them as
+`red=361 grey=0` -- the black-fringe bug itself, measured.

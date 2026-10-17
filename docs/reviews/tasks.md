@@ -625,7 +625,7 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   could not fake; and `ä` having 4 contours against `a`'s 2, which is composite glyphs being
   followed rather than skipped.
 
-- [ ] **F144** **`lib/graphics` phase 4: a pixel buffer, PNG, and PDF image XObjects.** (raised
+- [x] **F144** **`lib/graphics` phase 4: a pixel buffer, PNG, and PDF image XObjects.** (raised
   2026-10-16; M) `image`: an immutable `Image` plus a `#[thread_bound]` builder (the same split the
   language already makes between `[T]` and `MutableArray<T>`, because `with_pixel` on a value copies
   the buffer and a rasteriser writes a million of them), three formats (Gray8/Rgb8/Rgba8), PNG
@@ -636,6 +636,23 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   format mistake. Decode takes a mandatory `max_pixels`, for the same reason `compress`'s
   `max_size` is mandatory. Depends on F141; independent of F143.
   See `docs/graphics/phase-4-images.md`.
+
+  *Done 2026-10-16.* The decisive check passes in both layers: `pdfimages -list` reports an 8x8 RGB
+  image and an 8x8 greyscale **soft mask** as separate rows, and `pdftoppm` renders a
+  red-and-transparent checkerboard over a grey page where both colours are present. Both were
+  verified by mutation -- suppressing the `/SMask` entry turns the sampled page into
+  `red=361 grey=0`, which *is* the black-fringe bug, measured. **Three deviations from the design,
+  all recorded in the phase document**: `Paint.Pattern` is deferred rather than built (a tiling
+  pattern is a `/Pattern` colour space, a pattern object with its own `/Resources`, and `scn` -- a
+  fourth resource category for a caller that does not exist, when `scene.image` already places an
+  image anywhere a matrix can); the "handful of foreign PNGs" for the five decode filters are
+  *generated* by python3's `zlib` in `tests/run_pdf_tests.sh` instead of checked in, which is
+  strictly better because the encoder is then independent of this decoder -- the only arrangement
+  where a predictor wrong in both directions cannot cancel itself out, confirmed by replacing Paeth
+  with the naive `a + b - c` and watching filter 4 and only filter 4 fail; and row filters are now
+  range-checked by the filter byte rather than by a `value < 0` sentinel, because that mutation's
+  first symptom was a correct file being reported as corrupt, which sends the next reader to the
+  wrong place entirely.
 
 - [ ] **F145** **`lib/graphics` phase 5: the raster backend.** (raised 2026-10-16; L) `raster`:
   `Scene` to `Image`. Much the largest phase, and three separable pieces worth landing in order --

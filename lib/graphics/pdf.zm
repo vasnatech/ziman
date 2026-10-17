@@ -11,6 +11,7 @@ use geom.Point
 use geom.Rect
 use geom.identity
 use geom.matrix_concat
+use image
 use paint.Cap
 use paint.Color
 use paint.Join
@@ -54,6 +55,9 @@ pub struct Options {
     size: PageSize
     // The faces a scene's `TextRun.font` indexes into -- standard or embedded, mixed freely.
     fonts: [FontRef]
+    // The images a scene's `DrawImage` indexes into. Images are document-level for the same reason
+    // fonts are: one XObject however many pages place it.
+    images: [image.Image]
     title: string
     author: string
     compress: bool
@@ -63,6 +67,7 @@ pub fn options() -> Options {
     return Options {
         size: a4(),
         fonts: [font.standard(font.StandardFont.Helvetica)],
+        images: [],
         title: "",
         author: "",
         compress: true
@@ -97,6 +102,15 @@ pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string> {
         fi = fi + 1
     }
 
+    // Images get object numbers the same way fonts do, though for a simpler reason: a page's
+    // `/Resources` names them, and nothing about an image depends on how it was used.
+    val image_numbers = mutable_array_new<int>()
+    var ii = 0
+    while ii < len(o.images) {
+        mutable_array_push(image_numbers, try image_object(w, o.images[ii]))
+        ii = ii + 1
+    }
+
     val kids = mutable_array_new<Obj>()
     for page in pages {
         val built = try page_content(page, o)
@@ -119,7 +133,7 @@ pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string> {
         mutable_array_push(page_entries, entry("Type", Obj.Name("Page")))
         mutable_array_push(page_entries, entry("Parent", Obj.Ref(pages_number)))
         mutable_array_push(page_entries, entry("MediaBox", media_box(page, o)))
-        mutable_array_push(page_entries, entry("Resources", page_resources(o, built, font_numbers)))
+        mutable_array_push(page_entries, entry("Resources", page_resources(o, built, font_numbers, image_numbers)))
         mutable_array_push(page_entries, entry("Contents", Obj.Ref(content_number)))
         mutable_array_push(kids, Obj.Ref(pdfobj.add(w, Obj.Dict(snapshot(page_entries)))))
     }
@@ -187,6 +201,7 @@ fn media_box(page: Scene, o: Options) -> Obj {
 struct Built {
     stream: string
     fonts_used: MutableArray<int>
+    images_used: MutableArray<int>
     // Per font index, the glyph ids this page drew with it. Empty for a standard font, which is
     // drawn by character code and embeds nothing.
     glyphs: MutableArray<[int]>
@@ -194,7 +209,7 @@ struct Built {
     shadings: MutableArray<Obj>
 }
 
-fn page_resources(o: Options, b: Built, font_numbers: MutableArray<int>) -> Obj {
+fn page_resources(o: Options, b: Built, font_numbers: MutableArray<int>, image_numbers: MutableArray<int>) -> Obj {
     val res = mutable_array_new<Entry>()
 
     val fonts = mutable_array_new<Entry>()
@@ -220,6 +235,17 @@ fn page_resources(o: Options, b: Built, font_numbers: MutableArray<int>) -> Obj 
         mutable_array_push(res, entry("ExtGState", Obj.Dict(snapshot(gs))))
     }
 
+    val xobjects = mutable_array_new<Entry>()
+    for i in snapshot(b.images_used) {
+        mutable_array_push(
+            xobjects,
+            entry(concat("Im", str(i)), Obj.Ref(mutable_array_get(image_numbers, i)))
+        )
+    }
+    if len(xobjects) > 0 {
+        mutable_array_push(res, entry("XObject", Obj.Dict(snapshot(xobjects))))
+    }
+
     val sh = mutable_array_new<Entry>()
     var si = 0
     for shading in snapshot(b.shadings) {
@@ -230,6 +256,42 @@ fn page_resources(o: Options, b: Built, font_numbers: MutableArray<int>) -> Obj 
         mutable_array_push(res, entry("Shading", Obj.Dict(snapshot(sh))))
     }
     return Obj.Dict(snapshot(res))
+}
+
+// One image XObject, plus an `/SMask` when the image has alpha.
+//
+// **PDF has no RGBA image.** It has an image and, separately, a soft-mask image holding the alpha
+// channel, so an `Rgba8` is split into an RGB XObject and a Gray8 mask. Missing that makes
+// transparent PNGs render with black fringes -- a defect that reads as a rendering bug rather than
+// a format mistake, which is why it is worth saying out loud.
+fn image_object(w: pdfobj.PdfWriter, img: image.Image) -> Result<int, string> {
+    val mask = image.alpha_channel(img)
+    val colour = image.without_alpha(img)
+    var smask = 0
+    if Some(alpha) = mask {
+        smask = try image_stream(w, alpha, 0)
+    }
+    return image_stream(w, colour, smask)
+}
+
+fn image_stream(w: pdfobj.PdfWriter, img: image.Image, smask: int) -> Result<int, string> {
+    val space = switch img.format {
+        Gray8 { "DeviceGray" }
+        Rgb8 { "DeviceRGB" }
+        // Unreachable: `image_object` splits alpha off before calling this.
+        Rgba8 { "DeviceRGB" }
+    }
+    val dict = mutable_array_new<Entry>()
+    mutable_array_push(dict, entry("Type", Obj.Name("XObject")))
+    mutable_array_push(dict, entry("Subtype", Obj.Name("Image")))
+    mutable_array_push(dict, entry("Width", Obj.Int(img.width)))
+    mutable_array_push(dict, entry("Height", Obj.Int(img.height)))
+    mutable_array_push(dict, entry("ColorSpace", Obj.Name(space)))
+    mutable_array_push(dict, entry("BitsPerComponent", Obj.Int(8)))
+    if smask > 0 {
+        mutable_array_push(dict, entry("SMask", Obj.Ref(smask)))
+    }
+    return ok(pdfobj.add(w, pdfobj.flate_stream(snapshot(dict), img.data)))
 }
 
 // One font object: a simple Type1 dictionary for a standard font, or a full Type0/CIDFontType2
@@ -433,6 +495,7 @@ fn page_content(page: Scene, o: Options) -> Result<Built, string> {
     val b = Built {
         stream: "",
         fonts_used: mutable_array_new<int>(),
+        images_used: mutable_array_new<int>(),
         glyphs: glyphs,
         alphas: mutable_array_new<float>(),
         shadings: mutable_array_new<Obj>()
@@ -464,8 +527,35 @@ fn emit_op(out: MutableString, b: Built, o: Options, op: Op) -> Result<unit, str
         Fill(f) { return emit_fill(out, b, o, f.path, f.fill) }
         StrokePath(s) { return emit_stroke(out, b, o, s.path, s.fill, s.stroke) }
         Text(t) { return emit_text(out, b, o, t) }
-        DrawImage(_) {
-            return err("pdf: images need phase 4 (scene.DrawImage is not renderable yet)")
+        DrawImage(p) {
+            if p.image < 0 || p.image >= len(o.images) {
+                return err(concat(
+                    "pdf: a draw names image ",
+                    str(p.image),
+                    " but Options.images holds ",
+                    str(len(o.images))
+                ))
+            }
+            remember(b.images_used, p.image)
+            val r = geom.normalized(p.into)
+            // **A PDF image is always drawn into the unit square**, so the placement *is* the
+            // matrix: there is no width or height on the `Do` operator. The extra `-1` in `d` and
+            // the `+height` in `f` flip the image upright, because the page is already flipped and
+            // an image would otherwise appear upside down.
+            mutable_string_append(out, "q\n")
+            mutable_string_append(
+                out,
+                real_text(r.width),
+                " 0 0 ",
+                real_text(-r.height),
+                " ",
+                real_text(r.x),
+                " ",
+                real_text(r.y + r.height),
+                " cm\n"
+            )
+            mutable_string_append(out, "/Im", str(p.image), " Do\nQ\n")
+            return unit
         }
         Nested(g) {
             mutable_string_append(out, "q\n")
@@ -506,7 +596,11 @@ fn emit_fill(out: MutableString, b: Built, o: Options, p: Path, with_paint: Pain
             return emit_shading_fill(out, p, name)
         }
         Pattern(_) {
-            return err("pdf: an image pattern needs phase 4 (paint.Pattern is not renderable yet)")
+            // Deferred rather than done: a tiling pattern is a `/Pattern` colour space, a pattern
+            // resource with its own `/Resources` and content stream, and `scn` -- a fourth resource
+            // category for something nothing has asked for yet. `DrawImage` covers placing an
+            // image, which is what phase 4 was actually for.
+            return err("pdf: an image pattern (paint.Pattern) is not implemented; draw the image with scene.image instead")
         }
     }
 }
@@ -537,7 +631,9 @@ fn emit_stroke(
         RadialGradient(_) {
             return err("pdf: a gradient-stroked path is not supported; fill the stroked outline instead")
         }
-        Pattern(_) { return err("pdf: an image pattern needs phase 4") }
+        Pattern(_) {
+            return err("pdf: an image pattern (paint.Pattern) is not implemented; draw the image with scene.image instead")
+        }
     }
     try set_alpha(out, b, c.alpha)
     // **Stroke parameters pass straight through** rather than being turned into an outline, which

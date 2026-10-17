@@ -1,0 +1,208 @@
+// `lib/graphics` phase 4: pixel buffers, PNG in and out, and an image inside a PDF (F144).
+//
+// What is checked here is what can be checked without leaving the language: that a buffer encoded
+// and read back is the *same buffer*, that the refusals are the designed ones, and that an `Rgba8`
+// image reaching a PDF brings an `/SMask` with it.
+//
+// Two things are deliberately checked elsewhere, because doing them here would mean this project's
+// reader agreeing with this project's writer:
+//
+//   * **All five PNG row filters.** `encode_png` only ever writes filters 0 and 2, so a fixture
+//     written here could never exercise Sub, Average or Paeth. `tests/run_pdf_tests.sh` has
+//     python3's `zlib` build one PNG per filter type over identical pixels and asserts all five
+//     decode to the same bytes -- an independent encoder against this decoder, which is the only
+//     arrangement where a wrong Paeth predictor cannot cancel itself out.
+//   * **That the `/SMask` is a soft mask and not just a dictionary key.** `pdfimages -list` in the
+//     same script reports the image and its mask as separate rows, and `pdftoppm` renders the page
+//     so the transparent squares can be seen to be transparent.
+use geom
+use image
+use paint
+use pdf
+use pdfobj
+use scene
+use shape
+
+fn bytes_of(xs: [int]) -> [byte] {
+    val out = mutable_array_new<byte>()
+    for x in xs {
+        mutable_array_push(out, x as byte)
+    }
+    return snapshot(out)
+}
+
+// Identical length and identical CRC-32 is the identity claim; `crc32` is the module's own, which
+// is fine here because it is not the thing under test (its value against a known vector is).
+fn same_bytes(a: [byte], b: [byte]) -> bool {
+    return len(a) == len(b) && image.crc32(a) == image.crc32(b)
+}
+
+fn has(data: [byte], text: string) -> bool {
+    val want = string_to_bytes(text)
+    var at = 0
+    while at + len(want) <= len(data) {
+        var k = 0
+        var all = true
+        while k < len(want) {
+            if data[at + k] != want[k] {
+                all = false
+                k = len(want)
+            } else {
+                k = k + 1
+            }
+        }
+        if all {
+            return true
+        }
+        at = at + 1
+    }
+    return false
+}
+
+fn refusal<T>(r: Result<T, string>) -> string {
+    return switch r {
+        Ok(_) { "UNEXPECTEDLY ACCEPTED" }
+        Err(why) { why }
+    }
+}
+
+// A deterministic pattern: every channel varies with both x and y, so a transposed stride or an
+// off-by-one row shows up as a different checksum rather than as the same flat colour.
+fn sample(width: int, height: int, format: image.Pixels) -> image.Image {
+    val c = unwrap(image.canvas(width, height, format))
+    var y = 0
+    while y < height {
+        var x = 0
+        while x < width {
+            val _ = unwrap(image.set(c, x, y, paint.rgba(
+                (x as float) / (width as float),
+                (y as float) / (height as float),
+                (((x + y) % 5) as float) / 4.0,
+                if (x + y) % 3 == 0 { 0.0 } else { 1.0 }
+            )))
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return image.snapshot_image(c)
+}
+
+fn round_trip(label: string, format: image.Pixels) {
+    val original = sample(16, 12, format)
+    val png = image.encode_png(original)
+    val back = unwrap(image.decode_png(png, 1000000))
+    val same_shape = back.width == original.width && back.height == original.height
+    print(concat(
+        label,
+        ": ",
+        str(len(png)),
+        " bytes, ",
+        str(image.channels_of(back.format)),
+        " channels back, pixels identical: ",
+        str(same_shape && same_bytes(back.data, original.data))
+    ))
+}
+
+fn main() {
+    print(concat("channels gray/rgb/rgba: ", concat(
+        str(image.channels_of(image.Pixels.Gray8)),
+        "/",
+        str(image.channels_of(image.Pixels.Rgb8)),
+        "/",
+        str(image.channels_of(image.Pixels.Rgba8))
+    )))
+
+    // ---- the buffer
+    print(concat("wrong byte count:    ", refusal(image.image_of(2, 2, image.Pixels.Rgb8, bytes_of([1, 2, 3])))))
+    print(concat("no pixels:           ", refusal(image.image_of(0, 4, image.Pixels.Gray8, bytes_of([])))))
+
+    val rgb = unwrap(image.image_of(2, 1, image.Pixels.Rgb8, bytes_of([255, 0, 0, 0, 0, 255])))
+    print(concat("pixel (0,0) red:     ", format("{:.3}", unwrap(image.pixel_at(rgb, 0, 0)).red)))
+    print(concat("pixel (1,0) blue:    ", format("{:.3}", unwrap(image.pixel_at(rgb, 1, 0)).blue)))
+    print(concat("pixel off the edge:  ", refusal(image.pixel_at(rgb, 2, 0))))
+
+    // A colour written into a Gray8 canvas keeps its luminance, not its red channel.
+    val mask = unwrap(image.canvas(1, 1, image.Pixels.Gray8))
+    val _ = unwrap(image.set(mask, 0, 0, paint.rgb(0.0, 1.0, 0.0)))
+    print(concat(
+        "green as luminance:  ",
+        format("{:.3}", unwrap(image.pixel_at(image.snapshot_image(mask), 0, 0)).red)
+    ))
+    print(concat("set off the canvas:  ", refusal(image.set(mask, 5, 0, paint.black()))))
+
+    // ---- the alpha split a PDF `/SMask` needs
+    val rgba = sample(4, 4, image.Pixels.Rgba8)
+    val alpha = unwrap(image.alpha_channel(rgba))
+    print(concat("alpha is gray, same size: ", str(
+        image.channels_of(alpha.format) == 1 && alpha.width == 4 && alpha.height == 4
+    )))
+    print(concat("colours without alpha:    ", str(image.channels_of(image.without_alpha(rgba).format))))
+    print(concat("rgb has no alpha channel: ", format("{}", image.alpha_channel(rgb))))
+
+    // ---- PNG
+    round_trip("gray round trip ", image.Pixels.Gray8)
+    round_trip("rgb round trip  ", image.Pixels.Rgb8)
+    round_trip("rgba round trip ", image.Pixels.Rgba8)
+
+    // A known CRC-32 vector: the four bytes "IEND" are 0xAE426082, which is the value every PNG
+    // ever written ends with. A wrong polynomial or a missing final inversion fails here.
+    print(concat("crc32(\"IEND\"):       ", str(image.crc32(string_to_bytes("IEND")))))
+
+    val png = image.encode_png(sample(16, 12, image.Pixels.Rgb8))
+    print(concat("not a PNG:           ", refusal(image.decode_png(string_to_bytes("not a png at all"), 1000))))
+    print(concat("too short:           ", refusal(image.decode_png(bytes_of([137, 80]), 1000))))
+    print(concat("past the pixel cap:  ", refusal(image.decode_png(png, 100))))
+
+    // One flipped byte inside a chunk body, which is what a truncated download or a bad disk looks
+    // like. Without the CRC check this decodes to quietly wrong pixels.
+    val corrupt = mutable_array_new<byte>()
+    for b in png {
+        mutable_array_push(corrupt, b)
+    }
+    mutable_array_set(corrupt, len(png) - 20, ((png[len(png) - 20] as int) + 1) as byte)
+    print(concat("a flipped byte:      ", refusal(image.decode_png(snapshot(corrupt), 1000000))))
+
+    // ---- JPEG: shape only, which is all `DCTDecode` pass-through needs
+    val jpeg = bytes_of([255, 216, 255, 192, 0, 17, 8, 0, 30, 0, 40, 3])
+    print(concat("jpeg 40x30, 3 comps: ", format("{}", image.jpeg_dimensions(jpeg))))
+    print(concat("not a JPEG:          ", refusal(image.jpeg_dimensions(bytes_of([1, 2, 3, 4])))))
+    print(concat(
+        "a JPEG with no frame: ",
+        refusal(image.jpeg_dimensions(bytes_of([255, 216, 255, 254, 0, 4, 0, 0])))
+    ))
+
+    // ---- an image in a PDF
+    //
+    // **The check the design named.** An `Rgba8` image has to arrive as two XObjects -- the colours
+    // and a Gray8 `/SMask` -- because PDF has no RGBA image type. Writing the four-channel data as
+    // if it were three is the black-fringe bug, and it looks fine until something is composited
+    // over a dark background.
+    val doc = unwrap(pdf.render(
+        scene.with_ops(scene.scene_of(80.0, 80.0), [scene.image(0, geom.rect_of(10.0, 10.0, 60.0, 60.0))]),
+        with pdf.options() { size: pdf.page_size_of(80.0, 80.0), images: [rgba], compress: false }
+    ))
+    print(concat("rgba page:           ", str(len(doc)), " bytes, sound: ", format("{}", pdfobj.check(doc))))
+    print(concat("  has an /SMask:     ", str(has(doc, "/SMask"))))
+    print(concat("  places it with Do: ", str(has(doc, "/Im0 Do"))))
+    print(concat("  mask is DeviceGray: ", str(has(doc, "/DeviceGray"))))
+
+    // The same scene with an opaque image: no mask, because there is nothing to mask.
+    val opaque = unwrap(pdf.render(
+        scene.with_ops(scene.scene_of(80.0, 80.0), [scene.image(0, geom.rect_of(10.0, 10.0, 60.0, 60.0))]),
+        with pdf.options() {
+            size: pdf.page_size_of(80.0, 80.0),
+            images: [sample(4, 4, image.Pixels.Rgb8)],
+            compress: false
+        }
+    ))
+    print(concat("rgb page has /SMask: ", str(has(opaque, "/SMask"))))
+
+    // A tiling pattern is the one piece of phase 4 that was designed and then deliberately left
+    // out; it says so rather than drawing nothing.
+    print(concat("an image pattern:    ", refusal(pdf.render(
+        scene.with_ops(scene.scene_of(10.0, 10.0), [
+            scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, 5.0, 5.0)), paint.pattern(0, geom.identity()))
+        ]),
+        with pdf.options() { images: [rgba] }
+    ))))
+}

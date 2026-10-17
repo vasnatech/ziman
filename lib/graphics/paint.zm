@@ -142,6 +142,12 @@ pub fn radial(centre: Point, radius: float, stops: [Stop]) -> Paint {
     return Paint.RadialGradient(Radial { centre: centre, radius: radius, stops: stops })
 }
 
+// The constructor exists so the variant is reachable the same way the others are; **no backend
+// draws it yet**, and both say so rather than painting nothing (lib/graphics/pdf.zm).
+pub fn pattern(image: int, transform: Matrix) -> Paint {
+    return Paint.Pattern(Tiled { image: image, transform: transform })
+}
+
 pub enum Cap {
     Butt
     Round

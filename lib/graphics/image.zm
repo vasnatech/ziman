@@ -1,0 +1,551 @@
+// image.zm -- a pixel buffer, PNG in and out, and enough of JPEG to put one in a PDF.
+//
+// The buffer and the codec live together because PNG's row filtering is defined in terms of the
+// buffer's layout, and splitting them would mean making that layout public just so the codec could
+// see it.
+use bits.int_and
+use bits.int_shift_right
+use bits.int_xor
+use compress.deflate
+use compress.inflate
+use paint.Color
+use paint.rgba
+
+// Three formats, not a colour-model system. Gray8 for masks and single-channel data, Rgb8 for
+// photographs, Rgba8 for anything composited. CMYK, 16-bit channels and ICC profiles are real
+// things PDF supports and nothing here needs; each would be additive.
+pub enum Pixels {
+    Gray8
+    Rgb8
+    Rgba8
+}
+
+pub fn channels_of(f: Pixels) -> int {
+    return switch f {
+        Gray8 { 1 }
+        Rgb8 { 3 }
+        Rgba8 { 4 }
+    }
+}
+
+// Row-major, no padding: `width * channels` bytes per row. `data` is a packed `[byte]`, which in
+// Ziman is a real byte buffer rather than boxed values, so a 1024x1024 RGBA image is 4 MB and not
+// eighty bytes a pixel.
+pub struct Image {
+    width: int
+    height: int
+    format: Pixels
+    data: [byte]
+}
+
+pub fn image_of(width: int, height: int, format: Pixels, data: [byte]) -> Result<Image, string> {
+    if width <= 0 || height <= 0 {
+        return err(concat("image: a ", str(width), "x", str(height), " image has no pixels"))
+    }
+    val wanted = width * height * channels_of(format)
+    if len(data) != wanted {
+        return err(concat(
+            "image: a ",
+            str(width),
+            "x",
+            str(height),
+            " image of this format needs ",
+            str(wanted),
+            " bytes, got ",
+            str(len(data))
+        ))
+    }
+    return ok(Image { width: width, height: height, format: format, data: data })
+}
+
+pub fn pixel_at(i: Image, x: int, y: int) -> Result<Color, string> {
+    if x < 0 || y < 0 || x >= i.width || y >= i.height {
+        return err(concat("image: (", str(x), ", ", str(y), ") is outside the image"))
+    }
+    val n = channels_of(i.format)
+    val at = (y * i.width + x) * n
+    return switch i.format {
+        Gray8 {
+            val v = (i.data[at] as int) as float / 255.0
+            ok(rgba(v, v, v, 1.0))
+        }
+        Rgb8 {
+            ok(rgba(
+                (i.data[at] as int) as float / 255.0,
+                (i.data[at + 1] as int) as float / 255.0,
+                (i.data[at + 2] as int) as float / 255.0,
+                1.0
+            ))
+        }
+        Rgba8 {
+            ok(rgba(
+                (i.data[at] as int) as float / 255.0,
+                (i.data[at + 1] as int) as float / 255.0,
+                (i.data[at + 2] as int) as float / 255.0,
+                (i.data[at + 3] as int) as float / 255.0
+            ))
+        }
+    }
+}
+
+// A mutable buffer to draw into.
+//
+// **Both this and the immutable `Image` exist on purpose.** Writing a pixel into a value copies the
+// whole buffer, which is right for the odd pixel and catastrophic for a rasteriser writing a
+// million of them; phase 5 uses this, and callers passing images around use the value. It is the
+// same split the language already makes between `[T]` and `MutableArray<T>`, so it needs no new
+// idea.
+pub struct Canvas {
+    width: int
+    height: int
+    format: Pixels
+    data: MutableArray<byte>
+}
+
+pub fn canvas(width: int, height: int, format: Pixels) -> Result<Canvas, string> {
+    if width <= 0 || height <= 0 {
+        return err(concat("image.canvas: a ", str(width), "x", str(height), " canvas has no pixels"))
+    }
+    val data = mutable_array_new<byte>()
+    var i = 0
+    val total = width * height * channels_of(format)
+    while i < total {
+        mutable_array_push(data, 0 as byte)
+        i = i + 1
+    }
+    return ok(Canvas { width: width, height: height, format: format, data: data })
+}
+
+pub fn set(c: Canvas, x: int, y: int, colour: Color) -> Result<unit, string> {
+    if x < 0 || y < 0 || x >= c.width || y >= c.height {
+        return err(concat("image.set: (", str(x), ", ", str(y), ") is outside the canvas"))
+    }
+    val n = channels_of(c.format)
+    val at = (y * c.width + x) * n
+    switch c.format {
+        Gray8 {
+            // The usual luminance weights, so a colour drawn into a mask reads as its brightness.
+            val v = 0.299 * colour.red + 0.587 * colour.green + 0.114 * colour.blue
+            mutable_array_set(c.data, at, to_byte(v))
+        }
+        Rgb8 {
+            mutable_array_set(c.data, at, to_byte(colour.red))
+            mutable_array_set(c.data, at + 1, to_byte(colour.green))
+            mutable_array_set(c.data, at + 2, to_byte(colour.blue))
+        }
+        Rgba8 {
+            mutable_array_set(c.data, at, to_byte(colour.red))
+            mutable_array_set(c.data, at + 1, to_byte(colour.green))
+            mutable_array_set(c.data, at + 2, to_byte(colour.blue))
+            mutable_array_set(c.data, at + 3, to_byte(colour.alpha))
+        }
+    }
+    return unit
+}
+
+pub fn snapshot_image(c: Canvas) -> Image {
+    return Image { width: c.width, height: c.height, format: c.format, data: snapshot(c.data) }
+}
+
+fn to_byte(v: float) -> byte {
+    var x = v * 255.0 + 0.5
+    if x < 0.0 {
+        x = 0.0
+    }
+    if x > 255.0 {
+        x = 255.0
+    }
+    return (x as int) as byte
+}
+
+// The alpha channel on its own, as a Gray8 image -- what PDF needs for an `/SMask`, since it has no
+// RGBA image type. An image without alpha has none.
+pub fn alpha_channel(i: Image) -> Option<Image> {
+    return switch i.format {
+        Rgba8 {
+            val out = mutable_array_new<byte>()
+            var p = 0
+            while p < i.width * i.height {
+                mutable_array_push(out, i.data[p * 4 + 3])
+                p = p + 1
+            }
+            Option<Image>.Some(Image {
+                width: i.width,
+                height: i.height,
+                format: Pixels.Gray8,
+                data: snapshot(out)
+            })
+        }
+        Gray8 { Option<Image>.None }
+        Rgb8 { Option<Image>.None }
+    }
+}
+
+// The colour channels without alpha, which is the other half of an `/SMask` pair.
+pub fn without_alpha(i: Image) -> Image {
+    return switch i.format {
+        Rgba8 {
+            val out = mutable_array_new<byte>()
+            var p = 0
+            while p < i.width * i.height {
+                mutable_array_push(out, i.data[p * 4])
+                mutable_array_push(out, i.data[p * 4 + 1])
+                mutable_array_push(out, i.data[p * 4 + 2])
+                p = p + 1
+            }
+            Image { width: i.width, height: i.height, format: Pixels.Rgb8, data: snapshot(out) }
+        }
+        Gray8 { i }
+        Rgb8 { i }
+    }
+}
+
+// ---- PNG
+
+val png_signature: [int] = [137, 80, 78, 71, 13, 10, 26, 10]
+
+pub fn encode_png(i: Image) -> [byte] {
+    val parts = mutable_array_new<[byte]>()
+    val sig = mutable_array_new<byte>()
+    for b in png_signature {
+        mutable_array_push(sig, b as byte)
+    }
+    mutable_array_push(parts, snapshot(sig))
+
+    val header = mutable_array_new<byte>()
+    push_u32(header, i.width)
+    push_u32(header, i.height)
+    mutable_array_push(header, 8 as byte)
+    mutable_array_push(header, colour_type_of(i.format) as byte)
+    mutable_array_push(header, 0 as byte)
+    mutable_array_push(header, 0 as byte)
+    mutable_array_push(header, 0 as byte)
+    mutable_array_push(parts, chunk("IHDR", snapshot(header)))
+
+    mutable_array_push(parts, chunk("IDAT", deflate(filtered_rows(i))))
+    val nothing: [byte] = []
+    mutable_array_push(parts, chunk("IEND", nothing))
+    return join(snapshot(parts))
+}
+
+fn colour_type_of(f: Pixels) -> int {
+    return switch f {
+        Gray8 { 0 }
+        Rgb8 { 2 }
+        Rgba8 { 6 }
+    }
+}
+
+// **Encoding uses filter 0 and 2 only; decoding must handle all five.**
+//
+// A real encoder tries each filter per row and keeps the cheapest, which is a compression-ratio
+// optimisation and not a correctness one. Decoding has no such freedom: a file may use any filter
+// on any row, so `None`, `Sub`, `Up`, `Average` and `Paeth` all have to be there. Stating the
+// asymmetry stops someone "finishing" the encoder for no measurable gain.
+fn filtered_rows(i: Image) -> [byte] {
+    val n = channels_of(i.format)
+    val stride = i.width * n
+    val out = mutable_array_new<byte>()
+    var y = 0
+    while y < i.height {
+        val at = y * stride
+        if y == 0 {
+            mutable_array_push(out, 0 as byte)
+            var x = 0
+            while x < stride {
+                mutable_array_push(out, i.data[at + x])
+                x = x + 1
+            }
+        } else {
+            // Filter 2 (Up): the difference from the row above, which is where the win is on the
+            // flat colour and gradients this library produces.
+            mutable_array_push(out, 2 as byte)
+            var x = 0
+            while x < stride {
+                val above = i.data[at - stride + x] as int
+                val here = i.data[at + x] as int
+                mutable_array_push(out, wrap_byte(here - above))
+                x = x + 1
+            }
+        }
+        y = y + 1
+    }
+    return snapshot(out)
+}
+
+// `max_pixels` is mandatory for the same reason `compress.inflate`'s `max_size` is: a width and a
+// height are four bytes each and can ask for more memory than exists, so a decoder that does not
+// check has a denial of service in it.
+pub fn decode_png(data: [byte], max_pixels: int) -> Result<Image, string> {
+    if len(data) < 8 {
+        return err("image.decode_png: too short to be a PNG")
+    }
+    var s = 0
+    while s < 8 {
+        if (data[s] as int) != png_signature[s] {
+            return err("image.decode_png: not a PNG (the signature does not match)")
+        }
+        s = s + 1
+    }
+    var at = 8
+    var width = 0
+    var height = 0
+    var depth = 0
+    var colour = -1
+    var interlace = 0
+    val idat = mutable_array_new<[byte]>()
+    var seen_end = false
+    while at + 8 <= len(data) && !seen_end {
+        val length = try u32_at(data, at)
+        val name = try tag_at(data, at + 4)
+        val body_at = at + 8
+        if body_at + length + 4 > len(data) {
+            return err(concat("image.decode_png: the '", name, "' chunk is truncated"))
+        }
+        val body = slice<byte>(data, body_at, body_at + length)
+        val declared = try u32_at(data, body_at + length)
+        val actual = crc32(bytes_concat(string_to_bytes(name), body))
+        // A CRC check is eight lines and turns silent corruption into a message.
+        if declared != actual {
+            return err(concat("image.decode_png: the '", name, "' chunk fails its CRC"))
+        }
+        if name == "IHDR" {
+            if length < 13 {
+                return err("image.decode_png: the IHDR chunk is too short")
+            }
+            width = try u32_at(data, body_at)
+            height = try u32_at(data, body_at + 4)
+            depth = body[8] as int
+            colour = body[9] as int
+            interlace = body[12] as int
+        } else if name == "IDAT" {
+            mutable_array_push(idat, body)
+        } else if name == "IEND" {
+            seen_end = true
+        }
+        at = body_at + length + 4
+    }
+    if colour < 0 {
+        return err("image.decode_png: no IHDR chunk")
+    }
+    if width <= 0 || height <= 0 {
+        return err(concat("image.decode_png: a ", str(width), "x", str(height), " image has no pixels"))
+    }
+    if width * height > max_pixels {
+        return err(concat(
+            "image.decode_png: ",
+            str(width),
+            "x",
+            str(height),
+            " is ",
+            str(width * height),
+            " pixels, past the ",
+            str(max_pixels),
+            " allowed"
+        ))
+    }
+    if depth != 8 {
+        return err(concat("image.decode_png: only 8 bits per channel is read, not ", str(depth)))
+    }
+    if interlace != 0 {
+        return err("image.decode_png: interlaced (Adam7) PNG is not read")
+    }
+    // An if-chain rather than a `switch`, which matches enum variants and not integers.
+    var format = Pixels.Gray8
+    if colour == 2 {
+        format = Pixels.Rgb8
+    } else if colour == 6 {
+        format = Pixels.Rgba8
+    }
+    if colour != 0 && colour != 2 && colour != 6 {
+        return err(concat(
+            "image.decode_png: colour type ",
+            str(colour),
+            " is not read (greyscale, truecolour and truecolour+alpha are)"
+        ))
+    }
+    val n = channels_of(format)
+    val stride = width * n
+    val raw = try inflate(join(snapshot(idat)), (stride + 1) * height)
+    if len(raw) != (stride + 1) * height {
+        return err(concat(
+            "image.decode_png: the pixel data is ",
+            str(len(raw)),
+            " bytes, expected ",
+            str((stride + 1) * height)
+        ))
+    }
+    return unfilter(raw, width, height, format)
+}
+
+// Undoes the per-row filter. All five, because a file may use any of them on any row.
+fn unfilter(raw: [byte], width: int, height: int, format: Pixels) -> Result<Image, string> {
+    val n = channels_of(format)
+    val stride = width * n
+    val out = mutable_array_new<byte>()
+    var y = 0
+    while y < height {
+        val filter = raw[y * (stride + 1)] as int
+        // Checked here, once per row, rather than inferred later from an impossible pixel value:
+        // the filter byte is the only thing that can be out of range, and conflating it with a
+        // negative result would report a wrong predictor as an unknown filter.
+        if filter > 4 {
+            return err(concat("image.decode_png: row ", str(y), " uses unknown filter ", str(filter)))
+        }
+        val row_at = y * (stride + 1) + 1
+        var x = 0
+        while x < stride {
+            val cur = raw[row_at + x] as int
+            val left = if x >= n { mutable_array_get(out, y * stride + x - n) as int } else { 0 }
+            val up = if y > 0 { mutable_array_get(out, (y - 1) * stride + x) as int } else { 0 }
+            val up_left = if x >= n && y > 0 {
+                mutable_array_get(out, (y - 1) * stride + x - n) as int
+            } else {
+                0
+            }
+            var value = cur
+            if filter == 1 {
+                value = cur + left
+            } else if filter == 2 {
+                value = cur + up
+            } else if filter == 3 {
+                value = cur + (left + up) / 2
+            } else if filter == 4 {
+                value = cur + paeth(left, up, up_left)
+            }
+            mutable_array_push(out, wrap_byte(value))
+            x = x + 1
+        }
+        y = y + 1
+    }
+    return image_of(width, height, format, snapshot(out))
+}
+
+// The Paeth predictor: whichever of left, above and above-left is closest to their linear estimate.
+fn paeth(a: int, b: int, c: int) -> int {
+    val p = a + b - c
+    val pa = abs_of(p - a)
+    val pb = abs_of(p - b)
+    val pc = abs_of(p - c)
+    if pa <= pb && pa <= pc {
+        return a
+    }
+    if pb <= pc {
+        return b
+    }
+    return c
+}
+
+fn abs_of(v: int) -> int {
+    return if v < 0 { -v } else { v }
+}
+
+fn wrap_byte(v: int) -> byte {
+    var x = v % 256
+    if x < 0 {
+        x = x + 256
+    }
+    return x as byte
+}
+
+fn chunk(name: string, body: [byte]) -> [byte] {
+    val head = mutable_array_new<byte>()
+    push_u32(head, len(body))
+    val named = bytes_concat(snapshot(head), string_to_bytes(name), body)
+    val tail = mutable_array_new<byte>()
+    push_u32(tail, crc32(bytes_concat(string_to_bytes(name), body)))
+    return bytes_concat(named, snapshot(tail))
+}
+
+fn push_u32(out: MutableArray<byte>, v: int) {
+    mutable_array_push(out, ((v / 16777216) % 256) as byte)
+    mutable_array_push(out, ((v / 65536) % 256) as byte)
+    mutable_array_push(out, ((v / 256) % 256) as byte)
+    mutable_array_push(out, (v % 256) as byte)
+}
+
+fn u32_at(data: [byte], at: int) -> Result<int, string> {
+    if at + 4 > len(data) {
+        return err("image: read past the end of the data")
+    }
+    return ok((((data[at] as int) * 256 + (data[at + 1] as int)) * 256 + (data[at + 2] as int)) * 256 +
+            (data[at + 3] as int))
+}
+
+fn tag_at(data: [byte], at: int) -> Result<string, string> {
+    if at + 4 > len(data) {
+        return err("image: read past the end of the data")
+    }
+    return switch bytes_to_string(slice<byte>(data, at, at + 4)) {
+        Ok(s) { ok(s) }
+        Err(_) { ok("????") }
+    }
+}
+
+fn join(parts: [[byte]]) -> [byte] {
+    var out = string_to_bytes("")
+    for p in parts {
+        out = bytes_concat(out, p)
+    }
+    return out
+}
+
+// The standard CRC-32, computed without a table: 256 entries would be faster and this runs four
+// times per PNG.
+pub fn crc32(data: [byte]) -> int {
+    var crc = 4294967295
+    for b in data {
+        crc = int_xor(crc, b as int)
+        var k = 0
+        while k < 8 {
+            if int_and(crc, 1) == 1 {
+                crc = int_xor(int_shift_right(crc, 1), 3988292384)
+            } else {
+                crc = int_shift_right(crc, 1)
+            }
+            k = k + 1
+        }
+    }
+    return int_xor(crc, 4294967295)
+}
+
+// ---- JPEG, dimensions only
+
+// `[width, height, components]` read from the frame header.
+//
+// **No decoder, deliberately.** PDF's `DCTDecode` filter takes a JPEG's compressed bytes
+// *unchanged* and the reader decodes them, so embedding a photograph needs only its shape. That is
+// about forty lines against the several thousand a baseline decoder would be, and it produces
+// smaller PDFs than re-encoding would. The raster backend cannot draw one and says so (phase 5).
+pub fn jpeg_dimensions(data: [byte]) -> Result<[int], string> {
+    if len(data) < 4 || (data[0] as int) != 255 || (data[1] as int) != 216 {
+        return err("image.jpeg_dimensions: not a JPEG (no SOI marker)")
+    }
+    var at = 2
+    while at + 4 <= len(data) {
+        if (data[at] as int) != 255 {
+            return err(concat("image.jpeg_dimensions: expected a marker at ", str(at)))
+        }
+        val marker = data[at + 1] as int
+        // The standalone markers carry no length.
+        if marker == 216 || marker == 217 || (marker >= 208 && marker <= 215) {
+            at = at + 2
+        } else {
+            val length = (data[at + 2] as int) * 256 + (data[at + 3] as int)
+            // SOF0, SOF1, SOF2 and the rest of the frame headers, excluding the four that are not
+            // frames: DHT (196), JPG (200), DAC (204) and the restart markers above.
+            val is_frame = marker >= 192 && marker <= 207 && marker != 196 && marker != 200 &&
+                marker != 204
+            if is_frame {
+                if at + 9 > len(data) {
+                    return err("image.jpeg_dimensions: the frame header is truncated")
+                }
+                val height = (data[at + 5] as int) * 256 + (data[at + 6] as int)
+                val width = (data[at + 7] as int) * 256 + (data[at + 8] as int)
+                return ok([width, height, data[at + 9] as int])
+            }
+            at = at + 2 + length
+        }
+    }
+    return err("image.jpeg_dimensions: no frame header found")
+}

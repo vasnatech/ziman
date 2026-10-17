@@ -157,6 +157,15 @@ pub fn linear(from: Point, to: Point, stops: [Stop]) -> Paint
 pub fn radial(centre: Point, radius: float, stops: [Stop]) -> Paint
 ```
 
+### `pattern`
+
+```
+pub fn pattern(image: int, transform: Matrix) -> Paint
+```
+
+The constructor exists so the variant is reachable the same way the others are; **no backend
+draws it yet**, and both say so rather than painting nothing (lib/graphics/pdf.zm).
+
 ### `Cap`
 
 ```

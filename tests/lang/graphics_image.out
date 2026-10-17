@@ -1,0 +1,28 @@
+channels gray/rgb/rgba: 1/3/4
+wrong byte count:    image: a 2x2 image of this format needs 12 bytes, got 3
+no pixels:           image: a 0x4 image has no pixels
+pixel (0,0) red:     1.000
+pixel (1,0) blue:    1.000
+pixel off the edge:  image: (2, 0) is outside the image
+green as luminance:  0.588
+set off the canvas:  image.set: (5, 0) is outside the canvas
+alpha is gray, same size: true
+colours without alpha:    3
+rgb has no alpha channel: None
+gray round trip : 150 bytes, 1 channels back, pixels identical: true
+rgb round trip  : 177 bytes, 3 channels back, pixels identical: true
+rgba round trip : 218 bytes, 4 channels back, pixels identical: true
+crc32("IEND"):       2923585666
+not a PNG:           image.decode_png: not a PNG (the signature does not match)
+too short:           image.decode_png: too short to be a PNG
+past the pixel cap:  image.decode_png: 16x12 is 192 pixels, past the 100 allowed
+a flipped byte:      image.decode_png: the 'IDAT' chunk fails its CRC
+jpeg 40x30, 3 comps: Ok([40, 30, 3])
+not a JPEG:          image.jpeg_dimensions: not a JPEG (no SOI marker)
+a JPEG with no frame: image.jpeg_dimensions: no frame header found
+rgba page:           1150 bytes, sound: Ok(unit)
+  has an /SMask:     true
+  places it with Do: true
+  mask is DeviceGray: true
+rgb page has /SMask: false
+an image pattern:    pdf: an image pattern (paint.Pattern) is not implemented; draw the image with scene.image instead

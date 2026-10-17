@@ -44,6 +44,9 @@ pub struct Options {
     size: PageSize
     // The faces a scene's `TextRun.font` indexes into -- standard or embedded, mixed freely.
     fonts: [FontRef]
+    // The images a scene's `DrawImage` indexes into. Images are document-level for the same reason
+    // fonts are: one XObject however many pages place it.
+    images: [image.Image]
     title: string
     author: string
     compress: bool

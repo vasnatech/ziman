@@ -152,7 +152,9 @@ fn main() {
         scene.with_ops(scene.scene_of(10.0, 10.0), [scene.text_of("x", geom.point_of(0.0, 0.0), 8.0, 7, black)]),
         pdf.options()
     ))))
-    print(concat("an image:            ", refusal(pdf.render(
+    // Images render as of phase 4 (tests/lang/graphics_image.zm); what is left to refuse is a
+    // handle naming an image the document does not carry.
+    print(concat("image out of range:  ", refusal(pdf.render(
         scene.with_ops(scene.scene_of(10.0, 10.0), [scene.image(0, geom.rect_of(0.0, 0.0, 5.0, 5.0))]),
         pdf.options()
     ))))

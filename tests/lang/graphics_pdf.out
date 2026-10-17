@@ -7,7 +7,7 @@ every operator    : 1898 bytes, structurally sound
 three pages       : 1538 bytes, structurally sound
 no pages:            pdf.render_pages: a document needs at least one page
 font out of range:   pdf: a text run names font 7 but Options.fonts holds 1
-an image:            pdf: images need phase 4 (scene.DrawImage is not renderable yet)
+image out of range:  pdf: a draw names image 0 but Options.images holds 0
 one gradient stop:   pdf: a gradient needs at least two stops, got 1
 out of encoding:     pdf: WinAnsiEncoding cannot represent U+015F in 'şeker'. The standard fonts are Latin-1 only; an embedded font (phase 3) is needed for this text
 em dash encodes:     5

@@ -1186,7 +1186,10 @@ from source.
 
 ## Larger, needs its own design pass
 
-- **`lib/graphics`: a 2D drawing model, with document and image backends -- designed, not started.**
+- **`lib/graphics`: a 2D drawing model, with document and image backends -- four phases of five
+  built.** PDF output works today: vector paths, gradients, the standard fourteen fonts, an
+  embedded TrueType face carrying Unicode text, and images with alpha. **What is left is phase 5**,
+  the raster backend (F145).
   Raised 2026-10-16 out of asking what reaching export parity with the Spring backend would take.
   Of the reference backend's ~13 export formats, seven are reachable with the modules Ziman already
   has (csv, flat-json, html, markdown, plain text, xml, vcard, all served by `csv`/`json`/`xml`/
@@ -1198,13 +1201,13 @@ from source.
   architecture and the shared invariants in its `README.md`. Tracked as **F141 to F145** in
   docs/reviews/tasks.md:
 
-  | phase | modules | effort |
-  | --- | --- | --- |
-  | 1 | `geom`, `shape`, `paint`, `scene` -- value types, no rendering | M |
-  | 2 | `pdfobj`, `pdf` -- PDF with the standard fourteen fonts | L |
-  | 3 | `truetype`, `font` -- TrueType parsing, metrics, CID embedding | L |
-  | 4 | `image` -- pixel buffer, PNG, PDF image XObjects | M |
-  | 5 | `raster` -- scan-conversion, stroking, glyph rendering | L |
+  | phase | modules | effort | state |
+  | --- | --- | --- | --- |
+  | 1 | `geom`, `shape`, `paint`, `scene` -- value types, no rendering | M | built |
+  | 2 | `pdfobj`, `pdf` -- PDF with the standard fourteen fonts | L | built |
+  | 3 | `truetype`, `font` -- TrueType parsing, metrics, CID embedding | L | built |
+  | 4 | `image` -- pixel buffer, PNG, PDF image XObjects | M | built |
+  | 5 | `raster` -- scan-conversion, stroking, glyph rendering | L | designed |
 
   **Why it is shaped like Java 2D, and the three places it is not.** Java 2D's contribution is that
   `Shape` bottoms out in a `PathIterator` of five segment types plus a winding rule, and that

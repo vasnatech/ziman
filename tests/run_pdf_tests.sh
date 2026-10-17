@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
-# Checks `lib/graphics`'s PDF output against an **independent** implementation -- Poppler's
-# `pdfinfo` and `pdftotext`. Not part of `make test`, because it needs those binaries; run by
-# `make pdf-if-available`, which says so and passes when they are missing.
+# Checks `lib/graphics`'s output against **independent** implementations -- python3's `zlib` for
+# PNG, Poppler's `pdfinfo`/`pdftotext`/`pdfimages` for PDF. Not part of `make test`, because it
+# needs those; run by `make pdf-if-available`, which says so and passes when they are missing.
+#
+# Each section guards on its own tools, so a machine with python3 and no Poppler still runs the PNG
+# half and the other way round.
 #
 # Why this exists separately from tests/lang/graphics_pdf.zm: that fixture checks the structure with
 # `pdfobj.check`, which is this project's own reader agreeing with this project's own writer. A
@@ -13,10 +16,6 @@ set -uo pipefail
 cd "$(dirname "$0")/.."
 
 BIN=$(cd "$(dirname "${1:-./ziman}")" && pwd)/$(basename "${1:-./ziman}")
-if ! command -v pdfinfo >/dev/null || ! command -v pdftotext >/dev/null; then
-    echo "SKIP: no pdfinfo/pdftotext (poppler-utils)"
-    exit 0
-fi
 
 WORK=$(mktemp -d)
 trap 'rm -rf "$WORK"' EXIT
@@ -24,6 +23,119 @@ fails=0
 
 pass() { echo "PASS $1"; }
 fail() { echo "FAIL $1 -- $2"; fails=$((fails + 1)); }
+
+# ---- PNG row filters, against an encoder this project did not write
+#
+# `encode_png` only ever writes filter 0 (None) and filter 2 (Up), so no fixture produced by this
+# library can exercise Sub, Average or Paeth -- and a decoder tested only against its own encoder
+# passes with a wrong predictor, because the same error cancels in both directions.
+#
+# So python3's `zlib` writes the same pixels five times, once per filter type, and the raw bytes
+# once. All five have to decode to those bytes.
+if ! command -v python3 >/dev/null; then
+    echo "SKIP: no python3 (PNG filter cross-check)"
+else
+    python3 - "$WORK" <<'PYEOF'
+import struct
+import sys
+import zlib
+from pathlib import Path
+
+work = Path(sys.argv[1])
+W, H = 7, 5
+# A pattern with gradients along both axes and a discontinuity, so a predictor that is off by a
+# pixel or a row produces different bytes rather than the same smooth ramp.
+rows = [
+    bytes(
+        v & 0xFF
+        for x in range(W)
+        for v in (13 * x + 31 * y, 200 - 17 * x + 5 * y, (x * y * 29) ^ 0x5A)
+    )
+    for y in range(H)
+]
+(work / "ref_rgb.bin").write_bytes(b"".join(rows))
+
+
+def paeth(a, b, c):
+    p = a + b - c
+    pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+    return a if pa <= pb and pa <= pc else (b if pb <= pc else c)
+
+
+def filtered(f):
+    out = bytearray()
+    prev = bytes(len(rows[0]))
+    for row in rows:
+        out.append(f)
+        for i, cur in enumerate(row):
+            a = row[i - 3] if i >= 3 else 0
+            b = prev[i]
+            c = prev[i - 3] if i >= 3 else 0
+            if f == 0:
+                out.append(cur)
+            elif f == 1:
+                out.append((cur - a) & 0xFF)
+            elif f == 2:
+                out.append((cur - b) & 0xFF)
+            elif f == 3:
+                out.append((cur - (a + b) // 2) & 0xFF)
+            else:
+                out.append((cur - paeth(a, b, c)) & 0xFF)
+        prev = row
+    return bytes(out)
+
+
+def chunk(name, body):
+    return struct.pack(">I", len(body)) + name + body + struct.pack(">I", zlib.crc32(name + body))
+
+
+for f in range(5):
+    png = b"\x89PNG\r\n\x1a\n"
+    png += chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0))
+    png += chunk(b"IDAT", zlib.compress(filtered(f), 6))
+    png += chunk(b"IEND", b"")
+    (work / f"filt{f}.png").write_bytes(png)
+PYEOF
+
+    cat > "$WORK/filters.zm" <<'ZM'
+use fs
+use image
+use os
+fn main() {
+    val want = unwrap(fs.read_bytes(concat(os.args()[0], "/ref_rgb.bin")))
+    var f = 0
+    while f < 5 {
+        val got = unwrap(image.decode_png(
+            unwrap(fs.read_bytes(concat(os.args()[0], "/filt", str(f), ".png"))),
+            1000000
+        ))
+        val same = len(got.data) == len(want) && image.crc32(got.data) == image.crc32(want)
+        print(concat("filter ", str(f), ": ", str(got.width), "x", str(got.height), " ", str(same)))
+        f = f + 1
+    }
+}
+ZM
+
+    if ! out=$("$BIN" "$WORK/filters.zm" -- "$WORK" 2>&1); then
+        fail "the five filtered PNGs decode" "$out"
+    else
+        for f in 0 1 2 3 4; do
+            name=$(sed -n "$((f + 1))p" <<<"$out")
+            if [ "$name" = "filter $f: 7x5 true" ]; then
+                pass "PNG filter $f decodes to the reference bytes"
+            else
+                fail "PNG filter $f decodes to the reference bytes" "$name"
+            fi
+        done
+    fi
+fi
+
+if ! command -v pdfinfo >/dev/null || ! command -v pdftotext >/dev/null; then
+    echo "SKIP: no pdfinfo/pdftotext (poppler-utils)"
+    echo "$fails failure(s)"
+    [ "$fails" -eq 0 ]
+    exit $?
+fi
 
 # A document whose text is axis-aligned, so extraction is comparable.
 #
@@ -137,6 +249,142 @@ else
         pass "Unicode text round-trips through /ToUnicode"
     else
         fail "Unicode text round-trips through /ToUnicode" "wanted '$want', got '$got'"
+    fi
+fi
+
+# ---- an image with alpha, which is phase 4's whole point
+#
+# `tests/lang/graphics_image.zm` already asserts that the file *contains* an `/SMask`. That is this
+# project's reader agreeing with its writer: the key could be present and the mask unusable. These
+# two checks are the independent half -- `pdfimages -list` reports the colour image and its soft
+# mask as separate rows with their own dimensions, and `pdftoppm` rasterises the page so the
+# transparent squares can be confirmed to be transparent rather than black.
+if ! command -v pdfimages >/dev/null || ! command -v pdftoppm >/dev/null; then
+    echo "SKIP: no pdfimages/pdftoppm for the alpha check"
+    echo "$fails failure(s)"
+    [ "$fails" -eq 0 ]
+    exit $?
+fi
+
+# A red-and-transparent checkerboard on a light grey page. Red where it is opaque, the page's grey
+# where it is not: if alpha were dropped the whole square would be red, and if the mask were
+# inverted the colours would swap.
+cat > "$WORK/alpha.zm" <<'ZM'
+use fs
+use geom
+use image
+use os
+use paint
+use pdf
+use scene
+fn main() {
+    val c = unwrap(image.canvas(8, 8, image.Pixels.Rgba8))
+    var y = 0
+    while y < 8 {
+        var x = 0
+        while x < 8 {
+            val on = (x + y) % 2 == 0
+            val _ = unwrap(image.set(c, x, y, paint.rgba(1.0, 0.0, 0.0, if on { 1.0 } else { 0.0 })))
+            x = x + 1
+        }
+        y = y + 1
+    }
+    val s = scene.with_ops(scene.scene_of(80.0, 80.0), [
+        scene.fill(shape.rect_path(geom.rect_of(0.0, 0.0, 80.0, 80.0)), paint.solid(paint.gray(0.9))),
+        scene.image(0, geom.rect_of(10.0, 10.0, 60.0, 60.0))
+    ])
+    val o = with pdf.options() {
+        size: pdf.page_size_of(80.0, 80.0),
+        images: [image.snapshot_image(c)]
+    }
+    val _n = unwrap(fs.write_bytes(os.args()[0], unwrap(pdf.render(s, o))))
+}
+use shape
+ZM
+
+if ! "$BIN" "$WORK/alpha.zm" -- "$WORK/alpha.pdf" 2>"$WORK/err3"; then
+    fail "the image document is produced" "$(head -3 "$WORK/err3")"
+else
+    pass "the image document is produced"
+    list=$(pdfimages -list "$WORK/alpha.pdf" 2>&1)
+    # Two rows: an 8x8 RGB image and an 8x8 greyscale soft mask. `smask` in the type column is
+    # Poppler saying it resolved the `/SMask` reference, not merely that a key was present.
+    if grep -qE "^ *1 +[0-9]+ +image +8 +8 +rgb" <<<"$list"; then
+        pass "pdfimages sees an 8x8 RGB image"
+    else
+        fail "pdfimages sees an 8x8 RGB image" "$list"
+    fi
+    if grep -qE "^ *1 +[0-9]+ +smask +8 +8 +gray" <<<"$list"; then
+        pass "the /SMask is an 8x8 greyscale soft mask"
+    else
+        fail "the /SMask is an 8x8 greyscale soft mask" "$list"
+    fi
+
+    pdftoppm -r 72 -png -f 1 -l 1 "$WORK/alpha.pdf" "$WORK/page" 2>/dev/null
+    shot=$(ls "$WORK"/page*.png 2>/dev/null | head -1)
+    if [ -z "$shot" ]; then
+        fail "the page rasterises" "pdftoppm produced nothing"
+    elif ! command -v python3 >/dev/null; then
+        echo "SKIP: no python3 to sample the rendering"
+    else
+        # Sampled with python3's own zlib rather than PIL, so the check does not need a third-party
+        # module: the squares are 7.5pt across at 72dpi, so a coarse grid hits both colours.
+        got=$(python3 - "$shot" <<'PYEOF'
+import struct
+import sys
+import zlib
+
+data = open(sys.argv[1], "rb").read()
+at, idat, w, h, colour = 8, bytearray(), 0, 0, 0
+while at + 8 <= len(data):
+    n = struct.unpack(">I", data[at : at + 4])[0]
+    name = data[at + 4 : at + 8]
+    body = data[at + 8 : at + 8 + n]
+    if name == b"IHDR":
+        w, h, _, colour = struct.unpack(">IIBB", body[:10])
+    elif name == b"IDAT":
+        idat += body
+    at += n + 12
+chan = {0: 1, 2: 3, 4: 2, 6: 4}[colour]
+raw = zlib.decompress(bytes(idat))
+stride = w * chan
+rows, prev = [], bytes(stride)
+for y in range(h):
+    f = raw[y * (stride + 1)]
+    line = bytearray(raw[y * (stride + 1) + 1 : (y + 1) * (stride + 1)])
+    for i in range(stride):
+        a = line[i - chan] if i >= chan else 0
+        b = prev[i]
+        c = prev[i - chan] if i >= chan else 0
+        if f == 1:
+            line[i] = (line[i] + a) & 0xFF
+        elif f == 2:
+            line[i] = (line[i] + b) & 0xFF
+        elif f == 3:
+            line[i] = (line[i] + (a + b) // 2) & 0xFF
+        elif f == 4:
+            p = a + b - c
+            pa, pb, pc = abs(p - a), abs(p - b), abs(p - c)
+            line[i] = (line[i] + (a if pa <= pb and pa <= pc else (b if pb <= pc else c))) & 0xFF
+    rows.append(bytes(line))
+    prev = bytes(line)
+red = grey = 0
+for y in range(12, 68, 3):
+    for x in range(12, 68, 3):
+        px = rows[y][x * chan : x * chan + chan]
+        r, g, b = (px[0], px[0], px[0]) if chan == 1 else (px[0], px[1], px[2])
+        if r > 200 and g < 80 and b < 80:
+            red += 1
+        elif r > 200 and abs(r - g) < 12 and abs(g - b) < 12:
+            grey += 1
+print("both" if red > 50 and grey > 50 else f"red={red} grey={grey}")
+PYEOF
+)
+        if [ "$got" = "both" ]; then
+            pass "the transparent squares let the page through"
+        else
+            fail "the transparent squares let the page through" "$got"
+        fi
     fi
 fi
 

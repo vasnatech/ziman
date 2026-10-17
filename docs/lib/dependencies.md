@@ -84,6 +84,9 @@ flowchart LR
     http --> number
     http --> random
     http --> url
+    image --> bits
+    image --> compress
+    image --> paint
     json --> number
     jwt --> clock
     jwt --> crypto
@@ -112,6 +115,7 @@ flowchart LR
     paint --> geom
     pdf --> font
     pdf --> geom
+    pdf --> image
     pdf --> paint
     pdf --> pdfobj
     pdf --> scene
@@ -176,7 +180,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 0 | `bits`, `clock`, `compress`, `markdown`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread`, `xml` |
 | 1 | `crypto`, `geom`, `json`, `os`, `pdfobj`, `url` |
 | 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `paint`, `shape`, `toml`, `yaml` |
-| 3 | `csv`, `log`, `mysql`, `pg`, `process`, `properties`, `scene`, `server`, `sqlite`, `truetype`, `uuid`, `zone` |
+| 3 | `csv`, `image`, `log`, `mysql`, `pg`, `process`, `properties`, `scene`, `server`, `sqlite`, `truetype`, `uuid`, `zone` |
 | 4 | `datasource`, `font`, `time` |
 | 5 | `client`, `migrate`, `pdf`, `schedule` |
 
@@ -184,10 +188,10 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Module | Uses | Used by |
 |---|---|---|
-| `bits` | - | - |
+| `bits` | - | `image` |
 | `client` | `clock`, `compress`, `crypto`, `http`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `schedule`, `server`, `time`, `uuid` |
-| `compress` | - | `client`, `pdfobj`, `server` |
+| `compress` | - | `client`, `image`, `pdfobj`, `server` |
 | `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | `migrate` |
@@ -196,6 +200,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `zone` |
 | `geom` | `math` | `paint`, `pdf`, `scene`, `shape`, `truetype` |
 | `http` | `mime`, `number`, `random`, `url` | `client`, `server` |
+| `image` | `bits`, `compress`, `paint` | `pdf` |
 | `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `log` | `clock`, `fs`, `json`, `number`, `os` | - |
@@ -210,8 +215,8 @@ otherwise: everything on a layer depends only on lower layers.
 | `number` | - | `client`, `csv`, `db`, `http`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
 | `os` | `clock` | `client`, `fs`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
 | `otp` | `crypto`, `random` | - |
-| `paint` | `geom` | `pdf`, `scene` |
-| `pdf` | `font`, `geom`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
+| `paint` | `geom` | `image`, `pdf`, `scene` |
+| `pdf` | `font`, `geom`, `image`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
 | `pdfobj` | `compress` | `pdf` |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `process` | `fs`, `os` | - |

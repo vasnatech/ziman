@@ -26,8 +26,14 @@ shape of that API.
 *`Paint` is a pixel producer there.* `Paint.createContext()` returns something that yields a
 `Raster`, so any custom paint forces rasterisation -- which is why PDF output from Java 2D quietly
 degrades to embedded bitmaps. Here the paint set is **closed**: solid, linear gradient, radial
-gradient, image pattern. Those are exactly the cases PDF has native shading dictionaries for, so
-every paint survives as vectors in both backends. A closed set is a smaller API *and* a better one.
+gradient, image pattern. The two gradients are exactly the cases PDF has native shading
+dictionaries for, so every paint that is drawn survives as vectors in both backends. A closed set is
+a smaller API *and* a better one.
+
+(The image pattern is the one member nothing renders: it needs a `/Pattern` colour space rather than
+a shading dictionary, which is a fourth resource category, and `scene.image` already places an image
+anywhere a matrix can. Both backends return an `Err` naming it -- phase 4's *As built* section has
+the argument.)
 
 *`Graphics2D` is a mutable state machine.* Fine for Java; wrong for Ziman, where values are
 immutable, there are no methods, and `Mutable*` types are `#[thread_bound]`. The model here is an
