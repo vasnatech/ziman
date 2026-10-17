@@ -871,3 +871,13 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   inspectability phase 1 claimed for it. One mutation showed a check was worthless: conservation
   under splitting was being asserted on a paragraph with no space before or after, so the code that
   redistributes them could be deleted without failing anything.
+
+  *A fifth finding, 2026-10-16, from the health-record export's six-column Procedures table:* an
+  **`Auto` column wrapped the line it was measured from**. The column is its widest line plus the
+  cell padding, and the cell hands the text back `width - padding * 2` -- but `(w + 2p) - 2p` is
+  not always `w`. A 61.2pt header comes back two ulps (1.4e-14pt) short, because the two sums
+  accumulate in different orders, and compared exactly that wraps `Performed By` onto two lines.
+  The break condition now allows a `fit_slack` of 0.001pt, which is 1/72000 inch: this is the
+  rounding error of a round trip the module performs on itself, not a tolerance on whether text
+  fits. The fixture's new case prints 2 lines with the slack and 3 without, and a label genuinely
+  wider than its column still wraps.

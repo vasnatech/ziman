@@ -395,7 +395,7 @@ printed 17pt past its own bottom margin on three of five pages by hand produces,
 geometry, so it is not this project agreeing with itself. It also needs three pages where the hand
 version took five, because `Auto` columns size to content instead of to numbers tuned by eye.
 
-### Four things the build found that the design above did not
+### Five things the build found that the design above did not
 
 **Pagination needs one pass, not two.** The design chose "lay out twice" for page numbers, and that
 was unnecessary: a band's *height* is fixed even though its *content* needs the total, so the frame
@@ -418,6 +418,17 @@ five pages where thirty rules give six, and both numbers are right.
 **A page can hold content that draws nothing.** The final page was being dropped when its op list
 was empty, which is wrong for a page of spacers and wrong after an explicit `PageBreak` -- the test
 asked for two pages and got one. The condition is on the cursor, not on the op count.
+
+**An `Auto` column wrapped the line it was measured from.** Found later, by the health-record
+export's six-column Procedures table, where `Performed By` came out on two lines. The column is as
+wide as its widest line *plus the cell padding*, and the cell hands the text back
+`width - padding * 2` -- and `(w + 2p) - 2p` is not always `w`. For a 61.2pt header it returns
+1.4e-14pt short, two ulps, because the two sums accumulate in different orders. Compared exactly,
+that is enough to wrap. The fix is a `fit_slack` of 0.001pt in the break condition, which is
+1/72000 inch -- far below anything a device resolves and far above what a measurement can lose on
+the way. It is not a tolerance on *whether text fits*; it is the rounding error of a round trip
+this module performs itself. The lang fixture's new case prints 2 lines with the slack and 3
+without.
 
 ### On the verification
 

@@ -16,6 +16,8 @@ auto column is 30pt:  30.00
   aligned at x =     0.00
   aligned at x =     76.00
   aligned at x =     38.00
+measured header fits:  2
+too narrow still wraps: 2
 font out of range:  layout: a span names font 4 but the document holds 1
 block taller than page: layout: a block 240.0pt tall cannot fit a 100.0pt frame, even on an empty page
 margins eat the width:  layout: margins of 30.0 and 30.0 leave no width on a 40.0pt page

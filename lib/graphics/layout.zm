@@ -294,6 +294,20 @@ fn items_of(p: Para, d: Document) -> Result<[Item], string> {
     return ok(snapshot(out))
 }
 
+// How much a line may overrun its frame before it counts as not fitting.
+//
+// **Not a fudge factor -- the width of a column makes a round trip before it gets here.** An
+// `Auto` column is exactly as wide as the widest line in it plus the cell padding, and the cell
+// hands the text back `width - padding * 2`. In binary floating point `(w + 2p) - 2p` is not
+// always `w`: for a 61.2pt header it comes back 1.4e-14pt short, two ulps, because the sum was
+// accumulated in a different order. Compared exactly, the column wraps the very line it was
+// measured from -- which is the one thing `Auto` promises not to do, and it showed up as a
+// two-line `Performed By` header in a six-column table.
+//
+// A thousandth of a point is 1/72000 inch: orders of magnitude below what any printer or screen
+// resolves, and orders of magnitude above the few ulps a measurement can lose on the way here.
+val fit_slack = 0.001
+
 fn wrap_para(p: Para, width: float, d: Document) -> Result<[Line], string> {
     val items = try items_of(p, d)
     val lines = mutable_array_new<Line>()
@@ -306,7 +320,7 @@ fn wrap_para(p: Para, width: float, d: Document) -> Result<[Line], string> {
         val it = items[i]
         val avail = inner - (if first { p.style.indent_first } else { 0.0 })
         val need = if len(frags) == 0 { it.width } else { used + it.space + it.width }
-        if len(frags) > 0 && need > avail {
+        if len(frags) > 0 && need > avail + fit_slack {
             mutable_array_push(lines, try line_of(snapshot(frags), used, p, d, false))
             mutable_array_truncate(frags, 0)
             used = it.width

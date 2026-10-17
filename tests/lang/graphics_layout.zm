@@ -266,6 +266,45 @@ fn main() {
         print(concat("  aligned at x =     ", round2(x)))
     }
 
+    // ---- an `Auto` column never wraps the line it was measured from
+    //
+    // **The one thing `Auto` promises.** The column is as wide as its widest line plus the cell
+    // padding, and the cell hands the text back `width - padding * 2` -- a round trip through
+    // binary floating point. For this header the width comes back two ulps short, 1.4e-14pt, and
+    // compared exactly that is enough to wrap it: `Performed By` came out on two lines in a
+    // six-column table in the health-record export. Courier at 8.5pt makes the arithmetic exact
+    // to read: twelve characters at 5.1pt is 61.2pt, and the padding is what loses the bits.
+    val padded = layout.table_style(2.0, 0.0, 0.0, ink)
+    val header_cell = fn(s: string) -> layout.Cell {
+        layout.cell([layout.text_block(s, 0, 8.5, ink, plain)])
+    }
+    val data_cell = fn(s: string) -> layout.Cell {
+        layout.cell([layout.text_block(s, 0, 9.5, ink, plain)])
+    }
+    val measured = layout.table(
+        [
+            layout.column(layout.ColumnWidth.Proportional(1.0), layout.Align.Left),
+            layout.column(layout.ColumnWidth.Auto, layout.Align.Left)
+        ],
+        [layout.row([header_cell("Title"), header_cell("Performed By")])],
+        [layout.row([data_cell("Appendectomy"), data_cell("Dr. Reed")])],
+        padded
+    )
+    // Two lines for the whole table -- a header row and a body row. Three means the header wrapped.
+    print(concat(
+        "measured header fits:  ",
+        str(len(lines_drawn(measured, 300.0, doc_of([measured]))))
+    ))
+    // And a label genuinely wider than the column it is given still wraps, so the slack bought
+    // the measurement its rounding back and nothing else.
+    val cramped = layout.table(
+        [layout.column(layout.ColumnWidth.Fixed(40.0), layout.Align.Left)],
+        [layout.row([header_cell("Performed By")])],
+        [],
+        padded
+    )
+    print(concat("too narrow still wraps: ", str(len(lines_drawn(cramped, 40.0, doc_of([cramped]))))))
+
     // ---- what it refuses
     print(concat("font out of range:  ", refusal(layout.measure(
         layout.text_block("x", 4, 10.0, ink, plain),
