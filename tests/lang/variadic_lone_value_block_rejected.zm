@@ -1,0 +1,13 @@
+// The one position a bare `Some`/`None` still cannot reach: a *lone* trailing argument to a
+// variadic parameter, written as an `if`/`switch` whose arms carry no type of their own.
+//
+// It is not a missing branch. A lone trailing argument may be one element or an array to spread,
+// and which it is is decided *from its own type* -- so the argument has to be typed first, and
+// typing it is what fails. Offering the element type instead would take the spread reading away
+// from `f(if c { arrayA } else { arrayB })`, which works today. The qualified spelling says which
+// was meant, in the one place the language cannot work it out.
+fn main() {
+    val out = mutable_array_new<Option<int>>()
+    mutable_array_push(out, if true { Some(1) } else { None })
+    print(format("{}", snapshot(out)))
+}

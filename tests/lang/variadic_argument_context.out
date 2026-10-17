@@ -1,0 +1,12 @@
+Some/None args:      2
+bare values wrapped: 2
+ok/err args:         2
+lone Some:           1
+lone None:           0
+lone bare value:     1
+spread an array:     3
+spread via if:       3
+individual ints:     2
+no trailing args:    0
+generic variadic:    2
+pushed:              [Some(1), None, Some(2), None]

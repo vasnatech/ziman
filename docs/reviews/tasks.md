@@ -788,6 +788,21 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   (`x != Some("ACTIVE")`), which does not offer its left operand's type to its right and is the
   same family, left alone.
 
+  *Finished 2026-10-17, and the last item was not what it looked like.* The sites still needing the
+  qualified spelling were all `mutable_array_push`, so the cause was recorded as "a builtin's
+  arguments are hand-checked". **Wrong**: a plain function with a `variadic Option<int>` parameter
+  refused `Some(1)` while the same function with a *fixed* parameter accepted it, and
+  `mutable_array_push` is declared in the prelude like any other function. The gap was the variadic
+  tail, one place in `check_call`, which used a bare `check_expr` where a fixed parameter uses
+  `check_value_against_param_type` -- so it offered none of it: no bare `Some`/`None`, no
+  `ok`/`err`/`channel_new`, no unannotated lambda, and not the bare-value auto-wrap (`f(4)` into an
+  `Option<int>` element was refused). Several trailing arguments are unambiguously elements and now
+  take the same path as a fixed parameter's. A *lone* trailing argument stays decided from its own
+  type, since it may be one element or an array to spread; `Some`/`None`/`ok`/`err`/`channel_new`
+  answer that by what they are and are accepted, while an `if`/`switch` with untyped arms cannot be
+  answered -- typing it is what fails -- and keeps the qualified spelling, now with an error that
+  says so instead of "cannot use a void value as an argument".
+
 - [x] **F146** **`lib/graphics` phase 6: document layout -- flows, wrapping, tables, pagination.**
   (raised 2026-10-16; L) `layout`: one module, one entry point,
   `paginate(doc, page) -> Result<[Scene], string>`, because `pdf.render_pages` already takes a list

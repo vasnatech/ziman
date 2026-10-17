@@ -1,0 +1,64 @@
+// A variadic parameter's arguments now get what a fixed parameter's argument has always got: the
+// declared type offered to a value that carries none of its own, and the bare-value auto-wrap.
+//
+// This was assumed to be a property of *builtins* -- the sites that needed the qualified spelling
+// were all `mutable_array_push` -- and it is not. A plain function with a `variadic Option<int>`
+// parameter refused the same thing, while the same function with a fixed `Option<int>` parameter
+// accepted it. `mutable_array_push(ab: MutableArray<T>, pieces: variadic T)` is declared in the
+// prelude like any other function; what it has is a variadic tail, which went through a bare
+// `check_expr` where a fixed parameter goes through `check_value_against_param_type`.
+fn count_opts(pieces: variadic Option<int>) -> int {
+    var seen = 0
+    for p in pieces {
+        if Some(_) = p {
+            seen = seen + 1
+        }
+    }
+    return seen
+}
+
+fn count_results(pieces: variadic Result<int, string>) -> int {
+    return len(pieces)
+}
+
+fn count_ints(pieces: variadic int) -> int {
+    return len(pieces)
+}
+
+fn first_of<T>(seed: [T], pieces: variadic T) -> int {
+    return len(pieces)
+}
+
+fn main() {
+    // Several trailing arguments are individual values and nothing else, so each gets the context.
+    print(concat("Some/None args:      ", str(count_opts(Some(1), None, Some(3)))))
+    // And the bare-value auto-wrap a fixed Option<T> parameter gives.
+    print(concat("bare values wrapped: ", str(count_opts(1, 2))))
+    print(concat("ok/err args:         ", str(count_results(ok(1), err("no")))))
+
+    // A lone trailing argument is ambiguous -- one element, or an array to spread -- and that is
+    // still decided from its own type. `Some`/`None`/`ok`/`err` can never be an array, so they are
+    // unambiguously one element.
+    print(concat("lone Some:           ", str(count_opts(Some(9)))))
+    print(concat("lone None:           ", str(count_opts(None))))
+    print(concat("lone bare value:     ", str(count_opts(4))))
+
+    // The spread reading is untouched, including through an `if` whose arms are arrays.
+    val a = [1, 2, 3]
+    val b = [4, 5]
+    print(concat("spread an array:     ", str(count_ints(a))))
+    print(concat("spread via if:       ", str(count_ints(if true { a } else { b }))))
+    print(concat("individual ints:     ", str(count_ints(1, 2))))
+    print(concat("no trailing args:    ", str(count_ints())))
+
+    // A generic variadic, where the element type comes from an earlier parameter.
+    val seed: [Option<int>] = []
+    print(concat("generic variadic:    ", str(first_of(seed, Some(1), None))))
+
+    // The motivating case, which is what `mutable_array_push` needed the qualified spelling for.
+    val out = mutable_array_new<Option<int>>()
+    mutable_array_push(out, Some(1))
+    mutable_array_push(out, None)
+    mutable_array_push(out, Some(2), None)
+    print(concat("pushed:              ", format("{}", snapshot(out))))
+}

@@ -1,0 +1,13 @@
+ziman: type error at 11:29 in tests/lang/variadic_lone_value_block_rejected.zm: argument 2 of 'mutable_array_push' is an 'if'/'switch' whose arms carry no type of their own, and it is the only trailing argument -- so it could be one Option<int> or an array of them to spread, and which one is read from its type. Give the arms a type ('Option<T>.Some(x)' / 'Option<T>.None' rather than bare 'Some(x)' / 'None'), or bind it to a 'val' with an annotation first
+   |
+11 |     mutable_array_push(out, if true { Some(1) } else { None })
+   |                             ^
+ziman: type error at 11:39 in tests/lang/variadic_lone_value_block_rejected.zm: cannot infer the type of 'Some(...)' here; it takes its type from the context, so it needs one: a val/var with an explicit Option<T> annotation, a struct literal field, a 'with' override, a function's returned value, or an argument -- including a generic one, whose type argument this can itself bind
+   |
+11 |     mutable_array_push(out, if true { Some(1) } else { None })
+   |                                       ^
+ziman: type error at 11:56 in tests/lang/variadic_lone_value_block_rejected.zm: cannot infer the type of 'None' here; it takes its type from the context, so it needs one: a val/var with an explicit Option<T> annotation, a struct literal field, a 'with' override, a function's returned value, or an argument whose type is known. A generic argument counts when something else binds the type parameter -- another argument, or a 'Some(x)' whose payload names it -- since 'None' has no payload of its own to read
+   |
+11 |     mutable_array_push(out, if true { Some(1) } else { None })
+   |                                                        ^
+ziman: 3 errors

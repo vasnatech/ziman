@@ -5244,6 +5244,27 @@ The last of those leaves a case the predicate alone cannot fix: `same(Some("es")
 
 **One level further in: the `Result` bare-value auto-wrap.** A `Result<T, E>` already accepts a bare `T` and rewrites it as `ok(T)`, but only once that value had a type of its own -- so a repository's `return Option<Row>.Some(row)` worked where `return Some(row)` did not, in a function declared `Result<Option<Row>, DbError>`. That is the shape of every `find_by_*` in the sample backend. `check_value_against_param_type` now offers the Ok payload type to a value that needs a context (`expr_needs_expected_type`) before giving up, and wraps the result. Deliberately **not** when `T` and `E` are the same type: that is the one case the wrap below it already refuses to guess at, and guessing earlier would be worse rather than better. `ok`/`err` are not retried against the payload either -- those match the `Result` itself one branch above, and a bare `ok(x)` reaching the auto-wrap would mean `ok(ok(x))`, which nobody writes by accident.
 
+**The variadic tail, which was assumed to be a different problem entirely.** The sites that still
+needed the qualified spelling after all of the above were all `mutable_array_push`, so the cause
+looked like "a builtin's arguments are hand-checked". It is not: a plain function with a
+`variadic Option<int>` parameter refused `Some(1)` while the *same function with a fixed parameter*
+accepted it, and `mutable_array_push(ab: MutableArray<T>, pieces: variadic T)` is declared in the
+prelude like any other. A fixed parameter's argument goes through `check_value_against_param_type`;
+the variadic tail called a bare `check_expr`, so it offered none of what that function gives -- not
+a bare `Some`/`None`, not `ok`/`err`/`channel_new`, not an unannotated lambda, not the bare-value
+auto-wrap (`f(4)` where the element is an `Option<int>` was refused). With several trailing
+arguments there is no ambiguity at all -- each is an element -- so each now goes through the same
+path a fixed parameter's does.
+
+A *lone* trailing argument is the exception, and stays one. It may be a single element or an array
+to spread, and which it is is read **from its own type**, so the argument has to be typed before
+the question can be answered. Three forms answer it by what they are -- `Some(x)`, `None`,
+`ok(x)`, `err(e)` and `channel_new()` are never arrays -- and those are now accepted. An `if`/`switch`
+whose arms carry no type of their own is not answerable: typing it is what fails, and offering the
+element type instead would take the spread reading away from `f(if c { arrayA } else { arrayB })`,
+which works today. That one keeps the qualified spelling, and now says so in its own error rather
+than reporting "cannot use a void value as an argument".
+
 **What this is not.** Inference still flows one way, from an expected type into an expression. There is no unification variable for an un-annotated `None`, and `Some` is not special-cased to a user enum that happens to declare a `Some` variant -- bare `Some`/`None` mean `Option` and nothing else (a user enum's own variants are always qualified; `Mine("y")` bare is "call to undefined function"). The source comment claiming `Some(x)`'s argument "doesn't say this is an Option rather than something else" was wrong on that point and is corrected.
 
 ## Recursive `Eq`/`Hash` (2026-09)

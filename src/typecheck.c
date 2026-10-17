@@ -3252,23 +3252,68 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         Type elem_type = substitute_type(fn->params.items[fixed_count].type, &fn->type_params, type_args);
         int tail_count = e->as.call.args.count - fixed_count;
         if (tail_count == 1) {
-            Expr *arg = e->as.call.args.items[fixed_count];
-            Type arg_type = check_expr(module, env, arg);
-            require_not_void(arg, "as an argument");
-            if (type_equals(arg_type, type_array(elem_type))) {
-                e->as.call.variadic_tail_is_array_spread = 1;
-            } else if (!type_equals(arg_type, elem_type)) {
-                ziman_error("type", arg->line, arg->col,
-                            "argument %d of '%s' expects %s or %s, found %s",
-                            fixed_count + 1, name, type_name(elem_type), type_name(type_array(elem_type)), type_name(arg_type));
+            Expr **arg_slot = &e->as.call.args.items[fixed_count];
+            Expr *arg = *arg_slot;
+            /* A lone trailing argument is ambiguous -- one element, or an already-built array of
+             * them -- and the choice is made from the argument's own type, which is why it cannot
+             * simply be offered `elem_type` the way the several-argument case below can. Three of
+             * the context-needing forms resolve the ambiguity by what they are: a bare `Some(x)`,
+             * `None`, `ok(x)`, `err(e)` and `channel_new()` are never arrays, so they can only be
+             * the single-element reading. A value block is left alone deliberately -- `f(if c { a }
+             * else { b })` spreads an array today and must keep doing so -- and so is an empty
+             * array literal, which is genuinely ambiguous (an empty spread, or one empty-array
+             * element) and keeps the error it already gives.
+             *
+             * So a lone trailing `if`/`switch` whose arms cannot type themselves
+             * (`push(out, if c { Some(1) } else { None })`) is the one position left that needs
+             * the qualified spelling, and it is not a thing an extra branch here can fix: the
+             * spread-or-single decision is made *from* the argument's type, and the arms error
+             * while being typed, before any fallback could run. Deciding it the other way --
+             * always offering the element type -- would take the array-spread reading away from a
+             * form that has it today. */
+            int definitely_one = check_bare_option_call(module, env, arg, elem_type) ||
+                                 check_ok_err_call(module, env, arg, elem_type) ||
+                                 check_channel_new_call(module, env, arg, elem_type);
+            if (definitely_one) {
+                (*arg_slot)->resolved_type = elem_type;
+            } else {
+                Type arg_type = check_expr(module, env, arg);
+                if (arg_type.kind == TY_VOID && arg->kind == EXPR_VALUE_BLOCK) {
+                    /* The one case above, with a message that says what to do about it rather
+                     * than "cannot use a void value as an argument", which is true and useless. */
+                    ziman_error("type", arg->line, arg->col,
+                                "argument %d of '%s' is an 'if'/'switch' whose arms carry no type of their own, "
+                                "and it is the only trailing argument -- so it could be one %s or an array of them "
+                                "to spread, and which one is read from its type. Give the arms a type "
+                                "('Option<T>.Some(x)' / 'Option<T>.None' rather than bare 'Some(x)' / 'None'), or "
+                                "bind it to a 'val' with an annotation first",
+                                fixed_count + 1, name, type_name(elem_type));
+                }
+                require_not_void(arg, "as an argument");
+                if (type_equals(arg_type, type_array(elem_type))) {
+                    e->as.call.variadic_tail_is_array_spread = 1;
+                } else if (!type_equals(arg_type, elem_type)) {
+                    Type out_type;
+                    /* The bare-value auto-wrap a fixed `Option<T>`/`Result<T, E>` parameter gives,
+                     * which the tail never offered: `f(4)` where the element is an `Option<int>`. */
+                    if (!check_value_against_param_type(module, env, arg_slot, elem_type, &out_type, "as an argument")) {
+                        ziman_error("type", arg->line, arg->col,
+                                    "argument %d of '%s' expects %s or %s, found %s",
+                                    fixed_count + 1, name, type_name(elem_type), type_name(type_array(elem_type)), type_name(arg_type));
+                    }
+                }
             }
         } else {
+            /* Several trailing arguments are individual element values and nothing else, so each
+             * one gets exactly what a fixed parameter's argument gets -- the declared type offered
+             * to a value that needs one, and the same auto-wrap. Before this they went through a
+             * bare `check_expr`, so a variadic `Option<T>` parameter refused `Some(x)`, `None` and
+             * a bare `T` that the same parameter would have taken had it not been variadic. */
             for (int i = fixed_count; i < e->as.call.args.count; i++) {
-                Expr *arg = e->as.call.args.items[i];
-                Type arg_type = check_expr(module, env, arg);
-                require_not_void(arg, "as an argument");
-                if (!type_equals(arg_type, elem_type)) {
-                    ziman_error("type", arg->line, arg->col,
+                Expr **arg_slot = &e->as.call.args.items[i];
+                Type arg_type;
+                if (!check_value_against_param_type(module, env, arg_slot, elem_type, &arg_type, "as an argument")) {
+                    ziman_error("type", (*arg_slot)->line, (*arg_slot)->col,
                                 "argument %d of '%s' expects %s, found %s",
                                 i + 1, name, type_name(elem_type), type_name(arg_type));
                 }
