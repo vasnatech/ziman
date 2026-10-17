@@ -1,0 +1,9 @@
+ok(Some(x)):     Ok(Some(explicit))
+ok(None):        Ok(None)
+Some(Some(4)):   Some(Some(4))
+ok(Some(Some)):  Ok(Some(Some(9)))
+None first:      true
+None second:     true
+Some first:      true
+Some vs None:    false
+generic assertions: ok

@@ -1,0 +1,4 @@
+ziman: type error at 10:24 in tests/lang/bare_option_no_context_at_all.zm: cannot infer type argument 'T' of 'only' from its arguments; write it explicitly, e.g. 'only<...>(...)'
+   |
+10 |     print(format("{}", only(None)))
+   |                        ^

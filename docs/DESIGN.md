@@ -87,6 +87,7 @@ them against the code.
 - [`try` replaces the postfix `?` (2026-09)](#try-replaces-the-postfix-2026-09)
 - [`#[from]`: error conversion in `try` (2026-09)](#from-error-conversion-in-try-2026-09)
 - [Generic call inference, part 1: plain arguments (2026-09)](#generic-call-inference-part-1-plain-arguments-2026-09)
+- [Generic call inference, part 3: bare `Some`/`None` (2026-10)](#generic-call-inference-part-3-bare-somenone-2026-10)
 - [Recursive `Eq`/`Hash` (2026-09)](#recursive-eqhash-2026-09)
 - [Must-use `Result` and a real `_` discard (2026-09)](#must-use-result-and-a-real-_-discard-2026-09)
 - [No cascades, sorted, always-named, source excerpt (2026-09, C7 part 1)](#no-cascades-sorted-always-named-source-excerpt-2026-09-c7-part-1)
@@ -5226,6 +5227,20 @@ each fixed parameter whose *declared* type mentions one of the function's own ty
 variadic tail is unified too: a lone trailing argument whose own type is an array is read as the spread form (unify against its element type); otherwise, or with several trailing arguments, each is unified as an individual element value -- the same shape-driven test `call_function` itself uses once the element type is known, just without that reference (a variadic parameter whose own element type is itself an array, passed as one spread argument, is the one case this
 can misjudge, same class of ambiguity call_function's own comment on `variadic_tail_is_array_spread` calls out). A type parameter nothing bound is today's "requires explicit type arguments" error, now naming which one. Bounds are checked on the inferred type arguments exactly as on explicit ones. `find_function`, `substitute_type`, `check_value_against_param_type`'s "already resolved, reuse it" cache (`arg->resolved_type`) mean a "peeked" argument is not re-type-checked by
 the ordinary argument loop that runs afterwards -- it just reads the cached type back. A struct/enum's own construction and `spawn` of a generic function stay always-explicit; unaffected on purpose (see docs/ROADMAP.md's C3 entry for what "part 2" -- inferring through an unannotated lambda argument -- would still need).
+
+## Generic call inference, part 3: bare `Some`/`None` (2026-10)
+
+`Some(x)` and `None` take their type from the context, which was already true in the five places that offer one -- an annotated val, a struct literal field, a `with` override, a returned value, a call argument. Three places had the context and did not pass it inward, so the explicit spelling was the one that worked:
+
+* **Inside `ok`/`err`.** `check_ok_err_call` knew its own payload type (`*expected.elem`) and still checked its argument with a bare `check_expr`, so `return ok(Some(x))` from a `Result<Option<T>, E>` function was refused while `ok(Option<T>.Some(x))` was fine. It now checks the argument *expecting* that payload type, through the expression slot so a bare `None` can be rewritten in place as it is everywhere else.
+* **Inside another `Some`.** `check_bare_option_call` had the same shape, and the error message told the reader to write `Option<Option<int>>.Some(Option<int>.Some(4))`. Same fix, same one line.
+* **As an argument to a generic function.** `expr_needs_expected_type` -- the predicate `infer_call_type_args` uses to decide which arguments it can check before the type parameters are bound -- listed `ok`, `err` and `channel_new` but not `Some` or bare `None`. So a generic call checked them eagerly and failed, and `assert_eq(Some("es"), opt)` was rejected although the *other* argument said which Option it was. Both are now on that list and get checked afterwards, against the bound type.
+
+The last of those leaves a case the predicate alone cannot fix: `same(Some("es"), None)`, where every argument needs a context and nothing binds `T`. But a bare `Some(x)` **does** say which Option it is whenever its payload types on its own -- `Some("es")` can only be an `Option<string>` -- so `infer_call_type_args` now reads that payload and unifies against `Option<payload>` (`bare_some_payload_type`, deliberately not applied to `Some(None)` or `Some(ok(1))`, where the payload needs a context too). `None` can never participate: there is nothing inside it to read, which is the whole reason it needs the context in the first place.
+
+**What is still refused, and why it should be.** `val a = None` and `print(Some(5))` -- no annotation, and a parameter that accepts anything, so nothing says an Option is wanted here at all. `only(None)` where `only<T>(a: T)` is the only argument: the type parameter has nothing to bind from, reported as "cannot infer type argument 'T'". Both messages now name a generic argument as one of the contexts that counts, since it is one as of this change.
+
+**What this is not.** Inference still flows one way, from an expected type into an expression. There is no unification variable for an un-annotated `None`, and `Some` is not special-cased to a user enum that happens to declare a `Some` variant -- bare `Some`/`None` mean `Option` and nothing else (a user enum's own variants are always qualified; `Mine("y")` bare is "call to undefined function"). The source comment claiming `Some(x)`'s argument "doesn't say this is an Option rather than something else" was wrong on that point and is corrected.
 
 ## Recursive `Eq`/`Hash` (2026-09)
 

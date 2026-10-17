@@ -1,0 +1,60 @@
+// Three places a bare `Some(x)`/`None` was refused although the type was determined, each the same
+// omission: the context was there and was not passed inward.
+//
+// 1. **Inside `ok`/`err`.** `ok(Some(x))` is an ordinary thing to write in a function returning
+//    `Result<Option<T>, E>`, and `ok` knew its own payload type all along -- it just checked its
+//    argument bare instead of expecting that type.
+// 2. **Inside another `Some`.** `Some(Some(4))` likewise. The old error named this case and told
+//    the reader to write `Option<Option<int>>.Some(Option<int>.Some(4))` instead.
+// 3. **As an argument to a generic function.** `assert_eq(Some("es"), opt)` was refused even though
+//    the *other* argument says which Option it is: the inference skips arguments that need a
+//    context and binds the type parameter from the rest, and `Some`/`None` were not on that list,
+//    so they were checked eagerly, before `T` was known.
+//
+// `None` carries no payload at all, which is exactly why it needs this: there is nothing in
+// `None` to infer from, so every context that can say must.
+use test
+
+fn asked(yes: bool) -> Result<Option<string>, string> {
+    if yes {
+        return ok(Some("explicit"))
+    }
+    return ok(None)
+}
+
+fn nested() -> Option<Option<int>> {
+    return Some(Some(4))
+}
+
+fn deeper() -> Result<Option<Option<int>>, string> {
+    return ok(Some(Some(9)))
+}
+
+fn same<T: Eq>(a: T, b: T) -> bool {
+    return a == b
+}
+
+fn main() {
+    print(concat("ok(Some(x)):     ", format("{}", asked(true))))
+    print(concat("ok(None):        ", format("{}", asked(false))))
+    print(concat("Some(Some(4)):   ", format("{}", nested())))
+    print(concat("ok(Some(Some)):  ", format("{}", deeper())))
+
+    // A generic parameter, with the type bound by the *other* argument -- in either position.
+    val nothing: Option<string> = None
+    val something: Option<string> = Some("es")
+    print(concat("None first:      ", str(same(None, nothing))))
+    print(concat("None second:     ", str(same(nothing, None))))
+    print(concat("Some first:      ", str(same(Some("es"), something))))
+    // Both arguments need a context, and it still works: a bare `Some(x)` whose payload types on
+    // its own says which Option it is, so `T` binds from the `Some` and the `None` is checked
+    // against it. `None` could never do this -- there is nothing inside it to read.
+    print(concat("Some vs None:    ", str(same(Some("es"), None))))
+
+    // The same through the test helpers, which is where this was first noticed: writing
+    // `Option<string>.None` to satisfy a generic parameter that the other argument already pins.
+    test.assert_eq(None, nothing)
+    test.assert_eq(Some("es"), something)
+    test.assert_ne(None, something)
+    print("generic assertions: ok")
+}

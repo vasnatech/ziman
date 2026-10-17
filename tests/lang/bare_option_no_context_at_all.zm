@@ -1,0 +1,11 @@
+// The other side of `bare_option_nested_and_generic.zm`: a bare `None` with nothing anywhere to
+// say which Option it is. The payload of a `Some` can stand in for that context; `None` has no
+// payload, so when the only argument is a `None` there is genuinely nothing to infer from and the
+// message says which type argument it could not bind.
+fn only<T>(a: T) -> T {
+    return a
+}
+
+fn main() {
+    print(format("{}", only(None)))
+}

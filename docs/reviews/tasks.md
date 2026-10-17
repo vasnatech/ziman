@@ -725,6 +725,32 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   the sum of its parts -- that last needing 18 alternating letters, because "oi" passes even with
   the glyph id removed from the key, the two letters landing on different subpixel quanta anyway.
 
+- [x] **F147** **Bare `Some`/`None` where the context already said which Option it is.** (raised
+  2026-10-17 from a review question -- *"why don't you use `Some("es")` instead of
+  `Option<string>.Some("es")`"* -- and the answer was that you should, and three places would not
+  let you; M) `Some(x)`/`None` take their type from the context, and three places had it and did
+  not pass it inward: `ok`/`err` checked their argument bare rather than expecting the payload type
+  (`return ok(Some(x))` refused), `Some` did the same to its own (`Some(Some(4))` refused, with the
+  error telling the reader to write `Option<Option<int>>.Some(Option<int>.Some(4))`), and
+  `expr_needs_expected_type` -- which decides what a generic call may check before its type
+  arguments are bound -- listed `ok`/`err`/`channel_new` but not `Some` or `None`, so
+  `assert_eq(Some("es"), opt)` was rejected although the other argument named the type. Plus the
+  case the predicate cannot reach: a bare `Some(x)` whose payload types on its own **does** name
+  the Option, so `infer_call_type_args` now reads it and `same(Some("es"), None)` binds `T` from
+  the `Some`. `None` never can -- there is nothing inside it -- which is exactly why it needs a
+  context. Still refused, correctly: `val a = None`, `print(Some(5))`, and `only(None)` where
+  nothing else binds `T`. Both messages now name a generic argument as a context that counts.
+  See `docs/DESIGN.md`'s "Generic call inference, part 3".
+
+  *Done 2026-10-17.* Three one-line-ish changes in `src/typecheck.c` and a payload-reading helper;
+  1044 fixtures green, two new (`bare_option_nested_and_generic`, and the negative
+  `bare_option_no_context_at_all`). **The comment that justified the old behaviour was wrong**: it
+  said `Some(x)`'s argument "doesn't say this is an Option rather than something else", but bare
+  `Some`/`None` mean `Option` and nothing else -- a user enum may declare a `Some` variant and
+  bare `Some(...)` still will not resolve to it (its own variants are always qualified; a bare
+  `Mine("y")` is "call to undefined function"). So there was never another reading to be ambiguous
+  with.
+
 - [x] **F146** **`lib/graphics` phase 6: document layout -- flows, wrapping, tables, pagination.**
   (raised 2026-10-16; L) `layout`: one module, one entry point,
   `paginate(doc, page) -> Result<[Scene], string>`, because `pdf.render_pages` already takes a list

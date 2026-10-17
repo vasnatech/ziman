@@ -1142,6 +1142,17 @@ static Type option_elem_type(Type t) {
     return t.type_args.items[0];
 }
 
+/* The type `Option<elem>`, for the one place that has to build one rather than read one: inferring
+ * a generic call's type argument from a bare `Some(x)` whose payload types on its own. */
+static Type option_type_of(Type elem) {
+    Type t = {0};
+    t.kind = TY_ENUM;
+    t.enum_name = "Option";
+    t.type_args = (TypeList){0};
+    type_list_push(&t.type_args, elem);
+    return t;
+}
+
 /* Rewrites `value` (already type-checked, of type option_elem_type
  * (option_type)) into a synthetic `Option<T>.Some(value)` node, the
  * auto-wrap sugar an Option<T> parameter gives a bare T argument or
@@ -1956,7 +1967,18 @@ static int expr_needs_expected_type(const Expr *e) {
     if (e->kind == EXPR_CALL) {
         const char *callee = e->as.call.callee;
         if (strcmp(callee, "ok") == 0 || strcmp(callee, "err") == 0 || strcmp(callee, "channel_new") == 0) return 1;
+        /* A bare `Some(x)` is in exactly the same position as `ok(x)`: it carries no Option<T> of
+         * its own. Leaving it out meant a generic call checked it eagerly, before the type
+         * arguments were bound, so `assert_eq(Some("es"), opt)` was refused even though the other
+         * argument said which Option it was. A qualified `Option<T>.Some(x)` is a different node
+         * (check_enum_access) and is not affected. */
+        if (strcmp(callee, "Some") == 0 && e->as.call.type_args.count == 0) return 1;
     }
+    /* And bare `None`, which is an identifier rather than a call until check_bare_option_call
+     * rewrites it. `None` carries even less than `Some(x)` does -- there is no payload to look
+     * at -- so a generic call has to bind its type parameter from the other arguments first and
+     * check this one afterwards. */
+    if (e->kind == EXPR_IDENT && strcmp(e->as.ident_name, "None") == 0) return 1;
     return 0;
 }
 
@@ -2063,6 +2085,21 @@ static int type_fully_bound(Type t, TypeParamList *params, const int *bound) {
  * check_call's own "variadic_tail_is_array_spread" ambiguity, resolved the same way, from the argument's own static
  * type. A type parameter no argument could bind is the same "requires explicit type arguments" situation as
  * before, just with a more specific message naming which one. */
+/* True when `e` is a bare `Some(x)` whose payload can be typed with no context of its own, setting
+ * `*out` to that payload's type. `Some(None)` and `Some(ok(1))` are deliberately not included: the
+ * payload needs a context there too, and there is nothing to read until the outer type is known. */
+static int bare_some_payload_type(Module *module, Env *env, Expr *e, Type *out) {
+    if (e->kind != EXPR_CALL) return 0;
+    if (strcmp(e->as.call.callee, "Some") != 0) return 0;
+    if (e->as.call.type_args.count > 0 || e->as.call.args.count != 1) return 0;
+    Expr *payload = e->as.call.args.items[0];
+    if (expr_needs_expected_type(payload)) return 0;
+    Type t = check_expr(module, env, payload);
+    if (t.kind == TY_VOID) return 0;
+    *out = t;
+    return 1;
+}
+
 static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, FunctionDecl *fn) {
     int n_params = fn->type_params.count;
     Type *bindings = ziman_xcalloc((size_t)n_params, sizeof(Type));
@@ -2077,7 +2114,18 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
         Type pattern = fn->params.items[i].type;
         if (!type_mentions_any(pattern, &fn->type_params)) continue;
         Expr *arg = e->as.call.args.items[i];
-        if (expr_needs_expected_type(arg)) continue;
+        if (expr_needs_expected_type(arg)) {
+            /* A bare `Some(x)` does say which Option it is, as long as its payload types on its
+             * own: `Some("es")` can only ever be an `Option<string>`, so a generic call need not
+             * give up on it the way it must for `None`, which carries nothing to look at. Without
+             * this, `same(Some("es"), None)` fails to bind `T` even though one of the two
+             * arguments names it unambiguously. */
+            Type payload = (Type){0};
+            if (bare_some_payload_type(module, env, arg, &payload)) {
+                unify_type(pattern, option_type_of(payload), &fn->type_params, bindings, bound, arg);
+            }
+            continue;
+        }
         Type actual = check_expr(module, env, arg);
         unify_type(pattern, actual, &fn->type_params, bindings, bound, arg);
     }
@@ -2899,14 +2947,17 @@ static Type check_call(Module *module, Env *env, Expr *e) {
 
     if (strcmp(name, "Some") == 0) {
         /* Reachable only when nothing gave check_bare_option_call() (via check_expr_expecting) an expected
-         * Option<T> to work with -- e.g. `print(Some(5))` or a bare `Some(5)` statement. Same reasoning as
-         * ok/err above: `Some(x)`'s argument alone doesn't say this is an Option rather than something else. */
+         * Option<T> to work with -- e.g. `print(Some(5))` or a bare `Some(5)` statement. `Some(x)`'s
+         * argument says what T would be, but not that an Option is wanted here at all: `print` takes
+         * anything, so there is no second reading of `Some(5)` to prefer. Inside another `Some`, inside
+         * `ok`/`err`, and as an argument to a generic function it now works -- each of those knows what it
+         * wants and passes it inward (see check_bare_option_call, check_ok_err_call and
+         * infer_call_type_args's bare_some_payload_type). */
         ziman_error("type", e->line, e->col,
                     "cannot infer the type of 'Some(...)' here; it takes its type from the context, so it needs one: "
                     "a val/var with an explicit Option<T> annotation, a struct literal field, a 'with' override, a "
-                    "function's returned value, or an argument whose parameter type says which Option it is. Inside "
-                    "another Some(...) there is no context either -- qualify it, as "
-                    "'Option<Option<int>>.Some(Option<int>.Some(4))'");
+                    "function's returned value, or an argument -- including a generic one, whose type argument this "
+                    "can itself bind");
     }
 
     if (strcmp(name, "send") == 0) {
@@ -3210,11 +3261,16 @@ static int check_ok_err_call(Module *module, Env *env, Expr *e, Type expected) {
     if (e->as.call.args.count != 1) {
         ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", e->as.call.callee, e->as.call.args.count);
     }
-    Expr *arg = e->as.call.args.items[0];
-    Type arg_type = check_expr(module, env, arg);
+    Type want = is_ok_call ? *expected.elem : *expected.elem_err;
+    /* Checked *expecting* the payload type, not bare: `ok(Some(x))` and `err(None)` are ordinary
+     * things to write, and the inner value needs the same context this call just received. Passing
+     * the slot rather than the pointer lets check_bare_option_call rewrite a bare `None` in place,
+     * as it does everywhere else. */
+    Expr **arg_slot = &e->as.call.args.items[0];
+    Type arg_type = check_expr_expecting(module, env, arg_slot, want);
+    Expr *arg = *arg_slot;
     require_not_void(arg, "as a Result value");
 
-    Type want = is_ok_call ? *expected.elem : *expected.elem_err;
     if (!type_equals(arg_type, want)) {
         ziman_error("type", arg->line, arg->col, "'%s' expects %s, found %s", e->as.call.callee, type_name(want), type_name(arg_type));
     }
@@ -3275,8 +3331,11 @@ static int check_bare_option_call(Module *module, Env *env, Expr *e, Type expect
     if (e->as.call.args.count != 1) {
         ziman_error("type", e->line, e->col, "'Some' takes exactly 1 argument, found %d", e->as.call.args.count);
     }
-    Expr *arg = e->as.call.args.items[0];
-    Type arg_type = check_expr(module, env, arg);
+    /* Same as ok/err above: the element type goes inward, so `Some(Some(4))` and `Some(ok(x))`
+     * work rather than needing the qualified spelling the old error message told you to write. */
+    Expr **arg_slot = &e->as.call.args.items[0];
+    Type arg_type = check_expr_expecting(module, env, arg_slot, elem);
+    Expr *arg = *arg_slot;
     require_not_void(arg, "as an Option value");
     if (!type_equals(arg_type, elem)) {
         ziman_error("type", arg->line, arg->col, "'Some' expects %s, found %s", type_name(elem), type_name(arg_type));
@@ -3840,8 +3899,10 @@ static Type check_expr(Module *module, Env *env, Expr *e) {
                     ziman_error("type", e->line, e->col,
                                 "cannot infer the type of 'None' here; it takes its type from the context, so it "
                                 "needs one: a val/var with an explicit Option<T> annotation, a struct literal field, "
-                                "a 'with' override, a function's returned value, or an argument whose parameter type "
-                                "says which Option it is");
+                                "a 'with' override, a function's returned value, or an argument whose type is known. "
+                                "A generic argument counts when something else binds the type parameter -- another "
+                                "argument, or a 'Some(x)' whose payload names it -- since 'None' has no payload of "
+                                "its own to read");
                 }
                 for (size_t k = 0; k < sizeof BUILTINS_NO_NAMED_ARGS / sizeof BUILTINS_NO_NAMED_ARGS[0] && BUILTINS_NO_NAMED_ARGS[k] != NULL; k++) {
                     if (strcmp(e->as.ident_name, BUILTINS_NO_NAMED_ARGS[k]) == 0) {
