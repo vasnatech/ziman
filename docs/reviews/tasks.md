@@ -596,7 +596,7 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   hid the rest; and deflate makes a *single small rect* larger, since a zlib header outweighs 150
   bytes of content, so compression is measured on 400 rects (18,116 to 4,349) instead.
 
-- [ ] **F143** **`lib/graphics` phase 3: TrueType parsing, metrics, and font embedding.** (raised
+- [x] **F143** **`lib/graphics` phase 3: TrueType parsing, metrics, and font embedding.** (raised
   2026-10-16; L) `truetype` (the table reader: `head`, `maxp`, `hmtx`, `cmap` formats 4 and 12,
   `name`, `OS/2`, `loca`/`glyf` including **composite** glyphs) and `font` (metrics, and `covers`,
   which answers *which* character a face cannot draw). `pdf` gains a `/Type0` font with
@@ -609,6 +609,21 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   Everything else can pass while that fails. Needs a decision on where test fonts live -- 800 KB of
   binary in the repo, or read from the sibling health-record checkout. Depends on F142.
   See `docs/graphics/phase-3-fonts.md`.
+
+  *Done 2026-10-16 in `2d9d7f7`.* The round trip passes: `pdffonts` reports
+  `CID TrueType / Identity-H / emb yes / sub no / uni yes` and `pdftotext` returns
+  `şeker İstanbul — Привет` byte-identical. **The font question was answered a third way:** not the
+  sibling checkout and not 400 KB in the repository, but the *system* font via `fc-match`, skipping
+  when fontconfig finds none -- the same guard shape as openssl and Poppler. Three more decisions
+  the build settled: `StandardFont` moved from `pdf` into `font` (otherwise the two modules are
+  circular, since `pdf` needs `font` to embed and `font` must not need `pdf` to name a built-in);
+  `font.advance` refuses for a *proportional* standard font rather than shipping ~3000 AFM numbers,
+  while Courier is exact at 600/1000 em; and `/ToUnicode` needs a reverse mapping `cmap` does not
+  have, so it scans Latin/Greek/Cyrillic/punctuation rather than all of Unicode, with the ranges in
+  one place because the scan is per glyph. The assertions that earn their keep: advances equal on a
+  monospaced face (1229) where proportional differs (455/1366/1933), which a swapped `hmtx` index
+  could not fake; and `ä` having 4 contours against `a`'s 2, which is composite glyphs being
+  followed rather than skipped.
 
 - [ ] **F144** **`lib/graphics` phase 4: a pixel buffer, PNG, and PDF image XObjects.** (raised
   2026-10-16; M) `image`: an immutable `Image` plus a `#[thread_bound]` builder (the same split the
