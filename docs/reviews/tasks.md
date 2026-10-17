@@ -690,6 +690,20 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   sub-scanline, and an active edge table is deferred to part 3 so it can be measured against text,
   which is the workload with the edges.
 
+  *Performance revisited 2026-10-17, and the answer is "no algorithm left".* `--profile` says
+  `crossings_at` -- the function the design, part 1 and the active edge table were all aimed at --
+  is **5%**. About a third of the time is `new_target` and `finish`, which create and convert the
+  float accumulation buffer and draw nothing: 1.9 million floats to zero and 480,000 pixels to
+  convert whatever the scene holds. Three output-identical changes took 1485 to 1366 ms (capacity
+  up front, one loop per format in `finish` with the clamp inline instead of 1.4 million `to_byte`
+  calls, and the clip and flat-ink `switch`es hoisted out of the inner pixel loop); across the
+  three benchmarks that is 1451→1384, 651→613 and 1657→1645 ms, the last being noise. **Then the
+  floor**: an empty 1.92M-iteration loop is 73 ms here, and `finish`'s own loop written out alone
+  is 359 ms for 480,000 pixels -- the same work it does in the renderer, so it is at the cost of
+  its operations rather than badly written. The one structural change left is a packed `int` pixel
+  instead of four floats (what Cairo and Skia do), estimated at **13%** against an 8-bit precision
+  loss and a rewrite of every pixel path; not taken, estimate recorded so nobody re-derives it.
+
   *Part 2 of 3 done 2026-10-16: stroking.* Caps, joins, the miter limit and dashes, in a **separate
   `stroker` module** rather than inside `raster`: widening a path is device-independent, and `pdf`
   refuses gradient strokes with "fill the stroked outline instead", so putting it in `raster` would

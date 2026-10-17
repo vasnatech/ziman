@@ -331,3 +331,53 @@ the source proves nothing, and the patch has to assert it matched.
 Hinting, subpixel (LCD) anti-aliasing, blend modes, JPEG sources, colour management, SIMD, and
 shaping -- Arabic and Indic render as disconnected letters in logical order, as phase 3 said. A
 layout layer above this is the candidate phase 6.
+
+## Performance, measured properly (2026-10-17)
+
+The phase shipped with its performance deliberately unexamined past two obvious wins. Going back
+with `--profile` produced a result worth writing down, because it contradicts the plan above.
+
+**What the profile actually says**, on 400 round rectangles over 600x800 at `samples: 4`:
+
+| | self |
+| --- | --- |
+| `finish` (the float buffer out as bytes) | 12.5% |
+| `composite` | 12.5% |
+| `fill_shape`'s own loop | 8.6% |
+| `add_span` | 7.9% |
+| `to_byte` | 7.8% |
+| `mutable_array_push` / `_get` | 13.8% |
+| **`crossings_at`** | **5.1%** |
+| `new_target` | 5.0% |
+
+`crossings_at` is the function the design and part 1 both expected to dominate -- the one the
+active edge table was built for, which measured 12% rather than the predicted 3-4x. It is **5%**.
+Roughly a third of the time is creating and converting the float accumulation buffer, which does
+no drawing at all: a 600x800 canvas is 1.9 million floats to zero and 480,000 pixels to convert,
+whatever the scene contains.
+
+**Three changes, all output byte-identical**, each measured interleaved: asking for the buffers'
+capacity up front instead of growing them (1485 to 1439 ms), one loop per pixel format in `finish`
+with the clamp written inline instead of 1.4 million `to_byte` calls (to 1404 ms), and hoisting the
+clip and flat-ink `switch`es out of the inner pixel loop, where they were enum dispatches per pixel
+for an answer that cannot change (to 1366 ms). Across the three benchmarks: 400 rectangles 1451 to
+1384 ms, a page of text 651 to 613 ms, and a tall edge-heavy path 1657 to 1645 ms -- which is
+noise, and says that path's cost is its 200-vertex edge list rather than anything touched here.
+
+**Then the floor.** An empty 1.92-million-iteration loop costs 73 ms in this interpreter; a
+`mutable_array_push` adds about 25 ns on top, a `get` or `set` about 30. Written out on its own,
+`finish`'s loop over 480,000 pixels -- four reads, a dozen arithmetic operations and one push each
+-- costs **359 ms**. That is the same work the renderer does, so `finish` is not badly written; it
+is at the cost of the operations it performs. The same holds for `composite` at 416,000 covered
+pixels and eight array operations each.
+
+**So the remaining lever is not an algorithm.** The one structural change left in-language is to
+pack RGBA into a single `int` per pixel instead of four floats, which is what Cairo and Skia both
+do: a quarter of the array operations in `new_target`, `composite` and `finish`. Estimated from the
+numbers above at **13%**, against an 8-bit precision loss in compositing and a rewrite of every
+pixel path in the module. Not taken, and recorded here with its estimate so the next person reaches
+the same conclusion in one reading rather than by rebuilding it.
+
+The honest summary: **this backend is interpreter-bound on per-pixel work**, and ~5% was what was
+available without changing what it computes. A further step would be native help, which is a
+different kind of decision for a project whose point is that it is written in itself.

@@ -200,9 +200,11 @@ pub fn render(s: Scene, o: Options) -> Result<image.Image, string> {
 }
 
 fn new_target(width: int, height: int) -> Target {
-    val data = mutable_array_new<float>()
-    var i = 0
     val total = width * height * 4
+    // Asked for in one go rather than grown: a 600x800 canvas is 1.9 million floats, and a builder
+    // that starts at 20 and doubles copies the whole thing twenty times on the way up.
+    val data = mutable_array_new<float>(capacity: total)
+    var i = 0
     while i < total {
         mutable_array_push(data, 0.0)
         i = i + 1
@@ -550,26 +552,44 @@ fn fill_shape(
     val plan = plan_of(e, first_row, last_row)
     val live = mutable_array_new<int>()
     var cursor = 0
+    // **Both of these are decided once, not per pixel.** `clip` and `flat` are the same `Option`
+    // for every pixel of the fill, and a `switch` on one inside the inner loop is an enum dispatch
+    // a few hundred thousand times over for an answer that cannot change. Unwrapping them here
+    // leaves the loop with two bool tests.
+    val clipped = switch clip {
+        Some(_) { true }
+        None { false }
+    }
+    val no_mask: [float] = []
+    val mask = switch clip {
+        Some(m) { m }
+        None { no_mask }
+    }
+    val is_flat = switch flat {
+        Some(_) { true }
+        None { false }
+    }
+    val flat_ink_value = switch flat {
+        Some(c) { c }
+        None { Premul { red: 0.0, green: 0.0, blue: 0.0, alpha: 0.0 } }
+    }
     var y = first_row
     while y <= last_row {
         cursor = advance_active(plan, live, cursor, y)
         row_coverage(row, t.width, e, live, device.winding, o.samples, y, first_col, last_col)
+        val row_base = y * t.width
         var x = first_col
         while x <= last_col {
             val cov = mutable_array_get(row, x)
             // Below a 255th of a level there is nothing to add to an 8-bit channel, and skipping
             // it is what keeps a full-page fill from evaluating a gradient outside its own bounds.
             if cov > 0.002 {
-                val through = switch clip {
-                    Some(mask) { mask[y * t.width + x] }
-                    None { 1.0 }
-                }
+                val through = if clipped { mask[row_base + x] } else { 1.0 }
                 if through > 0.002 {
-                    val c = switch flat {
-                        Some(constant) { constant }
-                        None {
-                            try ink_at(k, inv, o.images, point_of((x as float) + 0.5, (y as float) + 0.5))
-                        }
+                    val c = if is_flat {
+                        flat_ink_value
+                    } else {
+                        try ink_at(k, inv, o.images, point_of((x as float) + 0.5, (y as float) + 0.5))
                     }
                     composite(t, x, y, c, cov * through)
                 }
@@ -1054,33 +1074,74 @@ fn push_edge(xy: MutableArray<float>, x0: float, y0: float, x1: float, y1: float
 
 // ---- output
 
+// The float buffer out as bytes.
+//
+// **One loop per format, and the clamp written inline.** This runs once per pixel of the whole
+// canvas whatever was drawn, so at 600x800 it is 480,000 iterations: a `to_byte` call per channel
+// is 1.4 million interpreted calls, and re-deciding the format inside the loop is 480,000 branches
+// on a value that cannot change. Measured at 12.5% of a page before this, with `to_byte` another
+// 7.8% on top.
 fn finish(t: Target, format: image.Pixels) -> Result<image.Image, string> {
-    val out = mutable_array_new<byte>()
     val n = image.channels_of(format)
-    var i = 0
     val total = t.width * t.height
-    while i < total {
-        val r = mutable_array_get(t.data, i * 4)
-        val g = mutable_array_get(t.data, i * 4 + 1)
-        val b = mutable_array_get(t.data, i * 4 + 2)
-        val a = mutable_array_get(t.data, i * 4 + 3)
-        if n == 4 {
+    val out = mutable_array_new<byte>(capacity: total * n)
+    var i = 0
+    if n == 4 {
+        while i < total {
+            val a = mutable_array_get(t.data, i * 4 + 3)
             // Un-premultiplied, because that is what `image.Image` holds and what PNG stores.
             val inv_a = if a > 0.0 { 1.0 / a } else { 0.0 }
-            mutable_array_push(out, to_byte(r * inv_a))
-            mutable_array_push(out, to_byte(g * inv_a))
-            mutable_array_push(out, to_byte(b * inv_a))
-            mutable_array_push(out, to_byte(a))
-        } else if n == 3 {
+            var r = mutable_array_get(t.data, i * 4) * inv_a * 255.0 + 0.5
+            var g = mutable_array_get(t.data, i * 4 + 1) * inv_a * 255.0 + 0.5
+            var b = mutable_array_get(t.data, i * 4 + 2) * inv_a * 255.0 + 0.5
+            var av = a * 255.0 + 0.5
+            if r > 255.0 {
+                r = 255.0
+            }
+            if g > 255.0 {
+                g = 255.0
+            }
+            if b > 255.0 {
+                b = 255.0
+            }
+            if av > 255.0 {
+                av = 255.0
+            }
+            // No lower clamp: every value here is a coverage-weighted colour in 0..1 times 255,
+            // and `composite` never produces a negative one. `to_byte` kept its own because it is
+            // also called from `image.set`, where a caller's `Color` can be anything.
+            mutable_array_push(out, (r as int) as byte, (g as int) as byte, (b as int) as byte, (av as int) as byte)
+            i = i + 1
+        }
+    } else if n == 3 {
+        while i < total {
             // Already composited over whatever the canvas started as, so the premultiplied value
             // *is* the colour over that background. With no background that is black.
-            mutable_array_push(out, to_byte(r))
-            mutable_array_push(out, to_byte(g))
-            mutable_array_push(out, to_byte(b))
-        } else {
-            mutable_array_push(out, to_byte(0.299 * r + 0.587 * g + 0.114 * b))
+            var r = mutable_array_get(t.data, i * 4) * 255.0 + 0.5
+            var g = mutable_array_get(t.data, i * 4 + 1) * 255.0 + 0.5
+            var b = mutable_array_get(t.data, i * 4 + 2) * 255.0 + 0.5
+            if r > 255.0 {
+                r = 255.0
+            }
+            if g > 255.0 {
+                g = 255.0
+            }
+            if b > 255.0 {
+                b = 255.0
+            }
+            mutable_array_push(out, (r as int) as byte, (g as int) as byte, (b as int) as byte)
+            i = i + 1
         }
-        i = i + 1
+    } else {
+        while i < total {
+            var y = (0.299 * mutable_array_get(t.data, i * 4) + 0.587 * mutable_array_get(t.data, i * 4 + 1) +
+                    0.114 * mutable_array_get(t.data, i * 4 + 2)) * 255.0 + 0.5
+            if y > 255.0 {
+                y = 255.0
+            }
+            mutable_array_push(out, (y as int) as byte)
+            i = i + 1
+        }
     }
     return image.image_of(t.width, t.height, format, snapshot(out))
 }
