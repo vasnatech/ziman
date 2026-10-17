@@ -224,6 +224,7 @@ static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type e
 static int check_ok_err_call(Module *module, Env *env, Expr *e, Type expected);
 static int check_channel_new_call(Module *module, Env *env, Expr *e, Type expected);
 static int check_bare_option_call(Module *module, Env *env, Expr *e, Type expected);
+static int expr_needs_expected_type(const Expr *e);
 static int is_option_type(Type t);
 
 /* Rebuilds `t` with every TY_TYPEVAR named in `params` replaced by the
@@ -1284,6 +1285,23 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
          * among them. These are the same three helpers check_expr_expecting calls, in the same order;
          * each sets the argument's resolved_type to `param_type` when it matches, so the caller needs
          * nothing further. */
+        *out_arg_type = param_type;
+        return 1;
+    } else if (param_type.kind == TY_RESULT && expr_needs_expected_type(arg) &&
+               !type_equals(*param_type.elem, *param_type.elem_err) &&
+               (check_bare_option_call(module, env, arg, *param_type.elem) ||
+                check_channel_new_call(module, env, arg, *param_type.elem))) {
+        /* The bare-value auto-wrap, reaching one level further in. A `Result<Option<T>, E>` already
+         * accepts a bare `Option<T>` and wraps it in `ok(...)`, but only once that value had a type
+         * of its own -- so `return Option<T>.Some(x)` worked and `return Some(x)` did not, which is
+         * the shape every `find_by_*` in a repository has. The payload type is what the inner value
+         * needed all along, so it is offered here before giving up.
+         *
+         * Deliberately not when the success and error types are equal: that is the one case the
+         * wrap below already refuses to guess at, and guessing earlier would be worse, not better.
+         * `ok`/`err` are not retried here either -- those match `param_type` itself above, and a
+         * bare `ok(x)` inside an auto-wrap would mean `ok(ok(x))`, which nobody writes by accident. */
+        *arg_slot = wrap_bare_in_result(arg, param_type, 1);
         *out_arg_type = param_type;
         return 1;
     } else {

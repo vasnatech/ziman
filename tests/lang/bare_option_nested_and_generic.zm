@@ -34,11 +34,28 @@ fn same<T: Eq>(a: T, b: T) -> bool {
     return a == b
 }
 
+// 4. **Through the Result bare-value auto-wrap.** A `Result<Option<T>, E>` already accepted a bare
+//    `Option<T>` and wrapped it in `ok(...)` -- but only once that value had a type of its own, so
+//    `return Option<int>.Some(x)` worked and `return Some(x)` did not. This is the shape every
+//    repository lookup in the sample backend has.
+fn lookup(found: bool) -> Result<Option<int>, string> {
+    if found {
+        return Some(7)
+    }
+    return None
+}
+
+// The wrap is deliberately not offered when the success and error types are the same -- the one
+// case the existing auto-wrap already refuses to guess at, so guessing earlier would be worse. A
+// `Result<Option<string>, Option<string>>` returning a bare `Some("x")` still has to say which,
+// and gets the same "needs a context" message it always did.
+
 fn main() {
     print(concat("ok(Some(x)):     ", format("{}", asked(true))))
     print(concat("ok(None):        ", format("{}", asked(false))))
     print(concat("Some(Some(4)):   ", format("{}", nested())))
     print(concat("ok(Some(Some)):  ", format("{}", deeper())))
+    print(concat("Result wrap:     ", format("{}", lookup(true)), " ", format("{}", lookup(false))))
 
     // A generic parameter, with the type bound by the *other* argument -- in either position.
     val nothing: Option<string> = None

@@ -751,6 +751,18 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `Mine("y")` is "call to undefined function"). So there was never another reading to be ambiguous
   with.
 
+  *Extended the same day, from sweeping the sample backend with it.* 162 qualified spellings there
+  dropped to 65, and what the remaining failures had in common named a fourth place with the same
+  omission: the **`Result` bare-value auto-wrap**. A `Result<T, E>` already took a bare `T` and
+  wrapped it in `ok(...)`, but only once that value had a type of its own -- so
+  `return Option<Row>.Some(row)` worked and `return Some(row)` did not, in a function declared
+  `Result<Option<Row>, DbError>`, which is every `find_by_*` in the backend. The Ok payload type is
+  now offered to a context-needing value before giving up. Not when `T` and `E` are the same type:
+  that is the case the wrap already refuses to guess at. The 65 that stayed are genuinely
+  context-free -- mostly `var x = Option<T>.None` with no annotation -- plus a comparison
+  (`x != Some("ACTIVE")`), which does not offer its left operand's type to its right and is the
+  same family, left alone.
+
 - [x] **F146** **`lib/graphics` phase 6: document layout -- flows, wrapping, tables, pagination.**
   (raised 2026-10-16; L) `layout`: one module, one entry point,
   `paginate(doc, page) -> Result<[Scene], string>`, because `pdf.render_pages` already takes a list
