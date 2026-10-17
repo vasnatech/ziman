@@ -225,7 +225,7 @@ pub fn encode_png(i: Image) -> [byte] {
     mutable_array_push(parts, chunk("IDAT", deflate(filtered_rows(i))))
     val nothing: [byte] = []
     mutable_array_push(parts, chunk("IEND", nothing))
-    return join(snapshot(parts))
+    return concat_arrays<byte>(parts: snapshot(parts))
 }
 
 fn colour_type_of(f: Pixels) -> int {
@@ -366,7 +366,7 @@ pub fn decode_png(data: [byte], max_pixels: int) -> Result<Image, string> {
     }
     val n = channels_of(format)
     val stride = width * n
-    val raw = try inflate(join(snapshot(idat)), (stride + 1) * height)
+    val raw = try inflate(concat_arrays<byte>(parts: snapshot(idat)), (stride + 1) * height)
     if len(raw) != (stride + 1) * height {
         return err(concat(
             "image.decode_png: the pixel data is ",
@@ -480,14 +480,6 @@ fn tag_at(data: [byte], at: int) -> Result<string, string> {
         Ok(s) { ok(s) }
         Err(_) { ok("????") }
     }
-}
-
-fn join(parts: [[byte]]) -> [byte] {
-    var out = string_to_bytes("")
-    for p in parts {
-        out = bytes_concat(out, p)
-    }
-    return out
 }
 
 // The standard CRC-32, computed without a table: 256 entries would be faster and this runs four

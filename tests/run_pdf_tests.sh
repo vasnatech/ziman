@@ -95,6 +95,16 @@ for f in range(5):
     png += chunk(b"IDAT", zlib.compress(filtered(f), 6))
     png += chunk(b"IEND", b"")
     (work / f"filt{f}.png").write_bytes(png)
+
+# The same pixels with the compressed stream **split across many IDAT chunks**, which is what real
+# encoders do (libpng splits at 8 KiB) and which no fixture here produced: every PNG this project
+# writes has exactly one, so the chunk-joining path was never exercised with more than one piece.
+body = zlib.compress(filtered(0), 6)
+split_png = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", W, H, 8, 2, 0, 0, 0))
+for i in range(0, len(body), 7):
+    split_png += chunk(b"IDAT", body[i : i + 7])
+split_png += chunk(b"IEND", b"")
+(work / "split.png").write_bytes(split_png)
 PYEOF
 
     cat > "$WORK/filters.zm" <<'ZM'
@@ -113,12 +123,27 @@ fn main() {
         print(concat("filter ", str(f), ": ", str(got.width), "x", str(got.height), " ", str(same)))
         f = f + 1
     }
+    // The same pixels arriving as many small IDAT chunks rather than one.
+    val split = unwrap(image.decode_png(
+        unwrap(fs.read_bytes(concat(os.args()[0], "/split.png"))),
+        1000000
+    ))
+    print(concat(
+        "split idat: ",
+        str(len(split.data) == len(want) && image.crc32(split.data) == image.crc32(want))
+    ))
 }
 ZM
 
     if ! out=$("$BIN" "$WORK/filters.zm" -- "$WORK" 2>&1); then
         fail "the five filtered PNGs decode" "$out"
     else
+        split_line=$(sed -n '6p' <<<"$out")
+        if [ "$split_line" = "split idat: true" ]; then
+            pass "a PNG split across many IDAT chunks decodes the same"
+        else
+            fail "a PNG split across many IDAT chunks decodes the same" "$split_line"
+        fi
         for f in 0 1 2 3 4; do
             name=$(sed -n "$((f + 1))p" <<<"$out")
             if [ "$name" = "filter $f: 7x5 true" ]; then
