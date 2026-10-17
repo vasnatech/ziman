@@ -744,9 +744,22 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   the export is allowed to contradict the document. Building all of `Block` first is the failure
   mode the document is most likely to cause.
 
-  Two findings already folded in, both checked against the language rather than assumed:
+  **Nothing needs to change first, and that was checked rather than assumed.** A 40-line prototype
+  wraps, paginates and renders an 11-page PDF that `pdfobj.check` validates and `pdftotext` reads
+  back in order, against today's API with no library change: `split`, `font.advance`,
+  `font.ascent`/`line_height`, `scene.text_of` and `pdf.render_pages` taking each page's size from
+  its own scene all already fit together. What it *did* find is a layout-side trap now recorded in
+  the design: measuring the growing candidate line is quadratic (808 ms against 86 ms on 1365
+  words, 9.4x, same 105 lines), and measuring each word once and accumulating is exact **only
+  because nothing kerns** -- a dependency on an absence, which a future `kern`/GPOS reader would
+  silently break.
+
+  Three findings already folded in, all checked against the language rather than assumed:
   `PageSize` lives in `pdf`, so `layout` reusing it would depend on a backend it is meant to feed --
-  phase 3's `StandardFont` circularity exactly, and the fix is to move `PageSize` down into `geom`.
+  phase 3's `StandardFont` circularity in miniature. Not a blocker -- a `Scene` already carries its
+  own size -- but moving `PageSize` into `geom` is better and is **source-compatible**: a module
+  does not re-export an imported type, so the move would break anyone naming `pdf.PageSize`, and
+  nothing does. Every caller uses the constructors.
   And a function in a struct field works, closures included, but `(band.draw)(page, total)` is a
   syntax error: the call needs a local binding first. Also recorded: `font.advance` refuses for a
   proportional standard font, so layout over the standard fourteen works monospaced and not

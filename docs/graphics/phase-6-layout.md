@@ -150,14 +150,23 @@ pub struct Band {
 **Two things here were checked against the language rather than assumed**, because both would have
 been discovered at implementation time otherwise.
 
-*`PageSize` is `pdf.PageSize` today* (`lib/graphics/pdf.zm:36`), and `layout` must not depend on a
-backend -- its whole point is that it feeds both. This is phase 3's circularity exactly: `pdf`
-needed `font` to embed a face, so `StandardFont` moved out of `pdf` and into `font`. The same call
-applies, and the options are to move `PageSize` down into `geom` (where `Rect` already lives and
-every module can see it), or for `layout` to take a plain `Rect` and let the caller pass
-`pdf.a4()`'s numbers. **Moving it is better**: a page size is not a PDF concept, `raster` has the
-same need, and a second near-identical struct is how a library ends up converting between its own
-types.
+*`PageSize` is `pdf.PageSize` today* (`lib/graphics/pdf.zm:36`), and `layout` should not depend on a
+backend -- its whole point is that it feeds both. This is phase 3's circularity in miniature: `pdf`
+needed `font` to embed a face, so `StandardFont` moved out of `pdf` and into `font`.
+
+It is **not a blocker**, because layout can carry two floats and the `Scene` it emits already
+carries its own width and height -- which is what `pdf` reads for the page box anyway, falling back
+to `Options.size` only when a scene has none. But moving `PageSize` down into `geom` is still
+better: a page size is not a PDF concept, `raster` has the same need, and a second near-identical
+struct is how a library ends up writing conversion functions between its own types.
+
+**And the move is cheap, which was worth checking rather than assuming.** A module does *not*
+re-export a type it imports -- `upper.Size` is unreachable for callers of `upper` even when `upper`
+does `use lower.Size` -- so moving the struct would break anyone naming `pdf.PageSize`. Nothing
+does: every caller in this repository and in the health-record backend uses the *constructors*
+(`pdf.a4()`, `pdf.page_size_of(...)`), and the only mention of the type name outside its own
+definition is the field inside `pdf.Options`. So the move is source-compatible in practice, and
+costs one line in `pdf.zm`.
 
 *A function in a struct field works, and is called through a local.* `Band { draw: footer }` is
 accepted and so is a closure capturing an outer value -- which a footer wants, to carry a document
@@ -212,6 +221,22 @@ measured with a guessed width lays out wrongly in a way nobody notices until it 
 
 In practice the export embeds a face anyway, which already works end to end. The constraint is
 recorded because a layout layer that assumed otherwise would hit it on its first paragraph.
+
+**Measure each word once and accumulate; do not re-measure the line.** The obvious wrapping loop
+asks `font.advance` for the whole candidate line at every word, which is quadratic in the line and
+measured at **808 ms against 86 ms** for a 1365-word document -- 9.4x, for the same 105 lines.
+
+That shortcut is exact *only because nothing kerns*: `font.advance` sums per-glyph advances from
+`hmtx` with no pair adjustment, so the width of `"a b"` really is the width of `"a"` plus a space
+plus `"b"`. **If kerning is ever added this breaks silently**, overestimating every line and
+wrapping early, with no error anywhere. It is written down here because the fast path and the
+correctness argument live in different files, and a future `kern`/GPOS reader has no way to know
+this code depends on their absence.
+
+`font.advance` itself costs about 11 microseconds a character -- a `codepoint_of` allocation and a
+cmap lookup per character, neither cached. 86 ms a document is nothing, so this is **not** a thing
+to fix now; it is recorded as the first place to look if layout ever feels slow, and a per-codepoint
+advance cache on `Face` is the obvious shape.
 
 ## The algorithm
 
@@ -293,3 +318,12 @@ actual requirements document**. If what hurts is wrapping, start with `Paragraph
 page, start with `Table` and `header`.
 
 Building all of `Block` first is the failure mode this document is most likely to cause.
+
+**A 40-line prototype has already run**, which is why the three decisions above are stated as
+confidently as they are. It wraps a paragraph greedily with `font.advance`, breaks it into pages by
+`font.line_height`, emits one `Scene` per page, and renders an 11-page PDF that `pdfobj.check`
+validates and `pdftotext` reads back in reading order. **Nothing had to change for it to work.**
+Everything layout needs -- `split`, `font.advance`, `font.ascent`, `font.line_height`,
+`scene.text_of`, `pdf.render_pages` taking per-page sizes from each scene -- already exists and fits
+together. What the prototype found was not a missing feature but the quadratic measuring loop above,
+which is a layout-side mistake and is now written down before anyone makes it again.
