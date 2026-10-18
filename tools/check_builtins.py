@@ -33,30 +33,10 @@ UNDECLARABLE = {
     "$unwrap_variant": "parser desugaring target",
 }
 
-NEEDS_OVERLOADS = {
-    # Several unrelated shapes each -- one declaration per shape, which `builtin fn` does not yet
-    # take. Counts are what the type-checker arm accepts today.
-    "len": "string, [T], Map, Set, the four builders, Mutable<T>",
-    "contains": "the same nine shapes, each with a second parameter",
-    "snapshot": "the four builders, each to its immutable counterpart",
-    "clear": "the four builders and Mutable<T>",
-    "abs": "int, float, bigint, decimal",
-    "unwrap": "Result<T, E> and Option<T>",
-    "push": "an array (and, for its siblings, a Map or Set)",
-    "insert": "an array, a Map or a Set",
-    "set": "an array, a Map or a Set",
-    "remove": "an array, a Map or a Set",
-    "mutable_array_from": "an array or a MutableArray (`either_world`)",
-    "mutable_map_from": "a Map or a MutableMap",
-    "mutable_set_from": "a Set or a MutableSet",
-    "mutable_set_from_array": "an array or a MutableArray",
-    "mutable_array_push_all": "second argument is an array or a MutableArray",
-    "mutable_map_set_all": "second argument is a Map or a MutableMap",
-    "mutable_set_union": "second argument is a Set or a MutableSet",
-    "mutable_set_intersect": "second argument is a Set or a MutableSet",
-    "mutable_set_difference": "second argument is a Set or a MutableSet",
-    "mutable_set_is_subset": "second argument is a Set or a MutableSet",
-}
+# Empty since F148 stage 2: every name that needed an overload set has one. Kept rather than
+# deleted because the next builtin whose shape is not a shape goes here while it waits, and the
+# gate's third direction -- a reason for a name that is not dispatched -- keeps it honest.
+NEEDS_OVERLOADS = {}
 
 
 def dispatched():

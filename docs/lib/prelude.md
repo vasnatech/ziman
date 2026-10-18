@@ -1480,6 +1480,313 @@ The reverse of result_to_option: Some(value) becomes Ok(value), and None becomes
 Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
 formatted message) is skipped entirely on the common Some path.
 
+## The questions every collection answers
+
+### `len`
+
+```
+builtin fn len(s: string) -> int
+```
+
+```
+builtin fn len<T>(a: [T]) -> int
+```
+
+```
+builtin fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
+```
+
+```
+builtin fn len<T: Eq + Hash>(s: Set<T>) -> int
+```
+
+```
+builtin fn len<T>(b: MutableArray<T>) -> int
+```
+
+```
+builtin fn len(b: MutableString) -> int
+```
+
+```
+builtin fn len<K: Eq + Hash, V>(b: MutableMap<K, V>) -> int
+```
+
+```
+builtin fn len<T: Eq + Hash>(b: MutableSet<T>) -> int
+```
+
+```
+builtin fn len<T>(c: Mutable<T>) -> int
+```
+
+A cell holds exactly one value, so its length is always 1.
+
+### `contains`
+
+```
+builtin fn contains(s: string, needle: string) -> bool
+```
+
+The same nine shapes, each asked the question its immutable counterpart answers: a substring of
+text, an element of an array or set, a *key* of a map.
+
+```
+builtin fn contains<T: Eq>(a: [T], x: T) -> bool
+```
+
+```
+builtin fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
+```
+
+```
+builtin fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
+```
+
+```
+builtin fn contains<T: Eq>(b: MutableArray<T>, x: T) -> bool
+```
+
+```
+builtin fn contains(b: MutableString, needle: string) -> bool
+```
+
+```
+builtin fn contains<K: Eq + Hash, V>(b: MutableMap<K, V>, key: K) -> bool
+```
+
+```
+builtin fn contains<T: Eq + Hash>(b: MutableSet<T>, x: T) -> bool
+```
+
+```
+builtin fn contains<T: Eq>(c: Mutable<T>, x: T) -> bool
+```
+
+### `snapshot`
+
+```
+builtin fn snapshot<T>(b: MutableArray<T>) -> [T]
+```
+
+Each builder to its immutable counterpart. O(n), and the handle stays usable.
+
+```
+builtin fn snapshot(b: MutableString) -> string
+```
+
+```
+builtin fn snapshot<K: Eq + Hash, V>(b: MutableMap<K, V>) -> Map<K, V>
+```
+
+```
+builtin fn snapshot<T: Eq + Hash>(b: MutableSet<T>) -> Set<T>
+```
+
+### `clear`
+
+```
+builtin fn clear<T>(b: MutableArray<T>)
+```
+
+Empties a builder in place, keeping the handle.
+
+```
+builtin fn clear(b: MutableString)
+```
+
+```
+builtin fn clear<K: Eq + Hash, V>(b: MutableMap<K, V>)
+```
+
+```
+builtin fn clear<T: Eq + Hash>(b: MutableSet<T>)
+```
+
+### `abs`
+
+```
+builtin fn abs(x: int) -> int
+```
+
+```
+builtin fn abs(x: float) -> float
+```
+
+```
+builtin fn abs(x: bigint) -> bigint
+```
+
+```
+builtin fn abs(x: decimal) -> decimal
+```
+
+### `unwrap`
+
+```
+builtin fn unwrap<T, E>(r: Result<T, E>) -> T
+```
+
+`unwrap` is the one name shared by the two: a `Result`'s Ok payload, or an `Option`'s Some. The
+Option form is why it is not spelled `unwrap_Ok` -- see the note above `ok`.
+
+```
+builtin fn unwrap<T>(o: Option<T>) -> T
+```
+
+### `push`
+
+```
+builtin fn push<T>(a: [T], x: T) -> [T]
+```
+
+A new array with `x` on the end; the original is unchanged, these being immutable values.
+
+### `insert`
+
+```
+builtin fn insert<T>(a: [T], index: int, x: T) -> [T]
+```
+
+**`insert` and `set` are not interchangeable, and the asymmetry is deliberate** -- each has its
+own error telling the reader which to use. `insert` puts something where it was not: at an index
+in an array, or into a set. `set` replaces what is at a position: an array index, or a map key.
+So a map has `set` and no `insert`, and a set has `insert` and no `set`.
+
+```
+builtin fn insert<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
+```
+
+### `set`
+
+```
+builtin fn set<T>(a: [T], index: int, x: T) -> [T]
+```
+
+```
+builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
+```
+
+### `remove`
+
+```
+builtin fn remove<T>(a: [T], index: int) -> [T]
+```
+
+`remove` takes all three: an index, a key, or the element itself.
+
+```
+builtin fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
+```
+
+```
+builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
+```
+
+## The builder operations that take **either world**
+
+### `mutable_array_from`
+
+```
+builtin fn mutable_array_from<T>(items: [T]) -> MutableArray<T>
+```
+
+```
+builtin fn mutable_array_from<T>(items: MutableArray<T>) -> MutableArray<T>
+```
+
+### `mutable_map_from`
+
+```
+builtin fn mutable_map_from<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
+```
+
+```
+builtin fn mutable_map_from<K: Eq + Hash, V>(entries: MutableMap<K, V>) -> MutableMap<K, V>
+```
+
+### `mutable_set_from`
+
+```
+builtin fn mutable_set_from<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
+```
+
+```
+builtin fn mutable_set_from<T: Eq + Hash>(items: MutableSet<T>) -> MutableSet<T>
+```
+
+### `mutable_set_from_array`
+
+```
+builtin fn mutable_set_from_array<T: Eq + Hash>(items: [T]) -> MutableSet<T>
+```
+
+The one that changes shape rather than world: an array in, a set out.
+
+```
+builtin fn mutable_set_from_array<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
+```
+
+### `mutable_array_push_all`
+
+```
+builtin fn mutable_array_push_all<T>(xs: MutableArray<T>, items: [T])
+```
+
+```
+builtin fn mutable_array_push_all<T>(xs: MutableArray<T>, items: MutableArray<T>)
+```
+
+### `mutable_map_set_all`
+
+```
+builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
+```
+
+```
+builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
+```
+
+### `mutable_set_union`
+
+```
+builtin fn mutable_set_union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+```
+
+```
+builtin fn mutable_set_union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+```
+
+### `mutable_set_intersect`
+
+```
+builtin fn mutable_set_intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+```
+
+```
+builtin fn mutable_set_intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+```
+
+### `mutable_set_difference`
+
+```
+builtin fn mutable_set_difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+```
+
+```
+builtin fn mutable_set_difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+```
+
+### `mutable_set_is_subset`
+
+```
+builtin fn mutable_set_is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
+```
+
+```
+builtin fn mutable_set_is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
+```
+
 ## Comparison and ordering
 
 ### `hash`

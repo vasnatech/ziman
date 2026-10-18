@@ -3696,6 +3696,18 @@ static int resolve_function_reference(Module *module, Expr *e, Type *out) {
     }
     FunctionDecl *fn = find_function(module, e->fn_ref_name);
     if (fn == NULL) return 0;
+    /* **A builtin is not a function value**, and this is the one place a `builtin fn` declaration
+     * is *not* inert. A call never reaches `find_function` -- every builtin arm returns first --
+     * but a bare `len` in value position does, and before these declarations existed it fell
+     * through to the "is a builtin, not a function value" message further down. Resolving it to a
+     * declaration silently made `val f = len` legal, with nothing behind it: the interpreter
+     * dispatches a builtin by id at a call site and there is no closure to hand out. Caught by
+     * tests/lang/function_values_builtin_rejected.zm, which is what that fixture is for. */
+    if (fn->is_builtin) {
+        ziman_error("type", e->line, e->col,
+                    "'%s' is a builtin, not a function value -- wrap it in a function of your own to pass it around",
+                    fn->name);
+    }
     lint_deprecated_use(fn, e->line, e->col);
     for (int i = 0; i < fn->params.count; i++) {
         if (fn->params.items[i].is_variadic) {
@@ -5742,6 +5754,19 @@ void typecheck(Module *module) {
                             "'%s' is declared 'builtin fn' but the interpreter dispatches no builtin of that name "
                             "-- 'ziman --api builtins' lists the ones it does", fn->name);
             }
+            /* **Only a bundled module may declare one**, which in practice means lib/prelude.zm,
+             * the file `--api builtins` reads. A declaration stamped with a source file came from
+             * a program, and a program declaring these would be adding overloads to the language's
+             * own vocabulary -- the one thing F148's design says `builtin fn` must not become,
+             * since it would make this C++ overloading and half-undo "no methods, a function takes
+             * its receiver as an argument". Stage 1 documented this restriction in SYNTAX.md and
+             * did not implement it; declaring `builtin fn len<T>(a: [T]) -> int` in a program was
+             * accepted. It is an error now. */
+            if (fn->source_file != NULL) {
+                ziman_error("type", fn->line, fn->col,
+                            "'builtin fn' declares one of the language's own builtins and only a bundled module may "
+                            "do it -- '%s' cannot be declared here", fn->name);
+            }
         }
         if (!fn->is_builtin) {
             for (size_t b = 0; b < sizeof(builtins) / sizeof(builtins[0]); b++) {
@@ -5756,7 +5781,13 @@ void typecheck(Module *module) {
          * `find_function` returns the *first* declaration of a name, so a function that is not the
          * one the index gives back is a later duplicate -- reported at its own position, which is
          * where the inner loop reported it too (F130). */
-        if (find_function(module, fn->name) != fn) {
+        /* A `builtin fn` is exempt, because several of them under one name is how an **overload
+         * set** is written: `len` has nine shapes and `contains` nine, and no single signature
+         * states either. This is not general overloading -- the interpreter dispatches these on
+         * `args[0]` and the type rule stays an arm in this file, so the declarations describe a
+         * dispatch that already exists rather than introducing one. The check above confines them
+         * to a bundled module, so a program still cannot declare a second anything. */
+        if (!fn->is_builtin && find_function(module, fn->name) != fn) {
             ziman_error("type", fn->line, fn->col, "function '%s' is already defined", fn->name);
         }
         /* Same reasoning as the struct/enum type-parameter checks above. */

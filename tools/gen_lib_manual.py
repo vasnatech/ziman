@@ -199,13 +199,29 @@ def page(name, path, kind):
             with open(expected) as f:
                 out += ["Output:", "", "```", f.read().rstrip("\n"), "```", ""]
     current = object()
+    last_name = None
     for section, comment, sig in entries:
         if section != current:
             current = section
+            last_name = None
             if section:
                 out += ["## %s" % (section[:1].upper() + section[1:]), ""]
         name_m = re.match(r"(?:pub )?(?:native fn|builtin fn|fn|struct|enum|val) (\w+)", sig)
-        out += ["### `%s`" % name_m.group(1), "", "```", sig, "```", ""]
+        # `decl_name`, not `name`: `name` is this function's own parameter, the *module's* name,
+        # and the last line uses it to strip the `<module>.zm --` prefix off the header comment.
+        # Shadowing it here silently made every index summary read "Json.zm -- JSON as a ..."
+        # instead of "JSON as a ...", because the prefix was then stripped with the last
+        # declaration's name. Python has no -Wshadow; the generated README did.
+        decl_name = name_m.group(1)
+        # **One heading per name, however many signatures it has.** A `builtin fn` overload set is
+        # several declarations under one name -- `len` has nine -- and a heading each would be nine
+        # identical `### len` entries, which is worse than useless in a page with an anchor per
+        # heading. Consecutive declarations of one name share its heading and stack their
+        # signatures, which is also how a reader wants to see "what does len accept".
+        if decl_name != last_name:
+            out += ["### `%s`" % decl_name, ""]
+            last_name = decl_name
+        out += ["```", sig, "```", ""]
         c = render_comment(comment_text(comment))
         out += [c, ""] if c else []
     return "\n".join(out).rstrip("\n") + "\n", summary_of(intro(header, name))

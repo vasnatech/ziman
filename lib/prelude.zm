@@ -937,6 +937,118 @@ pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T
     }
 }
 
+// ---------------------------------------------------------------- the questions every collection answers
+//
+// **Overload sets**: several declarations under one name, because no single signature states what
+// these accept. The interpreter dispatches each on `args[0]`, so the declarations describe a
+// dispatch that already exists rather than adding one -- there is no ranking, no implicit
+// conversion and no return-type-directed choice, and user code cannot declare one. docs/SYNTAX.md
+// has the rule, DESIGN.md's "`native` and builtin are two different mechanisms" has why.
+//
+// SYNTAX.md puts it better than a comment here can: "asking a collection its size never needs a
+// per-type name or a conversion."
+
+builtin fn len(s: string) -> int
+builtin fn len<T>(a: [T]) -> int
+builtin fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
+builtin fn len<T: Eq + Hash>(s: Set<T>) -> int
+builtin fn len<T>(b: MutableArray<T>) -> int
+builtin fn len(b: MutableString) -> int
+builtin fn len<K: Eq + Hash, V>(b: MutableMap<K, V>) -> int
+builtin fn len<T: Eq + Hash>(b: MutableSet<T>) -> int
+// A cell holds exactly one value, so its length is always 1.
+builtin fn len<T>(c: Mutable<T>) -> int
+
+// The same nine shapes, each asked the question its immutable counterpart answers: a substring of
+// text, an element of an array or set, a *key* of a map.
+builtin fn contains(s: string, needle: string) -> bool
+builtin fn contains<T: Eq>(a: [T], x: T) -> bool
+builtin fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
+builtin fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
+builtin fn contains<T: Eq>(b: MutableArray<T>, x: T) -> bool
+builtin fn contains(b: MutableString, needle: string) -> bool
+builtin fn contains<K: Eq + Hash, V>(b: MutableMap<K, V>, key: K) -> bool
+builtin fn contains<T: Eq + Hash>(b: MutableSet<T>, x: T) -> bool
+builtin fn contains<T: Eq>(c: Mutable<T>, x: T) -> bool
+
+// Each builder to its immutable counterpart. O(n), and the handle stays usable.
+builtin fn snapshot<T>(b: MutableArray<T>) -> [T]
+builtin fn snapshot(b: MutableString) -> string
+builtin fn snapshot<K: Eq + Hash, V>(b: MutableMap<K, V>) -> Map<K, V>
+builtin fn snapshot<T: Eq + Hash>(b: MutableSet<T>) -> Set<T>
+
+// Empties a builder in place, keeping the handle.
+builtin fn clear<T>(b: MutableArray<T>)
+builtin fn clear(b: MutableString)
+builtin fn clear<K: Eq + Hash, V>(b: MutableMap<K, V>)
+builtin fn clear<T: Eq + Hash>(b: MutableSet<T>)
+
+builtin fn abs(x: int) -> int
+builtin fn abs(x: float) -> float
+builtin fn abs(x: bigint) -> bigint
+builtin fn abs(x: decimal) -> decimal
+
+// `unwrap` is the one name shared by the two: a `Result`'s Ok payload, or an `Option`'s Some. The
+// Option form is why it is not spelled `unwrap_Ok` -- see the note above `ok`.
+builtin fn unwrap<T, E>(r: Result<T, E>) -> T
+builtin fn unwrap<T>(o: Option<T>) -> T
+
+// A new array with `x` on the end; the original is unchanged, these being immutable values.
+builtin fn push<T>(a: [T], x: T) -> [T]
+
+// **`insert` and `set` are not interchangeable, and the asymmetry is deliberate** -- each has its
+// own error telling the reader which to use. `insert` puts something where it was not: at an index
+// in an array, or into a set. `set` replaces what is at a position: an array index, or a map key.
+// So a map has `set` and no `insert`, and a set has `insert` and no `set`.
+builtin fn insert<T>(a: [T], index: int, x: T) -> [T]
+builtin fn insert<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
+
+builtin fn set<T>(a: [T], index: int, x: T) -> [T]
+builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
+
+// `remove` takes all three: an index, a key, or the element itself.
+builtin fn remove<T>(a: [T], index: int) -> [T]
+builtin fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
+builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
+
+// ---- the builder operations that take **either world**
+//
+// Each of these accepts the immutable form *or* the builder, which is what `either_world()` in the
+// type checker means: `mutable_array_from` takes an array or another MutableArray,
+// `mutable_set_union`'s second argument a Set or a MutableSet. Two declarations each, for the one
+// argument that has the choice -- the handle is always a handle.
+
+builtin fn mutable_array_from<T>(items: [T]) -> MutableArray<T>
+builtin fn mutable_array_from<T>(items: MutableArray<T>) -> MutableArray<T>
+
+builtin fn mutable_map_from<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
+builtin fn mutable_map_from<K: Eq + Hash, V>(entries: MutableMap<K, V>) -> MutableMap<K, V>
+
+builtin fn mutable_set_from<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
+builtin fn mutable_set_from<T: Eq + Hash>(items: MutableSet<T>) -> MutableSet<T>
+
+// The one that changes shape rather than world: an array in, a set out.
+builtin fn mutable_set_from_array<T: Eq + Hash>(items: [T]) -> MutableSet<T>
+builtin fn mutable_set_from_array<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
+
+builtin fn mutable_array_push_all<T>(xs: MutableArray<T>, items: [T])
+builtin fn mutable_array_push_all<T>(xs: MutableArray<T>, items: MutableArray<T>)
+
+builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
+builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
+
+builtin fn mutable_set_union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+builtin fn mutable_set_union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+
+builtin fn mutable_set_intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+builtin fn mutable_set_intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+
+builtin fn mutable_set_difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+builtin fn mutable_set_difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+
+builtin fn mutable_set_is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
+builtin fn mutable_set_is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
+
 // ---------------------------------------------------------------- comparison and ordering
 //
 // The four builtins that a bound already describes exactly, so each is one declaration rather than
