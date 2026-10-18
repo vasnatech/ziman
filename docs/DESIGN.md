@@ -3578,6 +3578,9 @@ rather than joining a dispatch that was already there. The pattern itself is est
 over an `ArrayBuilder` (F96) already matches a `TY_STRUCT` by `struct_name`, which is exactly what
 a handle is.
 
+(As designed in 2026-10; the three `from` constructors below were removed in F151 -- see the
+update under rule 2 -- and `mutable(x)` covers the conversion. Everything else still holds.)
+
 ```
 MutableArray<T>
   mutable_array_new<T>(capacity: Option<int>, grow_factor: Option<float>)
