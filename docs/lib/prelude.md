@@ -1805,6 +1805,11 @@ a builder at all, which is deliberate rather than pending. `mutable_array_from`,
 `mutable_map_from` and `mutable_set_from` used to be that way and were removed once `mutable`
 covered the conversion they were mostly used for: keeping both would have put two spellings on
 one question, and the clone half had no caller outside its own fixtures.
+**A literal argument is built straight into the builder.** `mutable([1, 2])` makes the
+MutableArray from the literal's elements without collecting them into an array first -- the
+checker hands them over as the call's own arguments, which is what `$map_lit` has always done --
+so three allocations and about 154 bytes per construction do not happen. Nothing observable
+changes; `mutable(xs)` on a variable still copies, because there the copy is the point.
 
 ```
 builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>

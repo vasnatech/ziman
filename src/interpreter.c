@@ -1234,6 +1234,7 @@ typedef enum {
     B_mutable_set_difference,
     B_mutable_set_is_subset,
     B_mutable_array_from,
+    B_mutable_array_lit,
     B_mutable_map_from,
     B_mutable_set_from,
     B_to_mutable_set,
@@ -1300,6 +1301,7 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"mutable_set_difference", B_mutable_set_difference},
     {"mutable_set_is_subset", B_mutable_set_is_subset},
     {"$mutable_array_from", B_mutable_array_from},
+    {"$mutable_array_lit", B_mutable_array_lit},
     {"$mutable_map_from", B_mutable_map_from},
     {"$mutable_set_from", B_mutable_set_from},
     {"to_mutable_set", B_to_mutable_set},
@@ -1503,6 +1505,9 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(0);
             } else if (bid == B_mutable_set_is_subset) {
                 result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type->kind == TY_STRUCT));
+            } else if (bid == B_mutable_array_lit) {
+                result = ziman_mutable_array_lit(args, argc);
+                result.type = &e->resolved_type;
             } else if (bid == B_mutable_array_from) {
                 result = ziman_mutable_array_from(args[0], args[0].type->kind == TY_STRUCT);
                 result.type = &e->resolved_type;

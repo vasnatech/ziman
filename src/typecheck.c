@@ -1447,9 +1447,15 @@ static const char *const PURE_BUILTINS[] = {
     "map_remove_all", "map_from_arrays",
     "set_items", "set_union", "set_intersect", "set_difference", "set_is_subset",
     "to_set", "set_insert_all", "set_filter",
-    "snapshot", "$mutable_array_from", "$mutable_map_from", "$mutable_set_from", "to_mutable_set",
+    "snapshot", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set",
     "mutable_set_is_subset",
     NULL};
+
+/* The callee as the author wrote it: `rewritten_from` when the checker has replaced `callee` with
+ * an internal name it dispatches on, and `callee` otherwise. */
+static const char *authored_callee(const Expr *e) {
+    return e->as.call.rewritten_from != NULL ? e->as.call.rewritten_from : e->as.call.callee;
+}
 
 static int is_pure_builtin_name(const char *name) {
     for (size_t i = 0; PURE_BUILTINS[i] != NULL; i++) {
@@ -1461,7 +1467,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "$mutable_array_from", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
@@ -1504,6 +1510,7 @@ static const struct { const char *name; const char *reason; } BUILTIN_NO_SIGNATU
     {"format", "checks its template against the argument list"},
     {"error_message", "accepts any type with a '<type>_message' function, which is a lookup rather than a type"},
     {"$mutable_array_from", "not callable: the checker emits it for 'mutable' over an array"},
+    {"$mutable_array_lit", "not callable: the checker emits it for 'mutable' over an array literal"},
     {"$mutable_map_from", "not callable: the checker emits it for 'mutable' over a Map"},
     {"$mutable_set_from", "not callable: the checker emits it for 'mutable' over a Set"},
     {"$map_lit", "not callable: the parser emits it for a map literal"},
@@ -2644,10 +2651,24 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
         require_not_void(arg, "as the value 'mutable' makes mutable");
+        /* `mutable([1, 2])` builds the builder straight from the literal's elements, which become
+         * this call's arguments -- the shape `$map_lit` has used since map literals existed. The
+         * array the elements would otherwise be collected into is never allocated, and the
+         * elements are already checked, `check_expr` above having checked the literal. Measured:
+         * two allocations and 80 bytes less per construction. A literal with no elements cannot
+         * reach here, `[]` having no element type to infer, so the guard is for the shape rather
+         * than for a case. */
+        if (arg_type.kind == TY_ARRAY && arg->kind == EXPR_ARRAY_LIT && arg->as.array_lit.elements.count > 0) {
+            e->as.call.rewritten_from = "mutable";
+            e->as.call.callee = ziman_xstrdup("$mutable_array_lit");
+            e->as.call.args = arg->as.array_lit.elements;
+            return mutable_handle_type(SHAPE_ARRAY, *arg_type.elem, NULL);
+        }
         const char *target = arg_type.kind == TY_ARRAY ? "$mutable_array_from"
                            : arg_type.kind == TY_MAP   ? "$mutable_map_from"
                            : arg_type.kind == TY_SET   ? "$mutable_set_from"
                                                        : "mutable_new";
+        e->as.call.rewritten_from = "mutable";
         e->as.call.callee = ziman_xstrdup(target);
         return check_expr(module, env, e);
     }
@@ -2924,6 +2945,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                 ziman_error("type", e->line, e->col, "'insert' takes exactly 3 argument(s), found %d",
                             e->as.call.args.count);
             }
+            e->as.call.rewritten_from = is_push ? "push" : "insert";
             e->as.call.callee = ziman_xstrdup(is_push ? "mutable_array_push" : "mutable_array_insert");
             return check_expr(module, env, e);
         }
@@ -5530,10 +5552,18 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                  * builtins with no effects, so unlike a user function none of them can be called for
                  * one; channel and print builtins are deliberately absent. `val _ = ...` still discards
                  * on purpose, exactly as it does for a Result above. */
+                /* Both the gate and the message read the name the *author* wrote, not the one a
+                 * rewrite dispatches on -- see Expr's `rewritten_from`. Reading the rewritten name
+                 * got this wrong twice over: discarding `mutable([1, 2])` reported
+                 * `$mutable_array_lit`, which does not lex as an identifier, while discarding
+                 * `mutable(42)` was accepted in silence, `mutable_new` not being on the list even
+                 * though `mutable` is. A rewrite target that returns void, such as a `push` onto a
+                 * builder, is excluded by the `t.kind != TY_VOID` test above rather than by its
+                 * name. */
                 else if (s->as.expr_stmt.expr->kind == EXPR_CALL && t.kind != TY_VOID
-                         && s->as.expr_stmt.expr->as.call.callee != NULL
-                         && is_pure_builtin_name(s->as.expr_stmt.expr->as.call.callee)) {
-                    const char *name = s->as.expr_stmt.expr->as.call.callee;
+                         && authored_callee(s->as.expr_stmt.expr) != NULL
+                         && is_pure_builtin_name(authored_callee(s->as.expr_stmt.expr))) {
+                    const char *name = authored_callee(s->as.expr_stmt.expr);
                     if (strcmp(name, "push") == 0 || strcmp(name, "insert") == 0 || strcmp(name, "set") == 0
                         || strcmp(name, "remove") == 0) {
                         ziman_error("type", s->as.expr_stmt.expr->line, s->as.expr_stmt.expr->col,
@@ -5786,7 +5816,7 @@ void typecheck(Module *module) {
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare", "error_message",
-                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "$mutable_array_from", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
+                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

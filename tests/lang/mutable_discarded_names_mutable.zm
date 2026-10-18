@@ -1,0 +1,10 @@
+// A discarded `mutable(...)` is reported against the name the author wrote. The checker rewrites
+// the call onto one of several internal builtins -- `$mutable_array_lit` here -- and quoting the
+// rewritten name produced a message naming something that does not lex as an identifier. Expr's
+// `rewritten_from` carries the authored name for exactly this. The same field fixed a second bug in
+// the other direction: a discarded `mutable(42)` rewrites onto `mutable_new`, which is not on the
+// pure-builtin list even though `mutable` is, so it used to be accepted in silence.
+fn main() {
+    mutable([1, 2])
+    print(1)
+}

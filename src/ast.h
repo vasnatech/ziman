@@ -334,7 +334,13 @@ struct Expr {
          * dotted callee alone with `unresolved_qualifier` set, and the type checker either resolves it
          * to this field access or reports the unknown module. A call's target is otherwise always a
          * name, which is why this one case needs an expression. */
-        struct { char *callee; ExprList args; TypeList type_args; char **arg_names; int variadic_tail_is_array_spread; char *local_name; int through_value; Expr *callee_expr; int unresolved_qualifier; } call;
+        struct { char *callee; ExprList args; TypeList type_args; char **arg_names; int variadic_tail_is_array_spread; char *local_name; int through_value; Expr *callee_expr; int unresolved_qualifier;
+                 /* What the author wrote, when the checker has rewritten `callee` into an
+                  * internal name it dispatches on. Diagnostics that quote a callee read this
+                  * first, so a message about `mutable([1, 2])` says `mutable` rather than
+                  * `$mutable_array_lit`, which does not even lex as an identifier. NULL when
+                  * nothing was rewritten, which is every ordinary call. */
+                 const char *rewritten_from; } call;
         struct { Expr *operand; Type target_type; } cast;
         struct { ExprList elements; } array_lit;
         struct { Expr *array; Expr *index; } index;

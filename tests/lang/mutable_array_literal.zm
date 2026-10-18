@@ -1,0 +1,36 @@
+// `mutable([1, 2])` builds the MutableArray straight from the literal's elements: the checker turns
+// it into a call whose arguments *are* those elements, the shape `$map_lit` has used since map
+// literals existed, so the array they would otherwise be collected into is never allocated.
+// Measured with ziman-allocprofile over 100k constructions, it drops three allocations and ~154
+// bytes each -- the ArrayObj, its packed buffer, and the literal's own Value[] (that last one
+// because a call of four arguments or fewer stages them on the C stack, ARGS_INLINE).
+//
+// Nothing about the result changes, which is what this pins: every element kind, a literal longer
+// than ARGS_INLINE, and the non-literal path still copying rather than aliasing.
+fn main() {
+    val b = mutable([1, 2, 3])
+    push(b, 4)
+    print(snapshot(b))
+    print(b[0])
+    b[0] = 9
+    print(snapshot(b))
+
+    print(snapshot(mutable(["x", "y"])))
+    print(snapshot(mutable([7])))
+    print(snapshot(mutable([true, false])))
+
+    // elements are ordinary expressions, evaluated left to right
+    val n = 5
+    print(snapshot(mutable([n, n + 1, len("abc")])))
+    print(snapshot(mutable([[1, 2], [3]])))
+
+    // past ARGS_INLINE (4): one heap staging instead of three allocations
+    print(snapshot(mutable([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])))
+
+    // not a literal, so the conversion copies -- the source is untouched
+    val arr = [1, 2]
+    val d = mutable(arr)
+    push(d, 3)
+    print(arr)
+    print(snapshot(d))
+}

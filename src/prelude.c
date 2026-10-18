@@ -1936,6 +1936,29 @@ Value ziman_mutable_array_from(Value source, int source_is_handle) {
     return out;
 }
 
+/* A MutableArray straight from already-evaluated elements, for `mutable([1, 2])`. The same loop as
+ * `ziman_mutable_array_from`'s value branch, reading a plain `Value *` instead of an ArrayObj,
+ * which is the whole point: the checker hands the literal's elements over as ordinary call
+ * arguments -- the shape `$map_lit` has always used -- so the intermediate array is never built.
+ * Measured against the `$mutable_array_from` path it drops two allocations and 80 bytes per
+ * construction: the ArrayObj (src/value.c:147) and its packed buffer (src/value.c:245). The
+ * literal's own `Value[]` is not a saving, the `args` array of any call replacing it. */
+Value ziman_mutable_array_lit(const Value *items, int n) {
+    Value out = mutable_array_new_value(n > 0 ? (size_t)n : 1, 2.0);
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(out));
+    if (n > 0) {
+        mutable_array_adopt_pack_kind(buf, items[0]);
+        mutable_array_ensure_capacity(buf, (size_t)n);
+    }
+    for (int i = 0; i < n; i++) {
+        mutable_array_adopt_pack_kind(buf, items[i]);
+        if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, i, items[i]);
+        else buf->items[i] = items[i];
+        buf->length++;
+    }
+    return out;
+}
+
 /* `snapshot` on one of the four handles: the same O(n) copy out that `snapshot`,
  * `snapshot`, `snapshot` and `snapshot` have always done, reached by one name instead of
  * four. Nothing new happens here -- it dispatches to those very implementations -- so a builder

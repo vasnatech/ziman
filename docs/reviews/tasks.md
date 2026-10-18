@@ -1157,3 +1157,30 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   after a vocabulary change. **A gate for this is the obvious next move and was not taken here**;
   the lists mix builtins with prelude natives, so only the builtin half is derivable from
   `ziman_builtin_name`/`ziman_builtin_count`.
+
+- [x] **F153** **`mutable([1, 2])` built a throwaway array on the way to the builder.**
+  (raised 2026-10-18 from a review question -- *"is mutable([1,2]) going to create an array than a
+  mutablearray?"*, then *"can you create MutableArray directly from mutable([1, 2])?"*; S) It did:
+  `EXPR_ARRAY_LIT` allocated a `Value[]`, `array_try_pack` allocated an `ArrayObj` and a packed
+  buffer, and only then did `ziman_mutable_array_from` allocate the handle and copy the elements
+  across, leaving the whole intermediate array garbage. The checker now rewrites
+  `mutable(<array literal>)` into a call whose **arguments are the elements** -- the shape
+  `$map_lit` has used since map literals existed -- and one interpreter arm writes them straight
+  into the buffer.
+
+  **Measured with the project's own `ziman-allocprofile`, 100k constructions of
+  `mutable([1, 2, 3])`: 907,581 calls / 39.8 MB before, 607,518 / 24.4 MB after** -- three
+  allocations and ~154 bytes less per construction, 33% fewer allocation calls and 39% fewer bytes
+  in that loop. One more than predicted, because a call of `ARGS_INLINE` (4) arguments or fewer
+  stages them on the C stack, so the literal's own `Value[]` disappears too rather than being
+  replaced. Past four, one heap staging replaces three allocations.
+
+  **An honest note on reach:** this helps literal construction only. The one real caller outside
+  fixtures, the backend's `mutable(pool)`, passes a variable, where the copy is what was asked for.
+
+  **It also made one message worse before making two better.** Quoting the rewritten callee, a
+  discarded `mutable([1, 2])` reported `'$mutable_array_lit'` -- a name that does not lex as an
+  identifier. `Expr`'s new `rewritten_from` carries the authored name, and reading it in the *gate*
+  as well as the message fixed a second bug pointing the other way: a discarded `mutable(42)`
+  rewrites onto `mutable_new`, which is not on the pure-builtin list even though `mutable` is, so
+  it had been accepted in silence. Both are fixtures now.
