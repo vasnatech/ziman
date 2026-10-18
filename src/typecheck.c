@@ -1499,9 +1499,7 @@ const char *ziman_builtin_name(int i) {
  * known about". So a new undeclarable builtin is one line here, and the gate fails until it is
  * written. */
 static const struct { const char *name; const char *reason; } BUILTIN_NO_SIGNATURE[] = {
-    {"print", "accepts any type"},
-    {"printf", "accepts any type"},
-    {"str", "accepts any type"},
+    {"printf", "checks its template against the argument list, as 'format' does"},
     {"format", "checks its template against the argument list"},
     {"error_message", "accepts any type with a '<type>_message' function, which is a lookup rather than a type"},
     {"$map_lit", "not callable: the parser emits it for a map literal"},

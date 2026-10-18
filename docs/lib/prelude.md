@@ -1609,6 +1609,49 @@ builtin fn clear<K: Eq + Hash, V>(b: MutableMap<K, V>)
 builtin fn clear<T: Eq + Hash>(b: MutableSet<T>)
 ```
 
+### `print`
+
+```
+builtin fn print<T>(a: T)
+```
+
+**`print` takes a type parameter, not a top type.** `print` really does accept anything --
+a lambda, a `Channel`, a `Set` -- but an ordinary `<T>` already says that and already works:
+`fn log<T>(label: string, value: T) { print(value) }` compiles and prints all three. A top type
+would be a new concept earning a single declaration, and a type whose values you could accept
+and then do almost nothing with, so `print` uses the generics the language already has.
+
+### `str`
+
+```
+builtin fn str(x: int) -> string
+```
+
+**Six scalars, and not `string`** -- `str("x")` is refused with "it's already a string", so
+`str` is not an "accepts anything" builtin however much it looks like one. The set of
+conversions is closed, which is why it is six overloads rather than one signature over a
+type parameter: `str` on a lambda or a `Set` has no answer to give.
+
+```
+builtin fn str(x: float) -> string
+```
+
+```
+builtin fn str(x: bool) -> string
+```
+
+```
+builtin fn str(x: bigint) -> string
+```
+
+```
+builtin fn str(x: decimal) -> string
+```
+
+```
+builtin fn str(x: byte) -> string
+```
+
 ### `abs`
 
 ```
