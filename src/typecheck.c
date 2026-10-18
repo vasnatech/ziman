@@ -2613,44 +2613,28 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return type_scalar(TY_VOID);
     }
 
-    /* `mutable(x)`: the inverse of `snapshot`, and one word for what three `mutable_*_from`
-     * builtins spell separately. Each shape rewrites onto the one it mirrors rather than
-     * re-deriving the result type here, so the either-world behaviour of those three -- a builder
-     * argument is copied rather than refused -- is inherited instead of restated. */
+    /* `mutable(x)`: the mutable counterpart of whatever it is given. The three collections that
+     * have a builder rewrite onto the `mutable_*_from` they mirror, so each inherits that
+     * family's result-type derivation rather than repeating it here. Everything else -- a scalar,
+     * a string, a struct, another handle -- has no builder to answer, so it rewrites onto
+     * `mutable_new` and answers a `Mutable<T>` cell.
+     *
+     * The ordering is the dispatch: an array matches both `[T]` and the bare `T`, and the array
+     * form wins, which is why `mutable([1, 2])` is never a `Mutable<[int]>`. That one is
+     * `mutable_new([1, 2])`, and lib/prelude.zm's note above these declarations says so. */
     if (strcmp(name, "mutable") == 0) {
         if (e->as.call.args.count != 1) {
             ziman_error("type", e->line, e->col, "'mutable' takes exactly 1 argument, found %d", e->as.call.args.count);
         }
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
-        const char *target = NULL;
-        if (arg_type.kind == TY_ARRAY) target = "mutable_array_from";
-        else if (arg_type.kind == TY_MAP) target = "mutable_map_from";
-        else if (arg_type.kind == TY_SET) target = "mutable_set_from";
-        else if (arg_type.kind == TY_STRUCT && arg_type.struct_name != NULL) {
-            if (strcmp(arg_type.struct_name, "MutableArray") == 0) target = "mutable_array_from";
-            else if (strcmp(arg_type.struct_name, "MutableMap") == 0) target = "mutable_map_from";
-            else if (strcmp(arg_type.struct_name, "MutableSet") == 0) target = "mutable_set_from";
-        }
-        if (target != NULL) {
-            e->as.call.callee = ziman_xstrdup(target);
-            return check_expr(module, env, e);
-        }
-        /* The two it does not cover, each with the reason rather than a bare refusal. A string has
-         * no `mutable_string_from` to rewrite onto -- a MutableString is filled by appending, not
-         * converted -- and a `Mutable<T>` cell is not the other world of anything: `snapshot` has
-         * no cell form, so there is no round trip for `mutable` to complete. */
-        if (arg_type.kind == TY_STRING || (arg_type.kind == TY_STRUCT && arg_type.struct_name != NULL &&
-                                           strcmp(arg_type.struct_name, "MutableString") == 0)) {
-            ziman_error("type", arg->line, arg->col,
-                        "'mutable' has no string form: a MutableString is filled by appending rather than "
-                        "converted -- 'val sb = mutable_string_new()' then 'mutable_string_append(sb, s)'");
-        }
-        ziman_error("type", arg->line, arg->col,
-                    "'mutable' expects an array, map or set -- or one of their builders, which it copies -- "
-                    "found %s; a single value's cell is 'mutable_new(value)', which is not this conversion "
-                    "('snapshot' has no cell form to reverse)",
-                    type_name(arg_type));
+        require_not_void(arg, "as the value 'mutable' makes mutable");
+        const char *target = arg_type.kind == TY_ARRAY ? "mutable_array_from"
+                           : arg_type.kind == TY_MAP   ? "mutable_map_from"
+                           : arg_type.kind == TY_SET   ? "mutable_set_from"
+                                                       : "mutable_new";
+        e->as.call.callee = ziman_xstrdup(target);
+        return check_expr(module, env, e);
     }
 
     if (strcmp(name, "snapshot") == 0) {

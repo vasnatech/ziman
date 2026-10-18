@@ -1062,20 +1062,24 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   verbs and this is in the conversions. `mutable(x)` is now the one word, rewritten onto the `_from`
   it mirrors so the either-world behaviour of those three is inherited rather than restated.
 
-  **Two parts of the request were declined, and the second is the interesting one.** The review
-  also asked for `T -> Mutable<T>`, a catch-all for the cell. It cannot join these three: an array
-  argument matches both `[T]` and a bare `T`, so the overloads would need ranking by specificity --
-  which F148 explicitly ruled out -- and the ranking would make `Mutable<[int]>` unspellable
-  through `mutable`, silently handing back a `MutableArray<int>` instead. `Mutable<[int]>` and
-  `Mutable<Set<int>>` are legal and useful today, which is what settled it. The deeper reason is
-  that a cell is not the other world of anything: `snapshot` has no cell form, so there is no round
-  trip for an inverse to complete. A cell stays `mutable_new(value)`, and `mutable(42)` says so.
+  **The cell was the open question, and the review settled it by removing the other half.** The
+  request also asked for `T -> Mutable<T>`, which cannot sit beside the three collection overloads
+  without an ordering: an array matches both `[T]` and the bare `T`. Raised as a conflict, with the
+  cost named -- the ordering makes `Mutable<[int]>` unspellable through `mutable`, silently handing
+  back a `MutableArray<int>` -- and the review's answer was to accept the ordering and drop the
+  three builder-argument overloads that had been there for either-world symmetry. So `mutable` is
+  four declarations: three collections to their builders, everything else to a cell. The ordering
+  is written down in lib/prelude.zm above the declarations and in SYNTAX.md, and the one thing it
+  costs is spelled out there with its repair, `mutable_new([1, 2])`.
 
-  A string form was left out too, for a different reason: a `MutableString` is *filled* rather than
-  converted, so there is no `mutable_string_from` to rewrite onto. `mutable("x")` names
-  `mutable_string_new` and `mutable_string_append` instead of refusing generically.
+  Two consequences of the cell fallback, both deliberate and both now fixtures. A string answers
+  `Mutable<string>` rather than a MutableString, because a MutableString is *filled* rather than
+  converted -- there is no `mutable_string_from` for it to rewrite onto. And a builder answers a
+  cell holding that same handle rather than a clone, so pushing through what comes back out changes
+  the original; copying a builder stays `mutable_array_from(b)`, which takes either world for
+  exactly that reason.
 
-  Three fixtures. Registering the name needed three lists in typecheck.c, not two -- `PURE_BUILTINS`
+    Three fixtures. Registering the name needed three lists in typecheck.c, not two -- `PURE_BUILTINS`
   (discarding the result is always a mistake), the `--api`/no-named-args list, and the reserved-name
   list that stops user code redefining a builtin. Also corrected a comment above
   `BUILTIN_NO_SIGNATURE` still claiming `print`/`str` "take anything", which stopped being true

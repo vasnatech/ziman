@@ -1,13 +1,10 @@
-// `mutable` is `snapshot` read backwards: snapshot answers the immutable type a builder is
-// building, mutable answers the builder an immutable collection is built with. Three shapes, each
-// rewritten onto the `mutable_*_from` it mirrors, so each inherits that family's either-world
-// behaviour -- a builder argument is copied rather than refused, which is how a private copy of one
-// is taken.
+// `mutable(x)` answers the mutable counterpart of whatever it is given. The three collections that
+// have a builder answer that builder, which reads as `snapshot` backwards; each rewrites onto the
+// `mutable_*_from` it mirrors.
 //
 // The map and set cases are here together on purpose: the interpreter tells `mutable_map_from` from
-// `mutable_set_from` by the ninth character of the callee name, so a rewrite that produced anything
-// but those two exact names would build the wrong shape. Each pair below mutates only the copy, so
-// a rewrite that returned the same handle twice would fail too.
+// `mutable_set_from` by the ninth character of the callee name, so a rewrite producing anything but
+// those two exact names would build the wrong shape.
 fn main() {
     val ab = mutable([1, 2, 3])
     push(ab, 4)
@@ -20,21 +17,6 @@ fn main() {
     val mb = mutable(Map<string, int> { "a": 1 })
     mutable_map_set<string, int>(mb, "b", 2)
     print(snapshot(mb))
-
-    val ab2 = mutable(ab)
-    push(ab2, 99)
-    print(len(ab))
-    print(len(ab2))
-
-    val sb2 = mutable(sb)
-    mutable_set_add<int>(sb2, 4)
-    print(snapshot(sb))
-    print(snapshot(sb2))
-
-    val mb2 = mutable(mb)
-    mutable_map_set<string, int>(mb2, "c", 3)
-    print(snapshot(mb))
-    print(snapshot(mb2))
 
     print(snapshot(mutable([7, 8])))
 }

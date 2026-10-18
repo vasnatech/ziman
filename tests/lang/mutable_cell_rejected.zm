@@ -1,9 +1,0 @@
-// `mutable` is not the constructor for a `Mutable<T>` cell, and the reason is not arbitrary:
-// `snapshot` has no cell form, so a cell is not the other world of anything. A catch-all
-// `mutable<T>(value: T) -> Mutable<T>` would also shadow the three collection overloads for
-// exactly the arguments they exist to take -- `mutable([1, 2])` would have to pick between
-// `MutableArray<int>` and `Mutable<[int]>`, and both are legal types.
-fn main() {
-    val cell = mutable(42)
-    print(mutable_get<int>(cell))
-}

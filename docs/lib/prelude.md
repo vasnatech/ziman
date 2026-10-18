@@ -1765,31 +1765,28 @@ builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
 builtin fn mutable<T>(items: [T]) -> MutableArray<T>
 ```
 
-**`mutable` is `snapshot` read backwards**, and one word for what the three `mutable_*_from`
-builtins below spell separately. `snapshot` answers the immutable type each builder is building;
-`mutable` answers the builder each immutable collection is built with. Each overload rewrites
-onto the `_from` it mirrors, so it inherits their either-world behaviour: a builder argument is
-copied rather than refused, which is how you take a private copy of one.
+**`mutable(x)` makes the mutable counterpart of whatever it is given.** For the three
+collections that have a builder it answers that builder, so it reads as `snapshot` backwards:
+`snapshot` answers the immutable type each builder is building, `mutable` answers the builder
+each collection is built with. For anything else -- a scalar, a string, a struct, an enum, even
+another handle -- there is no builder to answer, and the mutable counterpart of a single value
+is a cell, so it answers `Mutable<T>`.
 
-Two things it is deliberately not. There is no `mutable(s: string)`, because a MutableString is
-*filled* rather than converted -- `mutable_string_new()` then `mutable_string_append` -- so
-there is no `mutable_string_from` for it to rewrite onto. And it is not the constructor for a
-`Mutable<T>` cell: `snapshot` has no cell form, so a cell is not the other world of anything,
-and a catch-all `mutable<T>(value: T) -> Mutable<T>` would shadow all three overloads above for
-exactly the arguments they exist to take -- `mutable([1, 2])` would have to mean one of
-`MutableArray<int>` and `Mutable<[int]>`, and both are legal types today. A cell stays
-`mutable_new(value)`.
+**The dispatch is by shape, and the collections win.** An array matches both `[T]` and the bare
+`T` below it, and the array overload is the one that applies; the same for a `Map` and a `Set`.
+That is the whole of the ordering, and the one thing it costs is that a *cell holding* one of
+those three cannot be spelled this way -- `mutable([1, 2])` is a `MutableArray<int>`, never a
+`Mutable<[int]>`. Write that one as `mutable_new([1, 2])`, which is what the cell's own
+constructor is for and is unambiguous about which of the two you meant.
 
-```
-builtin fn mutable<T>(items: MutableArray<T>) -> MutableArray<T>
-```
+Two consequences worth knowing rather than discovering. A string answers `Mutable<string>`, not
+a MutableString: a MutableString is *filled* rather than converted (`mutable_string_new` then
+`mutable_string_append`), so it is not this conversion. And a builder answers a cell holding
+that same handle, not a clone of it -- copying a builder is `mutable_array_from(b)` and its two
+siblings below, which take either world for exactly that reason.
 
 ```
 builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
-```
-
-```
-builtin fn mutable<K: Eq + Hash, V>(entries: MutableMap<K, V>) -> MutableMap<K, V>
 ```
 
 ```
@@ -1797,7 +1794,7 @@ builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
 ```
 
 ```
-builtin fn mutable<T: Eq + Hash>(items: MutableSet<T>) -> MutableSet<T>
+builtin fn mutable<T>(item: T) -> Mutable<T>
 ```
 
 ### `mutable_array_from`

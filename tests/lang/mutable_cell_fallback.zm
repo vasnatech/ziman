@@ -1,0 +1,24 @@
+// Everything without a builder answers a `Mutable<T>` cell, the mutable counterpart of a single
+// value. A string is in this half rather than answering a MutableString, because a MutableString is
+// *filled* rather than converted and so is not this conversion.
+//
+// A builder is in this half too, and it answers a cell holding that same handle rather than a clone
+// of it -- pushing through what comes back out changes the original, which is what the last two
+// lines check. Copying a builder is `mutable_array_from(b)`, which takes either world for exactly
+// that reason.
+fn main() {
+    val ci = mutable(7)
+    mutable_set<int>(ci, 8)
+    print(mutable_get<int>(ci))
+
+    val cs = mutable("hi")
+    mutable_set<string>(cs, "there")
+    print(mutable_get<string>(cs))
+
+    print(mutable_get<bool>(mutable(true)))
+
+    val ab = mutable_array_from<int>([1, 2])
+    val held = mutable_get<MutableArray<int>>(mutable(ab))
+    push(held, 3)
+    print(snapshot(ab))
+}

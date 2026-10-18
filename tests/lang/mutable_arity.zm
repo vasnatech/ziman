@@ -1,0 +1,6 @@
+// One argument, and the message says so rather than reporting an unknown overload: every shape
+// `mutable` accepts takes exactly one.
+fn main() {
+    val r = mutable([1], [2])
+    print(len(r))
+}
