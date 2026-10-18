@@ -42,6 +42,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 |---|---|
 | [`time`](time.md) | Dates, times, durations and instants, modeled on java.time and written in ordinary Ziman. |
 | [`zone`](zone.md) | The IANA time zone database, read from the operating system's compiled zone files. |
+| [`schedule`](schedule.md) | Periodic background work inside a long-running process. |
 
 ## System
 
@@ -55,7 +56,6 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`metrics`](metrics.md) | Counters, gauges and histograms that the threads of a server share, and a render of them in the Prometheus text format for something to scrape. |
 | [`random`](random.md) | Randomness from the operating system. |
 | [`clock`](clock.md) | The system clock and sleeping, the two things Ziman cannot do in pure code. |
-| [`schedule`](schedule.md) | Periodic background work inside a long-running process. |
 
 ## Networking
 

@@ -30,7 +30,6 @@ flowchart LR
         properties["properties"]
         random["random"]
         regex["regex"]
-        schedule["schedule"]
         test["test"]
         thread["thread"]
         toml["toml"]
@@ -53,6 +52,7 @@ flowchart LR
         server["http.server"]
     end
     subgraph group_time["time"]
+        schedule["time.schedule"]
         time["time"]
         zone["time.zone"]
     end
