@@ -1483,6 +1483,40 @@ const char *ziman_builtin_name(int i) {
     return BUILTINS_NO_NAMED_ARGS[i];
 }
 
+/* Why a builtin has no `builtin fn` declaration in lib/prelude.zm, for the ones that can never have
+ * one. Every other dispatched name is declared there with a real signature (F148); these are the
+ * exceptions, and `--api builtins` prints the reason beside the name rather than listing it bare
+ * under a sentence that has to cover all of them at once.
+ *
+ * Two kinds. A rule that reads more than types -- `format` checks its template against the
+ * argument list, `print`/`str` take anything -- so no signature states it. And a name the parser
+ * *emits*, which a program can never type: `Map<K, V> { ... }` becomes a `$map_lit` call and
+ * `if Some(x) = v` becomes `$is_variant`.
+ *
+ * **This table is the single source.** `tools/check_builtins.py` reads it out of this file rather
+ * than keeping its own copy, the way tools/check_not_yet.py already reads the dispatch table --
+ * its header puts the principle well: "a new builtin should not need an edit in this file to be
+ * known about". So a new undeclarable builtin is one line here, and the gate fails until it is
+ * written. */
+static const struct { const char *name; const char *reason; } BUILTIN_NO_SIGNATURE[] = {
+    {"print", "accepts any type"},
+    {"printf", "accepts any type"},
+    {"str", "accepts any type"},
+    {"format", "checks its template against the argument list"},
+    {"error_message", "accepts any type with a '<type>_message' function, which is a lookup rather than a type"},
+    {"$map_lit", "not callable: the parser emits it for a map literal"},
+    {"$set_lit", "not callable: the parser emits it for a set literal"},
+    {"$is_variant", "not callable: the parser emits it for 'if V(x) = e'"},
+    {"$unwrap_variant", "not callable: the parser emits it for 'if V(x) = e'"},
+};
+
+const char *ziman_builtin_no_signature_reason(const char *name) {
+    for (size_t i = 0; i < sizeof BUILTIN_NO_SIGNATURE / sizeof BUILTIN_NO_SIGNATURE[0]; i++) {
+        if (strcmp(name, BUILTIN_NO_SIGNATURE[i].name) == 0) return BUILTIN_NO_SIGNATURE[i].reason;
+    }
+    return NULL;
+}
+
 /* "did you mean" support (LLM-generation benchmark, docs/reviews/llm-benchmark-2026-09-28.md:
  * an "undefined variable"/"undefined function" with no suggestion was the one diagnostic class
  * that never let a model self-correct from zero context, where a habit with a named fix -- a

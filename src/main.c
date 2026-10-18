@@ -512,9 +512,11 @@ static int run_api(const char *module_name) {
             if (!declared) undeclared++;
         }
         if (undeclared > 0) {
-            printf("\n\nalso builtin, dispatched by the interpreter (names only -- the checker owns the\n"
-                   "rule for each of these, so there is no signature to print; docs/SYNTAX.md\n"
-                   "\"Builtins\" has what each one takes):\n");
+            /* Each with the reason it has none, from typecheck.c's `BUILTIN_NO_SIGNATURE` -- a
+             * list under one covering sentence made the reader work out which sentence applied to
+             * which name, and `$map_lit` sitting unexplained beside `format` reads like an
+             * omission rather than a parser internal. */
+            printf("\n\nalso builtin, dispatched by the interpreter -- these carry no signature, and why:\n");
             for (int i = 0; i < ziman_builtin_count(); i++) {
                 const char *bname = ziman_builtin_name(i);
                 int declared = 0;
@@ -522,8 +524,14 @@ static int run_api(const char *module_name) {
                     FunctionDecl *f = prelude->functions.items[fi];
                     if (f->is_builtin && strcmp(f->name, bname) == 0) { declared = 1; break; }
                 }
-                if (!declared) printf("  %s\n", bname);
+                if (declared) continue;
+                const char *why = ziman_builtin_no_signature_reason(bname);
+                /* No reason recorded means it simply has not been declared yet, which
+                 * tools/check_builtins.py fails on -- said here too rather than printed as a bare
+                 * name a reader would take for a deliberate exception. */
+                printf("  %-16s %s\n", bname, why != NULL ? why : "not yet declared in lib/prelude.zm");
             }
+            printf("\ndocs/SYNTAX.md \"Builtins\" has what each one takes.\n");
         }
         printf("\nbuilt-in types, which are lowercase:\n  int  float  bool  string  byte  bigint  decimal\n"
                "  [T] (an array)  Map<K, V>  Set<T>  Option<T>  Result<T, E>  Channel<T>\n");
