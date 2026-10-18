@@ -1,0 +1,7 @@
+// A MutableString is filled rather than converted -- there is no `mutable_string_from` for
+// `mutable` to rewrite onto -- so this names the two calls that do build one instead of refusing
+// with the generic "expects an array, map or set".
+fn main() {
+    val sb = mutable("hello")
+    print(len(sb))
+}

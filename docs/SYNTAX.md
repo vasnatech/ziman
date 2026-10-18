@@ -411,6 +411,16 @@ for x in seen { ... }                    // a set has one binder
   `mutable_set_from_array` is a separate name rather than another source for `mutable_set_from`
   because it **deduplicates**, which a reader of `from` would have no reason to expect. Going the
   other way is `snapshot`.
+- **`mutable(x)` is `snapshot` read backwards**, and one word for the three `_from` names above:
+  `mutable([1, 2])` is a `MutableArray<int>`, `mutable(s)` a `MutableSet`, `mutable(m)` a
+  `MutableMap`. It rewrites onto the `_from` it mirrors, so it takes either world for the same
+  reason they do -- a handle in gives an independent clone out. Two absences are deliberate. There
+  is no string form: a `MutableString` is *filled* rather than converted, so there is no
+  `mutable_string_from` to rewrite onto, and `mutable("x")` says so. And it is not the constructor
+  for a `Mutable<T>` cell -- `snapshot` has no cell form, so a cell is not the other world of
+  anything, and a catch-all `mutable<T>(value: T)` would shadow all three overloads for exactly the
+  arguments they exist to take (`mutable([1, 2])` would have to choose between `MutableArray<int>`
+  and `Mutable<[int]>`, both legal types). A cell stays `mutable_new(value)`.
 - **`MutableString`** is the text one: `mutable_string_new`/`_append`/`_append_byte` build it, and
   `_get`/`_set`/`_index_of`/`_last_index_of` read and search it in place, so a string being built
   can be inspected without `snapshot` copying all of it. Byte-indexed like every other string

@@ -1053,3 +1053,30 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   Nine fixtures, six of them rejections. `diag_index_assign` changed sides: it asserted the parser
   error, and now asserts the output, with its comment rewritten to say the repair it used to point
   at is what the statement now means.
+
+- [x] **F150** **`snapshot` had no inverse, so crossing into the mutable world needed one of three
+  prefixed names.** (raised 2026-10-18 from a review question -- *"lets add fn mutable<T>(arr: [T])
+  -> MutableArray<T> for all [T], Set<T>, Map<K, V> ... reverse of snapshot"*; S) `snapshot` is one
+  word over four builders. Going the other way was `mutable_array_from`, `mutable_map_from`,
+  `mutable_set_from` -- three names for one question, which is the asymmetry F149 found in the
+  verbs and this is in the conversions. `mutable(x)` is now the one word, rewritten onto the `_from`
+  it mirrors so the either-world behaviour of those three is inherited rather than restated.
+
+  **Two parts of the request were declined, and the second is the interesting one.** The review
+  also asked for `T -> Mutable<T>`, a catch-all for the cell. It cannot join these three: an array
+  argument matches both `[T]` and a bare `T`, so the overloads would need ranking by specificity --
+  which F148 explicitly ruled out -- and the ranking would make `Mutable<[int]>` unspellable
+  through `mutable`, silently handing back a `MutableArray<int>` instead. `Mutable<[int]>` and
+  `Mutable<Set<int>>` are legal and useful today, which is what settled it. The deeper reason is
+  that a cell is not the other world of anything: `snapshot` has no cell form, so there is no round
+  trip for an inverse to complete. A cell stays `mutable_new(value)`, and `mutable(42)` says so.
+
+  A string form was left out too, for a different reason: a `MutableString` is *filled* rather than
+  converted, so there is no `mutable_string_from` to rewrite onto. `mutable("x")` names
+  `mutable_string_new` and `mutable_string_append` instead of refusing generically.
+
+  Three fixtures. Registering the name needed three lists in typecheck.c, not two -- `PURE_BUILTINS`
+  (discarding the result is always a mistake), the `--api`/no-named-args list, and the reserved-name
+  list that stops user code redefining a builtin. Also corrected a comment above
+  `BUILTIN_NO_SIGNATURE` still claiming `print`/`str` "take anything", which stopped being true
+  when both were declared.

@@ -1060,6 +1060,27 @@ builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
 // `mutable_set_union`'s second argument a Set or a MutableSet. Two declarations each, for the one
 // argument that has the choice -- the handle is always a handle.
 
+// **`mutable` is `snapshot` read backwards**, and one word for what the three `mutable_*_from`
+// builtins below spell separately. `snapshot` answers the immutable type each builder is building;
+// `mutable` answers the builder each immutable collection is built with. Each overload rewrites
+// onto the `_from` it mirrors, so it inherits their either-world behaviour: a builder argument is
+// copied rather than refused, which is how you take a private copy of one.
+//
+// Two things it is deliberately not. There is no `mutable(s: string)`, because a MutableString is
+// *filled* rather than converted -- `mutable_string_new()` then `mutable_string_append` -- so
+// there is no `mutable_string_from` for it to rewrite onto. And it is not the constructor for a
+// `Mutable<T>` cell: `snapshot` has no cell form, so a cell is not the other world of anything,
+// and a catch-all `mutable<T>(value: T) -> Mutable<T>` would shadow all three overloads above for
+// exactly the arguments they exist to take -- `mutable([1, 2])` would have to mean one of
+// `MutableArray<int>` and `Mutable<[int]>`, and both are legal types today. A cell stays
+// `mutable_new(value)`.
+builtin fn mutable<T>(items: [T]) -> MutableArray<T>
+builtin fn mutable<T>(items: MutableArray<T>) -> MutableArray<T>
+builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
+builtin fn mutable<K: Eq + Hash, V>(entries: MutableMap<K, V>) -> MutableMap<K, V>
+builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
+builtin fn mutable<T: Eq + Hash>(items: MutableSet<T>) -> MutableSet<T>
+
 builtin fn mutable_array_from<T>(items: [T]) -> MutableArray<T>
 builtin fn mutable_array_from<T>(items: MutableArray<T>) -> MutableArray<T>
 
