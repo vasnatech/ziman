@@ -167,6 +167,7 @@ them against the code.
 - [Pattern matching, measured rather than argued (2026-10-11, F67)](#pattern-matching-measured-rather-than-argued-2026-10-11-f67)
 - [Four formatter rules that lived only in comments (2026-10-12, F73 and F79)](#four-formatter-rules-that-lived-only-in-comments-2026-10-12-f73-and-f79)
 - [`make tsan`'s collector configuration was linking an uninstrumented collector (2026-10-16)](#make-tsans-collector-configuration-was-linking-an-uninstrumented-collector-2026-10-16)
+- [`native` and builtin are two different mechanisms, and the difference is who owns the type rule (2026-10-18, F148)](#native-and-builtin-are-two-different-mechanisms-and-the-difference-is-who-owns-the-type-rule-2026-10-18-f148)
 
 <!-- end index -->
 
@@ -6859,3 +6860,88 @@ report about Ziman's own code and is unaffected by how the collector was compile
 by hand with `TSAN_OPTIONS='...'` **replaces** the Makefile's `TSAN_OPTS`, suppressions path
 included, so that race reappears and looks like a new finding -- it is not. Reproduce with
 `TSAN_OPTIONS=halt_on_error=0:suppressions=tools/tsan.supp`.
+
+## `native` and builtin are two different mechanisms, and the difference is who owns the type rule (2026-10-18, F148)
+
+Written down because a reviewer asked what the difference was and the answer was not recorded
+anywhere, while the consequence of not knowing it is measurable -- see the end of this entry.
+
+**A `native fn` is a function whose type can be written down.** It is declared in `lib/prelude.zm`
+with a full signature, and registered by name to one C function of one fixed shape:
+
+```c
+typedef Value (*NativeFn)(Value *args, int argc, int line, int col);
+native_register("parse_float", native_parse_float);
+```
+
+Its call goes through the **ordinary call path** -- `check_call` reads the declaration exactly as it
+reads a user `fn`'s. That is why a native gets everything an ordinary function gets: generics with
+inference (`native fn slice<T>(a: [T], start: int, end: int) -> [T]`), `variadic`
+(`native fn concat(pieces: variadic string) -> string`), and default arguments
+(`native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0)`).
+The C body sees only evaluated `Value`s.
+
+**A builtin is a rule the checker implements.** There is no declaration anywhere. A name maps to an
+enum id (`{"len", B_len}`) and the evaluator branches on it inside `eval_call`, so a builtin holds
+the whole call **expression** rather than only the argument values: `e->resolved_type`, the argument
+`Expr`s, even the callee's own spelling -- `e->as.call.callee[12] == 'u'` is how one branch picks
+union from intersect from difference. Its types are a hand-written arm per name in `typecheck.c`,
+with a hand-written error message.
+
+| | `native fn` | builtin |
+|---|---|---|
+| declaration | prelude, full signature | none |
+| type checking | the ordinary call path | a bespoke C arm per name |
+| C contract | one fixed shape | arbitrary, inside the evaluator |
+| sees the call site | no, only values | yes |
+| named arguments | allowed | refused (`BUILTINS_NO_NAMED_ARGS`) |
+| `--api builtins` | prints the signature | the name only |
+
+**So the twenty-odd builtins are not one category but three, and only the first could ever be
+declared.**
+
+1. **The shape is not a shape.** `len` spans string, `[T]`, `Map`, `Set`, the four builders and
+   `Mutable<T>`; `contains` spans the pairs of those. Each signature is writable on its own, and
+   there is no single one. `snapshot`, `clear`, `push`, `insert`, `set`, `remove`, `abs`, `min`,
+   `max`, `hash`, `compare`, `unwrap` and `is_ok` are all here.
+2. **The rule reads more than types.** `format` validates its template string against the argument
+   list; `print`, `printf` and `str` accept anything at all. No signature states either, so these
+   stay in C whatever else changes.
+3. **They are not callable names.** `$map_lit`, `$set_lit`, `$is_variant` and `$unwrap_variant` are
+   desugaring targets the parser emits -- `Map<string, int> { "a": 1 }` becomes a `$map_lit` call,
+   and `if Some(x) = v` becomes `$is_variant`. They appear in the builtin tables and can never be
+   typed by a user.
+
+**Why the distinction is worth a section rather than a comment.** `native` currently conflates two
+claims -- "C supplies the body" and "C supplies the type rule" -- and only the first is true of a
+native. The second is what makes a builtin a builtin, and it is also what makes a builtin invisible:
+`--api builtins` prints signatures *from the prelude*, which `src/main.c` argues for in the right
+terms ("The prelude declares all of them with real signatures, so it is the honest source") and then
+has to except these twenty from, by name only.
+
+The cost of that invisibility was measured on a real session rather than argued. A model working in
+the North Star backend wrote `len(snapshot(out))` and `contains(snapshot(taken), at)` -- converting
+a `MutableArray` into an array to ask its length -- hand-wrote a `contains_text(words, word)`
+membership helper, and hand-wrote a quadratic `join`. Three separate corrections from the reviewer,
+all one mistake: it had enumerated the API by name **prefix**
+(`grep -o "mutable_array_[a-z_]*"`, thirty hits, which reads like a complete API) and an unprefixed
+builtin cannot appear in that. The types it needed exist only as prose in docs/SYNTAX.md, which says
+the thing the code could not: *"asking a collection its size never needs a per-type name or a
+conversion."* Nine more hand-rolled membership loops were already in that backend, five of them in
+production code and none with a `break`.
+
+These names are also written out in four places with nothing cross-checking them: `typecheck.c` (the
+type arms, plus `PURE_BUILTINS` and `BUILTINS_NO_NAMED_ARGS`), the interpreter's dispatch table,
+`src/lsp.c`'s `BUILTINS[]`, and SYNTAX.md's prose. The LSP array has already drifted -- `snapshot`
+four times, `contains` three, `len` twice -- and it is what drives editor completion, so the
+editor's idea of the builtins is the least reliable of the four.
+
+**F148 holds the proposal this entry exists to inform**: a `builtin fn` declaration, overloaded on
+the first parameter, which splits the conflation -- the declaration moves to the prelude where it can
+be printed and grepped, the rule stays in C where categories 2 and 3 require it. The restriction
+that keeps it small is that the interpreter *already* dispatches these on `args[0]`
+(`call_len(args[0])`, `clear(args[0])`, `snapshot(args[0])`), so a `builtin fn` set is a dispatch
+table keyed on the first parameter's type constructor -- not overload resolution, and deliberately
+not available to user code, since a second same-named `fn` in a program would make this C++
+overloading and half-undo the "no methods, a function takes its receiver as an argument" decision.
+
