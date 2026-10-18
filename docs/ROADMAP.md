@@ -2571,7 +2571,7 @@ from source.
   `sort(map_keys(m))` covers "give me it sorted" today, and nothing needs range queries yet.
   Revisit when a feature does.
 - **`Map`/`Set` helper functions.** Done: `map_get_or`, `map_merge`, `map_filter`, `map_remove_all`,
-  `map_from_arrays`, `set_union`, `set_intersect`, `set_difference`, `set_is_subset`, `set_from_array`,
+  `map_from_arrays`, `set_union`, `set_intersect`, `set_difference`, `set_is_subset`, `to_set`,
   `set_insert_all`, `set_filter`, and now `map_map_values`, `set_map`, `map_entries` (a `MapEntry<K, V>`
   struct instead of a tuple type), `collections.frequencies` and `collections.index_by` (docs/SYNTAX.md "Maps
   and sets"). Nothing open here; `TreeMap`/`TreeSet` stay postponed (above).

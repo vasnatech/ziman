@@ -346,7 +346,7 @@ for x in seen { ... }                    // a set has one binder
   fn(K, V) -> bool)`, `map_remove_all(m, keys)`, `map_from_arrays(keys, values)` (equal lengths,
   else runtime error; a repeated key keeps the last value); sets -- `set_union`/`set_intersect`/
   `set_difference(a, b)` (`a`'s order, `b`'s extras appended for union), `set_is_subset(a, b)`,
-  `set_from_array(items)`, `set_insert_all(s, items)`, `set_filter(s, keep: fn(T) -> bool)`.
+  `to_set(items)`, `set_insert_all(s, items)`, `set_filter(s, keep: fn(T) -> bool)`.
   A type argument a lambda's result would have to supply is inferred only when the lambda is fully
   annotated (every parameter typed and `->` written), which is the same information a named function
   gives; an unannotated lambda takes its types *from* the expected type, so it has none to contribute
@@ -405,9 +405,14 @@ for x in seen { ... }                    // a set has one binder
 - **Crossing into the mutable world is `mutable(x)`, and back is `snapshot(b)`.** It beats `new`
   plus a loop for the two hashed shapes, because it copies the trie's nodes with the leaves shared
   rather than hashing and placing every entry again, and it sizes an array's buffer to the source
-  in one allocation. `mutable_set_from_array(xs)` is a separate name rather than another source for
-  `mutable(xs)` because it **deduplicates**, which a reader of a conversion would have no reason to
-  expect; it is the one of these that still takes **either world**, an array or a MutableArray.
+  in one allocation. **`to_set(xs)` and `to_mutable_set(xs)`** are the same question with the answer
+  in different worlds, and each takes **either world** as its source -- an array or a MutableArray,
+  read element by element rather than snapshotted, so accepting a handle saves a copy instead of
+  hiding one. They have to be two names rather than overloads: they take the same argument types and
+  differ only in what they return, which first-argument dispatch cannot distinguish. Both are named
+  for the result because both **deduplicate** -- a reader of `to_set` expects that of a set, where
+  `set_from_array`/`mutable_set_from_array` (their names until 2026-10-18) had to document it -- and
+  `to_` rather than `as_` because they allocate and copy, where `as_` reads as a free view.
   There were three more -- `mutable_array_from`, `mutable_map_from`, `mutable_set_from`, each also
   either-world -- and they were removed once `mutable` covered the conversion they were mostly used
   for: keeping both put two spellings on one question. Their either-world half was a **clone**, and

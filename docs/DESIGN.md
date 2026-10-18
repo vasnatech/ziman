@@ -3621,7 +3621,7 @@ MutableMap<K: Eq + Hash, V>
 MutableSet<T: Eq + Hash>
   mutable_set_new<T>()
   mutable_set_from<T>(s: Set<T> | MutableSet<T>) -> MutableSet<T>
-  mutable_set_from_array<T>(xs: [T] | MutableArray<T>) -> MutableSet<T>
+  mutable_set_from_array<T>(xs: [T] | MutableArray<T>) -> MutableSet<T>   (now `to_mutable_set`)
   mutable_set_add<T>(s, item) -> bool                    true if added
   mutable_set_add_all<T>(s, items: variadic T) -> bool   true if at least one was added
   mutable_set_remove<T>(s, item) -> bool                 true if removed
@@ -3678,14 +3678,15 @@ accepting two types has to name both when handed a third.
 > to avoid, and the ground on which `..=` was declined. They were removed, which also removed the
 > free clone this rule describes: **a builder can no longer be cloned.** That half had no caller
 > anywhere outside its own fixtures, so the clone was a property of the implementation rather than
-> something the language was asked for. `mutable_set_from_array` survives, still either-world,
+> something the language was asked for. `mutable_set_from_array` survives, still either-world and
+> renamed `to_mutable_set` in F152,
 > because it *deduplicates* and so is a different question; rule 3 below still governs it. The
 > checker keeps the three as `$`-prefixed internal builtins that `mutable` rewrites onto, so the
 > trie-node sharing and the one-allocation buffer sizing described here are all still what runs.
 
 **It needs no new notation**, which is worth stating because the `Set<T> | MutableSet<T>` spelling
 above looks like it does. The immutable twins of these nine are *already* hand-checked builtins --
-`set_union`, `set_intersect`, `set_difference`, `set_is_subset`, `set_from_array`, `set_insert_all`,
+`set_union`, `set_intersect`, `set_difference`, `set_is_subset`, `to_set`, `set_insert_all`,
 `set_filter`, `map_filter`, `map_merge`, `map_remove_all` and `map_from_arrays` are all in
 `typecheck.c`'s builtin list and **none of them is declared in `lib/prelude.zm`** -- so accepting
 two kinds is two branches in `check_call`, not a type-system feature. A union type in the `Type`
@@ -3693,8 +3694,8 @@ representation would be a far bigger change than these nine functions justify, a
 refuses general bounds should not acquire general unions for them.
 
 **3. A fused conversion earns a name only when composition costs an extra full copy.**
-`mutable_set_from_array(xs)` is one pass where `mutable_set_from(set_from_array(xs))` is two, so it
-exists. `mutable_array_from_set` does not: it is `mutable_array_from(set_items(s))` at one extra
+`to_mutable_set(xs)` (`mutable_set_from_array` when this was written) is one pass where
+`mutable(to_set(xs))` is two, so it exists. `mutable_array_from_set` does not: it is `mutable_array_from(set_items(s))` at one extra
 copy and nothing asks for it. Nor does `mutable_map_from_arrays`.
 
 For the two hash types `from` saves something different from a copy: it can duplicate the trie's

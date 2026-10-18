@@ -1185,10 +1185,27 @@ builtin fn set_insert_all<T: Eq + Hash>(s: Set<T>, items: [T]) -> Set<T>
 builtin fn set_filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
 ```
 
-### `set_from_array`
+### `to_set`
 
 ```
-builtin fn set_from_array<T: Eq + Hash>(items: [T]) -> Set<T>
+builtin fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
+```
+
+**The distinct elements of a sequence, as a Set.** Named for its result rather than its source
+-- `set_from_array` until 2026-10-18 -- for two reasons. The argument already says what the
+source is, which matters now that there are two of them; and the deduplication is the part a
+reader has to be told about under the old name, while `to_set` implies it, a set having no
+duplicates by definition. `to_` rather than `as_` because this allocates and copies: `as_` reads
+as a view that costs nothing, which this is not.
+
+Either world, and the handle is read element by element rather than snapshotted first, so
+accepting it saves a copy instead of hiding one. `to_mutable_set` is the same question with the
+answer in the other world, and it has to be a second name rather than an overload: the two take
+the *same* argument types and differ only in what they return, which first-argument dispatch
+cannot distinguish.
+
+```
+builtin fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
 ```
 
 ### `MapEntry`
@@ -1801,16 +1818,16 @@ builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
 builtin fn mutable<T>(item: T) -> Mutable<T>
 ```
 
-### `mutable_set_from_array`
+### `to_mutable_set`
 
 ```
-builtin fn mutable_set_from_array<T: Eq + Hash>(items: [T]) -> MutableSet<T>
+builtin fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
 ```
 
 The one that changes shape rather than world: an array in, a set out.
 
 ```
-builtin fn mutable_set_from_array<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
+builtin fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
 ```
 
 ### `mutable_array_push_all`

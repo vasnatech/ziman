@@ -87,7 +87,7 @@ fn main() {
         i = i + 1
     }
     print(count(pool, "events"))
-    val distinct = len(set_from_array(seen))
+    val distinct = len(to_set(seen))
     print(distinct <= 3)
     print(distinct >= 2)
 

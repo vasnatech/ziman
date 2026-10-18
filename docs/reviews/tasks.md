@@ -1112,8 +1112,48 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `mutable_set_from` by **the ninth character of the callee name** -- correct, and silently wrong
   the moment a `$` shifted it -- so it now compares the builtin id instead.
 
-  `mutable_set_from_array` stays public and either-world: it *deduplicates*, so it answers a
+  `mutable_set_from_array` stays public and either-world (renamed `to_mutable_set` in F152): it
+  *deduplicates*, so it answers a
   different question, which is the rule DESIGN.md's "a fused conversion earns a name" already set.
   Fixtures: `mutable_from_either_world` rewritten around what remains, the clone case dropped from
   `mutable_array_capacity_reserved` (its one output line, nothing else moved), and eight call sites
   switched to `mutable`.
+
+- [x] **F152** **`set_from_array` named its source, which stopped being the useful half.**
+  (raised 2026-10-18 from a review decision -- *"add missing set_from_array from mutable array to
+  set. rename function to to_set or as_set or ... What do you think?"*; S) The array-to-set
+  conversion covered three of its four cells: `[T]` to `Set` and to `MutableSet`, and
+  `MutableArray` to `MutableSet`, but **not `MutableArray` to `Set`** -- `set_from_array(b)` was
+  *"expects an array, found MutableArray<int>"*, and the workaround was
+  `set_from_array(snapshot(b))`, two copies. The fourth cell is now in, read element by element
+  through `ziman_array_builder_at` rather than snapshotted, so accepting a handle **saves** a copy
+  instead of hiding one.
+
+  **Renamed `to_set` and `to_mutable_set`.** Three reasons, in order of weight. The deduplication
+  is the behaviour a reader has to be *told* about under the old name -- DESIGN.md and SYNTAX.md
+  both had to say "which a reader of `from` would have no reason to expect" -- while `to_set`
+  implies it, a set having no duplicates by definition, so the name now carries what the prose
+  did. Second, with either world accepted the argument already says what the source is, and
+  `_from_array` describes it badly in exactly the cell being added. Third, `to_` rather than `as_`,
+  because `as_` conventionally reads as a view that costs nothing and this allocates and copies --
+  `to_upper`/`to_lower` are the existing precedent for bare `to_` with the source implied.
+
+  **They cannot be one name**, which is worth recording because it looks like two spellings of one
+  question and is not: they take the *same* argument types and differ only in what they return.
+  First-argument dispatch cannot distinguish them and F148 ruled out choosing by return type, so
+  two names is forced here, unlike the `reverse`/`filter`/`sort` pairs where the receiver differs.
+
+  **Note what this makes `to_set`: the first immutable-returning builtin that takes either world.**
+  Every other either-world function returns or mutates a handle -- `mutable_array_push_all`,
+  `mutable_map_set_all`, the four `mutable_set_*` ops, `to_mutable_set`. The same argument now
+  applies to `set_insert_all(s, items: [T])` and `map_from_arrays(keys: [K], values: [V])`, which
+  still refuse a handle; that was left alone rather than swept, so the line is no longer "immutable
+  results take immutable sources" but "nobody asked for the others yet".
+
+  **And the editor integrations were stale again.** F151 found `src/lsp.c` offering three deleted
+  names; this found `editors/vscode/syntaxes/ziman.tmLanguage.json` listing `set_from_array` and
+  missing `mutable`, `to_set` and `to_mutable_set` -- it had never carried the `mutable_*_from`
+  family either. Two hand-kept lists, neither gated against the builtin table, both silently wrong
+  after a vocabulary change. **A gate for this is the obvious next move and was not taken here**;
+  the lists mix builtins with prelude natives, so only the builtin half is derivable from
+  `ziman_builtin_name`/`ziman_builtin_count`.

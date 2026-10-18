@@ -697,7 +697,20 @@ builtin fn set_insert_all<T: Eq + Hash>(s: Set<T>, items: [T]) -> Set<T>
 
 builtin fn set_filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
 
-builtin fn set_from_array<T: Eq + Hash>(items: [T]) -> Set<T>
+// **The distinct elements of a sequence, as a Set.** Named for its result rather than its source
+// -- `set_from_array` until 2026-10-18 -- for two reasons. The argument already says what the
+// source is, which matters now that there are two of them; and the deduplication is the part a
+// reader has to be told about under the old name, while `to_set` implies it, a set having no
+// duplicates by definition. `to_` rather than `as_` because this allocates and copies: `as_` reads
+// as a view that costs nothing, which this is not.
+//
+// Either world, and the handle is read element by element rather than snapshotted first, so
+// accepting it saves a copy instead of hiding one. `to_mutable_set` is the same question with the
+// answer in the other world, and it has to be a second name rather than an overload: the two take
+// the *same* argument types and differ only in what they return, which first-argument dispatch
+// cannot distinguish.
+builtin fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
+builtin fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
 
 // One key and its value, as `map_entries` returns them.
 struct MapEntry<K, V> {
@@ -1056,7 +1069,7 @@ builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
 // ---- the builder operations that take **either world**
 //
 // Each of these accepts the immutable form *or* the builder, which is what `either_world()` in the
-// type checker means: `mutable_set_from_array` takes an array or a MutableArray,
+// type checker means: `to_set` and `to_mutable_set` each take an array or a MutableArray,
 // `mutable_set_union`'s second argument a Set or a MutableSet. Two declarations each, for the one
 // argument that has the choice -- the handle is always a handle.
 
@@ -1089,8 +1102,8 @@ builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
 builtin fn mutable<T>(item: T) -> Mutable<T>
 
 // The one that changes shape rather than world: an array in, a set out.
-builtin fn mutable_set_from_array<T: Eq + Hash>(items: [T]) -> MutableSet<T>
-builtin fn mutable_set_from_array<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
+builtin fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
+builtin fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
 
 builtin fn mutable_array_push_all<T>(xs: MutableArray<T>, items: [T])
 builtin fn mutable_array_push_all<T>(xs: MutableArray<T>, items: MutableArray<T>)

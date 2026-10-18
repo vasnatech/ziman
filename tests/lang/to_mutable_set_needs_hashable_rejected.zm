@@ -1,7 +1,7 @@
 // A set's element has to be hashable however it got there. The Map and Set sources already are by
-// their own declarations, so this is the one `from` where the check can actually fire.
+// their own declarations, so this is the one conversion where the check can actually fire.
 fn main() {
     val c: Channel<int> = channel_new()
-    val s = mutable_set_from_array([c])
+    val s = to_mutable_set([c])
     print(len(s))
 }

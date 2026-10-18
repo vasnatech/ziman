@@ -1236,7 +1236,7 @@ typedef enum {
     B_mutable_array_from,
     B_mutable_map_from,
     B_mutable_set_from,
-    B_mutable_set_from_array,
+    B_to_mutable_set,
     B_clear,
     B_snapshot,
     B_push,
@@ -1254,7 +1254,7 @@ typedef enum {
     B_set_filter,
     B_map_remove_all,
     B_set_insert_all,
-    B_set_from_array,
+    B_to_set,
     B_map_from_arrays,
     B_map_keys,
     B_map_values,
@@ -1302,7 +1302,7 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"$mutable_array_from", B_mutable_array_from},
     {"$mutable_map_from", B_mutable_map_from},
     {"$mutable_set_from", B_mutable_set_from},
-    {"mutable_set_from_array", B_mutable_set_from_array},
+    {"to_mutable_set", B_to_mutable_set},
     {"clear", B_clear},
     {"snapshot", B_snapshot},
     {"push", B_push},
@@ -1320,7 +1320,7 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"set_filter", B_set_filter},
     {"map_remove_all", B_map_remove_all},
     {"set_insert_all", B_set_insert_all},
-    {"set_from_array", B_set_from_array},
+    {"to_set", B_to_set},
     {"map_from_arrays", B_map_from_arrays},
     {"map_keys", B_map_keys},
     {"map_values", B_map_values},
@@ -1510,7 +1510,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                        bid == B_mutable_set_from) {
                 result = ziman_mutable_map_from(args[0], bid == B_mutable_set_from);
                 result.type = &e->resolved_type;
-            } else if (bid == B_mutable_set_from_array) {
+            } else if (bid == B_to_mutable_set) {
                 result = ziman_mutable_set_from_array(args[0], args[0].type->kind == TY_STRUCT);
                 result.type = &e->resolved_type;
             } else if (bid == B_clear) {
@@ -1604,9 +1604,17 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 MapObj *m = args[0].as.map;
                 for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_set(m, array_get(args[1].as.arr, i), value_int(0));
                 result = value_map(args[0].type, m);
-            } else if (bid == B_set_from_array) {
+            } else if (bid == B_to_set) {
+                /* Either world, in one pass: a handle is read element by element through
+                 * `ziman_array_builder_at` rather than snapshotted first, which would make the
+                 * conversion two copies instead of one. */
                 MapObj *m = mapobj_empty();
-                for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), value_int(0));
+                if (args[0].type->kind == TY_STRUCT) {
+                    int n = ziman_array_builder_length(args[0]);
+                    for (int i = 0; i < n; i++) m = mapobj_set(m, ziman_array_builder_at(args[0], i), value_int(0));
+                } else {
+                    for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), value_int(0));
+                }
                 result = value_map(&e->resolved_type, m);
             } else if (bid == B_map_from_arrays) {
                 if (args[0].as.arr->count != args[1].as.arr->count) {
