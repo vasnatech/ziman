@@ -881,3 +881,105 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   rounding error of a round trip the module performs on itself, not a tolerance on whether text
   fits. The fixture's new case prints 2 lines with the slack and 3 without, and a label genuinely
   wider than its column still wraps.
+
+- [ ] **F148** **The polymorphic builtins have no declaration anywhere, so nothing can print their
+  types.** (raised 2026-10-18 from a review question -- *"why are you missing common built in
+  functions len contains etc?"* and then *"we have a way to mention native functions, we can use
+  the same pattern"*; M) About twenty builtins are dispatched by the interpreter on the *name*:
+  `len`, `contains`, `snapshot`, `clear`, `push`, `insert`, `set`, `remove`, `str`, `format`,
+  `print`, `printf`, `abs`, `min`, `max`, `hash`, `compare`, `error_message`, `is_ok`, `unwrap`,
+  `unwrap_err`, `is_Some`, `is_None`, `unwrap_Some`. Every other builtin is a `native fn` in
+  `lib/prelude.zm`, and `--api builtins` prints its signature from there -- `src/main.c` says why,
+  and says it well: *"The prelude declares all of them with real signatures, so it is the honest
+  source."* These twenty are the exception that comment then has to apologise for: *"the ones the
+  interpreter dispatches by name, which have no declaration anywhere to print a signature from...
+  Names only, and said to be names only."*
+
+  **What that costs, measured on a real session rather than argued.** A model working in the
+  health-record backend wrote `len(snapshot(out))` and `contains(snapshot(taken), at)` --
+  converting a `MutableArray` to an array to ask its length -- hand-wrote a `contains_text(words,
+  word)` membership helper, and hand-wrote a quadratic `join`. Three corrections from the reviewer,
+  all the same mistake, because it had enumerated the API by name prefix
+  (`grep -o "mutable_array_[a-z_]*"`, 30 hits, reads like a complete API) and an unprefixed builtin
+  cannot appear in that. The types exist only as prose in docs/SYNTAX.md, which says exactly the
+  thing the code could not: *"asking a collection its size never needs a per-type name or a
+  conversion."* Nine more hand-rolled membership loops were already in that backend, five in
+  production code, none with a `break`.
+
+  **The proposal, from the reviewer: a `builtin fn` declaration, overloaded on the first
+  parameter.**
+
+      builtin fn len(s: string) -> int
+      builtin fn len<T>(arr: [T]) -> int
+      builtin fn len<K, V>(m: Map<K, V>) -> int
+      builtin fn len<T>(b: MutableArray<T>) -> int
+      ...
+
+  **This is not overload resolution and the design should say so in those words.** The interpreter
+  already dispatches these on `args[0]` -- `call_len(args[0])`, `clear(args[0])`,
+  `snapshot(args[0])`, `mutable_array_from(args[0])` -- so a `builtin fn` set is a dispatch table
+  keyed on the first parameter's type constructor, mirroring what the runtime does. No ranking, no
+  implicit conversions, no return-type-directed choice, and **not available to user code**: the
+  moment a second `fn` of the same name is legal in a program, this is C++ overloading and the "no
+  methods, a function takes its receiver as an argument" decision is half-undone.
+
+  **The alternative, which the language can already express.** Bounds exist -- `Eq`, `Ord`, `Hash`,
+  used today in `lib/core/test.zm` (`assert_eq<T: Eq>`, `assert_lt<T: Ord>`) and by `min`/`max`,
+  whose checker arm already says "a type parameter bounded by `Ord`". So one declaration would do
+  it: `builtin fn len<T: Countable>(x: T) -> int`, with `Countable` closed and compiler-known
+  rather than user-implementable. Fewer lines, no new dispatch concept, and it names what
+  docs/SYNTAX.md already calls *"the four questions every collection answers"*. **Against it:** a
+  bound restores the single declaration but not the visibility, and visibility is the whole
+  complaint -- the failure above was "I could not see that `MutableArray` was accepted", which
+  `<T: Countable>` does not answer either. Nine explicit lines are greppable; one bound is not.
+
+  **What `native` and `builtin` actually differ by today**, since the proposal turns on it. A
+  `native fn` is *a function whose type can be written down*: declared in the prelude, registered
+  by name to one C function of one fixed shape
+  (`Value f(Value *args, int argc, int line, int col)`), checked by the **ordinary call path** --
+  so it gets generics with inference, `variadic`, and even default arguments
+  (`mutable_array_new(capacity: Option<int> = 20)`). A builtin is *a rule the checker implements*:
+  a name mapped to an enum id (`{"len", B_len}`) and branched on inside `eval_call`, which means it
+  holds the whole call **expression** rather than only the values -- `e->resolved_type`, the
+  argument `Expr`s, even the callee's spelling (`e->as.call.callee[12] == 'u'` picks
+  union/intersect/difference out of one branch). Builtins are also barred from named arguments
+  (`BUILTINS_NO_NAMED_ARGS`) where natives are not.
+
+  **So the twenty fall into three categories, and only the first is declarable.**
+  1. **The shape is not a shape**: `len`, `contains`, `snapshot`, `clear`, `push`, `insert`, `set`,
+     `remove`, `abs`, `min`, `max`, `hash`, `compare`, `unwrap`, `is_ok`. Several unrelated
+     signatures, each one writable on its own -- exactly what `builtin fn` overloads express.
+  2. **The rule reads more than types**: `format` validates its template against the argument list;
+     `print`/`printf`/`str` accept anything. No signature states either, under any option here.
+  3. **Not callable names at all**: `$map_lit`, `$set_lit`, `$is_variant`, `$unwrap_variant` are
+     desugaring targets the parser emits -- `Map<string, int> { ... }` becomes a `$map_lit` call --
+     so they appear in the builtin tables and can never be typed by a user. They should be excluded
+     from whatever `--api` prints, which today they already are by not being in the name list.
+
+  This is the sharpest argument for the proposal: `native` currently conflates "C supplies the
+  body" with "C supplies the type rule", and `builtin fn` splits them -- the declaration moves to
+  the prelude where it can be printed and grepped, while the rule stays in C where categories 2 and
+  3 require it.
+
+  **Three things to settle before starting.**
+  1. **The declarations must replace the hand-written arms in `typecheck.c`, not sit beside them.**
+     Otherwise this adds a fifth list to the four that exist. Today's good error -- *"'len' expects
+     an array, string, map, set, builder or Mutable, found X"* -- can be **synthesised** from the
+     overload set, so it survives the move for free; a generic "no overload matches" would be a
+     regression and is the main risk.
+  2. **`print`, `printf`, `str` and `format` cannot be declared under either option.** They accept
+     anything, and `format` additionally validates its template against the argument list. They
+     need either an `Any` legal only in a `builtin fn`, or to stay names-only with the attribute
+     stating that the checker owns the rule.
+  3. **No `pub`.** The prelude's natives carry none, and `--api` prints a native whatever its
+     visibility: a builtin is globally visible by definition.
+
+  **The win beyond discoverability is deleting lists.** These names are currently written out in
+  four places with nothing cross-checking them: `typecheck.c` (the type arms, plus `PURE_BUILTINS`
+  and `BUILTINS_NO_NAMED_ARGS`), the interpreter's dispatch table, `src/lsp.c`'s `BUILTINS[]`, and
+  docs/SYNTAX.md prose. The LSP array has already drifted -- `snapshot` appears four times,
+  `contains` three, `len` twice -- and it is what drives editor completion, so the editor's idea of
+  the builtins is the least reliable of the four. With declarations in the prelude, `--api
+  builtins` prints types for all of them, the LSP reads the prelude instead of its own array, and
+  `tools/check_not_yet.py`'s stated principle -- *"a new builtin should not need an edit in this
+  file to be known about"* -- finally holds for these twenty too.
