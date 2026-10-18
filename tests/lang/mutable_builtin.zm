@@ -2,9 +2,9 @@
 // have a builder answer that builder, which reads as `snapshot` backwards; each rewrites onto the
 // `mutable_*_from` it mirrors.
 //
-// The map and set cases are here together on purpose: the interpreter tells `mutable_map_from` from
-// `mutable_set_from` by the ninth character of the callee name, so a rewrite producing anything but
-// those two exact names would build the wrong shape.
+// The map and set cases are here together on purpose: the checker rewrites onto one of three
+// internal builtins, and the map and set ones share an interpreter arm that has to tell them
+// apart, so a rewrite naming the wrong one would build the wrong shape.
 fn main() {
     val ab = mutable([1, 2, 3])
     push(ab, 4)

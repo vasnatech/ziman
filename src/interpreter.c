@@ -1299,9 +1299,9 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"mutable_set_intersect", B_mutable_set_intersect},
     {"mutable_set_difference", B_mutable_set_difference},
     {"mutable_set_is_subset", B_mutable_set_is_subset},
-    {"mutable_array_from", B_mutable_array_from},
-    {"mutable_map_from", B_mutable_map_from},
-    {"mutable_set_from", B_mutable_set_from},
+    {"$mutable_array_from", B_mutable_array_from},
+    {"$mutable_map_from", B_mutable_map_from},
+    {"$mutable_set_from", B_mutable_set_from},
     {"mutable_set_from_array", B_mutable_set_from_array},
     {"clear", B_clear},
     {"snapshot", B_snapshot},
@@ -1508,7 +1508,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result.type = &e->resolved_type;
             } else if (bid == B_mutable_map_from ||
                        bid == B_mutable_set_from) {
-                result = ziman_mutable_map_from(args[0], e->as.call.callee[8] == 's');
+                result = ziman_mutable_map_from(args[0], bid == B_mutable_set_from);
                 result.type = &e->resolved_type;
             } else if (bid == B_mutable_set_from_array) {
                 result = ziman_mutable_set_from_array(args[0], args[0].type->kind == TY_STRUCT);

@@ -60,13 +60,13 @@ fn main() {
     print(snapshot(ps) == pwant)
 
     // Reverse order is one long cycle; already-sorted is all fixed points.
-    val rev = mutable_array_from([5, 4, 3, 2, 1])
+    val rev = mutable([5, 4, 3, 2, 1])
     mutable_array_sort_with(rev, fn(a: int, b: int) -> int { return compare(a, b) })
     print(snapshot(rev))
-    val done = mutable_array_from([1, 2, 3])
+    val done = mutable([1, 2, 3])
     mutable_array_sort_with(done, fn(a: int, b: int) -> int { return compare(a, b) })
     print(snapshot(done))
-    val one = mutable_array_from([7])
+    val one = mutable([7])
     mutable_array_sort_with(one, fn(a: int, b: int) -> int { return compare(a, b) })
     print(snapshot(one))
 }

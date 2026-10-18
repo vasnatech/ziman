@@ -402,28 +402,31 @@ for x in seen { ... }                    // a set has one binder
   `mutable_array_push_all(xs, xs)` **doubles** the array, `mutable_map_set_all(m, m)` is a no-op,
   and `mutable_set_difference(s, s)` **empties** the set. Union and intersect with yourself are
   no-ops and `_is_subset(s, s)` is true.
-- **Crossing into the mutable world**: `mutable_array_from(xs)`, `mutable_map_from(m)`,
-  `mutable_set_from(s)` and `mutable_set_from_array(xs)` each take **either world** -- the immutable
-  value or another handle of the same shape. From a value the handle is independent of it; from a
-  handle it is a clone, which is the reason they accept both: `mutable_map_from(snapshot(m))` would
-  copy twice. For the two hashed shapes `from` also beats `new` plus a loop, because it copies the
-  trie's nodes with the leaves shared rather than hashing and placing every entry again.
-  `mutable_set_from_array` is a separate name rather than another source for `mutable_set_from`
-  because it **deduplicates**, which a reader of `from` would have no reason to expect. Going the
-  other way is `snapshot`.
+- **Crossing into the mutable world is `mutable(x)`, and back is `snapshot(b)`.** It beats `new`
+  plus a loop for the two hashed shapes, because it copies the trie's nodes with the leaves shared
+  rather than hashing and placing every entry again, and it sizes an array's buffer to the source
+  in one allocation. `mutable_set_from_array(xs)` is a separate name rather than another source for
+  `mutable(xs)` because it **deduplicates**, which a reader of a conversion would have no reason to
+  expect; it is the one of these that still takes **either world**, an array or a MutableArray.
+  There were three more -- `mutable_array_from`, `mutable_map_from`, `mutable_set_from`, each also
+  either-world -- and they were removed once `mutable` covered the conversion they were mostly used
+  for: keeping both put two spellings on one question. Their either-world half was a **clone**, and
+  that went with them, so **a builder cannot be cloned**; it had no caller outside its own
+  fixtures.
 - **`mutable(x)` answers the mutable counterpart of whatever it is given.** For the three
   collections that have a builder that is the builder, which reads as `snapshot` backwards:
   `mutable([1, 2])` is a `MutableArray<int>`, `mutable(s)` a `MutableSet`, `mutable(m)` a
-  `MutableMap`, each rewritten onto the `_from` it mirrors. For **anything else** -- a scalar, a
+  `MutableMap`. For **anything else** -- a scalar, a
   string, a struct, an enum, even another handle -- there is no builder to answer and the mutable
   counterpart of a single value is a cell, so it is `Mutable<T>`.
   **The collections win the dispatch**: an array matches both `[T]` and the bare `T`, and the array
   form applies, so `mutable([1, 2])` is never a `Mutable<[int]>`. Write that one `mutable_new([1,
   2])`, which is unambiguous about which you meant. Two consequences worth knowing rather than
   discovering: a string answers `Mutable<string>` and not a `MutableString` (which is *filled*
-  rather than converted -- `mutable_string_new` then `mutable_string_append`), and a builder answers
-  a cell holding that same handle rather than a clone of it (copying a builder is
-  `mutable_array_from(b)` and its siblings, which take either world for that reason).
+  rather than converted -- `mutable_string_new` then `mutable_string_append`, and of 133
+  `mutable_string_new` call sites in this tree exactly one seeds the buffer from a whole existing
+  string), and a builder answers a cell holding that same handle rather than a clone of it, there
+  being no way to clone a builder at all.
 - **`MutableString`** is the text one: `mutable_string_new`/`_append`/`_append_byte` build it, and
   `_get`/`_set`/`_index_of`/`_last_index_of` read and search it in place, so a string being built
   can be inspected without `snapshot` copying all of it. Byte-indexed like every other string

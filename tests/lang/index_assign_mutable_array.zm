@@ -3,7 +3,7 @@
 // per-type names for them. The container is written in place, so there is no rebinding here and
 // `val` is right -- the opposite of the array in diag_index_assign.
 fn main() {
-    val b = mutable_array_from<int>([10, 20, 30])
+    val b = mutable<int>([10, 20, 30])
     print(b[1])
     b[0] = 99
     b[2] = b[0] + b[1]

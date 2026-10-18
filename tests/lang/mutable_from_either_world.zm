@@ -1,55 +1,31 @@
-// The `from` constructors take either world -- the immutable value or another handle -- which is
-// what keeps the conversion matrix from being two functions per shape. There is no union type in
-// the language and these need none: they are hand-checked builtins, exactly as their immutable
-// twins (`set_from_array`, `map_merge`, ...) already were.
+// `mutable_set_from_array` takes either world -- an array or a MutableArray -- which is what
+// `either_world()` in the type checker means. It is a separate name rather than another source for
+// `mutable`, because it **deduplicates**: [1, 2, 1, 3, 2] becomes three elements, and a reader of
+// `mutable(xs)` would have no reason to expect that from a conversion.
 //
-// Two properties worth pinning. From an immutable source, the handle is independent: the last block
-// writes 999 through the handle and the source Map still reads 1. From a handle, `from` *is* clone,
-// which is the reason it accepts both -- `mutable_map_from(snapshot(m))` would copy twice.
+// This fixture used to cover three more `from` constructors -- `mutable_array_from`,
+// `mutable_map_from`, `mutable_set_from` -- and the clone each of them performed when handed a
+// handle instead of a value. All three were removed once `mutable` covered the immutable-to-builder
+// conversion they were mostly used for: keeping both would have put two spellings on one question,
+// and the clone half had no caller anywhere outside this file. So there is now no way to clone a
+// builder, deliberately rather than pending.
 //
-// `mutable_set_from_array` is a separate name rather than another source for `mutable_set_from`
-// because it deduplicates: [1, 2, 1, 3, 2] becomes three elements, and a reader of
-// `mutable_set_from(xs)` would have no reason to expect that.
+// What is still worth pinning is that the conversion's result is **independent of its source**: the
+// last block writes 999 through the handle and the source Map still reads 1.
 fn main() {
-    // from an immutable value
-    val xs = mutable_array_from([3, 1, 2])
-    print(snapshot(xs))
-    mutable_array_push(xs, 4)
+    val xs = mutable([3, 1, 2])
+    push(xs, 4)
     print(snapshot(xs))
 
-    val m = mutable_map_from(Map<string, int> { "a": 1, "b": 2 })
-    print(mutable_map_values(m))
-    mutable_map_set(m, "c", 3)
-    print(mutable_map_keys(m))
+    // either world, and deduplicating in both
+    val from_value = mutable_set_from_array([1, 2, 1, 3, 2])
+    print(mutable_set_items(from_value))
+    val from_handle = mutable_set_from_array(xs)
+    print(mutable_set_items(from_handle))
 
-    val s = mutable_set_from(Set<int> { 7, 3 })
-    print(mutable_set_items(s))
-
-    val d = mutable_set_from_array([1, 2, 1, 3, 2])
-    print(mutable_set_items(d))
-
-    // from another handle -- which is clone
-    val clone = mutable_array_from(xs)
-    mutable_array_push(clone, 99)
-    print(snapshot(xs))
-    print(snapshot(clone))
-
-    val mclone = mutable_map_from(m)
-    mutable_map_set(mclone, "z", 26)
-    print(mutable_map_keys(m))
-    print(mutable_map_keys(mclone))
-
-    val sclone = mutable_set_from(s)
-    print(mutable_set_add(sclone, 5))
-    print(mutable_set_items(s))
-    print(mutable_set_items(sclone))
-
-    val dfromhandle = mutable_set_from_array(xs)
-    print(mutable_set_items(dfromhandle))
-
-    // the source value is untouched
+    // the source value is untouched by writes through the handle
     val source = Map<string, int> { "k": 1 }
-    val h = mutable_map_from(source)
+    val h = mutable(source)
     mutable_map_set(h, "k", 999)
     print(map_get(source, "k"))
     print(mutable_map_get(h, "k"))

@@ -9,7 +9,7 @@ fn main() {
     a = insert(a, 0, 0)
     print(a)
 
-    val b = mutable_array_from<int>([1])
+    val b = mutable<int>([1])
     push(b, 2)
     push(b, 3, 4, 5)
     insert(b, 0, 0)

@@ -3667,6 +3667,19 @@ handle. That keeps the conversion matrix from being thirty functions, and it mak
 since `mutable_map_from(other)` on a handle is a copy. The cost is error messages: a function
 accepting two types has to name both when handed a third.
 
+> **Update 2026-10-18 (F151): three of those `from` constructors no longer exist**, so the
+> listings above and rule 2's "both `from` constructors per type" describe the design as it was
+> built, not the current API. `mutable(x)` now covers immutable-to-builder for all three shapes in
+> one word, and keeping `mutable_array_from`/`mutable_map_from`/`mutable_set_from` beside it would
+> have put two spellings on one question — the near-synonym failure mode the AI-first goal exists
+> to avoid, and the ground on which `..=` was declined. They were removed, which also removed the
+> free clone this rule describes: **a builder can no longer be cloned.** That half had no caller
+> anywhere outside its own fixtures, so the clone was a property of the implementation rather than
+> something the language was asked for. `mutable_set_from_array` survives, still either-world,
+> because it *deduplicates* and so is a different question; rule 3 below still governs it. The
+> checker keeps the three as `$`-prefixed internal builtins that `mutable` rewrites onto, so the
+> trie-node sharing and the one-allocation buffer sizing described here are all still what runs.
+
 **It needs no new notation**, which is worth stating because the `Set<T> | MutableSet<T>` spelling
 above looks like it does. The immutable twins of these nine are *already* hand-checked builtins --
 `set_union`, `set_intersect`, `set_difference`, `set_is_subset`, `set_from_array`, `set_insert_all`,

@@ -18,12 +18,12 @@
 fn main() {
     val xs = mutable_array_new<int>()
     mutable_array_push_all(xs, [1, 2])
-    mutable_array_push_all(xs, mutable_array_from([3]))
+    mutable_array_push_all(xs, mutable([3]))
     print(snapshot(xs))
 
     val m = mutable_map_new<string, int>()
     mutable_map_set_all(m, Map<string, int> { "a": 1 })
-    mutable_map_set_all(m, mutable_map_from(Map<string, int> { "b": 2, "a": 9 }))
+    mutable_map_set_all(m, mutable(Map<string, int> { "b": 2, "a": 9 }))
     print(mutable_map_keys(m))
     print(mutable_map_values(m))
 
@@ -38,11 +38,11 @@ fn main() {
     print(mutable_set_is_subset(s, Set<int> { 2 }))
 
     // the three different self-aliasing answers
-    val d = mutable_array_from([1, 2])
+    val d = mutable([1, 2])
     mutable_array_push_all(d, d)
     print(snapshot(d))
 
-    val sm = mutable_map_from(Map<string, int> { "k": 1 })
+    val sm = mutable(Map<string, int> { "k": 1 })
     mutable_map_set_all(sm, sm)
     print(mutable_map_values(sm))
 

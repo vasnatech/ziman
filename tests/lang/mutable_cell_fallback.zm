@@ -4,8 +4,8 @@
 //
 // A builder is in this half too, and it answers a cell holding that same handle rather than a clone
 // of it -- pushing through what comes back out changes the original, which is what the last two
-// lines check. Copying a builder is `mutable_array_from(b)`, which takes either world for exactly
-// that reason.
+// lines check. There is no way to clone a builder at all: `mutable_array_from` and its two
+// siblings were removed once `mutable` covered the conversion they were mostly used for.
 fn main() {
     val ci = mutable(7)
     mutable_set<int>(ci, 8)
@@ -17,7 +17,7 @@ fn main() {
 
     print(mutable_get<bool>(mutable(true)))
 
-    val ab = mutable_array_from<int>([1, 2])
+    val ab = mutable<int>([1, 2])
     val held = mutable_get<MutableArray<int>>(mutable(ab))
     push(held, 3)
     print(snapshot(ab))

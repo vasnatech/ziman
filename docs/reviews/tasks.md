@@ -331,7 +331,7 @@ Suggested order: A and B first (B1, B2, B4 and B5 are each about a day or less, 
 
 - [x] **F113** **A MutableString reads and searches in place: `get`, `set`, `index_of`, `last_index_of`.** (docs/DESIGN.md, "The builders become mutable collections"; the last of the four to get its read surface) The same gap F96 closed for `MutableArray` -- inspecting what you are building meant `snapshot`, a full copy per call -- closed for the one type that had kept the name `StringBuilder` until F103 partly *because* nobody had looked at whether it wanted reading back. It does. **No UTF-8 decision was needed**, which is what made this cheap: the language is byte-indexed throughout, `len` is bytes and `char_at(s, i)` is the one-byte string at `i`, so `_get` answers the same shape `char_at` does and `_set` replaces one byte. A longer `value` is a runtime error rather than a splice, because splicing changes the length and `set` nowhere else in the language does that -- changing the length is what `_append` is for. **`_index_of` takes a `from` and `_last_index_of` does not**, which looks inconsistent until you check the twins: `index_of(s, needle, from)` has one and `last_index_of(s, needle)` does not, and mirroring them exactly matters more than saving an argument. The `from` is bounds-checked the same way too. `_last_index_of` scans forward keeping the most recent hit, since the search primitive only goes one way; the fixture pins that against the immutable helper on the snapshot rather than against my own expectation, including the overlapping-needle case where the last `aa` in `aaaa` is at 2. Two new fixtures. 1001 fixtures green.
 
-- [x] **F114** **The `from` constructors, and the value-or-handle parameter that turned out not to need a type-system feature.** (docs/DESIGN.md, "The builders become mutable collections", rule 2) `mutable_array_from`, `mutable_map_from`, `mutable_set_from` and `mutable_set_from_array` each accept **either world** -- the immutable value or another handle of the same shape -- which is what keeps the conversion matrix from being two functions per shape. **The `Set<T> | MutableSet<T>` spelling in the design entry reads like a union type and needs none**: these are hand-checked builtins, exactly as their immutable twins `set_from_array`, `map_merge` and the rest already were, so two kinds is two branches in `check_call`. 81ca7d6 recorded that after reading the typechecker; this is it being true. **From a handle, `from` is clone**, which is the reason accepting both matters: `mutable_map_from(snapshot(m))` would copy twice. For the two hashed shapes it also beats `new` plus a loop, because `mapobj_snapshot` copies the trie's *nodes* with the leaves shared where re-inserting would hash and place every entry again -- and `shared` is then 1, which is exactly its meaning and what keeps the source untouched whichever world it came from. The fixture pins both halves: writing 999 through a handle made from a `Map` leaves the `Map` reading 1, and pushing to a clone leaves the original alone. `mutable_set_from_array` stays a separate name rather than another source for `mutable_set_from` because it **deduplicates** -- `[1, 2, 1, 3, 2]` becomes three elements -- which a reader of `from` would have no reason to expect, and it is the one `from` whose hashability check can actually fire, since the Map and Set sources are already bounded. `mutable_array_from` sizes its buffer to the source in one allocation rather than regrowing it, which needed the constructor factored out of `mutable_array_new`. Two new fixtures. 1003 fixtures green.
+- [x] **F114** **The `from` constructors, and the value-or-handle parameter that turned out not to need a type-system feature.** (docs/DESIGN.md, "The builders become mutable collections", rule 2) `mutable_array_from`, `mutable_map_from`, `mutable_set_from` and `mutable_set_from_array` each accept **either world** -- the immutable value or another handle of the same shape -- which is what keeps the conversion matrix from being two functions per shape. **The `Set<T> | MutableSet<T>` spelling in the design entry reads like a union type and needs none**: these are hand-checked builtins, exactly as their immutable twins `set_from_array`, `map_merge` and the rest already were, so two kinds is two branches in `check_call`. 81ca7d6 recorded that after reading the typechecker; this is it being true. **From a handle, `from` is clone**, which is the reason accepting both matters: `mutable_map_from(snapshot(m))` would copy twice. For the two hashed shapes it also beats `new` plus a loop, because `mapobj_snapshot` copies the trie's *nodes* with the leaves shared where re-inserting would hash and place every entry again -- and `shared` is then 1, which is exactly its meaning and what keeps the source untouched whichever world it came from. The fixture pins both halves: writing 999 through a handle made from a `Map` leaves the `Map` reading 1, and pushing to a clone leaves the original alone. `mutable_set_from_array` stays a separate name rather than another source for `mutable_set_from` because it **deduplicates** -- `[1, 2, 1, 3, 2]` becomes three elements -- which a reader of `from` would have no reason to expect, and it is the one `from` whose hashability check can actually fire, since the Map and Set sources are already bounded. `mutable_array_from` sizes its buffer to the source in one allocation rather than regrowing it, which needed the constructor factored out of `mutable_array_new`. Two new fixtures. 1003 fixtures green. **Superseded in part 2026-10-18 by F151:** three of the four names here were removed once `mutable(x)` covered the conversion, and the either-world *clone* went with them -- the buffer sizing and trie-node sharing still run, behind `$`-prefixed internal builtins. `mutable_set_from_array` is the one that survives as a public name.
 
 - [x] **F115** **The last six: `push_all`, `set_all`, and the four set operations -- which completes the designed surface.** (docs/DESIGN.md, "The builders become mutable collections") Only the *second* argument takes either world; the first is always the handle being changed, which the messages say. **The three self-aliasing cases get three different answers, and each is a decision rather than an accident.** `mutable_array_push_all(xs, xs)` **doubles** the array, because doubling is a reasonable thing to mean -- so the source length is read once before the first append, or the loop would chase a source growing under it and never terminate. `mutable_map_set_all(m, m)` is a no-op by definition, every key already mapping to its own value -- and the early return is *not* an optimisation, because without it this would be iterating a table it is writing to. `mutable_set_difference(s, s)` **empties** the set, the one that is not a no-op, and walking the trie while removing from it is exactly what must not happen -- so it is recognised and turned into a fresh empty trie, the same thing `clear` does. Union and intersect with yourself are genuine no-ops; `_is_subset(s, s)` answers true from the identity check without walking anything. Intersect and difference remove from the destination, so they walk a snapshot of its own keys rather than the live trie, for the same reason F111's iteration does. The fixture spends more lines on the aliasing half than on the ordinary one, because that is where the three answers could each have been silently wrong. **With this the surface designed on 2026-10-13 is complete** -- F97 through F115, bar the print rule. 1004 fixtures green.
 
@@ -1076,11 +1076,44 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `Mutable<string>` rather than a MutableString, because a MutableString is *filled* rather than
   converted -- there is no `mutable_string_from` for it to rewrite onto. And a builder answers a
   cell holding that same handle rather than a clone, so pushing through what comes back out changes
-  the original; copying a builder stays `mutable_array_from(b)`, which takes either world for
-  exactly that reason.
+  the original; copying a builder stayed `mutable_array_from(b)` until F151 removed it, after which
+  a builder cannot be cloned at all.
 
     Three fixtures. Registering the name needed three lists in typecheck.c, not two -- `PURE_BUILTINS`
   (discarding the result is always a mistake), the `--api`/no-named-args list, and the reserved-name
   list that stops user code redefining a builtin. Also corrected a comment above
   `BUILTIN_NO_SIGNATURE` still claiming `print`/`str` "take anything", which stopped being true
   when both were declared.
+
+- [x] **F151** **`mutable` made three `from` constructors redundant, so they were removed.**
+  (raised 2026-10-18 from a review question -- *"do we need mutable_array_from after adding mutable
+  function?"*; S) F150 gave the immutable-to-builder conversion one word. `mutable_array_from`,
+  `mutable_map_from` and `mutable_set_from` were the three words it replaced, and keeping both put
+  two spellings on one question -- the ground on which `..=` was declined, and the near-synonym
+  failure mode the AI-first goal exists to avoid.
+
+  **The counting is what made the decision easy rather than aesthetic.** Outside
+  `lib/prelude.zm`'s own declarations the three had **no caller in `lib/`, none in
+  `docs/lib/examples`, and one in the health-record backend** (`testdata.zm:217`, an array
+  argument, now `mutable(pool)`). Every other site was a `tests/lang` fixture, and the fixtures
+  for the *either-world* half -- a handle argument, which is a clone -- existed only to test that
+  half. So the clone had no caller anywhere outside the file that tested it, and removing it costs
+  nothing measurable. **A builder can no longer be cloned**, deliberately rather than pending; a
+  `copy(b)` over all four builders was weighed in the same review and left open, because inventing
+  it to fill a hole this change made would be circular.
+
+  **They survive as `$`-prefixed internal builtins** that the checker rewrites `mutable` onto, so
+  the implementation this rests on is untouched: the trie-node sharing for the hashed shapes and
+  the one-allocation buffer sizing for arrays are the same code. `$` does not lex as an
+  identifier, so a program cannot name them, and each carries its reason in
+  `BUILTIN_NO_SIGNATURE`; `check_builtins.py` reports 57 declared and 10 with a reason.
+
+  One fragility went with the rename. The interpreter told `mutable_map_from` from
+  `mutable_set_from` by **the ninth character of the callee name** -- correct, and silently wrong
+  the moment a `$` shifted it -- so it now compares the builtin id instead.
+
+  `mutable_set_from_array` stays public and either-world: it *deduplicates*, so it answers a
+  different question, which is the rule DESIGN.md's "a fused conversion earns a name" already set.
+  Fixtures: `mutable_from_either_world` rewritten around what remains, the clone case dropped from
+  `mutable_array_capacity_reserved` (its one output line, nothing else moved), and eight call sites
+  switched to `mutable`.

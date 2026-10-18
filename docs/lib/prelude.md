@@ -1781,9 +1781,13 @@ constructor is for and is unambiguous about which of the two you meant.
 
 Two consequences worth knowing rather than discovering. A string answers `Mutable<string>`, not
 a MutableString: a MutableString is *filled* rather than converted (`mutable_string_new` then
-`mutable_string_append`), so it is not this conversion. And a builder answers a cell holding
-that same handle, not a clone of it -- copying a builder is `mutable_array_from(b)` and its two
-siblings below, which take either world for exactly that reason.
+`mutable_string_append`), so it is not this conversion -- and the corpus agrees, since of 133
+`mutable_string_new` call sites exactly one seeds the buffer from a whole existing string. And a
+builder answers a cell holding that same handle, **not a clone of it**; there is no way to clone
+a builder at all, which is deliberate rather than pending. `mutable_array_from`,
+`mutable_map_from` and `mutable_set_from` used to be that way and were removed once `mutable`
+covered the conversion they were mostly used for: keeping both would have put two spellings on
+one question, and the clone half had no caller outside its own fixtures.
 
 ```
 builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
@@ -1795,36 +1799,6 @@ builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
 
 ```
 builtin fn mutable<T>(item: T) -> Mutable<T>
-```
-
-### `mutable_array_from`
-
-```
-builtin fn mutable_array_from<T>(items: [T]) -> MutableArray<T>
-```
-
-```
-builtin fn mutable_array_from<T>(items: MutableArray<T>) -> MutableArray<T>
-```
-
-### `mutable_map_from`
-
-```
-builtin fn mutable_map_from<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
-```
-
-```
-builtin fn mutable_map_from<K: Eq + Hash, V>(entries: MutableMap<K, V>) -> MutableMap<K, V>
-```
-
-### `mutable_set_from`
-
-```
-builtin fn mutable_set_from<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
-```
-
-```
-builtin fn mutable_set_from<T: Eq + Hash>(items: MutableSet<T>) -> MutableSet<T>
 ```
 
 ### `mutable_set_from_array`

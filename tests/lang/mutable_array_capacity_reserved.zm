@@ -6,7 +6,7 @@
 // went from 1065 ms to 42 ms.
 //
 // Nothing observable may change, which is what this pins: both representations, both the
-// `mutable_array_from` path that writes into the buffer directly without going through a push, and
+// `mutable` path that writes into the buffer directly without going through a push, and
 // the capacities that used to be the allocation size.
 
 struct P {
@@ -46,17 +46,16 @@ fn main() {
     mutable_array_push(tiny, "c")
     print(snapshot(tiny))
 
-    // mutable_array_from writes into the buffer directly rather than through a push, so it has to
-    // ask for the allocation itself -- both representations, and the empty case
-    val from_packed = mutable_array_from([1, 2, 3])
+    // `mutable` writes into the buffer directly rather than through a push, so it has to ask for
+    // the allocation itself -- both representations, and the empty case. The clone case that used
+    // to sit here went with `mutable_array_from`, which was removed once `mutable` covered the
+    // conversion: a builder now answers a cell, so there is no builder-to-builder path to size.
+    val from_packed = mutable([1, 2, 3])
     print(snapshot(from_packed))
-    val from_boxed = mutable_array_from(["x", "y"])
+    val from_boxed = mutable(["x", "y"])
     print(snapshot(from_boxed))
-    val from_handle = mutable_array_from(from_packed)
-    mutable_array_push(from_handle, 4)
-    print(snapshot(from_handle))
     val empty: [int] = []
-    val from_empty = mutable_array_from(empty)
+    val from_empty = mutable(empty)
     print(len(from_empty))
     mutable_array_push(from_empty, 9)
     print(snapshot(from_empty))
