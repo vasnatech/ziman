@@ -38,6 +38,7 @@ const char *token_type_name(TokenType type) {
         case TOK_PUB: return "'pub'";
         case TOK_USE: return "'use'";
         case TOK_NATIVE: return "'native'";
+        case TOK_BUILTIN: return "'builtin'";
         case TOK_RESULT: return "'Result'";
         case TOK_CHANNEL: return "'Channel'";
         case TOK_MAP: return "'Map'";

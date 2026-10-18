@@ -1471,7 +1471,11 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * that answers "what exists" has to include the things that need no `use`
  * (docs/reviews/llm-benchmark-2026-10-09.md, wave three). */
 int ziman_builtin_count(void) {
-    return (int)(sizeof(BUILTINS_NO_NAMED_ARGS) / sizeof(BUILTINS_NO_NAMED_ARGS[0]));
+    /* Minus one for the NULL terminator. `BUILTINS_NO_NAMED_ARGS` is NULL-terminated for
+     * `is_builtin_no_named_args`'s walk, and counting the sentinel made `--api builtins` print a
+     * line reading `(null)` -- harmless through `printf("%s")`, which is why it survived, and a
+     * segfault the moment anything did real work with the name. */
+    return (int)(sizeof(BUILTINS_NO_NAMED_ARGS) / sizeof(BUILTINS_NO_NAMED_ARGS[0])) - 1;
 }
 
 const char *ziman_builtin_name(int i) {
@@ -5507,10 +5511,11 @@ static void check_function(Module *module, FunctionDecl *fn) {
      * threaded, with no nested function declarations to re-enter this
      * during. */
     current_decl_type_params = &fn->type_params;
-    /* A native fn has no body to check or prove returns-on-every-path for --
-     * its behavior is a contract with whatever C implementation gets
-     * registered for it, not something this pass can see into. */
-    if (!fn->is_native) {
+    /* A `native fn` has no body to check or prove returns-on-every-path for -- its behavior is a
+     * contract with whatever C implementation gets registered for it, not something this pass can
+     * see into. A `builtin fn` has none either, and for a nearer reason: its rule is one of the
+     * arms *in this file*, which every call reaches before `find_function` is consulted. */
+    if (fn_has_body(fn)) {
         int lint_first_var = g_lint_var_count;
         g_user_code = fn->source_file != NULL && fn->derived_from == NULL;
         g_lint_active = g_lint_on && g_user_code;
@@ -5722,9 +5727,27 @@ void typecheck(Module *module) {
     for (int i = 0; i < module->functions.count; i++) {
         FunctionDecl *fn = module->functions.items[i];
         ziman_set_error_context(fn->derived_from);
-        for (size_t b = 0; b < sizeof(builtins) / sizeof(builtins[0]); b++) {
-            if (strcmp(fn->name, builtins[b]) == 0) {
-                ziman_error("type", fn->line, fn->col, "'%s' is a builtin function and cannot be redefined", fn->name);
+        /* A `builtin fn` is exempt from the redefinition guard -- it is the *declaration of* the
+         * builtin, not a redefinition of it -- and is held to the opposite rule instead: the name
+         * has to be one the interpreter actually dispatches. Without this a typo declares a
+         * signature for nothing, which is worse than no declaration, since `--api builtins` would
+         * print it and an editor would complete it. */
+        if (fn->is_builtin) {
+            int dispatched = 0;
+            for (int b = 0; b < ziman_builtin_count(); b++) {
+                if (strcmp(fn->name, ziman_builtin_name(b)) == 0) { dispatched = 1; break; }
+            }
+            if (!dispatched) {
+                ziman_error("type", fn->line, fn->col,
+                            "'%s' is declared 'builtin fn' but the interpreter dispatches no builtin of that name "
+                            "-- 'ziman --api builtins' lists the ones it does", fn->name);
+            }
+        }
+        if (!fn->is_builtin) {
+            for (size_t b = 0; b < sizeof(builtins) / sizeof(builtins[0]); b++) {
+                if (strcmp(fn->name, builtins[b]) == 0) {
+                    ziman_error("type", fn->line, fn->col, "'%s' is a builtin function and cannot be redefined", fn->name);
+                }
             }
         }
         /* The duplicate check, through the name index rather than as an inner loop over every

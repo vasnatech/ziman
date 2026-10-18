@@ -1093,6 +1093,19 @@ fn main() {
   know which concrete type a call instantiated it with (`Value` is already runtime-type-erased
   regardless of static types — see "Generics"). `fs.read_text(path) -> Result<string, string>`
   is the standard example (a missing/unreadable file is a `Result`, not a crash).
+- **`builtin fn name[<TypeParams>](params) -> type`** declares a function with no body whose
+  implementation *and type rule* are both the interpreter's: one of the names in the "Builtins"
+  section below. It exists so the signature can be printed by `ziman --api builtins`, completed by
+  an editor and found by a reader -- **nothing checks or calls through it.** Every builtin arm in
+  the type checker returns before the ordinary function lookup is reached, so a call is typed by
+  that arm and dispatched by id exactly as it was before any declaration existed; the declaration
+  is data *about* the builtin rather than the builtin. Two rules follow from that: the name must be
+  one the interpreter actually dispatches (a typo is a compile error naming
+  `ziman --api builtins`), and it is the one declaration exempt from "a builtin cannot be
+  redefined", since it is the declaration *of* one. Only `lib/prelude.zm` declares these.
+  See DESIGN.md's "`native` and builtin are two different mechanisms" for why the two are not
+  interchangeable: a `native fn`'s type is checked by the ordinary call path, a builtin's by a
+  hand-written arm that can see the whole call expression.
 - **A bundled *core module*** is ordinary `.zm` source embedded in the `ziman` binary, resolved
   by `use` when no project file by that name exists (docs/CORELIB.md lists every one and every
   `pub` signature): `fs`, `os`, `clock`, `random`, `uuid` (`Uuid`, RFC 4122 v4,

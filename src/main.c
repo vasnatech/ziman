@@ -479,8 +479,11 @@ static int run_api(const char *module_name) {
         for (int i = 0; i < prelude->functions.count; i++) {
             FunctionDecl *f = prelude->functions.items[i];
             /* The prelude's own non-pub helpers are not callable from a program. */
-            if (f->visibility != VIS_PUBLIC && !f->is_native) continue;
-            printf("\nfn %s", f->name);
+            if (f->visibility != VIS_PUBLIC && !fn_is_global_vocabulary(f)) continue;
+            /* `builtin fn` keeps its keyword here rather than being flattened to `fn`: which of
+             * the two owns the type rule is a real difference and the one docs/DESIGN.md's
+             * "`native` and builtin are two different mechanisms" entry is about. */
+            printf(f->is_builtin ? "\nbuiltin fn %s" : "\nfn %s", f->name);
             print_type_params(&f->type_params);
             printf("(");
             for (int pi = 0; pi < f->params.count; pi++) {
@@ -492,13 +495,36 @@ static int run_api(const char *module_name) {
             printf(")");
             if (f->return_type.kind != TY_VOID) print_type(" -> ", f->return_type);
         }
-        /* And the ones the *interpreter* dispatches by name, which have no declaration anywhere to
-         * print a signature from -- `map_keys`, `push`, `set`, `contains` and the rest. Leaving
-         * them out was the second half of the same mistake: a run concluded "there is no `keys`
-         * function" when `map_keys` is one of these. Names only, and said to be names only. */
-        printf("\n\nalso builtin, dispatched by the interpreter (names only -- these have no declared\n"
-               "signature to print; docs/SYNTAX.md \"Builtins\" has what each one takes):\n");
-        for (int i = 0; i < ziman_builtin_count(); i++) printf("  %s\n", ziman_builtin_name(i));
+        /* And the ones the *interpreter* dispatches by name that still have no declaration to
+         * print a signature from. Leaving them out entirely was the second half of the same
+         * mistake: a run concluded "there is no `keys` function" when `map_keys` is one of these.
+         * A name listed here is one of the two kinds F148 says cannot be declared -- a rule that
+         * reads more than types (`format` validates its template; `print`/`str` take anything) or
+         * a parser desugaring target (`$map_lit`) -- or one not yet declared. */
+        int undeclared = 0;
+        for (int i = 0; i < ziman_builtin_count(); i++) {
+            const char *bname = ziman_builtin_name(i);
+            int declared = 0;
+            for (int fi = 0; fi < prelude->functions.count; fi++) {
+                FunctionDecl *f = prelude->functions.items[fi];
+                if (f->is_builtin && strcmp(f->name, bname) == 0) { declared = 1; break; }
+            }
+            if (!declared) undeclared++;
+        }
+        if (undeclared > 0) {
+            printf("\n\nalso builtin, dispatched by the interpreter (names only -- the checker owns the\n"
+                   "rule for each of these, so there is no signature to print; docs/SYNTAX.md\n"
+                   "\"Builtins\" has what each one takes):\n");
+            for (int i = 0; i < ziman_builtin_count(); i++) {
+                const char *bname = ziman_builtin_name(i);
+                int declared = 0;
+                for (int fi = 0; fi < prelude->functions.count; fi++) {
+                    FunctionDecl *f = prelude->functions.items[fi];
+                    if (f->is_builtin && strcmp(f->name, bname) == 0) { declared = 1; break; }
+                }
+                if (!declared) printf("  %s\n", bname);
+            }
+        }
         printf("\nbuilt-in types, which are lowercase:\n  int  float  bool  string  byte  bigint  decimal\n"
                "  [T] (an array)  Map<K, V>  Set<T>  Option<T>  Result<T, E>  Channel<T>\n");
         return 0;

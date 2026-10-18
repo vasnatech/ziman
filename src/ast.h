@@ -619,6 +619,13 @@ typedef struct {
     TypeParamList type_params; /* empty for an ordinary, non-generic function */
     Visibility visibility;
     int is_native;
+    /* A `builtin fn`: declared in lib/prelude.zm so that its signature can be printed, completed
+     * and grepped, while the *rule* stays in typecheck.c. The two are not interchangeable -- see
+     * docs/DESIGN.md's "`native` and builtin are two different mechanisms" entry. Nothing checks
+     * or calls through this declaration: every builtin arm in check_call returns before
+     * `find_function` is reached, so `call_fn` is never set for one and the interpreter dispatches
+     * it by id as it always has. The declaration is data about the builtin, not the builtin. */
+    int is_builtin;
     /* `is_native` only: the registered C implementation (a `NativeFn`, src/native.h), resolved from
      * `name` on this declaration's first call and kept. Held as a bare `void (*)(void)` rather than
      * a `NativeFn` to keep this header free of the dependency -- native.h needs value.h, which
@@ -678,6 +685,23 @@ typedef struct {
      * there is no self-referential value to bootstrap before it exists. */
     int self_ncaptured;
 } FunctionDecl;
+
+/* Whether a declaration has statements to walk. **Ask this, not `!is_native`.**
+ *
+ * `native fn` was the only bodiless kind until `builtin fn` arrived, so five traversals spelled
+ * the question `!fn->is_native` and meant "has a body" -- and every one of them segfaulted on the
+ * first `builtin fn` declared, dereferencing a NULL `body`. The name says which property is
+ * actually wanted, so the next bodiless kind is one edit here rather than five crashes. */
+static inline int fn_has_body(const FunctionDecl *fn) {
+    return !fn->is_native && !fn->is_builtin;
+}
+
+/* Whether a name is reachable from any program without an import: a `native fn` and a
+ * `builtin fn` both are, whatever their declared visibility, because they are the language's own
+ * vocabulary rather than a module's exports. */
+static inline int fn_is_global_vocabulary(const FunctionDecl *fn) {
+    return fn->is_native || fn->is_builtin;
+}
 
 /* The `fn(P1, P2) -> R` type of a (non-generic, non-variadic) function used as
  * a value -- see type_func. */

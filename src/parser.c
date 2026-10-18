@@ -2052,15 +2052,20 @@ static FunctionDecl *parse_function(Parser *p) {
  * already runtime-type-erased regardless (see docs/DESIGN.md's
  * "Generics" entry), the same reason ordinary generic structs/enums
  * need no monomorphization either. */
-static FunctionDecl *parse_native_function(Parser *p) {
-    Token *kw = expect(p, TOK_NATIVE, "'native'");
+/* `builtin fn` shares every line of this: both are a signature and no body, and the only
+ * difference is which flag is set and therefore who owns the type rule -- the ordinary call path
+ * for a native, a hand-written arm in typecheck.c for a builtin. Parsing them twice would be two
+ * copies of the generic/variadic/default-argument handling below. */
+static FunctionDecl *parse_signature_only_function(Parser *p, int is_builtin) {
+    Token *kw = is_builtin ? expect(p, TOK_BUILTIN, "'builtin'") : expect(p, TOK_NATIVE, "'native'");
     expect(p, TOK_FN, "'fn'");
     Token *name_tok = expect(p, TOK_IDENT, "a function name");
     require_lower_start(name_tok, "a function name");
 
     FunctionDecl *fn = ziman_xcalloc(1, sizeof(FunctionDecl));
     fn->name = dup_token_text(name_tok);
-    fn->is_native = 1;
+    fn->is_native = !is_builtin;
+    fn->is_builtin = is_builtin;
     fn->line = kw->line;
     fn->col = kw->col;
 
@@ -2618,7 +2623,7 @@ Module *parse(TokenList tokens) {
             while (!check(&p, TOK_EOF)) {
                 Token *t = cur(&p);
                 int starts_decl = t->col == 1 && (t->type == TOK_FN || t->type == TOK_STRUCT || t->type == TOK_ENUM || t->type == TOK_USE ||
-                                                  t->type == TOK_PUB || t->type == TOK_VAL || t->type == TOK_NATIVE || t->type == TOK_HASH ||
+                                                  t->type == TOK_PUB || t->type == TOK_VAL || t->type == TOK_NATIVE || t->type == TOK_BUILTIN || t->type == TOK_HASH ||
                                                   (t->type == TOK_IDENT && t->length == 8 && memcmp(t->start, "internal", 8) == 0));
                 if (starts_decl) break;
                 advance_tok(&p);
@@ -2675,13 +2680,15 @@ Module *parse(TokenList tokens) {
         } else if (derives.count > 0 || derives.thread_bound || derives.thread_key) {
             ziman_error("syntax", cur(&p)->line, cur(&p)->col,
                         "an attribute must be followed by a struct or enum declaration");
-        } else if (check(&p, TOK_NATIVE)) {
-            FunctionDecl *fn = parse_native_function(&p);
+        } else if (check(&p, TOK_NATIVE) || check(&p, TOK_BUILTIN)) {
+            int is_builtin = cur(&p)->type == TOK_BUILTIN;
+            FunctionDecl *fn = parse_signature_only_function(&p, is_builtin);
             fn->visibility = vis;
             fn->deprecated = derives.deprecated;
             fn->deprecated_message = derives.deprecated_message;
             if (derives.is_test) {
-                ziman_error("syntax", fn->line, fn->col, "#[test] cannot apply to a native function ('%s')", fn->name);
+                ziman_error("syntax", fn->line, fn->col, "#[test] cannot apply to a %s function ('%s')",
+                            is_builtin ? "builtin" : "native", fn->name);
             }
             function_list_push(&module->functions, fn);
         } else if (check(&p, TOK_VAL)) {

@@ -683,7 +683,7 @@ static void self_qualify_walk_module(Module *mod, SelfQualifyCtx *ctx) {
         ziman_set_error_context(fn->derived_from);
         for (int pi = 0; pi < fn->params.count; pi++) self_qualify_type(&fn->params.items[pi].type, ctx);
         self_qualify_type(&fn->return_type, ctx);
-        if (!fn->is_native) self_qualify_stmt(fn->body, ctx);
+        if (fn_has_body(fn)) self_qualify_stmt(fn->body, ctx);
         ziman_set_error_context(NULL);
     }
     for (int i = 0; i < mod->structs.count; i++) {
@@ -807,7 +807,7 @@ static void check_no_val_shadowing(Module *mod, char **val_names, int n_val_name
                             fn->params.items[pi].name);
             }
         }
-        if (!fn->is_native) check_no_val_shadowing_stmt(fn->body, val_names, n_val_names, imports, n_imports);
+        if (fn_has_body(fn)) check_no_val_shadowing_stmt(fn->body, val_names, n_val_names, imports, n_imports);
     }
 }
 
@@ -900,7 +900,7 @@ static int prelude_has_function(const char *name) {
     if (g_prelude_for_hints == NULL) return -1;  /* unknown, not absent */
     for (int i = 0; i < g_prelude_for_hints->functions.count; i++) {
         FunctionDecl *f = g_prelude_for_hints->functions.items[i];
-        if (f->visibility != VIS_PUBLIC && !f->is_native) continue;
+        if (f->visibility != VIS_PUBLIC && !fn_is_global_vocabulary(f)) continue;
         if (strcmp(f->name, name) == 0) return 1;
     }
     return 0;
@@ -1521,7 +1521,7 @@ static void resolve_cross_refs(Loader *ldr, Module *mod) {
             resolve_type_refs(&fn->params.items[pi].type, &ctx, fn->params.items[pi].line, fn->params.items[pi].col);
         }
         resolve_type_refs(&fn->return_type, &ctx, fn->line, fn->col);
-        if (!fn->is_native) resolve_stmt_refs(fn->body, &ctx);
+        if (fn_has_body(fn)) resolve_stmt_refs(fn->body, &ctx);
         ziman_set_error_context(NULL);
     }
     for (int i = 0; i < mod->structs.count; i++) {

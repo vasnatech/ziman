@@ -39,6 +39,7 @@ typedef enum {
     TOK_PUB,
     TOK_USE,
     TOK_NATIVE,
+    TOK_BUILTIN,
     TOK_VARIADIC, /* 'variadic' -- precedes the last parameter's type */
     TOK_RESULT,
     TOK_CHANNEL,

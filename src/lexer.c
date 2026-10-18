@@ -164,6 +164,7 @@ static const Keyword KEYWORDS[] = {
     {"byte", TOK_KW_BYTE},
     {"struct", TOK_STRUCT}, {"enum", TOK_ENUM}, {"with", TOK_WITH},
     {"pub", TOK_PUB},       {"use", TOK_USE},       {"native", TOK_NATIVE},
+    {"builtin", TOK_BUILTIN},
     {"variadic", TOK_VARIADIC},
     {"Result", TOK_RESULT}, {"Channel", TOK_CHANNEL}, {"Map", TOK_MAP}, {"Set", TOK_SET},
 };
