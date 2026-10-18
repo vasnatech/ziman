@@ -1,0 +1,7 @@
+// A MutableMap is a container, so "arrays are values, not mutable containers" was not merely
+// unhelpful here -- it was false about the thing in hand.
+fn main() {
+    val counts = mutable_map_new<string, int>()
+    counts["a"] = 1
+    print(len(counts))
+}

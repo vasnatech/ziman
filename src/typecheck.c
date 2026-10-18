@@ -2863,7 +2863,40 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         if (!is_push && (arr_type.kind == TY_MAP || arr_type.kind == TY_SET)) {
             return check_collection_mutator(module, env, e, name, arr_type);
         }
-        if (e->as.call.args.count != expected_argc) {
+
+        /* A MutableArray is appended to and inserted into with the same two words an array is,
+         * because they are the same two questions; the prefixed natives stay as the spelling the
+         * rewrite targets. `set` is deliberately not among them -- an element write is `b[i] = v`,
+         * which reads better than a three-argument call and is the same sugar an array gets. */
+        if (arr_type.kind == TY_STRUCT && arr_type.struct_name != NULL &&
+            strcmp(arr_type.struct_name, "MutableArray") == 0) {
+            if (strcmp(name, "set") == 0) {
+                ziman_error("type", e->line, e->col,
+                            "a MutableArray element is written with 'b[i] = value', not with 'set' (which "
+                            "copies an array, and a MutableArray is not copied)");
+            }
+            if (is_push && e->as.call.args.count < 2) {
+                ziman_error("type", e->line, e->col,
+                            "'push' takes a MutableArray and at least one value, found %d argument(s)",
+                            e->as.call.args.count);
+            }
+            if (!is_push && e->as.call.args.count != 3) {
+                ziman_error("type", e->line, e->col, "'insert' takes exactly 3 argument(s), found %d",
+                            e->as.call.args.count);
+            }
+            e->as.call.callee = ziman_xstrdup(is_push ? "mutable_array_push" : "mutable_array_insert");
+            return check_expr(module, env, e);
+        }
+
+        /* `push(a, x, y)` appends each value in turn, which is one allocation's worth of work per
+         * value rather than per call -- see the fold in the interpreter. `insert` and `set` keep
+         * their exact arity: an index belongs to one value. */
+        if (is_push) {
+            if (e->as.call.args.count < 2) {
+                ziman_error("type", e->line, e->col, "'push' takes an array and at least one value, found %d argument(s)",
+                            e->as.call.args.count);
+            }
+        } else if (e->as.call.args.count != expected_argc) {
             ziman_error("type", e->line, e->col, "'%s' takes exactly %d argument(s), found %d", name, expected_argc, e->as.call.args.count);
         }
         if (arr_type.kind != TY_ARRAY) {
@@ -2879,13 +2912,15 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             }
         }
 
-        Expr *value_arg = e->as.call.args.items[value_arg_index];
-        Type value_type = check_expr(module, env, value_arg);
-        require_not_void(value_arg, "as an array element");
-        if (!type_equals(value_type, *arr_type.elem)) {
-            ziman_error("type", value_arg->line, value_arg->col,
-                        "argument %d of '%s' expects %s (the array's element type), found %s",
-                        value_arg_index + 1, name, type_name(*arr_type.elem), type_name(value_type));
+        for (int i = value_arg_index; i < e->as.call.args.count; i++) {
+            Expr *value_arg = e->as.call.args.items[i];
+            Type value_type = check_expr(module, env, value_arg);
+            require_not_void(value_arg, "as an array element");
+            if (!type_equals(value_type, *arr_type.elem)) {
+                ziman_error("type", value_arg->line, value_arg->col,
+                            "argument %d of '%s' expects %s (the array's element type), found %s",
+                            i + 1, name, type_name(*arr_type.elem), type_name(value_type));
+            }
         }
         return arr_type;
     }
@@ -3550,6 +3585,23 @@ static void reject_element_used_as_index(Expr *e) {
 static Type check_index(Module *module, Env *env, Expr *e) {
     reject_element_used_as_index(e);
     Type arr_type = check_expr(module, env, e->as.index.array);
+    /* A MutableArray answers `b[i]` for the same reason it answers `len(b)`: reading element i is
+     * one of the questions every sequence answers, and needing a different word for it -- here
+     * `mutable_array_get` -- was a per-type name for a question that has nothing per-type about
+     * it. The index is checked here rather than by the rewritten call so that the message names
+     * the array, not the function the author did not write. */
+    if (arr_type.kind == TY_STRUCT && arr_type.struct_name != NULL &&
+        strcmp(arr_type.struct_name, "MutableArray") == 0) {
+        Type idx_type = check_expr(module, env, e->as.index.index);
+        if (idx_type.kind != TY_INT) {
+            ziman_error("type", e->as.index.index->line, e->as.index.index->col,
+                        "array index must be int, found %s", type_name(idx_type));
+        }
+        Expr *rewritten = mk_call_expr("mutable_array_get", e->as.index.array, e->line, e->col);
+        expr_list_push(&rewritten->as.call.args, e->as.index.index);
+        *e = *rewritten;
+        return check_expr(module, env, e);
+    }
     if (arr_type.kind != TY_ARRAY) {
         /* A map is the common case here, and `m[k]` is how most languages read one. Naming the
          * alternative matters because the getter's name is not guessable: in the F28 validation run
@@ -4364,6 +4416,15 @@ static Expr *mk_call_expr(const char *callee, Expr *arg, int line, int col) {
     return e;
 }
 
+/* The same, with the three arguments every element write takes: the collection, the index and the
+ * value. `set(a, i, v)` and `mutable_array_set(a, i, v)` are both this shape. */
+static Expr *mk_call3_expr(const char *callee, Expr *a, Expr *b, Expr *c, int line, int col) {
+    Expr *e = mk_call_expr(callee, a, line, col);
+    expr_list_push(&e->as.call.args, b);
+    expr_list_push(&e->as.call.args, c);
+    return e;
+}
+
 /* An arm's block with `val <binder> = <payload_expr>` put first. */
 static void prepend_binder(Stmt *body, const char *binder, Expr *payload_expr, int line, int col) {
     Stmt *decl = stmt_new(STMT_VAL, line, col);
@@ -4924,6 +4985,27 @@ static Type check_value_block_expr(Module *module, Env *env, Expr *e, const Type
     return ctx.has_expected ? ctx.expected : ctx.first;
 }
 
+/* The index and the value of an `a[i] = v`, checked before the statement is rewritten into the
+ * `set` or `mutable_array_set` it stands for. Doing it here is what keeps the message about the
+ * array the author wrote: checked after the rewrite, a bad index reported "argument 2 of
+ * 'mutable_array_set'" and a bad value reported a type-argument inference failure, both naming a
+ * call that is not in the source. `what` is the receiver as the reader wrote it. */
+static const Type *arr_type_elem(Type t) { return t.elem; }
+
+static void check_index_assign_parts(Module *module, Env *env, Expr *index, Expr *value,
+                                     const Type *elem, const char *what) {
+    Type idx_type = check_expr(module, env, index);
+    if (idx_type.kind != TY_INT) {
+        ziman_error("type", index->line, index->col, "array index must be int, found %s", type_name(idx_type));
+    }
+    Type value_type = check_expr(module, env, value);
+    require_not_void(value, "as an array element");
+    if (elem != NULL && !type_equals(value_type, *elem)) {
+        ziman_error("type", value->line, value->col, "cannot assign %s into %s of %s",
+                    type_name(value_type), what, type_name(*elem));
+    }
+}
+
 static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, int in_loop) {
     ZIMAN_STACK_CHECK();
     /* The one statement the parser deliberately left for here: `let x = 1` and its relatives,
@@ -5053,6 +5135,74 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                         lint_register_var(s->as.value_block.name, s->line, s->col, 1);
                 }
             }
+            break;
+        }
+        /* `a[i] = v`, parsed as itself because only the receiver's type says which statement it
+         * is. An array is a value, so the element write is a rebinding of the name; a MutableArray
+         * is a container, so it is a write through the handle and the name is untouched. Both are
+         * statements the checker already knows how to check, so this rewrites into one of them and
+         * re-checks, which is also what gives the rebinding the ordinary `val`/`var` diagnostic
+         * for free. */
+        case STMT_INDEX_ASSIGN: {
+            Expr *target = s->as.index_assign.target;
+            Expr *base = target->as.index.array;
+            Expr *index = target->as.index.index;
+            Expr *value = s->as.index_assign.value;
+            Type base_type = check_expr(module, env, base);
+
+            if (base_type.kind == TY_ARRAY) {
+                /* Only a name can be rebound. `p.xs[0] = v` and `rows[0][1] = v` would each need a
+                 * copy of something larger than the array -- `p = with p { xs: set(p.xs, 0, v) }`
+                 * -- and writing that out is the author's decision, not a rewrite's. */
+                if (base->kind != EXPR_IDENT) {
+                    ziman_error("type", base->line, base->col,
+                                "only a variable's array can be assigned through '[...]' -- this one is an "
+                                "expression, so write the copy out: 'x = set(x, i, value)' for the array, or "
+                                "'p = with p { field: set(p.field, i, value) }' for a field");
+                }
+                check_index_assign_parts(module, env, index, value, arr_type_elem(base_type), "an array");
+                Stmt *rebind = stmt_new(STMT_ASSIGN, s->line, s->col);
+                rebind->as.assign.name = base->as.ident_name;
+                rebind->as.assign.value = mk_call3_expr("set", base, index, value, s->line, s->col);
+                *s = *rebind;
+                check_stmt(module, env, s, fn_return_type, in_loop);
+                break;
+            }
+            if (base_type.kind == TY_STRUCT && base_type.struct_name != NULL &&
+                strcmp(base_type.struct_name, "MutableArray") == 0) {
+                check_index_assign_parts(module, env, index, value,
+                                         base_type.type_args.count == 1 ? &base_type.type_args.items[0] : NULL,
+                                         "a MutableArray");
+                Stmt *write = stmt_new(STMT_EXPR, s->line, s->col);
+                write->as.expr_stmt.expr = mk_call3_expr("mutable_array_set", base, index, value, s->line, s->col);
+                *s = *write;
+                check_stmt(module, env, s, fn_return_type, in_loop);
+                break;
+            }
+            /* Everything else, named so the reader is pointed at the write that does exist. The
+             * parser used to answer all of these with "arrays are values", which was wrong for a
+             * MutableMap and misleading for a map. */
+            if (base_type.kind == TY_MAP) {
+                ziman_error("type", base->line, base->col,
+                            "a map is not written with '[...]' -- write 'm = set(m, key, value)' (and see "
+                            "MutableMap for filling one in a loop)");
+            }
+            if (base_type.kind == TY_SET) {
+                ziman_error("type", base->line, base->col,
+                            "a set is not written with '[...]' -- add with 's = insert(s, value)'");
+            }
+            if (base_type.kind == TY_STRUCT && base_type.struct_name != NULL &&
+                strcmp(base_type.struct_name, "MutableMap") == 0) {
+                ziman_error("type", base->line, base->col,
+                            "a MutableMap is not written with '[...]' -- write 'mutable_map_set(m, key, value)'");
+            }
+            if (base_type.kind == TY_STRUCT && base_type.struct_name != NULL &&
+                strcmp(base_type.struct_name, "MutableString") == 0) {
+                ziman_error("type", base->line, base->col,
+                            "a MutableString is not written with '[...]' -- write 'mutable_string_set(s, i, piece)'");
+            }
+            ziman_error("type", base->line, base->col, "cannot assign into %s with '[...]' (not an array)",
+                        type_name(base_type));
             break;
         }
         case STMT_ASSIGN: {

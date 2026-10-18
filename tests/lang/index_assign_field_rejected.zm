@@ -1,0 +1,8 @@
+// Only a name can be rebound. A field's array would need a copy of the struct around it, and
+// writing that out is the author's decision rather than something a rewrite should guess.
+struct Row { cells: [int] }
+fn main() {
+    var r = Row { cells: [1, 2] }
+    r.cells[0] = 9
+    print(r.cells)
+}

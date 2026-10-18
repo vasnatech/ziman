@@ -1275,6 +1275,10 @@ static void hoist_stmt(Stmt *s, StmtList *out) {
         case STMT_VAL: case STMT_VAR: hoist_expr(&s->as.decl.init, out, 1, 0); break;
         case STMT_EXPR: hoist_expr(&s->as.expr_stmt.expr, out, 1, 0); break;
         case STMT_ASSIGN: hoist_expr(&s->as.assign.value, out, 0, 0); break;
+        case STMT_INDEX_ASSIGN:
+            hoist_expr(&s->as.index_assign.target, out, 0, 0);
+            hoist_expr(&s->as.index_assign.value, out, 0, 0);
+            break;
         case STMT_RETURN: if (s->as.ret.value != NULL) hoist_expr(&s->as.ret.value, out, 0, 0); break;
         case STMT_IF: hoist_expr(&s->as.if_stmt.cond, out, 0, 0); break;
         case STMT_SWITCH: hoist_expr(&s->as.switch_stmt.scrutinee, out, 0, 0); break;
@@ -1881,10 +1885,16 @@ static Stmt *parse_statement(Parser *p) {
              * that "must be a variable name" does not hint at. Arrays and structs are values here, so
              * neither is assigned into -- a copy is made with a different element or field. Worth naming
              * because these are two of the four most likely day-one mistakes (D2 item 18). */
+            /* `a[i] = v` is a statement of its own, not a rejection. Which statement depends on
+             * the receiver's type -- an array is rebound, a MutableArray is written through -- and
+             * the parser has no types, so check_stmt decides and rewrites. It also issues the
+             * message for a receiver that is neither, which this arm used to print blind: a map
+             * got told "arrays are values" and was pointed at `set(arr, i, value)`. */
             if (first->kind == EXPR_INDEX) {
-                ziman_error("syntax", start->line, start->col,
-                            "an array element cannot be assigned: arrays are values, not mutable containers -- "
-                            "write 'arr = set(arr, i, value)' (and see MutableArray for building one up in a loop)");
+                Stmt *ia = stmt_new(STMT_INDEX_ASSIGN, start->line, start->col);
+                ia->as.index_assign.target = first;
+                ia->as.index_assign.value = parse_expr(p);
+                return ia;
             }
             if (first->kind == EXPR_FIELD_ACCESS) {
                 ziman_error("syntax", start->line, start->col,
@@ -2253,6 +2263,10 @@ static void reclassify_type_params_in_stmt(Stmt *s, TypeParamList *type_params) 
             break;
         case STMT_ASSIGN:
             reclassify_type_params_in_expr(s->as.assign.value, type_params);
+            break;
+        case STMT_INDEX_ASSIGN:
+            reclassify_type_params_in_expr(s->as.index_assign.target, type_params);
+            reclassify_type_params_in_expr(s->as.index_assign.value, type_params);
             break;
         case STMT_IF:
             reclassify_type_params_in_expr(s->as.if_stmt.cond, type_params);

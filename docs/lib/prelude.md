@@ -1686,10 +1686,23 @@ builtin fn unwrap<T>(o: Option<T>) -> T
 ### `push`
 
 ```
-builtin fn push<T>(a: [T], x: T) -> [T]
+builtin fn push<T>(a: [T], values: variadic T) -> [T]
 ```
 
-A new array with `x` on the end; the original is unchanged, these being immutable values.
+A new array with the values on the end; the original is unchanged, these being immutable values.
+Variadic because appending several is one question, not several: a fold of one-value pushes
+reuses the buffer's tip when it has room, so `push(a, x, y, z)` costs about what the three
+values cost rather than three copies of `a`.
+
+```
+builtin fn push<T>(b: MutableArray<T>, values: variadic T)
+```
+
+The MutableArray's `push` is the array's, for the reason `len` and `contains` are: appending is
+the same question of both, so it is the same word. The difference is in what the call answers --
+a new array there, nothing here, the container having been written -- which is the difference
+between the two worlds and not a difference between the two names. The prefixed
+`mutable_array_push` remains as the spelling this rewrites to.
 
 ### `insert`
 
@@ -1706,11 +1719,23 @@ So a map has `set` and no `insert`, and a set has `insert` and no `set`.
 builtin fn insert<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
 ```
 
+```
+builtin fn insert<T>(b: MutableArray<T>, index: int, value: T)
+```
+
+An index in a MutableArray, for the same reason `push` is shared, and rewritten onto
+`mutable_array_insert`. A `MutableSet` has no `insert` form: it was left out with `set`'s, each
+world's membership vocabulary being settled separately.
+
 ### `set`
 
 ```
 builtin fn set<T>(a: [T], index: int, x: T) -> [T]
 ```
+
+`set` has no MutableArray form on purpose: an element write there is `b[i] = value`, the same
+sugar an array's element write gets, and a copying three-argument call would read as though it
+left the container alone. `set(b, i, v)` says so rather than failing as an unknown overload.
 
 ```
 builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>

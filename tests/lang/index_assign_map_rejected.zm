@@ -1,0 +1,8 @@
+// The parser used to answer every `x[i] = v` with "arrays are values", which was the wrong noun for
+// a map and pointed at `set(arr, i, value)` rather than the map's own `set(m, key, value)`. The
+// checker knows the type, so each receiver gets its own repair.
+fn main() {
+    var codes = Map<string, string> { "nl": "Netherlands" }
+    codes["be"] = "Belgium"
+    print(codes)
+}

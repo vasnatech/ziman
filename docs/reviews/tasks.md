@@ -1014,3 +1014,42 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   a shadowed parameter in `gen_lib_manual.py` that had corrupted every summary in
   docs/lib/README.md. **What is left is stage 3 and is small**: a marker on the five category-2
   names so `--api` can say the checker owns their rule, rather than listing them without one.
+
+- [x] **F149** **A `MutableArray` needed a different word from an array for reading element `i`.**
+  (raised 2026-10-18 from a review question -- *"do we support [] operator for arrays?"*, then
+  *"overload push for MutableArray / [] operator for MutableArray / what else?"*; S) `len`,
+  `contains`, `snapshot` and `clear` all take either world, on the stated principle that *"asking a
+  collection its size never needs a per-type name or a conversion"*. Reading element `i` is as
+  basic a question, and it did: `a[1]` for an array, `mutable_array_get(b, 1)` for the builder.
+  Appending was the same -- `push(a, x)` against `mutable_array_push(b, x)`.
+
+  **What `--api builtins` showed when the pairs were listed side by side.** Every verb that
+  *changes* a collection was prefixed in the mutable world and unprefixed in the immutable one,
+  while every verb that only *asks* was already shared. The asymmetry was not a decision about
+  element writes; it was the shape of a vocabulary that had grown from two directions.
+
+  **Done:** `b[i]` and `b[i] = v` on a `MutableArray`, `a[i] = v` on an array, `push` variadic in
+  both worlds, `insert` for a `MutableArray`. The scope was set in review, and two rows of the
+  candidate list were declined there: no `insert(s, x)` for a `MutableSet` and no `set(b, i, x)`
+  for a `MutableArray` -- the element write is `b[i] = v`, and a copying three-argument call would
+  read as though it left the container alone, so `set(b, i, v)` now says that instead of failing as
+  an unknown overload.
+
+  **`a[i] = v` is one statement with two meanings, and the parser cannot tell them apart.** An
+  array is a value, so the write is a rebinding (`a = set(a, i, v)`); a `MutableArray` is a
+  container, so it is a write through the handle and nothing is rebound. Only the type of the
+  receiver decides, so it parses as `STMT_INDEX_ASSIGN` and `check_stmt` rewrites it into the
+  assignment or the call it stands for -- which is also what hands the array form the ordinary
+  `val`/`var` diagnostic without restating it. The interpreter never sees the node.
+
+  **Three messages were wrong before this and are not an accident of it.** The rejection lived in
+  the parser, which has no types, so *every* `x[i] = v` was answered with "arrays are values, not
+  mutable containers -- write 'arr = set(arr, i, value)'": false about a `MutableMap`, which is a
+  mutable container, and pointing a map at the array's `set` rather than its own. Checking the index
+  and the element type *before* the rewrite matters for the same reason -- afterwards, `b[0] = "x"`
+  reported "cannot infer type argument 'T'" about a call to `mutable_array_set` that is nowhere in
+  the file.
+
+  Nine fixtures, six of them rejections. `diag_index_assign` changed sides: it asserted the parser
+  error, and now asserts the output, with its comment rewritten to say the repair it used to point
+  at is what the statement now means.

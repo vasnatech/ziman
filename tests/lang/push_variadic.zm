@@ -1,0 +1,17 @@
+// `push` takes as many values as you have, in both worlds: a new array back from the immutable one,
+// nothing back from the MutableArray, which was written. The MutableArray form is the array's word
+// for the same question, rewritten onto `mutable_array_push`.
+fn main() {
+    var a = [1]
+    a = push(a, 2)
+    a = push(a, 3, 4, 5)
+    print(a)
+    a = insert(a, 0, 0)
+    print(a)
+
+    val b = mutable_array_from<int>([1])
+    push(b, 2)
+    push(b, 3, 4, 5)
+    insert(b, 0, 0)
+    print(snapshot(b))
+}

@@ -381,6 +381,7 @@ typedef enum {
     STMT_VAL,
     STMT_VAR,
     STMT_ASSIGN,
+    STMT_INDEX_ASSIGN,
     STMT_IF,
     STMT_WHILE,
     STMT_FOR,
@@ -446,6 +447,13 @@ struct Stmt {
     union {
         struct { char *name; Type declared_type; int has_declared_type; Expr *init; } decl;
         struct { char *name; Expr *value; } assign;
+        /* `a[i] = v`. The parser cannot tell which of two statements this is --
+         * an immutable array is rebound (`a = set(a, i, v)`) while a
+         * MutableArray is mutated in place (`mutable_array_set(a, i, v)`), and
+         * only the type of `target.array` decides. So it is parsed as itself and
+         * check_stmt rewrites it in place into one of those two, which is why
+         * the interpreter never sees this node. */
+        struct { Expr *target; Expr *value; } index_assign;
         struct { Expr *cond; Stmt *then_block; Stmt *else_block; } if_stmt;
         struct { Expr *cond; Stmt *body; } while_stmt;
         /* `for binder1[, binder2] in <iterable | range_start..range_end> { body }`.

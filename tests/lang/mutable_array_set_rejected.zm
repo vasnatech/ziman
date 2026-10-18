@@ -1,0 +1,7 @@
+// `set` has no MutableArray form on purpose: a copying three-argument call would read as though it
+// left the container alone. The element write is `b[i] = value`, and this says so.
+fn main() {
+    val b = mutable_array_from<int>([1, 2])
+    val copy = set(b, 0, 9)
+    print(len(copy))
+}

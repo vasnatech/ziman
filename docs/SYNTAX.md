@@ -151,8 +151,9 @@ field_init     := IDENT ":" expr
 
 Left out of v0 (tracked in ROADMAP.md): a call as a primary only chains off a plain or
 single-qualified identifier, never an arbitrary expression (a function *value* is called
-through a local name -- `make()(x)` isn't valid); no indexed/field *assignment*
-(`arr[i] = x`/`p.x = 1` aren't valid). `if`/`switch` *are* usable as expressions in a
+through a local name -- `make()(x)` isn't valid); no field *assignment* (`p.x = 1` isn't valid,
+`p = with p { x: 1 }` is). `arr[i] = x` *is* valid, on an array through a plain name and on a
+`MutableArray` -- see "Arrays" below. `if`/`switch` *are* usable as expressions in a
 restricted set of positions -- see "`if` and `switch` as values" below.
 
 ## Types
@@ -272,10 +273,17 @@ nums = set(nums, 1, 999)
 print(nums)                // [-1, 999, 1, 4, 9, 16]
 ```
 
-- **No indexed assignment** -- `arr[i] = x` isn't valid syntax. Every mutation follows one
-  pattern, `arr = builtin(arr, ...)`, the same shape as updating a scalar `var`. `push`/`insert`/
-  `set` are pure, never mutating their `arr` argument, regardless of `val`/`var` (a value has no
-  notion of mutability in Ziman, only a *binding* does).
+- **`arr[i] = x` is sugar for the rebinding, not a mutation** -- it is checked as
+  `arr = set(arr, i, x)`, so it needs `var` and reports the ordinary `val` error without it.
+  `push`/`insert`/`set` are themselves pure, never mutating their `arr` argument, regardless of
+  `val`/`var` (a value has no notion of mutability in Ziman, only a *binding* does). Because the
+  statement rebinds a name, the left-hand side has to *be* a name: `p.cells[0] = x` and
+  `rows[0][1] = x` are errors that name the copy to write instead.
+- **A `MutableArray` takes `b[i]` and `b[i] = x` too, and there they are the mutation.** Nothing is
+  rebound and nothing is copied, so `val b = ...` is right. Reading and writing element `i` are the
+  questions every sequence answers, so they are not spelled per type -- the same reason `len(b)`
+  and `contains(b, x)` take either world. `set(b, i, x)` is deliberately *not* accepted: a copying
+  call would read as though it left the container alone.
 - **An empty array literal (`[]`) has nothing to infer a type from** -- legal only where an
   expected array type is already known (an annotated `val`/`var`, a struct field/`with`
   override, a `return`, a call argument, an enum variant's payload); elsewhere it's a type
@@ -2657,9 +2665,14 @@ a type error.
   same `T`, no implicit mixing.
 - Rounding (`floor`/`ceil`/`round`, `decimal_round`/`_floor`/`_ceil`) and `decimal_pow` live in
   the `math` module now, not here.
-- `push(arr: [T], x: T) -> [T]` — new array with `x` appended; `arr = push(arr, x)` in a loop
-  is amortised O(1) (the result keeps spare room the *newest* version's next `push` reuses; an
-  older version's `push` still copies, so no version changes under another).
+- `push(arr: [T], values: variadic T) -> [T]` — new array with the values appended;
+  `arr = push(arr, x)` in a loop is amortised O(1) (the result keeps spare room the *newest*
+  version's next `push` reuses; an older version's `push` still copies, so no version changes
+  under another). Several values cost about what the values cost, not one copy each, because every
+  result after the first is itself the newest version.
+- `push(b: MutableArray<T>, values: variadic T)` / `insert(b: MutableArray<T>, i, x)` — the same
+  two words for the same two questions of a builder, writing it in place and answering nothing.
+  There is no `set` form: write the element with `b[i] = x`.
 - `insert(arr, i, x) -> [T]` — `x` inserted at `i` (`[0, len(arr)]`, else runtime error).
 - `set(arr, i, x) -> [T]` / `remove(arr, i) -> [T]` — element at `i` replaced/removed
   (`[0, len(arr))`, else runtime error). `insert`/`set`/`remove`/`concat_arrays` always copy.

@@ -1,0 +1,1 @@
+a map is not written with '[...]' -- write 'm = set(m, key, value)'

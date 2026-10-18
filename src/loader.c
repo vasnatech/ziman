@@ -591,6 +591,10 @@ static void self_qualify_stmt(Stmt *s, SelfQualifyCtx *ctx) {
         case STMT_ASSIGN:
             self_qualify_expr(s->as.assign.value, ctx);
             break;
+        case STMT_INDEX_ASSIGN:
+            self_qualify_expr(s->as.index_assign.target, ctx);
+            self_qualify_expr(s->as.index_assign.value, ctx);
+            break;
         case STMT_IF:
             self_qualify_expr(s->as.if_stmt.cond, ctx);
             self_qualify_stmt(s->as.if_stmt.then_block, ctx);
@@ -770,7 +774,7 @@ static void check_no_val_shadowing_stmt(Stmt *s, char **val_names, int n_val_nam
             }
             check_no_val_shadowing_stmt(s->as.value_block.inner, val_names, n_val_names, imports, n_imports);
             break;
-        case STMT_ASSIGN: case STMT_BREAK: case STMT_CONTINUE:
+        case STMT_ASSIGN: case STMT_INDEX_ASSIGN: case STMT_BREAK: case STMT_CONTINUE:
         case STMT_SPAWN: case STMT_RETURN: case STMT_EXPR: case STMT_DEFER: case STMT_YIELD:
             break; /* declares no new name */
     }
@@ -1456,6 +1460,10 @@ static void resolve_stmt_refs(Stmt *s, CrossRefCtx *ctx) {
             break;
         case STMT_ASSIGN:
             resolve_expr_refs(s->as.assign.value, ctx);
+            break;
+        case STMT_INDEX_ASSIGN:
+            resolve_expr_refs(s->as.index_assign.target, ctx);
+            resolve_expr_refs(s->as.index_assign.value, ctx);
             break;
         case STMT_IF:
             resolve_expr_refs(s->as.if_stmt.cond, ctx);

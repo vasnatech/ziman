@@ -1,0 +1,8 @@
+// The element type is checked before the statement is rewritten, so the message names the array the
+// author wrote. Checked afterwards it read "cannot infer type argument 'T'", about a call to
+// mutable_array_set that is nowhere in this file.
+fn main() {
+    val b = mutable_array_from<int>([1, 2])
+    b[0] = "nine"
+    print(b[0])
+}

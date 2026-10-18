@@ -1,0 +1,8 @@
+// `a[i] = v` on an array is a rebinding of the name, so it needs the name to be rebindable. The
+// message is the ordinary `val` one because the statement really is an assignment by the time it is
+// checked -- nothing about index assignment had to restate it.
+fn main() {
+    val xs = [1, 2, 3]
+    xs[0] = 9
+    print(xs)
+}

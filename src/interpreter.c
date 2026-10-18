@@ -1523,7 +1523,11 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                  * nothing -- the same patch the plain-call path applies to any generic native. */
                 result.type = &e->resolved_type;
             } else if (bid == B_push) {
-                result = call_push(e->resolved_type, args[0], args[1]);
+                /* `push(a, x, y, z)`. Each fold takes the buffer's next slot in place when the
+                 * array it is given is the tip and there is room -- which every result after the
+                 * first one is -- so appending k values costs about k, not k copies. */
+                result = args[0];
+                for (int i = 1; i < argc; i++) result = call_push(e->resolved_type, result, args[i]);
             } else if ((bid == B_set || bid == B_insert) &&
                        (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
                 Value stored = args[0].type->kind == TY_MAP ? args[2] : value_int(0);
@@ -2185,6 +2189,12 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             env_define(env, s->as.decl.name, t, s->kind == STMT_VAR, v);
             return no_ctrl();
         }
+        /* Never reached: check_stmt rewrites every `a[i] = v` into the rebinding or the
+         * write-through it stands for. Present so that a future statement kind cannot reach the
+         * interpreter unnoticed through this switch. */
+        case STMT_INDEX_ASSIGN:
+            ziman_error("internal", s->line, s->col, "an index assignment reached the interpreter unrewritten");
+            break;
         case STMT_ASSIGN: {
             Binding *b = s->resolved_depth >= 0 ? env_at_slot(env, s->resolved_depth, s->resolved_slot)
                                                  : env_lookup(env, s->as.assign.name);

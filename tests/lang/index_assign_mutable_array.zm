@@ -1,0 +1,13 @@
+// A MutableArray answers `b[i]` and `b[i] = v` for the reason it answers `len(b)`: reading and
+// writing element i are the questions every sequence answers, and `mutable_array_get`/`_set` were
+// per-type names for them. The container is written in place, so there is no rebinding here and
+// `val` is right -- the opposite of the array in diag_index_assign.
+fn main() {
+    val b = mutable_array_from<int>([10, 20, 30])
+    print(b[1])
+    b[0] = 99
+    b[2] = b[0] + b[1]
+    print(b[0])
+    print(b[2])
+    print(snapshot(b))
+}

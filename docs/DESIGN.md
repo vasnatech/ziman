@@ -168,6 +168,7 @@ them against the code.
 - [Four formatter rules that lived only in comments (2026-10-12, F73 and F79)](#four-formatter-rules-that-lived-only-in-comments-2026-10-12-f73-and-f79)
 - [`make tsan`'s collector configuration was linking an uninstrumented collector (2026-10-16)](#make-tsans-collector-configuration-was-linking-an-uninstrumented-collector-2026-10-16)
 - [`native` and builtin are two different mechanisms, and the difference is who owns the type rule (2026-10-18, F148)](#native-and-builtin-are-two-different-mechanisms-and-the-difference-is-who-owns-the-type-rule-2026-10-18-f148)
+- [An element write is one statement with two meanings (2026-10-18, F149)](#an-element-write-is-one-statement-with-two-meanings-2026-10-18-f149)
 
 <!-- end index -->
 
@@ -6945,3 +6946,50 @@ table keyed on the first parameter's type constructor -- not overload resolution
 not available to user code, since a second same-named `fn` in a program would make this C++
 overloading and half-undo the "no methods, a function takes its receiver as an argument" decision.
 
+
+## An element write is one statement with two meanings (2026-10-18, F149)
+
+`a[i] = v` reads like one operation and is two, and which one it is cannot be known where it is
+parsed.
+
+An array in Ziman is a value. Writing an element of one does not change anything; it produces a
+different array, and the name has to be pointed at it. So `a[i] = v` on an array *is*
+`a = set(a, i, v)` -- a rebinding, which needs `var`, and which can only be written where there is
+a name to rebind. A `MutableArray` is a container reached through a handle. Writing an element of
+one changes the thing every other holder of that handle can see, nothing is produced and no name is
+touched, so `b[i] = v` is `mutable_array_set(b, i, v)` and `val b` is correct.
+
+Those are different statements. They differ in what they require of the left-hand side, in what
+they do to the binding, and in what a reader should expect of the value afterwards. The only thing
+that distinguishes them is the receiver's type, and the parser has no types.
+
+So the statement is parsed as itself -- `STMT_INDEX_ASSIGN`, holding the index expression and the
+value -- and `check_stmt` rewrites it in place into the assignment or the call it stands for, then
+checks that. The interpreter never sees the node; the defensive arm there reports an internal
+error rather than growing a third evaluation path for a statement that always becomes one of two
+that already work. Two things fall out of rewriting rather than re-implementing: the array form
+gets the ordinary "declared with 'val'" diagnostic without index assignment restating it, and the
+mutable form inherits whatever `mutable_array_set` already guarantees about bounds.
+
+**The previous arrangement was not neutral about this.** The rejection lived in the parser, so it
+was one message for every receiver: *"an array element cannot be assigned: arrays are values, not
+mutable containers -- write 'arr = set(arr, i, value)'"*. For a map that named the wrong `set`. For
+a `MutableMap` it was simply false -- that *is* a mutable container. A diagnostic that cannot see
+types will eventually say something untrue about one, and this one did, about the type the sentence
+was contrasting itself against.
+
+The same reasoning sets where the index and the element type are checked: before the rewrite, not
+after. Checked after, `b[0] = "nine"` reported *"cannot infer type argument 'T': one argument
+requires int, another requires string"* -- accurate about the call the checker had just written and
+useless to the author, who wrote an assignment and no call at all. A rewrite may borrow another
+construct's implementation; it should not borrow its messages.
+
+**Why these two operations and not the rest of the pair list.** `len`, `contains`, `snapshot` and
+`clear` already took either world, on the principle that asking a collection its size never needs a
+per-type name. Reading and writing element `i` are questions of the same kind, and they had
+per-type names. Appending is too, so `push` and `insert` became shared and `push` became variadic
+in both worlds. `set(b, i, v)` deliberately did not: a three-argument copying call reads as though
+it leaves its receiver alone, which is exactly the wrong thing to suggest about a builder, so it
+reports that the write is `b[i] = v`. The `remove` family stayed prefixed for a sharper reason --
+the immutable forms answer with the new collection and the mutable ones answer with the element,
+the value, or a bool, so one name would have meant six things, half of them not collections.
