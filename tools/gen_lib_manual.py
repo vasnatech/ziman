@@ -99,7 +99,11 @@ def signature(lines, i):
 
 def parse(path):
     prelude = os.path.basename(path) == "prelude.zm"
-    decl = r"(pub )?(native fn|fn|struct|enum|val) " if prelude else r"pub (native fn|fn|struct|enum|val) "
+    # `builtin fn` belongs here for the same reason it exists: a builtin with no documented
+    # signature is one a reader cannot find. See DESIGN.md's "`native` and builtin are two
+    # different mechanisms".
+    decl = (r"(pub )?(native fn|builtin fn|fn|struct|enum|val) " if prelude
+            else r"pub (native fn|builtin fn|fn|struct|enum|val) ")
     lines = read_lines(path)
     i = 0
     header = []
@@ -200,7 +204,7 @@ def page(name, path, kind):
             current = section
             if section:
                 out += ["## %s" % (section[:1].upper() + section[1:]), ""]
-        name_m = re.match(r"(?:pub )?(?:native fn|fn|struct|enum|val) (\w+)", sig)
+        name_m = re.match(r"(?:pub )?(?:native fn|builtin fn|fn|struct|enum|val) (\w+)", sig)
         out += ["### `%s`" % name_m.group(1), "", "```", sig, "```", ""]
         c = render_comment(comment_text(comment))
         out += [c, ""] if c else []

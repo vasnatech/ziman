@@ -90,6 +90,7 @@ test-tls: $(BIN)
 # takes no program.
 api-check: $(BIN)
 	@./tests/run_api.sh $(BIN)
+	python3 tools/check_builtins.py
 
 module-path-check: $(BIN)
 	@./tests/run_module_path.sh $(BIN)

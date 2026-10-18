@@ -190,6 +190,74 @@ enum Selected<A, B> {
     Second(B)
 }
 
+// ---------------------------------------------------------------- Channel
+//
+// Declared, not defined -- the rule for each is a type-checker arm, as with every `builtin fn`.
+// `Channel<T>` itself is a built-in type rather than a prelude struct, which is why none of these
+// could be a `native fn`: a native's type is checked by the ordinary call path, and these are
+// checked by the arm that knows what a channel is.
+
+// Takes its element type from the context, like `ok`/`err`/`Some`: a `val` with a declared
+// `Channel<T>`, a struct field, a `with` override, a returned value, or a parameter's type.
+builtin fn channel_new<T>() -> Channel<T>
+
+// Blocks until there is room; refused on a closed channel.
+builtin fn send<T>(c: Channel<T>, value: T)
+
+// False when the channel is full or closed, rather than blocking.
+builtin fn try_send<T>(c: Channel<T>, value: T) -> bool
+
+// Blocks until a value arrives. A closed and drained channel is a runtime error here --
+// `receive_option` is the shape that answers "closed" as a value.
+builtin fn receive<T>(c: Channel<T>) -> T
+
+// None when the channel is empty, rather than blocking.
+builtin fn try_receive<T>(c: Channel<T>) -> Option<T>
+
+// None when the channel is closed and drained.
+builtin fn receive_option<T>(c: Channel<T>) -> Option<T>
+
+// None when `millis` elapses first.
+builtin fn receive_timeout<T>(c: Channel<T>, millis: int) -> Option<T>
+
+builtin fn channel_len<T>(c: Channel<T>) -> int
+
+builtin fn channel_close<T>(c: Channel<T>)
+
+// Whichever of the two has a value first, and which one it was.
+builtin fn select2<A, B>(a: Channel<A>, b: Channel<B>) -> Selected<A, B>
+
+// The Result and Option builtins. Declared, not defined -- each one's rule is a type-checker arm.
+//
+// `unwrap` is **not** here: it takes an `Option<T>` as well as a `Result<T, E>`, so it needs two
+// declarations and waits for `builtin fn` to accept an overload set.
+
+// **Why `unwrap_err` is lower case and `unwrap_Some` is not**, since the pair invites the question
+// twice over. For an enum, `is_V`/`unwrap_V` spells the variant exactly -- `Status.Active` gives
+// `is_Active` and `unwrap_Active`, and `Option` is a real prelude enum, so `Option.unwrap_Some`
+// exists and the bare `unwrap_Some` is its shorthand. `Result` is a *built-in type*, not an enum
+// you can address: `Result.is_Ok(...)` is a syntax error, and nothing generates an `is_Ok` or an
+// `unwrap_Ok` for a capital to agree with. Its `Ok` accessor is plain `unwrap`, carrying no
+// variant name at all, so capitalising only `unwrap_Err` would put a spelled-out variant beside
+// one with none. Each spelling tracks whether a generated function exists; neither is a slip.
+
+// `ok` and `err` take their type from the context, like `channel_new` and `Some`: the error type of
+// an `ok(...)` is nowhere in its argument, so a `val`/`var` annotation, a struct field, a `with`
+// override, a returned value or a parameter's type has to say which `Result` it is.
+builtin fn ok<T, E>(value: T) -> Result<T, E>
+
+builtin fn err<T, E>(error: E) -> Result<T, E>
+
+builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
+
+builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
+
+builtin fn is_Some<T>(o: Option<T>) -> bool
+
+builtin fn is_None<T>(o: Option<T>) -> bool
+
+builtin fn unwrap_Some<T>(o: Option<T>) -> T
+
 // The value inside `o`, or `default_value` when `o` is None.
 fn option_unwrap_or<T>(o: Option<T>, default_value: T) -> T {
     return switch o {
@@ -588,7 +656,48 @@ native fn iter_close<T>(it: Iter<T>)
 
 // ---------------------------------------------------------------- Map and Set helpers
 
+// The builtins over an immutable `Map` and `Set`.
+//
+// Declared, not defined: the rule for each is an arm in the type checker, which every call reaches
+// before the ordinary function lookup -- see SYNTAX.md's `builtin fn` entry. These exist so the
+// signature can be printed, completed and read.
 builtin fn map_get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
+
+// The value under `key`, or `default_value` when there is none -- and no `Option` allocated either
+// way, which is why it is not `map_get` plus `unwrap_Some`.
+builtin fn map_get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -> V
+
+// A `Set`, not an array: a map's keys are unique by construction, so the type that says so is the
+// honest one.
+builtin fn map_keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
+
+builtin fn map_values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
+
+// `other` wins where both have a key.
+builtin fn map_merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>
+
+builtin fn map_filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
+
+builtin fn map_remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: [K]) -> Map<K, V>
+
+// Positionally paired; a key repeated in `keys` keeps the last value given for it.
+builtin fn map_from_arrays<K: Eq + Hash, V>(keys: [K], values: [V]) -> Map<K, V>
+
+builtin fn set_items<T: Eq + Hash>(s: Set<T>) -> [T]
+
+builtin fn set_union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+
+builtin fn set_intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+
+builtin fn set_difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+
+builtin fn set_is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
+
+builtin fn set_insert_all<T: Eq + Hash>(s: Set<T>, items: [T]) -> Set<T>
+
+builtin fn set_filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
+
+builtin fn set_from_array<T: Eq + Hash>(items: [T]) -> Set<T>
 
 // One key and its value, as `map_entries` returns them.
 struct MapEntry<K, V> {
@@ -827,6 +936,22 @@ pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T
         None { err(err_supplier()) }
     }
 }
+
+// ---------------------------------------------------------------- comparison and ordering
+//
+// The four builtins that a bound already describes exactly, so each is one declaration rather than
+// an overload set -- `Eq`, `Ord` and `Hash` have been type-parameter bounds since before this.
+
+builtin fn hash<T: Eq + Hash>(x: T) -> int
+
+// Negative, zero or positive; only the sign is meaningful.
+builtin fn compare<T: Ord>(a: T, b: T) -> int
+
+// Two or more arguments, or exactly one array as the whole list -- the ordinary variadic
+// convention, which is why "several values" and "an array of values" need no second declaration.
+builtin fn min<T: Ord>(values: variadic T) -> T
+
+builtin fn max<T: Ord>(values: variadic T) -> T
 
 // ---------------------------------------------------------------- array algorithms
 // Promoted from the `collections` module (F120), so that an array's own helpers need no more

@@ -372,6 +372,132 @@ Which of `select2`'s two channels had a value first, and the value: `First(a)` o
 Named for what it is rather than a general `Either`, which programs commonly declare themselves
 and a bare prelude `Either` would then collide with. Available bare, like `Option`.
 
+## Channel
+
+### `channel_new`
+
+```
+builtin fn channel_new<T>() -> Channel<T>
+```
+
+Takes its element type from the context, like `ok`/`err`/`Some`: a `val` with a declared
+`Channel<T>`, a struct field, a `with` override, a returned value, or a parameter's type.
+
+### `send`
+
+```
+builtin fn send<T>(c: Channel<T>, value: T)
+```
+
+Blocks until there is room; refused on a closed channel.
+
+### `try_send`
+
+```
+builtin fn try_send<T>(c: Channel<T>, value: T) -> bool
+```
+
+False when the channel is full or closed, rather than blocking.
+
+### `receive`
+
+```
+builtin fn receive<T>(c: Channel<T>) -> T
+```
+
+Blocks until a value arrives. A closed and drained channel is a runtime error here --
+`receive_option` is the shape that answers "closed" as a value.
+
+### `try_receive`
+
+```
+builtin fn try_receive<T>(c: Channel<T>) -> Option<T>
+```
+
+None when the channel is empty, rather than blocking.
+
+### `receive_option`
+
+```
+builtin fn receive_option<T>(c: Channel<T>) -> Option<T>
+```
+
+None when the channel is closed and drained.
+
+### `receive_timeout`
+
+```
+builtin fn receive_timeout<T>(c: Channel<T>, millis: int) -> Option<T>
+```
+
+None when `millis` elapses first.
+
+### `channel_len`
+
+```
+builtin fn channel_len<T>(c: Channel<T>) -> int
+```
+
+### `channel_close`
+
+```
+builtin fn channel_close<T>(c: Channel<T>)
+```
+
+### `select2`
+
+```
+builtin fn select2<A, B>(a: Channel<A>, b: Channel<B>) -> Selected<A, B>
+```
+
+Whichever of the two has a value first, and which one it was.
+
+### `ok`
+
+```
+builtin fn ok<T, E>(value: T) -> Result<T, E>
+```
+
+`ok` and `err` take their type from the context, like `channel_new` and `Some`: the error type of
+an `ok(...)` is nowhere in its argument, so a `val`/`var` annotation, a struct field, a `with`
+override, a returned value or a parameter's type has to say which `Result` it is.
+
+### `err`
+
+```
+builtin fn err<T, E>(error: E) -> Result<T, E>
+```
+
+### `is_ok`
+
+```
+builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
+```
+
+### `unwrap_err`
+
+```
+builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
+```
+
+### `is_Some`
+
+```
+builtin fn is_Some<T>(o: Option<T>) -> bool
+```
+
+### `is_None`
+
+```
+builtin fn is_None<T>(o: Option<T>) -> bool
+```
+
+### `unwrap_Some`
+
+```
+builtin fn unwrap_Some<T>(o: Option<T>) -> T
+```
+
 ### `option_unwrap_or`
 
 ```
@@ -953,6 +1079,118 @@ on one that is finished or already closed.
 
 ## Map and Set helpers
 
+### `map_get`
+
+```
+builtin fn map_get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
+```
+
+The builtins over an immutable `Map` and `Set`.
+
+Declared, not defined: the rule for each is an arm in the type checker, which every call reaches
+before the ordinary function lookup -- see SYNTAX.md's `builtin fn` entry. These exist so the
+signature can be printed, completed and read.
+
+### `map_get_or`
+
+```
+builtin fn map_get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -> V
+```
+
+The value under `key`, or `default_value` when there is none -- and no `Option` allocated either
+way, which is why it is not `map_get` plus `unwrap_Some`.
+
+### `map_keys`
+
+```
+builtin fn map_keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
+```
+
+A `Set`, not an array: a map's keys are unique by construction, so the type that says so is the
+honest one.
+
+### `map_values`
+
+```
+builtin fn map_values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
+```
+
+### `map_merge`
+
+```
+builtin fn map_merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>
+```
+
+`other` wins where both have a key.
+
+### `map_filter`
+
+```
+builtin fn map_filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
+```
+
+### `map_remove_all`
+
+```
+builtin fn map_remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: [K]) -> Map<K, V>
+```
+
+### `map_from_arrays`
+
+```
+builtin fn map_from_arrays<K: Eq + Hash, V>(keys: [K], values: [V]) -> Map<K, V>
+```
+
+Positionally paired; a key repeated in `keys` keeps the last value given for it.
+
+### `set_items`
+
+```
+builtin fn set_items<T: Eq + Hash>(s: Set<T>) -> [T]
+```
+
+### `set_union`
+
+```
+builtin fn set_union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+```
+
+### `set_intersect`
+
+```
+builtin fn set_intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+```
+
+### `set_difference`
+
+```
+builtin fn set_difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+```
+
+### `set_is_subset`
+
+```
+builtin fn set_is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
+```
+
+### `set_insert_all`
+
+```
+builtin fn set_insert_all<T: Eq + Hash>(s: Set<T>, items: [T]) -> Set<T>
+```
+
+### `set_filter`
+
+```
+builtin fn set_filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
+```
+
+### `set_from_array`
+
+```
+builtin fn set_from_array<T: Eq + Hash>(items: [T]) -> Set<T>
+```
+
 ### `MapEntry`
 
 ```
@@ -1241,6 +1479,37 @@ pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T
 The reverse of result_to_option: Some(value) becomes Ok(value), and None becomes
 Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
 formatted message) is skipped entirely on the common Some path.
+
+## Comparison and ordering
+
+### `hash`
+
+```
+builtin fn hash<T: Eq + Hash>(x: T) -> int
+```
+
+### `compare`
+
+```
+builtin fn compare<T: Ord>(a: T, b: T) -> int
+```
+
+Negative, zero or positive; only the sign is meaningful.
+
+### `min`
+
+```
+builtin fn min<T: Ord>(values: variadic T) -> T
+```
+
+Two or more arguments, or exactly one array as the whole list -- the ordinary variadic
+convention, which is why "several values" and "an array of values" need no second declaration.
+
+### `max`
+
+```
+builtin fn max<T: Ord>(values: variadic T) -> T
+```
 
 ## Array algorithms
 
