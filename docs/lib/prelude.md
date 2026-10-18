@@ -1571,6 +1571,12 @@ builtin fn snapshot<T>(b: MutableArray<T>) -> [T]
 
 Each builder to its immutable counterpart. O(n), and the handle stays usable.
 
+**Four shapes, not five**: `len` and `contains` above also take a `Mutable<T>` cell and these two
+deliberately do not, each refusing with its own reason. `snapshot` of a cell is `mutable_get` --
+the same crossing out of the handle, but O(1) rather than the O(n) copy this name promises -- and
+a cell has no `clear`, being always initialised, where emptying it would need exactly the zero
+value its type may not have. Visible here rather than only on trying it.
+
 ```
 builtin fn snapshot(b: MutableString) -> string
 ```

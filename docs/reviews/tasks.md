@@ -882,7 +882,7 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   fits. The fixture's new case prints 2 lines with the slack and 3 without, and a label genuinely
   wider than its column still wraps.
 
-- [ ] **F148** **The polymorphic builtins have no declaration anywhere, so nothing can print their
+- [x] **F148** **The polymorphic builtins have no declaration anywhere, so nothing can print their
   types.** (raised 2026-10-18 from a review question -- *"why are you missing common built in
   functions len contains etc?"* and then *"we have a way to mention native functions, we can use
   the same pattern"*; M) About twenty builtins are dispatched by the interpreter on the *name*:
@@ -983,3 +983,34 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   builtins` prints types for all of them, the LSP reads the prelude instead of its own array, and
   `tools/check_not_yet.py`'s stated principle -- *"a new builtin should not need an edit in this
   file to be known about"* -- finally holds for these twenty too.
+
+  *Done 2026-10-18 in `118e1ed` (the mechanism), `af2622a` (37 single-shape declarations and the
+  drift gate) and `da52627` (overload sets and the remaining 20).* **57 of the 66 dispatched
+  builtins carry a signature; the 9 that do not are exactly the ones that cannot** -- the five
+  whose rule reads more than types and the four `$` desugaring targets. The count above said
+  "about twenty" and was wrong: there are 66, which the first `--api builtins` read would have
+  shown had it been counted rather than skimmed.
+
+  **The reviewer's design held.** First-argument dispatch, mirroring `call_len(args[0])`, so the
+  declarations describe a dispatch that already existed; no ranking, no implicit conversions, no
+  return-type-directed choice, and `builtin fn` outside a bundled module is an error, so user code
+  cannot add an overload to the language's vocabulary.
+
+  **The "declarations are inert" claim was wrong in one place, and a fixture caught it.** Inert for
+  *calls* -- every builtin arm returns before `find_function` -- but value position does reach it,
+  so `val f = len` became legal and meaningless the moment `len` had a declaration. Rejected again
+  in `resolve_function_reference`, with the original message. Stage 1 had the same hole and no name
+  of its 37 appears bare in a fixture.
+
+  **Four more things the plan got wrong, each found by reading an arm or running the result rather
+  than by reasoning.** `unwrap` takes an `Option<T>` as well as a `Result<T, E>`. All ten builder
+  operations accept **either world** (`either_world()`), so none was single-shape. A `Map` has no
+  `insert` and a `Set` has no `set` -- `insert` puts something where it was not, `set` replaces
+  what is at a position. And `map_keys` returns a `Set`, not an array.
+
+  Three gates earned their place: `tools/check_builtins.py` (a dispatched name needs a declaration
+  *or* a recorded reason; mutation-tested in three directions), the compiler (a `builtin fn` naming
+  no real builtin, and one declared outside a bundled module), and `lib-manual-check`, which caught
+  a shadowed parameter in `gen_lib_manual.py` that had corrupted every summary in
+  docs/lib/README.md. **What is left is stage 3 and is small**: a marker on the five category-2
+  names so `--api` can say the checker owns their rule, rather than listing them without one.
