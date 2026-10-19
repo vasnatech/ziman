@@ -1455,7 +1455,7 @@ static const char *const PURE_BUILTINS[] = {
     "map_get", "map_get_or", "map_keys", "map_values", "map_merge", "map_filter",
     "map_remove_all", "map_from_arrays",
     "set_items", "set_union", "set_intersect", "set_difference", "set_is_subset",
-    "to_set", "slice", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "set_insert_all", "set_filter",
+    "to_set", "slice", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "set_insert_all", "set_filter",
     "snapshot", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set",
     "mutable_set_is_subset",
     NULL};
@@ -1476,7 +1476,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
@@ -1965,7 +1965,9 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * The costs the two worlds answer with differ, and deliberately: an array's form allocates a
      * new array, a builder's rearranges its buffer with no copy at all. Same question, each world's
      * own answer -- the rule this library has applied since `push`. */
-    static const char *const WORLD_PAIRED[] = {"reverse", "filter", "sort", "sort_desc", "sort_with", NULL};
+    static const char *const WORLD_PAIRED[] = {"reverse", "filter", "sort", "sort_desc", "sort_with",
+                                           "map", "flat_map", "fold", "for_each", "find", "first",
+                                           "last", "any", "all", "count", "sum", NULL};
     for (size_t wp = 0; WORLD_PAIRED[wp] != NULL; wp++) {
         if (strcmp(name, WORLD_PAIRED[wp]) != 0) continue;
         if (e->as.call.args.count < 1) {
@@ -1973,13 +1975,24 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
                         e->as.call.args.count);
         }
         Expr *target = e->as.call.args.items[0];
-        Type target_type = check_expr(module, env, target);
         const char *prefix = NULL;
-        if (target_type.kind == TY_ARRAY) {
+        /* `[]` cannot be checked on its own -- it has no element type until something supplies one
+         * -- and it also cannot be a builder, a handle never being a literal. So it dispatches to
+         * the array half unchecked, and the array function's own parameter (plus any type argument
+         * written at the call) gives the literal its type the way it always did. Checking first
+         * instead made `first<int>([])` and `map<int, int>([], f)` errors, which they had not been. */
+        if (target->kind == EXPR_ARRAY_LIT && target->as.array_lit.elements.count == 0) {
             prefix = "array_";
-        } else if (target_type.kind == TY_STRUCT && target_type.struct_name != NULL &&
-                   strcmp(target_type.struct_name, "MutableArray") == 0) {
-            prefix = "mutable_array_";
+        }
+        Type target_type = type_scalar(TY_VOID);
+        if (prefix == NULL) {
+            target_type = check_expr(module, env, target);
+            if (target_type.kind == TY_ARRAY) {
+                prefix = "array_";
+            } else if (target_type.kind == TY_STRUCT && target_type.struct_name != NULL &&
+                       strcmp(target_type.struct_name, "MutableArray") == 0) {
+                prefix = "mutable_array_";
+            }
         }
         if (prefix == NULL) {
             ziman_error("type", target->line, target->col,
@@ -6146,7 +6159,7 @@ void typecheck(Module *module) {
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare", "error_message",
-                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
+                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

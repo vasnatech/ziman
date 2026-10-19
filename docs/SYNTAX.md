@@ -2754,7 +2754,19 @@ a type error.
   No "pop" -- indexing already covers peeking.
 - **Array helpers, callable with no import** — the counterparts of the bare `map_*`/`set_*`
   helpers that `Map` and `Set` already have: `array_map<T, U>(items, f)`,
-  `array_flat_map<T, U>(items, f)`, and `array_present` below. All return a new array.
+  `array_present` below. All return a new array.
+- **Eleven more lost the prefix and take either world**: `map`, `flat_map`, `fold`, `for_each`,
+  `find`, `first`, `last`, `any`, `all`, `count`, `sum`. Each walks its sequence once and keeps
+  nothing, so a `MutableArray` needs no `snapshot` -- which is what the route used to be, and it
+  allocated and filled a whole array before the first element was looked at. The `array_`/
+  `mutable_array_` names remain underneath as the halves these dispatch to. An **empty literal**
+  dispatches to the array half unchecked (a handle is never a literal), so `first<int>([])` and
+  `map<int, int>([], f)` work as they always did.
+- **`array_join` was deleted rather than renamed.** It was one line delegating to `join`, which owns
+  the bare name and does strictly more (`prefix`/`suffix`), so its callers now say
+  `join(separator: s, pieces: a)` -- what the wrapper expanded to. The one cost: `join`'s `pieces`
+  is a variadic, where an empty literal cannot be inferred, so `array_join([], s)` becomes a typed
+  `val` plus the call.
 - **Five of those lost their prefix**, because neither world owned the bare name:
   `reverse(x)`, `filter(x, keep)`, `sort(x)`, `sort_desc(x)` and `sort_with(x, cmp)` each take an
   array **or** a `MutableArray`, answering a new array from the one and rearranging the other in

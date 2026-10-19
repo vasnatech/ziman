@@ -1470,3 +1470,46 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `filter([1, 2], 7)` says *"argument 2 of 'array_filter'"*. Less misleading than the `$`-prefixed
   leaks, the target being a real public function with that signature -- but it is what would need
   fixing first if these ten prefixed names are ever removed.
+
+- [x] **F163** **Group A: the eleven sequence questions a MutableArray could not ask, and
+  `array_join` deleted.** (raised 2026-10-18 from the collection-pairing review, items 25-53 group
+  A, answered *"can you drop array_* from all 12?"* and *"use join instead of array_join and remove
+  array_join"*; M) `map`, `flat_map`, `fold`, `for_each`, `find`, `first`, `last`, `any`, `all`,
+  `count`, `sum` now take either world. Before this a MutableArray could not be folded or searched
+  at all: the route was `fold(snapshot(b), ...)`, which **allocates and fills a whole array before
+  the first element is looked at**.
+
+  **The builder halves cost almost nothing to write, and the reason is the earlier items.** Nine of
+  the eleven array versions are ordinary Ziman over `for x in`, `len(x)` and `x[i]` -- all of which
+  took either world from the moment those questions stopped having per-type names (F149) -- so each
+  twin is the same body with one word changed in the signature. Only `map` and `flat_map` are
+  natives and needed real twins, each allocating a builder for the result where the native
+  allocates the array directly: one allocation more out, a whole copy of the input saved in.
+
+  **`array_join` was deleted rather than renamed.** It was one line delegating to `join`, kept for
+  the positional calling convention since `join`'s parameters are all `Option`-typed. `join` owns
+  the bare name and does strictly more (`prefix`/`suffix`), so 48 callers now say
+  `join(separator: s, pieces: a)` -- exactly what the wrapper expanded to. Its own history argued
+  for it: it had been a hand-written quadratic loop (18.05s on 40,000 pieces against 0.01s) kept
+  alive by a comment that wrongly denied `join` could take an array, and when that was corrected
+  nobody asked whether the name should outlive the implementation.
+
+  **Three things I got wrong, all caught by fixtures rather than by reading.**
+
+  *The rename stripped type arguments the calls needed.* `array_map<int, int>(xs, fn(n) { n * 2 })`
+  supplies `U` for an un-annotated lambda, and `map(xs, f)` cannot. Type arguments **do** survive
+  the rewrite -- `map<int, string>(xs, f)` works -- so the pass had to preserve them, and the 17
+  ziman files were reverted and redone. The backend was fixed forward instead, carrying edits from
+  five earlier passes that a revert would have lost.
+
+  *A paren-matching converter that did not know about string literals.* `array_join(x, ", ")` split
+  inside the separator, and before the assertion fired it had already rewritten `array_join`'s own
+  **declaration** into `fn join(separator: sep: string, ...)`. It also rewrote the text inside a
+  comment I had just written. A converter that edits code has to lex strings.
+
+  *An empty literal cannot be dispatched on.* The arm type-checked argument one before choosing a
+  world, so `first<int>([])` and `map<int, int>([], f)` became errors they had not been. `[]` can
+  never be a handle, so it now dispatches to the array half unchecked and takes its type from that
+  function's parameter -- which also retired the workaround F162 had put into `array_extras.zm`.
+
+  86 call sites renamed, 48 converted, 0 fixture failures, backend clean.

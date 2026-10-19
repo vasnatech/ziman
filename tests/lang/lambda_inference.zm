@@ -9,11 +9,11 @@ fn main() {
     val base = 10
     val xs = [1, 2, 3]
     // parameter and return types inferred from the expected function type
-    print(array_map<int, int>(xs, fn(n) { n * 2 }))
+    print(map<int, int>(xs, fn(n) { n * 2 }))
     print(filter(xs, fn(n) { n > 1 }))
-    print(array_fold<int, int>(xs, 0, fn(acc, n) { acc + n * base }))
+    print(fold<int, int>(xs, 0, fn(acc, n) { acc + n * base }))
     val items = [Item { name: "pen", qty: 3 }, Item { name: "cup", qty: 0 }]
-    print(array_map<Item, string>(items, fn(i) { i.name }))
+    print(map<Item, string>(items, fn(i) { i.name }))
     // expression body with declared types
     val add = fn(a: int, b: int) -> int { a + b }
     print(add(2, 3))
@@ -40,5 +40,5 @@ fn main() {
     var f: fn(int) -> int = fn(x) { x }
     f = fn(x) { x + 100 }
     print(f(1))
-    array_for_each<int>(xs, fn(n) { print(n * base) })
+    for_each<int>(xs, fn(n) { print(n * base) })
 }

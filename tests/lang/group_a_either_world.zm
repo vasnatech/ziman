@@ -1,0 +1,48 @@
+// The eleven sequence questions that had no builder form at all. Before this, a MutableArray could
+// not be folded, searched, mapped or counted: the route was `fold(snapshot(b), ...)`, which
+// allocates and fills a whole array before the first element is looked at.
+//
+// Each walks its sequence once and keeps nothing, which is what makes either world safe -- and is
+// what separates them from `iter_of_array`, whose `Iter` outlives the call and so cannot take a
+// handle whose contents may move underneath it.
+//
+// The builder halves are each the array version's body with one word changed in the signature,
+// because those bodies are written over `for x in`, `len(x)` and `x[i]` -- all of which took either
+// world already. Nothing here walks a builder in a new way.
+fn main() {
+    val a = [1, 2, 3, 4]
+    val b = mutable([1, 2, 3, 4])
+    val gt2 = fn(x: int) -> bool { x > 2 }
+    val dbl = fn(x: int) -> int { x * 2 }
+    val add = fn(acc: int, x: int) -> int { acc + x }
+
+    print(map(a, dbl))
+    print(map(b, dbl))
+    print(flat_map(a, fn(x: int) -> [int] { [x, x] }))
+    print(flat_map(b, fn(x: int) -> [int] { [x, x] }))
+    print(fold(a, 0, add))
+    print(fold(b, 0, add))
+    print(find(a, gt2))
+    print(find(b, gt2))
+    print(first(a))
+    print(first(b))
+    print(last(a))
+    print(last(b))
+    print(any(a, gt2))
+    print(any(b, gt2))
+    print(all(a, gt2))
+    print(all(b, gt2))
+    print(count(a, gt2))
+    print(count(b, gt2))
+    print(sum(a))
+    print(sum(b))
+
+    // the builder is untouched by any of them
+    print(snapshot(b))
+
+    // an empty literal dispatches to the array half unchecked -- it cannot be a handle, and its
+    // type comes from the array function's parameter plus any type argument written here
+    print(first<int>([]))
+    print(sum([]))
+    print(map<int, int>([], dbl))
+}

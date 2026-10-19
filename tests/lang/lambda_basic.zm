@@ -44,9 +44,9 @@ fn main() {
 
     val items = [Item { name: "pen", qty: 3 }, Item { name: "ink", qty: 4 }, Item { name: "cup", qty: 0 }]
     val min_qty = 1
-    print(array_map<Item, string>(items, fn(i: Item) -> string { return i.name }))
+    print(map<Item, string>(items, fn(i: Item) -> string { return i.name }))
     print(len(filter(items, fn(i: Item) -> bool { return i.qty >= min_qty })))
-    print(array_fold<Item, int>(items, 0, fn(acc: int, i: Item) -> int { return acc + i.qty }))
+    print(fold<Item, int>(items, 0, fn(acc: int, i: Item) -> int { return acc + i.qty }))
     print(sort_with(items, fn(a: Item, b: Item) -> int { return b.qty - a.qty })[0].name)
 
     // captured through two levels of lambda

@@ -329,7 +329,7 @@ pub fn peer_address(s: Socket) -> Option<string> {
 // An index is reported ready, rather than omitted, for a socket closed while this was waiting: the
 // read you were about to do is where that belongs, and it will tell you what happened.
 pub fn wait_readable(sockets: [Socket], timeout_ms: int) -> [int] {
-    return wait_readable_raw(array_map<Socket, int>(sockets, fn(s: Socket) -> int { s.handle }), timeout_ms)
+    return wait_readable_raw(map<Socket, int>(sockets, fn(s: Socket) -> int { s.handle }), timeout_ms)
 }
 
 // Blocks until a client connects.

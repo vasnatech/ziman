@@ -1,1 +1,4 @@
-ziman: type error at 3:47 in tests/lang/lambda_body_type_mismatch_rejected.zm: returned int but function is declared to return string
+ziman: type error at 3:41 in tests/lang/lambda_body_type_mismatch_rejected.zm: returned int but function is declared to return string
+  |
+3 |     print(map<int, string>([1], fn(n) { n }))
+  |                                         ^

@@ -881,6 +881,52 @@ builtin fn sort_desc<T: Ord>(b: MutableArray<T>)
 builtin fn sort_with<T>(a: [T], cmp: fn(T, T) -> int) -> [T]
 builtin fn sort_with<T>(b: MutableArray<T>, cmp: fn(T, T) -> int)
 
+// ---- and the eleven sequence questions, which never had a builder form at all
+//
+// `map`, `flat_map`, `fold`, `for_each`, `find`, `first`, `last`, `any`, `all`, `count`, `sum`.
+// Unlike the five above, these had no `mutable_array_` twin to unprefix: a MutableArray could not
+// be folded or searched at all, and the route was `fold(snapshot(b), ...)`, which **allocates and
+// fills a whole array before the first element is looked at**. Each walks its sequence once and
+// keeps nothing, so taking either world removes that copy without changing a meaning -- which is
+// what separates these from `iter_of_array`, whose `Iter` outlives the call and so cannot take a
+// handle whose contents may move underneath it.
+//
+// `array_join` is **not** among them, and was deleted rather than renamed: it was one line
+// delegating to `join`, which owns the bare name and does more (`prefix`/`suffix`). Its callers
+// now say `join(separator: s, pieces: a)`, which is what it expanded to.
+builtin fn map<T, U>(a: [T], f: fn(T) -> U) -> [U]
+builtin fn map<T, U>(b: MutableArray<T>, f: fn(T) -> U) -> [U]
+
+builtin fn flat_map<T, U>(a: [T], f: fn(T) -> [U]) -> [U]
+builtin fn flat_map<T, U>(b: MutableArray<T>, f: fn(T) -> [U]) -> [U]
+
+builtin fn fold<T, A>(a: [T], initial: A, f: fn(A, T) -> A) -> A
+builtin fn fold<T, A>(b: MutableArray<T>, initial: A, f: fn(A, T) -> A) -> A
+
+builtin fn for_each<T>(a: [T], f: fn(T))
+builtin fn for_each<T>(b: MutableArray<T>, f: fn(T))
+
+builtin fn find<T>(a: [T], test: fn(T) -> bool) -> Option<T>
+builtin fn find<T>(b: MutableArray<T>, test: fn(T) -> bool) -> Option<T>
+
+builtin fn first<T>(a: [T]) -> Option<T>
+builtin fn first<T>(b: MutableArray<T>) -> Option<T>
+
+builtin fn last<T>(a: [T]) -> Option<T>
+builtin fn last<T>(b: MutableArray<T>) -> Option<T>
+
+builtin fn any<T>(a: [T], test: fn(T) -> bool) -> bool
+builtin fn any<T>(b: MutableArray<T>, test: fn(T) -> bool) -> bool
+
+builtin fn all<T>(a: [T], test: fn(T) -> bool) -> bool
+builtin fn all<T>(b: MutableArray<T>, test: fn(T) -> bool) -> bool
+
+builtin fn count<T>(a: [T], test: fn(T) -> bool) -> int
+builtin fn count<T>(b: MutableArray<T>, test: fn(T) -> bool) -> int
+
+builtin fn sum(a: [int]) -> int
+builtin fn sum(b: MutableArray<int>) -> int
+
 // The values that are actually there, in order, with the `None`s dropped. What builds a list out
 // of fields that may each be absent, without an `if` per field:
 //
@@ -1260,9 +1306,14 @@ builtin fn max<T: Ord>(values: variadic T) -> T
 // ---------------------------------------------------------------- array algorithms
 // Promoted from the `collections` module (F120), so that an array's own helpers need no more
 // of an import than a Map's `map_filter` or a Set's `set_union` do -- arrays were the one
-// collection whose library lived behind a `use`. Each is `array_`-prefixed, which is what lets
-// `array_find`, `array_count` and `array_join` exist without taking `find`, `count` or `join`
-// from anyone: the bare `join` is the path join over strings and keeps that meaning.
+// collection whose library lived behind a `use`.
+//
+// **Eleven of them lost the prefix on 2026-10-18** and take either world: `map`, `flat_map`,
+// `fold`, `for_each`, `find`, `first`, `last`, `any`, `all`, `count`, `sum`. The prefixed names
+// below remain as the array halves those dispatch to. `array_join` was deleted rather than
+// renamed, `join` already owning that name and doing more. What stays prefixed is everything a
+// builder cannot answer the same way -- the sorted-order helpers, the Map-building ones, and
+// `iter_of_array`, whose `Iter` outlives the call.
 //
 // Every one returns a new array (or a Map, for the last three) and leaves its argument
 // untouched. Type arguments are written out at the call, since Ziman does not infer them.
@@ -1519,18 +1570,15 @@ fn array_group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
     return snapshot(groups)
 }
 
-// The pieces of `items` with `sep` between them, under the name a reader reaches for. It exists
-// because `parts.join("-")` has no method syntax here and the obvious search lands on `fs.path_join`
-// (docs/reviews/tasks.md F35). `sep` goes between, not after, so a single element joins to itself
-// and an empty array to the empty string.
-//
-// One line, because `join` already does the work in a single pass. It used to be a hand-written
-// loop that re-copied the whole accumulated string per element -- 18.05s on 40,000 pieces against
-// 0.01s now, for byte-identical output -- kept there by a comment that wrongly denied `join` could
-// take an array (D17).
-fn array_join(items: [string], sep: string) -> string {
-    return join(separator: sep, pieces: items)
-}
+// `array_join(items, sep)` stood here until 2026-10-18, as one line delegating to `join` above.
+// It was kept for the positional calling convention, because `join`'s parameters are all
+// `Option`-typed and so the useful calls are named -- and it was deleted once that was the only
+// thing it offered: `join` owns the name, does strictly more (`prefix`/`suffix`), and its 48
+// callers now say `join(separator: s, pieces: a)`, which is exactly what the wrapper expanded to.
+// Its own history argued for this: it had been a hand-written quadratic loop (18.05s on 40,000
+// pieces against 0.01s) kept alive by a comment that wrongly denied `join` could take an array
+// (docs/reviews/tasks.md F35, D17), and when that was corrected nobody asked whether the name
+// should outlive the implementation.
 
 // The total of `items`. A left fold with `+`, which is what anyone writes by hand, but `+` on
 // `int` traps on overflow in this language -- so this either answers the exact total or stops with
@@ -1545,6 +1593,102 @@ fn array_sum(items: [int]) -> int {
         total = total + item
     }
     return total
+}
+
+// ---- the builder twins of the eleven sequence helpers
+//
+// Each is its array version's body with one word changed in the signature, and that is the point:
+// the bodies are written over `for x in`, `len(x)` and `x[i]`, all of which took either world from
+// the moment those questions stopped having per-type names. So nothing here walks a builder in a
+// new way -- the array versions already could, and only their parameter types said otherwise.
+//
+// They exist so the bare names can dispatch to them. The alternative was for each bare name to
+// `snapshot` a builder and call the array version, which is the copy this removes: a `fold` over a
+// builder allocated and filled a whole array before adding anything up.
+fn mutable_array_fold<T, A>(items: MutableArray<T>, initial: A, f: fn(A, T) -> A) -> A {
+    var acc = initial
+    for item in items {
+        acc = f(acc, item)
+    }
+    return acc
+}
+
+fn mutable_array_for_each<T>(items: MutableArray<T>, f: fn(T)) {
+    for item in items {
+        f(item)
+    }
+}
+
+fn mutable_array_find<T>(items: MutableArray<T>, test: fn(T) -> bool) -> Option<T> {
+    for item in items {
+        if test(item) {
+            return Option<T>.Some(item)
+        }
+    }
+    return Option<T>.None
+}
+
+fn mutable_array_first<T>(items: MutableArray<T>) -> Option<T> {
+    return if len(items) > 0 { Option<T>.Some(items[0]) } else { Option<T>.None }
+}
+
+fn mutable_array_last<T>(items: MutableArray<T>) -> Option<T> {
+    return if len(items) > 0 { Option<T>.Some(items[len(items) - 1]) } else { Option<T>.None }
+}
+
+fn mutable_array_any<T>(items: MutableArray<T>, test: fn(T) -> bool) -> bool {
+    for item in items {
+        if test(item) {
+            return true
+        }
+    }
+    return false
+}
+
+fn mutable_array_all<T>(items: MutableArray<T>, test: fn(T) -> bool) -> bool {
+    for item in items {
+        if !test(item) {
+            return false
+        }
+    }
+    return true
+}
+
+fn mutable_array_count<T>(items: MutableArray<T>, test: fn(T) -> bool) -> int {
+    var n = 0
+    for item in items {
+        if test(item) {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+fn mutable_array_sum(items: MutableArray<int>) -> int {
+    var total = 0
+    for item in items {
+        total = total + item
+    }
+    return total
+}
+
+// These two have native array versions, so their twins are written rather than shared. Each
+// allocates a builder for the result where the native allocates the array directly -- one
+// allocation more on the way out, against a whole copy of the input saved on the way in.
+fn mutable_array_map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U] {
+    val out = mutable_array_new<U>(capacity: len(items))
+    for item in items {
+        push(out, f(item))
+    }
+    return snapshot(out)
+}
+
+fn mutable_array_flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U] {
+    val out = mutable_array_new<U>()
+    for item in items {
+        concat(out, f(item))
+    }
+    return snapshot(out)
 }
 
 // How many times each distinct element occurs: `array_frequencies<string>(["a", "b", "a"])` is

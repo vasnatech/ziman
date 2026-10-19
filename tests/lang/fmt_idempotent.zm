@@ -47,5 +47,5 @@ fn main() {
             // nothing else
         }
     }
-    array_map<int, string>(xs, f)
+    map<int, string>(xs, f)
 }

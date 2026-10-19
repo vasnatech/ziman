@@ -24,9 +24,9 @@ fn tags(ps: [P]) -> string {
 
 fn main() {
     val ns = [5, 2, 9, 1, 5]
-    print(array_map<int, int>(ns, fn(n) { n * 2 }))
+    print(map<int, int>(ns, fn(n) { n * 2 }))
     print(filter(ns, fn(n) { n > 2 }))
-    print(array_flat_map<int, int>([1, 2, 3], fn(n) { [n, n] }))
+    print(flat_map<int, int>([1, 2, 3], fn(n) { [n, n] }))
     print(reverse(ns))
 
     print(sort(ns))

@@ -1,1 +1,4 @@
-ziman: type error at 3:36 in tests/lang/lambda_arity_mismatch_rejected.zm: this lambda takes 2 parameter(s) but a function taking 1 is expected here (fn(int) -> int)
+ziman: type error at 3:30 in tests/lang/lambda_arity_mismatch_rejected.zm: this lambda takes 2 parameter(s) but a function taking 1 is expected here (fn(int) -> int)
+  |
+3 |     print(map<int, int>([1], fn(a, b) { a }))
+  |                              ^

@@ -1,4 +1,4 @@
 
 fn main() {
-    print(array_map<int, string>([1], fn(n) { n }))
+    print(map<int, string>([1], fn(n) { n }))
 }

@@ -5,6 +5,6 @@ fn main() {
     val xs = [1, 2, 3, 4]
     val total = xs
         |> filter(fn(n: int) -> bool { n % 2 == 0 })
-        |> array_sum()
+        |> sum()
     print(total)
 }

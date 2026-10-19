@@ -31,26 +31,26 @@ fn main() {
     print(array_binary_search<string>(["a", "c", "e"], "c"))
 
     val items = [Item { name: "pen", qty: 3 }, Item { name: "cup", qty: 9 }, Item { name: "ink", qty: 3 }]
-    print(array_first<Item>(items))
-    print(array_last<int>([1, 2, 3]))
-    print(array_first<int>([]))
+    print(first<Item>(items))
+    print(last<int>([1, 2, 3]))
+    print(first<int>([]))
     print(array_min_by<Item, int>(items, qty))
     print(array_max_by<Item, int>(items, qty))
     print(array_min_by<Item, string>(items, name_of))
     print(array_max_by<int, int>([], fn(x) { x }))
 
-    print(array_count<int>([1, 2, 3, 4, 5], fn(n) { n % 2 == 1 }))
-    print(array_flat_map<int, int>([1, 2, 3], expand))
+    print(count<int>([1, 2, 3, 4, 5], fn(n) { n % 2 == 1 }))
+    print(flat_map<int, int>([1, 2, 3], expand))
     print(array_distinct<int>([3, 1, 3, 2, 1]))
     print(array_distinct<string>(["b", "a", "b"]))
     print(array_group_by<Item, int>(items, qty))
     print(len(array_group_by<int, int>([], fn(x) { x })))
 
     // map / filter / flat_map / reverse keep packed element kinds and handle empty arrays
-    print(array_map<int, float>([1, 2, 3], fn(x) { x as float / 2.0 }))
-    print(array_map<int, bool>([1, 2, 3], fn(x) { x > 1 }))
-    print(array_map<int, string>([1, 2], fn(x) { concat("n", str(x)) }))
-    print(array_map<string, int>(["a", "bcd"], fn(s) { len(s) }))
+    print(map<int, float>([1, 2, 3], fn(x) { x as float / 2.0 }))
+    print(map<int, bool>([1, 2, 3], fn(x) { x > 1 }))
+    print(map<int, string>([1, 2], fn(x) { concat("n", str(x)) }))
+    print(map<string, int>(["a", "bcd"], fn(s) { len(s) }))
     print(filter([0.5, 1.5, 2.5], fn(x) { x > 1.0 }))
     print(filter(["a", "bb", "c"], fn(s) { len(s) == 1 }))
     print(filter([1, 2, 3], fn(x) { x > 9 }))
@@ -61,9 +61,9 @@ fn main() {
     // binding instead. The same rule SYNTAX.md already states for an empty literal in a variadic.
     val no_ints: [int] = []
     print(reverse(no_ints))
-    print(array_map<int, int>([], fn(x) { x }))
-    print(array_flat_map<int, string>([1, 2], fn(x) { ["a", "b"] }))
-    print(array_flat_map<int, int>([], expand))
+    print(map<int, int>([], fn(x) { x }))
+    print(flat_map<int, string>([1, 2], fn(x) { ["a", "b"] }))
+    print(flat_map<int, int>([], expand))
 
     // the native scalar sort and the generic merge sort agree, ties included
     print(sort([5, -2, 9, 5, 0]))
