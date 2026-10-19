@@ -4,7 +4,7 @@
 fn main() {
     val xs = [1, 2, 3, 4]
     val total = xs
-        |> array_filter(fn(n: int) -> bool { n % 2 == 0 })
+        |> filter(fn(n: int) -> bool { n % 2 == 0 })
         |> array_sum()
     print(total)
 }

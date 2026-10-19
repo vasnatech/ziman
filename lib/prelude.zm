@@ -854,6 +854,33 @@ native fn array_flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
 // See `array_map`.
 native fn array_reverse<T>(items: [T]) -> [T]
 
+// ---- the five each world used to spell with its own prefix
+//
+// `reverse`, `filter`, `sort`, `sort_desc` and `sort_with`. Unlike `insert` against a MutableSet's
+// `add`, **neither world owned the bare name** -- it was `array_reverse` against
+// `mutable_array_reverse` -- so sharing one takes nothing from either and there was no winner to
+// pick. Each dispatches on its first argument onto the prefixed implementation for that world,
+// which stays beneath it the way `mutable_array_push` stays under `push`.
+//
+// **The two worlds answer with different costs, deliberately.** An array's form allocates a new
+// array; a MutableArray's rearranges its own buffer with no copy at all, which is the whole reason
+// a builder exists. `reverse(snapshot(xs))` would make two copies where `reverse(xs)` makes none.
+// Same question, each world's own answer -- the rule since `push`.
+builtin fn reverse<T>(a: [T]) -> [T]
+builtin fn reverse<T>(b: MutableArray<T>)
+
+builtin fn filter<T>(a: [T], keep: fn(T) -> bool) -> [T]
+builtin fn filter<T>(b: MutableArray<T>, keep: fn(T) -> bool)
+
+builtin fn sort<T: Ord>(a: [T]) -> [T]
+builtin fn sort<T: Ord>(b: MutableArray<T>)
+
+builtin fn sort_desc<T: Ord>(a: [T]) -> [T]
+builtin fn sort_desc<T: Ord>(b: MutableArray<T>)
+
+builtin fn sort_with<T>(a: [T], cmp: fn(T, T) -> int) -> [T]
+builtin fn sort_with<T>(b: MutableArray<T>, cmp: fn(T, T) -> int)
+
 // The values that are actually there, in order, with the `None`s dropped. What builds a list out
 // of fields that may each be absent, without an `if` per field:
 //
@@ -927,6 +954,17 @@ fn array_sort_desc<T: Ord>(items: [T]) -> [T] {
 // `items` ordered by a comparator function (negative, zero or positive, like `compare`), for an
 // order that is neither the type's own nor a single key -- a two-field ordering, say. Stable.
 // `array_sort_by_keys` covers the single-key case.
+// **A comparator with its order turned round**, which is to `sort_with` what `sort_desc` is to
+// `sort`: `sort_with(xs, inverse(by_length))` rather than a second lambda written backwards, where
+// the only difference is which argument comes first and getting it wrong is silent. It composes,
+// so `inverse(inverse(cmp))` is `cmp`, and it is world-agnostic -- a comparator knows nothing
+// about arrays -- so the one function serves `sort_with` in both.
+//
+// Ordinary Ziman: it returns a closure over `cmp`, which needs nothing the language lacks.
+fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int {
+    return fn(a: T, b: T) -> int { cmp(b, a) }
+}
+
 fn array_sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
     return permute<T>(items, sort_positions(len(items), fn(a, b) { cmp(items[a], items[b]) }))
 }

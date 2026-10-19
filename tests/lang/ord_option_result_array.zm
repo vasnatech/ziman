@@ -29,17 +29,17 @@ fn main() {
     val empty: [int] = []
     print(compare(empty, [0]))
     print(array_sort<Option<int>>([Option<int>.Some(3), Option<int>.None, Option<int>.Some(1)]))
-    print(array_sort<[int]>([[2], [1, 5], [1], empty]))
+    print(sort([[2], [1, 5], [1], empty]))
     print(array_sort<Result<int, string>>([e2, ok2, e1, ok1]))
     print(array_sort<Option<Result<int, string>>>([Option<Result<int, string>>.Some(e1), Option<Result<int, string>>.None, Option<Result<int, string>>.Some(ok1)]))
     val r1 = Rec { id: Option<int>.Some(2), tags: ["b"] }
     val r2 = Rec { id: Option<int>.Some(2), tags: ["a", "z"] }
     val r3 = Rec { id: Option<int>.None, tags: ["zzz"] }
-    for r in array_sort<Rec>([r1, r2, r3]) {
+    for r in sort([r1, r2, r3]) {
         print(r.tags)
     }
-    print(array_sort_desc<int>([3, 1, 2, 3]))
-    print(array_sort_desc<string>(["b", "c", "a"]))
+    print(sort_desc([3, 1, 2, 3]))
+    print(sort_desc(["b", "c", "a"]))
     val people = [P { name: "a", age: 30 }, P { name: "b", age: 71 }, P { name: "c", age: 30 }, P { name: "d", age: 5 }]
     var ages: [int] = []
     for p in people {

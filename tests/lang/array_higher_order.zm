@@ -37,7 +37,7 @@ fn by_age_then_name(a: P, b: P) -> int {
 fn main() {
     val xs = [5, 12, 30, 7]
     print(array_map<int, string>(xs, label))
-    print(array_filter<int>(xs, is_big))
+    print(filter(xs, is_big))
     print(array_fold<int, int>(xs, 0, add))
     print(array_fold<string, string>(["aa", "bbbb", "c"], "", longer))
     print(array_any<int>(xs, is_big))
@@ -46,7 +46,7 @@ fn main() {
     print(array_find<int>([1, 2], is_big))
     array_for_each<int>([1, 2], show)
     val people = [P { name: "zed", age: 30 }, P { name: "amy", age: 30 }, P { name: "bob", age: 25 }]
-    for p in array_sort_with<P>(people, by_age_then_name) {
+    for p in sort_with(people, by_age_then_name) {
         print(concat(p.name, str(p.age)))
     }
     val empty: [int] = []

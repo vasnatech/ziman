@@ -51,22 +51,26 @@ fn main() {
     print(array_map<int, bool>([1, 2, 3], fn(x) { x > 1 }))
     print(array_map<int, string>([1, 2], fn(x) { concat("n", str(x)) }))
     print(array_map<string, int>(["a", "bcd"], fn(s) { len(s) }))
-    print(array_filter<float>([0.5, 1.5, 2.5], fn(x) { x > 1.0 }))
-    print(array_filter<string>(["a", "bb", "c"], fn(s) { len(s) == 1 }))
-    print(array_filter<int>([1, 2, 3], fn(x) { x > 9 }))
-    print(array_reverse<string>(["a", "b", "c"]))
-    print(array_reverse<byte>([1b, 2b, 3b]))
-    print(array_reverse<int>([]))
+    print(filter([0.5, 1.5, 2.5], fn(x) { x > 1.0 }))
+    print(filter(["a", "bb", "c"], fn(s) { len(s) == 1 }))
+    print(filter([1, 2, 3], fn(x) { x > 9 }))
+    print(reverse(["a", "b", "c"]))
+    print(reverse([1b, 2b, 3b]))
+    // `reverse<int>([])` is not spellable now that `reverse` is a builtin: a builtin discards
+    // explicit type arguments, so the empty literal has nothing to infer from and needs a typed
+    // binding instead. The same rule SYNTAX.md already states for an empty literal in a variadic.
+    val no_ints: [int] = []
+    print(reverse(no_ints))
     print(array_map<int, int>([], fn(x) { x }))
     print(array_flat_map<int, string>([1, 2], fn(x) { ["a", "b"] }))
     print(array_flat_map<int, int>([], expand))
 
     // the native scalar sort and the generic merge sort agree, ties included
-    print(array_sort<int>([5, -2, 9, 5, 0]))
-    print(array_sort_desc<int>([5, -2, 9, 5, 0]))
-    print(array_sort<float>([2.5, -1.0, 0.0, 9.75]))
-    print(array_sort<string>(["pear", "fig", "apple", "fig", ""]))
-    print(array_sort<byte>([200b, 3b, 90b]))
+    print(sort([5, -2, 9, 5, 0]))
+    print(sort_desc([5, -2, 9, 5, 0]))
+    print(sort([2.5, -1.0, 0.0, 9.75]))
+    print(sort(["pear", "fig", "apple", "fig", ""]))
+    print(sort([200b, 3b, 90b]))
     print(array_sort_indices_desc<int>([5, 9, 5, 1]))
     print(array_sort_indices<string>(["b", "a", "b", "a"]))
     print(array_sort_by_keys<string, int>(["a", "b", "c", "d"], [2, 1, 2, 1]))
@@ -75,11 +79,11 @@ fn main() {
     for i in 0..300 {
         big = push(big, (i * 7919) % 101)
     }
-    val fast = array_sort<int>(big)
-    val generic = array_sort_with<int>(big, fn(a, b) { compare(a, b) })
+    val fast = sort(big)
+    val generic = sort_with(big, fn(a, b) { compare(a, b) })
     print(fast == generic)
     print(array_is_sorted<int>(fast))
-    print(array_sort_desc<int>(big) == array_reverse<int>(fast))
-    print(array_sort<int>([]))
-    print(array_sort<int>([7]))
+    print(sort_desc(big) == reverse(fast))
+    print(sort(no_ints))
+    print(sort([7]))
 }

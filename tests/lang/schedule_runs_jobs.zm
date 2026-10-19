@@ -67,7 +67,7 @@ fn main() {
     // Both failures arrive, in either order, so sort before printing.
     val first = receive(errors)
     val second = receive(errors)
-    for e in array_sort([summarise(first), summarise(second)]) {
+    for e in sort([summarise(first), summarise(second)]) {
         print(e)
     }
 

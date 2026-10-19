@@ -1455,7 +1455,7 @@ static const char *const PURE_BUILTINS[] = {
     "map_get", "map_get_or", "map_keys", "map_values", "map_merge", "map_filter",
     "map_remove_all", "map_from_arrays",
     "set_items", "set_union", "set_intersect", "set_difference", "set_is_subset",
-    "to_set", "slice", "concat", "set_insert_all", "set_filter",
+    "to_set", "slice", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "set_insert_all", "set_filter",
     "snapshot", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set",
     "mutable_set_is_subset",
     NULL};
@@ -1476,7 +1476,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
@@ -1952,6 +1952,50 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * accepting it saves a copy rather than hiding one. Named for its *result* because the
      * argument already says what the source is, and because a reader of `to_set` expects the
      * deduplication that `set_from_array` had to document. */
+    /* The five operations each world spelled with its own prefix: `reverse`, `filter`, `sort`,
+     * `sort_desc`, `sort_with`. Unlike `insert` against a MutableSet's `add`, neither world owned
+     * the bare name -- it was `array_reverse` against `mutable_array_reverse` -- so sharing one
+     * takes nothing away from either and there is no winner to pick.
+     *
+     * Each rewrites onto the prefixed implementation for its world, which stays as the target the
+     * way `mutable_array_push` stays under `push`. That is also why this needs no runtime: the ten
+     * functions underneath are unchanged, and a message about a bad predicate or comparator still
+     * names a function the author *could* have written, unlike a `$`-prefixed internal.
+     *
+     * The costs the two worlds answer with differ, and deliberately: an array's form allocates a
+     * new array, a builder's rearranges its buffer with no copy at all. Same question, each world's
+     * own answer -- the rule this library has applied since `push`. */
+    static const char *const WORLD_PAIRED[] = {"reverse", "filter", "sort", "sort_desc", "sort_with", NULL};
+    for (size_t wp = 0; WORLD_PAIRED[wp] != NULL; wp++) {
+        if (strcmp(name, WORLD_PAIRED[wp]) != 0) continue;
+        if (e->as.call.args.count < 1) {
+            ziman_error("type", e->line, e->col, "'%s' takes at least 1 argument, found %d", name,
+                        e->as.call.args.count);
+        }
+        Expr *target = e->as.call.args.items[0];
+        Type target_type = check_expr(module, env, target);
+        const char *prefix = NULL;
+        if (target_type.kind == TY_ARRAY) {
+            prefix = "array_";
+        } else if (target_type.kind == TY_STRUCT && target_type.struct_name != NULL &&
+                   strcmp(target_type.struct_name, "MutableArray") == 0) {
+            prefix = "mutable_array_";
+        }
+        if (prefix == NULL) {
+            ziman_error("type", target->line, target->col,
+                        "'%s' expects an array or a MutableArray -- an array answers a new one, a MutableArray is "
+                        "rearranged in place -- found %s",
+                        name, type_name(target_type));
+        }
+        size_t n = strlen(prefix) + strlen(name) + 1;
+        char *target_name = ziman_xmalloc(n);
+        snprintf(target_name, n, "%s%s", prefix, name);
+        e->as.call.rewritten_from = name;
+        e->as.call.callee = target_name;
+        *out = check_expr(module, env, e);
+        return 1;
+    }
+
     /* `concat(...)`: pieces into a string, parts into an array, or parts appended to a builder.
      * One name over three forms, chosen by the first argument, which is why it had to stop being a
      * `native` -- `concat_arrays` and `mutable_array_push_all` were the other two names and are
@@ -6102,7 +6146,7 @@ void typecheck(Module *module) {
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare", "error_message",
-                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
+                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

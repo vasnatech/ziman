@@ -301,9 +301,8 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   element one `set` at a time is O(n²) -- `MutableArray<T>` (`mutable_array_new`,
   `mutable_array_filled`, `mutable_array_push`, `mutable_array_get`, `mutable_array_set`,
   `mutable_array_insert`,
-  `mutable_array_remove`, `narrow`, `swap`, `mutable_array_reverse`,
-  `mutable_array_filter`, `mutable_array_sort`/`_desc`/`_with`, plus the bare `len`, `contains`,
-  `clear` and `snapshot`) is the right tool for building/editing a
+  `mutable_array_remove`, `narrow`, `swap`, `reverse`, `filter`, `sort`/`_desc`/`_with`, plus the
+  bare `len`, `contains`, `clear` and `snapshot`) is the right tool for building/editing a
   large array piece by piece. `insert` takes `0..len` inclusive, so inserting at the length appends;
   **`narrow(b, start, end)` keeps that window in place** and is the in-place counterpart of `slice`:
   a query answers a value and leaves its source alone, a mutation changes the container and answers
@@ -320,10 +319,10 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   error, that one having copied and changed nothing. Both are O(n), where `push` is
   amortised O(1) -- a loop of `mutable_array_insert(xs, 0, v)` is quadratic, and that is why there
   is no `push_front`: the name would read as `push`'s twin and promise a cost it cannot give. Build
-  tail-first and `mutable_array_reverse` once, which copies nothing. `mutable_array_filter` keeps
+  tail-first and `reverse(xs)` once, which copies nothing. `filter(xs, keep)` on a builder keeps
   what its predicate accepts, in place and **allocating nothing** -- the only filter in the language
-  that doesn't. `mutable_array_sort_with` copies no elements either (a merge sort over positions,
-  then the permutation applied by following its cycles), while `mutable_array_sort`/`_desc` do make
+  that doesn't. `sort_with(xs, cmp)` copies no elements either (a merge sort over positions,
+  then the permutation applied by following its cycles), while `sort`/`sort_desc` on a builder make
   two copies -- and that is the cheaper option rather than a compromise, because for a packed
   `[int]`, `[float]` or `[byte]` buffer those two compare *natively*, with no interpreter call per
   comparison, which is worth far more than two memcpys. A comparator of your own always went
@@ -2703,8 +2702,8 @@ a type error.
   *terminates* the last line rather than starting an empty one, so `"a\nb\n"` and `"a\nb"` both
   have two lines. A blank line in the middle is a real line and stays; an empty string has none.
 - `reverse_string(s) -> string` — `s` with its characters in the opposite order, reversing *code
-  points* rather than bytes, so text outside ASCII comes back as text. `array_reverse` is the
-  array version. `is_empty(s) -> bool` (`s == ""`);
+  points* rather than bytes, so text outside ASCII comes back as text. `reverse` is the array
+  version, and takes a builder too. `is_empty(s) -> bool` (`s == ""`);
   `is_blank(s) -> bool` (empty or only whitespace). `to_upper`/`to_lower(s) -> string` — ASCII only.
 - `parse_int`/`parse_float`/`parse_bigint`/`parse_decimal(s) -> Result<_, string>` — parses all
   of `s`; `Err` on leading/trailing junk (blanks, a leading `+`) or a non-parse. A number is an
@@ -2755,9 +2754,19 @@ a type error.
   No "pop" -- indexing already covers peeking.
 - **Array helpers, callable with no import** — the counterparts of the bare `map_*`/`set_*`
   helpers that `Map` and `Set` already have: `array_map<T, U>(items, f)`,
-  `array_filter<T>(items, keep)`, `array_flat_map<T, U>(items, f)`, `array_reverse<T>(items)`,
-  `array_sort<T: Ord>(items)`, `array_sort_desc<T: Ord>(items)` and
-  `array_sort_with<T>(items, cmp)`. All return a new array.
+  `array_flat_map<T, U>(items, f)`, and `array_present` below. All return a new array.
+- **Five of those lost their prefix**, because neither world owned the bare name:
+  `reverse(x)`, `filter(x, keep)`, `sort(x)`, `sort_desc(x)` and `sort_with(x, cmp)` each take an
+  array **or** a `MutableArray`, answering a new array from the one and rearranging the other in
+  place. `array_reverse`/`array_filter`/`array_sort`/`_desc`/`_with` and their
+  `mutable_array_` twins remain underneath as the implementations, the way `mutable_array_push`
+  remains under `push`. `sort<int>([])` is not spellable, a builtin discarding explicit type
+  arguments -- bind a typed `val` and pass that.
+- `inverse<T>(cmp) -> fn(T, T) -> int` — a comparator with its order turned round, which is to
+  `sort_with` what `sort_desc` is to `sort`: `sort_with(xs, inverse(by_length))` rather than a
+  second lambda written backwards, where the only difference is argument order and getting it wrong
+  is silent. It composes (`inverse(inverse(cmp))` is `cmp`) and knows nothing about arrays, so the
+  one function serves both worlds.
   `array_present<T>(items: variadic Option<T>)` is the odd one out: it takes *maybes* and
   returns the values that are there, in order, which is how a list is built out of fields that
   may each be absent without an `if` per field. It is variadic because the call site is nearly

@@ -23,11 +23,11 @@ fn main() {
     print(array_map<int, string>(xs, fn(n: int) -> string { return concat("x", str(n)) }))
 
     // an unannotated lambda still gets its types from the expected type, as before
-    print(array_filter(xs, fn(n) { n > 1 }))
+    print(filter(xs, fn(n) { n > 1 }))
 
     // a lambda with typed parameters but no `->` is still not fully annotated, so it keeps relying on
     // the expected type rather than contributing to inference
-    print(array_filter(xs, fn(n: int) { n > 2 }))
+    print(filter(xs, fn(n: int) { n > 2 }))
 
     // the other functions whose docs call out explicit type arguments
     print(set_map(Set<int> { 1, 2 }, fn(n: int) -> string { return concat("s", str(n)) }))

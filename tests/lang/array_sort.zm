@@ -11,15 +11,15 @@ struct Patient {
 }
 
 fn main() {
-    print(array_sort<int>([5, 2, 9, 1, 5, 6]))
-    print(array_sort<string>(["pear", "apple", "fig", "apple"]))
-    print(array_sort<float>([2.5, 0.5, 1.5]))
-    print(array_reverse<int>(array_sort<int>([3, 1, 2])))
+    print(sort([5, 2, 9, 1, 5, 6]))
+    print(sort(["pear", "apple", "fig", "apple"]))
+    print(sort([2.5, 0.5, 1.5]))
+    print(reverse(sort([3, 1, 2])))
     val empty: [int] = []
-    print(array_sort<int>(empty))
-    print(array_sort<int>([7]))
+    print(sort(empty))
+    print(sort([7]))
     val people = [Person { last: "Lovelace", first: "Ada" }, Person { last: "Babbage", first: "Charles" }, Person { last: "Lovelace", first: "Annabella" }]
-    for p in array_sort<Person>(people) {
+    for p in sort(people) {
         print(concat(p.last, concat(", ", p.first)))
     }
     // sort by a field via a key array
@@ -33,7 +33,7 @@ fn main() {
     }
     print(array_is_sorted<int>([1, 2, 2, 3]))
     print(array_is_sorted<int>([1, 3, 2]))
-    val s = array_sort<int>([10, 20, 20, 30, 40])
+    val s = sort([10, 20, 20, 30, 40])
     print(array_binary_search<int>(s, 20))
     print(array_binary_search<int>(s, 25))
     print(array_binary_search<int>(s, 40))
@@ -42,5 +42,5 @@ fn main() {
     for i in 0..500 {
         big = push(big, (i * 7919) % 1000)
     }
-    print(array_is_sorted<int>(array_sort<int>(big)))
+    print(array_is_sorted<int>(sort(big)))
 }

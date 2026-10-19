@@ -18,7 +18,7 @@ fn main() {
     print(snapshot(xs))
     swap(xs, 0, 1)
     print(snapshot(xs))
-    mutable_array_reverse(xs)
+    reverse(xs)
     print(snapshot(xs))
 
     // insert into a FRESH builder must still pick the packed representation
@@ -34,7 +34,7 @@ fn main() {
     print(snapshot(ws))
     print(mutable_array_remove(ws, 1))
     print(snapshot(ws))
-    mutable_array_reverse(ws)
+    reverse(ws)
     print(snapshot(ws))
 
     // pop, which needs no function of its own

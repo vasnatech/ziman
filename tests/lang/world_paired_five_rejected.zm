@@ -1,0 +1,5 @@
+// The five take an array or a MutableArray and nothing else, and the message says what each world
+// answers with rather than only naming the type it was handed.
+fn main() {
+    print(sort(Set<int> { 1, 2 }))
+}

@@ -1418,6 +1418,69 @@ native fn array_reverse<T>(items: [T]) -> [T]
 
 See `array_map`.
 
+## The five each world used to spell with its own prefix
+
+### `reverse`
+
+```
+builtin fn reverse<T>(a: [T]) -> [T]
+```
+
+`reverse`, `filter`, `sort`, `sort_desc` and `sort_with`. Unlike `insert` against a MutableSet's
+`add`, **neither world owned the bare name** -- it was `array_reverse` against
+`mutable_array_reverse` -- so sharing one takes nothing from either and there was no winner to
+pick. Each dispatches on its first argument onto the prefixed implementation for that world,
+which stays beneath it the way `mutable_array_push` stays under `push`.
+
+**The two worlds answer with different costs, deliberately.** An array's form allocates a new
+array; a MutableArray's rearranges its own buffer with no copy at all, which is the whole reason
+a builder exists. `reverse(snapshot(xs))` would make two copies where `reverse(xs)` makes none.
+Same question, each world's own answer -- the rule since `push`.
+
+```
+builtin fn reverse<T>(b: MutableArray<T>)
+```
+
+### `filter`
+
+```
+builtin fn filter<T>(a: [T], keep: fn(T) -> bool) -> [T]
+```
+
+```
+builtin fn filter<T>(b: MutableArray<T>, keep: fn(T) -> bool)
+```
+
+### `sort`
+
+```
+builtin fn sort<T: Ord>(a: [T]) -> [T]
+```
+
+```
+builtin fn sort<T: Ord>(b: MutableArray<T>)
+```
+
+### `sort_desc`
+
+```
+builtin fn sort_desc<T: Ord>(a: [T]) -> [T]
+```
+
+```
+builtin fn sort_desc<T: Ord>(b: MutableArray<T>)
+```
+
+### `sort_with`
+
+```
+builtin fn sort_with<T>(a: [T], cmp: fn(T, T) -> int) -> [T]
+```
+
+```
+builtin fn sort_with<T>(b: MutableArray<T>, cmp: fn(T, T) -> int)
+```
+
 ### `array_present`
 
 ```
@@ -1491,15 +1554,28 @@ fn array_sort_desc<T: Ord>(items: [T]) -> [T]
 `items` in descending order of their own `compare`. Also stable, so this is not `array_sort`'s
 result reversed -- that would flip ties.
 
-### `array_sort_with`
+### `inverse`
 
 ```
-fn array_sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
+fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int
 ```
 
 `items` ordered by a comparator function (negative, zero or positive, like `compare`), for an
 order that is neither the type's own nor a single key -- a two-field ordering, say. Stable.
 `array_sort_by_keys` covers the single-key case.
+**A comparator with its order turned round**, which is to `sort_with` what `sort_desc` is to
+`sort`: `sort_with(xs, inverse(by_length))` rather than a second lambda written backwards, where
+the only difference is which argument comes first and getting it wrong is silent. It composes,
+so `inverse(inverse(cmp))` is `cmp`, and it is world-agnostic -- a comparator knows nothing
+about arrays -- so the one function serves `sort_with` in both.
+
+Ordinary Ziman: it returns a closure over `cmp`, which needs nothing the language lacks.
+
+### `array_sort_with`
+
+```
+fn array_sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
+```
 
 ### `Guard`
 

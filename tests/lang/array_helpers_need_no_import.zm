@@ -25,24 +25,24 @@ fn tags(ps: [P]) -> string {
 fn main() {
     val ns = [5, 2, 9, 1, 5]
     print(array_map<int, int>(ns, fn(n) { n * 2 }))
-    print(array_filter<int>(ns, fn(n) { n > 2 }))
+    print(filter(ns, fn(n) { n > 2 }))
     print(array_flat_map<int, int>([1, 2, 3], fn(n) { [n, n] }))
-    print(array_reverse<int>(ns))
+    print(reverse(ns))
 
-    print(array_sort<int>(ns))
-    print(array_sort_desc<int>(ns))
-    print(array_sort<string>(["pear", "fig", "apple"]))
-    print(array_sort_with<int>(ns, fn(a: int, b: int) -> int { return compare(b, a) }))
+    print(sort(ns))
+    print(sort_desc(ns))
+    print(sort(["pear", "fig", "apple"]))
+    print(sort_with(ns, fn(a: int, b: int) -> int { return compare(b, a) }))
 
     val empty: [int] = []
-    print(array_sort<int>(empty))
+    print(sort(empty))
 
     // The non-scalar path, through `compare` rather than the packed natives.
     val ps = [P { key: 2, tag: "a" }, P { key: 1, tag: "b" }, P { key: 2, tag: "c" }, P { key: 1, tag: "d" }]
     print(tags(ps))
-    print(tags(array_sort<P>(ps)))
-    print(tags(array_sort_desc<P>(ps)))
-    print(tags(array_sort_with<P>(ps, fn(a: P, b: P) -> int { return compare(a.key, b.key) })))
+    print(tags(sort(ps)))
+    print(tags(sort_desc(ps)))
+    print(tags(sort_with(ps, fn(a: P, b: P) -> int { return compare(a.key, b.key) })))
 
     // array_present: the Nones dropped, the order kept. Variadic, because the call site is
     // nearly always a written-out list of maybes.

@@ -94,7 +94,7 @@ fn labels_key(labels: Map<string, string>) -> string {
     if len(labels) == 0 {
         return no_labels
     }
-    val names = array_sort<string>(set_items(map_keys(labels)))
+    val names = sort(set_items(map_keys(labels)))
     val parts = mutable_array_new<string>()
     for name in names {
         mutable_array_push(parts, concat(name, "=\"", escape(map_get_or(labels, name, "")), "\""))

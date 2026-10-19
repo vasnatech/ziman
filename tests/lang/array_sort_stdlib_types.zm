@@ -5,12 +5,12 @@ fn main() {
     val d1 = unwrap(time.localdate_from_string("2024-03-05"))
     val d2 = unwrap(time.localdate_from_string("2023-12-31"))
     val d3 = unwrap(time.localdate_from_string("2024-01-01"))
-    for d in array_sort<time.LocalDate>([d1, d2, d3]) {
+    for d in sort([d1, d2, d3]) {
         print(time.localdate_to_string(d))
     }
     val a = unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000002"))
     val b = unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000001"))
-    for u in array_sort<uuid.Uuid>([a, b]) {
+    for u in sort([a, b]) {
         print(uuid.uuid_to_string(u))
     }
 }

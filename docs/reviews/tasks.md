@@ -1433,3 +1433,40 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   self-aliasing answers are unchanged and now stated for the variadic case: `concat(xs, xs)`
   doubles, and several aliasing parts append *sequentially*, so `concat(c, c, c)` on a one-element
   builder answers four.
+
+- [x] **F162** **Five operations each world spelled with its own prefix, and a comparator
+  inverter.** (raised 2026-10-18 from the collection-pairing review, items 19-23, answered *"do all
+  five together"*, then *"add function fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int"*; M)
+  `reverse`, `filter`, `sort`, `sort_desc` and `sort_with` were `array_X` against
+  `mutable_array_X`. **Neither world owned the bare name**, which is what made this block the
+  cleanest in the table -- unlike `insert` against a MutableSet's `add`, there was no winner to
+  pick, so one name each takes nothing away from either.
+
+  One checker arm covers all five: it dispatches on the first argument and rewrites onto the
+  prefixed implementation for that world, which stays beneath it the way `mutable_array_push` stays
+  under `push`. **No runtime code at all** -- the ten functions underneath are untouched. The two
+  worlds answer with different costs, deliberately: an array's form allocates a new array, a
+  builder's rearranges its own buffer with no copy.
+
+  **`inverse(cmp)` is to `sort_with` what `sort_desc` is to `sort`.** Ordinary Ziman returning a
+  closure over `cmp`, so it needed nothing the language lacked; it composes, and it knows nothing
+  about arrays, so the one function serves both worlds. It replaces writing a second lambda
+  backwards, where the only difference is argument order and getting it wrong is silent.
+
+  **I told the review 19 call sites and it was 109.** The count came from
+  `grep "\bname("`, which misses `name<T>(` -- `array_sort` alone is 52 sites, nearly all written
+  `array_sort<int>(...)`. That is the **third** time this session that a name-in-use sweep used a
+  pattern blind to an explicit type argument: `slice<int>` in F157, `mutable_array_swap` inside the
+  prelude in F160, and this. The lesson is written down and was not applied. **Any sweep for a name
+  must allow `name<...>` and must not exclude `lib/prelude.zm`.**
+
+  **One capability went with the promotion**, found by a fixture rather than by thinking:
+  `array_sort<int>([])` and `array_reverse<int>([])` were legal because the explicit type argument
+  gave the empty literal its element type, and a builtin discards type arguments. `sort([])` cannot
+  infer, so `tests/lang/array_extras.zm` now binds `val no_ints: [int] = []` first -- which is the
+  rule SYNTAX.md already stated for an empty literal in a variadic position.
+
+  One wart left standing and recorded: a bad predicate reports against the rewrite target, so
+  `filter([1, 2], 7)` says *"argument 2 of 'array_filter'"*. Less misleading than the `$`-prefixed
+  leaks, the target being a real public function with that signature -- but it is what would need
+  fixing first if these ten prefixed names are ever removed.

@@ -5,10 +5,10 @@ struct P {
 }
 
 fn main() {
-    print(array_sort_desc<int>([3, 1, 2, 3]))
-    print(array_sort_desc<string>(["b", "c", "a"]))
+    print(sort_desc([3, 1, 2, 3]))
+    print(sort_desc(["b", "c", "a"]))
     val empty: [int] = []
-    print(array_sort_desc<int>(empty))
+    print(sort_desc(empty))
     // descending is stable: equal keys keep their input order (a before c)
     val people = [P { name: "a", age: 30 }, P { name: "b", age: 71 }, P { name: "c", age: 30 }, P { name: "d", age: 5 }]
     var ages: [int] = []

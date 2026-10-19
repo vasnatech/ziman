@@ -16,8 +16,8 @@ fn main() {
     print(set(a, 0, -1))
     print(remove(a, 1))
     print(a)
-    print(array_sort<int>(a))
-    print(array_reverse<int>(a))
+    print(sort(a))
+    print(reverse(a))
     print(slice<int>(a, 1, 4))
     print(concat(a, [1, 2], slice<int>(a, 0, 1)))
     val big = [9223372036854775807, -9223372036854775807]
@@ -29,7 +29,7 @@ fn main() {
     print(f == [1.5, 0.0, 2.25])
     print(contains(f, 2.25))
     print(push(f, 3.0))
-    print(array_sort<float>(f))
+    print(sort(f))
 
     // [bool]
     val b = [true, false, true]

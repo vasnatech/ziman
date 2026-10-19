@@ -20,27 +20,27 @@ fn main() {
     // packed path
     val ns = mutable_array_new<int>()
     mutable_array_push(ns, 5, 2, 9, 1, 2)
-    mutable_array_filter(ns, fn(n) { n > 2 })
+    filter(ns, fn(n) { n > 2 })
     print(snapshot(ns))
     print(len(ns))
 
-    mutable_array_sort(ns)
+    sort(ns)
     print(snapshot(ns))
-    mutable_array_sort_desc(ns)
+    sort_desc(ns)
     print(snapshot(ns))
-    mutable_array_sort_with(ns, fn(a: int, b: int) -> int { return compare(a % 3, b % 3) })
+    sort_with(ns, fn(a: int, b: int) -> int { return compare(a % 3, b % 3) })
     print(snapshot(ns))
 
     // boxed path, and stability in both directions with genuine ties
     val ps = mutable_array_new<P>()
     mutable_array_push(ps, P { key: 2, tag: "a" }, P { key: 1, tag: "b" }, P { key: 2, tag: "c" }, P { key: 1, tag: "d" })
-    mutable_array_sort(ps)
+    sort(ps)
     val out = mutable_string_new()
     for p in ps {
         mutable_string_append(out, str(p.key), p.tag, " ")
     }
     print(trim(snapshot(out)))
-    mutable_array_sort_desc(ps)
+    sort_desc(ps)
     clear(out)
     for p in ps {
         mutable_string_append(out, str(p.key), p.tag, " ")
@@ -50,9 +50,9 @@ fn main() {
     // filter everything out, and filter nothing out
     val all = mutable_array_new<string>()
     mutable_array_push(all, "x", "y")
-    mutable_array_filter(all, fn(s) { false })
+    filter(all, fn(s) { false })
     print(len(all))
     mutable_array_push(all, "z")
-    mutable_array_filter(all, fn(s) { true })
+    filter(all, fn(s) { true })
     print(snapshot(all))
 }

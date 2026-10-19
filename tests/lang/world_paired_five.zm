@@ -1,0 +1,40 @@
+// `reverse`, `filter`, `sort`, `sort_desc` and `sort_with` were each spelled twice -- `array_X` and
+// `mutable_array_X` -- and neither world owned the bare name, unlike `insert` against a
+// MutableSet's `add`. So one name each takes nothing away from either, and each dispatches on its
+// first argument onto the prefixed implementation for that world, which stays beneath it the way
+// `mutable_array_push` stays under `push`.
+//
+// The costs the two worlds answer with differ, deliberately: an array's form allocates a new array,
+// a builder's rearranges its own buffer with no copy at all.
+fn main() {
+    val a = [3, 1, 2]
+    print(reverse(a))
+    print(filter(a, fn(x: int) -> bool { x > 1 }))
+    print(sort(a))
+    print(sort_desc(a))
+    print(sort_with(a, fn(p: int, q: int) -> int { q - p }))
+    print(a)
+
+    val b = mutable([3, 1, 2])
+    reverse(b)
+    print(snapshot(b))
+    sort(b)
+    print(snapshot(b))
+    sort_desc(b)
+    print(snapshot(b))
+    filter(b, fn(x: int) -> bool { x > 1 })
+    print(snapshot(b))
+    sort_with(b, fn(p: int, q: int) -> int { p - q })
+    print(snapshot(b))
+
+    // `inverse` turns a comparator round, which is to `sort_with` what `sort_desc` is to `sort`.
+    // It composes, and knows nothing about arrays, so it serves both worlds.
+    val by_len = fn(p: string, q: string) -> int { len(p) - len(q) }
+    val words = ["bb", "a", "ccc"]
+    print(sort_with(words, by_len))
+    print(sort_with(words, inverse(by_len)))
+    print(sort_with(words, inverse(inverse(by_len))))
+    val w = mutable(["bb", "a", "ccc"])
+    sort_with(w, inverse(by_len))
+    print(snapshot(w))
+}

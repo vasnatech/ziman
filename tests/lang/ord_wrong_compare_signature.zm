@@ -9,5 +9,5 @@ fn plain_compare(a: Plain) -> int {
 
 fn main() {
     val xs = [Plain { a: 2 }]
-    print(len(array_sort<Plain>(xs)))
+    print(len(sort(xs)))
 }

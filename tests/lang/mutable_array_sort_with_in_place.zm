@@ -33,8 +33,8 @@ fn main() {
             i = i + 1
         }
         val before = snapshot(xs)
-        mutable_array_sort_with(xs, fn(a: int, b: int) -> int { return compare(a, b) })
-        val want = array_sort_with<int>(before, fn(a: int, b: int) -> int { return compare(a, b) })
+        sort_with(xs, fn(a: int, b: int) -> int { return compare(a, b) })
+        val want = sort_with(before, fn(a: int, b: int) -> int { return compare(a, b) })
         if snapshot(xs) != want {
             mismatches = mismatches + 1
         }
@@ -50,8 +50,8 @@ fn main() {
         j = j + 1
     }
     val pbefore = snapshot(ps)
-    mutable_array_sort_with(ps, fn(a: P, b: P) -> int { return compare(a.key, b.key) })
-    val pwant = array_sort_with<P>(pbefore, fn(a: P, b: P) -> int { return compare(a.key, b.key) })
+    sort_with(ps, fn(a: P, b: P) -> int { return compare(a.key, b.key) })
+    val pwant = sort_with(pbefore, fn(a: P, b: P) -> int { return compare(a.key, b.key) })
     var tags = ""
     for p in ps {
         tags = concat(tags, p.tag, " ")
@@ -61,12 +61,12 @@ fn main() {
 
     // Reverse order is one long cycle; already-sorted is all fixed points.
     val rev = mutable([5, 4, 3, 2, 1])
-    mutable_array_sort_with(rev, fn(a: int, b: int) -> int { return compare(a, b) })
+    sort_with(rev, fn(a: int, b: int) -> int { return compare(a, b) })
     print(snapshot(rev))
     val done = mutable([1, 2, 3])
-    mutable_array_sort_with(done, fn(a: int, b: int) -> int { return compare(a, b) })
+    sort_with(done, fn(a: int, b: int) -> int { return compare(a, b) })
     print(snapshot(done))
     val one = mutable([7])
-    mutable_array_sort_with(one, fn(a: int, b: int) -> int { return compare(a, b) })
+    sort_with(one, fn(a: int, b: int) -> int { return compare(a, b) })
     print(snapshot(one))
 }
