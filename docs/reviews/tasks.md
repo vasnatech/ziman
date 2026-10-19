@@ -1303,6 +1303,15 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   native pays one closure call. It is a rasteriser inner loop, so the review kept that site for its
   own look rather than swapping it blind.
 
+  **One fixture broke, and the sweep that should have caught it did not.** Before promoting
+  `slice` I grepped for it in value position and reported "never used as a function value" -- but
+  the patterns were `val x = slice`, `(slice)` and `, slice)`, and the actual site is
+  `val f = slice<int>`, with a type argument between the name and the end of the expression. So
+  `generic_value_native_rejected`, whose subject is that a *generic native* cannot be a value, was
+  silently using `slice` as its example and started getting the builtin refusal instead. Repointed
+  at `mutable_array_get`, which is a generic native for the same reasons `slice` was. The lesson is
+  the narrow one: a grep for a name in value position has to allow for `name<T>`.
+
   **DESIGN.md had kept this overlap on purpose** -- *"Both are cheap, and the explicit spelling is
   the one a reader can be sure of"* -- which the counting is what overturned, the same section
   already naming "one spelling per operation" as the end state. The note records the reversal rather

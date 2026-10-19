@@ -1,4 +1,12 @@
+// A generic native cannot be used as a value: there is one C function behind it and no per-`T`
+// instantiation to hand over, so the message says to wrap it in a lambda rather than reporting a
+// type mismatch.
+//
+// This used `slice<int>` until 2026-10-18, when `slice` became a builtin to take either world --
+// and builtins have their *own* refusal for value position, which is
+// `function_values_builtin_rejected`'s subject. `mutable_array_get` is a generic native for the
+// same reason `slice` was, so it keeps this fixture testing what it was written to test.
 fn main() {
-    val f = slice<int>
-    print(f([1], 0, 1))
+    val f = mutable_array_get<int>
+    print(f(mutable([1]), 0))
 }
