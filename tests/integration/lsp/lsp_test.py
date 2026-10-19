@@ -151,7 +151,7 @@ missing = [n for n in ("sort", "filter", "map", "sort_with", "sort_by", "is_sort
 check("unqualified completion offers the dispatching builtins", not missing, missing)
 # A plain `fn` in lib/prelude.zm is callable with no `use` just as a `builtin fn` is, so the list
 # is both sources, not the builtin table alone.
-missing = [n for n in ("bytes_concat", "inverse", "array_present") if n not in labels]
+missing = [n for n in ("bytes_concat", "inverse", "filter_present") if n not in labels]
 check("unqualified completion offers the prelude's own functions", not missing, missing)
 # The parser's desugaring targets are not names anyone writes.
 internal = [n for n in labels if n.startswith("$")]
@@ -160,7 +160,8 @@ check("unqualified completion hides the internal builtins", not internal, intern
 # missed: the compiler is happy either way, so only this notices.
 gone = [n for n in ("mutable_array_from", "mutable_map_from", "mutable_set_from", "array_join",
                     "sort_by_keys", "mutable_array_truncate", "concat_arrays", "mutable_array_swap",
-                    "array_sort_indices", "array_sort_indices_desc", "sort_indices")
+                    "array_sort_indices", "array_sort_indices_desc", "sort_indices",
+                    "array_present", "iter_of_array")
         if n in labels]
 check("unqualified completion has dropped the deleted names", not gone, gone)
 

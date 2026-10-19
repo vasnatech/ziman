@@ -44,13 +44,13 @@ fn main() {
     print(tags(sort_desc(ps)))
     print(tags(sort_with(ps, fn(a: P, b: P) -> int { return compare(a.key, b.key) })))
 
-    // array_present: the Nones dropped, the order kept. Variadic, because the call site is
+    // filter_present: the Nones dropped, the order kept. Variadic, because the call site is
     // nearly always a written-out list of maybes.
-    print(array_present<int>(Option<int>.Some(1), Option<int>.None, Option<int>.Some(3)))
-    print(array_present<string>(Option<string>.None, Option<string>.None))
-    print(len(array_present<int>()))
+    print(filter_present<int>(Option<int>.Some(1), Option<int>.None, Option<int>.Some(3)))
+    print(filter_present<string>(Option<string>.None, Option<string>.None))
+    print(len(filter_present<int>()))
     // an array already in hand goes in under the parameter name, which a native takes and a
     // builtin does not -- `concat` lost this spelling when it became one
     val held = [Option<string>.Some("a"), Option<string>.None, Option<string>.Some("b")]
-    print(array_present<string>(items: held))
+    print(filter_present<string>(items: held))
 }

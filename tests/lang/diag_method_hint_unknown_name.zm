@@ -1,10 +1,17 @@
 // F92, from the most expensive run of F91's variance wave: `a.iter()` was answered with
-// "e.g. iter(a, ...)" and there is no `iter`. That run spent 194 compiler invocations and concluded
-// `Iter<T>` was "unreachable from source", when `iter_of_array` exists. The hint now names the
-// absence when the name is not a prelude function, and still names the call form when it is -- the
-// quiet half below is what keeps this from becoming the hedge this file removed once already.
+// "e.g. iter(a, ...)" when there was no `iter`. That run spent 194 compiler invocations and
+// concluded `Iter<T>` was "unreachable from source". The hint now names the absence when the name
+// is not a prelude function, and still names the call form when it is -- both halves below,
+// because the quiet one is what keeps this from becoming the hedge this file removed once already.
+//
+// F170 renamed `iter_of_array` to `iter`, which **inverted this fixture's original example**: the
+// exact call F92 reported, `a.iter()`, is now answered with `iter(a, ...)` and that advice is
+// right. So `a.collect()` carries the absent half instead -- still an iterator-vocabulary name a
+// cold model reaches for, still not a function -- and `a.iter()` stays to pin the other half,
+// which is now the better record of F92 than the original was.
 fn main() {
     val a = [1, 2]
-    val b = a.iter()
+    val b = a.collect()
+    val c = a.iter()
     print(len(a))
 }

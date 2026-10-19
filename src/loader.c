@@ -953,7 +953,7 @@ static int method_call_hint(const char *member, const char *qualifier, char *hin
          * instance of round 2 shows what that costs when the claim is read as one: `a.iter()` was
          * answered with `iter(a, ...)`, there is no `iter`, and that run spent 194 compiler
          * invocations before concluding `Iter<T>` was "unreachable from source" when
-         * `iter_of_array` exists. So the form is still named when the function is real, and the
+         * `iter` exists. So the form is still named when the function is real, and the
          * absence is named when it is not. The earlier hedge this file removed ("if there is such a
          * function") was noise because it fired on the common case where the guess is right; this
          * fires only when the guess is known to be wrong. */

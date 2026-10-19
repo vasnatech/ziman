@@ -944,7 +944,8 @@ Picked `result_obj_new`/`enum_obj_new` as the next migration anyway (the next si
 constructors still on the ordinary allocator; `gc_mark_result`/`gc_mark_enum` already handle both
 kinds correctly, nothing had ever actually allocated one this way yet). Mechanical change, same as
 `struct_obj_new`/`array_obj_new` -- and `csv_records.zm` segfaulted immediately. Root cause: `iter.c`'s
-`FromState`/`ArrayIterState` (the native state behind `iter_from`/`iter_of_array`) hold whatever
+`FromState`/`ArrayIterState` (the native state behind `iter_from`/`iter`, then named
+`iter_of_array`) hold whatever
 Values their own closures/arrays were built with, reachable only through `it->state`, a plain
 `calloc`'d struct invisible to both root sources -- the identical shape to `ArrayBuilder`'s own gap
 two entries up, fixed the same way (`gc_mark_register_struct_content_marker`, registered for `"Iter"`

@@ -1741,3 +1741,41 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   asks whether `order_of` "wants to be the one public primitive the sort family is written over";
   this task answers yes, by subtraction. Both noted in an update under the entry rather than by
   editing the historical body.
+
+- [x] **F170** **Group D, the two renames: `array_present` -> `filter_present`, `iter_of_array` ->
+  `iter`.** (raised 2026-10-19 from Group D; S) Neither is a pairing change -- both are names that
+  were answering a question nobody asked.
+
+  **`array_present` -> `filter_present`.** The `array_` prefix means "this is the immutable
+  world's spelling" everywhere else it appears, and the other world's name sits beside it. Here
+  there is no other world: the argument is a *variadic* `Option<T>`, a written-out list of maybes,
+  so the prefix named a world the argument could not have come from. `filter_` says what it does
+  and puts it next to `filter`, where a reader looking for "keep some of these" already is. This
+  also empties the "still said with the prefix" list down to `array_order_of` alone.
+
+  **`iter_of_array` -> `iter`.** The argument already says what the source is, the way `to_set` is
+  named for its result; `iter_from` beside it is the other constructor, so the family reads
+  `iter(array)` against `iter_from(next, close)`. The "cannot take a builder" rule is unchanged
+  and is now stated on the declaration itself rather than only in Group A's comment: the `Iter`
+  outlives the call, so a handle's contents could move underneath it, and `iter(snapshot(b))` is
+  the builder route with the copy being the point rather than a cost to remove.
+
+  **The rename inverted a fixture's premise, which is the interesting part.**
+  `diag_method_hint_unknown_name` exists because of F92: a benchmark run wrote `a.iter()`, was
+  answered `e.g. iter(a, ...)`, and there was no `iter`, so it spent 194 compiler invocations
+  concluding `Iter<T>` was unreachable. The fixture pinned that the hint now *names the absence*
+  for a name the prelude does not have. After this rename `iter` is a prelude function and that
+  exact hint is correct advice -- so the fixture's own example had become the opposite of what it
+  tests. A blind rename left its comment reading "there is no `iter` ... when `iter` exists".
+  `a.collect()` carries the absent half now (still iterator vocabulary, still not a function, not
+  one of F28's seven hand-mapped names), and `a.iter()` stays to pin the other half, which the
+  fixture's comment always claimed to cover and did not. DESIGN.md's account of the same wave got
+  a note for the same reason -- it said "there is no `iter`" in the present tense.
+
+  **The dated benchmark runs were left alone.** `docs/reviews/benchmark/runs/*` still say
+  `iter_of_array`, because they record what a model wrote on 2026-10-12 and editing them would
+  falsify the record. Nothing compiles them -- `benchmark-check` and the `--fmt` gate both read
+  `reference/` only, which was renamed.
+
+  **F168's gate took its second customer:** `array_present` and `iter_of_array` added to the
+  deleted-names assertion, so the editor cannot keep offering either.

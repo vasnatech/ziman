@@ -1144,13 +1144,21 @@ closures call: a native handle such as a socket or a database cursor, or a Chann
 sources it is NOT closed by the garbage collector (that would run your code from a finalizer), so
 finish it or close it.
 
-### `iter_of_array`
+### `iter`
 
 ```
-native fn iter_of_array<T>(items: [T]) -> Iter<T>
+native fn iter<T>(items: [T]) -> Iter<T>
 ```
 
-The elements of `items` as an Iter, for code that takes a lazy source but has an array.
+The elements of `items` as an Iter, for code that takes a lazy source but has an array. Named
+`iter` rather than `iter` since F170: the argument already says what the source is, the
+way `to_set` is named for its result, and `iter_from` beside it is the other constructor.
+
+It takes an array and **not** a MutableArray, which is what separates it from `fold`, `find` and
+the rest of the either-world family: those walk their sequence once inside the call and keep
+nothing, while the `Iter` this answers outlives the call, so a handle's contents could move
+underneath it. `iter(snapshot(b))` is the builder route, and the copy it makes is the point
+rather than a cost to be removed.
 
 ### `iter_next`
 
@@ -1545,7 +1553,7 @@ Unlike the five above, these had no `mutable_array_` twin to unprefix: a Mutable
 be folded or searched at all, and the route was `fold(snapshot(b), ...)`, which **allocates and
 fills a whole array before the first element is looked at**. Each walks its sequence once and
 keeps nothing, so taking either world removes that copy without changing a meaning -- which is
-what separates these from `iter_of_array`, whose `Iter` outlives the call and so cannot take a
+what separates these from `iter`, whose `Iter` outlives the call and so cannot take a
 handle whose contents may move underneath it.
 
 `array_join` is **not** among them, and was deleted rather than renamed: it was one line
@@ -1776,10 +1784,10 @@ builtin fn binary_search<T: Ord>(a: [T], target: T) -> Option<int>
 builtin fn binary_search<T: Ord>(b: MutableArray<T>, target: T) -> Option<int>
 ```
 
-### `array_present`
+### `filter_present`
 
 ```
-fn array_present<T>(items: variadic Option<T>) -> [T]
+fn filter_present<T>(items: variadic Option<T>) -> [T]
 ```
 
 The values that are actually there, in order, with the `None`s dropped. What builds a list out
@@ -1787,18 +1795,24 @@ of fields that may each be absent, without an `if` per field:
 
 
 ```
-xml.element(xml.name("patient"), [], array_present<xml.Node>(
+xml.element(xml.name("patient"), [], filter_present<xml.Node>(
     xml.opt_element("firstName", p.first_name),
     xml.opt_element("dateOfBirth", p.date_of_birth)
 ))
 ```
 
+Named `filter_present` rather than `filter_present` since F170. The `array_` prefix said which
+*world* the argument came from, which is what the prefix meant everywhere else; here the
+argument is a written-out list of maybes and there is no other world it could have come from,
+so the prefix was answering a question nobody asked. `filter_` says what it does instead, and
+puts it beside `filter` where a reader looking for "keep some of these" will be.
+
 Variadic rather than taking an array, because the call site is nearly always a written-out
 list of maybes rather than one already in hand; an array you do have goes in as
-`array_present<T>(items: existing)`, the spelling `concat_arrays` took before `concat` absorbed it.
+`filter_present<T>(items: existing)`, the spelling `concat_arrays` took before `concat` absorbed it.
 
-`array_filter` cannot do this: it keeps elements, so it would hand back `[Option<T>]` still
-wrapped, and `array_flat_map` only does it by turning each value into a one- or zero-element
+`filter` cannot do this: it keeps elements, so it would hand back `[Option<T>]` still
+wrapped, and `flat_map` only does it by turning each value into a one- or zero-element
 array, which allocates per element and reads like a puzzle.
 Plain value `push`, not a MutableArray, and the reason is that `T` is generic: which spelling
 wins depends on whether `T` packs, so the one chosen here is the one whose worst case is

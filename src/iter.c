@@ -201,7 +201,7 @@ static Value native_iter_from(Value *args, int argc, int line, int col) {
     return iter_make(it);
 }
 
-/* iter_of_array<T>(items): the elements of an array as an Iter. */
+/* iter<T>(items): the elements of an array as an Iter. Was `iter_of_array` until F170. */
 typedef struct {
     Value items;
     int index;
@@ -216,7 +216,7 @@ static int array_iter_next(IterObj *it, Value *out) {
 
 static void array_iter_release(IterObj *it) { (void)it; }
 
-static Value native_iter_of_array(Value *args, int argc, int line, int col) {
+static Value native_iter(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -233,7 +233,7 @@ static Value native_iter_of_array(Value *args, int argc, int line, int col) {
  * the identical seam MutableArray/MutableMap/MutableSet already use) so a real collection landing
  * while an Iter is still open doesn't sweep a Value its own native state holds but nothing else
  * references: `FromState.next`/`.close` (the closures `iter_from<T>` was built with) and
- * `ArrayIterState.items` (the array `iter_of_array<T>` is walking) are each referenced *only* by
+ * `ArrayIterState.items` (the array `iter<T>` is walking) are each referenced *only* by
  * `it->state`, a plain `calloc`'d (GC_MALLOC'd) struct invisible to both root sources the mark phase
  * otherwise relies on -- not on the stack once a `for`/`while` loop driving this Iter has moved past
  * the statement that created it, and not in any Env, since nothing ever binds `it` or `st`
@@ -262,7 +262,7 @@ static void iter_mark_contents(const Arena *a, StructObj *st) {
 
 void native_iter_register(void) {
     native_register("iter_from", native_iter_from);
-    native_register("iter_of_array", native_iter_of_array);
+    native_register("iter", native_iter);
     native_register("iter_next", native_iter_next);
     native_register("iter_close", native_iter_close);
     gc_mark_register_struct_content_marker("Iter", iter_mark_contents);

@@ -716,8 +716,16 @@ struct Iter<T> {
 // finish it or close it.
 native fn iter_from<T>(next: fn() -> Option<T>, close: fn()) -> Iter<T>
 
-// The elements of `items` as an Iter, for code that takes a lazy source but has an array.
-native fn iter_of_array<T>(items: [T]) -> Iter<T>
+// The elements of `items` as an Iter, for code that takes a lazy source but has an array. Named
+// `iter` rather than `iter` since F170: the argument already says what the source is, the
+// way `to_set` is named for its result, and `iter_from` beside it is the other constructor.
+//
+// It takes an array and **not** a MutableArray, which is what separates it from `fold`, `find` and
+// the rest of the either-world family: those walk their sequence once inside the call and keep
+// nothing, while the `Iter` this answers outlives the call, so a handle's contents could move
+// underneath it. `iter(snapshot(b))` is the builder route, and the copy it makes is the point
+// rather than a cost to be removed.
+native fn iter<T>(items: [T]) -> Iter<T>
 
 // The next item of `it`, or None when it is exhausted. For a `while` loop that wants the items one
 // by one; `for` does this for you.
@@ -923,7 +931,7 @@ builtin fn sort_by_desc<T, K: Ord>(b: MutableArray<T>, key: fn(T) -> K)
 // be folded or searched at all, and the route was `fold(snapshot(b), ...)`, which **allocates and
 // fills a whole array before the first element is looked at**. Each walks its sequence once and
 // keeps nothing, so taking either world removes that copy without changing a meaning -- which is
-// what separates these from `iter_of_array`, whose `Iter` outlives the call and so cannot take a
+// what separates these from `iter`, whose `Iter` outlives the call and so cannot take a
 // handle whose contents may move underneath it.
 //
 // `array_join` is **not** among them, and was deleted rather than renamed: it was one line
@@ -1013,17 +1021,23 @@ builtin fn binary_search<T: Ord>(b: MutableArray<T>, target: T) -> Option<int>
 // The values that are actually there, in order, with the `None`s dropped. What builds a list out
 // of fields that may each be absent, without an `if` per field:
 //
-//     xml.element(xml.name("patient"), [], array_present<xml.Node>(
+//     xml.element(xml.name("patient"), [], filter_present<xml.Node>(
 //         xml.opt_element("firstName", p.first_name),
 //         xml.opt_element("dateOfBirth", p.date_of_birth)
 //     ))
 //
+// Named `filter_present` rather than `filter_present` since F170. The `array_` prefix said which
+// *world* the argument came from, which is what the prefix meant everywhere else; here the
+// argument is a written-out list of maybes and there is no other world it could have come from,
+// so the prefix was answering a question nobody asked. `filter_` says what it does instead, and
+// puts it beside `filter` where a reader looking for "keep some of these" will be.
+//
 // Variadic rather than taking an array, because the call site is nearly always a written-out
 // list of maybes rather than one already in hand; an array you do have goes in as
-// `array_present<T>(items: existing)`, the spelling `concat_arrays` took before `concat` absorbed it.
+// `filter_present<T>(items: existing)`, the spelling `concat_arrays` took before `concat` absorbed it.
 //
-// `array_filter` cannot do this: it keeps elements, so it would hand back `[Option<T>]` still
-// wrapped, and `array_flat_map` only does it by turning each value into a one- or zero-element
+// `filter` cannot do this: it keeps elements, so it would hand back `[Option<T>]` still
+// wrapped, and `flat_map` only does it by turning each value into a one- or zero-element
 // array, which allocates per element and reads like a puzzle.
 // Plain value `push`, not a MutableArray, and the reason is that `T` is generic: which spelling
 // wins depends on whether `T` packs, so the one chosen here is the one whose worst case is
@@ -1050,7 +1064,7 @@ builtin fn binary_search<T: Ord>(b: MutableArray<T>, target: T) -> Option<int>
 // allocating a boxed array it was about to discard. Measure one spelling per process if these
 // are ever re-run: taking all three in one gave the last of them a heap the earlier two had
 // already grown, which read as a 4x spread that does not exist.
-fn array_present<T>(items: variadic Option<T>) -> [T] {
+fn filter_present<T>(items: variadic Option<T>) -> [T] {
     var out: [T] = []
     for item in items {
         if Some(value) = item {
@@ -1412,7 +1426,7 @@ builtin fn max<T: Ord>(values: variadic T) -> T
 // below remain as the array halves those dispatch to. `array_join` was deleted rather than
 // renamed, `join` already owning that name and doing more. What stays prefixed is everything a
 // builder cannot answer the same way -- the sorted-order helpers, the Map-building ones, and
-// `iter_of_array`, whose `Iter` outlives the call.
+// `iter`, whose `Iter` outlives the call.
 //
 // Every one returns a new array (or a Map, for the last three) and leaves its argument
 // untouched. Type arguments are written out at the call, since Ziman does not infer them.

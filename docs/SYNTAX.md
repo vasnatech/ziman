@@ -510,7 +510,7 @@ for i, x in arr { ... }       // index + value together
   no index. Nothing is read ahead (the source can exceed memory); `break`/`return`/`try` inside
   the loop closes it, and one never finished is closed on garbage collection. Take items by hand
   with `iter_next(it) -> Option<T>`, release early with `iter_close(it)`. Walked once (a second
-  `for` picks up where the first stopped). `iter_of_array(items)` makes one from an array;
+  `for` picks up where the first stopped). `iter(items)` makes one from an array;
   `iter_from<T>(next, close)` from your own code (`next` returns `Some`/`None`, `close` runs
   once when finished/left early/closed -- keep position in what a captured closure calls, since
   a closure can't mutate what it captured). Not GC-closed like built-in sources -- finish/close it.
@@ -2767,7 +2767,7 @@ a type error.
   No "pop" -- indexing already covers peeking.
 - **Array helpers, callable with no import** — the counterparts of the bare `map_*`/`set_*`
   helpers that `Map` and `Set` already have: `array_map<T, U>(items, f)`,
-  `array_present` below. All return a new array.
+  `filter_present` below. All return a new array.
 - **Eleven more lost the prefix and take either world**: `map`, `flat_map`, `fold`, `for_each`,
   `find`, `first`, `last`, `any`, `all`, `count`, `sum`. Each walks its sequence once and keeps
   nothing, so a `MutableArray` needs no `snapshot` -- which is what the route used to be, and it
@@ -2790,8 +2790,9 @@ a type error.
   of it.
 
   What stays `array_`-prefixed is everything a builder cannot answer the same way:
-  `array_order_of`, `array_present`, `permute`, and `iter_of_array`, whose `Iter` outlives the
-  call.
+  `array_order_of`, `permute`, and `iter`, whose `Iter` outlives the call. (`filter_present` lost
+  its own `array_` prefix in F170 -- it takes a written-out list of maybes, so the prefix was
+  naming a world the argument could not have come from.)
 - **`array_join` was deleted rather than renamed.** It was one line delegating to `join`, which owns
   the bare name and does strictly more (`prefix`/`suffix`), so its callers now say
   `join(separator: s, pieces: a)` -- what the wrapper expanded to. The one cost: `join`'s `pieces`
@@ -2809,22 +2810,21 @@ a type error.
   second lambda written backwards, where the only difference is argument order and getting it wrong
   is silent. It composes (`inverse(inverse(cmp))` is `cmp`) and knows nothing about arrays, so the
   one function serves both worlds.
-  `array_present<T>(items: variadic Option<T>)` is the odd one out: it takes *maybes* and
+- **`filter_present<T>(items: variadic Option<T>)`** is the odd one out: it takes *maybes* and
   returns the values that are there, in order, which is how a list is built out of fields that
   may each be absent without an `if` per field. It is variadic because the call site is nearly
-  always a written-out list (`array_present<Node>(opt_element(..), opt_element(..))`); an array
-  already in hand goes in as `array_present<T>(items: existing)`, a spelling only a native takes --
-  takes. `array_filter` cannot express it -- it keeps elements, so the results would still be
-  wrapped -- and `array_flat_map` only can by building a one- or zero-element array per value. The sorts are stable in both
-  directions, so `array_sort_desc` is not `array_sort` reversed (that would flip ties).
+  always a written-out list (`filter_present<Node>(opt_element(..), opt_element(..))`); an array
+  already in hand goes in as `filter_present<T>(items: existing)`, the named-argument spelling a
+  variadic takes. `filter` cannot express it -- it keeps elements, so the results would still be
+  wrapped -- and `flat_map` only can by building a one- or zero-element array per value. The sorts
+  are stable in both directions, so `sort_desc` is not `sort` reversed (that would flip ties).
   The rest of the array library needs no import either. Most of it is now spelled **without** the
   prefix -- `fold`, `find`, `first`, `last`, `min_by`, `max_by`, `count`, `any`, `all`,
   `for_each`, `distinct`, `sum`, `sort_by`/`_desc`, `is_sorted`, `lower_bound`, `upper_bound`,
   `binary_search`, `group_by`, `frequencies`, `index_by` -- each taking either world and
   dispatching to the `array_`/`mutable_array_` pair underneath; those prefixed names remain
   callable but are the implementations rather than the spelling to reach for. Only
-  `array_order_of` (the permutation primitive) and `array_present` are still said with the
-  prefix. There was a
+  `array_order_of`, the permutation primitive, is the only one still said with the prefix. There was a
   `collections` module holding these until 2026-10-14; it is gone, and arrays are now the same
   shape as `Map` and `Set`, whose `map_*` and `set_*` helpers have always been bare.
 - `ok(x) -> Result<T, E>` / `err(e) -> Result<T, E>` — construct a `Result` (only where the

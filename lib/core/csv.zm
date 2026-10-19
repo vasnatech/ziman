@@ -435,7 +435,7 @@ fn open_records(path: string, sep: string, typed: bool) -> Result<Iter<Result<Js
         None {
             iter_close<Result<string, string>>(lines)
             val no_items: [Result<Json, string>] = []
-            return iter_of_array<Result<Json, string>>(no_items)
+            return iter<Result<Json, string>>(no_items)
         }
     }
     if Err(e) = header_text {

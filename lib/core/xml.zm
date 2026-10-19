@@ -158,9 +158,9 @@ pub fn text_element(local: string, content: string) -> Element {
 
 // A child element holding `value`, or nothing at all when there is no value -- the shape of
 // almost every field in an exported record, where an absent one is left out rather than written
-// empty. Pair it with `array_present`, which drops the nothings:
+// empty. Pair it with `filter_present`, which drops the nothings:
 //
-//     xml.element(xml.name("patient"), [], array_present<Node>(
+//     xml.element(xml.name("patient"), [], filter_present<Node>(
 //         xml.opt_element("firstName", p.first_name),
 //         xml.opt_element("dateOfBirth", p.date_of_birth)
 //     ))
@@ -172,7 +172,7 @@ pub fn opt_element(local: string, value: Option<string>) -> Option<Node> {
 }
 
 // `opt_element` for a value that is always there, so a required field and an optional one can
-// stand side by side in one `array_present` list instead of the required one being lifted into
+// stand side by side in one `filter_present` list instead of the required one being lifted into
 // an `Option` by hand at the call site.
 pub fn req_element(local: string, value: string) -> Option<Node> {
     return Option<Node>.Some(Node.Element(text_element(local, value)))

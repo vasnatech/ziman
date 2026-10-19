@@ -73,8 +73,8 @@ fn main() {
     }
     print(os.open_descriptors() == after)
 
-    // iter_of_array and iter_from
-    for name in iter_of_array<string>(["x", "y"]) {
+    // iter and iter_from
+    for name in iter<string>(["x", "y"]) {
         print(name)
     }
     unwrap(fs.remove(fs.path_join(root, "data.bin")))

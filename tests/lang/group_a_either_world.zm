@@ -3,7 +3,7 @@
 // allocates and fills a whole array before the first element is looked at.
 //
 // Each walks its sequence once and keeps nothing, which is what makes either world safe -- and is
-// what separates them from `iter_of_array`, whose `Iter` outlives the call and so cannot take a
+// what separates them from `iter`, whose `Iter` outlives the call and so cannot take a
 // handle whose contents may move underneath it.
 //
 // The builder halves are each the array version's body with one word changed in the signature,

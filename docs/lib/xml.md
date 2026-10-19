@@ -83,11 +83,11 @@ fn main() {
     print(unwrap(doc.root.name.namespace))
 
     // Building and writing. Most fields of a record are optional, so `opt_element` makes one
-    // that may be absent, `req_element` one that is always there, and `array_present` keeps
+    // that may be absent, `req_element` one that is always there, and `filter_present` keeps
     // whichever turned up -- no `if` per field. Escaping is the writer's job, so the `&` below
     // cannot break the output.
     val missing = Option<string>.None
-    val built = xml.document(xml.element(xml.name("visit"), [xml.attribute("id", "7")], array_present<xml.Node>(
+    val built = xml.document(xml.element(xml.name("visit"), [xml.attribute("id", "7")], filter_present<xml.Node>(
         xml.req_element("reason", "cough & fever"),
         xml.opt_element("temperature", Option<string>.Some("38.1")),
         xml.opt_element("notes", missing)
@@ -281,11 +281,11 @@ pub fn opt_element(local: string, value: Option<string>) -> Option<Node>
 
 A child element holding `value`, or nothing at all when there is no value -- the shape of
 almost every field in an exported record, where an absent one is left out rather than written
-empty. Pair it with `array_present`, which drops the nothings:
+empty. Pair it with `filter_present`, which drops the nothings:
 
 
 ```
-xml.element(xml.name("patient"), [], array_present<Node>(
+xml.element(xml.name("patient"), [], filter_present<Node>(
     xml.opt_element("firstName", p.first_name),
     xml.opt_element("dateOfBirth", p.date_of_birth)
 ))
@@ -298,7 +298,7 @@ pub fn req_element(local: string, value: string) -> Option<Node>
 ```
 
 `opt_element` for a value that is always there, so a required field and an optional one can
-stand side by side in one `array_present` list instead of the required one being lifted into
+stand side by side in one `filter_present` list instead of the required one being lifted into
 an `Option` by hand at the call site.
 
 ### `attribute`
