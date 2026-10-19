@@ -1186,6 +1186,71 @@ from source.
 
 ## Larger, needs its own design pass
 
+- **Relaxing the no-overloading rule: let a *declaration* carry the dispatch the arms hand-code.**
+  Raised 2026-10-18, at the end of the collection-pairing pass (F149-F162), from the question
+  "now that we have quite a number of overloaded functions, what do you think on relaxing the
+  no-overloading rule?" **Not started, and deliberately not started yet** -- the evidence below is
+  one day old, and this project's habit is to write the case down and let it sit, which is what
+  declined `..=` and the handle-validation redesign.
+
+  **The rule to restate first, because it is not what the docs said.** Ziman does not lack
+  argument-based overloading: it has **28 overloaded builtin names over 87 declarations** (`len`
+  and `contains` nine each, `str` six, `snapshot`/`remove`/`mutable`/`concat`/`clear` four).
+  What it lacks is overloading *available to a declaration*. Every one of those sets is resolved by
+  a hand-written arm in `typecheck.c`, and `builtin fn` entries in `lib/prelude.zm` are
+  documentation that the arms are free to contradict. Two paragraphs of this file asserted the
+  absence of a feature the language has in 28 places; both are corrected above.
+
+  **What the pass proved about the mechanism, since this is the whole argument.**
+
+  *First-argument dispatch was sufficient every time* -- 28 names, not one needing more. And the
+  single case where it was **not** sufficient, `to_set` against `to_mutable_set` (same argument
+  types, differing only in what they return), is the case where the restriction gave the right
+  answer: they stayed two names. That boundary is worth keeping, not relaxing.
+
+  *Nine of the ten things that broke during the pass trace to the arms, not to overloading.*
+  A diagnostic quoting `$mutable_array_lit`, a name that does not lex. A discarded `mutable(42)`
+  accepted in silence, and `remove`'s mirror-image trap, both because the purity gate is keyed per
+  *name* while purity is per *overload*. `concat`'s spread rule written twice and the two copies
+  disagreeing, so `concat([1, 2])` answered nothing. The quadratic lint keyed per name, leaving two
+  dead branches and advising a `MutableString` for an array. Eight named-argument call sites broken
+  and `sort<int>([])` made unspellable, both because overloading is builtin-only and a builtin
+  takes neither named arguments nor type arguments. A fixture repointed off `slice`. Only the
+  `[string]` ambiguity in `concat` is a cost of overloading *itself*.
+
+  *And the declarations drift because nothing makes them binding.* `str` documented "accepts any
+  type" while its arm refused `string`; `print`'s recorded reason stayed false for an hour.
+  `tools/check_builtins.py` exists only to catch that divergence.
+
+  **The shape worth designing**, kept as narrow as the evidence supports:
+
+  > Several `fn`/`native fn` declarations may share a name **when they differ in the first
+  > parameter's type**, and the checker resolves from the declarations. Overload sets that overlap
+  > on argument one are a compile error. No return-type dispatch, no ranking, no implicit
+  > conversions -- F148's boundary exactly, which held.
+
+  What that buys, all of it observed rather than imagined: the ten prefixed implementations under
+  `reverse`/`filter`/`sort`/`sort_desc`/`sort_with` would simply *be* the overloads and F162's arm
+  would disappear; an error would name a real function because one exists, dissolving the
+  `array_filter` leak; purity, the discard gate and the lint become per-declaration, which is what
+  `remove` and the `concat` lint needed; `check_builtins.py` becomes redundant; and library code
+  gets the power the prelude has -- today `lib/graphics` cannot express what `lib/prelude.zm` does.
+
+  **What it costs.** The `concat` `[string]` conflict is the warning: a `[string]` is both "the
+  pieces of a string" and "one array of parts", and only having two *names* kept those apart. Once
+  a type can belong to two sets in library code, an author can build that ambiguity, so the overlap
+  rule above and an error that explains *why* a set is ambiguous are part of the feature, not
+  polish. `--api builtins`, `src/lsp.c`, the VS Code grammar and the formatter all move from
+  name to set -- and note those last two hand-kept lists went stale three times in one day
+  (F151, F152, F160), which this would also fix by making them derivable.
+
+  **What would make it worth doing.** Another row of the collection table wanting an overload --
+  items 25-53, the ~29 read-only `array_*` helpers, are exactly that shape and would need ~12-25
+  new builder-walking implementations as things stand. If that work is wanted, it is cheaper after
+  this than before it. **What would argue against:** if the `[string]`-style ambiguity shows up a
+  second time, because a feature whose failure mode is "two readings, silently" is the one this
+  language most consistently refuses.
+
 - **`lib/graphics`: a 2D drawing model, with document and image backends -- all five phases
   built (F141-F145).** One `Scene` renders two ways: to PDF (vector paths, gradients, the standard
   fourteen fonts, an embedded TrueType face carrying Unicode text, images with alpha) and to an
@@ -1638,12 +1703,21 @@ from source.
     `min`/`max`, `hash` — every one of these needs to work under *one*
     unqualified name across *multiple* types (`abs(5)` and `abs(5.0)`
     and `abs(5n)` and `abs(5.0d)` all share the name `abs`). A native fn
-    is exactly one fixed signature per declared name — Ziman has no
-    argument-based overloading anywhere — so a truly polymorphic-by-name
+    is exactly one fixed signature per declared name — a *native* has no
+    argument-based overloading — so a truly polymorphic-by-name
     builtin can't move to the prelude without either generic native fn
     signatures (`native fn abs<T: Numeric>(x: T) -> T`, which doesn't
-    exist and hasn't been designed) or overloading (deliberately not
-    wanted). This isn't a remaining "not gotten to it" gap the way the
+    exist and hasn't been designed) or overloading.
+    **Updated 2026-10-18:** "Ziman has no argument-based overloading
+    anywhere" is what this said, and it stopped being true. F148 gave
+    the dispatched builtins `builtin fn` declarations, and the
+    collection-pairing pass (F149-F162) grew them to **28 overloaded
+    names over 87 declarations** — `len` and `contains` with nine each,
+    `concat` and `remove` with four. What the language does not have is
+    overloading *available to a declaration*: every one of those sets is
+    resolved by a hand-written arm in `typecheck.c`. See "Relaxing the
+    no-overloading rule" below, which is the entry this paragraph now
+    points at rather than the assumption it used to state. This isn't a remaining "not gotten to it" gap the way the
     type-specific functions were — it's the actual, structural boundary
     of what the prelude mechanism can express. The operators themselves
     (`+`/`-`/`==`/etc.) were never a candidate either way, for the same
@@ -1863,8 +1937,9 @@ from source.
   deliberately diverging from Java's well-known `BigDecimal.equals()`
   gotcha where scale participates in `equals()` but not `compareTo()`);
   `decimal_round(d, scale)` is the `floor`/`ceil`/`round` equivalent (a
-  separate name, not an overload — Ziman has no argument-based
-  overloading). A literal needs an explicit `d` suffix (`19.99d`,
+  separate name, not an overload — a native takes exactly one signature
+  per name; see "Relaxing the no-overloading rule" for what the builtins
+  do instead). A literal needs an explicit `d` suffix (`19.99d`,
   `20d`). Both compose with everything already built: a generic type
   argument (`Box<bigint>`/`Box<decimal>`), an array element, and a
   `HashMap` key/value (`bigint` satisfies both `Eq`/`Hash`) all verified
