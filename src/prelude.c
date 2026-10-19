@@ -1936,6 +1936,38 @@ Value ziman_mutable_array_from(Value source, int source_is_handle) {
     return out;
 }
 
+/* A MutableArray of `length` copies of one value. The gap this fills is that **capacity is not
+ * length**: `mutable_array_new(capacity: 5)` reserves five slots and has `len` 0, so `b[0] = v` is
+ * a runtime out-of-bounds and the only way to get addressable slots was to push them one at a time.
+ * Nothing else in the language could say "n slots I can index" -- there is no `array_fill` or
+ * `array_repeat` either, so the immutable side still goes through `snapshot` of one of these.
+ *
+ * `length` is required and so is `value`, which is the point of a second constructor rather than a
+ * `fill` parameter on `mutable_array_new`: that one's parameter would mean *capacity* without a
+ * fill and *length* with one, and an argument whose meaning depends on whether a later argument was
+ * passed is the shape this library has been removing. Both required also means it calls
+ * positionally, `mutable_array_filled(5, 0)`, where an Option parameter would have forced a named
+ * call. */
+static Value native_mutable_array_filled(Value *args, int argc, int line, int col) {
+    (void)argc;
+    int64_t length = args[0].as.i;
+    if (length < 0) {
+        ziman_error("runtime", line, col, "mutable_array_filled: length %lld is negative", (long long)length);
+    }
+    Value out = mutable_array_new_value(length > 0 ? (size_t)length : 1, 2.0);
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(out));
+    if (length > 0) {
+        mutable_array_adopt_pack_kind(buf, args[1]);
+        mutable_array_ensure_capacity(buf, (size_t)length);
+        for (int64_t i = 0; i < length; i++) {
+            if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)i, args[1]);
+            else buf->items[i] = args[1];
+        }
+        buf->length = (size_t)length;
+    }
+    return out;
+}
+
 /* A MutableArray straight from already-evaluated elements, for `mutable([1, 2])`. The same loop as
  * `ziman_mutable_array_from`'s value branch, reading a plain `Value *` instead of an ArrayObj,
  * which is the whole point: the checker hands the literal's elements over as ordinary call
@@ -2317,6 +2349,7 @@ void prelude_register(void) {
     native_register("mutable_array_remove", native_mutable_array_remove);
     native_register("mutable_array_truncate", native_mutable_array_truncate);
     native_register("mutable_array_new", native_mutable_array_new);
+    native_register("mutable_array_filled", native_mutable_array_filled);
     native_register("mutable_array_push", ziman_mutable_array_push);
     native_register("mutable_array_get", native_mutable_array_get);
     native_register("mutable_array_set", native_mutable_array_set);

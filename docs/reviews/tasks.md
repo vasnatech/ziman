@@ -1208,3 +1208,35 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   With no context the message is now shaped after `channel_new()`'s: it names the contexts that
   supply a type and `mutable_array_new<T>()`, which needs none.
+
+- [x] **F155** **Capacity is not length, so "n slots I can index" had no spelling.**
+  (raised 2026-10-18 from a review question -- *"how about mutable array initialization?"*, then
+  *"lets do the filled constructor"*; S) `mutable_array_new(capacity: 5)` reserves five slots and
+  leaves `len` at 0, so `b[0] = 1` straight after it is *"set index 0 out of bounds (MutableArray
+  length 0)"*. The only way to get addressable slots was to push them one at a time, and nothing
+  else in the language said it either -- there is no `array_fill` and no `array_repeat`, so the
+  immutable side had no spelling at all. `mutable_array_filled(length, value)` is that
+  constructor, and the index-fill loop the fixture runs was impossible before it.
+
+  **Both parameters are required, which was the design question.** The review first proposed
+  `mutable_array_new<T>(capacity: int, fill: Option<T>)`. Three things ruled it out, two of them
+  measurable. It would have made `capacity` required, breaking **505 of 524** `mutable_array_new`
+  call sites in the tree, every one of which passes no arguments. `mutable_array_new<int>(5)` would
+  still have been refused, an `Option` parameter being omittable only in a named call, so the
+  common case would have needed `capacity: 5` anyway. And the parameter would have meant *capacity*
+  without a fill and *length* with one -- an argument whose meaning depends on whether a later
+  argument was passed, which is the shape F149 through F152 kept removing. A separate constructor
+  with two required parameters has none of that and calls positionally.
+
+  **The omission rule was looked at and deliberately left alone.** `mutable_array_new<int>(100)` is
+  refused, and the review chose to keep that. Worth recording what the look found, though: the rule
+  as documented -- *"a positional call stays exactly as strict as it always was (every parameter,
+  in order, no exceptions)"* (DESIGN.md) -- is **already false twice**. A call supplying *no*
+  arguments omits every `Option` parameter positionally (`all_opt()` answers 3), and a variadic
+  tail is omittable positionally (`both(5)` binds the first parameter and leaves the tail empty).
+  So the live question was whether to generalise an exception that exists rather than add one. Left
+  as it stands; the two documents still misdescribe it, and correcting them is open.
+
+  No immutable twin: `snapshot(mutable_array_filled(n, v))` reaches an `[T]` of repeats, and
+  `array_filled` could only ever be a second name rather than an overload, differing from this one
+  in nothing but its result -- the same constraint `to_set`/`to_mutable_set` ran into.

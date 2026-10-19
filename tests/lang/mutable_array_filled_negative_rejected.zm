@@ -1,0 +1,6 @@
+// A negative length is a runtime error rather than a silently empty builder: the argument is
+// computed in general, so this is the same class as an out-of-bounds index.
+fn main() {
+    val b = mutable_array_filled(-1, 0)
+    print(len(b))
+}

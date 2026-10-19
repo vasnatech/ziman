@@ -694,6 +694,27 @@ native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<f
 
 An empty builder; `capacity` and `grow_factor` are as in `mutable_string_new`.
 
+### `mutable_array_filled`
+
+```
+native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
+```
+
+**`length` copies of `value`, every slot addressable.** `mutable_array_new`'s `capacity` is not a
+length: it reserves room and leaves `len` at 0, so `b[0] = v` after it is a runtime
+out-of-bounds, and the only way to get slots you can index was to push them one by one. This is
+the "n slots" constructor -- `[0] * n` or `new int[n]` elsewhere.
+
+Both parameters are required on purpose. A `fill: Option<T>` on `mutable_array_new` would make
+that function's first parameter mean *capacity* without a fill and *length* with one, and an
+argument whose meaning depends on whether a later one was passed is exactly what this library
+keeps removing. Required also means it calls positionally -- `mutable_array_filled(5, 0)`, with
+`T` read from `value` -- where an `Option` parameter would have forced a named call.
+
+There is no immutable twin: `snapshot(mutable_array_filled(n, v))` is the way to an `[T]` of
+repeats, and `array_filled` would have to be a second name rather than an overload, differing
+from this only in what it returns.
+
 ### `mutable_array_push`
 
 ```

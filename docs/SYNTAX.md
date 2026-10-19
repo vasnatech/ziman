@@ -299,7 +299,8 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   x)` is amortised O(1) (spare room kept, the next `push` on that exact array writes into it
   instead of copying); `insert`/`set`/`remove` always copy the whole array, so replacing every
   element one `set` at a time is O(n²) -- `MutableArray<T>` (`mutable_array_new`,
-  `mutable_array_push`, `mutable_array_get`, `mutable_array_set`, `mutable_array_insert`,
+  `mutable_array_filled`, `mutable_array_push`, `mutable_array_get`, `mutable_array_set`,
+  `mutable_array_insert`,
   `mutable_array_remove`, `mutable_array_truncate`, `mutable_array_swap`, `mutable_array_reverse`,
   `mutable_array_filter`, `mutable_array_sort`/`_desc`/`_with`, plus the bare `len`, `contains`,
   `clear` and `snapshot`) is the right tool for building/editing a
@@ -430,6 +431,15 @@ for x in seen { ... }                    // a set has one binder
   context (`val xs: MutableArray<int> = mutable([])`, a parameter type, a `return`, a struct literal
   field), `[]` being the one literal that carries none of its own; with no context the error names
   the places that supply one and `mutable_array_new<int>()`, which needs none.
+- **`mutable_array_new`'s `capacity` is not a length, and `mutable_array_filled(n, v)` is the one
+  that is.** Capacity reserves room and leaves `len` at 0, so `b[0] = v` straight after
+  `mutable_array_new(capacity: 5)` is a runtime out-of-bounds; before `mutable_array_filled` the
+  only way to get slots you could index was to push them one at a time. `mutable_array_filled(5, 0)`
+  answers five addressable slots, with `T` read from the value, and a negative length is a runtime
+  error. Both parameters are required rather than a `fill: Option<T>` on `mutable_array_new`, whose
+  first parameter would then have meant *capacity* without a fill and *length* with one. There is no
+  immutable twin: an `[T]` of repeats is `snapshot(mutable_array_filled(n, v))`, and `array_filled`
+  could only be a second name, differing from this one in nothing but its result.
   **The collections win the dispatch**: an array matches both `[T]` and the bare `T`, and the array
   form applies, so `mutable([1, 2])` is never a `Mutable<[int]>`. Write that one `mutable_new([1,
   2])`, which is unambiguous about which you meant. Two consequences worth knowing rather than

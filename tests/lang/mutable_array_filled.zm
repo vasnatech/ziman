@@ -1,0 +1,38 @@
+// `mutable_array_filled(n, v)` is the "n slots I can index" constructor. `mutable_array_new`'s
+// `capacity` is not a length -- it reserves room and leaves `len` at 0, so `b[0] = v` straight
+// after it is a runtime out-of-bounds -- and before this the only way to get addressable slots was
+// to push them one at a time. Nothing else in the language says it: there is no `array_fill` or
+// `array_repeat` either, so an immutable array of repeats is `snapshot` of one of these.
+//
+// Both parameters are required, which is why it reads positionally and why it is a second
+// constructor rather than a `fill` on `mutable_array_new`: that one's first parameter would have
+// meant capacity without a fill and length with one.
+fn main() {
+    val b = mutable_array_filled(5, 0)
+    print(len(b))
+    print(snapshot(b))
+
+    // every slot is addressable from the start -- the whole point
+    var i = 0
+    while i < len(b) {
+        b[i] = i * i
+        i = i + 1
+    }
+    print(snapshot(b))
+
+    // T is read from the value, so no type argument is needed
+    print(snapshot(mutable_array_filled(3, "x")))
+    print(snapshot(mutable_array_filled(2, true)))
+    print(snapshot(mutable_array_filled(2, [1, 2])))
+
+    // zero is an empty builder, still pushable, and a filled one still grows
+    val z = mutable_array_filled(0, 0)
+    print(len(z))
+    push(z, 7)
+    print(snapshot(z))
+    push(b, 99)
+    print(snapshot(b))
+
+    // an immutable array of repeats goes through snapshot
+    print(snapshot(mutable_array_filled(3, 1)))
+}
