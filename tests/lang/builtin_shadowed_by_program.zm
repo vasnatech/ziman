@@ -1,0 +1,33 @@
+// **A program's own function shadows a builtin of the same name.** A `use`d module could always do
+// this -- `typecheck` runs on the root module, so an imported module's functions never reached the
+// reserved-name check -- and the main file could not, which was an asymmetry rather than a rule.
+// Taking `count`, `sum`, `find` and `first` as builtin names made it visible: `count` is declared
+// by fifteen files in this tree, five of them modules that were allowed it and ten of them programs
+// that were not.
+//
+// Two things had to agree with the declaration being legal. Resolution: every builtin arm runs
+// before `find_function`, so a declared `count` would have been accepted and then unreachable by a
+// bare call. And the duplicate check: the builtin's own declaration is the *first* one of that
+// name, so a program's is a shadow rather than a redefinition.
+//
+// The shadow is **not** visible from the library it shadows. The prelude's functions live in this
+// same module list, so without that scoping a program declaring `len` made every `len(...)` inside
+// lib/prelude.zm resolve to it and the prelude stopped type-checking.
+fn count(label: string) -> int {
+    return len(label) * 10
+}
+
+fn sum(a: int, b: int) -> int {
+    return a + b
+}
+
+fn main() {
+    // the program's own, not the builtins'
+    print(count("abcd"))
+    print(sum(3, 4))
+
+    // an unshadowed builtin is untouched, and so is every one the prelude uses internally
+    print(len([1, 2, 3]))
+    print(fold([1, 2, 3], 0, fn(acc: int, x: int) -> int { acc + x }))
+    print(join(separator: "-", pieces: ["a", "b"]))
+}

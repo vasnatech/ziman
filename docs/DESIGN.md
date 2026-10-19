@@ -3853,12 +3853,33 @@ The tidy answer would have been `add` everywhere: `add(arr, x)` on a value and
 `mutable_array_add(xs, x)` on a handle, one verb for "hand it over, the collection decides". It is
 impossible, and the reason is worth recording because the result looks arbitrary without it.
 
-A builtin name is reserved language-wide -- `fn push(a: int, b: int)` is rejected with *"'push' is
-a builtin function and cannot be redefined"*. `push` survives that because nobody names a function
-`push`. `add` would not: it is the most common example-function name there is, and it already
-appears 14 times in this repo alone -- four `named_args_*` fixtures, `collections_higher_order`,
-`fmt_idempotent`, the `38-bits-flags` benchmark and others. Promoting `add` to a builtin would make
-every one of them, and most people's first Ziman function, a type error.
+A builtin name used to be reserved language-wide -- `fn push(a: int, b: int)` was rejected with
+*"'push' is a builtin function and cannot be redefined"*. `push` survived that because nobody names
+a function `push`. `add` would not: it is the most common example-function name there is, and it
+already appears 14 times in this repo alone -- four `named_args_*` fixtures,
+`collections_higher_order`, `fmt_idempotent`, the `38-bits-flags` benchmark and others. Promoting
+`add` to a builtin would have made every one of them, and most people's first Ziman function, a
+type error.
+
+> **Update 2026-10-18 (F164): that reservation is gone, and with it this argument.** A program's own
+> function now **shadows** a builtin of the same name. The asymmetry that prompted it: a `use`d
+> module could always declare one, because `typecheck` runs on the root module and an imported
+> module's functions never reached the reserved-name check -- so the rule was "the main file may
+> not", not "the language may not". F163 made that visible by taking `count`, `sum`, `find` and
+> `first`, of which `count` is declared by fifteen files in this tree: five modules that were
+> allowed it, ten programs that were not.
+>
+> So the barrier this paragraph describes no longer blocks `add`. What remains against it is the
+> *other* half of the argument above -- that a verb which reads as "hand it over, the collection
+> decides" is the wrong shape -- and that half is unaffected.
+>
+> Shadowing is **not** visible from the library it shadows. The prelude's functions live in the
+> root module's own list, so without scoping it to program bodies a program declaring
+> `fn len(x: string)` made every `len(...)` inside lib/prelude.zm resolve to it and the prelude
+> stopped type-checking. That was found by trying it, after the first two attempts at this had
+> already been wrong in two other ways: the builtin arms run before `find_function`, so a declared
+> name was accepted and then unreachable; and the registration keyed on a prior `builtin fn`
+> declaration, which eleven dispatched builtins do not have.
 
 So the array keeps `push` in both worlds, and `add` survives only where it is namespaced and
 collides with nothing: `mutable_set_add`.

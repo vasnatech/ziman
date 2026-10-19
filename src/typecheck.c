@@ -2558,8 +2558,43 @@ static int is_builder_type(Type t) {
            strcmp(t.struct_name, "MutableMap") == 0 || strcmp(t.struct_name, "MutableSet") == 0;
 }
 
+/* Names a program declared that shadow a builtin of the same name. Collected once in the
+ * declaration pass rather than looked up per call: `find_function` answers the *first*
+ * declaration, which for a shadowed name is the builtin, so finding the program's one means
+ * walking the module's functions -- and doing that at every call site is exactly the O(n^2) this
+ * file already paid once and fixed (F130). Shadowing is rare, so this stays short. */
+static FunctionDecl **g_builtin_shadows = NULL;
+static int g_builtin_shadow_count = 0;
+
+/* The program's declaration of a name a builtin also has, or NULL. It holds the declaration rather
+ * than the name because `find_function` answers the *first* one, which for a shadowed name is the
+ * builtin -- so the ordinary-call path needs this to be handed the right signature, not merely
+ * told that one exists. */
+/* Whether the body being checked belongs to the program rather than to a bundled module. A shadow
+ * is only visible from program code: the prelude's own functions sit in this same module's list,
+ * so without this a program declaring `fn len(x: string)` made every `len(...)` *inside
+ * lib/prelude.zm* resolve to it, and the prelude stopped type-checking. Shadowing a name is the
+ * program's business and must not reach the library it is shadowing. */
+static int g_checking_program_body = 0;
+
+static FunctionDecl *shadowing_fn_any(const char *name) {
+    for (int i = 0; i < g_builtin_shadow_count; i++) {
+        if (strcmp(name, g_builtin_shadows[i]->name) == 0) return g_builtin_shadows[i];
+    }
+    return NULL;
+}
+
+static FunctionDecl *shadowing_fn(const char *name) {
+    if (!g_checking_program_body) return NULL;
+    for (int i = 0; i < g_builtin_shadow_count; i++) {
+        if (strcmp(name, g_builtin_shadows[i]->name) == 0) return g_builtin_shadows[i];
+    }
+    return NULL;
+}
+
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
+    FunctionDecl *shadow_fn = shadowing_fn(name);
 
     /* `a.f(args)` where `a` is not a module this file imported. The loader left it alone and marked it
      * (ast.h's `unresolved_qualifier`) because only this pass knows whether `a` is a local. Two outcomes:
@@ -2728,6 +2763,20 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         if (strcmp(name, "map_keys") == 0) return type_set(*coll.elem);
         return type_array(*coll.elem);
     }
+
+    /* **A program's own function shadows a builtin of the same name.** A `use`d module could
+     * always do this and the main file could not, which was an asymmetry rather than a rule:
+     * `typecheck` runs on the root module only, so an imported module's functions never reached
+     * the reserved-name check that rejected them here. Taking `count`, `sum`, `find` and `first`
+     * as builtin names made that visible -- `count` is declared by fifteen files in this tree, five
+     * of them modules that were allowed it and ten of them programs that were not.
+     *
+     * Resolution has to agree with the declaration being legal. Every arm below runs *before*
+     * `find_function`, so a declared `count` would otherwise be accepted and then be unreachable
+     * by a bare call, which is worse than the error it replaces. The jump is forward, to the
+     * ordinary-call path, and `source_file != NULL` is what distinguishes a program's declaration
+     * from a bundled one -- the same test the `builtin fn` guard uses. */
+    if (shadow_fn != NULL) goto ordinary_call;
 
     {
         Type helper_result;
@@ -3570,7 +3619,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return selected;
     }
 
-    FunctionDecl *fn = find_function(module, name);
+ordinary_call:;
+    FunctionDecl *fn = shadow_fn != NULL ? shadow_fn : find_function(module, name);
     lint_deprecated_use(fn, e->line, e->col);
     if (fn == NULL) {
         /* Inside a #[derive] expansion, a missing <type>_to_json / _from_json
@@ -6148,18 +6198,9 @@ static void check_function(Module *module, FunctionDecl *fn) {
 }
 
 void typecheck(Module *module) {
-    /* Doesn't include parse_int/parse_float/parse_bigint/parse_decimal,
-     * floor/ceil/round, decimal_round, concat, substring, split, trim,
-     * to_upper, to_lower -- those moved to the prelude (see prelude.h),
-     * so they're now ordinary FunctionDecls already merged into this
-     * module's own function list, and the generic duplicate-function-
-     * name check just below already rejects redefining one of those the
-     * same way it rejects redefining any other function. */
-    static const char *builtins[] = {"print", "printf", "str", "format", "len", "push", "insert", "set",
-                                      "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-                                      "contains", "abs", "min", "max", "remove",
-                                      "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare", "error_message",
-                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
+    g_builtin_shadows = NULL;
+    g_builtin_shadow_count = 0;
+    g_checking_program_body = 0;
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a
@@ -6363,13 +6404,6 @@ void typecheck(Module *module) {
                             "do it -- '%s' cannot be declared here", fn->name);
             }
         }
-        if (!fn->is_builtin) {
-            for (size_t b = 0; b < sizeof(builtins) / sizeof(builtins[0]); b++) {
-                if (strcmp(fn->name, builtins[b]) == 0) {
-                    ziman_error("type", fn->line, fn->col, "'%s' is a builtin function and cannot be redefined", fn->name);
-                }
-            }
-        }
         /* The duplicate check, through the name index rather than as an inner loop over every
          * later declaration. That inner loop was the whole of the measured O(n^2): n^2/2 strcmps,
          * which is about two billion of them at 64,000 declarations and the 9.36s this took.
@@ -6382,8 +6416,41 @@ void typecheck(Module *module) {
          * `args[0]` and the type rule stays an arm in this file, so the declarations describe a
          * dispatch that already exists rather than introducing one. The check above confines them
          * to a bundled module, so a program still cannot declare a second anything. */
+        /* A program's function may carry a builtin's name and shadows it -- see the jump to
+         * `ordinary_call` in check_call for why resolution agrees. So "already defined" has to
+         * ignore the case where the earlier declaration is the builtin itself: `fn count(conn,
+         * table)` beside `builtin fn count<T>(a: [T], test)` is a shadow, not a duplicate. Two
+         * *program* declarations of one name are still a duplicate, which is what this guards. */
+        /* A program's function may carry a builtin's name and shadows it -- see the jump to
+         * `ordinary_call` in check_call, and `g_checking_program_body` for why the library it
+         * shadows cannot see it. Two consequences here.
+         *
+         * It is registered against the names the *interpreter dispatches*, not against the
+         * `builtin fn` declarations: eleven dispatched builtins have no declaration at all (they
+         * carry a recorded reason instead -- `format`, `error_message`, the parser's `$` names), so
+         * keying on a prior declaration missed exactly those. `fn error_message(x: int)` was
+         * accepted and then still routed to the builtin arm.
+         *
+         * And "already defined" has to ignore the case where the earlier declaration is the
+         * builtin's own: `fn count(conn, table)` beside `builtin fn count<T>(a: [T], test)` is a
+         * shadow. Two *program* declarations of one name are still a duplicate. */
+        if (!fn->is_builtin && fn->source_file != NULL && shadowing_fn_any(fn->name) == NULL) {
+            int dispatched = 0;
+            for (int b = 0; b < ziman_builtin_count(); b++) {
+                if (strcmp(fn->name, ziman_builtin_name(b)) == 0) { dispatched = 1; break; }
+            }
+            if (dispatched) {
+                g_builtin_shadows = ziman_xrealloc(g_builtin_shadows,
+                                                   (size_t)(g_builtin_shadow_count + 1) * sizeof(FunctionDecl *));
+                g_builtin_shadows[g_builtin_shadow_count++] = fn;
+            }
+        }
         if (!fn->is_builtin && find_function(module, fn->name) != fn) {
-            ziman_error("type", fn->line, fn->col, "function '%s' is already defined", fn->name);
+            const FunctionDecl *first = find_function(module, fn->name);
+            int shadows_a_builtin = first != NULL && first->is_builtin && fn->source_file != NULL;
+            if (!shadows_a_builtin) {
+                ziman_error("type", fn->line, fn->col, "function '%s' is already defined", fn->name);
+            }
         }
         /* Same reasoning as the struct/enum type-parameter checks above. */
         for (int tp = 0; tp < fn->type_params.count; tp++) {
@@ -6418,6 +6485,7 @@ void typecheck(Module *module) {
         FunctionDecl *fn = module->functions.items[i];
         ziman_set_error_context(fn->derived_from);
         ziman_set_error_file(fn->source_file);
+        g_checking_program_body = fn->source_file != NULL;
         jmp_buf jb;
         CheckState saved = check_state_save();
         ziman_recovery_push(&jb);

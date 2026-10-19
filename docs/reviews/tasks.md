@@ -1513,3 +1513,42 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   function's parameter -- which also retired the workaround F162 had put into `array_extras.zm`.
 
   86 call sites renamed, 48 converted, 0 fixture failures, backend clean.
+
+- [x] **F164** **A program's function may shadow a builtin, which a `use`d module could always do.**
+  (raised 2026-10-18 when F163 turned the suite red, answered *"c"* out of three options; M) Taking
+  `count`, `sum`, `find` and `first` as builtin names broke three fixtures with *"'count' is a
+  builtin function and cannot be redefined"*. The sweep that should have preceded the rename found
+  the scale: **`count` is declared by fifteen files in this tree** -- five of them modules, which
+  were allowed it, and ten of them programs, which were not.
+
+  **The asymmetry was the finding.** `typecheck` runs on the root module only, so an imported
+  module's functions never reached that check: the rule was "the main file may not", not "the
+  language may not". The review chose to make the main file behave like a module rather than rename
+  ten fixtures or give the four names back.
+
+  **Three attempts, each wrong in its own way, and each found by running.** Dropping the error was
+  not enough: every builtin arm runs *before* `find_function`, so a declared `count` was accepted
+  and then unreachable by a bare call -- worse than the error it replaced. Jumping to the
+  ordinary-call path was not enough either, because `find_function` answers the *first* declaration
+  of a name, which for a shadowed name is the builtin's -- so the shadow list had to carry the
+  declaration, not just the name. And registering it off a prior `builtin fn` declaration missed
+  the **eleven dispatched builtins that have no declaration**, so `fn error_message(x: int)` was
+  accepted and still routed to the arm; it keys off the dispatched names now, which is what the
+  deleted check did.
+
+  **The fourth problem was the dangerous one.** A shadow is global to the module, and the prelude's
+  functions sit in that same list -- so a program declaring `fn len(x: string)` made every
+  `len(...)` *inside lib/prelude.zm* resolve to it, and the prelude stopped type-checking. Shadowing
+  is now visible only from program bodies. Found by trying the scariest case rather than the
+  convenient one.
+
+  **One argument in DESIGN.md dissolved with it.** That file used this reservation to explain why
+  `add` could never be a builtin: it appears 14 times in the repo and promoting it would make every
+  one a type error. That barrier is gone; what stands against `add` is the other half of its
+  argument, about the verb reading as "hand it over, the collection decides".
+
+  Two fixtures changed sides -- `error_message_redefine_builtin_rejected` and
+  `result_redefine_builtin_rejected` asserted the old error and now assert the shadow -- plus a new
+  one pinning that the prelude keeps its own `len`, `fold` and `join` while a program shadows
+  `count` and `sum`. The per-call cost is a walk of a list that is empty in every program that
+  shadows nothing.

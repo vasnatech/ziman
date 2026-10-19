@@ -1,0 +1,10 @@
+// As with `error_message`: this asserted that `ok` could not be redefined, and a program's
+// declaration now shadows the builtin instead. `ok`/`err` take their type from context, so a
+// program that wants its own `ok` gets it and loses the Result constructor *in this file only*.
+fn ok() -> int {
+    return 1
+}
+
+fn main() {
+    print(ok())
+}

@@ -721,6 +721,11 @@ fn main() {
   may appear in **any order** — the label alone resolves it.
 - **Every parameter must still be given exactly once** (except an `Option<T>` one, next
   section) — too few, too many, an unknown name, or a repeated name is a compile error.
+- **A program's own function shadows a builtin of the same name.** `fn count(conn, table) -> int`
+  is legal beside the builtin `count`, and a bare `count(...)` in that file reaches the program's
+  one. The shadow is invisible to the library: the prelude's own calls always reach the builtin, so
+  shadowing `len` cannot break `lib/prelude.zm`. A `use`d module could always do this; the main
+  file could not until 2026-10-18, which was an asymmetry rather than a rule.
 - **Only real functions accept named calls** — the small set of core builtins the compiler
   special-cases by name (`print`, `len`, `push`, `hash`, ...) have one fixed unlabeled signature.
 - **A variadic parameter's named value is still one expression** — the single-trailing-argument
