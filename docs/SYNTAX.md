@@ -1480,15 +1480,19 @@ val by_age = sort_by<Patient, int>(patients, fn(p: Patient) -> int { return p.ag
   something other than the type's own order with **`sort_by<T, K: Ord>(items, key: fn(T) -> K)
   -> [T]`**, which calls `key` **once per element** where the comparator form recomputes it per
   comparison, or by a comparator function via **`sort_with<T>(items, cmp: fn(T, T) -> int)`**.
-  Descending: `sort_desc`/`sort_by_desc`/`sort_indices_desc` -- also stable, not the same as
+  Descending: `sort_desc`/`sort_by_desc` -- also stable, not the same as
   reversing ascending (which flips ties). `inverse(cmp)` turns a comparator round for `sort_with`,
   but cannot reverse a key function, which is why `sort_by_desc` is its own name. `sort`,
   `sort_desc`, `sort_with`, `sort_by` and `sort_by_desc` each take an array **or** a
   `MutableArray`, answering a new array for the first and sorting the buffer in place for the
   second. A
   packed `[int]`/`[float]`/`[byte]` or string array sorts natively (~10x faster); anything else
-  calls `compare` in a merge sort. Also `sort_indices`, `is_sorted`, `reverse`, and for sorted
-  arrays `lower_bound`/`upper_bound` (insertion points) and `binary_search` (`Option<int>`).
+  calls `compare` in a merge sort. Also `reverse`, and for sorted sequences `is_sorted`,
+  `lower_bound`/`upper_bound` (insertion points) and `binary_search` (`Option<int>`) -- those four
+  take either world too, and the "already sorted" precondition is the caller's in both.
+  `array_order_of(keys, descending)` is the permutation underneath, generic over the key type and
+  the thing `sort_by` feeds to `permute`; the `sort_indices`/`_desc` wrappers over it were deleted
+  in F169, never having had a caller.
   `Uuid` and every `time` type are `Ord`.
 - **`error_message(e) -> string`** dispatches like `compare` but for a different suffix: an enum
   `e: NetError` looks for `net_error_message`, and so on for any enum with its own
@@ -2786,8 +2790,8 @@ a type error.
   of it.
 
   What stays `array_`-prefixed is everything a builder cannot answer the same way:
-  `array_sort_indices`/`_desc`, `array_present`, `permute`, and `iter_of_array`, whose `Iter`
-  outlives the call.
+  `array_order_of`, `array_present`, `permute`, and `iter_of_array`, whose `Iter` outlives the
+  call.
 - **`array_join` was deleted rather than renamed.** It was one line delegating to `join`, which owns
   the bare name and does strictly more (`prefix`/`suffix`), so its callers now say
   `join(separator: s, pieces: a)` -- what the wrapper expanded to. The one cost: `join`'s `pieces`
@@ -2819,7 +2823,8 @@ a type error.
   `binary_search`, `group_by`, `frequencies`, `index_by` -- each taking either world and
   dispatching to the `array_`/`mutable_array_` pair underneath; those prefixed names remain
   callable but are the implementations rather than the spelling to reach for. Only
-  `array_sort_indices`/`_desc` and `array_present` are still said with the prefix. There was a
+  `array_order_of` (the permutation primitive) and `array_present` are still said with the
+  prefix. There was a
   `collections` module holding these until 2026-10-14; it is gone, and arrays are now the same
   shape as `Map` and `Set`, whose `map_*` and `set_*` helpers have always been bare.
 - `ok(x) -> Result<T, E>` / `err(e) -> Result<T, E>` — construct a `Result` (only where the

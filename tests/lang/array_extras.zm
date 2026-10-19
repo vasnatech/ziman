@@ -71,8 +71,10 @@ fn main() {
     print(sort([2.5, -1.0, 0.0, 9.75]))
     print(sort(["pear", "fig", "apple", "fig", ""]))
     print(sort([200b, 3b, 90b]))
-    print(array_sort_indices_desc<int>([5, 9, 5, 1]))
-    print(array_sort_indices<string>(["b", "a", "b", "a"]))
+    // the permutation primitive both sort_by forms are built on, in both directions,
+    // ties included. The `sort_indices`/`_desc` wrappers over it went in F169.
+    print(array_order_of<int>([5, 9, 5, 1], true))
+    print(array_order_of<string>(["b", "a", "b", "a"], false))
     print(sort_by<string, int>(["ccc", "a", "dd", "b"], fn(s: string) -> int { return len(s) }))
     print(sort_by_desc<string, int>(["ccc", "a", "dd", "b"], fn(s: string) -> int { return len(s) }))
     var big: [int] = []

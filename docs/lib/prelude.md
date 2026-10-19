@@ -2412,33 +2412,25 @@ builtin fn max<T: Ord>(values: variadic T) -> T
 
 ## Array algorithms
 
-### `array_sort_indices`
-
-```
-fn array_sort_indices<K: Ord>(keys: [K]) -> [int]
-```
-
-The positions of `keys` in ascending order: the array of indices that, read in order,
-visits `keys` smallest first. Stable: equal keys keep their input order. `sort_by` is built on
-this, through `array_order_of`; `sort` is not -- it reaches `sort_positions` directly.
-
-### `array_sort_indices_desc`
-
-```
-fn array_sort_indices_desc<K: Ord>(keys: [K]) -> [int]
-```
-
-The positions of `keys` in descending order. Also stable: equal keys keep their input
-order (this is not the ascending result reversed, which would flip ties).
-
 ### `array_order_of`
 
 ```
 fn array_order_of<K: Ord>(keys: [K], descending: bool) -> [int]
 ```
 
-Packed numbers and strings are sorted natively; anything else (a struct, an enum, a bigint)
-by the merge sort `sort_positions`, calling `compare`.
+The positions of `keys` in sorted order: the array of indices that, read in order, visits
+`keys` smallest first, or largest first when `descending`. Stable in both directions -- equal
+keys keep their input order, and the descending result is not the ascending one reversed, which
+would flip ties.
+
+This is the sort family's permutation primitive, and the only one that is generic over the key
+type: packed numbers and strings go to the native `sort_scalar_order`, anything else (a struct,
+an enum, a bigint) to the merge sort `sort_positions`, calling `compare`. `sort_by`/`_desc` are
+built on it; `sort` is not -- it reaches `sort_positions` directly. Feed the result to
+`permute`, which is what `sort_by` does.
+
+`array_sort_indices`/`_desc` were two one-line wrappers over this, one per value of
+`descending`. They were deleted in F169 having never had a caller outside this file.
 
 ### `array_is_sorted`
 

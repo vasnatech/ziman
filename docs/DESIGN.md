@@ -2025,13 +2025,18 @@ them against the code.
   non-overloadable, so a user type never redefines an operator (principle #2):
   it goes through `compare`. A `float` order is made total by putting NaN after
   everything and equal to itself, since an order with NaN "equal to everything"
-  is not transitive. **Sorting** lives in `collections` (a prelude function
-  named `sort` would collide with every program that defines its own): a
-  stable bottom-up merge sort computes the *permutation* (`sort_indices`), and
-  `sort` and `sort_by_keys` both gather by it. `sort_by_keys` is the answer to
-  "no comparator": the caller builds the key array and the sort orders the
-  items by it, which covers any field or computed ordering with no function
-  values. `#[derive(Ord)]` writes `_compare` for structs (lexicographic by
+  is not transitive. **Sorting** is bare, in the prelude. It lived in
+  `collections` until 2026-10-14 (F120) because a prelude `sort` would collide
+  with every program defining its own; F164 answered that by letting a
+  program's own top-level `fn` shadow a builtin, so the collision costs the
+  program nothing. A stable bottom-up merge sort computes the *permutation*
+  (`sort_positions`, reached generically through `array_order_of`), and
+  `sort_by`/`sort_by_desc` gather by it with `permute`; `sort` calls
+  `sort_positions` directly. `sort_by` is the answer to "no comparator": the
+  caller gives a key function and the sort orders the items by it, computing
+  each key once, which covers any field or computed ordering. It replaced
+  `sort_by_keys` in F166, which took the key *array* and so could never be
+  paired across the two worlds. `#[derive(Ord)]` writes `_compare` for structs (lexicographic by
   field) and enums (variant position, then payload). **Cost and limits:** a
   pure-Ziman merge sort sorts 20,000 ints in about 0.3 s; a native fast path
   for scalar arrays is an easy later win. A type has exactly one order (its

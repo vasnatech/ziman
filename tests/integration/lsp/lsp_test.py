@@ -159,7 +159,8 @@ check("unqualified completion hides the internal builtins", not internal, intern
 # A name that was removed cannot linger here, which is the half of a removal that kept being
 # missed: the compiler is happy either way, so only this notices.
 gone = [n for n in ("mutable_array_from", "mutable_map_from", "mutable_set_from", "array_join",
-                    "sort_by_keys", "mutable_array_truncate", "concat_arrays", "mutable_array_swap")
+                    "sort_by_keys", "mutable_array_truncate", "concat_arrays", "mutable_array_swap",
+                    "array_sort_indices", "array_sort_indices_desc", "sort_indices")
         if n in labels]
 check("unqualified completion has dropped the deleted names", not gone, gone)
 

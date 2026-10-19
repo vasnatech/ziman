@@ -2544,6 +2544,18 @@ from source.
   something); and whether `order_of`, which is private, wants to be the one public primitive the
   sort family is written over, the way `sort_positions` already is for the natives.
 
+  *Update 2026-10-19: both loose ends above are now closed, and the trigger this entry named has
+  fired. The first module question went with the module in F120. The deferred
+  `is_sorted`/`binary_search`/`lower_bound`/`upper_bound` group -- which this entry says gets
+  promoted "the moment it has mutable twins", checked 2026-10-14 as not yet fired -- got them in
+  F167, so the split the entry worried about is gone: all four take either world under their bare
+  names. And `order_of` **is** the one primitive the sort family is written over, as the last
+  paragraph wondered, by subtraction rather than by promotion: F169 deleted
+  `array_sort_indices`/`_desc`, the two one-line wrappers that were its only other spelling, after
+  F166 left them with no caller anywhere outside `lib/prelude.zm`. It stays `array_`-prefixed and
+  undocumented-as-API; nothing was lost, since the wrappers were `order_of(keys, false)` and
+  `order_of(keys, true)`.*
+
 - ~~**Interval notation for ranges: `[a..b]`, `(a..b)`, `[a..b)`, `(a..b]`.**~~ **Declined
   2026-10-16 by Menderes, after reviewing the evidence below.** `a..b` stays the one range form, and
   `..=` is not taken either; the reasoning is in the update note under this paragraph. Raised

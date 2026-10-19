@@ -1706,3 +1706,38 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `lib-manual-check` diffs `docs/lib` only, so the sibling generated page -- same generator script,
   same `make corelib-reference` target -- was ungated from the day it was added. `corelib-reference-check`
   now diffs it the same way, and is in `docs-check`.
+
+- [x] **F169** **Group C2: `sort_indices`/`_desc` deleted.** (raised 2026-10-19 from Group C,
+  answered *"delete them"*; S) Two one-line wrappers, `array_order_of(keys, false)` and
+  `array_order_of(keys, true)`, with **no caller anywhere outside `lib/prelude.zm`** since F166
+  moved `sort_by` off the key-array shape. Nothing is lost: `array_order_of` stays and is the same
+  function under one name instead of three, and the other permutation producers (`sort_positions`,
+  `sort_scalar_order`) are untouched, so `permute` still has everything to eat.
+
+  **The three test call sites were ported, not dropped.** F166 deleted two fixtures because the
+  condition they covered had become structurally unwritable; that is not this case. What those
+  three lines actually covered is that the *permutation* is stable in both directions, ties
+  included, and `array_order_of` still computes it with `sort_by`/`_desc` depending on it. They now
+  call `array_order_of` directly, and the `.out` files did not move, which is the evidence that the
+  coverage is the same and not merely similar.
+
+  **F168's gate caught its own first customer.** `lsp_test.py`'s "deleted names" check gained
+  `array_sort_indices`, `array_sort_indices_desc` and `sort_indices` -- the assertion written one
+  commit earlier for exactly this, so the half of a removal that F151 recorded as always missed is
+  now mechanical rather than remembered.
+
+  **DESIGN.md's sorting paragraph was stale in three layers** and named `sort_indices` in the
+  middle of it: it said sorting "lives in `collections`" (deleted in F120, 2026-10-14), gave the
+  reason as a prelude `sort` colliding with a program's own (which F164 answered by making the
+  shadow legal), and described `sort_by_keys` as the no-comparator answer (replaced in F166).
+  Five lines, three settled decisions, none of them reflected. Rewritten. Same shape as F167's
+  SYNTAX.md finding: each statement was true when written, nothing contradicts the compiler, and
+  no gate can see it.
+
+  **The ROADMAP entry's own trigger had fired and nobody had looked.** The `collections` refactor
+  entry defers the `is_sorted`/`binary_search`/`lower_bound`/`upper_bound` group with an explicit
+  condition -- promote them "the moment it has mutable twins", recorded as not-yet-fired when
+  checked 2026-10-14 -- and F167 gave them exactly that two days later. Its last paragraph also
+  asks whether `order_of` "wants to be the one public primitive the sort family is written over";
+  this task answers yes, by subtraction. Both noted in an update under the entry rather than by
+  editing the historical body.

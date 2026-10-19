@@ -14,5 +14,7 @@ fn main() {
     for p in sort_by_desc<P, int>(people, fn(p: P) -> int { return p.age }) {
         print(concat(p.name, str(p.age)))
     }
-    print(array_sort_indices_desc<int>([5, 9, 5, 1]))
+    // the *permutation* is stable the same way, which is what sort_by_desc is built on.
+    // `array_order_of` is the one primitive since F169 deleted the two sort_indices wrappers.
+    print(array_order_of<int>([5, 9, 5, 1], true))
 }
