@@ -1462,11 +1462,25 @@ them against the code.
   already is.
 - **`Option<T>` parameter omission and defaults — stage three, and the
   first of the four stages that lets a call leave an argument out.**
-  Legal only for an `Option<T>`-typed parameter, and only in a named
-  call — a positional call stays exactly as strict as it always was
-  (every parameter, in order, no exceptions), since there's no label to
-  hang the omission on otherwise, and a required parameter never gets
-  an "absent" state to fall back to no matter how it's called.
+  Legal only for an `Option<T>`-typed parameter, since a required
+  parameter never gets an "absent" state to fall back to no matter how
+  it's called. Legal in a named call, because the label says which
+  parameter is being left out — and also in a call with **no arguments
+  at all**, where every omission is total and so nothing can bind to
+  the wrong parameter without a label either. A positional call that
+  passes at least one argument must supply every fixed parameter: that
+  is where the missing label would matter, and `f(5)` on two `Option`
+  parameters is refused for exactly that reason. A **variadic tail is
+  not an omission** — a variadic parameter given nothing is *empty*,
+  not absent — so `f(1)` on `fn f(a: int, rest: variadic int)` is a
+  complete call.
+  (This paragraph said "a positional call stays exactly as strict as it
+  always was (every parameter, in order, no exceptions)" until
+  2026-10-18. The rule it describes is sound; that parenthetical was
+  not, being untrue of both the no-argument call and the variadic tail,
+  and was found while weighing whether to allow positional omission of
+  a trailing `Option` — which was **considered and declined**, so
+  `mutable_array_new<int>(100)` stays refused.)
   **An omitted parameter with no declared default becomes `None`; a
   declared `= expr` default is used instead when there is one**
   (`priority: Option<int> = 3`) — explicitly *not* `= Option<int>.None`

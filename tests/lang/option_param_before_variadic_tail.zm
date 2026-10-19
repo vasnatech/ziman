@@ -1,0 +1,22 @@
+// An `Option` parameter followed by a variadic tail, which is the one combination where "omit a
+// trailing Option positionally" would have changed an existing meaning: `optvar(5)` binds the
+// first parameter and leaves the tail empty, where under that rule it could instead have read as
+// the Option omitted and 5 going to the tail. The rule was considered and declined (F155), so this
+// pins the meaning that stands.
+//
+// It also pins the two halves of the omission rule around it: no arguments at all omits the Option
+// (every parameter here being omittable), while a variadic tail given nothing is *empty* rather
+// than omitted, which is why `reqvar(1)` is a complete call to a required-plus-variadic signature.
+fn optvar(a: Option<int> = 1, rest: variadic int) -> int {
+    return unwrap(a) + len(rest)
+}
+fn reqvar(a: int, rest: variadic int) -> int {
+    return a + len(rest)
+}
+fn main() {
+    print(optvar())
+    print(optvar(5))
+    print(optvar(5, 7, 8))
+    print(reqvar(1))
+    print(reqvar(1, 2, 3))
+}

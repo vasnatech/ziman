@@ -729,8 +729,17 @@ fn main() {
 }
 ```
 
-- **Only an `Option<T>`-typed parameter may be omitted, and only in a named call** — a
-  positional call stays exactly as strict as ever; a required parameter can never be left out.
+- **Only an `Option<T>`-typed parameter may be omitted** — a required parameter can never be left
+  out, however the call is written (`mixed()` on `fn mixed(a: int, b: Option<int> = 2)` is
+  "missing required argument 'a'"). Two call shapes may omit one: a **named** call, leaving out any
+  subset, and a call with **no arguments at all**, which leaves out every parameter at once
+  (`mutable_array_new<int>()`) and so needs every parameter to be omittable. A positional call that
+  passes *at least one* argument must supply every fixed parameter — `mutable_array_new<int>(100)`
+  is refused, and `mutable_array_new<int>(capacity: 100)` is how to set one and leave the rest.
+  Nothing can bind to the wrong parameter when no argument is passed at all, which is why that
+  shape is not the exception it looks like.
+- **A variadic tail is not an omission**, so it is always allowed to be empty: `reqvar(1)` is a
+  complete positional call to `fn reqvar(a: int, rest: variadic int)`.
 - **An omitted parameter with no declared default becomes `None`.**
 - **`= expr` after the type gives a default other than `None`** (`priority: Option<int> = 3`),
   legal only on an `Option<T>` parameter. Don't write `= Option<T>.None` explicitly -- that's
