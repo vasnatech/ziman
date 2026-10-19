@@ -16,7 +16,7 @@ fn main() {
     print(snapshot(xs))
     print(mutable_array_remove(xs, 0))
     print(snapshot(xs))
-    mutable_array_swap(xs, 0, 1)
+    swap(xs, 0, 1)
     print(snapshot(xs))
     mutable_array_reverse(xs)
     print(snapshot(xs))

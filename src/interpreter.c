@@ -1512,17 +1512,21 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (bid == B_mutable_set_is_subset) {
                 result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type->kind == TY_STRUCT));
             } else if (bid == B_swap) {
-                /* Only an array reaches here: the checker rewrites a builder's `swap` onto
-                 * `mutable_array_swap`, which already exchanges in place. One allocation, where
-                 * `set(set(a, i, a[j]), j, a[i])` -- the spelling this replaces -- made two. */
-                ArrayObj *old_arr = args[0].as.arr;
+                /* Both worlds here, no rewrite: an array answers a copy with the two exchanged, in
+                 * one allocation where `set(set(a, i, a[j]), j, a[i])` made two; a builder is
+                 * written in place and answers nothing. */
                 int64_t si = args[1].as.i, sj = args[2].as.i;
-                if (si < 0 || si >= old_arr->count || sj < 0 || sj >= old_arr->count) {
-                    ziman_error("runtime", e->line, e->col,
-                                "swap index %lld/%lld out of bounds (array length %d)",
-                                (long long)si, (long long)sj, old_arr->count);
+                if (args[0].type->kind == TY_STRUCT) {
+                    result = ziman_swap_mutable_array(args[0], si, sj, e->line, e->col);
+                } else {
+                    ArrayObj *old_arr = args[0].as.arr;
+                    if (si < 0 || si >= old_arr->count || sj < 0 || sj >= old_arr->count) {
+                        ziman_error("runtime", e->line, e->col,
+                                    "swap index %lld/%lld out of bounds (array length %d)",
+                                    (long long)si, (long long)sj, old_arr->count);
+                    }
+                    result = value_array(&e->resolved_type, array_swapped(old_arr, (int)si, (int)sj));
                 }
-                result = value_array(&e->resolved_type, array_swapped(old_arr, (int)si, (int)sj));
             } else if (bid == B_narrow) {
                 result = ziman_narrow_mutable_array(args[0], args[1].as.i, args[2].as.i, e->line, e->col);
             } else if (bid == B_slice) {

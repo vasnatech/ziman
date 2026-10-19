@@ -1947,8 +1947,9 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * deduplication that `set_from_array` had to document. */
     /* `swap(x, i, j)`: exchange two elements. The same question of both worlds, with the answer
      * each world can give -- a new array from the array, nothing from the builder, which is written
-     * in place. The builder form rewrites onto `mutable_array_swap`, which already does it; the
-     * array form is the new half, and it closes a real gap, the only previous spelling being
+     * in place. Both worlds are answered in one interpreter arm -- the prefixed
+     * `mutable_array_swap` was removed once this covered both, so there is nothing to rewrite onto
+     * and nothing needs it. The array form closed a real gap, the only previous spelling being
      * `set(set(a, i, a[j]), j, a[i])` at two whole-array copies to move two slots.
      *
      * The indices are checked by the runtime so a computed one is caught, but the *type* of each is
@@ -1970,8 +1971,7 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
         }
         if (target_type.kind == TY_STRUCT && target_type.struct_name != NULL &&
             strcmp(target_type.struct_name, "MutableArray") == 0) {
-            e->as.call.callee = ziman_xstrdup("mutable_array_swap");
-            *out = check_expr(module, env, e);
+            *out = type_scalar(TY_VOID);
             return 1;
         }
         if (target_type.kind != TY_ARRAY) {

@@ -1376,3 +1376,24 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   Three fixtures, both representations exercised -- a packed buffer exchanges by its element stride
   and a boxed one by `sizeof(Value)`.
+
+- [x] **F160** **`mutable_array_swap` removed.** (raised 2026-10-18 -- *"remove
+  mutable_array_swap"*; XS) F159 gave both worlds `swap` and left the prefixed name underneath as
+  the rewrite target, the way `mutable_array_push` sits under `push`. The difference is that
+  `mutable_array_push` is the *implementation* -- deleting it would mean moving C into a builtin
+  arm -- while `mutable_array_swap` was three lines of Ziman sugar, then (in F159) a native that
+  only `swap` and two call sites used. So it was duplication rather than a layer, and the builder
+  path now reaches `ziman_swap_mutable_array` straight from the builtin's arm, with no rewrite and
+  no name for one to land on.
+
+  Four call sites moved, one of them inside the prelude itself: **`mutable_array_reverse` swaps in
+  a loop**, which the earlier count had missed because it only looked outside `lib/prelude.zm`.
+  The others were the positional fixture, F159's own fixture, and the backend's Fisher-Yates.
+
+  **The run that "verified" F159 was inconclusive and is worth recording as a process failure.**
+  `make check` was started by the same command that committed it, and this removal's edits to
+  `lib/prelude.zm` landed while it was still running -- so `lib-manual-check`, which regenerates
+  the manual and diffs it against git, compared a regenerated file against a tree being edited and
+  reported exit 2 with zero test failures. Nothing was wrong with F159. **Do not edit the tree
+  while a suite is running**, which had already been avoided once earlier in the same session by
+  waiting, and then not.

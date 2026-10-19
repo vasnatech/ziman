@@ -3606,7 +3606,7 @@ MutableArray<T>
   mutable_array_insert<T>(xs, index, value)              O(n); index may equal len(xs)
   mutable_array_remove<T>(xs, index) -> T                O(n); answers what it removed
   mutable_array_truncate<T>(xs, length)                  (removed in F158; `narrow(b, s, e)`)
-  mutable_array_swap<T>(xs, i, j)
+  mutable_array_swap<T>(xs, i, j)                        (removed in F160; `swap(x, i, j)`)
   mutable_array_filter<T>(xs, keep: fn(T) -> bool)
   mutable_array_reverse<T>(xs)
   mutable_array_sort<T: Ord>(xs)

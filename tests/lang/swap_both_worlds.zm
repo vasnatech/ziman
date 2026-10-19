@@ -23,7 +23,7 @@ fn main() {
     swap(s, 0, 2)
     print(snapshot(s))
 
-    // the prefixed name still works and is the same operation
-    mutable_array_swap(b, 0, 3)
+    // and back again
+    swap(b, 0, 3)
     print(snapshot(b))
 }

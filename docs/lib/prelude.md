@@ -809,8 +809,8 @@ builtin fn swap<T>(a: [T], i: int, j: int) -> [T]
 
 **Exchanges the elements at `i` and `j`, in both worlds.** The same question of each, answered
 the way each can: a new array from the array, nothing from the builder, which is written in
-place. The builder form rewrites onto `mutable_array_swap` below, the way `push` does onto
-`mutable_array_push`.
+place. Both worlds are answered by the one builtin: unlike `push`, there is no prefixed name
+underneath it, `mutable_array_swap` having been removed once this covered both.
 
 The array form closes a gap rather than renaming one. Its only previous spelling was
 `set(set(a, i, a[j]), j, a[i])`, which copies the whole array **twice** to move two slots,
@@ -819,18 +819,6 @@ because `set` always copies. This copies once.
 ```
 builtin fn swap<T>(b: MutableArray<T>, i: int, j: int)
 ```
-
-### `mutable_array_swap`
-
-```
-native fn mutable_array_swap<T>(xs: MutableArray<T>, i: int, j: int)
-```
-
-Exchanges the elements at `i` and `j`, which is the name `swap` rewrites onto for a builder, the
-way `mutable_array_push` is for `push`. It was three lines of Ziman over
-`mutable_array_get`/`_set` until 2026-10-18 and is C now for the *message*, not the speed: as
-sugar, `swap(b, 0, 9)` reported "get index 9 out of bounds", naming a function the author had not
-written. Both names now report the range they were given.
 
 ### `mutable_array_reverse`
 

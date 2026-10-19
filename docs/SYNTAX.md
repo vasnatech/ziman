@@ -2741,7 +2741,9 @@ a type error.
   `mutable_map_remove`/`mutable_map_discard`/`mutable_set_remove`, and each refusal names them.
 - `swap(arr, i, j) -> [T]` / `swap(b: MutableArray<T>, i, j)` — the two elements exchanged: a new
   array from an array, in place for a builder. One allocation, where the only previous spelling for
-  an array, `set(set(a, i, a[j]), j, a[i])`, copied the whole thing twice to move two slots.
+  an array, `set(set(a, i, a[j]), j, a[i])`, copied the whole thing twice to move two slots. It is
+  the only name for either: `mutable_array_swap` was removed once this covered both worlds, so
+  unlike `push` there is no prefixed form underneath.
 - `set(arr, i, x) -> [T]` / `remove(arr, i) -> [T]` — element at `i` replaced/removed
   (`[0, len(arr))`, else runtime error). `insert`/`set`/`remove`/`concat_arrays` always copy.
   No "pop" -- indexing already covers peeking.
