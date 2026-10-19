@@ -15,7 +15,10 @@
 #include "corelib.h"
 #include "error.h"
 #include "format.h"
+#include "lexer.h"
 #include "loader.h"
+#include "parser.h"
+#include "prelude.h"
 #include "typecheck.h"
 #include "xalloc.h"
 
@@ -1406,11 +1409,37 @@ static void handle_document_symbol(const JVal *id, const JVal *params) {
 static const char *const KEYWORDS[] = {"fn", "val", "var", "if", "else", "while", "for", "in", "break", "continue", "spawn", "defer", "try", "switch",
                                        "return", "true", "false", "unit", "as", "struct", "enum", "with", "pub", "use", "native", "variadic", "Result", "Channel", "Map", "Set",
                                        "int", "float", "bool", "string", "bigint", "decimal", "byte", "unit"};
-static const char *const BUILTINS[] = {"print", "printf", "format", "str", "len", "push", "insert", "set", "remove", "contains", "hash", "compare",
-                                       "abs", "min", "max", "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "channel_new", "send", "receive",
-                                       "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "concat", "substring", "split", "trim", "is_empty", "is_blank", "to_upper", "to_lower",
-                                       "index_of", "replace", "starts_with", "ends_with", "parse_int", "parse_float", "join", "slice",
-                                       "map_get", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "set_insert_all", "set_filter", "map_keys", "map_values", "set_items", "string_to_bytes", "bytes_to_string", "bytes_concat", "mutable_string_new", "mutable_string_append", "snapshot", "mutable_array_new", "mutable_array_push", "snapshot", "mutable_map_new", "mutable_map_set", "mutable_map_get", "mutable_map_remove", "contains", "len", "snapshot", "mutable_set_new", "mutable_set_add", "mutable_set_remove", "contains", "len", "snapshot", "snapshot", "clear", "mutable", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
+/* The names a program can call with no `use`, for completion: the builtin table the checker
+ * itself dispatches on, plus lib/prelude.zm's own top-level functions, which are merged into every
+ * program the same way. Both are read from the real sources here rather than kept by hand.
+ *
+ * A hand-written list stood here until F167 and had drifted to 88 entries against 157 builtins --
+ * it was missing `sort`, `filter`, `map`, `sort_with`, `sort_by` and every name F162-F167
+ * unprefixed, and still offered `mutable_array_from` and friends that F151 deleted. Nothing gated
+ * it, so the drift was invisible: F151's sweep found it already stale through F148/F149/F150, and
+ * adding four more names by hand would have left 72 missing. A list of what exists has to be
+ * derived from what exists. */
+static char **g_globals = NULL;
+static int g_nglobals = 0;
+
+static void add_global_name(const char *name) {
+    if (name == NULL || name[0] == '$') return; /* `$map_lit` and the other parser desugaring targets */
+    for (int i = 0; i < g_nglobals; i++) {
+        if (strcmp(g_globals[i], name) == 0) return; /* a `builtin fn` is in both sources */
+    }
+    g_globals = ziman_xrealloc(g_globals, (size_t)(g_nglobals + 1) * sizeof *g_globals);
+    g_globals[g_nglobals++] = ziman_xstrdup(name);
+}
+
+static void build_globals(void) {
+    if (g_globals != NULL) return;
+    for (int i = 0; i < ziman_builtin_count(); i++) add_global_name(ziman_builtin_name(i));
+    /* Parsed, not type-checked: completion wants the names, and the prelude is embedded in this
+     * binary, so this is the same two lines `--api builtins` uses in main.c. */
+    TokenList tokens = lex(prelude_source());
+    Module *prelude = parse(tokens);
+    for (int i = 0; i < prelude->functions.count; i++) add_global_name(prelude->functions.items[i]->name);
+}
 
 static void add_completion(SB *b, int *first, const char *label, int kind, const char *detail) {
     if (!*first) sb_puts(b, ",");
@@ -1450,7 +1479,8 @@ static void handle_completion(const JVal *id, const JVal *params) {
             }
         } else {
             for (size_t i = 0; i < sizeof KEYWORDS / sizeof KEYWORDS[0]; i++) add_completion(&b, &first, KEYWORDS[i], 14, NULL);
-            for (size_t i = 0; i < sizeof BUILTINS / sizeof BUILTINS[0]; i++) add_completion(&b, &first, BUILTINS[i], 3, "builtin");
+            build_globals();
+            for (int i = 0; i < g_nglobals; i++) add_completion(&b, &first, g_globals[i], 3, "builtin");
             for (int i = 0; i < nsyms; i++) {
                 if (strcmp(syms[i].file, d->path) != 0 && !syms[i].visible_outside) continue;
                 if (strcmp(syms[i].file, d->path) != 0) continue; /* other modules are reached as `module.name` */

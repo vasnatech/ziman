@@ -1675,3 +1675,34 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `docs/lib` only, so nothing gates `docs/CORELIB.md` and this drifted unnoticed. Same shape as
   `src/lsp.c`'s hand-kept `BUILTINS[]`, which by now is missing 72 of the 157 builtin names. Both
   are the next commit.
+
+- [x] **F168** **Two hand-kept lists of what exists, neither gated, both drifted.** (raised
+  2026-10-19 from F167's sweep; S) F151 already recorded the first one and the lesson -- *"a
+  removal is not done when the compiler is happy"* -- and then F164, F166 and F167 each changed the
+  vocabulary again without it. So the fix this time is not to correct the lists but to stop keeping
+  them.
+
+  **`src/lsp.c`'s `BUILTINS[]`** offered 88 names where the checker dispatches on 157. It was
+  missing `sort`, `filter`, `map`, `sort_with`, `sort_by` and every name F162-F167 unprefixed; it
+  still offered `mutable_array_from`, `mutable_map_from` and `mutable_set_from`, deleted in F151;
+  and it carried `contains`, `len` and `snapshot` three or four times each. Adding F167's four
+  names by hand would have left 72 missing, so the list is gone: completion now walks
+  `ziman_builtin_name()` -- the table the checker itself dispatches on, already exported for
+  `--api builtins` -- plus `lib/prelude.zm`'s own top-level `fn` declarations, parsed with the two
+  lines `main.c` uses. Both sources, not just the first, because a plain `fn` in the prelude is
+  callable with no `use` exactly as a `builtin fn` is; `bytes_concat`, `inverse` and
+  `array_present` are that kind and none of them was in the hand list either. `$`-prefixed
+  desugaring targets are filtered out, and a name in both sources appears once.
+
+  **Nothing tested unqualified completion**, which is why no amount of care would have caught any
+  of this: `lsp_test.py` had two completion checks and both were after a `.`. Four checks now
+  cover the global list -- that the dispatching builtins are offered, that the prelude's own
+  functions are, that `$map_lit` and its kind are not, and that eight *deleted* names are not. The
+  last is the one F151 wanted: a removal that misses `src/lsp.c` now fails the suite, where before
+  the compiler was happy and nothing else looked.
+
+  **`docs/CORELIB.md` had no gate either**, and was wrong in the committed tree: it put the
+  `schedule` section before `sqlite` and `server`, where the generator emits `lib/time/*.zm` last.
+  `lib-manual-check` diffs `docs/lib` only, so the sibling generated page -- same generator script,
+  same `make corelib-reference` target -- was ungated from the day it was added. `corelib-reference-check`
+  now diffs it the same way, and is in `docs-check`.

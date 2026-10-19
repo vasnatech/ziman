@@ -69,7 +69,7 @@ BIN := ziman
 # against the pre-split Makefile; nothing else would have noticed until someone typed `make`.
 .DEFAULT_GOAL := all
 
-.PHONY: all check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots test-maptable test-handleslot corelib-reference lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available pdf-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
+.PHONY: all check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots test-maptable test-handleslot corelib-reference corelib-reference-check lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available pdf-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check
 
 # Every gate that needs nothing but this repo and a C toolchain: the fixture suite on both builds,
 # the standalone unit tests, formatting, and the documentation guards. One command for "is this

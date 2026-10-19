@@ -18,6 +18,16 @@ corelib-reference:
 	python3 tools/gen_lib_manual.py
 	python3 tools/gen_lib_deps.py
 
+# Fails when docs/CORELIB.md is not what the current lib/ sources generate (run
+# `make corelib-reference`). Added in F167, which found the committed file already wrong: it had
+# the `schedule` section before `sqlite` and `server`, where the generator emits `lib/time/*.zm`
+# last. `lib-manual-check` below diffs `docs/lib` only, so the other generated page had no gate at
+# all and nobody could have noticed -- the same hole, in the same shape, as `src/lsp.c`'s
+# hand-kept builtin list that the same task replaced.
+corelib-reference-check:
+	./tools/gen_corelib_reference.sh > docs/CORELIB.md
+	git diff --exit-code --stat -- docs/CORELIB.md
+
 # Fails when docs/lib is not what the current lib/ sources generate (run `make corelib-reference`).
 lib-manual-check: $(BIN)
 	python3 tools/gen_lib_manual.py
@@ -64,4 +74,4 @@ design-index-check:
 syntax-check: $(BIN)
 	python3 tools/check_syntax_examples.py
 
-docs-check: lib-manual-check not-yet-check experimental-check doc-module-check syntax-check design-index-check
+docs-check: lib-manual-check corelib-reference-check not-yet-check experimental-check doc-module-check syntax-check design-index-check

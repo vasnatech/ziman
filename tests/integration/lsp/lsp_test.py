@@ -139,6 +139,30 @@ r = request("textDocument/completion", {"textDocument": {"uri": main_uri}, "posi
 labels = [i["label"] for i in r["result"]["items"]]
 check("completion after a bundled module's qualifier", "essence" in labels and "parse" in labels, labels[:10])
 
+# Completion with no qualifier offers the names a program can call with no `use`. Until F167 that
+# list was hand-kept in src/lsp.c and nothing tested or gated it, so it had drifted to 88 entries
+# against 157 builtins: no `sort`, no `filter`, no `map`, none of the names F162-F167 unprefixed,
+# and three that F151 had deleted months earlier. It is now derived from the builtin table and the
+# prelude's own declarations, and these four checks are what keeps it so.
+r = request("textDocument/completion", {"textDocument": {"uri": main_uri}, "position": {"line": 16, "character": 14}})
+labels = [i["label"] for i in r["result"]["items"]]
+missing = [n for n in ("sort", "filter", "map", "sort_with", "sort_by", "is_sorted", "binary_search",
+                       "fold", "distinct", "narrow", "swap", "mutable") if n not in labels]
+check("unqualified completion offers the dispatching builtins", not missing, missing)
+# A plain `fn` in lib/prelude.zm is callable with no `use` just as a `builtin fn` is, so the list
+# is both sources, not the builtin table alone.
+missing = [n for n in ("bytes_concat", "inverse", "array_present") if n not in labels]
+check("unqualified completion offers the prelude's own functions", not missing, missing)
+# The parser's desugaring targets are not names anyone writes.
+internal = [n for n in labels if n.startswith("$")]
+check("unqualified completion hides the internal builtins", not internal, internal)
+# A name that was removed cannot linger here, which is the half of a removal that kept being
+# missed: the compiler is happy either way, so only this notices.
+gone = [n for n in ("mutable_array_from", "mutable_map_from", "mutable_set_from", "array_join",
+                    "sort_by_keys", "mutable_array_truncate", "concat_arrays", "mutable_array_swap")
+        if n in labels]
+check("unqualified completion has dropped the deleted names", not gone, gone)
+
 r = request("workspace/symbol", {"query": "doub"})
 check("workspace symbols by name", any(x["name"] == "double" and x["location"]["uri"] == util_uri for x in r["result"]), r)
 r = request("textDocument/documentHighlight", {"textDocument": {"uri": main_uri}, "position": {"line": 9, "character": 8}})
