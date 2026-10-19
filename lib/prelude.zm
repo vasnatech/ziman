@@ -420,7 +420,14 @@ native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<f
 native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
 
 // Appends each of `pieces`, given one by one or as an array. The builder changes in place.
-native fn mutable_array_push<T>(ab: MutableArray<T>, pieces: variadic T)
+//
+// `internal` from here on wherever a bare name supersedes it: **write `push`, `insert`, `remove`,
+// `filter`, `sort_with`** -- those dispatch on argument 0 and land here. See the bare array
+// helpers further down for why the prefixed names must exist even though nobody should type one.
+// `mutable_array_new`/`_filled` stay advertised (real constructors, no bare form) and so do
+// `mutable_array_get`/`_set` (`b[i]` and `b[i] = v` rewrite to them, and diagnostics name them --
+// hiding those two would point an error message at something the listing denies exists).
+internal native fn mutable_array_push<T>(ab: MutableArray<T>, pieces: variadic T)
 
 // The element at `index`, counting from 0; a runtime error outside `0..len(ab)`.
 //
@@ -438,11 +445,11 @@ native fn mutable_array_set<T>(ab: MutableArray<T>, index: int, value: T)
 // second function. O(n), where `mutable_array_push` is amortized O(1): a loop of
 // `mutable_array_insert(xs, 0, v)` is quadratic, which is why there is no `push_front` -- that name
 // would read as `push`'s twin and promise a cost it cannot give. Build tail-first and reverse once.
-native fn mutable_array_insert<T>(xs: MutableArray<T>, index: int, value: T)
+internal native fn mutable_array_insert<T>(xs: MutableArray<T>, index: int, value: T)
 
 // Removes the element at `index` and answers it, moving everything after it back. O(n). There is no
 // `pop` because this is one: `mutable_array_remove(xs, len(xs) - 1)`.
-native fn mutable_array_remove<T>(xs: MutableArray<T>, index: int) -> T
+internal native fn mutable_array_remove<T>(xs: MutableArray<T>, index: int) -> T
 
 // **Keeps only the elements from `start` up to `end`, in place, answering nothing.** The in-place
 // counterpart of `slice`: that one is a *query*, so it answers a value and leaves its source alone,
@@ -489,7 +496,7 @@ fn mutable_array_reverse<T>(xs: MutableArray<T>) {
 // `array_filter(snapshot(xs), keep)` makes two copies. `keep` must not change the builder -- a
 // reallocation inside it cannot corrupt anything, but the rest of the walk would then be visiting
 // the buffer mid-compaction, the same class of thing as appending during a `for`.
-native fn mutable_array_filter<T>(xs: MutableArray<T>, keep: fn(T) -> bool)
+internal native fn mutable_array_filter<T>(xs: MutableArray<T>, keep: fn(T) -> bool)
 
 // Sorts the buffer by the element type's own `compare`, ascending or descending. These two make
 // two copies -- the snapshot, and the sorted array -- and that is the cheaper option rather than a
@@ -532,7 +539,7 @@ fn mutable_array_sort_by_desc<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
 // comparator of your own always went through the interpreter per comparison, so unlike `sort` and
 // `sort_desc` there is no native comparison here to trade those copies for. Stable: equal elements
 // keep their input order.
-native fn mutable_array_sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
+internal native fn mutable_array_sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
 
 // ---------------------------------------------------------------- MutableMap and MutableSet
 
@@ -873,21 +880,30 @@ internal native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
 
 // ------------------------------------------------------------------ the bare array helpers
 
-// The bare array helpers, callable with no import, beside the bare `map_*` and `set_*` helpers
-// that `Map` and `Set` already have. `array_map`/`filter`/`flat_map`/`reverse`/`sort`/
-// `sort_desc`/`sort_with` are thin wrappers over these and stay for the call sites that use them;
-// these are the canonical spelling. The first four are native: one allocation for the result
-// instead of a MutableArray's growing buffers.
-native fn array_map<T, U>(items: [T], f: fn(T) -> U) -> [U]
+// The array half of the dispatcher's prefix layer. **Write `map`, `filter`, `flat_map` and
+// `reverse`** -- these four are what those names resolve to when the first argument is an `[T]`,
+// and `mutable_array_map` and friends are what they resolve to when it is a builder.
+//
+// They have to exist under exactly these names because the dispatcher builds its target by
+// concatenating a prefix onto the bare name (`typecheck.c`, the WORLD_PAIRED loop): `"array_" +
+// "filter"`. They do not have to be *advertised*, and since F173 they are not -- 51 of the 64
+// `array_`/`mutable_array_` declarations in this file were already invisible for being plain
+// `fn`s, and these four stood out only because a `native fn` had no way to opt out before F172.
+// The whole prefix layer is now uniformly internal. Still callable, as everything here is.
+//
+// Native rather than written in Ziman: one allocation for the result, instead of a MutableArray's
+// growing buffers. This header used to say the bare names were "thin wrappers over these", which
+// F162/F163 turned around -- the bare name is the one to write, and these are the inside of it.
+internal native fn array_map<T, U>(items: [T], f: fn(T) -> U) -> [U]
 
 // See `array_map`.
-native fn array_filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
+internal native fn array_filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
 
 // See `array_map`.
-native fn array_flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
+internal native fn array_flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
 
 // See `array_map`.
-native fn array_reverse<T>(items: [T]) -> [T]
+internal native fn array_reverse<T>(items: [T]) -> [T]
 
 // ---- the five each world used to spell with its own prefix
 //

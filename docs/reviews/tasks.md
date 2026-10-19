@@ -1876,3 +1876,38 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   comments into the function bodies, where the call it describes is one line away. One reference
   remains on purpose, in the note above explaining that reopening the question means publishing
   `permute` too.
+
+- [x] **F173** **The dispatcher's prefix layer stops being advertised.** (raised 2026-10-19 by the
+  user — *"still can not understand we are keeping all mutable_array_\* functions"* — done
+  2026-10-19.) A fair objection, and the answer was that we were not keeping them as vocabulary,
+  only as declarations: the WORLD_PAIRED loop in `typecheck.c` builds its target by concatenating
+  a prefix onto the bare name (`"mutable_array_" + "filter"`), so `array_filter` and
+  `mutable_array_filter` must exist under exactly those names for `filter` to have two worlds.
+  Deleting them is not available.
+
+  **What made the objection right anyway:** of the 64 `array_`/`mutable_array_` declarations in
+  `lib/prelude.zm`, **51 were already invisible** — they are plain `fn`s, and a plain `fn` in the
+  prelude is not listed. Only **13** showed up, for the single reason that they are `native fn`
+  and, before F172, a native had no way to opt out. The prefix layer was already 80% private by
+  accident, and advertised in the remaining fifth by the same accident.
+
+  **Nine marked `internal`:** `array_map`, `array_filter`, `array_flat_map`, `array_reverse`,
+  `mutable_array_push`, `mutable_array_insert`, `mutable_array_remove`, `mutable_array_filter`,
+  `mutable_array_sort_with` — each superseded by a bare name that already resolves to it. 240
+  advertised names became 231.
+
+  **Four deliberately kept.** `mutable_array_new` and `mutable_array_filled` are real
+  constructors with no bare form; an editor that stopped offering them would leave no way to
+  discover how a builder is made. `mutable_array_get` and `mutable_array_set` are what `b[i]` and
+  `b[i] = v` rewrite to (`typecheck.c:4060`, `:5646`) **and are named in diagnostics**
+  (`:5458-5460` keeps an assignment error pointing at `'mutable_array_set'` rather than at a
+  type-argument inference failure) — hiding them would point an error message at a name the
+  listing denies exists. That is the same test F172 applied to `loader.c`'s method hint, and it
+  is the line between the nine and the four.
+
+  **Also fixed: the bare-array-helpers header had been inverted since F162/F163.** It said the
+  bare names were "thin wrappers over these", which was true when `array_map` was the canonical
+  spelling and false ever since the renames. Rewritten to say which name to write and why the
+  other has to exist. Nothing is deleted and nothing stops being callable;
+  `tests/lang/prelude_internal_still_callable.zm` now asserts that the bare call and the prefixed
+  call are the same call, in both worlds.

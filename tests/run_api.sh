@@ -62,6 +62,26 @@ for internal_name in is_sortable_scalars sort_scalar_order sort_scalars permute 
 done
 has "and the sort it is the inside of is still listed" "fn sort<T: Ord>(a: [T]) -> [T]" "$builtins"
 
+# F173: the same rule over the dispatcher's prefix layer. `map(b, f)` resolves to the literal name
+# "mutable_array_" + "map", so these have to exist -- but 51 of the 64 `array_`/`mutable_array_`
+# declarations were already invisible for being plain `fn`s, and only these stood out for being
+# native. Hidden, not deleted: tests/lang/prelude_internal_still_callable.zm calls them.
+for internal_name in array_map array_filter array_flat_map array_reverse mutable_array_push \
+                     mutable_array_insert mutable_array_remove mutable_array_filter \
+                     mutable_array_sort_with; do
+    if printf '%s' "$builtins" | grep -qE "^(builtin )?fn $internal_name\b"; then
+        fail=$((fail + 1)); echo "FAIL a prefix-layer native is advertised: $internal_name" >&2
+    else
+        pass=$((pass + 1)); echo "ok   a prefix-layer native stays out: $internal_name"
+    fi
+done
+# The four that stay: two real constructors with no bare form, and the two `b[i]`/`b[i] = v`
+# rewrite to -- those are named in diagnostics, so hiding them would point an error message at a
+# name this listing denies exists.
+for kept in mutable_array_new mutable_array_filled mutable_array_get mutable_array_set; do
+    has "the prefixed name with no bare form is still listed: $kept" "fn $kept" "$builtins"
+done
+
 # Works on a file, not only a bundled name.
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 cat > "$work/mine.zm" <<'ZM'

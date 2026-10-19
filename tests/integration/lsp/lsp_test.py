@@ -171,6 +171,18 @@ check("unqualified completion has dropped the deleted names", not gone, gone)
 hidden = [n for n in ("is_sortable_scalars", "sort_scalar_order", "sort_scalars", "permute",
                       "sort_positions") if n in labels]
 check("unqualified completion hides the internal prelude natives", not hidden, hidden)
+# F173: and the dispatcher's prefix layer, for the same reason -- `map(b, f)` already resolves to
+# `mutable_array_map`, so completing the prefixed spelling offers a worse name for a call the
+# editor could have spelled `map`. The 51 plain-`fn` members of that layer were never offered.
+hidden = [n for n in ("array_map", "array_filter", "array_flat_map", "array_reverse",
+                      "mutable_array_push", "mutable_array_insert", "mutable_array_remove",
+                      "mutable_array_filter", "mutable_array_sort_with") if n in labels]
+check("unqualified completion hides the prefix layer", not hidden, hidden)
+# The four with no bare form stay: `mutable_array_new`/`_filled` are constructors, and an editor
+# that stopped offering them would leave no way to discover how a builder is made.
+missing = [n for n in ("mutable_array_new", "mutable_array_filled", "mutable_array_get",
+                       "mutable_array_set") if n not in labels]
+check("unqualified completion keeps the prefixed names with no bare form", not missing, missing)
 # The seam a caller would actually want is still there, and so is what it implements.
 missing = [n for n in ("sort", "sort_by", "array_order_of") if n not in labels]
 check("unqualified completion keeps the sorts the internals implement", not missing, missing)

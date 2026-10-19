@@ -25,4 +25,21 @@ fn main() {
     // And the advertised spelling agrees with the plumbing it is built on, which is the only
     // reason hiding the plumbing is safe.
     print(sort(xs) == sort_scalars<int>(xs, false))
+
+    // F173 hid the dispatcher's prefix layer the same way. These are the names `map(b, f)` and
+    // the rest already resolve to -- `typecheck.c` builds the target by concatenating "array_" or
+    // "mutable_array_" onto the bare name -- so they must stay callable, and the bare call and
+    // the prefixed one must stay the same call. That is the half a .zm test can hold.
+    print(array_map<int, int>(xs, fn(n) { n * 2 }) == map<int, int>(xs, fn(n) { n * 2 }))
+    print(array_filter<int>(xs, fn(n) { n > 4 }) == filter(xs, fn(n) { n > 4 }))
+    print(array_flat_map<int, int>(xs, fn(n) { [n, n] }))
+    print(array_reverse<int>(xs) == reverse(xs))
+
+    val b = mutable([3, 1, 2])
+    mutable_array_push<int>(b, 8)
+    mutable_array_insert<int>(b, 0, 7)
+    print(mutable_array_remove<int>(b, 0))
+    mutable_array_filter<int>(b, fn(n: int) -> bool { return n > 1 })
+    mutable_array_sort_with<int>(b, fn(p: int, q: int) -> int { return compare(p, q) })
+    print(snapshot(b))
 }

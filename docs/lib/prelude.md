@@ -750,14 +750,6 @@ There is no immutable twin: `snapshot(mutable_array_filled(n, v))` is the way to
 repeats, and `array_filled` would have to be a second name rather than an overload, differing
 from this only in what it returns.
 
-### `mutable_array_push`
-
-```
-native fn mutable_array_push<T>(ab: MutableArray<T>, pieces: variadic T)
-```
-
-Appends each of `pieces`, given one by one or as an array. The builder changes in place.
-
 ### `mutable_array_get`
 
 ```
@@ -778,27 +770,6 @@ native fn mutable_array_set<T>(ab: MutableArray<T>, index: int, value: T)
 
 Replaces the element at `index`; a runtime error outside `0..len(ab)`. Appending is `mutable_array_push`: this
 only overwrites what is already there.
-
-### `mutable_array_insert`
-
-```
-native fn mutable_array_insert<T>(xs: MutableArray<T>, index: int, value: T)
-```
-
-Inserts `value` at `index`, moving everything after it along. `index` may be `len(xs)`, which
-appends -- the same rule the immutable `insert(arr, i, x)` follows, so adding at the end needs no
-second function. O(n), where `mutable_array_push` is amortized O(1): a loop of
-`mutable_array_insert(xs, 0, v)` is quadratic, which is why there is no `push_front` -- that name
-would read as `push`'s twin and promise a cost it cannot give. Build tail-first and reverse once.
-
-### `mutable_array_remove`
-
-```
-native fn mutable_array_remove<T>(xs: MutableArray<T>, index: int) -> T
-```
-
-Removes the element at `index` and answers it, moving everything after it back. O(n). There is no
-`pop` because this is one: `mutable_array_remove(xs, len(xs) - 1)`.
 
 ### `narrow`
 
@@ -850,18 +821,6 @@ fn mutable_array_reverse<T>(xs: MutableArray<T>)
 
 Reverses the buffer in place -- no copy at all, where `array_reverse(snapshot(xs))` makes two.
 
-### `mutable_array_filter`
-
-```
-native fn mutable_array_filter<T>(xs: MutableArray<T>, keep: fn(T) -> bool)
-```
-
-Keeps only the elements `keep` answers true for, in place. The one filter in the language that
-allocates nothing: it walks once with a write cursor trailing the read cursor, where
-`array_filter(snapshot(xs), keep)` makes two copies. `keep` must not change the builder -- a
-reallocation inside it cannot corrupt anything, but the rest of the walk would then be visiting
-the buffer mid-compaction, the same class of thing as appending during a `for`.
-
 ### `mutable_array_sort`
 
 ```
@@ -898,19 +857,6 @@ function that reads the buffer it is sorting sees it unchanged throughout.
 ```
 fn mutable_array_sort_by_desc<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K)
 ```
-
-### `mutable_array_sort_with`
-
-```
-native fn mutable_array_sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
-```
-
-Sorts the buffer by `cmp`, **copying no elements at all**: a merge sort over positions, then the
-permutation applied by following its cycles. It allocates two int64 order buffers and an n-byte
-map -- 17 bytes per element, against the 80 a boxed element costs, twice, through a snapshot. A
-comparator of your own always went through the interpreter per comparison, so unlike `sort` and
-`sort_desc` there is no native comparison here to trade those copies for. Stable: equal elements
-keep their input order.
 
 ## MutableMap and MutableSet
 
@@ -1359,44 +1305,6 @@ native fn bytes_index_of(haystack: [byte], needle: [byte], from: int) -> int
 
 The position of the first occurrence of `needle` in `haystack` at or after `from`, or -1; an
 empty `needle` is found at `from`. For finding a delimiter (a CRLF CRLF, a boundary) in bytes.
-
-## The bare array helpers
-
-### `array_map`
-
-```
-native fn array_map<T, U>(items: [T], f: fn(T) -> U) -> [U]
-```
-
-The bare array helpers, callable with no import, beside the bare `map_*` and `set_*` helpers
-that `Map` and `Set` already have. `array_map`/`filter`/`flat_map`/`reverse`/`sort`/
-`sort_desc`/`sort_with` are thin wrappers over these and stay for the call sites that use them;
-these are the canonical spelling. The first four are native: one allocation for the result
-instead of a MutableArray's growing buffers.
-
-### `array_filter`
-
-```
-native fn array_filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
-```
-
-See `array_map`.
-
-### `array_flat_map`
-
-```
-native fn array_flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
-```
-
-See `array_map`.
-
-### `array_reverse`
-
-```
-native fn array_reverse<T>(items: [T]) -> [T]
-```
-
-See `array_map`.
 
 ## The five each world used to spell with its own prefix
 
