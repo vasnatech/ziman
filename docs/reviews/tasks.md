@@ -1240,3 +1240,31 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   No immutable twin: `snapshot(mutable_array_filled(n, v))` reaches an `[T]` of repeats, and
   `array_filled` could only ever be a second name rather than an overload, differing from this one
   in nothing but its result -- the same constraint `to_set`/`to_mutable_set` ran into.
+
+- [x] **F156** **`remove` was the last of the three element verbs the MutableArray could not use.**
+  (raised 2026-10-18 from the collection-pairing review, item 12; S) `push` and `insert` became
+  shared in F149 on the argument that *what the call answers* -- a new array there, nothing here --
+  is the difference between the two worlds and not between two names. `remove` is the same question
+  of both and was still spelled `mutable_array_remove`.
+
+  **The objection I raised against this when the item was put up was wrong, and worth recording as
+  such.** I argued one name would mean six things: the new collection for the three immutable
+  shapes, then the element, an `Option<V>` and a `bool` for the three builders. That inconsistency
+  is real but lives *inside the mutable world* and existed already under prefixed names -- adding
+  the MutableArray row neither creates nor worsens it. Only that row joined; `MutableMap` and
+  `MutableSet` keep their own names, and each refusal now names the function that does the job
+  rather than reporting a type mismatch.
+
+  **The purity gate was the one real complication.** `remove` is on `PURE_BUILTINS`, which is true
+  of the three immutable overloads and false of this one -- it writes the container. Had the rewrite
+  claimed the authored name through `rewritten_from`, as `mutable`'s rewrites do, a discarded
+  `remove(b, 0)` would have reported that `remove` "does not modify its argument" of a call that
+  just did. And discarding has to stay legal, since `remove(b, len(b) - 1)` is how `pop` is
+  spelled. Leaving the field NULL points the gate at the effectful native, which is correct for
+  both: the array's discarded `remove` is still an error, the builder's is not. Purity is per
+  overload here and the whitelist is per name, which is why this needed deciding rather than
+  defaulting.
+
+  **One message was wrong before this and is fixed with it:** the refusal said *"argument 1 of
+  'remove' expects an array"* while a `Map` and a `Set` were accepted two branches above it, and
+  said nothing about any builder. Three fixtures.

@@ -3014,8 +3014,57 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         if (e->as.call.args.count != 2) {
             ziman_error("type", e->line, e->col, "'remove' takes exactly 2 arguments, found %d", e->as.call.args.count);
         }
+
+        /* A MutableArray is removed from with the array's word, for the reason `push` and `insert`
+         * are: taking element i out is the same question of both. What differs is the *answer* -- a
+         * new array there, the removed element here, the container having been written -- which is
+         * the difference between the two worlds and not between the two names.
+         *
+         * The index is checked before the rewrite so a bad one names `remove` rather than the
+         * native it becomes, and `rewritten_from` is deliberately **not** set here, unlike
+         * `mutable`'s rewrites. That field makes the dropped-result gate read the authored name,
+         * and `remove` is on the pure-builtin list -- true of the three immutable overloads, false
+         * of this one, which writes the container. Claiming the name would make a discarded
+         * `remove(b, 0)` report that `remove` "does not modify its argument", of a call that just
+         * did. Discarding the element it answers is legitimate -- it is how `pop` is spelled -- so
+         * the gate should see the effectful native, which is what leaving the field NULL does. */
+        if (arr_type.kind == TY_STRUCT && arr_type.struct_name != NULL &&
+            strcmp(arr_type.struct_name, "MutableArray") == 0) {
+            Expr *b_idx = e->as.call.args.items[1];
+            Type b_idx_type = check_expr(module, env, b_idx);
+            if (b_idx_type.kind != TY_INT) {
+                ziman_error("type", b_idx->line, b_idx->col, "argument 2 of 'remove' expects int, found %s",
+                            type_name(b_idx_type));
+            }
+            e->as.call.callee = ziman_xstrdup("mutable_array_remove");
+            return check_expr(module, env, e);
+        }
+
         if (arr_type.kind != TY_ARRAY) {
-            ziman_error("type", arr_arg->line, arr_arg->col, "argument 1 of 'remove' expects an array, found %s", type_name(arr_type));
+            /* The old message said "expects an array" while a Map and a Set were accepted two
+             * branches up, and said nothing about the builders, each of which has its own removal
+             * under its own name. */
+            if (arr_type.kind == TY_STRUCT && arr_type.struct_name != NULL) {
+                if (strcmp(arr_type.struct_name, "MutableMap") == 0) {
+                    ziman_error("type", arr_arg->line, arr_arg->col,
+                                "'remove' has no MutableMap form -- 'mutable_map_remove(m, key)' answers the value "
+                                "it took out as an 'Option<V>', and 'mutable_map_discard(m, key)' answers whether "
+                                "there was one");
+                }
+                if (strcmp(arr_type.struct_name, "MutableSet") == 0) {
+                    ziman_error("type", arr_arg->line, arr_arg->col,
+                                "'remove' has no MutableSet form -- 'mutable_set_remove(s, item)' answers whether "
+                                "the item was there");
+                }
+                if (strcmp(arr_type.struct_name, "MutableString") == 0) {
+                    ziman_error("type", arr_arg->line, arr_arg->col,
+                                "a MutableString has no element removal -- shorten it with "
+                                "'mutable_array_truncate'-style rebuilding, or take 'snapshot' and use 'substring'");
+                }
+            }
+            ziman_error("type", arr_arg->line, arr_arg->col,
+                        "argument 1 of 'remove' expects an array, a MutableArray, a Map or a Set, found %s",
+                        type_name(arr_type));
         }
         Expr *idx_arg = e->as.call.args.items[1];
         Type idx_type = check_expr(module, env, idx_arg);

@@ -1,0 +1,1 @@
+'remove' has no MutableSet form -- 'mutable_set_remove(s, item)' answers whether

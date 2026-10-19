@@ -1795,6 +1795,21 @@ builtin fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
 builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
 ```
 
+```
+builtin fn remove<T>(b: MutableArray<T>, index: int) -> T
+```
+
+**The MutableArray's `remove` answers the element, where the array's answers the array.** Taking
+element i out is the same question of both, so it is the same word; what differs is the answer,
+and that is the difference between the two worlds rather than between two names -- the same
+reasoning that made `push` and `insert` shared. Discarding the element is how `pop` is spelled
+(`remove(b, len(b) - 1)`), which is why that is not reported as a wasted result the way a
+discarded `remove(a, i)` is: an array's `remove` copies and changes nothing, a builder's writes.
+
+There is no `MutableMap` or `MutableSet` form. Those answer an `Option<V>` and a `bool`, so one
+name over all six would have meant the new collection three times and three different other
+things -- each refusal names the function that does it instead.
+
 ## The builder operations that take **either world**
 
 ### `mutable`

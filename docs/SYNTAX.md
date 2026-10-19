@@ -305,7 +305,11 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   `mutable_array_filter`, `mutable_array_sort`/`_desc`/`_with`, plus the bare `len`, `contains`,
   `clear` and `snapshot`) is the right tool for building/editing a
   large array piece by piece. `insert` takes `0..len` inclusive, so inserting at the length appends;
-  `remove` answers what it removed, which is why there is no `pop`. Both are O(n), where `push` is
+  `remove` answers what it removed, which is why there is no `pop` -- `remove(b, len(b) - 1)` is
+  one. It is the array's own word: `remove(b, i)` on a builder answers the **element**, where
+  `remove(a, i)` on an array answers the new array, the difference being the two worlds rather than
+  two names. Discarding the builder's result is therefore fine, while discarding the array's is an
+  error, that one having copied and changed nothing. Both are O(n), where `push` is
   amortised O(1) -- a loop of `mutable_array_insert(xs, 0, v)` is quadratic, and that is why there
   is no `push_front`: the name would read as `push`'s twin and promise a cost it cannot give. Build
   tail-first and `mutable_array_reverse` once, which copies nothing. `mutable_array_filter` keeps
@@ -2720,6 +2724,9 @@ a type error.
   two words for the same two questions of a builder, writing it in place and answering nothing.
   There is no `set` form: write the element with `b[i] = x`.
 - `insert(arr, i, x) -> [T]` — `x` inserted at `i` (`[0, len(arr)]`, else runtime error).
+- `remove(b: MutableArray<T>, i) -> T` — the element taken out of the builder, which is written in
+  place. No `MutableMap`/`MutableSet` form: those answer an `Option<V>` and a `bool`, so they keep
+  `mutable_map_remove`/`mutable_map_discard`/`mutable_set_remove`, and each refusal names them.
 - `set(arr, i, x) -> [T]` / `remove(arr, i) -> [T]` — element at `i` replaced/removed
   (`[0, len(arr))`, else runtime error). `insert`/`set`/`remove`/`concat_arrays` always copy.
   No "pop" -- indexing already covers peeking.

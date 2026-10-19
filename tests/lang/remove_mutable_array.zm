@@ -1,0 +1,27 @@
+// `remove` is the array's word for both worlds, for the reason `push` and `insert` are: taking
+// element i out is the same question of both. The answers differ -- a new array from the array, the
+// removed element from the builder -- and that is the difference between the two worlds rather than
+// between two names.
+//
+// Two consequences this pins. `remove(b, len(b) - 1)` is how `pop` is spelled, so discarding the
+// element has to be legitimate; and it is, while discarding an array's `remove` is still an error,
+// because that one copies and changes nothing. The checker rewrites onto `mutable_array_remove`
+// without claiming the authored name for the dropped-result gate, which is what keeps those two
+// apart -- `remove` is on the pure-builtin list, true of the array overload and false of this one.
+fn main() {
+    var a = [1, 2, 3]
+    a = remove(a, 0)
+    print(a)
+
+    val b = mutable([1, 2, 3])
+    print(remove(b, 0))
+    print(snapshot(b))
+
+    // pop
+    print(remove(b, len(b) - 1))
+    print(snapshot(b))
+
+    // discarding the element is how a pop that ignores the value reads
+    remove(b, 0)
+    print(len(b))
+}
