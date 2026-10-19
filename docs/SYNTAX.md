@@ -2816,8 +2816,21 @@ a type error.
   always a written-out list (`filter_present<Node>(opt_element(..), opt_element(..))`); an array
   already in hand goes in as `filter_present<T>(items: existing)`, the named-argument spelling a
   variadic takes. `filter` cannot express it -- it keeps elements, so the results would still be
-  wrapped -- and `flat_map` only can by building a one- or zero-element array per value. The sorts
-  are stable in both directions, so `sort_desc` is not `sort` reversed (that would flip ties).
+  wrapped -- and `flat_map` only can by building a one- or zero-element array per value.
+- **`filter_ok<T, E>(items: variadic Result<T, E>) -> [T]`** and
+  **`filter_err<T, E>(items: variadic Result<T, E>) -> [E]`** are the same shape for a `Result`:
+  the values that succeeded and the reasons the rest did not, the two halves of one input, each
+  in order. Both type arguments are written even though each answers only one of them, because
+  `Result<T, E>` names both and Ziman infers neither. Like `filter_present` they are variadic,
+  with an array in hand going in as `filter_ok<T, E>(items: existing)` -- which is also the
+  realistic call, since an array of `Result`s is what `map(xs, fallible)` answers.
+  **Neither propagates:** `filter_ok` *silently discards* every failure, so it is for the cases
+  where a failure is not news -- one bad `Accept` range among ten, a malformed line in a feed
+  that keeps going. Where a failure should stop the work, `try` and `if Err(e) =` are still the
+  answer. Calling both on the same input keeps the successes and still reports what was lost.
+
+  The sorts are stable in both directions, so `sort_desc` is not `sort` reversed (that would flip
+  ties).
   The rest of the array library needs no import either. Most of it is now spelled **without** the
   prefix -- `fold`, `find`, `first`, `last`, `min_by`, `max_by`, `count`, `any`, `all`,
   `for_each`, `distinct`, `sum`, `sort_by`/`_desc`, `is_sorted`, `lower_bound`, `upper_bound`,

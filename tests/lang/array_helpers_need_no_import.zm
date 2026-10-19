@@ -53,4 +53,19 @@ fn main() {
     // builtin does not -- `concat` lost this spelling when it became one
     val held = [Option<string>.Some("a"), Option<string>.None, Option<string>.Some("b")]
     print(filter_present<string>(items: held))
+
+    // filter_ok / filter_err: the same shape for a Result, the two halves of one input. Both
+    // type arguments are written even though each answers only one of them, since Result names
+    // both and Ziman infers neither.
+    print(filter_ok<int, string>(ok(1), err("bad"), ok(3)))
+    print(filter_err<int, string>(ok(1), err("bad"), ok(3)))
+    print(len(filter_ok<int, string>()))
+    print(filter_ok<int, string>(err("a"), err("b")))
+    print(filter_err<int, string>(ok(5)))
+    // the realistic call: a sequence through a fallible function, then kept or reported. An
+    // array literal of bare `ok(..)` cannot be written -- `ok` takes its type from context and a
+    // literal's elements give it none -- so this is also how such an array gets built at all.
+    val parsed = map(["1", "x", "3"], fn(s: string) -> Result<int, string> { parse_int(s) })
+    print(filter_ok<int, string>(items: parsed))
+    print(filter_err<int, string>(items: parsed))
 }

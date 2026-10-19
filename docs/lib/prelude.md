@@ -1787,7 +1787,7 @@ builtin fn binary_search<T: Ord>(b: MutableArray<T>, target: T) -> Option<int>
 ### `filter_present`
 
 ```
-fn filter_present<T>(items: variadic Option<T>) -> [T]
+pub fn filter_present<T>(items: variadic Option<T>) -> [T]
 ```
 
 The values that are actually there, in order, with the `None`s dropped. What builds a list out
@@ -1842,6 +1842,40 @@ The capacity hint makes no material difference either way since the runtime stop
 allocating a boxed array it was about to discard. Measure one spelling per process if these
 are ever re-run: taking all three in one gave the last of them a heap the earlier two had
 already grown, which read as a 4x spread that does not exist.
+
+### `filter_ok`
+
+```
+pub fn filter_ok<T, E>(items: variadic Result<T, E>) -> [T]
+```
+
+`filter_present` for a `Result`: the values that succeeded, in order, with the failures
+dropped -- and `filter_err` for the other half, the reasons they failed. Added in F171 beside
+`filter_present`, which they are shaped after exactly: variadic, so a written-out list of
+fallible steps needs no array built first, and an array already in hand goes in as
+`filter_ok<T, E>(items: existing)`.
+
+`pub` on all three, which in this file means only "`--api builtins` lists it" -- the prelude is
+merged into every program, so visibility does not gate calling. `result_to_option` and
+`option_to_result` beside them already carry it for that reason, and they are the closest
+siblings these two have. `filter_present` was missing it, which is why it was in the list of 21
+prelude functions a reader asking "what exists" could not see; the other 18 are their own task.
+
+Both type arguments are written even though each function returns only one of them, because
+Ziman infers neither and `Result<T, E>` names both: `filter_ok<int, string>(...)` answers
+`[int]`, `filter_err<int, string>(...)` answers `[string]` over the very same input.
+
+**Neither one propagates**, which is the whole point and also the risk: `filter_ok` *silently
+discards* every failure, so it is for the cases where a failure is genuinely not news -- one
+bad `Accept` range among ten, a malformed line in a feed that keeps going. When a failure
+should stop the work, `try` and `if Err(e) =` are still the answer and always were. Calling
+both on the same input is how to keep the successes and still report what was lost.
+
+### `filter_err`
+
+```
+pub fn filter_err<T, E>(items: variadic Result<T, E>) -> [E]
+```
 
 ### `array_sort`
 

@@ -1779,3 +1779,38 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   **F168's gate took its second customer:** `array_present` and `iter_of_array` added to the
   deleted-names assertion, so the editor cannot keep offering either.
+
+- [x] **F171** **`filter_ok` and `filter_err`, beside `filter_present`.** (raised 2026-10-19 by
+  Menderes; S) The two halves of a `Result` sequence: the values that succeeded and the reasons
+  the rest did not, each in order. Shaped after `filter_present` exactly -- variadic, with an
+  array in hand going in as `filter_ok<T, E>(items: existing)`.
+
+  **This is a capability addition, not a de-duplication, and the corpus says so.** The tree holds
+  exactly **one** `[Result<T, E>]` and it is an empty-array placeholder (`lib/core/csv.zm:437`).
+  Of the `if Ok(..) =` / `if Err(..) =` sites, all but one are early-return propagation, which
+  these two deliberately do not do. The single collection-shaped caller,
+  `lib/http/http.zm`'s `quality`, was **left alone on purpose**: it is a fold with a filter, not a
+  plain collect, so `filter_ok` would allocate an intermediate array the loop does not. F166 found
+  a hand-rolled `sort_by_desc` and deleted six lines; there is no such find here, and saying so is
+  more useful than manufacturing one.
+  (The scarcity is partly chicken-and-egg -- nothing consumed an array of `Result`s, so nobody
+  built one -- which is the argument *for* adding them, but it is an argument, not evidence.)
+
+  **Both type arguments are written on every call** even though each function answers only one of
+  them: `Result<T, E>` names both, Ziman infers neither, so `filter_ok<int, string>(..)` is `[int]`
+  and `filter_err<int, string>(..)` is `[string]` over the identical input.
+
+  **`pub`, which in `lib/prelude.zm` means only "`--api builtins` lists it"** -- the prelude is
+  merged into every program, so visibility never gated calling. `result_to_option` and
+  `option_to_result`, the closest siblings these two have, already carry it for exactly that
+  reason, so this follows the file's own convention rather than inventing one. **`filter_present`
+  was missing it** and is now marked too: it was one of the 21 prelude functions a reader asking
+  "what exists" cannot see, and shipping a three-member family with one member invisible is worse
+  than either consistent answer. The other 18 are their own task -- and this confirms the fix for
+  them is one word per declaration, not a change to `src/main.c`'s condition, which would also
+  list the 50 rewrite targets and put `array_fold` beside `fold`.
+
+  **Not propagating is the point and the risk**, and the doc comment says so rather than leaving a
+  reader to find out: `filter_ok` silently discards every failure. It is for a bad `Accept` range
+  among ten, not for work that should stop. Both on one input keeps the successes and still
+  reports what was lost.
