@@ -7,7 +7,7 @@
 fn deep(limit: int) -> int {
     val name = "the outer one, which must not appear"
     var big: [int] = []
-    for i in 0..60 { big = concat_arrays(big, [i]) }
+    for i in 0..60 { big = concat(big, [i]) }
     if limit > 0 {
         val name = "the inner one, which must appear"
         val note = "only in the if-block"

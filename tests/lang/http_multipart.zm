@@ -30,7 +30,7 @@ val content_type = concat("multipart/form-data; boundary=", boundary)
 
 // A part, written out the way a client sends it: the boundary line, the headers, a blank line, bytes.
 fn part_bytes(headers: string, body: [byte]) -> [byte] {
-    return concat_arrays<byte>([
+    return concat([
         string_to_bytes(concat("--", boundary, "\r\n", headers, "\r\n\r\n")),
         body,
         string_to_bytes("\r\n")
@@ -38,8 +38,8 @@ fn part_bytes(headers: string, body: [byte]) -> [byte] {
 }
 
 fn body_of(parts: [[byte]]) -> [byte] {
-    return concat_arrays<byte>([
-        concat_arrays<byte>(parts),
+    return concat([
+        concat(parts),
         string_to_bytes(concat("--", boundary, "--\r\n"))
     ])
 }
@@ -107,7 +107,7 @@ fn main() {
     ])))
 
     // RFC 2046 says to ignore what sits before the first boundary and after the last.
-    show("preamble and epilogue", req_of(content_type, concat_arrays<byte>([
+    show("preamble and epilogue", req_of(content_type, concat([
         string_to_bytes("a preamble some clients send\r\n"),
         body_of([text_part("Content-Disposition: form-data; name=\"only\"", "kept")]),
         string_to_bytes("an epilogue\r\n")
@@ -118,7 +118,7 @@ fn main() {
 
     // Bodies this must refuse, each a 400.
     show("no boundary in the body", req_of(content_type, string_to_bytes("just some bytes")))
-    show("no closing boundary", req_of(content_type, concat_arrays<byte>([
+    show("no closing boundary", req_of(content_type, concat([
         text_part("Content-Disposition: form-data; name=\"a\"", "x")
     ])))
     show("headers never end", req_of(content_type, body_of([

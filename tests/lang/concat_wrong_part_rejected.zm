@@ -1,0 +1,7 @@
+// Appending to a MutableArray<int> takes [int] or MutableArray<int> parts, mixed freely. Anything
+// else names both shapes rather than reporting a bare type mismatch.
+fn main() {
+    val b = mutable([1, 2])
+    concat(b, ["x"])
+    print(len(b))
+}

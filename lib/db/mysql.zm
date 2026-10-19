@@ -294,7 +294,7 @@ fn read_packet(sock: Socket) -> Result<Packet, DbError> {
         }
         more = length == 16777215
     }
-    return Packet { seq: seq, body: concat_arrays<byte>(parts: snapshot(parts)) }
+    return Packet { seq: seq, body: concat(snapshot(parts)) }
 }
 
 fn is_err_packet(body: [byte]) -> bool {
@@ -987,8 +987,8 @@ fn execute_body(stmt_id: int, params: [SqlValue], flags: int) -> [byte] {
         head,
         snapshot(bitmap),
         [1b],
-        concat_arrays<byte>(parts: snapshot(types)),
-        concat_arrays<byte>(parts: snapshot(values))
+        concat(snapshot(types)),
+        concat(snapshot(values))
     )
 }
 

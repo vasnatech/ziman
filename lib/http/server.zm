@@ -529,11 +529,11 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         // copying. A byte builder appends into packed storage, so each chunk is one memcpy and the
         // body is copied once at the end (D22).
         val acc = mutable_array_new<byte>()
-        mutable_array_push_all(acc, rest)
+        concat(acc, rest)
         while len(acc) < content_length {
             val more = try read_within(sock, content_length - len(acc), limit_ms, started)
             lowered = true
-            mutable_array_push_all(acc, more)
+            concat(acc, more)
         }
         rest = snapshot(acc)
     }
@@ -1221,7 +1221,7 @@ pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
     // Every boundary but the first is preceded by a CRLF that belongs to the delimiter, not to the part
     // before it. Prepending one lets the first be found the same way instead of as a special case, and
     // costs a copy of a body already bounded by `max_body_bytes`.
-    val body = concat_arrays<byte>([string_to_bytes("\r\n"), req.body])
+    val body = concat([string_to_bytes("\r\n"), req.body])
     val delim = string_to_bytes(concat("\r\n--", boundary))
     val close = string_to_bytes("--")
     val line_end = string_to_bytes("\r\n")

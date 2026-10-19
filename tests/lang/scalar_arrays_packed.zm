@@ -19,7 +19,7 @@ fn main() {
     print(array_sort<int>(a))
     print(array_reverse<int>(a))
     print(slice<int>(a, 1, 4))
-    print(concat_arrays<int>(a, [1, 2], slice<int>(a, 0, 1)))
+    print(concat(a, [1, 2], slice<int>(a, 0, 1)))
     val big = [9223372036854775807, -9223372036854775807]
     print(big[0] + big[1])
 

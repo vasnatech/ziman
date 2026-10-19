@@ -225,7 +225,7 @@ pub fn encode_png(i: Image) -> [byte] {
     mutable_array_push(parts, chunk("IDAT", deflate(filtered_rows(i))))
     val nothing: [byte] = []
     mutable_array_push(parts, chunk("IEND", nothing))
-    return concat_arrays<byte>(parts: snapshot(parts))
+    return concat(snapshot(parts))
 }
 
 fn colour_type_of(f: Pixels) -> int {
@@ -366,7 +366,7 @@ pub fn decode_png(data: [byte], max_pixels: int) -> Result<Image, string> {
     }
     val n = channels_of(format)
     val stride = width * n
-    val raw = try inflate(concat_arrays<byte>(parts: snapshot(idat)), (stride + 1) * height)
+    val raw = try inflate(concat(snapshot(idat)), (stride + 1) * height)
     if len(raw) != (stride + 1) * height {
         return err(concat(
             "image.decode_png: the pixel data is ",

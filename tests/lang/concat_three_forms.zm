@@ -1,0 +1,41 @@
+// `concat` is one name over three forms, chosen by the first argument: pieces into a string, parts
+// into a new array, parts appended to a MutableArray in place. It was three names -- `concat`,
+// `concat_arrays`, `mutable_array_push_all` -- until 2026-10-18.
+//
+// **One argument that is an array spreads.** That rule is what keeps `concat(parts)` answering the
+// string "xyz" for a `[string]`, which it did when the string form was a native with a variadic
+// tail, and it is the reason concatenating a single array *as one part* cannot be said: there is no
+// way to ask for a copy of a `[string]` through `concat`, and `slice(a, 0, len(a))` is that anyway.
+// A lone array whose elements cannot be pieces or parts -- a `[int]` -- is the one part, so
+// `concat([1, 2])` is a copy. Two or more arguments are never a spread.
+fn main() {
+    // pieces into a string
+    print(concat("a", "b", "c"))
+    print(concat("solo"))
+    print(concat())
+    val words: [string] = ["x", "y", "z"]
+    print(concat(words))
+
+    // parts into an array
+    print(concat([1, 2], [3], [4, 5]))
+    val nested: [[int]] = [[1, 2], [3]]
+    print(concat(nested))
+    print(concat([1, 2]))
+    print(concat(["a"], ["b"]))
+
+    // appended to a builder, either world, mixed, any number
+    val b = mutable([1])
+    concat(b, [2, 3])
+    concat(b, mutable([4]))
+    concat(b, [5], mutable([6]), [7])
+    print(snapshot(b))
+
+    // self-aliasing: doubles, and several aliasing parts append sequentially
+    val c = mutable([1, 2])
+    concat(c, c)
+    print(snapshot(c))
+    val d = mutable([1])
+    concat(d, d, d)
+    print(snapshot(d))
+    print(concat([1, 2], [1, 2]))
+}

@@ -4,5 +4,8 @@ fn main() {
     print(concat("solo"))
     val parts: [string] = ["x", "y", "z"]
     print(concat(parts))
-    print(concat(pieces: parts))
+    // `concat(pieces: parts)` was legal while concat was a native, and a builtin takes no named
+    // arguments -- the positional spread one line up is the same thing. Two or more arguments are
+    // never a spread, so two `[string]`s are two *parts* and answer an array, not a string.
+    print(concat(parts, ["w"]))
 }

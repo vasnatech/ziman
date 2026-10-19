@@ -1,12 +1,12 @@
 fn main() {
     val nothing: [int] = []
-    print(concat_arrays<int>([1, 2], [3], nothing, [4, 5]))
-    print(len(concat_arrays<int>(nothing, nothing)))
-    print(concat_arrays<string>(["a"], ["b", "c"]))
+    print(concat([1, 2], [3], nothing, [4, 5]))
+    print(len(concat(nothing, nothing)))
+    print(concat(["a"], ["b", "c"]))
     val many: [[int]] = [[1], [2, 3]]
-    print(concat_arrays<int>(parts: many))
+    print(concat(many))
     val one = [7, 8]
-    val joined = concat_arrays<int>(one, one)
+    val joined = concat(one, one)
     print(joined)
     print(one)
 }

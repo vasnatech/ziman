@@ -61,7 +61,7 @@ pub fn uuid_new_v7() -> Uuid {
         shift = shift / 256
     }
     val rest = random_bytes(10)
-    return stamp(concat_arrays<byte>(snapshot(time_bytes), rest), uuid_version_7_bits)
+    return stamp(concat(snapshot(time_bytes), rest), uuid_version_7_bits)
 }
 
 // The all-zero UUID, `00000000-0000-0000-0000-000000000000`: "no id".

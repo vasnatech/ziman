@@ -669,8 +669,9 @@ static void lint_finish_function(int first_var) {
     g_lint_var_count = first_var;
 }
 
-/* `x = concat(x, ..)`, `x = concat_arrays(x, ..)` or `x = set(x, i, ..)` inside a loop copies all of x on
- * every pass: quadratic.
+/* `x = concat(x, ..)` or `x = set(x, i, ..)` inside a loop copies all of x on every pass:
+ * quadratic. `concat` is one name over strings and arrays, so which builder to suggest is read
+ * from the type.
  *
  * `set` is here on measurement, not on the look of it. Filling an array of n elements one `set` at a time
  * took 82ms at n=8,000, 225ms at 16,000 and 904ms at 32,000 -- time quadrupling as n doubles. The same
@@ -687,9 +688,15 @@ static void lint_quadratic_accumulation(const Stmt *s) {
         if (dot != NULL) callee = dot + 1;
         const Expr *first = v->as.call.args.items[0];
         if (first->kind != EXPR_IDENT || strcmp(first->as.ident_name, name) != 0) return;
-        if (strcmp(callee, "concat") == 0) fix = "a MutableString (mutable_string_new, mutable_string_append, snapshot)";
-        else if (strcmp(callee, "concat_arrays") == 0) fix = "a MutableArray (mutable_array_new, mutable_array_push, snapshot)";
-        else if (strcmp(callee, "set") == 0 && v->as.call.args.count == 3) {
+        if (strcmp(callee, "concat") == 0) {
+            /* One `concat` covers strings and arrays since 2026-10-18, so the advice has to come
+             * from the *type* rather than the name. Keyed on the name, the two branches here were
+             * the same test, the second one dead, and `a = concat(a, [i])` on an array was told to
+             * collect into a MutableString. */
+            fix = v->resolved_type.kind == TY_STRING
+                      ? "a MutableString (mutable_string_new, mutable_string_append, snapshot)"
+                      : "a MutableArray (mutable_array_new, push, snapshot), which concat appends to in place";
+        } else if (strcmp(callee, "set") == 0 && v->as.call.args.count == 3) {
             /* No builder has random-access assignment, so the advice depends on what the loop is doing;
              * both halves are given rather than guessing which one applies. */
             fix = "a MutableArray (mutable_array_new, mutable_array_push, snapshot) if the loop fills it in order, or a "
@@ -1448,7 +1455,7 @@ static const char *const PURE_BUILTINS[] = {
     "map_get", "map_get_or", "map_keys", "map_values", "map_merge", "map_filter",
     "map_remove_all", "map_from_arrays",
     "set_items", "set_union", "set_intersect", "set_difference", "set_is_subset",
-    "to_set", "slice", "set_insert_all", "set_filter",
+    "to_set", "slice", "concat", "set_insert_all", "set_filter",
     "snapshot", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set",
     "mutable_set_is_subset",
     NULL};
@@ -1469,7 +1476,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
@@ -1945,6 +1952,83 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * accepting it saves a copy rather than hiding one. Named for its *result* because the
      * argument already says what the source is, and because a reader of `to_set` expects the
      * deduplication that `set_from_array` had to document. */
+    /* `concat(...)`: pieces into a string, parts into an array, or parts appended to a builder.
+     * One name over three forms, chosen by the first argument, which is why it had to stop being a
+     * `native` -- `concat_arrays` and `mutable_array_push_all` were the other two names and are
+     * gone.
+     *
+     * **One argument that is an array spreads**, which is the rule that keeps `concat(parts)`
+     * answering "xyz" for a `[string]`, as it has since before this merge. The cost is that
+     * concatenating a single array *as one part* cannot be said -- `concat(["a", "b"])` is the
+     * string "ab", never a copy of the array -- and a copy is `slice(a, 0, len(a))` anyway. Two or
+     * more arguments are always parts, so `concat(["a"], ["b"])` is `["a", "b"]` and only the
+     * one-argument case carries the rule. */
+    if (strcmp(name, "concat") == 0) {
+        if (e->as.call.args.count == 0) {
+            *out = type_scalar(TY_STRING); /* `concat()` is "", as it was as a native */
+            return 1;
+        }
+        Expr *first = e->as.call.args.items[0];
+        Type first_type = check_expr(module, env, first);
+
+        /* a builder first: every part is appended to it, from either world, mixed freely */
+        if (first_type.kind == TY_STRUCT && first_type.struct_name != NULL &&
+            strcmp(first_type.struct_name, "MutableArray") == 0 && first_type.type_args.count == 1) {
+            Type elem = first_type.type_args.items[0];
+            for (int i = 1; i < e->as.call.args.count; i++) {
+                Expr *part = e->as.call.args.items[i];
+                Type part_type = check_expr(module, env, part);
+                int ok = type_equals(part_type, type_array(elem)) ||
+                         (part_type.kind == TY_STRUCT && part_type.struct_name != NULL &&
+                          strcmp(part_type.struct_name, "MutableArray") == 0 &&
+                          part_type.type_args.count == 1 && type_equals(part_type.type_args.items[0], elem));
+                if (!ok) {
+                    ziman_error("type", part->line, part->col,
+                                "argument %d of 'concat' expects %s or MutableArray<%s> -- the parts appended to a "
+                                "MutableArray<%s> -- found %s",
+                                i + 1, type_name(type_array(elem)), type_name(elem), type_name(elem),
+                                type_name(part_type));
+                }
+            }
+            *out = type_scalar(TY_VOID);
+            return 1;
+        }
+
+        /* the lone-array spread */
+        if (e->as.call.args.count == 1 && first_type.kind == TY_ARRAY) {
+            if (first_type.elem->kind == TY_STRING) {
+                *out = type_scalar(TY_STRING);
+                return 1;
+            }
+            if (first_type.elem->kind == TY_ARRAY) {
+                *out = *first_type.elem;
+                check_type_well_formed(module, *out, e->line, e->col);
+                return 1;
+            }
+            *out = first_type; /* one part of a kind that cannot spread: a copy */
+            check_type_well_formed(module, *out, e->line, e->col);
+            return 1;
+        }
+
+        /* pieces or parts, every argument the same kind as the first */
+        int to_string = first_type.kind == TY_STRING;
+        if (!to_string && first_type.kind != TY_ARRAY) {
+            ziman_error("type", first->line, first->col,
+                        "'concat' expects strings, arrays, or a MutableArray to append to, found %s",
+                        type_name(first_type));
+        }
+        for (int i = 1; i < e->as.call.args.count; i++) {
+            Expr *part = e->as.call.args.items[i];
+            Type part_type = check_expr(module, env, part);
+            if (!type_equals(part_type, first_type)) {
+                ziman_error("type", part->line, part->col, "argument %d of 'concat' expects %s, found %s", i + 1,
+                            type_name(first_type), type_name(part_type));
+            }
+        }
+        *out = first_type;
+        return 1;
+    }
+
     /* `swap(x, i, j)`: exchange two elements. The same question of both worlds, with the answer
      * each world can give -- a new array from the array, nothing from the builder, which is written
      * in place. Both worlds are answered in one interpreter arm -- the prefixed
@@ -2650,13 +2734,13 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return type_scalar(strcmp(name, "printf") == 0 ? TY_VOID : TY_STRING);
     }
 
-    if (strcmp(name, "mutable_array_push_all") == 0 || strcmp(name, "mutable_map_set_all") == 0 ||
+    if (strcmp(name, "mutable_map_set_all") == 0 ||
         strcmp(name, "mutable_set_union") == 0 || strcmp(name, "mutable_set_intersect") == 0 ||
         strcmp(name, "mutable_set_difference") == 0 || strcmp(name, "mutable_set_is_subset") == 0) {
         if (e->as.call.args.count != 2) {
             ziman_error("type", e->line, e->col, "'%s' takes exactly 2 arguments, found %d", name, e->as.call.args.count);
         }
-        int is_array = strcmp(name, "mutable_array_push_all") == 0;
+        int is_array = 0;
         int is_map = strcmp(name, "mutable_map_set_all") == 0;
         MutableShape shape = is_array ? SHAPE_ARRAY : is_map ? SHAPE_MAP : SHAPE_SET;
         Expr *target = e->as.call.args.items[0];
@@ -6018,7 +6102,7 @@ void typecheck(Module *module) {
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare", "error_message",
-                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
+                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

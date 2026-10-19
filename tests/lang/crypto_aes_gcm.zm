@@ -22,7 +22,7 @@ fn main() {
 
     // an altered blob does not decrypt (the tag catches it)
     val flipped_first_byte = crypto.bytes_xor(slice<byte>(blob, 0, 1), [255 as byte])
-    val tampered = concat_arrays<byte>(flipped_first_byte, slice<byte>(blob, 1, len(blob)))
+    val tampered = concat(flipped_first_byte, slice<byte>(blob, 1, len(blob)))
     print(is_ok(crypto.aes_gcm_decrypt(key32, tampered)))
 
     // wrong key length is an Err, not a runtime error, on both sides

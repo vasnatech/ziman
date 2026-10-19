@@ -361,7 +361,7 @@ pub fn load_for(dir: string, dialect: string) -> Result<[Migration], DbError> {
             }
         }
     }
-    val all = concat_arrays<Migration>(shared, specific)
+    val all = concat(shared, specific)
     val versions = array_map<Migration, int>(all, fn(m: Migration) -> int { return m.version })
     return ok(array_sort_by_keys<Migration, int>(all, versions))
 }

@@ -1238,6 +1238,7 @@ typedef enum {
     B_slice,
     B_narrow,
     B_swap,
+    B_concat,
     B_mutable_map_from,
     B_mutable_set_from,
     B_to_mutable_set,
@@ -1297,7 +1298,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"format", B_format},
     {"printf", B_printf},
     {"len", B_len},
-    {"mutable_array_push_all", B_mutable_array_push_all},
     {"mutable_map_set_all", B_mutable_map_set_all},
     {"mutable_set_union", B_mutable_set_union},
     {"mutable_set_intersect", B_mutable_set_intersect},
@@ -1308,6 +1308,7 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"slice", B_slice},
     {"narrow", B_narrow},
     {"swap", B_swap},
+    {"concat", B_concat},
     {"$mutable_map_from", B_mutable_map_from},
     {"$mutable_set_from", B_mutable_set_from},
     {"to_mutable_set", B_to_mutable_set},
@@ -1497,9 +1498,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(0);
             } else if (bid == B_len) {
                 result = call_len(args[0]);
-            } else if (bid == B_mutable_array_push_all) {
-                ziman_mutable_array_push_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
-                result = value_int(0);
             } else if (bid == B_mutable_map_set_all) {
                 ziman_mutable_map_set_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
                 result = value_int(0);
@@ -1511,6 +1509,42 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(0);
             } else if (bid == B_mutable_set_is_subset) {
                 result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type->kind == TY_STRUCT));
+            } else if (bid == B_concat) {
+                /* Three forms in one name, chosen the way the checker chose: a builder first
+                 * argument appends every part to it; a lone array argument *spreads* (its elements
+                 * are the pieces or the parts); anything else makes each argument a piece or a
+                 * part.
+                 *
+                 * The two implementations want the pieces as one array, which is what a `native`
+                 * variadic tail would have handed them and a builtin's raw `args` does not -- so a
+                 * spread passes its argument straight through and the general case assembles one.
+                 * Which of the two runs is read off the resolved type rather than the arguments,
+                 * because `concat(["a", "b"])` answers a string and `concat([[1], [2]])` an array,
+                 * and only the checker's decision distinguishes a one-element case. */
+                if (argc > 0 && args[0].type->kind == TY_STRUCT) {
+                    for (int i = 1; i < argc; i++) {
+                        ziman_mutable_array_push_all(args[0], args[i], args[i].type->kind == TY_STRUCT);
+                    }
+                    result = value_int(0);
+                } else {
+                    /* The lone-array rule has to match the checker's exactly, which spreads a
+                     * `[string]` (as pieces) and a `[[X]]` (as parts) and treats any other lone
+                     * array as a single part to copy. Spreading every lone array instead read the
+                     * elements of `concat([1, 2])` as arrays and answered nothing. */
+                    const ArrayObj *pieces;
+                    int lone_spread = argc == 1 && args[0].type->kind == TY_ARRAY &&
+                                      (e->resolved_type.kind == TY_STRING || args[0].type->elem->kind == TY_ARRAY);
+                    if (lone_spread) {
+                        pieces = args[0].as.arr; /* the one argument *is* the list */
+                    } else {
+                        Value *collected = argc > 0 ? ziman_xmalloc((size_t)argc * sizeof(Value)) : NULL;
+                        for (int i = 0; i < argc; i++) collected[i] = args[i];
+                        pieces = array_obj_new(collected, argc);
+                    }
+                    result = e->resolved_type.kind == TY_STRING ? ziman_concat_strings(pieces)
+                                                                : ziman_concat_arrays(pieces);
+                    if (e->resolved_type.kind != TY_STRING) result.type = &e->resolved_type;
+                }
             } else if (bid == B_swap) {
                 /* Both worlds here, no rewrite: an array answers a copy with the two exchanged, in
                  * one allocation where `set(set(a, i, a[j]), j, a[i])` made two; a builder is

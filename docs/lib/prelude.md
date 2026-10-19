@@ -119,13 +119,42 @@ precision (`{:.2}`: the arguments are strings, so there is nothing to round).
 ### `concat`
 
 ```
-native fn concat(pieces: variadic string) -> string
+builtin fn concat(pieces: variadic string) -> string
 ```
 
 Every piece, in order, joined with no separator (`concat("a", "b", "c")` is `"abc"`; zero
 pieces is `""`). For a separator or a prefix/suffix use `join`; for many pieces built up over
 a loop, a `MutableString` (a fresh `concat` on every iteration copies everything so far, same
 quadratic cost `--lint` already flags for `x = concat(x, ..)`).
+**One name over three forms, chosen by the first argument**: pieces into a string, parts into a
+new array, or parts appended to a MutableArray in place. `concat_arrays` and
+`mutable_array_push_all` were the other two names until 2026-10-18.
+
+**One argument that is an array spreads** -- its elements are the pieces or the parts -- which is
+the rule that keeps `concat(parts)` answering "xyz" for a `[string]`, as it did when the string
+form was a native with a variadic tail. The cost is that concatenating a single array *as one
+part* cannot be said: `concat(["a", "b"])` is the string `"ab"`, never a copy of the array. A
+copy is `slice(a, 0, len(a))`. Two or more arguments are always pieces or parts, so
+`concat(["a"], ["b"])` is `["a", "b"]`; only the one-argument case carries the rule.
+
+`concat(pieces: parts)` was legal while this was a native and is not now: a builtin takes no
+named arguments. The positional spread `concat(parts)` is the same thing.
+
+```
+builtin fn concat<T>(parts: variadic [T]) -> [T]
+```
+
+```
+builtin fn concat<T>(b: MutableArray<T>, parts: variadic [T])
+```
+
+Appending to a builder answers nothing, the container having been written. The parts may come
+from either world and may be mixed, which `mutable_array_push_all` allowed for its single source
+and this keeps for all of them.
+
+```
+builtin fn concat<T>(b: MutableArray<T>, parts: variadic MutableArray<T>)
+```
 
 ### `string_to_bytes`
 
@@ -153,7 +182,9 @@ same as always. See docs/DESIGN.md's UTF-8 correctness entry.
 fn bytes_concat(parts: variadic [byte]) -> [byte]
 ```
 
-Any number of byte arrays joined into one, in a single pass.
+Any number of byte arrays joined into one, in a single pass. `concat(parts)` rather than
+`concat(parts: parts)`: the positional spread is what a builtin takes, named arguments being
+barred from them.
 
 ### `substring`
 
@@ -666,15 +697,6 @@ struct MutableArray<T> {
 The array counterpart of MutableString: `push` copies the whole array on every call, so
 pushing in a loop is quadratic, while appending to a MutableArray is amortized O(1). Same
 opaque `handle`, same thread-bound rule.
-
-### `concat_arrays`
-
-```
-native fn concat_arrays<T>(parts: variadic [T]) -> [T]
-```
-
-One array from many, in a single allocation: `concat_arrays<int>(a, b, c)` or
-`concat_arrays<int>(parts: arrays)`. The array counterpart of `join`.
 
 ### `slice`
 
@@ -1415,7 +1437,7 @@ xml.element(xml.name("patient"), [], array_present<xml.Node>(
 
 Variadic rather than taking an array, because the call site is nearly always a written-out
 list of maybes rather than one already in hand; an array you do have goes in as
-`array_present<T>(items: existing)`, the same spelling `concat_arrays` takes.
+`array_present<T>(items: existing)`, the spelling `concat_arrays` took before `concat` absorbed it.
 
 `array_filter` cannot do this: it keeps elements, so it would hand back `[Option<T>]` still
 wrapped, and `array_flat_map` only does it by turning each value into a one- or zero-element
@@ -1911,16 +1933,6 @@ The one that changes shape rather than world: an array in, a set out.
 
 ```
 builtin fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
-```
-
-### `mutable_array_push_all`
-
-```
-builtin fn mutable_array_push_all<T>(xs: MutableArray<T>, items: [T])
-```
-
-```
-builtin fn mutable_array_push_all<T>(xs: MutableArray<T>, items: MutableArray<T>)
 ```
 
 ### `mutable_map_set_all`

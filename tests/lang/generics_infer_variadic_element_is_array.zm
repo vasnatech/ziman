@@ -8,5 +8,5 @@ fn main() {
     mutable_array_push(letters, "x", "y")
     print(snapshot(letters))
 
-    print(concat_arrays([1, 2], [3, 4]))
+    print(concat([1, 2], [3, 4]))
 }

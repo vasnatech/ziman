@@ -549,7 +549,7 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
         cstring(""),
         u16_to_bytes(0),
         u16_to_bytes(len(params)),
-        concat_arrays<byte>(parts: snapshot(encoded)),
+        concat(snapshot(encoded)),
         u16_to_bytes(0)
     )
     val describe_body = bytes_concat(string_to_bytes("P"), cstring(""))
@@ -693,7 +693,7 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
         cstring(""),
         u16_to_bytes(0),
         u16_to_bytes(len(params)),
-        concat_arrays<byte>(parts: snapshot(encoded)),
+        concat(snapshot(encoded)),
         u16_to_bytes(0)
     )
     val batch = bytes_concat(

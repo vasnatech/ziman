@@ -17,8 +17,8 @@
 // union and intersect with yourself are genuine no-ops, and is_subset is trivially true.
 fn main() {
     val xs = mutable_array_new<int>()
-    mutable_array_push_all(xs, [1, 2])
-    mutable_array_push_all(xs, mutable([3]))
+    concat(xs, [1, 2])
+    concat(xs, mutable([3]))
     print(snapshot(xs))
 
     val m = mutable_map_new<string, int>()
@@ -39,7 +39,7 @@ fn main() {
 
     // the three different self-aliasing answers
     val d = mutable([1, 2])
-    mutable_array_push_all(d, d)
+    concat(d, d)
     print(snapshot(d))
 
     val sm = mutable(Map<string, int> { "k": 1 })

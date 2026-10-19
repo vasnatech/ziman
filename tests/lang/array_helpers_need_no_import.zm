@@ -49,7 +49,8 @@ fn main() {
     print(array_present<int>(Option<int>.Some(1), Option<int>.None, Option<int>.Some(3)))
     print(array_present<string>(Option<string>.None, Option<string>.None))
     print(len(array_present<int>()))
-    // an array already in hand goes in under the parameter name, as concat_arrays takes one
+    // an array already in hand goes in under the parameter name, which a native takes and a
+    // builtin does not -- `concat` lost this spelling when it became one
     val held = [Option<string>.Some("a"), Option<string>.None, Option<string>.Some("b")]
     print(array_present<string>(items: held))
 }

@@ -3602,7 +3602,7 @@ MutableArray<T>
   mutable_array_get<T>(xs, index) -> T
   mutable_array_set<T>(xs, index, value)
   mutable_array_push<T>(xs, item: T)
-  mutable_array_push_all<T>(xs, items: variadic T)
+  mutable_array_push_all<T>(xs, items: variadic T)       (removed in F161; `concat(b, parts...)`)
   mutable_array_insert<T>(xs, index, value)              O(n); index may equal len(xs)
   mutable_array_remove<T>(xs, index) -> T                O(n); answers what it removed
   mutable_array_truncate<T>(xs, length)                  (removed in F158; `narrow(b, s, e)`)
@@ -3810,9 +3810,10 @@ such a field, and neither compares nor keys them.
   the docs should say which spelling is canonical, so the duplication reads as a migration in
   progress rather than a coin flip.
 
-One overlap is kept on purpose: `mutable_array_push_all(xs, items)` overlaps what a variadic
-singular would have covered. It is cheap, and the explicit spelling is the one a reader can be sure
-of.
+> **Update 2026-10-18 (F161): `mutable_array_push_all` is gone too**, absorbed into `concat`
+> along with `concat_arrays`. The overlap this paragraph used to keep -- it overlapped what a
+> variadic singular would have covered -- stopped being the question once one name covered
+> appending to a builder from either world, any number of parts at a time.
 
 > **Update 2026-10-18 (F157): the `clear(xs)` / `mutable_array_truncate(xs, 0)` overlap is being
 > removed**, which this paragraph used to keep for the same "both are cheap" reason. The counting
@@ -3841,7 +3842,7 @@ Each needs its own fixture, because the correct behaviour differs:
 
 | call | answer |
 |---|---|
-| `mutable_array_push_all(xs, xs)` | **doubles** the array -- read the source length first, then append |
+| `concat(xs, xs)` | **doubles** the array -- read the source length first, then append. Several aliasing parts append *sequentially*, so `concat(c, c, c)` on one element answers four |
 | `mutable_map_set_all(m, m)` | a no-op -- return early on handle identity, never iterate a table being written |
 | `mutable_set_union(s, s)` · `_intersect(s, s)` | no-ops, same early return |
 | `mutable_set_difference(s, s)` | **empties** the set -- it is `clear(s)`, not a no-op |
@@ -5245,7 +5246,7 @@ An `ArrayObj` built by `push` carries an `ArrayStore { capacity, used }` shared 
 and whose `used == n` (it is the newest version, the "tip") claims slot n with a compare-and-swap on `used`, writes the element there and returns a new `ArrayObj` of length n+1
 over the same buffer; a losing thread, or a `push` on an older version, copies into a fresh buffer of twice the size instead. Slots below an array's length are never written
 again, so arrays stay immutable values and threads need no lock. Literals, slices and builder results have no store: their first `push` copies. Loops that rebuild a value with
-`concat`/`concat_arrays` stay quadratic; `--lint` flags them.
+`concat` stays quadratic; `--lint` flags it, and reads the type to say which builder to collect into.
 
 ## `try` hoisting (2026-09)
 

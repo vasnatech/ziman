@@ -213,11 +213,9 @@ static Value string_slice(Value parent, size_t start, size_t len) {
     return value_string_view(SPTR(parent) + start, len, term);
 }
 
-static Value native_concat(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    ArrayObj *pieces = args[0].as.arr;
+/* `concat` is a builtin since 2026-10-18, so its arm assembles the pieces itself rather than
+ * receiving a collapsed variadic tail -- which is why this takes the array directly. */
+Value ziman_concat_strings(const ArrayObj *pieces) {
     size_t total = 0;
     for (int i = 0; i < pieces->count; i++) {
         total += SLEN(array_get(pieces, i));
@@ -1363,9 +1361,9 @@ static Value native_permute(Value *args, int argc, int line, int col) {
     return permute_array(args[0].type, a, order, n, line, col);
 }
 
-static Value native_concat_arrays(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
-    ArrayObj *parts = args[0].as.arr;
+/* The same, for the array form: one allocation over all the parts, packed when every part is
+ * packed the same way. */
+Value ziman_concat_arrays(const ArrayObj *parts) {
     int total = 0;
     PackKind kind = PK_NONE;
     int all_packed = 1;
@@ -2331,8 +2329,7 @@ static Value native_array_flat_map(Value *args, int argc, int line, int col) {
         Value x = array_get(a, i);
         parts[i] = native_call_closure(args[1], &x, 1, line, col);
     }
-    Value all = value_array(type_scalar_ref(TY_VOID), array_obj_new(parts, n));
-    return native_concat_arrays(&all, 1, line, col);
+    return ziman_concat_arrays(array_obj_new(parts, n));
 }
 
 static Value native_array_reverse(Value *args, int argc, int line, int col) {
@@ -2349,7 +2346,6 @@ void prelude_register(void) {
     native_register("parse_float", native_parse_float);
     native_register("parse_bigint", native_parse_bigint);
     native_register("parse_decimal", native_parse_decimal);
-    native_register("concat", native_concat);
     native_register("format_dynamic", native_format_dynamic);
     native_register("substring", native_substring);
     native_register("split", native_split);
@@ -2367,7 +2363,6 @@ void prelude_register(void) {
     native_register("to_upper", native_to_upper);
     native_register("to_lower", native_to_lower);
     native_register("join", native_join);
-    native_register("concat_arrays", native_concat_arrays);
     native_register("is_sortable_scalars", native_is_sortable_scalars);
     native_register("sort_scalar_order", native_sort_scalar_order);
     native_register("sort_scalars", native_sort_scalars);

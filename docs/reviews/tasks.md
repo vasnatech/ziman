@@ -1397,3 +1397,39 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   reported exit 2 with zero test failures. Nothing was wrong with F159. **Do not edit the tree
   while a suite is running**, which had already been avoided once earlier in the same session by
   waiting, and then not.
+
+- [x] **F161** **`concat`, `concat_arrays` and `mutable_array_push_all` were three names for
+  joining things; now there is one.** (raised 2026-10-18 from the collection-pairing review, item
+  18, with the three signatures given and option **(ii)** chosen; M) Half of item 18 had closed in
+  F149, when `push` went variadic in both worlds and covered "append many *values*". The other
+  half was "append another collection's contents", spelled `concat_arrays(a, b, c)` for arrays and
+  `mutable_array_push_all(b, items)` for a builder -- different words, different arity, and the
+  string `concat` a third name beside them.
+
+  **The conflict that nearly stopped this, found while implementing and reported before writing
+  anything.** `concat(parts)` on a `[string]` answers the string `"xyz"`; `concat_arrays(parts)` on
+  the same value answers the array `["x","y","z"]`. The two *names* were what kept them apart, so
+  merging makes that call ambiguous -- and a fixture already pinned the string reading. The review
+  chose the rule rather than abandoning the merge: **one argument that is an array spreads.** So
+  `concat(["a","b"])` is `"ab"` and `concat([1,2])` is `[1,2]`, which differ in *kind* by element
+  type. The cost is that concatenating a single array as one part cannot be said; a copy is
+  `slice(a, 0, len(a))`.
+
+  **`concat` had to stop being a native**, as `slice` did in F157 and for the same reason: every
+  overloaded name in the prelude is a builtin. That cost the **named spread** -- `concat(pieces:
+  parts)` and `concat_arrays(parts: arrays)` -- because builtins take no named arguments. The
+  positional `concat(parts)` is the same thing, and `min(xs)` already showed builtins support it.
+  Nine sites used the named form, one of them inside the prelude's own `bytes_concat`.
+
+  **Three things the blind rename broke, each caught by running rather than by reading.** The
+  interpreter spread *every* lone array, where the checker spreads only `[string]` and `[[X]]`, so
+  `concat([1, 2])` read its elements as arrays and answered nothing. The lint's advice was keyed on
+  the callee *name*, so after the rename its two branches were the same test with the second dead,
+  and `a = concat(a, [i])` on an array was told to collect into a **MutableString**; it reads the
+  type now. And the eight named-argument sites above became `concat(parts: ...)`, which no longer
+  parses.
+
+  43 call sites moved (38 `concat_arrays`, 5 `mutable_array_push_all`), both names deleted. The
+  self-aliasing answers are unchanged and now stated for the variadic case: `concat(xs, xs)`
+  doubles, and several aliasing parts append *sequentially*, so `concat(c, c, c)` on a one-element
+  builder answers four.

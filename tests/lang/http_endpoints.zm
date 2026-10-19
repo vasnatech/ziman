@@ -343,7 +343,7 @@ fn main() {
     ]
     val binary = request_bytes("POST", "/binary", [h("Content-Type", "application/octet-stream")], [1b, 0b, 2b, 255b])
     val nul_text = request_bytes("POST", "/items", plain, [53b, 0b])
-    val all = concat_arrays<http.Request>(cases, [binary, nul_text])
+    val all = concat(cases, [binary, nul_text])
     for c in all {
         val r = server.dispatch<Ctx>(table, ctx, c, fault)
         val kind = http.content_type(r.headers)

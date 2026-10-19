@@ -408,13 +408,14 @@ for x in seen { ... }                    // a set has one binder
   `snapshot` copies into an immutable `Map`/`Set` (O(n), the handle stays usable, and later changes
   do not touch the copy). One thread at a time -- every `Mutable*` type belongs to the thread that
   made it.
-- **Taking a second collection**: `mutable_array_push_all(xs, items)`,
-  `mutable_map_set_all(m, values)` and `mutable_set_union`/`_intersect`/`_difference`/`_is_subset`
-  all change (or read) the handle in the first argument, and the **second** takes either world. The
-  three self-aliasing cases get three different answers, each deliberate:
-  `mutable_array_push_all(xs, xs)` **doubles** the array, `mutable_map_set_all(m, m)` is a no-op,
-  and `mutable_set_difference(s, s)` **empties** the set. Union and intersect with yourself are
-  no-ops and `_is_subset(s, s)` is true.
+- **Taking a second collection**: `concat(xs, parts…)`, `mutable_map_set_all(m, values)` and
+  `mutable_set_union`/`_intersect`/`_difference`/`_is_subset` all change (or read) the handle in
+  the first argument, and the rest take either world -- `concat` takes any number of them, mixed
+  freely. The three self-aliasing cases get three different answers, each deliberate:
+  `concat(xs, xs)` **doubles** the array, `mutable_map_set_all(m, m)` is a no-op, and
+  `mutable_set_difference(s, s)` **empties** the set. Union and intersect with yourself are no-ops
+  and `_is_subset(s, s)` is true. With several aliasing parts the appends are *sequential*, each
+  reading the target as it now is: `concat(c, c, c)` on a one-element builder answers four.
 - **Crossing into the mutable world is `mutable(x)`, and back is `snapshot(b)`.** It beats `new`
   plus a loop for the two hashed shapes, because it copies the trie's nodes with the leaves shared
   rather than hashing and placing every entry again, and it sizes an array's buffer to the source
@@ -2667,9 +2668,14 @@ a type error.
   first, so a small window of a large one copied all of it.
   Does not copy (shares the original's storage, like `substring`); `push`/`insert`/`set` on
   either build a new array, so neither changes under the other.
-- `concat_arrays<T>(parts: variadic [T]) -> [T]` — one array from many in a single allocation
-  (`concat_arrays<int>(a, b)` or `concat_arrays<int>(parts: arrays)`; an empty `[]` literal
-  can't be inferred as a variadic argument -- pass a typed `val`).
+- `concat` — **one name over three forms**, chosen by the first argument: `concat(pieces…)
+  -> string`, `concat<T>(parts: variadic [T]) -> [T]` in a single allocation, and
+  `concat<T>(b: MutableArray<T>, parts…)` appending in place from either world. **One argument that
+  is an array spreads** — `concat(parts)` on a `[string]` is the string `"xyz"`, on a `[[int]]` it
+  is the flattened `[int]`, and on any other array it is a copy of that one part. Two or more
+  arguments are always pieces or parts. It was `concat` plus `concat_arrays` plus
+  `mutable_array_push_all` until 2026-10-18; being a builtin it takes no named arguments, so the
+  old `concat(parts: arrays)` spelling is now the positional `concat(arrays)`.
 - `char_at(s, i) -> string` — the one-byte string at `i` (`0 <= i < len(s)`, else runtime error).
 - `split_once(s, sep) -> Option<[string]>` — `Some([before, after])` at the *first* `sep`,
   `None` if absent -- for `key=value` text whose value may itself contain the separator.
@@ -2745,7 +2751,7 @@ a type error.
   the only name for either: `mutable_array_swap` was removed once this covered both worlds, so
   unlike `push` there is no prefixed form underneath.
 - `set(arr, i, x) -> [T]` / `remove(arr, i) -> [T]` — element at `i` replaced/removed
-  (`[0, len(arr))`, else runtime error). `insert`/`set`/`remove`/`concat_arrays` always copy.
+  (`[0, len(arr))`, else runtime error). `insert`/`set`/`remove`/`concat` always copy.
   No "pop" -- indexing already covers peeking.
 - **Array helpers, callable with no import** — the counterparts of the bare `map_*`/`set_*`
   helpers that `Map` and `Set` already have: `array_map<T, U>(items, f)`,
@@ -2756,7 +2762,7 @@ a type error.
   returns the values that are there, in order, which is how a list is built out of fields that
   may each be absent without an `if` per field. It is variadic because the call site is nearly
   always a written-out list (`array_present<Node>(opt_element(..), opt_element(..))`); an array
-  already in hand goes in as `array_present<T>(items: existing)`, the spelling `concat_arrays`
+  already in hand goes in as `array_present<T>(items: existing)`, a spelling only a native takes --
   takes. `array_filter` cannot express it -- it keeps elements, so the results would still be
   wrapped -- and `array_flat_map` only can by building a one- or zero-element array per value. The sorts are stable in both
   directions, so `array_sort_desc` is not `array_sort` reversed (that would flip ties).

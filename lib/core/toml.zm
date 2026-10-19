@@ -779,7 +779,7 @@ fn write_table(out: MutableString, table: Json, path: [string]) -> Result<int, s
         mutable_string_append(out, key_text(key), " = ", text, "\n")
     }
     for key, value in fields {
-        val sub_path = concat_arrays<string>(path, [key])
+        val sub_path = concat(path, [key])
         if Json.is_JObject(value) {
             mutable_string_append(out, "\n[", path_text(sub_path), "]\n")
             try write_table(out, value, sub_path)

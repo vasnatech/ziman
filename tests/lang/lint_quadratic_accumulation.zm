@@ -1,5 +1,5 @@
 // `x = f(x, ..)` inside a loop, where f copies all of x, is quadratic. Reported for `concat`,
-// `concat_arrays` and `set`; deliberately not for `push`, because appending to an array nothing else
+// `concat` and `set`; deliberately not for `push`, because appending to an array nothing else
 // holds extends it in place (ArrayStore's `used` counter in value.c), so the shape that looks worst
 // costs least -- measured at 3/4/7ms for n of 8,000/16,000/32,000 against 82/225/904ms for the same
 // loop written with `set`.
@@ -15,7 +15,7 @@ fn main() {
     for i in 0..3 {
         s = concat(s, "x")
         pushed = push(pushed, i)
-        a = concat_arrays<int>(a, [i])
+        a = concat(a, [i])
         fixed = set(fixed, i, i)
     }
     print(s)

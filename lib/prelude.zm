@@ -52,7 +52,27 @@ native fn format_dynamic(template: string, args: [string]) -> Result<string, str
 // pieces is `""`). For a separator or a prefix/suffix use `join`; for many pieces built up over
 // a loop, a `MutableString` (a fresh `concat` on every iteration copies everything so far, same
 // quadratic cost `--lint` already flags for `x = concat(x, ..)`).
-native fn concat(pieces: variadic string) -> string
+// **One name over three forms, chosen by the first argument**: pieces into a string, parts into a
+// new array, or parts appended to a MutableArray in place. `concat_arrays` and
+// `mutable_array_push_all` were the other two names until 2026-10-18.
+//
+// **One argument that is an array spreads** -- its elements are the pieces or the parts -- which is
+// the rule that keeps `concat(parts)` answering "xyz" for a `[string]`, as it did when the string
+// form was a native with a variadic tail. The cost is that concatenating a single array *as one
+// part* cannot be said: `concat(["a", "b"])` is the string `"ab"`, never a copy of the array. A
+// copy is `slice(a, 0, len(a))`. Two or more arguments are always pieces or parts, so
+// `concat(["a"], ["b"])` is `["a", "b"]`; only the one-argument case carries the rule.
+//
+// `concat(pieces: parts)` was legal while this was a native and is not now: a builtin takes no
+// named arguments. The positional spread `concat(parts)` is the same thing.
+builtin fn concat(pieces: variadic string) -> string
+builtin fn concat<T>(parts: variadic [T]) -> [T]
+
+// Appending to a builder answers nothing, the container having been written. The parts may come
+// from either world and may be mixed, which `mutable_array_push_all` allowed for its single source
+// and this keeps for all of them.
+builtin fn concat<T>(b: MutableArray<T>, parts: variadic [T])
+builtin fn concat<T>(b: MutableArray<T>, parts: variadic MutableArray<T>)
 
 // The UTF-8 bytes of `s`.
 native fn string_to_bytes(s: string) -> [byte]
@@ -64,9 +84,11 @@ native fn string_to_bytes(s: string) -> [byte]
 // same as always. See docs/DESIGN.md's UTF-8 correctness entry.
 native fn bytes_to_string(b: [byte]) -> Result<string, string>
 
-// Any number of byte arrays joined into one, in a single pass.
+// Any number of byte arrays joined into one, in a single pass. `concat(parts)` rather than
+// `concat(parts: parts)`: the positional spread is what a builtin takes, named arguments being
+// barred from them.
 fn bytes_concat(parts: variadic [byte]) -> [byte] {
-    return concat_arrays<byte>(parts: parts)
+    return concat(parts)
 }
 
 // The bytes of `s` from `start` up to, not including, `end` (`0 <= start <= end <= len(s)`, a
@@ -362,10 +384,6 @@ fn mutable_update<T>(c: Mutable<T>, f: fn(T) -> T) -> T {
 struct MutableArray<T> {
     handle: int
 }
-
-// One array from many, in a single allocation: `concat_arrays<int>(a, b, c)` or
-// `concat_arrays<int>(parts: arrays)`. The array counterpart of `join`.
-native fn concat_arrays<T>(parts: variadic [T]) -> [T]
 
 // The elements from `start` up to, not including, `end` (`0 <= start <= end <= len(x)`, a runtime
 // error otherwise), as an array from either world.
@@ -846,7 +864,7 @@ native fn array_reverse<T>(items: [T]) -> [T]
 //
 // Variadic rather than taking an array, because the call site is nearly always a written-out
 // list of maybes rather than one already in hand; an array you do have goes in as
-// `array_present<T>(items: existing)`, the same spelling `concat_arrays` takes.
+// `array_present<T>(items: existing)`, the spelling `concat_arrays` took before `concat` absorbed it.
 //
 // `array_filter` cannot do this: it keeps elements, so it would hand back `[Option<T>]` still
 // wrapped, and `array_flat_map` only does it by turning each value into a one- or zero-element
@@ -1169,9 +1187,6 @@ builtin fn mutable<T>(item: T) -> Mutable<T>
 // The one that changes shape rather than world: an array in, a set out.
 builtin fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
 builtin fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
-
-builtin fn mutable_array_push_all<T>(xs: MutableArray<T>, items: [T])
-builtin fn mutable_array_push_all<T>(xs: MutableArray<T>, items: MutableArray<T>)
 
 builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
 builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
