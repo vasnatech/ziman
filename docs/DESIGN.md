@@ -3605,7 +3605,7 @@ MutableArray<T>
   mutable_array_push_all<T>(xs, items: variadic T)
   mutable_array_insert<T>(xs, index, value)              O(n); index may equal len(xs)
   mutable_array_remove<T>(xs, index) -> T                O(n); answers what it removed
-  mutable_array_truncate<T>(xs, length)
+  mutable_array_truncate<T>(xs, length)                  (removed in F158; `narrow(b, s, e)`)
   mutable_array_swap<T>(xs, i, j)
   mutable_array_filter<T>(xs, keep: fn(T) -> bool)
   mutable_array_reverse<T>(xs)
@@ -3824,9 +3824,16 @@ of.
 > added in the same pass says in one call and copies only the prefix for. **One caller is left**,
 > `lib/graphics/raster.zm`'s `advance_active`, and it is a hand-written
 > `mutable_array_filter` -- the same read/write compaction the native does, with the predicate
-> inline instead of in a closure. The function goes once that site is settled; the end state this
-> section already names is "one spelling per operation", and the overlap survived only because
-> nothing had counted it.
+> inline instead of in a closure. The end state this section already names is "one spelling per
+> operation", and the overlap survived only because nothing had counted it.
+>
+> **Settled in F158: the function is gone.** `narrow(b, start, end)` replaced it rather than
+> `mutable_array_filter` -- that site keeps its hand-written compaction, and only the shrink at the
+> end of it changed, so no closure enters a rasteriser inner loop and nothing needed measuring.
+> `narrow` is the in-place counterpart of `slice`, builder-only for the reason `clear` is, and it
+> adds the half truncate could not do: dropping a prefix in one memmove rather than a quadratic
+> loop of `remove(b, 0)`. It also does not clamp, where truncate's clamp made `truncate(b, 99)` on
+> a length-2 builder a silent no-op.
 
 ### Aliasing: three types, three answers
 

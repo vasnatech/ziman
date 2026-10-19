@@ -301,10 +301,18 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   element one `set` at a time is O(n²) -- `MutableArray<T>` (`mutable_array_new`,
   `mutable_array_filled`, `mutable_array_push`, `mutable_array_get`, `mutable_array_set`,
   `mutable_array_insert`,
-  `mutable_array_remove`, `mutable_array_truncate`, `mutable_array_swap`, `mutable_array_reverse`,
+  `mutable_array_remove`, `narrow`, `mutable_array_swap`, `mutable_array_reverse`,
   `mutable_array_filter`, `mutable_array_sort`/`_desc`/`_with`, plus the bare `len`, `contains`,
   `clear` and `snapshot`) is the right tool for building/editing a
   large array piece by piece. `insert` takes `0..len` inclusive, so inserting at the length appends;
+  **`narrow(b, start, end)` keeps that window in place** and is the in-place counterpart of `slice`:
+  a query answers a value and leaves its source alone, a mutation changes the container and answers
+  nothing. It is builder-only, like `clear` and `snapshot`, an immutable array having nothing to
+  narrow. It replaced `mutable_array_truncate(b, n)`, which was `narrow(b, 0, n)`, and adds the half
+  that one could not do -- dropping a **prefix**, which was `remove(b, 0)` in a quadratic loop
+  against one pack-aware memmove. `clear(b)` is `narrow(b, 0, 0)` and stays the word for emptying.
+  Unlike truncate it does not clamp: a range past the length is a runtime error, where
+  `truncate(b, 99)` on a length-2 builder was a silent no-op that hid a wrong computation.
   `remove` answers what it removed, which is why there is no `pop` -- `remove(b, len(b) - 1)` is
   one. It is the array's own word: `remove(b, i)` on a builder answers the **element**, where
   `remove(a, i)` on an array answers the new array, the difference being the two worlds rather than

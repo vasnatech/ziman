@@ -1,0 +1,5 @@
+// Builder-only: an immutable array has nothing to narrow, and the message says what to use instead.
+fn main() {
+    narrow([1, 2], 0, 1)
+    print(1)
+}

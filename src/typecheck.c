@@ -1469,7 +1469,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
@@ -1945,6 +1945,35 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * accepting it saves a copy rather than hiding one. Named for its *result* because the
      * argument already says what the source is, and because a reader of `to_set` expects the
      * deduplication that `set_from_array` had to document. */
+    /* `narrow(b, start, end)`: keep that window of the builder, in place, answering nothing. The
+     * in-place counterpart of `slice`, which is a query and so copies. Builder-only, like `clear`
+     * and `snapshot`: an immutable array has nothing to narrow, `slice` making a new one instead.
+     * It replaced `mutable_array_truncate`, which was `narrow(b, 0, n)`. */
+    if (strcmp(name, "narrow") == 0) {
+        if (e->as.call.args.count != 3) {
+            ziman_error("type", e->line, e->col, "'narrow' takes exactly 3 arguments, found %d", e->as.call.args.count);
+        }
+        Expr *target = e->as.call.args.items[0];
+        Type target_type = check_expr(module, env, target);
+        if (!(target_type.kind == TY_STRUCT && target_type.struct_name != NULL &&
+              strcmp(target_type.struct_name, "MutableArray") == 0)) {
+            ziman_error("type", target->line, target->col,
+                        "'narrow' expects a MutableArray -- it shortens one in place, where an array has "
+                        "nothing to narrow and 'slice(a, start, end)' makes a new one -- found %s",
+                        type_name(target_type));
+        }
+        for (int i = 1; i < 3; i++) {
+            Expr *bound = e->as.call.args.items[i];
+            Type bound_type = check_expr(module, env, bound);
+            if (bound_type.kind != TY_INT) {
+                ziman_error("type", bound->line, bound->col, "argument %d of 'narrow' expects int, found %s", i + 1,
+                            type_name(bound_type));
+            }
+        }
+        *out = type_scalar(TY_VOID);
+        return 1;
+    }
+
     /* `slice(x, start, end)`: the elements from `start` up to `end`, as an array, from either
      * world. It was a `native` until 2026-10-18 and had to become a builtin to take both, every
      * overloaded name in the prelude being one -- a native has a single declaration and no
@@ -3093,8 +3122,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                 }
                 if (strcmp(arr_type.struct_name, "MutableString") == 0) {
                     ziman_error("type", arr_arg->line, arr_arg->col,
-                                "a MutableString has no element removal -- shorten it with "
-                                "'mutable_array_truncate'-style rebuilding, or take 'snapshot' and use 'substring'");
+                                "a MutableString has no element removal -- take 'snapshot' and use 'substring', "
+                                "then build a fresh one");
                 }
             }
             ziman_error("type", arr_arg->line, arr_arg->col,
@@ -5952,7 +5981,7 @@ void typecheck(Module *module) {
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare", "error_message",
-                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
+                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

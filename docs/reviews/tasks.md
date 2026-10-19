@@ -1316,3 +1316,37 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   the one a reader can be sure of"* -- which the counting is what overturned, the same section
   already naming "one spelling per operation" as the end state. The note records the reversal rather
   than quietly dropping the old reason.
+
+- [x] **F158** **`mutable_array_truncate` is gone, replaced by `narrow(b, start, end)`.**
+  (raised 2026-10-18 -- *"i want to remove mutable_array_truncate"*, then *"we need slice
+  alternative of MutableArray"*, then *"narrow for MutableArray only"*; S) F157 had taken the
+  function from twelve call sites to one, `lib/graphics/raster.zm`'s `advance_active`. That site
+  needs the builder itself to shrink -- `live` carries the active-edge set from row to row across
+  three scanline loops -- so the either-world `slice` could not serve it: a query answers a value,
+  and writing the value back would be `clear` plus `mutable_array_push_all` and a round trip.
+
+  **Why not `slice`, and why not `mutable_array_filter`.** `slice` on an array is a *query*: it
+  answers a value and leaves its source alone, which is the half of the mutation/query split that
+  has governed every one of these decisions -- it is why `set(b, i, v)` is refused in favour of
+  `b[i] = v`. Narrowing in place under the name `slice` would have put a mutation where a query is
+  everywhere else. And `mutable_array_filter`, which *is* that site's loop in C, was considered and
+  **not** used: it would have put a closure call per element into a rasteriser inner loop whose
+  current cost is two native calls plus interpreted arithmetic per element. Which is faster was not
+  obvious, so rather than measure it the review changed only the shrink at the end, leaving the
+  hand-written compaction alone. Nothing in the hot path moved.
+
+  **`narrow` adds the half truncate could not do.** Truncate kept a prefix; `narrow` keeps any
+  window, so dropping a *prefix* is one pack-aware memmove where it used to be
+  `mutable_array_remove(b, 0)` in a loop -- O(n) a call, quadratic overall. `clear(b)` is
+  `narrow(b, 0, 0)` and stays the word for emptying. Builder-only, like `clear` and `snapshot`:
+  an immutable array has nothing to narrow, and the refusal says `slice` instead.
+
+  **It deliberately does not clamp.** `truncate(b, 99)` on a length-2 builder was a silent no-op,
+  which hides a wrong computation; `narrow` reports a range past the length as a runtime error, as
+  `slice` and an index already do. That is a behaviour change at the one surviving call site, where
+  `write` is bounded by `len(live)` by construction, so it cannot fire there.
+
+  Three fixtures, both representations exercised since a packed buffer moves by its element stride
+  and a boxed one by `sizeof(Value)`. One message cleaned up on the way: the MutableString refusal
+  added hours earlier in F156 told the reader to use *"`mutable_array_truncate`-style rebuilding"*,
+  citing the function being deleted.

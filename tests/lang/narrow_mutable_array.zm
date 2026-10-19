@@ -1,0 +1,40 @@
+// `narrow(b, start, end)` keeps that window in place and answers nothing: the in-place counterpart
+// of `slice`, which is a query and so copies and leaves its source alone. The split is the one that
+// keeps a mutation from being spelled like a query -- the same reason `set(b, i, v)` is refused in
+// favour of `b[i] = v`.
+//
+// Builder-only, like `clear` and `snapshot`: an immutable array has nothing to narrow, a window of
+// one being `slice(a, start, end)`, which is free because it shares storage.
+//
+// It replaced `mutable_array_truncate(b, n)` -- this with `start` at 0 -- and adds the half that one
+// could not do: dropping a prefix, which was `remove(b, 0)` in a quadratic loop against one
+// pack-aware memmove. Both representations are exercised below, because a packed buffer moves by
+// its element stride and a boxed one by sizeof(Value), and getting that wrong corrupts rather than
+// fails.
+fn main() {
+    val b = mutable([1, 2, 3, 4, 5])
+    narrow(b, 1, 4)
+    print(snapshot(b))
+
+    // the prefix drop
+    val c = mutable([1, 2, 3, 4, 5])
+    narrow(c, 2, len(c))
+    print(snapshot(c))
+
+    // what truncate used to do
+    val d = mutable([1, 2, 3, 4, 5])
+    narrow(d, 0, 2)
+    print(snapshot(d))
+
+    // clear(x) is narrow(x, 0, 0), and the buffer is still there to push into
+    val e = mutable([1, 2])
+    narrow(e, 0, 0)
+    print(len(e))
+    push(e, 9)
+    print(snapshot(e))
+
+    // boxed elements
+    val s = mutable(["a", "b", "c", "d"])
+    narrow(s, 1, 3)
+    print(snapshot(s))
+}

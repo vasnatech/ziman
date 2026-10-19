@@ -1236,6 +1236,7 @@ typedef enum {
     B_mutable_array_from,
     B_mutable_array_lit,
     B_slice,
+    B_narrow,
     B_mutable_map_from,
     B_mutable_set_from,
     B_to_mutable_set,
@@ -1304,6 +1305,7 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"$mutable_array_from", B_mutable_array_from},
     {"$mutable_array_lit", B_mutable_array_lit},
     {"slice", B_slice},
+    {"narrow", B_narrow},
     {"$mutable_map_from", B_mutable_map_from},
     {"$mutable_set_from", B_mutable_set_from},
     {"to_mutable_set", B_to_mutable_set},
@@ -1507,6 +1509,8 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(0);
             } else if (bid == B_mutable_set_is_subset) {
                 result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type->kind == TY_STRUCT));
+            } else if (bid == B_narrow) {
+                result = ziman_narrow_mutable_array(args[0], args[1].as.i, args[2].as.i, e->line, e->col);
             } else if (bid == B_slice) {
                 /* Either world, and the answer is an array both times. Free for an array, which
                  * shares its parent's storage; a copy of the window for a builder, which cannot

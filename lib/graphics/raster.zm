@@ -703,7 +703,7 @@ fn advance_active(p: Plan, live: MutableArray<int>, cursor: int, y: int) -> int 
         }
         read = read + 1
     }
-    mutable_array_truncate(live, write)
+    narrow(live, 0, write)
     return next
 }
 

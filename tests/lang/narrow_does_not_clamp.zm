@@ -1,0 +1,8 @@
+// A range past the length is a runtime error, as it is for `slice` and for an index.
+// `mutable_array_truncate`, which this replaced, clamped instead -- so `truncate(b, 99)` on a
+// length-2 builder was a silent no-op, hiding a wrong computation rather than reporting it.
+fn main() {
+    val b = mutable([1, 2])
+    narrow(b, 0, 9)
+    print(len(b))
+}

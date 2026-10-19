@@ -1,0 +1,1 @@
+narrow: range 0..9 is out of bounds for a MutableArray of length 2

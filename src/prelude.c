@@ -1004,17 +1004,6 @@ static Value native_mutable_array_remove(Value *args, int argc, int line, int co
 /* The only cheap shrink: drops the tail and keeps the buffer. A length at or above the current one
  * leaves it alone rather than erroring, because "keep at most n" is the useful meaning and there is
  * no immutable counterpart to disagree with. `clear(xs)` is this with 0. */
-static Value native_mutable_array_truncate(Value *args, int argc, int line, int col) {
-    (void)argc;
-    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
-    int64_t n = args[1].as.i;
-    if (n < 0) {
-        ziman_error("runtime", line, col, "truncate length %lld is negative", (long long)n);
-    }
-    if ((size_t)n < buf->length) buf->length = (size_t)n;
-    return value_int(0); /* void return -- the caller never uses this */
-}
-
 /* Sorts the buffer in place with **no copy of the elements at all**: a merge sort over positions,
  * then the permutation applied by following its cycles. What it allocates is two int64 order
  * buffers and an n-byte "placed" map -- 17 bytes per element against the 80 a boxed `Value` costs,
@@ -1937,6 +1926,27 @@ Value ziman_mutable_array_from(Value source, int source_is_handle) {
     return out;
 }
 
+/* `narrow(b, start, end)`: keep only that window, in place, answering nothing. The in-place
+ * counterpart of `slice`, which is a query and so copies -- see the split that keeps mutations and
+ * queries apart in docs/SYNTAX.md.
+ *
+ * It replaces `mutable_array_truncate(b, n)`, which is `narrow(b, 0, n)`, and adds the half that
+ * one could not do: dropping a *prefix*. That was `mutable_array_remove(b, 0)` in a loop, O(n) per
+ * call and so quadratic, against one memmove here. The move is pack-aware through
+ * mutable_array_move_elements, the same helper insert and remove shift with, so a packed buffer
+ * moves by its element stride rather than by sizeof(Value). */
+Value ziman_narrow_mutable_array(Value b, int64_t start, int64_t end, int line, int col) {
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(b));
+    if (start < 0 || end < start || (size_t)end > buf->length) {
+        ziman_error("runtime", line, col,
+                    "narrow: range %lld..%lld is out of bounds for a MutableArray of length %llu",
+                    (long long)start, (long long)end, (unsigned long long)buf->length);
+    }
+    mutable_array_move_elements(buf, 0, (size_t)start, (size_t)(end - start));
+    buf->length = (size_t)(end - start);
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
 /* slice<T>(b, start, end) over a builder, which **must copy** where the array form does not: a
  * view would share a buffer that can still be pushed to, written through or truncated underneath
  * it. So the cost differs by receiver even though the answer does not -- free there, O(end - start)
@@ -2369,7 +2379,6 @@ void prelude_register(void) {
     native_register("mutable_array_sort_with", native_mutable_array_sort_with);
     native_register("mutable_array_insert", native_mutable_array_insert);
     native_register("mutable_array_remove", native_mutable_array_remove);
-    native_register("mutable_array_truncate", native_mutable_array_truncate);
     native_register("mutable_array_new", native_mutable_array_new);
     native_register("mutable_array_filled", native_mutable_array_filled);
     native_register("mutable_array_push", ziman_mutable_array_push);

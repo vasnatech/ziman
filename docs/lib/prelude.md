@@ -778,15 +778,28 @@ native fn mutable_array_remove<T>(xs: MutableArray<T>, index: int) -> T
 Removes the element at `index` and answers it, moving everything after it back. O(n). There is no
 `pop` because this is one: `mutable_array_remove(xs, len(xs) - 1)`.
 
-### `mutable_array_truncate`
+### `narrow`
 
 ```
-native fn mutable_array_truncate<T>(xs: MutableArray<T>, length: int)
+builtin fn narrow<T>(b: MutableArray<T>, start: int, end: int)
 ```
 
-Drops everything past `length`, keeping the buffer -- the only cheap shrink. A `length` at or
-above the current one leaves it alone, since "keep at most n" is the useful meaning. `clear(xs)`
-is this with 0.
+**Keeps only the elements from `start` up to `end`, in place, answering nothing.** The in-place
+counterpart of `slice`: that one is a *query*, so it answers a value and leaves its source alone,
+and this one is a mutation, so it changes the container and answers nothing -- the same split that
+keeps `remove` from being spelled like `slice` either way.
+
+Builder-only, like `clear` and `snapshot`. An immutable array has nothing to narrow: asking for a
+window of one is `slice(a, start, end)`, which makes a new array for free by sharing storage.
+
+It replaced `mutable_array_truncate(xs, length)`, which was this with `start` at 0 and is the
+reason for the half truncate could not do: dropping a **prefix**. That was
+`mutable_array_remove(xs, 0)` in a loop, O(n) a call and so quadratic, against one pack-aware
+memmove here. `clear(xs)` is `narrow(xs, 0, 0)` and stays the word for emptying.
+
+Unlike truncate it does **not** clamp: `end` past the length is a runtime error, as it is for
+`slice` and for an index. Truncate's clamp made `truncate(b, 99)` on a length-2 builder a silent
+no-op, which hid a wrong computation rather than reporting it.
 
 ### `mutable_array_swap`
 
