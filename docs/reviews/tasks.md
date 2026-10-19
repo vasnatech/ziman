@@ -1547,6 +1547,24 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   one a type error. That barrier is gone; what stands against `add` is the other half of its
   argument, about the verb reading as "hand it over, the collection decides".
 
+  **Three more resolution paths surfaced only when the suite ran the fixtures I had not edited.**
+  My per-fixture check covered the files `git status` listed, which is wrong for a change to name
+  resolution -- the affected set is every file, and that mistake is what let each of these through
+  a local "0 failures" twice in one block.
+
+  *`spawn` resolves its callee itself*, in both passes, so `spawn count(path, out)` found the
+  builtin's declaration and reported a void function as "returning int" -- and once the checker was
+  fixed, the **interpreter** re-resolved by name and found the bodyless `builtin fn`, so the thread
+  ran nothing at all and the program printed nothing. The statement now carries the checker's
+  resolution, exactly as `EXPR_CALL` has carried `call_fn` for the same reason.
+
+  *The dropped-result gate keys on the name*, so `count(opened)` -- a program's own `count` called
+  for its effect -- was reported as a discarded pure builtin. It now ignores a shadowed name.
+
+  *`map()` had its own diagnostic*, since reaching for the `Map` type by its lower-case name is a
+  real first-day mistake. The arity complaint is now true as well, so the message gives both
+  readings rather than burying the likelier one.
+
   Two fixtures changed sides -- `error_message_redefine_builtin_rejected` and
   `result_redefine_builtin_rejected` asserted the old error and now assert the shadow -- plus a new
   one pinning that the prelude keeps its own `len`, `fold` and `join` while a program shadows

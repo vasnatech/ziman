@@ -1,1 +1,4 @@
-'Map' is a built-in generic type, not a function: write one as 'Map<string, int> { "key": value }', or build one with 'mutable_map_new<string, int>()'
+ziman: type error at 6:18 in tests/lang/diag_map_as_function.zm: 'map' takes at least 1 argument, found 0 -- and if you meant the 'Map' type rather than the function, write one as 'Map<string, int> { "key": value }', or build one with 'mutable_map_new<string, int>()'
+  |
+6 |     var counts = map()
+  |                  ^

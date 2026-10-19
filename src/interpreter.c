@@ -2477,7 +2477,12 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
              * has registered and taken it ("we hold onto the stack-allocated si until the child is
              * done with it", vendor/bdwgc/pthread_support.c). So there is no window in which the
              * only reference to a crossing copy is invisible to the collector. */
-            FunctionDecl *fn = find_function(module, s->as.spawn_stmt.callee);
+            /* The checker's own resolution, stamped on the statement -- see ast.h's `spawn_fn`.
+             * Re-resolving here answered the first declaration of the name, which for one a
+             * program shadows is the bodyless `builtin fn`, so the thread ran nothing. */
+            FunctionDecl *fn = s->as.spawn_stmt.spawn_fn != NULL
+                                   ? (FunctionDecl *)s->as.spawn_stmt.spawn_fn
+                                   : find_function(module, s->as.spawn_stmt.callee);
             int argc = s->as.spawn_stmt.args.count;
             Value *args = argc > 0 ? ziman_xmalloc((size_t)argc * sizeof(Value)) : NULL;
             for (int i = 0; i < argc; i++) {

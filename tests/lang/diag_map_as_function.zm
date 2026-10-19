@@ -1,3 +1,7 @@
+// `map()` was its own diagnostic -- "'Map' is a built-in generic type, not a function" -- because
+// reaching for the type by its lower-case name is a real first-day mistake (the D series). Since
+// 2026-10-18 `map` is also a *function* over either world, so the arity complaint is true as well;
+// the message gives both readings rather than letting the likelier one be buried.
 fn main() {
     var counts = map()
     print(counts)

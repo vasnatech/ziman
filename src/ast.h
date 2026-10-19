@@ -488,7 +488,12 @@ struct Stmt {
          * function, with its type arguments written out like any generic call. */
         /* `on_error` is the optional `on_error <handler>` clause: a `fn(string)` called, in the thread that failed, with the message of the runtime error that
          * ended it (NULL: the error is written to stderr and only that thread ends). */
-        struct { char *callee; ExprList args; TypeList type_args; Expr *on_error; } spawn_stmt;
+        /* `spawn_fn` is the same "resolve once, reuse every time" stamp as EXPR_CALL's `call_fn`,
+         * and for a sharper reason: `spawn` names its callee rather than calling it through
+         * check_call, so without this the interpreter re-resolves the name and `find_function`
+         * answers the *first* declaration -- which for a name a program shadows is the bodyless
+         * `builtin fn`, and the thread then ran nothing at all. NULL until the checker fills it. */
+        struct { char *callee; ExprList args; TypeList type_args; Expr *on_error; void *spawn_fn; } spawn_stmt;
         struct { Expr *expr; } expr_stmt;
         /* `defer f(args)` -- runs the call when the enclosing *block* exits,
          * by any path (falling off the end, return, `?`, break, continue),

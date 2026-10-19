@@ -1971,6 +1971,16 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
     for (size_t wp = 0; WORLD_PAIRED[wp] != NULL; wp++) {
         if (strcmp(name, WORLD_PAIRED[wp]) != 0) continue;
         if (e->as.call.args.count < 1) {
+            /* `map()` with nothing in it is more likely a reach for the *type* than a mis-call of
+             * the function, and was its own diagnostic before `map` became a function name. Both
+             * readings are given rather than letting the arity message bury the likelier one. */
+            const char *generic = matching_generic_type(name);
+            if (generic != NULL) {
+                ziman_error("type", e->line, e->col,
+                            "'%s' takes at least 1 argument, found %d -- and if you meant the '%s' type rather than "
+                            "the function, %s",
+                            name, e->as.call.args.count, generic, generic_type_construction(generic));
+            }
             ziman_error("type", e->line, e->col, "'%s' takes at least 1 argument, found %d", name,
                         e->as.call.args.count);
         }
@@ -5816,7 +5826,12 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             break;
         case STMT_SPAWN: {
             const char *callee = s->as.spawn_stmt.callee;
-            FunctionDecl *fn = find_function(module, callee);
+            /* `spawn` resolves its callee here rather than through check_call, so it needs the
+             * shadow too: `spawn count(path, out)` otherwise found the builtin's declaration and
+             * reported the program's void function as "returning int". */
+            FunctionDecl *shadow = shadowing_fn(callee);
+            FunctionDecl *fn = shadow != NULL ? shadow : find_function(module, callee);
+            s->as.spawn_stmt.spawn_fn = fn;
             if (fn == NULL) {
                 ziman_error("type", s->line, s->col, "call to undefined function '%s'", callee);
             }
@@ -5955,6 +5970,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                  * name. */
                 else if (s->as.expr_stmt.expr->kind == EXPR_CALL && t.kind != TY_VOID
                          && authored_callee(s->as.expr_stmt.expr) != NULL
+                         && shadowing_fn(authored_callee(s->as.expr_stmt.expr)) == NULL
                          && is_pure_builtin_name(authored_callee(s->as.expr_stmt.expr))) {
                     const char *name = authored_callee(s->as.expr_stmt.expr);
                     if (strcmp(name, "push") == 0 || strcmp(name, "insert") == 0 || strcmp(name, "set") == 0
