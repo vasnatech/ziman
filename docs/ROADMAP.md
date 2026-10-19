@@ -1244,7 +1244,17 @@ from source.
   name to set -- and note those last two hand-kept lists went stale three times in one day
   (F151, F152, F160), which this would also fix by making them derivable.
 
-  **Designed, not started (2026-10-19): `docs/design/first-argument-overloading.md`.** Written
+  **Designed, not started (2026-10-19): `docs/design/full-overloading.md`.** The user chose
+  **full** resolution -- every argument position, not the first only -- after the first-parameter
+  design measured out at 43 of the 50 existing sets. The superseded document is kept beside it for
+  that measurement. The cost objection raised against full resolution (that it is circular, since
+  an overload must be chosen before a lambda or an `[]` can be typed) **did not survive contact
+  with the code**: `infer_call_type_args` already walks the arguments skipping exactly the ones
+  `expr_needs_expected_type` flags, so resolution is a filter over self-describing positions plus
+  the syntactic *shape* of the rest -- no speculation, no backtracking, no constraint solver. The
+  earlier note below described the first-parameter design and is superseded.
+
+  **Superseded note (first-parameter design):** Written
   after the collection pass closed, on the user's request, and it changes one thing in this entry:
   measured against the prelude as it stands, **the rule above covers 43 of the 50 sets, not all
   of them.** Five (`mutable_set_union`/`_intersect`/`_difference`/`_is_subset`,

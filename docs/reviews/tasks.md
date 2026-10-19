@@ -1943,3 +1943,41 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   its signature, say what each *would have done* in the problem's terms, and give the
   disambiguating spelling — because a failure mode of "two readings, silently" is the one this
   language refuses, and a model recovers from an error only when it says what to write instead.
+
+- [x] **F175** **Design doc rewritten for *full* overloading.** (raised 2026-10-19 by the user —
+  *"lets do full overloading"*, with the candidate-list rule *"show the signature of 3 or 5 and
+  add '{n} more'"*; done 2026-10-19.) `docs/design/full-overloading.md` supersedes
+  `first-argument-overloading.md`, which is kept and marked, because its §3 is the measurement
+  that forced the choice: the first-parameter rule covered 43 of the 50 existing sets and would
+  have rejected five the language ships.
+
+  **I argued against full resolution and was wrong about the reason.** The objection was that it
+  is circular — `expr_needs_expected_type` (`typecheck.c:2313`) names five kinds of expression
+  that cannot be typed until something says what is expected, and they are exactly what collection
+  calls carry (a lambda, `[]`, `ok(...)`, a bare `Some`, a value block). Picking an overload seemed
+  to need argument types that need the overload. **The code already disproves it.**
+  `infer_call_type_args` (`:2455`) solves the identical problem for C3 type-argument inference: it
+  walks the arguments, skips every one that predicate flags, types the rest and unifies. Overload
+  resolution reuses the same partition. No speculative checking, no backtracking, no undo log over
+  the 24 AST-rewrite sites, no constraint solver — a filter, not a search. The architecture cost I
+  quoted was for a design nobody needed.
+
+  **What carries the positions the filter cannot type:** their *shape*, which is syntax and free
+  to read. A lambda's arity separates `fold(a, init, fn(acc, x))` from `map(a, fn(x))`; `[]` is an
+  array and never a `string` or a builder; `ok(x)` is a `Result`; `Some(x)` an `Option`.
+
+  **The empty-literal exception survives by construction** rather than by care: `[]` is
+  context-dependent, so it is never checked during resolution, and the `WORLD_PAIRED` comment's
+  recorded regression (checking argument one eagerly made `first<int>([])` and
+  `map<int, int>([], f)` errors they had not been) cannot come back through this path.
+
+  **Candidate lists are truncated to the user's rule:** five or fewer print in full, more than five
+  print three and `… and {n} more`, with the three ranked by how many argument positions they
+  matched before elimination so the list is relevance-ordered and deterministic. `len` and
+  `contains` have nine members each, so this is not hypothetical.
+
+  Still rejected at the declaration, and keeping their arms: **`mutable`** (a `(item: T)` member
+  matching everything its three siblings match — no specificity ranking means no ordering exists)
+  and **`concat`** (its one-argument spread rule reinterprets the same argument type by arity,
+  which no per-parameter signature states). Stage 2 of the plan is the check that must reject
+  exactly those two and nothing else; a third rejection means the design is wrong.
