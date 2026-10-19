@@ -1847,5 +1847,32 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   "Used by the bundled modules", because that block's own header is a doc comment rather than a
   `// ----` banner; hiding the five made it visible, and the missing banner was added.
 
-  `array_order_of` stays a plain non-pub `fn`: it is the one piece of this a caller might want,
-  and whether it should be the one advertised name here is the open question left behind.
+  **`array_order_of` stays a plain non-pub `fn`, and that is now a decision rather than a
+  leftover** (user, 2026-10-19, asked immediately after this landed). It is the one piece of this
+  a caller might plausibly want -- the permutation-of-keys seam, generic over the key type -- so
+  the question was whether to make it the single advertised name in the area. Three things
+  against, and the third is the one that settled it:
+
+  1. Advertising it would publish its doc comment, which `--api builtins` prints beside the
+     signature, and that comment names four functions the same listing now refuses to show --
+     with "Feed the result to `permute`" as an instruction to call one of them. So it was never
+     the one-word change it looked like.
+  2. `array_order_of` returns `[int]`, and after this change the only advertised thing a caller
+     can do with an index array is subscript by hand. `permute` is the consumer, and it is
+     `internal`. Publishing a producer whose consumer is hidden hands the reader a value with
+     nowhere to take it.
+  3. `sort_by`/`sort_by_desc` exist precisely so that nobody holds the index array. There is no
+     call site in the repo or the North Star that wants one. The gap would be hypothetical.
+
+  Reopening it means publishing `permute` alongside, as a decorate-sort-permute **pair**, and the
+  trigger would be a real call site that needs "order array A by array B's keys" -- something
+  `sort_by` genuinely cannot express. Until then the sort family's public face is `sort`,
+  `sort_desc`, `sort_with`, `sort_by`, `sort_by_desc`, which is complete and dangles nothing.
+
+  **The generated manual needed a sweep this exposed.** `docs/lib/prelude.md` includes every
+  declaration that is not `internal` -- a third rule, distinct from both `--api builtins` and the
+  editor's list -- so hiding the five left six prose references in it pointing at entries the page
+  no longer has. Fixed at the source: the implementation detail moved out of the three doc
+  comments into the function bodies, where the call it describes is one line away. One reference
+  remains on purpose, in the note above explaining that reopening the question means publishing
+  `permute` too.

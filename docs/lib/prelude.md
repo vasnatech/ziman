@@ -1843,7 +1843,7 @@ fn array_sort<T: Ord>(items: [T]) -> [T]
 `items` in ascending order of their own `compare`, which orders any number, string or byte,
 and any struct or enum with a `<type>_compare` function (`#[derive(Ord)]` writes one). Stable:
 equal elements keep their input order. Packed numbers and strings sort natively; anything else
-goes through the merge sort in `sort_positions`.
+goes through a generic stable merge sort.
 
 ### `array_sort_desc`
 
@@ -1888,8 +1888,8 @@ fn array_sort_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T]
 `items` in ascending order of `key(item)`, the key computed **once per element** and the
 elements then permuted into the keys' order -- the decorate-sort-permute shape, with the
 decorate step no longer the caller's job. `key` returning an int, float, byte or string also
-keeps the native sort: `array_map` answers a real `[K]`, so `array_order_of`'s
-`is_sortable_scalars` fast path still fires. Stable: equal keys keep their input order.
+keeps the native sort: `array_map` answers a real `[K]`, so `array_order_of`'s scalar fast
+path still fires. Stable: equal keys keep their input order.
 
 ### `array_sort_by_desc`
 
@@ -2428,11 +2428,18 @@ The positions of `keys` in sorted order: the array of indices that, read in orde
 keys keep their input order, and the descending result is not the ascending one reversed, which
 would flip ties.
 
-This is the sort family's permutation primitive, and the only one that is generic over the key
-type: packed numbers and strings go to the native `sort_scalar_order`, anything else (a struct,
-an enum, a bigint) to the merge sort `sort_positions`, calling `compare`. `sort_by`/`_desc` are
-built on it; `sort` is not -- it reaches `sort_positions` directly. Feed the result to
-`permute`, which is what `sort_by` does.
+This is the sort family's permutation primitive, and the only step of it generic over the key
+type: packed numbers and strings take a native path, anything else (a struct, an enum, a
+bigint) a stable merge sort calling `compare`. `sort_by`/`_desc` are built on it; `sort` is
+not, reaching the merge sort directly.
+
+**Deliberately not `pub`** -- decided 2026-10-19 alongside F172, so that nobody completes the
+job by adding the keyword. An index array has no advertised consumer: the function that
+applies one is `internal`, and `sort_by` exists precisely so that a caller never holds one.
+Publishing this would publish a value the vocabulary gives you nothing to do with. It stays a
+plain `fn`, so it is callable with no `use` and documented in `docs/lib/prelude.md`; it is only
+`ziman --api builtins` that does not claim it. Reopening the question means publishing
+`permute` with it, as a pair -- see the F172 entry in docs/reviews/tasks.md.
 
 `array_sort_indices`/`_desc` were two one-line wrappers over this, one per value of
 `descending`. They were deleted in F169 having never had a caller outside this file.
