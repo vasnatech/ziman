@@ -1605,6 +1605,74 @@ builtin fn sum(a: [int]) -> int
 builtin fn sum(b: MutableArray<int>) -> int
 ```
 
+## And the six that build a result from a walk
+
+### `distinct`
+
+```
+builtin fn distinct<T: Eq + Hash>(a: [T]) -> [T]
+```
+
+`distinct`, `group_by`, `index_by`, `frequencies`, `min_by`, `max_by`. The first four allocate a
+Map or a Set whatever world they are given, so the copy they save is a smaller share of their
+cost than it is for `fold`; `min_by` and `max_by` allocate nothing and are the same case as the
+eleven above. Each builder twin is its array version's body verbatim with one word changed in
+the signature, so the two cannot drift apart in behaviour.
+
+```
+builtin fn distinct<T: Eq + Hash>(b: MutableArray<T>) -> [T]
+```
+
+### `group_by`
+
+```
+builtin fn group_by<T, K: Eq + Hash>(a: [T], key: fn(T) -> K) -> Map<K, [T]>
+```
+
+```
+builtin fn group_by<T, K: Eq + Hash>(b: MutableArray<T>, key: fn(T) -> K) -> Map<K, [T]>
+```
+
+### `index_by`
+
+```
+builtin fn index_by<T, K: Eq + Hash>(a: [T], key: fn(T) -> K) -> Map<K, T>
+```
+
+```
+builtin fn index_by<T, K: Eq + Hash>(b: MutableArray<T>, key: fn(T) -> K) -> Map<K, T>
+```
+
+### `frequencies`
+
+```
+builtin fn frequencies<T: Eq + Hash>(a: [T]) -> Map<T, int>
+```
+
+```
+builtin fn frequencies<T: Eq + Hash>(b: MutableArray<T>) -> Map<T, int>
+```
+
+### `min_by`
+
+```
+builtin fn min_by<T, K: Ord>(a: [T], key: fn(T) -> K) -> Option<T>
+```
+
+```
+builtin fn min_by<T, K: Ord>(b: MutableArray<T>, key: fn(T) -> K) -> Option<T>
+```
+
+### `max_by`
+
+```
+builtin fn max_by<T, K: Ord>(a: [T], key: fn(T) -> K) -> Option<T>
+```
+
+```
+builtin fn max_by<T, K: Ord>(b: MutableArray<T>, key: fn(T) -> K) -> Option<T>
+```
+
 ### `array_present`
 
 ```
@@ -2477,6 +2545,53 @@ fn mutable_array_count<T>(items: MutableArray<T>, test: fn(T) -> bool) -> int
 
 ```
 fn mutable_array_sum(items: MutableArray<int>) -> int
+```
+
+## And the builder twins of the six that build a result
+
+### `mutable_array_distinct`
+
+```
+fn mutable_array_distinct<T: Eq + Hash>(items: MutableArray<T>) -> [T]
+```
+
+Same shape as the eleven above: each is its array version's body with one word changed. Four of
+them (`distinct`, `group_by`, `index_by`, `frequencies`) allocate a Map or a Set regardless, so
+the copy they save is a smaller share of their cost than it is for `fold` -- still real on a
+large input, just less of it. `min_by` and `max_by` allocate nothing at all and are the same case
+as the eleven; they were grouped here by eye rather than by reading the bodies.
+
+`min_by`/`max_by` reach elements with `items[i]` inside `for i in 1..len(items)` rather than
+iterating, which works on a builder only because F149 gave it `b[i]`.
+
+### `mutable_array_group_by`
+
+```
+fn mutable_array_group_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map<K, [T]>
+```
+
+### `mutable_array_index_by`
+
+```
+fn mutable_array_index_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map<K, T>
+```
+
+### `mutable_array_frequencies`
+
+```
+fn mutable_array_frequencies<T: Eq + Hash>(items: MutableArray<T>) -> Map<T, int>
+```
+
+### `mutable_array_min_by`
+
+```
+fn mutable_array_min_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) -> Option<T>
+```
+
+### `mutable_array_max_by`
+
+```
+fn mutable_array_max_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) -> Option<T>
 ```
 
 ### `mutable_array_map`

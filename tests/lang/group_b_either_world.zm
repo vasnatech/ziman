@@ -1,0 +1,35 @@
+// The six that build a result from one walk: `distinct`, `group_by`, `index_by`, `frequencies`,
+// `min_by`, `max_by`. Each now takes either world.
+//
+// The cost argument is weaker here than for `fold` and its ten siblings: four of these allocate a
+// Map or a Set whatever they are given, so the input copy they save is a smaller share of the
+// total. `min_by` and `max_by` allocate nothing at all and are exactly the earlier case -- they
+// were grouped with these by eye, and reading the bodies corrected it.
+//
+// Each builder twin is its array version's body **verbatim** with one word changed in the
+// signature, which is why the two cannot drift: `group_by` keeps the `if Some(b) =` shape and the
+// `capacity: 4` hint, `frequencies` keeps the `switch`. `min_by`/`max_by` reach elements with
+// `items[i]` inside `for i in 1..len(items)`, which works on a builder only because F149 gave it
+// `b[i]`.
+fn main() {
+    val a = [3, 1, 3, 2, 1]
+    val b = mutable([3, 1, 3, 2, 1])
+    val parity = fn(x: int) -> string { return if x % 2 == 0 { "even" } else { "odd" } }
+    val neg = fn(x: int) -> int { return 0 - x }
+
+    print(distinct(a))
+    print(distinct(b))
+    print(group_by(a, parity))
+    print(group_by(b, parity))
+    print(index_by(a, parity))
+    print(index_by(b, parity))
+    print(frequencies(a))
+    print(frequencies(b))
+    print(min_by(a, neg))
+    print(min_by(b, neg))
+    print(max_by(a, neg))
+    print(max_by(b, neg))
+
+    // none of them touches the builder
+    print(snapshot(b))
+}

@@ -2767,6 +2767,12 @@ a type error.
   `mutable_array_` names remain underneath as the halves these dispatch to. An **empty literal**
   dispatches to the array half unchecked (a handle is never a literal), so `first<int>([])` and
   `map<int, int>([], f)` work as they always did.
+- **Six more take either world**: `distinct`, `group_by`, `index_by`, `frequencies`, `min_by`,
+  `max_by`. Four of them allocate a Map or a Set whatever they are given, so the input copy saved
+  is a smaller share of their cost than it is for `fold`; `min_by`/`max_by` allocate nothing and are
+  the same case as the eleven above. What stays `array_`-prefixed is everything a builder cannot
+  answer the same way: the sorted-order helpers, `array_present`, `permute`, and `iter_of_array`,
+  whose `Iter` outlives the call.
 - **`array_join` was deleted rather than renamed.** It was one line delegating to `join`, which owns
   the bare name and does strictly more (`prefix`/`suffix`), so its callers now say
   `join(separator: s, pieces: a)` -- what the wrapper expanded to. The one cost: `join`'s `pieces`

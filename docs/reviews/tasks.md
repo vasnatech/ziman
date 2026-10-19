@@ -1570,3 +1570,30 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   one pinning that the prelude keeps its own `len`, `fold` and `join` while a program shadows
   `count` and `sum`. The per-call cost is a walk of a list that is empty in every program that
   shadows nothing.
+
+- [x] **F165** **Group B: the six that build a result from a walk.** (raised 2026-10-18 from the
+  collection-pairing review, answered *"do group b"*; S) `distinct`, `group_by`, `index_by`,
+  `frequencies`, `min_by`, `max_by` now take either world. Twelve declarations, six twins, twelve
+  call sites renamed, one dispatch table entry each.
+
+  **The cost argument is weaker here and the entry says so.** Four of the six allocate a Map or a
+  Set whatever world they are given, so the input copy they save is a smaller share of the total
+  than it is for `fold`. Only `min_by` and `max_by` allocate nothing, and those two were in this
+  group by **eye rather than by reading the bodies** -- I had described the group as "builds a Map
+  or a Set from it", which is false of them. Reading the bodies corrected it.
+
+  **Each twin is its array version's body verbatim.** I first wrote three of them from assumption
+  and had to replace them: the real `group_by` uses `if Some(b) = found` and a `capacity: 4` hint,
+  not `contains`/`unwrap`, and the real `frequencies` uses a `switch`, not `mutable_map_get_or`.
+  Functionally similar is not the same thing, and a twin that is a copy cannot drift from its
+  original in a way a reader would have to discover.
+
+  **`distinct` is the first of these names a program already defines** --
+  `tests/lang/map_generic_and_nested.zm` has its own `fn distinct<T: Eq + Hash>` -- and it keeps
+  working, as a shadow, which is F164 earning its place one commit later.
+
+  **And I stopped reinventing the test runner.** Checking by hand over `tests/lang/*.zm` reported 22
+  failures that are not failures: those fixtures carry `.env` files the real runner exports and my
+  loop ignored. Three times in this pass my own verification has been the unreliable part -- the
+  wrong file set twice, now the wrong harness -- so the authority is `make check`, read from its
+  recorded exit status.

@@ -927,6 +927,31 @@ builtin fn count<T>(b: MutableArray<T>, test: fn(T) -> bool) -> int
 builtin fn sum(a: [int]) -> int
 builtin fn sum(b: MutableArray<int>) -> int
 
+// ---- and the six that build a result from a walk
+//
+// `distinct`, `group_by`, `index_by`, `frequencies`, `min_by`, `max_by`. The first four allocate a
+// Map or a Set whatever world they are given, so the copy they save is a smaller share of their
+// cost than it is for `fold`; `min_by` and `max_by` allocate nothing and are the same case as the
+// eleven above. Each builder twin is its array version's body verbatim with one word changed in
+// the signature, so the two cannot drift apart in behaviour.
+builtin fn distinct<T: Eq + Hash>(a: [T]) -> [T]
+builtin fn distinct<T: Eq + Hash>(b: MutableArray<T>) -> [T]
+
+builtin fn group_by<T, K: Eq + Hash>(a: [T], key: fn(T) -> K) -> Map<K, [T]>
+builtin fn group_by<T, K: Eq + Hash>(b: MutableArray<T>, key: fn(T) -> K) -> Map<K, [T]>
+
+builtin fn index_by<T, K: Eq + Hash>(a: [T], key: fn(T) -> K) -> Map<K, T>
+builtin fn index_by<T, K: Eq + Hash>(b: MutableArray<T>, key: fn(T) -> K) -> Map<K, T>
+
+builtin fn frequencies<T: Eq + Hash>(a: [T]) -> Map<T, int>
+builtin fn frequencies<T: Eq + Hash>(b: MutableArray<T>) -> Map<T, int>
+
+builtin fn min_by<T, K: Ord>(a: [T], key: fn(T) -> K) -> Option<T>
+builtin fn min_by<T, K: Ord>(b: MutableArray<T>, key: fn(T) -> K) -> Option<T>
+
+builtin fn max_by<T, K: Ord>(a: [T], key: fn(T) -> K) -> Option<T>
+builtin fn max_by<T, K: Ord>(b: MutableArray<T>, key: fn(T) -> K) -> Option<T>
+
 // The values that are actually there, in order, with the `None`s dropped. What builds a list out
 // of fields that may each be absent, without an `if` per field:
 //
@@ -1670,6 +1695,100 @@ fn mutable_array_sum(items: MutableArray<int>) -> int {
         total = total + item
     }
     return total
+}
+
+// ---- and the builder twins of the six that build a result
+//
+// Same shape as the eleven above: each is its array version's body with one word changed. Four of
+// them (`distinct`, `group_by`, `index_by`, `frequencies`) allocate a Map or a Set regardless, so
+// the copy they save is a smaller share of their cost than it is for `fold` -- still real on a
+// large input, just less of it. `min_by` and `max_by` allocate nothing at all and are the same case
+// as the eleven; they were grouped here by eye rather than by reading the bodies.
+//
+// `min_by`/`max_by` reach elements with `items[i]` inside `for i in 1..len(items)` rather than
+// iterating, which works on a builder only because F149 gave it `b[i]`.
+fn mutable_array_distinct<T: Eq + Hash>(items: MutableArray<T>) -> [T] {
+    val seen = mutable_set_new<T>()
+    val out = mutable_array_new<T>()
+    for item in items {
+        if !contains(seen, item) {
+            mutable_set_add(seen, item)
+            push(out, item)
+        }
+    }
+    return snapshot(out)
+}
+
+fn mutable_array_group_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map<K, [T]> {
+    val builders = mutable_map_new<K, MutableArray<T>>()
+    for item in items {
+        val k = key(item)
+        val found = mutable_map_get(builders, k)
+        if Some(b) = found {
+            push(b, item)
+        } else {
+            val started = mutable_array_new<T>(capacity: 4)
+            push(started, item)
+            mutable_map_set(builders, k, started)
+        }
+    }
+    val groups = mutable_map_new<K, [T]>()
+    for k, group in snapshot(builders) {
+        mutable_map_set(groups, k, snapshot(group))
+    }
+    return snapshot(groups)
+}
+
+fn mutable_array_index_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map<K, T> {
+    val index = mutable_map_new<K, T>()
+    for item in items {
+        mutable_map_set(index, key(item), item)
+    }
+    return snapshot(index)
+}
+
+fn mutable_array_frequencies<T: Eq + Hash>(items: MutableArray<T>) -> Map<T, int> {
+    val counts = mutable_map_new<T, int>()
+    for item in items {
+        val seen = mutable_map_get(counts, item)
+        mutable_map_set(counts, item, switch seen {
+            Some(n) { n + 1 }
+            None { 1 }
+        })
+    }
+    return snapshot(counts)
+}
+
+fn mutable_array_min_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) -> Option<T> {
+    if len(items) == 0 {
+        return Option<T>.None
+    }
+    var best = items[0]
+    var best_key = key(best)
+    for i in 1..len(items) {
+        val k = key(items[i])
+        if compare(k, best_key) < 0 {
+            best = items[i]
+            best_key = k
+        }
+    }
+    return Option<T>.Some(best)
+}
+
+fn mutable_array_max_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) -> Option<T> {
+    if len(items) == 0 {
+        return Option<T>.None
+    }
+    var best = items[0]
+    var best_key = key(best)
+    for i in 1..len(items) {
+        val k = key(items[i])
+        if compare(k, best_key) > 0 {
+            best = items[i]
+            best_key = k
+        }
+    }
+    return Option<T>.Some(best)
 }
 
 // These two have native array versions, so their twins are written rather than shared. Each
