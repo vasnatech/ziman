@@ -164,6 +164,16 @@ gone = [n for n in ("mutable_array_from", "mutable_map_from", "mutable_set_from"
                     "array_present", "iter_of_array")
         if n in labels]
 check("unqualified completion has dropped the deleted names", not gone, gone)
+# F172: `internal` is not deletion -- these five are still callable, and
+# tests/lang/prelude_internal_still_callable.zm pins that. They are out of *completion* because
+# offering `sort_positions` and `sort_scalars` beside `sort` and `sort_by` is the confusion the
+# same change took out of `--api builtins`, and an editor is where it would cost the most.
+hidden = [n for n in ("is_sortable_scalars", "sort_scalar_order", "sort_scalars", "permute",
+                      "sort_positions") if n in labels]
+check("unqualified completion hides the internal prelude natives", not hidden, hidden)
+# The seam a caller would actually want is still there, and so is what it implements.
+missing = [n for n in ("sort", "sort_by", "array_order_of") if n not in labels]
+check("unqualified completion keeps the sorts the internals implement", not missing, missing)
 
 r = request("workspace/symbol", {"query": "doub"})
 check("workspace symbols by name", any(x["name"] == "double" and x["location"]["uri"] == util_uri for x in r["result"]), r)

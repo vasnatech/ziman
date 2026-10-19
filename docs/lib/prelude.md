@@ -1360,50 +1360,7 @@ native fn bytes_index_of(haystack: [byte], needle: [byte], from: int) -> int
 The position of the first occurrence of `needle` in `haystack` at or after `from`, or -1; an
 empty `needle` is found at `from`. For finding a delimiter (a CRLF CRLF, a boundary) in bytes.
 
-## Used by the bundled modules
-
-### `is_sortable_scalars`
-
-```
-native fn is_sortable_scalars<T>(items: [T]) -> bool
-```
-
-True for a packed `[int]`, `[float]` or `[byte]`, or an array of strings; `sort_scalar_order`
-then returns the positions of `items` in stable sorted order (descending with `descending`)
-without calling back into the interpreter.
-
-### `sort_scalar_order`
-
-```
-native fn sort_scalar_order<T>(items: [T], descending: bool) -> [int]
-```
-
-The positions of `items` in stable sorted order; see `is_sortable_scalars`.
-
-### `sort_scalars`
-
-```
-native fn sort_scalars<T>(items: [T], descending: bool) -> [T]
-```
-
-`items` itself sorted, with no index array in between.
-
-### `permute`
-
-```
-native fn permute<T>(items: [T], order: [int]) -> [T]
-```
-
-`items[order[0]], items[order[1]], ...` for any element type, in one allocation.
-
-### `sort_positions`
-
-```
-native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
-```
-
-The positions 0..n ordered by `cmp(a, b)` (negative, zero or positive, like `compare`, over
-two positions): a stable merge sort in two reused buffers.
+## The bare array helpers
 
 ### `array_map`
 

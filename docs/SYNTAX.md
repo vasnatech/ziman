@@ -1124,6 +1124,15 @@ fn main() {
   `struct`/`enum`/`val` (the same position `pub` occupies; they're mutually exclusive, `pub`
   checked first) — everywhere else, including a function's own name or an import, it's an
   ordinary identifier (the same technique `unit` uses as a type).
+- **In `lib/prelude.zm`, visibility chooses what is *advertised*, not what is callable.** The
+  prelude is merged into every program, so every declaration in it is callable with no `use`
+  whatever its modifier says — `pub` means only "`ziman --api builtins` lists it", and a plain
+  `fn` there is reachable just the same. `internal` is the one modifier that subtracts: it
+  takes a declaration out of `--api builtins` and out of the editor's completion while leaving
+  it callable, which is how the five natives behind the sorts (`sort_positions`, `permute`,
+  `is_sortable_scalars`, `sort_scalar_order`, `sort_scalars`) stopped being presented as
+  vocabulary. A `native fn` had no other way to opt out: it is reachable from every program by
+  construction, so until then the list advertised it no matter what its own comment said.
 - **`[pub] val NAME[: Type] = <expr>` at module top level declares a global value** — evaluated
   once before `main` runs, in file order, never per-call. No global `var` (Ziman's concurrency
   model is single-writer actors over `Channel<T>`; see docs/DESIGN.md's "Global val" entry).

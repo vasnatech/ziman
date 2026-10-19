@@ -1,0 +1,28 @@
+// F172 marked the five natives behind the sorts `internal`, which in `lib/prelude.zm` means
+// "reachable but not advertised": `--api builtins` and the editor's completion leave them out,
+// and nothing else changes. The prelude is merged into every program, so they stay callable with
+// no `use` -- this file is the half of that rule a .zm test can hold, and tests/run_api.sh holds
+// the other half. Hiding them by making `pub` the marker for natives instead would have broken
+// exactly this, and silently: the five have no caller outside the prelude to notice.
+
+fn main() {
+    val xs = [5, 9, 5, 1]
+
+    // The generic path: positions from the merge sort, then the permutation applied.
+    val order = sort_positions(len(xs), fn(a: int, b: int) -> int { return compare(xs[a], xs[b]) })
+    print(order)
+    print(permute<int>(xs, order))
+
+    // The scalar fast path the three partners make, which is what `sort` takes for a packed array.
+    print(is_sortable_scalars<int>(xs))
+    print(sort_scalars<int>(xs, false))
+    print(sort_scalars<int>(xs, true))
+    print(sort_scalar_order<int>(xs, true))
+
+    // A struct is not scalar, so the same question answers the other way and the merge sort runs.
+    print(is_sortable_scalars<[int]>([[1], [2]]))
+
+    // And the advertised spelling agrees with the plumbing it is built on, which is the only
+    // reason hiding the plumbing is safe.
+    print(sort(xs) == sort_scalars<int>(xs, false))
+}

@@ -478,7 +478,10 @@ static int run_api(const char *module_name) {
         printf("builtins -- callable with no 'use', from any program\n");
         for (int i = 0; i < prelude->functions.count; i++) {
             FunctionDecl *f = prelude->functions.items[i];
-            /* The prelude's own non-pub helpers are not callable from a program. */
+            /* What is advertised, which is not what is callable: the prelude is merged into
+             * every program, so every declaration in this file is callable whatever it says
+             * here. `pub` and `internal` choose what this list claims is the vocabulary. */
+            if (!fn_is_advertised(f)) continue;
             if (f->visibility != VIS_PUBLIC && !fn_is_global_vocabulary(f)) continue;
             /* `builtin fn` keeps its keyword here rather than being flattened to `fn`: which of
              * the two owns the type rule is a real difference and the one docs/DESIGN.md's

@@ -722,6 +722,19 @@ static inline int fn_is_global_vocabulary(const FunctionDecl *fn) {
     return fn->is_native || fn->is_builtin;
 }
 
+/* Whether a name is *advertised*: listed by `--api builtins` and offered by the editor's
+ * completion. Deliberately not the same question as fn_is_global_vocabulary, which asks whether a
+ * name is *reachable* -- and the two parted company in F172. A `native fn` is always reachable and
+ * had no way to opt out of being advertised, so the five natives behind the sorts were published
+ * as vocabulary by the mechanism alone, under a comment telling the reader not to call them. The
+ * fix is not to make `pub` the marker for natives too: that would have meant adding `pub` to 238
+ * declarations to hide five, and would have made loader.c's "is there such a function" hint answer
+ * "no" about a function that exists -- the F92 trap, which F170 already sprang once. So `internal`
+ * is the opt-out, and reachability is left alone. */
+static inline int fn_is_advertised(const FunctionDecl *fn) {
+    return fn->visibility != VIS_INTERNAL;
+}
+
 /* The `fn(P1, P2) -> R` type of a (non-generic, non-variadic) function used as
  * a value -- see type_func. */
 Type function_value_type(const FunctionDecl *fn);

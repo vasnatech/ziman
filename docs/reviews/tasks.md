@@ -1814,3 +1814,38 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   reader to find out: `filter_ok` silently discards every failure. It is for a bad `Accept` range
   among ten, not for work that should stop. Both on one input keeps the successes and still
   reports what was lost.
+
+- [x] **F172** **Group D3/D4: the five natives behind the sorts are `internal`, and `internal` in
+  the prelude now means "reachable but not advertised".** (raised 2026-10-19 from Group D, done
+  2026-10-19.) `is_sortable_scalars`, `sort_scalar_order`, `sort_scalars`, `permute` and
+  `sort_positions` were listed by `ziman --api builtins` and offered by the editor, under a block
+  comment that told the reader to call something else instead. Neither half was a decision:
+  `fn_is_global_vocabulary` is `is_native || is_builtin`, so a `native fn` was advertised by the
+  mechanism alone with no way to say otherwise, and the comment had rotted in three places around
+  it -- it named `collections` (deleted in F120), `array_sort`/`array_map` (renamed in F162-F166)
+  and "the database drivers", which never called any of the five.
+
+  **Measured first, which changed the mechanism.** The plan was to make `pub` the marker for a
+  `native fn` too. Two findings killed it: that would have meant adding `pub` to **238**
+  declarations in order to hide five, and `fn_is_global_vocabulary`'s *other* caller is
+  `loader.c`'s `prelude_has_function`, which answers "is there such a function" for the
+  method-syntax hint -- so the same edit would have made `xs.sort_positions()` reply that no such
+  function exists. That is the F92 trap, which F170 sprang once already in this same group.
+
+  **So the two questions were separated instead.** `fn_is_advertised` (ast.h, beside the predicate
+  it is deliberately not) is `visibility != VIS_INTERNAL`; `--api builtins` and `lsp.c`'s
+  `build_globals` consult it, `loader.c` keeps consulting reachability. Nothing about the
+  language's visibility system changed -- `internal` already existed as a soft keyword, and it
+  already parsed before `native fn`. 245 listed names became 240, the diagnostic still names
+  `sort_positions(xs, ...)`, and all five still run.
+
+  **Two things found on the way.** `src/main.c`'s comment claimed "the prelude's own non-pub
+  helpers are not callable from a program", which is false -- the prelude is merged into every
+  program, so `pub` there has only ever meant "`--api builtins` lists it" (F171 established this
+  experimentally; the comment is now corrected and SYNTAX.md states the rule). And the generated
+  `docs/lib/prelude.md` had been filing `array_map` and the rest of the bare array helpers under
+  "Used by the bundled modules", because that block's own header is a doc comment rather than a
+  `// ----` banner; hiding the five made it visible, and the missing banner was added.
+
+  `array_order_of` stays a plain non-pub `fn`: it is the one piece of this a caller might want,
+  and whether it should be the one advertised name here is the open question left behind.

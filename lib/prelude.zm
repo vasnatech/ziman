@@ -837,28 +837,41 @@ fn set_map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U> {
 // empty `needle` is found at `from`. For finding a delimiter (a CRLF CRLF, a boundary) in bytes.
 native fn bytes_index_of(haystack: [byte], needle: [byte], from: int) -> int
 
-// ---------------------------------------------------------------- used by the bundled modules
+// ------------------------------------------------------------------- the inside of the sorts
 
-// These are the natives behind `collections` and the database drivers; call the module functions
-// (`array_sort`, `array_map`, `datasource.open`) rather than these.
+// The substrate the six sort functions below are built on, and the only callers they have: the
+// scalar fast path (`is_sortable_scalars` and its two partners), the generic merge sort over
+// positions (`sort_positions`), and the permutation step (`permute`). `array_sort`,
+// `array_sort_desc`, `array_sort_with`, `array_sort_by`, `array_sort_by_desc` and
+// `array_order_of` are the whole of it; nothing outside this file calls any of the five.
+//
+// They are `internal`, which F172 made mean "reachable but not advertised": the prelude is merged
+// into every program so these stay callable, and the "is there such a function" diagnostic still
+// finds them, but `--api builtins` and the editor's completion leave them out. The header they
+// replace said to call `collections` and `datasource.open` instead -- a module deleted in F120 and
+// a driver that never called these -- which is what being listed with no way to say otherwise
+// does to a comment over five releases. `array_order_of` is the seam a caller would actually
+// want, and it is a plain `fn` above.
 
 // True for a packed `[int]`, `[float]` or `[byte]`, or an array of strings; `sort_scalar_order`
 // then returns the positions of `items` in stable sorted order (descending with `descending`)
 // without calling back into the interpreter.
-native fn is_sortable_scalars<T>(items: [T]) -> bool
+internal native fn is_sortable_scalars<T>(items: [T]) -> bool
 
 // The positions of `items` in stable sorted order; see `is_sortable_scalars`.
-native fn sort_scalar_order<T>(items: [T], descending: bool) -> [int]
+internal native fn sort_scalar_order<T>(items: [T], descending: bool) -> [int]
 
 // `items` itself sorted, with no index array in between.
-native fn sort_scalars<T>(items: [T], descending: bool) -> [T]
+internal native fn sort_scalars<T>(items: [T], descending: bool) -> [T]
 
 // `items[order[0]], items[order[1]], ...` for any element type, in one allocation.
-native fn permute<T>(items: [T], order: [int]) -> [T]
+internal native fn permute<T>(items: [T], order: [int]) -> [T]
 
 // The positions 0..n ordered by `cmp(a, b)` (negative, zero or positive, like `compare`, over
 // two positions): a stable merge sort in two reused buffers.
-native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
+internal native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
+
+// ------------------------------------------------------------------ the bare array helpers
 
 // The bare array helpers, callable with no import, beside the bare `map_*` and `set_*` helpers
 // that `Map` and `Set` already have. `array_map`/`filter`/`flat_map`/`reverse`/`sort`/

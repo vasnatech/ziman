@@ -1438,7 +1438,16 @@ static void build_globals(void) {
      * binary, so this is the same two lines `--api builtins` uses in main.c. */
     TokenList tokens = lex(prelude_source());
     Module *prelude = parse(tokens);
-    for (int i = 0; i < prelude->functions.count; i++) add_global_name(prelude->functions.items[i]->name);
+    for (int i = 0; i < prelude->functions.count; i++) {
+        /* Everything callable, which here is everything in the file -- a non-pub prelude `fn` is
+         * reachable with no `use` just as a `builtin fn` is, and F168 exists because leaving such
+         * names out is what made this list miss 72 of them. `internal` is the one exclusion, and
+         * it is an exclusion from *advertising*: offering `sort_positions` beside `sort` and
+         * `sort_by` is the confusion F172 took out of `--api builtins`, so it goes from here too. */
+        FunctionDecl *f = prelude->functions.items[i];
+        if (!fn_is_advertised(f)) continue;
+        add_global_name(f->name);
+    }
 }
 
 static void add_completion(SB *b, int *first, const char *label, int kind, const char *detail) {

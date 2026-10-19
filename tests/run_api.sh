@@ -49,6 +49,19 @@ else
     pass=$((pass + 1)); echo "ok   a non-pub declaration stays out"
 fi
 
+# F172: `internal` in the prelude means reachable but not advertised. The five natives behind the
+# sorts are the case it was added for -- callable (tests/lang/prelude_internal_still_callable.zm
+# pins that) but not vocabulary, because their only callers are the six sort functions above them.
+# Asserted by name rather than by count so that adding a builtin does not look like a regression.
+for internal_name in is_sortable_scalars sort_scalar_order sort_scalars permute sort_positions; do
+    if printf '%s' "$builtins" | grep -qE "^(builtin )?fn $internal_name\b"; then
+        fail=$((fail + 1)); echo "FAIL an internal prelude native is advertised: $internal_name" >&2
+    else
+        pass=$((pass + 1)); echo "ok   an internal prelude native stays out: $internal_name"
+    fi
+done
+has "and the sort it is the inside of is still listed" "fn sort<T: Ord>(a: [T]) -> [T]" "$builtins"
+
 # Works on a file, not only a bundled name.
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 cat > "$work/mine.zm" <<'ZM'
