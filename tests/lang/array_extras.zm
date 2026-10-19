@@ -21,14 +21,14 @@ fn expand(n: int) -> [int] {
 
 fn main() {
     val sorted = [1, 3, 3, 3, 5, 8]
-    print(array_lower_bound<int>(sorted, 3))
-    print(array_upper_bound<int>(sorted, 3))
-    print(array_lower_bound<int>(sorted, 0))
-    print(array_lower_bound<int>(sorted, 9))
-    print(array_upper_bound<int>(sorted, 4))
-    print(array_binary_search<int>(sorted, 3))
-    print(array_binary_search<int>(sorted, 4))
-    print(array_binary_search<string>(["a", "c", "e"], "c"))
+    print(lower_bound<int>(sorted, 3))
+    print(upper_bound<int>(sorted, 3))
+    print(lower_bound<int>(sorted, 0))
+    print(lower_bound<int>(sorted, 9))
+    print(upper_bound<int>(sorted, 4))
+    print(binary_search<int>(sorted, 3))
+    print(binary_search<int>(sorted, 4))
+    print(binary_search<string>(["a", "c", "e"], "c"))
 
     val items = [Item { name: "pen", qty: 3 }, Item { name: "cup", qty: 9 }, Item { name: "ink", qty: 3 }]
     print(first<Item>(items))
@@ -82,7 +82,7 @@ fn main() {
     val fast = sort(big)
     val generic = sort_with(big, fn(a, b) { compare(a, b) })
     print(fast == generic)
-    print(array_is_sorted<int>(fast))
+    print(is_sorted<int>(fast))
     print(sort_desc(big) == reverse(fast))
     print(sort(no_ints))
     print(sort([7]))

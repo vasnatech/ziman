@@ -1,0 +1,54 @@
+// The four questions an ordered sequence answers: `is_sorted`, `lower_bound`, `upper_bound`,
+// `binary_search`. Each now takes either world.
+//
+// These are the purest case of the twin rule: their array bodies reach the sequence through
+// `len()` and `[i]` only, so each builder twin is that body character for character with `[T]`
+// changed to `MutableArray<T>` in the signature -- the one exception being that
+// `mutable_array_binary_search` calls the builder `lower_bound` rather than snapshotting to reach
+// the array one.
+//
+// Three of the four require the sequence to be in order already, and that precondition does not
+// change between worlds -- it is the caller's either way, as it was when only the array form
+// existed. The builder is if anything its more natural subject: `sort(b)` rearranges the handle in
+// place, so the thing you then search *is* the handle, and `binary_search(snapshot(b), x)` would
+// copy the whole buffer to ask a question that reads O(log n) of it.
+fn main() {
+    val a = [1, 3, 3, 5, 7]
+    val b = mutable([1, 3, 3, 5, 7])
+
+    print(is_sorted(a))
+    print(is_sorted(b))
+
+    print(lower_bound(a, 3))
+    print(lower_bound(b, 3))
+    print(upper_bound(a, 3))
+    print(upper_bound(b, 3))
+
+    // past either end, in both worlds
+    print(lower_bound(a, 0))
+    print(lower_bound(b, 0))
+    print(upper_bound(a, 9))
+    print(upper_bound(b, 9))
+
+    print(binary_search(a, 5))
+    print(binary_search(b, 5))
+    print(binary_search(a, 4))
+    print(binary_search(b, 4))
+
+    // empty in both worlds
+    print(is_sorted(mutable_array_new<int>()))
+    print(binary_search(mutable_array_new<int>(), 1))
+
+    // out of order: the question is still answerable, which is what `is_sorted` is for
+    val messy = mutable([2, 1])
+    print(is_sorted(messy))
+
+    // `sort` rearranges the handle in place, and the searches then read that same handle --
+    // the case the pairing exists for, with no copy anywhere in it
+    sort(messy)
+    print(is_sorted(messy))
+    print(binary_search(messy, 2))
+
+    // none of the four touches its sequence
+    print(snapshot(b))
+}

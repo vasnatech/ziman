@@ -2774,9 +2774,20 @@ a type error.
 - **Six more take either world**: `distinct`, `group_by`, `index_by`, `frequencies`, `min_by`,
   `max_by`. Four of them allocate a Map or a Set whatever they are given, so the input copy saved
   is a smaller share of their cost than it is for `fold`; `min_by`/`max_by` allocate nothing and are
-  the same case as the eleven above. What stays `array_`-prefixed is everything a builder cannot
-  answer the same way: the sorted-order helpers, `array_present`, `permute`, and `iter_of_array`,
-  whose `Iter` outlives the call.
+  the same case as the eleven above.
+- **Four more take either world**: `is_sorted`, `lower_bound`, `upper_bound` and `binary_search`,
+  the questions an *ordered* sequence answers. These are the purest case of the rule: their array
+  bodies reach the sequence through `len()` and `[i]` only, so each builder twin is that body
+  character for character. Three of them require the sequence to be in order already, and that
+  precondition is the caller's in either world -- unchanged by the pairing, and `is_sorted` is
+  there to ask it. A builder is if anything the more natural subject, since `sort(b)` rearranges
+  the handle in place and the thing you then search is that same handle:
+  `binary_search(snapshot(b), x)` copies the whole buffer to ask a question that reads O(log n)
+  of it.
+
+  What stays `array_`-prefixed is everything a builder cannot answer the same way:
+  `array_sort_indices`/`_desc`, `array_present`, `permute`, and `iter_of_array`, whose `Iter`
+  outlives the call.
 - **`array_join` was deleted rather than renamed.** It was one line delegating to `join`, which owns
   the bare name and does strictly more (`prefix`/`suffix`), so its callers now say
   `join(separator: s, pieces: a)` -- what the wrapper expanded to. The one cost: `join`'s `pieces`
@@ -2802,14 +2813,15 @@ a type error.
   takes. `array_filter` cannot express it -- it keeps elements, so the results would still be
   wrapped -- and `array_flat_map` only can by building a one- or zero-element array per value. The sorts are stable in both
   directions, so `array_sort_desc` is not `array_sort` reversed (that would flip ties).
-  The rest of the array library is bare too, and needs no import either: `array_fold`,
-  `array_find`, `array_first`, `array_last`, `array_min_by`, `array_max_by`, `array_count`,
-  `array_any`, `array_all`, `array_for_each`, `array_distinct`, `array_sum`,
-  `array_sort_indices`/`_desc`, `array_sort_by`/`_desc`, `array_is_sorted`,
-  `array_lower_bound`, `array_upper_bound`, `array_binary_search`, `array_group_by`,
-  `array_frequencies` and `array_index_by`. There was a `collections` module holding these until
-  2026-10-14; it is gone, and arrays are now the same shape as `Map` and `Set`, whose `map_*` and
-  `set_*` helpers have always been bare.
+  The rest of the array library needs no import either. Most of it is now spelled **without** the
+  prefix -- `fold`, `find`, `first`, `last`, `min_by`, `max_by`, `count`, `any`, `all`,
+  `for_each`, `distinct`, `sum`, `sort_by`/`_desc`, `is_sorted`, `lower_bound`, `upper_bound`,
+  `binary_search`, `group_by`, `frequencies`, `index_by` -- each taking either world and
+  dispatching to the `array_`/`mutable_array_` pair underneath; those prefixed names remain
+  callable but are the implementations rather than the spelling to reach for. Only
+  `array_sort_indices`/`_desc` and `array_present` are still said with the prefix. There was a
+  `collections` module holding these until 2026-10-14; it is gone, and arrays are now the same
+  shape as `Map` and `Set`, whose `map_*` and `set_*` helpers have always been bare.
 - `ok(x) -> Result<T, E>` / `err(e) -> Result<T, E>` — construct a `Result` (only where the
   missing type parameter is inferable from context; see "Result").
 - `is_ok(r) -> bool`; `unwrap(r) -> T` (runtime error if `Err`); `unwrap_err(r) -> E` (runtime

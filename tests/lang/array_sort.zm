@@ -27,16 +27,16 @@ fn main() {
     for p in sort_by<Patient, int>(patients, fn(p: Patient) -> int { return p.age }) {
         print(concat(p.name, str(p.age)))
     }
-    print(array_is_sorted<int>([1, 2, 2, 3]))
-    print(array_is_sorted<int>([1, 3, 2]))
+    print(is_sorted<int>([1, 2, 2, 3]))
+    print(is_sorted<int>([1, 3, 2]))
     val s = sort([10, 20, 20, 30, 40])
-    print(array_binary_search<int>(s, 20))
-    print(array_binary_search<int>(s, 25))
-    print(array_binary_search<int>(s, 40))
+    print(binary_search<int>(s, 20))
+    print(binary_search<int>(s, 25))
+    print(binary_search<int>(s, 40))
     // a big one
     var big: [int] = []
     for i in 0..500 {
         big = push(big, (i * 7919) % 1000)
     }
-    print(array_is_sorted<int>(sort(big)))
+    print(is_sorted<int>(sort(big)))
 }

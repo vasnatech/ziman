@@ -37,9 +37,9 @@ fn main() {
     for s in sort_desc(scores) {
         print(concat(s.name, str(s.points)))
     }
-    print(array_is_sorted<Score>(sort(scores)))
+    print(is_sorted<Score>(sort(scores)))
     val sorted = sort(scores)
-    print(array_binary_search<Score>(sorted, Score { name: "?", points: 30 }))
+    print(binary_search<Score>(sorted, Score { name: "?", points: 30 }))
     // the builtin agrees on the sign, whatever the magnitude
     print(compare(scores[0], scores[1]) > 0)
     print(compare(scores[1], scores[0]) < 0)

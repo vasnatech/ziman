@@ -1,0 +1,8 @@
+// The four ordered-sequence questions route through the same first-argument dispatch as the rest,
+// so a Set is refused with the shared message rather than falling through to "unknown function".
+// What *cannot* be checked here is the thing three of them actually require: that the sequence is
+// already in order. That precondition is the caller's in either world, and `is_sorted` is the
+// function for asking it.
+fn main() {
+    print(lower_bound(Set<int> { 1, 2 }, 1))
+}

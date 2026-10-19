@@ -1636,3 +1636,42 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   **Still unused after this:** `sort_indices`/`_desc` have no caller outside the prelude. They are
   the Group C item left standing, and the one place in the tree that genuinely wanted a permutation
   (`sort_matches`) reached past them to `sort_scalar_order` and is now a `sort_by_desc` call.
+
+- [x] **F167** **Group C1: the four questions an ordered sequence answers.** (raised 2026-10-19
+  from Group C, agreed in shape before the machine restart; S) `is_sorted`, `lower_bound`,
+  `upper_bound` and `binary_search` now take an array **or** a `MutableArray`. Eight declarations,
+  four twins, three fixtures renamed.
+
+  **This is the cleanest case the pairing rule has had.** The four array bodies reach their
+  sequence through `len()` and `[i]` and nothing else, so each twin is the array body *character
+  for character* -- which I checked by comparing the two bodies programmatically rather than by
+  eye, after F165 recorded that three of its six twins were written from assumption and had to be
+  replaced. The single intended deviation is that `mutable_array_binary_search` calls the builder
+  `lower_bound` rather than snapshotting to reach the array one, and the comment says so.
+
+  **The "assumes sorted order" worry was never an objection.** Three of the four require the
+  sequence to be in order already; that precondition is the caller's in either world and the
+  pairing does not change it. A builder is if anything its more natural subject: `sort(b)`
+  rearranges the handle in place, so the thing you then search *is* the handle, and
+  `binary_search(snapshot(b), x)` copies the whole buffer to ask a question that reads O(log n) of
+  it. The fixture walks exactly that sequence -- `sort(messy)` then `is_sorted`/`binary_search` on
+  the same handle, no copy anywhere in it.
+
+  **SYNTAX.md's bare-array list was stale by three renames, not one.** F166 fixed `array_join` in
+  that list and stopped there. The same paragraph still named `array_fold`, `array_find`,
+  `array_first`, `array_last`, `array_min_by`, `array_max_by`, `array_count`, `array_any`,
+  `array_all`, `array_for_each`, `array_distinct`, `array_sum`, `array_group_by`,
+  `array_frequencies`, `array_index_by` and `array_sort_by`/`_desc` -- every one of them renamed in
+  F162, F163 or F165 -- as *the* spelling of the array library. None of those names is wrong
+  (each survives as the rewrite target), which is why nothing caught it: the paragraph is stale
+  rather than false, and no gate can tell the difference. Rewritten to give the bare names and say
+  the prefixed ones are the implementations. Also corrected the "what stays `array_`-prefixed"
+  sentence in the Group B bullet, which listed "the sorted-order helpers" and is now down to
+  `array_sort_indices`/`_desc` and `array_present`.
+
+  **Found and not fixed here:** `docs/CORELIB.md` does not match what `make corelib-reference`
+  generates -- the committed file has the `schedule` section before `sqlite`/`server`, while the
+  generator emits `lib/time/*.zm` last, so it is in the wrong place. `lib-manual-check` diffs
+  `docs/lib` only, so nothing gates `docs/CORELIB.md` and this drifted unnoticed. Same shape as
+  `src/lsp.c`'s hand-kept `BUILTINS[]`, which by now is missing 72 of the 157 builtin names. Both
+  are the next commit.

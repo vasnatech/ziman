@@ -1724,6 +1724,58 @@ builtin fn max_by<T, K: Ord>(a: [T], key: fn(T) -> K) -> Option<T>
 builtin fn max_by<T, K: Ord>(b: MutableArray<T>, key: fn(T) -> K) -> Option<T>
 ```
 
+## And the four that ask an ordered sequence a question
+
+### `is_sorted`
+
+```
+builtin fn is_sorted<T: Ord>(a: [T]) -> bool
+```
+
+`is_sorted`, `binary_search`, `lower_bound`, `upper_bound`. These read their sequence with
+`len()` and `[i]` and nothing else, so each builder twin is the array body verbatim -- F149's
+`b[i]` is what makes that literally true rather than merely similar.
+
+Three of the four require the sequence to already be in order, and that precondition does not
+change between worlds: it is the caller's either way, exactly as it was when only the array form
+existed. A builder is in fact the likelier place for it to hold, since `sort(b)` rearranges in
+place and the thing you then search is the handle itself -- `binary_search(snapshot(b), x)`
+copies the whole buffer to ask a question that touches O(log n) of it.
+
+```
+builtin fn is_sorted<T: Ord>(b: MutableArray<T>) -> bool
+```
+
+### `lower_bound`
+
+```
+builtin fn lower_bound<T: Ord>(a: [T], target: T) -> int
+```
+
+```
+builtin fn lower_bound<T: Ord>(b: MutableArray<T>, target: T) -> int
+```
+
+### `upper_bound`
+
+```
+builtin fn upper_bound<T: Ord>(a: [T], target: T) -> int
+```
+
+```
+builtin fn upper_bound<T: Ord>(b: MutableArray<T>, target: T) -> int
+```
+
+### `binary_search`
+
+```
+builtin fn binary_search<T: Ord>(a: [T], target: T) -> Option<int>
+```
+
+```
+builtin fn binary_search<T: Ord>(b: MutableArray<T>, target: T) -> Option<int>
+```
+
 ### `array_present`
 
 ```
@@ -2645,6 +2697,45 @@ fn mutable_array_min_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) -> O
 
 ```
 fn mutable_array_max_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) -> Option<T>
+```
+
+## And the builder twins of the four ordered-sequence questions
+
+### `mutable_array_is_sorted`
+
+```
+fn mutable_array_is_sorted<T: Ord>(items: MutableArray<T>) -> bool
+```
+
+`is_sorted`, `lower_bound`, `upper_bound`, `binary_search`. These are the purest case of the
+twin rule in this file: their array bodies reach the sequence through `len()` and `[i]` only, so
+each one below is that body character for character with `[T]` changed to `MutableArray<T>` in
+the signature. Nothing else could differ, because nothing else was array-specific.
+
+`mutable_array_binary_search` calls the *builder* `lower_bound` rather than its array twin, for
+the same reason: taking `snapshot` to reuse the array version would copy the buffer to save
+writing four lines.
+
+The "already sorted" precondition is unchanged and still the caller's. `sort(b)` leaves the
+handle itself in order, so a builder is if anything the more natural subject -- the alternative
+was `lower_bound(snapshot(b), x)`, a full copy for a question that reads O(log n) elements.
+
+### `mutable_array_lower_bound`
+
+```
+fn mutable_array_lower_bound<T: Ord>(sorted: MutableArray<T>, target: T) -> int
+```
+
+### `mutable_array_upper_bound`
+
+```
+fn mutable_array_upper_bound<T: Ord>(sorted: MutableArray<T>, target: T) -> int
+```
+
+### `mutable_array_binary_search`
+
+```
+fn mutable_array_binary_search<T: Ord>(sorted: MutableArray<T>, target: T) -> Option<int>
 ```
 
 ### `mutable_array_map`
