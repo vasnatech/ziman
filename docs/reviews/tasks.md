@@ -1911,3 +1911,35 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   other has to exist. Nothing is deleted and nothing stops being callable;
   `tests/lang/prelude_internal_still_callable.zm` now asserts that the bare call and the prefixed
   call are the same call, in both worlds.
+
+- [x] **F174** **A design document for overloading available to a declaration.**
+  (raised 2026-10-19 by the user, after asking for the AI perspective on doing the work before a
+  Map/Set pass; done 2026-10-19.) `docs/design/first-argument-overloading.md`, 304 lines. **Design
+  only — nothing is built, and the document does not argue for starting**, which is the ROADMAP
+  entry's own stance and the habit that declined `..=`.
+
+  **Its one real finding, which was not known when the ROADMAP entry was written:** measured by
+  script against `lib/prelude.zm` at `5a317bd`, the proposed rule — *"may share a name when they
+  differ in the first parameter's type"* — **covers 43 of the 50 existing sets, not all of them.**
+  Five (`mutable_set_union`, `_intersect`, `_difference`, `_is_subset`, `mutable_map_set_all`) have
+  the *same* first parameter and are chosen by argument two. `concat` has both that problem and a
+  worse one: its one-argument spread rule reinterprets the same argument type by arity, which no
+  per-parameter signature can state. `mutable` has a `(item: T)` arm matching everything its three
+  siblings match, needing the specificity ranking the rule forbids. So the rule as written would
+  reject seven sets the language ships today. The document proposes argument one then argument
+  two, covering 48, with `concat` and `mutable` staying documented arms.
+
+  **Two measurements taken along the way, both recorded in the document.** Purity is keyed per
+  *name* in `PURE_BUILTINS` and the builder case is excluded by a **proxy** — `t.kind != TY_VOID`
+  in the discard check (`typecheck.c:5975`) — which works only because every builder overload
+  happens to return void; the comment there already records two bugs it caused. And
+  `BUILTINS_NO_NAMED_ARGS` has **128 entries for 99 distinct names**, 29 listed twice because a
+  paired name had to be written once per world, with consumers deduping. Both are symptoms of
+  name-keyed tables modelling a set-keyed world.
+
+  The document stages the work so stages 1-5 are refactors with an observable invariant (corpus,
+  fixtures and the 50-task benchmark behave identically) and only stage 6 changes what a program
+  can say. It also fixes what §5 must contain: an ambiguity error has to name every candidate with
+  its signature, say what each *would have done* in the problem's terms, and give the
+  disambiguating spelling — because a failure mode of "two readings, silently" is the one this
+  language refuses, and a model recovers from an error only when it says what to write instead.

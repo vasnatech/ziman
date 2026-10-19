@@ -1244,6 +1244,16 @@ from source.
   name to set -- and note those last two hand-kept lists went stale three times in one day
   (F151, F152, F160), which this would also fix by making them derivable.
 
+  **Designed, not started (2026-10-19): `docs/design/first-argument-overloading.md`.** Written
+  after the collection pass closed, on the user's request, and it changes one thing in this entry:
+  measured against the prelude as it stands, **the rule above covers 43 of the 50 sets, not all
+  of them.** Five (`mutable_set_union`/`_intersect`/`_difference`/`_is_subset`,
+  `mutable_map_set_all`) are distinguished by argument *two*, `concat` by an arity rule no
+  signature can state, and `mutable` by a catch-all `(item: T)` arm that would need the
+  specificity ranking this rule forbids. The document proposes resolving on argument one and then
+  two, leaving `concat` and `mutable` as documented arms, and stages the work so that each step
+  has an observable invariant. It does not argue for starting.
+
   **What would make it worth doing.** Another row of the collection table wanting an overload --
   items 25-53, the ~29 read-only `array_*` helpers, are exactly that shape and would need ~12-25
   new builder-walking implementations as things stand. If that work is wanted, it is cheaper after
