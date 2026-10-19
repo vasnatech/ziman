@@ -322,7 +322,7 @@ fn wrap_para(p: Para, width: float, d: Document) -> Result<[Line], string> {
         val need = if len(frags) == 0 { it.width } else { used + it.space + it.width }
         if len(frags) > 0 && need > avail + fit_slack {
             mutable_array_push(lines, try line_of(snapshot(frags), used, p, d, false))
-            mutable_array_truncate(frags, 0)
+            clear(frags)
             used = it.width
             first = false
             mutable_array_push(frags, Frag { text: it.text, span: it.span, width: it.width })
@@ -869,7 +869,7 @@ pub fn paginate(d: Document, t: PageTemplate) -> Result<[Scene], string> {
                     ))
                 }
                 mutable_array_push(pages, snapshot(current))
-                mutable_array_truncate(current, 0)
+                clear(current)
                 y = 0.0
                 // Put the remainder back at the front of the queue.
                 mutable_array_insert(queue, at, part)
@@ -879,7 +879,7 @@ pub fn paginate(d: Document, t: PageTemplate) -> Result<[Scene], string> {
                 // left. Either way this page is finished.
                 if !placed {
                     mutable_array_push(pages, snapshot(current))
-                    mutable_array_truncate(current, 0)
+                    clear(current)
                     y = 0.0
                 }
             }

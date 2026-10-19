@@ -367,10 +367,20 @@ struct MutableArray<T> {
 // `concat_arrays<int>(parts: arrays)`. The array counterpart of `join`.
 native fn concat_arrays<T>(parts: variadic [T]) -> [T]
 
-// The elements of `a` from `start` up to, not including, `end` (`0 <= start <= end <= len(a)`, a
-// runtime error otherwise). It does not copy: arrays are immutable, so the result shares `a`'s
-// storage, like `substring`. That makes it free to build and keeps the whole of `a` alive.
-native fn slice<T>(a: [T], start: int, end: int) -> [T]
+// The elements from `start` up to, not including, `end` (`0 <= start <= end <= len(x)`, a runtime
+// error otherwise), as an array from either world.
+//
+// **From an array it does not copy.** Arrays are immutable, so the result shares `a`'s storage,
+// like `substring`: free to build, and it keeps the whole of `a` alive.
+//
+// **From a MutableArray it copies the window, and must.** A view would share a buffer that can
+// still be pushed to, written through or truncated underneath it. So the answer is the same type
+// either way and only the cost differs -- and taking the builder directly is the point, because
+// `slice(snapshot(b), s, e)` copies the *whole* builder first (`snapshot` being O(n), the slice of
+// it then free), so a three-element window of a ten-thousand-element builder copied ten thousand
+// elements.
+builtin fn slice<T>(a: [T], start: int, end: int) -> [T]
+builtin fn slice<T>(b: MutableArray<T>, start: int, end: int) -> [T]
 
 // An empty builder; `capacity` and `grow_factor` are as in `mutable_string_new`.
 native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableArray<T>

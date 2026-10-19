@@ -1412,14 +1412,15 @@ static Value native_concat_arrays(Value *args, int argc, int line, int col) {
     return value_array(type_scalar_ref(TY_VOID), array_obj_new(items, total));
 }
 
-/* slice<T>(a, start, end): a zero-copy view. Arrays are immutable once built
+/* slice<T>(a, start, end) over an array: a zero-copy view. Arrays are immutable once built
  * (see ArrayObj), so the result can share the parent's element storage: a new
  * header pointing into `a`'s items. The same trade-off as string views: the
- * slice keeps the whole parent alive. */
-static Value native_slice(Value *args, int argc, int line, int col) {
-    (void)argc;
-    ArrayObj *arr = args[0].as.arr;
-    int64_t start = args[1].as.i, end = args[2].as.i;
+ * slice keeps the whole parent alive.
+ *
+ * The caller sets the result's own type from the call's resolved type, `slice` being a builtin
+ * dispatched on its first argument since 2026-10-18. */
+Value ziman_slice_array(Value a, int64_t start, int64_t end, int line, int col) {
+    ArrayObj *arr = a.as.arr;
     if (start < 0 || end < start || end > arr->count) {
         ziman_error("runtime", line, col, "slice: range %lld..%lld is out of bounds for an array of length %d",
                     (long long)start, (long long)end, arr->count);
@@ -1936,6 +1937,28 @@ Value ziman_mutable_array_from(Value source, int source_is_handle) {
     return out;
 }
 
+/* slice<T>(b, start, end) over a builder, which **must copy** where the array form does not: a
+ * view would share a buffer that can still be pushed to, written through or truncated underneath
+ * it. So the cost differs by receiver even though the answer does not -- free there, O(end - start)
+ * here -- and the copy is the window only. That is the whole point of taking either world:
+ * `slice(snapshot(b), s, e)` copies the *entire* builder first, since snapshot is O(n) and the
+ * slice of it is then free, so a three-element window of a ten-thousand-element builder copied ten
+ * thousand elements. */
+Value ziman_slice_mutable_array(Value b, int64_t start, int64_t end, int line, int col) {
+    const MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(b));
+    if (start < 0 || end < start || (size_t)end > buf->length) {
+        ziman_error("runtime", line, col,
+                    "slice: range %lld..%lld is out of bounds for a MutableArray of length %llu",
+                    (long long)start, (long long)end, (unsigned long long)buf->length);
+    }
+    int total = (int)(end - start);
+    Value *items = total > 0 ? ziman_xmalloc((size_t)total * sizeof(Value)) : NULL;
+    for (int i = 0; i < total; i++) items[i] = mutable_array_element_at(buf, (size_t)start + (size_t)i);
+    ArrayObj *packed = array_try_pack(items, total);
+    if (packed != NULL) return value_array(type_scalar_ref(TY_VOID), packed);
+    return value_array(type_scalar_ref(TY_VOID), array_obj_new(items, total));
+}
+
 /* A MutableArray of `length` copies of one value. The gap this fills is that **capacity is not
  * length**: `mutable_array_new(capacity: 5)` reserves five slots and has `len` 0, so `b[0] = v` is
  * a runtime out-of-bounds and the only way to get addressable slots was to push them one at a time.
@@ -2332,7 +2355,6 @@ void prelude_register(void) {
     native_register("chars", native_chars);
     native_register("char_count", native_char_count);
     native_register("truncate_chars", native_truncate_chars);
-    native_register("slice", native_slice);
     native_register("mutable_string_get", native_mutable_string_get);
     native_register("mutable_string_set", native_mutable_string_set);
     native_register("mutable_string_index_of", native_mutable_string_index_of);

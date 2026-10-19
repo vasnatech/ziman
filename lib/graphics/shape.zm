@@ -457,7 +457,7 @@ pub fn flattened(p: Path, tolerance: float) -> [Polyline] {
                 if started && len(current) > 1 {
                     mutable_array_push(out, Polyline { points: snapshot(current), closed: false })
                 }
-                mutable_array_truncate(current, 0)
+                clear(current)
                 mutable_array_push(current, pt)
                 start = pt
                 at = pt
@@ -492,7 +492,7 @@ pub fn flattened(p: Path, tolerance: float) -> [Polyline] {
                 if len(current) > 1 {
                     mutable_array_push(out, Polyline { points: snapshot(current), closed: true })
                 }
-                mutable_array_truncate(current, 0)
+                clear(current)
                 mutable_array_push(current, start)
                 at = start
             }

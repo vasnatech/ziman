@@ -2653,6 +2653,10 @@ a type error.
   per element, not an 80-byte boxed value) -- invisible except for cost (a million-`int` array
   is 8 MB); indexing/`for`/`push`/`slice`/`==`/`hash`/`compare` behave identically either way.
 - `slice<T>(a, start, end) -> [T]` — elements `[start, end)`, same bounds rule as `substring`.
+  Takes **either world**: from an array it shares storage and costs nothing, from a `MutableArray`
+  it copies the window, which it must, a view being unable to share a buffer still being written.
+  Taking the builder directly is the point -- `slice(snapshot(b), s, e)` copies the whole builder
+  first, so a small window of a large one copied all of it.
   Does not copy (shares the original's storage, like `substring`); `push`/`insert`/`set` on
   either build a new array, so neither changes under the other.
 - `concat_arrays<T>(parts: variadic [T]) -> [T]` — one array from many in a single allocation

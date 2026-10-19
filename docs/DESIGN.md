@@ -3810,9 +3810,23 @@ such a field, and neither compares nor keys them.
   the docs should say which spelling is canonical, so the duplication reads as a migration in
   progress rather than a coin flip.
 
-Two overlaps are kept on purpose: `clear(xs)` and `mutable_array_truncate(xs, 0)` do the same
-thing, and `mutable_array_push_all(xs, items)` overlaps what a variadic singular would have covered.
-Both are cheap, and the explicit spelling is the one a reader can be sure of.
+One overlap is kept on purpose: `mutable_array_push_all(xs, items)` overlaps what a variadic
+singular would have covered. It is cheap, and the explicit spelling is the one a reader can be sure
+of.
+
+> **Update 2026-10-18 (F157): the `clear(xs)` / `mutable_array_truncate(xs, 0)` overlap is being
+> removed**, which this paragraph used to keep for the same "both are cheap" reason. The counting
+> is what changed the answer: of twelve `mutable_array_truncate` call sites, **eight were
+> `truncate(x, 0)`** -- `clear` written long, byte for byte the same operation, since
+> `ziman_builder_clear` on a MutableArray is `length = 0` and so is truncate's clamp. All eight are
+> now `clear`. Of the remaining four, two were a fixture's own coverage of truncate and one was
+> `truncate(shuffled, wanted)` immediately followed by `snapshot`, which the either-world `slice`
+> added in the same pass says in one call and copies only the prefix for. **One caller is left**,
+> `lib/graphics/raster.zm`'s `advance_active`, and it is a hand-written
+> `mutable_array_filter` -- the same read/write compaction the native does, with the predicate
+> inline instead of in a closure. The function goes once that site is settled; the end state this
+> section already names is "one spelling per operation", and the overlap survived only because
+> nothing had counted it.
 
 ### Aliasing: three types, three answers
 

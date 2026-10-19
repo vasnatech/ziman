@@ -394,7 +394,7 @@ fn dash_one(
                     if on && len(run) > 0 {
                         mutable_array_push(out, Polyline { points: snapshot(run), closed: false })
                     }
-                    mutable_array_truncate(run, 0)
+                    clear(run)
                     on = !on
                     idx = (idx + 1) % len(dash)
                     left = dash[idx]

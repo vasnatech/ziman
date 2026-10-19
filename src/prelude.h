@@ -122,6 +122,8 @@ int ziman_mutable_map_entries(Value m, Value **keys, Value **vals);
  * these guessing from the type again. */
 Value ziman_mutable_array_from(Value source, int source_is_handle);
 Value ziman_mutable_array_lit(const Value *items, int n);
+Value ziman_slice_array(Value a, int64_t start, int64_t end, int line, int col);
+Value ziman_slice_mutable_array(Value b, int64_t start, int64_t end, int line, int col);
 Value ziman_mutable_map_from(Value source, int is_set);
 Value ziman_mutable_set_from_array(Value source, int source_is_handle);
 

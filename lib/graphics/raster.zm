@@ -767,8 +767,8 @@ fn row_coverage_at(
     var s = 0
     while s < samples {
         val sy = (y as float) + ((s as float) + 0.5) * weight
-        mutable_array_truncate(xs, 0)
-        mutable_array_truncate(dirs, 0)
+        clear(xs)
+        clear(dirs)
         crossings_at(e, live, sy, xs, dirs)
         spans_from(xs, dirs, winding, row, width, weight, shift)
         s = s + 1

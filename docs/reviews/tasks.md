@@ -1268,3 +1268,42 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   **One message was wrong before this and is fixed with it:** the refusal said *"argument 1 of
   'remove' expects an array"* while a `Map` and a `Set` were accepted two branches above it, and
   said nothing about any builder. Three fixtures.
+
+- [x] **F157** **`slice` could not see a builder, and `mutable_array_truncate` turned out to be
+  mostly `clear`.** (raised 2026-10-18 from the collection-pairing review, items 14 and 15, then
+  *"I want to remove function mutable_array_truncate"*; S) A sub-range of a MutableArray had no
+  spelling: `slice(b, s, e)` was *"cannot infer type argument 'T'"* and, with the argument written
+  out, *"expects [int], found MutableArray<int>"*. The workaround was `slice(snapshot(b), s, e)`,
+  which is **O(n) whatever the window** -- snapshot copies the whole builder and the slice of it is
+  then free -- so a three-element window of a ten-thousand-element builder copied ten thousand
+  elements.
+
+  **`slice` had to become a builtin to take either world.** Every overloaded name in the prelude is
+  one; a `native` has a single declaration and no first-argument dispatch, so the array path moved
+  out of `native_slice` into `ziman_slice_array` and the two now meet in a checker arm. Existing
+  `slice<byte>(...)` call sites keep working, builtins ignoring explicit type arguments. The answer
+  is `[T]` from either world and only the cost differs: free from an array, which shares the
+  parent's storage, and O(end - start) from a builder, which cannot share a buffer that is still
+  being written.
+
+  **Then the counting.** Of twelve `mutable_array_truncate` call sites, **eight were
+  `truncate(x, 0)`** -- `clear` written long, and byte for byte the same operation, since
+  `ziman_builder_clear` on a MutableArray is `length = 0` and truncate's clamp is the same
+  assignment. All eight became `clear`, in `raster.zm`, `stroker.zm`, `layout.zm` and `shape.zm`.
+  Two more were a fixture's own coverage of truncate, removed with it. One was
+  `truncate(shuffled, wanted)` followed immediately by `snapshot`, in the backend's partial
+  Fisher-Yates, which is now `slice(shuffled, 0, wanted)` -- one call, and it copies the prefix
+  instead of truncating and then copying.
+
+  **One caller is left and the function stays until it is settled:**
+  `lib/graphics/raster.zm`'s `advance_active`, which is a hand-written `mutable_array_filter` --
+  the same read/write compaction the native performs, with the predicate inline rather than in a
+  closure. Which is faster is *not* obvious and was not measured: the hand-written loop pays a
+  `mutable_array_get` and a `mutable_array_set` plus interpreted arithmetic per element, where the
+  native pays one closure call. It is a rasteriser inner loop, so the review kept that site for its
+  own look rather than swapping it blind.
+
+  **DESIGN.md had kept this overlap on purpose** -- *"Both are cheap, and the explicit spelling is
+  the one a reader can be sure of"* -- which the counting is what overturned, the same section
+  already naming "one spelling per operation" as the end state. The note records the reversal rather
+  than quietly dropping the old reason.

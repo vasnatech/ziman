@@ -1,0 +1,5 @@
+// The bounds rule is the array's, reported against the MutableArray's own length.
+fn main() {
+    val b = mutable([1, 2])
+    print(slice(b, 0, 9))
+}

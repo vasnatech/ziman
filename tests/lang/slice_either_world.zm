@@ -1,0 +1,31 @@
+// `slice` takes either world and answers an array both times. From an array it shares the parent's
+// storage and costs nothing; from a MutableArray it copies the window, which it must -- a view
+// would share a buffer that can still be pushed to, written through or truncated underneath it.
+//
+// Taking the builder directly is the whole point. `slice(snapshot(b), s, e)` copies the *entire*
+// builder first, snapshot being O(n) and the slice of it then free, so a three-element window of a
+// ten-thousand-element builder copied ten thousand elements.
+//
+// It was a `native` until 2026-10-18 and had to become a builtin to take both worlds: every
+// overloaded name in the prelude is one, a native having a single declaration and no
+// first-argument dispatch.
+fn main() {
+    val a = [1, 2, 3, 4, 5]
+    print(slice(a, 1, 3))
+    print(slice(a, 0, 0))
+    print(slice(a, 0, 5))
+
+    val b = mutable([1, 2, 3, 4, 5])
+    print(slice(b, 1, 3))
+    print(slice(b, 0, 0))
+    print(slice(b, 0, 5))
+
+    // the builder is untouched and still growable, and a later window sees the growth
+    print(snapshot(b))
+    push(b, 6)
+    print(slice(b, 4, 6))
+
+    // both representations: boxed elements as well as packed
+    print(slice(mutable(["x", "y", "z"]), 1, 3))
+    print(slice(["x", "y", "z"], 1, 3))
+}
