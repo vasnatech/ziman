@@ -426,7 +426,10 @@ for x in seen { ... }                    // a set has one binder
   counterpart of a single value is a cell, so it is `Mutable<T>`.
   A **literal** argument is built straight into the builder -- `mutable([1, 2])` never collects the
   elements into an array first, saving three allocations per construction -- while `mutable(xs)` on
-  a variable copies, the copy being the point there.
+  a variable copies, the copy being the point there. `mutable([])` takes its element type from the
+  context (`val xs: MutableArray<int> = mutable([])`, a parameter type, a `return`, a struct literal
+  field), `[]` being the one literal that carries none of its own; with no context the error names
+  the places that supply one and `mutable_array_new<int>()`, which needs none.
   **The collections win the dispatch**: an array matches both `[T]` and the bare `T`, and the array
   form applies, so `mutable([1, 2])` is never a `Mutable<[int]>`. Write that one `mutable_new([1,
   2])`, which is unambiguous about which you meant. Two consequences worth knowing rather than

@@ -1,0 +1,8 @@
+// With no context there is nothing to infer from, and the generic empty-literal error sent the
+// author to `val x: [int] = []`, which is not the repair for this one. The message names the
+// contexts that do work and the constructor that needs none, shaped after `channel_new()`'s, which
+// is in the same position for the same reason.
+fn main() {
+    val x = mutable([])
+    print(len(x))
+}

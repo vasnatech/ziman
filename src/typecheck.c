@@ -223,6 +223,7 @@ static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type e
  * type is a context like any other, and used not to be treated as one (see there). */
 static int check_ok_err_call(Module *module, Env *env, Expr *e, Type expected);
 static int check_channel_new_call(Module *module, Env *env, Expr *e, Type expected);
+static int check_mutable_empty_call(Module *module, Env *env, Expr *e, Type expected);
 static int check_bare_option_call(Module *module, Env *env, Expr *e, Type expected);
 static int expr_needs_expected_type(const Expr *e);
 static int is_option_type(Type t);
@@ -1293,6 +1294,7 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
         arg->resolved_type = arg_type;
     } else if (check_ok_err_call(module, env, arg, param_type) ||
                check_channel_new_call(module, env, arg, param_type) ||
+               check_mutable_empty_call(module, env, arg, param_type) ||
                check_bare_option_call(module, env, arg, param_type)) {
         /* `ok`/`err`, `channel_new()` and a bare `Some(...)`/`None` carry no type of their own and take
          * it from the context, which is why every other context offering one -- an annotated val, a
@@ -2649,6 +2651,19 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             ziman_error("type", e->line, e->col, "'mutable' takes exactly 1 argument, found %d", e->as.call.args.count);
         }
         Expr *arg = e->as.call.args.items[0];
+        /* Reached only when no context offered a type -- every site that can offer one tries
+         * check_mutable_empty_call first. So `[]` here means there was nothing to infer from, and
+         * the generic empty-literal error would send the author to `val x: [int] = []`, which is
+         * not the repair for this. Shaped after `channel_new()`'s message, which names the
+         * contexts for the same reason. */
+        if (arg->kind == EXPR_ARRAY_LIT && arg->as.array_lit.elements.count == 0) {
+            ziman_error("type", arg->line, arg->col,
+                        "cannot infer the element type of 'mutable([])' here; it takes its type from the context, so "
+                        "it needs one: a val/var with an explicit MutableArray<T> annotation, a struct literal "
+                        "field, a 'with' override, a function's returned value, or an argument whose parameter type "
+                        "says which MutableArray it is -- or write 'mutable_array_new<T>()', which names the element "
+                        "type itself");
+        }
         Type arg_type = check_expr(module, env, arg);
         require_not_void(arg, "as the value 'mutable' makes mutable");
         /* `mutable([1, 2])` builds the builder straight from the literal's elements, which become
@@ -3516,6 +3531,34 @@ static int check_channel_new_call(Module *module, Env *env, Expr *e, Type expect
     return 1;
 }
 
+/* `mutable([])` where a `MutableArray<T>` is expected. `[]` is the one literal that carries no type
+ * of its own, and the annotation beside it carries exactly the missing part, so the expectation has
+ * to reach the argument -- the same reason ok/err, channel_new and a bare `Some`/`None` have hooks
+ * here. Without it the error told an author who had written `MutableArray<int>` one phrase to the
+ * left to "add a type annotation". Only the array case needs this: `Map<K, V> {}` and `Set<T> {}`
+ * write their own types, so `mutable` over either already worked.
+ *
+ * Rewritten onto `$mutable_array_lit` with no arguments -- the literal path added for
+ * `mutable([1, 2])`, which already answers an empty builder when handed no elements -- so there is
+ * no runtime for this beyond what that path already does. */
+static int check_mutable_empty_call(Module *module, Env *env, Expr *e, Type expected) {
+    (void)module;
+    (void)env;
+    if (e->kind != EXPR_CALL || e->as.call.callee == NULL) return 0;
+    if (strcmp(e->as.call.callee, "mutable") != 0) return 0;
+    if (expected.kind != TY_STRUCT || expected.struct_name == NULL) return 0;
+    if (strcmp(expected.struct_name, "MutableArray") != 0 || expected.type_args.count != 1) return 0;
+    if (e->as.call.args.count != 1) return 0;
+    Expr *arg = e->as.call.args.items[0];
+    if (arg->kind != EXPR_ARRAY_LIT || arg->as.array_lit.elements.count != 0) return 0;
+    arg->resolved_type = type_array(expected.type_args.items[0]);
+    e->as.call.rewritten_from = "mutable";
+    e->as.call.callee = ziman_xstrdup("$mutable_array_lit");
+    e->as.call.args.count = 0;
+    e->resolved_type = expected;
+    return 1;
+}
+
 /* `Some(x)`/`None` used bare -- not qualified `Option<T>.Some(x)`/`Option<T>.None` -- where an `Option<T>` is
  * already expected: the same set of legal positions ok/err/channel_new get (see check_ok_err_call), and for the
  * same reason -- `None` carries no `T` at all, and a bare `Some(x)`'s argument only pins down `T` when there is
@@ -3758,6 +3801,9 @@ static Type check_expr_expecting(Module *module, Env *env, Expr **e_slot, Type e
         return expected;
     }
     if (check_channel_new_call(module, env, e, expected)) {
+        return expected;
+    }
+    if (check_mutable_empty_call(module, env, e, expected)) {
         return expected;
     }
     if (check_bare_option_call(module, env, e, expected)) {
@@ -4726,6 +4772,12 @@ static Type check_initializer(Module *module, Env *env, Expr **init_slot, int ha
     } else if (has_declared && check_channel_new_call(module, env, init, declared_type)) {
         /* channel_new() resolved against the declared type -- same
          * reasoning as ok(...)/err(...) above. */
+        declared = declared_type;
+    } else if (has_declared && check_mutable_empty_call(module, env, init, declared_type)) {
+        /* `mutable([])` resolved against the declared type -- same reasoning as ok(...)/err(...)
+         * above, and it has to be repeated here because this chain and check_expr_expecting's are
+         * two lists of the same hooks: a `val` initializer comes through here and never through
+         * that one. Adding the hook to only one of them is why this looked done and was not. */
         declared = declared_type;
     } else if (has_declared && check_bare_option_call(module, env, init, declared_type)) {
         /* bare Some(x)/None resolved against the declared type -- same reasoning as ok(...)/err(...) above. */

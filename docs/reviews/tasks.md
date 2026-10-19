@@ -1184,3 +1184,27 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   as well as the message fixed a second bug pointing the other way: a discarded `mutable(42)`
   rewrites onto `mutable_new`, which is not on the pure-builtin list even though `mutable` is, so
   it had been accepted in silence. Both are fixtures now.
+
+- [x] **F154** **`mutable([])` could not be written, and the error asked for an annotation the
+  author had already given.** (raised 2026-10-18 from a review question -- *"does the following
+  work? val arr: MutableArray<int> = mutable([])"*; S) It did not. `[]` is the one literal with no
+  type of its own, and the expectation never reached it, so the generic empty-literal error fired:
+  *"add a type annotation (e.g. val x: [int] = [])"* -- to an author who had written
+  `MutableArray<int>` one phrase to the left. `Map<K, V> {}` and `Set<T> {}` write their own types,
+  so `mutable` over either already worked; the array literal was the whole gap.
+
+  Fixed with a fourth context hook beside `check_ok_err_call`, `check_channel_new_call` and
+  `check_bare_option_call`, rewritten onto the zero-argument `$mutable_array_lit` that F153 added,
+  so it needs no runtime of its own.
+
+  **The lesson was in the registration, not the hook.** That chain is written out in **four**
+  places -- a `val`/`var` initializer, a call argument, `check_expr_expecting` (which covers
+  returns, struct literal fields and `with` overrides), and the variadic element type. Adding the
+  hook to `check_expr_expecting` alone left the annotated `val` still failing, because that path
+  goes through `check_initializer`'s own copy of the list; adding it there left a call argument
+  failing. Three of the four are now registered, the variadic one deliberately not, since that
+  chain is what decides array-spread. The fixture exercises all four positions for exactly this
+  reason -- a hook registered at one site looks done.
+
+  With no context the message is now shaped after `channel_new()`'s: it names the contexts that
+  supply a type and `mutable_array_new<T>()`, which needs none.

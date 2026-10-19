@@ -1805,6 +1805,12 @@ a builder at all, which is deliberate rather than pending. `mutable_array_from`,
 `mutable_map_from` and `mutable_set_from` used to be that way and were removed once `mutable`
 covered the conversion they were mostly used for: keeping both would have put two spellings on
 one question, and the clone half had no caller outside its own fixtures.
+**`mutable([])` takes its element type from the context**, `[]` being the one literal that
+carries none of its own: `val xs: MutableArray<int> = mutable([])`, a parameter's declared type,
+a `return`, or a struct literal field all supply it. With no context there is nothing to infer
+from and the error says so, naming `mutable_array_new<int>()`, which needs none. `Map<K, V> {}`
+and `Set<T> {}` write their own types, so neither ever had this gap.
+
 **A literal argument is built straight into the builder.** `mutable([1, 2])` makes the
 MutableArray from the literal's elements without collecting them into an array first -- the
 checker hands them over as the call's own arguments, which is what `$map_lit` has always done --

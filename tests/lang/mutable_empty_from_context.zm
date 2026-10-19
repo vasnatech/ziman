@@ -1,0 +1,25 @@
+// `mutable([])` takes its element type from the context, because `[]` is the one literal that
+// carries none of its own. `Map<K, V> {}` and `Set<T> {}` write their types, so `mutable` over
+// either already worked; the array literal was the gap, and the error used to tell an author who
+// had written `MutableArray<int>` one phrase to the left to "add a type annotation".
+//
+// The hook that does this is the fourth of its kind -- ok/err, channel_new and a bare Some/None
+// have the same shape -- and like them it has to be registered at every site that offers a type.
+// There are three: a val/var initializer, a call argument, and check_expr_expecting, which covers
+// returns, struct literal fields and `with` overrides. Registering it at one looked done and was
+// not, which is why all four positions are exercised below.
+struct Holder { items: MutableArray<int> }
+fn take(b: MutableArray<int>) -> int { return len(b) }
+fn make() -> MutableArray<string> { return mutable([]) }
+fn main() {
+    var v: MutableArray<int> = mutable([])
+    push(v, 1)
+    print(snapshot(v))
+
+    print(take(mutable([])))
+    print(len(make()))
+
+    val h = Holder { items: mutable([]) }
+    push(h.items, 7)
+    print(snapshot(h.items))
+}
