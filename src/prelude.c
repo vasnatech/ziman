@@ -1926,6 +1926,32 @@ Value ziman_mutable_array_from(Value source, int source_is_handle) {
     return out;
 }
 
+/* Exchanges two elements of a builder, in place. Was three lines of Ziman over
+ * `mutable_array_get`/`_set` until 2026-10-18, and moved into C for the messages rather than for
+ * the speed: `swap(b, 0, 9)` reported "get index 9 out of bounds", naming a function the author
+ * had not written, because the rewrite landed on sugar that called one. Now both `swap` and
+ * `mutable_array_swap` report the range they were given. Pack-aware, so a packed buffer exchanges
+ * by its element stride. */
+static Value native_mutable_array_swap(Value *args, int argc, int line, int col) {
+    (void)argc;
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
+    int64_t i = args[1].as.i, j = args[2].as.i;
+    if (i < 0 || (size_t)i >= buf->length || j < 0 || (size_t)j >= buf->length) {
+        ziman_error("runtime", line, col, "swap index %lld/%lld out of bounds (MutableArray length %llu)",
+                    (long long)i, (long long)j, (unsigned long long)buf->length);
+    }
+    Value at_i = mutable_array_element_at(buf, (size_t)i);
+    Value at_j = mutable_array_element_at(buf, (size_t)j);
+    if (buf->pkind != PK_NONE) {
+        pack_store(buf->pkind, buf->pdata, (int)i, at_j);
+        pack_store(buf->pkind, buf->pdata, (int)j, at_i);
+    } else {
+        buf->items[i] = at_j;
+        buf->items[j] = at_i;
+    }
+    return value_int(0); /* void return -- the caller never uses this */
+}
+
 /* `narrow(b, start, end)`: keep only that window, in place, answering nothing. The in-place
  * counterpart of `slice`, which is a query and so copies -- see the split that keeps mutations and
  * queries apart in docs/SYNTAX.md.
@@ -2379,6 +2405,7 @@ void prelude_register(void) {
     native_register("mutable_array_sort_with", native_mutable_array_sort_with);
     native_register("mutable_array_insert", native_mutable_array_insert);
     native_register("mutable_array_remove", native_mutable_array_remove);
+    native_register("mutable_array_swap", native_mutable_array_swap);
     native_register("mutable_array_new", native_mutable_array_new);
     native_register("mutable_array_filled", native_mutable_array_filled);
     native_register("mutable_array_push", ziman_mutable_array_push);

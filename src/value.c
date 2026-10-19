@@ -276,6 +276,33 @@ ArrayObj *array_packed_edit(const ArrayObj *old, int mode, int at, Value x) {
     return array_obj_new_packed(k, buf, new_count);
 }
 
+/* A copy of `old` with the elements at `i` and `j` exchanged, in **one** allocation. Written here
+ * rather than as two `array_packed_edit` calls because each of those allocates: the obvious
+ * spelling in Ziman, `set(set(a, i, a[j]), j, a[i])`, copies the whole array twice to move two
+ * slots, which is the whole reason `swap` exists for arrays. Bounds are the caller's to check. */
+ArrayObj *array_swapped(const ArrayObj *old, int i, int j) {
+    PackKind k = array_pack_kind(old);
+    int n = old->count;
+    if (k != PK_NONE) {
+        size_t esz = pack_elem_size(k);
+        const unsigned char *src = k == PK_BYTE ? old->bytes
+                                   : k == PK_BOOL ? old->bools
+                                   : k == PK_INT  ? (const unsigned char *)old->ints
+                                                  : (const unsigned char *)old->floats;
+        unsigned char *buf = zalloc_atomic(esz * (size_t)(n > 0 ? n : 1));
+        memcpy(buf, src, esz * (size_t)n);
+        Value at_i = array_get(old, i);
+        pack_store(k, buf, i, array_get(old, j));
+        pack_store(k, buf, j, at_i);
+        return array_obj_new_packed(k, buf, n);
+    }
+    Value *items = ziman_xmalloc((size_t)(n > 0 ? n : 1) * sizeof(Value));
+    memcpy(items, old->boxed_items, (size_t)n * sizeof(Value));
+    items[i] = old->boxed_items[j];
+    items[j] = old->boxed_items[i];
+    return array_obj_new(items, n);
+}
+
 Value value_int_array(const int64_t *buf, size_t n) {
     int64_t *ints = zalloc_atomic(n > 0 ? n * sizeof(int64_t) : 1);
     if (n > 0) memcpy(ints, buf, n * sizeof(int64_t));

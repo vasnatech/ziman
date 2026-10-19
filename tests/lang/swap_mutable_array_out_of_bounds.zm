@@ -1,0 +1,8 @@
+// The range is reported as given. As Ziman sugar over get/set this said "get index 9 out of
+// bounds", naming a function the author had not written, which is why mutable_array_swap moved
+// into C.
+fn main() {
+    val b = mutable([1, 2])
+    swap(b, 0, 9)
+    print(1)
+}

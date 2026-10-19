@@ -1,0 +1,8 @@
+// An array's `swap` copies, so discarding it changes nothing -- the same mistake as a discarded
+// `push`, and it gets the same message. The builder's `swap` answers nothing and so cannot be
+// discarded wrongly, which is why only this half is an error.
+fn main() {
+    var a = [1, 2]
+    swap(a, 0, 1)
+    print(a)
+}

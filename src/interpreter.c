@@ -1237,6 +1237,7 @@ typedef enum {
     B_mutable_array_lit,
     B_slice,
     B_narrow,
+    B_swap,
     B_mutable_map_from,
     B_mutable_set_from,
     B_to_mutable_set,
@@ -1306,6 +1307,7 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"$mutable_array_lit", B_mutable_array_lit},
     {"slice", B_slice},
     {"narrow", B_narrow},
+    {"swap", B_swap},
     {"$mutable_map_from", B_mutable_map_from},
     {"$mutable_set_from", B_mutable_set_from},
     {"to_mutable_set", B_to_mutable_set},
@@ -1509,6 +1511,18 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(0);
             } else if (bid == B_mutable_set_is_subset) {
                 result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type->kind == TY_STRUCT));
+            } else if (bid == B_swap) {
+                /* Only an array reaches here: the checker rewrites a builder's `swap` onto
+                 * `mutable_array_swap`, which already exchanges in place. One allocation, where
+                 * `set(set(a, i, a[j]), j, a[i])` -- the spelling this replaces -- made two. */
+                ArrayObj *old_arr = args[0].as.arr;
+                int64_t si = args[1].as.i, sj = args[2].as.i;
+                if (si < 0 || si >= old_arr->count || sj < 0 || sj >= old_arr->count) {
+                    ziman_error("runtime", e->line, e->col,
+                                "swap index %lld/%lld out of bounds (array length %d)",
+                                (long long)si, (long long)sj, old_arr->count);
+                }
+                result = value_array(&e->resolved_type, array_swapped(old_arr, (int)si, (int)sj));
             } else if (bid == B_narrow) {
                 result = ziman_narrow_mutable_array(args[0], args[1].as.i, args[2].as.i, e->line, e->col);
             } else if (bid == B_slice) {

@@ -1,0 +1,29 @@
+// `swap` exchanges two elements in both worlds, answered the way each can: a new array from the
+// array, nothing from the builder, which is written in place. The same split as `push`, `insert`
+// and `remove`.
+//
+// The array form closes a gap rather than renaming one. Its only previous spelling was
+// `set(set(a, i, a[j]), j, a[i])`, which copies the whole array **twice** to move two slots,
+// because `set` always copies; `array_swapped` does it in one allocation.
+//
+// Both representations are exercised, because a packed buffer exchanges by its element stride and a
+// boxed one by sizeof(Value) -- getting that wrong corrupts rather than fails.
+fn main() {
+    val a = [1, 2, 3, 4]
+    print(swap(a, 0, 3))
+    print(a)
+    print(swap(a, 1, 1))
+    print(swap(["x", "y", "z"], 0, 2))
+
+    val b = mutable([1, 2, 3, 4])
+    swap(b, 0, 3)
+    print(snapshot(b))
+
+    val s = mutable(["x", "y", "z"])
+    swap(s, 0, 2)
+    print(snapshot(s))
+
+    // the prefixed name still works and is the same operation
+    mutable_array_swap(b, 0, 3)
+    print(snapshot(b))
+}

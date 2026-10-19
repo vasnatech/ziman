@@ -1442,7 +1442,7 @@ static void warn_brace_interpolation(Env *env, Expr *e) {
  * alone, because `unwrap(fs.write_text(...))` is the corpus's own idiom for "abort if this
  * failed" -- the value is genuinely unwanted and the abort is the point. */
 static const char *const PURE_BUILTINS[] = {
-    "push", "insert", "set", "remove", "mutable",
+    "push", "insert", "set", "remove", "mutable", "swap",
     "len", "str", "format", "contains", "abs", "min", "max", "hash", "compare", "error_message",
     "is_ok", "is_Some", "is_None",
     "map_get", "map_get_or", "map_keys", "map_values", "map_merge", "map_filter",
@@ -1469,7 +1469,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
@@ -1945,6 +1945,43 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * accepting it saves a copy rather than hiding one. Named for its *result* because the
      * argument already says what the source is, and because a reader of `to_set` expects the
      * deduplication that `set_from_array` had to document. */
+    /* `swap(x, i, j)`: exchange two elements. The same question of both worlds, with the answer
+     * each world can give -- a new array from the array, nothing from the builder, which is written
+     * in place. The builder form rewrites onto `mutable_array_swap`, which already does it; the
+     * array form is the new half, and it closes a real gap, the only previous spelling being
+     * `set(set(a, i, a[j]), j, a[i])` at two whole-array copies to move two slots.
+     *
+     * The indices are checked by the runtime so a computed one is caught, but the *type* of each is
+     * checked here so the message names `swap` rather than the `mutable_array_set` a rewrite would
+     * otherwise blame. */
+    if (strcmp(name, "swap") == 0) {
+        if (e->as.call.args.count != 3) {
+            ziman_error("type", e->line, e->col, "'swap' takes exactly 3 arguments, found %d", e->as.call.args.count);
+        }
+        Expr *target = e->as.call.args.items[0];
+        Type target_type = check_expr(module, env, target);
+        for (int i = 1; i < 3; i++) {
+            Expr *idx = e->as.call.args.items[i];
+            Type idx_type = check_expr(module, env, idx);
+            if (idx_type.kind != TY_INT) {
+                ziman_error("type", idx->line, idx->col, "argument %d of 'swap' expects int, found %s", i + 1,
+                            type_name(idx_type));
+            }
+        }
+        if (target_type.kind == TY_STRUCT && target_type.struct_name != NULL &&
+            strcmp(target_type.struct_name, "MutableArray") == 0) {
+            e->as.call.callee = ziman_xstrdup("mutable_array_swap");
+            *out = check_expr(module, env, e);
+            return 1;
+        }
+        if (target_type.kind != TY_ARRAY) {
+            ziman_error("type", target->line, target->col,
+                        "'swap' expects an array or a MutableArray, found %s", type_name(target_type));
+        }
+        *out = target_type;
+        return 1;
+    }
+
     /* `narrow(b, start, end)`: keep that window of the builder, in place, answering nothing. The
      * in-place counterpart of `slice`, which is a query and so copies. Builder-only, like `clear`
      * and `snapshot`: an immutable array has nothing to narrow, `slice` making a new one instead.
@@ -5730,7 +5767,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                          && is_pure_builtin_name(authored_callee(s->as.expr_stmt.expr))) {
                     const char *name = authored_callee(s->as.expr_stmt.expr);
                     if (strcmp(name, "push") == 0 || strcmp(name, "insert") == 0 || strcmp(name, "set") == 0
-                        || strcmp(name, "remove") == 0) {
+                        || strcmp(name, "remove") == 0 || strcmp(name, "swap") == 0) {
                         ziman_error("type", s->as.expr_stmt.expr->line, s->as.expr_stmt.expr->col,
                                     "the %s returned by '%s' is discarded, and '%s' does not modify its argument -- "
                                     "arrays, maps and sets are values, so assign the result back "
@@ -5981,7 +6018,7 @@ void typecheck(Module *module) {
                                       "ok", "err", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
                                       "contains", "abs", "min", "max", "remove",
                                       "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "hash", "compare", "error_message",
-                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
+                                      "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_array_push_all", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset"};
 
     /* Struct names and field names within a struct must be unique --
      * checked before any field TYPE is validated, so every struct name a

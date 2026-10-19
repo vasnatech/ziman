@@ -1350,3 +1350,29 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   and a boxed one by `sizeof(Value)`. One message cleaned up on the way: the MutableString refusal
   added hours earlier in F156 told the reader to use *"`mutable_array_truncate`-style rebuilding"*,
   citing the function being deleted.
+
+- [x] **F159** **An array could not swap two elements at all, and the builder's swap was prefixed.**
+  (raised 2026-10-18 from the collection-pairing review, item 17, answered *"do both"*; S)
+  Exchanging elements *i* and *j* is the same question of both worlds, so by the test that made
+  `push`, `insert` and `remove` shared it is the same word, answered the way each world can: a new
+  array from the array, nothing from the builder.
+
+  **The array half closes a real gap rather than renaming one**, which makes it the first row of
+  this table where unifying *added* an operation. There was no array swap, and the only spelling
+  was `set(set(a, i, a[j]), j, a[i])` -- `set` always copies, so that copied the whole array
+  **twice** to move two slots. `array_swapped` in src/value.c does it in one allocation, written
+  there rather than as two `array_packed_edit` calls for exactly that reason.
+
+  **`mutable_array_swap` moved from Ziman into C, for the message and not the speed.** It had been
+  three lines over `mutable_array_get`/`_set`, so `swap(b, 0, 9)` reported *"get index 9 out of
+  bounds"* -- naming a function the author never wrote, the same wart class as the
+  `$mutable_array_lit` and `mutable_array_from` leaks earlier today. One C implementation now backs
+  both names and reports the range it was given. Its two existing call sites are unchanged.
+
+  **And `swap` joined the right half of the dropped-result message.** As a new name it fell to the
+  generic *"has no other effect"* branch; it belongs with `push`/`insert`/`set`/`remove`, whose
+  message says arrays are values and the result has to be assigned back. The builder's `swap`
+  answers nothing, so it cannot be discarded wrongly, which is why only the array half is an error.
+
+  Three fixtures, both representations exercised -- a packed buffer exchanges by its element stride
+  and a boxed one by `sizeof(Value)`.

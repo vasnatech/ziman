@@ -801,14 +801,36 @@ Unlike truncate it does **not** clamp: `end` past the length is a runtime error,
 `slice` and for an index. Truncate's clamp made `truncate(b, 99)` on a length-2 builder a silent
 no-op, which hid a wrong computation rather than reporting it.
 
+### `swap`
+
+```
+builtin fn swap<T>(a: [T], i: int, j: int) -> [T]
+```
+
+**Exchanges the elements at `i` and `j`, in both worlds.** The same question of each, answered
+the way each can: a new array from the array, nothing from the builder, which is written in
+place. The builder form rewrites onto `mutable_array_swap` below, the way `push` does onto
+`mutable_array_push`.
+
+The array form closes a gap rather than renaming one. Its only previous spelling was
+`set(set(a, i, a[j]), j, a[i])`, which copies the whole array **twice** to move two slots,
+because `set` always copies. This copies once.
+
+```
+builtin fn swap<T>(b: MutableArray<T>, i: int, j: int)
+```
+
 ### `mutable_array_swap`
 
 ```
-fn mutable_array_swap<T>(xs: MutableArray<T>, i: int, j: int)
+native fn mutable_array_swap<T>(xs: MutableArray<T>, i: int, j: int)
 ```
 
-Exchanges the elements at `i` and `j`. Three calls otherwise, and every in-place algorithm wants
-it; ordinary Ziman, since `mutable_array_get`/`_set` already reach the buffer.
+Exchanges the elements at `i` and `j`, which is the name `swap` rewrites onto for a builder, the
+way `mutable_array_push` is for `push`. It was three lines of Ziman over
+`mutable_array_get`/`_set` until 2026-10-18 and is C now for the *message*, not the speed: as
+sugar, `swap(b, 0, 9)` reported "get index 9 out of bounds", naming a function the author had not
+written. Both names now report the range they were given.
 
 ### `mutable_array_reverse`
 

@@ -291,6 +291,7 @@ ArrayObj *array_try_pack(const Value *items, int count);
 /* A new packed array from `old` (packed): mode 0 push `x`, 1 insert `x` at `at`,
  * 2 set element `at` to `x`, 3 remove element `at`. */
 ArrayObj *array_packed_edit(const ArrayObj *old, int mode, int at, Value x);
+ArrayObj *array_swapped(const ArrayObj *old, int i, int j);
 /* Packed [int] / [float] Values holding a copy of `buf[0..n)`. */
 Value value_int_array(const int64_t *buf, size_t n);
 /* A fresh, writable copy of the bytes of a [byte] array, NUL-terminated for
