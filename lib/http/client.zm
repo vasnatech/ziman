@@ -1002,11 +1002,7 @@ pub fn jar_header(jar: CookieJar, u: Url) -> Option<string> {
 
 // Stable order: longer paths first.
 fn sort_matches(cookies: [Cookie]) -> [Cookie] {
-    val lengths = mutable_array_new<int>()
-    for c in cookies {
-        mutable_array_push(lengths, len(c.path))
-    }
-    return permute<Cookie>(cookies, sort_scalar_order<int>(snapshot(lengths), true))
+    return sort_by_desc<Cookie, int>(cookies, fn(c: Cookie) -> int { return len(c.path) })
 }
 
 // ------------------------------------------------------------ requests

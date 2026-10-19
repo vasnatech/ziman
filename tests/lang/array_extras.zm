@@ -73,8 +73,8 @@ fn main() {
     print(sort([200b, 3b, 90b]))
     print(array_sort_indices_desc<int>([5, 9, 5, 1]))
     print(array_sort_indices<string>(["b", "a", "b", "a"]))
-    print(array_sort_by_keys<string, int>(["a", "b", "c", "d"], [2, 1, 2, 1]))
-    print(array_sort_by_keys_desc<string, int>(["a", "b", "c", "d"], [2, 1, 2, 1]))
+    print(sort_by<string, int>(["ccc", "a", "dd", "b"], fn(s: string) -> int { return len(s) }))
+    print(sort_by_desc<string, int>(["ccc", "a", "dd", "b"], fn(s: string) -> int { return len(s) }))
     var big: [int] = []
     for i in 0..300 {
         big = push(big, (i * 7919) % 101)

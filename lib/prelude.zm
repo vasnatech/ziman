@@ -512,6 +512,20 @@ fn mutable_array_sort_desc<T: Ord>(xs: MutableArray<T>) {
     }
 }
 
+// The same two by a computed key. `key` is called once per element, on the snapshot, so a key
+// function that reads the buffer it is sorting sees it unchanged throughout.
+fn mutable_array_sort_by<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
+    for i, v in array_sort_by<T, K>(snapshot(xs), key) {
+        mutable_array_set<T>(xs, i, v)
+    }
+}
+
+fn mutable_array_sort_by_desc<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
+    for i, v in array_sort_by_desc<T, K>(snapshot(xs), key) {
+        mutable_array_set<T>(xs, i, v)
+    }
+}
+
 // Sorts the buffer by `cmp`, **copying no elements at all**: a merge sort over positions, then the
 // permutation applied by following its cycles. It allocates two int64 order buffers and an n-byte
 // map -- 17 bytes per element, against the 80 a boxed element costs, twice, through a snapshot. A
@@ -779,7 +793,7 @@ struct MapEntry<K, V> {
 }
 
 // The entries of `m` as an array, in the map's insertion order: for collecting them, sorting them (by value,
-// say, with `array_sort_by_keys`) or taking the first few. Written with the type arguments:
+// say, with `sort_by_desc`) or taking the first few. Written with the type arguments:
 // `map_entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
 fn map_entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>] {
     val out = mutable_array_new<MapEntry<K, V>>()
@@ -880,6 +894,27 @@ builtin fn sort_desc<T: Ord>(b: MutableArray<T>)
 
 builtin fn sort_with<T>(a: [T], cmp: fn(T, T) -> int) -> [T]
 builtin fn sort_with<T>(b: MutableArray<T>, cmp: fn(T, T) -> int)
+
+// ---- and two born paired: sorting by a computed key
+//
+// `sort_by` and `sort_by_desc` compute `key(item)` **once per item** and sort the keys, where
+// `sort_with(items, fn(a, b) { compare(key(a), key(b)) })` recomputes both keys inside every
+// comparison -- O(n) key computations against O(n log n). For a key that is a field access the
+// difference is nothing; for a parsed date or a formatted string it is the whole reason the form
+// exists.
+//
+// They replace `array_sort_by_keys`/`_desc`, which asked the caller to build the key array itself
+// and then took **two** sequences, so a first-argument dispatch could not have paired them: the
+// four world combinations of two arrays cannot be chosen from argument 0. One sequence and a
+// function is the shape the other `_by` builtins already dispatch on.
+//
+// `inverse` cannot stand in for `sort_by_desc` the way it does for a comparator -- it flips an
+// `fn(T, T) -> int`, and a key extractor is not one -- so the descending form is its own name.
+builtin fn sort_by<T, K: Ord>(a: [T], key: fn(T) -> K) -> [T]
+builtin fn sort_by<T, K: Ord>(b: MutableArray<T>, key: fn(T) -> K)
+
+builtin fn sort_by_desc<T, K: Ord>(a: [T], key: fn(T) -> K) -> [T]
+builtin fn sort_by_desc<T, K: Ord>(b: MutableArray<T>, key: fn(T) -> K)
 
 // ---- and the eleven sequence questions, which never had a builder form at all
 //
@@ -1024,7 +1059,12 @@ fn array_sort_desc<T: Ord>(items: [T]) -> [T] {
 
 // `items` ordered by a comparator function (negative, zero or positive, like `compare`), for an
 // order that is neither the type's own nor a single key -- a two-field ordering, say. Stable.
-// `array_sort_by_keys` covers the single-key case.
+// `array_sort_by` covers the single-key case, and computes each key once rather than per
+// comparison.
+fn array_sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
+    return permute<T>(items, sort_positions(len(items), fn(a, b) { cmp(items[a], items[b]) }))
+}
+
 // **A comparator with its order turned round**, which is to `sort_with` what `sort_desc` is to
 // `sort`: `sort_with(xs, inverse(by_length))` rather than a second lambda written backwards, where
 // the only difference is which argument comes first and getting it wrong is silent. It composes,
@@ -1036,8 +1076,19 @@ fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int {
     return fn(a: T, b: T) -> int { cmp(b, a) }
 }
 
-fn array_sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
-    return permute<T>(items, sort_positions(len(items), fn(a, b) { cmp(items[a], items[b]) }))
+// `items` in ascending order of `key(item)`, the key computed **once per element** and the
+// elements then permuted into the keys' order -- the decorate-sort-permute shape, with the
+// decorate step no longer the caller's job. `key` returning an int, float, byte or string also
+// keeps the native sort: `array_map` answers a real `[K]`, so `array_order_of`'s
+// `is_sortable_scalars` fast path still fires. Stable: equal keys keep their input order.
+fn array_sort_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
+    return permute<T>(items, array_order_of<K>(array_map<T, K>(items, key), false))
+}
+
+// `items` in descending order of `key(item)`. Also stable, so this is not `array_sort_by`'s
+// result reversed -- that would flip ties.
+fn array_sort_by_desc<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
+    return permute<T>(items, array_order_of<K>(array_map<T, K>(items, key), true))
 }
 
 // A guard sends `message` on `channel` when nothing references it any more: a database
@@ -1354,8 +1405,8 @@ builtin fn max<T: Ord>(values: variadic T) -> T
 // a lambda, and a lambda may use the enclosing function's immutable locals.
 
 // The positions of `keys` in ascending order: the array of indices that, read in order,
-// visits `keys` smallest first. Stable: equal keys keep their input order. `sort` and
-// `sort_by_keys` are built on this.
+// visits `keys` smallest first. Stable: equal keys keep their input order. `sort_by` is built on
+// this, through `array_order_of`; `sort` is not -- it reaches `sort_positions` directly.
 fn array_sort_indices<K: Ord>(keys: [K]) -> [int] {
     return array_order_of<K>(keys, false)
 }
@@ -1376,33 +1427,6 @@ fn array_order_of<K: Ord>(keys: [K], descending: bool) -> [int] {
         return sort_positions(len(keys), fn(a, b) { compare(keys[b], keys[a]) })
     }
     return sort_positions(len(keys), fn(a, b) { compare(keys[a], keys[b]) })
-}
-
-// `items` ordered by `keys[i]` for each `items[i]` -- the key array is how a caller sorts by
-// a field or a computed value without a comparator function. The two arrays differing in length
-// is a bug in the caller's own logic (both are always the program's own arrays, never data from
-// outside it), not a recoverable condition -- a fatal error naming both lengths, the same policy
-// every programmer-error case in the library follows now (see docs/DESIGN.md's "Programmer
-// errors are fatal" entry), not a `Result` a caller could forget to check.
-fn array_sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> [T] {
-    if len(items) != len(keys) {
-        val mismatch: Result<[T], string> = err(format("sort_by_keys: {} items but {} keys", len(items), len(keys)))
-        return unwrap(mismatch)
-    }
-    return permute<T>(items, array_sort_indices<K>(keys))
-}
-
-// The descending form of `sort_by_keys`.
-fn array_sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> [T] {
-    if len(items) != len(keys) {
-        val mismatch: Result<[T], string> = err(format(
-            "sort_by_keys_desc: {} items but {} keys",
-            len(items),
-            len(keys)
-        ))
-        return unwrap(mismatch)
-    }
-    return permute<T>(items, array_sort_indices_desc<K>(keys))
 }
 
 // True when no element is greater than the one after it (an empty or one-element array is).

@@ -1451,13 +1451,13 @@ fn main() {
 
 ## Ordering (`Ord`, `compare`, sorting)
 
-```ziman ignore: `people`, `patients` and `ages` stand for the reader's own arrays
+```ziman ignore: `people` and `patients` stand for the reader's own arrays
 
 #[derive(Ord)]
 struct Person { last: string  first: string }
 
 val sorted = array_sort<Person>(people)               // by last, then first
-val by_age = array_sort_by_keys<Patient, int>(patients, ages)
+val by_age = sort_by<Patient, int>(patients, fn(p: Patient) -> int { return p.age })
 ```
 
 - **`< > <= >=`** work on `int`/`float`/`bigint`/`decimal`/`byte`/`string` (byte-by-byte then
@@ -1477,11 +1477,15 @@ val by_age = array_sort_by_keys<Patient, int>(patients, ages)
   B>` writes `pair_compare<A: Ord, B: Ord>`, so `Pair<int, string>` is `Ord` but `Pair<int,
   bool>` is rejected.
 - **`array_sort<T: Ord>(items) -> [T]`** is a stable merge sort (new array). Sort by
-  something other than the type's own order with **`sort_by_keys<T, K: Ord>(items, keys) ->
-  [T]`** (a fatal error, not `Result`, on mismatched lengths -- a caller's own bug; see
-  docs/DESIGN.md's "Programmer errors are fatal") or a comparator function via
-  **`sort_with<T>(items, cmp: fn(T, T) -> int)`**. Descending: `sort_desc`/`sort_by_keys_desc`/
-  `sort_indices_desc` -- also stable, not the same as reversing ascending (which flips ties). A
+  something other than the type's own order with **`sort_by<T, K: Ord>(items, key: fn(T) -> K)
+  -> [T]`**, which calls `key` **once per element** where the comparator form recomputes it per
+  comparison, or by a comparator function via **`sort_with<T>(items, cmp: fn(T, T) -> int)`**.
+  Descending: `sort_desc`/`sort_by_desc`/`sort_indices_desc` -- also stable, not the same as
+  reversing ascending (which flips ties). `inverse(cmp)` turns a comparator round for `sort_with`,
+  but cannot reverse a key function, which is why `sort_by_desc` is its own name. `sort`,
+  `sort_desc`, `sort_with`, `sort_by` and `sort_by_desc` each take an array **or** a
+  `MutableArray`, answering a new array for the first and sorting the buffer in place for the
+  second. A
   packed `[int]`/`[float]`/`[byte]` or string array sorts natively (~10x faster); anything else
   calls `compare` in a merge sort. Also `sort_indices`, `is_sorted`, `reverse`, and for sorted
   arrays `lower_bound`/`upper_bound` (insertion points) and `binary_search` (`Option<int>`).
@@ -2800,8 +2804,8 @@ a type error.
   directions, so `array_sort_desc` is not `array_sort` reversed (that would flip ties).
   The rest of the array library is bare too, and needs no import either: `array_fold`,
   `array_find`, `array_first`, `array_last`, `array_min_by`, `array_max_by`, `array_count`,
-  `array_any`, `array_all`, `array_for_each`, `array_distinct`, `array_join`, `array_sum`,
-  `array_sort_indices`/`_desc`, `array_sort_by_keys`/`_desc`, `array_is_sorted`,
+  `array_any`, `array_all`, `array_for_each`, `array_distinct`, `array_sum`,
+  `array_sort_indices`/`_desc`, `array_sort_by`/`_desc`, `array_is_sorted`,
   `array_lower_bound`, `array_upper_bound`, `array_binary_search`, `array_group_by`,
   `array_frequencies` and `array_index_by`. There was a `collections` module holding these until
   2026-10-14; it is gone, and arrays are now the same shape as `Map` and `Set`, whose `map_*` and

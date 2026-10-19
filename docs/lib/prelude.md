@@ -884,6 +884,21 @@ this array" is not a function the design asked for.
 fn mutable_array_sort_desc<T: Ord>(xs: MutableArray<T>)
 ```
 
+### `mutable_array_sort_by`
+
+```
+fn mutable_array_sort_by<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K)
+```
+
+The same two by a computed key. `key` is called once per element, on the snapshot, so a key
+function that reads the buffer it is sorting sees it unchanged throughout.
+
+### `mutable_array_sort_by_desc`
+
+```
+fn mutable_array_sort_by_desc<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K)
+```
+
 ### `mutable_array_sort_with`
 
 ```
@@ -1305,7 +1320,7 @@ fn map_entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>]
 ```
 
 The entries of `m` as an array, in the map's insertion order: for collecting them, sorting them (by value,
-say, with `array_sort_by_keys`) or taking the first few. Written with the type arguments:
+say, with `sort_by_desc`) or taking the first few. Written with the type arguments:
 `map_entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
 
 ### `map_map_values`
@@ -1479,6 +1494,42 @@ builtin fn sort_with<T>(a: [T], cmp: fn(T, T) -> int) -> [T]
 
 ```
 builtin fn sort_with<T>(b: MutableArray<T>, cmp: fn(T, T) -> int)
+```
+
+## And two born paired: sorting by a computed key
+
+### `sort_by`
+
+```
+builtin fn sort_by<T, K: Ord>(a: [T], key: fn(T) -> K) -> [T]
+```
+
+`sort_by` and `sort_by_desc` compute `key(item)` **once per item** and sort the keys, where
+`sort_with(items, fn(a, b) { compare(key(a), key(b)) })` recomputes both keys inside every
+comparison -- O(n) key computations against O(n log n). For a key that is a field access the
+difference is nothing; for a parsed date or a formatted string it is the whole reason the form
+exists.
+
+They replace `array_sort_by_keys`/`_desc`, which asked the caller to build the key array itself
+and then took **two** sequences, so a first-argument dispatch could not have paired them: the
+four world combinations of two arrays cannot be chosen from argument 0. One sequence and a
+function is the shape the other `_by` builtins already dispatch on.
+
+`inverse` cannot stand in for `sort_by_desc` the way it does for a comparator -- it flips an
+`fn(T, T) -> int`, and a key extractor is not one -- so the descending form is its own name.
+
+```
+builtin fn sort_by<T, K: Ord>(b: MutableArray<T>, key: fn(T) -> K)
+```
+
+### `sort_by_desc`
+
+```
+builtin fn sort_by_desc<T, K: Ord>(a: [T], key: fn(T) -> K) -> [T]
+```
+
+```
+builtin fn sort_by_desc<T, K: Ord>(b: MutableArray<T>, key: fn(T) -> K)
 ```
 
 ## And the eleven sequence questions, which never had a builder form at all
@@ -1746,15 +1797,23 @@ fn array_sort_desc<T: Ord>(items: [T]) -> [T]
 `items` in descending order of their own `compare`. Also stable, so this is not `array_sort`'s
 result reversed -- that would flip ties.
 
+### `array_sort_with`
+
+```
+fn array_sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
+```
+
+`items` ordered by a comparator function (negative, zero or positive, like `compare`), for an
+order that is neither the type's own nor a single key -- a two-field ordering, say. Stable.
+`array_sort_by` covers the single-key case, and computes each key once rather than per
+comparison.
+
 ### `inverse`
 
 ```
 fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int
 ```
 
-`items` ordered by a comparator function (negative, zero or positive, like `compare`), for an
-order that is neither the type's own nor a single key -- a two-field ordering, say. Stable.
-`array_sort_by_keys` covers the single-key case.
 **A comparator with its order turned round**, which is to `sort_with` what `sort_desc` is to
 `sort`: `sort_with(xs, inverse(by_length))` rather than a second lambda written backwards, where
 the only difference is which argument comes first and getting it wrong is silent. It composes,
@@ -1763,11 +1822,26 @@ about arrays -- so the one function serves `sort_with` in both.
 
 Ordinary Ziman: it returns a closure over `cmp`, which needs nothing the language lacks.
 
-### `array_sort_with`
+### `array_sort_by`
 
 ```
-fn array_sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
+fn array_sort_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T]
 ```
+
+`items` in ascending order of `key(item)`, the key computed **once per element** and the
+elements then permuted into the keys' order -- the decorate-sort-permute shape, with the
+decorate step no longer the caller's job. `key` returning an int, float, byte or string also
+keeps the native sort: `array_map` answers a real `[K]`, so `array_order_of`'s
+`is_sortable_scalars` fast path still fires. Stable: equal keys keep their input order.
+
+### `array_sort_by_desc`
+
+```
+fn array_sort_by_desc<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T]
+```
+
+`items` in descending order of `key(item)`. Also stable, so this is not `array_sort_by`'s
+result reversed -- that would flip ties.
 
 ### `Guard`
 
@@ -2293,8 +2367,8 @@ fn array_sort_indices<K: Ord>(keys: [K]) -> [int]
 ```
 
 The positions of `keys` in ascending order: the array of indices that, read in order,
-visits `keys` smallest first. Stable: equal keys keep their input order. `sort` and
-`sort_by_keys` are built on this.
+visits `keys` smallest first. Stable: equal keys keep their input order. `sort_by` is built on
+this, through `array_order_of`; `sort` is not -- it reaches `sort_positions` directly.
 
 ### `array_sort_indices_desc`
 
@@ -2313,27 +2387,6 @@ fn array_order_of<K: Ord>(keys: [K], descending: bool) -> [int]
 
 Packed numbers and strings are sorted natively; anything else (a struct, an enum, a bigint)
 by the merge sort `sort_positions`, calling `compare`.
-
-### `array_sort_by_keys`
-
-```
-fn array_sort_by_keys<T, K: Ord>(items: [T], keys: [K]) -> [T]
-```
-
-`items` ordered by `keys[i]` for each `items[i]` -- the key array is how a caller sorts by
-a field or a computed value without a comparator function. The two arrays differing in length
-is a bug in the caller's own logic (both are always the program's own arrays, never data from
-outside it), not a recoverable condition -- a fatal error naming both lengths, the same policy
-every programmer-error case in the library follows now (see docs/DESIGN.md's "Programmer
-errors are fatal" entry), not a `Result` a caller could forget to check.
-
-### `array_sort_by_keys_desc`
-
-```
-fn array_sort_by_keys_desc<T, K: Ord>(items: [T], keys: [K]) -> [T]
-```
-
-The descending form of `sort_by_keys`.
 
 ### `array_is_sorted`
 

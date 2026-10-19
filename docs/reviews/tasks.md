@@ -1597,3 +1597,42 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   loop ignored. Three times in this pass my own verification has been the unreliable part -- the
   wrong file set twice, now the wrong harness -- so the authority is `make check`, read from its
   recorded exit status.
+
+- [x] **F166** **`sort_by`/`sort_by_desc` replace `sort_by_keys`/`_desc`.** (raised 2026-10-19 from
+  Group C, answered *"add sort_by and sort_by_desc, remove sort_by_keys"*; S) The key-array form
+  asked the caller to build the keys itself and then took **two** sequences, which is why Group C
+  could not pair it: first-argument dispatch cannot choose among four world combinations when two
+  of the arguments are collections. One sequence and a key function is the shape `group_by`,
+  `index_by`, `min_by` and `max_by` already dispatch on, so the replacement pairs for free -- four
+  declarations, two array bodies, two in-place twins, one dispatch-table entry each.
+
+  **The name and the bound came from the family, not the proposal.** The signature arrived as
+  `sort_by<T, F>(items, mapper: fn(T) -> F)`; the four existing `_by` builtins all spell it
+  `<T, K: Ord>(a, key: fn(T) -> K)`, and `F` carried no bound at all, which would have let a key
+  type with no order through the declaration and failed inside `array_order_of` instead.
+
+  **It found a hand-rolled copy of itself.** `lib/http/client.zm`'s `sort_matches` built an `[int]`
+  of path lengths into a builder, snapshotted it and called `permute(cookies,
+  sort_scalar_order(...))` -- which is exactly what `sort_by_desc` expands to for an int key, down
+  to the same single permute and the same native sort. Six lines became one. The two `migrate.zm`
+  callers lost their `versions` array the same way. That is the third hand-rolled builtin this
+  review has found, after `join` and `contains`.
+
+  **`inverse` cannot cover the descending form.** It flips an `fn(T, T) -> int`; a key extractor is
+  not one, so `sort_by_desc` is its own name rather than `sort_by(xs, inverse(key))`.
+
+  **Two tests were deleted, not ported.** `sort_by_keys_length_mismatch_rejected` and its `_desc`
+  twin covered the fatal mismatch between `items` and `keys` that P2-4 made fatal (see DESIGN.md's
+  "Programmer errors are fatal"). With the keys computed by `array_map` from the items themselves,
+  a mismatch is no longer a bug a caller can write -- the condition is structurally gone, so the
+  fixtures went with it rather than being kept green against nothing.
+
+  **Fixed in passing:** the `inverse` doc comment had been spliced into the middle of
+  `array_sort_with`'s, leaving `array_sort_with` undocumented and `inverse`'s text attached to the
+  wrong function; `array_sort_indices`'s comment claimed "`sort` and `sort_by_keys` are built on
+  this" when `array_sort` reaches `sort_positions` directly; and SYNTAX.md's bare-array list still
+  named `array_join`, deleted in F162.
+
+  **Still unused after this:** `sort_indices`/`_desc` have no caller outside the prelude. They are
+  the Group C item left standing, and the one place in the tree that genuinely wanted a permutation
+  (`sort_matches`) reached past them to `sort_scalar_order` and is now a `sort_by_desc` call.

@@ -1,4 +1,0 @@
-
-fn main() {
-    print(array_sort_by_keys<string, int>(["a", "b", "c"], [1]))
-}

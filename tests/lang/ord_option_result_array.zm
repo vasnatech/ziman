@@ -41,11 +41,7 @@ fn main() {
     print(sort_desc([3, 1, 2, 3]))
     print(sort_desc(["b", "c", "a"]))
     val people = [P { name: "a", age: 30 }, P { name: "b", age: 71 }, P { name: "c", age: 30 }, P { name: "d", age: 5 }]
-    var ages: [int] = []
-    for p in people {
-        ages = push(ages, p.age)
-    }
-    for p in array_sort_by_keys_desc<P, int>(people, ages) {
+    for p in sort_by_desc<P, int>(people, fn(p: P) -> int { return p.age }) {
         print(concat(p.name, str(p.age)))
     }
 }

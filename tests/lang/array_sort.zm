@@ -22,13 +22,9 @@ fn main() {
     for p in sort(people) {
         print(concat(p.last, concat(", ", p.first)))
     }
-    // sort by a field via a key array
+    // sort by a computed key
     val patients = [Patient { name: "Zoe", age: 30 }, Patient { name: "Al", age: 71 }, Patient { name: "Mo", age: 30 }]
-    var ages: [int] = []
-    for p in patients {
-        ages = push(ages, p.age)
-    }
-    for p in array_sort_by_keys<Patient, int>(patients, ages) {
+    for p in sort_by<Patient, int>(patients, fn(p: Patient) -> int { return p.age }) {
         print(concat(p.name, str(p.age)))
     }
     print(array_is_sorted<int>([1, 2, 2, 3]))

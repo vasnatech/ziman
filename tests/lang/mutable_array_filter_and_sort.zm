@@ -1,4 +1,4 @@
-// The in-place transforms: filter, and the three sorts. Both representations again, because a
+// The in-place transforms: filter, and the five sorts. Both representations again, because a
 // packed buffer and a boxed one take different paths through the compaction.
 //
 // `p_compare` compares only `key`, so the two pairs sharing a key are genuine ties -- which is what
@@ -41,6 +41,21 @@ fn main() {
     }
     print(trim(snapshot(out)))
     sort_desc(ps)
+    clear(out)
+    for p in ps {
+        mutable_string_append(out, str(p.key), p.tag, " ")
+    }
+    print(trim(snapshot(out)))
+
+    // by a computed key, in place, and stable both ways: ordering by `tag` leaves the keys
+    // interleaved, so the descending pass that follows has genuine ties to keep in order.
+    sort_by<P, string>(ps, fn(p: P) -> string { return p.tag })
+    clear(out)
+    for p in ps {
+        mutable_string_append(out, str(p.key), p.tag, " ")
+    }
+    print(trim(snapshot(out)))
+    sort_by_desc<P, int>(ps, fn(p: P) -> int { return p.key })
     clear(out)
     for p in ps {
         mutable_string_append(out, str(p.key), p.tag, " ")
