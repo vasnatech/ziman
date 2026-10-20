@@ -2630,33 +2630,6 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * The indices are checked by the runtime so a computed one is caught, but the *type* of each is
      * checked here so the message names `swap` rather than the `mutable_array_set` a rewrite would
      * otherwise blame. */
-    if (strcmp(name, "swap") == 0) {
-        if (e->as.call.args.count != 3) {
-            ziman_error("type", e->line, e->col, "'swap' takes exactly 3 arguments, found %d", e->as.call.args.count);
-        }
-        Expr *target = e->as.call.args.items[0];
-        Type target_type = check_expr(module, env, target);
-        for (int i = 1; i < 3; i++) {
-            Expr *idx = e->as.call.args.items[i];
-            Type idx_type = check_expr(module, env, idx);
-            if (idx_type.kind != TY_INT) {
-                ziman_error("type", idx->line, idx->col, "argument %d of 'swap' expects int, found %s", i + 1,
-                            type_name(idx_type));
-            }
-        }
-        if (target_type.kind == TY_STRUCT && target_type.struct_name != NULL &&
-            strcmp(target_type.struct_name, "MutableArray") == 0) {
-            *out = type_scalar(TY_VOID);
-            return 1;
-        }
-        if (target_type.kind != TY_ARRAY) {
-            ziman_error("type", target->line, target->col,
-                        "'swap' expects an array or a MutableArray, found %s", type_name(target_type));
-        }
-        *out = target_type;
-        return 1;
-    }
-
     /* `narrow(b, start, end)`: keep that window of the builder, in place, answering nothing. The
      * in-place counterpart of `slice`, which is a query and so copies. Builder-only, like `clear`
      * and `snapshot`: an immutable array has nothing to narrow, `slice` making a new one instead.
@@ -2691,55 +2664,6 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * overloaded name in the prelude being one -- a native has a single declaration and no
      * first-argument dispatch. The answer is `[T]` whichever world the source is; only the cost
      * differs, free against a copy of the window, and `ziman_slice_mutable_array` says why. */
-    if (strcmp(name, "slice") == 0) {
-        if (e->as.call.args.count != 3) {
-            ziman_error("type", e->line, e->col, "'slice' takes exactly 3 arguments, found %d", e->as.call.args.count);
-        }
-        Expr *src = e->as.call.args.items[0];
-        Type src_type = check_expr(module, env, src);
-        const Type *elem = NULL;
-        if (src_type.kind == TY_ARRAY) {
-            elem = src_type.elem;
-        } else if (src_type.kind == TY_STRUCT && src_type.struct_name != NULL &&
-                   strcmp(src_type.struct_name, "MutableArray") == 0 && src_type.type_args.count == 1) {
-            elem = &src_type.type_args.items[0];
-        }
-        if (elem == NULL) {
-            ziman_error("type", src->line, src->col, "'slice' expects an array or a MutableArray, found %s",
-                        type_name(src_type));
-        }
-        for (int i = 1; i < 3; i++) {
-            Expr *bound = e->as.call.args.items[i];
-            Type bound_type = check_expr(module, env, bound);
-            if (bound_type.kind != TY_INT) {
-                ziman_error("type", bound->line, bound->col, "argument %d of 'slice' expects int, found %s", i + 1,
-                            type_name(bound_type));
-            }
-        }
-        *out = type_array(*elem);
-        check_type_well_formed(module, *out, e->line, e->col);
-        return 1;
-    }
-
-    if (strcmp(name, "to_set") == 0) {
-        if (e->as.call.args.count != 1) {
-            ziman_error("type", e->line, e->col, "'to_set' takes exactly 1 argument, found %d", e->as.call.args.count);
-        }
-        Type items = check_expr(module, env, e->as.call.args.items[0]);
-        const Type *elem = NULL;
-        if (items.kind == TY_ARRAY) {
-            elem = items.elem;
-        } else if (items.kind == TY_STRUCT && items.struct_name != NULL &&
-                   strcmp(items.struct_name, "MutableArray") == 0 && items.type_args.count == 1) {
-            elem = &items.type_args.items[0];
-        }
-        if (elem == NULL) {
-            ziman_error("type", e->line, e->col, "'to_set' expects an array or a MutableArray, found %s", type_name(items));
-        }
-        *out = type_set(*elem);
-        check_type_well_formed(module, *out, e->line, e->col);
-        return 1;
-    }
     int found = 0;
     for (size_t i = 0; i < sizeof TABLE / sizeof TABLE[0]; i++) {
         if (strcmp(name, TABLE[i].name) == 0) {
@@ -3128,6 +3052,31 @@ static FunctionDecl *shadowing_fn(const char *name) {
 
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
+
+    /* A call the checker has already rewritten onto one of its own `$` names is finished: the
+     * `mutable` arm replaces the callee, replaces the arguments with the literal's elements, and
+     * answers the handle type directly rather than recursing -- so there is no arm to re-enter
+     * and `$mutable_array_lit` reads as an undefined function the second time round.
+     *
+     * Nothing checked an expression twice until the resolver did. An overload set types each
+     * self-describing argument to filter its candidates, and the ordinary argument loop then
+     * types it again against the chosen declaration; for every other expression that is merely
+     * wasted work, and for this one it was an error. `distinct(mutable([1, 2, 1]))` has been
+     * broken since F178 and was found converting `slice`, whose hand-written arm had checked its
+     * argument exactly once. The recorded type is the right answer and `check_expr` stores it on
+     * every node, so this returns it.
+     *
+     * Two things the guard has to get right. It tests `rewritten_from`, not the `$` alone,
+     * because the *parser* emits `$map_lit`, `$set_lit`, `$is_variant` and `$unwrap_variant` as
+     * original callees and those do have arms that must still run. And it tests that a type was
+     * already recorded: `mutable` over a non-literal rewrites the callee and then deliberately
+     * **re-enters** `check_expr` so the `$mutable_array_from` arm runs, which is a first check
+     * with nothing recorded yet -- without that half of the guard, five fixtures turned
+     * `mutable(source)` into a void value. */
+    if (e->as.call.rewritten_from != NULL && name[0] == '$'
+        && e->resolved_type.kind != TY_VOID) {
+        return e->resolved_type;
+    }
     FunctionDecl *shadow_fn = shadowing_fn(name);
 
     /* `a.f(args)` where `a` is not a module this file imported. The loader left it alone and marked it

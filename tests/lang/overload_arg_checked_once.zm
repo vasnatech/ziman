@@ -1,0 +1,25 @@
+// A regression fixture for a bug F178 shipped and F189 found: an overload set types each
+// self-describing argument once to filter its candidates, and the ordinary argument loop then
+// types it again against the chosen declaration. For nearly every expression the second check is
+// merely wasted work. For a `mutable(...)` over an array literal it was an error: the `mutable`
+// arm rewrites the callee to `$mutable_array_lit`, replaces the arguments with the literal's
+// elements and answers the handle type directly, so re-checking read `$mutable_array_lit` as an
+// undefined function.
+//
+// `distinct(mutable([1, 2, 1]))` was broken on main for three commits. Nothing caught it because
+// every fixture that passed a `mutable(...)` literal into a collection call was passing it to a
+// name still dispatched by a hand-written arm, and an arm checks its argument exactly once.
+fn main() {
+    print(len(mutable([1, 2])))
+    print(distinct(mutable([1, 2, 1])))
+    val b = mutable([3, 1, 2])
+    sort(b)
+    print(snapshot(b))
+    print(slice(mutable(["x", "y", "z"]), 1, 3))
+    print(fold(mutable([1, 2, 3]), 0, fn(a: int, x: int) -> int { return a + x }))
+    // and the non-literal path, which rewrites onto `$mutable_array_from` and *deliberately*
+    // re-enters the checker -- the half of the guard that five fixtures found
+    val source = [4, 5]
+    val h = mutable(source)
+    print(snapshot(h))
+}

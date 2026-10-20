@@ -2441,3 +2441,32 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   69 arms left, from 70. Order from here: the small sets (`clear`, `snapshot`, `slice`, `swap`,
   `to_set`, `to_mutable_set`, `unwrap`) with `#[when_unmatched]` attached where F186 found a
   clause the declarations cannot carry, then `str`, `contains` and `len` at six to nine members.
+
+- [x] **F189** **Stage 8 step 3 continued: `swap`, `slice`, `to_set` converted — and a bug F178
+  shipped.** (done 2026-10-19.) Three more arms deleted, 66 left from 70. `to_mutable_set` had no
+  arm of its own; `unwrap` shares one with `unwrap_err`, so both were left.
+
+  **Converting `slice` exposed a regression three commits old.** An overload set types each
+  self-describing argument *once* to filter its candidates, and the ordinary argument loop then
+  types it again against the chosen declaration. For nearly every expression the second check is
+  only wasted work. For `mutable([1, 2])` it was an error: the `mutable` arm rewrites the callee
+  to `$mutable_array_lit`, replaces the arguments with the literal's elements and answers the
+  handle type **directly, without recursing** — so the second check read `$mutable_array_lit` as
+  an undefined function.
+
+  **`distinct(mutable([1, 2, 1]))` had been broken on `main` since F178.** No fixture caught it
+  because every one that passed a `mutable(...)` literal into a collection call passed it to a
+  name still dispatched by a hand-written arm — and an arm checks its argument exactly once. The
+  bug could only appear where the resolver had replaced an arm, which is precisely where no
+  fixture had been written yet. Converting `slice` put a fixture there.
+
+  **The fix is to answer from the node.** `check_expr` records `resolved_type` on every node, so a
+  call already rewritten onto one of the checker's own `$` names returns it instead of resolving
+  again. Two halves to the guard, the second found by breaking five fixtures: it must test
+  `rewritten_from` rather than the `$` alone, because the *parser* emits `$map_lit`, `$set_lit`,
+  `$is_variant` and `$unwrap_variant` as original callees with arms that must still run; and it
+  must require a type to have been recorded, because `mutable` over a **non-literal** rewrites the
+  callee and then deliberately re-enters `check_expr` so the `$mutable_array_from` arm runs —
+  which is a first check with nothing recorded yet.
+
+  `tests/lang/overload_arg_checked_once.zm` pins both halves, including the non-literal path.
