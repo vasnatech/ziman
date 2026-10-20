@@ -1,1 +1,1 @@
-no declaration of 'lower_bound' accepts its argument 1
+'lower_bound' expects [T] or a builder, found Set<int>

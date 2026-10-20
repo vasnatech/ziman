@@ -390,3 +390,46 @@ the `Map` type" hint along with the table, caught only because a fixture pinned 
 So the open design question is **how a declaration keeps the hint its arm carried** — a per-set
 "when nothing matches, say this" that `len` could carry while losing its arm. That wants
 designing before any conversion, and the work should not start without it.
+
+
+## 12. Stage 8: converting the polymorphic builtins — step 1 done, and what it found
+
+Added 2026-10-19 (F186). §11 proposed deriving the "expects …" sentence from the declarations so
+that converting a polymorphic builtin would not cost its measured diagnostic. Step 1 built the
+derivation and compared it against all 16 arms whose members differ by argument one. **It covers
+about half, and the half it misses is the interesting half.**
+
+**Derivable, and as good as the hand-written line:**
+
+```
+hand:     'len' expects an array, string, map, set, builder or Mutable, found P
+derived:  'len' expects string, [T], Map<K, V>, Set<T>, Mutable<T> or a builder, found P
+
+hand:     'slice'/'swap'/'to_set' expects an array or a MutableArray, found P
+derived:  the same list, from the declarations
+```
+
+**Not derivable — a measured clause the signatures do not contain:**
+
+| | the clause |
+|---|---|
+| `str` | *"(it's already a string)"* when the argument is one |
+| `clear` | *"an immutable collection is emptied by writing an empty one"* |
+| `push`, `insert`, `set` | *"(or, for set/insert/remove, a map or set)"* — a cross-reference to its siblings |
+| `remove` | names `Map` and `Set` as alternatives it does not itself take |
+
+These are not restatements of the type rule; they are advice about what the author probably meant,
+and no amount of reading the declarations produces them.
+
+**So §11's conclusion stands only halfway.** Derivation removes the diagnostic objection for the
+sets whose arms say nothing but the type rule. For the rest, converting still needs a way for a
+declaration to carry an extra line — the per-set hint §11 called for, which this step was meant to
+test the necessity of and has now established. **It is necessary.**
+
+The derivation shipped anyway, because it improves the 28 sets that are already declarations:
+`sort(Set<int> {...})` said *"no declaration of 'sort' accepts its argument 1"* and now says
+*"'sort' expects [T] or a builder, found Set<int>"*.
+
+**Step 2 is therefore not "convert the smallest sets" but "design the hint".** Converting the
+easy half first would leave the language with two kinds of builtin error for no reason a reader
+could see, and would spend the easy cases before the hard mechanism exists to check against.

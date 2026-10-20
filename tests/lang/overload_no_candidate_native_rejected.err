@@ -1,1 +1,1 @@
-no declaration of 'reverse' accepts its argument 1
+'reverse' expects [T] or a builder, found Set<int>

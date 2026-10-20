@@ -2352,3 +2352,37 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   description no longer reads as an argument), and the comment above `ovl_is_resolver_owned` in
   `src/typecheck.c`. A new §11 states the real gate and the design question it raises — how a
   declaration keeps the hint its arm carried — and says the work should not start without it.
+
+- [x] **F186** **Stage 8 step 1: the "expects …" sentence derived from the declarations — and
+  what comparing it against the arms established.** (done 2026-10-19.) §11 proposed that
+  converting a polymorphic builtin need not cost its measured diagnostic, because the sentence
+  those arms carry can be built from the declared parameter types. Step 1 built it and compared
+  it against all 16 arms whose members differ by argument one, **before converting anything**.
+
+  **Result: it covers about half, and the half it misses is the one that mattered.** Derivable
+  and as good as the original for `len`, `contains`, `abs`, `slice`, `swap`, `to_set`,
+  `to_mutable_set`, `unwrap`, `snapshot` — the arms that say nothing but the type rule. Not
+  derivable for `str` (*"it's already a string"*), `clear` (*"an immutable collection is emptied
+  by writing an empty one"*), and `push`/`insert`/`set`/`remove` (*"or, for set/insert/remove, a
+  map or set"* — a cross-reference to sibling builtins). Those clauses are advice about what the
+  author probably meant, and no reading of the declarations produces them.
+
+  So §11's claim that derivation dissolves the blocker is **half right**, and the half that
+  remains is exactly the per-set hint it said would be needed "if". Step 1 existed to find out
+  whether that "if" fires. It does.
+
+  **Two things the comparison caught that reasoning had not.** Collapsing the four builder types
+  into "a builder" is right when something contrasts with them and useless when it does not —
+  `snapshot` and `clear` take *only* builders, so the collapse would have answered "expects a
+  builder", restating the question; their hand-written sentences name all four, and the
+  derivation now does too. And the category belongs last: declaration order first produced "a
+  builder or [T]", where every hand-written sentence in the file puts the concrete types first.
+
+  **Shipped anyway, because it improves the 28 sets that are already declarations.**
+  `sort(Set<int> { 1, 2 })` said *"no declaration of 'sort' accepts its argument 1"* followed by
+  two signatures; it now says *"'sort' expects [T] or a builder, found Set<int>"*. Three
+  fixtures moved to the better message and a fourth pins it.
+
+  **Step 2 is therefore not "convert the smallest sets" but "design the hint".** Converting the
+  easy half first would leave two kinds of builtin error for no reason a reader could see, and
+  would spend the easy cases before the mechanism exists to check the hard ones against.

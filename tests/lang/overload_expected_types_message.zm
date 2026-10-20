@@ -1,0 +1,11 @@
+// F186 (stage 8 step 1): when a call matches no member of an overload set and the members differ
+// at the position that rejected it, the error names the *types that position accepts* rather than
+// listing signatures. This is the shape the hand-written builtin arms use -- `len`'s says "expects
+// an array, string, map, set, builder or Mutable" -- derived from the declarations instead of
+// kept by hand, which is what converting those arms would need.
+//
+// The four builder types collapse to one phrase only when something else is there to contrast
+// with; a set of builders alone would otherwise read "expects a builder", restating the question.
+fn main() {
+    print(fold(Set<int> { 1, 2 }, 0, fn(acc: int, x: int) -> int { return acc + x }))
+}

@@ -1990,6 +1990,7 @@ typedef struct {
     int live_count;
     int matched[OVL_MAX_CANDIDATES]; /* positions each candidate survived, for the ranked list in §5 */
     int eliminated_at;               /* 1-based position that emptied the set; 0 if it never filled */
+    Type eliminated_actual;          /* the argument's own type there, for the message */
 } OverloadResolution;
 
 /* Whether `t` is one of `fn`'s own type parameters -- a wildcard standing for anything, rather
@@ -2151,7 +2152,13 @@ static void overload_resolve(Module *module, Env *env, Expr *e, const char *name
             }
             if (ok) { r->matched[keep] = r->matched[i] + 1; r->live[keep++] = f; }
         }
-        if (keep == 0) { r->live_count = 0; r->eliminated_at = pos + 1; r->outcome = OVL_NO_MATCH; return; }
+        if (keep == 0) {
+            r->live_count = 0;
+            r->eliminated_at = pos + 1;
+            r->eliminated_actual = actual;
+            r->outcome = OVL_NO_MATCH;
+            return;
+        }
         r->live_count = keep;
     }
 
@@ -2205,6 +2212,69 @@ static void overload_report_candidates(const OverloadResolution *r, char *buf, s
     }
 }
 
+static int is_builder_type(Type t);
+
+/* "expects string, [T], Map<K, V>, a builder or Mutable<T>, found Point" -- built from the
+ * declarations rather than written by hand.
+ *
+ * The hand-written arms this resolver is replacing carry sentences of exactly this shape, and
+ * they were measured: `len`'s names a *category* ("an array, string, map, set, builder or
+ * Mutable") where a bare list of nine signatures would show shapes. Deriving it keeps the
+ * sentence and drops the hand-keeping -- and it is slightly better, since it names spellings a
+ * caller can write instead of categories they have to translate.
+ *
+ * Only when the position is genuinely discriminating: every member must declare a *different*
+ * type there, or "expects A, B or C" would list the same thing twice and say nothing. The four
+ * builder types collapse to one phrase, the way the hand-written sentences already do.
+ *
+ * Answers 0 when it cannot build one, and the caller falls back to the signature list. */
+static int overload_expected_types(const OverloadResolution *all, int pos, char *buf, size_t cap) {
+    const char *seen[OVL_MAX_CANDIDATES];
+    int n = 0, builders = 0;
+    for (int i = 0; i < all->live_count; i++) {
+        Type t;
+        if (!ovl_param_at(all->live[i], pos - 1, &t)) return 0;
+        if (is_builder_type(t)) {
+            builders++;  /* one phrase for the four of them, appended last -- the hand-written
+                          * sentences read "an array, string, map, set, builder or Mutable", with
+                          * the category after the concrete types, and so should this one */
+            continue;
+        }
+        const char *text = type_name(t);
+        for (int q = 0; q < n; q++) {
+            if (strcmp(seen[q], text) == 0) return 0; /* not discriminating here */
+        }
+        if (n >= OVL_MAX_CANDIDATES) return 0;
+        seen[n++] = text;
+    }
+    if (builders > 0) {
+        /* Collapsing is a summary, and a summary of the whole list is no help: a set whose
+         * members are *only* builders would read "expects a builder", which restates the
+         * question. `snapshot` and `clear` are exactly that, and their hand-written sentences
+         * name all four ("a builder -- a MutableArray, MutableString, MutableMap or
+         * MutableSet"). So the collapse applies only when something else is there to contrast
+         * with, and otherwise the four are listed. */
+        if (n == 0) {
+            n = 0;
+            for (int i = 0; i < all->live_count && n < OVL_MAX_CANDIDATES; i++) {
+                Type t;
+                if (!ovl_param_at(all->live[i], pos - 1, &t)) return 0;
+                seen[n++] = type_name(t);
+            }
+        } else {
+            if (n >= OVL_MAX_CANDIDATES) return 0;
+            seen[n++] = "a builder";
+        }
+    }
+    if (n < 2) return 0;
+    size_t at = 0;
+    for (int i = 0; i < n && at + 1 < cap; i++) {
+        const char *sep = i == 0 ? "" : (i == n - 1 ? " or " : ", ");
+        at += (size_t)snprintf(buf + at, cap - at, "%s%s", sep, seen[i]);
+    }
+    return at < cap;
+}
+
 static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char *name) {
     OverloadResolution r;
     overload_resolve(module, env, e, name, &r);
@@ -2244,6 +2314,15 @@ static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char
     }
     overload_report_candidates(&all, list, sizeof list);
     if (r.eliminated_at > 0) {
+        char expected[512];
+        if (overload_expected_types(&all, r.eliminated_at, expected, sizeof expected)) {
+            if (r.eliminated_at == 1 && all.live_count > 1) {
+                ziman_error("type", e->line, e->col, "'%s' expects %s, found %s",
+                            name, expected, type_name(r.eliminated_actual));
+            }
+            ziman_error("type", e->line, e->col, "argument %d of '%s' expects %s, found %s",
+                        r.eliminated_at, name, expected, type_name(r.eliminated_actual));
+        }
         ziman_error("type", e->line, e->col,
                     "no declaration of '%s' accepts its argument %d%s",
                     name, r.eliminated_at, list);
