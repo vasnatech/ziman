@@ -424,6 +424,25 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
         NativeFn native = (NativeFn)__atomic_load_n(&fn->native_impl, __ATOMIC_RELAXED);
         if (native == NULL) {
             native = native_lookup(fn->name);
+            /* The declaration's name is the *vocabulary*; the C symbol is a different thing, and
+             * since F180 they are allowed to differ. Two natives can share one declared name --
+             * `filter` is implemented once for `[T]` and once for `MutableArray<T>` -- and
+             * `native_register` is keyed by a single string, so the symbol keeps the world prefix
+             * the vocabulary gave up. This is the whole of the declaration-to-symbol link, and it
+             * is deliberately the last place in the compiler where that prefix means anything:
+             * nothing a reader writes, completes or sees in `--api builtins` carries it. */
+            if (native == NULL && fn->params.count > 0) {
+                Type p0 = fn->params.items[0].type;
+                const char *prefix = NULL;
+                if (p0.kind == TY_ARRAY) prefix = "array_";
+                else if (p0.kind == TY_STRUCT && p0.struct_name != NULL
+                         && strcmp(p0.struct_name, "MutableArray") == 0) prefix = "mutable_array_";
+                if (prefix != NULL) {
+                    char symbol[128];
+                    snprintf(symbol, sizeof symbol, "%s%s", prefix, fn->name);
+                    native = native_lookup(symbol);
+                }
+            }
             if (native == NULL) {
                 ziman_error("runtime", call_line, call_col, "native function '%s' has no registered implementation", fn->name);
             }

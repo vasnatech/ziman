@@ -13,7 +13,7 @@ fn main() {
     print(entries[1].key)
     print(entries[1].value)
     val ranked = sort_by_desc<MapEntry<string, int>, int>(entries, fn(e) { e.value })
-    print(array_map<MapEntry<string, int>, string>(ranked, fn(e) { e.key }))
+    print(map<MapEntry<string, int>, string>(ranked, fn(e) { e.key }))
     print(len(map_entries<string, int>(Map<string, int> {})))
 
     // map_map_values keeps keys and order

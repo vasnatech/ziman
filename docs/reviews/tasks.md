@@ -2138,3 +2138,43 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   follow the parameter rename. It still asserts a full signature rather than the bare name,
   because *that `sort` stayed listed at all* is what F172 added it for, and the conversion
   unlisted it once already.
+
+- [x] **F180** **Full overloading, stage 3 complete: the last five, and the dispatch table is
+  gone.** (done 2026-10-19.) `map`, `filter`, `flat_map`, `reverse` and `sort_with` — the pairs
+  with a `native fn` on at least one side. **`WORLD_PAIRED` is deleted**, all 28 of its names now
+  ordinary overload sets, and the prefix layer is down from **64 declarations to 8** — the eight
+  with no bare equivalent (`mutable_array_new`/`_filled`, the `b[i]`/`b[i] = v` targets, the
+  `push`/`insert`/`remove` rewrite targets, and `array_order_of`).
+
+  **The blocker, and the smallest honest fix.** `interpreter.c` found a native's C implementation
+  by `native_lookup(fn->name)`, so two natives could not share a declared name — and `filter` is
+  native on *both* sides. Rather than new prelude syntax for a symbol name, the lookup falls back
+  to the world-prefixed symbol when the bare name has no registration: the declaration's name is
+  the vocabulary, the C symbol keeps the prefix. Every registration in `src/prelude.c` is
+  unchanged. This is deliberately the last place in the compiler where that prefix means
+  anything — nothing a reader writes, completes, or sees in `--api builtins` carries it.
+
+  **A measured diagnostic was deleted with the table, and a fixture caught it.** `map()` with no
+  arguments answered *"and if you meant the 'Map' type rather than the function, write one as
+  `Map<string, int> { ... }`"* — a message written because a cold model reached for `map()` when
+  it wanted the type. It lived **inside** the `WORLD_PAIRED` loop. `diag_map_as_function` pins the
+  full text rather than a fragment, which is the only reason the loss was visible; it is restored
+  in the resolver's zero-argument path.
+
+  **The shadow gate is removed, not kept green.** F176 built it to compare the resolver against
+  the arms: 1372 files, 661 calls, zero disagreements, falling to 393 and then to none as the arms
+  went. With the last arm gone it has no second opinion to compare against, and *a gate that can
+  only pass is worse than no gate*. The 1085 fixtures now exercise the resolver directly.
+
+  **Fixture housekeeping, premises first.** `world_paired_five_rejected` was named for a mechanism
+  that no longer exists, so it is retired into `overload_no_candidate_rejected` (both halves in
+  Ziman) and a new `overload_no_candidate_native_rejected` (`reverse`, whose array half is a
+  native and so reaches its C symbol through the prefix fallback) — the two kept apart because
+  they reach the resolver by different routes. `prelude_internal_still_callable` had been
+  asserting that the *prefixed* spellings stay callable; for these five there is no prefixed
+  spelling any more, so it now pins only the eight that remain.
+
+  Also updated: eight passages in `docs/SYNTAX.md` (including the "five of those lost their
+  prefix" paragraph, now twenty-eight, and its claim that `sort<int>([])` is unspellable, which
+  is no longer true), one in `docs/TUTORIAL.md`, `lib/http/server.zm`, and one benchmark
+  reference solution.

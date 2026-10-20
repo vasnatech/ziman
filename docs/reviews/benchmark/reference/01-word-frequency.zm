@@ -5,7 +5,7 @@ fn main() {
         mutable_map_set(counts, w, mutable_map_get_or<string, int>(counts, w, 0) + 1)
     }
     val m = snapshot(counts)
-    val words = array_sort_with<string>(set_items(map_keys(m)), fn(a: string, b: string) -> int {
+    val words = sort_with<string>(set_items(map_keys(m)), fn(a: string, b: string) -> int {
         val ca = switch map_get(m, a) { Some(n) { n } None { 0 } }
         val cb = switch map_get(m, b) { Some(n) { n } None { 0 } }
         return if ca != cb { compare(cb, ca) } else { compare(a, b) }

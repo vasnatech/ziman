@@ -568,7 +568,7 @@ fn apply(f: fn(int) -> int, x: int) -> int {
 fn main() {
     print(apply(double, 21))          // 42
     val keep = is_even                // a val of type fn(int) -> bool
-    val evens = array_filter<int>([1, 2, 3, 4], keep)
+    val evens = filter<int>([1, 2, 3, 4], keep)
 }
 ```
 
@@ -616,7 +616,7 @@ fn main() {
   channels -- so a function value can cross a thread (`spawn f(x)` still names statically).
 - **What they can't do**: be compared/hashed/ordered/serialized (a derive on a struct with a
   function field errors); `print` shows `<function name>`.
-- **In the standard library**: `array_map`/`filter`/`flat_map`/`fold`/`count`/`any`/`all`/
+- **In the standard library**: `map`/`filter`/`flat_map`/`fold`/`count`/`any`/`all`/
   `find`/`first`/`last`/`min_by`/`max_by`/`distinct`/`group_by`/`for_each`/`sort_with`, type
   arguments written at the call. Pass a lambda for anything needing the enclosing scope.
 
@@ -1210,7 +1210,7 @@ name), each with a rule the bundled modules follow and new ones should too:
    dispatches on: `<snake_type>_to_json`/`_compare`/`_to_sql`).
 3. **A module defining types names operations after the type** (`uuid_new`,
    `localdate_add_days`) — the type is the noun, so rule 2 applies and the name is safe bare
-   or qualified. Generic combinators on built-in types (`array_map`/`filter`/`sort`)
+   or qualified. Generic combinators on built-in types (`map`/`filter`/`sort`)
    are rule 1.
 4. **Conversions are `<from>_to_<to>`/`<to>_from_<from>`**, parsing is `parse`/`<type>_parse`,
    and a fallible call returns a `Result`, never a `try_` prefix.
@@ -1341,7 +1341,7 @@ fn main() {
   its last listed transition. `zoneid_to_string`/`_from_string` are the bare name; two
   `ZoneId`s of the same zone compare equal.
 - **No `<`/`>` on any of these seven types** -- use `compare`/`Ord` instead: each has a
-  `_compare(a, b) -> int` function, which is what makes it `Ord` (works in `array_sort`,
+  `_compare(a, b) -> int` function, which is what makes it `Ord` (works in `sort`,
   as an `Ord`-bounded type argument). `==`/`!=` come free from structural equality on the
   plain `int`/struct fields. Calendar year is assumed non-negative throughout (no BCE).
 
@@ -1465,7 +1465,7 @@ fn main() {
 #[derive(Ord)]
 struct Person { last: string  first: string }
 
-val sorted = array_sort<Person>(people)               // by last, then first
+val sorted = sort<Person>(people)                     // by last, then first
 val by_age = sort_by<Patient, int>(patients, fn(p: Patient) -> int { return p.age })
 ```
 
@@ -1485,7 +1485,7 @@ val by_age = sort_by<Patient, int>(patients, fn(p: Patient) -> int { return p.ag
   itself be `Ord`; a fieldless struct can't derive it. Generic: `#[derive(Ord)] struct Pair<A,
   B>` writes `pair_compare<A: Ord, B: Ord>`, so `Pair<int, string>` is `Ord` but `Pair<int,
   bool>` is rejected.
-- **`array_sort<T: Ord>(items) -> [T]`** is a stable merge sort (new array). Sort by
+- **`sort<T: Ord>(items) -> [T]`** is a stable merge sort (new array). Sort by
   something other than the type's own order with **`sort_by<T, K: Ord>(items, key: fn(T) -> K)
   -> [T]`**, which calls `key` **once per element** where the comparator form recomputes it per
   comparison, or by a comparator function via **`sort_with<T>(items, cmp: fn(T, T) -> int)`**.
@@ -2775,7 +2775,7 @@ a type error.
   (`[0, len(arr))`, else runtime error). `insert`/`set`/`remove`/`concat` always copy.
   No "pop" -- indexing already covers peeking.
 - **Array helpers, callable with no import** — the counterparts of the bare `map_*`/`set_*`
-  helpers that `Map` and `Set` already have: `array_map<T, U>(items, f)`,
+  helpers that `Map` and `Set` already have: `map<T, U>(items, f)`,
   `filter_present` below. All return a new array.
 - **Eleven more lost the prefix and take either world**: `map`, `flat_map`, `fold`, `for_each`,
   `find`, `first`, `last`, `any`, `all`, `count`, `sum`. Each walks its sequence once and keeps
@@ -2807,13 +2807,17 @@ a type error.
   `join(separator: s, pieces: a)` -- what the wrapper expanded to. The one cost: `join`'s `pieces`
   is a variadic, where an empty literal cannot be inferred, so `array_join([], s)` becomes a typed
   `val` plus the call.
-- **Five of those lost their prefix**, because neither world owned the bare name:
-  `reverse(x)`, `filter(x, keep)`, `sort(x)`, `sort_desc(x)` and `sort_with(x, cmp)` each take an
-  array **or** a `MutableArray`, answering a new array from the one and rearranging the other in
-  place. `array_reverse`/`array_filter`/`array_sort`/`_desc`/`_with` and their
-  `mutable_array_` twins remain underneath as the implementations, the way `mutable_array_push`
-  remains under `push`. `sort<int>([])` is not spellable, a builtin discarding explicit type
-  arguments -- bind a typed `val` and pass that.
+- **Twenty-eight of them lost their prefix**, because neither world owned the bare name:
+  `map`, `filter`, `reverse`, `sort`, `sort_desc`, `sort_with`, `sort_by`, `sort_by_desc`,
+  `flat_map`, `fold`, `for_each`, `find`, `first`, `last`, `any`, `all`, `count`, `sum`,
+  `distinct`, `group_by`, `index_by`, `frequencies`, `min_by`, `max_by`, `is_sorted`,
+  `binary_search`, `lower_bound` and `upper_bound` each take an array **or** a `MutableArray`,
+  answering a new array from the one and rearranging the other in place.
+  **Each is two ordinary declarations sharing a name**, and the call resolves to one of them from
+  its arguments -- so `array_map`, `mutable_array_sort` and the rest no longer exist in any
+  spelling, and `ziman --api builtins` lists each name twice, once per world. `sort<int>([])` is
+  spellable: a declaration takes type arguments and named arguments where the builtin these
+  replaced took neither.
 - `inverse<T>(cmp) -> fn(T, T) -> int` — a comparator with its order turned round, which is to
   `sort_with` what `sort_desc` is to `sort`: `sort_with(xs, inverse(by_length))` rather than a
   second lambda written backwards, where the only difference is argument order and getting it wrong

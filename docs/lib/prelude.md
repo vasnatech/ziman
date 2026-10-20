@@ -813,13 +813,25 @@ because `set` always copies. This copies once.
 builtin fn swap<T>(b: MutableArray<T>, i: int, j: int)
 ```
 
-### `mutable_array_reverse`
+### `reverse`
 
 ```
-fn mutable_array_reverse<T>(xs: MutableArray<T>)
+pub fn reverse<T>(xs: MutableArray<T>)
 ```
 
-Reverses the buffer in place -- no copy at all, where `array_reverse(snapshot(xs))` makes two.
+Reverses the buffer in place -- no copy at all, where `reverse(snapshot(xs))` makes two.
+
+### `filter`
+
+```
+pub native fn filter<T>(xs: MutableArray<T>, keep: fn(T) -> bool)
+```
+
+Keeps only the elements `keep` answers true for, in place. The one filter in the language that
+allocates nothing: it walks once with a write cursor trailing the read cursor, where
+`filter(snapshot(xs), keep)` makes two copies. `keep` must not change the builder -- a
+reallocation inside it cannot corrupt anything, but the rest of the walk would then be visiting
+the buffer mid-compaction, the same class of thing as appending during a `for`.
 
 ### `sort`
 
@@ -831,7 +843,7 @@ Sorts the buffer by the element type's own `compare`, ascending or descending. T
 two copies -- the snapshot, and the sorted array -- and that is the cheaper option rather than a
 compromise: for a packed `[int]`, `[float]` or `[byte]` buffer, `array_sort` compares *natively*,
 with no interpreter call per comparison, which is worth far more than the two memcpys it costs.
-`mutable_array_sort_with` below has no such option and so is genuinely in place.
+`sort_with` below has no such option and so is genuinely in place.
 The write-back is `mutable_array_set` per element rather than `clear` and push, so the buffer
 keeps its capacity and the length never changes. Spelled out in both rather than shared, because
 a helper here would be *public* -- everything in the prelude is -- and "overwrite the buffer with
@@ -857,6 +869,19 @@ function that reads the buffer it is sorting sees it unchanged throughout.
 ```
 pub fn sort_by_desc<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K)
 ```
+
+### `sort_with`
+
+```
+pub native fn sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
+```
+
+Sorts the buffer by `cmp`, **copying no elements at all**: a merge sort over positions, then the
+permutation applied by following its cycles. It allocates two int64 order buffers and an n-byte
+map -- 17 bytes per element, against the 80 a boxed element costs, twice, through a snapshot. A
+comparator of your own always went through the interpreter per comparison, so unlike `sort` and
+`sort_desc` there is no native comparison here to trade those copies for. Stable: equal elements
+keep their input order.
 
 ## MutableMap and MutableSet
 
@@ -1306,82 +1331,52 @@ native fn bytes_index_of(haystack: [byte], needle: [byte], from: int) -> int
 The position of the first occurrence of `needle` in `haystack` at or after `from`, or -1; an
 empty `needle` is found at `from`. For finding a delimiter (a CRLF CRLF, a boundary) in bytes.
 
-## The five each world used to spell with its own prefix
-
-### `reverse`
-
-```
-builtin fn reverse<T>(a: [T]) -> [T]
-```
-
-`reverse`, `filter`, `sort`, `sort_desc` and `sort_with`. Unlike `insert` against a MutableSet's
-`add`, **neither world owned the bare name** -- it was `array_reverse` against
-`mutable_array_reverse` -- so sharing one takes nothing from either and there was no winner to
-pick. Each dispatches on its first argument onto the prefixed implementation for that world,
-which stays beneath it the way `mutable_array_push` stays under `push`.
-
-**The two worlds answer with different costs, deliberately.** An array's form allocates a new
-array; a MutableArray's rearranges its own buffer with no copy at all, which is the whole reason
-a builder exists. `reverse(snapshot(xs))` would make two copies where `reverse(xs)` makes none.
-Same question, each world's own answer -- the rule since `push`.
-
-```
-builtin fn reverse<T>(b: MutableArray<T>)
-```
-
-### `filter`
-
-```
-builtin fn filter<T>(a: [T], keep: fn(T) -> bool) -> [T]
-```
-
-```
-builtin fn filter<T>(b: MutableArray<T>, keep: fn(T) -> bool)
-```
-
-### `sort_with`
-
-```
-builtin fn sort_with<T>(a: [T], cmp: fn(T, T) -> int) -> [T]
-```
-
-```
-builtin fn sort_with<T>(b: MutableArray<T>, cmp: fn(T, T) -> int)
-```
-
-## And the eleven sequence questions, which never had a builder form at all
+## The bare array helpers
 
 ### `map`
 
 ```
-builtin fn map<T, U>(a: [T], f: fn(T) -> U) -> [U]
+pub native fn map<T, U>(items: [T], f: fn(T) -> U) -> [U]
 ```
 
-`map`, `flat_map`, `fold`, `for_each`, `find`, `first`, `last`, `any`, `all`, `count`, `sum`.
-Unlike the five above, these had no `mutable_array_` twin to unprefix: a MutableArray could not
-be folded or searched at all, and the route was `fold(snapshot(b), ...)`, which **allocates and
-fills a whole array before the first element is looked at**. Each walks its sequence once and
-keeps nothing, so taking either world removes that copy without changing a meaning -- which is
-what separates these from `iter`, whose `Iter` outlives the call and so cannot take a
-handle whose contents may move underneath it.
+The array half of the dispatcher's prefix layer. **Write `map`, `filter`, `flat_map` and
+`reverse`** -- these four are what those names resolve to when the first argument is an `[T]`,
+and `map` and friends are what they resolve to when it is a builder.
 
-`array_join` is **not** among them, and was deleted rather than renamed: it was one line
-delegating to `join`, which owns the bare name and does more (`prefix`/`suffix`). Its callers
-now say `join(separator: s, pieces: a)`, which is what it expanded to.
+They have to exist under exactly these names because the dispatcher builds its target by
+concatenating a prefix onto the bare name (`typecheck.c`, the WORLD_PAIRED loop): `"array_" +
+"filter"`. They do not have to be *advertised*, and since F173 they are not -- 51 of the 64
+`array_`/`mutable_array_` declarations in this file were already invisible for being plain
+`fn`s, and these four stood out only because a `native fn` had no way to opt out before F172.
+The whole prefix layer is now uniformly internal. Still callable, as everything here is.
+
+Native rather than written in Ziman: one allocation for the result, instead of a MutableArray's
+growing buffers. This header used to say the bare names were "thin wrappers over these", which
+F162/F163 turned around -- the bare name is the one to write, and these are the inside of it.
+
+### `filter`
 
 ```
-builtin fn map<T, U>(b: MutableArray<T>, f: fn(T) -> U) -> [U]
+pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
 ```
+
+See `map`.
 
 ### `flat_map`
 
 ```
-builtin fn flat_map<T, U>(a: [T], f: fn(T) -> [U]) -> [U]
+pub native fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
 ```
 
+See `map`.
+
+### `reverse`
+
 ```
-builtin fn flat_map<T, U>(b: MutableArray<T>, f: fn(T) -> [U]) -> [U]
+pub native fn reverse<T>(items: [T]) -> [T]
 ```
+
+See `map`.
 
 ## And the four that ask an ordered sequence a question
 
@@ -1498,10 +1493,10 @@ pub fn sort_desc<T: Ord>(items: [T]) -> [T]
 `items` in descending order of their own `compare`. Also stable, so this is not `array_sort`'s
 result reversed -- that would flip ties.
 
-### `array_sort_with`
+### `sort_with`
 
 ```
-fn array_sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
+pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T]
 ```
 
 `items` ordered by a comparator function (negative, zero or positive, like `compare`), for an
@@ -1532,7 +1527,7 @@ pub fn sort_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T]
 `items` in ascending order of `key(item)`, the key computed **once per element** and the
 elements then permuted into the keys' order -- the decorate-sort-permute shape, with the
 decorate step no longer the caller's job. `key` returning an int, float, byte or string also
-keeps the native sort: `array_map` answers a real `[K]`, so `array_order_of`'s scalar fast
+keeps the native sort: `map` answers a real `[K]`, so `array_order_of`'s scalar fast
 path still fires. Stable: equal keys keep their input order.
 
 ### `sort_by_desc`
@@ -2386,20 +2381,20 @@ pub fn upper_bound<T: Ord>(sorted: MutableArray<T>, target: T) -> int
 pub fn binary_search<T: Ord>(sorted: MutableArray<T>, target: T) -> Option<int>
 ```
 
-### `mutable_array_map`
+### `map`
 
 ```
-fn mutable_array_map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U]
+pub fn map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U]
 ```
 
 These two have native array versions, so their twins are written rather than shared. Each
 allocates a builder for the result where the native allocates the array directly -- one
 allocation more on the way out, against a whole copy of the input saved on the way in.
 
-### `mutable_array_flat_map`
+### `flat_map`
 
 ```
-fn mutable_array_flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U]
+pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U]
 ```
 
 ### `frequencies`

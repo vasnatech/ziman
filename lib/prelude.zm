@@ -480,8 +480,8 @@ builtin fn narrow<T>(b: MutableArray<T>, start: int, end: int)
 builtin fn swap<T>(a: [T], i: int, j: int) -> [T]
 builtin fn swap<T>(b: MutableArray<T>, i: int, j: int)
 
-// Reverses the buffer in place -- no copy at all, where `array_reverse(snapshot(xs))` makes two.
-fn mutable_array_reverse<T>(xs: MutableArray<T>) {
+// Reverses the buffer in place -- no copy at all, where `reverse(snapshot(xs))` makes two.
+pub fn reverse<T>(xs: MutableArray<T>) {
     var i = 0
     var j = len(xs) - 1
     while i < j {
@@ -493,16 +493,16 @@ fn mutable_array_reverse<T>(xs: MutableArray<T>) {
 
 // Keeps only the elements `keep` answers true for, in place. The one filter in the language that
 // allocates nothing: it walks once with a write cursor trailing the read cursor, where
-// `array_filter(snapshot(xs), keep)` makes two copies. `keep` must not change the builder -- a
+// `filter(snapshot(xs), keep)` makes two copies. `keep` must not change the builder -- a
 // reallocation inside it cannot corrupt anything, but the rest of the walk would then be visiting
 // the buffer mid-compaction, the same class of thing as appending during a `for`.
-internal native fn mutable_array_filter<T>(xs: MutableArray<T>, keep: fn(T) -> bool)
+pub native fn filter<T>(xs: MutableArray<T>, keep: fn(T) -> bool)
 
 // Sorts the buffer by the element type's own `compare`, ascending or descending. These two make
 // two copies -- the snapshot, and the sorted array -- and that is the cheaper option rather than a
 // compromise: for a packed `[int]`, `[float]` or `[byte]` buffer, `array_sort` compares *natively*,
 // with no interpreter call per comparison, which is worth far more than the two memcpys it costs.
-// `mutable_array_sort_with` below has no such option and so is genuinely in place.
+// `sort_with` below has no such option and so is genuinely in place.
 // The write-back is `mutable_array_set` per element rather than `clear` and push, so the buffer
 // keeps its capacity and the length never changes. Spelled out in both rather than shared, because
 // a helper here would be *public* -- everything in the prelude is -- and "overwrite the buffer with
@@ -539,7 +539,7 @@ pub fn sort_by_desc<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
 // comparator of your own always went through the interpreter per comparison, so unlike `sort` and
 // `sort_desc` there is no native comparison here to trade those copies for. Stable: equal elements
 // keep their input order.
-internal native fn mutable_array_sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
+pub native fn sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
 
 // ---------------------------------------------------------------- MutableMap and MutableSet
 
@@ -849,7 +849,7 @@ native fn bytes_index_of(haystack: [byte], needle: [byte], from: int) -> int
 // The substrate the six sort functions below are built on, and the only callers they have: the
 // scalar fast path (`is_sortable_scalars` and its two partners), the generic merge sort over
 // positions (`sort_positions`), and the permutation step (`permute`). `array_sort`,
-// `sort_desc`, `array_sort_with`, `sort_by`, `sort_by_desc` and
+// `sort_desc`, `sort_with`, `sort_by`, `sort_by_desc` and
 // `array_order_of` are the whole of it; nothing outside this file calls any of the five.
 //
 // They are `internal`, which F172 made mean "reachable but not advertised": the prelude is merged
@@ -882,7 +882,7 @@ internal native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
 
 // The array half of the dispatcher's prefix layer. **Write `map`, `filter`, `flat_map` and
 // `reverse`** -- these four are what those names resolve to when the first argument is an `[T]`,
-// and `mutable_array_map` and friends are what they resolve to when it is a builder.
+// and `map` and friends are what they resolve to when it is a builder.
 //
 // They have to exist under exactly these names because the dispatcher builds its target by
 // concatenating a prefix onto the bare name (`typecheck.c`, the WORLD_PAIRED loop): `"array_" +
@@ -894,22 +894,22 @@ internal native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
 // Native rather than written in Ziman: one allocation for the result, instead of a MutableArray's
 // growing buffers. This header used to say the bare names were "thin wrappers over these", which
 // F162/F163 turned around -- the bare name is the one to write, and these are the inside of it.
-internal native fn array_map<T, U>(items: [T], f: fn(T) -> U) -> [U]
+pub native fn map<T, U>(items: [T], f: fn(T) -> U) -> [U]
 
-// See `array_map`.
-internal native fn array_filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
+// See `map`.
+pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
 
-// See `array_map`.
-internal native fn array_flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
+// See `map`.
+pub native fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
 
-// See `array_map`.
-internal native fn array_reverse<T>(items: [T]) -> [T]
+// See `map`.
+pub native fn reverse<T>(items: [T]) -> [T]
 
 // ---- the five each world used to spell with its own prefix
 //
 // `reverse`, `filter`, `sort`, `sort_desc` and `sort_with`. Unlike `insert` against a MutableSet's
-// `add`, **neither world owned the bare name** -- it was `array_reverse` against
-// `mutable_array_reverse` -- so sharing one takes nothing from either and there was no winner to
+// `add`, **neither world owned the bare name** -- it was `reverse` against
+// `reverse` -- so sharing one takes nothing from either and there was no winner to
 // pick. Each dispatches on its first argument onto the prefixed implementation for that world,
 // which stays beneath it the way `mutable_array_push` stays under `push`.
 //
@@ -917,14 +917,6 @@ internal native fn array_reverse<T>(items: [T]) -> [T]
 // array; a MutableArray's rearranges its own buffer with no copy at all, which is the whole reason
 // a builder exists. `reverse(snapshot(xs))` would make two copies where `reverse(xs)` makes none.
 // Same question, each world's own answer -- the rule since `push`.
-builtin fn reverse<T>(a: [T]) -> [T]
-builtin fn reverse<T>(b: MutableArray<T>)
-
-builtin fn filter<T>(a: [T], keep: fn(T) -> bool) -> [T]
-builtin fn filter<T>(b: MutableArray<T>, keep: fn(T) -> bool)
-
-builtin fn sort_with<T>(a: [T], cmp: fn(T, T) -> int) -> [T]
-builtin fn sort_with<T>(b: MutableArray<T>, cmp: fn(T, T) -> int)
 
 // ---- and two born paired: sorting by a computed key
 //
@@ -955,11 +947,6 @@ builtin fn sort_with<T>(b: MutableArray<T>, cmp: fn(T, T) -> int)
 // `array_join` is **not** among them, and was deleted rather than renamed: it was one line
 // delegating to `join`, which owns the bare name and does more (`prefix`/`suffix`). Its callers
 // now say `join(separator: s, pieces: a)`, which is what it expanded to.
-builtin fn map<T, U>(a: [T], f: fn(T) -> U) -> [U]
-builtin fn map<T, U>(b: MutableArray<T>, f: fn(T) -> U) -> [U]
-
-builtin fn flat_map<T, U>(a: [T], f: fn(T) -> [U]) -> [U]
-builtin fn flat_map<T, U>(b: MutableArray<T>, f: fn(T) -> [U]) -> [U]
 
 // ---- and the six that build a result from a walk
 //
@@ -1105,7 +1092,7 @@ pub fn sort_desc<T: Ord>(items: [T]) -> [T] {
 // order that is neither the type's own nor a single key -- a two-field ordering, say. Stable.
 // `sort_by` covers the single-key case, and computes each key once rather than per
 // comparison.
-fn array_sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
+pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
     return permute<T>(items, sort_positions(len(items), fn(a, b) { cmp(items[a], items[b]) }))
 }
 
@@ -1123,16 +1110,16 @@ fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int {
 // `items` in ascending order of `key(item)`, the key computed **once per element** and the
 // elements then permuted into the keys' order -- the decorate-sort-permute shape, with the
 // decorate step no longer the caller's job. `key` returning an int, float, byte or string also
-// keeps the native sort: `array_map` answers a real `[K]`, so `array_order_of`'s scalar fast
+// keeps the native sort: `map` answers a real `[K]`, so `array_order_of`'s scalar fast
 // path still fires. Stable: equal keys keep their input order.
 pub fn sort_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
-    return permute<T>(items, array_order_of<K>(array_map<T, K>(items, key), false))
+    return permute<T>(items, array_order_of<K>(map<T, K>(items, key), false))
 }
 
 // `items` in descending order of `key(item)`. Also stable, so this is not `sort_by`'s
 // result reversed -- that would flip ties.
 pub fn sort_by_desc<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
-    return permute<T>(items, array_order_of<K>(array_map<T, K>(items, key), true))
+    return permute<T>(items, array_order_of<K>(map<T, K>(items, key), true))
 }
 
 // A guard sends `message` on `channel` when nothing references it any more: a database
@@ -1445,7 +1432,7 @@ builtin fn max<T: Ord>(values: variadic T) -> T
 //
 // Every function returns a new array and leaves its argument untouched (arrays are
 // immutable). Type arguments are written out at the call, since Ziman does not infer them:
-// `array_map<int, string>(numbers, label)`. A function argument is a named function or
+// `map<int, string>(numbers, label)`. A function argument is a named function or
 // a lambda, and a lambda may use the enclosing function's immutable locals.
 
 // The positions of `keys` in sorted order: the array of indices that, read in order, visits
@@ -1929,7 +1916,7 @@ pub fn binary_search<T: Ord>(sorted: MutableArray<T>, target: T) -> Option<int> 
 // These two have native array versions, so their twins are written rather than shared. Each
 // allocates a builder for the result where the native allocates the array directly -- one
 // allocation more on the way out, against a whole copy of the input saved on the way in.
-fn mutable_array_map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U] {
+pub fn map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U] {
     val out = mutable_array_new<U>(capacity: len(items))
     for item in items {
         push(out, f(item))
@@ -1937,7 +1924,7 @@ fn mutable_array_map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U] {
     return snapshot(out)
 }
 
-fn mutable_array_flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U] {
+pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U] {
     val out = mutable_array_new<U>()
     for item in items {
         concat(out, f(item))

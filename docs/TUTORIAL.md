@@ -244,7 +244,7 @@ whole language, all the way up to the multi-thousand-line reference backend
 library. What you *will* outgrow in your first hour: `if`/`switch` can also
 be used as expressions in a restricted set of positions (see "`if` and
 `switch` as values" in SYNTAX.md), generic types and functions exist
-(`Option<T>`, `Map<K, V>`, `array_map`/`filter`/`fold`), and there's a
+(`Option<T>`, `Map<K, V>`, `map`/`filter`/`fold`), and there's a
 standard library for JSON, files, HTTP, databases, time, crypto and more —
 [README.md](../README.md)'s module table is the map.
 

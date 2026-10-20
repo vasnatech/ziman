@@ -1,0 +1,7 @@
+// The same refusal for a name whose array half is a `native fn`. Separate from
+// `overload_no_candidate_rejected` because the two reach the resolver by different routes: this
+// one's chosen declaration would have been resolved to a C symbol through the world prefix that
+// F180 left in `interpreter.c`, and getting there at all is what is being pinned.
+fn main() {
+    print(reverse(Set<int> { 1, 2 }))
+}

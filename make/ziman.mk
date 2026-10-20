@@ -95,14 +95,12 @@ api-check: $(BIN)
 module-path-check: $(BIN)
 	@./tests/run_module_path.sh $(BIN)
 
-# Stage 1 of docs/design/full-overloading.md. The new resolver runs beside the hand-written
-# dispatch arms over every Ziman file in reach -- fixtures, the benchmark references, lib/, and
-# the North Star when it is there -- and this fails if the two ever choose a different world.
-# Gated from the first stage on purpose: the resolver decides nothing yet, so the only thing that
-# can tell us it is right is the corpus, and the only thing that keeps it right while the arms are
-# removed one by one is a gate that was there before the removals started.
-overload-shadow-check: $(BIN)
-	@./tools/overload_shadow.sh $(BIN)
+# The shadow gate stood here from F176 to F180. It ran the new resolver beside the hand-written
+# dispatch arms and failed if they ever chose differently -- 1372 files, 661 calls, zero
+# disagreements, falling to 393 and then to none as the arms were deleted one group at a time. It
+# is removed rather than kept green: with the last arm gone it has no second opinion to compare
+# against, and a gate that can only pass is worse than no gate. What replaces it is the ordinary
+# suite, which the resolver now answers every one of those 1085 fixtures through.
 
 # Stage 2 of docs/design/full-overloading.md: the declaration-site check, held as a prediction.
 # The design says exactly `concat` and `mutable` are unresolvable; a third name means the design

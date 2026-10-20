@@ -1482,7 +1482,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "reverse", "filter", "sort_with", "map", "flat_map", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "reverse", "filter", "sort_with", "map", "flat_map", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
@@ -2203,6 +2203,20 @@ static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char
                     "no declaration of '%s' accepts its argument %d%s",
                     name, r.eliminated_at, list);
     }
+    /* A call with no arguments at all is more likely a reach for the *type* than a mis-call of
+     * the function, and that reading was measured, not guessed: `map()` and `set()` were what a
+     * cold model wrote when it wanted `Map<K, V>` or `Set<T>`. The message lived inside the
+     * WORLD_PAIRED loop until F180 deleted it along with the table -- and
+     * tests/lang/diag_map_as_function is what noticed, which is the whole reason that fixture
+     * carries the full text rather than a fragment. */
+    if (e->as.call.args.count == 0) {
+        const char *generic = matching_generic_type(name);
+        if (generic != NULL) {
+            ziman_error("type", e->line, e->col,
+                        "'%s' takes at least 1 argument, found 0 -- and if you meant the '%s' type rather than "
+                        "the function, %s", name, generic, generic_type_construction(generic));
+        }
+    }
     ziman_error("type", e->line, e->col,
                 "no declaration of '%s' takes %d argument(s)%s", name, e->as.call.args.count, list);
 }
@@ -2339,73 +2353,6 @@ static void overload_sets_report(Module *module) {
     fprintf(stderr, "overload-set: %d set(s) with more than one declaration, %d unresolvable\n", sets, bad);
 }
 
-/* Counted, not just reported. A run that prints nothing is indistinguishable from a run where the
- * hook never fired, and "no output" is the answer a mis-wired shadow pass gives too -- so the
- * summary states how many calls were observed, and the corpus script reads that rather than the
- * absence of complaints. */
-static long g_ovl_agreed = 0, g_ovl_disagreed = 0;
-
-static void overload_shadow_summary(void) {
-    fprintf(stderr, "overload-shadow: %ld call(s) observed, %ld agreed, %ld disagreed\n",
-            g_ovl_agreed + g_ovl_disagreed, g_ovl_agreed, g_ovl_disagreed);
-}
-
-static void overload_shadow_check(Module *module, Env *env, Expr *e, const char *name, const char *expected) {
-    static int enabled = -1;
-    if (enabled < 0) {
-        enabled = getenv("ZIMAN_OVERLOAD_SHADOW") != NULL;
-        if (enabled) atexit(overload_shadow_summary);
-    }
-    if (!enabled) return;
-
-    OverloadResolution r;
-    overload_resolve(module, env, e, name, &r);
-
-    /* The two name different things and must be compared through the mapping between them: the
-     * arm rewrites onto an implementation (`array_map`), the resolver picks a declaration
-     * (`builtin fn map(a: [T], ...)`). What has to agree is the *world*, which the arm reads from
-     * the argument and the resolver from the chosen declaration's own first parameter. Comparing
-     * the raw names reported 400 disagreements on the first run, every one of them this. */
-    const char *verdict = "gave no verdict"; /* every arm below sets this; the initialiser is
-                                              * what stops -Wformat-overflow reasoning about a
-                                              * NULL reaching the %s, not a real path */
-    switch (r.outcome) {
-        case OVL_RESOLVED: {
-            if (strcmp(r.chosen->name, expected) == 0) { g_ovl_agreed++; return; } /* an arm that did not rewrite */
-            const char *prefix = NULL;
-            if (r.chosen->params.count > 0) {
-                Type p0 = r.chosen->params.items[0].type;
-                if (p0.kind == TY_ARRAY) prefix = "array_";
-                else if (p0.kind == TY_STRUCT && p0.struct_name != NULL
-                         && strcmp(p0.struct_name, "MutableArray") == 0) prefix = "mutable_array_";
-            }
-            if (prefix != NULL) {
-                size_t n = strlen(prefix) + strlen(r.chosen->name) + 1;
-                char *as_target = ziman_xmalloc(n);
-                snprintf(as_target, n, "%s%s", prefix, r.chosen->name);
-                int same = strcmp(as_target, expected) == 0;
-                free(as_target);
-                if (same) { g_ovl_agreed++; return; } /* agreement */
-            }
-            verdict = "resolved differently";
-            break;
-        }
-        case OVL_NO_MATCH:    verdict = "found no candidate"; break;
-        case OVL_AMBIGUOUS:   verdict = "was ambiguous"; break;
-        case OVL_UNSUPPORTED: verdict = "exceeded OVL_MAX_CANDIDATES"; break;
-    }
-    g_ovl_disagreed++;
-    fprintf(stderr, "overload-shadow: %d:%d '%s' -- arm chose '%s', resolver %s",
-            e->line, e->col, name, expected, verdict);
-    if (r.outcome == OVL_RESOLVED) fprintf(stderr, " ('%s')", r.chosen->name);
-    if (r.outcome == OVL_AMBIGUOUS) {
-        fprintf(stderr, " among %d:", r.live_count);
-        for (int i = 0; i < r.live_count; i++) fprintf(stderr, " %s/%d", r.live[i]->name, r.live[i]->params.count);
-    }
-    if (r.outcome == OVL_NO_MATCH && r.eliminated_at > 0) fprintf(stderr, " (argument %d)", r.eliminated_at);
-    fprintf(stderr, "\n");
-}
-
 static int check_collection_helper(Module *module, Env *env, Expr *e, const char *name, Type *out) {
     static const struct { const char *name; int argc; } TABLE[] = {
         {"map_get_or", 3}, {"map_merge", 2}, {"map_filter", 2}, {"map_remove_all", 2}, {"set_union", 2}, {"set_intersect", 2},
@@ -2430,73 +2377,11 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * accepting it saves a copy rather than hiding one. Named for its *result* because the
      * argument already says what the source is, and because a reader of `to_set` expects the
      * deduplication that `set_from_array` had to document. */
-    /* The five operations each world spelled with its own prefix: `reverse`, `filter`, `sort`,
-     * `sort_desc`, `sort_with`. Unlike `insert` against a MutableSet's `add`, neither world owned
-     * the bare name -- it was `array_reverse` against `mutable_array_reverse` -- so sharing one
-     * takes nothing away from either and there is no winner to pick.
-     *
-     * Each rewrites onto the prefixed implementation for its world, which stays as the target the
-     * way `mutable_array_push` stays under `push`. That is also why this needs no runtime: the ten
-     * functions underneath are unchanged, and a message about a bad predicate or comparator still
-     * names a function the author *could* have written, unlike a `$`-prefixed internal.
-     *
-     * The costs the two worlds answer with differ, and deliberately: an array's form allocates a
-     * new array, a builder's rearranges its buffer with no copy at all. Same question, each world's
-     * own answer -- the rule this library has applied since `push`. */
-    /* `sort` is absent since F178: it is the first pair converted to a real overload set, so the
-     * resolver chooses it from the declarations and this table must not also rewrite it. */
-    static const char *const WORLD_PAIRED[] = {"reverse", "filter", "sort_with", "map", "flat_map", NULL};
-    for (size_t wp = 0; WORLD_PAIRED[wp] != NULL; wp++) {
-        if (strcmp(name, WORLD_PAIRED[wp]) != 0) continue;
-        if (e->as.call.args.count < 1) {
-            /* `map()` with nothing in it is more likely a reach for the *type* than a mis-call of
-             * the function, and was its own diagnostic before `map` became a function name. Both
-             * readings are given rather than letting the arity message bury the likelier one. */
-            const char *generic = matching_generic_type(name);
-            if (generic != NULL) {
-                ziman_error("type", e->line, e->col,
-                            "'%s' takes at least 1 argument, found %d -- and if you meant the '%s' type rather than "
-                            "the function, %s",
-                            name, e->as.call.args.count, generic, generic_type_construction(generic));
-            }
-            ziman_error("type", e->line, e->col, "'%s' takes at least 1 argument, found %d", name,
-                        e->as.call.args.count);
-        }
-        Expr *target = e->as.call.args.items[0];
-        const char *prefix = NULL;
-        /* `[]` cannot be checked on its own -- it has no element type until something supplies one
-         * -- and it also cannot be a builder, a handle never being a literal. So it dispatches to
-         * the array half unchecked, and the array function's own parameter (plus any type argument
-         * written at the call) gives the literal its type the way it always did. Checking first
-         * instead made `first<int>([])` and `map<int, int>([], f)` errors, which they had not been. */
-        if (target->kind == EXPR_ARRAY_LIT && target->as.array_lit.elements.count == 0) {
-            prefix = "array_";
-        }
-        Type target_type = type_scalar(TY_VOID);
-        if (prefix == NULL) {
-            target_type = check_expr(module, env, target);
-            if (target_type.kind == TY_ARRAY) {
-                prefix = "array_";
-            } else if (target_type.kind == TY_STRUCT && target_type.struct_name != NULL &&
-                       strcmp(target_type.struct_name, "MutableArray") == 0) {
-                prefix = "mutable_array_";
-            }
-        }
-        if (prefix == NULL) {
-            ziman_error("type", target->line, target->col,
-                        "'%s' expects an array or a MutableArray -- an array answers a new one, a MutableArray is "
-                        "rearranged in place -- found %s",
-                        name, type_name(target_type));
-        }
-        size_t n = strlen(prefix) + strlen(name) + 1;
-        char *target_name = ziman_xmalloc(n);
-        snprintf(target_name, n, "%s%s", prefix, name);
-        overload_shadow_check(module, env, e, name, target_name);
-        e->as.call.rewritten_from = name;
-        e->as.call.callee = target_name;
-        *out = check_expr(module, env, e);
-        return 1;
-    }
+    /* The world-paired dispatch table stood here until F180. All 28 of its names are ordinary
+     * overload sets now -- two declarations each, chosen by the resolver from the arguments --
+     * so there is nothing left to rewrite a prefix onto. `concat` and `mutable` keep their own
+     * arms below, for the reasons docs/design/full-overloading.md §4 records. */
+
 
     /* `concat(...)`: pieces into a string, parts into an array, or parts appended to a builder.
      * One name over three forms, chosen by the first argument, which is why it had to stop being a

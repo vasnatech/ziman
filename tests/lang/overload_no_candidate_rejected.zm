@@ -1,10 +1,11 @@
-// F178: `sort` is the first of the paired names to become a real overload set, resolved from its
-// declarations rather than rewritten onto a prefixed implementation by the WORLD_PAIRED table. So
-// a Set is refused by the resolver, and the message lists what the name does accept -- with the
-// signatures, not just the names, which is the half a reader needs to pick one.
+// A Set is not a sequence, and the refusal says what the name does accept -- with signatures, so
+// a reader can pick one rather than guess.
 //
-// `world_paired_five_rejected` holds the other half: the same question asked of a name the table
-// still dispatches.
+// This used to be two fixtures: one for the WORLD_PAIRED table's hand-written line and one for
+// the resolver's. F180 deleted the table, so `world_paired_five_rejected` was asking about a
+// mechanism that no longer exists, and both names now reach the same code. The pair of calls is
+// kept, one from each former half, because they were not redundant when written: `sort` is
+// implemented in Ziman on both sides, `reverse` by a native on one.
 fn main() {
     print(sort(Set<int> { 1, 2 }))
 }
