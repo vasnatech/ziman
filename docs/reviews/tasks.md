@@ -2212,3 +2212,37 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   in §7 rather than deleted, so the plan records what was tried. Stages 5 (per-declaration
   purity), 6 (the name-keyed lists) and 7 (opening it to library code) are unaffected — they were
   never about the arms.
+
+- [x] **F182** **Full overloading, stage 5: purity read off the declaration.** (done 2026-10-19.)
+  Smaller than the stage was written, and for an instructive reason.
+
+  **The "proxy" had stopped being one.** The design said purity is keyed per *name* in
+  `PURE_BUILTINS` while the builder case is excluded by `t.kind != TY_VOID` — a coincidence that
+  holds only because every builder overload happens to return void. After F178–F180 that test is
+  **exact**: `t` is the resolved declaration's own return type, and the shape is structural, not
+  lucky — a member that rearranges a buffer in place has nothing to return. Probed all seven
+  cases before changing anything and the gate was already right on every one: `distinct(b)`,
+  `map(b, f)`, `count(b, p)` rejected; `sort(b)`, `reverse(b)`, `filter(b, p)`, `for_each(b, f)`
+  allowed.
+
+  **What was actually left to remove was the list beside it.** The gate required *both* a
+  non-void result and the name in `PURE_BUILTINS`, so all 28 converted names still had to be
+  listed — a list of names standing in for a property of overloads. They are gone from it now
+  (95 entries → 67) and purity for them is derived: a call resolved to a member of a
+  resolver-owned prelude overload set is pure when it returns something. A 29th set needs no edit
+  to any list, and the list cannot go stale about them. Behaviour is unchanged, which the same
+  seven probes and the 1085 fixtures confirm.
+
+  **The 22 polymorphic builtins keep the list**, and that is correct rather than unfinished: for
+  them the name *is* the implementation (F181), so there is no declaration to ask.
+
+  **A third mechanism turned up while reading.** `remove(b, i) -> T` is an effectful call that
+  returns a value, which would defeat the return-type rule — and the arm handles it by
+  deliberately *not* recording the authored name, so the gate sees `mutable_array_remove` and
+  stays quiet. It is a builtin rather than a set, so it is outside the new rule; the comment and
+  the new fixtures say so, because a future mutating overload that returned a value is exactly
+  what would break this and it should not be rediscovered by accident.
+
+  Two fixtures, one per half: `discard_overload_purity_rejected` pins the message for a query
+  discarded over a builder, `discard_overload_purity_allowed` pins silence for the mutators of
+  the same names.

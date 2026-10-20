@@ -265,7 +265,13 @@ Each stage ships on its own and is gated; none is "the big one".
    to resolve *to*; there is no `array_push` either. Converting them would mean inventing N
    implementations where one exists, making the runtime worse to satisfy a plan. **They keep their
    arms, and that is the right answer, not a deferral.** See §10.
-5. **Per-declaration purity, discard and lint.** Remove the void-return proxy.
+5. **Per-declaration purity** — done (F182), and smaller than written. The `t.kind != TY_VOID`
+   test was called a proxy, and for the 28 converted sets it is now *exact*: `t` is the resolved
+   declaration's own return type, and a member that mutates has nothing to return. What was left
+   to remove was the **name list beside it** — those 28 names are gone from `PURE_BUILTINS`, and
+   purity for them is derived from the resolved declaration. The 22 polymorphic builtins keep the
+   list, because for them the name is the implementation and there is no declaration to ask (§10).
+   The discard gate and the lint were the same mechanism; nothing else moved.
 6. **The lists.** `--api builtins`, `lsp.c`, the formatter and the grammar move to sets; delete
    `check_builtins.py`.
 7. **Open it to library code**, which is the only stage that changes what a program can say —

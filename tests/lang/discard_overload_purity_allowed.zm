@@ -1,0 +1,21 @@
+// The other half of discard_overload_purity_rejected: the builder members of the same sets
+// return nothing, so a bare call is how they are meant to be written and the gate must stay
+// silent. If a mutating overload ever returned a value, this is the file that would have to
+// change -- and the rule would need a marker on the declaration rather than its return type.
+fn main() {
+    val b = mutable([3, 1, 2])
+    sort(b)
+    reverse(b)
+    filter(b, fn(x: int) -> bool { return x > 1 })
+    sort_desc(b)
+    sort_by(b, fn(x: int) -> int { return -x })
+    for_each(b, fn(x: int) { print(x) })
+    print(snapshot(b))
+
+    // and the query members of the very same names are still refused when discarded -- see the
+    // rejection fixture; here they are bound, which is the repair the message asks for.
+    val d = distinct(b)
+    val n = count(b, fn(x: int) -> bool { return x > 1 })
+    print(len(d))
+    print(n)
+}

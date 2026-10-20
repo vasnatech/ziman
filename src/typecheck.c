@@ -1456,7 +1456,7 @@ static const char *const PURE_BUILTINS[] = {
     "map_get", "map_get_or", "map_keys", "map_values", "map_merge", "map_filter",
     "map_remove_all", "map_from_arrays",
     "set_items", "set_union", "set_intersect", "set_difference", "set_is_subset",
-    "to_set", "slice", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "sort_by", "sort_by_desc", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "distinct", "group_by", "index_by", "frequencies", "min_by", "max_by", "is_sorted", "binary_search", "lower_bound", "upper_bound", "set_insert_all", "set_filter",
+    "to_set", "slice", "concat", "set_insert_all", "set_filter",
     "snapshot", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set",
     "mutable_set_is_subset",
     NULL};
@@ -1465,6 +1465,34 @@ static const char *const PURE_BUILTINS[] = {
  * an internal name it dispatches on, and `callee` otherwise. */
 static const char *authored_callee(const Expr *e) {
     return e->as.call.rewritten_from != NULL ? e->as.call.rewritten_from : e->as.call.callee;
+}
+
+static int overload_set_size(Module *module, const char *name);
+
+/* Purity, read off the declaration instead of a list -- stage 5 of
+ * docs/design/full-overloading.md, for the part of the list that no longer needs to exist.
+ *
+ * A call that resolved to a member of a **resolver-owned overload set in the prelude** says
+ * whether it has effects by its return type, and this is structural rather than lucky: the two
+ * worlds answer the same question differently, so the `[T]` member computes a new value and the
+ * `MutableArray<T>` member rearranges a buffer *and has nothing to return*. Every one of the 28
+ * sets is that shape -- `sort(b)`, `reverse(b)`, `filter(b, p)` are void and discarding one is
+ * the normal call; `distinct(b)`, `map(b, f)`, `count(b, p)` answer values and discarding one is
+ * always a mistake.
+ *
+ * Before F182 those 28 names also had to appear in PURE_BUILTINS, which is a list of *names* --
+ * and purity is per overload, so the list could only ever be right with `t.kind != TY_VOID`
+ * standing beside it. They are gone from the list now: a 29th set needs no edit, and the list
+ * cannot go stale about them.
+ *
+ * **What this does not cover, deliberately.** The 22 polymorphic builtins keep the list, because
+ * for them the name *is* the implementation (F181) and there is no declaration to ask. And a
+ * mutating overload that returned a value would defeat the rule -- none exists, `remove(b, i)`
+ * being a builtin rather than a set, and the fixture notes say so. */
+static int call_is_pure_prelude_overload(Module *module, const Expr *e) {
+    const FunctionDecl *fn = (const FunctionDecl *)e->call_fn;
+    if (fn == NULL || fn->is_builtin || fn->source_file != NULL) return 0;
+    return overload_set_size(module, fn->name) > 1;
 }
 
 static int is_pure_builtin_name(const char *name) {
@@ -6384,7 +6412,8 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 else if (s->as.expr_stmt.expr->kind == EXPR_CALL && t.kind != TY_VOID
                          && authored_callee(s->as.expr_stmt.expr) != NULL
                          && shadowing_fn(authored_callee(s->as.expr_stmt.expr)) == NULL
-                         && is_pure_builtin_name(authored_callee(s->as.expr_stmt.expr))) {
+                         && (is_pure_builtin_name(authored_callee(s->as.expr_stmt.expr))
+                             || call_is_pure_prelude_overload(module, s->as.expr_stmt.expr))) {
                     const char *name = authored_callee(s->as.expr_stmt.expr);
                     if (strcmp(name, "push") == 0 || strcmp(name, "insert") == 0 || strcmp(name, "set") == 0
                         || strcmp(name, "remove") == 0 || strcmp(name, "swap") == 0) {

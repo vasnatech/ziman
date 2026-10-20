@@ -1,0 +1,15 @@
+// F182: whether discarding a call is a mistake is a property of the **overload**, not the name.
+// `sort` is one name with two declarations: the `[T]` one computes a new array and throwing it
+// away is always a bug, the `MutableArray<T>` one rearranges a buffer and returns nothing, so
+// throwing away its (absent) result is the normal call.
+//
+// The gate reads the resolved declaration's return type, which is exact rather than a proxy: a
+// member that mutates has nothing to return, so void *is* "has an effect" for these 28 sets.
+// None of their names appears in `PURE_BUILTINS` any more.
+//
+// The allowed half is pinned in discard_overload_purity_allowed.zm; this file holds one rejection
+// so the message itself is pinned too.
+fn main() {
+    val b = mutable([1, 2, 3])
+    distinct(b)
+}
