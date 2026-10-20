@@ -2470,3 +2470,40 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   which is a first check with nothing recorded yet.
 
   `tests/lang/overload_arg_checked_once.zm` pins both halves, including the non-literal path.
+
+- [x] **F190** **`clear` and `snapshot` are *not* convertible, `len` is — and the reason sorts the
+  rest.** (done 2026-10-19.) Asked to convert `clear` and `snapshot`; read their arms first and
+  neither should be.
+
+  **Both carry a hint keyed on the type that was rejected**, which `#[when_unmatched]` cannot
+  express — it is one line for the whole set. `clear` answers a `Mutable` with *"it is always
+  initialised, and emptying it would need exactly the zero value its type may not have"* and
+  everything else with *"an immutable collection is emptied by writing an empty one"*.
+  `snapshot` tells a `Mutable` to use `mutable_get` and explains why the names differ at all.
+  Converting either would have traded a measured, specific message for a generic one, which is
+  the thing this whole stage exists to avoid.
+
+  **F186 sorted the arms on the wrong axis.** It asked whether the "expects …" sentence is
+  derivable. The better question is how many messages an arm carries at all:
+
+  | arm | messages beyond arity | |
+  |---|---|---|
+  | `len`, `str`, `set`, `unwrap`, `abs` | 1 | a pure type rule — convertible |
+  | `clear` | 2 | |
+  | `concat` | 3 | |
+  | `snapshot`, `mutable_map_set_all` | 4 | |
+  | `remove` | 6 | |
+  | `contains` | **12** | |
+
+  An arm with more than one message is not stating a type rule, it is answering differently
+  depending on what you passed. **`contains` has twelve.** So the conversion is bounded at
+  roughly `len`, `str` and `set` — not the ~50 §11 estimated, and the earlier estimate counted
+  names rather than reading what the arms do.
+
+  **`len` is converted**: nine declarations, one message, 65 arms left from 70. Its derived
+  sentence is *"'len' expects string, [T], Map<K, V>, Set<T>, Mutable<T> or a builder, found
+  Holder"* against the hand-written *"an array, string, map, set, builder or Mutable"* — same
+  content, concrete spellings instead of categories, one fixture updated.
+
+  Whether to build a per-type hint is a separate question, and should be answered by how often a
+  converted set actually wants one rather than decided in advance.

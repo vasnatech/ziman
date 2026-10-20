@@ -468,7 +468,29 @@ the table to allow that also unregisters it -- which made `abs`'s own declaratio
 immediately. **Splitting that table is step 4**, and until then a converted builtin keeps the
 restriction it had.
 
-Remaining: 69 arms, down from 70. The order from here is the small sets first (`clear`,
-`snapshot`, `slice`, `swap`, `to_set`, `to_mutable_set`, `unwrap`), attaching
-`#[when_unmatched]` where F186 found a clause the declarations cannot carry, before `len`,
-`contains` and `str` at six to nine members.
+### What an arm carries decides whether it can go (F190)
+
+F186 sorted the arms by whether their sentence is derivable. That was the wrong axis, or at least
+not the only one. Counting the error messages in each arm sorts them better:
+
+| arm | messages beyond arity | |
+|---|---|---|
+| `len`, `str`, `set`, `unwrap`, `abs` | 1 | a pure type rule — **convertible** |
+| `clear` | 2 | |
+| `concat` | 3 | |
+| `snapshot`, `mutable_map_set_all` | 4 | |
+| `remove` | 6 | |
+| `contains` | 12 | |
+
+An arm with more than one is not stating a type rule; it is **answering differently depending on
+what you passed**. `clear` tells a `Mutable` *"it is always initialised, and emptying it would
+need exactly the zero value its type may not have"* and tells everything else *"an immutable
+collection is emptied by writing an empty one"*. `snapshot` tells a `Mutable` to use
+`mutable_get` and says why the names differ. These are keyed on the **rejected type**, and
+`#[when_unmatched]` is one line for the whole set — it cannot express them.
+
+So the remaining conversions are bounded by this, not by F186's derivability: **`len` and `str`
+and `set`**, and nothing else without a per-type hint. Whether to build one is a separate
+question and should be answered by how often a converted set actually wants it, not in advance.
+
+Converted so far: `abs`, `swap`, `slice`, `to_set`, `len`. **65 arms, from 70.**

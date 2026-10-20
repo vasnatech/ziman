@@ -3493,20 +3493,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return type_map(arg_type.type_args.items[0], arg_type.type_args.items[1]);
     }
 
-    if (strcmp(name, "len") == 0) {
-        if (e->as.call.args.count != 1) {
-            ziman_error("type", e->line, e->col, "'len' takes exactly 1 argument, found %d", e->as.call.args.count);
-        }
-        Expr *arg = e->as.call.args.items[0];
-        Type arg_type = check_expr(module, env, arg);
-        if (arg_type.kind != TY_ARRAY && arg_type.kind != TY_STRING && arg_type.kind != TY_MAP && arg_type.kind != TY_SET &&
-            !is_builder_type(arg_type) && !is_mutable_cell_type(arg_type)) {
-            ziman_error("type", arg->line, arg->col,
-                        "'len' expects an array, string, map, set, builder or Mutable, found %s", type_name(arg_type));
-        }
-        return type_scalar(TY_INT);
-    }
-
     if (strcmp(name, "contains") == 0) {
         if (e->as.call.args.count != 2) {
             ziman_error("type", e->line, e->col, "'contains' takes exactly 2 arguments, found %d", e->as.call.args.count);
