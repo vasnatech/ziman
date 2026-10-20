@@ -2246,3 +2246,34 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   Two fixtures, one per half: `discard_overload_purity_rejected` pins the message for a query
   discarded over a builder, `discard_overload_purity_allowed` pins silence for the mutators of
   the same names.
+
+- [x] **F183** **Full overloading, stage 6: the last hand-kept list is generated.** (done
+  2026-10-19.) The stage said four lists would move from name-keyed to set-derived. Checked each
+  first: `src/lsp.c` was already derived (F168), `--api builtins` already prints from the parsed
+  prelude, and the formatter keeps no name list at all. **One was still hand-kept, and it was the
+  worst of them.**
+
+  `editors/vscode/syntaxes/ziman.tmLanguage.json` highlighted `ArrayBuilder`, `StringBuilder`,
+  `MapBuilder`, `SetBuilder`, `sb_append`, `sb_to_string`, `ab_new`, `mapb_set`, `setb_add` and
+  `concat_arrays` — **every one deleted during F149–F162** — while knowing none of the 28 names
+  F178–F180 unprefixed. So an editor coloured names that no longer exist and left `sort`, `map`,
+  `filter`, `fold`, `snapshot`, `clear`, `narrow` and `swap` looking like ordinary user
+  functions. Nothing was watching it, which is the hole `src/lsp.c` had before F168 and the same
+  answer applies: **a list of what exists has to be derived from what exists.**
+
+  `tools/gen_vscode_grammar.py` rewrites the two `match` strings from `ziman --api builtins` —
+  153 functions, 13 types — and `make vscode-grammar-check` regenerates and diffs, like the
+  manuals. Everything else in the grammar is hand-written and untouched.
+
+  **Two things the generator had to be taught**, both found by reading its output rather than
+  trusting it. The prose tail under "built-in types" names `Map`, `Set`, `Option`, `Result` and
+  `Channel` but **none of the `Mutable*` family**, so types are taken from the signatures
+  instead. And scanning signatures naively dragged in `Ord` and `Hash` from `<T: Ord>` and
+  `<T: Eq + Hash>` — *constraints, not types* — so the type-parameter list is stripped before
+  the scan. It also refuses to write an empty list, since that would turn highlighting off
+  silently rather than loudly.
+
+  **One claim of the plan withdrawn: `check_builtins.py` is not deleted.** Stage 6 said it would
+  become redundant. It gates that every *dispatched* builtin carries a declaration, and F181's 22
+  polymorphic builtins are exactly that population — still dispatched, still needing the guard.
+  The design doc now says so where it previously said the opposite.

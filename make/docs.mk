@@ -74,4 +74,15 @@ design-index-check:
 syntax-check: $(BIN)
 	python3 tools/check_syntax_examples.py
 
-docs-check: lib-manual-check corelib-reference-check not-yet-check experimental-check doc-module-check syntax-check design-index-check
+# The editor grammar, generated like the manuals rather than hand-kept. On 2026-10-19 its lists
+# still named `ArrayBuilder`, `sb_append`, `mapb_set` and `concat_arrays` -- all deleted during
+# F149-F162 -- and knew none of the 28 names F178-F180 unprefixed. Nothing was watching, which is
+# the same hole `src/lsp.c` had before F168 and the reason both are now derived.
+vscode-grammar:
+	python3 tools/gen_vscode_grammar.py $(BIN)
+
+vscode-grammar-check: $(BIN)
+	python3 tools/gen_vscode_grammar.py $(BIN)
+	git diff --exit-code -- editors/vscode/syntaxes/ziman.tmLanguage.json
+
+docs-check: lib-manual-check corelib-reference-check not-yet-check experimental-check doc-module-check syntax-check design-index-check vscode-grammar-check

@@ -272,8 +272,15 @@ Each stage ships on its own and is gated; none is "the big one".
    purity for them is derived from the resolved declaration. The 22 polymorphic builtins keep the
    list, because for them the name is the implementation and there is no declaration to ask (§10).
    The discard gate and the lint were the same mechanism; nothing else moved.
-6. **The lists.** `--api builtins`, `lsp.c`, the formatter and the grammar move to sets; delete
-   `check_builtins.py`.
+6. **The lists** — done (F183), with one claim of this plan withdrawn. The VS Code grammar was
+   the only list still hand-kept, and it was badly stale: `ArrayBuilder`, `sb_append`, `mapb_set`,
+   `concat_arrays`, all deleted in F149–F162, and none of the 28 names F178–F180 unprefixed. It
+   is generated from `--api builtins` now and gated by `git diff --exit-code`, the way the
+   manuals are. `src/lsp.c` was already derived (F168) and `--api builtins` already prints from
+   the parsed prelude, so neither needed moving; the formatter keeps no name list at all.
+   **`check_builtins.py` is not deleted**, and this plan was wrong to say it would be: it gates
+   that every *dispatched* builtin has a declaration, and §10's 22 polymorphic builtins are
+   exactly that population — still dispatched, still needing the guard.
 7. **Open it to library code**, which is the only stage that changes what a program can say —
    today `lib/graphics` cannot express what `lib/prelude.zm` does, and every overload in the
    language is currently a builtin.
