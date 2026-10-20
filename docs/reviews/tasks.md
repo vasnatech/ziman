@@ -2277,3 +2277,40 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   become redundant. It gates that every *dispatched* builtin carries a declaration, and F181's 22
   polymorphic builtins are exactly that population — still dispatched, still needing the guard.
   The design doc now says so where it previously said the opposite.
+
+- [x] **F184** **Full overloading, stage 7: opened to library and program code.** (done
+  2026-10-19.) The declaration-site rule was confined to `lib/prelude.zm` from F178, so that
+  stage 3 could convert the paired builtins without handing the feature to programs before its
+  errors or its documentation existed. That confinement is lifted: **any module may declare an
+  overload set**, under exactly the rule the prelude lives under.
+
+  This is the only stage that changes what a program can say. Until now the prelude was a tier of
+  the language a program could read but not write — `lib/graphics` could not express what
+  `lib/prelude.zm` did, and every overload in the language was a builtin.
+
+  **Cross-module needed nothing.** Both `shapes.area(3)` and `use shapes.area` then `area(3)`
+  resolve correctly, because the loader rewrites a qualified call to a qualified *name* and the
+  resolver then sees every declaration carrying it. I expected to have to reject cross-module
+  overloading — `resolve_function_ref` picks the first match, which looked like a silent wrong
+  answer waiting to happen — and it turned out the first match is only used to validate the
+  reference and build the name. Checked both paths rather than assuming either way.
+
+  **The §5 call-site ambiguity became reachable for the first time**, and needed the escape route
+  §5 demands. `take([])` between `take([int])` and `take([string])` is a genuine ambiguity: the
+  two are distinguishable at the declaration, but an empty literal carries no element type and
+  resolution never checks a context-dependent argument (it would have to pick an overload first).
+  The message now names *which* argument left the choice open and says to bind it to a typed
+  `val`. An ambiguity with no stated escape makes something unsayable.
+
+  **Three fixtures**: `overload_user_declared` (resolution by type, by arity, by argument *two*,
+  and by a lambda's arity), `overload_user_indistinguishable_rejected` (two members differing
+  only in return type — the restriction `to_set`/`to_mutable_set` proved worth keeping, now
+  enforced for everyone), and `overload_user_ambiguous_call_rejected`.
+
+  **`docs/SYNTAX.md` gains an "Overloading" passage** and loses two claims that are no longer
+  true: *"Ziman has no user-level function overloading"* beside `decimal_round`, and *"Ziman has
+  no argument-based overloading"* beside `format_number`. Both were rewritten to say what is
+  actually true of those two cases — `decimal_round` is a separate name because the two would
+  differ only in return type, and `format_number` is one engine rather than one per numeric type.
+
+  **The design document is now marked Built**, stages 1-3 and 5-7 done, stage 4 void (§10).

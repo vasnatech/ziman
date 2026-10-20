@@ -1,0 +1,62 @@
+// F184: a program may declare an overload set of its own. Until then only lib/prelude.zm could,
+// which made the prelude a tier of the language a program could read but not write -- the
+// asymmetry docs/design/full-overloading.md gives as the point of this stage.
+//
+// The rule is the same one the prelude lives under: several declarations may share a name when
+// every call can tell them apart, resolved from the arguments at any position, with no
+// return-type dispatch and no specificity ranking.
+
+struct Point {
+    x: int
+    y: int
+}
+
+fn describe(n: int) -> string {
+    return concat("int ", str(n))
+}
+
+fn describe(s: string) -> string {
+    return concat("string ", s)
+}
+
+fn describe(p: Point) -> string {
+    return concat("point ", str(p.x))
+}
+
+// Chosen by *arity*, not by type: both take an int first.
+fn area(side: int) -> int {
+    return side * side
+}
+
+fn area(w: int, h: int) -> int {
+    return w * h
+}
+
+// Argument one is an int in both; argument two decides. "Full" overloading means every position
+// participates, not just the first.
+fn at(row: int, col: int) -> string {
+    return concat("cell ", concat(str(row), str(col)))
+}
+
+fn at(row: int, label: string) -> string {
+    return concat("named ", label)
+}
+
+fn main() {
+    print(describe(42))
+    print(describe("hi"))
+    print(describe(Point { x: 1, y: 2 }))
+
+    print(area(3))
+    print(area(3, 4))
+
+    print(at(1, 2))
+    print(at(1, "end"))
+
+    // a lambda's arity is readable without checking it, so it can decide too
+    print(apply([1, 2, 3], fn(x: int) -> int { return x * 2 }))
+}
+
+fn apply(xs: [int], f: fn(int) -> int) -> [int] {
+    return map<int, int>(xs, f)
+}

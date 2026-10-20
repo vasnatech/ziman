@@ -6,7 +6,7 @@ hand-written in `src/typecheck.c` and starts being read off the declarations.
 
 | | |
 |---|---|
-| Status | **Design only. Nothing is built.** |
+| Status | **Built.** Stages 1-3 and 5-7 done (F176-F184); stage 4 void, see §10. |
 | Raised | 2026-10-18, from "now that we have quite a number of overloaded functions, what do you think on relaxing the no-overloading rule?" (`docs/ROADMAP.md`) |
 | Scope chosen | 2026-10-19, by the user: **full overloading**, not first-parameter only |
 | Written | 2026-10-19 |
@@ -281,9 +281,12 @@ Each stage ships on its own and is gated; none is "the big one".
    **`check_builtins.py` is not deleted**, and this plan was wrong to say it would be: it gates
    that every *dispatched* builtin has a declaration, and §10's 22 polymorphic builtins are
    exactly that population — still dispatched, still needing the guard.
-7. **Open it to library code**, which is the only stage that changes what a program can say —
-   today `lib/graphics` cannot express what `lib/prelude.zm` does, and every overload in the
-   language is currently a builtin.
+7. **Open it to library code** — done (F184). The declaration-site rule is no longer confined to
+   the prelude: any module may declare an overload set, under exactly the rule the prelude lives
+   under. Cross-module worked without further change — `shapes.area(3)` and `use shapes.area`
+   both resolve, because the loader rewrites a qualified call to a qualified *name* and the
+   resolver sees every declaration carrying it. The call-site ambiguity error of §5 became
+   reachable for the first time here and gained the escape route §5 requires.
 
 Stages 1-6 are refactors with one observable invariant: **the corpus, the fixtures and the
 benchmark behave identically.** Stage 7 is the feature.

@@ -1,0 +1,15 @@
+// The declaration-site half of F184: a pair no call could separate is a redefinition, reported
+// where it is written rather than at the first ambiguous call. Here the two differ only in what
+// they *return*, and there is no return-type dispatch -- the restriction `to_set`/`to_mutable_set`
+// proved worth keeping, now enforced for everyone.
+fn f(a: int) -> int {
+    return a
+}
+
+fn f(b: int) -> string {
+    return "x"
+}
+
+fn main() {
+    print(f(1))
+}

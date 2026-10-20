@@ -1,0 +1,17 @@
+// The call-site half: two declarations that *are* distinguishable -- a [int] is never a [string]
+// -- asked a question neither can answer, because an empty literal carries no element type and
+// resolution never checks a context-dependent argument (it would have to pick an overload first).
+// The message names the position that left the choice open and asks for a type there, because an
+// ambiguity with no stated escape makes something unsayable.
+fn take(a: [int]) -> string {
+    return "ints"
+}
+
+fn take(a: [string]) -> string {
+    return "strings"
+}
+
+fn main() {
+    print(take([1]))
+    print(take([]))
+}

@@ -2215,8 +2215,25 @@ static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char
     list[0] = '\0';
     if (r.outcome == OVL_AMBIGUOUS) {
         overload_report_candidates(&r, list, sizeof list);
+        /* An ambiguity must come with its escape, or the feature has made something unsayable
+         * (the design's §5). After the self-describing filter has run, what is left undecided is
+         * almost always an argument that carries no type of its own -- an empty literal, an
+         * unannotated lambda, a bare `None` -- so the message names that position and asks for a
+         * type there, rather than leaving the reader to guess which argument was the problem. */
+        int open_at = 0;
+        for (int i = 0; i < e->as.call.args.count; i++) {
+            if (expr_needs_expected_type(e->as.call.args.items[i])) { open_at = i + 1; break; }
+        }
+        if (open_at > 0) {
+            ziman_error("type", e->line, e->col,
+                        "'%s' is ambiguous here -- more than one declaration accepts these arguments, and "
+                        "argument %d carries no type of its own to choose between them%s\n  = give it one: "
+                        "bind it to a typed val first, or annotate it",
+                        name, open_at, list);
+        }
         ziman_error("type", e->line, e->col,
-                    "'%s' is ambiguous here -- more than one declaration accepts these arguments%s",
+                    "'%s' is ambiguous here -- more than one declaration accepts these arguments%s\n"
+                    "  = name the argument to choose, or give these two different names",
                     name, list);
     }
     /* No candidate. Re-resolve with the set unfiltered so the message can list what there was. */
@@ -6938,22 +6955,23 @@ void typecheck(Module *module) {
                  * flat "already defined" until stage 7, which is the stage that deliberately
                  * opens this up; letting it in here as a side effect would deliver the feature
                  * without the error messages, the documentation or the tests that stage owes. */
+                /* Stage 7: the rule is the same wherever the declarations live. Two of them
+                 * may share a name when every call can tell them apart, and a pair that no
+                 * argument list separates is a redefinition. Until F184 this was confined to the
+                 * prelude, so that stage 3 could convert the paired builtins without handing the
+                 * feature to programs before its errors and its documentation existed.
+                 *
+                 * Declarations are compared only against others from the same place -- a
+                 * program's `fn first(...)` beside the prelude's is a *shadow* (F164), not a
+                 * conflict, and the check is reached from either side because `find_function`
+                 * answers with the program's first. */
                 FunctionDecl *clash = NULL;
-                if (fn->source_file == NULL) {
-                    for (int q = 0; q < module->functions.count && clash == NULL; q++) {
-                        FunctionDecl *other = module->functions.items[q];
-                        if (other == fn || strcmp(other->name, fn->name) != 0) continue;
-                        /* A program's own declaration of this name is a *shadow* of the
-                         * prelude's, not a conflict with it -- and this check can be reached
-                         * from the prelude side, because `find_function` answers with the
-                         * program's declaration first. Comparing the two is how the first
-                         * attempt at this reported `sum` and `first` as redefinitions at their
-                         * prelude lines. Only prelude-against-prelude is a set. */
-                        if (other->source_file != NULL) continue;
-                        if (ovl_indistinguishable_at(fn, other) >= 0) clash = other;
-                    }
-                } else {
-                    clash = (FunctionDecl *)first;
+                int fn_is_prelude = fn->source_file == NULL;
+                for (int q = 0; q < module->functions.count && clash == NULL; q++) {
+                    FunctionDecl *other = module->functions.items[q];
+                    if (other == fn || strcmp(other->name, fn->name) != 0) continue;
+                    if ((other->source_file == NULL) != fn_is_prelude) continue;
+                    if (ovl_indistinguishable_at(fn, other) >= 0) clash = other;
                 }
                 if (clash != NULL) {
                     ziman_error("type", fn->line, fn->col,

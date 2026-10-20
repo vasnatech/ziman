@@ -234,8 +234,9 @@ fn main() {
 
 **`decimal`**: literal needs `d` (`19.99d`, `20d`; bare digits always mean `float`/`int`).
 All of `float`'s operators/builtins work, plus `parse_decimal` and
-`math.decimal_round(d, scale)` (a separate name, not a `round` overload — Ziman has no
-user-level function overloading). `+`/`-` align scale first and are always exact; `*`
+`math.decimal_round(d, scale)` (a separate name rather than a `round` overload: the two would
+take the same argument types and differ only in what they return, which no argument list can
+tell apart — see "Overloading"). `+`/`-` align scale first and are always exact; `*`
 needs no alignment and is exact; `/` doesn't always terminate, so it rounds
 half-up-away-from-zero to `max(a.scale, b.scale)` (`10d / 3d` is `3`, `-2d / 3d` is `-1`);
 `%` is an exact remainder, no rounding. Division/modulo by zero is a runtime error.
@@ -1124,6 +1125,30 @@ fn main() {
   `struct`/`enum`/`val` (the same position `pub` occupies; they're mutually exclusive, `pub`
   checked first) — everywhere else, including a function's own name or an import, it's an
   ordinary identifier (the same technique `unit` uses as a type).
+- **Overloading: several declarations may share a name when every call can tell them apart.**
+  Write `fn describe(n: int)` and `fn describe(s: string)` side by side and a call picks one from
+  its arguments. **Any argument position decides**, not just the first — `fn at(row: int, col:
+  int)` and `fn at(row: int, label: string)` are a set, chosen by argument two — and so does
+  arity, so `area(side)` and `area(w, h)` are a set too. A lambda argument's *arity* counts, since
+  it can be read without checking the lambda.
+
+  Three restrictions, each with a reason:
+  - **No return-type dispatch.** Two declarations taking the same arguments and differing only in
+    what they answer are a redefinition, reported where they are written. `to_set` and
+    `to_mutable_set` are two names for this reason.
+  - **No specificity ranking.** A parameter that is a bare type variable matches everything, so
+    `fn g<T>(a: [T])` beside `fn g(a: [int])` is a redefinition, not a more specific overload.
+  - **No implicit conversion** to make a member match.
+
+  A call can still be ambiguous when an argument carries no type of its own — an empty literal, an
+  unannotated lambda, a bare `None` — because resolution never type-checks such an argument before
+  choosing (it would have to know the overload first). `take([])` between `take([int])` and
+  `take([string])` is refused, and the message says which argument left the choice open. Bind it
+  to a typed `val` first.
+
+  **An overload set cannot be used as a function value**: `val f = describe` has no arguments to
+  choose from. Wrap the one you mean in a function of your own.
+
 - **In `lib/prelude.zm`, visibility chooses what is *advertised*, not what is callable.** The
   prelude is merged into every program, so every declaration in it is callable with no `use`
   whatever its modifier says — `pub` means only "`ziman --api builtins` lists it", and a plain
@@ -2237,7 +2262,7 @@ fn main() {
 }
 ```
 
-- **One engine, not five** (Ziman has no argument-based overloading). `format_number(s, fmt) ->
+- **One engine, not five** (one function, not an overload set per numeric type). `format_number(s, fmt) ->
   string`/`parse_number(s, fmt) -> string` operate on the *string* each type already produces
   via `str()`/expects via `parse_int`; `format_int`/`_float`/`_bigint`/`_decimal`/`_byte` are
   thin wrappers over `format_number`.
