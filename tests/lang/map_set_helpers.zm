@@ -35,6 +35,6 @@ fn main() {
     val by_name = index_by<Person, string>(people, fn(p) { p.name })
     print(len(by_name))
     print(Option.unwrap_Some(map_get(by_name, "Ada")).age)
-    print(map_keys(by_name))
+    print(keys(by_name))
     print(len(index_by<Person, int>([], fn(p) { p.age })))
 }

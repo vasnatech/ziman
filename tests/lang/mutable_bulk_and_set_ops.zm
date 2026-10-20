@@ -24,8 +24,8 @@ fn main() {
     val m = mutable_map_new<string, int>()
     mutable_map_set_all(m, Map<string, int> { "a": 1 })
     mutable_map_set_all(m, mutable(Map<string, int> { "b": 2, "a": 9 }))
-    print(mutable_map_keys(m))
-    print(mutable_map_values(m))
+    print(keys(m))
+    print(values(m))
 
     val s = to_mutable_set([1, 2, 3])
     mutable_set_union(s, Set<int> { 4 })
@@ -44,7 +44,7 @@ fn main() {
 
     val sm = mutable(Map<string, int> { "k": 1 })
     mutable_map_set_all(sm, sm)
-    print(mutable_map_values(sm))
+    print(values(sm))
 
     val ss = to_mutable_set([1, 2])
     mutable_set_union(ss, ss)

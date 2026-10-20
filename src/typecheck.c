@@ -1510,7 +1510,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "set_insert_all", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "map_get", "set_items", "map_get_or", "map_merge", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "set_insert_all", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -1533,7 +1533,7 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * name with no declaration at all (`format`, `printf`, the parser's `$` names) can never appear
  * here -- there is nothing to canonicalize against. */
 static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
-    "abs", "len", "slice", "swap", "to_set", "filter", NULL,
+    "abs", "len", "slice", "swap", "to_set", "filter", "keys", "values", NULL,
 };
 
 static int builtin_refuses_named_args(const char *name) {
@@ -3249,7 +3249,10 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         ziman_error("type", e->line, e->col, "named arguments aren't supported for '%s'", name);
     }
 
-    if (strcmp(name, "map_get") == 0 || strcmp(name, "map_keys") == 0 || strcmp(name, "map_values") == 0 || strcmp(name, "set_items") == 0) {
+    /* `map_keys` and `map_values` left this arm in F194, becoming the `Map` halves of the bare
+     * `keys` and `values`; their declarations state what the arm checked. `map_get` and
+     * `set_items` are still here, and are items 3 and 4 of the Map/Set pairing pass. */
+    if (strcmp(name, "map_get") == 0 || strcmp(name, "set_items") == 0) {
         int is_get = strcmp(name, "map_get") == 0;
         int is_set = strcmp(name, "set_items") == 0;
         int want = is_get ? 2 : 1;
@@ -3271,8 +3274,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             type_list_push(&option.type_args, *coll.elem_err);
             return option;
         }
-        if (strcmp(name, "map_values") == 0) return type_array(*coll.elem_err);
-        if (strcmp(name, "map_keys") == 0) return type_set(*coll.elem);
         return type_array(*coll.elem);
     }
 

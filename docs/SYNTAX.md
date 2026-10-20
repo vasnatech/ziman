@@ -348,8 +348,8 @@ print(len(stock))                        // 2
 print(contains(stock, "apple"))          // true (a set: contains(seen, 3))
 print(map_get(stock, "apple"))           // Some(4); None if absent -- always an Option<V>
 seen = insert(seen, 3)                   // a set adds with insert, not set
-print(map_keys(stock))                   // {apple, fig}, a Set<string>
-print(map_values(stock))                 // [4, 9]; set_items(s) is the array of a set
+print(keys(stock))                       // {apple, fig}, a Set<string>
+print(values(stock))                     // [4, 9]; set_items(s) is the array of a set
 for name, qty in stock { ... }           // key and value; `for name in stock` binds keys only
 for x in seen { ... }                    // a set has one binder
 ```
@@ -360,6 +360,11 @@ for x in seen { ... }                    // a set has one binder
   a repeated key keeps the last value); sets -- `set_union`/`set_intersect`/`set_difference(a, b)`
   (`a`'s order, `b`'s extras appended for union), `set_is_subset(a, b)`, `to_set(items)`,
   `set_insert_all(s, items)`.
+- **`keys(m)` and `values(m)` take a `Map` or a `MutableMap`**, the second row of the Map/Set
+  pairing pass. Both answer immutable values from either world -- `keys` a `Set<K>`, `values` a
+  `[V]` -- because a result like this is nearly always consumed by a `for` or returned, so
+  handing back a handle would allocate a thread-bound one for nothing. `map_keys`, `map_values`,
+  `mutable_map_keys` and `mutable_map_values` no longer exist in any spelling.
 - **`filter(c, keep)` takes any of the six collections**, which is the first row of the Map/Set
   pairing pass: an array or a `MutableArray` with `keep: fn(T) -> bool`, a `Map` or a
   `MutableMap` with `keep: fn(K, V) -> bool`, a `Set` or a `MutableSet` with `fn(T) -> bool`. The
@@ -477,7 +482,7 @@ for x in seen { ... }                    // a set has one binder
 - **Values, like arrays** -- `set`/`insert`/`remove` return a new collection, leaving the
   argument untouched. A persistent hash trie internally, so an update copies only a few nodes:
   building an n-entry map is O(n log n).
-- **Insertion order**: `map_keys`/`map_values`/`set_items`/`for`/`print` all go in first-inserted
+- **Insertion order**: `keys`/`values`/`set_items`/`for`/`print` all go in first-inserted
   order; overwriting a key keeps its place, removing and re-adding sends it to the end. `for`
   walks a snapshot (rebinding the collection mid-loop doesn't change what's visited or error).
 - **Equality/hashing ignore order** -- `==` is true for the same entries (a map's values must
@@ -493,7 +498,7 @@ for x in seen { ... }                    // a set has one binder
   while `map_get` returned `None`. `compare(nan, nan)` is `0` and agrees with key lookup. This is the
   same line Java draws between `==` and `Double.equals`. `-0.0` and `0.0` are one key and `==` also
   equates them, so nothing differs there.
-- **Names**: `Map`/`Set` are reserved words. `map_get`, `map_keys` (`Set<K>`), `map_values`
+- **Names**: `Map`/`Set` are reserved words. `map_get`, `keys` (`Set<K>`), `values`
   (`[V]`), `set_items` (`[T]`) take their collection's type from the argument -- no type
   arguments written.
 

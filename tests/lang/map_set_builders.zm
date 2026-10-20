@@ -27,7 +27,7 @@ fn main() {
     print(len(m))
     print(map_get(m, 4))
     print(map_get(m, 3))
-    print(map_keys(m) == Set<int> {})
+    print(keys(m) == Set<int> {})
     val sb = mutable_set_new<string>()
     mutable_set_add<string>(sb, "x")
     mutable_set_add<string>(sb, "y")

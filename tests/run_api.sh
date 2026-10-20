@@ -23,10 +23,13 @@ has "and points at the builtins"         "ziman --api builtins" "$listing"
 
 # The gap wave three of the benchmark found: --api listed modules, so a run hunting a string's
 # characters never saw `chars` (a builtin) and used split(word, "") instead, which type-checks and
-# fails at runtime. Another concluded "there is no keys function" when map_keys is a builtin.
+# fails at runtime. Another concluded "there is no keys function" when the builtin existed -- it
+# was spelled `map_keys` then, and F194 made it `keys` over both Map worlds, which is the repair
+# that benchmark argued for rather than a rename on top of it.
 builtins=$("$BIN" --api builtins 2>&1)
 has "builtins lists chars"               "chars" "$builtins"
-has "builtins lists map_keys"            "map_keys" "$builtins"
+has "builtins lists keys"                "fn keys<K: Eq + Hash, V>(m: Map<K, V>)" "$builtins"
+has "and the MutableMap half beside it"  "fn keys<K: Eq + Hash, V>(m: MutableMap<K, V>)" "$builtins"
 has "builtins names the lowercase types" "int  float  bool  string" "$builtins"
 
 fs=$("$BIN" --api fs 2>&1)

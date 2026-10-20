@@ -2599,3 +2599,32 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   The five remaining Group A rows (`keys`/`values`, `items`, `get`/`get_or`, the four set
   operations, `remove_all`) are clean renames now rather than five more wrappers.
+
+- [x] **F194** **Map/Set pairing, item 2: one `keys` and one `values` over both Map worlds.**
+  (done 2026-10-19.) `map_keys`, `map_values`, `mutable_map_keys` and `mutable_map_values` no
+  longer exist in any spelling. Both answer *immutable* values from either world — `keys` a
+  `Set<K>`, `values` a `[V]` — which is not an inconsistency with `filter`'s in-place half: these
+  are queries, and a query's result is nearly always consumed by a `for` or returned, so handing
+  back a handle would allocate a thread-bound one for nothing.
+
+  **This is the row the 2026-10-09 benchmark pointed at.** A run concluded *"there is no keys
+  function"* when the builtin existed as `map_keys`; afterwards `mutable_map_keys` was invisible
+  to `--api builtins`, so the same question asked of a builder still answered nothing. One name
+  now covers both, and `tests/run_api.sh`'s assertion was rewritten to check the paired
+  signatures rather than the old name — the repair that benchmark argued for, rather than a
+  rename layered on top of it.
+
+  **A latent bug the rename exposed, and it is the kind worth naming.** The interpreter's
+  `B_map_values`/`B_set_items` branch told the two apart with `e->as.call.callee[0] == 'm'` —
+  **the first letter of the name**. Renaming `map_values` to `values` made that false, and the
+  branch silently answered with the keys: `values(m)` printed `[a, b]` where `[1, 2]` belonged.
+  No error, no crash, a wrong answer. It now tests the id. *A name is not a discriminator once
+  names can be shared*, and that pattern may well exist elsewhere — `B_map_lit`/`B_set_lit` reads
+  `callee[1] == 'm'`, which is safe only because the parser emits those two and nothing renames
+  them.
+
+  **The North Star needed one line.** `src/test/ziman/harness.zm` called `map_keys`; updated, and
+  its 61 suites and 2603 checks pass. That is what the sibling checkout is for.
+
+  Items 3 and 4 (`set_items`, `get`/`get_or`) share the arm `map_keys` and `map_values` just left,
+  so they are cheaper together than apart.

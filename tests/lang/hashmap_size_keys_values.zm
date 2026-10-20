@@ -14,12 +14,12 @@ fn main() {
     m = set(m, "b", 2)
     m = set(m, "c", 3)
     print(len(m))
-    print(sum(map_values(m)))
-    print(len(map_keys(m)))
+    print(sum(values(m)))
+    print(len(keys(m)))
 
     m = set(m, "a", 10) // overwrite, not a new entry
     print(len(m))
-    print(sum(map_values(m)))
+    print(sum(values(m)))
 
     m = remove(m, "b")
     print(len(m))

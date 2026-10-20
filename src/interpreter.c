@@ -1352,8 +1352,8 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"set_insert_all", B_set_insert_all},
     {"to_set", B_to_set},
     {"map_from_arrays", B_map_from_arrays},
-    {"map_keys", B_map_keys},
-    {"map_values", B_map_values},
+    {"keys", B_map_keys},
+    {"values", B_map_values},
     {"set_items", B_set_items},
     {"$map_lit", B_map_lit},
     {"$set_lit", B_set_lit},
@@ -1723,7 +1723,12 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 for (int i = 0; i < args[0].as.map->count; i++) ks = mapobj_set(ks, keys[i], value_int(0));
                 result = value_map(&e->resolved_type, ks);
             } else if (bid == B_map_values || bid == B_set_items) {
-                int want_values = e->as.call.callee[0] == 'm';
+                /* By the id, not by the callee's spelling. This read `callee[0] == 'm'` to tell
+                 * `map_values` from `set_items`, which stopped being true the moment F194 renamed
+                 * the first to `values`: the branch silently answered with the keys instead of
+                 * the values, and the only sign was a fixture printing `[a, b]` where `[1, 2]`
+                 * belonged. A name is not a discriminator once names can be shared. */
+                int want_values = bid == B_map_values;
                 Value *keys, *vals;
                 mapobj_entries(args[0].as.map, want_values ? NULL : &keys, want_values ? &vals : NULL);
                 int n = args[0].as.map->count;

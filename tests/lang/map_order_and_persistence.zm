@@ -6,10 +6,10 @@ fn main() {
     val changed = set(set(remove(base, "y"), "x", 10), "y", 20)
     print(base)
     print(changed)
-    print(map_keys(changed))
-    print(set_items(map_keys(changed)))
-    print(contains(map_keys(changed), "z"))
-    print(map_values(changed))
+    print(keys(changed))
+    print(set_items(keys(changed)))
+    print(contains(keys(changed), "z"))
+    print(values(changed))
     for k, v in changed {
         printf("{}={}\n", k, v)
     }

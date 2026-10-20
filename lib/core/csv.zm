@@ -610,7 +610,7 @@ pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, strin
             return err(format("row {} is not an object", i))
         }
         val cells = try flatten_row(row, delimiter)
-        for name in map_keys(cells) {
+        for name in keys(cells) {
             mutable_set_add(columns, name)
         }
         mutable_array_push(flat, cells)

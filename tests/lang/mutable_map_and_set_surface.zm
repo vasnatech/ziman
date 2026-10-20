@@ -17,18 +17,18 @@ fn main() {
 
     print(mutable_map_update(m, "a", fn(old: Option<int>) -> int { return switch old { Some(n) { n * 10 } None { 0 } } }))
     print(mutable_map_update(m, "zz", fn(old: Option<int>) -> int { return switch old { Some(n) { n } None { 99 } } }))
-    print(mutable_map_values(m))
-    print(mutable_map_keys(m))
+    print(values(m))
+    print(keys(m))
 
     mutable_map_update_all(m, fn(k: string, v: int) -> int { return v + 1 })
-    print(mutable_map_values(m))
+    print(values(m))
 
     filter(m, fn(k: string, v: int) -> bool { return v < 50 })
-    print(mutable_map_keys(m))
+    print(keys(m))
 
     print(mutable_map_remove_all(m, "b", "nope"))
     print(mutable_map_remove_all(m, "nope"))
-    print(mutable_map_keys(m))
+    print(keys(m))
     print(mutable_map_remove(m, "c"))
     print(mutable_map_remove(m, "c"))
 

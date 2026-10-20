@@ -637,11 +637,11 @@ fn mutable_map_remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K
     return removed_any
 }
 
-// The keys as an immutable `Set<K>`, in insertion order -- the same answer `map_keys` gives for a
+// The keys as an immutable `Set<K>`, in insertion order -- the same answer `keys` gives for a
 // Map, and the reason this returns a value rather than a handle: a result like this is nearly
 // always consumed by a `for` or returned, so handing back a handle would allocate a thread-bound
 // object per loop for nothing.
-fn mutable_map_keys<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Set<K> {
+pub fn keys<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Set<K> {
     val out = mutable_set_new<K>()
     for k in m {
         val _added = mutable_set_add<K>(out, k)
@@ -649,8 +649,8 @@ fn mutable_map_keys<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Set<K> {
     return snapshot(out)
 }
 
-// The values as an array, in the keys' insertion order, as `map_values` gives for a Map.
-fn mutable_map_values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V] {
+// The values as an array, in the keys' insertion order, as `values` gives for a Map.
+pub fn values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V] {
     val out = mutable_array_new<V>()
     for k, v in m {
         mutable_array_push<V>(out, v)
@@ -758,9 +758,9 @@ builtin fn map_get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -
 
 // A `Set`, not an array: a map's keys are unique by construction, so the type that says so is the
 // honest one.
-builtin fn map_keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
+builtin fn keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
 
-builtin fn map_values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
+builtin fn values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
 
 // `other` wins where both have a key.
 builtin fn map_merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>

@@ -1030,24 +1030,24 @@ fn mutable_map_remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K
 Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
 of what the singular takes, which for a map's `remove` is keys rather than entries.
 
-### `mutable_map_keys`
+### `keys`
 
 ```
-fn mutable_map_keys<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Set<K>
+pub fn keys<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Set<K>
 ```
 
-The keys as an immutable `Set<K>`, in insertion order -- the same answer `map_keys` gives for a
+The keys as an immutable `Set<K>`, in insertion order -- the same answer `keys` gives for a
 Map, and the reason this returns a value rather than a handle: a result like this is nearly
 always consumed by a `for` or returned, so handing back a handle would allocate a thread-bound
 object per loop for nothing.
 
-### `mutable_map_values`
+### `values`
 
 ```
-fn mutable_map_values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V]
+pub fn values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V]
 ```
 
-The values as an array, in the keys' insertion order, as `map_values` gives for a Map.
+The values as an array, in the keys' insertion order, as `values` gives for a Map.
 
 ### `mutable_set_add_all`
 
@@ -1173,19 +1173,19 @@ builtin fn map_get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -
 The value under `key`, or `default_value` when there is none -- and no `Option` allocated either
 way, which is why it is not `map_get` plus `unwrap_Some`.
 
-### `map_keys`
+### `keys`
 
 ```
-builtin fn map_keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
+builtin fn keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
 ```
 
 A `Set`, not an array: a map's keys are unique by construction, so the type that says so is the
 honest one.
 
-### `map_values`
+### `values`
 
 ```
-builtin fn map_values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
+builtin fn values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
 ```
 
 ### `map_merge`
