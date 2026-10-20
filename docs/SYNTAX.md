@@ -360,11 +360,13 @@ for x in seen { ... }                    // a set has one binder
   a repeated key keeps the last value); sets -- `union`/`intersect`/`difference(a, b)`
   (`a`'s order, `b`'s extras appended for union), `is_subset(a, b)`, `to_set(items)`,
   `set_insert_all(s, items)`.
-- **`remove_all(c, keys)` takes a `Map`, a `MutableMap` or a `MutableSet`**, the last row of
-  the pairing pass's first group. The array form works for all three, since a variadic
-  parameter accepts a lone array as a spread; only the written-out
-  `remove_all(mm, "a", "b")` is builder-only, the `Map` half taking `keys: [K]`. The
-  immutable half answers a new `Map`, the builders whether anything was removed.
+- **`remove_all(c, keys)` takes a `Map`, a `MutableMap` or a `MutableSet`**, the last row of the
+  pairing pass's first group, and all three take `variadic` — so an array, several values, one
+  value or none spell the same call in every world. The immutable half answers a new `Map`, the
+  builders whether anything was removed. It stays a separate name from `remove`: a variadic
+  `remove` would subsume the singular for `Map`, `Set` and `MutableSet`, but not for
+  `MutableMap`, whose singular answers the removed `Option<V>` where the plural answers `bool`
+  — and an array's `remove` takes an *index*, which must not become variadic.
 - **`union`, `intersect`, `difference` and `is_subset` take either world**, the awkward row:
   each has three declarations, and **argument two** chooses between two of them, because a
   `MutableSet`'s operand may come from either world. The immutable halves still take only a

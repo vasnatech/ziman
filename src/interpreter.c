@@ -1708,8 +1708,17 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 gc_unsafe_leave();
                 result = value_map(args[0].type, m);
             } else if (bid == B_map_remove_all) {
+                /* Variadic since F198, so the keys arrive either as a spread array (one argument
+                 * whose own type is `[K]`, which the checker has already decided -- see
+                 * `variadic_tail_is_array_spread`) or written out one per argument. A `native`
+                 * variadic tail would have been handed one array either way; a builtin gets the
+                 * raw `args`, which is the same split `concat` documents above. */
                 MapObj *m = args[0].as.map;
-                for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_remove(m, array_get(args[1].as.arr, i));
+                if (e->as.call.variadic_tail_is_array_spread) {
+                    for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_remove(m, array_get(args[1].as.arr, i));
+                } else {
+                    for (int i = 1; i < argc; i++) m = mapobj_remove(m, args[i]);
+                }
                 result = value_map(args[0].type, m);
             } else if (bid == B_set_insert_all) {
                 MapObj *m = args[0].as.map;

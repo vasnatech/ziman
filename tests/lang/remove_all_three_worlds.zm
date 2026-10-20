@@ -1,18 +1,19 @@
-// F197, item 6 and the last of Group A: `remove_all` over a Map, a MutableMap and a MutableSet.
+// F197/F198, item 6 and the last of Group A: `remove_all` over a Map, a MutableMap and a
+// MutableSet, all three taking `variadic`.
 //
-// An asymmetry survives the pairing and is left deliberately. The Map half takes `keys: [K]`;
-// the two builder halves take `variadic`. **The array form works for all three** -- a variadic
-// parameter accepts a lone array as a spread -- so `remove_all(c, [a, b])` is universal, and only
-// the written-out form is builder-only. Making the Map half variadic too would mean teaching its
-// builtin branch to assemble its arguments the way `concat` does, which is a runtime change this
-// row did not need.
+// The Map half took `keys: [K]` when the row was first paired, which left one name with two call
+// shapes. F198 made it variadic too, which costs the builtin branch a few lines -- a builtin gets
+// the raw `args` where a native variadic tail would have been handed one array -- and buys the
+// same four spellings in every world: an array, several values, one value, or none.
 //
-// The returns differ for the usual reason: the immutable half answers a new Map, the builders
-// answer whether anything was actually removed, which is what `mutable_set_remove` has always
-// done.
+// The returns still differ, for the usual reason: the immutable half answers a new Map, the
+// builders answer whether anything was actually removed, as `mutable_set_remove` always has.
 fn main() {
     val m = Map<string, int> { "a": 1, "b": 2, "c": 3 }
     print(remove_all(m, ["a", "b"]))
+    print(remove_all(m, "a", "b"))
+    print(remove_all(m, "a"))
+    print(remove_all<string, int>(m))
     print(len(m))
 
     val mm = mutable(m)

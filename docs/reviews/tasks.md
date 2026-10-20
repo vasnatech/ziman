@@ -2714,3 +2714,26 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   the four set operations, `remove_all`. Nineteen prefixed names gone, and every one of them was
   an overload set written as two or three declarations rather than an implementation plus an arm
   plus a table entry — the thing the array pass paid for three times per row.
+
+- [x] **F198** **`remove_all` is variadic in all three worlds; `remove` stays a separate name.**
+  (raised 2026-10-20 by the user asking whether `remove_all` could be renamed to `remove` with a
+  variadic second parameter; done 2026-10-20.) Half yes.
+
+  **The variadic: done.** The `Map` half took `keys: [K]` where the builders took `variadic`,
+  which left one name with two call shapes. It is variadic now, so an array, several values, one
+  value or none spell the same call in every world. The cost is a few lines in the builtin
+  branch: a builtin receives the raw `args` where a `native` variadic tail would have been handed
+  one array, so it reads the checker's own `variadic_tail_is_array_spread` to tell a spread from
+  written-out values — the same split `concat` documents.
+
+  **The rename: no, and `MutableMap` is the reason.** A variadic `remove` *would* subsume the
+  singular wherever the return types agree — `Map` (`Map` both), `Set` (`Set` both), `MutableSet`
+  (`bool` both). `MutableMap` breaks it: its singular answers `Option<V>`, the removed value,
+  and the plural answers `bool`. The two are indistinguishable at arity 2, so the set would be
+  rejected at the declaration, and `MutableMap` would need a second name anyway — leaving
+  `remove` meaning "one or many" in three worlds and not in the fourth, which is worse than
+  `remove_all` meaning "many" in all of them.
+
+  A second reason, independent of that: an array's `remove` takes an **index**, so a variadic
+  `remove(a, 1, 3)` would remove two positions that shift as it goes. That one must stay
+  singular whatever happens to the rest.
