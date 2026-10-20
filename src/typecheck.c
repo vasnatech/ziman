@@ -2320,9 +2320,31 @@ static int ovl_indistinguishable_at(const FunctionDecl *a, const FunctionDecl *b
     return -1;
 }
 
+/* Two populations share the shape "one name, several declarations", and only one of them is an
+ * overload set.
+ *
+ * A set of ordinary declarations is the resolver's: `sort` is two real functions and a call picks
+ * one. A set of `builtin fn` declarations is **not** -- `len` has nine signatures over a single
+ * polymorphic C function (`call_len` switches on the value's kind), and there is no `array_len`
+ * or `map_len` for a call to resolve *to*. Those nine lines document one implementation's type
+ * rule; they are not nine functions.
+ *
+ * F181 found this while trying to carry out stage 4 of docs/design/full-overloading.md, which
+ * said to convert the remaining arms the way stage 3 converted the paired ones. They cannot be:
+ * converting `len` would mean inventing nine implementations where one exists, which makes the
+ * runtime worse to satisfy a plan. So the check now measures the population it governs -- the
+ * resolver's -- and merely counts the other. */
+static int ovl_is_resolver_owned(Module *module, const char *name) {
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *f = module->functions.items[i];
+        if (strcmp(f->name, name) == 0 && !f->is_builtin) return 1;
+    }
+    return 0;
+}
+
 static void overload_sets_report(Module *module) {
     if (getenv("ZIMAN_OVERLOAD_SETS") == NULL) return;
-    int sets = 0, bad = 0;
+    int sets = 0, bad = 0, polymorphic = 0;
     for (int i = 0; i < module->functions.count; i++) {
         FunctionDecl *a = module->functions.items[i];
         int first = 1;
@@ -2335,6 +2357,7 @@ static void overload_sets_report(Module *module) {
             if (strcmp(module->functions.items[j]->name, a->name) == 0) members++;
         }
         if (members < 2) continue;
+        if (!ovl_is_resolver_owned(module, a->name)) { polymorphic++; continue; }
         sets++;
         int reported = 0;
         for (int x = 0; x < module->functions.count; x++) {
@@ -2350,7 +2373,8 @@ static void overload_sets_report(Module *module) {
             }
         }
     }
-    fprintf(stderr, "overload-set: %d set(s) with more than one declaration, %d unresolvable\n", sets, bad);
+    fprintf(stderr, "overload-set: %d resolver-owned set(s), %d unresolvable; "
+                    "%d polymorphic builtin(s) not checked\n", sets, bad, polymorphic);
 }
 
 static int check_collection_helper(Module *module, Env *env, Expr *e, const char *name, Type *out) {

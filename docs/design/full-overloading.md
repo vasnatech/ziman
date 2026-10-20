@@ -256,8 +256,15 @@ Each stage ships on its own and is gated; none is "the big one".
    A third rejection means §4 is wrong, and the document is fixed before stage 3.
 3. **Convert the 28 paired names.** Delete `WORLD_PAIRED`; the prefixed declarations lose their
    prefixes and become the overloads. Empty-literal and lambda-arity fixtures are the gate.
-4. **Convert the remaining 68 arms.** Largest stage, lowest risk: each arm becomes declarations,
-   one at a time, with its own fixtures already in place.
+4. ~~**Convert the remaining 68 arms.**~~ **Void — there is nothing here to convert** (F181).
+   The stage assumed the remaining arms were shaped like the paired ones. Measured: of the 50
+   names with more than one declaration, **28 were genuine overload sets and are now real
+   declarations; the other 22 are polymorphic builtins** — one implementation with its type rule
+   written out as several signatures. `len` has nine signatures over a single C function
+   (`call_len`, switching on the value's kind) and there is no `array_len` or `map_len` for a call
+   to resolve *to*; there is no `array_push` either. Converting them would mean inventing N
+   implementations where one exists, making the runtime worse to satisfy a plan. **They keep their
+   arms, and that is the right answer, not a deferral.** See §10.
 5. **Per-declaration purity, discard and lint.** Remove the void-return proxy.
 6. **The lists.** `--api builtins`, `lsp.c`, the formatter and the grammar move to sets; delete
    `check_builtins.py`.
@@ -293,3 +300,31 @@ benchmark behave identically.** Stage 7 is the feature.
   and named arguments may not be enough.
 - **A second `[string]`-shaped ambiguity appears in real library code.** The ROADMAP names this as
   the thing that would argue against the feature outright, and it stays the right trigger.
+
+
+## 10. Two populations, and only one of them is an overload set
+
+Added 2026-10-19 (F181), from trying to carry out stage 4 and finding it had no content.
+
+"One name, several declarations" describes two unrelated things, and conflating them is what made
+stage 4 look like work:
+
+| | what it is | how a call reaches an implementation |
+|---|---|---|
+| **Overload set** (28) | several real functions sharing a name | the resolver picks one from the arguments |
+| **Polymorphic builtin** (22) | *one* implementation, type rule written as several signatures | a builtin id; the C function switches on the value |
+
+`sort` is the first. `len` is the second: nine `builtin fn` lines over `call_len`, which asks the
+value what kind it is. The nine lines are documentation of one function's type rule — they are not
+nine functions, and no resolution happens or should.
+
+The second population also explains the two sets that §4 predicted would be unresolvable.
+**`concat` and `mutable` are both polymorphic builtins**, so the resolver never looks at them, and
+the declaration-site check was measuring a population it does not govern. Against the population
+it does, the bar is not "exactly two offenders" but **zero**, and `tools/overload_sets.sh` now
+asserts that.
+
+The distinction matters beyond bookkeeping, because it is the honest answer to "does Ziman have
+overloading": it has 28 overload sets and 22 polymorphic builtins, and `docs/ROADMAP.md`'s
+"28 overloaded builtin names" was counting the first group by a method that happened to agree.
+Stage 7 opens the first to library code. The second is a property of a builtin and will stay one.

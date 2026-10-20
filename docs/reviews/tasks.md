@@ -2178,3 +2178,37 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   prefix" paragraph, now twenty-eight, and its claim that `sort<int>([])` is unspellable, which
   is no longer true), one in `docs/TUTORIAL.md`, `lib/http/server.zm`, and one benchmark
   reference solution.
+
+- [x] **F181** **Full overloading, stage 4: void, and why.** (done 2026-10-19.) Stage 4 said to
+  convert the remaining ~68 dispatch arms the way stage 3 converted the 28 paired names —
+  *"largest stage, lowest risk"*. **It has no content, and finding that out is the result.**
+
+  **"One name, several declarations" describes two unrelated things.** An *overload set* is
+  several real functions sharing a name, and a call resolves to one of them. A *polymorphic
+  builtin* is **one** implementation whose type rule is written out as several signatures. `len`
+  has nine `builtin fn` lines over a single C function — `call_len` asks the value what kind it
+  is — and there is no `array_len` or `map_len` for a call to resolve *to*. There is no
+  `array_push` either. Converting these would mean inventing N implementations where one exists,
+  which makes the runtime worse in order to satisfy a plan.
+
+  Of the 50 names with more than one declaration: **28 were genuine overload sets** (now real
+  declarations, F178–F180) **and 22 are polymorphic builtins** — `len`, `contains`, `str`, `abs`,
+  `unwrap`, `push`, `insert`, `remove`, `set`, `swap`, `slice`, `snapshot`, `clear`, `mutable`,
+  `concat`, `to_set`, `to_mutable_set`, the four `mutable_set_*`, `mutable_map_set_all`. They keep
+  their arms, and that is the right answer rather than a deferral.
+
+  **It also corrects stage 2's gate, which was measuring the wrong population.** `concat` and
+  `mutable` — the two sets the design predicted would be unresolvable, and the two the gate was
+  built to hold — are **both polymorphic builtins**, so the resolver never looks at them. Against
+  the population the resolver does own, the bar is not "exactly two offenders" but **zero**, and
+  that is what `tools/overload_sets.sh` now asserts: *28 resolver-owned sets, 0 unresolvable; 22
+  polymorphic builtins not checked.* A stronger claim than the one it replaced, and about the
+  right thing.
+
+  The positive invariant is kept: zero resolver-owned sets found still fails, because a
+  misdirected check would otherwise pass in silence — the same trap F176's shadow gate had.
+
+  `docs/design/full-overloading.md` gains §10 for the distinction, and stage 4 is struck through
+  in §7 rather than deleted, so the plan records what was tried. Stages 5 (per-declaration
+  purity), 6 (the name-keyed lists) and 7 (opening it to library code) are unaffected — they were
+  never about the arms.
