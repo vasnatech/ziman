@@ -1,0 +1,12 @@
+// The hint belongs to the case it describes. `str`'s message appended "(it's already a string)"
+// unconditionally, so a struct was told it was already a string -- found in F191 while measuring
+// whether this arm could be replaced by its six declarations. It cannot be (see the tasks entry),
+// but the message was wrong either way, and the string case keeps its hint in
+// `str_rejects_string.zm`.
+struct P {
+    x: int
+}
+
+fn main() {
+    print(str(P { x: 1 }))
+}

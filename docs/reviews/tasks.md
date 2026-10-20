@@ -2507,3 +2507,34 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   Whether to build a per-type hint is a separate question, and should be answered by how often a
   converted set actually wants one rather than decided in advance.
+
+- [x] **F191** **Stage 8 ends: `str` cannot be converted either, and `str`'s message had a bug.**
+  (done 2026-10-19.) Asked to finish `str` and `set`. Neither converts, and the reasons are
+  different from each other and from F190's.
+
+  **`set` has no arm of its own** — it shares one with `insert` inside the map/set mutator, so it
+  cannot be removed independently.
+
+  **`str` passes both earlier tests and still fails.** One message, a derivable sentence — and
+  converting it broke `tests/lang/graphics_layout.zm`, where `str(switch cut.fits { ... })` is
+  real code. A value block carries no type of its own, so the resolver cannot narrow six
+  candidates and the call is ambiguous. Converted, measured, reverted.
+
+  **That is a third constraint, and the most general one.** It is not about messages at all:
+
+  > An overload set resolves from arguments that describe themselves. A function whose job is to
+  > accept *anything* receives exactly the expressions that do not.
+
+  `len`, `abs`, `slice`, `swap`, `to_set` take collections and numbers, which always describe
+  themselves. `str` takes expressions — a `switch` used as a value, a lambda, an empty literal.
+  So the **collection vocabulary is the natural home of overloading in this language, and the
+  universal verbs are not.** That is worth more than the five conversions.
+
+  **A real bug found on the way, and fixed.** `str`'s message appended *"(it's already a string)"*
+  **unconditionally**, so `str(P { x: 1 })` was told a struct was already a string. The
+  parenthetical is now attached to the case it describes; `str_rejects_struct.zm` pins the
+  corrected form beside `str_rejects_string.zm`, which keeps the hint.
+
+  **Stage 8 is finished.** Converted: `abs`, `swap`, `slice`, `to_set`, `len` — 65 arms from 70.
+  The estimate ran ~50 → ~3 → 5 as each constraint was found by reading the code rather than
+  counting names, which is the whole history of this plan in one line.

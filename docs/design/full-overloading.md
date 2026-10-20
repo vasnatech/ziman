@@ -493,4 +493,26 @@ So the remaining conversions are bounded by this, not by F186's derivability: **
 and `set`**, and nothing else without a per-type hint. Whether to build one is a separate
 question and should be answered by how often a converted set actually wants it, not in advance.
 
-Converted so far: `abs`, `swap`, `slice`, `to_set`, `len`. **65 arms, from 70.**
+### A third constraint, and the one that ends the stage (F191)
+
+`str` passes both earlier tests — one message, a derivable sentence — and **still cannot be
+converted**. Its argument is where a *value block* appears: `str(switch cut.fits { ... })` is
+real code in `tests/lang/graphics_layout.zm`. A value block carries no type of its own, so the
+resolver cannot narrow six candidates and the call is ambiguous. Converted, then reverted.
+
+That is the third and most general constraint, and it is about the **shape of the arguments a
+function habitually receives**, not about its messages:
+
+> An overload set resolves from arguments that describe themselves. A function whose job is to
+> accept *anything* — `str` renders a value, whatever it is — receives exactly the expressions
+> that do not.
+
+`len`, `abs`, `slice`, `swap` and `to_set` take collections and numbers, which always describe
+themselves. `str` takes expressions. So the collection vocabulary is the natural home of
+overloading in this language, and the universal verbs are not.
+
+`set` is not convertible for a plainer reason: it has no arm of its own, sharing one with
+`insert` inside the map/set mutator.
+
+**Stage 8 ends here.** Converted: `abs`, `swap`, `slice`, `to_set`, `len` — **65 arms, from 70**.
+The estimate went ~50 → ~3 → 5 as each constraint was found by reading rather than counting.

@@ -3285,9 +3285,14 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
         if (arg_type.kind != TY_INT && arg_type.kind != TY_FLOAT && arg_type.kind != TY_BOOL && arg_type.kind != TY_BIGINT && arg_type.kind != TY_DECIMAL && arg_type.kind != TY_BYTE) {
+            /* The parenthetical is only true of a string, and it used to be printed
+             * unconditionally: `str(P { x: 1 })` was told "found P (it's already a string)".
+             * Found in F191 while measuring whether this arm could be replaced by its
+             * declarations -- it cannot, but the message was wrong either way. */
             ziman_error("type", arg->line, arg->col,
-                        "'str' expects an int, float, bool, bigint, decimal, or byte, found %s (it's already a string)",
-                        type_name(arg_type));
+                        "'str' expects an int, float, bool, bigint, decimal, or byte, found %s%s",
+                        type_name(arg_type),
+                        arg_type.kind == TY_STRING ? " (it's already a string)" : "");
         }
         return type_scalar(TY_STRING);
     }
