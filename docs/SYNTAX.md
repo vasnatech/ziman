@@ -1536,9 +1536,16 @@ val by_age = sort_by<Patient, int>(patients, fn(p: Patient) -> int { return p.ag
 
 ## Attributes and derive
 
-`#[...]`, above a declaration, attaches compile-time metadata to it. Four are interpreted: `derive`
-(below) and `thread_bound` on a `struct`/`enum`, and `test` and `deprecated` on a function; other
-names parse but have no effect yet.
+`#[...]`, above a declaration, attaches compile-time metadata to it. Five are interpreted:
+`derive` (below) and `thread_bound` on a `struct`/`enum`, and `test`, `deprecated` and
+`when_unmatched` on a function; other names parse but have no effect yet.
+
+`#[when_unmatched("...")]` on any member of an **overload set** adds one line to the error raised
+when a call matches none of them. The error already names the types that position accepts, worked
+out from the declarations; this carries what the declarations cannot — advice about what the
+author probably meant, such as *"an immutable collection is emptied by writing an empty one"*. Any
+one member may write it and the whole set shares it, because the advice is about the name. The
+message is required: `#[when_unmatched]` with no text is a syntax error rather than a no-op.
 
 `#![...]`, with the `!`, attaches to the *whole file* instead of to the declaration after it (the
 same inner/outer split Rust draws), so it must appear before the first declaration -- writing one

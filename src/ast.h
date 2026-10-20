@@ -678,6 +678,14 @@ typedef struct {
      * `deprecated_message` is NULL for the bare form. */
     int deprecated;
     const char *deprecated_message;
+    /* `#[when_unmatched("...")]`: one extra line on the error raised when a call matches no
+     * member of this declaration's overload set. The resolver already names the types the
+     * position accepts, derived from the declarations; this carries what the declarations
+     * cannot -- advice about what the author probably meant. `str`'s builtin arm says "(it's
+     * already a string)" and `clear`'s says "an immutable collection is emptied by writing an
+     * empty one", and F186 established that those clauses are why the arms could not simply be
+     * replaced by derived text. Written on any one member; the set shares it. NULL when absent. */
+    const char *when_unmatched;
     /* `#[test]`: `ziman test` runs this function (see docs/SYNTAX.md
      * "Testing"). Must take no parameters (or, with `test_cases` set,
      * exactly one) and return nothing or `Result<unit, E>`. */

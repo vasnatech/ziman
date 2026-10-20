@@ -433,3 +433,19 @@ The derivation shipped anyway, because it improves the 28 sets that are already 
 **Step 2 is therefore not "convert the smallest sets" but "design the hint".** Converting the
 easy half first would leave the language with two kinds of builtin error for no reason a reader
 could see, and would spend the easy cases before the hard mechanism exists to check against.
+
+### Step 2 — `#[when_unmatched("...")]` (F187)
+
+An attribute on any member of a set, adding one line to the "no member matched" error. It follows
+`#[deprecated("...")]` exactly — same grammar position, same string argument, already round-tripped
+by the formatter — so it needed no new syntax, only a new name. The bare form is a syntax error:
+for `deprecated` the message is optional decoration, here it is the entire content.
+
+It was proven against a **user-declared** set rather than against a converted builtin, which is
+possible only because stage 7 opened overloading to program code. That matters for sequencing: the
+mechanism has a real user and real fixtures *before* any builtin is converted, so step 3 can check
+each conversion against a message that already works.
+
+**Step 3 is the conversion**, now unblocked: derive what can be derived, attach `#[when_unmatched]`
+where F186 found a clause that cannot be, and convert in groups smallest-first. Nothing in the
+runtime changes -- the nine declarations of `len` resolve to the one `call_len` registration.

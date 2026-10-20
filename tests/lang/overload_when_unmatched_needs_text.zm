@@ -1,0 +1,10 @@
+// The message is the whole point of the attribute, so the bare form is refused rather than
+// quietly meaning nothing -- unlike `#[deprecated]`, where the bare form is the common case.
+#[when_unmatched]
+fn f(a: int) -> int {
+    return a
+}
+
+fn main() {
+    print(f(1))
+}

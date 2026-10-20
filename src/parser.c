@@ -2516,6 +2516,7 @@ typedef struct {
     char *test_cases;  /* `#[test(cases: NAME)]`'s NAME, or NULL for a plain `#[test]` */
     int deprecated;                  /* `#[deprecated]` or `#[deprecated("...")]` was among them */
     const char *deprecated_message;  /* the `("...")` text, or NULL for the bare form */
+    const char *when_unmatched;      /* `#[when_unmatched("...")]`'s text, or NULL */
 } DeriveList;
 
 static void derive_list_push(DeriveList *list, char *name) {
@@ -2557,6 +2558,15 @@ static DeriveList parse_attributes(Parser *p) {
                     derives.test_cases = dup_token_text(cases_name);
                     expect(p, TOK_RPAREN, "')'");
                 }
+            } else if (item_name->length == 14 && strncmp(item_name->start, "when_unmatched", 14) == 0) {
+                /* Takes a string for the same reason `deprecated` does: it is prose for whoever
+                 * hits the error, not a name the compiler resolves. Unlike `deprecated` the
+                 * message is the whole point, so the bare form is refused rather than quietly
+                 * meaning nothing. */
+                expect(p, TOK_LPAREN, "'(' -- #[when_unmatched] needs the message it should add");
+                Token *msg = expect(p, TOK_STRING_LIT, "the extra line, in quotes");
+                derives.when_unmatched = (const char *)msg->start;
+                expect(p, TOK_RPAREN, "')'");
             } else if (item_name->length == 10 && strncmp(item_name->start, "deprecated", 10) == 0) {
                 /* The one attribute that takes a *string* argument rather than identifiers, which
                  * is why it is handled before the generic `(ident, ...)` branch below: a message is
@@ -2700,6 +2710,7 @@ Module *parse(TokenList tokens) {
             fn->visibility = vis;
             fn->deprecated = derives.deprecated;
             fn->deprecated_message = derives.deprecated_message;
+            fn->when_unmatched = derives.when_unmatched;
             if (derives.is_test) {
                 ziman_error("syntax", fn->line, fn->col, "#[test] cannot apply to a %s function ('%s')",
                             is_builtin ? "builtin" : "native", fn->name);
@@ -2720,6 +2731,7 @@ Module *parse(TokenList tokens) {
             fn->test_cases = derives.test_cases;
             fn->deprecated = derives.deprecated;
             fn->deprecated_message = derives.deprecated_message;
+            fn->when_unmatched = derives.when_unmatched;
             function_list_push(&module->functions, fn);
         }
         ziman_recovery_pop();

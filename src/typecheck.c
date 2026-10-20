@@ -2313,19 +2313,28 @@ static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char
         if (strcmp(module->functions.items[i]->name, name) == 0) all.live[all.live_count++] = module->functions.items[i];
     }
     overload_report_candidates(&all, list, sizeof list);
+    /* The set's own advice, if a member carries it -- see FunctionDecl.when_unmatched. Any one
+     * member may write it and the set shares it, because it is about the *name*, not about which
+     * declaration happened to be looked at first. */
+    const char *advice = NULL;
+    for (int i = 0; i < all.live_count && advice == NULL; i++) advice = all.live[i]->when_unmatched;
+    char tail[512];
+    tail[0] = '\0';
+    if (advice != NULL) snprintf(tail, sizeof tail, " -- %s", advice);
+
     if (r.eliminated_at > 0) {
         char expected[512];
         if (overload_expected_types(&all, r.eliminated_at, expected, sizeof expected)) {
             if (r.eliminated_at == 1 && all.live_count > 1) {
-                ziman_error("type", e->line, e->col, "'%s' expects %s, found %s",
-                            name, expected, type_name(r.eliminated_actual));
+                ziman_error("type", e->line, e->col, "'%s' expects %s, found %s%s",
+                            name, expected, type_name(r.eliminated_actual), tail);
             }
-            ziman_error("type", e->line, e->col, "argument %d of '%s' expects %s, found %s",
-                        r.eliminated_at, name, expected, type_name(r.eliminated_actual));
+            ziman_error("type", e->line, e->col, "argument %d of '%s' expects %s, found %s%s",
+                        r.eliminated_at, name, expected, type_name(r.eliminated_actual), tail);
         }
         ziman_error("type", e->line, e->col,
-                    "no declaration of '%s' accepts its argument %d%s",
-                    name, r.eliminated_at, list);
+                    "no declaration of '%s' accepts its argument %d%s%s",
+                    name, r.eliminated_at, tail, list);
     }
     /* A call with no arguments at all is more likely a reach for the *type* than a mis-call of
      * the function, and that reading was measured, not guessed: `map()` and `set()` were what a

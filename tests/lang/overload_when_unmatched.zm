@@ -1,0 +1,28 @@
+// F187 (stage 8 step 2): `#[when_unmatched("...")]` adds one line to the error a call gets when
+// it matches no member of an overload set.
+//
+// Why it exists: F186 derived the "expects X, Y or Z, found W" sentence from the declarations and
+// compared it against the 16 hand-written builtin arms it would replace. It matched about half.
+// The other half carry a clause the signatures do not contain and no derivation can produce --
+// `str`'s "(it's already a string)", `clear`'s "an immutable collection is emptied by writing an
+// empty one", `push`/`insert`/`set`'s cross-reference to their siblings. They are advice about
+// what the author probably meant, not a restatement of the type rule.
+//
+// Written on any one member; the set shares it, because the advice is about the name.
+
+struct P {
+    x: int
+}
+
+#[when_unmatched("an immutable collection is emptied by writing an empty one")]
+fn wipe(a: [int]) -> [int] {
+    return []
+}
+
+fn wipe(b: MutableArray<int>) {
+    clear(b)
+}
+
+fn main() {
+    print(wipe(P { x: 1 }))
+}

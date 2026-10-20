@@ -2386,3 +2386,32 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   **Step 2 is therefore not "convert the smallest sets" but "design the hint".** Converting the
   easy half first would leave two kinds of builtin error for no reason a reader could see, and
   would spend the easy cases before the mechanism exists to check the hard ones against.
+
+- [x] **F187** **Stage 8 step 2: `#[when_unmatched("...")]`.** (done 2026-10-19.) The per-set hint
+  F186 established was necessary: one extra line on the error a call gets when it matches no
+  member of an overload set, carrying what the declarations cannot.
+
+  **It needed no new grammar.** `#[deprecated("...")]` already takes a string argument at exactly
+  this position, and the formatter already round-trips an attribute with one — checked before
+  writing any of it, since a formatter that dropped the attribute would have been found by
+  `fmt-check` and not by me. So this is a new *name*, parsed beside `deprecated`, stored on
+  `FunctionDecl`, read by the resolver. Any one member may write it and the set shares it,
+  because the advice is about the name rather than about whichever declaration was looked at
+  first.
+
+  **The bare form is a syntax error**, deliberately unlike `#[deprecated]` where it is the common
+  case: there the message is optional decoration, here it is the entire content, so
+  `#[when_unmatched]` with nothing after it would be a no-op that reads like a feature.
+
+  **Proven against a user-declared overload set, not a converted builtin** — possible only
+  because stage 7 opened overloading to program code. The mechanism therefore has a real user and
+  real fixtures *before* any builtin is converted, so step 3 can check each conversion against a
+  message that already works rather than against one invented alongside it.
+
+  Also gated in `tools/check_grammar.py` (20 scope cases now, up from 19) so the editor keeps
+  highlighting it, and documented in `docs/SYNTAX.md`, whose attribute list went from "four are
+  interpreted" to five.
+
+  **Step 3 is the conversion**, now unblocked: derive what F186 showed is derivable, attach the
+  attribute where it showed a clause that is not, and convert smallest-first. The runtime does
+  not change — nine declarations of `len` resolve to the one `call_len` registration.

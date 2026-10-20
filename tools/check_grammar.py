@@ -39,6 +39,7 @@ CASES = [
     # attributes, both forms (F75)
     ("#[derive(Json)]", "#[derive(Json)]", "meta.attribute"),
     ("#[deprecated(\"use g\")]", "#[deprecated(\"use g\")]", "meta.attribute"),
+    ("#[when_unmatched(\"try str(x)\")]", "#[when_unmatched(\"try str(x)\")]", "meta.attribute"),
     ("#![experimental]", "#![experimental]", "meta.attribute"),
     ("#![deprecated(\"use newmod\")]", "#![deprecated(\"use newmod\")]", "meta.attribute"),
     # the things that already worked, so a fix cannot quietly break them
