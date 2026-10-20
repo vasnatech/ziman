@@ -1,0 +1,33 @@
+// F196, item 5 of the Map/Set pairing pass: `union`, `intersect`, `difference` and `is_subset`
+// over a Set and a MutableSet.
+//
+// The awkward row. Each name has three declarations, and **argument two decides between two of
+// them**: a MutableSet's operand may come from either world. That is the case stage 7's resolver
+// was built for -- argument one narrows to the builder pair, argument two picks one.
+//
+// The immutable halves take only a Set as their operand, where the builder halves take either.
+// That asymmetry predates this pairing and is left alone rather than quietly widened.
+fn main() {
+    val a = Set<int> { 1, 2 }
+    val b = Set<int> { 2, 3 }
+    print(union(a, b))
+    print(intersect(a, b))
+    print(difference(a, b))
+    print(is_subset(Set<int> { 1 }, a))
+
+    // the builder half, with the operand from each world in turn
+    val m = mutable(a)
+    union(m, b)
+    print(snapshot(m))
+
+    val m2 = mutable(a)
+    intersect(m2, mutable(b))
+    print(snapshot(m2))
+
+    val m3 = mutable(a)
+    difference(m3, b)
+    print(snapshot(m3))
+
+    print(is_subset(mutable(Set<int> { 1 }), a))
+    print(is_subset(mutable(Set<int> { 1 }), mutable(a)))
+}

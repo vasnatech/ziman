@@ -1222,28 +1222,28 @@ Positionally paired; a key repeated in `keys` keeps the last value given for it.
 builtin fn items<T: Eq + Hash>(s: Set<T>) -> [T]
 ```
 
-### `set_union`
+### `union`
 
 ```
-builtin fn set_union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+builtin fn union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 ```
 
-### `set_intersect`
+### `intersect`
 
 ```
-builtin fn set_intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+builtin fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 ```
 
-### `set_difference`
+### `difference`
 
 ```
-builtin fn set_difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 ```
 
-### `set_is_subset`
+### `is_subset`
 
 ```
-builtin fn set_is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
+builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
 ```
 
 ### `set_insert_all`
@@ -1983,44 +1983,44 @@ builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Ma
 builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
 ```
 
-### `mutable_set_union`
+### `union`
 
 ```
-builtin fn mutable_set_union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
-```
-
-```
-builtin fn mutable_set_union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
-```
-
-### `mutable_set_intersect`
-
-```
-builtin fn mutable_set_intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 ```
 
 ```
-builtin fn mutable_set_intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 ```
 
-### `mutable_set_difference`
+### `intersect`
 
 ```
-builtin fn mutable_set_difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
-```
-
-```
-builtin fn mutable_set_difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
-```
-
-### `mutable_set_is_subset`
-
-```
-builtin fn mutable_set_is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
+builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 ```
 
 ```
-builtin fn mutable_set_is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
+builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+```
+
+### `difference`
+
+```
+builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+```
+
+```
+builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+```
+
+### `is_subset`
+
+```
+builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
+```
+
+```
+builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
 ```
 
 ## Comparison and ordering

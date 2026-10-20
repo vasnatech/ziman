@@ -357,9 +357,13 @@ for x in seen { ... }                    // a set has one binder
 - **Helpers** (return new collections, infer types from arguments): maps --
   `get_or(m, k, default)`, `map_merge(a, b)` (`b` wins on shared keys),
   `map_remove_all(m, keys)`, `map_from_arrays(keys, values)` (equal lengths, else runtime error;
-  a repeated key keeps the last value); sets -- `set_union`/`set_intersect`/`set_difference(a, b)`
-  (`a`'s order, `b`'s extras appended for union), `set_is_subset(a, b)`, `to_set(items)`,
+  a repeated key keeps the last value); sets -- `union`/`intersect`/`difference(a, b)`
+  (`a`'s order, `b`'s extras appended for union), `is_subset(a, b)`, `to_set(items)`,
   `set_insert_all(s, items)`.
+- **`union`, `intersect`, `difference` and `is_subset` take either world**, the awkward row:
+  each has three declarations, and **argument two** chooses between two of them, because a
+  `MutableSet`'s operand may come from either world. The immutable halves still take only a
+  `Set` as their operand, an asymmetry that predates the pairing and was left alone.
 - **`get(m, k)`, `get_or(m, k, d)` and `items(s)` take either world too**, items 3 and 4
   of the same pass: a `Map` or a `MutableMap` for the first two, a `Set` or a `MutableSet`
   for `items`. `map_get`, `map_get_or`, `set_items`, `mutable_map_get`, `mutable_map_get_or`
@@ -424,11 +428,11 @@ for x in seen { ... }                    // a set has one binder
   do not touch the copy). One thread at a time -- every `Mutable*` type belongs to the thread that
   made it.
 - **Taking a second collection**: `concat(xs, parts…)`, `mutable_map_set_all(m, values)` and
-  `mutable_set_union`/`_intersect`/`_difference`/`_is_subset` all change (or read) the handle in
+  `union`/`intersect`/`difference`/`is_subset` on a MutableSet all change (or read) the handle in
   the first argument, and the rest take either world -- `concat` takes any number of them, mixed
   freely. The three self-aliasing cases get three different answers, each deliberate:
   `concat(xs, xs)` **doubles** the array, `mutable_map_set_all(m, m)` is a no-op, and
-  `mutable_set_difference(s, s)` **empties** the set. Union and intersect with yourself are no-ops
+  `difference(s, s)` **empties** the set. Union and intersect with yourself are no-ops
   and `_is_subset(s, s)` is true. With several aliasing parts the appends are *sequential*, each
   reading the target as it now is: `concat(c, c, c)` on a one-element builder answers four.
 - **Crossing into the mutable world is `mutable(x)`, and back is `snapshot(b)`.** It beats `new`

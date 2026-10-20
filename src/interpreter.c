@@ -1333,10 +1333,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"printf", B_printf},
     {"len", B_len},
     {"mutable_map_set_all", B_mutable_map_set_all},
-    {"mutable_set_union", B_mutable_set_union},
-    {"mutable_set_intersect", B_mutable_set_intersect},
-    {"mutable_set_difference", B_mutable_set_difference},
-    {"mutable_set_is_subset", B_mutable_set_is_subset},
     {"$mutable_array_from", B_mutable_array_from},
     {"$mutable_array_lit", B_mutable_array_lit},
     {"slice", B_slice},
@@ -1355,10 +1351,10 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"get", B_map_get},
     {"get_or", B_map_get_or},
     {"map_merge", B_map_merge},
-    {"set_union", B_set_union},
-    {"set_intersect", B_set_intersect},
-    {"set_difference", B_set_difference},
-    {"set_is_subset", B_set_is_subset},
+    {"union", B_set_union},
+    {"intersect", B_set_intersect},
+    {"difference", B_set_difference},
+    {"is_subset", B_set_is_subset},
     /* One entry, because one branch serves both: B_map_filter's code switches on
      * whether args[0] is a Map or a Set. Since F193 both declarations are named
      * `filter`, so the name the interpreter looks up is the bare one. */
@@ -1537,13 +1533,21 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (bid == B_mutable_map_set_all) {
                 ziman_mutable_map_set_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
                 result = value_int(0);
-            } else if (bid == B_mutable_set_union ||
-                       bid == B_mutable_set_intersect ||
-                       bid == B_mutable_set_difference) {
-                int op = e->as.call.callee[12] == 'u' ? 0 : e->as.call.callee[12] == 'i' ? 1 : 2;
+            /* One name, two worlds, one id. F196 gave the four set operations their bare names
+             * (`union`, `intersect`, `difference`, `is_subset`), and a name resolves to a single
+             * builtin id -- so the immutable ids arrive here too, and a **builder first
+             * argument** takes the in-place path. This branch sits before the immutable ones on
+             * purpose: everything that is not a handle falls through to them. */
+            } else if ((bid == B_mutable_set_union || bid == B_set_union ||
+                        bid == B_mutable_set_intersect || bid == B_set_intersect ||
+                        bid == B_mutable_set_difference || bid == B_set_difference)
+                       && args[0].type->kind == TY_STRUCT) {
+                int op = (bid == B_mutable_set_union || bid == B_set_union) ? 0
+                       : (bid == B_mutable_set_intersect || bid == B_set_intersect) ? 1 : 2;
                 ziman_mutable_set_combine(args[0], args[1], args[1].type->kind == TY_STRUCT, op);
                 result = value_int(0);
-            } else if (bid == B_mutable_set_is_subset) {
+            } else if ((bid == B_mutable_set_is_subset || bid == B_set_is_subset)
+                       && args[0].type->kind == TY_STRUCT) {
                 result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type->kind == TY_STRUCT));
             } else if (bid == B_concat) {
                 /* Three forms in one name, chosen the way the checker chose: a builder first
@@ -1659,7 +1663,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_set(m, keys[i], is_map ? vals[i] : value_int(0));
                 result = value_map(args[0].type, m);
             } else if (bid == B_set_intersect || bid == B_set_difference) {
-                int keep_present = e->as.call.callee[4] == 'i';
+                int keep_present = bid == B_set_intersect;
                 Value *keys;
                 Value ignored;
                 MapObj *m = mapobj_empty();
@@ -1742,7 +1746,14 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                  * `map_values` from `set_items`, which stopped being true the moment F194 renamed
                  * the first to `values`: the branch silently answered with the keys instead of
                  * the values, and the only sign was a fixture printing `[a, b]` where `[1, 2]`
-                 * belonged. A name is not a discriminator once names can be shared. */
+                 * belonged. **A name is not a discriminator once names can be shared.**
+                 *
+                 * F196 swept the other three: `callee[4] == 'i'` told `set_intersect` from
+                 * `set_difference`, `callee[12] == 'u'` picked among the three mutable set
+                 * operations (and would have read past the end of a shorter name), and
+                 * `callee[1] == 'm'` told `$map_lit` from `$set_lit`. The last was safe -- the
+                 * parser emits those two and nothing renames them -- and went anyway, because
+                 * "safe for now" is what the other three were. */
                 int want_values = bid == B_map_values;
                 Value *keys, *vals;
                 mapobj_entries(args[0].as.map, want_values ? NULL : &keys, want_values ? &vals : NULL);
@@ -1751,7 +1762,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 ArrayObj *packed = array_try_pack(items, n);
                 result = value_array(&e->resolved_type, packed != NULL ? packed : array_obj_new(items, n));
             } else if (bid == B_map_lit || bid == B_set_lit) {
-                int is_map = e->as.call.callee[1] == 'm';
+                int is_map = bid == B_map_lit;
                 MapObj *m = mapobj_empty();
                 for (int i = 0; i < argc; i += is_map ? 2 : 1) {
                     m = mapobj_set(m, args[i], is_map ? args[i + 1] : value_int(0));

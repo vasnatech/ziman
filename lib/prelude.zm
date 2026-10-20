@@ -774,13 +774,13 @@ builtin fn map_from_arrays<K: Eq + Hash, V>(keys: [K], values: [V]) -> Map<K, V>
 
 builtin fn items<T: Eq + Hash>(s: Set<T>) -> [T]
 
-builtin fn set_union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+builtin fn union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 
-builtin fn set_intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+builtin fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 
-builtin fn set_difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 
-builtin fn set_is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
+builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
 
 builtin fn set_insert_all<T: Eq + Hash>(s: Set<T>, items: [T]) -> Set<T>
 
@@ -1333,7 +1333,7 @@ builtin fn remove<T>(b: MutableArray<T>, index: int) -> T
 //
 // Each of these accepts the immutable form *or* the builder, which is what `either_world()` in the
 // type checker means: `to_set` and `to_mutable_set` each take an array or a MutableArray,
-// `mutable_set_union`'s second argument a Set or a MutableSet. Two declarations each, for the one
+// `union`'s second argument a Set or a MutableSet. Two declarations each, for the one
 // argument that has the choice -- the handle is always a handle.
 
 // **`mutable(x)` makes the mutable counterpart of whatever it is given.** For the three
@@ -1382,17 +1382,17 @@ builtin fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
 builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
 builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
 
-builtin fn mutable_set_union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
-builtin fn mutable_set_union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 
-builtin fn mutable_set_intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
-builtin fn mutable_set_intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 
-builtin fn mutable_set_difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
-builtin fn mutable_set_difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 
-builtin fn mutable_set_is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
-builtin fn mutable_set_is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
+builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
+builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
 
 // ---------------------------------------------------------------- comparison and ordering
 //
@@ -1412,7 +1412,7 @@ builtin fn max<T: Ord>(values: variadic T) -> T
 
 // ---------------------------------------------------------------- array algorithms
 // Promoted from the `collections` module (F120), so that an array's own helpers need no more
-// of an import than a Map's `get` or a Set's `set_union` do -- arrays were the one
+// of an import than a Map's `get` or a Set's `union` do -- arrays were the one
 // collection whose library lived behind a `use`.
 //
 // **Eleven of them lost the prefix on 2026-10-18** and take either world: `map`, `flat_map`,

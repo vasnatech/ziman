@@ -2658,3 +2658,35 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   <substring>` format and an explanatory comment, not generated output, and the regeneration
   replaced all of it with raw JSON. Restored from the index and edited by hand instead. **Check
   whether an expectation file is generated before regenerating it.**
+
+- [x] **F196** **Map/Set pairing, item 5: `union`, `intersect`, `difference`, `is_subset` — and a
+  swept bug class.** (done 2026-10-20.) The awkward row of Group A. Each name now has three
+  declarations and **argument two decides between two of them**, a `MutableSet`'s operand coming
+  from either world — the case stage 7's resolver was built for, and the first row in this pass
+  that needs more than argument one.
+
+  **One name resolves to one builtin id**, and the two worlds had two (`B_set_union` and
+  `B_mutable_set_union`). Rather than merge the implementations, the in-place branch widened to
+  catch the immutable ids when **argument one is a handle**, and sits before the immutable
+  branches so everything else falls through. Same shape as `filter`, whose single branch already
+  served Map and Set.
+
+  **The bug class F194 found was not one bug.** The interpreter picked behaviour from the
+  *spelling of the callee* in four places, and three were still live:
+
+  | | read | told apart |
+  |---|---|---|
+  | F194 | `callee[0] == 'm'` | `map_values` from `set_items` |
+  | here | `callee[4] == 'i'` | `set_intersect` from `set_difference` |
+  | here | `callee[12] == 'u'` | the three mutable set operations |
+  | here | `callee[1] == 'm'` | `$map_lit` from `$set_lit` |
+
+  Renaming `mutable_set_union` to `union` would have made `callee[12]` **read past the end of the
+  name**. All four now test the id. The last was safe — the parser emits those two and nothing
+  renames them — and went anyway, because "safe for now" is exactly what the other three were.
+  **Swept before renaming**, which is the order F194 earned by not having it.
+
+  `set_union`, `set_intersect`, `set_difference`, `set_is_subset` and their four `mutable_set_`
+  twins are gone as spellings. The immutable halves still take only a `Set` as their operand
+  where the builder halves take either; that asymmetry predates the pairing and was left alone
+  rather than quietly widened.
