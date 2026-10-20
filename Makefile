@@ -69,7 +69,7 @@ BIN := ziman
 # against the pre-split Makefile; nothing else would have noticed until someone typed `make`.
 .DEFAULT_GOAL := all
 
-.PHONY: all check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots test-maptable test-handleslot corelib-reference corelib-reference-check lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available pdf-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check overload-shadow-check northstar-if-available module-path-check api-check
+.PHONY: all check check-fast lint lib-tests lib-coverage install-hooks unit-tests clean fmt-check fmt-check-backend docs-check experimental-check doc-module-check test test-nogc nogc test-pg test-mysql test-tls test-lsp test-bignum test-decimal test-handles test-arena test-coverage test-gc-object test-gc-copy test-gc-lookup test-gc-scan test-gc-heap test-gc-mark test-gc-env-roots test-gc-interp-roots test-maptable test-handleslot corelib-reference corelib-reference-check lib-manual-check not-yet-check syntax-check grammar-check benchmark-check design-index design-index-check libc-free-check xalloc-check tls-if-available pdf-if-available valgrind test-regex asan ubsan tsan sanitizers analyze handleset-check overload-shadow-check overload-sets-check northstar-if-available module-path-check api-check
 
 # Every gate that needs nothing but this repo and a C toolchain: the fixture suite on both builds,
 # the standalone unit tests, formatting, and the documentation guards. One command for "is this
@@ -83,7 +83,7 @@ BIN := ziman
 # over half an hour for that one target alone (49 suites, each starting a real server), which is
 # what makes this usable as a pre-push hook -- and `api-check`, the 0.08s target that would have
 # caught the red HEAD of A46, is in here.
-check-fast: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available pdf-if-available fmt-check docs-check grammar-check benchmark-check libc-free-check xalloc-check handleset-check overload-shadow-check
+check-fast: test test-nogc unit-tests api-check module-path-check test-lsp tls-if-available pdf-if-available fmt-check docs-check grammar-check benchmark-check libc-free-check xalloc-check handleset-check overload-shadow-check overload-sets-check
 
 check: check-fast northstar-if-available
 

@@ -104,6 +104,14 @@ module-path-check: $(BIN)
 overload-shadow-check: $(BIN)
 	@./tools/overload_shadow.sh $(BIN)
 
+# Stage 2 of docs/design/full-overloading.md: the declaration-site check, held as a prediction.
+# The design says exactly `concat` and `mutable` are unresolvable; a third name means the design
+# is wrong rather than the declaration, and that has to be noticed before a later stage leans on
+# it. Cheap -- one --check of one fixture, since the sets live in the prelude that every program
+# merges.
+overload-sets-check: $(BIN)
+	@./tools/overload_sets.sh $(BIN)
+
 northstar-if-available: $(BIN)
 	@./tests/run_northstar.sh $(BIN)
 

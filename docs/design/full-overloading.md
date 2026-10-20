@@ -127,14 +127,33 @@ Running this over `lib/prelude.zm` as it stands must reject exactly two sets:
 
 - **`mutable`** — `mutable<T>(item: T)` matches every call its three siblings match
   (`prelude.zm:1452-1455`). No specificity ranking means no ordering between them exists.
-- **`concat`** — beyond two members sharing a first parameter, its real rule is not about types at
-  all: *one argument that is an array spreads*, so `concat(["a", "b"])` is the string `"ab"` and
-  never a copy of the array, while two or more arguments are always parts. That is
-  arity-dependent reinterpretation of one argument type, and no per-parameter signature states it.
+- **`concat`** — and the mechanical reason is narrower and more interesting than the semantic one
+  this document first gave. Stage 2 found it fails at **the arity where a variadic tail is
+  empty**:
+
+  ```
+  concat()            lines 68/69 -- variadic string vs variadic [T], and no argument to look at
+  concat(b)           lines 74/75 -- both (b: MutableArray<T>, parts: variadic ...), tail empty
+  ```
+
+  **Two members whose fixed prefixes are identical always collide at their minimum arity**, since
+  the position that separates them is in a tail that is not there. That is a general rule about
+  variadic overloads, not a fact about `concat`, and any future set with two variadic members
+  sharing a prefix will hit it.
+
+  The semantic problem is real too and is why `concat` could not be resolved even with the arities
+  fixed: *one argument that is an array spreads*, so `concat(["a", "b"])` is the string `"ab"` and
+  never a copy of the array, while two or more arguments are always parts. That is arity-dependent
+  reinterpretation of one argument type, and no per-parameter signature states it.
 
 **Both keep their hand-written arms**, documented as exceptions with the reason attached. If the
 check rejects a third set, this document is wrong and should be rewritten before any further work
 — that is stage 2's whole purpose.
+
+**Measured 2026-10-19 (stage 2, F177): 50 sets, 48 resolvable, exactly these 2 not.** The same
+answer from the fixtures, every `lib/` module and the North Star, none of which adds a set of its
+own — overloading is not available to library code until stage 7. `tools/overload_sets.sh` holds
+the prediction as a gate.
 
 ## 5. Errors
 

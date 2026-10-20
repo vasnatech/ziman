@@ -2016,3 +2016,33 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   the resolver counts what it saw and `tools/overload_shadow.sh` fails when that count is zero.
   It found a real bug in its own first draft: an `awk` field slip made the loop abort after 20
   files while still printing "ok".
+
+- [x] **F177** **Full overloading, stage 2: declaration-site checking.** (`docs/design/full-overloading.md`
+  §4 and §7 stage 2; done 2026-10-19.) Two members of an overload set are *indistinguishable* when
+  their arities overlap and, at every position inside that overlap, their parameter types accept
+  some common type. Such a set cannot be resolved by any call, so it is a defect in the
+  declarations rather than a surprise at the first ambiguous call site.
+
+  **The prediction held: 50 sets, 48 resolvable, exactly `concat` and `mutable` not.** Same answer
+  from the fixtures, every `lib/` module and the North Star backend — none of which adds a set of
+  its own, overloading not being available to library code until stage 7.
+
+  **But the design had `concat`'s reason wrong, and the real one generalises.** The document said
+  `concat` fails because its one-argument spread rule reinterprets an argument by arity, which no
+  signature states. True, and not what the check found. `concat` fails at **the arity where a
+  variadic tail is empty**: `concat()` cannot choose between `variadic string` and `variadic [T]`
+  because there is no argument to look at, and `concat(b)` cannot choose between the two
+  `(b: MutableArray<T>, parts: variadic ...)` members because the position that separates them is
+  in a tail that is not there. **Two members whose fixed prefixes are identical always collide at
+  their minimum arity** — a general rule about variadic overloads that any future set will hit,
+  not a fact about `concat`. §4 now says both, in that order.
+
+  `mutable` failed exactly as predicted: three pairs, every one of them against
+  `mutable<T>(item: T)`, the catch-all that matches whatever its siblings match.
+
+  **Reports rather than errors, deliberately.** Stage 2's job is to find out which sets fail
+  before anything depends on the answer; a prediction checked by a gate that would break the build
+  if it were wrong is not a check, it is a dare. `ZIMAN_OVERLOAD_SETS=1` prints the report and
+  `tools/overload_sets.sh` holds the prediction in `make check` — failing on a *third* name with
+  the message that the design is what needs fixing, and on zero sets found, which is what looking
+  at the wrong module would produce.

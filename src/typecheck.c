@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L
+#include <limits.h>
 #include <ctype.h>
 #include "typecheck.h"
 #include "loader.h"
@@ -1958,6 +1959,16 @@ typedef struct {
     int eliminated_at;               /* 1-based position that emptied the set; 0 if it never filled */
 } OverloadResolution;
 
+/* Whether `t` is one of `fn`'s own type parameters -- a wildcard standing for anything, rather
+ * than a concrete name that happens to be capitalised. */
+static int type_is_own_param(Type t, const TypeParamList *tps) {
+    if (t.kind != TY_TYPEVAR) return 0;
+    for (int i = 0; i < tps->count; i++) {
+        if (strcmp(tps->items[i].name, t.type_var_name) == 0) return 1;
+    }
+    return 0;
+}
+
 /* Whether `actual` can be the argument for a parameter declared `pattern`, where a type variable
  * of the candidate's own `tps` is a wildcard that must stay consistent across its occurrences.
  *
@@ -2118,6 +2129,135 @@ static void overload_resolve(Module *module, Env *env, Expr *e, const char *name
 /* Stage 1's only output: whether the resolver agrees with the arm that already decided.
  * `expected` is the name the arm rewrote onto -- `mutable_array_filter` for `filter(b, p)`.
  * A disagreement is a specification, not a failure, so this prints and returns. */
+/* ------------------------------------------------------- overload sets, stage 2 (declarations)
+ *
+ * `docs/design/full-overloading.md` §4, "Declaration-site checking", and §7 stage 2. Two members
+ * of a set are *indistinguishable* when no argument list could tell them apart: their arities
+ * overlap, and at every position within that overlap their parameter types accept some common
+ * type. A set holding such a pair cannot be resolved, whatever a call looks like, and is an error
+ * at the declaration rather than a surprise at the first ambiguous call.
+ *
+ * Reports rather than errors, for now. Stage 2's purpose is to find out *which* sets fail before
+ * anything depends on the answer -- the design predicts exactly `mutable` and `concat`, and a
+ * prediction that is checked by a gate that would break the build if it were wrong is not a
+ * check, it is a dare. Run it with ZIMAN_OVERLOAD_SETS=1. */
+
+/* Whether no type at all satisfies both parameter declarations. A type variable belonging to its
+ * own function is a wildcard, so it is never disjoint from anything -- which is the whole reason
+ * `mutable(item: T)` cannot coexist with its three siblings. */
+static int ovl_params_disjoint(Type a, const TypeParamList *ta, Type b, const TypeParamList *tb) {
+    ZIMAN_STACK_CHECK();
+    if (type_is_own_param(a, ta) || type_is_own_param(b, tb)) return 0;
+    if (a.kind != b.kind) return 1;
+    switch (a.kind) {
+        case TY_ARRAY:
+        case TY_CHANNEL:
+        case TY_SET:
+            return ovl_params_disjoint(*a.elem, ta, *b.elem, tb);
+        case TY_RESULT:
+        case TY_MAP:
+            return ovl_params_disjoint(*a.elem, ta, *b.elem, tb)
+                || ovl_params_disjoint(*a.elem_err, ta, *b.elem_err, tb);
+        case TY_STRUCT:
+            if (strcmp(a.struct_name, b.struct_name) != 0) return 1;
+            if (a.type_args.count != b.type_args.count) return 1;
+            for (int i = 0; i < a.type_args.count; i++) {
+                if (ovl_params_disjoint(a.type_args.items[i], ta, b.type_args.items[i], tb)) return 1;
+            }
+            return 0;
+        case TY_ENUM:
+            if (strcmp(a.enum_name, b.enum_name) != 0) return 1;
+            if (a.type_args.count != b.type_args.count) return 1;
+            for (int i = 0; i < a.type_args.count; i++) {
+                if (ovl_params_disjoint(a.type_args.items[i], ta, b.type_args.items[i], tb)) return 1;
+            }
+            return 0;
+        case TY_FUNC:
+            /* Arity is the part a lambda's *shape* can see without being checked (§3), so two
+             * function parameters of different arity are genuinely distinguishable. */
+            if (a.type_args.count != b.type_args.count) return 1;
+            for (int i = 0; i < a.type_args.count; i++) {
+                if (ovl_params_disjoint(a.type_args.items[i], ta, b.type_args.items[i], tb)) return 1;
+            }
+            return ovl_params_disjoint(*a.elem, ta, *b.elem, tb);
+        default:
+            return 0; /* same scalar kind */
+    }
+}
+
+static int ovl_min_arity(const FunctionDecl *f) {
+    int n = f->params.count;
+    if (n > 0 && f->params.items[n - 1].is_variadic) return n - 1;
+    return n;
+}
+
+static int ovl_is_variadic(const FunctionDecl *f) {
+    return f->params.count > 0 && f->params.items[f->params.count - 1].is_variadic;
+}
+
+/* The smallest argument count at which `a` and `b` are both callable and no position tells them
+ * apart, or -1 when every shared arity has a distinguishing position. */
+static int ovl_indistinguishable_at(const FunctionDecl *a, const FunctionDecl *b) {
+    int lo_a = ovl_min_arity(a), lo_b = ovl_min_arity(b);
+    int lo = lo_a > lo_b ? lo_a : lo_b;
+    int hi_a = ovl_is_variadic(a) ? INT_MAX : a->params.count;
+    int hi_b = ovl_is_variadic(b) ? INT_MAX : b->params.count;
+    int hi = hi_a < hi_b ? hi_a : hi_b;
+    if (lo > hi) return -1; /* their arities never overlap */
+
+    /* One past the longest fixed list is enough: beyond it both sides repeat their variadic
+     * parameter, so no new position can appear. */
+    int probe_max = a->params.count > b->params.count ? a->params.count : b->params.count;
+    if (probe_max > hi) probe_max = hi;
+    if (hi != INT_MAX && probe_max < hi) probe_max = hi;
+    int cap = probe_max + 1;
+    if (hi != INT_MAX && cap > hi) cap = hi;
+
+    for (int k = lo; k <= cap; k++) {
+        int distinguished = 0;
+        for (int i = 0; i < k && !distinguished; i++) {
+            Type pa, pb;
+            if (!ovl_param_at(a, i, &pa) || !ovl_param_at(b, i, &pb)) continue;
+            if (ovl_params_disjoint(pa, &a->type_params, pb, &b->type_params)) distinguished = 1;
+        }
+        if (!distinguished) return k;
+    }
+    return -1;
+}
+
+static void overload_sets_report(Module *module) {
+    if (getenv("ZIMAN_OVERLOAD_SETS") == NULL) return;
+    int sets = 0, bad = 0;
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *a = module->functions.items[i];
+        int first = 1;
+        for (int j = 0; j < i; j++) {
+            if (strcmp(module->functions.items[j]->name, a->name) == 0) { first = 0; break; }
+        }
+        if (!first) continue;
+        int members = 0;
+        for (int j = 0; j < module->functions.count; j++) {
+            if (strcmp(module->functions.items[j]->name, a->name) == 0) members++;
+        }
+        if (members < 2) continue;
+        sets++;
+        int reported = 0;
+        for (int x = 0; x < module->functions.count; x++) {
+            if (strcmp(module->functions.items[x]->name, a->name) != 0) continue;
+            for (int y = x + 1; y < module->functions.count; y++) {
+                if (strcmp(module->functions.items[y]->name, a->name) != 0) continue;
+                int at = ovl_indistinguishable_at(module->functions.items[x], module->functions.items[y]);
+                if (at < 0) continue;
+                if (!reported) { bad++; reported = 1; }
+                fprintf(stderr, "overload-set: '%s' is ambiguous for a call with %d argument(s) -- "
+                                "declarations at line %d and line %d cannot be told apart\n",
+                        a->name, at, module->functions.items[x]->line, module->functions.items[y]->line);
+            }
+        }
+    }
+    fprintf(stderr, "overload-set: %d set(s) with more than one declaration, %d unresolvable\n", sets, bad);
+}
+
 /* Counted, not just reported. A run that prints nothing is indistinguishable from a run where the
  * hook never fired, and "no output" is the answer a mis-wired shadow pass gives too -- so the
  * summary states how many calls were observed, and the corpus script reads that rather than the
@@ -6474,6 +6614,7 @@ static void check_function(Module *module, FunctionDecl *fn) {
 }
 
 void typecheck(Module *module) {
+    overload_sets_report(module);
     g_builtin_shadows = NULL;
     g_builtin_shadow_count = 0;
     g_checking_program_body = 0;
