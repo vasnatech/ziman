@@ -240,7 +240,7 @@ pub fn json_to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<
         val out = mutable_map_new<string, V>()
         for key, value in fields {
             val item = try decode(value)
-            mutable_map_set(out, key, item)
+            set(out, key, item)
         }
         return ok(snapshot(out))
     }
@@ -251,7 +251,7 @@ pub fn json_to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<
 pub fn json_from_map<V>(m: Map<string, V>, encode: fn(V) -> Json) -> Json {
     val out = mutable_map_new<string, Json>()
     for key, value in m {
-        mutable_map_set(out, key, encode(value))
+        set(out, key, encode(value))
     }
     return Json.JObject(snapshot(out))
 }

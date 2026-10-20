@@ -8,9 +8,9 @@
 // what that buys: the body may change the handle freely without affecting what the loop visits.
 fn main() {
     val m = mutable_map_new<string, int>()
-    mutable_map_set(m, "b", 2)
-    mutable_map_set(m, "a", 1)
-    mutable_map_set(m, "c", 3)
+    set(m, "b", 2)
+    set(m, "a", 1)
+    set(m, "c", 3)
 
     // Insertion order, not hash order, and not sorted.
     for k in m {
@@ -21,7 +21,7 @@ fn main() {
     }
 
     // Overwriting a key keeps its place, as it does in a Map.
-    mutable_map_set(m, "b", 20)
+    set(m, "b", 20)
     for k, v in m {
         print(concat(k, ":", str(v)))
     }
@@ -37,7 +37,7 @@ fn main() {
     // The body adds three entries; the loop still runs exactly three times.
     var passes = 0
     for k in m {
-        mutable_map_set(m, concat(k, "!"), 0)
+        set(m, concat(k, "!"), 0)
         passes = passes + 1
     }
     print(passes)

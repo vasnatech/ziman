@@ -17,7 +17,7 @@ fn main() {
             Some(xs) { xs }
             None { [] }
         }
-        mutable_map_set(groups, p.category, push(so_far, p.name))
+        set(groups, p.category, push(so_far, p.name))
     }
     val m = snapshot(groups)
     for cat in sort<string>(items(keys(m))) {

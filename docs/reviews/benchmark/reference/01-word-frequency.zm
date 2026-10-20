@@ -2,7 +2,7 @@ fn main() {
     val text = "the quick brown fox jumps over the lazy dog the fox"
     val counts = mutable_map_new<string, int>()
     for w in split(text, " ") {
-        mutable_map_set(counts, w, get_or<string, int>(counts, w, 0) + 1)
+        set(counts, w, get_or<string, int>(counts, w, 0) + 1)
     }
     val m = snapshot(counts)
     val words = sort_with<string>(items(keys(m)), fn(a: string, b: string) -> int {

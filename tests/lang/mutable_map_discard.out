@@ -1,13 +1,5 @@
-true
-false
-1
-false
-true
-2
-false
-true
-c=3 b=20 
-true
-true
-0
-9
+{b: 2, c: 3}
+{b: 2, c: 3}
+Some(2)
+None
+{c: 3}

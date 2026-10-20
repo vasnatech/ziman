@@ -19,22 +19,22 @@ fn main() {
     print(snapshot(sb))
 
     val mb = mutable_map_new<string, int>()
-    mutable_map_set(mb, "a", 1)
-    mutable_map_set(mb, "b", 2)
+    set(mb, "a", 1)
+    set(mb, "b", 2)
     val before = snapshot(mb)
     clear(mb)
     print(len(mb))
     print(before)
     print(get(mb, "a"))
-    mutable_map_set(mb, "z", 26)
+    set(mb, "z", 26)
     print(snapshot(mb))
     print(before)
 
     // Insertion order restarts from zero, and overwriting still updates in place rather than
     // replacing -- which is the `shared` flag going back to 0 with the fresh trie. `z` was
     // inserted first and keeps its place when overwritten.
-    mutable_map_set(mb, "y", 25)
-    mutable_map_set(mb, "z", 99)
+    set(mb, "y", 25)
+    set(mb, "z", 99)
     print(snapshot(mb))
 
     val st = mutable_set_new<int>()

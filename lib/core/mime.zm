@@ -234,7 +234,7 @@ pub fn parse(text: string) -> Result<MediaType, string> {
             }
             val read = try read_value(s, eq + 1)
             if !contains(params, name) {
-                mutable_map_set(params, name, read[0])
+                set(params, name, read[0])
             }
             pos = unwrap(parse_int(read[1]))
         }

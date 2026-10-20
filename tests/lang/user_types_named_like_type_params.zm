@@ -18,7 +18,7 @@ fn main() {
     val all = snapshot(items)
     print(len(all))
     val m = mutable_map_new<string, K>()
-    mutable_map_set<string, K>(m, "a", K { n: "k" })
+    set<string, K>(m, "a", K { n: "k" })
     print(len(snapshot(m)))
     val o = Option<V>.Some(V.Big)
     print(is_Some(o))

@@ -19,7 +19,7 @@ fn main() {
     print(values(b))
 
     // insertion order is kept in both worlds, which is what makes the two comparable at all
-    mutable_map_set<string, int>(b, "c", 3)
+    set<string, int>(b, "c", 3)
     print(keys(b))
     print(values(b))
 

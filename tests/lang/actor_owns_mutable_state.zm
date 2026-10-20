@@ -43,7 +43,7 @@ fn cache(requests: Channel<Request>) {
                 send(r.reply, found)
             }
             Put(k) {
-                mutable_map_set(store, k, r.value)
+                set(store, k, r.value)
                 mutable_string_append(log, "p")
                 send(r.reply, Some(r.value))
             }

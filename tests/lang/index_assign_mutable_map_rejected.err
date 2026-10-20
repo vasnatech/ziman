@@ -1,1 +1,1 @@
-a MutableMap is not written with '[...]' -- write 'mutable_map_set(m, key, value)'
+a MutableMap is not written with '[...]' -- write 'set(m, key, value)'

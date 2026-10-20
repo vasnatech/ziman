@@ -918,10 +918,10 @@ native fn mutable_map_new<K: Eq + Hash, V>() -> MutableMap<K, V>
 
 An empty map builder.
 
-### `mutable_map_set`
+### `set`
 
 ```
-native fn mutable_map_set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: V)
+pub native fn set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: V)
 ```
 
 Adds `key`, or replaces its value while keeping its position.
@@ -934,29 +934,29 @@ pub native fn get<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
 
 The value of `key`, or None.
 
-### `mutable_map_remove`
+### `remove`
 
 ```
-native fn mutable_map_remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
+pub native fn remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
 ```
 
 Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
-`mutable_map_discard` instead when the removed value is not wanted: answering with an `Option`
+`discard` instead when the removed value is not wanted: answering with an `Option`
 means allocating one, which on a large map costs several times the removal itself.
 
-### `mutable_map_discard`
+### `discard`
 
 ```
-native fn mutable_map_discard<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> bool
+pub native fn discard<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K)
 ```
 
 Removes `key` and answers whether it was there, without reporting what it held. The same
-question `mutable_set_remove` answers for a set, and for the same reason: a `bool` needs no
+question `remove` answers for a set, and for the same reason: a `bool` needs no
 wrapper where an `Option<V>` is a heap allocation, and a tracing collector prices a short-lived
 allocation by how much is alive rather than by its size. Measured on a 100,000-entry map,
-removing and re-inserting every key: 351-363 ns/op through `mutable_map_remove` against 110-112
+removing and re-inserting every key: 351-363 ns/op through `remove` against 110-112
 through the bool-returning path -- the removal itself is a fraction of either. Reach for
-`mutable_map_remove` only when the old value is actually needed.
+`remove` only when the old value is actually needed.
 
 ### `get_or`
 
@@ -966,7 +966,7 @@ pub native fn get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_valu
 
 The value stored under `key`, or `default_value` when there is none -- `get_or` for a builder.
 Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
-loop (`mutable_map_set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
+loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
 
 ### `mutable_set_new`
 
@@ -976,10 +976,10 @@ native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
 
 An empty set builder.
 
-### `mutable_set_remove`
+### `remove`
 
 ```
-native fn mutable_set_remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
+pub native fn remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
 ```
 
 Removes `item`; nothing happens when it is absent.
@@ -1180,10 +1180,10 @@ honest one.
 builtin fn values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
 ```
 
-### `map_merge`
+### `merge`
 
 ```
-builtin fn map_merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>
+builtin fn merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>
 ```
 
 `other` wins where both have a key.
@@ -1282,35 +1282,44 @@ struct MapEntry<K, V> {
 }
 ```
 
-One key and its value, as `map_entries` returns them.
+One key and its value, as `entries` returns them.
 
-### `map_entries`
+### `entries`
 
 ```
-fn map_entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>]
+pub fn entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>]
 ```
 
 The entries of `m` as an array, in the map's insertion order: for collecting them, sorting them (by value,
 say, with `sort_by_desc`) or taking the first few. Written with the type arguments:
-`map_entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
+`entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
 
-### `map_map_values`
+### `map`
 
 ```
-fn map_map_values<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(V) -> R) -> Map<K, R>
+pub fn map<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(K, V) -> R) -> Map<K, R>
 ```
 
 `m` with `f` applied to every value, keys and their order unchanged:
-`map_map_values<string, int, string>(stock, fn(n) { str(n) })`.
+`map<string, int, string>(stock, fn(n) { str(n) })`.
 
-### `set_map`
+### `entries`
 
 ```
-fn set_map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U>
+pub fn entries<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [MapEntry<K, V>]
+```
+
+The entries of a MutableMap as an array, in insertion order -- the builder half of `entries`,
+answering an immutable value for the same reason `keys` and `values` do.
+
+### `map`
+
+```
+pub fn map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U>
 ```
 
 The set of `f(x)` for every `x` in `s`, in the order first produced. Two elements that map to the same
-value become one: `set_map<int, int>(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1, 0}`.
+value become one: `map<int, int>(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1, 0}`.
 
 ## Bytes
 
@@ -1961,14 +1970,14 @@ The one that changes shape rather than world: an array in, a set out.
 builtin fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
 ```
 
-### `mutable_map_set_all`
+### `merge`
 
 ```
-builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
+builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
 ```
 
 ```
-builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
+builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
 ```
 
 ### `union`

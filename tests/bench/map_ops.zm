@@ -50,7 +50,7 @@ fn report(label: string, millis: int, base: int) {
 fn main() {
     val mb = mutable_map_new<int, int>()
     for i in 0..size {
-        mutable_map_set<int, int>(mb, i, i)
+        set<int, int>(mb, i, i)
     }
     val m = snapshot(mb)
     printf("Map/MutableMap over {} entries, {} ops each, loop overhead subtracted\n", size, ops)
@@ -162,7 +162,7 @@ fn main() {
     for i in 0..ops {
         val k = i % size
         acc = acc + k
-        mutable_map_set<int, int>(mb, k, i)
+        set<int, int>(mb, k, i)
     }
     report("MutableMap  set            ", clock.monotonic_millis() - t, base)
 
@@ -171,8 +171,8 @@ fn main() {
     for i in 0..ops {
         val k = i % size
         acc = acc + k
-        mutable_map_remove<int, int>(mb, k)
-        mutable_map_set<int, int>(mb, k, k)
+        remove<int, int>(mb, k)
+        set<int, int>(mb, k, k)
     }
     report("MutableMap  remove+set     ", clock.monotonic_millis() - t, base)
 
@@ -186,7 +186,7 @@ fn main() {
     val keys = snapshot(kb)
     val smb = mutable_map_new<string, int>()
     for i in 0..size {
-        mutable_map_set<string, int>(smb, keys[i], i)
+        set<string, int>(smb, keys[i], i)
     }
     val sm = snapshot(smb)
     printf("\nSame over {} string keys (pre-built, so no key construction is measured)\n", size)
@@ -246,7 +246,7 @@ fn main() {
         val j = i % size
         val k = keys[j]
         acc = acc + len(k)
-        mutable_map_set<string, int>(smb, k, j)
+        set<string, int>(smb, k, j)
     }
     report("MutableMap  set            ", clock.monotonic_millis() - t, sbase)
 
@@ -259,9 +259,9 @@ fn main() {
     // rather than assume it. `Set` keeps the persistent trie for the same reason `Map` does: it is
     // a value, and `insert(s, x)` must leave the old set intact.
     //
-    // There is no `discard` row and no need for one: `mutable_set_remove` already answers with a
-    // `bool`, where `mutable_map_remove` answered with an `Option<V>` -- which is exactly the cost
-    // `mutable_map_discard` was added to avoid.
+    // There is no `discard` row and no need for one: `remove` already answers with a
+    // `bool`, where `remove` answered with an `Option<V>` -- which is exactly the cost
+    // `discard` was added to avoid.
     val setb = mutable_set_new<int>()
     for i in 0..size {
         mutable_set_add<int>(setb, i)
@@ -341,7 +341,7 @@ fn main() {
     for i in 0..ops {
         val k = i % size
         acc = acc + k
-        if mutable_set_remove<int>(setb, k) {
+        if remove<int>(setb, k) {
             acc = acc + 1
         }
         mutable_set_add<int>(setb, k)
@@ -360,12 +360,12 @@ fn main() {
     // it is the one to quote between languages. All three print the same checksum.
     val cm = mutable_map_new<int, int>()
     for i in 0..size {
-        mutable_map_set<int, int>(cm, i, 0)
+        set<int, int>(cm, i, 0)
     }
     t = clock.monotonic_millis()
     for i in 0..ops {
         val k = i % size
-        mutable_map_set<int, int>(cm, k, get_or(cm, k, 0) + 1)
+        set<int, int>(cm, k, get_or(cm, k, 0) + 1)
     }
     val cms = clock.monotonic_millis() - t
     printf(

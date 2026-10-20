@@ -24,7 +24,7 @@ fn tally(words: [string]) -> int {
     for w in words {
         val so_far = snapshot(counts)
         seen = seen + len(so_far)
-        mutable_map_set(counts, w, 1)
+        set(counts, w, 1)
     }
     return seen
 }

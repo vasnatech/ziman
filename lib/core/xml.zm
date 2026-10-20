@@ -662,13 +662,13 @@ fn extend_scope(scope: Map<string, string>, attrs: [RawAttr]) -> Map<string, str
     }
     val out = mutable_map_new<string, string>()
     for k, v in scope {
-        mutable_map_set(out, k, v)
+        set(out, k, v)
     }
     for a in attrs {
         if a.qname == "xmlns" {
-            mutable_map_set(out, "", a.value)
+            set(out, "", a.value)
         } else if starts_with(a.qname, "xmlns:") {
-            mutable_map_set(out, substring(a.qname, 6, len(a.qname)), a.value)
+            set(out, substring(a.qname, 6, len(a.qname)), a.value)
         }
     }
     return snapshot(out)

@@ -2771,3 +2771,38 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   A `testdata_test.py` failure in the North Star suite on one run did not reproduce; that suite
   starts real servers and the run before it had been interrupted.
+
+- [x] **F200** **Map/Set pairing, Group C: seven names settled on three decisions.** (user
+  decisions 2026-10-20; done 2026-10-20.) `map_merge`, `mutable_map_set_all`, `map_entries`,
+  `map_map_values`, `set_map`, `mutable_map_set`, `mutable_map_discard`, `mutable_map_remove` and
+  `mutable_set_remove` are gone as spellings.
+
+  1. **`merge`, not `set_all`.** The two were the same operation under different verbs. `merge`
+     is the established immutable name and `set_all` reads like a bulk `set`, which it is not.
+     Three declarations; the builder branch widened to catch the immutable id when argument one
+     is a handle, the same shape items 1 and 5 used.
+  2. **`map` over a Map takes `fn(K, V) -> R`.** Key-aware, matching `filter`'s `fn(K, V) -> bool`
+     rather than the old `fn(V) -> R`, and it retires the stuttering `map_map_values`. `set_map`
+     joins the same set. Three fixtures' lambdas gained their key parameter.
+  3. **`remove` answers the value, `discard` answers nothing, both kept.** `discard` returned a
+     `bool` before; it returns nothing now, so the pair differs by *what it is for* rather than
+     by a flag. Both are bare names over both builder worlds.
+
+  **Decision 3 opened the hole F182 predicted.** That entry said the return-type purity rule
+  would be defeated by "a mutating overload that returned a value -- none exists". One does now:
+  `remove(mb, k) -> Option<V>` is effectful *and* answers something, so discarding it is the
+  ordinary call and the gate rejected it. Fixed with a veto, and with a name list of exactly one
+  name — deliberate at this size, because **nothing in the signature separates
+  `remove(mb, k) -> Option<V>` from `distinct(b) -> [T]`**: both take a handle and answer a
+  value. F182 asked for a marker on the declaration if a second case appeared. A third means
+  writing the attribute rather than extending the list.
+
+  **Two fixtures had their premise inverted and were retired**, not patched:
+  `remove_mutable_map_rejected` and `remove_mutable_set_rejected` existed to assert that `remove`
+  has *no* builder form. It has both now. Their diagnostics named `mutable_map_remove` and
+  `mutable_map_discard`, which no longer exist, so the arm declines to the resolver instead.
+
+  Also: `set`'s arm refused a `MutableMap` before the new declaration could be reached, and now
+  declines to `ordinary_call`; `derive(Json)` generated `mutable_map_set` calls; and the
+  collection-helper TABLE is empty of live names for the first time — every name it once checked
+  states its own type rule.

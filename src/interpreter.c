@@ -1332,7 +1332,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"format", B_format},
     {"printf", B_printf},
     {"len", B_len},
-    {"mutable_map_set_all", B_mutable_map_set_all},
     {"$mutable_array_from", B_mutable_array_from},
     {"$mutable_array_lit", B_mutable_array_lit},
     {"slice", B_slice},
@@ -1350,7 +1349,7 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"remove", B_remove},
     {"get", B_map_get},
     {"get_or", B_map_get_or},
-    {"map_merge", B_map_merge},
+    {"merge", B_map_merge},
     {"union", B_set_union},
     {"intersect", B_set_intersect},
     {"difference", B_set_difference},
@@ -1530,7 +1529,11 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(0);
             } else if (bid == B_len) {
                 result = call_len(args[0]);
-            } else if (bid == B_mutable_map_set_all) {
+            } else if ((bid == B_mutable_map_set_all || bid == B_map_merge)
+                       && args[0].type->kind == TY_STRUCT) {
+                /* `merge` over a MutableMap. One name, one id -- same shape as the four set
+                 * operations below: the immutable id arrives here too, and a builder first
+                 * argument takes the in-place path before the immutable branch can see it. */
                 ziman_mutable_map_set_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
                 result = value_int(0);
             /* One name, two worlds, one id. F196 gave the four set operations their bare names

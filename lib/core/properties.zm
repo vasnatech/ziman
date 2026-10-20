@@ -166,7 +166,7 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
                 first
             ))
         }
-        mutable_map_set(first_seen, e.key, e.source)
+        set(first_seen, e.key, e.source)
     }
     return ok(Properties { entries: entries, profile: "" })
 }

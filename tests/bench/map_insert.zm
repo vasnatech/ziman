@@ -20,7 +20,7 @@ fn measure(size: int, rounds: int) {
     for r in 0..rounds {
         val mb = mutable_map_new<int, int>()
         for i in 0..size {
-            mutable_map_set<int, int>(mb, i, i)
+            set<int, int>(mb, i, i)
         }
         acc = acc + len(mb)
     }

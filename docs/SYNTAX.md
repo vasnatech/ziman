@@ -355,11 +355,18 @@ for x in seen { ... }                    // a set has one binder
 ```
 
 - **Helpers** (return new collections, infer types from arguments): maps --
-  `get_or(m, k, default)`, `map_merge(a, b)` (`b` wins on shared keys),
+  `get_or(m, k, default)`, `merge(a, b)` (`b` wins on shared keys),
   `map_from_arrays(keys, values)` (equal lengths, else runtime error;
   a repeated key keeps the last value); sets -- `union`/`intersect`/`difference(a, b)`
   (`a`'s order, `b`'s extras appended for union), `is_subset(a, b)`, `to_set(items)`,
   `add(s, items...)`.
+- **Group C, settled 2026-10-20**: `merge(a, b)` pours one map into another in either world
+  (`set_all` is gone); `entries(m)` joins `keys` and `values` across both Map worlds;
+  `map(c, f)` now covers a `Map` (`fn(K, V) -> R`, key-aware like `filter`) and a `Set`,
+  retiring `map_map_values` and `set_map`; `set(m, k, v)` and `remove(m, k)` gain their
+  builder forms; and **`remove` answers the value it took out while `discard` answers
+  nothing** — both kept, because the value is wanted about half the time and building an
+  `Option` to throw away is what `discard` exists to avoid.
 - **`add(s, items...)` takes a `Set` or a `MutableSet`**, variadic in both, and replaces
   four names: `insert` on a `Set`, `set_insert_all`, `mutable_set_add` and
   `mutable_set_add_all`. Unlike `remove`, the two worlds agree on what they answer — a
@@ -396,8 +403,8 @@ for x in seen { ... }                    // a set has one binder
   A type argument a lambda's result would have to supply is inferred only when the lambda is fully
   annotated (every parameter typed and `->` written), which is the same information a named function
   gives; an unannotated lambda takes its types *from* the expected type, so it has none to contribute
-  and the call needs them written: `map_map_values<K, V, R>(m, f)` applies `f: fn(V) -> R` to every value (keys/order unchanged);
-  `set_map<T, U>(s, f)` merges elements mapping to the same value; `map_entries<K, V>(m)` is an
+  and the call needs them written: `map<K, V, R>(m, f)` applies `f: fn(K, V) -> R` to every entry (keys/order unchanged);
+  `map<T, U>(s, f)` over a Set merges elements mapping to the same value; `entries<K, V>(m)` is an
   array of `MapEntry<K, V> { key, value }` in map order. Arrays into maps: `array_frequencies<T>`
   counts into `Map<T, int>`, `array_index_by<T, K>(items, key)` builds `Map<K, T>` (later element wins;
   `group_by` keeps them all), `join(items: [string], sep)` puts `sep` *between* the pieces (the
@@ -427,7 +434,7 @@ for x in seen { ... }                    // a set has one binder
   `_remove`/`_update`/`_update_all`/`_filter`/`_remove_all`/`_keys`/`_values`) and `MutableSet<T>`
   (`mutable_set_new`/`_add`/`_add_all`/`_remove`/`_remove_all`/`_filter`/`_items`), the
   `MutableArray` counterparts. **The single-element mutators report what they did**:
-  `mutable_map_remove` answers the value that was there as an `Option<V>` (the entry is otherwise
+  `remove` on a MutableMap answers the value that was there as an `Option<V>` (the entry is otherwise
   gone, and recovering it would need a `get` first), while a set's `add` and `remove` answer a
   `bool`, so a caller can dedupe without a `contains` first. Each `_all` form is variadic and
   answers whether anything changed; the singular is never variadic, which is what keeps a
@@ -435,13 +442,13 @@ for x in seen { ... }                    // a set has one binder
   and `[V]`, not handles -- a result like that is nearly always consumed by a `for` or returned,
   so a handle would allocate a thread-bound object per loop for nothing. Each mutates its own private trie in place (O(n) total instead of copying per
   entry) -- use one in a loop adding many entries. Type arguments are written out
-  (`mutable_map_set<string, int>(m, "a", 1)`). **The four questions every collection answers have
+  (`set<string, int>(m, "a", 1)`). **The four questions every collection answers have
   no per-type names**: `len(m)`, `contains(m, k)`, `snapshot(m)` and `clear(m)` work on all four
   mutable types, where there used to be `mapb_len`, `setb_contains`, `mapb_to_map` and the rest.
   `snapshot` copies into an immutable `Map`/`Set` (O(n), the handle stays usable, and later changes
   do not touch the copy). One thread at a time -- every `Mutable*` type belongs to the thread that
   made it.
-- **Taking a second collection**: `concat(xs, parts…)`, `mutable_map_set_all(m, values)` and
+- **Taking a second collection**: `concat(xs, parts…)`, `merge(m, values)` and
   `union`/`intersect`/`difference`/`is_subset` on a MutableSet all change (or read) the handle in
   the first argument, and the rest take either world -- `concat` takes any number of them, mixed
   freely. The three self-aliasing cases get three different answers, each deliberate:

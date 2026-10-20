@@ -20,8 +20,8 @@ fn main() {
     print(concat(snapshot(sb), "!"))
 
     val mb = mutable_map_new<string, int>()
-    mutable_map_set(mb, "a", 1)
-    mutable_map_set(mb, "b", 2)
+    set(mb, "a", 1)
+    set(mb, "b", 2)
     val m = snapshot(mb)
     print(m)
     print(get(m, "a"))

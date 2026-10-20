@@ -8,6 +8,6 @@ fn run(f: fn()) {
 
 fn main() {
     val b = mutable_map_new<string, int>()
-    val f = fn() { mutable_map_set(b, "x", 1) }
+    val f = fn() { set(b, "x", 1) }
     spawn run(f)
 }

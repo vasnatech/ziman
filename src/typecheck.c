@@ -713,7 +713,7 @@ static void lint_quadratic_accumulation(const Stmt *s) {
 
 /* --lint: reading a builder by converting it, inside a loop that keeps adding to it.
  *
- * `val seen = snapshot(counts)` in a loop whose next statement does `mutable_map_set(counts, ..)`
+ * `val seen = snapshot(counts)` in a loop whose next statement does `set(counts, ..)`
  * materialises the whole map on every pass, when `mutable_map_get`/`mutable_map_get_or`/`contains`/
  * `len` read a builder in place. That is what a builder is for. The same goes for
  * `snapshot` against `len`, and `snapshot` against `len`.
@@ -752,7 +752,7 @@ typedef struct {
 static const BuilderKindAdvice BUILDER_KINDS[] = {
     {"mutable_array_push", "len, mutable_array_get or 'for x in <the builder>'"},
     {"mutable_string_append", "len, or a MutableString you finish once after the loop"},
-    {"mutable_map_set", "len, contains, get or get_or"},
+    {"set", "len, contains, get or get_or"},
     {"mutable_set_add", "len or contains"},
     {NULL, NULL}};
 
@@ -1489,9 +1489,35 @@ static int overload_set_size(Module *module, const char *name);
  * for them the name *is* the implementation (F181) and there is no declaration to ask. And a
  * mutating overload that returned a value would defeat the rule -- none exists, `remove(b, i)`
  * being a builtin rather than a set, and the fixture notes say so. */
+/* The case F182 said would break the return-type rule, now that it exists. `remove` on a
+ * MutableMap answers the `Option<V>` it took out and on a MutableSet whether the item was there
+ * -- both **effectful and non-void**, so "returns something" stops meaning "has no effect" for
+ * them. Discarding one is the ordinary call: it is how `pop` and "delete if present" are spelled.
+ *
+ * A list of names, which is what this whole effort has been removing, and it is deliberate at
+ * this size: there is no signal in the signature that separates `remove(mb, k) -> Option<V>`
+ * from `distinct(b) -> [T]`, since both take a handle and answer a value. F182 called for a
+ * marker on the declaration if a second case appeared. One has; a third means writing the
+ * attribute rather than extending this. */
+static int effectful_despite_answering(const FunctionDecl *fn) {
+    if (fn->params.count == 0) return 0;
+    Type p0 = fn->params.items[0].type;
+    if (p0.kind != TY_STRUCT || p0.struct_name == NULL) return 0;
+    if (strcmp(p0.struct_name, "MutableMap") != 0 && strcmp(p0.struct_name, "MutableSet") != 0) return 0;
+    return strcmp(fn->name, "remove") == 0;
+}
+
+/* A veto, not an abstention: `remove` is in PURE_BUILTINS by name, so the builder members have
+ * to override it rather than merely decline to vouch for it. */
+static int call_is_effectful_overload(const Expr *e) {
+    const FunctionDecl *fn = (const FunctionDecl *)e->call_fn;
+    return fn != NULL && effectful_despite_answering(fn);
+}
+
 static int call_is_pure_prelude_overload(Module *module, const Expr *e) {
     const FunctionDecl *fn = (const FunctionDecl *)e->call_fn;
     if (fn == NULL || fn->is_builtin || fn->source_file != NULL) return 0;
+    if (effectful_despite_answering(fn)) return 0;
     return overload_set_size(module, fn->name) > 1;
 }
 
@@ -1510,7 +1536,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "map_merge", "map_from_arrays", "to_set", "slice", "concat", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "map_from_arrays", "to_set", "slice", "concat", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -1534,7 +1560,7 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * here -- there is nothing to canonicalize against. */
 static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
     "abs", "len", "slice", "swap", "to_set", "filter", "keys", "values",
-    "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", NULL,
+    "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", NULL,
 };
 
 static int builtin_refuses_named_args(const char *name) {
@@ -1695,7 +1721,7 @@ static const char *renamed_builder_fn(const char *name) {
                    {"sb_to_string", "snapshot"},
                    {"sb_len", "len"},
                    {"mapb_new", "mutable_map_new"},
-                   {"mapb_set", "mutable_map_set"},
+                   {"mapb_set", "set"},
                    {"mapb_get", "mutable_map_get"},
                    {"mapb_get_or", "mutable_map_get_or"},
                    {"mapb_remove", "mutable_map_remove"},
@@ -2568,7 +2594,7 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * what this checked. The six that went in items 1, 4 and 5 had been sitting here matching
      * nothing, which is what a table of names does after the names change. */
     static const struct { const char *name; int argc; } TABLE[] = {
-        {"map_merge", 2},
+        {"__none__", 0},  /* every name this arm once checked now states its own type rule */
     };
     if (strcmp(name, "map_from_arrays") == 0) {
         if (e->as.call.args.count != 2) {
@@ -3753,6 +3779,15 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             ziman_error("type", e->line, e->col, "'%s' takes exactly %d argument(s), found %d", name, expected_argc, e->as.call.args.count);
         }
         if (arr_type.kind != TY_ARRAY) {
+            /* A `MutableMap` falls through to the resolver rather than being refused here: F200
+             * gave `set` a MutableMap declaration, and this arm claimed the name before the
+             * declaration could be reached. The arm still owns the array, Map and Set forms --
+             * it is `set`/`insert`/`remove`'s hand-written dispatch, not a type rule -- so the
+             * narrowest correct change is to let it decline the one shape it does not handle. */
+            if (arr_type.kind == TY_STRUCT && arr_type.struct_name != NULL
+                && strcmp(arr_type.struct_name, "MutableMap") == 0) {
+                goto ordinary_call;
+            }
             ziman_error("type", arr_arg->line, arr_arg->col, "argument 1 of '%s' expects an array (or, for set/insert/remove, a map or set), found %s", name, type_name(arr_type));
         }
 
@@ -3821,16 +3856,14 @@ static Type check_call(Module *module, Env *env, Expr *e) {
              * branches up, and said nothing about the builders, each of which has its own removal
              * under its own name. */
             if (arr_type.kind == TY_STRUCT && arr_type.struct_name != NULL) {
-                if (strcmp(arr_type.struct_name, "MutableMap") == 0) {
-                    ziman_error("type", arr_arg->line, arr_arg->col,
-                                "'remove' has no MutableMap form -- 'mutable_map_remove(m, key)' answers the value "
-                                "it took out as an 'Option<V>', and 'mutable_map_discard(m, key)' answers whether "
-                                "there was one");
-                }
-                if (strcmp(arr_type.struct_name, "MutableSet") == 0) {
-                    ziman_error("type", arr_arg->line, arr_arg->col,
-                                "'remove' has no MutableSet form -- 'mutable_set_remove(s, item)' answers whether "
-                                "the item was there");
+                /* `remove` has both builder forms since F200 -- `MutableMap`'s answers the
+                 * `Option<V>` it took out, `MutableSet`'s answers whether the item was there --
+                 * so the arm declines to the resolver instead of refusing. The two messages that
+                 * stood here named `mutable_map_remove` and `mutable_map_discard`, which no
+                 * longer exist. */
+                if (strcmp(arr_type.struct_name, "MutableMap") == 0 ||
+                    strcmp(arr_type.struct_name, "MutableSet") == 0) {
+                    goto ordinary_call;
                 }
                 if (strcmp(arr_type.struct_name, "MutableString") == 0) {
                     ziman_error("type", arr_arg->line, arr_arg->col,
@@ -6176,7 +6209,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             if (base_type.kind == TY_STRUCT && base_type.struct_name != NULL &&
                 strcmp(base_type.struct_name, "MutableMap") == 0) {
                 ziman_error("type", base->line, base->col,
-                            "a MutableMap is not written with '[...]' -- write 'mutable_map_set(m, key, value)'");
+                            "a MutableMap is not written with '[...]' -- write 'set(m, key, value)'");
             }
             if (base_type.kind == TY_STRUCT && base_type.struct_name != NULL &&
                 strcmp(base_type.struct_name, "MutableString") == 0) {
@@ -6488,6 +6521,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 else if (s->as.expr_stmt.expr->kind == EXPR_CALL && t.kind != TY_VOID
                          && authored_callee(s->as.expr_stmt.expr) != NULL
                          && shadowing_fn(authored_callee(s->as.expr_stmt.expr)) == NULL
+                         && !call_is_effectful_overload(s->as.expr_stmt.expr)
                          && (is_pure_builtin_name(authored_callee(s->as.expr_stmt.expr))
                              || call_is_pure_prelude_overload(module, s->as.expr_stmt.expr))) {
                     const char *name = authored_callee(s->as.expr_stmt.expr);

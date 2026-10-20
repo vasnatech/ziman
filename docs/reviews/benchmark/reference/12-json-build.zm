@@ -2,7 +2,7 @@ use json
 
 fn main() {
     val fields = mutable_map_new<string, json.Json>()
-    mutable_map_set(fields, "status", json.Json.JString("ok"))
-    mutable_map_set(fields, "count", json.Json.JNumber(json.Number.Int(3)))
+    set(fields, "status", json.Json.JString("ok"))
+    set(fields, "count", json.Json.JNumber(json.Number.Int(3)))
     print(json.json_to_string(json.Json.JObject(snapshot(fields))))
 }

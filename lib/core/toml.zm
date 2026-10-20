@@ -478,13 +478,13 @@ fn merge_into(target: Map<string, Json>, incoming: Map<string, Json>) -> Result<
     }
     val out = mutable_map_new<string, Json>()
     for k, v in target {
-        mutable_map_set(out, k, v)
+        set(out, k, v)
     }
     for k, v in incoming {
         if Some(_) = get(out, k) {
             return err(format("duplicate key '{}'", k))
         }
-        mutable_map_set(out, k, v)
+        set(out, k, v)
     }
     return ok(snapshot(out))
 }

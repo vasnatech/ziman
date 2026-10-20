@@ -1,0 +1,9 @@
+{a: 1, b: 2, c: 3}
+{a: 1, b: 2, c: 3, d: 4}
+[MapEntry { key: a, value: 1 }, MapEntry { key: b, value: 2 }]
+[MapEntry { key: a, value: 1 }, MapEntry { key: b, value: 2 }, MapEntry { key: c, value: 3 }, MapEntry { key: d, value: 4 }]
+{a: a1, b: b2}
+{10, 20}
+Some(9)
+Some(9)
+{c: 3, d: 4}

@@ -18,7 +18,7 @@ fn use_array(done: Channel<string>) {
 
 fn use_map(done: Channel<string>) {
     val b = MutableMap<int, int> { handle: 1 }
-    mutable_map_set(b, 1, 2)
+    set(b, 1, 2)
     send(done, "map: not refused")
 }
 

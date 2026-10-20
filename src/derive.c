@@ -366,7 +366,7 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
             cb_appendf(cb, "    val %s = mutable_map_new<string, Json>()\n", acc);
             cb_appendf(cb, "    for %s, %s in %s {\n", k, v, src_expr);
             emit_to_json(*t.elem_err, v, v_json, cb, tmp, line, col);
-            cb_appendf(cb, "    mutable_map_set<string, Json>(%s, %s, %s)\n", acc, t.elem->kind == TY_INT ? fmt_str("str(%s)", k) : k, v_json);
+            cb_appendf(cb, "    set<string, Json>(%s, %s, %s)\n", acc, t.elem->kind == TY_INT ? fmt_str("str(%s)", k) : k, v_json);
             cb_appendf(cb, "    }\n");
             cb_appendf(cb, "    val %s = Json.JObject(snapshot(%s))\n", dst_var, acc);
             return;
@@ -477,9 +477,9 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             emit_from_json(*t.elem_err, v, entry, cb, tmp, line, col, NULL);
             if (t.elem->kind == TY_INT) {
                 cb_appendf(cb, "    val %s = try parse_int(%s)\n", key_n, k);
-                cb_appendf(cb, "    mutable_map_set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, key_n, entry);
+                cb_appendf(cb, "    set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, key_n, entry);
             } else {
-                cb_appendf(cb, "    mutable_map_set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, k, entry);
+                cb_appendf(cb, "    set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, k, entry);
             }
             cb_appendf(cb, "    }\n");
             cb_appendf(cb, "    val %s = snapshot(%s)\n", dst_var, bld);

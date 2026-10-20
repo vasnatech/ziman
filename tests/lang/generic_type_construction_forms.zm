@@ -17,7 +17,7 @@ fn main() {
     val m = Map<string, int> { "key": 1 }
     print(len(m))
     val mb = mutable_map_new<string, int>()
-    mutable_map_set(mb, "k", 2)
+    set(mb, "k", 2)
     print(len(snapshot(mb)))
 
     // Set

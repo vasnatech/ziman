@@ -27,7 +27,7 @@ fn main() {
     // the source value is untouched by writes through the handle
     val source = Map<string, int> { "k": 1 }
     val h = mutable(source)
-    mutable_map_set(h, "k", 999)
+    set(h, "k", 999)
     print(get(source, "k"))
     print(get(h, "k"))
 }

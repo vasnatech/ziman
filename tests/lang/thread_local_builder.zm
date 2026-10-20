@@ -8,14 +8,14 @@ val cache = thread.local<MutableMap<string, int>>(fn() -> MutableMap<string, int
 
 fn worker(out: Channel<int>) {
     val mine = thread.get(cache)
-    mutable_map_set(mine, "w", 1)
-    mutable_map_set(mine, "x", 2)
+    set(mine, "w", 1)
+    set(mine, "x", 2)
     send(out, len(mine))
 }
 
 fn main() {
     val mine = thread.get(cache)
-    mutable_map_set(mine, "m", 1)
+    set(mine, "m", 1)
 
     val out: Channel<int> = channel_new()
     spawn worker(out)
@@ -27,7 +27,7 @@ fn main() {
     for i in 0..200000 {
         junk = junk + len(str(i))
     }
-    mutable_map_set(thread.get(cache), "later", 3)
+    set(thread.get(cache), "later", 3)
     print(len(thread.get(cache)))
     print(junk > 0)
     print(snapshot(thread.get(cache)))

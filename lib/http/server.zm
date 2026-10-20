@@ -2027,12 +2027,12 @@ fn routes_with<C>(endpoints: [Endpoint<C>], meter: bool) -> Routes<C> {
         val p = compile_pattern(e.pattern)
         mutable_array_push(patterns, p)
         val key = method_key(e.method, len(p.parts))
-        mutable_map_set(
+        set(
             methods,
             key,
             push(option_unwrap_or<[int]>(get(methods, key), none), i)
         )
-        mutable_map_set(
+        set(
             lengths,
             len(p.parts),
             push(option_unwrap_or<[int]>(get(lengths, len(p.parts)), none), i)

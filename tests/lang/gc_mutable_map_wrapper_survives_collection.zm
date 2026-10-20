@@ -7,7 +7,7 @@ use os
 // mb_mark_contents (prelude.c), the content-marker already registered for MutableMap/MutableSet,
 // only traced the map's *entries* (mapobj_entries, then marking each key/value) -- it never set the
 // wrapper's *own* mark bit, so a real collection saw buf->m's header as unmarked and swept it,
-// zeroing `root`/`count`/`next_seq`. The next mutable_map_set then crashed inside GC_realloc, reallocating
+// zeroing `root`/`count`/`next_seq`. The next set then crashed inside GC_realloc, reallocating
 // a `root` MapNode pointer read back out of an already-zeroed wrapper. Fixed by wrapping buf->m in a
 // throwaway TY_MAP Value and calling the already-public gc_mark_value, reusing gc_mark_map's own
 // is_gc_heap_object-gated header handling exactly instead of duplicating it.
@@ -18,7 +18,7 @@ fn main() {
     val b = mutable_map_new<string, int>()
     var i = 0
     while i < 50 {
-        mutable_map_set<string, int>(b, concat("k", str(i)), i)
+        set<string, int>(b, concat("k", str(i)), i)
         os.collect_garbage()
         i = i + 1
     }

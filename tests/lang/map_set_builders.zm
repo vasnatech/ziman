@@ -2,25 +2,25 @@
 // usable, and later changes do not touch the snapshot).
 fn main() {
     val mb = mutable_map_new<string, int>()
-    mutable_map_set<string, int>(mb, "a", 1)
-    mutable_map_set<string, int>(mb, "b", 2)
-    mutable_map_set<string, int>(mb, "a", 10)
+    set<string, int>(mb, "a", 1)
+    set<string, int>(mb, "b", 2)
+    set<string, int>(mb, "a", 10)
     print(get<string, int>(mb, "a"))
     print(len(mb))
     val snap = snapshot(mb)
-    mutable_map_set<string, int>(mb, "c", 3)
-    mutable_map_set<string, int>(mb, "a", 99)
-    mutable_map_remove<string, int>(mb, "b")
+    set<string, int>(mb, "c", 3)
+    set<string, int>(mb, "a", 99)
+    remove<string, int>(mb, "b")
     print(snap)
     print(snapshot(mb))
     print(contains(mb, "b"))
     val big = mutable_map_new<int, int>()
     for i in 0..5000 {
-        mutable_map_set<int, int>(big, i, i * 2)
+        set<int, int>(big, i, i * 2)
     }
     for i in 0..5000 {
         if i % 3 == 0 {
-            mutable_map_remove<int, int>(big, i)
+            remove<int, int>(big, i)
         }
     }
     val m = snapshot(big)
@@ -34,18 +34,18 @@ fn main() {
     mutable_set_add<string>(sb, "x")
     print(snapshot(sb))
     print(len(sb))
-    mutable_set_remove<string>(sb, "x")
+    remove<string>(sb, "x")
     print(snapshot(sb))
     // a snapshot is independent of what the builder does next
     val keep = snapshot(sb)
     mutable_set_add<string>(sb, "z")
-    mutable_set_remove<string>(sb, "y")
+    remove<string>(sb, "y")
     print(keep)
     print(snapshot(sb))
     // many keys: collisions, growth, removals and overwrites keep insertion order
     val many = mutable_map_new<string, int>()
     for i in 0..2000 {
-        mutable_map_set<string, int>(many, concat("k", str(i % 700)), i)
+        set<string, int>(many, concat("k", str(i % 700)), i)
     }
     val all = snapshot(many)
     print(len(all))

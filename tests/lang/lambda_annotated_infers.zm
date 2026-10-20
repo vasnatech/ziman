@@ -30,6 +30,6 @@ fn main() {
     print(filter(xs, fn(n: int) { n > 2 }))
 
     // the other functions whose docs call out explicit type arguments
-    print(set_map(Set<int> { 1, 2 }, fn(n: int) -> string { return concat("s", str(n)) }))
-    print(map_map_values(Map<string, int> { "a": 1 }, fn(v: int) -> string { return concat("v", str(v)) }))
+    print(map(Set<int> { 1, 2 }, fn(n: int) -> string { return concat("s", str(n)) }))
+    print(map(Map<string, int> { "a": 1 }, fn(k: string, v: int) -> string { return concat(k, str(v)) }))
 }

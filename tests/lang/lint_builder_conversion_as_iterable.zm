@@ -24,7 +24,7 @@ fn first_duplicate(names: [string]) -> string {
 fn tally(words: [string]) -> int {
     val counts = mutable_map_new<string, int>()
     for w in words {
-        mutable_map_set(counts, w, 1)
+        set(counts, w, 1)
     }
     var n = 0
     for k, v in snapshot(counts) {

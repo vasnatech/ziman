@@ -12,7 +12,7 @@ fn main() {
             return get_or(cache, n, 0)
         }
         val computed = n * n
-        mutable_map_set(cache, n, computed)
+        set(cache, n, computed)
         return computed
     }
     print(square(7))
@@ -21,7 +21,7 @@ fn main() {
 
     // and the accumulate case, which `fold` covers without any capture at all
     val b = mutable_map_new<string, int>()
-    val bump = fn(k: string) { mutable_map_set(b, k, 1) }
+    val bump = fn(k: string) { set(b, k, 1) }
     bump("a")
     bump("b")
     print(len(b))

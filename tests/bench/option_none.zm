@@ -28,7 +28,7 @@ fn main() {
     val ops = 5000000
     val mb = mutable_map_new<int, int>()
     for i in 0..size {
-        mutable_map_set(mb, i, i * 2)
+        set(mb, i, i * 2)
     }
 
     var acc = 0

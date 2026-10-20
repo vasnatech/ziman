@@ -1,5 +1,5 @@
 // The MutableMap and MutableSet surface, all of it ordinary Ziman over iteration plus the natives
-// that now report what they did: `mutable_map_remove` answers the value that was there (the entry
+// that now report what they did: `remove` answers the value that was there (the entry
 // is otherwise gone, and recovering it would need a `get` first) and the set's add and remove
 // answer whether anything changed, so a caller can dedupe without a `contains` first.
 //
@@ -11,9 +11,9 @@
 // interesting one.
 fn main() {
     val m = mutable_map_new<string, int>()
-    mutable_map_set(m, "a", 1)
-    mutable_map_set(m, "b", 2)
-    mutable_map_set(m, "c", 3)
+    set(m, "a", 1)
+    set(m, "b", 2)
+    set(m, "c", 3)
 
     print(mutable_map_update(m, "a", fn(old: Option<int>) -> int { return switch old { Some(n) { n * 10 } None { 0 } } }))
     print(mutable_map_update(m, "zz", fn(old: Option<int>) -> int { return switch old { Some(n) { n } None { 99 } } }))
@@ -29,8 +29,8 @@ fn main() {
     print(remove_all(m, "b", "nope"))
     print(remove_all(m, "nope"))
     print(keys(m))
-    print(mutable_map_remove(m, "c"))
-    print(mutable_map_remove(m, "c"))
+    print(remove(m, "c"))
+    print(remove(m, "c"))
 
     val s = mutable_set_new<int>()
     print(mutable_set_add(s, 1))
@@ -40,8 +40,8 @@ fn main() {
     print(items(s))
     filter(s, fn(n) { n % 2 == 1 })
     print(items(s))
-    print(mutable_set_remove(s, 3))
-    print(mutable_set_remove(s, 3))
+    print(remove(s, 3))
+    print(remove(s, 3))
     print(remove_all(s, 1, 9))
     print(len(s))
 }

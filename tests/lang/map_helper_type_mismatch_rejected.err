@@ -1,1 +1,1 @@
-argument 2 of 'map_merge' expects Map<string, int>, found Map<string, string>
+argument 2 of 'merge' expects int, which an earlier argument fixed as type argument 'V' -- found string

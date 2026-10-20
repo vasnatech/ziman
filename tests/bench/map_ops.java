@@ -33,8 +33,8 @@
 // writes; a primitive-specialised map would be measuring a different language.
 //
 // And `remove`, where Java differs from Ziman most interestingly: it hands back the value it
-// removed, like `mutable_map_remove`, but returns the existing reference rather than wrapping it,
-// so it pays none of the Option allocation that made Ziman add `mutable_map_discard`. Java gets
+// removed, like `remove`, but returns the existing reference rather than wrapping it,
+// so it pays none of the Option allocation that made Ziman add `discard`. Java gets
 // remove-with-the-value for the price of discard.
 import java.util.HashMap;
 import java.util.Map;

@@ -365,7 +365,7 @@ fn draw_text(
                     matrix_concat(geom.translation(qx, qy), linear),
                     o.samples
                 )
-                mutable_map_set(t.glyphs, key, made)
+                set(t.glyphs, key, made)
                 made
             }
         }

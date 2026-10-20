@@ -45,7 +45,7 @@ fn main() {
 
     // A map miss is the hot path this change exists for: it must still read as None.
     val mb = mutable_map_new<string, int>()
-    mutable_map_set(mb, "x", 1)
+    set(mb, "x", 1)
     print(get(mb, "absent"))
     print(get(mb, "x"))
 }

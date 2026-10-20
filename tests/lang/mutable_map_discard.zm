@@ -1,35 +1,24 @@
-// `mutable_map_discard` is `mutable_map_remove` without the `Option`: it answers whether the key
-// was there and not what it held, which is the same question `mutable_set_remove` answers for a
-// set. The point is that a bool needs no heap wrapper -- see lib/prelude.zm for the measurement.
+// `discard` is `remove` without the answer: `remove(m, key)` hands back the `Option<V>` it took
+// out, `discard(m, key)` hands back nothing. Keeping both is deliberate (user, 2026-10-20) -- the
+// value is genuinely wanted about half the time, and building an `Option` to throw away is the
+// cost `discard` exists to avoid.
+//
+// Both are bare names over the MutableMap world since F200. `discard` answered a `bool` until
+// then; it answers nothing now, which is what makes the pair say *what they are for* rather than
+// differ by a flag.
 fn main() {
-    val m = mutable_map_new<string, int>()
-    mutable_map_set(m, "a", 1)
-    mutable_map_set(m, "b", 2)
+    val m = mutable(Map<string, int> { "a": 1, "b": 2, "c": 3 })
 
-    print(mutable_map_discard(m, "a"))
-    print(mutable_map_discard(m, "a"))
-    print(len(m))
-    print(contains(m, "a"))
-    print(contains(m, "b"))
-    print(get_or(m, "b", -1))
+    discard(m, "a")
+    print(snapshot(m))
 
-    // Absent from an empty map, and absent from a map that never had it.
-    val empty = mutable_map_new<int, bool>()
-    print(mutable_map_discard(empty, 7))
+    // discarding a key that is not there is not an error, and says nothing either way
+    discard(m, "a")
+    discard(m, "zz")
+    print(snapshot(m))
 
-    // Discarding then re-inserting: the key comes back, and goes last in insertion order.
-    mutable_map_set(m, "c", 3)
-    print(mutable_map_discard(m, "b"))
-    mutable_map_set(m, "b", 20)
-    for k, v in m {
-        printf("{}={} ", k, v)
-    }
-    print("")
-
-    // Every key discarded leaves an empty map that still works.
-    print(mutable_map_discard(m, "c"))
-    print(mutable_map_discard(m, "b"))
-    print(len(m))
-    mutable_map_set(m, "z", 9)
-    print(get_or(m, "z", -1))
+    // `remove` is the one that answers
+    print(remove(m, "b"))
+    print(remove(m, "b"))
+    print(snapshot(m))
 }

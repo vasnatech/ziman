@@ -23,7 +23,7 @@ fn main() {
     print(contains(sb, ""))
 
     val mb = mutable_map_new<string, int>()
-    mutable_map_set(mb, "a", 1)
+    set(mb, "a", 1)
     print(contains(mb, "a"))
     print(contains(mb, "b"))
     print(contains(mb, "a"))

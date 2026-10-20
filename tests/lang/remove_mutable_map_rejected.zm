@@ -1,8 +1,0 @@
-// One name over all six shapes would have meant the new collection three times and three different
-// other things -- the element, an `Option<V>`, a `bool`. Only the MutableArray joined `remove`; the
-// other two refusals name the function that does the job instead of reporting a type mismatch.
-fn main() {
-    val m = mutable_map_new<string, int>()
-    val x = remove(m, "a")
-    print(x)
-}

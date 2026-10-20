@@ -1,6 +1,0 @@
-// As for MutableMap: a MutableSet's removal answers a bool, so it keeps its own name.
-fn main() {
-    val s = mutable_set_new<int>()
-    val x = remove(s, 1)
-    print(x)
-}

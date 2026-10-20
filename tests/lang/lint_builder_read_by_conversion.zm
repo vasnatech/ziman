@@ -14,7 +14,7 @@ fn counted(words: [string]) -> int {
     val counts = mutable_map_new<string, int>()
     for w in words {
         val seen = snapshot(counts)
-        mutable_map_set(counts, w, switch get(seen, w) { Some(n) { n + 1 } None { 1 } })
+        set(counts, w, switch get(seen, w) { Some(n) { n + 1 } None { 1 } })
     }
     return len(counts)
 }

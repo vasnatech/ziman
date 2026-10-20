@@ -564,28 +564,28 @@ struct MutableSet<T: Eq + Hash> {
 native fn mutable_map_new<K: Eq + Hash, V>() -> MutableMap<K, V>
 
 // Adds `key`, or replaces its value while keeping its position.
-native fn mutable_map_set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: V)
+pub native fn set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: V)
 
 // The value of `key`, or None.
 pub native fn get<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
 
 // Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
-// `mutable_map_discard` instead when the removed value is not wanted: answering with an `Option`
+// `discard` instead when the removed value is not wanted: answering with an `Option`
 // means allocating one, which on a large map costs several times the removal itself.
-native fn mutable_map_remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
+pub native fn remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
 
 // Removes `key` and answers whether it was there, without reporting what it held. The same
-// question `mutable_set_remove` answers for a set, and for the same reason: a `bool` needs no
+// question `remove` answers for a set, and for the same reason: a `bool` needs no
 // wrapper where an `Option<V>` is a heap allocation, and a tracing collector prices a short-lived
 // allocation by how much is alive rather than by its size. Measured on a 100,000-entry map,
-// removing and re-inserting every key: 351-363 ns/op through `mutable_map_remove` against 110-112
+// removing and re-inserting every key: 351-363 ns/op through `remove` against 110-112
 // through the bool-returning path -- the removal itself is a fraction of either. Reach for
-// `mutable_map_remove` only when the old value is actually needed.
-native fn mutable_map_discard<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> bool
+// `remove` only when the old value is actually needed.
+pub native fn discard<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K)
 
 // The value stored under `key`, or `default_value` when there is none -- `get_or` for a builder.
 // Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
-// loop (`mutable_map_set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
+// loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
 pub native fn get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
 
 // An empty set builder.
@@ -595,14 +595,14 @@ native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
 internal native fn mutable_set_add<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
 
 // Removes `item`; nothing happens when it is absent.
-native fn mutable_set_remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
+pub native fn remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
 
 // `f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
 // lookup where `get` then `set` is two, which is the whole reason this exists where
 // `mutable_set`-on-a-cell did not need an equivalent.
 fn mutable_map_update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V {
     val next = f(get<K, V>(m, key))
-    mutable_map_set<K, V>(m, key, next)
+    set<K, V>(m, key, next)
     return next
 }
 
@@ -611,7 +611,7 @@ fn mutable_map_update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option
 // disturb the walk.
 fn mutable_map_update_all<K: Eq + Hash, V>(m: MutableMap<K, V>, f: fn(K, V) -> V) {
     for k, v in m {
-        mutable_map_set<K, V>(m, k, f(k, v))
+        set<K, V>(m, k, f(k, v))
     }
 }
 
@@ -620,7 +620,7 @@ fn mutable_map_update_all<K: Eq + Hash, V>(m: MutableMap<K, V>, f: fn(K, V) -> V
 pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool) {
     for k, v in m {
         if !keep(k, v) {
-            val _dropped = mutable_map_remove<K, V>(m, k)
+            val _dropped = remove<K, V>(m, k)
         }
     }
 }
@@ -630,7 +630,7 @@ pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool) {
 pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool {
     var removed_any = false
     for k in keys {
-        if Some(_old) = mutable_map_remove<K, V>(m, k) {
+        if Some(_old) = remove<K, V>(m, k) {
             removed_any = true
         }
     }
@@ -675,7 +675,7 @@ pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
 pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
     var removed_any = false
     for item in items {
-        if mutable_set_remove<T>(s, item) {
+        if remove<T>(s, item) {
             removed_any = true
         }
     }
@@ -686,7 +686,7 @@ pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
 pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool) {
     for item in s {
         if !keep(item) {
-            val _dropped = mutable_set_remove<T>(s, item)
+            val _dropped = remove<T>(s, item)
         }
     }
 }
@@ -763,7 +763,7 @@ builtin fn keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
 builtin fn values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
 
 // `other` wins where both have a key.
-builtin fn map_merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>
+builtin fn merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>
 
 builtin fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
 
@@ -801,7 +801,7 @@ builtin fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
 builtin fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
 builtin fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
 
-// One key and its value, as `map_entries` returns them.
+// One key and its value, as `entries` returns them.
 struct MapEntry<K, V> {
     key: K
     value: V
@@ -809,8 +809,8 @@ struct MapEntry<K, V> {
 
 // The entries of `m` as an array, in the map's insertion order: for collecting them, sorting them (by value,
 // say, with `sort_by_desc`) or taking the first few. Written with the type arguments:
-// `map_entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
-fn map_entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>] {
+// `entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
+pub fn entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>] {
     val out = mutable_array_new<MapEntry<K, V>>()
     for k, v in m {
         mutable_array_push(out, MapEntry<K, V> { key: k, value: v })
@@ -819,18 +819,28 @@ fn map_entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>] {
 }
 
 // `m` with `f` applied to every value, keys and their order unchanged:
-// `map_map_values<string, int, string>(stock, fn(n) { str(n) })`.
-fn map_map_values<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(V) -> R) -> Map<K, R> {
+// `map<string, int, string>(stock, fn(n) { str(n) })`.
+pub fn map<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(K, V) -> R) -> Map<K, R> {
     val out = mutable_map_new<K, R>()
     for k, v in m {
-        mutable_map_set(out, k, f(v))
+        set(out, k, f(k, v))
+    }
+    return snapshot(out)
+}
+
+// The entries of a MutableMap as an array, in insertion order -- the builder half of `entries`,
+// answering an immutable value for the same reason `keys` and `values` do.
+pub fn entries<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [MapEntry<K, V>] {
+    val out = mutable_array_new<MapEntry<K, V>>()
+    for k, v in m {
+        mutable_array_push(out, MapEntry<K, V> { key: k, value: v })
     }
     return snapshot(out)
 }
 
 // The set of `f(x)` for every `x` in `s`, in the order first produced. Two elements that map to the same
-// value become one: `set_map<int, int>(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1, 0}`.
-fn set_map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U> {
+// value become one: `map<int, int>(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1, 0}`.
+pub fn map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U> {
     val out = mutable_set_new<U>()
     for x in s {
         mutable_set_add(out, f(x))
@@ -1378,8 +1388,8 @@ builtin fn mutable<T>(item: T) -> Mutable<T>
 builtin fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
 builtin fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
 
-builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
-builtin fn mutable_map_set_all<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
+builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
+builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
 
 builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
@@ -1646,12 +1656,12 @@ pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
         } else {
             val started = mutable_array_new<T>(capacity: 4)
             mutable_array_push(started, item)
-            mutable_map_set(builders, k, started)
+            set(builders, k, started)
         }
     }
     val groups = mutable_map_new<K, [T]>()
     for k, group in snapshot(builders) {
-        mutable_map_set(groups, k, snapshot(group))
+        set(groups, k, snapshot(group))
     }
     return snapshot(groups)
 }
@@ -1790,12 +1800,12 @@ pub fn group_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map
         } else {
             val started = mutable_array_new<T>(capacity: 4)
             push(started, item)
-            mutable_map_set(builders, k, started)
+            set(builders, k, started)
         }
     }
     val groups = mutable_map_new<K, [T]>()
     for k, group in snapshot(builders) {
-        mutable_map_set(groups, k, snapshot(group))
+        set(groups, k, snapshot(group))
     }
     return snapshot(groups)
 }
@@ -1803,7 +1813,7 @@ pub fn group_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map
 pub fn index_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map<K, T> {
     val index = mutable_map_new<K, T>()
     for item in items {
-        mutable_map_set(index, key(item), item)
+        set(index, key(item), item)
     }
     return snapshot(index)
 }
@@ -1812,7 +1822,7 @@ pub fn frequencies<T: Eq + Hash>(items: MutableArray<T>) -> Map<T, int> {
     val counts = mutable_map_new<T, int>()
     for item in items {
         val seen = get(counts, item)
-        mutable_map_set(counts, item, switch seen {
+        set(counts, item, switch seen {
             Some(n) { n + 1 }
             None { 1 }
         })
@@ -1941,7 +1951,7 @@ pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int> {
     val counts = mutable_map_new<T, int>()
     for item in items {
         val seen = get(counts, item)
-        mutable_map_set(counts, item, switch seen {
+        set(counts, item, switch seen {
             Some(n) { n + 1 }
             None { 1 }
         })
@@ -1955,7 +1965,7 @@ pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int> {
 pub fn index_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, T> {
     val index = mutable_map_new<K, T>()
     for item in items {
-        mutable_map_set(index, key(item), item)
+        set(index, key(item), item)
     }
     return snapshot(index)
 }

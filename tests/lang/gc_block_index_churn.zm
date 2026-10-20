@@ -12,7 +12,7 @@ fn main() {
     for round in 0..3 {
         val mb = mutable_map_new<int, string>()
         for i in 0..20000 {
-            mutable_map_set<int, string>(mb, i, concat("value-", str(i)))
+            set<int, string>(mb, i, concat("value-", str(i)))
         }
         val m = snapshot(mb)
         if Some(v) = get<int, string>(m, 42) {

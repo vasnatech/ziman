@@ -15,7 +15,7 @@ fn main() {
     print(snapshot(sb))
 
     val mb = mutable(Map<string, int> { "a": 1 })
-    mutable_map_set<string, int>(mb, "b", 2)
+    set<string, int>(mb, "b", 2)
     print(snapshot(mb))
 
     print(snapshot(mutable([7, 8])))

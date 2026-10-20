@@ -1,0 +1,35 @@
+// F200, Group C of the Map/Set pairing pass. Seven names settled, on three decisions the user
+// made (2026-10-20):
+//
+//   1. `merge`, not `set_all`, for pouring one map into another -- the established immutable
+//      name, where `set_all` reads like a bulk `set`, which it is not.
+//   2. `map` over a Map takes `fn(K, V) -> R`, not `fn(V) -> R`. It is the key-aware form, which
+//      matches `filter`'s `fn(K, V) -> bool`, and it replaces the stuttering `map_map_values`.
+//   3. `remove` answers the value it took out; `discard` answers nothing. Both kept -- the value
+//      is wanted about half the time, and building an `Option` to throw away is what `discard`
+//      exists to avoid. `discard` answered a `bool` before this.
+fn main() {
+    val m = Map<string, int> { "a": 1, "b": 2 }
+
+    print(merge(m, Map<string, int> { "c": 3 }))
+    val mm = mutable(m)
+    merge(mm, Map<string, int> { "c": 3 })
+    merge(mm, mutable(Map<string, int> { "d": 4 }))
+    print(snapshot(mm))
+
+    print(entries(m))
+    print(entries(mm))
+
+    print(map<string, int, string>(m, fn(k, v) { concat(k, str(v)) }))
+    print(map<int, int>(Set<int> { 1, 2 }, fn(x) { x * 10 }))
+
+    set(mm, "z", 9)
+    print(get(mm, "z"))
+
+    // the pair decision 3 settles: one answers, one does not, and discarding the answer of the
+    // one that does is the ordinary call rather than a mistake
+    print(remove(mm, "z"))
+    remove(mm, "a")
+    discard(mm, "b")
+    print(snapshot(mm))
+}

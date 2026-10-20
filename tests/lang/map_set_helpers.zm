@@ -8,25 +8,25 @@ fn main() {
     val stock = Map<string, int> { "apple": 4, "fig": 9, "pear": 6 }
 
     // entries, in insertion order, and sorted by value
-    val entries = map_entries<string, int>(stock)
+    val entries = entries<string, int>(stock)
     print(len(entries))
     print(entries[1].key)
     print(entries[1].value)
     val ranked = sort_by_desc<MapEntry<string, int>, int>(entries, fn(e) { e.value })
     print(map<MapEntry<string, int>, string>(ranked, fn(e) { e.key }))
-    print(len(map_entries<string, int>(Map<string, int> {})))
+    print(len(entries<string, int>(Map<string, int> {})))
 
-    // map_map_values keeps keys and order
-    val labels = map_map_values<string, int, string>(stock, fn(n) { format("{} units", n) })
+    // map keeps keys and order
+    val labels = map<string, int, string>(stock, fn(k, n) { format("{} units", n) })
     print(labels)
-    print(map_map_values<string, int, bool>(stock, fn(n) { n > 5 }))
-    print(len(map_map_values<string, int, int>(Map<string, int> {}, fn(n) { n })))
+    print(map<string, int, bool>(stock, fn(k, n) { n > 5 }))
+    print(len(map<string, int, int>(Map<string, int> {}, fn(k, n) { n })))
 
-    // set_map: results merge
-    val parity = set_map<int, int>(Set<int> { 1, 2, 3, 4, 5 }, fn(n) { n % 2 })
+    // map: results merge
+    val parity = map<int, int>(Set<int> { 1, 2, 3, 4, 5 }, fn(n) { n % 2 })
     print(parity)
-    print(set_map<string, int>(Set<string> { "a", "bb", "cc" }, fn(s) { len(s) }))
-    print(len(set_map<int, int>(Set<int> {}, fn(n) { n })))
+    print(map<string, int>(Set<string> { "a", "bb", "cc" }, fn(s) { len(s) }))
+    print(len(map<int, int>(Set<int> {}, fn(n) { n })))
 
     // frequencies and index_by
     print(frequencies<string>(["a", "b", "a", "c", "a", "b"]))

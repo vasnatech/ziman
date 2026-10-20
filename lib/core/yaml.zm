@@ -489,7 +489,7 @@ fn flow_map(s: string, pos: int, no: int, depth: int) -> Result<Scalar, string> 
             value = item.value
             p = skip_sp(s, item.next)
         }
-        mutable_map_set(fields, key_text, value)
+        set(fields, key_text, value)
         if is_char_at(s, p, ",") {
             p = skip_sp(s, p + 1)
         } else if !is_char_at(s, p, "}") {
@@ -825,7 +825,7 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
             value = node.value
             after = node.next
         }
-        mutable_map_set(fields, entry.key, value)
+        set(fields, entry.key, value)
         j = after
     }
     return ok(NodeRes { value: Json.JObject(snapshot(fields)), next: j })

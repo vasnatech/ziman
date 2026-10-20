@@ -9,7 +9,7 @@ fn main() {
                 Some(xs) { xs }
                 None { [] }
             }
-            mutable_map_set(inverted, s, push(so_far, teachers[i]))
+            set(inverted, s, push(so_far, teachers[i]))
         }
         i = i + 1
     }

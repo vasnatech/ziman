@@ -14,8 +14,8 @@ fn main() {
     print(len(sb))
 
     val mb = mutable_map_new<string, int>()
-    mutable_map_set(mb, "a", 1)
-    mutable_map_set(mb, "b", 2)
+    set(mb, "a", 1)
+    set(mb, "b", 2)
     print(len(mb))
     print(len(mb))
 

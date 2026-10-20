@@ -22,8 +22,8 @@ fn main() {
     print(snapshot(xs))
 
     val m = mutable_map_new<string, int>()
-    mutable_map_set_all(m, Map<string, int> { "a": 1 })
-    mutable_map_set_all(m, mutable(Map<string, int> { "b": 2, "a": 9 }))
+    merge(m, Map<string, int> { "a": 1 })
+    merge(m, mutable(Map<string, int> { "b": 2, "a": 9 }))
     print(keys(m))
     print(values(m))
 
@@ -43,7 +43,7 @@ fn main() {
     print(snapshot(d))
 
     val sm = mutable(Map<string, int> { "k": 1 })
-    mutable_map_set_all(sm, sm)
+    merge(sm, sm)
     print(values(sm))
 
     val ss = to_mutable_set([1, 2])

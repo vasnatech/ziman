@@ -7,7 +7,7 @@
 // same four spellings in every world: an array, several values, one value, or none.
 //
 // The returns still differ, for the usual reason: the immutable half answers a new Map, the
-// builders answer whether anything was actually removed, as `mutable_set_remove` always has.
+// builders answer whether anything was actually removed, as `remove` always has.
 fn main() {
     val m = Map<string, int> { "a": 1, "b": 2, "c": 3 }
     print(remove_all(m, ["a", "b"]))
