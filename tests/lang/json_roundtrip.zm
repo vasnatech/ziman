@@ -11,7 +11,7 @@ fn main() {
 
     val name = json_object_get(j, "name")
     print(Option.is_Some(name))
-    print(Json.unwrap_JString(option_unwrap_or<Json>(name, Json.JNull)))
+    print(Json.unwrap_JString(get_or<Json>(name, Json.JNull)))
 
     val missing = json_object_get(j, "nope")
     print(Option.is_Some(missing))

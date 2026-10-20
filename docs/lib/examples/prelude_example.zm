@@ -12,7 +12,7 @@ fn main() {
 
     // Option is an ordinary enum.
     val found = split_once("no separator here", "=")
-    print(option_unwrap_or<[string]>(found, ["", ""]))
+    print(get_or<[string]>(found, ["", ""]))
 
     // Builders assemble a result without copying it on every step.
     val sb = mutable_string_new()

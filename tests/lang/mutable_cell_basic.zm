@@ -5,8 +5,8 @@ fn main() {
     print(mutable_get(n))
     mutable_set(n, 5)
     print(mutable_get(n))
-    // The counter idiom, and the same shape mutable_map_update has: returns the new value.
-    print(mutable_update(n, fn(x) { x + 1 }))
+    // The counter idiom, and the same shape update has: returns the new value.
+    print(update(n, fn(x) { x + 1 }))
     print(mutable_get(n))
 
     // Two of the four bare builtins, and not the other two: a cell holds exactly one value, so its

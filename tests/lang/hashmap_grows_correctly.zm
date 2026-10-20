@@ -10,7 +10,7 @@ fn main() {
 
     var ok = true
     for i in 0..2000 {
-        if option_unwrap_or<int>(get(m, i), -1) != i * i {
+        if get_or<int>(get(m, i), -1) != i * i {
             ok = false
         }
     }
@@ -23,7 +23,7 @@ fn main() {
 
     var ok2 = true
     for i in 0..2000 {
-        if option_unwrap_or<int>(get(m, i), -1) != i {
+        if get_or<int>(get(m, i), -1) != i {
             ok2 = false
         }
     }

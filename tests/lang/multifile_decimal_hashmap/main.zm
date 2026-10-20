@@ -2,6 +2,6 @@ fn main() {
     var m = Map<string, decimal> {}
     m = set(m, "widget", 19.99d)
     m = set(m, "gadget", 49.95d)
-    print(option_unwrap_or<decimal>(get(m, "widget"), 0d))
-    print(option_unwrap_or<decimal>(get(m, "gadget"), 0d))
+    print(get_or<decimal>(get(m, "widget"), 0d))
+    print(get_or<decimal>(get(m, "gadget"), 0d))
 }

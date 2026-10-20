@@ -1,0 +1,40 @@
+// F201, item 11 and the last of the Map/Set pairing pass: the names `--api builtins` could not
+// see. There were 20 when the pass began; Groups A-C dissolved eleven by giving them bare names
+// that the sets they joined advertise. These are the eight that were left, and four of them
+// turned out to be pairing leftovers rather than merely unmarked:
+//
+//   `option_unwrap_or`  -> `get_or`, because "the value, or this default" is the question
+//                          `get_or` already asks of a Map, and an Option is just the one-entry
+//                          case of it.
+//   `mutable_update`    -> `update`, over a Mutable cell
+//   `mutable_map_update`-> `update`, over a MutableMap entry -- the same verb, told apart by
+//                          argument one
+//   `mutable_map_update_all` -> `update_all`
+//
+// The other four -- `bytes_concat`, `split_once`, `inverse`, `result_map_err` -- only ever needed
+// the `pub` keyword; they were callable all along and simply undiscoverable.
+//
+// One name stays invisible on purpose: `array_order_of`, decided 2026-10-19 (F172).
+fn main() {
+    val c = mutable(5)
+    print(update(c, fn(n: int) -> int { return n * 2 }))
+
+    val m = mutable(Map<string, int> { "a": 1 })
+    print(update(m, "a", fn(o: Option<int>) -> int { return 9 }))
+    print(update(m, "new", fn(o: Option<int>) -> int { return 1 }))
+    update_all(m, fn(k: string, v: int) -> int { return v + 1 })
+    print(snapshot(m))
+
+    // `get_or` over its three worlds
+    print(get_or(Option<int>.Some(3), 0))
+    print(get_or(Option<int>.None, 7))
+    print(get_or(Map<string, int> { "a": 1 }, "a", 4))
+    print(get_or(Map<string, int> { "a": 1 }, "z", 4))
+    print(get_or(mutable(Map<string, int> { "a": 1 }), "z", 4))
+
+    // and the four that only wanted advertising
+    print(bytes_concat([65b], [66b]))
+    print(split_once("a=b", "="))
+    print(sort_with([3, 1, 2], inverse<int>(fn(a: int, b: int) -> int { return compare(a, b) })))
+    print(result_map_err<int, string, int>(err("bad"), fn(e: string) -> int { return len(e) }))
+}

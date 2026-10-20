@@ -448,7 +448,7 @@ fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientErro
     } else {
         val upper = os.getenv(if u.secure { "HTTPS_PROXY" } else { "HTTP_PROXY" })
         val lower = os.getenv(if u.secure { "https_proxy" } else { "http_proxy" })
-        text = option_unwrap_or<string>(upper, option_unwrap_or<string>(lower, ""))
+        text = get_or<string>(upper, get_or<string>(lower, ""))
         if len(text) > 0 && no_proxy_matches(u.host) {
             text = ""
         }
@@ -469,7 +469,7 @@ fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientErro
 // True if `NO_PROXY` (a comma-separated list of hosts, `.suffixes` and `*`) covers `host`.
 fn no_proxy_matches(host: string) -> bool {
     val upper = os.getenv("NO_PROXY")
-    val list = option_unwrap_or<string>(upper, option_unwrap_or<string>(os.getenv("no_proxy"), ""))
+    val list = get_or<string>(upper, get_or<string>(os.getenv("no_proxy"), ""))
     for raw in split(list, ",") {
         val entry = to_lower(trim(raw))
         if entry == "*" {
@@ -1122,14 +1122,14 @@ pub fn request(
     val outcome = try run(
         method,
         url,
-        option_unwrap_or<[Header]>(headers, []),
+        get_or<[Header]>(headers, []),
         body,
-        option_unwrap_or<int>(timeout_ms, default_timeout_ms),
-        option_unwrap_or<int>(max_redirects, default_max_redirects),
+        get_or<int>(timeout_ms, default_timeout_ms),
+        get_or<int>(max_redirects, default_max_redirects),
         ca_file,
         proxy,
-        option_unwrap_or<bool>(compress, true),
-        option_unwrap_or<bool>(reuse, true),
+        get_or<bool>(compress, true),
+        get_or<bool>(reuse, true),
         cookie_jar()
     )
     return ok(outcome.response)
@@ -1154,14 +1154,14 @@ pub fn request_with_jar(
     val outcome = try run(
         method,
         url,
-        option_unwrap_or<[Header]>(headers, []),
+        get_or<[Header]>(headers, []),
         body,
-        option_unwrap_or<int>(timeout_ms, default_timeout_ms),
-        option_unwrap_or<int>(max_redirects, default_max_redirects),
+        get_or<int>(timeout_ms, default_timeout_ms),
+        get_or<int>(max_redirects, default_max_redirects),
         ca_file,
         proxy,
-        option_unwrap_or<bool>(compress, true),
-        option_unwrap_or<bool>(reuse, true),
+        get_or<bool>(compress, true),
+        get_or<bool>(reuse, true),
         jar
     )
     return ok(JarResponse { response: outcome.response, jar: outcome.jar })
@@ -1386,11 +1386,11 @@ pub fn stream(
         return err(ClientError.BadUrl(e))
     }
     val u = unwrap(parsed)
-    val timeout = option_unwrap_or<int>(timeout_ms, default_timeout_ms)
+    val timeout = get_or<int>(timeout_ms, default_timeout_ms)
     val via = try proxy_for(u, proxy)
     val sock = try open_socket(u, via, ca_file, timeout)
     val _ = net.set_timeout(sock, timeout)
-    val sent = write_request(sock, method, u, via, option_unwrap_or<[Header]>(headers, []), body, false, false)
+    val sent = write_request(sock, method, u, via, get_or<[Header]>(headers, []), body, false, false)
     if Err(e) = sent {
         net.close(sock)
         return err(e)

@@ -5,7 +5,7 @@ fn main() {
     }
     var ok = true
     for i in 0..50 {
-        val v = option_unwrap_or<string>(get(m, i), "MISSING")
+        val v = get_or<string>(get(m, i), "MISSING")
         if v != concat("v", str(i)) {
             ok = false
         }

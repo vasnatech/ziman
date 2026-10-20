@@ -77,12 +77,12 @@ pub fn logger(
     return Logger {
         level: level,
         file: file,
-        timestamps: option_unwrap_or<bool>(timestamps, true),
-        prefix: option_unwrap_or<string>(prefix, ""),
-        console: option_unwrap_or<bool>(console, false),
-        max_bytes: option_unwrap_or<int>(max_bytes, 0),
-        keep_files: option_unwrap_or<int>(keep_files, 5),
-        json: option_unwrap_or<bool>(json, false),
+        timestamps: get_or<bool>(timestamps, true),
+        prefix: get_or<string>(prefix, ""),
+        console: get_or<bool>(console, false),
+        max_bytes: get_or<int>(max_bytes, 0),
+        keep_files: get_or<int>(keep_files, 5),
+        json: get_or<bool>(json, false),
         request_id: ""
     }
 }

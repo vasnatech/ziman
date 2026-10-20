@@ -200,9 +200,9 @@ pub fn verify_claims(
     return check(
         token,
         key,
-        option_unwrap_or<int>(now, now_seconds()),
-        option_unwrap_or<int>(leeway_seconds, 0),
-        option_unwrap_or<bool>(require_exp, true),
+        get_or<int>(now, now_seconds()),
+        get_or<int>(leeway_seconds, 0),
+        get_or<bool>(require_exp, true),
         issuer,
         audience
     )

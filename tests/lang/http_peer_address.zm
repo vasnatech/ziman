@@ -13,7 +13,7 @@ use net
 use server
 
 fn who<C>(ctx: C, req: http.Request, params: server.Params) -> http.Response {
-    return server.text_response(200, concat("peer=", option_unwrap_or<string>(req.peer, "<none>")))
+    return server.text_response(200, concat("peer=", get_or<string>(req.peer, "<none>")))
 }
 
 fn fault(status: int, message: string) -> http.Response {
@@ -59,7 +59,7 @@ fn main() {
     unwrap(net.set_timeout(s, 3000))
     defer net.close(s)
     // The client's own view of the other end, which is the server it just connected to.
-    printf("the client's view of its peer: {}\n", option_unwrap_or<string>(net.peer_address(s), "<none>"))
+    printf("the client's view of its peer: {}\n", get_or<string>(net.peer_address(s), "<none>"))
     val _ = net.write_text(s, "GET /who HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
     var acc = ""
     while true {

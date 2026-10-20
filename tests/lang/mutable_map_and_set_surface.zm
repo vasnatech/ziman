@@ -15,12 +15,12 @@ fn main() {
     set(m, "b", 2)
     set(m, "c", 3)
 
-    print(mutable_map_update(m, "a", fn(old: Option<int>) -> int { return switch old { Some(n) { n * 10 } None { 0 } } }))
-    print(mutable_map_update(m, "zz", fn(old: Option<int>) -> int { return switch old { Some(n) { n } None { 99 } } }))
+    print(update(m, "a", fn(old: Option<int>) -> int { return switch old { Some(n) { n * 10 } None { 0 } } }))
+    print(update(m, "zz", fn(old: Option<int>) -> int { return switch old { Some(n) { n } None { 99 } } }))
     print(values(m))
     print(keys(m))
 
-    mutable_map_update_all(m, fn(k: string, v: int) -> int { return v + 1 })
+    update_all(m, fn(k: string, v: int) -> int { return v + 1 })
     print(values(m))
 
     filter(m, fn(k: string, v: int) -> bool { return v < 50 })

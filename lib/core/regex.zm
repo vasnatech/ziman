@@ -151,11 +151,11 @@ pub fn group_named(m: Match, name: string) -> Option<string> {
 }
 
 fn group_text(m: Match, n: int) -> string {
-    return option_unwrap_or<string>(group(m, n), "")
+    return get_or<string>(group(m, n), "")
 }
 
 fn named_text(m: Match, name: string) -> string {
-    return option_unwrap_or<string>(group_named(m, name), "")
+    return get_or<string>(group_named(m, name), "")
 }
 
 fn is_name_char(c: string) -> bool {

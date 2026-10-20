@@ -30,7 +30,7 @@ fn main() {
 
     // Option is an ordinary enum.
     val found = split_once("no separator here", "=")
-    print(option_unwrap_or<[string]>(found, ["", ""]))
+    print(get_or<[string]>(found, ["", ""]))
 
     // Builders assemble a result without copying it on every step.
     val sb = mutable_string_new()
@@ -179,7 +179,7 @@ same as always. See docs/DESIGN.md's UTF-8 correctness entry.
 ### `bytes_concat`
 
 ```
-fn bytes_concat(parts: variadic [byte]) -> [byte]
+pub fn bytes_concat(parts: variadic [byte]) -> [byte]
 ```
 
 Any number of byte arrays joined into one, in a single pass. `concat(parts)` rather than
@@ -368,7 +368,7 @@ native so that joining N strings is O(N), where adding them with `concat` one at
 ### `split_once`
 
 ```
-fn split_once(s: string, sep: string) -> Option<[string]>
+pub fn split_once(s: string, sep: string) -> Option<[string]>
 ```
 
 Splits `s` at the FIRST `sep`: Some([before, after]), or None when `sep` is not in `s`. The
@@ -529,10 +529,10 @@ builtin fn is_None<T>(o: Option<T>) -> bool
 builtin fn unwrap_Some<T>(o: Option<T>) -> T
 ```
 
-### `option_unwrap_or`
+### `get_or`
 
 ```
-fn option_unwrap_or<T>(o: Option<T>, default_value: T) -> T
+pub fn get_or<T>(o: Option<T>, default_value: T) -> T
 ```
 
 The value inside `o`, or `default_value` when `o` is None.
@@ -674,14 +674,14 @@ native fn mutable_set<T>(c: Mutable<T>, value: T)
 
 Replaces the value in the cell.
 
-### `mutable_update`
+### `update`
 
 ```
-fn mutable_update<T>(c: Mutable<T>, f: fn(T) -> T) -> T
+pub fn update<T>(c: Mutable<T>, f: fn(T) -> T) -> T
 ```
 
 `f` applied to the value in the cell, stored back, and returned -- the counter idiom,
-`mutable_update(n, fn(x) { x + 1 })`, and the same shape `mutable_map_update` has. Ordinary
+`update(n, fn(x) { x + 1 })`, and the same shape `update` has. Ordinary
 Ziman over `mutable_get`/`mutable_set`, since there is no lookup for a native to save.
 
 ## MutableArray
@@ -984,20 +984,20 @@ pub native fn remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
 
 Removes `item`; nothing happens when it is absent.
 
-### `mutable_map_update`
+### `update`
 
 ```
-fn mutable_map_update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V
+pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V
 ```
 
 `f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
 lookup where `get` then `set` is two, which is the whole reason this exists where
 `mutable_set`-on-a-cell did not need an equivalent.
 
-### `mutable_map_update_all`
+### `update_all`
 
 ```
-fn mutable_map_update_all<K: Eq + Hash, V>(m: MutableMap<K, V>, f: fn(K, V) -> V)
+pub fn update_all<K: Eq + Hash, V>(m: MutableMap<K, V>, f: fn(K, V) -> V)
 ```
 
 `f` applied to every value, keys and their order unchanged. Safe to write as a `for` plus a
@@ -1508,7 +1508,7 @@ comparison.
 ### `inverse`
 
 ```
-fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int
+pub fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int
 ```
 
 **A comparator with its order turned round**, which is to `sort_with` what `sort_desc` is to
@@ -1563,7 +1563,7 @@ A guard that sends `message` on `ch` when it is collected.
 ### `result_map_err`
 
 ```
-fn result_map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F>
+pub fn result_map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F>
 ```
 
 `r`'s Ok value, or None on Err -- the error itself is dropped, so use this only where the

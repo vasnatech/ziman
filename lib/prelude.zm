@@ -87,7 +87,7 @@ native fn bytes_to_string(b: [byte]) -> Result<string, string>
 // Any number of byte arrays joined into one, in a single pass. `concat(parts)` rather than
 // `concat(parts: parts)`: the positional spread is what a builtin takes, named arguments being
 // barred from them.
-fn bytes_concat(parts: variadic [byte]) -> [byte] {
+pub fn bytes_concat(parts: variadic [byte]) -> [byte] {
     return concat(parts)
 }
 
@@ -186,7 +186,7 @@ native fn join(
 // Splits `s` at the FIRST `sep`: Some([before, after]), or None when `sep` is not in `s`. The
 // right tool for `key=value`, `host:port` and similar, where the value may itself contain the
 // separator (`split` would cut it apart). `sep` must not be empty.
-fn split_once(s: string, sep: string) -> Option<[string]> {
+pub fn split_once(s: string, sep: string) -> Option<[string]> {
     val at = index_of(s, sep, 0)
     if at < 0 {
         return Option<[string]>.None
@@ -281,7 +281,7 @@ builtin fn is_None<T>(o: Option<T>) -> bool
 builtin fn unwrap_Some<T>(o: Option<T>) -> T
 
 // The value inside `o`, or `default_value` when `o` is None.
-fn option_unwrap_or<T>(o: Option<T>, default_value: T) -> T {
+pub fn get_or<T>(o: Option<T>, default_value: T) -> T {
     return switch o {
         Some(v) { v }
         None { default_value }
@@ -367,9 +367,9 @@ native fn mutable_get<T>(c: Mutable<T>) -> T
 native fn mutable_set<T>(c: Mutable<T>, value: T)
 
 // `f` applied to the value in the cell, stored back, and returned -- the counter idiom,
-// `mutable_update(n, fn(x) { x + 1 })`, and the same shape `mutable_map_update` has. Ordinary
+// `update(n, fn(x) { x + 1 })`, and the same shape `update` has. Ordinary
 // Ziman over `mutable_get`/`mutable_set`, since there is no lookup for a native to save.
-fn mutable_update<T>(c: Mutable<T>, f: fn(T) -> T) -> T {
+pub fn update<T>(c: Mutable<T>, f: fn(T) -> T) -> T {
     val next = f(mutable_get(c))
     mutable_set(c, next)
     return next
@@ -600,7 +600,7 @@ pub native fn remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
 // `f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
 // lookup where `get` then `set` is two, which is the whole reason this exists where
 // `mutable_set`-on-a-cell did not need an equivalent.
-fn mutable_map_update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V {
+pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V {
     val next = f(get<K, V>(m, key))
     set<K, V>(m, key, next)
     return next
@@ -609,7 +609,7 @@ fn mutable_map_update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option
 // `f` applied to every value, keys and their order unchanged. Safe to write as a `for` plus a
 // `set` because iterating a MutableMap walks a snapshot of the entries, so the writes cannot
 // disturb the walk.
-fn mutable_map_update_all<K: Eq + Hash, V>(m: MutableMap<K, V>, f: fn(K, V) -> V) {
+pub fn update_all<K: Eq + Hash, V>(m: MutableMap<K, V>, f: fn(K, V) -> V) {
     for k, v in m {
         set<K, V>(m, k, f(k, v))
     }
@@ -1113,7 +1113,7 @@ pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
 // about arrays -- so the one function serves `sort_with` in both.
 //
 // Ordinary Ziman: it returns a closure over `cmp`, which needs nothing the language lacks.
-fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int {
+pub fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int {
     return fn(a: T, b: T) -> int { cmp(b, a) }
 }
 
@@ -1148,7 +1148,7 @@ native fn guard_new<T>(ch: Channel<T>, message: T) -> Guard
 // missing wherever one module's error type has to become another's -- `fs` answers an `FsError` and a
 // caller whose own errors are strings wants `try result_map_err(fs.read_text(p), fs.fs_error_message)`
 // rather than four lines of switch at every call.
-fn result_map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F> {
+pub fn result_map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F> {
     return switch r {
         Ok(v) { ok(v) }
         Err(e) { err(convert(e)) }

@@ -278,7 +278,7 @@ pub fn listen_tls_with_options(host: string, port: int, options: TlsServerOption
         port,
         options.cert_file,
         options.key_file,
-        option_unwrap_or<string>(options.client_ca_file, ""),
+        get_or<string>(options.client_ca_file, ""),
         options.require_client_cert,
         options.alpn
     )
@@ -552,9 +552,9 @@ pub fn start_tls_with_options(s: Socket, host: string, options: TlsClientOptions
         s.handle,
         host,
         tls_verify_level(options.verify),
-        option_unwrap_or<string>(options.ca_file, ""),
-        option_unwrap_or<string>(options.cert_file, ""),
-        option_unwrap_or<string>(options.key_file, ""),
+        get_or<string>(options.ca_file, ""),
+        get_or<string>(options.cert_file, ""),
+        get_or<string>(options.key_file, ""),
         options.alpn
     ) {
         Ok(_) { unit }

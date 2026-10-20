@@ -3641,8 +3641,8 @@ MutableMap<K: Eq + Hash, V>
   mutable_map_get_or<K, V>(m, key, default_value) -> V
   mutable_map_set<K, V>(m, key, value)
   mutable_map_set_all<K, V>(m, values: Map<K,V> | MutableMap<K,V>)
-  mutable_map_update<K, V>(m, key, f: fn(Option<V>) -> V) -> V
-  mutable_map_update_all<K, V>(m, f: fn(K, V) -> V)
+  update<K, V>(m, key, f: fn(Option<V>) -> V) -> V      (was mutable_map_update; F201)
+  update_all<K, V>(m, f: fn(K, V) -> V)                 (was mutable_map_update_all; F201)
   filter<K, V>(m, keep: fn(K, V) -> bool)                 (was mutable_map_filter; F192)
   mutable_map_remove<K, V>(m, key) -> Option<V>
   remove_all<K, V>(m, keys: variadic K) -> bool          (was mutable_map_remove_all; F197)
@@ -4012,7 +4012,7 @@ Mutable<T>                                   #[thread_bound]
   mutable_new<T>(value) -> Mutable<T>
   mutable_get<T>(c) -> T
   mutable_set<T>(c, value)
-  mutable_update<T>(c, f: fn(T) -> T) -> T   the new value, as mutable_map_update
+  update<T>(c, f: fn(T) -> T) -> T           the new value, as a MutableMap's update
 ```
 
 **A cell takes two of the four bare builtins and not the other two.** `len(c)` is 1 and

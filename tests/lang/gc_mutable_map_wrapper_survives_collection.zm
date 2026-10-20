@@ -26,7 +26,7 @@ fn main() {
     var ok = true
     var j = 0
     while j < 50 {
-        if option_unwrap_or<int>(get(m, concat("k", str(j))), -1) != j {
+        if get_or<int>(get(m, concat("k", str(j))), -1) != j {
             ok = false
             print(concat("MISMATCH at ", str(j)))
         }

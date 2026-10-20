@@ -40,7 +40,7 @@ fn main() {
     var map_ok = true
     var k = 0
     while k < 50 {
-        if option_unwrap_or<int>(get(m, concat("k", str(k))), -1) != k {
+        if get_or<int>(get(m, concat("k", str(k))), -1) != k {
             map_ok = false
         }
         k = k + 1

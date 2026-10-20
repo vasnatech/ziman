@@ -57,12 +57,12 @@ fn main() {
         body: [],
         peer: Some("10.0.0.2")
     }
-    printf("hops 0 -- nothing in front:   {}\n", option_unwrap_or<string>(server.forwarded_for(req, 0), "-"))
-    printf("hops 1 -- one proxy of ours:  {}\n", option_unwrap_or<string>(server.forwarded_for(req, 1), "-"))
-    printf("hops 2 -- two of ours:        {}\n", option_unwrap_or<string>(server.forwarded_for(req, 2), "-"))
+    printf("hops 0 -- nothing in front:   {}\n", get_or<string>(server.forwarded_for(req, 0), "-"))
+    printf("hops 1 -- one proxy of ours:  {}\n", get_or<string>(server.forwarded_for(req, 1), "-"))
+    printf("hops 2 -- two of ours:        {}\n", get_or<string>(server.forwarded_for(req, 2), "-"))
     // More hops than entries means the request did not come through the chain this server expects, so
     // the only address certainly not forged is the one on the socket.
-    printf("hops 5 -- more than exist:    {}\n", option_unwrap_or<string>(server.forwarded_for(req, 5), "-"))
+    printf("hops 5 -- more than exist:    {}\n", get_or<string>(server.forwarded_for(req, 5), "-"))
 
     // No header at all, with a hop claimed: same reasoning, fall back to the socket.
     val bare = http.Request {
@@ -75,5 +75,5 @@ fn main() {
         body: [],
         peer: Some("10.0.0.3")
     }
-    printf("no header, hops 1:            {}\n", option_unwrap_or<string>(server.forwarded_for(bare, 1), "-"))
+    printf("no header, hops 1:            {}\n", get_or<string>(server.forwarded_for(bare, 1), "-"))
 }

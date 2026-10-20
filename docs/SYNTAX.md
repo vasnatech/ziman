@@ -360,6 +360,14 @@ for x in seen { ... }                    // a set has one binder
   a repeated key keeps the last value); sets -- `union`/`intersect`/`difference(a, b)`
   (`a`'s order, `b`'s extras appended for union), `is_subset(a, b)`, `to_set(items)`,
   `add(s, items...)`.
+- **The names `--api builtins` could not see are down to one.** Twenty when the Map/Set
+  pass began; Groups A-C dissolved eleven by giving them bare names, and the last eight
+  were settled with it: `option_unwrap_or` became `get_or` over an `Option` (the
+  one-entry case of the question it already asks of a `Map`), `mutable_update` and
+  `mutable_map_update` became `update` over a cell and over a map entry,
+  `mutable_map_update_all` became `update_all`, and `bytes_concat`, `split_once`,
+  `inverse` and `result_map_err` only ever needed `pub`. `array_order_of` stays
+  unadvertised on purpose.
 - **Group C, settled 2026-10-20**: `merge(a, b)` pours one map into another in either world
   (`set_all` is gone); `entries(m)` joins `keys` and `values` across both Map worlds;
   `map(c, f)` now covers a `Map` (`fn(K, V) -> R`, key-aware like `filter`) and a `Set`,

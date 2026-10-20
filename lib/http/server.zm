@@ -1611,7 +1611,7 @@ pub fn secure_handler<C, U, O, E>(
         decoders: Option<[Decoder<unit>]>.None,
         blank: Option<unit>.Some(unit),
         encoders: encoders,
-        status: option_unwrap_or<int>(status, 200),
+        status: get_or<int>(status, 200),
         run: fn(ctx: C, caller: U, id: unit, filter: unit, input: unit) -> Result<O, E> { return go(ctx, caller) },
         api: api
     )
@@ -1635,7 +1635,7 @@ pub fn secure_path_handler<C, U, P, O, E>(
         decoders: Option<[Decoder<unit>]>.None,
         blank: Option<unit>.Some(unit),
         encoders: encoders,
-        status: option_unwrap_or<int>(status, 200),
+        status: get_or<int>(status, 200),
         run: fn(ctx: C, caller: U, id: P, filter: unit, input: unit) -> Result<O, E> { return go(ctx, caller, id) },
         api: api
     )
@@ -1660,7 +1660,7 @@ pub fn secure_query_handler<C, U, Q, O, E>(
         decoders: Option<[Decoder<unit>]>.None,
         blank: Option<unit>.Some(unit),
         encoders: encoders,
-        status: option_unwrap_or<int>(status, 200),
+        status: get_or<int>(status, 200),
         run: fn(ctx: C, caller: U, id: unit, filter: Q, input: unit) -> Result<O, E> { return go(ctx, caller, filter) },
         api: api
     )
@@ -1685,7 +1685,7 @@ pub fn secure_body_handler<C, U, I, O, E>(
         decoders: Option<[Decoder<I>]>.Some(decoders),
         blank: Option<I>.None,
         encoders: encoders,
-        status: option_unwrap_or<int>(status, 200),
+        status: get_or<int>(status, 200),
         run: fn(ctx: C, caller: U, id: unit, filter: unit, input: I) -> Result<O, E> { return go(ctx, caller, input) },
         api: api
     )
@@ -1711,7 +1711,7 @@ pub fn secure_path_body_handler<C, U, P, I, O, E>(
         decoders: Option<[Decoder<I>]>.Some(decoders),
         blank: Option<I>.None,
         encoders: encoders,
-        status: option_unwrap_or<int>(status, 200),
+        status: get_or<int>(status, 200),
         run: fn(ctx: C, caller: U, id: P, filter: unit, input: I) -> Result<O, E> { return go(ctx, caller, id, input) },
         api: api
     )
@@ -2030,12 +2030,12 @@ fn routes_with<C>(endpoints: [Endpoint<C>], meter: bool) -> Routes<C> {
         set(
             methods,
             key,
-            push(option_unwrap_or<[int]>(get(methods, key), none), i)
+            push(get_or<[int]>(get(methods, key), none), i)
         )
         set(
             lengths,
             len(p.parts),
-            push(option_unwrap_or<[int]>(get(lengths, len(p.parts)), none), i)
+            push(get_or<[int]>(get(lengths, len(p.parts)), none), i)
         )
         i = i + 1
     }
@@ -2471,7 +2471,7 @@ fn connection_key(sock: Socket, limit: int) -> string {
     if limit < 1 {
         return ""
     }
-    return option_unwrap_or<string>(net.peer_address(sock), "")
+    return get_or<string>(net.peer_address(sock), "")
 }
 
 // One burst of serving on a connection the poller handed over: requests are served while the next

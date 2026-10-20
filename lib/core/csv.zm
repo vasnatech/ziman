@@ -626,7 +626,7 @@ pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, strin
                 mutable_string_append(out, delimiter)
             }
             first = false
-            mutable_string_append(out, option_unwrap_or<string>(get(cells, name), ""))
+            mutable_string_append(out, get_or<string>(get(cells, name), ""))
         }
         mutable_string_append(out, "\n")
     }

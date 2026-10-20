@@ -2806,3 +2806,29 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   declines to `ordinary_call`; `derive(Json)` generated `mutable_map_set` calls; and the
   collection-helper TABLE is empty of live names for the first time — every name it once checked
   states its own type rule.
+
+- [x] **F201** **Map/Set pairing, item 11: the invisible names, and the pass is finished.** (done
+  2026-10-20.) There were **20** names `--api builtins` could not see when this pass began. Groups
+  A-C dissolved eleven of them without trying: a name that joins a bare overload set is
+  advertised by that set. The eight that remained are settled here, and **one stays invisible on
+  purpose**.
+
+  **Four were pairing leftovers, not merely unmarked:**
+  - `option_unwrap_or` → **`get_or`**. "The value, or this default" is the question `get_or`
+    already asks of a `Map`; an `Option` is the one-entry case of it. Three worlds now — Option,
+    Map, MutableMap — told apart by argument one and by arity.
+  - `mutable_update` → **`update`** over a `Mutable` cell, and `mutable_map_update` → **`update`**
+    over a `MutableMap` entry. The same verb, the same "change it in place and answer the new
+    value", told apart by argument one.
+  - `mutable_map_update_all` → **`update_all`**.
+
+  **Four only ever needed the keyword**: `bytes_concat`, `split_once`, `inverse` and
+  `result_map_err` were callable all along and simply undiscoverable. `bytes_concat` deliberately
+  did *not* join `concat`, whose arity-dependent spread rule is the one set F181 keeps as an arm.
+
+  **`array_order_of` stays invisible**, as decided on 2026-10-19 (F172): an index array has no
+  advertised consumer, and `sort_by` exists so that nobody holds one.
+
+  **The pass is complete.** Eleven items across four groups; on the count that started it —
+  *"how do I get a MutableMap's keys?"* answering **nothing exists** — every row of that table
+  now answers with one name over both worlds.

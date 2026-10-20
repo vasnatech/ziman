@@ -1,5 +1,5 @@
 // No `use` statement anywhere in this file -- Option<T>/Some/None/
-// is_Some/unwrap_Some/option_unwrap_or all come from the prelude
+// is_Some/unwrap_Some/get_or all come from the prelude
 // (lib/prelude.zm), bare and unqualified, the same way print/str/
 // parse_int already are.
 
@@ -16,5 +16,5 @@ fn main() {
     print(Option.is_Some(a))
     print(Option.unwrap_Some(a))
     print(Option.is_Some(b))
-    print(option_unwrap_or<int>(b, -1))
+    print(get_or<int>(b, -1))
 }
