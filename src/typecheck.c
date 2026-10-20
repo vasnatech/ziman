@@ -3707,18 +3707,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return type_scalar(TY_STRING);
     }
 
-    if (strcmp(name, "abs") == 0) {
-        if (e->as.call.args.count != 1) {
-            ziman_error("type", e->line, e->col, "'abs' takes exactly 1 argument, found %d", e->as.call.args.count);
-        }
-        Expr *arg = e->as.call.args.items[0];
-        Type arg_type = check_expr(module, env, arg);
-        if (arg_type.kind != TY_INT && arg_type.kind != TY_FLOAT && arg_type.kind != TY_BIGINT && arg_type.kind != TY_DECIMAL) {
-            ziman_error("type", arg->line, arg->col, "'abs' expects int, float, bigint, or decimal, found %s", type_name(arg_type));
-        }
-        return arg_type;
-    }
-
     if (strcmp(name, "min") == 0 || strcmp(name, "max") == 0) {
         /* Variadic, `Ord`-bounded (the same rule `compare`/`sort` already use), not just the
          * four numeric scalars this used to be limited to -- see docs/DESIGN.md's "Variadic,
@@ -4218,7 +4206,12 @@ ordinary_call:;
         }
         ziman_error("type", e->line, e->col, "call to undefined function '%s'", name);
     }
-    e->call_fn = fn;
+    /* A `builtin fn` is bodiless, and `interpreter.c` checks `call_fn` *before* the builtin id,
+     * so recording one here would send a call into `call_function` with nothing to run. Step 3 of
+     * docs/design/full-overloading.md §12 makes builtins reach this point for the first time --
+     * the resolver type-checks them against their declarations while the interpreter keeps
+     * dispatching them by id, which is why the conversion needs no runtime change at all. */
+    if (!fn->is_builtin) e->call_fn = fn;
     canonicalize_named_args(e, fn);
     TypeList *type_args = &e->as.call.type_args;
     /* A generic call with no type arguments written infers them from the checked arguments (C3); one written

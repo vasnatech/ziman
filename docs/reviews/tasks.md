@@ -2415,3 +2415,29 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   **Step 3 is the conversion**, now unblocked: derive what F186 showed is derivable, attach the
   attribute where it showed a clause that is not, and convert smallest-first. The runtime does
   not change — nine declarations of `len` resolve to the one `call_len` registration.
+
+- [x] **F188** **Stage 8 step 3: the first polymorphic builtin converted.** (done 2026-10-19.)
+  `abs`'s hand-written arm is deleted; the resolver checks a call against its four `builtin fn`
+  declarations, which were already there saying what the arm checked. The derived message is the
+  hand-written one bar an Oxford comma — two fixtures moved to the version without it, which is
+  what the majority of the file's sentences already use (`len`'s has none).
+
+  **The runtime needed no change, and that answers the question I flagged before starting.** §11
+  assumed a converted builtin would resolve to a native registration. `abs` has none: it is
+  dispatched by a builtin *id*, and `interpreter.c` consults `call_fn` **before** the id — so
+  recording the resolved declaration there would have sent the call into `call_function` with
+  nothing to run. The fix is one line and the right design anyway: **the resolver does not record
+  a `builtin fn` on `call_fn`. Types come from the declarations, dispatch stays on the id.**
+  Every remaining conversion is therefore a type-checking change only — cheaper than §11 supposed,
+  and no declaration needs a native behind it.
+
+  **One thing it cost, and it is step 4's job.** `BUILTINS_NO_NAMED_ARGS` answers two questions
+  that have now come apart: the registry of names the interpreter dispatches, and the list of
+  names refusing a named argument. A converted builtin could take named arguments — but removing
+  `abs` from the table to allow that also unregistered it, and its own declaration immediately
+  became "declared 'builtin fn' but the interpreter dispatches no builtin of that name". Reverted;
+  a converted builtin keeps the restriction until the table is split.
+
+  69 arms left, from 70. Order from here: the small sets (`clear`, `snapshot`, `slice`, `swap`,
+  `to_set`, `to_mutable_set`, `unwrap`) with `#[when_unmatched]` attached where F186 found a
+  clause the declarations cannot carry, then `str`, `contains` and `len` at six to nine members.

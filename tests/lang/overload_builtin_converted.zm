@@ -1,0 +1,15 @@
+// F188 (stage 8 step 3): `abs` is the first polymorphic builtin whose type rule comes from its
+// declarations rather than from a hand-written arm. Its four `builtin fn` lines were already
+// there, documenting what the arm checked; the arm is gone and the resolver checks them.
+//
+// **Nothing in the runtime changed.** `abs` is still dispatched by its builtin id -- the
+// resolver deliberately does not record a `builtin fn` on `call_fn`, because a builtin has no
+// body and `interpreter.c` consults `call_fn` first. So this is a type-checking change only,
+// which is what makes the remaining ~50 conversions cheap.
+fn main() {
+    print(abs(-3))
+    print(abs(-2.5))
+    print(abs(-7n))
+    print(abs(-1.50d))
+    print(abs(0))
+}

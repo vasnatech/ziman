@@ -446,6 +446,29 @@ possible only because stage 7 opened overloading to program code. That matters f
 mechanism has a real user and real fixtures *before* any builtin is converted, so step 3 can check
 each conversion against a message that already works.
 
-**Step 3 is the conversion**, now unblocked: derive what can be derived, attach `#[when_unmatched]`
-where F186 found a clause that cannot be, and convert in groups smallest-first. Nothing in the
-runtime changes -- the nine declarations of `len` resolve to the one `call_len` registration.
+### Step 3 — the first conversion, and the runtime answer (F188)
+
+`abs` is converted: its arm is deleted and the resolver checks the call against its four
+`builtin fn` declarations, which were already there documenting what the arm checked. Its derived
+message is the hand-written one bar an Oxford comma.
+
+**The runtime needed no change, and the reason is worth stating.** §11 assumed a converted
+builtin would resolve to a native registration. `abs` has none -- it is dispatched by a builtin
+*id* (`B_abs`), and `interpreter.c` consults `call_fn` **before** the id, so recording the
+resolved declaration there would send the call into `call_function` with nothing to run. The
+resolver therefore does not record a `builtin fn` on `call_fn`: **types come from the
+declarations, dispatch stays on the id.** That makes every remaining conversion a type-checking
+change only, cheaper than §11 supposed, and it means the declarations do not need natives behind
+them.
+
+**What it cost, and what step 4 owes.** `BUILTINS_NO_NAMED_ARGS` answers two questions that have
+now come apart: it is the registry of names the interpreter dispatches *and* the list of names
+refusing a named argument. A converted builtin could take named arguments, but removing it from
+the table to allow that also unregisters it -- which made `abs`'s own declaration invalid, caught
+immediately. **Splitting that table is step 4**, and until then a converted builtin keeps the
+restriction it had.
+
+Remaining: 69 arms, down from 70. The order from here is the small sets first (`clear`,
+`snapshot`, `slice`, `swap`, `to_set`, `to_mutable_set`, `unwrap`), attaching
+`#[when_unmatched]` where F186 found a clause the declarations cannot carry, before `len`,
+`contains` and `str` at six to nine members.
