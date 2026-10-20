@@ -3561,10 +3561,10 @@ concatenates onto the end of a text buffer (`mutable_string_append`, `mutable_st
 and is used by nothing else -- a fifth verb, taken deliberately, because text genuinely reads as
 appended and `sb_append` is what it has always been called.
 
-The one divergence is that set: immutably it is `insert(s, x)`, mutably it is `mutable_set_add`.
-That is deliberate -- `insert` should mean *positional*, and on a hash set it cannot; the immutable
-spelling predates the distinction and is not worth a breaking rename. The verb that would have
-unified everything is `add` on both sides, and it is unavailable: see the end of this section.
+The one divergence was that set: immutably `insert(s, x)`, mutably `mutable_set_add`. **Resolved
+in F199 (2026-10-20): `add` is the verb, variadic, in both worlds**, and `insert` means
+*positional* and only that. The paragraph above judged `add` "unavailable" on the reasoning
+below, which no longer holds -- see the correction there.
 
 **`_all` takes the plural of what the singular takes.** `mutable_map_remove(key)` →
 `remove_all(variadic K)`; `mutable_map_set(key, value)` → `set_all(Map)`; `mutable_set_add(item)` →
@@ -3572,6 +3572,17 @@ unified everything is `add` on both sides, and it is unavailable: see the end of
 variadic, which is what keeps `MutableArray<[int]>` from being a special case:
 `mutable_array_push(xs, [1, 2])` appends exactly one element, because the only variadic forms are
 the `_all` ones.
+
+> **Superseded (F199, 2026-10-20).** The singular *is* variadic now, for `push` and for `add`, and
+> the `_all` names they would have taken are gone. The ambiguity this paragraph guards against --
+> one element or two? -- turned out to be resolvable rather than structural: the checker compares
+> the argument against the **element type** before deciding, so on a `Set<[int]>` the call
+> `add(s, [1, 2])` adds the one element `[1, 2]` while `add(s, [[1, 2], [3]])` spreads into two,
+> and `push(xs, [1, 2])` on a `[int]` is a type error rather than a guess. `push` had already been
+> variadic for some time when this was re-read, so the rule had lapsed in practice before it was
+> revisited in principle. What survives is the *reason* the restriction was written: a variadic
+> singular needs the element type to disambiguate, and that comparison has to be the thing
+> deciding, not the argument's shape alone.
 
 **That restriction applies only to the generic containers.** It exists because of type ambiguity --
 one element or two? -- which needs the element type to be a *type parameter*. `MutableString`'s

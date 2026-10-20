@@ -359,7 +359,14 @@ for x in seen { ... }                    // a set has one binder
   `map_from_arrays(keys, values)` (equal lengths, else runtime error;
   a repeated key keeps the last value); sets -- `union`/`intersect`/`difference(a, b)`
   (`a`'s order, `b`'s extras appended for union), `is_subset(a, b)`, `to_set(items)`,
-  `set_insert_all(s, items)`.
+  `add(s, items...)`.
+- **`add(s, items...)` takes a `Set` or a `MutableSet`**, variadic in both, and replaces
+  four names: `insert` on a `Set`, `set_insert_all`, `mutable_set_add` and
+  `mutable_set_add_all`. Unlike `remove`, the two worlds agree on what they answer — a
+  `Set` gives a new `Set` whether you add one element or five, a `MutableSet` gives
+  whether anything was new — so the variadic form subsumes the singular rather than
+  conflicting with it. **`insert` is positional only now**: it puts a value at an index in
+  an array, and no longer doubles as set membership.
 - **`remove_all(c, keys)` takes a `Map`, a `MutableMap` or a `MutableSet`**, the last row of the
   pairing pass's first group, and all three take `variadic` — so an array, several values, one
   value or none spell the same call in every world. The immutable half answers a new `Map`, the

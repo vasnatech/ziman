@@ -2737,3 +2737,37 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   A second reason, independent of that: an array's `remove` takes an **index**, so a variadic
   `remove(a, 1, 3)` would remove two positions that shift as it goes. That one must stay
   singular whatever happens to the rest.
+
+- [x] **F199** **Map/Set pairing, item 7: one variadic `add`, and `insert` means positional
+  only.** (raised 2026-10-20 by the user — *"variadic add?"*; done 2026-10-20.) Four names become
+  one: `insert(s, x)` on a `Set`, `set_insert_all`, `mutable_set_add` and `mutable_set_add_all`
+  are now `add(s, items: variadic T)` over both Set worlds.
+
+  **This row merges where `remove` could not**, and the difference is worth stating: both worlds
+  agree on what they answer — a `Set` gives a new `Set` whether you add one element or five, a
+  `MutableSet` gives whether anything was new — so the variadic declaration *subsumes* the
+  singular rather than conflicting with it. `remove` failed exactly here, `MutableMap`'s singular
+  answering `Option<V>` against its plural's `bool`.
+
+  **It also settles what `insert` means.** The name did two unrelated jobs: put a value at an
+  index in an array, and add a member to a set. It is positional only now.
+
+  **`docs/DESIGN.md` said `add` was "unavailable", and I read why before overriding it.** Its
+  `_all` section states *"the singular is never variadic, which is what keeps
+  `MutableArray<[int]>` from being a special case"* — the ambiguity of one element against two.
+  Two things make that no longer binding, and both were checked rather than assumed: the checker
+  compares an argument against the **element type** before deciding, so on a `Set<[int]>`
+  `add(s, [1, 2])` adds the one element and `add(s, [[1, 2], [3]])` spreads into two, while
+  `push(xs, [1, 2])` on a `[int]` is a type error rather than a guess; and **`push` had already
+  been variadic for some time**, so the rule had lapsed in practice before it was revisited in
+  principle. The paragraph is marked superseded, with the part of its reasoning that survives.
+
+  **One fix outside the row.** `fold(xs, 0, add)` stopped compiling in two fixtures that declare
+  their own `fn add(a: int, b: int)`: F178's "an overload set cannot be a function value" check
+  counted the prelude's declarations even though a program's own function **shadows** them, and
+  the value path resolved to the prelude's declaration rather than the shadow. Both fixed — the
+  count is now taken among declarations visible from where the function came, and value position
+  asks the shadow table first, as the call path already did.
+
+  A `testdata_test.py` failure in the North Star suite on one run did not reproduce; that suite
+  starts real servers and the run before it had been interrupted.

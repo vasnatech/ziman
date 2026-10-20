@@ -592,7 +592,7 @@ pub native fn get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_valu
 native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
 
 // Adds `item`; nothing happens when it is already there.
-native fn mutable_set_add<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
+internal native fn mutable_set_add<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
 
 // Removes `item`; nothing happens when it is absent.
 native fn mutable_set_remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
@@ -661,7 +661,7 @@ pub fn values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V] {
 // Adds each of `items`, answering whether any of them was new. The singular `mutable_set_add` is
 // not variadic, which is what keeps a `MutableSet<[int]>` from being a special case -- one element
 // or several is never ambiguous when only the `_all` form takes many.
-fn mutable_set_add_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
+pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
     var added_any = false
     for item in items {
         if mutable_set_add<T>(s, item) {
@@ -782,7 +782,7 @@ builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 
 builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
 
-builtin fn set_insert_all<T: Eq + Hash>(s: Set<T>, items: [T]) -> Set<T>
+builtin fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
 
 builtin fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
 
@@ -1299,7 +1299,6 @@ builtin fn push<T>(b: MutableArray<T>, values: variadic T)
 // in an array, or into a set. `set` replaces what is at a position: an array index, or a map key.
 // So a map has `set` and no `insert`, and a set has `insert` and no `set`.
 builtin fn insert<T>(a: [T], index: int, x: T) -> [T]
-builtin fn insert<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
 
 // An index in a MutableArray, for the same reason `push` is shared, and rewritten onto
 // `mutable_array_insert`. A `MutableSet` has no `insert` form: it was left out with `set`'s, each

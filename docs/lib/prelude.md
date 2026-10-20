@@ -976,14 +976,6 @@ native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
 
 An empty set builder.
 
-### `mutable_set_add`
-
-```
-native fn mutable_set_add<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
-```
-
-Adds `item`; nothing happens when it is already there.
-
 ### `mutable_set_remove`
 
 ```
@@ -1049,10 +1041,10 @@ pub fn values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V]
 
 The values as an array, in the keys' insertion order, as `values` gives for a Map.
 
-### `mutable_set_add_all`
+### `add`
 
 ```
-fn mutable_set_add_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
+pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 ```
 
 Adds each of `items`, answering whether any of them was new. The singular `mutable_set_add` is
@@ -1246,10 +1238,10 @@ builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
 ```
 
-### `set_insert_all`
+### `add`
 
 ```
-builtin fn set_insert_all<T: Eq + Hash>(s: Set<T>, items: [T]) -> Set<T>
+builtin fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
 ```
 
 ### `filter`
@@ -1848,10 +1840,6 @@ builtin fn insert<T>(a: [T], index: int, x: T) -> [T]
 own error telling the reader which to use. `insert` puts something where it was not: at an index
 in an array, or into a set. `set` replaces what is at a position: an array index, or a map key.
 So a map has `set` and no `insert`, and a set has `insert` and no `set`.
-
-```
-builtin fn insert<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
-```
 
 ```
 builtin fn insert<T>(b: MutableArray<T>, index: int, value: T)

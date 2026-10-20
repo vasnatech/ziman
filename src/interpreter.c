@@ -1360,7 +1360,7 @@ static const struct { const char *name; int id; } g_builtins[] = {
      * `filter`, so the name the interpreter looks up is the bare one. */
     {"filter", B_map_filter},
     {"remove_all", B_map_remove_all},
-    {"set_insert_all", B_set_insert_all},
+    {"add", B_set_insert_all},
     {"to_set", B_to_set},
     {"map_from_arrays", B_map_from_arrays},
     {"keys", B_map_keys},
@@ -1721,8 +1721,16 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 }
                 result = value_map(args[0].type, m);
             } else if (bid == B_set_insert_all) {
+                /* `add` on a Set, variadic since F199 and subsuming what `insert(s, x)` and
+                 * `set_insert_all(s, items)` were separately. Same spread/written-out split as
+                 * `remove_all`: a builtin gets the raw `args`, so the checker's own
+                 * `variadic_tail_is_array_spread` says which shape arrived. */
                 MapObj *m = args[0].as.map;
-                for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_set(m, array_get(args[1].as.arr, i), value_int(0));
+                if (e->as.call.variadic_tail_is_array_spread) {
+                    for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_set(m, array_get(args[1].as.arr, i), value_int(0));
+                } else {
+                    for (int i = 1; i < argc; i++) m = mapobj_set(m, args[i], value_int(0));
+                }
                 result = value_map(args[0].type, m);
             } else if (bid == B_to_set) {
                 /* Either world, in one pass: a handle is read element by element through

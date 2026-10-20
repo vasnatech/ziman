@@ -1510,7 +1510,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "map_merge", "map_from_arrays", "to_set", "slice", "concat", "set_insert_all", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "map_merge", "map_from_arrays", "to_set", "slice", "concat", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -1534,7 +1534,7 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * here -- there is nothing to canonicalize against. */
 static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
     "abs", "len", "slice", "swap", "to_set", "filter", "keys", "values",
-    "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", NULL,
+    "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", NULL,
 };
 
 static int builtin_refuses_named_args(const char *name) {
@@ -2202,6 +2202,20 @@ static void overload_resolve(Module *module, Env *env, Expr *e, const char *name
 
 /* How many declarations share this name. One is the overwhelmingly common case and must stay
  * cheap -- this is the only cost an ordinary call to an ordinary function pays for the feature. */
+/* How many declarations of `fn`'s name are visible from where `fn` itself came -- prelude
+ * declarations are invisible to a program's own function of the same name, which shadows them. */
+static int overload_set_size_visible(Module *module, const FunctionDecl *fn) {
+    int n = 0;
+    int fn_is_prelude = fn->source_file == NULL;
+    for (int i = 0; i < module->functions.count; i++) {
+        const FunctionDecl *other = module->functions.items[i];
+        if (strcmp(other->name, fn->name) != 0) continue;
+        if ((other->source_file == NULL) != fn_is_prelude) continue;
+        n++;
+    }
+    return n;
+}
+
 static int overload_set_size(Module *module, const char *name) {
     int n = 0;
     for (int i = 0; i < module->functions.count; i++) {
@@ -2554,7 +2568,7 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * what this checked. The six that went in items 1, 4 and 5 had been sitting here matching
      * nothing, which is what a table of names does after the names change. */
     static const struct { const char *name; int argc; } TABLE[] = {
-        {"map_merge", 2}, {"set_insert_all", 2},
+        {"map_merge", 2},
     };
     if (strcmp(name, "map_from_arrays") == 0) {
         if (e->as.call.args.count != 2) {
@@ -2715,10 +2729,7 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
     if (strcmp(name, "map_merge") == 0) {
         helper_arg(module, env, e, 1, coll, name);
         *out = coll;
-    } else if (strcmp(name, "set_insert_all") == 0) {
-        helper_arg(module, env, e, 1, type_array(*coll.elem), name);
-        *out = coll;
-    } else { /* unreachable while the table holds only the two above */
+    } else { /* unreachable while the table holds only `map_merge` */
         TypeList params = {0};
         type_list_push(&params, *coll.elem);
         if (is_map) type_list_push(&params, *coll.elem_err);
@@ -4718,7 +4729,13 @@ static int resolve_function_reference(Module *module, Expr *e, Type *out) {
     if (e->fn_ref_name[0] == '!') {
         ziman_error("type", e->line, e->col, "%s", e->fn_ref_name + 1);
     }
-    FunctionDecl *fn = find_function(module, e->fn_ref_name);
+    /* A program's own function of this name shadows the prelude's (F164), and `find_function`
+     * answers with whichever the index reached first -- which is the prelude's for a name the
+     * prelude also declares. Asking the shadow table first is what makes `fold(xs, 0, add)`
+     * still mean the file's own two-argument `add` now that the prelude has an overload set of
+     * that name. */
+    FunctionDecl *shadow = shadowing_fn_any(e->fn_ref_name);
+    FunctionDecl *fn = shadow != NULL ? shadow : find_function(module, e->fn_ref_name);
     if (fn == NULL) return 0;
     /* **A builtin is not a function value**, and this is the one place a `builtin fn` declaration
      * is *not* inert. A call never reaches `find_function` -- every builtin arm returns first --
@@ -4738,7 +4755,13 @@ static int resolve_function_reference(Module *module, Expr *e, Type *out) {
      * first, so `val f = sort<int>` silently became the MutableArray one and the mistake only
      * surfaced as a confusing error at the *call* to `f`. A silently chosen overload is the
      * failure mode this language refuses, so it is named here instead. */
-    if (overload_set_size(module, fn->name) > 1) {
+    /* Counting only the declarations that could actually be chosen. A program's own function
+     * **shadows** the prelude's of the same name (F164), so when `fn` came from a program the
+     * prelude's declarations are not alternatives and must not make the name look ambiguous.
+     * Without this, a file declaring `fn add(a: int, b: int)` could no longer pass its own `add`
+     * as a function value the moment the prelude gained an overload set called `add` --
+     * two fixtures caught exactly that. */
+    if (overload_set_size_visible(module, fn) > 1) {
         ziman_error("type", e->line, e->col,
                     "'%s' names more than one function, so it cannot be used as a value -- there are no "
                     "arguments here to choose between them; wrap the one you mean in a function of your own "
