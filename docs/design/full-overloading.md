@@ -256,15 +256,23 @@ Each stage ships on its own and is gated; none is "the big one".
    A third rejection means §4 is wrong, and the document is fixed before stage 3.
 3. **Convert the 28 paired names.** Delete `WORLD_PAIRED`; the prefixed declarations lose their
    prefixes and become the overloads. Empty-literal and lambda-arity fixtures are the gate.
-4. ~~**Convert the remaining 68 arms.**~~ **Void — there is nothing here to convert** (F181).
-   The stage assumed the remaining arms were shaped like the paired ones. Measured: of the 50
-   names with more than one declaration, **28 were genuine overload sets and are now real
-   declarations; the other 22 are polymorphic builtins** — one implementation with its type rule
-   written out as several signatures. `len` has nine signatures over a single C function
-   (`call_len`, switching on the value's kind) and there is no `array_len` or `map_len` for a call
-   to resolve *to*; there is no `array_push` either. Converting them would mean inventing N
-   implementations where one exists, making the runtime worse to satisfy a plan. **They keep their
-   arms, and that is the right answer, not a deferral.** See §10.
+4. ~~**Convert the remaining 68 arms.**~~ **Not done, and the reason given in F181 was wrong**
+   (corrected 2026-10-19, F185). The stage assumed the remaining arms were shaped like the paired
+   ones. They are not: of the 50 names with more than one declaration, **28 were genuine overload
+   sets and are now real declarations; the other 22 are polymorphic builtins** — one
+   implementation with its type rule written out as several signatures, `len` being nine
+   signatures over a single `call_len`.
+
+   F181 concluded they *cannot* be converted, because there is no `array_len` or `map_len` for a
+   call to resolve to and converting would mean "inventing N implementations where one exists".
+   **That does not follow.** A native is found by its *declaration's* name, so nine declarations
+   all called `len` resolve to the one registration — no new implementation at all. F180 had
+   already shipped a native overload set (`filter`, two `native fn` declarations), which is the
+   same mechanism with the harder requirement of two symbols rather than one.
+
+   So the stage is **open, not void**, and §11 states what actually gates it: the arms carry
+   measured diagnostics that the resolver's generic candidate list would replace with something
+   worse.
 5. **Per-declaration purity** — done (F182), and smaller than written. The `t.kind != TY_VOID`
    test was called a proxy, and for the 28 converted sets it is now *exact*: `t` is the resolved
    declaration's own return type, and a member that mutates has nothing to return. What was left
@@ -332,7 +340,11 @@ stage 4 look like work:
 
 `sort` is the first. `len` is the second: nine `builtin fn` lines over `call_len`, which asks the
 value what kind it is. The nine lines are documentation of one function's type rule — they are not
-nine functions, and no resolution happens or should.
+nine functions, and today no resolution happens.
+
+**That is a description of how things are, not an argument that they must stay so** — a
+distinction this document got wrong for a day (§11). Nine declarations sharing a name may share
+one implementation too, since a native is located by its declaration's name.
 
 The second population also explains the two sets that §4 predicted would be unresolvable.
 **`concat` and `mutable` are both polymorphic builtins**, so the resolver never looks at them, and
@@ -344,3 +356,37 @@ The distinction matters beyond bookkeeping, because it is the honest answer to "
 overloading": it has 28 overload sets and 22 polymorphic builtins, and `docs/ROADMAP.md`'s
 "28 overloaded builtin names" was counting the first group by a method that happened to agree.
 Stage 7 opens the first to library code. The second is a property of a builtin and will stay one.
+
+
+## 11. Could the polymorphic builtins become declarations after all?
+
+Added 2026-10-19 (F185), correcting §4 and §10.
+
+**Yes, mechanically.** `len`'s arm is pure type rule — check the argument is an array, string,
+map, set, builder or `Mutable`, answer `int` — and nine `native fn len(...)` declarations state
+exactly that. All nine would be named `len`, so all nine find the one registration: no new
+implementation, no new C code. F180 shipped the harder version of this already, `filter` being
+two `native fn` declarations needing *two* symbols.
+
+The scale, measured at `8df7c0f`: **71 dispatched builtin names, 70 arms, 11 with a recorded
+reason they can carry no signature.** Those 11 are genuinely stuck — `format` and `printf` read a
+template against the argument list, `error_message` looks up a `<type>_message` function, the `$`
+names are parser emissions — and `concat` and `mutable` stay for §4's reasons. That leaves
+roughly **50 convertible**, taking most of the 70 arms, the `BUILTINS_NO_NAMED_ARGS` table and
+`check_builtins.py` with them, and giving each converted name named arguments, type arguments and
+per-declaration purity.
+
+**What actually gates it is the diagnostics, not the mechanism.** The arms carry measured,
+hand-written messages. `len`'s is:
+
+> `'len' expects an array, string, map, set, builder or Mutable, found Point`
+
+The resolver would answer *"no declaration of 'len' accepts its argument 1"* and list three of
+nine signatures with "… and 6 more". For a nine-member set that is **worse**: it shows shapes
+where the sentence named a category. This has already gone wrong twice in one day — F178's first
+candidate list printed `sort/1` twice over, and F180 deleted the measured `map()` → "did you mean
+the `Map` type" hint along with the table, caught only because a fixture pinned its full text.
+
+So the open design question is **how a declaration keeps the hint its arm carried** — a per-set
+"when nothing matches, say this" that `len` could carry while losing its arm. That wants
+designing before any conversion, and the work should not start without it.

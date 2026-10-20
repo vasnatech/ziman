@@ -2188,8 +2188,10 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   builtin* is **one** implementation whose type rule is written out as several signatures. `len`
   has nine `builtin fn` lines over a single C function — `call_len` asks the value what kind it
   is — and there is no `array_len` or `map_len` for a call to resolve *to*. There is no
-  `array_push` either. Converting these would mean inventing N implementations where one exists,
-  which makes the runtime worse in order to satisfy a plan.
+  `array_push` either. **[Corrected by F185: the conclusion drawn from this was wrong. Nine
+  declarations named `len` would all resolve to the one existing registration, because a native
+  is located by its declaration's name — no new implementation is needed. What actually blocks
+  the conversion is the measured diagnostics the arms carry, not the mechanism.]**
 
   Of the 50 names with more than one declaration: **28 were genuine overload sets** (now real
   declarations, F178–F180) **and 22 are polymorphic builtins** — `len`, `contains`, `str`, `abs`,
@@ -2314,3 +2316,39 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   differ only in return type, and `format_number` is one engine rather than one per numeric type.
 
   **The design document is now marked Built**, stages 1-3 and 5-7 done, stage 4 void (§10).
+
+- [x] **F185** **Correcting F181: the polymorphic builtins *can* become declarations; the reason
+  given against it was wrong.** (raised 2026-10-19 by the user asking whether overloading could
+  reduce the number of builtins; done 2026-10-19.) **Correction, not new work** — nothing in the
+  compiler's behaviour changes.
+
+  F181 concluded that the 22 polymorphic builtins cannot be converted, because there is no
+  `array_len` or `map_len` for a call to resolve to and converting would mean *"inventing N
+  implementations where one exists"*. **That does not follow.** A native is located by its
+  **declaration's** name, so nine `native fn len(...)` declarations would all find the one
+  existing registration — no new implementation, no new C code. F180 had already shipped the
+  harder version of this two days' work earlier: `filter` is two `native fn` declarations, which
+  needed *two* symbols and got the world-prefix fallback for exactly that reason. I had the
+  counter-example in hand and did not apply it.
+
+  The observation F181 made is still right — a polymorphic builtin is one implementation with its
+  type rule written out, and `len`'s nine lines are not nine functions. The error was turning a
+  description of how things are into an argument that they must stay so.
+
+  **What actually gates the conversion is the diagnostics.** The arms carry measured,
+  hand-written messages: `len`'s is *"expects an array, string, map, set, builder or Mutable"*,
+  where the resolver would answer *"no declaration of 'len' accepts its argument 1"* and list
+  three of nine signatures with "… and 6 more" — shapes where the sentence named a category. That
+  is **worse**, and it has already gone wrong twice: F178's first candidate list printed `sort/1`
+  twice over, and F180 deleted the measured `map()` → "did you mean the `Map` type" hint with the
+  table, caught only because a fixture pinned its full text.
+
+  Measured at `8df7c0f`: **71 dispatched builtin names, 70 arms, 11 that can carry no signature**
+  (`format`, `printf`, `error_message`, the parser's `$` names), plus `concat` and `mutable` for
+  §4's reasons — so roughly **50 are convertible**, which would also take most of the arms,
+  `BUILTINS_NO_NAMED_ARGS` and `check_builtins.py` with them.
+
+  Three places repaired: §4 of the design doc (stage 4 is **open, not void**), §10 (the
+  description no longer reads as an argument), and the comment above `ovl_is_resolver_owned` in
+  `src/typecheck.c`. A new §11 states the real gate and the design question it raises — how a
+  declaration keeps the hint its arm carried — and says the work should not start without it.

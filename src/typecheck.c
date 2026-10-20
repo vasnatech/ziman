@@ -2374,11 +2374,14 @@ static int ovl_indistinguishable_at(const FunctionDecl *a, const FunctionDecl *b
  * or `map_len` for a call to resolve *to*. Those nine lines document one implementation's type
  * rule; they are not nine functions.
  *
- * F181 found this while trying to carry out stage 4 of docs/design/full-overloading.md, which
- * said to convert the remaining arms the way stage 3 converted the paired ones. They cannot be:
- * converting `len` would mean inventing nine implementations where one exists, which makes the
- * runtime worse to satisfy a plan. So the check now measures the population it governs -- the
- * resolver's -- and merely counts the other. */
+ * The check measures the population it governs -- the resolver's -- and merely counts the other.
+ *
+ * It does **not** follow that the second population could never join the first, and F181 said so
+ * before F185 corrected it: a native is found by its *declaration's* name, so nine declarations
+ * all called `len` would resolve to the one existing registration rather than needing nine
+ * implementations. What stands in the way is the diagnostics, not the mechanism -- `len`'s arm
+ * says "expects an array, string, map, set, builder or Mutable", and a generic list of three
+ * signatures out of nine is worse. See §11 of the design document. */
 static int ovl_is_resolver_owned(Module *module, const char *name) {
     for (int i = 0; i < module->functions.count; i++) {
         FunctionDecl *f = module->functions.items[i];
