@@ -157,7 +157,7 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
     val entries = snapshot(found)
     val first_seen = mutable_map_new<string, string>()
     for e in entries {
-        val earlier = mutable_map_get(first_seen, e.key)
+        val earlier = get(first_seen, e.key)
         if Some(first) = earlier {
             return err(format(
                 "{}: duplicate key '{}' (first defined at {})",

@@ -1,4 +1,4 @@
 fn main() {
     val m = Map<string, int> {}
-    print(map_get(m, 1))
+    print(get(m, 1))
 }

@@ -9,7 +9,7 @@ fn main() {
     val cache = mutable_map_new<int, int>()
     val square = fn(n: int) -> int {
         if contains(cache, n) {
-            return mutable_map_get_or(cache, n, 0)
+            return get_or(cache, n, 0)
         }
         val computed = n * n
         mutable_map_set(cache, n, computed)

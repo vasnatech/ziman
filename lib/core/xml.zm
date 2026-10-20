@@ -611,7 +611,7 @@ fn resolve(s: string, at: int, qname: string, scope: Map<string, string>, is_att
         if is_attr {
             return ok(Name { namespace: Option<string>.None, local: qname, prefix: Option<string>.None })
         }
-        return switch map_get(scope, "") {
+        return switch get(scope, "") {
             Some(uri) {
                 if uri == "" {
                     ok(Name { namespace: Option<string>.None, local: qname, prefix: Option<string>.None })
@@ -633,7 +633,7 @@ fn resolve(s: string, at: int, qname: string, scope: Map<string, string>, is_att
     if prefix == "xmlns" {
         return ok(named(xmlns_ns, prefix, local))
     }
-    return switch map_get(scope, prefix) {
+    return switch get(scope, prefix) {
         Some(uri) { ok(named(uri, prefix, local)) }
         None { err(fail(s, at, format("undeclared namespace prefix '{}' in '{}'", prefix, qname))) }
     }

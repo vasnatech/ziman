@@ -2,15 +2,15 @@ fn main() {
     val text = "the quick brown fox jumps over the lazy dog the fox"
     val counts = mutable_map_new<string, int>()
     for w in split(text, " ") {
-        mutable_map_set(counts, w, mutable_map_get_or<string, int>(counts, w, 0) + 1)
+        mutable_map_set(counts, w, get_or<string, int>(counts, w, 0) + 1)
     }
     val m = snapshot(counts)
-    val words = sort_with<string>(set_items(keys(m)), fn(a: string, b: string) -> int {
-        val ca = switch map_get(m, a) { Some(n) { n } None { 0 } }
-        val cb = switch map_get(m, b) { Some(n) { n } None { 0 } }
+    val words = sort_with<string>(items(keys(m)), fn(a: string, b: string) -> int {
+        val ca = switch get(m, a) { Some(n) { n } None { 0 } }
+        val cb = switch get(m, b) { Some(n) { n } None { 0 } }
         return if ca != cb { compare(cb, ca) } else { compare(a, b) }
     })
     for w in words {
-        printf("{}: {}\n", w, str(switch map_get(m, w) { Some(n) { n } None { 0 } }))
+        printf("{}: {}\n", w, str(switch get(m, w) { Some(n) { n } None { 0 } }))
     }
 }

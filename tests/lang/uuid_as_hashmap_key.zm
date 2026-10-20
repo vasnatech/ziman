@@ -4,5 +4,5 @@ fn main() {
     val id = unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000007"))
     var m = Map<uuid.Uuid, string> {}
     m = set(m, id, "seven")
-    print(map_get(m, unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000007"))))
+    print(get(m, unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000007"))))
 }

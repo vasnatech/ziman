@@ -435,8 +435,23 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
                 Type p0 = fn->params.items[0].type;
                 const char *prefix = NULL;
                 if (p0.kind == TY_ARRAY) prefix = "array_";
-                else if (p0.kind == TY_STRUCT && p0.struct_name != NULL
-                         && strcmp(p0.struct_name, "MutableArray") == 0) prefix = "mutable_array_";
+                else if (p0.kind == TY_MAP) prefix = "map_";
+                else if (p0.kind == TY_SET) prefix = "set_";
+                else if (p0.kind == TY_STRUCT && p0.struct_name != NULL) {
+                    /* The builder worlds, added as the Map/Set pairing pass reached them (F195).
+                     * One table rather than a chain of strcmps because the next pass will add to
+                     * it, and a chain is where the fifth entry gets forgotten. */
+                    static const struct { const char *type_name; const char *prefix; } WORLDS[] = {
+                        {"MutableArray", "mutable_array_"}, {"MutableMap", "mutable_map_"},
+                        {"MutableSet", "mutable_set_"},     {"MutableString", "mutable_string_"},
+                    };
+                    for (size_t w = 0; w < sizeof WORLDS / sizeof WORLDS[0]; w++) {
+                        if (strcmp(p0.struct_name, WORLDS[w].type_name) == 0) {
+                            prefix = WORLDS[w].prefix;
+                            break;
+                        }
+                    }
+                }
                 if (prefix != NULL) {
                     char symbol[128];
                     snprintf(symbol, sizeof symbol, "%s%s", prefix, fn->name);
@@ -1337,8 +1352,8 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"set", B_set},
     {"insert", B_insert},
     {"remove", B_remove},
-    {"map_get", B_map_get},
-    {"map_get_or", B_map_get_or},
+    {"get", B_map_get},
+    {"get_or", B_map_get_or},
     {"map_merge", B_map_merge},
     {"set_union", B_set_union},
     {"set_intersect", B_set_intersect},
@@ -1354,7 +1369,7 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"map_from_arrays", B_map_from_arrays},
     {"keys", B_map_keys},
     {"values", B_map_values},
-    {"set_items", B_set_items},
+    {"items", B_set_items},
     {"$map_lit", B_map_lit},
     {"$set_lit", B_set_lit},
     {"ok", B_ok},

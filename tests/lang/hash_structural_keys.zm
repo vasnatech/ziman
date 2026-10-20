@@ -26,16 +26,16 @@ fn main() {
     var m = Map<uuid.Uuid, string> {}
     m = set(m, a, "ada")
     m = set(m, b, "bob")
-    print(map_get(m, a2))
+    print(get(m, a2))
     print(len(m))
 
     var by_rank = Map<Rank, int> {}
     by_rank = set(by_rank, Rank.Low, 1)
     by_rank = set(by_rank, Rank.Mid(5), 2)
     by_rank = set(by_rank, Rank.High("x"), 3)
-    print(map_get(by_rank, Rank.Mid(5)))
-    print(map_get(by_rank, Rank.Mid(6)))
-    print(map_get(by_rank, Rank.High("x")))
+    print(get(by_rank, Rank.Mid(5)))
+    print(get(by_rank, Rank.Mid(6)))
+    print(get(by_rank, Rank.High("x")))
 
     var s = Set<Key> {}
     s = insert(s, Key { patient: a, year: 2024 })

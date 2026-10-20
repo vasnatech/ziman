@@ -356,7 +356,7 @@ fn draw_text(
         val qx = (nx as float) / 4.0
         val qy = (ny as float) / 4.0
         val key = concat(prefix, "/", str(g), "/", str(nx), ",", str(ny))
-        val tile = switch mutable_map_get(t.glyphs, key) {
+        val tile = switch get(t.glyphs, key) {
             Some(cached) { cached }
             None {
                 val outline = try truetype.glyph_outline(face, g)

@@ -15,7 +15,7 @@ enum Shape {
 
 fn worker(out: Channel<int>, nums: [int], m: Map<string, int>, s: Set<int>, big: bigint, dec: decimal, pt: Point, shape: Shape, names: [string]) {
     print(nums)
-    print(map_get(m, "a"))
+    print(get(m, "a"))
     print(contains(s, 3))
     print(big)
     print(dec)

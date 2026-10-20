@@ -29,11 +29,11 @@ fn main() {
 
     val s = to_mutable_set([1, 2, 3])
     mutable_set_union(s, Set<int> { 4 })
-    print(mutable_set_items(s))
+    print(items(s))
     mutable_set_intersect(s, Set<int> { 2, 3, 4, 9 })
-    print(mutable_set_items(s))
+    print(items(s))
     mutable_set_difference(s, to_mutable_set([3]))
-    print(mutable_set_items(s))
+    print(items(s))
     print(mutable_set_is_subset(s, Set<int> { 2, 4, 7 }))
     print(mutable_set_is_subset(s, Set<int> { 2 }))
 
@@ -48,9 +48,9 @@ fn main() {
 
     val ss = to_mutable_set([1, 2])
     mutable_set_union(ss, ss)
-    print(mutable_set_items(ss))
+    print(items(ss))
     mutable_set_intersect(ss, ss)
-    print(mutable_set_items(ss))
+    print(items(ss))
     mutable_set_difference(ss, ss)
     print(len(ss))
     print(mutable_set_is_subset(ss, ss))

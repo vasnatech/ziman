@@ -1,0 +1,24 @@
+// F195, items 3 and 4 of the Map/Set pairing pass: `get`, `get_or` and `items` over both worlds.
+//
+// The `MutableMap` halves of `get`/`get_or` are `native fn`s, and their C symbols are still
+// registered as `mutable_map_get`/`mutable_map_get_or`. That works because the declaration's name
+// and its symbol are allowed to differ (F180), with the world prefix derived from the first
+// parameter's type -- extended here from the two array worlds to all six.
+fn main() {
+    val m = Map<string, int> { "a": 1, "b": 2 }
+    print(get(m, "a"))
+    print(get(m, "z"))
+    print(get_or(m, "z", 9))
+
+    val b = mutable(m)
+    print(get(b, "a"))
+    print(get(b, "z"))
+    print(get_or(b, "z", 9))
+
+    print(items(Set<int> { 1, 2, 3 }))
+    print(items(mutable(Set<int> { 1, 2, 3 })))
+
+    // named arguments, and the empty cases
+    print(get_or(m: m, key: "z", default_value: 0))
+    print(len(items(Set<int> { })))
+}

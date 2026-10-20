@@ -37,7 +37,7 @@ fn cache(requests: Channel<Request>) {
         val r = receive(requests)
         switch r.op {
             Get(k) {
-                val found = mutable_map_get(store, k)
+                val found = get(store, k)
                 if Option.is_Some(found) { mutable_set(hits, mutable_get(hits) + 1) }
                 mutable_string_append(log, "g")
                 send(r.reply, found)

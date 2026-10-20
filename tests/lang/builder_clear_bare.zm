@@ -25,7 +25,7 @@ fn main() {
     clear(mb)
     print(len(mb))
     print(before)
-    print(mutable_map_get(mb, "a"))
+    print(get(mb, "a"))
     mutable_map_set(mb, "z", 26)
     print(snapshot(mb))
     print(before)

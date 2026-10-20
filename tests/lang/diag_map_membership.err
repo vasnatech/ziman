@@ -1,1 +1,1 @@
-a Map or Set has no membership method: use 'contains(m, key)' to test for one, or 'map_get(m, key)'
+a Map or Set has no membership method: use 'contains(m, key)' to test for one, or 'get(m, key)'

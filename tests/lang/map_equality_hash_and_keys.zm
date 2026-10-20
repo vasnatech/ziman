@@ -26,7 +26,7 @@ fn main() {
     by_shape = set(by_shape, Set<int> { 1, 2 }, "first")
     by_shape = set(by_shape, Set<int> { 2, 1 }, "same set, overwrites")
     print(len(by_shape))
-    print(map_get(by_shape, Set<int> { 1, 2 }))
+    print(get(by_shape, Set<int> { 1, 2 }))
     var seen = Set<Map<string, int>> {}
     seen = insert(seen, a)
     seen = insert(seen, b)

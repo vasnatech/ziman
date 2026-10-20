@@ -11,8 +11,8 @@ fn main() {
     m = set(m, "alice", 31) // overwrite
 
     print(contains(m, "alice"))
-    print(option_unwrap_or<int>(map_get(m, "alice"), -1))
-    print(option_unwrap_or<int>(map_get(m, "bob"), -1))
+    print(option_unwrap_or<int>(get(m, "alice"), -1))
+    print(option_unwrap_or<int>(get(m, "bob"), -1))
     print(contains(m, "carol"))
 
     m = remove(m, "bob")

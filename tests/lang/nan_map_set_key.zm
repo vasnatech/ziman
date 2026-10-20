@@ -2,7 +2,7 @@
 // included, so `==` cannot be what a collection uses to match a key: the second NaN hashes to the
 // same slot, compares unequal to the first, and gets filed as a separate key no lookup can reach --
 // a Set holding two of a value it says it does not contain, and a Map growing without bound while
-// map_get returns None. Collections and `contains` use value_key_equals, which is reflexive on NaN;
+// get returns None. Collections and `contains` use value_key_equals, which is reflexive on NaN;
 // `==`/`!=` keep IEEE. `compare` already answered 0 for two NaNs and now agrees with key lookup.
 use math
 
@@ -32,7 +32,7 @@ fn main() {
     var m = Map<float, int> {}
     m = set(m, n1, 1)
     m = set(m, n2, 2)
-    printf("map: len {} get {}\n", len(m), map_get(m, n1))
+    printf("map: len {} get {}\n", len(m), get(m, n1))
 
     // -0.0 and 0.0 were already one key and stay one; `==` still equates them
     var z = Set<float> {}
@@ -44,7 +44,7 @@ fn main() {
     var ms = Map<P, int> {}
     ms = set(ms, P { x: n1, y: 7 }, 1)
     ms = set(ms, P { x: n2, y: 7 }, 2)
-    printf("struct key: len {} get {}\n", len(ms), map_get(ms, P { x: n1, y: 7 }))
+    printf("struct key: len {} get {}\n", len(ms), get(ms, P { x: n1, y: 7 }))
 
     var ma = Map<[float], int> {}
     ma = set(ma, [1.0, n1], 1)

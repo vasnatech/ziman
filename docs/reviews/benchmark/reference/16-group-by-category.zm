@@ -13,15 +13,15 @@ fn main() {
     ]
     val groups = mutable_map_new<string, [string]>()
     for p in products {
-        val so_far: [string] = switch mutable_map_get<string, [string]>(groups, p.category) {
+        val so_far: [string] = switch get<string, [string]>(groups, p.category) {
             Some(xs) { xs }
             None { [] }
         }
         mutable_map_set(groups, p.category, push(so_far, p.name))
     }
     val m = snapshot(groups)
-    for cat in sort<string>(set_items(keys(m))) {
-        val names: [string] = switch map_get(m, cat) {
+    for cat in sort<string>(items(keys(m))) {
+        val names: [string] = switch get(m, cat) {
             Some(xs) { xs }
             None { [] }
         }

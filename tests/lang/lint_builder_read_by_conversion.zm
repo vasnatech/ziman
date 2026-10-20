@@ -9,12 +9,12 @@
 // So this fixture's `.diag` expecting exactly one diagnostic is the whole point: a rule that fired
 // on the other three would be noise and would be turned off.
 
-// WARNS: convert, read, keep growing -- `mutable_map_get_or` reads it in place.
+// WARNS: convert, read, keep growing -- `get_or` reads it in place.
 fn counted(words: [string]) -> int {
     val counts = mutable_map_new<string, int>()
     for w in words {
         val seen = snapshot(counts)
-        mutable_map_set(counts, w, switch map_get(seen, w) { Some(n) { n + 1 } None { 1 } })
+        mutable_map_set(counts, w, switch get(seen, w) { Some(n) { n + 1 } None { 1 } })
     }
     return len(counts)
 }

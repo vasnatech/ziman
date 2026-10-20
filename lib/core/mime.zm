@@ -268,7 +268,7 @@ pub fn to_string(m: MediaType) -> string {
 
 // The value of parameter `name` (lower case), or None.
 pub fn param(m: MediaType, name: string) -> Option<string> {
-    return map_get(m.params, name)
+    return get(m.params, name)
 }
 
 // The `charset` parameter, or None.
@@ -326,7 +326,7 @@ pub fn of_extension(extension: string) -> Option<MediaType> {
     if starts_with(e, ".") {
         e = substring(e, 1, len(e))
     }
-    if Some(k) = map_get(extension_types, e) {
+    if Some(k) = get(extension_types, e) {
         return Option<MediaType>.Some(unwrap(parse(k)))
     }
     return Option<MediaType>.None

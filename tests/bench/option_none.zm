@@ -48,7 +48,7 @@ fn main() {
     for i in 0..ops {
         val k = i % size
         acc = acc + k
-        if Some(v) = mutable_map_get<int, int>(mb, k) {
+        if Some(v) = get<int, int>(mb, k) {
             acc = acc + v
         }
     }
@@ -61,7 +61,7 @@ fn main() {
     for i in 0..ops {
         val k = i % size + size
         acc = acc + k
-        if Some(v) = mutable_map_get<int, int>(mb, k) {
+        if Some(v) = get<int, int>(mb, k) {
             acc = acc + v
         }
     }
@@ -73,7 +73,7 @@ fn main() {
     t = clock.monotonic_millis()
     for i in 0..ops {
         val k = i % size
-        acc = acc + k + mutable_map_get_or(mb, k, 0)
+        acc = acc + k + get_or(mb, k, 0)
     }
     val go = clock.monotonic_millis() - t
     print(format("  get_or (no allocation)       {} ms -> {} ns/op", go, (go - base) * 1000000 / ops))

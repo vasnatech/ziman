@@ -28,7 +28,7 @@ fn main() {
     val m = mutable_map_new<string, fn(int) -> int>()
     mutable_map_set(m, "triple", fn(a: int) -> int { a * 3 })
     val handlers = snapshot(m)
-    switch map_get(handlers, "triple") {
+    switch get(handlers, "triple") {
         Some(triple) { print(triple(14)) }
         None { print("missing") }
     }

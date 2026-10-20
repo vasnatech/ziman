@@ -144,7 +144,7 @@ pub fn json_to_string(j: Json) -> string {
 // including, without turning this into a general "Json query language."
 pub fn json_object_get(j: Json, key: string) -> Option<Json> {
     if JObject(fields) = j {
-        return map_get(fields, key)
+        return get(fields, key)
     }
     return None
 }
@@ -156,7 +156,7 @@ pub fn json_get_path(j: Json, path: variadic string) -> Option<Json> {
     var cur = j
     for segment in path {
         if JObject(fields) = cur {
-            if Some(v) = map_get(fields, segment) {
+            if Some(v) = get(fields, segment) {
                 cur = v
             } else {
                 return None

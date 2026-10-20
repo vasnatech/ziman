@@ -5,7 +5,7 @@ fn main() {
     var i = 0
     while i < len(teachers) {
         for s in subjects[i] {
-            val so_far: [string] = switch mutable_map_get<string, [string]>(inverted, s) {
+            val so_far: [string] = switch get<string, [string]>(inverted, s) {
                 Some(xs) { xs }
                 None { [] }
             }
@@ -14,8 +14,8 @@ fn main() {
         i = i + 1
     }
     val m = snapshot(inverted)
-    for s in sort<string>(set_items(keys(m))) {
-        val who: [string] = switch map_get(m, s) {
+    for s in sort<string>(items(keys(m))) {
+        val who: [string] = switch get(m, s) {
             Some(xs) { xs }
             None { [] }
         }

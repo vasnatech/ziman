@@ -15,7 +15,7 @@ fn main() {
             mutable_map_set<int, string>(mb, i, concat("value-", str(i)))
         }
         val m = snapshot(mb)
-        if Some(v) = map_get<int, string>(m, 42) {
+        if Some(v) = get<int, string>(m, 42) {
             checksum = checksum + len(v)
         }
         val parts = mutable_array_new<string>()

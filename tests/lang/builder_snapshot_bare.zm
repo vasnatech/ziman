@@ -24,7 +24,7 @@ fn main() {
     mutable_map_set(mb, "b", 2)
     val m = snapshot(mb)
     print(m)
-    print(map_get(m, "a"))
+    print(get(m, "a"))
     print(keys(m))
 
     val st = mutable_set_new<string>()

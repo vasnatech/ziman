@@ -2,5 +2,5 @@ fn main() {
     var m = Map<bigint, string> {}
     m = set(m, 123456789012345678901234567890n, "big-key")
     print(contains(m, 123456789012345678901234567890n))
-    print(option_unwrap_or<string>(map_get(m, 123456789012345678901234567890n), "MISSING"))
+    print(option_unwrap_or<string>(get(m, 123456789012345678901234567890n), "MISSING"))
 }

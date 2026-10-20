@@ -2628,3 +2628,33 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   Items 3 and 4 (`set_items`, `get`/`get_or`) share the arm `map_keys` and `map_values` just left,
   so they are cheaper together than apart.
+
+- [x] **F195** **Map/Set pairing, items 3 and 4: `items`, `get` and `get_or` over both worlds.**
+  (done 2026-10-20.) `map_get`, `map_get_or`, `set_items`, `mutable_map_get`,
+  `mutable_map_get_or` and `mutable_set_items` no longer exist in any spelling. The arm that once
+  covered `map_get`/`map_keys`/`map_values`/`set_items` is gone entirely, four names having left
+  it across F194 and this.
+
+  **The native symbol fallback now covers every world.** `get` and `get_or` on a `MutableMap` are
+  `native fn`s whose C symbols are still registered as `mutable_map_get`/`mutable_map_get_or`,
+  which works because a declaration's name and its symbol may differ (F180) — but that fallback
+  only knew the two array worlds. It now derives `map_`, `set_`, `mutable_array_`, `mutable_map_`,
+  `mutable_set_` and `mutable_string_` from the first parameter's type, from a table rather than
+  a strcmp chain, because the next pass will add to it and a chain is where the fifth entry gets
+  forgotten.
+
+  **I broke my own F190 rule and then fixed the consequence properly.** `map_get`'s arm carried
+  more than one message, so by that rule it should not have been converted; the tailored
+  *"argument 2 of 'map_get' expects string (the map's key type), found int"* collapsed to the
+  generic *"cannot infer type argument 'K': one argument requires string, another requires int"*.
+  Rather than give one builtin its arm back, **the generic message was made to say as much for
+  every generic call**: `unify_type` now carries the function's name and the argument's position,
+  and answers *"argument 2 of 'get' expects string, which an earlier argument fixed as type
+  argument 'K' -- found int"*. Two fixtures moved to it, and every user-declared generic function
+  gets the better message too — which is worth more than the one arm was.
+
+  **A near miss worth recording.** Regenerating `lint_builder_snapshot_in_loop.diag` from the
+  compiler clobbered it: it is a *hand-written* assertion file with a compact `lint L:C
+  <substring>` format and an explanatory comment, not generated output, and the regeneration
+  replaced all of it with raw JSON. Restored from the index and edited by hand instead. **Check
+  whether an expectation file is generated before regenerating it.**

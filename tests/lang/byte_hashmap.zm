@@ -2,6 +2,6 @@ fn main() {
     var m = Map<byte, string> {}
     m = set(m, 200b, "two hundred")
     m = set(m, 0b, "zero")
-    print(option_unwrap_or<string>(map_get(m, 200b), "not found"))
-    print(option_unwrap_or<string>(map_get(m, 55b), "not found"))
+    print(option_unwrap_or<string>(get(m, 200b), "not found"))
+    print(option_unwrap_or<string>(get(m, 55b), "not found"))
 }

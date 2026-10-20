@@ -346,20 +346,24 @@ stock = set(stock, "fig", 9)             // add or replace; returns a new map
 stock = remove(stock, "pear")            // no-op if absent
 print(len(stock))                        // 2
 print(contains(stock, "apple"))          // true (a set: contains(seen, 3))
-print(map_get(stock, "apple"))           // Some(4); None if absent -- always an Option<V>
+print(get(stock, "apple"))               // Some(4); None if absent -- always an Option<V>
 seen = insert(seen, 3)                   // a set adds with insert, not set
 print(keys(stock))                       // {apple, fig}, a Set<string>
-print(values(stock))                     // [4, 9]; set_items(s) is the array of a set
+print(values(stock))                     // [4, 9]; items(s) is the array of a set
 for name, qty in stock { ... }           // key and value; `for name in stock` binds keys only
 for x in seen { ... }                    // a set has one binder
 ```
 
 - **Helpers** (return new collections, infer types from arguments): maps --
-  `map_get_or(m, k, default)`, `map_merge(a, b)` (`b` wins on shared keys),
+  `get_or(m, k, default)`, `map_merge(a, b)` (`b` wins on shared keys),
   `map_remove_all(m, keys)`, `map_from_arrays(keys, values)` (equal lengths, else runtime error;
   a repeated key keeps the last value); sets -- `set_union`/`set_intersect`/`set_difference(a, b)`
   (`a`'s order, `b`'s extras appended for union), `set_is_subset(a, b)`, `to_set(items)`,
   `set_insert_all(s, items)`.
+- **`get(m, k)`, `get_or(m, k, d)` and `items(s)` take either world too**, items 3 and 4
+  of the same pass: a `Map` or a `MutableMap` for the first two, a `Set` or a `MutableSet`
+  for `items`. `map_get`, `map_get_or`, `set_items`, `mutable_map_get`, `mutable_map_get_or`
+  and `mutable_set_items` no longer exist in any spelling.
 - **`keys(m)` and `values(m)` take a `Map` or a `MutableMap`**, the second row of the Map/Set
   pairing pass. Both answer immutable values from either world -- `keys` a `Set<K>`, `values` a
   `[V]` -- because a result like this is nearly always consumed by a `for` or returned, so
@@ -482,7 +486,7 @@ for x in seen { ... }                    // a set has one binder
 - **Values, like arrays** -- `set`/`insert`/`remove` return a new collection, leaving the
   argument untouched. A persistent hash trie internally, so an update copies only a few nodes:
   building an n-entry map is O(n log n).
-- **Insertion order**: `keys`/`values`/`set_items`/`for`/`print` all go in first-inserted
+- **Insertion order**: `keys`/`values`/`items`/`for`/`print` all go in first-inserted
   order; overwriting a key keeps its place, removing and re-adding sends it to the end. `for`
   walks a snapshot (rebinding the collection mid-loop doesn't change what's visited or error).
 - **Equality/hashing ignore order** -- `==` is true for the same entries (a map's values must
@@ -493,9 +497,9 @@ for x in seen { ... }                    // a set has one binder
   types are a derive error. `Row`/`Properties` don't support them.
 - **`NaN` as a key**: a key is matched by an equality that is reflexive on `NaN`, which `==` is
   not. `nan == nan` is `false` (IEEE, as everywhere else in the language), but a `NaN` stored in a
-  `Map`, `Set` or array is found again by `map_get`/`contains`, and storing it twice keeps one
+  `Map`, `Set` or array is found again by `get`/`contains`, and storing it twice keeps one
   entry -- otherwise a key could never be retrieved, and a `Map<float, _>` would grow without bound
-  while `map_get` returned `None`. `compare(nan, nan)` is `0` and agrees with key lookup. This is the
+  while `get` returned `None`. `compare(nan, nan)` is `0` and agrees with key lookup. This is the
   same line Java draws between `==` and `Double.equals`. `-0.0` and `0.0` are one key and `==` also
   equates them, so nothing differs there.
 - **Names**: `Map`/`Set` are reserved words. `map_get`, `keys` (`Set<K>`), `values`

@@ -11,7 +11,7 @@ fn main() {
     print(len(m))
     print(contains(m, "a"))
     print(contains(m, "b"))
-    print(mutable_map_get_or(m, "b", -1))
+    print(get_or(m, "b", -1))
 
     // Absent from an empty map, and absent from a map that never had it.
     val empty = mutable_map_new<int, bool>()
@@ -31,5 +31,5 @@ fn main() {
     print(mutable_map_discard(m, "b"))
     print(len(m))
     mutable_map_set(m, "z", 9)
-    print(mutable_map_get_or(m, "z", -1))
+    print(get_or(m, "z", -1))
 }

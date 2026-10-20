@@ -1,1 +1,1 @@
-cannot infer type argument 'A': one argument requires int, another requires string
+argument 2 of 'combine' expects int, which an earlier argument fixed as type argument 'A' -- found string

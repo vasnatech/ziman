@@ -752,7 +752,7 @@ typedef struct {
 static const BuilderKindAdvice BUILDER_KINDS[] = {
     {"mutable_array_push", "len, mutable_array_get or 'for x in <the builder>'"},
     {"mutable_string_append", "len, or a MutableString you finish once after the loop"},
-    {"mutable_map_set", "len, contains, mutable_map_get or mutable_map_get_or"},
+    {"mutable_map_set", "len, contains, get or get_or"},
     {"mutable_set_add", "len or contains"},
     {NULL, NULL}};
 
@@ -1510,7 +1510,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "map_get", "set_items", "map_get_or", "map_merge", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "set_insert_all", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "map_merge", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "set_insert_all", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -1533,7 +1533,8 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * name with no declaration at all (`format`, `printf`, the parser's `$` names) can never appear
  * here -- there is nothing to canonicalize against. */
 static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
-    "abs", "len", "slice", "swap", "to_set", "filter", "keys", "values", NULL,
+    "abs", "len", "slice", "swap", "to_set", "filter", "keys", "values",
+    "get", "get_or", "items", NULL,
 };
 
 static int builtin_refuses_named_args(const char *name) {
@@ -2817,15 +2818,25 @@ static int expr_needs_expected_type(const Expr *e) {
  * here -- check_value_against_param_type gives the real, argument-specific error once every type argument is
  * known -- but two arguments disagreeing about the same type parameter is a genuine inference conflict, reported at
  * `at`. */
-static void unify_type(Type pattern, Type actual, TypeParamList *params, Type *bindings, int *bound, const Expr *at) {
+static void unify_type(Type pattern, Type actual, TypeParamList *params, Type *bindings, int *bound, const Expr *at,
+                       const char *fn_name, int argpos) {
     ZIMAN_STACK_CHECK();
     if (pattern.kind == TY_TYPEVAR) {
         for (int i = 0; i < params->count; i++) {
             if (strcmp(params->items[i].name, pattern.type_var_name) != 0) continue;
             if (bound[i] && !type_equals(bindings[i], actual)) {
+                /* Naming the call and the position, not just the type parameter. Until F195
+                 * this said only "one argument requires string, another requires int", which is
+                 * true and leaves the reader to find which call and which argument -- and it
+                 * became the message for `get(m, 1)` on a `Map<string, int>` when that builtin's
+                 * arm was replaced by its declarations. The arm had said "argument 2 of
+                 * 'map_get' expects string (the map's key type), found int". Rather than give
+                 * one builtin its arm back, every generic call now says as much. */
                 ziman_error("type", at->line, at->col,
-                            "cannot infer type argument '%s': one argument requires %s, another requires %s",
-                            pattern.type_var_name, type_name(bindings[i]), type_name(actual));
+                            "argument %d of '%s' expects %s, which an earlier argument fixed as "
+                            "type argument '%s' -- found %s",
+                            argpos, fn_name != NULL ? fn_name : "this call", type_name(bindings[i]),
+                            pattern.type_var_name, type_name(actual));
             }
             bindings[i] = actual;
             bound[i] = 1;
@@ -2838,30 +2849,30 @@ static void unify_type(Type pattern, Type actual, TypeParamList *params, Type *b
         case TY_ARRAY:
         case TY_CHANNEL:
         case TY_SET:
-            unify_type(*pattern.elem, *actual.elem, params, bindings, bound, at);
+            unify_type(*pattern.elem, *actual.elem, params, bindings, bound, at, fn_name, argpos);
             return;
         case TY_RESULT:
         case TY_MAP:
-            unify_type(*pattern.elem, *actual.elem, params, bindings, bound, at);
-            unify_type(*pattern.elem_err, *actual.elem_err, params, bindings, bound, at);
+            unify_type(*pattern.elem, *actual.elem, params, bindings, bound, at, fn_name, argpos);
+            unify_type(*pattern.elem_err, *actual.elem_err, params, bindings, bound, at, fn_name, argpos);
             return;
         case TY_FUNC:
             if (pattern.type_args.count != actual.type_args.count) return;
             for (int i = 0; i < pattern.type_args.count; i++) {
-                unify_type(pattern.type_args.items[i], actual.type_args.items[i], params, bindings, bound, at);
+                unify_type(pattern.type_args.items[i], actual.type_args.items[i], params, bindings, bound, at, fn_name, argpos);
             }
-            unify_type(*pattern.elem, *actual.elem, params, bindings, bound, at);
+            unify_type(*pattern.elem, *actual.elem, params, bindings, bound, at, fn_name, argpos);
             return;
         case TY_STRUCT:
             if (strcmp(pattern.struct_name, actual.struct_name) != 0 || pattern.type_args.count != actual.type_args.count) return;
             for (int i = 0; i < pattern.type_args.count; i++) {
-                unify_type(pattern.type_args.items[i], actual.type_args.items[i], params, bindings, bound, at);
+                unify_type(pattern.type_args.items[i], actual.type_args.items[i], params, bindings, bound, at, fn_name, argpos);
             }
             return;
         case TY_ENUM:
             if (strcmp(pattern.enum_name, actual.enum_name) != 0 || pattern.type_args.count != actual.type_args.count) return;
             for (int i = 0; i < pattern.type_args.count; i++) {
-                unify_type(pattern.type_args.items[i], actual.type_args.items[i], params, bindings, bound, at);
+                unify_type(pattern.type_args.items[i], actual.type_args.items[i], params, bindings, bound, at, fn_name, argpos);
             }
             return;
         default:
@@ -2952,12 +2963,12 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
              * arguments names it unambiguously. */
             Type payload = (Type){0};
             if (bare_some_payload_type(module, env, arg, &payload)) {
-                unify_type(pattern, option_type_of(payload), &fn->type_params, bindings, bound, arg);
+                unify_type(pattern, option_type_of(payload), &fn->type_params, bindings, bound, arg, fn->name, i + 1);
             }
             continue;
         }
         Type actual = check_expr(module, env, arg);
-        unify_type(pattern, actual, &fn->type_params, bindings, bound, arg);
+        unify_type(pattern, actual, &fn->type_params, bindings, bound, arg, fn->name, i + 1);
     }
     if (is_variadic && given > fixed_count) {
         Type pattern = fn->params.items[fixed_count].type;
@@ -2969,7 +2980,7 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
                 Type actual = check_expr(module, env, arg);
                 if (tail_count != 1) {
                     /* Several trailing arguments are always individual element values (`concat_arrays(a, b)`). */
-                    unify_type(pattern, actual, &fn->type_params, bindings, bound, arg);
+                    unify_type(pattern, actual, &fn->type_params, bindings, bound, arg, fn->name, i + 1);
                 } else if (type_fully_bound(pattern, &fn->type_params, bound)) {
                     /* The element type is already known from an earlier parameter (`mutable_array_push<T>(ab: MutableArray<T>,
                      * pieces: T...)` binds T from `ab`) -- so, unlike the guess below, there is nothing left to infer
@@ -2980,9 +2991,9 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
                 } else if (actual.kind == TY_ARRAY) {
                     /* Nothing bound the element type yet (`concat_arrays<T>(parts: [T]...)` has no other parameter):
                      * a lone array-typed argument is read as the spread shape, same as before. */
-                    unify_type(pattern, *actual.elem, &fn->type_params, bindings, bound, arg);
+                    unify_type(pattern, *actual.elem, &fn->type_params, bindings, bound, arg, fn->name, i + 1);
                 } else {
-                    unify_type(pattern, actual, &fn->type_params, bindings, bound, arg);
+                    unify_type(pattern, actual, &fn->type_params, bindings, bound, arg, fn->name, i + 1);
                 }
             }
         }
@@ -3247,34 +3258,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
 
     if (e->as.call.arg_names != NULL && builtin_refuses_named_args(name)) {
         ziman_error("type", e->line, e->col, "named arguments aren't supported for '%s'", name);
-    }
-
-    /* `map_keys` and `map_values` left this arm in F194, becoming the `Map` halves of the bare
-     * `keys` and `values`; their declarations state what the arm checked. `map_get` and
-     * `set_items` are still here, and are items 3 and 4 of the Map/Set pairing pass. */
-    if (strcmp(name, "map_get") == 0 || strcmp(name, "set_items") == 0) {
-        int is_get = strcmp(name, "map_get") == 0;
-        int is_set = strcmp(name, "set_items") == 0;
-        int want = is_get ? 2 : 1;
-        if (e->as.call.args.count != want) {
-            ziman_error("type", e->line, e->col, "'%s' takes exactly %d argument(s), found %d", name, want, e->as.call.args.count);
-        }
-        Type coll = check_expr(module, env, e->as.call.args.items[0]);
-        if (coll.kind != (is_set ? TY_SET : TY_MAP)) {
-            ziman_error("type", e->as.call.args.items[0]->line, e->as.call.args.items[0]->col, "'%s' expects a %s, found %s", name,
-                        is_set ? "Set" : "Map", type_name(coll));
-        }
-        if (is_get) {
-            Type got = check_expr_expecting(module, env, &e->as.call.args.items[1], *coll.elem);
-            if (!type_equals(got, *coll.elem)) {
-                ziman_error("type", e->as.call.args.items[1]->line, e->as.call.args.items[1]->col,
-                            "argument 2 of 'map_get' expects %s (the map's key type), found %s", type_name(*coll.elem), type_name(got));
-            }
-            Type option = type_enum("Option");
-            type_list_push(&option.type_args, *coll.elem_err);
-            return option;
-        }
-        return type_array(*coll.elem);
     }
 
     /* **A program's own function shadows a builtin of the same name.** A `use`d module could
@@ -4159,7 +4142,7 @@ ordinary_call:;
                  * just a missing one. */
                 ziman_error("type", e->line, e->col,
                             "call to undefined function '%s' -- a Map or Set has no membership method: "
-                            "use 'contains(m, key)' to test for one, or 'map_get(m, key)' (an Option<V>) "
+                            "use 'contains(m, key)' to test for one, or 'get(m, key)' (an Option<V>) "
                             "to look up the value at the same time", name);
             }
         }
@@ -4565,7 +4548,7 @@ static Type check_index(Module *module, Env *env, Expr *e) {
          * direction entirely (docs/reviews/llm-benchmark-2026-10-09.md, tasks.md F28). */
         if (arr_type.kind == TY_MAP) {
             ziman_error("type", e->as.index.array->line, e->as.index.array->col,
-                        "a map is not indexed with '[...]' -- read one with 'map_get(m, key)', which answers "
+                        "a map is not indexed with '[...]' -- read one with 'get(m, key)', which answers "
                         "'Option<V>' ('Some(v)' or 'None'), and write one with 'm = set(m, key, value)'");
         }
         if (arr_type.kind == TY_SET) {

@@ -29,7 +29,7 @@
 // baselines, because there are two loop shapes. A row whose builtin returns a value folds it into
 // `acc` (an expression); a row whose builtin returns a bool has to branch on it, and
 // `if cond { acc = acc + 1 }` costs **32-33 ns/op on its own**. Subtracting the expression
-// baseline from an if-shaped row is what made `contains` look 20ns slower than `map_get_or` for
+// baseline from an if-shaped row is what made `contains` look 20ns slower than `get_or` for
 // most of a day, when in truth it is faster: one `mapobj_get` and a bool, against one `mapobj_get`
 // plus a third argument expression. Each row now subtracts the baseline matching its own shape.
 //
@@ -80,18 +80,18 @@ fn main() {
     for i in 0..ops {
         val k = i % size
         acc = acc + k
-        if Some(v) = map_get(m, k) {
+        if Some(v) = get(m, k) {
             acc = acc + v
         }
     }
-    report("Map         map_get        ", clock.monotonic_millis() - t, base)
+    report("Map         get        ", clock.monotonic_millis() - t, base)
 
     t = clock.monotonic_millis()
     for i in 0..ops {
         val k = i % size
-        acc = acc + k + map_get_or(m, k, 0)
+        acc = acc + k + get_or(m, k, 0)
     }
-    report("Map         map_get_or     ", clock.monotonic_millis() - t, base)
+    report("Map         get_or     ", clock.monotonic_millis() - t, base)
 
     t = clock.monotonic_millis()
     for i in 0..ops {
@@ -128,7 +128,7 @@ fn main() {
     for i in 0..ops {
         val k = i % size
         acc = acc + k
-        if Some(v) = mutable_map_get<int, int>(mb, k) {
+        if Some(v) = get<int, int>(mb, k) {
             acc = acc + v
         }
     }
@@ -137,7 +137,7 @@ fn main() {
     t = clock.monotonic_millis()
     for i in 0..ops {
         val k = i % size
-        acc = acc + k + mutable_map_get_or(mb, k, 0)
+        acc = acc + k + get_or(mb, k, 0)
     }
     report("MutableMap  get_or         ", clock.monotonic_millis() - t, base)
 
@@ -218,9 +218,9 @@ fn main() {
     for i in 0..ops {
         val j = i % size
         val k = keys[j]
-        acc = acc + len(k) + map_get_or(sm, k, 0)
+        acc = acc + len(k) + get_or(sm, k, 0)
     }
-    report("Map         map_get_or     ", clock.monotonic_millis() - t, sbase)
+    report("Map         get_or     ", clock.monotonic_millis() - t, sbase)
 
     t = clock.monotonic_millis()
     for i in 0..ops {
@@ -237,7 +237,7 @@ fn main() {
     for i in 0..ops {
         val j = i % size
         val k = keys[j]
-        acc = acc + len(k) + mutable_map_get_or(smb, k, 0)
+        acc = acc + len(k) + get_or(smb, k, 0)
     }
     report("MutableMap  get_or         ", clock.monotonic_millis() - t, sbase)
 
@@ -365,12 +365,12 @@ fn main() {
     t = clock.monotonic_millis()
     for i in 0..ops {
         val k = i % size
-        mutable_map_set<int, int>(cm, k, mutable_map_get_or(cm, k, 0) + 1)
+        mutable_map_set<int, int>(cm, k, get_or(cm, k, 0) + 1)
     }
     val cms = clock.monotonic_millis() - t
     printf(
         "\nCOMPOSITE read-modify-write, no subtraction: {} ns/op  (checksum {})\n",
         cms * 1000 / (ops / 1000),
-        mutable_map_get_or(cm, 7, -1)
+        get_or(cm, 7, -1)
     )
 }

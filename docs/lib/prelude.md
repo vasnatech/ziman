@@ -926,10 +926,10 @@ native fn mutable_map_set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: 
 
 Adds `key`, or replaces its value while keeping its position.
 
-### `mutable_map_get`
+### `get`
 
 ```
-native fn mutable_map_get<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
+pub native fn get<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
 ```
 
 The value of `key`, or None.
@@ -958,15 +958,15 @@ removing and re-inserting every key: 351-363 ns/op through `mutable_map_remove` 
 through the bool-returning path -- the removal itself is a fraction of either. Reach for
 `mutable_map_remove` only when the old value is actually needed.
 
-### `mutable_map_get_or`
+### `get_or`
 
 ```
-native fn mutable_map_get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
+pub native fn get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
 ```
 
-The value stored under `key`, or `default_value` when there is none -- `map_get_or` for a builder.
+The value stored under `key`, or `default_value` when there is none -- `get_or` for a builder.
 Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
-loop (`mutable_map_set(counts, k, mutable_map_get_or(counts, k, 0) + 1)`) reads as one line instead of four.
+loop (`mutable_map_set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
 
 ### `mutable_set_new`
 
@@ -1075,13 +1075,13 @@ pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool)
 
 Drops every element `keep` answers false for, in place -- the MutableSet half of `filter`.
 
-### `mutable_set_items`
+### `items`
 
 ```
-fn mutable_set_items<T: Eq + Hash>(s: MutableSet<T>) -> [T]
+pub fn items<T: Eq + Hash>(s: MutableSet<T>) -> [T]
 ```
 
-The elements as an array, in insertion order, as `set_items` gives for a Set.
+The elements as an array, in insertion order, as `items` gives for a Set.
 
 ## Iter
 
@@ -1152,10 +1152,10 @@ on one that is finished or already closed.
 
 ## Map and Set helpers
 
-### `map_get`
+### `get`
 
 ```
-builtin fn map_get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
+builtin fn get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
 ```
 
 The builtins over an immutable `Map` and `Set`.
@@ -1164,14 +1164,14 @@ Declared, not defined: the rule for each is an arm in the type checker, which ev
 before the ordinary function lookup -- see SYNTAX.md's `builtin fn` entry. These exist so the
 signature can be printed, completed and read.
 
-### `map_get_or`
+### `get_or`
 
 ```
-builtin fn map_get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -> V
+builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -> V
 ```
 
 The value under `key`, or `default_value` when there is none -- and no `Option` allocated either
-way, which is why it is not `map_get` plus `unwrap_Some`.
+way, which is why it is not `get` plus `unwrap_Some`.
 
 ### `keys`
 
@@ -1216,10 +1216,10 @@ builtin fn map_from_arrays<K: Eq + Hash, V>(keys: [K], values: [V]) -> Map<K, V>
 
 Positionally paired; a key repeated in `keys` keeps the last value given for it.
 
-### `set_items`
+### `items`
 
 ```
-builtin fn set_items<T: Eq + Hash>(s: Set<T>) -> [T]
+builtin fn items<T: Eq + Hash>(s: Set<T>) -> [T]
 ```
 
 ### `set_union`

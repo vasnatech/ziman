@@ -567,7 +567,7 @@ native fn mutable_map_new<K: Eq + Hash, V>() -> MutableMap<K, V>
 native fn mutable_map_set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: V)
 
 // The value of `key`, or None.
-native fn mutable_map_get<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
+pub native fn get<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
 
 // Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
 // `mutable_map_discard` instead when the removed value is not wanted: answering with an `Option`
@@ -583,10 +583,10 @@ native fn mutable_map_remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> O
 // `mutable_map_remove` only when the old value is actually needed.
 native fn mutable_map_discard<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> bool
 
-// The value stored under `key`, or `default_value` when there is none -- `map_get_or` for a builder.
+// The value stored under `key`, or `default_value` when there is none -- `get_or` for a builder.
 // Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
-// loop (`mutable_map_set(counts, k, mutable_map_get_or(counts, k, 0) + 1)`) reads as one line instead of four.
-native fn mutable_map_get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
+// loop (`mutable_map_set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
+pub native fn get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
 
 // An empty set builder.
 native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
@@ -601,7 +601,7 @@ native fn mutable_set_remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
 // lookup where `get` then `set` is two, which is the whole reason this exists where
 // `mutable_set`-on-a-cell did not need an equivalent.
 fn mutable_map_update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V {
-    val next = f(mutable_map_get<K, V>(m, key))
+    val next = f(get<K, V>(m, key))
     mutable_map_set<K, V>(m, key, next)
     return next
 }
@@ -691,8 +691,8 @@ pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool) {
     }
 }
 
-// The elements as an array, in insertion order, as `set_items` gives for a Set.
-fn mutable_set_items<T: Eq + Hash>(s: MutableSet<T>) -> [T] {
+// The elements as an array, in insertion order, as `items` gives for a Set.
+pub fn items<T: Eq + Hash>(s: MutableSet<T>) -> [T] {
     val out = mutable_array_new<T>()
     for item in s {
         mutable_array_push<T>(out, item)
@@ -750,11 +750,11 @@ native fn iter_close<T>(it: Iter<T>)
 // Declared, not defined: the rule for each is an arm in the type checker, which every call reaches
 // before the ordinary function lookup -- see SYNTAX.md's `builtin fn` entry. These exist so the
 // signature can be printed, completed and read.
-builtin fn map_get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
+builtin fn get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
 
 // The value under `key`, or `default_value` when there is none -- and no `Option` allocated either
-// way, which is why it is not `map_get` plus `unwrap_Some`.
-builtin fn map_get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -> V
+// way, which is why it is not `get` plus `unwrap_Some`.
+builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -> V
 
 // A `Set`, not an array: a map's keys are unique by construction, so the type that says so is the
 // honest one.
@@ -772,7 +772,7 @@ builtin fn map_remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: [K]) -> Map<K, V>
 // Positionally paired; a key repeated in `keys` keeps the last value given for it.
 builtin fn map_from_arrays<K: Eq + Hash, V>(keys: [K], values: [V]) -> Map<K, V>
 
-builtin fn set_items<T: Eq + Hash>(s: Set<T>) -> [T]
+builtin fn items<T: Eq + Hash>(s: Set<T>) -> [T]
 
 builtin fn set_union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 
@@ -1412,7 +1412,7 @@ builtin fn max<T: Ord>(values: variadic T) -> T
 
 // ---------------------------------------------------------------- array algorithms
 // Promoted from the `collections` module (F120), so that an array's own helpers need no more
-// of an import than a Map's `map_get` or a Set's `set_union` do -- arrays were the one
+// of an import than a Map's `get` or a Set's `set_union` do -- arrays were the one
 // collection whose library lived behind a `use`.
 //
 // **Eleven of them lost the prefix on 2026-10-18** and take either world: `map`, `flat_map`,
@@ -1641,7 +1641,7 @@ pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
     val builders = mutable_map_new<K, MutableArray<T>>()
     for item in items {
         val k = key(item)
-        val found = mutable_map_get(builders, k)
+        val found = get(builders, k)
         if Some(b) = found {
             mutable_array_push(b, item)
         } else {
@@ -1785,7 +1785,7 @@ pub fn group_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map
     val builders = mutable_map_new<K, MutableArray<T>>()
     for item in items {
         val k = key(item)
-        val found = mutable_map_get(builders, k)
+        val found = get(builders, k)
         if Some(b) = found {
             push(b, item)
         } else {
@@ -1812,7 +1812,7 @@ pub fn index_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map
 pub fn frequencies<T: Eq + Hash>(items: MutableArray<T>) -> Map<T, int> {
     val counts = mutable_map_new<T, int>()
     for item in items {
-        val seen = mutable_map_get(counts, item)
+        val seen = get(counts, item)
         mutable_map_set(counts, item, switch seen {
             Some(n) { n + 1 }
             None { 1 }
@@ -1941,7 +1941,7 @@ pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U] {
 pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int> {
     val counts = mutable_map_new<T, int>()
     for item in items {
-        val seen = mutable_map_get(counts, item)
+        val seen = get(counts, item)
         mutable_map_set(counts, item, switch seen {
             Some(n) { n + 1 }
             None { 1 }

@@ -2030,12 +2030,12 @@ fn routes_with<C>(endpoints: [Endpoint<C>], meter: bool) -> Routes<C> {
         mutable_map_set(
             methods,
             key,
-            push(option_unwrap_or<[int]>(mutable_map_get(methods, key), none), i)
+            push(option_unwrap_or<[int]>(get(methods, key), none), i)
         )
         mutable_map_set(
             lengths,
             len(p.parts),
-            push(option_unwrap_or<[int]>(mutable_map_get(lengths, len(p.parts)), none), i)
+            push(option_unwrap_or<[int]>(get(lengths, len(p.parts)), none), i)
         )
         i = i + 1
     }
@@ -2227,7 +2227,7 @@ pub fn dispatch<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string
 fn matched_pattern<C>(table: Routes<C>, req: Request) -> string {
     val got = segments_of(req.path)
     val none: [int] = []
-    for i in map_get_or(table.by_method, method_key(req.method, len(got)), none) {
+    for i in get_or(table.by_method, method_key(req.method, len(got)), none) {
         if table.endpoints[i].method == req.method {
             if Option.is_Some(capture(table.patterns[i], got)) {
                 return table.endpoints[i].pattern
@@ -2235,7 +2235,7 @@ fn matched_pattern<C>(table: Routes<C>, req: Request) -> string {
         }
     }
     if HttpMethod.is_Head(req.method) {
-        for i in map_get_or(table.by_method, method_key(HttpMethod.Get, len(got)), none) {
+        for i in get_or(table.by_method, method_key(HttpMethod.Get, len(got)), none) {
             if HttpMethod.is_Get(table.endpoints[i].method) {
                 if Option.is_Some(capture(table.patterns[i], got)) {
                     return table.endpoints[i].pattern
@@ -2249,7 +2249,7 @@ fn matched_pattern<C>(table: Routes<C>, req: Request) -> string {
 fn dispatch_inner<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, string) -> Response) -> Response {
     val got = segments_of(req.path)
     val none: [int] = []
-    for i in map_get_or(table.by_method, method_key(req.method, len(got)), none) {
+    for i in get_or(table.by_method, method_key(req.method, len(got)), none) {
         val e = table.endpoints[i]
         if e.method == req.method {
             if Some(params) = capture(table.patterns[i], got) {
@@ -2266,7 +2266,7 @@ fn dispatch_inner<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, stri
     // nothing to strip here. The exact-method loop above ran first, so an application that registers its own
     // HEAD route keeps it.
     if HttpMethod.is_Head(req.method) {
-        for i in map_get_or(table.by_method, method_key(HttpMethod.Get, len(got)), none) {
+        for i in get_or(table.by_method, method_key(HttpMethod.Get, len(got)), none) {
             val e = table.endpoints[i]
             if HttpMethod.is_Get(e.method) {
                 if Some(params) = capture(table.patterns[i], got) {
@@ -2279,7 +2279,7 @@ fn dispatch_inner<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, stri
     val allowed = mutable_array_new<string>()
     var serves_get = false
     var serves_head = false
-    for i in map_get_or(table.by_length, len(got), none) {
+    for i in get_or(table.by_length, len(got), none) {
         if Option.is_Some(capture(table.patterns[i], got)) {
             val m = table.endpoints[i].method
             mutable_array_push(allowed, method_name(m))

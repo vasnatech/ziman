@@ -481,7 +481,7 @@ fn merge_into(target: Map<string, Json>, incoming: Map<string, Json>) -> Result<
         mutable_map_set(out, k, v)
     }
     for k, v in incoming {
-        if Some(_) = mutable_map_get(out, k) {
+        if Some(_) = get(out, k) {
             return err(format("duplicate key '{}'", k))
         }
         mutable_map_set(out, k, v)
@@ -503,7 +503,7 @@ fn merge_into(target: Map<string, Json>, incoming: Map<string, Json>) -> Result<
 fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<Json, string> {
     val fields = Json.unwrap_JObject(node)
     val name = path[i]
-    val existing = map_get(fields, name)
+    val existing = get(fields, name)
     if i + 1 == len(path) {
         if op == 0 {
             if Option.is_Some(existing) {
