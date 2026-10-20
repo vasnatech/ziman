@@ -1,0 +1,8 @@
+{c: 3}
+3
+true
+{c: 3}
+false
+true
+{3}
+false

@@ -1359,7 +1359,7 @@ static const struct { const char *name; int id; } g_builtins[] = {
      * whether args[0] is a Map or a Set. Since F193 both declarations are named
      * `filter`, so the name the interpreter looks up is the bare one. */
     {"filter", B_map_filter},
-    {"map_remove_all", B_map_remove_all},
+    {"remove_all", B_map_remove_all},
     {"set_insert_all", B_set_insert_all},
     {"to_set", B_to_set},
     {"map_from_arrays", B_map_from_arrays},

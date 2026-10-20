@@ -3634,7 +3634,7 @@ MutableMap<K: Eq + Hash, V>
   mutable_map_update_all<K, V>(m, f: fn(K, V) -> V)
   filter<K, V>(m, keep: fn(K, V) -> bool)                 (was mutable_map_filter; F192)
   mutable_map_remove<K, V>(m, key) -> Option<V>
-  mutable_map_remove_all<K, V>(m, keys: variadic K) -> bool
+  remove_all<K, V>(m, keys: variadic K) -> bool          (was mutable_map_remove_all; F197)
   mutable_map_keys<K, V>(m) -> Set<K>
   mutable_map_values<K, V>(m) -> [V]
   len(m)   contains(m, key)   clear(m)   snapshot(m) -> Map<K, V>
@@ -3647,10 +3647,10 @@ MutableSet<T: Eq + Hash>
   mutable_set_add<T>(s, item) -> bool                    true if added
   mutable_set_add_all<T>(s, items: variadic T) -> bool   true if at least one was added
   mutable_set_remove<T>(s, item) -> bool                 true if removed
-  mutable_set_remove_all<T>(s, items: variadic T) -> bool
+  remove_all<T>(s, items: variadic T) -> bool            (was mutable_set_remove_all; F197)
   filter<T>(s, keep: fn(T) -> bool)                       (was mutable_set_filter; F192)
-  mutable_set_union<T>(s, other: Set<T> | MutableSet<T>)
-  mutable_set_intersect<T>(s, other: Set<T> | MutableSet<T>)
+  union<T>(s, other: Set<T> | MutableSet<T>)             (was mutable_set_union; F196)
+  intersect<T>(s, other: Set<T> | MutableSet<T>)         (was mutable_set_intersect; F196)
   mutable_set_difference<T>(s, other: Set<T> | MutableSet<T>)
   mutable_set_is_subset<T>(s, other: Set<T> | MutableSet<T>) -> bool
   mutable_set_items<T>(s) -> [T]

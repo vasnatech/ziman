@@ -356,10 +356,15 @@ for x in seen { ... }                    // a set has one binder
 
 - **Helpers** (return new collections, infer types from arguments): maps --
   `get_or(m, k, default)`, `map_merge(a, b)` (`b` wins on shared keys),
-  `map_remove_all(m, keys)`, `map_from_arrays(keys, values)` (equal lengths, else runtime error;
+  `map_from_arrays(keys, values)` (equal lengths, else runtime error;
   a repeated key keeps the last value); sets -- `union`/`intersect`/`difference(a, b)`
   (`a`'s order, `b`'s extras appended for union), `is_subset(a, b)`, `to_set(items)`,
   `set_insert_all(s, items)`.
+- **`remove_all(c, keys)` takes a `Map`, a `MutableMap` or a `MutableSet`**, the last row of
+  the pairing pass's first group. The array form works for all three, since a variadic
+  parameter accepts a lone array as a spread; only the written-out
+  `remove_all(mm, "a", "b")` is builder-only, the `Map` half taking `keys: [K]`. The
+  immutable half answers a new `Map`, the builders whether anything was removed.
 - **`union`, `intersect`, `difference` and `is_subset` take either world**, the awkward row:
   each has three declarations, and **argument two** chooses between two of them, because a
   `MutableSet`'s operand may come from either world. The immutable halves still take only a

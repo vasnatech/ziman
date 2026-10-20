@@ -2690,3 +2690,27 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   twins are gone as spellings. The immutable halves still take only a `Set` as their operand
   where the builder halves take either; that asymmetry predates the pairing and was left alone
   rather than quietly widened.
+
+- [x] **F197** **Map/Set pairing, item 6: `remove_all`, and Group A is finished.** (done
+  2026-10-20.) `remove_all` takes a `Map`, a `MutableMap` or a `MutableSet`. `map_remove_all`,
+  `mutable_map_remove_all` and `mutable_set_remove_all` are gone as spellings.
+
+  **An asymmetry survives the pairing, deliberately.** The Map half takes `keys: [K]`; the two
+  builder halves take `variadic`. Checked before deciding: **a variadic parameter accepts a lone
+  array as a spread**, so `remove_all(c, [a, b])` works for all three and only the written-out
+  `remove_all(mm, "a", "b")` is builder-only. Making the Map half variadic too would mean
+  teaching its builtin branch to assemble its arguments the way `concat` does — a runtime change
+  this row did not need, and the C3 lesson about changing a signature that resists pairing does
+  not apply when the pairing already works.
+
+  **The collection-helper table had rotted while nobody looked.** It listed ten names; six —
+  `map_get_or`, `map_filter`, `set_filter`, `set_union`, `set_intersect`, `set_difference`,
+  `set_is_subset` — had been renamed out of existence by items 1, 4 and 5 and were matching
+  nothing. Each row of this pass left its entry behind, because the arm stops firing the moment
+  the name changes and nothing complains. Cleared; two live entries remain, `map_merge` and
+  `set_insert_all`, which are items 8 and 7.
+
+  **Group A is done.** Six rows: `filter` (six worlds), `keys`/`values`, `items`, `get`/`get_or`,
+  the four set operations, `remove_all`. Nineteen prefixed names gone, and every one of them was
+  an overload set written as two or three declarations rather than an implementation plus an arm
+  plus a table entry — the thing the array pass paid for three times per row.

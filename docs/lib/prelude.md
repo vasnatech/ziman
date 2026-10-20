@@ -1021,10 +1021,10 @@ pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool)
 Drops every entry `keep` answers false for, in place -- the MutableMap half of `filter`, where
 the `Map` half answers a new Map instead. Safe for the same snapshot reason as `update_all`.
 
-### `mutable_map_remove_all`
+### `remove_all`
 
 ```
-fn mutable_map_remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool
+pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool
 ```
 
 Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
@@ -1059,10 +1059,10 @@ Adds each of `items`, answering whether any of them was new. The singular `mutab
 not variadic, which is what keeps a `MutableSet<[int]>` from being a special case -- one element
 or several is never ambiguous when only the `_all` form takes many.
 
-### `mutable_set_remove_all`
+### `remove_all`
 
 ```
-fn mutable_set_remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
+pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 ```
 
 Drops each of `items`, answering whether any of them was there.
@@ -1202,10 +1202,10 @@ builtin fn map_merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, 
 builtin fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
 ```
 
-### `map_remove_all`
+### `remove_all`
 
 ```
-builtin fn map_remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: [K]) -> Map<K, V>
+builtin fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: [K]) -> Map<K, V>
 ```
 
 ### `map_from_arrays`

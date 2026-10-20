@@ -1510,7 +1510,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "map_merge", "map_remove_all", "map_from_arrays", "to_set", "slice", "concat", "set_insert_all", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "map_merge", "map_from_arrays", "to_set", "slice", "concat", "set_insert_all", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -1534,7 +1534,7 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * here -- there is nothing to canonicalize against. */
 static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
     "abs", "len", "slice", "swap", "to_set", "filter", "keys", "values",
-    "get", "get_or", "items", "union", "intersect", "difference", "is_subset", NULL,
+    "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", NULL,
 };
 
 static int builtin_refuses_named_args(const char *name) {
@@ -2548,9 +2548,13 @@ static void overload_sets_report(Module *module) {
 }
 
 static int check_collection_helper(Module *module, Env *env, Expr *e, const char *name, Type *out) {
+    /* What is left of the collection-helper arm. `map_get_or`, `map_filter`, `set_filter`,
+     * `set_union`, `set_intersect`, `set_difference`, `set_is_subset` and `map_remove_all` all
+     * left it as the Map/Set pairing pass reached them (F192-F197) -- their declarations say
+     * what this checked. The six that went in items 1, 4 and 5 had been sitting here matching
+     * nothing, which is what a table of names does after the names change. */
     static const struct { const char *name; int argc; } TABLE[] = {
-        {"map_get_or", 3}, {"map_merge", 2}, {"map_filter", 2}, {"map_remove_all", 2}, {"set_union", 2}, {"set_intersect", 2},
-        {"set_difference", 2}, {"set_is_subset", 2}, {"set_insert_all", 2}, {"set_filter", 2},
+        {"map_merge", 2}, {"set_insert_all", 2},
     };
     if (strcmp(name, "map_from_arrays") == 0) {
         if (e->as.call.args.count != 2) {
@@ -2708,18 +2712,13 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
     if (!found) return 0;
     int is_map = strncmp(name, "map_", 4) == 0;
     Type coll = helper_first(module, env, e, found, name, is_map ? TY_MAP : TY_SET);
-    if (strcmp(name, "map_get_or") == 0) {
-        helper_arg(module, env, e, 1, *coll.elem, name);
-        helper_arg(module, env, e, 2, *coll.elem_err, name);
-        *out = *coll.elem_err;
-    } else if (strcmp(name, "map_merge") == 0 || strcmp(name, "set_union") == 0 || strcmp(name, "set_intersect") == 0 ||
-               strcmp(name, "set_difference") == 0 || strcmp(name, "set_is_subset") == 0) {
+    if (strcmp(name, "map_merge") == 0) {
         helper_arg(module, env, e, 1, coll, name);
-        *out = strcmp(name, "set_is_subset") == 0 ? type_scalar(TY_BOOL) : coll;
-    } else if (strcmp(name, "map_remove_all") == 0 || strcmp(name, "set_insert_all") == 0) {
+        *out = coll;
+    } else if (strcmp(name, "set_insert_all") == 0) {
         helper_arg(module, env, e, 1, type_array(*coll.elem), name);
         *out = coll;
-    } else { /* map_filter / set_filter: a predicate over the entry */
+    } else { /* unreachable while the table holds only the two above */
         TypeList params = {0};
         type_list_push(&params, *coll.elem);
         if (is_map) type_list_push(&params, *coll.elem_err);

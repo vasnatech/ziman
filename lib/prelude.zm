@@ -627,7 +627,7 @@ pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool) {
 
 // Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
 // of what the singular takes, which for a map's `remove` is keys rather than entries.
-fn mutable_map_remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool {
+pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool {
     var removed_any = false
     for k in keys {
         if Some(_old) = mutable_map_remove<K, V>(m, k) {
@@ -672,7 +672,7 @@ fn mutable_set_add_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> boo
 }
 
 // Drops each of `items`, answering whether any of them was there.
-fn mutable_set_remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
+pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
     var removed_any = false
     for item in items {
         if mutable_set_remove<T>(s, item) {
@@ -767,7 +767,7 @@ builtin fn map_merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, 
 
 builtin fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
 
-builtin fn map_remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: [K]) -> Map<K, V>
+builtin fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: [K]) -> Map<K, V>
 
 // Positionally paired; a key repeated in `keys` keeps the last value given for it.
 builtin fn map_from_arrays<K: Eq + Hash, V>(keys: [K], values: [V]) -> Map<K, V>
