@@ -24,7 +24,7 @@ fn main() {
 
     // NEW -- a named argument. A builtin is dispatched by id and takes none; two real
     // declarations take them, and which one is chosen is unaffected by the spelling.
-    print(sort(a: [3, 1, 2]))
+    print(sort(items: [3, 1, 2]))
 
     // NEW -- a type argument on an empty literal. `sort<int>([])` was *unspellable* while `sort`
     // was a builtin (docs/ROADMAP.md's overloading entry names it): a builtin discards explicit

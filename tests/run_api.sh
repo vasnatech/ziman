@@ -60,7 +60,13 @@ for internal_name in is_sortable_scalars sort_scalar_order sort_scalars permute 
         pass=$((pass + 1)); echo "ok   an internal prelude native stays out: $internal_name"
     fi
 done
-has "and the sort it is the inside of is still listed" "fn sort<T: Ord>(a: [T]) -> [T]" "$builtins"
+# `items`, not `a`: F179 converted `sort` from a `builtin fn` pair into two ordinary
+# declarations, which publish the implementation's own parameter name. Nothing broke for a caller
+# -- a builtin took no named arguments, so no call site could have been using `a:` -- and the
+# whole converted family now names its parameter for what it is rather than for which world it
+# came from. Still asserted by signature rather than by name alone: that `sort` stayed *listed*
+# at all is the thing F172 added this for, and converting it silently unlisted it once already.
+has "and the sort it is the inside of is still listed" "fn sort<T: Ord>(items: [T]) -> [T]" "$builtins"
 
 # F173: the same rule over the dispatcher's prefix layer. `map(b, f)` resolves to the literal name
 # "mutable_array_" + "map", so these have to exist -- but 51 of the 64 `array_`/`mutable_array_`

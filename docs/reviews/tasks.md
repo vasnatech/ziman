@@ -2096,3 +2096,45 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `interpreter.c` finds a native's C implementation by `native_lookup(fn->name)` -- so two
   natives cannot share a declaration name. That needs a declaration-to-symbol link, which is its
   own small feature. The other 22 need no new mechanism.
+
+- [x] **F179** **Full overloading, stage 3b: the other 22 paired names converted.** (done
+  2026-10-19.) Following F178's single-name spike, the remaining pairs that need no new mechanism:
+  `sort_desc`, `sort_by`, `sort_by_desc`, `fold`, `for_each`, `find`, `first`, `last`, `any`,
+  `all`, `count`, `sum`, `distinct`, `group_by`, `index_by`, `frequencies`, `min_by`, `max_by`,
+  `is_sorted`, `binary_search`, `lower_bound`, `upper_bound`. **`WORLD_PAIRED` is down from 28
+  entries to 5**, and the shadow gate's call count from 661 to 393 — it reaches zero when the
+  last five land.
+
+  **Parameter names: the implementation's, not the declaration's.** F178 preserved `sort`'s
+  published `(a:)`/`(b:)` by renaming the bodies, which worked for one function and does not
+  scale: renaming a parameter means renaming its uses, and several bodies already bind `a` and
+  `b` as lambda parameters. Checked the other 21 first — almost all of them already use **one
+  name across both worlds** (`items`/`items`, `sorted`/`sorted`) — so keeping the implementation
+  names needs no body edits at all and publishes a more informative signature than `a`/`b`, which
+  only ever said which world. `sort` was changed to match. No call site can break: a builtin
+  took no named arguments, so none could have been using `a:`.
+
+  **One real regression, and it was the interesting one.** Converting a builtin to ordinary
+  declarations takes its name off the interpreter's dispatch list — and F164's rule ("a program's
+  own top-level `fn` may shadow a builtin") was keyed on exactly that list. So all 22 names
+  silently stopped being shadowable and started colliding: a program with its own `fn sum(...)`
+  or `fn first(...)` no longer compiled. `variadic_zero_args` and `option_bare_helpers` caught it.
+  Fixed by keying on the property F164 was always about — **a declaration in the prelude**, which
+  is merged into every program, whether or not the interpreter dispatches it.
+
+  That fix needed a second half: the duplicate check can be reached from *either* side, because
+  `find_function` answers with the program's declaration first, so the prelude's own was being
+  reported as the redefinition. A program declaration is a shadow seen from either direction;
+  only prelude-against-prelude is an overload set.
+
+  **Two fixtures had their premise inverted rather than their text updated** (the F170 lesson).
+  `group_c1_rejected` and `world_paired_five_rejected` pinned the table's hand-written "expects an
+  array or a MutableArray" message for names that have now left the table. The thing each exists
+  to assert — a Set is refused, and the error says what is accepted — still holds, so both were
+  repointed at the message that now carries it, which names both declarations with their
+  signatures.
+
+  Also: `tests/run_api.sh`'s own F172 assertion pinned `fn sort<T: Ord>(a: [T]) -> [T]` and had to
+  follow the parameter rename. It still asserts a full signature rather than the bare name,
+  because *that `sort` stayed listed at all* is what F172 added it for, and the conversion
+  unlisted it once already.

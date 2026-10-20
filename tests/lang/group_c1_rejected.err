@@ -1,1 +1,1 @@
-'lower_bound' expects an array or a MutableArray -- an array answers a new one, a MutableArray is rearranged in place
+no declaration of 'lower_bound' accepts its argument 1

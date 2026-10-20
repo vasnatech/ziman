@@ -1482,7 +1482,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "reverse", "filter", "sort_desc", "sort_with", "sort_by", "sort_by_desc", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "distinct", "group_by", "index_by", "frequencies", "min_by", "max_by", "is_sorted", "binary_search", "lower_bound", "upper_bound", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "reverse", "filter", "sort_desc", "sort_with", "sort_by", "sort_by_desc", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "distinct", "group_by", "index_by", "frequencies", "min_by", "max_by", "is_sorted", "binary_search", "lower_bound", "upper_bound", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "reverse", "filter", "sort_with", "map", "flat_map", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "reverse", "filter", "sort_with", "map", "flat_map", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
@@ -2445,13 +2445,7 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * own answer -- the rule this library has applied since `push`. */
     /* `sort` is absent since F178: it is the first pair converted to a real overload set, so the
      * resolver chooses it from the declarations and this table must not also rewrite it. */
-    static const char *const WORLD_PAIRED[] = {"reverse", "filter", "sort_desc", "sort_with",
-                                           "sort_by", "sort_by_desc",
-                                           "map", "flat_map", "fold", "for_each", "find", "first",
-                                           "last", "any", "all", "count", "sum",
-                                           "distinct", "group_by", "index_by", "frequencies",
-                                           "min_by", "max_by",
-                                           "is_sorted", "binary_search", "lower_bound", "upper_bound", NULL};
+    static const char *const WORLD_PAIRED[] = {"reverse", "filter", "sort_with", "map", "flat_map", NULL};
     for (size_t wp = 0; WORLD_PAIRED[wp] != NULL; wp++) {
         if (strcmp(name, WORLD_PAIRED[wp]) != 0) continue;
         if (e->as.call.args.count < 1) {
@@ -6961,10 +6955,28 @@ void typecheck(Module *module) {
          * And "already defined" has to ignore the case where the earlier declaration is the
          * builtin's own: `fn count(conn, table)` beside `builtin fn count<T>(a: [T], test)` is a
          * shadow. Two *program* declarations of one name are still a duplicate. */
+        /* Since F179, "a name the language already owns" is no longer the same as "a name the
+         * interpreter dispatches". Converting a paired builtin into two ordinary declarations
+         * (stage 3 of docs/design/full-overloading.md) takes it off the dispatch list, and
+         * keying only on that list silently withdrew F164's shadowing from all 22 converted
+         * names at once: a program's own `fn sum(...)` or `fn first(...)` stopped shadowing and
+         * started colliding. Both tests/lang/variadic_zero_args and option_bare_helpers caught
+         * it. So a prelude declaration counts too, which is the property F164 was always about
+         * -- the prelude is merged into every program, so any name in it is one a program might
+         * reasonably want back. */
         if (!fn->is_builtin && fn->source_file != NULL && shadowing_fn_any(fn->name) == NULL) {
             int dispatched = 0;
             for (int b = 0; b < ziman_builtin_count(); b++) {
                 if (strcmp(fn->name, ziman_builtin_name(b)) == 0) { dispatched = 1; break; }
+            }
+            if (!dispatched) {
+                for (int q = 0; q < module->functions.count; q++) {
+                    FunctionDecl *other = module->functions.items[q];
+                    if (other != fn && other->source_file == NULL && strcmp(other->name, fn->name) == 0) {
+                        dispatched = 1;
+                        break;
+                    }
+                }
             }
             if (dispatched) {
                 g_builtin_shadows = ziman_xrealloc(g_builtin_shadows,
@@ -6974,7 +6986,10 @@ void typecheck(Module *module) {
         }
         if (!fn->is_builtin && find_function(module, fn->name) != fn) {
             const FunctionDecl *first = find_function(module, fn->name);
-            int shadows_a_builtin = first != NULL && first->is_builtin && fn->source_file != NULL;
+            /* A program declaration shadows a prelude one whatever kind it is -- see the
+             * registration above for why `is_builtin` stopped being the right test. */
+            int shadows_a_builtin = first != NULL && fn->source_file != NULL
+                                 && (first->is_builtin || first->source_file == NULL);
             if (!shadows_a_builtin) {
                 /* Stage 3 of docs/design/full-overloading.md: a repeated name is an overload set
                  * when every pair of its members can be told apart, and a redefinition when any
@@ -6990,7 +7005,13 @@ void typecheck(Module *module) {
                     for (int q = 0; q < module->functions.count && clash == NULL; q++) {
                         FunctionDecl *other = module->functions.items[q];
                         if (other == fn || strcmp(other->name, fn->name) != 0) continue;
-                        if (other->source_file != NULL) { clash = other; break; }
+                        /* A program's own declaration of this name is a *shadow* of the
+                         * prelude's, not a conflict with it -- and this check can be reached
+                         * from the prelude side, because `find_function` answers with the
+                         * program's declaration first. Comparing the two is how the first
+                         * attempt at this reported `sum` and `first` as redefinitions at their
+                         * prelude lines. Only prelude-against-prelude is a set. */
+                        if (other->source_file != NULL) continue;
                         if (ovl_indistinguishable_at(fn, other) >= 0) clash = other;
                     }
                 } else {
