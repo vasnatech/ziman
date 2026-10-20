@@ -355,11 +355,17 @@ for x in seen { ... }                    // a set has one binder
 ```
 
 - **Helpers** (return new collections, infer types from arguments): maps --
-  `map_get_or(m, k, default)`, `map_merge(a, b)` (`b` wins on shared keys), `map_filter(m, keep:
-  fn(K, V) -> bool)`, `map_remove_all(m, keys)`, `map_from_arrays(keys, values)` (equal lengths,
-  else runtime error; a repeated key keeps the last value); sets -- `set_union`/`set_intersect`/
-  `set_difference(a, b)` (`a`'s order, `b`'s extras appended for union), `set_is_subset(a, b)`,
-  `to_set(items)`, `set_insert_all(s, items)`, `set_filter(s, keep: fn(T) -> bool)`.
+  `map_get_or(m, k, default)`, `map_merge(a, b)` (`b` wins on shared keys),
+  `map_remove_all(m, keys)`, `map_from_arrays(keys, values)` (equal lengths, else runtime error;
+  a repeated key keeps the last value); sets -- `set_union`/`set_intersect`/`set_difference(a, b)`
+  (`a`'s order, `b`'s extras appended for union), `set_is_subset(a, b)`, `to_set(items)`,
+  `set_insert_all(s, items)`.
+- **`filter(c, keep)` takes any of the six collections**, which is the first row of the Map/Set
+  pairing pass: an array or a `MutableArray` with `keep: fn(T) -> bool`, a `Map` or a
+  `MutableMap` with `keep: fn(K, V) -> bool`, a `Set` or a `MutableSet` with `fn(T) -> bool`. The
+  immutable three answer a new collection; the builders rearrange in place and answer nothing --
+  the same split every paired name in this language uses. `map_filter`, `set_filter`,
+  `mutable_map_filter` and `mutable_set_filter` are gone as spellings.
   A type argument a lambda's result would have to supply is inferred only when the lambda is fully
   annotated (every parameter typed and `->` written), which is the same information a named function
   gives; an unannotated lambda takes its types *from* the expected type, so it has none to contribute

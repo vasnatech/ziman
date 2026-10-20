@@ -1012,14 +1012,14 @@ fn mutable_map_update_all<K: Eq + Hash, V>(m: MutableMap<K, V>, f: fn(K, V) -> V
 `set` because iterating a MutableMap walks a snapshot of the entries, so the writes cannot
 disturb the walk.
 
-### `mutable_map_filter`
+### `filter`
 
 ```
-fn mutable_map_filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool)
+pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool)
 ```
 
-Drops every entry `keep` answers false for, in place -- the counterpart of `map_filter`, which
-returns a new Map instead. Safe for the same snapshot reason as `update_all`.
+Drops every entry `keep` answers false for, in place -- the MutableMap half of `filter`, where
+the `Map` half answers a new Map instead. Safe for the same snapshot reason as `update_all`.
 
 ### `mutable_map_remove_all`
 
@@ -1067,13 +1067,13 @@ fn mutable_set_remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> 
 
 Drops each of `items`, answering whether any of them was there.
 
-### `mutable_set_filter`
+### `filter`
 
 ```
-fn mutable_set_filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool)
+pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool)
 ```
 
-Drops every element `keep` answers false for, in place -- the counterpart of `set_filter`.
+Drops every element `keep` answers false for, in place -- the MutableSet half of `filter`.
 
 ### `mutable_set_items`
 
@@ -1196,11 +1196,17 @@ builtin fn map_merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, 
 
 `other` wins where both have a key.
 
-### `map_filter`
+### `filter`
 
 ```
-builtin fn map_filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
+pub fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
 ```
+
+The `Map` half of `filter`. A wrapper rather than a rename because `map_filter` is a
+`builtin fn`: the interpreter finds its implementation by looking the *declared name* up in its
+id table, so renaming it to `filter` would leave the call with no implementation to reach. The
+name it is reached by and the name its implementation is registered under have to differ until
+`BUILTINS_NO_NAMED_ARGS` is split into the two lists it currently conflates (F188).
 
 ### `map_remove_all`
 
@@ -1252,11 +1258,13 @@ builtin fn set_is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
 builtin fn set_insert_all<T: Eq + Hash>(s: Set<T>, items: [T]) -> Set<T>
 ```
 
-### `set_filter`
+### `filter`
 
 ```
-builtin fn set_filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
+pub fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
 ```
+
+The `Set` half of `filter`; see the `Map` half above for why this is a wrapper.
 
 ### `to_set`
 

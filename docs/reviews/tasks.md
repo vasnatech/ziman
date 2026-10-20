@@ -2538,3 +2538,33 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   **Stage 8 is finished.** Converted: `abs`, `swap`, `slice`, `to_set`, `len` — 65 arms from 70.
   The estimate ran ~50 → ~3 → 5 as each constraint was found by reading the code rather than
   counting names, which is the whole history of this plan in one line.
+
+- [x] **F192** **Map/Set pairing pass, item 1: one `filter` over all six collections.** (raised
+  2026-10-19 by the user starting the Map/Set pass; done 2026-10-19.) `filter` now takes an array,
+  a `MutableArray`, a `Map`, a `MutableMap`, a `Set` or a `MutableSet`. The immutable three answer
+  a new collection, the builders rearrange in place and answer nothing — the split every paired
+  name uses. `map_filter`, `set_filter`, `mutable_map_filter` and `mutable_set_filter` are gone as
+  spellings.
+
+  **The widest row in the table, and the cheapest.** All six implementations already existed; what
+  was missing was the name. This is the first row written as an overload set from the start — no
+  prefixed implementation to add, no dispatch arm, no table entry, where the array pass paid all
+  three per row.
+
+  **A Map's predicate takes two parameters where the others take one, and it costs nothing.** The
+  resolver reads a lambda's *arity* without checking it (the shape filter), and argument one has
+  decided before that anyway. This is the case F191 said overloading is for: collections describe
+  themselves.
+
+  **Two halves renamed, two wrapped, and the asymmetry is F188's debt.** `mutable_map_filter` and
+  `mutable_set_filter` are plain `fn`s and simply took the bare name. `map_filter` and
+  `set_filter` are `builtin fn`s whose implementation the interpreter finds by looking the
+  *declared name* up in its id table, so renaming them would leave the call with nothing to
+  reach. They keep their names, are now `internal`, and `filter` reaches them through a one-line
+  wrapper. Adding `filter` to `BUILTINS_NO_NAMED_ARGS` instead would have worked and would have
+  **taken named arguments away from the array halves**, which already have them — the same
+  conflation F188 hit, now costing a wrapper instead of a capability. Splitting that table is
+  what would let the two be renamed outright.
+
+  Also updated: `docs/SYNTAX.md`'s helper list (which named `map_filter` and `set_filter` as the
+  spelling), two `docs/DESIGN.md` surface lines, and one fixture.
