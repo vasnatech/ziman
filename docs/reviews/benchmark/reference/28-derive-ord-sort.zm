@@ -12,7 +12,7 @@ fn main() {
         Score { points: 10, player: "Bob" },
         Score { points: 70, player: "Eve" }
     ]
-    for s in array_sort<Score>(scores) {
+    for s in sort<Score>(scores) {
         print(s.player)
     }
 }

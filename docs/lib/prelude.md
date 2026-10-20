@@ -821,10 +821,10 @@ fn mutable_array_reverse<T>(xs: MutableArray<T>)
 
 Reverses the buffer in place -- no copy at all, where `array_reverse(snapshot(xs))` makes two.
 
-### `mutable_array_sort`
+### `sort`
 
 ```
-fn mutable_array_sort<T: Ord>(xs: MutableArray<T>)
+pub fn sort<T: Ord>(b: MutableArray<T>)
 ```
 
 Sorts the buffer by the element type's own `compare`, ascending or descending. These two make
@@ -1339,16 +1339,6 @@ builtin fn filter<T>(a: [T], keep: fn(T) -> bool) -> [T]
 builtin fn filter<T>(b: MutableArray<T>, keep: fn(T) -> bool)
 ```
 
-### `sort`
-
-```
-builtin fn sort<T: Ord>(a: [T]) -> [T]
-```
-
-```
-builtin fn sort<T: Ord>(b: MutableArray<T>)
-```
-
 ### `sort_desc`
 
 ```
@@ -1742,10 +1732,10 @@ both on the same input is how to keep the successes and still report what was lo
 pub fn filter_err<T, E>(items: variadic Result<T, E>) -> [E]
 ```
 
-### `array_sort`
+### `sort`
 
 ```
-fn array_sort<T: Ord>(items: [T]) -> [T]
+pub fn sort<T: Ord>(a: [T]) -> [T]
 ```
 
 `items` in ascending order of their own `compare`, which orders any number, string or byte,

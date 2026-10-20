@@ -507,9 +507,9 @@ internal native fn mutable_array_filter<T>(xs: MutableArray<T>, keep: fn(T) -> b
 // keeps its capacity and the length never changes. Spelled out in both rather than shared, because
 // a helper here would be *public* -- everything in the prelude is -- and "overwrite the buffer with
 // this array" is not a function the design asked for.
-fn mutable_array_sort<T: Ord>(xs: MutableArray<T>) {
-    for i, v in array_sort<T>(snapshot(xs)) {
-        mutable_array_set<T>(xs, i, v)
+pub fn sort<T: Ord>(b: MutableArray<T>) {
+    for i, v in sort<T>(snapshot(b)) {
+        mutable_array_set<T>(b, i, v)
     }
 }
 
@@ -923,9 +923,6 @@ builtin fn reverse<T>(b: MutableArray<T>)
 builtin fn filter<T>(a: [T], keep: fn(T) -> bool) -> [T]
 builtin fn filter<T>(b: MutableArray<T>, keep: fn(T) -> bool)
 
-builtin fn sort<T: Ord>(a: [T]) -> [T]
-builtin fn sort<T: Ord>(b: MutableArray<T>)
-
 builtin fn sort_desc<T: Ord>(a: [T]) -> [T]
 builtin fn sort_desc<T: Ord>(b: MutableArray<T>)
 
@@ -1148,14 +1145,14 @@ pub fn filter_err<T, E>(items: variadic Result<T, E>) -> [E] {
 // and any struct or enum with a `<type>_compare` function (`#[derive(Ord)]` writes one). Stable:
 // equal elements keep their input order. Packed numbers and strings sort natively; anything else
 // goes through a generic stable merge sort.
-fn array_sort<T: Ord>(items: [T]) -> [T] {
+pub fn sort<T: Ord>(a: [T]) -> [T] {
     // The two paths are `sort_scalars` and `sort_positions` + `permute`. Named here rather than
     // in the doc comment above: they are `internal`, so a doc comment naming them would leave
     // `docs/lib/prelude.md` pointing at entries that page no longer has.
-    if is_sortable_scalars<T>(items) {
-        return sort_scalars<T>(items, false)
+    if is_sortable_scalars<T>(a) {
+        return sort_scalars<T>(a, false)
     }
-    return permute<T>(items, sort_positions(len(items), fn(a, b) { compare(items[a], items[b]) }))
+    return permute<T>(a, sort_positions(len(a), fn(x, y) { compare(a[x], a[y]) }))
 }
 
 // `items` in descending order of their own `compare`. Also stable, so this is not `array_sort`'s

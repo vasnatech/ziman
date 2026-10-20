@@ -1,0 +1,10 @@
+// F178: `sort` is the first of the paired names to become a real overload set, resolved from its
+// declarations rather than rewritten onto a prefixed implementation by the WORLD_PAIRED table. So
+// a Set is refused by the resolver, and the message lists what the name does accept -- with the
+// signatures, not just the names, which is the half a reader needs to pick one.
+//
+// `world_paired_five_rejected` holds the other half: the same question asked of a name the table
+// still dispatches.
+fn main() {
+    print(sort(Set<int> { 1, 2 }))
+}

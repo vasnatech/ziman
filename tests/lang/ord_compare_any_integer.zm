@@ -50,7 +50,7 @@ fn main() {
         print(concat(r.score.name, r.grade.letter))
     }
     val opts = [Option<Grade>.Some(Grade { letter: "z" }), Option<Grade>.None, Option<Grade>.Some(Grade { letter: "a" })]
-    for o in array_sort<Option<Grade>>(opts) {
+    for o in sort<Option<Grade>>(opts) {
         print(o)
     }
     print(compare([Grade { letter: "a" }], [Grade { letter: "b" }]) < 0)

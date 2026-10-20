@@ -1,5 +1,5 @@
 
 fn main() {
     val xs = [Option<bool>.None]
-    print(len(array_sort<Option<bool>>(xs)))
+    print(len(sort<Option<bool>>(xs)))
 }

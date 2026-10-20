@@ -28,10 +28,10 @@ fn main() {
     print(compare([1, 2], [1, 2]))
     val empty: [int] = []
     print(compare(empty, [0]))
-    print(array_sort<Option<int>>([Option<int>.Some(3), Option<int>.None, Option<int>.Some(1)]))
+    print(sort<Option<int>>([Option<int>.Some(3), Option<int>.None, Option<int>.Some(1)]))
     print(sort([[2], [1, 5], [1], empty]))
-    print(array_sort<Result<int, string>>([e2, ok2, e1, ok1]))
-    print(array_sort<Option<Result<int, string>>>([Option<Result<int, string>>.Some(e1), Option<Result<int, string>>.None, Option<Result<int, string>>.Some(ok1)]))
+    print(sort<Result<int, string>>([e2, ok2, e1, ok1]))
+    print(sort<Option<Result<int, string>>>([Option<Result<int, string>>.Some(e1), Option<Result<int, string>>.None, Option<Result<int, string>>.Some(ok1)]))
     val r1 = Rec { id: Option<int>.Some(2), tags: ["b"] }
     val r2 = Rec { id: Option<int>.Some(2), tags: ["a", "z"] }
     val r3 = Rec { id: Option<int>.None, tags: ["zzz"] }

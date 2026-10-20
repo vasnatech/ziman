@@ -1,5 +1,11 @@
-// The five take an array or a MutableArray and nothing else, and the message says what each world
-// answers with rather than only naming the type it was handed.
+// The names still dispatched by the WORLD_PAIRED table take an array or a MutableArray and
+// nothing else, and the message says what each world answers with rather than only naming the
+// type it was handed.
+//
+// This used to call `sort`, which F178 converted into a real overload set -- so `sort` no longer
+// reaches this message at all, and asserting it here would have pinned the table by a name that
+// had left it. `reverse` is still in the table; `overload_no_candidate_rejected` holds the other
+// half of the pair, which is what `sort(Set)` says now.
 fn main() {
-    print(sort(Set<int> { 1, 2 }))
+    print(reverse(Set<int> { 1, 2 }))
 }

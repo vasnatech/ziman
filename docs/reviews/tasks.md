@@ -2046,3 +2046,53 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `tools/overload_sets.sh` holds the prediction in `make check` — failing on a *third* name with
   the message that the design is what needs fixing, and on zero sets found, which is what looking
   at the wrong module would produce.
+
+- [x] **F178** **Full overloading, stage 3a: `sort` becomes a real overload set.** (`docs/design/full-overloading.md`
+  §7 stage 3; done 2026-10-19.) One name converted end to end before the other 27, because the
+  recipe was unknown and a spike finds what a plan cannot. The resolver now chooses between two
+  ordinary declarations of `sort`; `WORLD_PAIRED` no longer carries the name; nothing rewrites a
+  prefix onto it.
+
+  **The mechanism was already there.** `e->call_fn` -- the type checker resolving a named call to
+  a `FunctionDecl *` so the interpreter can skip the name lookup -- was built for speed and is now
+  load-bearing for correctness: the resolver sets it, and `interpreter.c` already honoured it.
+
+  **Five things the spike found that a plan would not have:**
+
+  1. **An overload set used as a *value* silently picked one.** `val f = sort<int>` resolved
+     through `find_function`, got whichever declaration came first, and became
+     `fn(MutableArray<int>)` with no complaint -- the mistake surfacing later as a confusing error
+     at the call to `f`. A silently chosen overload is the failure mode this language refuses, so
+     value position now rejects a set by name and says to wrap the one you mean. Two fixtures were
+     using `array_sort` precisely *because* it was single-valued; they moved to `array_order_of`.
+  2. **Converting a `builtin fn` to a plain `fn` deletes it from `--api builtins`.** A plain
+     prelude `fn` is invisible without `pub` (F171/F172), so the most important name in the
+     collection API quietly stopped being discoverable. Caught by `run_api.sh`. **Every
+     conversion must carry `pub`.**
+  3. **The published signature has to be preserved exactly.** The implementations were
+     `(items: [T])` and `(xs: MutableArray<T>)`; the declarations they replace were `(a:)` and
+     `(b:)`. Renaming the parameters keeps `--api`, the generated manual and any named-argument
+     call site still true.
+  4. **`BUILTINS_NO_NAMED_ARGS` keeps an entry per world**, so a conversion removes the name
+     *twice*. `tools/check_builtins.py` caught the leftover.
+  5. **The benchmark reference solutions use the old names**, and their own README says the tasks
+     are what move when a language change lands under them. Six updated.
+
+  **Three things `sort` can now do that it could not as a builtin**, all pinned in
+  `tests/lang/overload_sort_converted.zm`: take a named argument (`sort(a: [3, 1, 2])`), take a
+  type argument on an empty literal (`sort<int>([])` -- named in `docs/ROADMAP.md` as having been
+  made *unspellable* by builtin-only overloading), and keep both worlds under one name as before.
+
+  **The candidate list prints signatures, not names.** The first draft printed `sort/1` twice over
+  for `sort(Set<int> {...})`, which is strictly worse than the hand-written message it replaced.
+  §5 says the list must carry what each candidate *is*; it now prints `sort(a: [T]) -> [T]` and
+  `sort(b: MutableArray<T>)`.
+
+  **The shadow gate is now a progress meter**: 661 dispatched calls before this, 573 after, since
+  `sort`'s are resolved for real. It reaches zero when stage 3 is done.
+
+  **Still blocked, and the reason stage 3 splits in two:** 5 of the 28 pairs (`map`, `filter`,
+  `flat_map`, `reverse`, `sort_with`) have a `native fn` on at least one side, and
+  `interpreter.c` finds a native's C implementation by `native_lookup(fn->name)` -- so two
+  natives cannot share a declaration name. That needs a declaration-to-symbol link, which is its
+  own small feature. The other 22 need no new mechanism.

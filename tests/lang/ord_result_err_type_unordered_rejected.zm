@@ -1,5 +1,5 @@
 
 fn main() {
     val r: Result<int, bool> = 1
-    print(len(array_sort<Result<int, bool>>([r])))
+    print(len(sort<Result<int, bool>>([r])))
 }

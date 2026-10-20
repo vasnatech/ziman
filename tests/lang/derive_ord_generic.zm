@@ -20,7 +20,7 @@ fn main() {
     print(compare<Pair<int, string>>(a, a) == 0)
 
     val xs = [b, a, Pair<int, string> { first: 0, second: "z" }]
-    val sorted = array_sort<Pair<int, string>>(xs)
+    val sorted = sort<Pair<int, string>>(xs)
     printf("{}{}{}\n", sorted[0].second, sorted[1].second, sorted[2].second)
 
     val l = Either<int, string>.Left(5)
@@ -32,6 +32,6 @@ fn main() {
 
     val nested = [Pair<Pair<int, int>, int> { first: Pair<int, int> { first: 1, second: 2 }, second: 0 },
                   Pair<Pair<int, int>, int> { first: Pair<int, int> { first: 1, second: 1 }, second: 9 }]
-    val ns = array_sort<Pair<Pair<int, int>, int>>(nested)
+    val ns = sort<Pair<Pair<int, int>, int>>(nested)
     print(ns[0].second)
 }

@@ -1474,10 +1474,15 @@ static int is_pure_builtin_name(const char *name) {
     return 0;
 }
 
+/* `sort` left this table in F178, the first pair converted to a real overload set. A name here
+ * is one the interpreter dispatches by id, which is also what makes it unable to take a named
+ * argument or a type argument; `sort` is now two ordinary declarations, so it takes both, and
+ * `tools/check_builtins.py` is what noticed the entry had been left behind. Every later
+ * conversion removes its two entries the same way -- the name appears once per world. */
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "sort_by", "sort_by_desc", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "distinct", "group_by", "index_by", "frequencies", "min_by", "max_by", "is_sorted", "binary_search", "lower_bound", "upper_bound", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "reverse", "filter", "sort", "sort_desc", "sort_with", "sort_by", "sort_by_desc", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "distinct", "group_by", "index_by", "frequencies", "min_by", "max_by", "is_sorted", "binary_search", "lower_bound", "upper_bound", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "reverse", "filter", "sort_desc", "sort_with", "sort_by", "sort_by_desc", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "distinct", "group_by", "index_by", "frequencies", "min_by", "max_by", "is_sorted", "binary_search", "lower_bound", "upper_bound", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "reverse", "filter", "sort_desc", "sort_with", "sort_by", "sort_by_desc", "map", "flat_map", "fold", "for_each", "find", "first", "last", "any", "all", "count", "sum", "distinct", "group_by", "index_by", "frequencies", "min_by", "max_by", "is_sorted", "binary_search", "lower_bound", "upper_bound", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
@@ -2126,6 +2131,82 @@ static void overload_resolve(Module *module, Env *env, Expr *e, const char *name
     r->outcome = OVL_AMBIGUOUS;
 }
 
+/* How many declarations share this name. One is the overwhelmingly common case and must stay
+ * cheap -- this is the only cost an ordinary call to an ordinary function pays for the feature. */
+static int overload_set_size(Module *module, const char *name) {
+    int n = 0;
+    for (int i = 0; i < module->functions.count; i++) {
+        if (strcmp(module->functions.items[i]->name, name) == 0 && ++n > 1) return n;
+    }
+    return n;
+}
+
+/* The declaration a call resolves to, or an error that says why it could not be chosen. The
+ * candidate list follows the rule set in §5: five or fewer in full, more than five ranked by how
+ * far each got and truncated with the remainder counted. */
+static void overload_report_candidates(const OverloadResolution *r, char *buf, size_t cap) {
+    int order[OVL_MAX_CANDIDATES];
+    for (int i = 0; i < r->live_count; i++) order[i] = i;
+    for (int i = 1; i < r->live_count; i++) { /* stable insertion sort, most positions matched first */
+        int k = order[i], j = i - 1;
+        while (j >= 0 && r->matched[order[j]] < r->matched[k]) { order[j + 1] = order[j]; j--; }
+        order[j + 1] = k;
+    }
+    int show = r->live_count <= 5 ? r->live_count : 3;
+    size_t at = 0;
+    for (int i = 0; i < show && at + 1 < cap; i++) {
+        FunctionDecl *f = r->live[order[i]];
+        /* The signature, not the name and arity. A reader choosing between two candidates needs
+         * the parameter types -- `sort/1` twice over says nothing at all, which is what the first
+         * draft of this printed and why the fixture it replaced had a better message than the
+         * feature meant to improve it. */
+        at += (size_t)snprintf(buf + at, cap - at, "\n  = %s(", f->name);
+        for (int q = 0; q < f->params.count && at + 1 < cap; q++) {
+            at += (size_t)snprintf(buf + at, cap - at, "%s%s%s: %s", q > 0 ? ", " : "",
+                                   f->params.items[q].is_variadic ? "variadic " : "",
+                                   f->params.items[q].name, type_name(f->params.items[q].type));
+        }
+        if (at + 1 < cap) at += (size_t)snprintf(buf + at, cap - at, ")");
+        if (at + 1 < cap && f->return_type.kind != TY_VOID) {
+            at += (size_t)snprintf(buf + at, cap - at, " -> %s", type_name(f->return_type));
+        }
+        if (at >= cap) return;
+    }
+    if (r->live_count > show && at + 1 < cap) {
+        snprintf(buf + at, cap - at, "\n  = ... and %d more", r->live_count - show);
+    }
+}
+
+static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char *name) {
+    OverloadResolution r;
+    overload_resolve(module, env, e, name, &r);
+    if (r.outcome == OVL_RESOLVED) return r.chosen;
+    if (r.outcome == OVL_UNSUPPORTED) return find_function(module, name); /* absurdly large set: old behaviour */
+
+    char list[1024];
+    list[0] = '\0';
+    if (r.outcome == OVL_AMBIGUOUS) {
+        overload_report_candidates(&r, list, sizeof list);
+        ziman_error("type", e->line, e->col,
+                    "'%s' is ambiguous here -- more than one declaration accepts these arguments%s",
+                    name, list);
+    }
+    /* No candidate. Re-resolve with the set unfiltered so the message can list what there was. */
+    OverloadResolution all;
+    memset(&all, 0, sizeof all);
+    for (int i = 0; i < module->functions.count && all.live_count < OVL_MAX_CANDIDATES; i++) {
+        if (strcmp(module->functions.items[i]->name, name) == 0) all.live[all.live_count++] = module->functions.items[i];
+    }
+    overload_report_candidates(&all, list, sizeof list);
+    if (r.eliminated_at > 0) {
+        ziman_error("type", e->line, e->col,
+                    "no declaration of '%s' accepts its argument %d%s",
+                    name, r.eliminated_at, list);
+    }
+    ziman_error("type", e->line, e->col,
+                "no declaration of '%s' takes %d argument(s)%s", name, e->as.call.args.count, list);
+}
+
 /* Stage 1's only output: whether the resolver agrees with the arm that already decided.
  * `expected` is the name the arm rewrote onto -- `mutable_array_filter` for `filter(b, p)`.
  * A disagreement is a specification, not a failure, so this prints and returns. */
@@ -2285,7 +2366,9 @@ static void overload_shadow_check(Module *module, Env *env, Expr *e, const char 
      * (`builtin fn map(a: [T], ...)`). What has to agree is the *world*, which the arm reads from
      * the argument and the resolver from the chosen declaration's own first parameter. Comparing
      * the raw names reported 400 disagreements on the first run, every one of them this. */
-    const char *verdict = NULL;
+    const char *verdict = "gave no verdict"; /* every arm below sets this; the initialiser is
+                                              * what stops -Wformat-overflow reasoning about a
+                                              * NULL reaching the %s, not a real path */
     switch (r.outcome) {
         case OVL_RESOLVED: {
             if (strcmp(r.chosen->name, expected) == 0) { g_ovl_agreed++; return; } /* an arm that did not rewrite */
@@ -2360,7 +2443,9 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * The costs the two worlds answer with differ, and deliberately: an array's form allocates a
      * new array, a builder's rearranges its buffer with no copy at all. Same question, each world's
      * own answer -- the rule this library has applied since `push`. */
-    static const char *const WORLD_PAIRED[] = {"reverse", "filter", "sort", "sort_desc", "sort_with",
+    /* `sort` is absent since F178: it is the first pair converted to a real overload set, so the
+     * resolver chooses it from the declarations and this table must not also rewrite it. */
+    static const char *const WORLD_PAIRED[] = {"reverse", "filter", "sort_desc", "sort_with",
                                            "sort_by", "sort_by_desc",
                                            "map", "flat_map", "fold", "for_each", "find", "first",
                                            "last", "any", "all", "count", "sum",
@@ -4030,7 +4115,19 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     }
 
 ordinary_call:;
+    /* Stage 3 of docs/design/full-overloading.md. `find_function` answers with the *first*
+     * declaration of a name, which was always right while a name had one declaration and is a
+     * coin toss once it has two. When the name is an overload set, the resolver chooses instead,
+     * and what it chooses lands on `e->call_fn` a few lines below -- which the interpreter
+     * already honours (interpreter.c's `e->call_fn != NULL` branch, built for speed and now
+     * load-bearing for correctness too).
+     *
+     * A shadowing user function still wins outright: F164 made a program's own top-level `fn`
+     * shadow a builtin, and an overload set is not a reason to take that back. */
     FunctionDecl *fn = shadow_fn != NULL ? shadow_fn : find_function(module, name);
+    if (shadow_fn == NULL && fn != NULL && overload_set_size(module, name) > 1) {
+        fn = overload_pick(module, env, e, name);
+    }
     lint_deprecated_use(fn, e->line, e->col);
     if (fn == NULL) {
         /* Inside a #[derive] expansion, a missing <type>_to_json / _from_json
@@ -4650,6 +4747,19 @@ static int resolve_function_reference(Module *module, Expr *e, Type *out) {
         ziman_error("type", e->line, e->col,
                     "'%s' is a builtin, not a function value -- wrap it in a function of your own to pass it around",
                     fn->name);
+    }
+    /* An overload set has nothing to resolve from in value position: there is no argument list,
+     * and the expected type is not consulted (no return-type dispatch -- see the design's
+     * non-goals). Before this, `find_function` handed back whichever declaration it reached
+     * first, so `val f = sort<int>` silently became the MutableArray one and the mistake only
+     * surfaced as a confusing error at the *call* to `f`. A silently chosen overload is the
+     * failure mode this language refuses, so it is named here instead. */
+    if (overload_set_size(module, fn->name) > 1) {
+        ziman_error("type", e->line, e->col,
+                    "'%s' names more than one function, so it cannot be used as a value -- there are no "
+                    "arguments here to choose between them; wrap the one you mean in a function of your own "
+                    "('fn(a: [T]) -> [T] { return %s(a) }')",
+                    fn->name, fn->name);
     }
     lint_deprecated_use(fn, e->line, e->col);
     for (int i = 0; i < fn->params.count; i++) {
@@ -6866,7 +6976,32 @@ void typecheck(Module *module) {
             const FunctionDecl *first = find_function(module, fn->name);
             int shadows_a_builtin = first != NULL && first->is_builtin && fn->source_file != NULL;
             if (!shadows_a_builtin) {
-                ziman_error("type", fn->line, fn->col, "function '%s' is already defined", fn->name);
+                /* Stage 3 of docs/design/full-overloading.md: a repeated name is an overload set
+                 * when every pair of its members can be told apart, and a redefinition when any
+                 * pair cannot -- which is stage 2's `ovl_indistinguishable_at`, promoted from a
+                 * report into the rule it was measuring.
+                 *
+                 * Restricted to the prelude on purpose. Library and program code keep today's
+                 * flat "already defined" until stage 7, which is the stage that deliberately
+                 * opens this up; letting it in here as a side effect would deliver the feature
+                 * without the error messages, the documentation or the tests that stage owes. */
+                FunctionDecl *clash = NULL;
+                if (fn->source_file == NULL) {
+                    for (int q = 0; q < module->functions.count && clash == NULL; q++) {
+                        FunctionDecl *other = module->functions.items[q];
+                        if (other == fn || strcmp(other->name, fn->name) != 0) continue;
+                        if (other->source_file != NULL) { clash = other; break; }
+                        if (ovl_indistinguishable_at(fn, other) >= 0) clash = other;
+                    }
+                } else {
+                    clash = (FunctionDecl *)first;
+                }
+                if (clash != NULL) {
+                    ziman_error("type", fn->line, fn->col,
+                                "function '%s' is already defined (line %d) -- two declarations may share a "
+                                "name only when every call can tell them apart",
+                                fn->name, clash->line);
+                }
             }
         }
         /* Same reasoning as the struct/enum type-parameter checks above. */

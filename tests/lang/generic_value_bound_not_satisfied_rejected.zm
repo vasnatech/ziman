@@ -1,5 +1,5 @@
 
 fn main() {
-    val f = array_sort<bool>
+    val f = array_order_of<bool>
     print(1)
 }

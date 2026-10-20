@@ -15,6 +15,9 @@ fn main() {
     print(twice<int>(identity<int>, 3))
     print(map<int, string>([1, 2, 3], describe<int>))
     print(map<string, [string]>(["a", "b"], wrap<string>))
-    val h = array_sort<int>
-    print(h([3, 1, 2]))
+    // `array_order_of`, not `sort`: F178 made `sort` an overload set, and a set has no argument
+    // list in value position to choose from, so it cannot be one. This fixture is about generic
+    // functions as values, so it uses a generic function that still has one declaration.
+    val h = array_order_of<int>
+    print(h([3, 1, 2], false))
 }

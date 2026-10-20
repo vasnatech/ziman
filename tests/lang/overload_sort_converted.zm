@@ -1,0 +1,40 @@
+// F178: `sort` is the first of the 28 paired names converted from a `builtin fn` pair plus a
+// WORLD_PAIRED table entry into a real overload set -- two ordinary declarations the resolver
+// chooses between. Everything it could do before, and three things it could not.
+
+struct P {
+    key: int
+    tag: string
+}
+
+fn p_compare(a: P, b: P) -> int {
+    return compare(a.key, b.key)
+}
+
+fn main() {
+    // unchanged: both worlds under one name, each answering in its own way
+    val xs = [5, 2, 9, 1, 5]
+    print(sort(xs))
+    val b = mutable([5, 2, 9, 1, 5])
+    sort(b)
+    print(snapshot(b))
+
+    // unchanged: the non-scalar path, through `compare`
+    print(len(sort([P { key: 2, tag: "a" }, P { key: 1, tag: "b" }])))
+
+    // NEW -- a named argument. A builtin is dispatched by id and takes none; two real
+    // declarations take them, and which one is chosen is unaffected by the spelling.
+    print(sort(a: [3, 1, 2]))
+
+    // NEW -- a type argument on an empty literal. `sort<int>([])` was *unspellable* while `sort`
+    // was a builtin (docs/ROADMAP.md's overloading entry names it): a builtin discards explicit
+    // type arguments, so the literal had nothing to infer from. The empty literal is still never
+    // checked during resolution -- it is context-dependent -- so it reaches the array overload
+    // and takes its element type from there.
+    print(sort<int>([]))
+    print(sort<string>([]))
+
+    // NEW -- a typed binding still works, which is how the same call had to be written before
+    val none: [int] = []
+    print(sort(none))
+}
