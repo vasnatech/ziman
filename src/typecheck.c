@@ -1510,8 +1510,41 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_filter", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "set_insert_all", "set_filter", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "map_get", "map_keys", "map_values", "set_items", "map_get_or", "map_merge", "map_remove_all", "map_from_arrays", "set_union", "set_intersect", "set_difference", "set_is_subset", "to_set", "slice", "concat", "set_insert_all", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", "mutable_map_set_all", "mutable_set_union", "mutable_set_intersect", "mutable_set_difference", "mutable_set_is_subset", NULL,
 };
+
+/* The names a dispatched builtin may still be called with named arguments despite appearing in
+ * the registry above.
+ *
+ * `BUILTINS_NO_NAMED_ARGS` answers two questions, and F188 found them coming apart. It is the
+ * **registry** of names the interpreter dispatches -- `ziman_builtin_count` reads it, and so does
+ * the check that a `builtin fn` declares something real -- and it is also the list of names that
+ * refuse a named argument. Those agreed while every builtin was handled by a hand-written arm,
+ * because an arm reads its arguments positionally and would have ignored the names outright.
+ *
+ * A converted builtin is different: its call reaches `ordinary_call`, where
+ * `canonicalize_named_args` reorders against the declaration before anything looks at an
+ * argument. So it can take them, and refusing is now a restriction with no reason behind it --
+ * `len(a: xs)` was rejected for no better cause than that `len` had once had an arm.
+ *
+ * Rather than duplicate a hundred-odd strings into a second table that would drift from the
+ * first, the exception is listed: a name here is dispatched *and* declaration-checked. It grows
+ * by one each time an arm is deleted, which is exactly when the restriction stops applying. A
+ * name with no declaration at all (`format`, `printf`, the parser's `$` names) can never appear
+ * here -- there is nothing to canonicalize against. */
+static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
+    "abs", "len", "slice", "swap", "to_set", "filter", NULL,
+};
+
+static int builtin_refuses_named_args(const char *name) {
+    for (int i = 0; BUILTINS_WITH_NAMED_ARGS[i] != NULL; i++) {
+        if (strcmp(name, BUILTINS_WITH_NAMED_ARGS[i]) == 0) return 0;
+    }
+    for (int i = 0; BUILTINS_NO_NAMED_ARGS[i] != NULL; i++) {
+        if (strcmp(name, BUILTINS_NO_NAMED_ARGS[i]) == 0) return 1;
+    }
+    return 0;
+}
 
 /* The builtins, for `ziman --api builtins`. Exposed because the 2026-10-10 benchmark wave found the
  * hole this list fills: `--api` listed the bundled *modules*, so a run looking for a string's
@@ -3212,12 +3245,8 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         }
     }
 
-    if (e->as.call.arg_names != NULL) {
-        for (int i = 0; BUILTINS_NO_NAMED_ARGS[i] != NULL; i++) {
-            if (strcmp(name, BUILTINS_NO_NAMED_ARGS[i]) == 0) {
-                ziman_error("type", e->line, e->col, "named arguments aren't supported for '%s'", name);
-            }
-        }
+    if (e->as.call.arg_names != NULL && builtin_refuses_named_args(name)) {
+        ziman_error("type", e->line, e->col, "named arguments aren't supported for '%s'", name);
     }
 
     if (strcmp(name, "map_get") == 0 || strcmp(name, "map_keys") == 0 || strcmp(name, "map_values") == 0 || strcmp(name, "set_items") == 0) {

@@ -365,7 +365,7 @@ for x in seen { ... }                    // a set has one binder
   `MutableMap` with `keep: fn(K, V) -> bool`, a `Set` or a `MutableSet` with `fn(T) -> bool`. The
   immutable three answer a new collection; the builders rearrange in place and answer nothing --
   the same split every paired name in this language uses. `map_filter`, `set_filter`,
-  `mutable_map_filter` and `mutable_set_filter` are gone as spellings.
+  `mutable_map_filter` and `mutable_set_filter` no longer exist in any spelling.
   A type argument a lambda's result would have to supply is inferred only when the lambda is fully
   annotated (every parameter typed and `->` written), which is the same information a named function
   gives; an unannotated lambda takes its types *from* the expected type, so it has none to contribute

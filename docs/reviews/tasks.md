@@ -2568,3 +2568,34 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   Also updated: `docs/SYNTAX.md`'s helper list (which named `map_filter` and `set_filter` as the
   spelling), two `docs/DESIGN.md` surface lines, and one fixture.
+
+- [x] **F193** **The builtin table split, and `filter`'s wrappers removed.** (raised 2026-10-19 by
+  the user, after F192 showed the next five rows would each need a wrapper; done 2026-10-19.)
+  F188's debt, paid.
+
+  **The conflation was narrower than it looked.** `BUILTINS_NO_NAMED_ARGS` is the **registry** of
+  names the interpreter dispatches (`ziman_builtin_count` reads it, and so does the check that a
+  `builtin fn` declares something real) *and* the list of names refusing a named argument. Those
+  agreed while every builtin had a hand-written arm, because an arm reads its arguments
+  positionally and would have ignored the names. A converted builtin reaches `ordinary_call`,
+  where `canonicalize_named_args` reorders against the declaration first — so it can take them,
+  and refusing was a restriction with nothing behind it.
+
+  **Split by exception, not by duplication.** A second table of a hundred-odd strings would drift
+  from the first within a release; `BUILTINS_WITH_NAMED_ARGS` lists only the names that are
+  dispatched *and* declaration-checked, and grows by one each time an arm is deleted — which is
+  exactly when the restriction stops applying. A name with no declaration (`format`, `printf`,
+  the parser's `$` names) can never appear there, since there is nothing to canonicalize against.
+
+  **What it bought immediately.** `abs`, `len`, `slice`, `swap` and `to_set` now take named
+  arguments, having been refused them for no better reason than once having had an arm. And
+  `filter`'s two wrappers are gone: `map_filter` and `set_filter` were renamed to `filter`
+  outright, with `filter` added to the registry and the exception list, and the interpreter's id
+  table collapsed to a single `{"filter", B_map_filter}` entry — one entry because one branch
+  already served both, switching on whether `args[0]` is a Map or a Set.
+
+  **`map_filter` and `set_filter` no longer exist in any spelling.** Verified the restriction
+  still holds where it must: `contains` and `push`, both still arm-handled, continue to refuse.
+
+  The five remaining Group A rows (`keys`/`values`, `items`, `get`/`get_or`, the four set
+  operations, `remove_all`) are clean renames now rather than five more wrappers.

@@ -1199,14 +1199,8 @@ builtin fn map_merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, 
 ### `filter`
 
 ```
-pub fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
+builtin fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
 ```
-
-The `Map` half of `filter`. A wrapper rather than a rename because `map_filter` is a
-`builtin fn`: the interpreter finds its implementation by looking the *declared name* up in its
-id table, so renaming it to `filter` would leave the call with no implementation to reach. The
-name it is reached by and the name its implementation is registered under have to differ until
-`BUILTINS_NO_NAMED_ARGS` is split into the two lists it currently conflates (F188).
 
 ### `map_remove_all`
 
@@ -1261,10 +1255,8 @@ builtin fn set_insert_all<T: Eq + Hash>(s: Set<T>, items: [T]) -> Set<T>
 ### `filter`
 
 ```
-pub fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
+builtin fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
 ```
-
-The `Set` half of `filter`; see the `Map` half above for why this is a wrapper.
 
 ### `to_set`
 

@@ -1344,8 +1344,10 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"set_intersect", B_set_intersect},
     {"set_difference", B_set_difference},
     {"set_is_subset", B_set_is_subset},
-    {"map_filter", B_map_filter},
-    {"set_filter", B_set_filter},
+    /* One entry, because one branch serves both: B_map_filter's code switches on
+     * whether args[0] is a Map or a Set. Since F193 both declarations are named
+     * `filter`, so the name the interpreter looks up is the bare one. */
+    {"filter", B_map_filter},
     {"map_remove_all", B_map_remove_all},
     {"set_insert_all", B_set_insert_all},
     {"to_set", B_to_set},
