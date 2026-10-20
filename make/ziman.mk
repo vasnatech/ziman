@@ -95,6 +95,15 @@ api-check: $(BIN)
 module-path-check: $(BIN)
 	@./tests/run_module_path.sh $(BIN)
 
+# Stage 1 of docs/design/full-overloading.md. The new resolver runs beside the hand-written
+# dispatch arms over every Ziman file in reach -- fixtures, the benchmark references, lib/, and
+# the North Star when it is there -- and this fails if the two ever choose a different world.
+# Gated from the first stage on purpose: the resolver decides nothing yet, so the only thing that
+# can tell us it is right is the corpus, and the only thing that keeps it right while the arms are
+# removed one by one is a gate that was there before the removals started.
+overload-shadow-check: $(BIN)
+	@./tools/overload_shadow.sh $(BIN)
+
 northstar-if-available: $(BIN)
 	@./tests/run_northstar.sh $(BIN)
 

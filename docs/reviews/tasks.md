@@ -1981,3 +1981,38 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   and **`concat`** (its one-argument spread rule reinterprets the same argument type by arity,
   which no per-parameter signature states). Stage 2 of the plan is the check that must reject
   exactly those two and nothing else; a third rejection means the design is wrong.
+
+- [x] **F176** **Full overloading, stage 1: the resolver, running beside the arms.**
+  (`docs/design/full-overloading.md` §7 stage 1; done 2026-10-19.) The new resolver is built and
+  wired, decides nothing, and is gated. `ZIMAN_OVERLOAD_SHADOW=1` makes it answer every dispatched
+  call alongside the hand-written arm and report where the two differ; without it nothing in the
+  compiler, the LSP or `make check`'s other targets behaves differently.
+
+  **Result: 1372 files, 661 dispatched calls, 661 agreed, 0 disagreed** — fixtures, the 50
+  benchmark references, all of `lib/`, and the North Star backend.
+
+  **The design's central claim held.** Resolution is a filter, not a search: `overload_resolve`
+  types only the arguments `expr_needs_expected_type` says can be typed alone, reads the
+  syntactic *shape* of the rest (a lambda's arity, `[]` being an array, `ok(x)` a Result,
+  `Some(x)` an Option), and never checks an argument speculatively. So it needed no undo log over
+  the 24 AST-rewrite sites and no constraint solver, which is what made it safe to run as a shadow
+  pass at all — a search would have mutated the tree it was supposed to be observing.
+
+  **One genuinely new piece of logic:** `param_accepts`, a non-fatal matcher. `unify_type` could
+  not be reused — it is a *binder*, and on a kind mismatch it returns silently rather than
+  reporting failure, which is right for inference and useless as a filter. `type_equals` has no
+  notion of a type variable standing for something. `param_accepts` mirrors `type_equals` case for
+  case so the two cannot drift.
+
+  **The first run reported 400 disagreements, every one of them the harness.** The arm names an
+  implementation (`array_map`); the resolver names a declaration (`builtin fn map(a: [T], ...)`).
+  They were never going to be the same string. What has to agree is the *world*, which the arm
+  reads from the argument and the resolver from the chosen declaration's own first parameter —
+  and on that they agreed everywhere, including the `MutableArray` cases. Comparing raw names
+  would have made stage 1 look like a failure and sent the next stage chasing nothing.
+
+  **The gate asserts a positive, not an absence.** A run that observes zero calls prints no
+  complaints and would pass a naive check, which is exactly what a mis-wired hook looks like — so
+  the resolver counts what it saw and `tools/overload_shadow.sh` fails when that count is zero.
+  It found a real bug in its own first draft: an `awk` field slip made the loop abort after 20
+  files while still printing "ok".

@@ -1928,6 +1928,261 @@ static Type helper_first(Module *module, Env *env, Expr *e, int argc, const char
     return first;
 }
 
+/* ------------------------------------------------------------------ overload resolution, stage 1
+ *
+ * `docs/design/full-overloading.md`, stage 1: the resolver, built and run *beside* the
+ * hand-written arms rather than in place of them, so that the corpus says what it should do
+ * before anything depends on it. It decides nothing yet -- `overload_shadow_check` compares its
+ * answer with the arm's and reports a disagreement; `check_collection_helper` goes on to do
+ * exactly what it did before either way.
+ *
+ * Silent unless ZIMAN_OVERLOAD_SHADOW is set in the environment, so an ordinary build, an
+ * ordinary `make check` and the LSP are untouched by a half-built feature.
+ *
+ * The design's central claim is that resolution is a *filter*, not a search: it reads the
+ * arguments that can be typed on their own and the syntactic *shape* of the ones that cannot,
+ * and never type-checks an argument speculatively. That is what makes it safe to run here at
+ * all -- a search would have to undo the AST rewrites `check_expr` performs (24 sites), and a
+ * shadow pass that mutated the tree would change the behaviour it is supposed to be observing. */
+
+#define OVL_MAX_CANDIDATES 32
+
+typedef enum { OVL_NO_MATCH, OVL_RESOLVED, OVL_AMBIGUOUS, OVL_UNSUPPORTED } OverloadOutcome;
+
+typedef struct {
+    OverloadOutcome outcome;
+    FunctionDecl *chosen;
+    FunctionDecl *live[OVL_MAX_CANDIDATES];
+    int live_count;
+    int matched[OVL_MAX_CANDIDATES]; /* positions each candidate survived, for the ranked list in §5 */
+    int eliminated_at;               /* 1-based position that emptied the set; 0 if it never filled */
+} OverloadResolution;
+
+/* Whether `actual` can be the argument for a parameter declared `pattern`, where a type variable
+ * of the candidate's own `tps` is a wildcard that must stay consistent across its occurrences.
+ *
+ * Deliberately *not* `unify_type`: that one is a binder, and on a kind mismatch it returns
+ * silently rather than reporting failure, which is exactly right for inference and useless as a
+ * filter. It is also not `type_equals`, which has no notion of a type variable standing for
+ * something. This is the one piece of genuinely new logic in stage 1, and it mirrors
+ * `type_equals`'s structure case for case so that the two cannot drift apart. */
+static int param_accepts(Type pattern, Type actual, const TypeParamList *tps, Type *binds, int *bound) {
+    ZIMAN_STACK_CHECK();
+    if (pattern.kind == TY_TYPEVAR) {
+        for (int i = 0; i < tps->count; i++) {
+            if (strcmp(tps->items[i].name, pattern.type_var_name) != 0) continue;
+            if (bound[i]) return type_equals(binds[i], actual);
+            binds[i] = actual;
+            bound[i] = 1;
+            return 1;
+        }
+        /* A type variable that is not the candidate's own is a concrete name here. */
+        return actual.kind == TY_TYPEVAR && strcmp(pattern.type_var_name, actual.type_var_name) == 0;
+    }
+    if (pattern.kind != actual.kind) return 0;
+    switch (pattern.kind) {
+        case TY_ARRAY:
+        case TY_CHANNEL:
+        case TY_SET:
+            return param_accepts(*pattern.elem, *actual.elem, tps, binds, bound);
+        case TY_RESULT:
+        case TY_MAP:
+            return param_accepts(*pattern.elem, *actual.elem, tps, binds, bound)
+                && param_accepts(*pattern.elem_err, *actual.elem_err, tps, binds, bound);
+        case TY_STRUCT:
+            if (strcmp(pattern.struct_name, actual.struct_name) != 0) return 0;
+            if (pattern.type_args.count != actual.type_args.count) return 0;
+            for (int i = 0; i < pattern.type_args.count; i++) {
+                if (!param_accepts(pattern.type_args.items[i], actual.type_args.items[i], tps, binds, bound)) return 0;
+            }
+            return 1;
+        case TY_ENUM:
+            if (strcmp(pattern.enum_name, actual.enum_name) != 0) return 0;
+            if (pattern.type_args.count != actual.type_args.count) return 0;
+            for (int i = 0; i < pattern.type_args.count; i++) {
+                if (!param_accepts(pattern.type_args.items[i], actual.type_args.items[i], tps, binds, bound)) return 0;
+            }
+            return 1;
+        case TY_FUNC:
+            if (pattern.type_args.count != actual.type_args.count) return 0;
+            for (int i = 0; i < pattern.type_args.count; i++) {
+                if (!param_accepts(pattern.type_args.items[i], actual.type_args.items[i], tps, binds, bound)) return 0;
+            }
+            return param_accepts(*pattern.elem, *actual.elem, tps, binds, bound);
+        default:
+            return 1;
+    }
+}
+
+/* The parameter at `i`, counting a variadic tail as covering every position from its own index on. */
+static int ovl_param_at(const FunctionDecl *fn, int i, Type *out) {
+    if (fn->params.count == 0) return 0;
+    int last = fn->params.count - 1;
+    if (i < last) { *out = fn->params.items[i].type; return 1; }
+    if (i == last) { *out = fn->params.items[last].type; return 1; }
+    if (fn->params.items[last].is_variadic) { *out = fn->params.items[last].type; return 1; }
+    return 0;
+}
+
+static int ovl_arity_fits(const FunctionDecl *fn, int argc) {
+    int n = fn->params.count;
+    int variadic = n > 0 && fn->params.items[n - 1].is_variadic;
+    if (variadic) return argc >= n - 1;
+    return argc == n;
+}
+
+/* The shape filter of §3: what a context-dependent argument says about its parameter without
+ * being checked. Syntax only -- no call into check_expr, which is the whole point. */
+static int ovl_shape_allows(const Expr *arg, Type pattern) {
+    switch (arg->kind) {
+        case EXPR_LAMBDA: {
+            if (pattern.kind == TY_TYPEVAR) return 1;
+            if (pattern.kind != TY_FUNC) return 0;
+            const FunctionDecl *lam = (const FunctionDecl *)arg->lambda_decl;
+            return lam == NULL || lam->params.count == pattern.type_args.count;
+        }
+        case EXPR_ARRAY_LIT:
+            if (arg->as.array_lit.elements.count != 0) return 1; /* not context-dependent anyway */
+            return pattern.kind == TY_ARRAY || pattern.kind == TY_TYPEVAR;
+        case EXPR_CALL: {
+            const char *c = arg->as.call.callee;
+            if (strcmp(c, "ok") == 0 || strcmp(c, "err") == 0) {
+                return pattern.kind == TY_RESULT || pattern.kind == TY_TYPEVAR;
+            }
+            if (strcmp(c, "Some") == 0) {
+                return (pattern.kind == TY_ENUM && strcmp(pattern.enum_name, "Option") == 0)
+                    || pattern.kind == TY_TYPEVAR;
+            }
+            return 1;
+        }
+        default:
+            return 1;
+    }
+}
+
+/* §4, steps 1-5. Never checks a context-dependent argument; checks every other one exactly once. */
+static void overload_resolve(Module *module, Env *env, Expr *e, const char *name, OverloadResolution *r) {
+    memset(r, 0, sizeof *r);
+    r->outcome = OVL_NO_MATCH;
+
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *f = module->functions.items[i];
+        if (strcmp(f->name, name) != 0) continue;
+        if (r->live_count >= OVL_MAX_CANDIDATES) { r->outcome = OVL_UNSUPPORTED; return; }
+        r->live[r->live_count++] = f;
+    }
+    if (r->live_count == 0) { r->outcome = OVL_NO_MATCH; return; }
+
+    int argc = e->as.call.args.count;
+
+    /* step 2: arity */
+    int keep = 0;
+    for (int i = 0; i < r->live_count; i++) {
+        if (ovl_arity_fits(r->live[i], argc)) r->live[keep++] = r->live[i];
+    }
+    if (keep == 0) { r->live_count = 0; r->eliminated_at = 0; r->outcome = OVL_NO_MATCH; return; }
+    r->live_count = keep;
+
+    /* steps 3 and 4, position by position */
+    for (int pos = 0; pos < argc && r->live_count > 1; pos++) {
+        Expr *arg = e->as.call.args.items[pos];
+        int deferred = expr_needs_expected_type(arg);
+        Type actual = type_scalar(TY_VOID);
+        if (!deferred) actual = check_expr(module, env, arg);
+
+        keep = 0;
+        for (int i = 0; i < r->live_count; i++) {
+            FunctionDecl *f = r->live[i];
+            Type pattern;
+            if (!ovl_param_at(f, pos, &pattern)) continue;
+            int ok;
+            if (deferred) {
+                ok = ovl_shape_allows(arg, pattern);
+            } else {
+                Type binds[16]; int bound[16];
+                int n = f->type_params.count > 16 ? 16 : f->type_params.count;
+                memset(binds, 0, sizeof binds);
+                memset(bound, 0, (size_t)n * sizeof bound[0]);
+                ok = param_accepts(pattern, actual, &f->type_params, binds, bound);
+            }
+            if (ok) { r->matched[keep] = r->matched[i] + 1; r->live[keep++] = f; }
+        }
+        if (keep == 0) { r->live_count = 0; r->eliminated_at = pos + 1; r->outcome = OVL_NO_MATCH; return; }
+        r->live_count = keep;
+    }
+
+    if (r->live_count == 1) { r->outcome = OVL_RESOLVED; r->chosen = r->live[0]; return; }
+    r->outcome = OVL_AMBIGUOUS;
+}
+
+/* Stage 1's only output: whether the resolver agrees with the arm that already decided.
+ * `expected` is the name the arm rewrote onto -- `mutable_array_filter` for `filter(b, p)`.
+ * A disagreement is a specification, not a failure, so this prints and returns. */
+/* Counted, not just reported. A run that prints nothing is indistinguishable from a run where the
+ * hook never fired, and "no output" is the answer a mis-wired shadow pass gives too -- so the
+ * summary states how many calls were observed, and the corpus script reads that rather than the
+ * absence of complaints. */
+static long g_ovl_agreed = 0, g_ovl_disagreed = 0;
+
+static void overload_shadow_summary(void) {
+    fprintf(stderr, "overload-shadow: %ld call(s) observed, %ld agreed, %ld disagreed\n",
+            g_ovl_agreed + g_ovl_disagreed, g_ovl_agreed, g_ovl_disagreed);
+}
+
+static void overload_shadow_check(Module *module, Env *env, Expr *e, const char *name, const char *expected) {
+    static int enabled = -1;
+    if (enabled < 0) {
+        enabled = getenv("ZIMAN_OVERLOAD_SHADOW") != NULL;
+        if (enabled) atexit(overload_shadow_summary);
+    }
+    if (!enabled) return;
+
+    OverloadResolution r;
+    overload_resolve(module, env, e, name, &r);
+
+    /* The two name different things and must be compared through the mapping between them: the
+     * arm rewrites onto an implementation (`array_map`), the resolver picks a declaration
+     * (`builtin fn map(a: [T], ...)`). What has to agree is the *world*, which the arm reads from
+     * the argument and the resolver from the chosen declaration's own first parameter. Comparing
+     * the raw names reported 400 disagreements on the first run, every one of them this. */
+    const char *verdict = NULL;
+    switch (r.outcome) {
+        case OVL_RESOLVED: {
+            if (strcmp(r.chosen->name, expected) == 0) { g_ovl_agreed++; return; } /* an arm that did not rewrite */
+            const char *prefix = NULL;
+            if (r.chosen->params.count > 0) {
+                Type p0 = r.chosen->params.items[0].type;
+                if (p0.kind == TY_ARRAY) prefix = "array_";
+                else if (p0.kind == TY_STRUCT && p0.struct_name != NULL
+                         && strcmp(p0.struct_name, "MutableArray") == 0) prefix = "mutable_array_";
+            }
+            if (prefix != NULL) {
+                size_t n = strlen(prefix) + strlen(r.chosen->name) + 1;
+                char *as_target = ziman_xmalloc(n);
+                snprintf(as_target, n, "%s%s", prefix, r.chosen->name);
+                int same = strcmp(as_target, expected) == 0;
+                free(as_target);
+                if (same) { g_ovl_agreed++; return; } /* agreement */
+            }
+            verdict = "resolved differently";
+            break;
+        }
+        case OVL_NO_MATCH:    verdict = "found no candidate"; break;
+        case OVL_AMBIGUOUS:   verdict = "was ambiguous"; break;
+        case OVL_UNSUPPORTED: verdict = "exceeded OVL_MAX_CANDIDATES"; break;
+    }
+    g_ovl_disagreed++;
+    fprintf(stderr, "overload-shadow: %d:%d '%s' -- arm chose '%s', resolver %s",
+            e->line, e->col, name, expected, verdict);
+    if (r.outcome == OVL_RESOLVED) fprintf(stderr, " ('%s')", r.chosen->name);
+    if (r.outcome == OVL_AMBIGUOUS) {
+        fprintf(stderr, " among %d:", r.live_count);
+        for (int i = 0; i < r.live_count; i++) fprintf(stderr, " %s/%d", r.live[i]->name, r.live[i]->params.count);
+    }
+    if (r.outcome == OVL_NO_MATCH && r.eliminated_at > 0) fprintf(stderr, " (argument %d)", r.eliminated_at);
+    fprintf(stderr, "\n");
+}
+
 static int check_collection_helper(Module *module, Env *env, Expr *e, const char *name, Type *out) {
     static const struct { const char *name; int argc; } TABLE[] = {
         {"map_get_or", 3}, {"map_merge", 2}, {"map_filter", 2}, {"map_remove_all", 2}, {"set_union", 2}, {"set_intersect", 2},
@@ -2017,6 +2272,7 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
         size_t n = strlen(prefix) + strlen(name) + 1;
         char *target_name = ziman_xmalloc(n);
         snprintf(target_name, n, "%s%s", prefix, name);
+        overload_shadow_check(module, env, e, name, target_name);
         e->as.call.rewritten_from = name;
         e->as.call.callee = target_name;
         *out = check_expr(module, env, e);
