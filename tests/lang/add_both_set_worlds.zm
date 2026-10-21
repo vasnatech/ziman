@@ -13,7 +13,6 @@ fn main() {
     print(add(s, 2))
     print(add(s, 2, 3))
     print(add(s, [2, 3]))
-    print(add<int>(s))
 
     val ms = mutable(s)
     print(add(ms, 2))

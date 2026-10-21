@@ -133,6 +133,7 @@ native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
 // `mutable_array_new`/`_filled` stay advertised (real constructors, no bare form) and so do
 // `mutable_array_get`/`_set` (`b[i]` and `b[i] = v` rewrite to them, and diagnostics name them --
 // hiding those two would point an error message at something the listing denies exists).
+#[at_least_one]
 internal native fn mutable_array_push<T>(ab: MutableArray<T>, pieces: variadic T)
 
 // The element at `index`, counting from 0; a runtime error outside `0..len(ab)`.
@@ -372,6 +373,7 @@ pub fn sort_by_desc<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
 // Variadic because appending several is one question, not several: a fold of one-value pushes
 // reuses the buffer's tip when it has room, so `push(a, x, y, z)` costs about what the three
 // values cost rather than three copies of `a`.
+#[at_least_one]
 builtin fn push<T>(a: [T], values: variadic T) -> [T]
 
 // The MutableArray's `push` is the array's, for the reason `len` and `contains` are: appending is
@@ -379,6 +381,7 @@ builtin fn push<T>(a: [T], values: variadic T) -> [T]
 // a new array there, nothing here, the container having been written -- which is the difference
 // between the two worlds and not a difference between the two names. The prefixed
 // `mutable_array_push` remains as the spelling this rewrites to.
+#[at_least_one]
 builtin fn push<T>(b: MutableArray<T>, values: variadic T)
 
 // **`insert` and `set` are not interchangeable, and the asymmetry is deliberate** -- each has its

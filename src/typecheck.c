@@ -1918,12 +1918,24 @@ static void canonicalize_named_args(Expr *e, FunctionDecl *fn) {
      * ordinary variadic-tail handling exactly as if the trailing argument had never existed at
      * all -- not a new code path, just this function no longer manufacturing a fake error for
      * one that was never required. */
-    int variadic_omitted = is_variadic && reordered[fixed_count] == NULL;
+    /* ... unless it is `#[at_least_one]`, where "nothing given" is exactly the reading being
+     * refused, so the parameter falls through to the missing-required-argument check below. */
+    int variadic_omitted = is_variadic && !fn->variadic_at_least_one && reordered[fixed_count] == NULL;
     for (int i = 0; i < fn->params.count; i++) {
-        if (reordered[i] != NULL || (is_variadic && i == fixed_count)) {
+        if (reordered[i] != NULL || (is_variadic && i == fixed_count && !fn->variadic_at_least_one)) {
             continue;
         }
         Param *param = &fn->params.items[i];
+        if (is_variadic && i == fixed_count) {
+            /* The `#[at_least_one]` parameter, reached only because it was left unfilled. Worth
+             * its own message rather than "missing required argument": the rule is unusual, and a
+             * caller who genuinely has nothing to pass needs to be told the empty-array spread is
+             * how to say so. Same sentence as check_call's, so one rule reads one way. */
+            ziman_error("type", e->line, e->col,
+                        "function '%s' needs at least one value for its variadic parameter '%s', since the "
+                        "call would otherwise do nothing (pass an array to spread a list that may be empty)",
+                        e->as.call.callee, param->name);
+        }
         if (!is_option_type(param->type)) {
             ziman_error("type", e->line, e->col,
                         "function '%s' is missing required argument '%s'",
@@ -2489,7 +2501,10 @@ static int ovl_params_disjoint(Type a, const TypeParamList *ta, Type b, const Ty
 
 static int ovl_min_arity(const FunctionDecl *f) {
     int n = f->params.count;
-    if (n > 0 && f->params.items[n - 1].is_variadic) return n - 1;
+    /* `#[at_least_one]` is part of the arity, not a check bolted on after resolution: a call that
+     * does not reach the floor must not select the declaration in the first place, or the set
+     * would resolve and then be refused with a message about the wrong member. */
+    if (n > 0 && f->params.items[n - 1].is_variadic) return f->variadic_at_least_one ? n : n - 1;
     return n;
 }
 
@@ -4230,8 +4245,19 @@ ordinary_call:;
     int fixed_count = is_variadic ? fn->params.count - 1 : fn->params.count;
 
     if (is_variadic) {
-        if (e->as.call.args.count < fixed_count) {
-            ziman_error("type", e->line, e->col, "function '%s' expects at least %d argument(s), found %d", name, fixed_count, e->as.call.args.count);
+        /* `#[at_least_one]` raises the floor by one. An empty array still passes as the spread
+         * form -- that is one argument, written out, and it is how a caller says "whatever is in
+         * this list, which may be nothing" on purpose rather than by omission. */
+        int min_args = fixed_count + (fn->variadic_at_least_one ? 1 : 0);
+        if (e->as.call.args.count < min_args) {
+            ziman_error("type", e->line, e->col,
+                        "function '%s' expects at least %d argument(s), found %d%s", name, min_args,
+                        e->as.call.args.count,
+                        fn->variadic_at_least_one
+                            ? " -- its last parameter is variadic but needs at least one value, since "
+                              "the call would otherwise do nothing (pass an array to spread a list that "
+                              "may be empty)"
+                            : "");
         }
     } else if (e->as.call.args.count != fn->params.count) {
         ziman_error("type", e->line, e->col, "function '%s' expects %d argument(s), found %d", name, fn->params.count, e->as.call.args.count);

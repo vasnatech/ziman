@@ -1,0 +1,11 @@
+// `#[at_least_one]` on a function with no variadic parameter would mean nothing, so it is refused
+// where it is written rather than ignored -- the same choice `#[when_unmatched]` makes for its
+// bare form.
+#[at_least_one]
+fn nope(a: int) -> int {
+    return a
+}
+
+fn main() {
+    print(nope(1))
+}

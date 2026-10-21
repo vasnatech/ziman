@@ -103,6 +103,7 @@ pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool) {
 
 // Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
 // of what the singular takes, which for a map's `remove` is keys rather than entries.
+#[at_least_one]
 pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool {
     var removed_any = false
     for k in keys {
@@ -114,6 +115,7 @@ pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> boo
 }
 
 // Drops each of `items`, answering whether any of them was there.
+#[at_least_one]
 pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
     var removed_any = false
     for item in items {
@@ -139,6 +141,7 @@ builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -> V
 
 builtin fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
 
+#[at_least_one]
 builtin fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
 
 builtin fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>

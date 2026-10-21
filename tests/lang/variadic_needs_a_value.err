@@ -1,0 +1,1 @@
+function 'add' expects at least 2 argument(s), found 1 -- its last parameter is variadic but needs at least one value, since the call would otherwise do nothing (pass an array to spread a list that may be empty)

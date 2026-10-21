@@ -13,7 +13,6 @@ fn main() {
     print(remove_all(m, ["a", "b"]))
     print(remove_all(m, "a", "b"))
     print(remove_all(m, "a"))
-    print(remove_all<string, int>(m))
     print(len(m))
 
     val mm = mutable(m)

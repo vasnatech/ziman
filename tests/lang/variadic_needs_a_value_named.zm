@@ -1,0 +1,16 @@
+// The same rule reached by the other road: a variadic parameter left unfilled entirely, rather
+// than present and short. `canonicalize_named_args` treats an omitted variadic as "zero elements"
+// by design -- which is right for `concat()` and wrong for a mutation, so `#[at_least_one]` makes
+// it fall through to a refusal here too. The sentence matches check_call's, because it is one
+// rule and should read one way whichever path reports it.
+#[at_least_one]
+fn total(xs: variadic int) -> int {
+    var n = 0
+    for x in xs { n = n + x }
+    return n
+}
+
+fn main() {
+    print(total(1, 2, 3))
+    print(total())
+}

@@ -1,0 +1,25 @@
+// `#[at_least_one]` on a variadic parameter: the call must pass a value, because a mutation with
+// nothing to mutate by does nothing at all. Before this, `add(s)` was accepted and returned the
+// set unchanged -- pinned as working by F199's own fixture, which is how it survived a day.
+//
+// The attribute is opt-in and the default stays zero-or-more, because a variadic with an identity
+// reads perfectly well empty: `concat()` is "", `join()` is "", and a SQL `query(conn, sql)` with
+// no bind parameters is the common case rather than a mistake. Only the mutations are marked.
+//
+// An empty array still passes, as one argument rather than none: that is how a caller says "spread
+// this list, which may be nothing" deliberately instead of by omission, and it is the escape hatch
+// that keeps the rule from being in anyone's way.
+fn main() {
+    val s = Set<int> { 1 }
+    val nothing: [int] = []
+    print(add(s, nothing))
+    print(add(s, 2))
+
+    val sb = mutable_string_new()
+    mutable_string_append(sb, "a", "b")
+    print(snapshot(sb))
+
+    val xs = mutable([1])
+    push(xs, 2)
+    print(snapshot(xs))
+}

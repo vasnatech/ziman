@@ -445,8 +445,10 @@ for x in seen { ... }                    // a set has one binder
   `remove` on a MutableMap answers the value that was there as an `Option<V>` (the entry is otherwise
   gone, and recovering it would need a `get` first), while a set's `add` and `remove` answer a
   `bool`, so a caller can dedupe without a `contains` first. Each `_all` form is variadic and
-  answers whether anything changed; the singular is never variadic, which is what keeps a
-  `MutableSet<[int]>` from being a special case. `_keys` and `_values` return the immutable `Set<K>`
+  answers whether anything changed. *(The singular is variadic too since F199; what keeps a
+  `MutableSet<[int]>` from being a special case is that the checker compares the argument against
+  the **element type**, not that the singular is fixed-arity. Each of these carries
+  `#[at_least_one]`, so the no-op call is a compile error.)* `_keys` and `_values` return the immutable `Set<K>`
   and `[V]`, not handles -- a result like that is nearly always consumed by a `for` or returned,
   so a handle would allocate a thread-bound object per loop for nothing. Each mutates its own private trie in place (O(n) total instead of copying per
   entry) -- use one in a loop adding many entries. Type arguments are written out
@@ -740,6 +742,12 @@ fn main() {
 - **`variadic` before the last parameter's type marks it variadic** — a caller supplies zero
   or more individually-listed arguments of that element type instead of exactly one. Only the
   last parameter may be variadic (it has to absorb everything after it).
+- **`#[at_least_one]` on the function raises that floor to one.** Zero is the default because a
+  variadic with an identity reads perfectly well empty — `concat()` is `""`, and a SQL
+  `query(conn, sql)` with no bind parameters is the common case, not a mistake. It is the
+  *mutations* that have no empty reading: `add(s)`, `remove_all(s)` and `push(xs)` change nothing,
+  so the prelude marks those. An **empty array still passes**, as one argument rather than none —
+  that is how a caller spreads a list that may be empty, deliberately rather than by omission.
 - **Inside the function it's an ordinary array** of the declared element type (`nums: variadic int`
   behaves as `nums: [int]`) — the signature shows the element type only, for the caller's sake.
 - **An already-built array works as the sole trailing argument** (`sum(nums)`), decided purely
@@ -1584,9 +1592,14 @@ val by_age = sort_by<Patient, int>(patients, fn(p: Patient) -> int { return p.ag
 
 ## Attributes and derive
 
-`#[...]`, above a declaration, attaches compile-time metadata to it. Five are interpreted:
-`derive` (below) and `thread_bound` on a `struct`/`enum`, and `test`, `deprecated` and
-`when_unmatched` on a function; other names parse but have no effect yet.
+`#[...]`, above a declaration, attaches compile-time metadata to it. Six are interpreted:
+`derive` (below) and `thread_bound` on a `struct`/`enum`, and `test`, `deprecated`,
+`when_unmatched` and `at_least_one` on a function; other names parse but have no effect yet.
+
+`#[at_least_one]` says the function's trailing `variadic` parameter needs a value — see
+"Variadic parameters". It takes no argument, since a function has at most one variadic parameter
+and it is always last, and it is refused on a function that has none rather than quietly meaning
+nothing.
 
 `#[when_unmatched("...")]` on any member of an **overload set** adds one line to the error raised
 when a call matches none of them. The error already names the types that position accepts, worked

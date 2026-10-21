@@ -171,6 +171,7 @@ them against the code.
 - [An element write is one statement with two meanings (2026-10-18, F149)](#an-element-write-is-one-statement-with-two-meanings-2026-10-18-f149)
 - [Overloading available to a declaration (2026-10-19, F174-F201)](#overloading-available-to-a-declaration-2026-10-19-f174-f201)
 - [The prelude is a directory, and the seam is the type a name is about (2026-10-20, F203)](#the-prelude-is-a-directory-and-the-seam-is-the-type-a-name-is-about-2026-10-20-f203)
+- [A variadic parameter that cannot be empty (2026-10-20, F204)](#a-variadic-parameter-that-cannot-be-empty-2026-10-20-f204)
 
 <!-- end index -->
 
@@ -7294,3 +7295,54 @@ everywhere including inside the sentence explaining the rename. And ~100 lines o
 array pairing pass sat above `filter_present`, so the split carried it into `option.zm`; it is one
 consolidated section in `array.zm` now. A same-name comparison is worth grepping for after any
 rename pass: `` `x` rather than `x` `` is always a defect and never a sentence anyone would write.
+
+
+## A variadic parameter that cannot be empty (2026-10-20, F204)
+
+`add(s)` returned the set unchanged. `remove_all(m)` removed nothing. `mutable_array_push(xs)`
+pushed nothing. Each is a call that does exactly nothing and can only be a mistake, and each had
+been an arity error until F199 replaced the singular `mutable_set_add(s, item)` and the plural
+`add_all(s, variadic T)` with one variadic `add`. The floor went with the singular.
+
+**It was not an oversight, which is the part worth recording.** `canonicalize_named_args` carries
+a paragraph explaining that an unfilled trailing variadic means *zero elements, not a missing
+argument*, and F199's own fixture pinned `add<int>(s)` answering `{1}`. The behaviour was chosen
+and tested. What had not been noticed is that the choice is right for some variadics and wrong for
+others, and nothing distinguished them.
+
+**The distinction is whether the parameter has an identity.** `concat()` is `""`. `join()` is
+`""`. `filter_present()` is `[]`. A SQL `query(conn, sql)` with no bind parameters is not a
+degenerate call, it is the ordinary one — and there are fourteen of those across `sqlite`, `pg`,
+`mysql` and `datasource`, so making at-least-one the default would have broken the database API to
+fix a set operation. Counted across the prelude and `lib/`: **roughly fifteen declarations where
+empty reads correctly against ten where it cannot.** Opt-in, therefore, not opt-out.
+
+**`#[at_least_one]`, an attribute rather than new syntax.** It takes no argument, because a
+function has at most one variadic parameter and it is always last, so there is nothing to name.
+An attribute was chosen over a parameter marker (`variadic+`) for two reasons. The formatter is a
+separate token scanner that would see `+` as a binary operator and respace it, so the marker would
+have needed a lexer change to survive `--fmt`; and `#[thread_bound]` is the standing precedent
+that a type rule in this language may be spelled as an attribute. It is refused on a function with
+no variadic parameter rather than ignored — the same choice `#[when_unmatched]` makes for its bare
+form.
+
+**The escape hatch is the empty array, and it is the reason the rule is not in anyone's way.** A
+variadic takes an already-built array as its sole trailing argument, so a caller holding a list
+that may be empty writes `add(s, items)` and gets the empty case for free. That is one argument,
+written out on purpose, rather than an omission — which is exactly the distinction the rule is
+drawing, so the hatch and the rule are the same idea seen from two sides.
+
+**Two code paths report it, so they were made to say the same sentence.** A call with too few
+arguments is caught in `check_call`; a call that omits the parameter entirely never reaches there,
+because `canonicalize_named_args` fills the gaps first and had its own thinner "missing required
+argument '%s'". One rule reading two ways is how a language acquires the reputation of being
+arbitrary, so the second path now carries the same explanation and the same pointer to the hatch.
+
+**`ovl_min_arity` had to learn it too, not just the final check.** The attribute is part of a
+declaration's arity, so a call below the floor must fail to *select* the declaration rather than
+select it and then be refused — otherwise an overload set would resolve to one member and report
+an arity complaint about it, when what the caller needs to hear is about the name.
+
+Marked: `add` (both worlds), `remove_all` (all three), `push` (both), `mutable_array_push`,
+`mutable_string_append`, `mutable_string_append_byte`, `min`, `max`. Left alone: `concat`, `join`,
+`bytes_concat`, `filter_present`/`filter_ok`/`filter_err`, and every `params: variadic SqlValue`.

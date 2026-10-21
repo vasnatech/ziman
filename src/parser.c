@@ -2517,6 +2517,7 @@ typedef struct {
     int deprecated;                  /* `#[deprecated]` or `#[deprecated("...")]` was among them */
     const char *deprecated_message;  /* the `("...")` text, or NULL for the bare form */
     const char *when_unmatched;      /* `#[when_unmatched("...")]`'s text, or NULL */
+    int at_least_one;                /* `#[at_least_one]` was among them */
 } DeriveList;
 
 static void derive_list_push(DeriveList *list, char *name) {
@@ -2525,6 +2526,21 @@ static void derive_list_push(DeriveList *list, char *name) {
         list->names = ziman_xrealloc(list->names, sizeof(char *) * (size_t)list->capacity);
     }
     list->names[list->count++] = name;
+}
+
+/* `#[at_least_one]` says the variadic parameter needs an argument. Refused on a function that has
+ * no variadic parameter, because there it would silently mean nothing -- the same reason
+ * `#[when_unmatched]` refuses its bare form. */
+static void apply_at_least_one(FunctionDecl *fn, const DeriveList *derives) {
+    if (!derives->at_least_one) return;
+    int n = fn->params.count;
+    if (n == 0 || !fn->params.items[n - 1].is_variadic) {
+        ziman_error("syntax", fn->line, fn->col,
+                    "#[at_least_one] applies to a variadic parameter, and '%s' has none -- it says that "
+                    "the trailing 'variadic' parameter needs at least one argument",
+                    fn->name);
+    }
+    fn->variadic_at_least_one = 1;
 }
 
 static DeriveList parse_attributes(Parser *p) {
@@ -2558,6 +2574,11 @@ static DeriveList parse_attributes(Parser *p) {
                     derives.test_cases = dup_token_text(cases_name);
                     expect(p, TOK_RPAREN, "')'");
                 }
+            } else if (item_name->length == 12 && strncmp(item_name->start, "at_least_one", 12) == 0) {
+                /* No argument: a function has at most one variadic parameter and it is always the
+                 * last, so there is nothing to name. Checked against the signature where the
+                 * attribute is attached, not here, since `parse_attributes` has not seen it yet. */
+                derives.at_least_one = 1;
             } else if (item_name->length == 14 && strncmp(item_name->start, "when_unmatched", 14) == 0) {
                 /* Takes a string for the same reason `deprecated` does: it is prose for whoever
                  * hits the error, not a name the compiler resolves. Unlike `deprecated` the
@@ -2711,6 +2732,7 @@ Module *parse(TokenList tokens) {
             fn->deprecated = derives.deprecated;
             fn->deprecated_message = derives.deprecated_message;
             fn->when_unmatched = derives.when_unmatched;
+            apply_at_least_one(fn, &derives);
             if (derives.is_test) {
                 ziman_error("syntax", fn->line, fn->col, "#[test] cannot apply to a %s function ('%s')",
                             is_builtin ? "builtin" : "native", fn->name);
@@ -2732,6 +2754,7 @@ Module *parse(TokenList tokens) {
             fn->deprecated = derives.deprecated;
             fn->deprecated_message = derives.deprecated_message;
             fn->when_unmatched = derives.when_unmatched;
+            apply_at_least_one(fn, &derives);
             function_list_push(&module->functions, fn);
         }
         ziman_recovery_pop();

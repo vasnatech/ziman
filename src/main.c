@@ -494,6 +494,10 @@ static int run_api(const char *module_name) {
             /* `builtin fn` keeps its keyword here rather than being flattened to `fn`: which of
              * the two owns the type rule is a real difference and the one docs/DESIGN.md's
              * "`native` and builtin are two different mechanisms" entry is about. */
+            /* Printed because it is part of the contract the signature states: without it the
+             * list would advertise `add(s, items: variadic T)` and say nothing about `add(s)`
+             * being refused. */
+            if (f->variadic_at_least_one) printf("\n#[at_least_one]");
             printf(f->is_builtin ? "\nbuiltin fn %s" : "\nfn %s", f->name);
             print_type_params(&f->type_params);
             printf("(");

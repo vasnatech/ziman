@@ -148,12 +148,14 @@ native fn mutable_string_new(capacity: Option<int> = 20, grow_factor: Option<flo
 
 // Appends each of `pieces`, given one by one or as an array. The builder changes in place and
 // nothing is returned.
+#[at_least_one]
 native fn mutable_string_append(sb: MutableString, pieces: variadic string)
 
 // Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say):
 // `mutable_string_append_byte(sb, 195b, 169b)`. A string cannot hold a 0 byte, so if any byte is `0b` NOTHING
 // is appended and the result is false (true otherwise). The bytes need not be valid UTF-8 on
 // their own.
+#[at_least_one]
 native fn mutable_string_append_byte(sb: MutableString, b: variadic byte) -> bool
 
 // Reading and writing one byte of the buffer, and searching it: what lets a string being built be

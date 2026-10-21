@@ -1,0 +1,7 @@
+// The refusal `#[at_least_one]` exists for: `add(s)` adds nothing, so it is a mistake at the call
+// site rather than an identity. The message names the escape hatch, since a caller who genuinely
+// holds a possibly-empty list has one.
+fn main() {
+    val s = Set<int> { 1 }
+    print(add<int>(s))
+}

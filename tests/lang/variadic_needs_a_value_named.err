@@ -1,0 +1,1 @@
+function 'total' needs at least one value for its variadic parameter 'xs', since the call would otherwise do nothing (pass an array to spread a list that may be empty)

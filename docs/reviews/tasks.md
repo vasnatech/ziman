@@ -2937,3 +2937,51 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `filter_present`, so the split carried it into `option.zm`; it is one consolidated section in
   `array.zm` now. **`` `x` rather than `x` `` is always a defect**, and worth grepping for after
   any rename pass.
+
+- [x] **F204** **`#[at_least_one]`: a variadic parameter that cannot be empty.** (raised
+  2026-10-20 by the user asking whether overloading now allows a native `push` per collection;
+  done 2026-10-20.) The question turned up a defect on the way to its answer: `add(s)`,
+  `remove_all(m)` and `mutable_array_push(xs)` were all accepted and all did nothing.
+
+  **I called it an unnoticed regression, and that was wrong.** `canonicalize_named_args` carries a
+  paragraph deciding that an unfilled trailing variadic means *zero elements, not a missing
+  argument*, and F199's own fixture pinned `add<int>(s)` answering `{1}`. It was chosen and
+  tested. The real gap is narrower: the choice is right for a variadic with an identity and wrong
+  for one without, and nothing in a declaration could say which it was.
+
+  **So it is opt-in, and the database API is what settles that.** `query(conn, sql)` with no bind
+  parameters is the ordinary call, not a degenerate one, and there are fourteen `params: variadic
+  SqlValue` declarations across `sqlite`/`pg`/`mysql`/`datasource`. Counted: ~15 declarations
+  where empty reads correctly against ~10 where it cannot. Making at-least-one the default would
+  have broken the database API to fix a set operation.
+
+  **An attribute, not a parameter marker.** `variadic+` was the first instinct and loses to the
+  formatter: `src/format.c` is a separate token scanner that would see `+` as a binary operator
+  and respace it, so the spelling would have needed a lexer change to survive `--fmt`.
+  `#[thread_bound]` is the precedent that a type rule here may be an attribute. No argument —
+  a function has at most one variadic parameter and it is always last. Refused on a function with
+  none, as `#[when_unmatched]` refuses its bare form.
+
+  **The empty array stays the escape hatch**, and it is the same idea as the rule rather than a
+  loophole in it: `add(s, items)` with an empty `items` is one argument written on purpose, which
+  is precisely what an omission is not.
+
+  **Two paths report it and now say one sentence.** Too-few-arguments is `check_call`; omitted
+  entirely never gets there, because `canonicalize_named_args` fills gaps first and had its own
+  thinner *"missing required argument"*. Both now explain the rule and name the hatch.
+  `ovl_min_arity` learned it as well — the floor is part of a declaration's arity, so a short call
+  must fail to *select* the declaration rather than select it and then be refused with a complaint
+  about the wrong member.
+
+  Marked: `add` ×2, `remove_all` ×3, `push` ×2, `mutable_array_push`, `mutable_string_append`,
+  `mutable_string_append_byte`, `min`, `max`. Left alone: `concat`, `join`, `bytes_concat`, the
+  three `filter_*`, and every `variadic SqlValue`. Four fixtures: the rule, both refusal paths,
+  and the attribute on a function with no variadic parameter. Two of F199's fixtures lost the
+  line that pinned the old behaviour. 1,106 fixtures pass, `make check` exit 0 including the
+  North Star — which is the evidence the opt-in call was right, since that backend is all
+  `query(conn, sql)`.
+
+  **What it does not do: `push` is still not convertible.** That was the motivation, and the floor
+  was only one of its two blockers. The other stands — `push` shares a `typecheck.c` arm with
+  `insert` and `set`, which is the same reason F191 found `set` unconvertible. Splitting that arm
+  is its own task.
