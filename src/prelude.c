@@ -2016,6 +2016,21 @@ Value ziman_narrow_mutable_array(Value b, int64_t start, int64_t end, int line, 
  * `slice(snapshot(b), s, e)` copies the *entire* builder first, since snapshot is O(n) and the
  * slice of it is then free, so a three-element window of a ten-thousand-element builder copied ten
  * thousand elements. */
+/* `slice`'s two members, native since F214. The implementations below are unchanged and were
+ * reached from `B_slice`'s arm until then; these are the three-argument shims the resolver's path
+ * needs. Neither sets the result's element type, and neither has to: the `call_fn` path fixes up a
+ * generic native's return type from `e->resolved_type` (interpreter.c), which is the same thing the
+ * arm did by hand. */
+static Value native_array_slice(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return ziman_slice_array(args[0], args[1].as.i, args[2].as.i, line, col);
+}
+
+static Value native_mutable_array_slice(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return ziman_slice_mutable_array(args[0], args[1].as.i, args[2].as.i, line, col);
+}
+
 Value ziman_slice_mutable_array(Value b, int64_t start, int64_t end, int line, int col) {
     const MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(b));
     if (start < 0 || end < start || (size_t)end > buf->length) {
@@ -2419,6 +2434,8 @@ void prelude_register(void) {
     native_register("array_filter", native_array_filter);
     native_register("array_flat_map", native_array_flat_map);
     native_register("array_reverse", native_array_reverse);
+    native_register("array_slice", native_array_slice);
+    native_register("mutable_array_slice", native_mutable_array_slice);
     native_register("string_to_bytes", native_string_to_bytes);
     native_register("bytes_to_string", native_bytes_to_string);
     native_register("chars", native_chars);

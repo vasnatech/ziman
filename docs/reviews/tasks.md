@@ -3430,3 +3430,33 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   One new fixture (`index_of_both_worlds`), `prefixed_builder_appenders_point_home` extended to
   five hints, and `group_d_invisible_names`, `docs/SYNTAX.md` (two places) and the LSP completion
   list updated. 1,115 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F214** **`slice` becomes two `native fn` declarations.** (user-raised, "can we make the
+  following native not builtin?"; done 2026-10-21.) `make overload-sets-check` moves to **43
+  resolver-owned sets and 17 polymorphic builtins**. The first conversion in this effort with **no
+  arm to delete**: `slice` never had one. Its type rule was already its two signatures and its
+  diagnostics already derived from them, so all three messages are unchanged —
+  *"'slice' expects [T] or MutableArray<T>, found int"*, *"argument 2 of 'slice' expects int,
+  found string"*, *"no declaration of 'slice' takes 2 argument(s)"*. §11 named diagnostics as what
+  gates these conversions; for this one there was nothing to lose.
+
+  **Two of the usual payoffs did not apply, which is worth recording before the next candidate.**
+  `slice` was in `BUILTINS_WITH_NAMED_ARGS`, so it already took named arguments, and the corpus
+  already wrote `slice<byte>(buf, 0, n)` — a builtin with a declaration is not barred from either.
+  The gain is that the resolver owns it, the id and its branch are gone, and purity is now per
+  declaration rather than a name in `PURE_BUILTINS` (the entry is deleted; F212's new guard would
+  have failed on it otherwise, since nothing dispatches `slice` any more).
+
+  **The obstacle I expected was already solved.** `ziman_slice_array` returns a placeholder type and
+  the arm overwrote it with `e->resolved_type`; a native cannot see the Expr. But the `call_fn` path
+  already does exactly that fixup for any generic native
+  (`fn->is_native && fn->type_params.count > 0`), so the two new shims needed no new
+  implementation — they are three-argument wrappers over the functions the arm already called,
+  registered as `array_slice` and `mutable_array_slice`.
+
+  **Measured, because id dispatch is inline and a native call pushes a frame.** Interleaved runs of
+  two binaries built from the same tree: on a loop whose body is nothing but `slice` + `len`,
+  **+8% at 10M calls, about 8 ns a call**; on a real consumer (`tests/bench/bytes_bench.zm`),
+  **-3.2%**, which is to say no difference the machine can resolve. The microbenchmark cost does
+  not reach code that does anything with the window it takes. One new fixture
+  (`slice_paired_declarations`). 1,116 fixtures, `make check` exit 0 with the North Star.

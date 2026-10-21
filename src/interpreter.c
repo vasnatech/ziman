@@ -1268,7 +1268,6 @@ typedef enum {
     B_mutable_array_push_all,
     B_mutable_array_from,
     B_mutable_array_lit,
-    B_slice,
     B_narrow,
     B_swap,
     B_concat,
@@ -1332,7 +1331,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"len", B_len},
     {"$mutable_array_from", B_mutable_array_from},
     {"$mutable_array_lit", B_mutable_array_lit},
-    {"slice", B_slice},
     {"narrow", B_narrow},
     {"swap", B_swap},
     {"concat", B_concat},
@@ -1599,14 +1597,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 }
             } else if (bid == B_narrow) {
                 result = ziman_narrow_mutable_array(args[0], args[1].as.i, args[2].as.i, e->line, e->col);
-            } else if (bid == B_slice) {
-                /* Either world, and the answer is an array both times. Free for an array, which
-                 * shares its parent's storage; a copy of the window for a builder, which cannot
-                 * share a buffer that is still being written. */
-                result = args[0].type->kind == TY_STRUCT
-                             ? ziman_slice_mutable_array(args[0], args[1].as.i, args[2].as.i, e->line, e->col)
-                             : ziman_slice_array(args[0], args[1].as.i, args[2].as.i, e->line, e->col);
-                result.type = &e->resolved_type;
             } else if (bid == B_mutable_array_lit) {
                 result = ziman_mutable_array_lit(args, argc);
                 result.type = &e->resolved_type;

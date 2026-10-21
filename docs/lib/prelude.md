@@ -703,7 +703,7 @@ opaque `handle`, same thread-bound rule.
 ### `slice`
 
 ```
-builtin fn slice<T>(a: [T], start: int, end: int) -> [T]
+native fn slice<T>(a: [T], start: int, end: int) -> [T]
 ```
 
 The elements from `start` up to, not including, `end` (`0 <= start <= end <= len(x)`, a runtime
@@ -719,8 +719,15 @@ either way and only the cost differs -- and taking the builder directly is the p
 it then free), so a three-element window of a ten-thousand-element builder copied ten thousand
 elements.
 
+**`native fn`, not `builtin fn`, since F214.** The two members are the resolver's to choose
+between, so `B_slice` and its arm are gone and each declaration finds its own C symbol through
+parameter one: `array_slice` and `mutable_array_slice`. Nothing about the call changes -- `slice`
+already took named and type arguments, being listed in `BUILTINS_WITH_NAMED_ARGS`, and its
+diagnostics were already derived from these two signatures rather than hand-written, which is
+what made it the cheapest of the remaining polymorphic builtins to convert.
+
 ```
-builtin fn slice<T>(b: MutableArray<T>, start: int, end: int) -> [T]
+native fn slice<T>(b: MutableArray<T>, start: int, end: int) -> [T]
 ```
 
 ### `mutable_array_new`
