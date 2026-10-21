@@ -95,18 +95,18 @@ fn read_hex(s: string, pos: int, n: int) -> int {
 
 fn append_utf8(out: MutableString, cp: int) {
     if cp < 128 {
-        mutable_string_append_byte(out, cp as byte)
+        append_byte(out, cp as byte)
     } else if cp < 2048 {
-        mutable_string_append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
+        append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
     } else if cp < 65536 {
-        mutable_string_append_byte(
+        append_byte(
             out,
             (224 + cp / 4096) as byte,
             (128 + cp / 64 % 64) as byte,
             (128 + cp % 64) as byte
         )
     } else {
-        mutable_string_append_byte(
+        append_byte(
             out,
             (240 + cp / 262144) as byte,
             (128 + cp / 4096 % 64) as byte,
@@ -326,17 +326,17 @@ fn read_double(s: string, pos: int, no: int) -> Result<Scalar, string> {
         if c == "\\" {
             val e = char_at(s, p + 1)
             if e == "n" {
-                mutable_string_append(out, "\n")
+                append(out, "\n")
             } else if e == "t" {
-                mutable_string_append(out, "\t")
+                append(out, "\t")
             } else if e == "r" {
-                mutable_string_append(out, "\r")
+                append(out, "\r")
             } else if e == "b" {
-                mutable_string_append_byte(out, 8b)
+                append_byte(out, 8b)
             } else if e == "f" {
-                mutable_string_append_byte(out, 12b)
+                append_byte(out, 12b)
             } else if e == "\"" || e == "\\" || e == "/" || e == " " {
-                mutable_string_append(out, e)
+                append(out, e)
             } else if e == "x" || e == "u" || e == "U" {
                 val digits = if e == "x" { 2 } else if e == "u" { 4 } else { 8 }
                 val cp = read_hex(s, p + 2, digits)
@@ -351,7 +351,7 @@ fn read_double(s: string, pos: int, no: int) -> Result<Scalar, string> {
             }
             p = p + 2
         } else {
-            mutable_string_append(out, c)
+            append(out, c)
             p = p + 1
         }
     }
@@ -365,13 +365,13 @@ fn read_single(s: string, pos: int, no: int) -> Result<Scalar, string> {
         val c = char_at(s, p)
         if c == "'" {
             if is_char_at(s, p + 1, "'") {
-                mutable_string_append(out, "'")
+                append(out, "'")
                 p = p + 2
             } else {
                 return ok(Scalar { value: Json.JString(snapshot(out)), next: p + 1 })
             }
         } else {
-            mutable_string_append(out, c)
+            append(out, c)
             p = p + 1
         }
     }
@@ -657,16 +657,16 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
     while k < count {
         if k > 0 {
             if literal {
-                mutable_string_append(out, "\n")
+                append(out, "\n")
             } else if len(all[k]) == 0 {
-                mutable_string_append(out, "\n")
+                append(out, "\n")
             } else if len(all[k - 1]) == 0 {
                 // a blank line already produced its own newline
             } else {
-                mutable_string_append(out, " ")
+                append(out, " ")
             }
         }
-        mutable_string_append(out, all[k])
+        append(out, all[k])
         k = k + 1
     }
     // Appended to the builder and snapshotted once, rather than snapshotting first and then
@@ -674,11 +674,11 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
     // pass re-copied the whole block scalar (D22).
     if count > 0 {
         if chomp == "clip" {
-            mutable_string_append(out, "\n")
+            append(out, "\n")
         } else if chomp == "keep" {
-            mutable_string_append(out, "\n")
+            append(out, "\n")
             for t in 0..(len(all) - count) {
-                mutable_string_append(out, "\n")
+                append(out, "\n")
             }
         }
     }
@@ -724,10 +724,10 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
     // making those linear needs the depth and quote state tracked incrementally, which is a
     // redesign of the scanner rather than a rewrite of the loop (D22, F133).
     val plain = mutable_string_new()
-    mutable_string_append(plain, text)
+    append(plain, text)
     while next < len(lines) && len(content_of(lines[next])) > 0 && lines[next].indent > parent_indent {
-        mutable_string_append(plain, " ")
-        mutable_string_append(plain, content_of(lines[next]))
+        append(plain, " ")
+        append(plain, content_of(lines[next]))
         next = next + 1
     }
     val value = try plain_scalar(snapshot(plain), no)
@@ -873,34 +873,34 @@ pub fn parse_yaml(text: string) -> Result<Json, string> {
 
 fn quote_double(s: string) -> string {
     val out = mutable_string_new()
-    mutable_string_append(out, "\"")
+    append(out, "\"")
     var i = 0
     while i < len(s) {
         val c = char_at(s, i)
         if c == "\"" {
-            mutable_string_append(out, "\\\"")
+            append(out, "\\\"")
         } else if c == "\\" {
-            mutable_string_append(out, "\\\\")
+            append(out, "\\\\")
         } else if c == "\n" {
-            mutable_string_append(out, "\\n")
+            append(out, "\\n")
         } else if c == "\t" {
-            mutable_string_append(out, "\\t")
+            append(out, "\\t")
         } else if c == "\r" {
-            mutable_string_append(out, "\\r")
+            append(out, "\\r")
         } else if compare(c, " ") < 0 {
             val code = string_to_bytes(c)[0] as int
-            mutable_string_append(
+            append(
                 out,
                 "\\x",
                 substring(hex_chars, code / 16, code / 16 + 1),
                 substring(hex_chars, code % 16, code % 16 + 1)
             )
         } else {
-            mutable_string_append(out, c)
+            append(out, c)
         }
         i = i + 1
     }
-    mutable_string_append(out, "\"")
+    append(out, "\"")
     return snapshot(out)
 }
 
@@ -991,7 +991,7 @@ fn empty_text(j: Json) -> string {
 fn pad_of(n: int) -> string {
     val out = mutable_string_new()
     for i in 0..n {
-        mutable_string_append(out, " ")
+        append(out, " ")
     }
     return snapshot(out)
 }
@@ -1001,15 +1001,15 @@ fn pad_of(n: int) -> string {
 fn write_map(out: MutableString, obj: Json, indent: int, first_prefix: string) {
     var first = true
     for key, value in Json.unwrap_JObject(obj) {
-        mutable_string_append(out, if first && len(first_prefix) > 0 { first_prefix } else { pad_of(indent) })
+        append(out, if first && len(first_prefix) > 0 { first_prefix } else { pad_of(indent) })
         first = false
         if is_container(value) && !is_empty_container(value) {
-            mutable_string_append(out, key_text(key), ":\n")
+            append(out, key_text(key), ":\n")
             write_node(out, value, indent + 2)
         } else if is_container(value) {
-            mutable_string_append(out, key_text(key), ": ", empty_text(value), "\n")
+            append(out, key_text(key), ": ", empty_text(value), "\n")
         } else {
-            mutable_string_append(out, key_text(key), ": ", scalar_text(value), "\n")
+            append(out, key_text(key), ": ", scalar_text(value), "\n")
         }
     }
 }
@@ -1019,12 +1019,12 @@ fn write_seq(out: MutableString, arr: Json, indent: int) {
         if Json.is_JObject(item) && !is_empty_container(item) {
             write_map(out, item, indent + 2, concat(pad_of(indent), "- "))
         } else if is_container(item) && !is_empty_container(item) {
-            mutable_string_append(out, pad_of(indent), "-\n")
+            append(out, pad_of(indent), "-\n")
             write_node(out, item, indent + 2)
         } else if is_container(item) {
-            mutable_string_append(out, pad_of(indent), "- ", empty_text(item), "\n")
+            append(out, pad_of(indent), "- ", empty_text(item), "\n")
         } else {
-            mutable_string_append(out, pad_of(indent), "- ", scalar_text(item), "\n")
+            append(out, pad_of(indent), "- ", scalar_text(item), "\n")
         }
     }
 }

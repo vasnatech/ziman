@@ -1,5 +1,5 @@
 fn worker(sb: MutableString) {
-    mutable_string_append(sb, "x")
+    append(sb, "x")
 }
 
 fn main() {

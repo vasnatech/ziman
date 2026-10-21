@@ -276,11 +276,11 @@ fn escaped(s: string) -> string {
     for b in string_to_bytes(s) {
         val c = b as int
         if c == 40 || c == 41 || c == 92 {
-            mutable_string_append(out, "\\", bytes_to_char(b))
+            append(out, "\\", bytes_to_char(b))
         } else if c < 32 || c > 126 {
-            mutable_string_append(out, "\\", octal3(c))
+            append(out, "\\", octal3(c))
         } else {
-            mutable_string_append(out, bytes_to_char(b))
+            append(out, bytes_to_char(b))
         }
     }
     return snapshot(out)
@@ -312,7 +312,7 @@ pub fn hex_of(data: [byte]) -> string {
         val c = b as int
         val hi = c / 16
         val lo = c % 16
-        mutable_string_append(out, substring(digits, hi, hi + 1), substring(digits, lo, lo + 1))
+        append(out, substring(digits, hi, hi + 1), substring(digits, lo, lo + 1))
     }
     return snapshot(out)
 }

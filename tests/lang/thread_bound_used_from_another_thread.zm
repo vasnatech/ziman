@@ -10,9 +10,9 @@ fn run(job: fn(), done: Channel<int>) {
 
 fn main() {
     val sb = mutable_string_new()
-    mutable_string_append(sb, "main ")
+    append(sb, "main ")
     val done: Channel<int> = channel_new()
-    spawn run(fn() { mutable_string_append(sb, "thread") }, done)
+    spawn run(fn() { append(sb, "thread") }, done)
     print(receive(done))
     print(snapshot(sb))
 }

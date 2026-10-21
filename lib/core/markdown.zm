@@ -221,9 +221,9 @@ fn escape_inline_text(s: string, out: MutableString) {
     while i < len(s) {
         val c = char_at(s, i)
         if c == "\\" || c == "`" || c == "*" || c == "_" || c == "[" || c == "]" || c == "<" {
-            mutable_string_append(out, "\\", c)
+            append(out, "\\", c)
         } else {
-            mutable_string_append(out, c)
+            append(out, c)
         }
         i = i + 1
     }
@@ -273,7 +273,7 @@ fn repeat_char(c: string, n: int) -> string {
     val out = mutable_string_new()
     var i = 0
     while i < n {
-        mutable_string_append(out, c)
+        append(out, c)
         i = i + 1
     }
     return snapshot(out)
@@ -285,7 +285,7 @@ fn repeat_char(c: string, n: int) -> string {
 fn write_code_span(text: string, out: MutableString) {
     val fence = repeat_char("`", longest_backtick_run(text) + 1)
     val pad = if starts_with(text, "`") || ends_with(text, "`") { " " } else { "" }
-    mutable_string_append(out, fence, pad, text, pad, fence)
+    append(out, fence, pad, text, pad, fence)
 }
 
 fn write_inline(items: [Inline], out: MutableString, in_table: bool) -> Result<bool, string> {
@@ -300,44 +300,44 @@ fn write_inline(items: [Inline], out: MutableString, in_table: bool) -> Result<b
             }
             Code(t) { write_code_span(t, out) }
             Emphasis(inner) {
-                mutable_string_append(out, "*")
+                append(out, "*")
                 val _ = try write_inline(inner, out, in_table)
-                mutable_string_append(out, "*")
+                append(out, "*")
             }
             Strong(inner) {
-                mutable_string_append(out, "**")
+                append(out, "**")
                 val _ = try write_inline(inner, out, in_table)
-                mutable_string_append(out, "**")
+                append(out, "**")
             }
             Link(l) {
-                mutable_string_append(out, "[")
+                append(out, "[")
                 val _ = try write_inline(l.text, out, in_table)
-                mutable_string_append(out, "](", escape_destination(l.destination))
+                append(out, "](", escape_destination(l.destination))
                 if Some(t) = l.title {
-                    mutable_string_append(out, " \"", replace(t, "\"", "\\\""), "\"")
+                    append(out, " \"", replace(t, "\"", "\\\""), "\"")
                 }
-                mutable_string_append(out, ")")
+                append(out, ")")
             }
             Image(l) {
-                mutable_string_append(out, "![")
+                append(out, "![")
                 val _ = try write_inline(l.text, out, in_table)
-                mutable_string_append(out, "](", escape_destination(l.destination))
+                append(out, "](", escape_destination(l.destination))
                 if Some(t) = l.title {
-                    mutable_string_append(out, " \"", replace(t, "\"", "\\\""), "\"")
+                    append(out, " \"", replace(t, "\"", "\\\""), "\"")
                 }
-                mutable_string_append(out, ")")
+                append(out, ")")
             }
             SoftBreak {
                 if in_table {
                     return err("a table cell cannot contain a line break")
                 }
-                mutable_string_append(out, "\n")
+                append(out, "\n")
             }
             HardBreak {
                 if in_table {
                     return err("a table cell cannot contain a line break")
                 }
-                mutable_string_append(out, "  \n")
+                append(out, "  \n")
             }
         }
     }
@@ -367,11 +367,11 @@ fn escape_table_text(s: string, out: MutableString) -> Result<bool, string> {
             return err("a table cell cannot contain a line break (flatten_cell turns one into a space)")
         }
         if c == "|" {
-            mutable_string_append(out, "\\|")
+            append(out, "\\|")
         } else if c == "\\" || c == "`" || c == "*" || c == "_" || c == "[" || c == "]" || c == "<" {
-            mutable_string_append(out, "\\", c)
+            append(out, "\\", c)
         } else {
-            mutable_string_append(out, c)
+            append(out, c)
         }
         i = i + 1
     }
@@ -402,9 +402,9 @@ fn prefix_lines(text: string, first: string, rest: string) -> string {
     for line in lines(text) {
         val p = if i == 0 { first } else { rest }
         if line == "" {
-            mutable_string_append(out, trim(p), "\n")
+            append(out, trim(p), "\n")
         } else {
-            mutable_string_append(out, p, line, "\n")
+            append(out, p, line, "\n")
         }
         i = i + 1
     }
@@ -425,7 +425,7 @@ fn write_blocks(blocks: [Block], out: MutableString, tight: bool) -> Result<bool
             }
         }
         if separate {
-            mutable_string_append(out, "\n")
+            append(out, "\n")
         }
         first = false
         previous_was_paragraph = false
@@ -440,28 +440,28 @@ fn write_blocks(blocks: [Block], out: MutableString, tight: bool) -> Result<bool
 fn write_block(block: Block, out: MutableString) -> Result<bool, string> {
     switch block {
         Heading(h) {
-            mutable_string_append(out, repeat_char("#", h.level), " ")
-            mutable_string_append(out, try inline_to_text(h.content, false))
-            mutable_string_append(out, "\n")
+            append(out, repeat_char("#", h.level), " ")
+            append(out, try inline_to_text(h.content, false))
+            append(out, "\n")
         }
         Paragraph(content) {
-            mutable_string_append(out, escape_block_leader(try inline_to_text(content, false)), "\n")
+            append(out, escape_block_leader(try inline_to_text(content, false)), "\n")
         }
         ThematicBreak {
-            mutable_string_append(out, "---\n")
+            append(out, "---\n")
         }
         CodeBlock(c) {
             val fence = repeat_char("`", max(3, longest_backtick_run(c.text) + 1))
-            mutable_string_append(out, fence, c.info, "\n", c.text)
+            append(out, fence, c.info, "\n", c.text)
             if !ends_with(c.text, "\n") && c.text != "" {
-                mutable_string_append(out, "\n")
+                append(out, "\n")
             }
-            mutable_string_append(out, fence, "\n")
+            append(out, fence, "\n")
         }
         BlockQuote(inner) {
             val body = mutable_string_new()
             val _ = try write_blocks(inner, body, false)
-            mutable_string_append(out, prefix_lines(snapshot(body), "> ", "> "))
+            append(out, prefix_lines(snapshot(body), "> ", "> "))
         }
         List(l) {
             val _ = try write_list(l, out)
@@ -478,13 +478,13 @@ fn write_list(l: List, out: MutableString) -> Result<bool, string> {
     var first = true
     for item in l.items {
         if !first && !l.tight {
-            mutable_string_append(out, "\n")
+            append(out, "\n")
         }
         first = false
         val marker = if l.ordered { format("{}. ", n) } else { "- " }
         val body = mutable_string_new()
         val _ = try write_blocks(item.blocks, body, l.tight)
-        mutable_string_append(out, prefix_lines(snapshot(body), marker, repeat_char(" ", len(marker))))
+        append(out, prefix_lines(snapshot(body), marker, repeat_char(" ", len(marker))))
         n = n + 1
     }
     return ok(true)
@@ -502,11 +502,11 @@ fn write_table(t: Table, out: MutableString) -> Result<bool, string> {
         ))
     }
     val _ = try write_row(t.headers, out, "header")
-    mutable_string_append(out, "|")
+    append(out, "|")
     for a in t.alignments {
-        mutable_string_append(out, " ", align_marker(a), " |")
+        append(out, " ", align_marker(a), " |")
     }
-    mutable_string_append(out, "\n")
+    append(out, "\n")
     var n = 0
     for row in t.rows {
         if len(row) != len(t.headers) {
@@ -524,15 +524,15 @@ fn write_table(t: Table, out: MutableString) -> Result<bool, string> {
 }
 
 fn write_row(cells: [[Inline]], out: MutableString, where_: string) -> Result<bool, string> {
-    mutable_string_append(out, "|")
+    append(out, "|")
     for cell in cells {
         val text = inline_to_text(cell, true)
         if Err(e) = text {
             return err(format("{}: {}", where_, e))
         }
-        mutable_string_append(out, " ", unwrap(text), " |")
+        append(out, " ", unwrap(text), " |")
     }
-    mutable_string_append(out, "\n")
+    append(out, "\n")
     return ok(true)
 }
 
@@ -759,14 +759,14 @@ fn table_cells(line: string) -> [string] {
     var i = 0
     while i < len(body) {
         if is_char_at(body, i, "\\") && i + 1 < len(body) && is_char_at(body, i + 1, "|") {
-            mutable_string_append(cell, "|")
+            append(cell, "|")
             i = i + 2
         } else if is_char_at(body, i, "|") {
             out = push(out, trim(snapshot(cell)))
             clear(cell)
             i = i + 1
         } else {
-            mutable_string_append(cell, char_at(body, i))
+            append(cell, char_at(body, i))
             i = i + 1
         }
     }
@@ -914,13 +914,13 @@ fn parse_inlines(s: string) -> [Inline] {
     while i < len(s) {
         val c = char_at(s, i)
         if c == "\\" && i + 1 < len(s) && index_of(escapable, char_at(s, i + 1), 0) >= 0 {
-            mutable_string_append(text, char_at(s, i + 1))
+            append(text, char_at(s, i + 1))
             i = i + 2
         } else if c == "`" {
             val end = run_end(s, i, "`")
             val close = closing_backticks(s, end, end - i)
             if close < 0 {
-                mutable_string_append(text, substring(s, i, end))
+                append(text, substring(s, i, end))
                 i = end
             } else {
                 flush_text(out, text)
@@ -937,7 +937,7 @@ fn parse_inlines(s: string) -> [Inline] {
             val close = closing_bracket(s, open)
             val paren = if close < 0 { -1 } else { closing_paren(s, close + 1) }
             if close < 0 || !is_char_at(s, close + 1, "(") || paren < 0 {
-                mutable_string_append(text, c)
+                append(text, c)
                 i = i + 1
             } else {
                 flush_text(out, text)
@@ -955,7 +955,7 @@ fn parse_inlines(s: string) -> [Inline] {
             val n = if end - i >= 2 { 2 } else { 1 }
             val close = closing_delimiter(s, i + n, c, n)
             if close < 0 {
-                mutable_string_append(text, substring(s, i, end))
+                append(text, substring(s, i, end))
                 i = end
             } else {
                 flush_text(out, text)
@@ -967,7 +967,7 @@ fn parse_inlines(s: string) -> [Inline] {
             val so_far = snapshot(text)
             if ends_with(so_far, "  ") {
                 clear(text)
-                mutable_string_append(text, trim_end_spaces(so_far))
+                append(text, trim_end_spaces(so_far))
                 flush_text(out, text)
                 mutable_array_push(out, Inline.HardBreak)
             } else {
@@ -976,7 +976,7 @@ fn parse_inlines(s: string) -> [Inline] {
             }
             i = i + 1
         } else {
-            mutable_string_append(text, c)
+            append(text, c)
             i = i + 1
         }
     }
@@ -1110,10 +1110,10 @@ fn read_fenced(all: [string], from: int, fence: [string]) -> BlockScan {
             }
         }
         if !first {
-            mutable_string_append(body, "\n")
+            append(body, "\n")
         }
         first = false
-        mutable_string_append(body, all[i])
+        append(body, all[i])
         i = i + 1
     }
     return BlockScan {
@@ -1176,15 +1176,15 @@ fn read_paragraph(all: [string], from: int) -> ParaScan {
     var first = true
     while i < len(all) && trim(all[i]) != "" && !(i > from && is_block_start(all[i])) {
         if !first {
-            mutable_string_append(out, "\n")
+            append(out, "\n")
         }
         first = false
         val line = trim_start(all[i])
         val last = i + 1 >= len(all) || trim(all[i + 1]) == ""
         if !last && ends_with(line, "  ") {
-            mutable_string_append(out, trim_end_spaces(line), "  ")
+            append(out, trim_end_spaces(line), "  ")
         } else {
-            mutable_string_append(out, trim_end_spaces(line))
+            append(out, trim_end_spaces(line))
         }
         i = i + 1
     }
@@ -1361,9 +1361,9 @@ pub fn text_of(doc: Document) -> string {
 
 fn gather_block_text(block: Block, out: MutableString) {
     switch block {
-        Heading(h) { gather_inline_text(h.content, out) mutable_string_append(out, "\n") }
-        Paragraph(c) { gather_inline_text(c, out) mutable_string_append(out, "\n") }
-        CodeBlock(c) { mutable_string_append(out, c.text, "\n") }
+        Heading(h) { gather_inline_text(h.content, out) append(out, "\n") }
+        Paragraph(c) { gather_inline_text(c, out) append(out, "\n") }
+        CodeBlock(c) { append(out, c.text, "\n") }
         ThematicBreak {}
         BlockQuote(inner) {
             for b in inner {
@@ -1380,15 +1380,15 @@ fn gather_block_text(block: Block, out: MutableString) {
         Table(t) {
             for cell in t.headers {
                 gather_inline_text(cell, out)
-                mutable_string_append(out, " ")
+                append(out, " ")
             }
-            mutable_string_append(out, "\n")
+            append(out, "\n")
             for row in t.rows {
                 for cell in row {
                     gather_inline_text(cell, out)
-                    mutable_string_append(out, " ")
+                    append(out, " ")
                 }
-                mutable_string_append(out, "\n")
+                append(out, "\n")
             }
         }
     }
@@ -1397,14 +1397,14 @@ fn gather_block_text(block: Block, out: MutableString) {
 fn gather_inline_text(items: [Inline], out: MutableString) {
     for item in items {
         switch item {
-            Text(t) { mutable_string_append(out, t) }
-            Code(t) { mutable_string_append(out, t) }
+            Text(t) { append(out, t) }
+            Code(t) { append(out, t) }
             Emphasis(inner) { gather_inline_text(inner, out) }
             Strong(inner) { gather_inline_text(inner, out) }
             Link(l) { gather_inline_text(l.text, out) }
             Image(l) { gather_inline_text(l.text, out) }
-            SoftBreak { mutable_string_append(out, " ") }
-            HardBreak { mutable_string_append(out, " ") }
+            SoftBreak { append(out, " ") }
+            HardBreak { append(out, " ") }
         }
     }
 }

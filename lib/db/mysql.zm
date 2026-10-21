@@ -859,24 +859,24 @@ fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, Db
     while i < n {
         if is_char_at(sql, i, "'") || is_char_at(sql, i, "\"") || is_char_at(sql, i, "`") {
             val c = char_at(sql, i)
-            mutable_string_append(out, c)
+            append(out, c)
             i = i + 1
             var closed = false
             while i < n && !closed {
                 if is_char_at(sql, i, "\\") && c != "`" && i + 1 < n {
-                    mutable_string_append(out, substring(sql, i, i + 2))
+                    append(out, substring(sql, i, i + 2))
                     i = i + 2
                 } else if is_char_at(sql, i, c) {
                     if is_char_at(sql, i + 1, c) {
-                        mutable_string_append(out, concat(c, c))
+                        append(out, concat(c, c))
                         i = i + 2
                     } else {
-                        mutable_string_append(out, c)
+                        append(out, c)
                         i = i + 1
                         closed = true
                     }
                 } else {
-                    mutable_string_append(out, char_at(sql, i))
+                    append(out, char_at(sql, i))
                     i = i + 1
                 }
             }
@@ -885,12 +885,12 @@ fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, Db
             if end < 0 {
                 end = n
             }
-            mutable_string_append(out, substring(sql, i, end))
+            append(out, substring(sql, i, end))
             i = end
         } else if is_char_at(sql, i, "/") && is_char_at(sql, i + 1, "*") {
             val close = index_of(sql, "*/", i + 2)
             val end = if close < 0 { n } else { close + 2 }
-            mutable_string_append(out, substring(sql, i, end))
+            append(out, substring(sql, i, end))
             i = end
         } else if is_char_at(sql, i, "$") && i + 1 < n && is_digit_char(char_at(sql, i + 1)) {
             var j = i + 1
@@ -905,11 +905,11 @@ fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, Db
                     len(params)
                 )))
             }
-            mutable_string_append(out, "?")
+            append(out, "?")
             mutable_array_push(ordered, params[index - 1])
             i = j
         } else {
-            mutable_string_append(out, char_at(sql, i))
+            append(out, char_at(sql, i))
             i = i + 1
         }
     }

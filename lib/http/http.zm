@@ -164,7 +164,7 @@ pub val traceparent_header_name = "traceparent"
 fn hex_of(n: int) -> string {
     val out = mutable_string_new()
     for b in random_bytes(n) {
-        mutable_string_append(out, byte_to_hex(b))
+        append(out, byte_to_hex(b))
     }
     return snapshot(out)
 }
@@ -356,24 +356,24 @@ pub fn session_cookie(name: string, value: string) -> SetCookie {
 // `c` as a `Set-Cookie` header, ready to add to a response's headers.
 pub fn set_cookie_header(c: SetCookie) -> Header {
     val out = mutable_string_new()
-    mutable_string_append(out, c.name, "=", c.value)
+    append(out, c.name, "=", c.value)
     if c.path != "" {
-        mutable_string_append(out, "; Path=", c.path)
+        append(out, "; Path=", c.path)
     }
     if c.domain != "" {
-        mutable_string_append(out, "; Domain=", c.domain)
+        append(out, "; Domain=", c.domain)
     }
     if c.max_age_seconds >= 0 {
-        mutable_string_append(out, "; Max-Age=", str(c.max_age_seconds))
+        append(out, "; Max-Age=", str(c.max_age_seconds))
     }
     if c.same_site != "" {
-        mutable_string_append(out, "; SameSite=", c.same_site)
+        append(out, "; SameSite=", c.same_site)
     }
     if c.secure {
-        mutable_string_append(out, "; Secure")
+        append(out, "; Secure")
     }
     if c.http_only {
-        mutable_string_append(out, "; HttpOnly")
+        append(out, "; HttpOnly")
     }
     return Header { name: "Set-Cookie", value: snapshot(out) }
 }

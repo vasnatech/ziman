@@ -3,23 +3,23 @@ use http
 
 fn main() {
     val sb = mutable_string_new()
-    print(mutable_string_append_byte(sb, 104b))
-    print(mutable_string_append_byte(sb, 0b))
-    print(mutable_string_append_byte(sb, 105b))
+    print(append_byte(sb, 104b))
+    print(append_byte(sb, 0b))
+    print(append_byte(sb, 105b))
     print(snapshot(sb))
     print(len(sb))
 
     // a multi-byte UTF-8 character assembled from two raw bytes
     val u = mutable_string_new()
-    mutable_string_append_byte(u, 195b)
-    mutable_string_append_byte(u, 169b)
+    append_byte(u, 195b)
+    append_byte(u, 169b)
     print(snapshot(u))
 
     // several at once; a 0b anywhere appends nothing
     val m = mutable_string_new()
-    print(mutable_string_append_byte(m, 104b, 105b))
-    print(mutable_string_append_byte(m, 33b, 0b, 33b))
-    print(mutable_string_append_byte(sb: m, b: [111b, 107b]))
+    print(append_byte(m, 104b, 105b))
+    print(append_byte(m, 33b, 0b, 33b))
+    print(append_byte(sb: m, b: [111b, 107b]))
     print(snapshot(m))
 
     print(unwrap(http.percent_decode("caf%C3%A9 au+lait%21", true)))

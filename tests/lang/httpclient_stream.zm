@@ -17,7 +17,7 @@ fn pause() {
 fn repeat(piece: string, times: int) -> string {
     val sb = mutable_string_new()
     for i in 0..times {
-        mutable_string_append(sb, piece)
+        append(sb, piece)
     }
     return snapshot(sb)
 }

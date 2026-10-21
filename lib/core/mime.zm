@@ -176,12 +176,12 @@ fn read_value(text: string, pos: int) -> Result<[string], string> {
         while p < len(text) {
             val c = char_at(text, p)
             if c == "\\" && p + 1 < len(text) {
-                mutable_string_append(out, char_at(text, p + 1))
+                append(out, char_at(text, p + 1))
                 p = p + 2
             } else if c == "\"" {
                 return ok([snapshot(out), str(p + 1)])
             } else {
-                mutable_string_append(out, c)
+                append(out, c)
                 p = p + 1
             }
         }
@@ -259,9 +259,9 @@ fn quote_if_needed(value: string) -> string {
 // The text form: `text/html; charset=utf-8`. A parameter value that is not a token is written quoted.
 pub fn to_string(m: MediaType) -> string {
     val out = mutable_string_new()
-    mutable_string_append(out, essence(m))
+    append(out, essence(m))
     for name, value in m.params {
-        mutable_string_append(out, "; ", name, "=", quote_if_needed(value))
+        append(out, "; ", name, "=", quote_if_needed(value))
     }
     return snapshot(out)
 }

@@ -292,8 +292,8 @@ and now isn't — see docs/DESIGN.md's "StringBuilder" entry, which the
 2026-10-13 rename supersedes in part). It's a plain, one-field struct
 (`MutableString { handle: int }`), not a new built-in type the way
 `Channel<T>` is: the `handle` is an opaque index into a native-side table
-of real, growable buffers (`mutable_string_new`/`mutable_string_append`/
-`mutable_string_append_byte`, plus the bare `len` and `snapshot` that every
+of real, growable buffers (`mutable_string_new`/`append`/
+`append_byte`, plus the bare `len` and `snapshot` that every
 mutable collection answers), so appending never copies everything
 accumulated so far the way `concat` or `push` in a loop
 does. `mutable_string_new(capacity: Option<int> = 20, grow_factor:

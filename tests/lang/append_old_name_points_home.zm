@@ -1,0 +1,9 @@
+// The old name still lands, and lands somewhere real. `renamed_builder_fn`'s table had four
+// entries pointing at names F195/F200 had deleted (`mapb_get` offered `mutable_map_get`), so the
+// compiler was answering a search with another search; `tools/check_builtins.py` now holds every
+// target to being a declaration that exists.
+fn main() {
+    val sb = mutable_string_new()
+    mutable_string_append(sb, "x")
+    print(snapshot(sb))
+}

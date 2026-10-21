@@ -10,7 +10,7 @@ use yaml
 fn repeat(s: string, n: int) -> string {
     val b = mutable_string_new()
     for i in 0..n {
-        mutable_string_append(b, s)
+        append(b, s)
     }
     return snapshot(b)
 }

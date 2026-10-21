@@ -36,7 +36,7 @@ fn show_exact(text: string) {
 fn digits(n: int) -> string {
     val sb = mutable_string_new()
     for i in 0..n {
-        mutable_string_append(sb, "7")
+        append(sb, "7")
     }
     return snapshot(sb)
 }

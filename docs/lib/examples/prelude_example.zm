@@ -17,7 +17,7 @@ fn main() {
     // Builders assemble a result without copying it on every step.
     val sb = mutable_string_new()
     for i in 0..5 {
-        mutable_string_append(sb, str(i), ",")
+        append(sb, str(i), ",")
     }
     print(snapshot(sb))
     val ab = mutable_array_new<int>()

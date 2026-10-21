@@ -79,14 +79,14 @@ fn resolve(props: Properties, value: string, source: string, seen: [string]) -> 
     while !done {
         val start = index_of(value, "${", p)
         if start < 0 {
-            mutable_string_append(sb, substring(value, p, len(value)))
+            append(sb, substring(value, p, len(value)))
             done = true
         } else {
             val end = index_of(value, "}", start + 2)
             if end < 0 {
                 return err(format("{}: unterminated placeholder in '{}'", source, value))
             }
-            mutable_string_append(sb, substring(value, p, start))
+            append(sb, substring(value, p, start))
             val inner = substring(value, start + 2, end)
             val colon = index_of(inner, ":", 0)
             val name = if colon >= 0 { substring(inner, 0, colon) } else { inner }
@@ -97,11 +97,11 @@ fn resolve(props: Properties, value: string, source: string, seen: [string]) -> 
             val env = os.getenv(name)
             if Some(r) = referenced {
                 val expanded = try resolve(props, r.value, r.source, push(seen, name))
-                mutable_string_append(sb, expanded)
+                append(sb, expanded)
             } else if Some(v) = env {
-                mutable_string_append(sb, v)
+                append(sb, v)
             } else if colon >= 0 {
-                mutable_string_append(sb, substring(inner, colon + 1, len(inner)))
+                append(sb, substring(inner, colon + 1, len(inner)))
             } else {
                 return err(format(
                     "{}: placeholder '{}' is neither a property nor an environment variable and has no default",
@@ -393,15 +393,15 @@ fn mask_value(value: string) -> string {
 pub fn report(props: Properties, keys: variadic string) -> string {
     val sb = mutable_string_new()
     if len(props.profile) == 0 {
-        mutable_string_append(sb, "active profile: (none)\n")
+        append(sb, "active profile: (none)\n")
     } else {
-        mutable_string_append(sb, format("active profile: {}\n", props.profile))
+        append(sb, format("active profile: {}\n", props.profile))
     }
     for i in 0..len(keys) {
         val found = lookup(props, keys[i])
         if Some(e) = found {
             val shown = if is_secret_key(e.key) { "****" } else { mask_value(e.value) }
-            mutable_string_append(sb, format("{}={} ({})\n", e.key, shown, e.source))
+            append(sb, format("{}={} ({})\n", e.key, shown, e.source))
         }
     }
     return snapshot(sb)

@@ -2985,3 +2985,44 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   was only one of its two blockers. The other stands — `push` shares a `typecheck.c` arm with
   `insert` and `set`, which is the same reason F191 found `set` unconvertible. Splitting that arm
   is its own task.
+
+- [x] **F205** **`mutable_string_append` becomes `append`, and the old-name hints get a gate.**
+  (raised 2026-10-20 by the user; done 2026-10-20.) The last builder append still wearing a world
+  prefix — every other one went bare across F104–F201. 484 call sites: 452 in this repo, 32 in
+  the North Star backend.
+
+  **Two names, not one overload set, and that is the real decision.** `append(sb, pieces: variadic
+  string)` and `append_byte(sb, b: variadic byte)` differ in argument two, so the resolver could
+  tell them apart. They should not share a name anyway: the string form answers nothing and the
+  byte form answers a `bool` (false on a `0b`, which a string cannot hold). **One name that
+  sometimes has a result and sometimes does not is what F149 kept `remove` split over**, and
+  `add` merged in F199 precisely because both worlds agreed on what they answered. `_byte` is not
+  a world prefix — it says what it appends, which is the `array_present` → `filter_present`
+  distinction from F170.
+
+  **A mechanism limit points the same way, and is worth knowing separately.** The native symbol
+  fallback (`interpreter.c`'s `WORLDS` table) derives the C symbol from **parameter one only**, so
+  two `append` declarations both taking a `MutableString` would both resolve to
+  `mutable_string_append` and the byte form would silently have run the string implementation.
+  Corroborating, not deciding — had the vocabulary argument gone the other way, that is what would
+  have had to change.
+
+  **Found on the way: `renamed_builder_fn`'s hints had rotted, and nothing watched them.** It
+  answered `mapb_get` with *"is now 'mutable_map_get'"*, a name F195 deleted. Four entries pointed
+  at names F195/F200 removed, and `setb_add` offered the `internal` `mutable_set_add` instead of
+  `add`. The compiler was answering a search with another search. `tools/check_builtins.py` now
+  checks every target is a declaration that exists and every old name is one that does not;
+  verified by re-introducing the stale entry and watching it fail.
+
+  **Its one explanatory sentence was stale too, and more quietly** — *"the four questions every
+  collection answers"* was true of F104's entries and false of every entry added since. Replaced
+  with the rule all of them followed: the prefix said which world argument one came from, and the
+  argument says it.
+
+  **One keyed-by-name table had to move with the rename.** The quadratic lint's `BUILDER_KINDS`
+  keys its advice on the appender's *name*, so leaving `mutable_string_append` in it would have
+  silently stopped the lint firing for strings. Its fixture caught that — the second time that
+  lint's name-keying has been what a rename broke (F162 left two dead branches in it).
+
+  1,108 fixtures, `make check` exit 0 with the North Star. Three new fixtures: the bare names, the
+  old name landing on a real one, and the `.err` for the lint's new text.

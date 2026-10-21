@@ -140,7 +140,7 @@ fn time_parse(entries: int) -> int {
     val out = mutable_string_new()
     var i = 0
     while i < entries {
-        mutable_string_append(out, format("[[entry]]\nid = \"{}\"\ncode = \"R05\"\n\n", i))
+        append(out, format("[[entry]]\nid = \"{}\"\ncode = \"R05\"\n\n", i))
         i = i + 1
     }
     val text = snapshot(out)

@@ -5,8 +5,8 @@ fn main() {
     // everything omitted" -- treated as the latter).
     val sb = mutable_string_new()
     print(len(sb))
-    mutable_string_append(sb, "Hello")
-    mutable_string_append(sb, ", ", "world", "!")
+    append(sb, "Hello")
+    append(sb, ", ", "world", "!")
     print(snapshot(sb))
     print(len(sb))
 
@@ -14,7 +14,7 @@ fn main() {
     val sb2 = mutable_string_new(capacity: 4, grow_factor: 1.5)
     var i = 0
     while i < 50 {
-        mutable_string_append(sb2, "x")
+        append(sb2, "x")
         i = i + 1
     }
     print(len(sb2))
@@ -22,28 +22,28 @@ fn main() {
 
     // Fully positional, both args given explicitly.
     val sb3 = mutable_string_new(10, 3.0)
-    mutable_string_append(sb3, "hi")
+    append(sb3, "hi")
     print(snapshot(sb3))
 
     // Appending an already-built array (variadic spread).
     val sb4 = mutable_string_new()
     val pieces = ["a", "b", "c"]
-    mutable_string_append(sb4, pieces)
+    append(sb4, pieces)
     print(snapshot(sb4))
 
     // snapshot is a snapshot, not a one-time "finish" -- calling it
     // more than once, and continuing to append in between, both work.
     val sb5 = mutable_string_new()
-    mutable_string_append(sb5, "one")
+    append(sb5, "one")
     print(snapshot(sb5))
-    mutable_string_append(sb5, "-two")
+    append(sb5, "-two")
     print(snapshot(sb5))
 
     // Two independent builders never interfere with each other.
     val sb6 = mutable_string_new()
     val sb7 = mutable_string_new()
-    mutable_string_append(sb6, "A")
-    mutable_string_append(sb7, "B")
+    append(sb6, "A")
+    append(sb7, "B")
     print(snapshot(sb6))
     print(snapshot(sb7))
 }

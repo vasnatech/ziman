@@ -174,25 +174,25 @@ fn expand(replacement: string, m: Match) -> string {
     while i < len(replacement) {
         val dollar = index_of(replacement, "$", i)
         if dollar < 0 {
-            mutable_string_append(out, substring(replacement, i, len(replacement)))
+            append(out, substring(replacement, i, len(replacement)))
             i = len(replacement)
         } else {
-            mutable_string_append(out, substring(replacement, i, dollar))
+            append(out, substring(replacement, i, dollar))
             i = dollar + 1
             if is_char_at(replacement, i, "$") {
-                mutable_string_append(out, "$")
+                append(out, "$")
                 i = i + 1
             } else if is_char_at(replacement, i, "{") {
                 val close = index_of(replacement, "}", i)
                 if close < 0 {
-                    mutable_string_append(out, "$")
+                    append(out, "$")
                 } else {
                     val inside = substring(replacement, i + 1, close)
                     val number = parse_int(inside)
                     if is_ok(number) {
-                        mutable_string_append(out, group_text(m, unwrap(number)))
+                        append(out, group_text(m, unwrap(number)))
                     } else {
-                        mutable_string_append(out, named_text(m, inside))
+                        append(out, named_text(m, inside))
                     }
                     i = close + 1
                 }
@@ -207,13 +207,13 @@ fn expand(replacement: string, m: Match) -> string {
                         k = k + 1
                     }
                     if k == i {
-                        mutable_string_append(out, "$")
+                        append(out, "$")
                     } else {
-                        mutable_string_append(out, named_text(m, substring(replacement, i, k)))
+                        append(out, named_text(m, substring(replacement, i, k)))
                         i = k
                     }
                 } else {
-                    mutable_string_append(out, group_text(m, unwrap(parse_int(substring(replacement, i, j)))))
+                    append(out, group_text(m, unwrap(parse_int(substring(replacement, i, j)))))
                     i = j
                 }
             }
@@ -236,11 +236,11 @@ fn replace_matches(re: Regex, text: string, replacement: string, first_only: boo
     var i = 0
     while i < len(matches) {
         val m = matches[i]
-        mutable_string_append(out, substring(text, last, m.start), expand(replacement, m))
+        append(out, substring(text, last, m.start), expand(replacement, m))
         last = m.end
         i = if first_only { len(matches) } else { i + 1 }
     }
-    mutable_string_append(out, substring(text, last, len(text)))
+    append(out, substring(text, last, len(text)))
     return snapshot(out)
 }
 
@@ -274,9 +274,9 @@ pub fn escape(text: string) -> string {
     for i in 0..len(text) {
         val c = char_at(text, i)
         if contains("\\.^$|?*+()[]{}", c) {
-            mutable_string_append(out, "\\")
+            append(out, "\\")
         }
-        mutable_string_append(out, c)
+        append(out, c)
     }
     return snapshot(out)
 }

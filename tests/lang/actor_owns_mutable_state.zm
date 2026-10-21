@@ -39,12 +39,12 @@ fn cache(requests: Channel<Request>) {
             Get(k) {
                 val found = get(store, k)
                 if Option.is_Some(found) { mutable_set(hits, mutable_get(hits) + 1) }
-                mutable_string_append(log, "g")
+                append(log, "g")
                 send(r.reply, found)
             }
             Put(k) {
                 set(store, k, r.value)
-                mutable_string_append(log, "p")
+                append(log, "p")
                 send(r.reply, Some(r.value))
             }
             Bump {

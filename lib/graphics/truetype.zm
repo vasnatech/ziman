@@ -427,9 +427,9 @@ fn utf16be_text(data: [byte], at: int, length: int) -> Result<string, string> {
         // Surrogate pairs are not decoded: a font name outside the basic plane is not a thing that
         // happens, and guessing would be worse than the two replacement characters.
         if unit >= 55296 && unit <= 57343 {
-            mutable_string_append(out, "?")
+            append(out, "?")
         } else {
-            mutable_string_append(out, codepoint_text(unit))
+            append(out, codepoint_text(unit))
         }
         i = i + 2
     }
@@ -440,7 +440,7 @@ fn latin_text(data: [byte], at: int, length: int) -> Result<string, string> {
     val out = mutable_string_new()
     var i = 0
     while i < length {
-        mutable_string_append(out, codepoint_text(try u8_at(data, at + i)))
+        append(out, codepoint_text(try u8_at(data, at + i)))
         i = i + 1
     }
     return ok(snapshot(out))

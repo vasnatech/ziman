@@ -7,7 +7,7 @@ fn encode(text: string) -> string {
         while i + run < len(text) && char_at(text, i + run) == ch {
             run = run + 1
         }
-        mutable_string_append(sb, ch, str(run))
+        append(sb, ch, str(run))
         i = i + run
     }
     return snapshot(sb)
@@ -21,13 +21,13 @@ fn decode(text: string) -> string {
         var j = i + 1
         val digits = mutable_string_new()
         while j < len(text) && char_at(text, j) >= "0" && char_at(text, j) <= "9" {
-            mutable_string_append(digits, char_at(text, j))
+            append(digits, char_at(text, j))
             j = j + 1
         }
         var k = 0
         val count = unwrap(parse_int(snapshot(digits)))
         while k < count {
-            mutable_string_append(sb, ch)
+            append(sb, ch)
             k = k + 1
         }
         i = j

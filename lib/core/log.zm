@@ -153,15 +153,15 @@ fn single_line(message: string) -> string {
     for b in string_to_bytes(message) {
         val c = b as int
         if c == 10 {
-            mutable_string_append(out, "\\n")
+            append(out, "\\n")
         } else if c == 13 {
-            mutable_string_append(out, "\\r")
+            append(out, "\\r")
         } else if c == 9 {
-            mutable_string_append(out, "\\t")
+            append(out, "\\t")
         } else if c < 32 || c == 127 {
-            mutable_string_append(out, "\\x", byte_to_hex(b))
+            append(out, "\\x", byte_to_hex(b))
         } else {
-            mutable_string_append_byte(out, b)
+            append_byte(out, b)
         }
     }
     return snapshot(out)
@@ -217,23 +217,23 @@ fn rotate_if_full(path: string, max_bytes: int, keep: int) {
 // carrying bytes from a user is still a document something else can read.
 fn json_line(l: Logger, level: Level, message: string) -> string {
     val out = mutable_string_new()
-    mutable_string_append(out, "{")
+    append(out, "{")
     if l.timestamps {
-        mutable_string_append(out, "\"time\":", json_to_string(Json.JString(now_iso())), ",")
+        append(out, "\"time\":", json_to_string(Json.JString(now_iso())), ",")
     }
     // `level_name` pads to five characters so the text format's columns line up ("INFO "), and the
     // prefix carries its own trailing space for the same reason -- both are presentation, and both
     // would arrive in a log index as part of the value. Trimmed here, and the level lowercased,
     // which is what every JSON log schema uses.
-    mutable_string_append(out, "\"level\":", json_to_string(Json.JString(to_lower(trim(level_name(level))))))
+    append(out, "\"level\":", json_to_string(Json.JString(to_lower(trim(level_name(level))))))
     val component = trim(l.prefix)
     if len(component) > 0 {
-        mutable_string_append(out, ",\"prefix\":", json_to_string(Json.JString(component)))
+        append(out, ",\"prefix\":", json_to_string(Json.JString(component)))
     }
     if len(l.request_id) > 0 {
-        mutable_string_append(out, ",\"request_id\":", json_to_string(Json.JString(l.request_id)))
+        append(out, ",\"request_id\":", json_to_string(Json.JString(l.request_id)))
     }
-    mutable_string_append(out, ",\"message\":", json_to_string(Json.JString(message)), "}\n")
+    append(out, ",\"message\":", json_to_string(Json.JString(message)), "}\n")
     return snapshot(out)
 }
 

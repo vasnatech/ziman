@@ -1,0 +1,20 @@
+// `append` and `append_byte`, bare: the last builder append to lose its world prefix (F205). The
+// prefix said which world the first argument came from, and a `MutableString` first argument
+// already says it -- the same reasoning that unprefixed `push`, `add`, `get` and the rest.
+//
+// They stay **two names rather than one overload set**, which is the decision worth pinning. They
+// differ in argument two (string against byte), so the resolver could tell them apart -- but one
+// answers nothing and the other answers a bool, and a name that sometimes has a result and
+// sometimes does not is the thing F149 kept `remove` split over.
+fn main() {
+    val sb = mutable_string_new()
+    append(sb, "a", "b")
+    append(sb, ["c", "d"])
+    print(snapshot(sb))
+
+    val bytes = mutable_string_new()
+    print(append_byte(bytes, 195b, 169b))
+    print(snapshot(bytes))
+    print(append_byte(bytes, 0b))
+    print(snapshot(bytes))
+}

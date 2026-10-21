@@ -26,7 +26,7 @@ fn render(status: int, message: string) -> http.Response {
 fn padding(n: int) -> string {
     val sb = mutable_string_new()
     for i in 0..n {
-        mutable_string_append(sb, "p")
+        append(sb, "p")
     }
     return snapshot(sb)
 }

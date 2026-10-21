@@ -623,29 +623,29 @@ pub fn text_response(status: int, body: string) -> Response {
 // other byte (UTF-8 included) as it is. Written here so the server needs nothing but its own error replies.
 fn json_quoted(text: string) -> string {
     val out = mutable_string_new()
-    mutable_string_append(out, "\"")
+    append(out, "\"")
     for b in string_to_bytes(text) {
         if b == 34b {
-            mutable_string_append(out, "\\\"")
+            append(out, "\\\"")
         } else if b == 92b {
-            mutable_string_append(out, "\\\\")
+            append(out, "\\\\")
         } else if b == 10b {
-            mutable_string_append(out, "\\n")
+            append(out, "\\n")
         } else if b == 13b {
-            mutable_string_append(out, "\\r")
+            append(out, "\\r")
         } else if b == 9b {
-            mutable_string_append(out, "\\t")
+            append(out, "\\t")
         } else if b == 8b {
-            mutable_string_append(out, "\\b")
+            append(out, "\\b")
         } else if b == 12b {
-            mutable_string_append(out, "\\f")
+            append(out, "\\f")
         } else if (b as int) < 32 {
-            mutable_string_append(out, "\\u00", byte_to_hex(b))
+            append(out, "\\u00", byte_to_hex(b))
         } else {
-            mutable_string_append_byte(out, b)
+            append_byte(out, b)
         }
     }
-    mutable_string_append(out, "\"")
+    append(out, "\"")
     return snapshot(out)
 }
 
@@ -753,7 +753,7 @@ pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<
         }
     }
     val sb = mutable_string_new()
-    mutable_string_append(sb, format("HTTP/1.1 {} {}\r\n", resp.status, reason(resp.status)))
+    append(sb, format("HTTP/1.1 {} {}\r\n", resp.status, reason(resp.status)))
     var has_date = false
     var has_nosniff = false
     for h in resp.headers {
@@ -767,22 +767,22 @@ pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<
         // Content-Length and Connection are always written below from resp.body and keep, so a
         // caller-supplied one here would just be a duplicate.
         if lname != "content-length" && lname != "connection" {
-            mutable_string_append(sb, h.name, ": ", h.value, "\r\n")
+            append(sb, h.name, ": ", h.value, "\r\n")
         }
     }
     if !has_date {
-        mutable_string_append(sb, "Date: ", clock.now_http_date(), "\r\n")
+        append(sb, "Date: ", clock.now_http_date(), "\r\n")
     }
     if !has_nosniff {
-        mutable_string_append(sb, "X-Content-Type-Options: nosniff\r\n")
+        append(sb, "X-Content-Type-Options: nosniff\r\n")
     }
-    mutable_string_append(sb, format("Content-Length: {}\r\n", len(resp.body)))
+    append(sb, format("Content-Length: {}\r\n", len(resp.body)))
     if keep {
-        mutable_string_append(sb, "Connection: keep-alive\r\n")
+        append(sb, "Connection: keep-alive\r\n")
     } else {
-        mutable_string_append(sb, "Connection: close\r\n")
+        append(sb, "Connection: close\r\n")
     }
-    mutable_string_append(sb, "\r\n")
+    append(sb, "\r\n")
     val head = string_to_bytes(snapshot(sb))
     val sent = if HttpMethod.is_Head(req.method) { head } else { bytes_concat(head, resp.body) }
     try lift<int>(net.write(sock, sent))
@@ -1133,7 +1133,7 @@ fn disposition_param(line: string, key: string) -> Option<string> {
                 if char_at(line, i) == "\\" && i + 1 < n {
                     i = i + 1
                 }
-                mutable_string_append(out, char_at(line, i))
+                append(out, char_at(line, i))
                 i = i + 1
             }
             i = i + 1

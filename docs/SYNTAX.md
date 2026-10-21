@@ -507,7 +507,7 @@ for x in seen { ... }                    // a set has one binder
   form applies, so `mutable([1, 2])` is never a `Mutable<[int]>`. Write that one `mutable_new([1,
   2])`, which is unambiguous about which you meant. Two consequences worth knowing rather than
   discovering: a string answers `Mutable<string>` and not a `MutableString` (which is *filled*
-  rather than converted -- `mutable_string_new` then `mutable_string_append`, and of 133
+  rather than converted -- `mutable_string_new` then `append`, and of 133
   `mutable_string_new` call sites in this tree exactly one seeds the buffer from a whole existing
   string), and a builder answers a cell holding that same handle rather than a clone of it, there
   being no way to clone a builder at all.

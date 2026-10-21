@@ -49,9 +49,9 @@ fn encode_param(v: SqlValue) -> string {
         Bool(b) { if b { "b1" } else { "b0" } }
         Bytes(bytes) {
             val hex = mutable_string_new()
-            mutable_string_append(hex, "B")
+            append(hex, "B")
             for by in bytes {
-                mutable_string_append(hex, byte_to_hex(by))
+                append(hex, byte_to_hex(by))
             }
             snapshot(hex)
         }

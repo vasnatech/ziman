@@ -80,18 +80,18 @@ fn hex_value(c: string) -> int {
 
 fn append_utf8(out: MutableString, cp: int) {
     if cp < 128 {
-        mutable_string_append_byte(out, cp as byte)
+        append_byte(out, cp as byte)
     } else if cp < 2048 {
-        mutable_string_append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
+        append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
     } else if cp < 65536 {
-        mutable_string_append_byte(
+        append_byte(
             out,
             (224 + cp / 4096) as byte,
             (128 + cp / 64 % 64) as byte,
             (128 + cp % 64) as byte
         )
     } else {
-        mutable_string_append_byte(
+        append_byte(
             out,
             (240 + cp / 262144) as byte,
             (128 + cp / 4096 % 64) as byte,
@@ -171,7 +171,7 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
         if multi && c == "\"" && is_char_at(s, p + 1, "\"") && is_char_at(s, p + 2, "\"") {
             var end = p + 3
             while end < len(s) && end < p + 5 && is_char_at(s, end, "\"") {
-                mutable_string_append(out, "\"")
+                append(out, "\"")
                 end = end + 1
             }
             return ok(PStr { text: snapshot(out), next: end })
@@ -188,19 +188,19 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
             }
             val e = char_at(s, p + 1)
             if e == "n" {
-                mutable_string_append(out, "\n")
+                append(out, "\n")
             } else if e == "t" {
-                mutable_string_append(out, "\t")
+                append(out, "\t")
             } else if e == "r" {
-                mutable_string_append(out, "\r")
+                append(out, "\r")
             } else if e == "b" {
-                mutable_string_append_byte(out, 8b)
+                append_byte(out, 8b)
             } else if e == "f" {
-                mutable_string_append_byte(out, 12b)
+                append_byte(out, 12b)
             } else if e == "\"" {
-                mutable_string_append(out, "\"")
+                append(out, "\"")
             } else if e == "\\" {
-                mutable_string_append(out, "\\")
+                append(out, "\\")
             } else if e == "u" || e == "U" {
                 val digits = if e == "u" { 4 } else { 8 }
                 val cp = read_hex(s, p + 2, digits)
@@ -227,7 +227,7 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
             }
             p = p + 2
         } else {
-            mutable_string_append(out, c)
+            append(out, c)
             p = p + 1
         }
     }
@@ -651,34 +651,34 @@ pub fn parse_toml(text: string) -> Result<Json, string> {
 
 fn quote_basic(s: string) -> string {
     val out = mutable_string_new()
-    mutable_string_append(out, "\"")
+    append(out, "\"")
     var i = 0
     while i < len(s) {
         val c = char_at(s, i)
         if c == "\"" {
-            mutable_string_append(out, "\\\"")
+            append(out, "\\\"")
         } else if c == "\\" {
-            mutable_string_append(out, "\\\\")
+            append(out, "\\\\")
         } else if c == "\n" {
-            mutable_string_append(out, "\\n")
+            append(out, "\\n")
         } else if c == "\t" {
-            mutable_string_append(out, "\\t")
+            append(out, "\\t")
         } else if c == "\r" {
-            mutable_string_append(out, "\\r")
+            append(out, "\\r")
         } else if compare(c, " ") < 0 {
             val code = string_to_bytes(c)[0] as int
-            mutable_string_append(
+            append(
                 out,
                 "\\u00",
                 substring(hex_chars, code / 16, code / 16 + 1),
                 substring(hex_chars, code % 16, code % 16 + 1)
             )
         } else {
-            mutable_string_append(out, c)
+            append(out, c)
         }
         i = i + 1
     }
-    mutable_string_append(out, "\"")
+    append(out, "\"")
     return snapshot(out)
 }
 
@@ -776,16 +776,16 @@ fn write_table(out: MutableString, table: Json, path: [string]) -> Result<int, s
             continue
         }
         val text = try inline_value(value)
-        mutable_string_append(out, key_text(key), " = ", text, "\n")
+        append(out, key_text(key), " = ", text, "\n")
     }
     for key, value in fields {
         val sub_path = concat(path, [key])
         if Json.is_JObject(value) {
-            mutable_string_append(out, "\n[", path_text(sub_path), "]\n")
+            append(out, "\n[", path_text(sub_path), "]\n")
             try write_table(out, value, sub_path)
         } else if is_table_array(value) {
             for item in Json.unwrap_JArray(value) {
-                mutable_string_append(out, "\n[[", path_text(sub_path), "]]\n")
+                append(out, "\n[[", path_text(sub_path), "]]\n")
                 try write_table(out, item, sub_path)
             }
         }

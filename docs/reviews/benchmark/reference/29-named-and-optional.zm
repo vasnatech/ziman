@@ -4,9 +4,9 @@ fn label(text: string, width: Option<int>) -> string {
         None { len(text) }
     }
     val sb = mutable_string_new()
-    mutable_string_append(sb, text)
+    append(sb, text)
     while len(sb) < target {
-        mutable_string_append(sb, ".")
+        append(sb, ".")
     }
     return snapshot(sb)
 }

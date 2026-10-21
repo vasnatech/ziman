@@ -39,9 +39,9 @@ fn main() {
 
     // a large file
     val sb = mutable_string_new()
-    mutable_string_append(sb, "id,name\n")
+    append(sb, "id,name\n")
     for i in 0..20000 {
-        mutable_string_append(sb, str(i), ",name", str(i), "\n")
+        append(sb, str(i), ",name", str(i), "\n")
     }
     val big = unwrap(csv.parse_csv_typed(snapshot(sb)))
     print(len(Json.unwrap_JArray(big)))

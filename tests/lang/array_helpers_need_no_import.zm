@@ -17,7 +17,7 @@ fn p_compare(a: P, b: P) -> int {
 fn tags(ps: [P]) -> string {
     val out = mutable_string_new()
     for p in ps {
-        mutable_string_append(out, str(p.key), p.tag, " ")
+        append(out, str(p.key), p.tag, " ")
     }
     return trim(snapshot(out))
 }

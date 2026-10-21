@@ -12,10 +12,10 @@ fn main() {
     print(snapshot(ab))
 
     val sb = mutable_string_new()
-    mutable_string_append(sb, "hello")
+    append(sb, "hello")
     clear(sb)
     print(len(sb))
-    mutable_string_append(sb, "new")
+    append(sb, "new")
     print(snapshot(sb))
 
     val mb = mutable_map_new<string, int>()

@@ -15,7 +15,7 @@ fn handler(r: http.Request) -> http.Response {
 fn send_bytes(port: int, n: int) -> int {
     val b = mutable_string_new()
     for i in 0..n {
-        mutable_string_append(b, "x")
+        append(b, "x")
     }
     return switch client.request(method: HttpMethod.Post, url: format("http://127.0.0.1:{}/", port), body: string_to_bytes(snapshot(b))) {
         Ok(resp) { resp.status }

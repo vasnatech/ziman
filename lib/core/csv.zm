@@ -330,12 +330,12 @@ fn read_record(
                     continue
                 }
                 if started {
-                    mutable_string_append(acc, "\n")
+                    append(acc, "\n")
                 } else {
                     started = true
                     start_line = number
                 }
-                mutable_string_append(acc, line)
+                append(acc, line)
                 quotes = quotes + quote_count(line)
                 if quotes % 2 == 0 {
                     done = true
@@ -517,12 +517,12 @@ fn write_row(out: MutableString, cells: [string], sep: string) {
     var first = true
     for cell in cells {
         if !first {
-            mutable_string_append(out, sep)
+            append(out, sep)
         }
         first = false
-        mutable_string_append(out, if needs_quotes(cell, sep) { quote_cell(cell) } else { cell })
+        append(out, if needs_quotes(cell, sep) { quote_cell(cell) } else { cell })
     }
-    mutable_string_append(out, "\n")
+    append(out, "\n")
 }
 
 // A table of raw strings as text, one row per line, quoting where a cell needs it. Nothing
@@ -623,12 +623,12 @@ pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, strin
         var first = true
         for name in names {
             if !first {
-                mutable_string_append(out, delimiter)
+                append(out, delimiter)
             }
             first = false
-            mutable_string_append(out, get_or<string>(get(cells, name), ""))
+            append(out, get_or<string>(get(cells, name), ""))
         }
-        mutable_string_append(out, "\n")
+        append(out, "\n")
     }
     return ok(snapshot(out))
 }

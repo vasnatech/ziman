@@ -3,7 +3,7 @@ use crypto
 fn main() {
     val sb = mutable_string_new()
     for i in 0..100000 {
-        mutable_string_append(sb, "0123456789")
+        append(sb, "0123456789")
     }
     val s = snapshot(sb)
     val b = string_to_bytes(s)

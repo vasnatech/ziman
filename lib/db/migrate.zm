@@ -246,7 +246,7 @@ pub fn split_statements(sql: string) -> [string] {
         val c = char_at(sql, i)
         if c == "'" || c == "\"" {
             val end = quote_end(sql, i, c)
-            mutable_string_append(current, substring(sql, i, end))
+            append(current, substring(sql, i, end))
             i = end
         } else if c == "-" && is_char_at(sql, i + 1, "-") {
             val end = index_of(sql, "\n", i)
@@ -262,10 +262,10 @@ pub fn split_statements(sql: string) -> [string] {
             if j < n && is_char_at(sql, j, "$") {
                 val tag = substring(sql, i, j + 1)
                 val end = dollar_end(sql, i, tag)
-                mutable_string_append(current, substring(sql, i, end))
+                append(current, substring(sql, i, end))
                 i = end
             } else {
-                mutable_string_append(current, c)
+                append(current, c)
                 i = i + 1
             }
         } else if c == ";" {
@@ -276,7 +276,7 @@ pub fn split_statements(sql: string) -> [string] {
             current = mutable_string_new()
             i = i + 1
         } else {
-            mutable_string_append(current, c)
+            append(current, c)
             i = i + 1
         }
     }

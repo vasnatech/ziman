@@ -12,7 +12,7 @@ fn doubler(h: fn(int) -> int, d: Channel<int>) {
 
 fn main() {
     val sb = mutable_string_new()
-    mutable_string_append(sb, "owned by main")
+    append(sb, "owned by main")
 
     // allowed: the capture never leaves this thread
     val local = fn() -> string { snapshot(sb) }

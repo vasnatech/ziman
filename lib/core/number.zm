@@ -107,7 +107,7 @@ fn bigint_magnitude_to_hex(n: bigint) -> string {
     val out = mutable_string_new()
     var i = len(reversed) - 1
     while i >= 0 {
-        mutable_string_append(out, reversed[i])
+        append(out, reversed[i])
         i = i - 1
     }
     return snapshot(out)
@@ -218,13 +218,13 @@ fn insert_thousands(int_part: string, sep: string) -> string {
         return concat(sign, digits)
     }
     val out = mutable_string_new()
-    mutable_string_append(out, sign)
+    append(out, sign)
     var i = 0
     while i < n {
         if i > 0 && (n - i) % 3 == 0 {
-            mutable_string_append(out, sep)
+            append(out, sep)
         }
-        mutable_string_append(out, char_at(digits, i))
+        append(out, char_at(digits, i))
         i = i + 1
     }
     return snapshot(out)
@@ -235,10 +235,10 @@ fn adjust_decimal_places(frac: string, places: int) -> string {
         return substring(frac, 0, places)
     }
     val out = mutable_string_new()
-    mutable_string_append(out, frac)
+    append(out, frac)
     var i = len(frac)
     while i < places {
-        mutable_string_append(out, "0")
+        append(out, "0")
         i = i + 1
     }
     return snapshot(out)

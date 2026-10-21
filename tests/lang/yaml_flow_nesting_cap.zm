@@ -5,12 +5,12 @@ use yaml
 
 fn nest(depth: int) -> string {
     val b = mutable_string_new()
-    mutable_string_append(b, "a: ")
+    append(b, "a: ")
     for i in 0..depth {
-        mutable_string_append(b, "[")
+        append(b, "[")
     }
     for i in 0..depth {
-        mutable_string_append(b, "]")
+        append(b, "]")
     }
     return snapshot(b)
 }

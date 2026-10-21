@@ -37,13 +37,13 @@ fn main() {
     sort(ps)
     val out = mutable_string_new()
     for p in ps {
-        mutable_string_append(out, str(p.key), p.tag, " ")
+        append(out, str(p.key), p.tag, " ")
     }
     print(trim(snapshot(out)))
     sort_desc(ps)
     clear(out)
     for p in ps {
-        mutable_string_append(out, str(p.key), p.tag, " ")
+        append(out, str(p.key), p.tag, " ")
     }
     print(trim(snapshot(out)))
 
@@ -52,13 +52,13 @@ fn main() {
     sort_by<P, string>(ps, fn(p: P) -> string { return p.tag })
     clear(out)
     for p in ps {
-        mutable_string_append(out, str(p.key), p.tag, " ")
+        append(out, str(p.key), p.tag, " ")
     }
     print(trim(snapshot(out)))
     sort_by_desc<P, int>(ps, fn(p: P) -> int { return p.key })
     clear(out)
     for p in ps {
-        mutable_string_append(out, str(p.key), p.tag, " ")
+        append(out, str(p.key), p.tag, " ")
     }
     print(trim(snapshot(out)))
 

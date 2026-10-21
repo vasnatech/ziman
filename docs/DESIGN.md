@@ -172,6 +172,7 @@ them against the code.
 - [Overloading available to a declaration (2026-10-19, F174-F201)](#overloading-available-to-a-declaration-2026-10-19-f174-f201)
 - [The prelude is a directory, and the seam is the type a name is about (2026-10-20, F203)](#the-prelude-is-a-directory-and-the-seam-is-the-type-a-name-is-about-2026-10-20-f203)
 - [A variadic parameter that cannot be empty (2026-10-20, F204)](#a-variadic-parameter-that-cannot-be-empty-2026-10-20-f204)
+- [`append` goes bare, and two names stay two (2026-10-20, F205)](#append-goes-bare-and-two-names-stay-two-2026-10-20-f205)
 
 <!-- end index -->
 
@@ -3589,9 +3590,11 @@ an array's tail -- `push(arr, x)` on a value, `mutable_array_push(xs, x)` on a h
 puts a thing at a position, shifting what follows (`insert(arr, i, x)`, `mutable_array_insert`).
 `set` replaces at a key or index (`set(arr, i, x)`, `set(map, k, v)`, `mutable_array_set`,
 `mutable_map_set`). `add` hands a thing to a set and lets it decide (`mutable_set_add`). `append`
-concatenates onto the end of a text buffer (`mutable_string_append`, `mutable_string_append_byte`)
-and is used by nothing else -- a fifth verb, taken deliberately, because text genuinely reads as
-appended and `sb_append` is what it has always been called.
+concatenates onto the end of a text buffer (`append`, `append_byte`) and is used by nothing
+else -- a fifth verb, taken deliberately, because text genuinely reads as appended and
+`sb_append` is what it has always been called. *(Bare since F205; it was
+`mutable_string_append`/`_byte` until then, the last builder append still carrying a world
+prefix -- this entry chose the verb and never came back for the prefix.)*
 
 The one divergence was that set: immutably `insert(s, x)`, mutably `mutable_set_add`. **Resolved
 in F199 (2026-10-20): `add` is the verb, variadic, in both worlds**, and `insert` means
@@ -3619,8 +3622,8 @@ the `_all` ones.
 **That restriction applies only to the generic containers.** It exists because of type ambiguity --
 one element or two? -- which needs the element type to be a *type parameter*. `MutableString`'s
 pieces are concretely `string` and `byte`, and a `byte` can never be an array of bytes, so no
-ambiguity is constructible: it keeps variadic `mutable_string_append` and
-`mutable_string_append_byte`, and needs no `_all` forms at all.
+ambiguity is constructible: it keeps variadic `append` and `append_byte`, and needs no `_all`
+forms at all.
 
 ### The surface
 
@@ -3702,8 +3705,8 @@ MutableSet<T: Eq + Hash>
 
 MutableString                                      #[thread_bound]
   mutable_string_new(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0)
-  mutable_string_append(s, pieces: variadic string)
-  mutable_string_append_byte(s, bytes: variadic byte)
+  append(s, pieces: variadic string)
+  append_byte(s, bytes: variadic byte)
   mutable_string_get(s, index) -> string            the one-byte string, as char_at
   mutable_string_set(s, index, value)
   mutable_string_index_of(s, needle) -> int
@@ -3711,7 +3714,7 @@ MutableString                                      #[thread_bound]
   len(s)   contains(s, sub)   clear(s)   snapshot(s) -> string
 ```
 
-There is no `mutable_string_from`, and it would add nothing: `mutable_string_append(b, s)` already
+There is no `mutable_string_from`, and it would add nothing: `append(b, s)` already
 *is* the from-a-string case, in one call.
 
 `contains` is O(1) on a map and a set and **O(n) on a `MutableArray`** -- one bare name over two
@@ -7344,5 +7347,50 @@ select it and then be refused — otherwise an overload set would resolve to one
 an arity complaint about it, when what the caller needs to hear is about the name.
 
 Marked: `add` (both worlds), `remove_all` (all three), `push` (both), `mutable_array_push`,
-`mutable_string_append`, `mutable_string_append_byte`, `min`, `max`. Left alone: `concat`, `join`,
+`append`, `append_byte`, `min`, `max`. Left alone: `concat`, `join`,
 `bytes_concat`, `filter_present`/`filter_ok`/`filter_err`, and every `params: variadic SqlValue`.
+
+
+## `append` goes bare, and two names stay two (2026-10-20, F205)
+
+`mutable_string_append` was the last builder append still carrying a world prefix. Every other one
+had gone bare across F104-F201 — `push`, `add`, `set`, `get`, `keys` — and this one was missed for
+a reason visible in this file: the entry above chose the *verb* deliberately (*"a fifth verb,
+taken deliberately, because text genuinely reads as appended"*) and never came back for the
+prefix. Choosing the verb read like settling the name. 484 call sites, 452 here and 32 in the
+North Star backend.
+
+**They stay two names, and that is the decision rather than the rename.** `append(sb, pieces:
+variadic string)` and `append_byte(sb, b: variadic byte)` differ in argument two, so the resolver
+could tell them apart and full overloading would allow one name. It should not have one: the
+string form answers nothing and the byte form answers a `bool` (false when a byte is `0b`, which a
+string cannot hold, so nothing is appended). **A name that sometimes has a result and sometimes
+does not is exactly what F149 kept `remove` split over**, and what F199 merged `add` on the
+strength of — both worlds there agreed on what they answered. The suffix is not a world prefix
+either: `_byte` says *what it appends*, which is F170's distinction, the same one that made
+`array_present` into `filter_present`.
+
+A second constraint points the same way and is worth recording because it is a real limit of the
+mechanism rather than a judgement: **the native symbol fallback derives from parameter one only**
+(`interpreter.c`, the `WORLDS` table). Two `append` declarations both taking a `MutableString`
+would both derive `mutable_string_append`, so the byte overload would silently have called the
+string implementation. It is the corroborating reason, not the deciding one — had the vocabulary
+argument gone the other way, the fallback is what would have had to change.
+
+**The old-name hints had rotted, and nothing was watching them.** `renamed_builder_fn` answers
+`mapb_get` with *"'mapb_get' is now 'mutable_map_get'"* — and `mutable_map_get` had not existed
+since F195. Four entries pointed at names F195 and F200 deleted, and a fifth offered the
+`internal` `mutable_set_add` where the vocabulary is `add`. A hint naming something that is not
+there is worse than no hint: it reads as authoritative and costs a search. `check_builtins.py` now
+holds every target to being a declaration that exists, and every *old* name to not being one.
+
+**The table's single explanatory sentence had gone stale the same way**, and more quietly. It said
+the renames were about *"the four questions every collection answers -- len, contains, snapshot,
+clear"*, which was true of F104's entries and false of everything added since. It now states the
+rule all of them followed: the prefix said which world the first argument came from, and the
+argument says it.
+
+**One keyed-by-name table had to move with the rename**: the quadratic lint's `BUILDER_KINDS`
+keys advice on the *appender's name*, so leaving `mutable_string_append` there would have silently
+stopped the lint firing for strings. Its fixture caught it, which is the second time that lint's
+name-keying has been the thing a rename broke (F162 left two dead branches in it).

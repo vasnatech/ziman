@@ -412,13 +412,13 @@ fn widths_array(face: truetype.Face, used: [int], scale: float) -> Result<Obj, s
 // Poppler cross-check verifies.
 fn to_unicode_cmap(face: truetype.Face, used: [int]) -> Result<string, string> {
     val out = mutable_string_new()
-    mutable_string_append(out, "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n")
-    mutable_string_append(
+    append(out, "/CIDInit /ProcSet findresource begin\n12 dict begin\nbegincmap\n")
+    append(
         out,
         "/CIDSystemInfo << /Registry (Adobe) /Ordering (UCS) /Supplement 0 >> def\n"
     )
-    mutable_string_append(out, "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n")
-    mutable_string_append(out, "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n")
+    append(out, "/CMapName /Adobe-Identity-UCS def\n/CMapType 2 def\n")
+    append(out, "1 begincodespacerange\n<0000> <FFFF>\nendcodespacerange\n")
     val pairs = mutable_array_new<string>()
     for g in used {
         if Some(cp) = reverse_lookup(face, g) {
@@ -434,16 +434,16 @@ fn to_unicode_cmap(face: truetype.Face, used: [int]) -> Result<string, string> {
         if upto > len(all) {
             upto = len(all)
         }
-        mutable_string_append(out, str(upto - i), " beginbfchar\n")
+        append(out, str(upto - i), " beginbfchar\n")
         var j = i
         while j < upto {
-            mutable_string_append(out, all[j], "\n")
+            append(out, all[j], "\n")
             j = j + 1
         }
-        mutable_string_append(out, "endbfchar\n")
+        append(out, "endbfchar\n")
         i = upto
     }
-    mutable_string_append(out, "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")
+    append(out, "endcmap\nCMapName currentdict /CMap defineresource pop\nend\nend\n")
     return ok(snapshot(out))
 }
 
@@ -475,9 +475,9 @@ fn sanitised(name: string) -> string {
     val out = mutable_string_new()
     for ch in chars(name) {
         if ch == " " || ch == "(" || ch == ")" || ch == "/" || ch == "<" || ch == ">" {
-            mutable_string_append(out, "-")
+            append(out, "-")
         } else {
-            mutable_string_append(out, ch)
+            append(out, ch)
         }
     }
     return snapshot(out)
@@ -508,7 +508,7 @@ fn page_content(page: Scene, o: Options) -> Result<Built, string> {
     // it growing upward, so the whole page is drawn inside one flip. Text then needs its own
     // compensating flip in its text matrix, which `emit_text` does -- that is the one cost of
     // putting the flip here, and it is paid in one place.
-    mutable_string_append(out, "q\n1 0 0 -1 0 ", real_text(h), " cm\n")
+    append(out, "q\n1 0 0 -1 0 ", real_text(h), " cm\n")
     if Some(bg) = page.background {
         val box = shape.rect_path(geom.rect_of(0.0, 0.0, page.width, h))
         try emit_fill(out, b, o, box, bg)
@@ -516,7 +516,7 @@ fn page_content(page: Scene, o: Options) -> Result<Built, string> {
     for op in page.ops {
         try emit_op(out, b, o, op)
     }
-    mutable_string_append(out, "Q\n")
+    append(out, "Q\n")
     return ok(with b {
         stream: snapshot(out)
     })
@@ -542,8 +542,8 @@ fn emit_op(out: MutableString, b: Built, o: Options, op: Op) -> Result<unit, str
             // matrix: there is no width or height on the `Do` operator. The extra `-1` in `d` and
             // the `+height` in `f` flip the image upright, because the page is already flipped and
             // an image would otherwise appear upside down.
-            mutable_string_append(out, "q\n")
-            mutable_string_append(
+            append(out, "q\n")
+            append(
                 out,
                 real_text(r.width),
                 " 0 0 ",
@@ -554,25 +554,25 @@ fn emit_op(out: MutableString, b: Built, o: Options, op: Op) -> Result<unit, str
                 real_text(r.y + r.height),
                 " cm\n"
             )
-            mutable_string_append(out, "/Im", str(p.image), " Do\nQ\n")
+            append(out, "/Im", str(p.image), " Do\nQ\n")
             return unit
         }
         Nested(g) {
-            mutable_string_append(out, "q\n")
+            append(out, "q\n")
             if !is_identity(g.transform) {
-                mutable_string_append(out, matrix_text(g.transform), " cm\n")
+                append(out, matrix_text(g.transform), " cm\n")
             }
             if Some(clip) = g.clip {
                 emit_path(out, clip)
                 // `W` marks the path as a clip and `n` is the no-op painting operator that ends it.
                 // Writing `W` alone leaves the path pending and the next operator does something
                 // surprising.
-                mutable_string_append(out, "W n\n")
+                append(out, "W n\n")
             }
             for child in g.ops {
                 try emit_op(out, b, o, child)
             }
-            mutable_string_append(out, "Q\n")
+            append(out, "Q\n")
             return unit
         }
     }
@@ -582,9 +582,9 @@ fn emit_fill(out: MutableString, b: Built, o: Options, p: Path, with_paint: Pain
     switch with_paint {
         Solid(c) {
             try set_alpha(out, b, c.alpha)
-            mutable_string_append(out, colour_text(c), " rg\n")
+            append(out, colour_text(c), " rg\n")
             emit_path(out, p)
-            mutable_string_append(out, fill_operator(p.winding), "\n")
+            append(out, fill_operator(p.winding), "\n")
             return unit
         }
         LinearGradient(g) {
@@ -608,10 +608,10 @@ fn emit_fill(out: MutableString, b: Built, o: Options, p: Path, with_paint: Pain
 // A shading is painted by clipping to the path and running `sh`, which is simpler and more portable
 // than a pattern colour space and produces the same ink.
 fn emit_shading_fill(out: MutableString, p: Path, name: string) -> Result<unit, string> {
-    mutable_string_append(out, "q\n")
+    append(out, "q\n")
     emit_path(out, p)
-    mutable_string_append(out, if is_even_odd(p.winding) { "W* n\n" } else { "W n\n" })
-    mutable_string_append(out, "/", name, " sh\nQ\n")
+    append(out, if is_even_odd(p.winding) { "W* n\n" } else { "W n\n" })
+    append(out, "/", name, " sh\nQ\n")
     return unit
 }
 
@@ -645,14 +645,14 @@ fn emit_stroke(
     try set_alpha(out, b, c.alpha)
     // **Stroke parameters pass straight through** rather than being turned into an outline, which
     // is why a hairline stays a hairline at any zoom. Only the raster backend outlines (phase 5).
-    mutable_string_append(out, real_text(how.width), " w\n")
-    mutable_string_append(out, str(cap_code(how.cap)), " J\n")
-    mutable_string_append(out, str(join_code(how.join)), " j\n")
-    mutable_string_append(out, real_text(how.miter_limit), " M\n")
-    mutable_string_append(out, dash_text(how), " d\n")
-    mutable_string_append(out, colour_text(c), " RG\n")
+    append(out, real_text(how.width), " w\n")
+    append(out, str(cap_code(how.cap)), " J\n")
+    append(out, str(join_code(how.join)), " j\n")
+    append(out, real_text(how.miter_limit), " M\n")
+    append(out, dash_text(how), " d\n")
+    append(out, colour_text(c), " RG\n")
     emit_path(out, p)
-    mutable_string_append(out, "S\n")
+    append(out, "S\n")
     return unit
 }
 
@@ -683,12 +683,12 @@ fn emit_text(out: MutableString, b: Built, o: Options, t: scene.TextRun) -> Resu
     }
     remember(b.fonts_used, t.font)
     try set_alpha(out, b, c.alpha)
-    mutable_string_append(out, colour_text(c), " rg\n")
-    mutable_string_append(out, "BT\n/F", str(t.font), " ", real_text(t.size), " Tf\n")
+    append(out, colour_text(c), " rg\n")
+    append(out, "BT\n/F", str(t.font), " ", real_text(t.size), " Tf\n")
     // The compensating flip: the page CTM has `d = -1`, so a text matrix of `1 0 0 -1 x y` renders
     // upright at the model's own (x, y). Without it every glyph is mirrored.
-    mutable_string_append(out, "1 0 0 -1 ", real_text(t.at.x), " ", real_text(t.at.y), " Tm\n")
-    mutable_string_append(out, "<", hex_of(encoded), "> Tj\nET\n")
+    append(out, "1 0 0 -1 ", real_text(t.at.x), " ", real_text(t.at.y), " Tm\n")
+    append(out, "<", hex_of(encoded), "> Tj\nET\n")
     return unit
 }
 
@@ -729,11 +729,11 @@ fn emit_path(out: MutableString, p: Path) {
     for s in p.segments {
         switch s {
             MoveTo(a) {
-                mutable_string_append(out, point_text(a), " m\n")
+                append(out, point_text(a), " m\n")
                 current = a
             }
             LineTo(a) {
-                mutable_string_append(out, point_text(a), " l\n")
+                append(out, point_text(a), " l\n")
                 current = a
             }
             QuadTo(q) {
@@ -747,11 +747,11 @@ fn emit_path(out: MutableString, p: Path) {
                     q.end.x + 2.0 / 3.0 * (q.control.x - q.end.x),
                     q.end.y + 2.0 / 3.0 * (q.control.y - q.end.y)
                 )
-                mutable_string_append(out, point_text(c1), " ", point_text(c2), " ", point_text(q.end), " c\n")
+                append(out, point_text(c1), " ", point_text(c2), " ", point_text(q.end), " c\n")
                 current = q.end
             }
             CubicTo(c) {
-                mutable_string_append(
+                append(
                     out,
                     point_text(c.control1),
                     " ",
@@ -762,7 +762,7 @@ fn emit_path(out: MutableString, p: Path) {
                 )
                 current = c.end
             }
-            Close { mutable_string_append(out, "h\n") }
+            Close { append(out, "h\n") }
         }
     }
 }
@@ -827,16 +827,16 @@ fn dash_text(s: Stroke) -> string {
         return "[] 0"
     }
     val out = mutable_string_new()
-    mutable_string_append(out, "[")
+    append(out, "[")
     var first = true
     for d in s.dash {
         if !first {
-            mutable_string_append(out, " ")
+            append(out, " ")
         }
         first = false
-        mutable_string_append(out, real_text(d))
+        append(out, real_text(d))
     }
-    mutable_string_append(out, "] ", real_text(s.dash_phase))
+    append(out, "] ", real_text(s.dash_phase))
     return snapshot(out)
 }
 
@@ -859,7 +859,7 @@ fn set_alpha(out: MutableString, b: Built, alpha: float) -> Result<unit, string>
         mutable_array_push(b.alphas, alpha)
         at = len(b.alphas) - 1
     }
-    mutable_string_append(out, "/GS", str(at), " gs\n")
+    append(out, "/GS", str(at), " gs\n")
     return unit
 }
 

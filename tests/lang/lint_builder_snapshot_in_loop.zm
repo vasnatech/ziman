@@ -35,7 +35,7 @@ fn join_all(parts: [string]) -> int {
     for p in parts {
         val so_far = snapshot(out)
         n = n + len(so_far)
-        mutable_string_append(out, p)
+        append(out, p)
     }
     return n
 }

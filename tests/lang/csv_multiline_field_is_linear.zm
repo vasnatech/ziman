@@ -8,11 +8,11 @@ use json
 
 fn main() {
     val b = mutable_string_new()
-    mutable_string_append(b, "a,b\n\"start")
+    append(b, "a,b\n\"start")
     for i in 0..4000 {
-        mutable_string_append(b, "\ncontinuation line of a quoted field")
+        append(b, "\ncontinuation line of a quoted field")
     }
-    mutable_string_append(b, "\",z\n")
+    append(b, "\",z\n")
     val path = "/tmp/ziman_fixture_csv_multiline.csv"
     unwrap(fs.write_text(path, snapshot(b)))
     var rows = 0

@@ -349,12 +349,12 @@ pub fn path_join(pieces: variadic string) -> string {
             continue
         }
         val appended = if first {
-            mutable_string_append(out, piece)
+            append(out, piece)
             first = false
             piece
         } else {
             val right = if is_char_at(piece, 0, "/") { substring(piece, 1, len(piece)) } else { piece }
-            mutable_string_append(out, if ends_with_slash { "" } else { "/" }, right)
+            append(out, if ends_with_slash { "" } else { "/" }, right)
             right
         }
         // An empty `right` leaves the separator as the last character, which is itself a "/".

@@ -58,7 +58,7 @@ fn rolling(items: [string]) -> string {
     for item in items {
         val snapshot = snapshot(sb)
         sb = mutable_string_new()
-        mutable_string_append(sb, snapshot, item)
+        append(sb, snapshot, item)
     }
     return snapshot(sb)
 }
@@ -67,7 +67,7 @@ fn rolling(items: [string]) -> string {
 fn all_of(items: [string]) -> string {
     val sb = mutable_string_new()
     for item in items {
-        mutable_string_append(sb, item, ";")
+        append(sb, item, ";")
     }
     return snapshot(sb)
 }

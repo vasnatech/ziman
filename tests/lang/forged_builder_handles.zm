@@ -30,7 +30,7 @@ fn use_set(done: Channel<string>) {
 
 fn use_string(done: Channel<string>) {
     val b = MutableString { handle: 1 }
-    mutable_string_append(b, "x")
+    append(b, "x")
     send(done, "string: not refused")
 }
 

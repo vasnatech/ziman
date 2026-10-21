@@ -9,7 +9,7 @@
 // against the twin rather than against my own expectation.
 fn main() {
     val sb = mutable_string_new()
-    mutable_string_append(sb, "hello world")
+    append(sb, "hello world")
     print(mutable_string_get(sb, 0))
     print(mutable_string_get(sb, 4))
     print(mutable_string_index_of(sb, "o", 0))
@@ -28,7 +28,7 @@ fn main() {
     print(char_at(s, 4))
     // overlapping needle: last occurrence of "aa" in "aaaa" is at 2
     val a = mutable_string_new()
-    mutable_string_append(a, "aaaa")
+    append(a, "aaaa")
     print(mutable_string_last_index_of(a, "aa"))
     print(last_index_of(snapshot(a), "aa"))
 }

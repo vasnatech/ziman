@@ -46,7 +46,7 @@ pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string> {
 pub fn ndjson_to_string(items: [Json]) -> string {
     val out = mutable_string_new()
     for item in items {
-        mutable_string_append(out, json_to_string(item), "\n")
+        append(out, json_to_string(item), "\n")
     }
     return snapshot(out)
 }

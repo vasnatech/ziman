@@ -41,7 +41,7 @@ fn main() {
     // A kilobyte of repeating text, which gzip reduces hard.
     val sb = mutable_string_new()
     for i in 0..200 {
-        mutable_string_append(sb, "compress me please ")
+        append(sb, "compress me please ")
     }
     val big = server.response(200, string_to_bytes(snapshot(sb)))
     printf("original: {} bytes\n", len(big.body))

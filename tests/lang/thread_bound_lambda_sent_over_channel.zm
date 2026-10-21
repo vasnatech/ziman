@@ -1,5 +1,5 @@
 // F46: the `send` side of A14's guard. typecheck.c's 'send' branch says this case was a real bug
-// -- "Without this, `send(ch, fn() { mutable_string_append(sb, "x") })` type-checked and failed on the
+// -- "Without this, `send(ch, fn() { append(sb, "x") })` type-checked and failed on the
 // receiving thread instead" -- and the fix is why the value's own type is checked and not only the
 // channel's declared element type: they differ for exactly one thing, a lambda carrying
 // Type.func_captures_thread_bound, which `Channel<fn() -> string>` as written cannot say.
@@ -8,7 +8,7 @@
 // branch this file exercises had no test until now.
 fn main() {
     val sb = mutable_string_new()
-    mutable_string_append(sb, "owned by main")
+    append(sb, "owned by main")
 
     val ch: Channel<fn() -> string> = channel_new()
     send(ch, fn() -> string { snapshot(sb) })

@@ -321,7 +321,7 @@ fn format_fields(
 ) -> string {
     val out = mutable_string_new()
     for part in fmt.parts {
-        mutable_string_append(out, switch part {
+        append(out, switch part {
             Year { format_year(year) }
             Month { pad_left(month, 2) }
             Day { pad_left(day, 2) }

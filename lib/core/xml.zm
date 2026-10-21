@@ -299,8 +299,8 @@ pub fn text_of(e: Element) -> string {
 fn gather_text(e: Element, out: MutableString) {
     for c in e.children {
         switch c {
-            Text(t) { mutable_string_append(out, t) }
-            CData(t) { mutable_string_append(out, t) }
+            Text(t) { append(out, t) }
+            CData(t) { append(out, t) }
             Element(sub) { gather_text(sub, out) }
             Comment(_) {}
             ProcessingInstruction(_) {}
@@ -461,18 +461,18 @@ fn illegal_char(code: int) -> bool {
 
 fn append_code_point(out: MutableString, cp: int) {
     if cp < 128 {
-        mutable_string_append_byte(out, cp as byte)
+        append_byte(out, cp as byte)
     } else if cp < 2048 {
-        mutable_string_append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
+        append_byte(out, (192 + cp / 64) as byte, (128 + cp % 64) as byte)
     } else if cp < 65536 {
-        mutable_string_append_byte(
+        append_byte(
             out,
             (224 + cp / 4096) as byte,
             (128 + cp / 64 % 64) as byte,
             (128 + cp % 64) as byte
         )
     } else {
-        mutable_string_append_byte(
+        append_byte(
             out,
             (240 + cp / 262144) as byte,
             (128 + cp / 4096 % 64) as byte,
@@ -492,15 +492,15 @@ fn read_reference(s: string, pos: int, out: MutableString) -> Result<int, string
     }
     val body = substring(s, pos + 1, end)
     if body == "lt" {
-        mutable_string_append(out, "<")
+        append(out, "<")
     } else if body == "gt" {
-        mutable_string_append(out, ">")
+        append(out, ">")
     } else if body == "amp" {
-        mutable_string_append(out, "&")
+        append(out, "&")
     } else if body == "quot" {
-        mutable_string_append(out, "\"")
+        append(out, "\"")
     } else if body == "apos" {
-        mutable_string_append(out, "'")
+        append(out, "'")
     } else if starts_with(body, "#") {
         val cp = try read_char_code(s, pos, body)
         append_code_point(out, cp)
@@ -564,7 +564,7 @@ fn read_text(s: string, pos: int) -> Result<PStr, string> {
             if code == 93 && starts_with(substring(s, p, len(s)), "]]>") {
                 return err(fail(s, p, "']]>' cannot appear in content; write '&gt;' for the '>'"))
             }
-            mutable_string_append(out, char_at(s, p))
+            append(out, char_at(s, p))
             p = p + 1
         }
     }
@@ -592,7 +592,7 @@ fn read_attr_value(s: string, pos: int) -> Result<PStr, string> {
             if illegal_char(code) {
                 return err(fail(s, p, "a control character XML cannot represent"))
             }
-            mutable_string_append(out, char_at(s, p))
+            append(out, char_at(s, p))
             p = p + 1
         }
     }
@@ -1040,13 +1040,13 @@ fn escape_text(s: string, out: MutableString) -> Result<bool, string> {
             ))
         }
         if c == "&" {
-            mutable_string_append(out, "&amp;")
+            append(out, "&amp;")
         } else if c == "<" {
-            mutable_string_append(out, "&lt;")
+            append(out, "&lt;")
         } else if c == ">" {
-            mutable_string_append(out, "&gt;")
+            append(out, "&gt;")
         } else {
-            mutable_string_append(out, c)
+            append(out, c)
         }
         i = i + 1
     }
@@ -1068,21 +1068,21 @@ fn escape_attr(s: string, out: MutableString) -> Result<bool, string> {
             ))
         }
         if c == "&" {
-            mutable_string_append(out, "&amp;")
+            append(out, "&amp;")
         } else if c == "<" {
-            mutable_string_append(out, "&lt;")
+            append(out, "&lt;")
         } else if c == ">" {
-            mutable_string_append(out, "&gt;")
+            append(out, "&gt;")
         } else if c == "\"" {
-            mutable_string_append(out, "&quot;")
+            append(out, "&quot;")
         } else if c == "\t" {
-            mutable_string_append(out, "&#9;")
+            append(out, "&#9;")
         } else if c == "\n" {
-            mutable_string_append(out, "&#10;")
+            append(out, "&#10;")
         } else if c == "\r" {
-            mutable_string_append(out, "&#13;")
+            append(out, "&#13;")
         } else {
-            mutable_string_append(out, c)
+            append(out, c)
         }
         i = i + 1
     }
@@ -1116,19 +1116,19 @@ fn write_name(n: Name, out: MutableString) -> Result<bool, string> {
         if !valid_name(p) {
             return err(format("'{}' is not a valid namespace prefix", p))
         }
-        mutable_string_append(out, p, ":")
+        append(out, p, ":")
     }
-    mutable_string_append(out, n.local)
+    append(out, n.local)
     return ok(true)
 }
 
 fn write_attributes(e: Element, out: MutableString) -> Result<bool, string> {
     for a in e.attributes {
-        mutable_string_append(out, " ")
+        append(out, " ")
         val _ = try write_name(a.name, out)
-        mutable_string_append(out, "=\"")
+        append(out, "=\"")
         val _ = try escape_attr(a.value, out)
-        mutable_string_append(out, "\"")
+        append(out, "\"")
     }
     return ok(true)
 }
@@ -1140,7 +1140,7 @@ fn write_comment(body: string, out: MutableString) -> Result<bool, string> {
     if ends_with(body, "-") {
         return err("a comment cannot end with '-'")
     }
-    mutable_string_append(out, "<!--", body, "-->")
+    append(out, "<!--", body, "-->")
     return ok(true)
 }
 
@@ -1148,7 +1148,7 @@ fn write_cdata(body: string, out: MutableString) -> Result<bool, string> {
     if index_of(body, "]]>", 0) >= 0 {
         return err("a CDATA section cannot contain ']]>'")
     }
-    mutable_string_append(out, "<![CDATA[", body, "]]>")
+    append(out, "<![CDATA[", body, "]]>")
     return ok(true)
 }
 
@@ -1163,9 +1163,9 @@ fn write_pi(pi: Instruction, out: MutableString) -> Result<bool, string> {
         return err("a processing instruction cannot contain '?>'")
     }
     if pi.data == "" {
-        mutable_string_append(out, "<?", pi.target, "?>")
+        append(out, "<?", pi.target, "?>")
     } else {
-        mutable_string_append(out, "<?", pi.target, " ", pi.data, "?>")
+        append(out, "<?", pi.target, " ", pi.data, "?>")
     }
     return ok(true)
 }
@@ -1200,37 +1200,37 @@ fn write_node(n: Node, out: MutableString, indent: string, depth: int) -> Result
 }
 
 fn write_element(e: Element, out: MutableString, indent: string, depth: int) -> Result<bool, string> {
-    mutable_string_append(out, "<")
+    append(out, "<")
     val _ = try write_name(e.name, out)
     val _ = try write_attributes(e, out)
     if len(e.children) == 0 {
-        mutable_string_append(out, "/>")
+        append(out, "/>")
         return ok(true)
     }
-    mutable_string_append(out, ">")
+    append(out, ">")
     val pretty = indent != "" && indentable(e)
     for c in e.children {
         if pretty {
-            mutable_string_append(out, "\n")
+            append(out, "\n")
             var i = 0
             while i <= depth {
-                mutable_string_append(out, indent)
+                append(out, indent)
                 i = i + 1
             }
         }
         val _ = try write_node(c, out, indent, depth + 1)
     }
     if pretty {
-        mutable_string_append(out, "\n")
+        append(out, "\n")
         var i = 0
         while i < depth {
-            mutable_string_append(out, indent)
+            append(out, indent)
             i = i + 1
         }
     }
-    mutable_string_append(out, "</")
+    append(out, "</")
     val _ = try write_name(e.name, out)
-    mutable_string_append(out, ">")
+    append(out, ">")
     return ok(true)
 }
 
@@ -1245,29 +1245,29 @@ fn write_declaration(d: Option<Declaration>, out: MutableString) {
             }
         }
     }
-    mutable_string_append(out, "<?xml version=\"", decl.version, "\"")
+    append(out, "<?xml version=\"", decl.version, "\"")
     if Some(enc) = decl.encoding {
-        mutable_string_append(out, " encoding=\"", enc, "\"")
+        append(out, " encoding=\"", enc, "\"")
     }
     if Some(sa) = decl.standalone {
-        mutable_string_append(out, " standalone=\"", if sa { "yes" } else { "no" }, "\"")
+        append(out, " standalone=\"", if sa { "yes" } else { "no" }, "\"")
     }
-    mutable_string_append(out, "?>")
+    append(out, "?>")
 }
 
 fn write_document(doc: Document, indent: string) -> Result<string, string> {
     val out = mutable_string_new()
     write_declaration(doc.declaration, out)
-    mutable_string_append(out, "\n")
+    append(out, "\n")
     for n in doc.prolog {
         val _ = try write_node(n, out, indent, 0)
-        mutable_string_append(out, "\n")
+        append(out, "\n")
     }
     val _ = try write_element(doc.root, out, indent, 0)
-    mutable_string_append(out, "\n")
+    append(out, "\n")
     for n in doc.epilog {
         val _ = try write_node(n, out, indent, 0)
-        mutable_string_append(out, "\n")
+        append(out, "\n")
     }
     return ok(snapshot(out))
 }

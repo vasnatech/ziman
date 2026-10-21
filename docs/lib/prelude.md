@@ -44,7 +44,7 @@ fn main() {
     // Builders assemble a result without copying it on every step.
     val sb = mutable_string_new()
     for i in 0..5 {
-        mutable_string_append(sb, str(i), ",")
+        append(sb, str(i), ",")
     }
     print(snapshot(sb))
     val ab = mutable_array_new<int>()
@@ -616,7 +616,7 @@ constructor is for and is unambiguous about which of the two you meant.
 
 Two consequences worth knowing rather than discovering. A string answers `Mutable<string>`, not
 a MutableString: a MutableString is *filled* rather than converted (`mutable_string_new` then
-`mutable_string_append`), so it is not this conversion -- and the corpus agrees, since of 133
+`append`), so it is not this conversion -- and the corpus agrees, since of 133
 `mutable_string_new` call sites exactly one seeds the buffer from a whole existing string. And a
 builder answers a cell holding that same handle, **not a clone of it**; there is no way to clone
 a builder at all, which is deliberate rather than pending. `mutable_array_from`,
@@ -2309,23 +2309,23 @@ An empty builder. `capacity` is the bytes to reserve up front and `grow_factor` 
 its capacity grows by when an append would overflow it; both are optional, so `mutable_string_new()` is
 usually all that is written.
 
-### `mutable_string_append`
+### `append`
 
 ```
-native fn mutable_string_append(sb: MutableString, pieces: variadic string)
+native fn append(sb: MutableString, pieces: variadic string)
 ```
 
 Appends each of `pieces`, given one by one or as an array. The builder changes in place and
 nothing is returned.
 
-### `mutable_string_append_byte`
+### `append_byte`
 
 ```
-native fn mutable_string_append_byte(sb: MutableString, b: variadic byte) -> bool
+native fn append_byte(sb: MutableString, b: variadic byte) -> bool
 ```
 
 Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say):
-`mutable_string_append_byte(sb, 195b, 169b)`. A string cannot hold a 0 byte, so if any byte is `0b` NOTHING
+`append_byte(sb, 195b, 169b)`. A string cannot hold a 0 byte, so if any byte is `0b` NOTHING
 is appended and the result is false (true otherwise). The bytes need not be valid UTF-8 on
 their own.
 

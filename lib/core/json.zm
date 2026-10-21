@@ -274,41 +274,41 @@ fn write_pretty(out: MutableString, j: Json, indent: int, level: int) {
     val close_pad = repeat_spaces(indent * level)
     if JArray(items) = j {
         if len(items) == 0 {
-            mutable_string_append(out, "[]")
+            append(out, "[]")
             return
         }
-        mutable_string_append(out, "[\n")
+        append(out, "[\n")
         var i = 0
         while i < len(items) {
-            mutable_string_append(out, pad)
+            append(out, pad)
             write_pretty(out, items[i], indent, level + 1)
-            mutable_string_append(out, if i + 1 < len(items) { ",\n" } else { "\n" })
+            append(out, if i + 1 < len(items) { ",\n" } else { "\n" })
             i = i + 1
         }
-        mutable_string_append(out, close_pad, "]")
+        append(out, close_pad, "]")
     } else if JObject(fields) = j {
         if len(fields) == 0 {
-            mutable_string_append(out, "{}")
+            append(out, "{}")
             return
         }
-        mutable_string_append(out, "{\n")
+        append(out, "{\n")
         var n = 0
         for key, value in fields {
             n = n + 1
-            mutable_string_append(out, pad, json_to_string(Json.JString(key)), ": ")
+            append(out, pad, json_to_string(Json.JString(key)), ": ")
             write_pretty(out, value, indent, level + 1)
-            mutable_string_append(out, if n < len(fields) { ",\n" } else { "\n" })
+            append(out, if n < len(fields) { ",\n" } else { "\n" })
         }
-        mutable_string_append(out, close_pad, "}")
+        append(out, close_pad, "}")
     } else {
-        mutable_string_append(out, json_to_string(j))
+        append(out, json_to_string(j))
     }
 }
 
 fn repeat_spaces(n: int) -> string {
     val out = mutable_string_new()
     for i in 0..n {
-        mutable_string_append(out, " ")
+        append(out, " ")
     }
     return snapshot(out)
 }

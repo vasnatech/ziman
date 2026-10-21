@@ -42,10 +42,10 @@ fn lines_drawn(b: layout.Block, width: float, d: layout.Document) -> [string] {
                         mutable_array_push(out, snapshot(current))
                     }
                     current = mutable_string_new()
-                    mutable_string_append(current, run.text)
+                    append(current, run.text)
                     last_y = run.at.y
                 } else {
-                    mutable_string_append(current, run.text)
+                    append(current, run.text)
                 }
             }
             Fill(_) { unit }

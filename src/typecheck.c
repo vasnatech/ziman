@@ -695,7 +695,7 @@ static void lint_quadratic_accumulation(const Stmt *s) {
              * the same test, the second one dead, and `a = concat(a, [i])` on an array was told to
              * collect into a MutableString. */
             fix = v->resolved_type.kind == TY_STRING
-                      ? "a MutableString (mutable_string_new, mutable_string_append, snapshot)"
+                      ? "a MutableString (mutable_string_new, append, snapshot)"
                       : "a MutableArray (mutable_array_new, push, snapshot), which concat appends to in place";
         } else if (strcmp(callee, "set") == 0 && v->as.call.args.count == 3) {
             /* No builder has random-access assignment, so the advice depends on what the loop is doing;
@@ -751,7 +751,7 @@ typedef struct {
 
 static const BuilderKindAdvice BUILDER_KINDS[] = {
     {"mutable_array_push", "len, mutable_array_get or 'for x in <the builder>'"},
-    {"mutable_string_append", "len, or a MutableString you finish once after the loop"},
+    {"append", "len, or a MutableString you finish once after the loop"},
     {"set", "len, contains, get or get_or"},
     {"mutable_set_add", "len or contains"},
     {NULL, NULL}};
@@ -1716,24 +1716,26 @@ static const char *renamed_builder_fn(const char *name) {
                    {"ab_len", "len"},
                    {"ab_clear", "clear"},
                    {"sb_new", "mutable_string_new"},
-                   {"sb_append", "mutable_string_append"},
-                   {"sb_append_byte", "mutable_string_append_byte"},
+                   {"sb_append", "append"},
+                   {"sb_append_byte", "append_byte"},
                    {"sb_to_string", "snapshot"},
                    {"sb_len", "len"},
                    {"mapb_new", "mutable_map_new"},
                    {"mapb_set", "set"},
-                   {"mapb_get", "mutable_map_get"},
-                   {"mapb_get_or", "mutable_map_get_or"},
-                   {"mapb_remove", "mutable_map_remove"},
+                   {"mapb_get", "get"},
+                   {"mapb_get_or", "get_or"},
+                   {"mapb_remove", "remove"},
                    {"mapb_contains", "contains"},
                    {"mapb_len", "len"},
                    {"mapb_to_map", "snapshot"},
                    {"setb_new", "mutable_set_new"},
-                   {"setb_add", "mutable_set_add"},
-                   {"setb_remove", "mutable_set_remove"},
+                   {"setb_add", "add"},
+                   {"setb_remove", "remove"},
                    {"setb_contains", "contains"},
                    {"setb_len", "len"},
                    {"setb_to_set", "snapshot"},
+                   {"mutable_string_append", "append"},
+                   {"mutable_string_append_byte", "append_byte"},
                    {NULL, NULL}};
     for (size_t k = 0; RENAMED[k].was != NULL; k++) {
         if (strcmp(name, RENAMED[k].was) == 0) return RENAMED[k].now;
@@ -4044,7 +4046,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         /* The value's own type, as well as the channel's declared element type (checked once where
          * the Channel type is validated). They differ for exactly one thing: a lambda that captured a
          * builder has Type.func_captures_thread_bound set, which `Channel<fn() -> string>` as written
-         * by the programmer cannot. Without this, `send(ch, fn() { mutable_string_append(sb, "x") })` type-checked
+         * by the programmer cannot. Without this, `send(ch, fn() { append(sb, "x") })` type-checked
          * and failed on the receiving thread instead. */
         reject_thread_bound(module, val_type, "sent over a channel", val_arg->line, val_arg->col);
         return type_scalar(TY_VOID);
@@ -4206,9 +4208,15 @@ ordinary_call:;
         }
         const char *renamed_fn = renamed_builder_fn(name);
         if (renamed_fn != NULL) {
+            /* One sentence for a table that now holds two kinds of rename, so it states the rule
+             * both followed rather than the details of either: the old names said which *world*
+             * the first argument came from, and the argument already says that. Naming the four
+             * bare questions here was true of F104's entries and false of the ones added since
+             * (`mapb_get` is `get`, `mutable_string_append` is `append`), which is exactly the
+             * kind of half-updated message this project keeps paying for. */
             ziman_error("type", e->line, e->col,
-                        "'%s' is now '%s': the builders are the mutable collections, and the four questions every "
-                        "collection answers -- len, contains, snapshot, clear -- lost their per-type names",
+                        "'%s' is now '%s': a builder is a mutable collection, and these names lost the prefix "
+                        "that said which world the first argument came from -- the argument says it",
                         name, renamed_fn);
         }
         const char *suggestion = suggest_function_name(module, name);
