@@ -204,7 +204,7 @@ fn cstring_end(b: [byte], start: int) -> int {
 fn zeros(n: int) -> [byte] {
     val out = mutable_array_new<byte>()
     for i in 0..n {
-        mutable_array_push(out, 0b)
+        push(out, 0b)
     }
     return snapshot(out)
 }
@@ -214,7 +214,7 @@ fn le(v: int, n: int) -> [byte] {
     val out = mutable_array_new<byte>()
     var x = v
     for i in 0..n {
-        mutable_array_push(out, (x % 256) as byte)
+        push(out, (x % 256) as byte)
         x = x / 256
     }
     return snapshot(out)
@@ -290,7 +290,7 @@ fn read_packet(sock: Socket) -> Result<Packet, DbError> {
         seq = header[3] as int
         if length > 0 {
             val body = try db.lift_net<[byte]>(net.read_exact(sock, length))
-            mutable_array_push(parts, body)
+            push(parts, body)
         }
         more = length == 16777215
     }
@@ -548,7 +548,7 @@ fn read_columns(sock: Socket, count: int) -> Result<[Column], DbError> {
         if is_err_packet(p.body) {
             return err(parse_error(p.body))
         }
-        mutable_array_push(columns, parse_column(p.body))
+        push(columns, parse_column(p.body))
     }
     if count > 0 {
         val eof = try read_packet(sock)
@@ -599,7 +599,7 @@ fn read_result(sock: Socket) -> Result<ResultSet, DbError> {
             more = more_results(read_le(p.body, 3, 2))
             done = true
         } else {
-            mutable_array_push(rows, p.body)
+            push(rows, p.body)
         }
     }
     return ResultSet { columns: columns, rows: snapshot(rows), affected: 0, more: more }
@@ -660,9 +660,9 @@ fn decode_text_row(body: [byte], columns: [Column]) -> Result<[SqlValue], DbErro
     for c in columns {
         val l = read_lenenc(body, pos)
         if l.is_null {
-            mutable_array_push(values, SqlValue.Null)
+            push(values, SqlValue.Null)
         } else {
-            mutable_array_push(values, decode_text_value(c, slice<byte>(body, l.next, l.next + l.value)))
+            push(values, decode_text_value(c, slice<byte>(body, l.next, l.next + l.value)))
         }
         pos = l.next + l.value
     }
@@ -815,10 +815,10 @@ fn decode_binary_row(body: [byte], columns: [Column]) -> Result<[SqlValue], DbEr
     for i in 0..len(columns) {
         val flag_byte = body[1 + (i + 2) / 8] as int
         if bit_set(flag_byte, (i + 2) % 8) {
-            mutable_array_push(values, SqlValue.Null)
+            push(values, SqlValue.Null)
         } else {
             val v = try decode_binary_value(columns[i], body, pos)
-            mutable_array_push(values, v)
+            push(values, v)
             pos = pos + binary_value_size(columns[i], body, pos)
         }
     }
@@ -828,17 +828,17 @@ fn decode_binary_row(body: [byte], columns: [Column]) -> Result<[SqlValue], DbEr
 fn to_result(rs: ResultSet, binary: bool) -> Result<QueryResult, DbError> {
     val names = mutable_array_new<string>()
     for c in rs.columns {
-        mutable_array_push(names, c.name)
+        push(names, c.name)
     }
     val column_names = snapshot(names)
     val rows = mutable_array_new<Row>()
     for body in rs.rows {
         if binary {
             val values = try decode_binary_row(body, rs.columns)
-            mutable_array_push(rows, Row { columns: column_names, values: values })
+            push(rows, Row { columns: column_names, values: values })
         } else {
             val values = try decode_text_row(body, rs.columns)
-            mutable_array_push(rows, Row { columns: column_names, values: values })
+            push(rows, Row { columns: column_names, values: values })
         }
     }
     return QueryResult { rows: snapshot(rows), affected: rs.affected }
@@ -906,7 +906,7 @@ fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, Db
                 )))
             }
             append(out, "?")
-            mutable_array_push(ordered, params[index - 1])
+            push(ordered, params[index - 1])
             i = j
         } else {
             append(out, char_at(sql, i))
@@ -924,7 +924,7 @@ fn le_int64(v: int) -> [byte] {
     val magnitude = le(-(v + 1), 8)
     val out = mutable_array_new<byte>()
     for b in magnitude {
-        mutable_array_push(out, (255 - (b as int)) as byte)
+        push(out, (255 - (b as int)) as byte)
     }
     return snapshot(out)
 }
@@ -975,13 +975,13 @@ fn execute_body(stmt_id: int, params: [SqlValue], flags: int) -> [byte] {
             }
             weight = weight * 2
         }
-        mutable_array_push(bitmap, flags as byte)
+        push(bitmap, flags as byte)
     }
     val types = mutable_array_new<[byte]>()
     val values = mutable_array_new<[byte]>()
     for p in params {
-        mutable_array_push(types, param_type(p))
-        mutable_array_push(values, param_value(p))
+        push(types, param_type(p))
+        push(values, param_value(p))
     }
     return bytes_concat(
         head,
@@ -1052,7 +1052,7 @@ fn failed_step(e: DbError) -> CursorStep {
 fn column_names(columns: [Column]) -> [string] {
     val names = mutable_array_new<string>()
     for c in columns {
-        mutable_array_push(names, c.name)
+        push(names, c.name)
     }
     return snapshot(names)
 }
@@ -1081,14 +1081,14 @@ fn fetch_page(sock: Socket, id: int, statement: int, columns: [Column]) -> Curso
             last = bit_set(read_le(body, 3, 2), status_last_row_sent)
             done = true
         } else {
-            mutable_array_push(raw, body)
+            push(raw, body)
         }
     }
     val names = column_names(columns)
     val rows = mutable_array_new<Row>()
     for body in snapshot(raw) {
         switch decode_binary_row(body, columns) {
-            Ok(v) { mutable_array_push(rows, Row { columns: names, values: v }) }
+            Ok(v) { push(rows, Row { columns: names, values: v }) }
             Err(e) {
                 if !Option.is_Some(failure) {
                     failure = Option<DbError>.Some(e)

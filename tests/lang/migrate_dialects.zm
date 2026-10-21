@@ -18,7 +18,7 @@ fn names(r: Result<[migrate.Migration], DbError>) -> string {
 fn collect_names(items: [migrate.Migration]) -> [string] {
     val out = mutable_array_new<string>()
     for m in items {
-        mutable_array_push<string>(out, m.file)
+        push<string>(out, m.file)
     }
     return snapshot(out)
 }

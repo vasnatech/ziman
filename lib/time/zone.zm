@@ -382,9 +382,9 @@ fn parse_block(data: [byte], hdr: int, wide: bool) -> Result<Block, string> {
     val names = mutable_array_new<string>()
     for i in 0..typecnt {
         val at = body + timecnt * tsize + timecnt + i * 6
-        mutable_array_push(utoffs, i32_from_bytes(data, at))
-        mutable_array_push(dsts, data[at + 4] != 0b)
-        mutable_array_push(names, c_string(data, chars_at + (data[at + 5] as int), chars_at + charcnt))
+        push(utoffs, i32_from_bytes(data, at))
+        push(dsts, data[at + 4] != 0b)
+        push(names, c_string(data, chars_at + (data[at + 5] as int), chars_at + charcnt))
     }
     val transitions = mutable_array_new<int>()
     val type_of = mutable_array_new<int>()
@@ -394,8 +394,8 @@ fn parse_block(data: [byte], hdr: int, wide: bool) -> Result<Block, string> {
         if index >= typecnt {
             return err("time zone file refers to a missing local time type")
         }
-        mutable_array_push(transitions, t)
-        mutable_array_push(type_of, index)
+        push(transitions, t)
+        push(type_of, index)
     }
     return ok(Block {
         rules: ZoneRules {

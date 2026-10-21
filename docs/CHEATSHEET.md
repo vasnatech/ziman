@@ -96,7 +96,7 @@ cell are what you reach for when you are *editing* a large collection, or buildi
 ```ziman fragment
 val b = mutable_array_new<int>()
 for i in 0..5 {
-    mutable_array_push(b, i * i)
+    push(b, i * i)
 }
 print(len(b))
 ```

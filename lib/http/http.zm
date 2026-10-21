@@ -304,7 +304,7 @@ pub fn request_cookies(req: Request) -> [CookiePair] {
             if Some(parts) = split_once(pair, "=") {
                 val name = trim(parts[0])
                 if name != "" {
-                    mutable_array_push(out, CookiePair { name: name, value: trim(parts[1]) })
+                    push(out, CookiePair { name: name, value: trim(parts[1]) })
                 }
             }
         }

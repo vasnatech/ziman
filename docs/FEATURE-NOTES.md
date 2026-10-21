@@ -304,7 +304,7 @@ same fix for `push` in a loop (`hashmap_keys`/`hashmap_values`/
 `hashset_items` all used to be exactly this, and now aren't) — `push`
 copies the whole existing array on every call for the same reason
 `concat` copies the whole string, so it's the identical
-`mutable_array_new`/`mutable_array_push`/`snapshot`/`len` shape, generic
+`mutable_array_new`/`push`/`snapshot`/`len` shape, generic
 this time (`struct MutableArray<T> { handle: int }`). Needed one small, genuinely
 missing capability first: `native fn` couldn't take type parameters at
 all before this (a parser gap, not a deliberate restriction — the type

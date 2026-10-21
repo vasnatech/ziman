@@ -22,7 +22,7 @@ fn main() {
     print(snapshot(sb))
     val ab = mutable_array_new<int>()
     for i in 0..5 {
-        mutable_array_push<int>(ab, i * i)
+        push<int>(ab, i * i)
     }
     print(snapshot(ab))
 }

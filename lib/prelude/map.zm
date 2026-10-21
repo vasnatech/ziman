@@ -66,7 +66,7 @@ pub fn keys<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Set<K> {
 pub fn values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V] {
     val out = mutable_array_new<V>()
     for k, v in m {
-        mutable_array_push<V>(out, v)
+        push<V>(out, v)
     }
     return snapshot(out)
 }
@@ -99,7 +99,7 @@ struct MapEntry<K, V> {
 pub fn entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>] {
     val out = mutable_array_new<MapEntry<K, V>>()
     for k, v in m {
-        mutable_array_push(out, MapEntry<K, V> { key: k, value: v })
+        push(out, MapEntry<K, V> { key: k, value: v })
     }
     return snapshot(out)
 }
@@ -109,7 +109,7 @@ pub fn entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>] {
 pub fn entries<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [MapEntry<K, V>] {
     val out = mutable_array_new<MapEntry<K, V>>()
     for k, v in m {
-        mutable_array_push(out, MapEntry<K, V> { key: k, value: v })
+        push(out, MapEntry<K, V> { key: k, value: v })
     }
     return snapshot(out)
 }

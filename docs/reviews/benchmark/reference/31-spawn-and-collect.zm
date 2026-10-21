@@ -10,7 +10,7 @@ fn main() {
     val got = mutable_array_new<int>()
     var i = 0
     while i < 3 {
-        mutable_array_push(got, receive(results))
+        push(got, receive(results))
         i = i + 1
     }
     for v in sort<int>(snapshot(got)) {

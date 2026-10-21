@@ -7,13 +7,13 @@ struct Registration {
 fn problems_of(r: Registration) -> [string] {
     val found = mutable_array_new<string>()
     if len(r.name) == 0 {
-        mutable_array_push(found, "name must not be empty")
+        push(found, "name must not be empty")
     }
     if r.age < 18 || r.age > 120 {
-        mutable_array_push(found, "age must be between 18 and 120")
+        push(found, "age must be between 18 and 120")
     }
     if !contains(r.email, "@") {
-        mutable_array_push(found, "email must contain @")
+        push(found, "email must contain @")
     }
     return snapshot(found)
 }

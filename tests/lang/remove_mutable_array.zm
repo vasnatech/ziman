@@ -5,9 +5,12 @@
 //
 // Two consequences this pins. `remove(b, len(b) - 1)` is how `pop` is spelled, so discarding the
 // element has to be legitimate; and it is, while discarding an array's `remove` is still an error,
-// because that one copies and changes nothing. The checker rewrites onto `mutable_array_remove`
-// without claiming the authored name for the dropped-result gate, which is what keeps those two
-// apart -- `remove` is on the pure-builtin list, true of the array overload and false of this one.
+// because that one copies and changes nothing. What keeps those two apart is `#[effectful]` on
+// the builder declaration: `remove` is on the pure-builtin list, which is true of the array
+// overload and false of this one, and the attribute is how the declaration says so. It was a
+// callee rewrite onto `mutable_array_remove` until F208, and the only reason the pop form was
+// accepted then is that the gate did not recognise the rewritten name -- an accident that read
+// as a decision.
 fn main() {
     var a = [1, 2, 3]
     a = remove(a, 0)

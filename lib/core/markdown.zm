@@ -780,7 +780,7 @@ val escapable = "\\`*_{}[]()#+-.!|<>~\"'$%&,/:;=?@^"
 
 fn flush_text(out: MutableArray<Inline>, text: MutableString) {
     if len(text) > 0 {
-        mutable_array_push(out, Inline.Text(snapshot(text)))
+        push(out, Inline.Text(snapshot(text)))
         clear(text)
     }
 }
@@ -928,7 +928,7 @@ fn parse_inlines(s: string) -> [Inline] {
                 if starts_with(body, " ") && ends_with(body, " ") && trim(body) != "" {
                     body = substring(body, 1, len(body) - 1)
                 }
-                mutable_array_push(out, Inline.Code(body))
+                push(out, Inline.Code(body))
                 i = run_end(s, close, "`")
             }
         } else if (c == "!" && is_char_at(s, i + 1, "[")) || c == "[" {
@@ -947,7 +947,7 @@ fn parse_inlines(s: string) -> [Inline] {
                     destination: parts[0],
                     title: unquote_title(parts[1])
                 }
-                mutable_array_push(out, if is_image { Inline.Image(l) } else { Inline.Link(l) })
+                push(out, if is_image { Inline.Image(l) } else { Inline.Link(l) })
                 i = paren + 1
             }
         } else if c == "*" || c == "_" {
@@ -960,7 +960,7 @@ fn parse_inlines(s: string) -> [Inline] {
             } else {
                 flush_text(out, text)
                 val inner = parse_inlines(substring(s, i + n, close))
-                mutable_array_push(out, if n == 2 { Inline.Strong(inner) } else { Inline.Emphasis(inner) })
+                push(out, if n == 2 { Inline.Strong(inner) } else { Inline.Emphasis(inner) })
                 i = close + n
             }
         } else if c == "\n" {
@@ -969,10 +969,10 @@ fn parse_inlines(s: string) -> [Inline] {
                 clear(text)
                 append(text, trim_end_spaces(so_far))
                 flush_text(out, text)
-                mutable_array_push(out, Inline.HardBreak)
+                push(out, Inline.HardBreak)
             } else {
                 flush_text(out, text)
-                mutable_array_push(out, Inline.SoftBreak)
+                push(out, Inline.SoftBreak)
             }
             i = i + 1
         } else {

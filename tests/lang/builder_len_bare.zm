@@ -4,7 +4,7 @@
 
 fn main() {
     val ab = mutable_array_new<int>()
-    mutable_array_push(ab, 1, 2, 3)
+    push(ab, 1, 2, 3)
     print(len(ab))
     print(len(ab))
 
@@ -26,7 +26,7 @@ fn main() {
     print(len(st))
 
     // Live, like every other read on a builder: an append and a clear both show up.
-    mutable_array_push(ab, 4)
+    push(ab, 4)
     print(len(ab))
     clear(ab)
     print(len(ab))

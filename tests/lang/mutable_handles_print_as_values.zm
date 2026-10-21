@@ -19,7 +19,7 @@ struct Node {
 
 fn main() {
     val xs = mutable_array_new<int>()
-    mutable_array_push(xs, 1, 2, 3)
+    push(xs, 1, 2, 3)
     print(xs)
 
 
@@ -42,14 +42,14 @@ fn main() {
     // nested: a handle inside another value summarises
     val holder = Node { name: "a", children: mutable_array_new<Node>() }
     print(holder)
-    mutable_array_push(holder.children, holder)
+    push(holder.children, holder)
     print("cycle built")
     print(holder)
     print(holder.children)
 
     // one item vs many, and empty
     val one = mutable_array_new<Node>()
-    mutable_array_push(one, Node { name: "c", children: mutable_array_new<Node>() })
+    push(one, Node { name: "c", children: mutable_array_new<Node>() })
     val n2 = Node { name: "b", children: one }
     print(n2)
     print(mutable_array_new<int>())

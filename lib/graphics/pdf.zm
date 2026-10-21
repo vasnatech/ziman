@@ -96,9 +96,9 @@ pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string> {
     val glyphs_used = mutable_array_new<[int]>()
     var fi = 0
     while fi < len(o.fonts) {
-        mutable_array_push(font_numbers, pdfobj.reserve(w))
+        push(font_numbers, pdfobj.reserve(w))
         val no_glyphs: [int] = []
-        mutable_array_push(glyphs_used, no_glyphs)
+        push(glyphs_used, no_glyphs)
         fi = fi + 1
     }
 
@@ -107,7 +107,7 @@ pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string> {
     val image_numbers = mutable_array_new<int>()
     var ii = 0
     while ii < len(o.images) {
-        mutable_array_push(image_numbers, try image_object(w, o.images[ii]))
+        push(image_numbers, try image_object(w, o.images[ii]))
         ii = ii + 1
     }
 
@@ -130,12 +130,12 @@ pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string> {
             pdfobj.add(w, pdfobj.stream(content_dict, string_to_bytes(built.stream)))
         }
         val page_entries = mutable_array_new<Entry>()
-        mutable_array_push(page_entries, entry("Type", Obj.Name("Page")))
-        mutable_array_push(page_entries, entry("Parent", Obj.Ref(pages_number)))
-        mutable_array_push(page_entries, entry("MediaBox", media_box(page, o)))
-        mutable_array_push(page_entries, entry("Resources", page_resources(o, built, font_numbers, image_numbers)))
-        mutable_array_push(page_entries, entry("Contents", Obj.Ref(content_number)))
-        mutable_array_push(kids, Obj.Ref(pdfobj.add(w, Obj.Dict(snapshot(page_entries)))))
+        push(page_entries, entry("Type", Obj.Name("Page")))
+        push(page_entries, entry("Parent", Obj.Ref(pages_number)))
+        push(page_entries, entry("MediaBox", media_box(page, o)))
+        push(page_entries, entry("Resources", page_resources(o, built, font_numbers, image_numbers)))
+        push(page_entries, entry("Contents", Obj.Ref(content_number)))
+        push(kids, Obj.Ref(pdfobj.add(w, Obj.Dict(snapshot(page_entries)))))
     }
 
     // Now every font's glyph set is known, so the font objects can be written.
@@ -147,31 +147,31 @@ pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string> {
     }
 
     val pages_entries = mutable_array_new<Entry>()
-    mutable_array_push(pages_entries, entry("Type", Obj.Name("Pages")))
-    mutable_array_push(pages_entries, entry("Count", Obj.Int(len(pages))))
-    mutable_array_push(pages_entries, entry("Kids", Obj.Array(snapshot(kids))))
+    push(pages_entries, entry("Type", Obj.Name("Pages")))
+    push(pages_entries, entry("Count", Obj.Int(len(pages))))
+    push(pages_entries, entry("Kids", Obj.Array(snapshot(kids))))
     try pdfobj.put(w, pages_number, Obj.Dict(snapshot(pages_entries)))
 
     val catalog = mutable_array_new<Entry>()
-    mutable_array_push(catalog, entry("Type", Obj.Name("Catalog")))
-    mutable_array_push(catalog, entry("Pages", Obj.Ref(pages_number)))
+    push(catalog, entry("Type", Obj.Name("Catalog")))
+    push(catalog, entry("Pages", Obj.Ref(pages_number)))
     val root = pdfobj.add(w, Obj.Dict(snapshot(catalog)))
 
     val info = mutable_array_new<Entry>()
     if len(o.title) > 0 {
-        mutable_array_push(info, entry("Title", Obj.Str(o.title)))
+        push(info, entry("Title", Obj.Str(o.title)))
     }
     if len(o.author) > 0 {
-        mutable_array_push(info, entry("Author", Obj.Str(o.author)))
+        push(info, entry("Author", Obj.Str(o.author)))
     }
-    mutable_array_push(info, entry("Producer", Obj.Str("Ziman lib/graphics")))
+    push(info, entry("Producer", Obj.Str("Ziman lib/graphics")))
     return pdfobj.finish(w, root, snapshot(info))
 }
 
 fn merged(a: [int], b: [int]) -> [int] {
     val out = mutable_array_new<int>()
     for v in a {
-        mutable_array_push(out, v)
+        push(out, v)
     }
     for v in b {
         var seen = false
@@ -181,7 +181,7 @@ fn merged(a: [int], b: [int]) -> [int] {
             }
         }
         if !seen {
-            mutable_array_push(out, v)
+            push(out, v)
         }
     }
     return snapshot(out)
@@ -214,10 +214,10 @@ fn page_resources(o: Options, b: Built, font_numbers: MutableArray<int>, image_n
 
     val fonts = mutable_array_new<Entry>()
     for i in snapshot(b.fonts_used) {
-        mutable_array_push(fonts, entry(concat("F", str(i)), Obj.Ref(mutable_array_get(font_numbers, i))))
+        push(fonts, entry(concat("F", str(i)), Obj.Ref(mutable_array_get(font_numbers, i))))
     }
     if len(fonts) > 0 {
-        mutable_array_push(res, entry("Font", Obj.Dict(snapshot(fonts))))
+        push(res, entry("Font", Obj.Dict(snapshot(fonts))))
     }
 
     // Constant alpha lives in an ExtGState. Ignoring a translucent colour would be silent
@@ -225,35 +225,35 @@ fn page_resources(o: Options, b: Built, font_numbers: MutableArray<int>, image_n
     val gs = mutable_array_new<Entry>()
     var gi = 0
     for a in snapshot(b.alphas) {
-        mutable_array_push(
+        push(
             gs,
             entry(concat("GS", str(gi)), Obj.Dict([entry("ca", Obj.Real(a)), entry("CA", Obj.Real(a))]))
         )
         gi = gi + 1
     }
     if len(gs) > 0 {
-        mutable_array_push(res, entry("ExtGState", Obj.Dict(snapshot(gs))))
+        push(res, entry("ExtGState", Obj.Dict(snapshot(gs))))
     }
 
     val xobjects = mutable_array_new<Entry>()
     for i in snapshot(b.images_used) {
-        mutable_array_push(
+        push(
             xobjects,
             entry(concat("Im", str(i)), Obj.Ref(mutable_array_get(image_numbers, i)))
         )
     }
     if len(xobjects) > 0 {
-        mutable_array_push(res, entry("XObject", Obj.Dict(snapshot(xobjects))))
+        push(res, entry("XObject", Obj.Dict(snapshot(xobjects))))
     }
 
     val sh = mutable_array_new<Entry>()
     var si = 0
     for shading in snapshot(b.shadings) {
-        mutable_array_push(sh, entry(concat("Sh", str(si)), shading))
+        push(sh, entry(concat("Sh", str(si)), shading))
         si = si + 1
     }
     if len(sh) > 0 {
-        mutable_array_push(res, entry("Shading", Obj.Dict(snapshot(sh))))
+        push(res, entry("Shading", Obj.Dict(snapshot(sh))))
     }
     return Obj.Dict(snapshot(res))
 }
@@ -282,14 +282,14 @@ fn image_stream(w: pdfobj.PdfWriter, img: image.Image, smask: int) -> Result<int
         Rgba8 { "DeviceRGB" }
     }
     val dict = mutable_array_new<Entry>()
-    mutable_array_push(dict, entry("Type", Obj.Name("XObject")))
-    mutable_array_push(dict, entry("Subtype", Obj.Name("Image")))
-    mutable_array_push(dict, entry("Width", Obj.Int(img.width)))
-    mutable_array_push(dict, entry("Height", Obj.Int(img.height)))
-    mutable_array_push(dict, entry("ColorSpace", Obj.Name(space)))
-    mutable_array_push(dict, entry("BitsPerComponent", Obj.Int(8)))
+    push(dict, entry("Type", Obj.Name("XObject")))
+    push(dict, entry("Subtype", Obj.Name("Image")))
+    push(dict, entry("Width", Obj.Int(img.width)))
+    push(dict, entry("Height", Obj.Int(img.height)))
+    push(dict, entry("ColorSpace", Obj.Name(space)))
+    push(dict, entry("BitsPerComponent", Obj.Int(8)))
     if smask > 0 {
-        mutable_array_push(dict, entry("SMask", Obj.Ref(smask)))
+        push(dict, entry("SMask", Obj.Ref(smask)))
     }
     return ok(pdfobj.add(w, pdfobj.flate_stream(snapshot(dict), img.data)))
 }
@@ -399,8 +399,8 @@ fn widths_array(face: truetype.Face, used: [int], scale: float) -> Result<Obj, s
     val out = mutable_array_new<Obj>()
     for g in used {
         val advance = try truetype.advance_of(face, g)
-        mutable_array_push(out, Obj.Int(g))
-        mutable_array_push(out, Obj.Array([Obj.Int(scaled(advance as float, scale))]))
+        push(out, Obj.Int(g))
+        push(out, Obj.Array([Obj.Int(scaled(advance as float, scale))]))
     }
     return ok(Obj.Array(snapshot(out)))
 }
@@ -422,7 +422,7 @@ fn to_unicode_cmap(face: truetype.Face, used: [int]) -> Result<string, string> {
     val pairs = mutable_array_new<string>()
     for g in used {
         if Some(cp) = reverse_lookup(face, g) {
-            mutable_array_push(pairs, concat("<", font.hex4(g), "> <", font.hex4(cp), ">"))
+            push(pairs, concat("<", font.hex4(g), "> <", font.hex4(cp), ">"))
         }
     }
     val all = snapshot(pairs)
@@ -489,7 +489,7 @@ fn page_content(page: Scene, o: Options) -> Result<Built, string> {
     var gi = 0
     while gi < len(o.fonts) {
         val none_yet: [int] = []
-        mutable_array_push(glyphs, none_yet)
+        push(glyphs, none_yet)
         gi = gi + 1
     }
     val b = Built {
@@ -696,8 +696,8 @@ fn emit_text(out: MutableString, b: Built, o: Options, t: scene.TextRun) -> Resu
 fn glyph_bytes(ids: [int]) -> [byte] {
     val out = mutable_array_new<byte>()
     for g in ids {
-        mutable_array_push(out, (g / 256) as byte)
-        mutable_array_push(out, (g % 256) as byte)
+        push(out, (g / 256) as byte)
+        push(out, (g % 256) as byte)
     }
     return snapshot(out)
 }
@@ -706,7 +706,7 @@ fn remember_glyphs(b: Built, font_index: int, ids: [int]) -> unit {
     val existing = mutable_array_get(b.glyphs, font_index)
     val out = mutable_array_new<int>()
     for g in existing {
-        mutable_array_push(out, g)
+        push(out, g)
     }
     for g in ids {
         var seen = false
@@ -716,7 +716,7 @@ fn remember_glyphs(b: Built, font_index: int, ids: [int]) -> unit {
             }
         }
         if !seen {
-            mutable_array_push(out, g)
+            push(out, g)
         }
     }
     mutable_array_set(b.glyphs, font_index, snapshot(out))
@@ -856,7 +856,7 @@ fn set_alpha(out: MutableString, b: Built, alpha: float) -> Result<unit, string>
         i = i + 1
     }
     if at < 0 {
-        mutable_array_push(b.alphas, alpha)
+        push(b.alphas, alpha)
         at = len(b.alphas) - 1
     }
     append(out, "/GS", str(at), " gs\n")
@@ -869,7 +869,7 @@ fn remember(seen: MutableArray<int>, value: int) -> unit {
             return unit
         }
     }
-    mutable_array_push(seen, value)
+    push(seen, value)
 }
 
 // ---- gradients, as PDF shading dictionaries
@@ -883,7 +883,7 @@ fn add_axial(b: Built, from: Point, to: Point, stops: [Stop]) -> Result<string, 
         entry("Extend", Obj.Array([Obj.Bool(true), Obj.Bool(true)])),
         entry("Function", fn_obj)
     ]
-    mutable_array_push(b.shadings, Obj.Dict(sh))
+    push(b.shadings, Obj.Dict(sh))
     return ok(concat("Sh", str(len(b.shadings) - 1)))
 }
 
@@ -909,7 +909,7 @@ fn add_radial(b: Built, centre: Point, radius: float, stops: [Stop]) -> Result<s
         entry("Extend", Obj.Array([Obj.Bool(true), Obj.Bool(true)])),
         entry("Function", fn_obj)
     ]
-    mutable_array_push(b.shadings, Obj.Dict(sh))
+    push(b.shadings, Obj.Dict(sh))
     return ok(concat("Sh", str(len(b.shadings) - 1)))
 }
 
@@ -927,11 +927,11 @@ fn stop_function(stops: [Stop]) -> Result<Obj, string> {
     val encode = mutable_array_new<Obj>()
     var i = 0
     while i < len(stops) - 1 {
-        mutable_array_push(functions, ramp(stops[i].color, stops[i + 1].color))
-        mutable_array_push(encode, Obj.Int(0))
-        mutable_array_push(encode, Obj.Int(1))
+        push(functions, ramp(stops[i].color, stops[i + 1].color))
+        push(encode, Obj.Int(0))
+        push(encode, Obj.Int(1))
         if i > 0 {
-            mutable_array_push(bounds, Obj.Real(stops[i].offset))
+            push(bounds, Obj.Real(stops[i].offset))
         }
         i = i + 1
     }
@@ -975,7 +975,7 @@ pub fn win_ansi(text: string) -> Result<[byte], string> {
                 "'. The standard fonts are Latin-1 only; an embedded font (phase 3) is needed for this text"
             ))
         }
-        mutable_array_push(out, b as byte)
+        push(out, b as byte)
     }
     return ok(snapshot(out))
 }

@@ -4,13 +4,13 @@
 
 fn main() {
     val ab = mutable_array_new<string>()
-    mutable_array_push(ab, "pear", "fig")
+    push(ab, "pear", "fig")
     print(contains(ab, "fig"))
     print(contains(ab, "apple"))
 
     // Packed mode -- the first appended element decides it -- is the same answer.
     val ns = mutable_array_new<int>()
-    mutable_array_push(ns, 1, 2, 3)
+    push(ns, 1, 2, 3)
     print(contains(ns, 2))
     print(contains(ns, 9))
 
@@ -36,6 +36,6 @@ fn main() {
 
     // Live, like every other read on a builder.
     print(contains(ab, "plum"))
-    mutable_array_push(ab, "plum")
+    push(ab, "plum")
     print(contains(ab, "plum"))
 }

@@ -6,9 +6,9 @@ fn main() {
     val floats = mutable_array_new<float>()
     val flags = mutable_array_new<bool>()
     for i in 0..n {
-        mutable_array_push<int>(ints, (i * 7919) % 100003)
-        mutable_array_push<float>(floats, (i % 1000) as float / 8.0)
-        mutable_array_push<bool>(flags, i % 3 == 0)
+        push<int>(ints, (i * 7919) % 100003)
+        push<float>(floats, (i % 1000) as float / 8.0)
+        push<bool>(flags, i % 3 == 0)
     }
     val a = snapshot(ints)
     val f = snapshot(floats)

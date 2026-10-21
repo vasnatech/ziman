@@ -1,6 +1,7 @@
 // `push` takes as many values as you have, in both worlds: a new array back from the immutable one,
 // nothing back from the MutableArray, which was written. The MutableArray form is the array's word
-// for the same question, rewritten onto `mutable_array_push`.
+// for the same question, and since F207 it is a declaration of its own rather than a rewrite: the
+// prefix lives only in the C symbol the interpreter derives from parameter one.
 fn main() {
     var a = [1]
     a = push(a, 2)

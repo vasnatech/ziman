@@ -71,13 +71,15 @@ done
 # at all is the thing F172 added this for, and converting it silently unlisted it once already.
 has "and the sort it is the inside of is still listed" "fn sort<T: Ord>(items: [T]) -> [T]" "$builtins"
 
-# F173: the same rule over the dispatcher's prefix layer. `map(b, f)` resolves to the literal name
-# "mutable_array_" + "map", so these have to exist -- but 51 of the 64 `array_`/`mutable_array_`
-# declarations were already invisible for being plain `fn`s, and only these stood out for being
-# native. Hidden, not deleted: tests/lang/prelude_internal_still_callable.zm calls them.
-for internal_name in array_map array_filter array_flat_map array_reverse mutable_array_push \
-                     mutable_array_insert mutable_array_remove mutable_array_filter \
-                     mutable_array_sort_with; do
+# F173: the same rule over what is left of the dispatcher's prefix layer. That layer was nine
+# names here until F178-F180 turned most of it into the overloads themselves and F208 took the
+# last three builder appenders (`mutable_array_push`/`_insert`/`_remove`); the C symbols keep the
+# prefix, but no declaration carries it, so a loop over those nine was asserting that names which
+# do not exist are not advertised -- which is the rot tools/check_builtins.py exists to stop, one
+# file over. `mutable_set_add` is the one still declared: `add` owns the bare name since F199 and
+# the prefixed native stays reachable under it. Hidden, not deleted:
+# tests/lang/prelude_internal_still_callable.zm calls it.
+for internal_name in mutable_set_add; do
     if printf '%s' "$builtins" | grep -qE "^(builtin )?fn $internal_name\b"; then
         fail=$((fail + 1)); echo "FAIL a prefix-layer native is advertised: $internal_name" >&2
     else

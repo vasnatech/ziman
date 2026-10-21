@@ -5,10 +5,10 @@
 
 fn main() {
     val ab = mutable_array_new<int>()
-    mutable_array_push(ab, 1, 2, 3)
+    push(ab, 1, 2, 3)
     clear(ab)
     print(len(ab))
-    mutable_array_push(ab, 9)
+    push(ab, 9)
     print(snapshot(ab))
 
     val sb = mutable_string_new()

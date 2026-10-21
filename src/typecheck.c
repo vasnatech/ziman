@@ -700,7 +700,7 @@ static void lint_quadratic_accumulation(const Stmt *s) {
         } else if (strcmp(callee, "set") == 0 && v->as.call.args.count == 3) {
             /* No builder has random-access assignment, so the advice depends on what the loop is doing;
              * both halves are given rather than guessing which one applies. */
-            fix = "a MutableArray (mutable_array_new, mutable_array_push, snapshot) if the loop fills it in order, or a "
+            fix = "a MutableArray (mutable_array_new, push, snapshot) if the loop fills it in order, or a "
                   "MutableMap keyed by index if it does not";
         }
     }
@@ -743,14 +743,20 @@ static void lint_quadratic_accumulation(const Stmt *s) {
  * could be read straight off the call; with one name it comes from whichever appender the loop body
  * uses instead. That is precise rather than a guess, because only one of the four can type-check
  * against the same variable, and it is what keeps the advice per-type where a single generic
- * message would have been the easy answer and a worse one. */
+ * message would have been the easy answer and a worse one.
+ *
+ * The appenders are bare names now (`push` since F208, `append` since F205), which does not blur
+ * the reading: it is the *variable* that picks the entry, and a MutableArray type-checks against
+ * `push` and nothing else here. The array half of `push` cannot be confused for the builder half
+ * either, because `push(arr, x)` in statement position is already the discarded-result error
+ * below -- there is no loop body where it stands and means something. */
 typedef struct {
     const char *appender;
     const char *readers;
 } BuilderKindAdvice;
 
 static const BuilderKindAdvice BUILDER_KINDS[] = {
-    {"mutable_array_push", "len, mutable_array_get or 'for x in <the builder>'"},
+    {"push", "len, mutable_array_get or 'for x in <the builder>'"},
     {"append", "len, or a MutableString you finish once after the loop"},
     {"set", "len, contains, get or get_or"},
     {"mutable_set_add", "len or contains"},
@@ -1487,24 +1493,22 @@ static int overload_set_size(Module *module, const char *name);
  *
  * **What this does not cover, deliberately.** The 22 polymorphic builtins keep the list, because
  * for them the name *is* the implementation (F181) and there is no declaration to ask. And a
- * mutating overload that returned a value would defeat the rule -- none exists, `remove(b, i)`
- * being a builtin rather than a set, and the fixture notes say so. */
-/* The case F182 said would break the return-type rule, now that it exists. `remove` on a
- * MutableMap answers the `Option<V>` it took out and on a MutableSet whether the item was there
- * -- both **effectful and non-void**, so "returns something" stops meaning "has no effect" for
- * them. Discarding one is the ordinary call: it is how `pop` and "delete if present" are spelled.
+ * mutating overload that returns a value defeats the rule, which is what `#[effectful]` below is
+ * for: `remove` on a builder is three such overloads. */
+/* The case F182 said would break the return-type rule. `remove` on a MutableMap answers the
+ * `Option<V>` it took out, on a MutableSet whether the item was there, and on a MutableArray the
+ * element it removed -- all three **effectful and non-void**, so "returns something" stops meaning
+ * "has no effect" for them. Discarding one is the ordinary call: it is how `pop` and "delete if
+ * present" are spelled.
  *
- * A list of names, which is what this whole effort has been removing, and it is deliberate at
- * this size: there is no signal in the signature that separates `remove(mb, k) -> Option<V>`
- * from `distinct(b) -> [T]`, since both take a handle and answer a value. F182 called for a
- * marker on the declaration if a second case appeared. One has; a third means writing the
- * attribute rather than extending this. */
+ * This was a list of names and a pair of type names until F208, which is what the effort these
+ * conversions belong to has been removing everywhere else. F182 called for a marker on the
+ * declaration if a second case appeared, and a third if a third did. The third arrived when
+ * `remove` on a MutableArray stopped being a callee rewrite to `mutable_array_remove` -- a name
+ * the gate did not recognise, which is the only reason the pop form was accepted -- and became a
+ * declaration like the other two. So the fact now lives on the declaration that has it. */
 static int effectful_despite_answering(const FunctionDecl *fn) {
-    if (fn->params.count == 0) return 0;
-    Type p0 = fn->params.items[0].type;
-    if (p0.kind != TY_STRUCT || p0.struct_name == NULL) return 0;
-    if (strcmp(p0.struct_name, "MutableMap") != 0 && strcmp(p0.struct_name, "MutableSet") != 0) return 0;
-    return strcmp(fn->name, "remove") == 0;
+    return fn->is_effectful;
 }
 
 /* A veto, not an abstention: `remove` is in PURE_BUILTINS by name, so the builder members have
@@ -1709,7 +1713,7 @@ static const char *renamed_builder_fn(const char *name) {
         const char *was;
         const char *now;
     } RENAMED[] = {{"ab_new", "mutable_array_new"},
-                   {"ab_append", "mutable_array_push"},
+                   {"ab_append", "push"},
                    {"ab_get", "mutable_array_get"},
                    {"ab_set", "mutable_array_set"},
                    {"ab_to_array", "snapshot"},
@@ -1736,6 +1740,9 @@ static const char *renamed_builder_fn(const char *name) {
                    {"setb_to_set", "snapshot"},
                    {"mutable_string_append", "append"},
                    {"mutable_string_append_byte", "append_byte"},
+                   {"mutable_array_push", "push"},
+                   {"mutable_array_insert", "insert"},
+                   {"mutable_array_remove", "remove"},
                    {NULL, NULL}};
     for (size_t k = 0; RENAMED[k].was != NULL; k++) {
         if (strcmp(name, RENAMED[k].was) == 0) return RENAMED[k].now;
@@ -3048,9 +3055,9 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
                     /* Several trailing arguments are always individual element values (`concat_arrays(a, b)`). */
                     unify_type(pattern, actual, &fn->type_params, bindings, bound, arg, fn->name, i + 1);
                 } else if (type_fully_bound(pattern, &fn->type_params, bound)) {
-                    /* The element type is already known from an earlier parameter (`mutable_array_push<T>(ab: MutableArray<T>,
-                     * pieces: T...)` binds T from `ab`) -- so, unlike the guess below, there is nothing left to infer
-                     * from this argument at all. This is what makes `mutable_array_push(out, [x, y])` push the one `[string]`
+                    /* The element type is already known from an earlier parameter (`push<T>(b: MutableArray<T>,
+                     * values: T...)` binds T from `b`) -- so, unlike the guess below, there is nothing left to infer
+                     * from this argument at all. This is what makes `push(out, [x, y])` push the one `[string]`
                      * value `[x, y]` rather than spreading two `string`s into it: the ordinary argument check, run
                      * once every type argument is known, applies call_function's own real spread-vs-individual test
                      * against the now-fully-substituted element type and reports a mismatch if `actual` fits neither. */
@@ -3845,42 +3852,24 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             ziman_error("type", e->line, e->col, "'remove' takes exactly 2 arguments, found %d", e->as.call.args.count);
         }
 
-        /* A MutableArray is removed from with the array's word, for the reason `push` and `insert`
-         * are: taking element i out is the same question of both. What differs is the *answer* -- a
-         * new array there, the removed element here, the container having been written -- which is
-         * the difference between the two worlds and not between the two names.
-         *
-         * The index is checked before the rewrite so a bad one names `remove` rather than the
-         * native it becomes, and `rewritten_from` is deliberately **not** set here, unlike
-         * `mutable`'s rewrites. That field makes the dropped-result gate read the authored name,
-         * and `remove` is on the pure-builtin list -- true of the three immutable overloads, false
-         * of this one, which writes the container. Claiming the name would make a discarded
-         * `remove(b, 0)` report that `remove` "does not modify its argument", of a call that just
-         * did. Discarding the element it answers is legitimate -- it is how `pop` is spelled -- so
-         * the gate should see the effectful native, which is what leaving the field NULL does. */
-        if (arr_type.kind == TY_STRUCT && arr_type.struct_name != NULL &&
-            strcmp(arr_type.struct_name, "MutableArray") == 0) {
-            Expr *b_idx = e->as.call.args.items[1];
-            Type b_idx_type = check_expr(module, env, b_idx);
-            if (b_idx_type.kind != TY_INT) {
-                ziman_error("type", b_idx->line, b_idx->col, "argument 2 of 'remove' expects int, found %s",
-                            type_name(b_idx_type));
-            }
-            e->as.call.callee = ziman_xstrdup("mutable_array_remove");
-            return check_expr(module, env, e);
-        }
-
         if (arr_type.kind != TY_ARRAY) {
             /* The old message said "expects an array" while a Map and a Set were accepted two
              * branches up, and said nothing about the builders, each of which has its own removal
              * under its own name. */
             if (arr_type.kind == TY_STRUCT && arr_type.struct_name != NULL) {
-                /* `remove` has both builder forms since F200 -- `MutableMap`'s answers the
-                 * `Option<V>` it took out, `MutableSet`'s answers whether the item was there --
-                 * so the arm declines to the resolver instead of refusing. The two messages that
-                 * stood here named `mutable_map_remove` and `mutable_map_discard`, which no
-                 * longer exist. */
-                if (strcmp(arr_type.struct_name, "MutableMap") == 0 ||
+                /* `remove` has all three builder forms -- `MutableArray`'s answers the element it
+                 * took out, `MutableMap`'s the `Option<V>` it took out, `MutableSet`'s whether the
+                 * item was there -- so the arm declines to the resolver instead of refusing. The
+                 * two messages that stood here named `mutable_map_remove` and `mutable_map_discard`,
+                 * which no longer exist.
+                 *
+                 * A MutableArray was the last of the three to stop being handled here: until F208
+                 * this branch rewrote the callee to `mutable_array_remove` and the *only* reason a
+                 * discarded `remove(b, 0)` -- how `pop` is spelled -- was accepted is that the
+                 * gate did not recognise the rewritten name. The declaration says it now, with
+                 * `#[effectful]`. */
+                if (strcmp(arr_type.struct_name, "MutableArray") == 0 ||
+                    strcmp(arr_type.struct_name, "MutableMap") == 0 ||
                     strcmp(arr_type.struct_name, "MutableSet") == 0) {
                     goto ordinary_call;
                 }

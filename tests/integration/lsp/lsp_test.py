@@ -171,12 +171,11 @@ check("unqualified completion has dropped the deleted names", not gone, gone)
 hidden = [n for n in ("is_sortable_scalars", "sort_scalar_order", "sort_scalars", "permute",
                       "sort_positions") if n in labels]
 check("unqualified completion hides the internal prelude natives", not hidden, hidden)
-# F173: and the dispatcher's prefix layer, for the same reason -- `map(b, f)` already resolves to
-# `mutable_array_map`, so completing the prefixed spelling offers a worse name for a call the
-# editor could have spelled `map`. The 51 plain-`fn` members of that layer were never offered.
-hidden = [n for n in ("array_map", "array_filter", "array_flat_map", "array_reverse",
-                      "mutable_array_push", "mutable_array_insert", "mutable_array_remove",
-                      "mutable_array_filter", "mutable_array_sort_with") if n in labels]
+# F173: and what is left of the dispatcher's prefix layer, for the same reason -- completing the
+# prefixed spelling offers a worse name for a call the editor could have spelled `add`. This was a
+# list of nine until F208; the other eight have no declaration in any spelling any more, so
+# naming them here asserted nothing. Only the C symbols still carry the prefix.
+hidden = [n for n in ("mutable_set_add",) if n in labels]
 check("unqualified completion hides the prefix layer", not hidden, hidden)
 # The four with no bare form stay: `mutable_array_new`/`_filled` are constructors, and an editor
 # that stopped offering them would leave no way to discover how a builder is made.

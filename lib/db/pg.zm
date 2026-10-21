@@ -400,8 +400,8 @@ fn parse_row_description(body: [byte]) -> RowDesc {
     var i = 0
     while i < count {
         val end = cstring_end(body, pos)
-        mutable_array_push(names, text_of(body, pos, end))
-        mutable_array_push(oids, u32_from_bytes(body, end + 1 + 6))
+        push(names, text_of(body, pos, end))
+        push(oids, u32_from_bytes(body, end + 1 + 6))
         pos = end + 1 + 18
         i = i + 1
     }
@@ -424,7 +424,7 @@ fn decode_value(oid: int, raw: [byte]) -> Result<SqlValue, DbError> {
             if !is_ok(b) {
                 return err(DbError.Sql("bad bytea hex digits"))
             }
-            mutable_array_push(out, unwrap(b))
+            push(out, unwrap(b))
             i = i + 2
         }
         return SqlValue.Bytes(snapshot(out))
@@ -458,10 +458,10 @@ fn parse_data_row(body: [byte], oids: [int]) -> Result<[SqlValue], DbError> {
         val length = u32_from_bytes(body, pos)
         pos = pos + 4
         if length == 4294967295 {
-            mutable_array_push(values, SqlValue.Null)
+            push(values, SqlValue.Null)
         } else {
             val v = try decode_value(oids[i], slice<byte>(body, pos, pos + length))
-            mutable_array_push(values, v)
+            push(values, v)
             pos = pos + length
         }
         i = i + 1
@@ -497,7 +497,7 @@ fn collect_result(sock: Socket) -> Result<QueryResult, DbError> {
             oids = desc.oids
         } else if m.kind == "D" {
             switch parse_data_row(m.body, oids) {
-                Ok(v) { mutable_array_push(rows, Row { columns: names, values: v }) }
+                Ok(v) { push(rows, Row { columns: names, values: v }) }
                 Err(e) {
                     if !Option.is_Some(failure) {
                         failure = Option<DbError>.Some(e)
@@ -542,7 +542,7 @@ fn encode_param(v: SqlValue) -> [byte] {
 fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
     val encoded = mutable_array_new<[byte]>()
     for p in params {
-        mutable_array_push(encoded, encode_param(p))
+        push(encoded, encode_param(p))
     }
     val bind_body = bytes_concat(
         cstring(""),
@@ -619,7 +619,7 @@ fn read_page(sock: Socket, names0: [string], oids0: [int]) -> Result<PageRead, D
             oids = desc.oids
         } else if m.kind == "D" {
             switch parse_data_row(m.body, oids) {
-                Ok(v) { mutable_array_push(rows, Row { columns: names, values: v }) }
+                Ok(v) { push(rows, Row { columns: names, values: v }) }
                 Err(e) {
                     if !Option.is_Some(failure) {
                         failure = Option<DbError>.Some(e)
@@ -686,7 +686,7 @@ fn finish_page(sock: Socket, id: int, names: [string], oids: [int]) -> CursorSte
 fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> CursorStep {
     val encoded = mutable_array_new<[byte]>()
     for p in params {
-        mutable_array_push(encoded, encode_param(p))
+        push(encoded, encode_param(p))
     }
     val bind_body = bytes_concat(
         cstring(""),

@@ -352,7 +352,7 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
             cb_appendf(cb, "    val %s = mutable_array_new<Json>()\n", ab);
             cb_appendf(cb, "    for %s in %s {\n", item, src_expr);
             emit_to_json(*t.elem, item, item_json, cb, tmp, line, col);
-            cb_appendf(cb, "    mutable_array_push<Json>(%s, %s)\n", ab, item_json);
+            cb_appendf(cb, "    push<Json>(%s, %s)\n", ab, item_json);
             cb_appendf(cb, "    }\n");
             cb_appendf(cb, "    val %s = Json.JArray(snapshot(%s))\n", dst_var, ab);
             return;
@@ -378,7 +378,7 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
             cb_appendf(cb, "    val %s = mutable_array_new<Json>()\n", ab);
             cb_appendf(cb, "    for %s in %s {\n", item, src_expr);
             emit_to_json(*t.elem, item, item_json, cb, tmp, line, col);
-            cb_appendf(cb, "    mutable_array_push<Json>(%s, %s)\n", ab, item_json);
+            cb_appendf(cb, "    push<Json>(%s, %s)\n", ab, item_json);
             cb_appendf(cb, "    }\n");
             cb_appendf(cb, "    val %s = Json.JArray(snapshot(%s))\n", dst_var, ab);
             return;
@@ -457,7 +457,7 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             cb_appendf(cb, "    val %s = mutable_array_new<%s>()\n", ab, elem_type_name);
             cb_appendf(cb, "    for %s in Json.unwrap_JArray(%s) {\n", item, src_expr);
             emit_from_json(*t.elem, item, item_val, cb, tmp, line, col, NULL);
-            cb_appendf(cb, "    mutable_array_push<%s>(%s, %s)\n", elem_type_name, ab, item_val);
+            cb_appendf(cb, "    push<%s>(%s, %s)\n", elem_type_name, ab, item_val);
             cb_appendf(cb, "    }\n");
             cb_appendf(cb, "    val %s = snapshot(%s)\n", dst_var, ab);
             return;
@@ -663,7 +663,7 @@ static char *generate_struct_from_json(StructDecl *sd) {
         cb_appendf(&cb, "    return ok(%s)\n", dst);
         cb_appendf(&cb, "    }\n");
         cb_appendf(&cb, "    val got_%s = get_%s()\n", f->name, f->name);
-        cb_appendf(&cb, "    if Err(problem_%s) = got_%s { mutable_array_push(problems, concat(\"%s: \", problem_%s)) }\n",
+        cb_appendf(&cb, "    if Err(problem_%s) = got_%s { push(problems, concat(\"%s: \", problem_%s)) }\n",
                    f->name, f->name, camel, f->name);
     }
     cb_appendf(&cb, "    if len(problems) > 0 { return err(snapshot(problems)) }\n");
@@ -892,7 +892,7 @@ static char *generate_struct_to_params(StructDecl *sd) {
         char *src = fmt_str("v.%s", f->name);
         char *dst = fmt_str("field_%s_sql", f->name);
         emit_to_sql(f->type, src, dst, &cb, &tmp, f->line, f->col);
-        cb_appendf(&cb, "    mutable_array_push<SqlValue>(__derive_params, %s)\n", dst);
+        cb_appendf(&cb, "    push<SqlValue>(__derive_params, %s)\n", dst);
     }
     cb_appendf(&cb, "    return snapshot(__derive_params)\n");
     cb_appendf(&cb, "}\n\n");

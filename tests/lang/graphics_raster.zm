@@ -52,7 +52,7 @@ fn distinct_alphas(img: image.Image) -> int {
                 i = i + 1
             }
             if !found {
-                mutable_array_push(seen, level)
+                push(seen, level)
             }
             x = x + 1
         }

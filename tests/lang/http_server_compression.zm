@@ -32,7 +32,7 @@ fn accepting(encoding: string) -> http.Request {
 fn show(label: string, r: http.Response) {
     val out = mutable_array_new<string>()
     for h in r.headers {
-        mutable_array_push(out, concat(h.name, "=", h.value))
+        push(out, concat(h.name, "=", h.value))
     }
     printf("{}: {} bytes [{}]\n", label, len(r.body), join(separator: ", ", pieces: snapshot(out)))
 }

@@ -4,7 +4,7 @@ fn work(id: int, out: Channel<string>) {
         append(sb, str(id), ":", str(i), " ")
     }
     val ab = mutable_array_new<int>()
-    mutable_array_push<int>(ab, id)
+    push<int>(ab, id)
     send(out, snapshot(sb))
 }
 

@@ -1,11 +1,11 @@
 fn main() {
     val out = mutable_array_new<[string]>()
-    mutable_array_push(out, ["a", "b"])
-    mutable_array_push(out, ["c"])
+    push(out, ["a", "b"])
+    push(out, ["c"])
     print(snapshot(out))
 
     val letters = mutable_array_new<string>()
-    mutable_array_push(letters, "x", "y")
+    push(letters, "x", "y")
     print(snapshot(letters))
 
     print(concat([1, 2], [3, 4]))

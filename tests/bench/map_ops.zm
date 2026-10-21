@@ -181,7 +181,7 @@ fn main() {
     // ---- the same questions with string keys ----
     val kb = mutable_array_new<string>(capacity: size)
     for i in 0..size {
-        mutable_array_push(kb, concat("key-", str(i)))
+        push(kb, concat("key-", str(i)))
     }
     val keys = snapshot(kb)
     val smb = mutable_map_new<string, int>()

@@ -498,6 +498,10 @@ static int run_api(const char *module_name) {
              * list would advertise `add(s, items: variadic T)` and say nothing about `add(s)`
              * being refused. */
             if (f->variadic_at_least_one) printf("\n#[at_least_one]");
+            /* Printed for the same reason: the signature alone says `remove(b, i) -> T`, and a
+             * reader comparing that with `distinct(b) -> [T]` has no way to tell that one of the
+             * two writes its argument and so may be called for the write alone. */
+            if (f->is_effectful) printf("\n#[effectful]");
             printf(f->is_builtin ? "\nbuiltin fn %s" : "\nfn %s", f->name);
             print_type_params(&f->type_params);
             printf("(");

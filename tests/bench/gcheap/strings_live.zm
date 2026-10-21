@@ -9,7 +9,7 @@ fn work(i: int) -> int {
 fn main() {
     val keep = mutable_array_new<string>(capacity: 300000)
     for i in 0..300000 {
-        mutable_array_push(keep, concat("row-", str(i)))
+        push(keep, concat("row-", str(i)))
     }
     var sum = 0
     for i in 0..2000000 {

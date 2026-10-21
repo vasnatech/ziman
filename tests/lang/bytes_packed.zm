@@ -3,7 +3,7 @@ use crypto
 fn tail_bytes(n: int) -> [byte] {
     val ab = mutable_array_new<byte>()
     for i in 0..n {
-        mutable_array_push<byte>(ab, (i % 251) as byte)
+        push<byte>(ab, (i % 251) as byte)
     }
     return slice<byte>(snapshot(ab), n - 4, n)
 }
@@ -56,8 +56,8 @@ fn main() {
 
     // a byte builder, appended to in several shapes
     val ab = mutable_array_new<byte>()
-    mutable_array_push<byte>(ab, 1b, 2b)
-    mutable_array_push<byte>(ab: ab, pieces: slice<byte>(a, 2, 5))
+    push<byte>(ab, 1b, 2b)
+    push<byte>(ab, slice<byte>(a, 2, 5))
     print(snapshot(ab))
     print(len(ab))
 
@@ -70,7 +70,7 @@ fn main() {
     val t = tail_bytes(2000)
     val junk = mutable_array_new<string>()
     for i in 0..3000 {
-        mutable_array_push<string>(junk, format("junk {}", i))
+        push<string>(junk, format("junk {}", i))
     }
     print(t)
 }

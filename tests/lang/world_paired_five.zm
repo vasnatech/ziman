@@ -1,8 +1,9 @@
 // `reverse`, `filter`, `sort`, `sort_desc` and `sort_with` were each spelled twice -- `array_X` and
 // `mutable_array_X` -- and neither world owned the bare name, unlike `insert` against a
 // MutableSet's `add`. So one name each takes nothing away from either, and each dispatches on its
-// first argument onto the prefixed implementation for that world, which stays beneath it the way
-// `mutable_array_push` stays under `push`.
+// first argument onto the prefixed implementation for that world, which stays beneath it as a C
+// symbol -- since F208 the prefix survives nowhere else, `push`, `insert` and `remove` on a
+// builder having been the last three prefixed declarations to go.
 //
 // The costs the two worlds answer with differ, deliberately: an array's form allocates a new array,
 // a builder's rearranges its own buffer with no copy at all.

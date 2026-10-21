@@ -132,7 +132,7 @@ fn reverse_bytes(data: [byte]) -> Result<[byte], string> {
     val out = mutable_array_new<byte>()
     var i = len(data) - 1
     while i >= 0 {
-        mutable_array_push<byte>(out, data[i])
+        push<byte>(out, data[i])
         i = i - 1
     }
     return snapshot(out)

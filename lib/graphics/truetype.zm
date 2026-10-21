@@ -452,14 +452,14 @@ fn latin_text(data: [byte], at: int, length: int) -> Result<string, string> {
 fn codepoint_text(cp: int) -> string {
     val bytes = mutable_array_new<byte>()
     if cp < 128 {
-        mutable_array_push(bytes, cp as byte)
+        push(bytes, cp as byte)
     } else if cp < 2048 {
-        mutable_array_push(bytes, (192 + cp / 64) as byte)
-        mutable_array_push(bytes, (128 + cp % 64) as byte)
+        push(bytes, (192 + cp / 64) as byte)
+        push(bytes, (128 + cp % 64) as byte)
     } else {
-        mutable_array_push(bytes, (224 + cp / 4096) as byte)
-        mutable_array_push(bytes, (128 + (cp / 64) % 64) as byte)
-        mutable_array_push(bytes, (128 + cp % 64) as byte)
+        push(bytes, (224 + cp / 4096) as byte)
+        push(bytes, (128 + (cp / 64) % 64) as byte)
+        push(bytes, (128 + cp % 64) as byte)
     }
     return switch bytes_to_string(snapshot(bytes)) {
         Ok(s) { s }
@@ -538,13 +538,13 @@ fn append_simple(f: Face, at: int, contours: int, dx: float, dy: float, b: shape
     while len(flags) < point_count {
         val flag = try u8_at(f.data, p)
         p = p + 1
-        mutable_array_push(flags, flag)
+        push(flags, flag)
         if flag / 8 % 2 == 1 {
             val repeats = try u8_at(f.data, p)
             p = p + 1
             var r = 0
             while r < repeats && len(flags) < point_count {
-                mutable_array_push(flags, flag)
+                push(flags, flag)
                 r = r + 1
             }
         }
@@ -566,7 +566,7 @@ fn append_simple(f: Face, at: int, contours: int, dx: float, dy: float, b: shape
             x = x + (try i16_at(f.data, p))
             p = p + 2
         }
-        mutable_array_push(xs, x as float)
+        push(xs, x as float)
         i = i + 1
     }
     val ys = mutable_array_new<float>()
@@ -584,7 +584,7 @@ fn append_simple(f: Face, at: int, contours: int, dx: float, dy: float, b: shape
             y = y + (try i16_at(f.data, p))
             p = p + 2
         }
-        mutable_array_push(ys, y as float)
+        push(ys, y as float)
         i = i + 1
     }
 

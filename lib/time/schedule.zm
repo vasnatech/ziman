@@ -157,7 +157,7 @@ pub fn cron(expr: string) -> Result<Schedule, string> {
     val dow = mutable_array_new<bool>()
     var d = 0
     while d < 7 {
-        mutable_array_push(dow, dows[d] || (d == 0 && dows[7]))
+        push(dow, dows[d] || (d == 0 && dows[7]))
         d = d + 1
     }
     return ok(Schedule.Cron(CronSpec {
@@ -177,7 +177,7 @@ fn split_fields(expr: string) -> [string] {
     val out = mutable_array_new<string>()
     for part in split(expr, " ") {
         if len(trim(part)) > 0 {
-            mutable_array_push(out, trim(part))
+            push(out, trim(part))
         }
     }
     return snapshot(out)
@@ -194,7 +194,7 @@ fn parse_field(field: string, min: int, max: int, names: [string], label: string
     val hits = mutable_array_new<bool>()
     var i = 0
     while i <= max {
-        mutable_array_push(hits, false)
+        push(hits, false)
         i = i + 1
     }
     if contains(field, "L") || contains(field, "W") || contains(field, "#") {
@@ -337,9 +337,9 @@ pub fn run_until(jobs: [Job], stop: Channel<unit>, on_error: fn(string, string))
     val last_day = mutable_array_new<int>()
     val last_sec = mutable_array_new<int>()
     for _ in jobs {
-        mutable_array_push(due_at, 0)
-        mutable_array_push(last_day, -1)
-        mutable_array_push(last_sec, -1)
+        push(due_at, 0)
+        push(last_day, -1)
+        push(last_sec, -1)
     }
 
     var running = true

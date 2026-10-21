@@ -322,7 +322,7 @@ struct Expr {
          * than re-derived at runtime because runtime has no reliable way
          * to: comparing a value's own `.type.kind == TY_ARRAY` silently
          * gives the wrong answer whenever the variadic element type is
-         * itself an array (`MutableArray<[T]>`'s `mutable_array_push<[T]>`, for
+         * itself an array (`MutableArray<[T]>`'s `push<[T]>`, for
          * instance) -- a single element of type `[T]` also happens to
          * satisfy "is an array", the exact case that exposed this. */
         /* `local_name` is the callee exactly as written when it had no dot -- the
@@ -694,6 +694,18 @@ typedef struct {
      * nothing, and before F199 made them variadic each of them was an arity error. Checked at the
      * call, and folded into the overload resolver's arity range so a set still resolves. */
     int variadic_at_least_one;
+    /* `#[effectful]`: this declaration writes its container *and* answers a value, so discarding
+     * the value is an ordinary call rather than the mistake the dropped-result gate otherwise
+     * reports. Off by default, because the shape it exists for is rare: every other member of a
+     * prelude overload set says whether it has effects by its return type -- the `[T]` member
+     * computes a new value, the builder member rearranges a buffer and has nothing to return -- so
+     * "returns something" means "has no effect" and the gate needs no marker. The three `remove`
+     * declarations on a builder break that: `remove(mb, k)` answers the `Option<V>` it took out,
+     * `remove(sb, x)` whether the item was there, `remove(b, i)` the element it removed, and
+     * throwing any of the three away is how `pop` and "delete if present" are spelled. F182 asked
+     * for a marker on the declaration if a second such case appeared; by F208 there were three,
+     * which is where a list of names in typecheck.c stops being cheaper than the attribute. */
+    int is_effectful;
     /* `#[when_unmatched("...")]`: one extra line on the error raised when a call matches no
      * member of this declaration's overload set. The resolver already names the types the
      * position accepts, derived from the declarations; this carries what the declarations

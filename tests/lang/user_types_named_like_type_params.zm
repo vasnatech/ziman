@@ -13,8 +13,8 @@ enum V {
 
 fn main() {
     val items = mutable_array_new<T>()
-    mutable_array_push<T>(items, T { x: 1 })
-    mutable_array_push<T>(items, T { x: 2 })
+    push<T>(items, T { x: 1 })
+    push<T>(items, T { x: 2 })
     val all = snapshot(items)
     print(len(all))
     val m = mutable_map_new<string, K>()

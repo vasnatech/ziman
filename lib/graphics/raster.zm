@@ -206,7 +206,7 @@ fn new_target(width: int, height: int) -> Target {
     val data = mutable_array_new<float>(capacity: total)
     var i = 0
     while i < total {
-        mutable_array_push(data, 0.0)
+        push(data, 0.0)
         i = i + 1
     }
     return Target {
@@ -392,7 +392,7 @@ fn rasterise_tile(outline: Path, gm: Matrix, samples: int) -> GlyphTile {
     val row = mutable_array_new<float>()
     var i = 0
     while i < width {
-        mutable_array_push(row, 0.0)
+        push(row, 0.0)
         i = i + 1
     }
     val plan = plan_of(e, top, top + height - 1)
@@ -406,7 +406,7 @@ fn rasterise_tile(outline: Path, gm: Matrix, samples: int) -> GlyphTile {
         row_coverage_shifted(row, width, e, live, device.winding, samples, y, left)
         var x = 0
         while x < width {
-            mutable_array_push(cover, mutable_array_get(row, x))
+            push(cover, mutable_array_get(row, x))
             x = x + 1
         }
         y = y + 1
@@ -489,7 +489,7 @@ fn clip_mask(
     val row = mutable_array_new<float>()
     var i = 0
     while i < t.width {
-        mutable_array_push(row, 0.0)
+        push(row, 0.0)
         i = i + 1
     }
     val plan = plan_of(e, 0, t.height - 1)
@@ -506,7 +506,7 @@ fn clip_mask(
                 Some(prev) { prev[y * t.width + x] }
                 None { 1.0 }
             }
-            mutable_array_push(mask, here * before)
+            push(mask, here * before)
             x = x + 1
         }
         y = y + 1
@@ -553,7 +553,7 @@ fn fill_shape(
     val row = mutable_array_new<float>()
     var i = 0
     while i < t.width {
-        mutable_array_push(row, 0.0)
+        push(row, 0.0)
         i = i + 1
     }
     val plan = plan_of(e, first_row, last_row)
@@ -643,8 +643,8 @@ fn plan_of(e: Edges, first_row: int, last_row: int) -> Plan {
         val y1 = e.xy[i * 4 + 3]
         val lo = if y0 < y1 { y0 } else { y1 }
         val hi = if y0 < y1 { y1 } else { y0 }
-        mutable_array_push(start, clamp_int(floor(lo), first_row, last_row))
-        mutable_array_push(high, hi)
+        push(start, clamp_int(floor(lo), first_row, last_row))
+        push(high, hi)
         i = i + 1
     }
     // Counting sort by start row. The bucket array is one per row of the shape, not of the canvas.
@@ -652,7 +652,7 @@ fn plan_of(e: Edges, first_row: int, last_row: int) -> Plan {
     val counts = mutable_array_new<int>()
     var k = 0
     while k <= rows {
-        mutable_array_push(counts, 0)
+        push(counts, 0)
         k = k + 1
     }
     i = 0
@@ -672,7 +672,7 @@ fn plan_of(e: Edges, first_row: int, last_row: int) -> Plan {
     val order = mutable_array_new<int>()
     i = 0
     while i < count {
-        mutable_array_push(order, 0)
+        push(order, 0)
         i = i + 1
     }
     i = 0
@@ -690,7 +690,7 @@ fn plan_of(e: Edges, first_row: int, last_row: int) -> Plan {
 fn advance_active(p: Plan, live: MutableArray<int>, cursor: int, y: int) -> int {
     var next = cursor
     while next < len(p.order) && p.start[p.order[next]] <= y {
-        mutable_array_push(live, p.order[next])
+        push(live, p.order[next])
         next = next + 1
     }
     var write = 0
@@ -802,8 +802,8 @@ fn crossings_at(
             // Insertion sort: a scanline crosses a handful of edges even on a complex path, and
             // this keeps the two arrays parallel without a comparator over a struct.
             var at = len(xs)
-            mutable_array_push(xs, x)
-            mutable_array_push(dirs, dir)
+            push(xs, x)
+            push(dirs, dir)
             while at > 0 && mutable_array_get(xs, at - 1) > x {
                 mutable_array_set(xs, at, mutable_array_get(xs, at - 1))
                 mutable_array_set(dirs, at, mutable_array_get(dirs, at - 1))
@@ -1008,7 +1008,7 @@ fn ready_stops(stops: [Stop]) -> Result<[ReadyStop], string> {
     }
     val out = mutable_array_new<ReadyStop>(capacity: len(stops))
     for s in stops {
-        mutable_array_push(out, ReadyStop { offset: s.offset, colour: premul_of(s.color) })
+        push(out, ReadyStop { offset: s.offset, colour: premul_of(s.color) })
     }
     return ok(snapshot(out))
 }
@@ -1174,10 +1174,10 @@ fn push_edge(xy: MutableArray<float>, x0: float, y0: float, x1: float, y1: float
     if y0 == y1 {
         return
     }
-    mutable_array_push(xy, x0)
-    mutable_array_push(xy, y0)
-    mutable_array_push(xy, x1)
-    mutable_array_push(xy, y1)
+    push(xy, x0)
+    push(xy, y0)
+    push(xy, x1)
+    push(xy, y1)
 }
 
 // ---- output
@@ -1218,7 +1218,7 @@ fn finish(t: Target, format: image.Pixels) -> Result<image.Image, string> {
             // No lower clamp: every value here is a coverage-weighted colour in 0..1 times 255,
             // and `composite` never produces a negative one. `to_byte` kept its own because it is
             // also called from `image.set`, where a caller's `Color` can be anything.
-            mutable_array_push(out, (r as int) as byte, (g as int) as byte, (b as int) as byte, (av as int) as byte)
+            push(out, (r as int) as byte, (g as int) as byte, (b as int) as byte, (av as int) as byte)
             i = i + 1
         }
     } else if n == 3 {
@@ -1237,7 +1237,7 @@ fn finish(t: Target, format: image.Pixels) -> Result<image.Image, string> {
             if b > 255.0 {
                 b = 255.0
             }
-            mutable_array_push(out, (r as int) as byte, (g as int) as byte, (b as int) as byte)
+            push(out, (r as int) as byte, (g as int) as byte, (b as int) as byte)
             i = i + 1
         }
     } else {
@@ -1247,7 +1247,7 @@ fn finish(t: Target, format: image.Pixels) -> Result<image.Image, string> {
             if y > 255.0 {
                 y = 255.0
             }
-            mutable_array_push(out, (y as int) as byte)
+            push(out, (y as int) as byte)
             i = i + 1
         }
     }

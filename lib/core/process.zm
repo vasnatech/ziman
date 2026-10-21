@@ -67,7 +67,7 @@ pub fn start(
     val pairs = mutable_array_new<string>()
     if Some(given) = vars {
         for v in given {
-            mutable_array_push(pairs, concat(v.name, "=", v.value))
+            push(pairs, concat(v.name, "=", v.value))
         }
     }
     val handle = try start_raw(program, args, snapshot(pairs), or_blank(out_path), or_blank(err_path), or_blank(cwd))

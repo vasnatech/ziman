@@ -27,7 +27,7 @@ fn main() {
     // a large, highly compressible input shrinks a lot and comes back exactly; the limit protects
     val parts = mutable_array_new<byte>()
     for i in 0..30000 {
-        mutable_array_push<byte>(parts, string_to_bytes("abc"))
+        push<byte>(parts, string_to_bytes("abc"))
     }
     val big = snapshot(parts)
     val packed = compress.gzip(big)

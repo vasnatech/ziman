@@ -269,7 +269,7 @@ fn read_head(sock: Socket) -> Result<Head, ClientError> {
     var i = 1
     while i < len(lines) {
         if Some(pair) = split_once(lines[i], ":") {
-            mutable_array_push(headers, Header { name: pair[0], value: trim(pair[1]) })
+            push(headers, Header { name: pair[0], value: trim(pair[1]) })
         } else {
             return err(ClientError.BadResponse(concat("malformed header line: ", lines[i])))
         }
@@ -337,7 +337,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
             val step = try more(sock, buf)
             buf = step
         }
-        mutable_array_push(body, slice<byte>(buf, 0, size))
+        push(body, slice<byte>(buf, 0, size))
         buf = slice<byte>(buf, size + 2, len(buf))
     }
     return ok(Body { bytes: [], clean: false })
@@ -346,7 +346,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
 // A body that runs until the server closes the connection (so the connection cannot be reused).
 fn read_to_close(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
     val body = mutable_array_new<byte>()
-    mutable_array_push(body, start)
+    push(body, start)
     while true {
         if len(body) > max_body_bytes {
             return err(ClientError.TooLarge)
@@ -362,7 +362,7 @@ fn read_to_close(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
             }
             return err(ClientError.Network(net_error_message(e)))
         }
-        mutable_array_push(body, unwrap(chunk))
+        push(body, unwrap(chunk))
     }
     return err(ClientError.Timeout)
 }
@@ -431,7 +431,7 @@ fn decode_body(status: int, headers: [Header], body: [byte]) -> Result<Response,
     for h in headers {
         val lname = to_lower(h.name)
         if lname != "content-encoding" && lname != "content-length" {
-            mutable_array_push(kept, h)
+            push(kept, h)
         }
     }
     return ok(Response { status: status, headers: snapshot(kept), body: unwrap(decoded) })
@@ -602,7 +602,7 @@ fn write_request(
         u.target
     }
     val out = mutable_array_new<string>()
-    mutable_array_push(out, format("{} {} HTTP/1.1\r\n", method_name(method), request_target))
+    push(out, format("{} {} HTTP/1.1\r\n", method_name(method), request_target))
     var has_ua = false
     var has_accept = false
     var has_encoding = false
@@ -624,41 +624,41 @@ fn write_request(
         // Host, Content-Length and Connection are always set below from this call's own
         // arguments, so a caller-supplied one here would just be a duplicate.
         if lname != "host" && lname != "content-length" && lname != "connection" {
-            mutable_array_push(out, format("{}: {}\r\n", h.name, h.value))
+            push(out, format("{}: {}\r\n", h.name, h.value))
         }
     }
-    mutable_array_push(out, format("Host: {}\r\n", host_header(u)))
+    push(out, format("Host: {}\r\n", host_header(u)))
     if !has_ua {
-        mutable_array_push(out, "User-Agent: ziman\r\n")
+        push(out, "User-Agent: ziman\r\n")
     }
     if !has_accept {
-        mutable_array_push(out, "Accept: */*\r\n")
+        push(out, "Accept: */*\r\n")
     }
     if !has_encoding {
-        mutable_array_push(
+        push(
             out,
             if want_compression { "Accept-Encoding: gzip, deflate\r\n" } else { "Accept-Encoding: identity\r\n" }
         )
     }
     if !has_auth && len(u.userinfo) > 0 {
-        mutable_array_push(out, format("Authorization: {}\r\n", basic_auth(u.userinfo)))
+        push(out, format("Authorization: {}\r\n", basic_auth(u.userinfo)))
     }
     if via_http_proxy {
         if Some(p) = proxy {
             if p.userinfo != "" {
-                mutable_array_push(out, format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)))
+                push(out, format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)))
             }
         }
     }
-    mutable_array_push(out, if keep_alive { "Connection: keep-alive\r\n" } else { "Connection: close\r\n" })
+    push(out, if keep_alive { "Connection: keep-alive\r\n" } else { "Connection: close\r\n" })
     if Some(body) = body {
-        mutable_array_push(out, format("Content-Length: {}\r\n", len(body)))
+        push(out, format("Content-Length: {}\r\n", len(body)))
     } else {
         if method == HttpMethod.Post || method == HttpMethod.Put || method == HttpMethod.Patch {
-            mutable_array_push(out, "Content-Length: 0\r\n")
+            push(out, "Content-Length: 0\r\n")
         }
     }
-    mutable_array_push(out, "\r\n")
+    push(out, "\r\n")
     try lift<int>(net.write_text(s, join(pieces: snapshot(out), separator: "")))
     if Some(body) = body && len(body) > 0 {
         try lift<int>(net.write(s, body))
@@ -828,7 +828,7 @@ fn parse_http_date(text: string) -> int {
     val fields = mutable_array_new<string>()
     for p in parts {
         if len(p) > 0 {
-            mutable_array_push(fields, p)
+            push(fields, p)
         }
     }
     val f = snapshot(fields)
@@ -940,11 +940,11 @@ pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar {
                 val kept = mutable_array_new<Cookie>()
                 for old in current {
                     if !same_cookie(old, c) && (old.expires < 0 || old.expires > now) {
-                        mutable_array_push(kept, old)
+                        push(kept, old)
                     }
                 }
                 if c.expires < 0 || c.expires > now {
-                    mutable_array_push(kept, c)
+                    push(kept, c)
                 }
                 current = snapshot(kept)
             }
@@ -985,7 +985,7 @@ pub fn jar_header(jar: CookieJar, u: Url) -> Option<string> {
     val chosen = mutable_array_new<Cookie>()
     for c in jar.cookies {
         if cookie_matches(c, u, now) {
-            mutable_array_push(chosen, c)
+            push(chosen, c)
         }
     }
     val matched = snapshot(chosen)
@@ -995,7 +995,7 @@ pub fn jar_header(jar: CookieJar, u: Url) -> Option<string> {
     val ordered = sort_matches(matched)
     val parts = mutable_array_new<string>()
     for c in ordered {
-        mutable_array_push(parts, format("{}={}", c.name, c.value))
+        push(parts, format("{}={}", c.name, c.value))
     }
     return Option<string>.Some(join(separator: "; ", pieces: snapshot(parts)))
 }
@@ -1070,7 +1070,7 @@ fn run(
             val kept = mutable_array_new<Header>()
             for h in hs {
                 if !equals_ignore_case(h.name, "Authorization") && !equals_ignore_case(h.name, "Cookie") {
-                    mutable_array_push(kept, h)
+                    push(kept, h)
                 }
             }
             hs = snapshot(kept)
@@ -1207,7 +1207,7 @@ pub fn put_json(url: string, body: string) -> Result<Response, ClientError> {
 pub fn form_encode(fields: Map<string, string>) -> string {
     val parts = mutable_array_new<string>()
     for name, value in fields {
-        mutable_array_push(parts, format("{}={}", percent_encode(name, true), percent_encode(value, true)))
+        push(parts, format("{}={}", percent_encode(name, true), percent_encode(value, true)))
     }
     return join(separator: "&", pieces: snapshot(parts))
 }

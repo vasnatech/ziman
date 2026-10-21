@@ -1,0 +1,13 @@
+// `#[effectful]` says a function that answers a value also writes its argument, so discarding the
+// value is an ordinary call. On a function that answers nothing there is no value to discard and
+// so nothing for it to say, and a no-op attribute reads as a fact that was accepted -- the same
+// reason `#[at_least_one]` is refused on a signature with no variadic parameter and
+// `#[when_unmatched]` is refused without its message.
+#[effectful]
+fn note(x: int) {
+    print(x)
+}
+
+fn main() {
+    note(1)
+}

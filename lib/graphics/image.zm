@@ -110,7 +110,7 @@ pub fn canvas(width: int, height: int, format: Pixels) -> Result<Canvas, string>
     var i = 0
     val total = width * height * channels_of(format)
     while i < total {
-        mutable_array_push(data, 0 as byte)
+        push(data, 0 as byte)
         i = i + 1
     }
     return ok(Canvas { width: width, height: height, format: format, data: data })
@@ -166,7 +166,7 @@ pub fn alpha_channel(i: Image) -> Option<Image> {
             val out = mutable_array_new<byte>()
             var p = 0
             while p < i.width * i.height {
-                mutable_array_push(out, i.data[p * 4 + 3])
+                push(out, i.data[p * 4 + 3])
                 p = p + 1
             }
             Option<Image>.Some(Image {
@@ -188,9 +188,9 @@ pub fn without_alpha(i: Image) -> Image {
             val out = mutable_array_new<byte>()
             var p = 0
             while p < i.width * i.height {
-                mutable_array_push(out, i.data[p * 4])
-                mutable_array_push(out, i.data[p * 4 + 1])
-                mutable_array_push(out, i.data[p * 4 + 2])
+                push(out, i.data[p * 4])
+                push(out, i.data[p * 4 + 1])
+                push(out, i.data[p * 4 + 2])
                 p = p + 1
             }
             Image { width: i.width, height: i.height, format: Pixels.Rgb8, data: snapshot(out) }
@@ -208,23 +208,23 @@ pub fn encode_png(i: Image) -> [byte] {
     val parts = mutable_array_new<[byte]>()
     val sig = mutable_array_new<byte>()
     for b in png_signature {
-        mutable_array_push(sig, b as byte)
+        push(sig, b as byte)
     }
-    mutable_array_push(parts, snapshot(sig))
+    push(parts, snapshot(sig))
 
     val header = mutable_array_new<byte>()
     push_u32(header, i.width)
     push_u32(header, i.height)
-    mutable_array_push(header, 8 as byte)
-    mutable_array_push(header, colour_type_of(i.format) as byte)
-    mutable_array_push(header, 0 as byte)
-    mutable_array_push(header, 0 as byte)
-    mutable_array_push(header, 0 as byte)
-    mutable_array_push(parts, chunk("IHDR", snapshot(header)))
+    push(header, 8 as byte)
+    push(header, colour_type_of(i.format) as byte)
+    push(header, 0 as byte)
+    push(header, 0 as byte)
+    push(header, 0 as byte)
+    push(parts, chunk("IHDR", snapshot(header)))
 
-    mutable_array_push(parts, chunk("IDAT", deflate(filtered_rows(i))))
+    push(parts, chunk("IDAT", deflate(filtered_rows(i))))
     val nothing: [byte] = []
-    mutable_array_push(parts, chunk("IEND", nothing))
+    push(parts, chunk("IEND", nothing))
     return concat(snapshot(parts))
 }
 
@@ -250,21 +250,21 @@ fn filtered_rows(i: Image) -> [byte] {
     while y < i.height {
         val at = y * stride
         if y == 0 {
-            mutable_array_push(out, 0 as byte)
+            push(out, 0 as byte)
             var x = 0
             while x < stride {
-                mutable_array_push(out, i.data[at + x])
+                push(out, i.data[at + x])
                 x = x + 1
             }
         } else {
             // Filter 2 (Up): the difference from the row above, which is where the win is on the
             // flat colour and gradients this library produces.
-            mutable_array_push(out, 2 as byte)
+            push(out, 2 as byte)
             var x = 0
             while x < stride {
                 val above = i.data[at - stride + x] as int
                 val here = i.data[at + x] as int
-                mutable_array_push(out, wrap_byte(here - above))
+                push(out, wrap_byte(here - above))
                 x = x + 1
             }
         }
@@ -319,7 +319,7 @@ pub fn decode_png(data: [byte], max_pixels: int) -> Result<Image, string> {
             colour = body[9] as int
             interlace = body[12] as int
         } else if name == "IDAT" {
-            mutable_array_push(idat, body)
+            push(idat, body)
         } else if name == "IEND" {
             seen_end = true
         }
@@ -413,7 +413,7 @@ fn unfilter(raw: [byte], width: int, height: int, format: Pixels) -> Result<Imag
             } else if filter == 4 {
                 value = cur + paeth(left, up, up_left)
             }
-            mutable_array_push(out, wrap_byte(value))
+            push(out, wrap_byte(value))
             x = x + 1
         }
         y = y + 1
@@ -458,10 +458,10 @@ fn chunk(name: string, body: [byte]) -> [byte] {
 }
 
 fn push_u32(out: MutableArray<byte>, v: int) {
-    mutable_array_push(out, ((v / 16777216) % 256) as byte)
-    mutable_array_push(out, ((v / 65536) % 256) as byte)
-    mutable_array_push(out, ((v / 256) % 256) as byte)
-    mutable_array_push(out, (v % 256) as byte)
+    push(out, ((v / 16777216) % 256) as byte)
+    push(out, ((v / 65536) % 256) as byte)
+    push(out, ((v / 256) % 256) as byte)
+    push(out, (v % 256) as byte)
 }
 
 fn u32_at(data: [byte], at: int) -> Result<int, string> {

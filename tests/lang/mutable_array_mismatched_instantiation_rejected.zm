@@ -5,5 +5,5 @@
 // the functions that are still declared generics.
 fn main() {
     val ab = mutable_array_new<int>()
-    mutable_array_push<string>(ab, "x")
+    push<string>(ab, "x")
 }

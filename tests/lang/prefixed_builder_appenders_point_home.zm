@@ -1,0 +1,13 @@
+// F208 deleted the last three prefixed builder appenders, `mutable_array_push`/`_insert`/`_remove`
+// having become a second spelling of names that already dispatched on argument one. They were
+// `internal`, so nothing advertised or completed them -- and 738 call sites across this repo and
+// the North Star typed them anyway, because the prelude's own code did. So the old names get the
+// same hint `mutable_string_append` got in F205 rather than a bare "undefined function": the
+// prefix survives only as the C symbol the interpreter derives from parameter one, and a reader
+// who has it in their fingers should be told the word, not sent searching.
+fn main() {
+    val b = mutable_array_new<int>()
+    mutable_array_push(b, 1)
+    mutable_array_insert(b, 0, 2)
+    print(mutable_array_remove(b, 0))
+}

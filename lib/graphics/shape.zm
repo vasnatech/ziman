@@ -67,23 +67,23 @@ pub fn path_builder() -> PathBuilder {
 }
 
 pub fn move_to(b: PathBuilder, p: Point) {
-    mutable_array_push(b.segments, Segment.MoveTo(p))
+    push(b.segments, Segment.MoveTo(p))
 }
 
 pub fn line_to(b: PathBuilder, p: Point) {
-    mutable_array_push(b.segments, Segment.LineTo(p))
+    push(b.segments, Segment.LineTo(p))
 }
 
 pub fn quad_to(b: PathBuilder, control: Point, p: Point) {
-    mutable_array_push(b.segments, Segment.QuadTo(Quad { control: control, end: p }))
+    push(b.segments, Segment.QuadTo(Quad { control: control, end: p }))
 }
 
 pub fn cubic_to(b: PathBuilder, c1: Point, c2: Point, p: Point) {
-    mutable_array_push(b.segments, Segment.CubicTo(Cubic { control1: c1, control2: c2, end: p }))
+    push(b.segments, Segment.CubicTo(Cubic { control1: c1, control2: c2, end: p }))
 }
 
 pub fn close_path(b: PathBuilder) {
-    mutable_array_push(b.segments, Segment.Close)
+    push(b.segments, Segment.Close)
 }
 
 pub fn built(b: PathBuilder, winding: Winding) -> Path {
@@ -205,10 +205,10 @@ pub fn transform_path(p: Path, m: Matrix) -> Path {
     val out = mutable_array_new<Segment>()
     for s in p.segments {
         switch s {
-            MoveTo(a) { mutable_array_push(out, Segment.MoveTo(transform_point(m, a))) }
-            LineTo(a) { mutable_array_push(out, Segment.LineTo(transform_point(m, a))) }
+            MoveTo(a) { push(out, Segment.MoveTo(transform_point(m, a))) }
+            LineTo(a) { push(out, Segment.LineTo(transform_point(m, a))) }
             QuadTo(q) {
-                mutable_array_push(
+                push(
                     out,
                     Segment.QuadTo(Quad {
                         control: transform_point(m, q.control),
@@ -217,7 +217,7 @@ pub fn transform_path(p: Path, m: Matrix) -> Path {
                 )
             }
             CubicTo(c) {
-                mutable_array_push(
+                push(
                     out,
                     Segment.CubicTo(Cubic {
                         control1: transform_point(m, c.control1),
@@ -226,7 +226,7 @@ pub fn transform_path(p: Path, m: Matrix) -> Path {
                     })
                 )
             }
-            Close { mutable_array_push(out, Segment.Close) }
+            Close { push(out, Segment.Close) }
         }
     }
     return Path { segments: snapshot(out), winding: p.winding }
@@ -313,11 +313,11 @@ fn bounds_builder() -> BoundsAcc {
         max_x: mutable_array_new<float>(),
         max_y: mutable_array_new<float>()
     }
-    mutable_array_push(acc.seen, false)
-    mutable_array_push(acc.min_x, 0.0)
-    mutable_array_push(acc.min_y, 0.0)
-    mutable_array_push(acc.max_x, 0.0)
-    mutable_array_push(acc.max_y, 0.0)
+    push(acc.seen, false)
+    push(acc.min_x, 0.0)
+    push(acc.min_y, 0.0)
+    push(acc.max_x, 0.0)
+    push(acc.max_y, 0.0)
     return acc
 }
 
@@ -455,16 +455,16 @@ pub fn flattened(p: Path, tolerance: float) -> [Polyline] {
         switch seg {
             MoveTo(pt) {
                 if started && len(current) > 1 {
-                    mutable_array_push(out, Polyline { points: snapshot(current), closed: false })
+                    push(out, Polyline { points: snapshot(current), closed: false })
                 }
                 clear(current)
-                mutable_array_push(current, pt)
+                push(current, pt)
                 start = pt
                 at = pt
                 started = true
             }
             LineTo(pt) {
-                mutable_array_push(current, pt)
+                push(current, pt)
                 at = pt
             }
             QuadTo(q) {
@@ -490,16 +490,16 @@ pub fn flattened(p: Path, tolerance: float) -> [Polyline] {
             }
             Close {
                 if len(current) > 1 {
-                    mutable_array_push(out, Polyline { points: snapshot(current), closed: true })
+                    push(out, Polyline { points: snapshot(current), closed: true })
                 }
                 clear(current)
-                mutable_array_push(current, start)
+                push(current, start)
                 at = start
             }
         }
     }
     if started && len(current) > 1 {
-        mutable_array_push(out, Polyline { points: snapshot(current), closed: false })
+        push(out, Polyline { points: snapshot(current), closed: false })
     }
     return snapshot(out)
 }
@@ -516,7 +516,7 @@ fn flatten_cubic_into(
     depth: int
 ) {
     if depth >= 16 || cubic_is_flat(p0, c1, c2, p1, tol) {
-        mutable_array_push(out, p1)
+        push(out, p1)
         return
     }
     val a = midpoint(p0, c1)

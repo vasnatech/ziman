@@ -18,7 +18,7 @@ fn main() {
     val ints = mutable_array_new<int>(capacity: 100000)
     var i = 0
     while i < 5 {
-        mutable_array_push(ints, i * 2)
+        push(ints, i * 2)
         i = i + 1
     }
     print(snapshot(ints))
@@ -26,24 +26,24 @@ fn main() {
 
     // boxed: a type that never packs, same oversized capacity
     val structs = mutable_array_new<P>(capacity: 100000)
-    mutable_array_push(structs, P { key: 7 })
-    mutable_array_push(structs, P { key: 8 })
+    push(structs, P { key: 7 })
+    push(structs, P { key: 8 })
     print(snapshot(structs))
 
     // a capacity of zero, and one smaller than the push count, both still grow correctly
     val zero = mutable_array_new<int>(capacity: 0)
     var j = 0
     while j < 40 {
-        mutable_array_push(zero, j)
+        push(zero, j)
         j = j + 1
     }
     print(len(zero))
     print(snapshot(zero)[39])
 
     val tiny = mutable_array_new<string>(capacity: 1)
-    mutable_array_push(tiny, "a")
-    mutable_array_push(tiny, "b")
-    mutable_array_push(tiny, "c")
+    push(tiny, "a")
+    push(tiny, "b")
+    push(tiny, "c")
     print(snapshot(tiny))
 
     // `mutable` writes into the buffer directly rather than through a push, so it has to ask for
@@ -57,18 +57,18 @@ fn main() {
     val empty: [int] = []
     val from_empty = mutable(empty)
     print(len(from_empty))
-    mutable_array_push(from_empty, 9)
+    push(from_empty, 9)
     print(snapshot(from_empty))
 
     // clear keeps the buffer and the representation; refilling after it still works
     clear(ints)
     print(len(ints))
-    mutable_array_push(ints, 99)
+    push(ints, 99)
     print(snapshot(ints))
 
     // insert into a fresh presized builder takes the pack decision too
     val inserted = mutable_array_new<int>(capacity: 5000)
-    mutable_array_insert(inserted, 0, 11)
-    mutable_array_insert(inserted, 0, 10)
+    insert(inserted, 0, 11)
+    insert(inserted, 0, 10)
     print(snapshot(inserted))
 }

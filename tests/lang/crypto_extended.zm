@@ -4,7 +4,7 @@ use number
 fn main() {
     val parts = mutable_array_new<byte>()
     for i in 0..100000 {
-        mutable_array_push<byte>(parts, string_to_bytes("aaaaaaaaaa"))
+        push<byte>(parts, string_to_bytes("aaaaaaaaaa"))
     }
     val big = snapshot(parts)
     print(number.bytes_to_hex(crypto.sha512(string_to_bytes("abc"))))

@@ -39,7 +39,7 @@ fn lines_drawn(b: layout.Block, width: float, d: layout.Document) -> [string] {
             Text(run) {
                 if run.at.y != last_y {
                     if len(current) > 0 {
-                        mutable_array_push(out, snapshot(current))
+                        push(out, snapshot(current))
                     }
                     current = mutable_string_new()
                     append(current, run.text)
@@ -55,7 +55,7 @@ fn lines_drawn(b: layout.Block, width: float, d: layout.Document) -> [string] {
         }
     }
     if len(current) > 0 {
-        mutable_array_push(out, snapshot(current))
+        push(out, snapshot(current))
     }
     return snapshot(out)
 }
@@ -158,8 +158,8 @@ fn main() {
     val spacers = mutable_array_new<layout.Block>()
     var i = 0
     while i < 30 {
-        mutable_array_push(many, layout.rule(20.0, ink, 0.0, 0.0))
-        mutable_array_push(spacers, layout.spacer(20.0))
+        push(many, layout.rule(20.0, ink, 0.0, 0.0))
+        push(spacers, layout.spacer(20.0))
         i = i + 1
     }
     val template = layout.page_template(200.0, 140.0, 20.0)
@@ -186,7 +186,7 @@ fn main() {
     val body = mutable_array_new<layout.Row>()
     var r = 0
     while r < 8 {
-        mutable_array_push(body, layout.row([cell_of(concat("drug", str(r))), cell_of("10mg")]))
+        push(body, layout.row([cell_of(concat("drug", str(r))), cell_of("10mg")]))
         r = r + 1
     }
     val style = layout.table_style(0.0, 0.0, 0.0, ink)

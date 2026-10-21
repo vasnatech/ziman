@@ -21,8 +21,8 @@ fn build(tag: string) -> Pair {
     val flags = mutable_array_new<bool>()
     var i = 0
     while i < 5 {
-        mutable_array_push<string>(names, concat(tag, str(i)))
-        mutable_array_push<bool>(flags, i % 2 == 0)
+        push<string>(names, concat(tag, str(i)))
+        push<bool>(flags, i % 2 == 0)
         i = i + 1
     }
     return Pair { a: snapshot(names), b: snapshot(flags) }
@@ -32,7 +32,7 @@ fn fill(tag: string) -> MutableArray<Pair> {
     val pairs = mutable_array_new<Pair>()
     var i = 0
     while i < 4 {
-        mutable_array_push<Pair>(pairs, build(concat(tag, "-", str(i), "-")))
+        push<Pair>(pairs, build(concat(tag, "-", str(i), "-")))
         i = i + 1
     }
     return pairs

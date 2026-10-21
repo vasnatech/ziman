@@ -205,7 +205,7 @@ pub fn glyphs_of(f: Face, text: string) -> Result<[int], string> {
     for ch in chars(text) {
         val cp = codepoint_of(ch)
         switch try truetype.glyph_for(f, cp) {
-            Some(g) { mutable_array_push(out, g) }
+            Some(g) { push(out, g) }
             None {
                 return err(concat("font.glyphs_of: the face cannot draw U+", hex4(cp)))
             }
@@ -218,7 +218,7 @@ pub fn glyphs_of(f: Face, text: string) -> Result<[int], string> {
 pub fn codepoints_of(text: string) -> [int] {
     val out = mutable_array_new<int>()
     for ch in chars(text) {
-        mutable_array_push(out, codepoint_of(ch))
+        push(out, codepoint_of(ch))
     }
     return snapshot(out)
 }

@@ -26,7 +26,7 @@ use shape
 fn bytes_of(xs: [int]) -> [byte] {
     val out = mutable_array_new<byte>()
     for x in xs {
-        mutable_array_push(out, x as byte)
+        push(out, x as byte)
     }
     return snapshot(out)
 }
@@ -157,7 +157,7 @@ fn main() {
     // like. Without the CRC check this decodes to quietly wrong pixels.
     val corrupt = mutable_array_new<byte>()
     for b in png {
-        mutable_array_push(corrupt, b)
+        push(corrupt, b)
     }
     mutable_array_set(corrupt, len(png) - 20, ((png[len(png) - 20] as int) + 1) as byte)
     print(concat("a flipped byte:      ", refusal(image.decode_png(snapshot(corrupt), 1000000))))

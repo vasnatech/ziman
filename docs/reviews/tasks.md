@@ -3139,3 +3139,75 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   **A claim corrected in my own F206 comments before committing:** they called this "the first
   overload set whose members dispatch two different ways". `add` had been doing it since F199.
+
+- [x] **F208** **The last three prefixed builder appenders go, and a mutation gets to say it
+  answers something.** (follows F207; user-raised, "remove mutable_array_* helper functions not
+  constructors -- we already have the overloaded versions"; done 2026-10-21.)
+  `mutable_array_push`, `mutable_array_insert` and `mutable_array_remove` are deleted. Each had
+  become a second spelling of a name that already dispatched on argument one — F207 gave `push`
+  and `insert` their MutableArray declaration, `remove` had had one since F200 — and each was
+  `internal`, so nothing advertised or completed them. **767 call sites across this repo and the
+  North Star typed them anyway** — 509 here and 258 in the backend, counted as
+  `git grep -o -E 'mutable_array_(push|insert|remove)[<(]' <before> -- '*.zm'` less the three
+  declarations and the five prose mentions, plus three inside a fixture shell script that embeds
+  Ziman — because the prelude's own code did, and that is the finding to
+  carry: `internal` hides a name from `--api builtins`, not from the corpus, and the corpus is
+  where a reader learns the vocabulary. A superseded name kept "callable but hidden" goes on being
+  written. The old spellings now get `renamed_builder_fn`'s hint rather than "undefined function",
+  as `mutable_string_append` did in F205.
+
+  **`make overload-sets-check` does not move — 41 resolver-owned sets, 18 polymorphic builtins,
+  exactly as F207 left them.** That is the honest number: this removed duplicate spellings, not
+  arms. Quote it rather than a count of names deleted.
+
+  **One of the three was not converted at all, and its declaration said otherwise.** `remove` on a
+  MutableArray read `builtin fn` in collections.zm, but the builtin id never ran: the arm rewrote
+  the callee to `mutable_array_remove` first, and `call_remove` only ever handled an array — it
+  would have read an `ArrayObj` out of a handle had anything reached it. The declaration was
+  documentation and the arm was the implementation. It is a `native fn` now and the arm branch is
+  gone. Third instance of F206's finding.
+
+  **And that rewrite was the only reason `pop` compiled.** Discarding a non-void prelude overload's
+  result is an error (F182's return-type rule), while `remove(b, len(b) - 1)` is how `pop` is
+  spelled. The call was accepted because the gate read the *rewritten* name, did not recognise it,
+  and said nothing — so `remove_mutable_array.zm` had been passing for an accidental reason, and
+  its own header stated the mechanism as though it were the design. **An accident that reads as a
+  decision is worse than a missing feature, because the fixture asserting it passes.**
+
+  **`#[effectful]`: an attribute, because this was the third case and F182 said so.** A pair of
+  type names in `effectful_despite_answering` covered `remove` on a MutableMap and a MutableSet;
+  the MutableArray form made three. The fact now lives on the three declarations that have it, the
+  list in `typecheck.c` is gone, and a fourth needs no C edit. No argument (it is a fact about the
+  whole declaration), refused on a function that answers nothing — the same choice
+  `#[at_least_one]` and `#[when_unmatched]` make. `discard_overload_purity_allowed.zm` had
+  predicted exactly this file-to-change and exactly this marker, which is the one piece of
+  forecasting in the chain that held.
+
+  **Three things the rename touched that a `.zm`-only sweep would have missed.** `src/derive.c`
+  *emits* Ziman, so three `#[derive]` bodies would have generated a call to a deleted name — a
+  conversion's blast radius includes the code generators. `BUILDER_KINDS` keys the quadratic lint's
+  per-type advice on the *appender's name*, so leaving the old one there would have silently
+  stopped the lint firing for arrays; third rename running that this table has broken (F162, F205),
+  and its fixture caught it again. And six benchmark reference solutions under `docs/reviews/`
+  stopped compiling, which only `benchmark-check` sees.
+
+  **Two name lists were asserting things about names that no longer existed.** `tests/run_api.sh`
+  and `tests/integration/lsp/lsp_test.py` each held nine prefix-layer names and checked that none
+  was advertised or completed; all nine had been deleted by F180, so both loops passed by vacuity —
+  in a test whose whole subject is stale names, one file over from the guard written to stop
+  exactly that. Each now names `mutable_set_add`, the one still declared, and
+  `prelude_internal_still_callable.zm` calls it instead of the three that are gone.
+
+  **Accepted loss: `push` can no longer take named arguments.** `push(ab: b, pieces: ...)` worked
+  while the prefixed name was a lone native; the bare name is shared with a `builtin fn`, and an
+  id-dispatched name takes neither a named nor a type argument. Four call sites, all fixtures
+  exercising "several shapes", now positional.
+
+  **What stays prefixed is a different case**: `mutable_array_new`/`_filled` are constructors with
+  no bare form, and `mutable_array_get`/`_set` are what `b[i]` and `b[i] = value` rewrite to and
+  what diagnostics name — there being no bare `get` or `set` for a builder, since `set(b, i, v)` is
+  refused on purpose so it can say an element write is `b[i] = value`. `mutable_set_add` is the one
+  remaining `internal` prefixed native under a bare name and the only candidate left.
+
+  Two new fixtures (`prefixed_builder_appenders_point_home`, `effectful_on_void_rejected`), three
+  reworked. 1,112 fixtures, `make check` exit 0 with the North Star.

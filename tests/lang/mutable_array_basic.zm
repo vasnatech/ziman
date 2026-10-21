@@ -3,8 +3,8 @@ fn main() {
     // Option<T> parameter omission before it) exists to make possible.
     val ab = mutable_array_new<int>()
     print(len(ab))
-    mutable_array_push<int>(ab, 1, 2, 3)
-    mutable_array_push<int>(ab, 4)
+    push<int>(ab, 1, 2, 3)
+    push<int>(ab, 4)
     val arr = snapshot(ab)
     print(arr)
     print(len(ab))
@@ -25,7 +25,7 @@ fn main() {
     val ab2 = mutable_array_new<string>(capacity: 2, grow_factor: 1.5)
     var i = 0
     while i < 20 {
-        mutable_array_push<string>(ab2, str(i))
+        push<string>(ab2, str(i))
         i = i + 1
     }
     print(len(ab2))
@@ -37,19 +37,19 @@ fn main() {
     // Appending an already-built array (variadic spread).
     val ab3 = mutable_array_new<int>()
     val pieces = [10, 20, 30]
-    mutable_array_push<int>(ab3, pieces)
+    push<int>(ab3, pieces)
     print(snapshot(ab3))
 
     // Two independent builders never interfere with each other.
     val ab4 = mutable_array_new<int>()
     val ab5 = mutable_array_new<int>()
-    mutable_array_push<int>(ab4, 1)
-    mutable_array_push<int>(ab5, 2)
+    push<int>(ab4, 1)
+    push<int>(ab5, 2)
     print(snapshot(ab4))
     print(snapshot(ab5))
 
     // Fully positional.
     val ab6 = mutable_array_new<int>(5, 3.0)
-    mutable_array_push<int>(ab6, 99)
+    push<int>(ab6, 99)
     print(snapshot(ab6))
 }

@@ -28,7 +28,7 @@ pub fn p_from_json_all(j: Json) -> Result<P, [string]> {
     return ok(field_x)
     }
     val got_x = get_x()
-    if Err(problem_x) = got_x { mutable_array_push(problems, concat("x: ", problem_x)) }
+    if Err(problem_x) = got_x { push(problems, concat("x: ", problem_x)) }
     if len(problems) > 0 { return err(snapshot(problems)) }
     return ok(P {
         x: unwrap(got_x)

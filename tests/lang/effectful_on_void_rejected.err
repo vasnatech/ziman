@@ -1,0 +1,1 @@
+#[effectful] applies to a function that answers a value, and 'note' answers nothing -- it says that discarding the result is an ordinary call because the call also writes its argument

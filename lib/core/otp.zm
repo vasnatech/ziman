@@ -70,7 +70,7 @@ pub fn base32_decode(text: string) -> Result<[byte], string> {
                 divisor = divisor * 2
             }
             val value = buffer / divisor
-            mutable_array_push(out, value as byte)
+            push(out, value as byte)
             buffer = buffer - value * divisor
             bits = bits - 8
         }
@@ -88,7 +88,7 @@ fn counter_bytes(counter: int) -> [byte] {
         rest = rest / 256
     }
     for i in 0..8 {
-        mutable_array_push(out, digits[7 - i] as byte)
+        push(out, digits[7 - i] as byte)
     }
     return snapshot(out)
 }

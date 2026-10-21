@@ -60,7 +60,7 @@ fn main() {
     val many = mutable_array_new<scene.Op>()
     var i = 0
     while i < 400 {
-        mutable_array_push(many, scene.fill(rect(i as float, 1.0, 2.0, 2.0), black))
+        push(many, scene.fill(rect(i as float, 1.0, 2.0, 2.0), black))
         i = i + 1
     }
     val busy = scene.with_ops(scene.scene_of(800.0, 100.0), snapshot(many))

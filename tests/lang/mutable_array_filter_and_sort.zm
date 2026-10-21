@@ -19,7 +19,7 @@ fn p_compare(a: P, b: P) -> int {
 fn main() {
     // packed path
     val ns = mutable_array_new<int>()
-    mutable_array_push(ns, 5, 2, 9, 1, 2)
+    push(ns, 5, 2, 9, 1, 2)
     filter(ns, fn(n) { n > 2 })
     print(snapshot(ns))
     print(len(ns))
@@ -33,7 +33,7 @@ fn main() {
 
     // boxed path, and stability in both directions with genuine ties
     val ps = mutable_array_new<P>()
-    mutable_array_push(ps, P { key: 2, tag: "a" }, P { key: 1, tag: "b" }, P { key: 2, tag: "c" }, P { key: 1, tag: "d" })
+    push(ps, P { key: 2, tag: "a" }, P { key: 1, tag: "b" }, P { key: 2, tag: "c" }, P { key: 1, tag: "d" })
     sort(ps)
     val out = mutable_string_new()
     for p in ps {
@@ -64,10 +64,10 @@ fn main() {
 
     // filter everything out, and filter nothing out
     val all = mutable_array_new<string>()
-    mutable_array_push(all, "x", "y")
+    push(all, "x", "y")
     filter(all, fn(s) { false })
     print(len(all))
-    mutable_array_push(all, "z")
+    push(all, "z")
     filter(all, fn(s) { true })
     print(snapshot(all))
 }

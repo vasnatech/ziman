@@ -241,18 +241,18 @@ fn polygon(segs: MutableArray<Segment>, pts: [Point]) {
     while i < len(pts) {
         val p = if forward { pts[i] } else { pts[len(pts) - 1 - i] }
         if i == 0 {
-            mutable_array_push(segs, Segment.MoveTo(p))
+            push(segs, Segment.MoveTo(p))
         } else {
-            mutable_array_push(segs, Segment.LineTo(p))
+            push(segs, Segment.LineTo(p))
         }
         i = i + 1
     }
-    mutable_array_push(segs, Segment.Close)
+    push(segs, Segment.Close)
 }
 
 fn circle(segs: MutableArray<Segment>, c: Point, r: float) {
     for s in shape.circle_path(c, r).segments {
-        mutable_array_push(segs, s)
+        push(segs, s)
     }
 }
 
@@ -285,7 +285,7 @@ fn deduped(pts: [Point], closed: bool) -> [Point] {
     val out = mutable_array_new<Point>()
     for p in pts {
         if len(out) == 0 || !same_point(mutable_array_get(out, len(out) - 1), p) {
-            mutable_array_push(out, p)
+            push(out, p)
         }
     }
     // A closed subpath written with an explicit final point back at the start. Dropping it is only
@@ -293,7 +293,7 @@ fn deduped(pts: [Point], closed: bool) -> [Point] {
     // still has that last segment, and dropping its endpoint would quietly shorten the stroke.
     if closed && len(out) > 1 &&
         same_point(mutable_array_get(out, 0), mutable_array_get(out, len(out) - 1)) {
-        val _ = mutable_array_remove(out, len(out) - 1)
+        val _ = remove(out, len(out) - 1)
     }
     return snapshot(out)
 }
@@ -334,7 +334,7 @@ fn dashed(lines: [Polyline], dash: [float], phase: float) -> Result<[Polyline], 
         val pts = line.points
         val n = len(pts)
         if n < 2 {
-            mutable_array_push(out, line)
+            push(out, line)
         } else {
             dash_one(out, pts, n, line.closed, dash, phase, total)
         }
@@ -381,9 +381,9 @@ fn dash_one(
                 val step = if left < length - done { left } else { length - done }
                 if on {
                     if len(run) == 0 {
-                        mutable_array_push(run, lerp(a, b, done / length))
+                        push(run, lerp(a, b, done / length))
                     }
-                    mutable_array_push(run, lerp(a, b, (done + step) / length))
+                    push(run, lerp(a, b, (done + step) / length))
                 }
                 done = done + step
                 left = left - step
@@ -392,7 +392,7 @@ fn dash_one(
                     // zero-length "on" dash is a dot, which `stroke_one` draws or not depending on
                     // the cap, and that is the documented behaviour rather than an accident.
                     if on && len(run) > 0 {
-                        mutable_array_push(out, Polyline { points: snapshot(run), closed: false })
+                        push(out, Polyline { points: snapshot(run), closed: false })
                     }
                     clear(run)
                     on = !on
@@ -404,7 +404,7 @@ fn dash_one(
         i = i + 1
     }
     if on && len(run) > 0 {
-        mutable_array_push(out, Polyline { points: snapshot(run), closed: false })
+        push(out, Polyline { points: snapshot(run), closed: false })
     }
 }
 

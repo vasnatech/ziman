@@ -285,7 +285,7 @@ fn parse_key_path(s: string, pos: int) -> Result<PPath, string> {
     var p = skip_blank(s, pos)
     while true {
         val part = try parse_key_part(s, p)
-        mutable_array_push(parts, part.text)
+        push(parts, part.text)
         p = skip_blank(s, part.next)
         if is_char_at(s, p, ".") {
             p = skip_blank(s, p + 1)
@@ -407,7 +407,7 @@ fn parse_array_value(s: string, pos: int) -> Result<Parsed, string> {
             return ok(Parsed { value: Json.JArray(snapshot(items)), next: p + 1 })
         }
         val item = try parse_value(s, p)
-        mutable_array_push(items, item.value)
+        push(items, item.value)
         p = skip_all(s, item.next)
         if is_char_at(s, p, ",") {
             p = skip_all(s, p + 1)
@@ -697,7 +697,7 @@ fn key_text(k: string) -> string {
 fn path_text(path: [string]) -> string {
     val parts = mutable_array_new<string>()
     for k in path {
-        mutable_array_push(parts, key_text(k))
+        push(parts, key_text(k))
     }
     return join(separator: ".", pieces: snapshot(parts))
 }
@@ -732,7 +732,7 @@ fn inline_value(j: Json) -> Result<string, string> {
             val parts = mutable_array_new<string>()
             for item in items {
                 val text = try inline_value(item)
-                mutable_array_push(parts, text)
+                push(parts, text)
             }
             ok(concat("[", join(separator: ", ", pieces: snapshot(parts)), "]"))
         }
@@ -743,7 +743,7 @@ fn inline_value(j: Json) -> Result<string, string> {
                     continue
                 }
                 val text = try inline_value(value)
-                mutable_array_push(parts, concat(key_text(key), " = ", text))
+                push(parts, concat(key_text(key), " = ", text))
             }
             if len(parts) == 0 {
                 ok("{}")

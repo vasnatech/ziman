@@ -148,7 +148,8 @@ Value ziman_mutable_set_from_array(Value source, int source_is_handle);
  * handle to itself doubles it, setting a map from itself is a no-op, and differencing a set with
  * itself empties it. */
 void ziman_mutable_array_push_all(Value xs, Value source, int source_is_handle);
-/* `mutable_array_push` and its one-element fast path -- see the comment on the latter in
+/* `push`'s MutableArray implementation and its one-element fast path -- the symbol keeps the
+ * world prefix the declaration gave up. See the comment on the latter in
  * prelude.c. Both are reached by pointer identity from interpreter.c, not by name. */
 Value ziman_mutable_array_push(Value *args, int argc, int line, int col);
 void ziman_mutable_array_push_one(Value ab, Value element);

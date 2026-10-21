@@ -302,7 +302,7 @@ fn audiences_of(value: Json) -> [string] {
     if JArray(items) = value {
         for item in items {
             if JString(text) = item {
-                mutable_array_push(names, text)
+                push(names, text)
             }
         }
     }

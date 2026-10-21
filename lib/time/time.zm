@@ -229,52 +229,52 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
     while i < plen {
         if matches_token(pattern, i, "yyyy") {
             if literal_buf != "" {
-                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
+                push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            mutable_array_push(parts, DateTimePart.Year)
+            push(parts, DateTimePart.Year)
             i = i + 4
         } else if matches_token(pattern, i, "MM") {
             if literal_buf != "" {
-                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
+                push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            mutable_array_push(parts, DateTimePart.Month)
+            push(parts, DateTimePart.Month)
             i = i + 2
         } else if matches_token(pattern, i, "dd") {
             if literal_buf != "" {
-                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
+                push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            mutable_array_push(parts, DateTimePart.Day)
+            push(parts, DateTimePart.Day)
             i = i + 2
         } else if matches_token(pattern, i, "HH") {
             if literal_buf != "" {
-                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
+                push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            mutable_array_push(parts, DateTimePart.Hour)
+            push(parts, DateTimePart.Hour)
             i = i + 2
         } else if matches_token(pattern, i, "mm") {
             if literal_buf != "" {
-                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
+                push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            mutable_array_push(parts, DateTimePart.Minute)
+            push(parts, DateTimePart.Minute)
             i = i + 2
         } else if matches_token(pattern, i, "ss") {
             if literal_buf != "" {
-                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
+                push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            mutable_array_push(parts, DateTimePart.Second)
+            push(parts, DateTimePart.Second)
             i = i + 2
         } else if matches_token(pattern, i, "SSSSSSSSS") {
             if literal_buf != "" {
-                mutable_array_push(parts, DateTimePart.Literal(literal_buf))
+                push(parts, DateTimePart.Literal(literal_buf))
                 literal_buf = ""
             }
-            mutable_array_push(parts, DateTimePart.Nano)
+            push(parts, DateTimePart.Nano)
             i = i + 9
         } else {
             literal_buf = concat(literal_buf, char_at(pattern, i))
@@ -282,7 +282,7 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
         }
     }
     if literal_buf != "" {
-        mutable_array_push(parts, DateTimePart.Literal(literal_buf))
+        push(parts, DateTimePart.Literal(literal_buf))
     }
     val parts_array = snapshot(parts)
     var width = 0

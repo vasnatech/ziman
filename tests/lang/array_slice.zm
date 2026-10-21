@@ -1,7 +1,7 @@
 fn tail_of(n: int) -> [int] {
     val big = mutable_array_new<int>()
     for i in 0..n {
-        mutable_array_push<int>(big, i)
+        push<int>(big, i)
     }
     return slice<int>(snapshot(big), n - 3, n)
 }
@@ -33,13 +33,13 @@ fn main() {
     val t = tail_of(1000)
     val junk = mutable_array_new<string>()
     for i in 0..2000 {
-        mutable_array_push<string>(junk, format("junk {}", i))
+        push<string>(junk, format("junk {}", i))
     }
     print(t)
 
     // appending a slice to a builder
     val ab = mutable_array_new<int>()
-    mutable_array_push<int>(ab: ab, pieces: slice<int>(a, 0, 2))
-    mutable_array_push<int>(ab: ab, pieces: slice<int>(a, 4, 5))
+    push<int>(ab, slice<int>(a, 0, 2))
+    push<int>(ab, slice<int>(a, 4, 5))
     print(snapshot(ab))
 }

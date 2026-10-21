@@ -27,8 +27,8 @@ fn build(tag: string) -> Pair {
     val flags = mutable_array_new<bool>()
     var i = 0
     while i < 5 {
-        mutable_array_push<string>(names, concat(tag, str(i)))
-        mutable_array_push<bool>(flags, i % 2 == 0)
+        push<string>(names, concat(tag, str(i)))
+        push<bool>(flags, i % 2 == 0)
         i = i + 1
     }
     return Pair { a: snapshot(names), b: snapshot(flags) }
@@ -39,7 +39,7 @@ fn main() {
     var n = 0
     while n < 50 {
         val tag = concat("t", str(n))
-        mutable_array_push<Pair>(builder, build(tag))
+        push<Pair>(builder, build(tag))
         os.collect_garbage()
         n = n + 1
     }

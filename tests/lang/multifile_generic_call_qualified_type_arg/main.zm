@@ -9,8 +9,8 @@ use models
 // array field whose element type lives in another module.
 fn main() {
     val ab = mutable_array_new<models.Point>()
-    mutable_array_push<models.Point>(ab, models.Point { x: 1 })
-    mutable_array_push<models.Point>(ab, models.Point { x: 2 })
+    push<models.Point>(ab, models.Point { x: 1 })
+    push<models.Point>(ab, models.Point { x: 2 })
     val arr = snapshot(ab)
     print(len(arr))
     print(arr[0].x)

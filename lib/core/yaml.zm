@@ -143,7 +143,7 @@ fn tokenize(text: string) -> Result<[Line], string> {
         var cont = false
         var cur = indent
         while body == "-" || starts_with(body, "- ") {
-            mutable_array_push(out, Line { no: no, indent: cur, base: base, body: "-", raw: raw, cont: cont })
+            push(out, Line { no: no, indent: cur, base: base, body: "-", raw: raw, cont: cont })
             cont = true
             var skip = 1
             while is_char_at(body, skip, " ") {
@@ -152,7 +152,7 @@ fn tokenize(text: string) -> Result<[Line], string> {
             cur = cur + skip
             body = substring(body, skip, len(body))
         }
-        mutable_array_push(
+        push(
             out,
             Line { no: no, indent: cur, base: if cont { base } else { cur }, body: body, raw: raw, cont: cont }
         )
@@ -445,7 +445,7 @@ fn flow_seq(s: string, pos: int, no: int, depth: int) -> Result<Scalar, string> 
             return ok(Scalar { value: Json.JArray(snapshot(items)), next: p + 1 })
         }
         val item = try flow_node(s, p, no, depth + 1)
-        mutable_array_push(items, item.value)
+        push(items, item.value)
         p = skip_sp(s, item.next)
         if is_char_at(s, p, ",") {
             p = skip_sp(s, p + 1)
@@ -629,7 +629,7 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
         if !blank && ln.indent < indent {
             return err(fail(ln.no, "bad indentation in a block scalar"))
         }
-        mutable_array_push(
+        push(
             body_lines,
             if blank { (if indent >= 0 && len(ln.raw) > indent { substring(
                 ln.raw,
@@ -766,11 +766,11 @@ fn parse_seq(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
         }
         val nxt = next_sig(lines, j + 1)
         if nxt >= len(lines) || lines[nxt].indent <= ind {
-            mutable_array_push(items, Json.JNull)
+            push(items, Json.JNull)
             j = j + 1
         } else {
             val item = try parse_node(lines, j + 1, ind + 1)
-            mutable_array_push(items, item.value)
+            push(items, item.value)
             j = item.next
         }
     }
@@ -854,7 +854,7 @@ pub fn parse_yaml(text: string) -> Result<Json, string> {
         } else if !ln.cont && starts_with(c, "%") && ln.indent == 0 {
             return err(fail(ln.no, "directives are not supported"))
         } else {
-            mutable_array_push(kept, ln)
+            push(kept, ln)
         }
     }
     val lines = snapshot(kept)

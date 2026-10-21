@@ -29,7 +29,7 @@ fn main() {
         val xs = mutable_array_new<int>()
         var i = 0
         while i < n {
-            mutable_array_push(xs, (i * 37 + 11) % 101)
+            push(xs, (i * 37 + 11) % 101)
             i = i + 1
         }
         val before = snapshot(xs)
@@ -46,7 +46,7 @@ fn main() {
     val ps = mutable_array_new<P>()
     var j = 0
     while j < 12 {
-        mutable_array_push(ps, P { key: j % 3, tag: str(j) })
+        push(ps, P { key: j % 3, tag: str(j) })
         j = j + 1
     }
     val pbefore = snapshot(ps)

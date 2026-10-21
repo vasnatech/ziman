@@ -16,7 +16,7 @@ fn first_duplicate(names: [string]) -> string {
                 return name
             }
         }
-        mutable_array_push(seen, name)
+        push(seen, name)
     }
     return ""
 }

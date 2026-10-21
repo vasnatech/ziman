@@ -17,7 +17,7 @@ fn work(id: int, rounds: int, out: Channel<int>) {
     for i in 0..rounds {
         val pieces = mutable_array_new<string>()
         for j in 0..40 {
-            mutable_array_push(pieces, format("piece {} {} {}", id, i, j))
+            push(pieces, format("piece {} {} {}", id, i, j))
         }
         val joined = join(separator: ",", pieces: snapshot(pieces))
         total = total + len(joined) + leaf(i)

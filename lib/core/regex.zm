@@ -80,9 +80,9 @@ fn match_of(re: Regex, text: string, caps: [int], at: int) -> Match {
     for g in 1..re.groups + 1 {
         val s = caps[at + 2 * g]
         if s < 0 {
-            mutable_array_push(groups, Option<string>.None)
+            push(groups, Option<string>.None)
         } else {
-            mutable_array_push(groups, Option<string>.Some(substring(text, s, caps[at + 2 * g + 1])))
+            push(groups, Option<string>.Some(substring(text, s, caps[at + 2 * g + 1])))
         }
     }
     return Match {
@@ -121,7 +121,7 @@ pub fn find_all(re: Regex, text: string) -> [Match] {
     val out = mutable_array_new<Match>()
     var at = 0
     while at < len(caps) {
-        mutable_array_push(out, match_of(re, text, caps, at))
+        push(out, match_of(re, text, caps, at))
         at = at + stride
     }
     return snapshot(out)
@@ -260,11 +260,11 @@ pub fn split(re: Regex, text: string) -> [string] {
     var last = 0
     for m in find_all(re, text) {
         if m.end > m.start {
-            mutable_array_push(out, substring(text, last, m.start))
+            push(out, substring(text, last, m.start))
             last = m.end
         }
     }
-    mutable_array_push(out, substring(text, last, len(text)))
+    push(out, substring(text, last, len(text)))
     return snapshot(out)
 }
 

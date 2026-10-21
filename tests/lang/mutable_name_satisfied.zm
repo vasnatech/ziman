@@ -24,7 +24,7 @@ struct MutablesRegistry {
 
 fn main() {
     val r = MutableRingBuffer { buf: mutable_array_new<int>(), head: 0 }
-    mutable_array_push(r.buf, 7, 8)
+    push(r.buf, 7, 8)
     print(len(r.buf))
     print(MutableTicket { n: 3 }.n)
     print(MutablesRegistry { count: 2 }.count)

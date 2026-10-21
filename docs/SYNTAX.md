@@ -318,7 +318,7 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   `remove(a, i)` on an array answers the new array, the difference being the two worlds rather than
   two names. Discarding the builder's result is therefore fine, while discarding the array's is an
   error, that one having copied and changed nothing. Both are O(n), where `push` is
-  amortised O(1) -- a loop of `mutable_array_insert(xs, 0, v)` is quadratic, and that is why there
+  amortised O(1) -- a loop of `insert(b, 0, v)` is quadratic, and that is why there
   is no `push_front`: the name would read as `push`'s twin and promise a cost it cannot give. Build
   tail-first and `reverse(xs)` once, which copies nothing. `filter(xs, keep)` on a builder keeps
   what its predicate accepts, in place and **allocating nothing** -- the only filter in the language
@@ -1592,14 +1592,25 @@ val by_age = sort_by<Patient, int>(patients, fn(p: Patient) -> int { return p.ag
 
 ## Attributes and derive
 
-`#[...]`, above a declaration, attaches compile-time metadata to it. Six are interpreted:
+`#[...]`, above a declaration, attaches compile-time metadata to it. Seven are interpreted:
 `derive` (below) and `thread_bound` on a `struct`/`enum`, and `test`, `deprecated`,
-`when_unmatched` and `at_least_one` on a function; other names parse but have no effect yet.
+`when_unmatched`, `at_least_one` and `effectful` on a function; other names parse but have no
+effect yet.
 
 `#[at_least_one]` says the function's trailing `variadic` parameter needs a value — see
 "Variadic parameters". It takes no argument, since a function has at most one variadic parameter
 and it is always last, and it is refused on a function that has none rather than quietly meaning
 nothing.
+
+`#[effectful]` says a function that answers a value **also writes its argument**, so discarding
+the value in statement position is an ordinary call rather than a mistake. It matters only for the
+prelude's overload sets, where the rule is otherwise read off the return type: the `[T]` member of
+a pair computes a new value, the builder member rearranges a buffer and answers nothing, so
+"answers something" means "has no effect" and a discarded result is reported. The three `remove`
+declarations on a builder are the exception — `remove(b, i)` answers the element, `remove(mb, k)`
+the `Option<V>` it took out, `remove(sb, x)` whether the item was there, and throwing any of them
+away is how `pop` and "delete if present" are spelled. Like `#[at_least_one]` it takes no argument
+and is refused where it could mean nothing, here on a function that answers nothing at all.
 
 `#[when_unmatched("...")]` on any member of an **overload set** adds one line to the error raised
 when a call matches none of them. The error already names the types that position accepts, worked

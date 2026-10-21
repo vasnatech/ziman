@@ -3,7 +3,7 @@ fn main() {
     val out = mutable_array_new<string>()
     var i = len(words) - 1
     while i >= 0 {
-        mutable_array_push(out, words[i])
+        push(out, words[i])
         i = i - 1
     }
     print(join(separator: " ", pieces: snapshot(out)))

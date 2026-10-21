@@ -55,7 +55,7 @@ fn main() {
     for i in 0..4 {
         val c = net.connect("127.0.0.1", port)
         if is_ok(c) {
-            mutable_array_push(held, unwrap(c))
+            push(held, unwrap(c))
             opened = opened + 1
         }
     }

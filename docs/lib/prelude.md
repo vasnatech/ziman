@@ -49,7 +49,7 @@ fn main() {
     print(snapshot(sb))
     val ab = mutable_array_new<int>()
     for i in 0..5 {
-        mutable_array_push<int>(ab, i * i)
+        push<int>(ab, i * i)
     }
     print(snapshot(ab))
 }
@@ -291,6 +291,10 @@ Removes `key`, answering what was stored under it; nothing happens when it is ab
 `discard` instead when the removed value is not wanted: answering with an `Option`
 means allocating one, which on a large map costs several times the removal itself.
 
+`#[effectful]` because it both writes the map and answers a value: without it the dropped-result
+gate would read "answers something" as "has no effect" and refuse `remove(mb, k)` in statement
+position, which is "delete if present" and perfectly ordinary.
+
 ### `get_or`
 
 ```
@@ -307,7 +311,7 @@ loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of f
 pub native fn remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
 ```
 
-Removes `item`; nothing happens when it is absent.
+Removes `item`, answering whether it was there; nothing happens when it is absent.
 
 ### `update`
 
@@ -580,8 +584,11 @@ builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
 ```
 
 ```
-builtin fn remove<T>(b: MutableArray<T>, index: int) -> T
+native fn remove<T>(b: MutableArray<T>, index: int) -> T
 ```
+
+**O(n)**: everything after `index` moves back. There is no `pop` because this is one --
+`remove(b, len(b) - 1)`, which moves nothing.
 
 **The MutableArray's `remove` answers the element, where the array's answers the array.** Taking
 element i out is the same question of both, so it is the same word; what differs is the answer,
@@ -589,10 +596,17 @@ and that is the difference between the two worlds rather than between two names 
 reasoning that made `push` and `insert` shared. Discarding the element is how `pop` is spelled
 (`remove(b, len(b) - 1)`), which is why that is not reported as a wasted result the way a
 discarded `remove(a, i)` is: an array's `remove` copies and changes nothing, a builder's writes.
+That is what `#[effectful]` states; it is on the two builder forms above for the same reason.
 
 There is no `MutableMap` or `MutableSet` form. Those answer an `Option<V>` and a `bool`, so one
 name over all six would have meant the new collection three times and three different other
 things -- each refusal names the function that does it instead.
+
+`native` rather than `builtin`, so the resolver owns it and `mutable_array_remove` needs no
+declaration of its own: the interpreter's symbol fallback reads parameter one and finds the
+registered `mutable_array_remove`. It was a `builtin fn` until F208 and the builtin id never
+ran -- `check_call`'s arm rewrote the callee first, and `call_remove` only ever handled an
+array, so the id path would have read an `ArrayObj` out of a handle had anything reached it.
 
 ### `mutable`
 
@@ -753,9 +767,10 @@ native fn mutable_array_get<T>(ab: MutableArray<T>, index: int) -> T
 
 The element at `index`, counting from 0; a runtime error outside `0..len(ab)`.
 
-This and `mutable_array_set` are why a loop that needs what it has already appended does not have to call
-`snapshot`, which copies the whole buffer every time -- in a loop, the quadratic cost a builder exists
-to avoid (`--lint` flags that shape). `for x in ab` reads one the same way, without the indexing.
+This and `mutable_array_set` are why a loop that needs what it has already appended does not
+have to call `snapshot`, which copies the whole buffer every time -- in a loop, the quadratic
+cost a builder exists to avoid (`--lint` flags that shape). `for x in ab` reads one the same
+way, without the indexing, and `b[i]` is this call with the prefix left off.
 
 ### `mutable_array_set`
 
@@ -763,8 +778,8 @@ to avoid (`--lint` flags that shape). `for x in ab` reads one the same way, with
 native fn mutable_array_set<T>(ab: MutableArray<T>, index: int, value: T)
 ```
 
-Replaces the element at `index`; a runtime error outside `0..len(ab)`. Appending is `mutable_array_push`: this
-only overwrites what is already there.
+Replaces the element at `index`; a runtime error outside `0..len(ab)`. Appending is `push`: this
+only overwrites what is already there. `b[i] = value` is this call.
 
 ### `narrow`
 
@@ -781,9 +796,9 @@ Builder-only, like `clear` and `snapshot`. An immutable array has nothing to nar
 window of one is `slice(a, start, end)`, which makes a new array for free by sharing storage.
 
 It replaced `mutable_array_truncate(xs, length)`, which was this with `start` at 0 and is the
-reason for the half truncate could not do: dropping a **prefix**. That was
-`mutable_array_remove(xs, 0)` in a loop, O(n) a call and so quadratic, against one pack-aware
-memmove here. `clear(xs)` is `narrow(xs, 0, 0)` and stays the word for emptying.
+reason for the half truncate could not do: dropping a **prefix**. That was `remove(xs, 0)` in a
+loop, O(n) a call and so quadratic, against one pack-aware memmove here. `clear(xs)` is
+`narrow(xs, 0, 0)` and stays the word for emptying.
 
 Unlike truncate it does **not** clamp: `end` past the length is a runtime error, as it is for
 `slice` and for an index. Truncate's clamp made `truncate(b, 99)` on a length-2 builder a silent
@@ -1054,8 +1069,14 @@ for a pass after the decision.
 native fn insert<T>(b: MutableArray<T>, index: int, value: T)
 ```
 
-An index in a MutableArray, for the same reason `push` is shared. Neither set world has an
-`insert` form -- membership is `add` in both, and an index means nothing to a set.
+An index in a MutableArray, for the same reason `push` is shared. `index` may be `len(b)`,
+which appends -- the same rule the immutable form follows, so adding at the end needs no second
+function. Neither set world has an `insert` form: membership is `add` in both, and an index
+means nothing to a set.
+
+**O(n), where `push` on a builder is amortized O(1)**, so a loop of `insert(b, 0, v)` is
+quadratic. That is why there is no `push_front`: the name would read as `push`'s twin and
+promise a cost it cannot give. Build tail-first and `reverse` once.
 
 `native fn` for the reason the MutableArray `push` above is one, and the pair converted
 together in F207: the symbol fallback reads parameter one, which is the only place these two

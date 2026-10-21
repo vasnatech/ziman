@@ -125,38 +125,37 @@ native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<f
 // from this only in what it returns.
 native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
 
-// Appends each of `pieces`, given one by one or as an array. The builder changes in place.
+// ------------------------------------------------- the two prefixed names left, and why they are
 //
-// `internal` from here on wherever a bare name supersedes it: **write `push`, `insert`, `remove`,
-// `filter`, `sort_with`** -- those dispatch on argument 0 and land here. See the bare array
-// helpers further down for why the prefixed names must exist even though nobody should type one.
-// `mutable_array_new`/`_filled` stay advertised (real constructors, no bare form) and so do
-// `mutable_array_get`/`_set` (`b[i]` and `b[i] = v` rewrite to them, and diagnostics name them --
-// hiding those two would point an error message at something the listing denies exists).
-#[at_least_one]
-internal native fn mutable_array_push<T>(ab: MutableArray<T>, pieces: variadic T)
+// **The prefixed appenders are gone as of F208: write `push`, `insert`, `remove`, `filter`,
+// `sort_with`.** Each of those dispatches on argument one and has a MutableArray declaration of
+// its own, so `mutable_array_push`, `mutable_array_insert` and `mutable_array_remove` had become a
+// second spelling of a name that already worked -- `internal`, so nothing completed or advertised
+// them, but 767 call sites across this repo and the North Star went on typing them because they
+// were what the prelude's own code typed. The C symbols keep the prefix, which is the one place it
+// still means anything (interpreter.c's symbol fallback).
+//
+// **`mutable_array_new` and `mutable_array_filled` stay**: they are real constructors with no bare
+// form to supersede them, and a constructor is named for what it builds.
+//
+// **`mutable_array_get` and `mutable_array_set` stay too, and are advertised rather than
+// `internal`.** They are not a second spelling of anything: there is no bare `get` or `set` for a
+// MutableArray, `set(b, i, v)` being refused on purpose so that it can say an element write is
+// `b[i] = value`. These two are what that sugar rewrites *to*, and what the out-of-range runtime
+// error and the `--lint` builder advice name, so hiding them would point a message at something
+// the listing denies exists.
 
 // The element at `index`, counting from 0; a runtime error outside `0..len(ab)`.
 //
-// This and `mutable_array_set` are why a loop that needs what it has already appended does not have to call
-// `snapshot`, which copies the whole buffer every time -- in a loop, the quadratic cost a builder exists
-// to avoid (`--lint` flags that shape). `for x in ab` reads one the same way, without the indexing.
+// This and `mutable_array_set` are why a loop that needs what it has already appended does not
+// have to call `snapshot`, which copies the whole buffer every time -- in a loop, the quadratic
+// cost a builder exists to avoid (`--lint` flags that shape). `for x in ab` reads one the same
+// way, without the indexing, and `b[i]` is this call with the prefix left off.
 native fn mutable_array_get<T>(ab: MutableArray<T>, index: int) -> T
 
-// Replaces the element at `index`; a runtime error outside `0..len(ab)`. Appending is `mutable_array_push`: this
-// only overwrites what is already there.
+// Replaces the element at `index`; a runtime error outside `0..len(ab)`. Appending is `push`: this
+// only overwrites what is already there. `b[i] = value` is this call.
 native fn mutable_array_set<T>(ab: MutableArray<T>, index: int, value: T)
-
-// Inserts `value` at `index`, moving everything after it along. `index` may be `len(xs)`, which
-// appends -- the same rule the immutable `insert(arr, i, x)` follows, so adding at the end needs no
-// second function. O(n), where `mutable_array_push` is amortized O(1): a loop of
-// `mutable_array_insert(xs, 0, v)` is quadratic, which is why there is no `push_front` -- that name
-// would read as `push`'s twin and promise a cost it cannot give. Build tail-first and reverse once.
-internal native fn mutable_array_insert<T>(xs: MutableArray<T>, index: int, value: T)
-
-// Removes the element at `index` and answers it, moving everything after it back. O(n). There is no
-// `pop` because this is one: `mutable_array_remove(xs, len(xs) - 1)`.
-internal native fn mutable_array_remove<T>(xs: MutableArray<T>, index: int) -> T
 
 // **Keeps only the elements from `start` up to `end`, in place, answering nothing.** The in-place
 // counterpart of `slice`: that one is a *query*, so it answers a value and leaves its source alone,
@@ -167,9 +166,9 @@ internal native fn mutable_array_remove<T>(xs: MutableArray<T>, index: int) -> T
 // window of one is `slice(a, start, end)`, which makes a new array for free by sharing storage.
 //
 // It replaced `mutable_array_truncate(xs, length)`, which was this with `start` at 0 and is the
-// reason for the half truncate could not do: dropping a **prefix**. That was
-// `mutable_array_remove(xs, 0)` in a loop, O(n) a call and so quadratic, against one pack-aware
-// memmove here. `clear(xs)` is `narrow(xs, 0, 0)` and stays the word for emptying.
+// reason for the half truncate could not do: dropping a **prefix**. That was `remove(xs, 0)` in a
+// loop, O(n) a call and so quadratic, against one pack-aware memmove here. `clear(xs)` is
+// `narrow(xs, 0, 0)` and stays the word for emptying.
 //
 // Unlike truncate it does **not** clamp: `end` past the length is a runtime error, as it is for
 // `slice` and for an index. Truncate's clamp made `truncate(b, 99)` on a length-2 builder a silent
@@ -405,8 +404,14 @@ native fn push<T>(b: MutableArray<T>, values: variadic T)
 // for a pass after the decision.
 builtin fn insert<T>(a: [T], index: int, x: T) -> [T]
 
-// An index in a MutableArray, for the same reason `push` is shared. Neither set world has an
-// `insert` form -- membership is `add` in both, and an index means nothing to a set.
+// An index in a MutableArray, for the same reason `push` is shared. `index` may be `len(b)`,
+// which appends -- the same rule the immutable form follows, so adding at the end needs no second
+// function. Neither set world has an `insert` form: membership is `add` in both, and an index
+// means nothing to a set.
+//
+// **O(n), where `push` on a builder is amortized O(1)**, so a loop of `insert(b, 0, v)` is
+// quadratic. That is why there is no `push_front`: the name would read as `push`'s twin and
+// promise a cost it cannot give. Build tail-first and `reverse` once.
 //
 // `native fn` for the reason the MutableArray `push` above is one, and the pair converted
 // together in F207: the symbol fallback reads parameter one, which is the only place these two
@@ -617,7 +622,7 @@ pub fn distinct<T: Eq + Hash>(items: [T]) -> [T] {
     for item in items {
         if !contains(seen, item) {
             mutable_set_add(seen, item)
-            mutable_array_push(out, item)
+            push(out, item)
         }
     }
     return snapshot(out)
@@ -631,10 +636,10 @@ pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
         val k = key(item)
         val found = get(builders, k)
         if Some(b) = found {
-            mutable_array_push(b, item)
+            push(b, item)
         } else {
             val started = mutable_array_new<T>(capacity: 4)
-            mutable_array_push(started, item)
+            push(started, item)
             set(builders, k, started)
         }
     }

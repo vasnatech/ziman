@@ -1,0 +1,13 @@
+ziman: type error at 10:5 in tests/lang/prefixed_builder_appenders_point_home.zm: 'mutable_array_push' is now 'push': a builder is a mutable collection, and these names lost the prefix that said which world the first argument came from -- the argument says it
+   |
+10 |     mutable_array_push(b, 1)
+   |     ^
+ziman: type error at 11:5 in tests/lang/prefixed_builder_appenders_point_home.zm: 'mutable_array_insert' is now 'insert': a builder is a mutable collection, and these names lost the prefix that said which world the first argument came from -- the argument says it
+   |
+11 |     mutable_array_insert(b, 0, 2)
+   |     ^
+ziman: type error at 12:11 in tests/lang/prefixed_builder_appenders_point_home.zm: 'mutable_array_remove' is now 'remove': a builder is a mutable collection, and these names lost the prefix that said which world the first argument came from -- the argument says it
+   |
+12 |     print(mutable_array_remove(b, 0))
+   |           ^
+ziman: 3 errors

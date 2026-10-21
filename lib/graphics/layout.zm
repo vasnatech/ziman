@@ -281,7 +281,7 @@ fn items_of(p: Para, d: Document) -> Result<[Item], string> {
         val space = try font.advance(face, " ", s.size)
         for word in split(s.text, " ") {
             if word != "" {
-                mutable_array_push(out, Item {
+                push(out, Item {
                     text: word,
                     span: i,
                     width: try font.advance(face, word, s.size),
@@ -321,24 +321,24 @@ fn wrap_para(p: Para, width: float, d: Document) -> Result<[Line], string> {
         val avail = inner - (if first { p.style.indent_first } else { 0.0 })
         val need = if len(frags) == 0 { it.width } else { used + it.space + it.width }
         if len(frags) > 0 && need > avail + fit_slack {
-            mutable_array_push(lines, try line_of(snapshot(frags), used, p, d, false))
+            push(lines, try line_of(snapshot(frags), used, p, d, false))
             clear(frags)
             used = it.width
             first = false
-            mutable_array_push(frags, Frag { text: it.text, span: it.span, width: it.width })
+            push(frags, Frag { text: it.text, span: it.span, width: it.width })
         } else {
             if len(frags) > 0 {
                 // The space is carried on the fragment that follows it, so a justified line can
                 // widen it without the text changing.
-                mutable_array_push(frags, Frag { text: " ", span: it.span, width: it.space })
+                push(frags, Frag { text: " ", span: it.span, width: it.space })
             }
-            mutable_array_push(frags, Frag { text: it.text, span: it.span, width: it.width })
+            push(frags, Frag { text: it.text, span: it.span, width: it.width })
             used = need
         }
         i = i + 1
     }
     if len(frags) > 0 {
-        mutable_array_push(lines, try line_of(snapshot(frags), used, p, d, true))
+        push(lines, try line_of(snapshot(frags), used, p, d, true))
     }
     return ok(snapshot(lines))
 }
@@ -422,7 +422,7 @@ fn columns_of(g: Grid, width: float, d: Document) -> Result<[float], string> {
             }
         }
         fixed = fixed + w
-        mutable_array_push(out, w)
+        push(out, w)
         i = i + 1
     }
     if fixed > width && shares <= 0.0 {
@@ -464,10 +464,10 @@ fn columns_of(g: Grid, width: float, d: Document) -> Result<[float], string> {
 fn all_rows(g: Grid) -> [Row] {
     val out = mutable_array_new<Row>()
     for r in g.header {
-        mutable_array_push(out, r)
+        push(out, r)
     }
     for r in g.rows {
-        mutable_array_push(out, r)
+        push(out, r)
     }
     return snapshot(out)
 }
@@ -519,7 +519,7 @@ fn draw_rows(
             for b in r.cells[i].blocks {
                 val inner = widths[i] - g.style.cell_padding * 2.0
                 for op in try draw(b, point_of(x + g.style.cell_padding, cy), inner, d) {
-                    mutable_array_push(ops, op)
+                    push(ops, op)
                 }
                 cy = cy + (try measure(b, inner, d))
             }
@@ -631,9 +631,9 @@ fn split_table(g: Grid, width: float, room: float, d: Document) -> Result<Split,
     var i = 0
     while i < len(g.rows) {
         if i < taken {
-            mutable_array_push(here, g.rows[i])
+            push(here, g.rows[i])
         } else {
-            mutable_array_push(later, g.rows[i])
+            push(later, g.rows[i])
         }
         i = i + 1
     }
@@ -696,7 +696,7 @@ fn spans_from(lines: [Line], from: int, until: int, p: Para) -> Result<[Span], s
             if f.text != " " {
                 if f.span != current {
                     if current >= 0 {
-                        mutable_array_push(out, with p.spans[current] { text: buffer })
+                        push(out, with p.spans[current] { text: buffer })
                     }
                     current = f.span
                     buffer = f.text
@@ -709,7 +709,7 @@ fn spans_from(lines: [Line], from: int, until: int, p: Para) -> Result<[Span], s
         i = i + 1
     }
     if current >= 0 {
-        mutable_array_push(out, with p.spans[current] { text: buffer })
+        push(out, with p.spans[current] { text: buffer })
     }
     return ok(snapshot(out))
 }
@@ -752,7 +752,7 @@ pub fn draw(b: Block, at: Point, width: float, d: Document) -> Result<[Op], stri
                 for f in line.frags {
                     if f.text != " " {
                         val s = p.spans[f.span]
-                        mutable_array_push(ops, scene.text_of(
+                        push(ops, scene.text_of(
                             f.text,
                             point_of(x, baseline),
                             s.size,
@@ -772,7 +772,7 @@ pub fn draw(b: Block, at: Point, width: float, d: Document) -> Result<[Op], stri
             if len(g.header) > 0 {
                 y = try draw_rows(ops, g.header, g, widths, point_of(at.x, y), d)
                 if g.style.header_rule > 0.0 {
-                    mutable_array_push(ops, scene.fill(
+                    push(ops, scene.fill(
                         shape.rect_path(geom.rect_of(at.x, y, width, g.style.header_rule)),
                         g.style.rule_fill
                     ))
@@ -783,7 +783,7 @@ pub fn draw(b: Block, at: Point, width: float, d: Document) -> Result<[Op], stri
         }
         Spacer(_) { unit }
         Rule(r) {
-            mutable_array_push(ops, scene.fill(
+            push(ops, scene.fill(
                 shape.rect_path(geom.rect_of(at.x, at.y + r.space_before, width, r.thickness)),
                 r.fill
             ))
@@ -835,7 +835,7 @@ pub fn paginate(d: Document, t: PageTemplate) -> Result<[Scene], string> {
     var y = 0.0
     val queue = mutable_array_new<Block>()
     for b in d.blocks {
-        mutable_array_push(queue, b)
+        push(queue, b)
     }
     var at = 0
     while at < len(queue) {
@@ -847,7 +847,7 @@ pub fn paginate(d: Document, t: PageTemplate) -> Result<[Scene], string> {
         switch s.fits {
             Some(part) {
                 for op in try draw(part, point_of(frame_x, frame_y + y), frame_w, d) {
-                    mutable_array_push(current, op)
+                    push(current, op)
                 }
                 y = y + (try measure(part, frame_w, d))
                 placed = true
@@ -868,17 +868,17 @@ pub fn paginate(d: Document, t: PageTemplate) -> Result<[Scene], string> {
                         "pt frame, even on an empty page"
                     ))
                 }
-                mutable_array_push(pages, snapshot(current))
+                push(pages, snapshot(current))
                 clear(current)
                 y = 0.0
                 // Put the remainder back at the front of the queue.
-                mutable_array_insert(queue, at, part)
+                insert(queue, at, part)
             }
             None {
                 // Consumed with nothing carried: a page break, or a spacer too big for what is
                 // left. Either way this page is finished.
                 if !placed {
-                    mutable_array_push(pages, snapshot(current))
+                    push(pages, snapshot(current))
                     clear(current)
                     y = 0.0
                 }
@@ -889,7 +889,7 @@ pub fn paginate(d: Document, t: PageTemplate) -> Result<[Scene], string> {
     // spacers emits no ops at all -- and dropping it because it looks empty loses a real page. The
     // `len(pages) == 0` arm is the empty document, which is one blank page rather than none.
     if y > 0.0 || len(current) > 0 || len(pages) == 0 {
-        mutable_array_push(pages, snapshot(current))
+        push(pages, snapshot(current))
     }
 
     // Now the total is known, so the bands can be drawn.
@@ -902,24 +902,24 @@ pub fn paginate(d: Document, t: PageTemplate) -> Result<[Scene], string> {
             Some(band) {
                 val render = band.draw
                 for op in render(n + 1, total) {
-                    mutable_array_push(ops, op)
+                    push(ops, op)
                 }
             }
             None { unit }
         }
         for op in mutable_array_get(pages, n) {
-            mutable_array_push(ops, op)
+            push(ops, op)
         }
         switch t.footer {
             Some(band) {
                 val render = band.draw
                 for op in render(n + 1, total) {
-                    mutable_array_push(ops, op)
+                    push(ops, op)
                 }
             }
             None { unit }
         }
-        mutable_array_push(out, scene.with_ops(scene.scene_of(t.width, t.height), snapshot(ops)))
+        push(out, scene.with_ops(scene.scene_of(t.width, t.height), snapshot(ops)))
         n = n + 1
     }
     return ok(snapshot(out))

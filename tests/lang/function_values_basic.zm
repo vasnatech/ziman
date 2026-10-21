@@ -29,7 +29,7 @@ fn twice(f: fn(int) -> int, x: int) -> int {
 fn map_ints(xs: [int], f: fn(int) -> int) -> [int] {
     val out = mutable_array_new<int>()
     for x in xs {
-        mutable_array_push<int>(out, f(x))
+        push<int>(out, f(x))
     }
     return snapshot(out)
 }
@@ -38,7 +38,7 @@ fn filter_ints(xs: [int], keep: fn(int) -> bool) -> [int] {
     val out = mutable_array_new<int>()
     for x in xs {
         if keep(x) {
-            mutable_array_push<int>(out, x)
+            push<int>(out, x)
         }
     }
     return snapshot(out)

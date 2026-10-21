@@ -72,6 +72,11 @@ pub native fn set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: V)
 // Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
 // `discard` instead when the removed value is not wanted: answering with an `Option`
 // means allocating one, which on a large map costs several times the removal itself.
+//
+// `#[effectful]` because it both writes the map and answers a value: without it the dropped-result
+// gate would read "answers something" as "has no effect" and refuse `remove(mb, k)` in statement
+// position, which is "delete if present" and perfectly ordinary.
+#[effectful]
 pub native fn remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
 
 // The value stored under `key`, or `default_value` when there is none -- `get_or` for a builder.
@@ -79,7 +84,8 @@ pub native fn remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
 // loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
 pub native fn get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
 
-// Removes `item`; nothing happens when it is absent.
+// Removes `item`, answering whether it was there; nothing happens when it is absent.
+#[effectful]
 pub native fn remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
 
 // `f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
@@ -248,17 +254,28 @@ builtin fn remove<T>(a: [T], index: int) -> [T]
 builtin fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
 builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
 
+// **O(n)**: everything after `index` moves back. There is no `pop` because this is one --
+// `remove(b, len(b) - 1)`, which moves nothing.
+//
 // **The MutableArray's `remove` answers the element, where the array's answers the array.** Taking
 // element i out is the same question of both, so it is the same word; what differs is the answer,
 // and that is the difference between the two worlds rather than between two names -- the same
 // reasoning that made `push` and `insert` shared. Discarding the element is how `pop` is spelled
 // (`remove(b, len(b) - 1)`), which is why that is not reported as a wasted result the way a
 // discarded `remove(a, i)` is: an array's `remove` copies and changes nothing, a builder's writes.
+// That is what `#[effectful]` states; it is on the two builder forms above for the same reason.
 //
 // There is no `MutableMap` or `MutableSet` form. Those answer an `Option<V>` and a `bool`, so one
 // name over all six would have meant the new collection three times and three different other
 // things -- each refusal names the function that does it instead.
-builtin fn remove<T>(b: MutableArray<T>, index: int) -> T
+//
+// `native` rather than `builtin`, so the resolver owns it and `mutable_array_remove` needs no
+// declaration of its own: the interpreter's symbol fallback reads parameter one and finds the
+// registered `mutable_array_remove`. It was a `builtin fn` until F208 and the builtin id never
+// ran -- `check_call`'s arm rewrote the callee first, and `call_remove` only ever handled an
+// array, so the id path would have read an `ArrayObj` out of a handle had anything reached it.
+#[effectful]
+native fn remove<T>(b: MutableArray<T>, index: int) -> T
 
 // **`mutable(x)` makes the mutable counterpart of whatever it is given.** For the three
 // collections that have a builder it answers that builder, so it reads as `snapshot` backwards:

@@ -1,4 +1,4 @@
 fn main() {
     val ab = mutable_array_new<int>()
-    mutable_array_push<int>(ab, "wrong")
+    push<int>(ab, "wrong")
 }

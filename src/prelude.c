@@ -910,7 +910,7 @@ static Value native_mutable_array_new(Value *args, int argc, int line, int col) 
 
 /* Picks the packed representation from the first element, when the builder is still empty and has
  * not already chosen one. Factored out of native_mutable_array_append so that inserting into a *fresh*
- * builder takes the same decision -- without it, `mutable_array_insert(xs, 0, 1)` on a new builder
+ * builder takes the same decision -- without it, `insert(b, 0, 1)` on a new builder
  * would box every int for the rest of its life while an append-first builder packed them. */
 static void mutable_array_adopt_pack_kind(MutableArrayBuf *buf, Value first_element) {
     if (buf->pkind != PK_NONE || buf->length != 0) return;
@@ -936,7 +936,7 @@ static void mutable_array_move_elements(MutableArrayBuf *buf, size_t to, size_t 
     }
 }
 
-/* The one-element `mutable_array_push(b, x)`, which is how almost every call is written. The
+/* The one-element `push(b, x)`, which is how almost every call is written. The
  * general path collapses the variadic tail into a one-element array first: three allocations per
  * call, two of them from a collector's heap, and for a *reference* element type that temporary is a
  * scanned allocation, so its cost compounds with the size of the live buffer rather than staying
@@ -1014,7 +1014,7 @@ static Value native_mutable_array_insert(Value *args, int argc, int line, int co
 }
 
 /* O(n), and it answers what it removed -- which is why there is no `pop`:
- * `mutable_array_remove(xs, len(xs) - 1)` is one. The element is otherwise unrecoverable without a
+ * `remove(b, len(b) - 1)` is one. The element is otherwise unrecoverable without a
  * `get` first. */
 static Value native_mutable_array_remove(Value *args, int argc, int line, int col) {
     (void)argc;
@@ -1988,7 +1988,7 @@ Value ziman_swap_mutable_array(Value b, int64_t i, int64_t j, int line, int col)
  * queries apart in docs/SYNTAX.md.
  *
  * It replaces `mutable_array_truncate(b, n)`, which is `narrow(b, 0, n)`, and adds the half that
- * one could not do: dropping a *prefix*. That was `mutable_array_remove(b, 0)` in a loop, O(n) per
+ * one could not do: dropping a *prefix*. That was `remove(b, 0)` in a loop, O(n) per
  * call and so quadratic, against one memmove here. The move is pack-aware through
  * mutable_array_move_elements, the same helper insert and remove shift with, so a packed buffer
  * moves by its element stride rather than by sizeof(Value). */

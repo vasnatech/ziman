@@ -2,6 +2,6 @@
 // reading element 0 of an empty builder would otherwise hand back whatever that buffer happens to hold.
 fn main() {
     val ab = mutable_array_new<int>()
-    mutable_array_push(ab, 1, 2)
+    push(ab, 1, 2)
     print(mutable_array_get(ab, 2))
 }

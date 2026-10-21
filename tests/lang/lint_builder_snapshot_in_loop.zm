@@ -13,7 +13,7 @@ fn running_max(values: [int]) -> int {
         if len(so_far) > 0 && so_far[0] > best {
             best = so_far[0]
         }
-        mutable_array_push(seen, v)
+        push(seen, v)
     }
     return best
 }

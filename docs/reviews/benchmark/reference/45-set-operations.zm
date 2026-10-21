@@ -1,7 +1,7 @@
 fn show(label: string, values: [int]) {
     val parts = mutable_array_new<string>()
     for v in sort<int>(values) {
-        mutable_array_push(parts, str(v))
+        push(parts, str(v))
     }
     printf("{}: {}\n", label, join(separator: ", ", pieces: snapshot(parts)))
 }
@@ -15,10 +15,10 @@ fn main() {
     val only_first = mutable_array_new<int>()
     val only_second = mutable_array_new<int>()
     for v in first {
-        if contains(in_second, v) { mutable_array_push(both, v) } else { mutable_array_push(only_first, v) }
+        if contains(in_second, v) { push(both, v) } else { push(only_first, v) }
     }
     for v in second {
-        if !contains(in_first, v) { mutable_array_push(only_second, v) }
+        if !contains(in_first, v) { push(only_second, v) }
     }
     show("both", snapshot(both))
     show("only first", snapshot(only_first))

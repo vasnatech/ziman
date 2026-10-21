@@ -592,11 +592,11 @@ fn main() {
     var i = 0
     while i < 40 {
         val first = mutable_array_new<layout.Block>()
-        mutable_array_push(first, layout.text_block(concat("Drug ", str(i)), 0, 10.0, ink, tight))
+        push(first, layout.text_block(concat("Drug ", str(i)), 0, 10.0, ink, tight))
         if i % 2 == 0 {
-            mutable_array_push(first, layout.text_block(note, 0, 8.0, ink, tight))
+            push(first, layout.text_block(note, 0, 8.0, ink, tight))
         }
-        mutable_array_push(rows, layout.row([
+        push(rows, layout.row([
             layout.cell(snapshot(first)),
             layout.cell([layout.text_block("10 mg", 0, 10.0, ink, tight)])
         ]))

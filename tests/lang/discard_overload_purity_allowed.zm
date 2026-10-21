@@ -1,7 +1,13 @@
 // The other half of discard_overload_purity_rejected: the builder members of the same sets
 // return nothing, so a bare call is how they are meant to be written and the gate must stay
-// silent. If a mutating overload ever returned a value, this is the file that would have to
-// change -- and the rule would need a marker on the declaration rather than its return type.
+// silent.
+//
+// This file said that a mutating overload which returned a value would need a marker on the
+// declaration rather than the return-type rule, and would be the file to change. Three of them
+// exist -- `remove` on each of the three builders -- so the marker is `#[effectful]` and they are
+// exercised below. The one on a MutableArray only joined them in F208: until then the checker
+// rewrote the callee to `mutable_array_remove`, and the only reason a discarded `remove(b, 0)`
+// was accepted is that the gate did not recognise the name it had just written.
 fn main() {
     val b = mutable([3, 1, 2])
     sort(b)
@@ -18,4 +24,23 @@ fn main() {
     val n = count(b, fn(x: int) -> bool { return x > 1 })
     print(len(d))
     print(n)
+
+    // `#[effectful]`: these three write the container *and* answer a value, and discarding the
+    // value is the ordinary call -- `remove(b, len(b) - 1)` is how `pop` is spelled, and the map
+    // and set forms are "delete if present". The array's `remove` copies and changes nothing, so
+    // discarding that one is still refused; the rejection fixture holds that half.
+    remove(b, len(b) - 1)
+    print(snapshot(b))
+
+    val m = mutable_map_new<string, int>()
+    set(m, "a", 1)
+    remove(m, "a")
+    remove(m, "gone")
+    print(len(m))
+
+    val s = mutable_set_new<int>()
+    val _ = add(s, 7)
+    remove(s, 7)
+    remove(s, 7)
+    print(len(s))
 }

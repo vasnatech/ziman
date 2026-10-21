@@ -76,7 +76,7 @@ pub fn gauge(name: string, help: string) -> bool {
 pub fn histogram(name: string, help: string, buckets: [float]) -> bool {
     val parts = mutable_array_new<string>()
     for b in buckets {
-        mutable_array_push(parts, str(b))
+        push(parts, str(b))
     }
     return declare_raw(name, "histogram", help, join(separator: ",", pieces: snapshot(parts)))
 }
@@ -97,7 +97,7 @@ fn labels_key(labels: Map<string, string>) -> string {
     val names = sort(items(keys(labels)))
     val parts = mutable_array_new<string>()
     for name in names {
-        mutable_array_push(parts, concat(name, "=\"", escape(get_or(labels, name, "")), "\""))
+        push(parts, concat(name, "=\"", escape(get_or(labels, name, "")), "\""))
     }
     return join(separator: ",", pieces: snapshot(parts))
 }

@@ -139,7 +139,7 @@ static Env *g_global_env = NULL;
  * NOT re-derived here from `args[fixed_count].type->kind == TY_ARRAY`,
  * which used to be this function's own check and is wrong whenever the
  * variadic element type is itself an array (`MutableArray<[T]>`'s
- * `mutable_array_push<[T]>`, for instance: a single element of type `[T]` also
+ * `push<[T]>`, for instance: a single element of type `[T]` also
  * satisfies "is an array", so that heuristic silently treated one
  * legitimate element as if it were the whole tail, discarding
  * everything else appended before or after it in the same call -- the
@@ -401,7 +401,7 @@ static void run_defers(Module *module, Env *env) {
 static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col) {
     ZIMAN_STACK_CHECK();
     ziman_push_frame(fn->name, fn->source_file, call_line, call_col);
-    /* `mutable_array_push(b, x)` with exactly one element, before the variadic collapse allocates a
+    /* `push(b, x)` with exactly one element, before the variadic collapse allocates a
      * temporary array to carry it -- see ziman_mutable_array_push_one for what that cost is and how
      * it was measured (D18). Picked by comparing the already-cached native pointer rather than by
      * name, so every other call pays two integer tests and a relaxed load. On the very first call

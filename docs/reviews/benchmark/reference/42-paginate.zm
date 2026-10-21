@@ -1,7 +1,7 @@
 fn main() {
     val items = mutable_array_new<int>()
     for i in 1..11 {
-        mutable_array_push(items, i)
+        push(items, i)
     }
     val all = snapshot(items)
     val size = 3
@@ -11,7 +11,7 @@ fn main() {
         val stop = if start + size < len(all) { start + size } else { len(all) }
         val names = mutable_array_new<string>()
         for v in slice<int>(all, start, stop) {
-            mutable_array_push(names, str(v))
+            push(names, str(v))
         }
         printf("page {}: {}\n", str(page), join(separator: ", ", pieces: snapshot(names)))
         page = page + 1

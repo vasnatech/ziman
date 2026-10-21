@@ -5,7 +5,7 @@
 // same thing for the one builder that did not.
 fn main() {
     val ab = mutable_array_new<int>()
-    mutable_array_push(ab, 10, 20, 30)
+    push(ab, 10, 20, 30)
     print(mutable_array_get(ab, 0))
     print(mutable_array_get(ab, len(ab) - 1))
 
@@ -27,7 +27,7 @@ fn main() {
 
     // The boxed path: an element type that is not byte/bool/int/float keeps Values rather than packing.
     val names = mutable_array_new<string>()
-    mutable_array_push(names, "ada", "grace")
+    push(names, "ada", "grace")
     print(mutable_array_get(names, 1))
     for n in names {
         print(n)
@@ -36,17 +36,17 @@ fn main() {
     // A body that appends sees its own additions, as it would in the array this is becoming, and the loop
     // still ends: each pass reads the length as it is then.
     val growing = mutable_array_new<int>()
-    mutable_array_push(growing, 1)
+    push(growing, 1)
     for x in growing {
         if x < 4 {
-            mutable_array_push(growing, x + 1)
+            push(growing, x + 1)
         }
     }
     print(snapshot(growing))
 
     // And a body that empties it ends the loop rather than reading past the end.
     val emptied = mutable_array_new<int>()
-    mutable_array_push(emptied, 1, 2, 3)
+    push(emptied, 1, 2, 3)
     var seen = 0
     for _ in emptied {
         seen = seen + 1
@@ -56,6 +56,6 @@ fn main() {
     print(len(emptied))
 
     // Clearing keeps the buffer, so the builder is reusable.
-    mutable_array_push(emptied, 5, 6)
+    push(emptied, 5, 6)
     print(snapshot(emptied))
 }

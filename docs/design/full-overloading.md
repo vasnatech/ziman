@@ -666,3 +666,47 @@ reaches the *arity* failure too. It had been appended only to the per-argument m
 said *"no declaration of 'insert' takes 2 argument(s)"* and nothing else, losing the sentence §13
 had just written for it. The advice is about the **name**; which check eliminated the last
 candidate is not something the author chose.
+
+## 15. The prefixed spellings go, and the effort runs out of prefixes
+
+F208. §14 left `push` and `insert` with a `MutableArray` declaration each, and `remove` had had
+one in `collections.zm` since F200 — so `mutable_array_push`, `mutable_array_insert` and
+`mutable_array_remove` were second spellings of names that already dispatched on argument one.
+They were `internal`, which means nothing advertised or completed them, and **767 call sites
+across this repo and the North Star used them anyway** (509 here, 258 in the backend), because the
+prelude's own code did. That
+is the measurement worth keeping from this stage: `internal` hides a name from the listing, not
+from the corpus, and the corpus is where a reader learns the vocabulary. A name kept "callable but
+hidden" after its replacement ships is a name that goes on being written.
+
+Deleting the three declarations is almost the whole change — the C symbols keep the prefix, which
+is the one place §1 ever wanted it — with one exception worth naming: `src/derive.c` *emits*
+Ziman, and three `#[derive]` bodies wrote `mutable_array_push(...)` into generated code. A
+conversion's blast radius includes the code generators, not only the checker and the runtime.
+That is the third distinct place §12's "a type-checking change only" has turned out to be false:
+the runtime in §14, the generated code here.
+
+**`remove` on a MutableArray was the one of the three that was not yet converted at all, and its
+declaration said otherwise.** It read `builtin fn`, but the builtin id never ran: the arm rewrote
+the callee to `mutable_array_remove` first, and `call_remove` only ever handled an array. So the
+declaration was documentation, the arm was the implementation, and `make overload-sets-check`
+counted the set as resolver-owned the whole time. **The counts do not move for this stage — 41
+resolver-owned sets and 18 polymorphic builtins, exactly as F207 left them** — which is the right
+answer and worth stating: this stage removed duplicate spellings, not arms.
+
+Converting it surfaced what the arm had been hiding, in the shape §13 and §14 both found.
+Discarding a non-void prelude overload's result is an error (F182's return-type rule), and
+`remove(b, len(b) - 1)` is how `pop` is spelled. That call compiled only because the gate read the
+**rewritten** name, did not recognise it, and said nothing. The fixture asserting that `pop` works
+had been passing for an accidental reason. The fact now lives on the declaration, as
+`#[effectful]`, replacing the pair of type names in `effectful_despite_answering` — see
+docs/DESIGN.md's "The last prefixed appenders go, and a mutation gets to say it answers something"
+for why an attribute and not a third entry in the list.
+
+**What is left prefixed is a different case, and the effort should stop here.**
+`mutable_array_new`/`_filled` and the other constructors have no bare form to supersede them;
+`mutable_array_get`/`_set` are what `b[i]` and `b[i] = value` rewrite to and what diagnostics
+name, and there is no bare `get` or `set` for a builder because `set(b, i, v)` is refused on
+purpose so that it can say an element write is `b[i] = value`. `mutable_set_add` is the one
+remaining `internal` prefixed native under a bare name (`add`, since F199), and it is the one
+candidate a §16 would be about.

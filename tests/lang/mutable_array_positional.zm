@@ -9,12 +9,12 @@
 fn main() {
     // packed path: ints
     val xs = mutable_array_new<int>()
-    mutable_array_push(xs, 1, 2, 3)
-    mutable_array_insert(xs, 1, 9)
+    push(xs, 1, 2, 3)
+    insert(xs, 1, 9)
     print(snapshot(xs))
-    mutable_array_insert(xs, len(xs), 7)
+    insert(xs, len(xs), 7)
     print(snapshot(xs))
-    print(mutable_array_remove(xs, 0))
+    print(remove(xs, 0))
     print(snapshot(xs))
     swap(xs, 0, 1)
     print(snapshot(xs))
@@ -23,21 +23,21 @@ fn main() {
 
     // insert into a FRESH builder must still pick the packed representation
     val fresh = mutable_array_new<int>()
-    mutable_array_insert(fresh, 0, 5)
-    mutable_array_push(fresh, 6)
+    insert(fresh, 0, 5)
+    push(fresh, 6)
     print(snapshot(fresh))
 
     // boxed path: strings
     val ws = mutable_array_new<string>()
-    mutable_array_push(ws, "a", "b", "c")
-    mutable_array_insert(ws, 2, "X")
+    push(ws, "a", "b", "c")
+    insert(ws, 2, "X")
     print(snapshot(ws))
-    print(mutable_array_remove(ws, 1))
+    print(remove(ws, 1))
     print(snapshot(ws))
     reverse(ws)
     print(snapshot(ws))
 
     // pop, which needs no function of its own
-    print(mutable_array_remove(ws, len(ws) - 1))
+    print(remove(ws, len(ws) - 1))
     print(snapshot(ws))
 }

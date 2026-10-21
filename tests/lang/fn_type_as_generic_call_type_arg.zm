@@ -12,8 +12,8 @@ fn identity<T>(x: T) -> T {
 fn main() {
     // first type argument of a generic call: the case that used to fail
     val b = mutable_array_new<fn(int) -> int>()
-    mutable_array_push(b, fn(a: int) -> int { a + 1 })
-    mutable_array_push(b, fn(a: int) -> int { a * 2 })
+    push(b, fn(a: int) -> int { a + 1 })
+    push(b, fn(a: int) -> int { a * 2 })
     var acc = 20
     for f in snapshot(b) {
         acc = f(acc)

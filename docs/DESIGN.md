@@ -173,6 +173,7 @@ them against the code.
 - [The prelude is a directory, and the seam is the type a name is about (2026-10-20, F203)](#the-prelude-is-a-directory-and-the-seam-is-the-type-a-name-is-about-2026-10-20-f203)
 - [A variadic parameter that cannot be empty (2026-10-20, F204)](#a-variadic-parameter-that-cannot-be-empty-2026-10-20-f204)
 - [`append` goes bare, and two names stay two (2026-10-20, F205)](#append-goes-bare-and-two-names-stay-two-2026-10-20-f205)
+- [The last prefixed appenders go, and a mutation gets to say it answers something (2026-10-21, F208)](#the-last-prefixed-appenders-go-and-a-mutation-gets-to-say-it-answers-something-2026-10-21-f208)
 
 <!-- end index -->
 
@@ -3601,6 +3602,17 @@ else -- a fifth verb, taken deliberately, because text genuinely reads as append
 `mutable_string_append`/`_byte` until then, the last builder append still carrying a world
 prefix -- this entry chose the verb and never came back for the prefix.)*
 
+> **The prefixed spellings in that paragraph are gone (F208, 2026-10-21).** `mutable_array_push`,
+> `mutable_array_insert` and `mutable_array_remove` were the last three, kept as `internal`
+> declarations under the bare names that superseded them -- so the verbs this entry chose are now
+> the only spelling, and `MutableArray<T>`'s operations are `push(b, x)`, `insert(b, i, v)` and
+> `remove(b, i)`. The prefix survives only as the C symbol interpreter.c derives from parameter
+> one, which is where this entry's own reasoning put it. What is still prefixed and still a
+> declaration: `mutable_array_new` and `mutable_array_filled` (constructors, no bare form),
+> `mutable_array_get` and `mutable_array_set` (what `b[i]` and `b[i] = value` rewrite to), their
+> three `mutable_map_*`/`mutable_set_*`/`mutable_string_*` constructor counterparts, and
+> `mutable_set_add` beneath `add`.
+
 The one divergence was that set: immutably `insert(s, x)`, mutably `mutable_set_add`. **Resolved
 in F199 (2026-10-20): `add` is the verb, variadic, in both worlds**, and `insert` means
 *positional* and only that. The paragraph above judged `add` "unavailable" on the reasoning
@@ -3668,10 +3680,10 @@ MutableArray<T>
   mutable_array_from<T>(xs: [T] | MutableArray<T>) -> MutableArray<T>
   mutable_array_get<T>(xs, index) -> T
   mutable_array_set<T>(xs, index, value)
-  mutable_array_push<T>(xs, item: T)
+  mutable_array_push<T>(xs, item: T)                     (removed in F208; `push(b, x...)`)
   mutable_array_push_all<T>(xs, items: variadic T)       (removed in F161; `concat(b, parts...)`)
-  mutable_array_insert<T>(xs, index, value)              O(n); index may equal len(xs)
-  mutable_array_remove<T>(xs, index) -> T                O(n); answers what it removed
+  mutable_array_insert<T>(xs, index, value)              (removed in F208; `insert(b, i, v)`)
+  mutable_array_remove<T>(xs, index) -> T                (removed in F208; `remove(b, i)`)
   mutable_array_truncate<T>(xs, length)                  (removed in F158; `narrow(b, s, e)`)
   mutable_array_swap<T>(xs, i, j)                        (removed in F160; `swap(x, i, j)`)
   mutable_array_filter<T>(xs, keep: fn(T) -> bool)
@@ -3861,10 +3873,10 @@ such a field, and neither compares nor keys them.
 
 ### Deliberately absent
 
-- **`mutable_array_push_front`** -- it reads as `mutable_array_push`'s twin, which is exactly the
-  problem: it would promise amortised O(1) while costing O(n), and a loop of them is quadratic.
-  `mutable_array_insert(xs, 0, v)` is honest, because nobody reads "insert at an index" as constant
-  time. Building in reverse is `push` then one `reverse`. If
+- **`push_front`** (`mutable_array_push_front` when this was written) -- it reads as `push`'s
+  twin, which is exactly the problem: it would promise amortised O(1) while costing O(n), and a
+  loop of them is quadratic. `insert(b, 0, v)` is honest, because nobody reads "insert at an
+  index" as constant time. Building in reverse is `push` then one `reverse`. If
   head pushes ever need to be O(1) that is a `start` offset on the buffer -- a representation
   change, roughly twenty lines, and nothing here forecloses it.
 - **`mutable_set_map`** -- see rule 1.
@@ -7407,3 +7419,71 @@ argument says it.
 keys advice on the *appender's name*, so leaving `mutable_string_append` there would have silently
 stopped the lint firing for strings. Its fixture caught it, which is the second time that lint's
 name-keying has been the thing a rename broke (F162 left two dead branches in it).
+
+## The last prefixed appenders go, and a mutation gets to say it answers something (2026-10-21, F208)
+
+`mutable_array_push`, `mutable_array_insert` and `mutable_array_remove` were the last three
+builder operations spelled with a world prefix. They were `internal` — out of `--api builtins`,
+out of completion — because the bare names had superseded them: F207 gave `push` and `insert` a
+`MutableArray` declaration of their own, and `remove` had one in `collections.zm` since F200. So
+each was a second spelling of a name that already worked, and the prelude's own code went on
+typing it, which is how **767 call sites across this repo and the North Star** came to use a name
+nothing advertised — 509 here (506 in `.zm` files, three more in a fixture shell script that
+embeds Ziman) and 258 in the backend, counted as
+`git grep -o -E 'mutable_array_(push|insert|remove)[<(]' <before> -- '*.zm'` less the three
+declarations and the five prose mentions. A reader learns the vocabulary from the corpus, not from
+the listing.
+
+**Deleting the declaration is almost all of the change.** The C symbols keep the prefix, which is
+where this library decided years of entries ago that the prefix belongs: `native_lookup` is keyed
+by its own string, and interpreter.c's symbol fallback derives `mutable_array_push` from parameter
+one. Nothing in the runtime moved. What moved was `src/derive.c`, which *emits* Ziman — three
+`#[derive]` bodies wrote `mutable_array_push(...)` into generated code and would have generated a
+call to a name that no longer exists.
+
+**`remove` on a MutableArray was not the same shape as the other two, and the difference was
+hidden by an arm.** Its declaration said `builtin fn`, but the builtin id never ran: `check_call`'s
+arm rewrote the callee to `mutable_array_remove` first, and `call_remove` only ever handled an
+array — it would have read an `ArrayObj` straight out of a handle had anything reached it. So the
+declaration was documentation and the arm was the implementation. It is a `native fn` now, the arm
+branch is gone, and the resolver owns it like the other two.
+
+**That rewrite was also the only reason `pop` compiled.** Discarding a result in statement
+position is an error for a prelude overload that answers a value, because the two worlds answer
+the same question differently — the `[T]` member computes a new value, the builder member
+rearranges a buffer and has nothing to return — so "answers something" means "has no effect"
+(F182). `remove` on a builder breaks that: it writes the container *and* answers what it took out,
+and `remove(b, len(b) - 1)` is how `pop` is spelled. That call was accepted only because the gate
+read the rewritten name, did not recognise it, and said nothing. **An accident that reads as a
+decision is worse than a missing feature**, because the fixture asserting it passes.
+
+**`#[effectful]`, an attribute, because the alternative was a list of names and this is the third
+case.** F182 asked for a marker on the declaration if a second appeared; a pair of type names in
+`effectful_despite_answering` covered `remove` on a MutableMap and a MutableSet, and the third
+arrived the moment the MutableArray form stopped being a rewrite. So the fact lives on the three
+declarations that have it, the list is gone, and a fourth needs no edit in `typecheck.c`. It takes
+no argument and is refused on a function that answers nothing, where it could only mean nothing —
+the same choice `#[at_least_one]` and `#[when_unmatched]` make.
+
+**`BUILDER_KINDS` again**, for the third rename running (F162, F205, F208). The quadratic lint
+keys its per-type advice on the *appender's name*, so `mutable_array_push` sitting there would
+have silently stopped the lint firing for arrays. Its fixture caught it, as it did last time.
+
+**Two name lists were asserting things about names that no longer existed.** `tests/run_api.sh`
+and the LSP test each held nine prefix-layer names and checked that none was advertised or
+completed. All nine had been deleted by F180, so both loops passed by vacuity — the same rot
+`tools/check_builtins.py` was written to stop one file over, in a test whose whole subject is
+stale names. Each now names `mutable_set_add`, the one still declared.
+
+**What stays prefixed, and why it is not the same case.** `mutable_array_new` and
+`mutable_array_filled` are constructors with no bare form to supersede them. `mutable_array_get`
+and `mutable_array_set` are what `b[i]` and `b[i] = value` rewrite to, and what the out-of-range
+runtime error and the lint's reader advice name; there is no bare `get` or `set` for a builder,
+`set(b, i, v)` being refused on purpose so it can say that an element write is `b[i] = value`.
+Hiding those two would point a message at a name the listing denies exists.
+
+**Accepted loss: `push` can no longer take named arguments.** `push(ab: b, pieces: ...)` worked
+while the prefixed name was a lone native; the bare name is shared with a `builtin fn`, and an
+id-dispatched name takes neither a named nor a type argument (F178's own note). Four call sites,
+all in fixtures exercising "several shapes", now positional. The reading is unchanged and the
+spelling nobody would choose.

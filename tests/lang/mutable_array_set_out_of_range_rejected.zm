@@ -1,6 +1,6 @@
 // `mutable_array_set` overwrites; it never extends. Setting one past the end is a mistake, not an append.
 fn main() {
     val ab = mutable_array_new<string>()
-    mutable_array_push(ab, "ada")
+    push(ab, "ada")
     mutable_array_set(ab, 1, "grace")
 }

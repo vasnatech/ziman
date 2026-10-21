@@ -2,11 +2,11 @@
 // declared type offered to a value that carries none of its own, and the bare-value auto-wrap.
 //
 // This was assumed to be a property of *builtins* -- the sites that needed the qualified spelling
-// were all `mutable_array_push` -- and it is not. A plain function with a `variadic Option<int>`
-// parameter refused the same thing, while the same function with a fixed `Option<int>` parameter
-// accepted it. `mutable_array_push(ab: MutableArray<T>, pieces: variadic T)` is declared in the
-// prelude like any other function; what it has is a variadic tail, which went through a bare
-// `check_expr` where a fixed parameter goes through `check_value_against_param_type`.
+// were all `push` onto a MutableArray -- and it is not. A plain function with a
+// `variadic Option<int>` parameter refused the same thing, while the same function with a fixed
+// `Option<int>` parameter accepted it. `push(b: MutableArray<T>, values: variadic T)` is declared
+// in the prelude like any other function; what it has is a variadic tail, which went through a
+// bare `check_expr` where a fixed parameter goes through `check_value_against_param_type`.
 fn count_opts(pieces: variadic Option<int>) -> int {
     var seen = 0
     for p in pieces {
@@ -55,10 +55,10 @@ fn main() {
     val seed: [Option<int>] = []
     print(concat("generic variadic:    ", str(first_of(seed, Some(1), None))))
 
-    // The motivating case, which is what `mutable_array_push` needed the qualified spelling for.
+    // The motivating case, which is what a `push` onto a builder needed the qualified spelling for.
     val out = mutable_array_new<Option<int>>()
-    mutable_array_push(out, Some(1))
-    mutable_array_push(out, None)
-    mutable_array_push(out, Some(2), None)
+    push(out, Some(1))
+    push(out, None)
+    push(out, Some(2), None)
     print(concat("pushed:              ", format("{}", snapshot(out))))
 }

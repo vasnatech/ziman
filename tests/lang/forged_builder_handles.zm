@@ -12,7 +12,7 @@
 // thread and the `on_error` handler reports the message, so the program survives to try the next.
 fn use_array(done: Channel<string>) {
     val b = MutableArray<int> { handle: 1 }
-    mutable_array_push(b, 1)
+    push(b, 1)
     send(done, "array: not refused")
 }
 

@@ -15,7 +15,7 @@ fn work(i: int) -> int {
 fn main() {
     val keep = mutable_array_new<Row>(capacity: 200000)
     for i in 0..200000 {
-        mutable_array_push(keep, Row { id: i, name: concat("n", str(i)), score: 1.5 })
+        push(keep, Row { id: i, name: concat("n", str(i)), score: 1.5 })
     }
     var sum = 0
     for i in 0..2000000 {

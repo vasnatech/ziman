@@ -17,9 +17,9 @@ fn main() {
 
     // Any T, including another handle -- which is what the ring buffer and LRU shapes need.
     val inner = mutable_array_new<int>()
-    mutable_array_push(inner, 1, 2)
+    push(inner, 1, 2)
     val holder = mutable_new(inner)
-    mutable_array_push(mutable_get(holder), 3)
+    push(mutable_get(holder), 3)
     print(snapshot(mutable_get(holder)))
     print(mutable_get(mutable_new("text")))
 

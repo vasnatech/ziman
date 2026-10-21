@@ -12,7 +12,7 @@ struct Row {
 fn main() {
     val keep = mutable_array_new<Row>(capacity: 300000)
     for i in 0..300000 {
-        mutable_array_push(keep, Row { id: i, name: concat("n", str(i)) })
+        push(keep, Row { id: i, name: concat("n", str(i)) })
     }
     var total = 0.0d
     for i in 0..1500000 {

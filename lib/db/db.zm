@@ -231,7 +231,7 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
             val kv = split_once(pair, "=")
             if Some(kv) = kv {
                 val value = try percent_decode(kv[1])
-                mutable_array_push(params, UrlParam { name: kv[0], value: value })
+                push(params, UrlParam { name: kv[0], value: value })
             }
         }
     }

@@ -35,7 +35,7 @@ def prelude_declarations():
     """Every name declared anywhere in lib/prelude/, advertised or not.
 
     Not `--api builtins`: an `internal` declaration is a perfectly good rename target
-    (`mutable_array_push` is one) and is deliberately absent from that list.
+    (`mutable_set_add` is one) and is deliberately absent from that list.
     """
     names = set()
     decl = re.compile(r"^(?:pub |internal )?(?:native fn|builtin fn|fn|struct|enum|val)\s+(\w+)", re.M)

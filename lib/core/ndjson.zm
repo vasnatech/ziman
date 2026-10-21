@@ -27,7 +27,7 @@ pub fn parse_ndjson(text: string) -> Result<[Json], string> {
         if Err(e) = parsed {
             return err(format("line {}: {}", line_no, e))
         }
-        mutable_array_push(items, unwrap(parsed))
+        push(items, unwrap(parsed))
     }
     return ok(snapshot(items))
 }

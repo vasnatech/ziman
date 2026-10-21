@@ -8,6 +8,6 @@
 // was meant, in the one place the language cannot work it out.
 fn main() {
     val out = mutable_array_new<Option<int>>()
-    mutable_array_push(out, if true { Some(1) } else { None })
+    push(out, if true { Some(1) } else { None })
     print(format("{}", snapshot(out)))
 }

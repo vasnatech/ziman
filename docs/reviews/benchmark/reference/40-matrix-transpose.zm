@@ -7,7 +7,7 @@ fn main() {
         val out = mutable_array_new<string>()
         var r = 0
         while r < rows {
-            mutable_array_push(out, str(m[r][c]))
+            push(out, str(m[r][c]))
             r = r + 1
         }
         print(join(separator: " ", pieces: snapshot(out)))

@@ -100,7 +100,7 @@ fn bigint_magnitude_to_hex(n: bigint) -> string {
     var remaining = n
     while remaining > 0n {
         val digit_val = (remaining % 16n) as int
-        mutable_array_push(digits, hex_digits[digit_val])
+        push(digits, hex_digits[digit_val])
         remaining = remaining / 16n
     }
     val reversed = snapshot(digits)

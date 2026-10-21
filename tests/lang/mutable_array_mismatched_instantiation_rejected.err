@@ -1,1 +1,1 @@
-argument 1 of 'mutable_array_push' expects MutableArray<string>, found MutableArray<int>
+argument 1 of 'push' expects MutableArray<string>, found MutableArray<int>

@@ -27,10 +27,10 @@ fn batched(items: [string]) -> [string] {
     for item in items {
         if item == "|" {
             val done = snapshot(batch)
-            mutable_array_push(out, join(separator: "+", pieces: done))
+            push(out, join(separator: "+", pieces: done))
             batch = mutable_array_new<string>()
         } else {
-            mutable_array_push(batch, item)
+            push(batch, item)
         }
     }
     return snapshot(out)
@@ -40,7 +40,7 @@ fn batched(items: [string]) -> [string] {
 fn first_pair(items: [string]) -> [string] {
     val out = mutable_array_new<string>()
     for item in items {
-        mutable_array_push(out, item)
+        push(out, item)
         if len(out) == 2 {
             return snapshot(out)
         }

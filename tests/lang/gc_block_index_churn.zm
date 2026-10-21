@@ -20,7 +20,7 @@ fn main() {
         }
         val parts = mutable_array_new<string>()
         for i in 0..8000 {
-            mutable_array_push(parts, substring(concat("slice-me-", str(i)), 2, 7))
+            push(parts, substring(concat("slice-me-", str(i)), 2, 7))
         }
         val items = snapshot(parts)
         checksum = checksum + len(items[7999])

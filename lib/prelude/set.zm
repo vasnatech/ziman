@@ -43,7 +43,7 @@ pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
 pub fn items<T: Eq + Hash>(s: MutableSet<T>) -> [T] {
     val out = mutable_array_new<T>()
     for item in s {
-        mutable_array_push<T>(out, item)
+        push<T>(out, item)
     }
     return snapshot(out)
 }

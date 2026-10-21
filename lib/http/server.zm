@@ -345,7 +345,7 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: i
         if buf[n] != 13b || buf[n + 1] != 10b {
             return err(HttpError.BadRequest("a chunk is not followed by CRLF"))
         }
-        mutable_array_push(body, slice<byte>(buf, 0, n))
+        push(body, slice<byte>(buf, 0, n))
         buf = slice<byte>(buf, n + 2, len(buf))
     }
     return err(HttpError.BadRequest("unreachable"))
@@ -418,7 +418,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
     var i = first + 1
     while i < len(lines) {
         val h = try parse_header_line(lines[i])
-        mutable_array_push(headers, h)
+        push(headers, h)
         i = i + 1
     }
     val header_list = snapshot(headers)
@@ -924,11 +924,11 @@ fn compile_pattern(pattern: string) -> Pattern {
     val is_param = mutable_array_new<bool>()
     for segment in segments_of(pattern) {
         if len(segment) >= 3 && starts_with(segment, "{") && ends_with(segment, "}") {
-            mutable_array_push(parts, substring(segment, 1, len(segment) - 1))
-            mutable_array_push(is_param, true)
+            push(parts, substring(segment, 1, len(segment) - 1))
+            push(is_param, true)
         } else {
-            mutable_array_push(parts, segment)
-            mutable_array_push(is_param, false)
+            push(parts, segment)
+            push(is_param, false)
         }
     }
     return Pattern { parts: snapshot(parts), is_param: snapshot(is_param) }
@@ -966,8 +966,8 @@ fn capture(p: Pattern, got: [string]) -> Option<Params> {
     while i < len(got) {
         if p.is_param[i] {
             if Ok(decoded) = percent_decode(got[i], false) {
-                mutable_array_push(names, p.parts[i])
-                mutable_array_push(values, decoded)
+                push(names, p.parts[i])
+                push(values, decoded)
             } else {
                 return Option<Params>.None
             }
@@ -1010,7 +1010,7 @@ pub fn not_found_or_method_not_allowed(req: Request, routes: [string]) -> Respon
     for r in routes {
         val parts = split(r, " ")
         if len(parts) == 2 && Option.is_Some(path_params(parts[1], req.path)) {
-            mutable_array_push(allowed, parts[0])
+            push(allowed, parts[0])
         }
     }
     val methods = snapshot(allowed)
@@ -1247,7 +1247,7 @@ pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
         if from + 2 <= len(body) && slice<byte>(body, from, from + 2) == line_end {
             from = from + 2
         }
-        mutable_array_push(out, try part_of(slice<byte>(body, from, next)))
+        push(out, try part_of(slice<byte>(body, from, next)))
         at = next
     }
     return ok(snapshot(out))
@@ -1436,7 +1436,7 @@ fn select_decoder<I>(decoders: [Decoder<I>], req: Request) -> Option<Decoder<I>>
 fn consumed_types<I>(decoders: [Decoder<I>]) -> string {
     val names = mutable_array_new<string>()
     for r in decoders {
-        mutable_array_push(names, mime.essence(r.media))
+        push(names, mime.essence(r.media))
     }
     return join(separator: " or ", pieces: snapshot(names))
 }
@@ -1444,7 +1444,7 @@ fn consumed_types<I>(decoders: [Decoder<I>]) -> string {
 fn produced_types<O>(encoders: [Encoder<O>]) -> string {
     val names = mutable_array_new<string>()
     for w in encoders {
-        mutable_array_push(names, mime.essence(w.media))
+        push(names, mime.essence(w.media))
     }
     return join(separator: ", ", pieces: snapshot(names))
 }
@@ -1901,7 +1901,7 @@ pub fn forwarded_for(req: Request, trusted_hops: int) -> Option<string> {
             for part in split(h.value, ",") {
                 val trimmed = trim(part)
                 if trimmed != "" {
-                    mutable_array_push(hops, trimmed)
+                    push(hops, trimmed)
                 }
             }
         }
@@ -2025,7 +2025,7 @@ fn routes_with<C>(endpoints: [Endpoint<C>], meter: bool) -> Routes<C> {
     var i = 0
     for e in endpoints {
         val p = compile_pattern(e.pattern)
-        mutable_array_push(patterns, p)
+        push(patterns, p)
         val key = method_key(e.method, len(p.parts))
         set(
             methods,
@@ -2282,7 +2282,7 @@ fn dispatch_inner<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, stri
     for i in get_or(table.by_length, len(got), none) {
         if Option.is_Some(capture(table.patterns[i], got)) {
             val m = table.endpoints[i].method
-            mutable_array_push(allowed, method_name(m))
+            push(allowed, method_name(m))
             if HttpMethod.is_Get(m) { serves_get = true }
             if HttpMethod.is_Head(m) { serves_head = true }
         }
@@ -2290,7 +2290,7 @@ fn dispatch_inner<C>(table: Routes<C>, ctx: C, req: Request, fault: fn(int, stri
     // `Allow` has to name HEAD when the path serves GET, because the fallback above means it really is allowed;
     // listing only GET would tell a client the opposite of what the server does.
     if serves_get && !serves_head {
-        mutable_array_push(allowed, "HEAD")
+        push(allowed, "HEAD")
     }
     val methods = snapshot(allowed)
     val unmatched = if len(methods) > 0 { method_not_allowed(methods) } else { not_found() }
@@ -2637,7 +2637,7 @@ fn park_loop(
         var taking = true
         while taking {
             switch try_receive(returns) {
-                Some(c) { mutable_array_push(parked, c) }
+                Some(c) { push(parked, c) }
                 None { taking = false }
             }
         }
@@ -2652,13 +2652,13 @@ fn park_loop(
             val buffered = len(c.session.buffer) > 0
             val expired = now >= c.deadline_ms
             if expired && !buffered {
-                mutable_array_remove(parked, i)
+                remove(parked, i)
                 net.close(c.session.sock)
                 conn_release_raw(c.client_key)
                 connection_closed(meter)
             } else if buffered {
                 if Some(_) = try_receive(slots) {
-                    mutable_array_remove(parked, i)
+                    remove(parked, i)
                     spawn worker(
                         c,
                         handler,
@@ -2698,7 +2698,7 @@ fn park_loop(
                 if at < len(parked) {
                     val c = mutable_array_get(parked, at)
                     if Some(_) = try_receive(slots) {
-                        mutable_array_remove(parked, at)
+                        remove(parked, at)
                         spawn worker(
                             c,
                             handler,

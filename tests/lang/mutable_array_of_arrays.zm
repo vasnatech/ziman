@@ -1,6 +1,6 @@
 // Regression test: MutableArray<T> where T is itself an array type
 // (exactly what array_zm's new_buckets_of_size builds) -- each
-// individual mutable_array_push call passes exactly one [int] element, the
+// individual push call passes exactly one [int] element, the
 // genuinely ambiguous single-trailing-argument shape (see
 // variadic_array_element_type.zm).
 fn main() {
@@ -8,7 +8,7 @@ fn main() {
     val empty: [int] = []
     var i = 0
     while i < 5 {
-        mutable_array_push<[int]>(ab, empty)
+        push<[int]>(ab, empty)
         i = i + 1
     }
     print(len(ab))

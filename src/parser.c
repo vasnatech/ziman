@@ -2518,6 +2518,7 @@ typedef struct {
     const char *deprecated_message;  /* the `("...")` text, or NULL for the bare form */
     const char *when_unmatched;      /* `#[when_unmatched("...")]`'s text, or NULL */
     int at_least_one;                /* `#[at_least_one]` was among them */
+    int effectful;                   /* `#[effectful]` was among them */
 } DeriveList;
 
 static void derive_list_push(DeriveList *list, char *name) {
@@ -2541,6 +2542,23 @@ static void apply_at_least_one(FunctionDecl *fn, const DeriveList *derives) {
                     fn->name);
     }
     fn->variadic_at_least_one = 1;
+}
+
+/* `#[effectful]` says a declaration that answers a value also writes its argument, so discarding
+ * the value is legitimate. Refused on a function that returns nothing, where there is no value to
+ * discard and so nothing for it to say -- the same reason `#[at_least_one]` refuses a signature
+ * with no variadic parameter. It is not refused outside the prelude: the dropped-result gate only
+ * ever asks about a prelude overload set or a polymorphic builtin, so in your own code the
+ * attribute is inert rather than wrong, exactly as a `pub` in lib/prelude/ is. */
+static void apply_effectful(FunctionDecl *fn, const DeriveList *derives) {
+    if (!derives->effectful) return;
+    if (fn->return_type.kind == TY_VOID) {
+        ziman_error("syntax", fn->line, fn->col,
+                    "#[effectful] applies to a function that answers a value, and '%s' answers nothing -- it says "
+                    "that discarding the result is an ordinary call because the call also writes its argument",
+                    fn->name);
+    }
+    fn->is_effectful = 1;
 }
 
 static DeriveList parse_attributes(Parser *p) {
@@ -2579,6 +2597,11 @@ static DeriveList parse_attributes(Parser *p) {
                  * last, so there is nothing to name. Checked against the signature where the
                  * attribute is attached, not here, since `parse_attributes` has not seen it yet. */
                 derives.at_least_one = 1;
+            } else if (item_name->length == 9 && strncmp(item_name->start, "effectful", 9) == 0) {
+                /* No argument, for the same reason: it is a fact about the whole declaration, and
+                 * there is nothing within it to name. Checked against the return type once the
+                 * signature has been parsed. */
+                derives.effectful = 1;
             } else if (item_name->length == 14 && strncmp(item_name->start, "when_unmatched", 14) == 0) {
                 /* Takes a string for the same reason `deprecated` does: it is prose for whoever
                  * hits the error, not a name the compiler resolves. Unlike `deprecated` the
@@ -2733,6 +2756,7 @@ Module *parse(TokenList tokens) {
             fn->deprecated_message = derives.deprecated_message;
             fn->when_unmatched = derives.when_unmatched;
             apply_at_least_one(fn, &derives);
+            apply_effectful(fn, &derives);
             if (derives.is_test) {
                 ziman_error("syntax", fn->line, fn->col, "#[test] cannot apply to a %s function ('%s')",
                             is_builtin ? "builtin" : "native", fn->name);
@@ -2755,6 +2779,7 @@ Module *parse(TokenList tokens) {
             fn->deprecated_message = derives.deprecated_message;
             fn->when_unmatched = derives.when_unmatched;
             apply_at_least_one(fn, &derives);
+            apply_effectful(fn, &derives);
             function_list_push(&module->functions, fn);
         }
         ziman_recovery_pop();

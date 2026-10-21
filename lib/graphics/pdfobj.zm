@@ -57,9 +57,9 @@ pub fn flate_stream(dict: [Entry], data: [byte]) -> Obj {
     val packed = deflate(data)
     val with_filter = mutable_array_new<Entry>()
     for e in dict {
-        mutable_array_push(with_filter, e)
+        push(with_filter, e)
     }
-    mutable_array_push(with_filter, entry("Filter", Obj.Name("FlateDecode")))
+    push(with_filter, entry("Filter", Obj.Name("FlateDecode")))
     return Obj.Stream(StreamObj { dict: snapshot(with_filter), data: packed })
 }
 
@@ -75,8 +75,8 @@ pub fn writer() -> PdfWriter {
 
 // Appends `o` and answers its object number.
 pub fn add(w: PdfWriter, o: Obj) -> int {
-    mutable_array_push(w.bodies, obj_bytes(o))
-    mutable_array_push(w.filled, true)
+    push(w.bodies, obj_bytes(o))
+    push(w.filled, true)
     return len(w.bodies)
 }
 
@@ -86,8 +86,8 @@ pub fn add(w: PdfWriter, o: Obj) -> int {
 // every page, so one of the two must be written knowing only the other's number. Without
 // reserve-then-fill this module would need a second pass or a mutable graph.
 pub fn reserve(w: PdfWriter) -> int {
-    mutable_array_push(w.bodies, string_to_bytes(""))
-    mutable_array_push(w.filled, false)
+    push(w.bodies, string_to_bytes(""))
+    push(w.filled, false)
     return len(w.bodies)
 }
 
@@ -130,15 +130,15 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
         string_to_bytes("%PDF-1.7\n"),
         [37 as byte, 226 as byte, 227 as byte, 239 as byte, 10 as byte]
     )
-    mutable_array_push(parts, header)
+    push(parts, header)
     var at = len(header)
 
     var n = 0
     while n < len(w.bodies) {
         val body = mutable_array_get(w.bodies, n)
         val opened = bytes_concat(string_to_bytes(concat(str(n + 1), " 0 obj\n")), body, string_to_bytes("\nendobj\n"))
-        mutable_array_push(offsets, at)
-        mutable_array_push(parts, opened)
+        push(offsets, at)
+        push(parts, opened)
         at = at + len(opened)
         n = n + 1
     }
@@ -146,29 +146,29 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
     val count = len(w.bodies)
     val xref_at = at
     val xref = mutable_array_new<[byte]>()
-    mutable_array_push(xref, string_to_bytes(concat("xref\n0 ", str(count + 1), "\n")))
+    push(xref, string_to_bytes(concat("xref\n0 ", str(count + 1), "\n")))
     // Entry zero is the head of the free list, and the format is fixed-width: exactly 20 bytes per
     // entry, which is what makes the table indexable by object number.
-    mutable_array_push(xref, string_to_bytes("0000000000 65535 f \n"))
+    push(xref, string_to_bytes("0000000000 65535 f \n"))
     var k = 0
     while k < count {
-        mutable_array_push(xref, string_to_bytes(concat(pad10(mutable_array_get(offsets, k)), " 00000 n \n")))
+        push(xref, string_to_bytes(concat(pad10(mutable_array_get(offsets, k)), " 00000 n \n")))
         k = k + 1
     }
-    mutable_array_push(parts, bytes_concat_all(snapshot(xref)))
+    push(parts, bytes_concat_all(snapshot(xref)))
 
     val trailer = mutable_array_new<Entry>()
-    mutable_array_push(trailer, entry("Size", Obj.Int(count + 1)))
-    mutable_array_push(trailer, entry("Root", Obj.Ref(root)))
+    push(trailer, entry("Size", Obj.Int(count + 1)))
+    push(trailer, entry("Root", Obj.Ref(root)))
     if info_number > 0 {
-        mutable_array_push(trailer, entry("Info", Obj.Ref(info_number)))
+        push(trailer, entry("Info", Obj.Ref(info_number)))
     }
     val tail = bytes_concat(
         string_to_bytes("trailer\n"),
         obj_bytes(Obj.Dict(snapshot(trailer))),
         string_to_bytes(concat("\nstartxref\n", str(xref_at), "\n%%EOF\n"))
     )
-    mutable_array_push(parts, tail)
+    push(parts, tail)
     return ok(bytes_concat_all(snapshot(parts)))
 }
 
@@ -201,16 +201,16 @@ fn obj_bytes(o: Obj) -> [byte] {
         Bytes(b) { string_to_bytes(concat("<", hex_of(b), ">")) }
         Array(items) {
             val parts = mutable_array_new<[byte]>()
-            mutable_array_push(parts, string_to_bytes("["))
+            push(parts, string_to_bytes("["))
             var first = true
             for it in items {
                 if !first {
-                    mutable_array_push(parts, string_to_bytes(" "))
+                    push(parts, string_to_bytes(" "))
                 }
                 first = false
-                mutable_array_push(parts, obj_bytes(it))
+                push(parts, obj_bytes(it))
             }
-            mutable_array_push(parts, string_to_bytes("]"))
+            push(parts, string_to_bytes("]"))
             bytes_concat_all(snapshot(parts))
         }
         Dict(entries) { dict_bytes(entries) }
@@ -220,9 +220,9 @@ fn obj_bytes(o: Obj) -> [byte] {
             // reject.
             val full = mutable_array_new<Entry>()
             for e in s.dict {
-                mutable_array_push(full, e)
+                push(full, e)
             }
-            mutable_array_push(full, entry("Length", Obj.Int(len(s.data))))
+            push(full, entry("Length", Obj.Int(len(s.data))))
             bytes_concat(
                 dict_bytes(snapshot(full)),
                 string_to_bytes("\nstream\n"),
@@ -236,12 +236,12 @@ fn obj_bytes(o: Obj) -> [byte] {
 
 fn dict_bytes(entries: [Entry]) -> [byte] {
     val parts = mutable_array_new<[byte]>()
-    mutable_array_push(parts, string_to_bytes("<<"))
+    push(parts, string_to_bytes("<<"))
     for e in entries {
-        mutable_array_push(parts, string_to_bytes(concat(" /", e.key, " ")))
-        mutable_array_push(parts, obj_bytes(e.value))
+        push(parts, string_to_bytes(concat(" /", e.key, " ")))
+        push(parts, obj_bytes(e.value))
     }
-    mutable_array_push(parts, string_to_bytes(" >>"))
+    push(parts, string_to_bytes(" >>"))
     return bytes_concat_all(snapshot(parts))
 }
 
