@@ -65,6 +65,22 @@
 // itself: `binary_search(snapshot(b), x)` copies the whole buffer to ask a question that touches
 // O(log n) of it.
 //
+// **What the twins share, stated once here because it is true of all of them.** Each builder twin
+// is its array version's body with one word changed in the signature, and that is the point: the
+// bodies are written over `for x in`, `len(x)` and `x[i]`, all of which took either world the
+// moment those questions stopped having per-type names. Nothing here walks a builder in a new way
+// -- the array versions already could, and only their parameter types said otherwise. They exist
+// so the bare name can dispatch to them, the alternative being for each bare name to `snapshot`
+// and call the array version, which is the copy the pairing removes.
+//
+// **Each pair is declared together, array form first.** That is this file's layout rule and the
+// header has claimed it from the start, but it was not true until F210: the builder twins sat in
+// one block at the end of the file, two sections of prose away from the forms they mirror, and
+// three group comments there carried the shared rationale that is now the paragraph above.
+// Nineteen declarations had no doc comment of their own as a result, so `docs/lib/prelude.md`
+// published nineteen blank entries and gave each group's whole blurb to whichever member happened
+// to come first.
+//
 // `map`, `filter`, `concat`, `len`, `contains`, `remove`, `set`, `snapshot`, `clear` and `mutable`
 // are declared in collections.zm instead, because each of them also takes a Map, a Set or a
 // string, and an overload set is kept whole in one file.
@@ -189,6 +205,18 @@ builtin fn narrow<T>(b: MutableArray<T>, start: int, end: int)
 builtin fn swap<T>(a: [T], i: int, j: int) -> [T]
 builtin fn swap<T>(b: MutableArray<T>, i: int, j: int)
 
+// **`items` back to front, as a new array; the one given is untouched**, arrays being values.
+// Native rather than written in Ziman so the result is one allocation of the known length, where
+// a MutableArray filled back-to-front would grow its buffer on the way.
+//
+// It lived among the sequence questions further down, under a `// See `map`.` pointing at
+// collections.zm's note on the four array-side natives. The pair reads better together: these two
+// are the clearest case of the rule this file is arranged by, because the costs are what differ
+// and nothing else is. An array has to allocate -- there is no other way to answer with a value --
+// and a builder rearranges the buffer it already owns, so `reverse(snapshot(xs))` makes **two**
+// copies to do what `reverse(xs)` does with none.
+pub native fn reverse<T>(items: [T]) -> [T]
+
 // Reverses the buffer in place -- no copy at all, where `reverse(snapshot(xs))` makes two.
 pub fn reverse<T>(xs: MutableArray<T>) {
     var i = 0
@@ -199,49 +227,6 @@ pub fn reverse<T>(xs: MutableArray<T>) {
         j = j - 1
     }
 }
-
-// Sorts the buffer by the element type's own `compare`, ascending or descending. These two make
-// two copies -- the snapshot, and the sorted array -- and that is the cheaper option rather than a
-// compromise: for a packed `[int]`, `[float]` or `[byte]` buffer, `array_sort` compares *natively*,
-// with no interpreter call per comparison, which is worth far more than the two memcpys it costs.
-// `sort_with` below has no such option and so is genuinely in place.
-// The write-back is `items[i] = v` per element rather than `clear` and push, so the buffer
-// keeps its capacity and the length never changes. Spelled out in both rather than shared, because
-// a helper here would be *public* -- everything in the prelude is -- and "overwrite the buffer with
-// this array" is not a function the design asked for.
-pub fn sort<T: Ord>(items: MutableArray<T>) {
-    for i, v in sort<T>(snapshot(items)) {
-        items[i] = v
-    }
-}
-
-pub fn sort_desc<T: Ord>(xs: MutableArray<T>) {
-    for i, v in sort_desc<T>(snapshot(xs)) {
-        xs[i] = v
-    }
-}
-
-// The same two by a computed key. `key` is called once per element, on the snapshot, so a key
-// function that reads the buffer it is sorting sees it unchanged throughout.
-pub fn sort_by<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
-    for i, v in sort_by<T, K>(snapshot(xs), key) {
-        xs[i] = v
-    }
-}
-
-pub fn sort_by_desc<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
-    for i, v in sort_by_desc<T, K>(snapshot(xs), key) {
-        xs[i] = v
-    }
-}
-
-// Sorts the buffer by `cmp`, **copying no elements at all**: a merge sort over positions, then the
-// permutation applied by following its cycles. It allocates two int64 order buffers and an n-byte
-// map -- 17 bytes per element, against the 80 a boxed element costs, twice, through a snapshot. A
-// comparator of your own always went through the interpreter per comparison, so unlike `sort` and
-// `sort_desc` there is no native comparison here to trade those copies for. Stable: equal elements
-// keep their input order.
-pub native fn sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
 
 // The elements of `items` as an Iter, for code that takes a lazy source but has an array. Named
 // `iter` rather than `iter_of_array` since F170: the argument already says what the source is, the
@@ -311,8 +296,14 @@ internal native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
 // See `map`.
 pub native fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
 
-// See `map`.
-pub native fn reverse<T>(items: [T]) -> [T]
+// Walks the builder once and collects into a fresh one; see `map`.
+pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U] {
+    val out = mutable_array_new<U>()
+    for item in items {
+        concat(out, f(item))
+    }
+    return snapshot(out)
+}
 
 // `items` in ascending order of their own `compare`, which orders any number, string or byte,
 // and any struct or enum with a `<type>_compare` function (`#[derive(Ord)]` writes one). Stable:
@@ -328,13 +319,36 @@ pub fn sort<T: Ord>(items: [T]) -> [T] {
     return permute<T>(items, sort_positions(len(items), fn(x, y) { compare(items[x], items[y]) }))
 }
 
-// `items` in descending order of their own `compare`. Also stable, so this is not `array_sort`'s
+// Sorts the buffer by the element type's own `compare`. **The one twin here that does not save a
+// copy -- it makes two**, the snapshot and the sorted array, and that is the cheaper option rather
+// than a compromise: for a packed `[int]`, `[float]` or `[byte]` buffer the array form above
+// compares *natively*, with no interpreter call per comparison, which is worth far more than the
+// two memcpys it costs. `sort_with` has no such trade available and so is genuinely in place.
+//
+// The write-back is `items[i] = v` per element rather than `clear` and push, so the buffer keeps
+// its capacity and the length never changes. Spelled out in each of the four rather than shared,
+// because a helper here would be *public* -- everything in the prelude is -- and "overwrite the
+// buffer with this array" is not a function the design asked for.
+pub fn sort<T: Ord>(items: MutableArray<T>) {
+    for i, v in sort<T>(snapshot(items)) {
+        items[i] = v
+    }
+}
+
+// `items` in descending order of their own `compare`. Also stable, so this is not `sort`'s
 // result reversed -- that would flip ties.
 pub fn sort_desc<T: Ord>(items: [T]) -> [T] {
     if is_sortable_scalars<T>(items) {
         return sort_scalars<T>(items, true)
     }
     return permute<T>(items, sort_positions(len(items), fn(a, b) { compare(items[b], items[a]) }))
+}
+
+// Descending, and the same trade as `sort`: two copies bought with a native comparison.
+pub fn sort_desc<T: Ord>(xs: MutableArray<T>) {
+    for i, v in sort_desc<T>(snapshot(xs)) {
+        xs[i] = v
+    }
 }
 
 // `items` ordered by a comparator function (negative, zero or positive, like `compare`), for an
@@ -344,6 +358,14 @@ pub fn sort_desc<T: Ord>(items: [T]) -> [T] {
 pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
     return permute<T>(items, sort_positions(len(items), fn(a, b) { cmp(items[a], items[b]) }))
 }
+
+// Sorts the buffer by `cmp`, **copying no elements at all**: a merge sort over positions, then the
+// permutation applied by following its cycles. It allocates two int64 order buffers and an n-byte
+// map -- 17 bytes per element, against the 80 a boxed element costs, twice, through a snapshot. A
+// comparator of your own always went through the interpreter per comparison, so unlike `sort` and
+// `sort_desc` there is no native comparison here to trade those copies for. Stable: equal elements
+// keep their input order.
+pub native fn sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
 
 // **A comparator with its order turned round**, which is to `sort_with` what `sort_desc` is to
 // `sort`: `sort_with(xs, inverse(by_length))` rather than a second lambda written backwards, where
@@ -365,10 +387,25 @@ pub fn sort_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
     return permute<T>(items, array_order_of<K>(map<T, K>(items, key), false))
 }
 
+// The same by a computed key. `key` is called once per element, on the snapshot, so a key
+// function that reads the buffer it is sorting sees it unchanged throughout.
+pub fn sort_by<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
+    for i, v in sort_by<T, K>(snapshot(xs), key) {
+        xs[i] = v
+    }
+}
+
 // `items` in descending order of `key(item)`. Also stable, so this is not `sort_by`'s
 // result reversed -- that would flip ties.
 pub fn sort_by_desc<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
     return permute<T>(items, array_order_of<K>(map<T, K>(items, key), true))
+}
+
+// Descending by a computed key, on the snapshot, as `sort_by` is.
+pub fn sort_by_desc<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
+    for i, v in sort_by_desc<T, K>(snapshot(xs), key) {
+        xs[i] = v
+    }
 }
 
 // A new array with the values on the end; the original is unchanged, these being immutable values.
@@ -473,10 +510,38 @@ pub fn is_sorted<T: Ord>(items: [T]) -> bool {
     return true
 }
 
+// The precondition is the caller's in either world, and `sort(b)` leaves the handle itself in
+// order, so a builder is if anything the more natural subject than an array.
+pub fn is_sorted<T: Ord>(items: MutableArray<T>) -> bool {
+    for i in 1..len(items) {
+        if compare(items[i - 1], items[i]) > 0 {
+            return false
+        }
+    }
+    return true
+}
+
 // In an already sorted array: the position of the first element that is not less than
 // `target` -- where `target` would be inserted to keep the order, before any equal
 // elements. `len(sorted)` when every element is smaller. O(log n).
 pub fn lower_bound<T: Ord>(sorted: [T], target: T) -> int {
+    var lo = 0
+    var hi = len(sorted)
+    while lo < hi {
+        val mid = lo + (hi - lo) / 2
+        if compare(sorted[mid], target) < 0 {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+// Reads O(log n) elements, so `lower_bound(snapshot(b), x)` copied the whole buffer to answer a
+// question that touches almost none of it. Its array body verbatim -- it reaches the sequence
+// through `len()` and `[i]` only, and nothing else was array-specific.
+pub fn lower_bound<T: Ord>(sorted: MutableArray<T>, target: T) -> int {
     var lo = 0
     var hi = len(sorted)
     while lo < hi {
@@ -506,9 +571,35 @@ pub fn upper_bound<T: Ord>(sorted: [T], target: T) -> int {
     return lo
 }
 
+// As `lower_bound`, for the other end of a run of equal elements.
+pub fn upper_bound<T: Ord>(sorted: MutableArray<T>, target: T) -> int {
+    var lo = 0
+    var hi = len(sorted)
+    while lo < hi {
+        val mid = lo + (hi - lo) / 2
+        if compare(sorted[mid], target) <= 0 {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
 // The position of the first element equal to `target` in an already sorted array, or None.
 // O(log n).
 pub fn binary_search<T: Ord>(sorted: [T], target: T) -> Option<int> {
+    val at = lower_bound<T>(sorted, target)
+    return if at < len(sorted) && compare(sorted[at], target) == 0 {
+        Option<int>.Some(at)
+    } else {
+        Option<int>.None
+    }
+}
+
+// Calls the *builder* `lower_bound` rather than its array twin: taking `snapshot` to reuse the
+// array version would copy the buffer to save writing four lines.
+pub fn binary_search<T: Ord>(sorted: MutableArray<T>, target: T) -> Option<int> {
     val at = lower_bound<T>(sorted, target)
     return if at < len(sorted) && compare(sorted[at], target) == 0 {
         Option<int>.Some(at)
@@ -527,8 +618,24 @@ pub fn find<T>(items: [T], test: fn(T) -> bool) -> Option<T> {
     return Option<T>.None
 }
 
+// Stops at the first match, so on a long builder it may touch almost none of the buffer that
+// `find(snapshot(b), test)` would have copied in full.
+pub fn find<T>(items: MutableArray<T>, test: fn(T) -> bool) -> Option<T> {
+    for item in items {
+        if test(item) {
+            return Option<T>.Some(item)
+        }
+    }
+    return Option<T>.None
+}
+
 // The first element, or None for an empty array.
 pub fn first<T>(items: [T]) -> Option<T> {
+    return if len(items) > 0 { Option<T>.Some(items[0]) } else { Option<T>.None }
+}
+
+// One element out of a builder of any size, where `first(snapshot(b))` copied all of it.
+pub fn first<T>(items: MutableArray<T>) -> Option<T> {
     return if len(items) > 0 { Option<T>.Some(items[0]) } else { Option<T>.None }
 }
 
@@ -537,8 +644,32 @@ pub fn last<T>(items: [T]) -> Option<T> {
     return if len(items) > 0 { Option<T>.Some(items[len(items) - 1]) } else { Option<T>.None }
 }
 
+// As `first`, from the other end.
+pub fn last<T>(items: MutableArray<T>) -> Option<T> {
+    return if len(items) > 0 { Option<T>.Some(items[len(items) - 1]) } else { Option<T>.None }
+}
+
 // The element whose `key` is smallest (the first such, on a tie), or None for an empty array.
 pub fn min_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T> {
+    if len(items) == 0 {
+        return Option<T>.None
+    }
+    var best = items[0]
+    var best_key = key(best)
+    for i in 1..len(items) {
+        val k = key(items[i])
+        if compare(k, best_key) < 0 {
+            best = items[i]
+            best_key = k
+        }
+    }
+    return Option<T>.Some(best)
+}
+
+// Allocates nothing, so the snapshot is the entire cost this saves. It reaches elements with
+// `items[i]` inside `for i in 1..len(items)` rather than iterating, which works on a builder only
+// because F149 gave it `b[i]`.
+pub fn min_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) -> Option<T> {
     if len(items) == 0 {
         return Option<T>.None
     }
@@ -571,6 +702,23 @@ pub fn max_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T> {
     return Option<T>.Some(best)
 }
 
+// As `min_by`, the other way round.
+pub fn max_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) -> Option<T> {
+    if len(items) == 0 {
+        return Option<T>.None
+    }
+    var best = items[0]
+    var best_key = key(best)
+    for i in 1..len(items) {
+        val k = key(items[i])
+        if compare(k, best_key) > 0 {
+            best = items[i]
+            best_key = k
+        }
+    }
+    return Option<T>.Some(best)
+}
+
 // Left to right: `f(f(initial, items[0]), items[1])` and so on.
 pub fn fold<T, A>(items: [T], initial: A, f: fn(A, T) -> A) -> A {
     var acc = initial
@@ -580,8 +728,28 @@ pub fn fold<T, A>(items: [T], initial: A, f: fn(A, T) -> A) -> A {
     return acc
 }
 
+// No copy: `fold(snapshot(b), ...)` allocates and fills a whole array before adding anything up.
+pub fn fold<T, A>(items: MutableArray<T>, initial: A, f: fn(A, T) -> A) -> A {
+    var acc = initial
+    for item in items {
+        acc = f(acc, item)
+    }
+    return acc
+}
+
 // How many elements `test` is true for.
 pub fn count<T>(items: [T], test: fn(T) -> bool) -> int {
+    var n = 0
+    for item in items {
+        if test(item) {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+// Walks the whole buffer and keeps nothing.
+pub fn count<T>(items: MutableArray<T>, test: fn(T) -> bool) -> int {
     var n = 0
     for item in items {
         if test(item) {
@@ -601,6 +769,16 @@ pub fn any<T>(items: [T], test: fn(T) -> bool) -> bool {
     return false
 }
 
+// Short-circuits on the first true, so the saved snapshot is often the whole cost of the call.
+pub fn any<T>(items: MutableArray<T>, test: fn(T) -> bool) -> bool {
+    for item in items {
+        if test(item) {
+            return true
+        }
+    }
+    return false
+}
+
 // True when `test` holds for every element (true for an empty array).
 pub fn all<T>(items: [T], test: fn(T) -> bool) -> bool {
     for item in items {
@@ -611,8 +789,25 @@ pub fn all<T>(items: [T], test: fn(T) -> bool) -> bool {
     return true
 }
 
+// Short-circuits on the first false, as `any` does on the first true.
+pub fn all<T>(items: MutableArray<T>, test: fn(T) -> bool) -> bool {
+    for item in items {
+        if !test(item) {
+            return false
+        }
+    }
+    return true
+}
+
 // Calls `f` on every element, in order, for its effect.
 pub fn for_each<T>(items: [T], f: fn(T)) {
+    for item in items {
+        f(item)
+    }
+}
+
+// No copy, and nothing to return either -- the one of the eleven that was always a statement.
+pub fn for_each<T>(items: MutableArray<T>, f: fn(T)) {
     for item in items {
         f(item)
     }
@@ -631,9 +826,44 @@ pub fn distinct<T: Eq + Hash>(items: [T]) -> [T] {
     return snapshot(out)
 }
 
+// Allocates its Set either way, so the snapshot this saves is a smaller share of the cost than it
+// is for `fold` -- still real on a large input, just less of it.
+pub fn distinct<T: Eq + Hash>(items: MutableArray<T>) -> [T] {
+    val seen = mutable_set_new<T>()
+    val out = mutable_array_new<T>()
+    for item in items {
+        if !contains(seen, item) {
+            mutable_set_add(seen, item)
+            push(out, item)
+        }
+    }
+    return snapshot(out)
+}
+
 // The elements grouped by `key`: a map from each key to the elements that have it, in input
 // order, with the keys in the order they first appear.
 pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
+    val builders = mutable_map_new<K, MutableArray<T>>()
+    for item in items {
+        val k = key(item)
+        val found = get(builders, k)
+        if Some(b) = found {
+            push(b, item)
+        } else {
+            val started = mutable_array_new<T>(capacity: 4)
+            push(started, item)
+            set(builders, k, started)
+        }
+    }
+    val groups = mutable_map_new<K, [T]>()
+    for k, group in snapshot(builders) {
+        set(groups, k, snapshot(group))
+    }
+    return snapshot(groups)
+}
+
+// Allocates its Map and its per-key builders either way -- the same trade as `distinct`.
+pub fn group_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map<K, [T]> {
     val builders = mutable_map_new<K, MutableArray<T>>()
     for item in items {
         val k = key(item)
@@ -678,240 +908,13 @@ pub fn sum(items: [int]) -> int {
     return total
 }
 
-//
-// Each is its array version's body with one word changed in the signature, and that is the point:
-// the bodies are written over `for x in`, `len(x)` and `x[i]`, all of which took either world from
-// the moment those questions stopped having per-type names. So nothing here walks a builder in a
-// new way -- the array versions already could, and only their parameter types said otherwise.
-//
-// They exist so the bare names can dispatch to them. The alternative was for each bare name to
-// `snapshot` a builder and call the array version, which is the copy this removes: a `fold` over a
-// builder allocated and filled a whole array before adding anything up.
-pub fn fold<T, A>(items: MutableArray<T>, initial: A, f: fn(A, T) -> A) -> A {
-    var acc = initial
-    for item in items {
-        acc = f(acc, item)
-    }
-    return acc
-}
-
-pub fn for_each<T>(items: MutableArray<T>, f: fn(T)) {
-    for item in items {
-        f(item)
-    }
-}
-
-pub fn find<T>(items: MutableArray<T>, test: fn(T) -> bool) -> Option<T> {
-    for item in items {
-        if test(item) {
-            return Option<T>.Some(item)
-        }
-    }
-    return Option<T>.None
-}
-
-pub fn first<T>(items: MutableArray<T>) -> Option<T> {
-    return if len(items) > 0 { Option<T>.Some(items[0]) } else { Option<T>.None }
-}
-
-pub fn last<T>(items: MutableArray<T>) -> Option<T> {
-    return if len(items) > 0 { Option<T>.Some(items[len(items) - 1]) } else { Option<T>.None }
-}
-
-pub fn any<T>(items: MutableArray<T>, test: fn(T) -> bool) -> bool {
-    for item in items {
-        if test(item) {
-            return true
-        }
-    }
-    return false
-}
-
-pub fn all<T>(items: MutableArray<T>, test: fn(T) -> bool) -> bool {
-    for item in items {
-        if !test(item) {
-            return false
-        }
-    }
-    return true
-}
-
-pub fn count<T>(items: MutableArray<T>, test: fn(T) -> bool) -> int {
-    var n = 0
-    for item in items {
-        if test(item) {
-            n = n + 1
-        }
-    }
-    return n
-}
-
+// `int` only, as the array form is, and for the same reason: see that one.
 pub fn sum(items: MutableArray<int>) -> int {
     var total = 0
     for item in items {
         total = total + item
     }
     return total
-}
-
-//
-// Same shape as the eleven above: each is its array version's body with one word changed. Four of
-// them (`distinct`, `group_by`, `index_by`, `frequencies`) allocate a Map or a Set regardless, so
-// the copy they save is a smaller share of their cost than it is for `fold` -- still real on a
-// large input, just less of it. `min_by` and `max_by` allocate nothing at all and are the same case
-// as the eleven; they were grouped here by eye rather than by reading the bodies.
-//
-// `min_by`/`max_by` reach elements with `items[i]` inside `for i in 1..len(items)` rather than
-// iterating, which works on a builder only because F149 gave it `b[i]`.
-pub fn distinct<T: Eq + Hash>(items: MutableArray<T>) -> [T] {
-    val seen = mutable_set_new<T>()
-    val out = mutable_array_new<T>()
-    for item in items {
-        if !contains(seen, item) {
-            mutable_set_add(seen, item)
-            push(out, item)
-        }
-    }
-    return snapshot(out)
-}
-
-pub fn group_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map<K, [T]> {
-    val builders = mutable_map_new<K, MutableArray<T>>()
-    for item in items {
-        val k = key(item)
-        val found = get(builders, k)
-        if Some(b) = found {
-            push(b, item)
-        } else {
-            val started = mutable_array_new<T>(capacity: 4)
-            push(started, item)
-            set(builders, k, started)
-        }
-    }
-    val groups = mutable_map_new<K, [T]>()
-    for k, group in snapshot(builders) {
-        set(groups, k, snapshot(group))
-    }
-    return snapshot(groups)
-}
-
-pub fn index_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map<K, T> {
-    val index = mutable_map_new<K, T>()
-    for item in items {
-        set(index, key(item), item)
-    }
-    return snapshot(index)
-}
-
-pub fn frequencies<T: Eq + Hash>(items: MutableArray<T>) -> Map<T, int> {
-    val counts = mutable_map_new<T, int>()
-    for item in items {
-        val seen = get(counts, item)
-        set(counts, item, switch seen {
-            Some(n) { n + 1 }
-            None { 1 }
-        })
-    }
-    return snapshot(counts)
-}
-
-pub fn min_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) -> Option<T> {
-    if len(items) == 0 {
-        return Option<T>.None
-    }
-    var best = items[0]
-    var best_key = key(best)
-    for i in 1..len(items) {
-        val k = key(items[i])
-        if compare(k, best_key) < 0 {
-            best = items[i]
-            best_key = k
-        }
-    }
-    return Option<T>.Some(best)
-}
-
-pub fn max_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) -> Option<T> {
-    if len(items) == 0 {
-        return Option<T>.None
-    }
-    var best = items[0]
-    var best_key = key(best)
-    for i in 1..len(items) {
-        val k = key(items[i])
-        if compare(k, best_key) > 0 {
-            best = items[i]
-            best_key = k
-        }
-    }
-    return Option<T>.Some(best)
-}
-
-//
-// `is_sorted`, `lower_bound`, `upper_bound`, `binary_search`. These are the purest case of the
-// twin rule in this file: their array bodies reach the sequence through `len()` and `[i]` only, so
-// each one below is that body character for character with `[T]` changed to `MutableArray<T>` in
-// the signature. Nothing else could differ, because nothing else was array-specific.
-//
-// `binary_search` calls the *builder* `lower_bound` rather than its array twin, for
-// the same reason: taking `snapshot` to reuse the array version would copy the buffer to save
-// writing four lines.
-//
-// The "already sorted" precondition is unchanged and still the caller's. `sort(b)` leaves the
-// handle itself in order, so a builder is if anything the more natural subject -- the alternative
-// was `lower_bound(snapshot(b), x)`, a full copy for a question that reads O(log n) elements.
-pub fn is_sorted<T: Ord>(items: MutableArray<T>) -> bool {
-    for i in 1..len(items) {
-        if compare(items[i - 1], items[i]) > 0 {
-            return false
-        }
-    }
-    return true
-}
-
-pub fn lower_bound<T: Ord>(sorted: MutableArray<T>, target: T) -> int {
-    var lo = 0
-    var hi = len(sorted)
-    while lo < hi {
-        val mid = lo + (hi - lo) / 2
-        if compare(sorted[mid], target) < 0 {
-            lo = mid + 1
-        } else {
-            hi = mid
-        }
-    }
-    return lo
-}
-
-pub fn upper_bound<T: Ord>(sorted: MutableArray<T>, target: T) -> int {
-    var lo = 0
-    var hi = len(sorted)
-    while lo < hi {
-        val mid = lo + (hi - lo) / 2
-        if compare(sorted[mid], target) <= 0 {
-            lo = mid + 1
-        } else {
-            hi = mid
-        }
-    }
-    return lo
-}
-
-pub fn binary_search<T: Ord>(sorted: MutableArray<T>, target: T) -> Option<int> {
-    val at = lower_bound<T>(sorted, target)
-    return if at < len(sorted) && compare(sorted[at], target) == 0 {
-        Option<int>.Some(at)
-    } else {
-        Option<int>.None
-    }
-}
-
-pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U] {
-    val out = mutable_array_new<U>()
-    for item in items {
-        concat(out, f(item))
-    }
-    return snapshot(out)
 }
 
 // How many times each distinct element occurs: `frequencies<string>(["a", "b", "a"])` is
@@ -932,10 +935,32 @@ pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int> {
     return snapshot(counts)
 }
 
+// Allocates its Map either way, keys in first-seen order, as in the array form.
+pub fn frequencies<T: Eq + Hash>(items: MutableArray<T>) -> Map<T, int> {
+    val counts = mutable_map_new<T, int>()
+    for item in items {
+        val seen = get(counts, item)
+        set(counts, item, switch seen {
+            Some(n) { n + 1 }
+            None { 1 }
+        })
+    }
+    return snapshot(counts)
+}
+
 // The elements keyed by `key`: a map from each key to the element that has it. When two elements share a
 // key the later one wins, like `set` on a map; use `group_by` to keep them all. Keys are in the order they
 // first appear.
 pub fn index_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, T> {
+    val index = mutable_map_new<K, T>()
+    for item in items {
+        set(index, key(item), item)
+    }
+    return snapshot(index)
+}
+
+// Allocates its Map either way; last key wins, as in the array form.
+pub fn index_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map<K, T> {
     val index = mutable_map_new<K, T>()
     for item in items {
         set(index, key(item), item)

@@ -3260,3 +3260,41 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   builtin; `prelude_internal_still_callable` stops pinning an element access as a call;
   `lint_builder_array_read_in_place` and `lint_builder_snapshot_in_loop` record `b[i]` as the
   reader advice. 1,112 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F210** **`array.zm`'s builder twins move beside the forms they mirror, and nineteen blank
+  manual entries turn out to be the reason to.** (user-raised, "put overloaded functions close
+  together"; done 2026-10-21.) The file header has claimed "each builder twin beside the immutable
+  form it mirrors" since F203 split the prelude. **It was not true of most of the file**: the
+  builder twins sat in one block of 220 lines at the end, two sections of prose away from their
+  array forms, and 25 of the file's overload sets were split by between 76 and 594 lines. Each
+  builder twin now follows its array form directly, array first, which is the order `slice`,
+  `swap`, `to_set`, `push`, `insert` and `to_mutable_set` already used.
+
+  **The payoff was not tidiness.** That trailing block had three group comments — one per group the
+  header names, carrying the rationale all the twins share — and `tools/gen_lib_manual.py` attaches
+  a comment to the declaration below it. So each group's whole blurb was published as the
+  documentation of whichever member happened to come first, and **nineteen declarations shipped
+  with no documentation at all**: `for_each`, `find`, `first`, `last`, `any`, `all`, `count`, `sum`,
+  `group_by`, `index_by`, `frequencies`, `min_by`, `max_by`, `lower_bound`, `upper_bound`,
+  `binary_search`, `flat_map` and the builder `sort_desc`/`sort_by_desc`. Pairing forces the
+  question, because a twin moved out of the block takes nothing with it. The shared rationale is
+  one paragraph in the header now and each twin says what is specific to it — usually the copy it
+  saves, which differs per function and is the thing a reader wants.
+
+  **Four comments had been written for a group of two and read wrongly once split.** The builder
+  `sort`'s said *"ascending or descending. **These two** make two copies"* and the builder
+  `sort_by`'s *"**The same two** by a computed key"*. Both now describe one function, and the
+  builder `sort_desc`/`sort_by_desc` get their own lines rather than relying on a neighbour.
+
+  **Two references to `array_sort`, deleted in F180, found in the comments being rewritten** — one
+  in the array `sort_desc`'s *"not `array_sort`'s result reversed"* and one in the builder `sort`'s
+  *"`array_sort` compares natively"*. Same rot as F208's and F209's: prose naming a part of the
+  language that moved.
+
+  Done with a unit parser (comment block + declaration + body) checked to round-trip all four
+  prelude files byte for byte before it was allowed to reorder anything, then by hand for the
+  prose. `array.zm` is 969 lines and no set in it is split; `docs/lib/prelude.md` has **no blank
+  entry from array.zm**, against 27 still standing from the other prelude files (`set.zm` 9,
+  `option.zm` 8, `collections.zm` 4, `prelude.zm` 2, `channel.zm` 2, `map.zm` 2) — those files are
+  organised by world rather than by name, so pairing them is a separate decision and not this one.
+  1,112 fixtures, `make check` exit 0 with the North Star.
