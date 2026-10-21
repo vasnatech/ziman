@@ -191,7 +191,7 @@ val crlf_crlf: [byte] = [13b, 10b, 13b, 10b]
 
 // Index just past the first CRLF CRLF, or -1.
 fn find_head_end(buf: [byte]) -> int {
-    val at = bytes_index_of(buf, crlf_crlf, 0)
+    val at = index_of(buf, crlf_crlf, 0)
     return if at < 0 { -1 } else { at + 4 }
 }
 
@@ -283,7 +283,7 @@ fn restore_timeout(sock: Socket, limit_ms: int, lowered: bool) -> Result<unit, H
 
 // Reads more bytes from the socket onto `buf`.
 fn fill(sock: Socket, buf: [byte], limit_ms: int, started: int) -> Result<[byte], HttpError> {
-    return bytes_concat(buf, try read_within(sock, read_chunk_bytes, limit_ms, started))
+    return concat(buf, try read_within(sock, read_chunk_bytes, limit_ms, started))
 }
 
 // Decodes a chunked body (RFC 7230 section 4.1): `size-in-hex [;extension] CRLF data CRLF`
@@ -294,14 +294,14 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: i
     val body = mutable_array_new<byte>()
     var total = 0
     while true {
-        var eol = bytes_index_of(buf, crlf, 0)
+        var eol = index_of(buf, crlf, 0)
         while eol < 0 {
             if len(buf) > max_chunk_line_bytes {
                 return err(HttpError.BadRequest("chunk size line is too long"))
             }
             val more = try fill(sock, buf, limit_ms, started)
             buf = more
-            eol = bytes_index_of(buf, crlf, 0)
+            eol = index_of(buf, crlf, 0)
         }
         val size_line = try text_of(buf, 0, eol)
         val size_text = trim(split(size_line, ";")[0])
@@ -317,7 +317,7 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: i
         buf = slice<byte>(buf, eol + 2, len(buf))
         if n == 0 {
             // trailers: header lines up to a blank line, all ignored
-            var trailer_end = bytes_index_of(buf, crlf, 0)
+            var trailer_end = index_of(buf, crlf, 0)
             while trailer_end != 0 {
                 while trailer_end < 0 {
                     if len(buf) > max_header_bytes {
@@ -325,11 +325,11 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: i
                     }
                     val more = try fill(sock, buf, limit_ms, started)
                     buf = more
-                    trailer_end = bytes_index_of(buf, crlf, 0)
+                    trailer_end = index_of(buf, crlf, 0)
                 }
                 if trailer_end != 0 {
                     buf = slice<byte>(buf, trailer_end + 2, len(buf))
-                    trailer_end = bytes_index_of(buf, crlf, 0)
+                    trailer_end = index_of(buf, crlf, 0)
                 }
             }
             return ChunkedBody { body: snapshot(body), rest: slice<byte>(buf, 2, len(buf)) }
@@ -381,7 +381,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         } else {
             started = clock.monotonic_millis()
         }
-        buf = bytes_concat(buf, chunk)
+        buf = concat(buf, chunk)
         head_end = find_head_end(buf)
     }
     if head_end > max_header_bytes {
@@ -524,7 +524,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         if Some(expect) = expect && equals_ignore_case(expect, "100-continue") {
             try lift<int>(net.write_text(sock, continue_response))
         }
-        // `bytes_concat` in this loop re-copied everything read so far on every chunk, which is
+        // `concat` in this loop re-copied everything read so far on every chunk, which is
         // quadratic in the body size: a 1 MiB body arriving in 4 KiB reads is about 128 MiB of
         // copying. A byte builder appends into packed storage, so each chunk is one memcpy and the
         // body is copied once at the end (D22).
@@ -784,7 +784,7 @@ pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<
     }
     append(sb, "\r\n")
     val head = string_to_bytes(snapshot(sb))
-    val sent = if HttpMethod.is_Head(req.method) { head } else { bytes_concat(head, resp.body) }
+    val sent = if HttpMethod.is_Head(req.method) { head } else { concat(head, resp.body) }
     try lift<int>(net.write(sock, sent))
     return keep
 }
@@ -1166,7 +1166,7 @@ fn part_header(block: string, name: string) -> string {
 
 // One part, from its headers through to the end of its bytes.
 fn part_of(chunk: [byte]) -> Result<Part, HttpError> {
-    val blank = bytes_index_of(chunk, string_to_bytes("\r\n\r\n"), 0)
+    val blank = index_of(chunk, string_to_bytes("\r\n\r\n"), 0)
     if blank < 0 {
         return err(HttpError.BadRequest("a multipart part has no blank line after its headers"))
     }
@@ -1226,7 +1226,7 @@ pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
     val close = string_to_bytes("--")
     val line_end = string_to_bytes("\r\n")
     val out = mutable_array_new<Part>()
-    var at = bytes_index_of(body, delim, 0)
+    var at = index_of(body, delim, 0)
     if at < 0 {
         return err(HttpError.BadRequest("the multipart body contains no boundary"))
     }
@@ -1236,7 +1236,7 @@ pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
         if from + 2 <= len(body) && slice<byte>(body, from, from + 2) == close {
             return ok(snapshot(out))
         }
-        val next = bytes_index_of(body, delim, from)
+        val next = index_of(body, delim, from)
         if next < 0 {
             return err(HttpError.BadRequest("the multipart body ends without a closing boundary"))
         }

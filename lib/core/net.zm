@@ -416,7 +416,7 @@ fn line_item(bytes: [byte]) -> Result<string, NetError> {
 
 fn next_line(s: Socket, cell: Channel<LineBuffer>, max_line_bytes: int) -> Option<Result<string, NetError>> {
     val state = receive(cell)
-    val at = bytes_index_of(state.data, [10b], 0)
+    val at = index_of(state.data, [10b], 0)
     if at >= 0 {
         send(cell, LineBuffer { data: slice<byte>(state.data, at + 1, len(state.data)), eof: state.eof })
         return Option<Result<string, NetError>>.Some(line_item(slice<byte>(state.data, 0, at)))
@@ -434,7 +434,7 @@ fn next_line(s: Socket, cell: Channel<LineBuffer>, max_line_bytes: int) -> Optio
     }
     val chunk = read(s, 4096)
     if is_ok(chunk) {
-        send(cell, LineBuffer { data: bytes_concat(state.data, unwrap(chunk)), eof: false })
+        send(cell, LineBuffer { data: concat(state.data, unwrap(chunk)), eof: false })
         return next_line(s, cell, max_line_bytes)
     }
     val failure = unwrap_err(chunk)

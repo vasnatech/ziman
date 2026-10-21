@@ -32,23 +32,23 @@ fn main() {
 
     // 'OTTO' -- an OpenType font with CFF outlines rather than TrueType ones. A different format
     // inside the same container, and worth naming rather than failing obscurely later.
-    val otto = bytes_concat(tagged(79, 84, 84, 79), tagged(0, 0, 0, 0), tagged(0, 0, 0, 0))
+    val otto = concat(tagged(79, 84, 84, 79), tagged(0, 0, 0, 0), tagged(0, 0, 0, 0))
     print(concat("CFF (OTTO):       ", refusal(truetype.parse(otto))))
 
     // 'ttcf' -- a collection holding several faces.
-    val ttcf = bytes_concat(tagged(116, 116, 99, 102), tagged(0, 0, 0, 0), tagged(0, 0, 0, 0))
+    val ttcf = concat(tagged(116, 116, 99, 102), tagged(0, 0, 0, 0), tagged(0, 0, 0, 0))
     print(concat("collection:       ", refusal(truetype.parse(ttcf))))
 
-    val nonsense = bytes_concat(tagged(1, 2, 3, 4), tagged(0, 0, 0, 0), tagged(0, 0, 0, 0))
+    val nonsense = concat(tagged(1, 2, 3, 4), tagged(0, 0, 0, 0), tagged(0, 0, 0, 0))
     print(concat("not a font:       ", refusal(truetype.parse(nonsense))))
 
     // A valid sfnt version claiming one table, with the directory truncated.
-    val truncated = bytes_concat(tagged(0, 1, 0, 0), tagged(0, 1, 0, 0), tagged(0, 0, 0, 0))
+    val truncated = concat(tagged(0, 1, 0, 0), tagged(0, 1, 0, 0), tagged(0, 0, 0, 0))
     print(concat("short directory:  ", refusal(truetype.parse(truncated))))
 
     // A directory whose table points past the end of the file -- the check that stops every later
     // read from wandering into whatever follows.
-    val bad_offset = bytes_concat(
+    val bad_offset = concat(
         tagged(0, 1, 0, 0),
         tagged(0, 1, 0, 0),
         tagged(0, 0, 0, 0),

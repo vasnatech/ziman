@@ -2385,7 +2385,7 @@ void prelude_register(void) {
     native_register("format_dynamic", native_format_dynamic);
     native_register("substring", native_substring);
     native_register("split", native_split);
-    native_register("index_of", native_index_of);
+    native_register("string_index_of", native_index_of);
     native_register("last_index_of", native_last_index_of);
     native_register("is_char_at", native_is_char_at);
     native_register("equals_ignore_case", native_equals_ignore_case);
@@ -2414,7 +2414,7 @@ void prelude_register(void) {
     native_register("mutable_set_add", native_mutable_set_add);
     native_register("mutable_set_remove", native_mutable_set_remove);
     native_register("guard_new", native_guard_new);
-    native_register("bytes_index_of", native_bytes_index_of);
+    native_register("array_index_of", native_bytes_index_of);
     native_register("array_map", native_array_map);
     native_register("array_filter", native_array_filter);
     native_register("array_flat_map", native_array_flat_map);

@@ -151,7 +151,9 @@ missing = [n for n in ("sort", "filter", "map", "sort_with", "sort_by", "is_sort
 check("unqualified completion offers the dispatching builtins", not missing, missing)
 # A plain `fn` in lib/prelude.zm is callable with no `use` just as a `builtin fn` is, so the list
 # is both sources, not the builtin table alone.
-missing = [n for n in ("bytes_concat", "inverse", "filter_present", "filter_ok", "filter_err") if n not in labels]
+# `bytes_concat` was the first entry here until F213 deleted it, `concat` having always taken
+# `variadic [T]`.
+missing = [n for n in ("inverse", "filter_present", "filter_ok", "filter_err") if n not in labels]
 check("unqualified completion offers the prelude's own functions", not missing, missing)
 # The parser's desugaring targets are not names anyone writes.
 internal = [n for n in labels if n.startswith("$")]

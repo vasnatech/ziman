@@ -3387,3 +3387,46 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `prefixed_set_ops_point_home` pins the five that crashed), `discard_overload_purity_allowed`
   extended for the two now-legitimate discards, and `docs/SYNTAX.md`'s last `mutable_map_set_all`
   reference is `merge`. 1,114 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F213** **`bytes_concat` becomes `concat`, `bytes_index_of` becomes `index_of`, and the
+  symbol fallback learns `string`.** (user-raised, "is bytes_index_of getting used?" then "replace
+  bytes_concat with concat / replace bytes_index_of with index_of"; done 2026-10-21.) Both were
+  names stating what type argument one had, which the argument states — the rule F195 to F212 have
+  been applying. **Unlike `map_from_arrays`, both were genuinely used**, which is the point: these
+  are the two that mattered.
+
+  **`bytes_concat` was a one-line wrapper over a builtin that already covered it.** Its whole body
+  was `return concat(parts)`, `concat<T>(parts: variadic [T]) -> [T]` having taken any element type
+  since before it existed, and 75 call sites across `lib/db/pg.zm`, `mysql.zm`, `graphics/` and
+  `http/` wrote the wrapper instead. Its own doc comment was about why the body spelled the inner
+  call positionally. Deleting it is a rename of the call sites and nothing else. F170 had made it
+  `pub` to fix its discoverability, which had published a second spelling of a builtin instead.
+
+  **`bytes_index_of` is the scan under every HTTP header end, chunk-size line, trailer and
+  multipart boundary in the library** — 19 call sites in `lib/http/server.zm`, `client.zm` and
+  `lib/core/net.zm`. It joins `index_of` as the `[byte]` member.
+
+  **That needed the one thing F205 left undone.** `native_lookup(fn->name)` finds a native
+  registered under the *declared* name before the prefix fallback runs, so two natives sharing a
+  name both resolve to whichever was registered bare. The string half was registered as
+  `index_of` and **would have answered for the bytes call too**, scanning a handle as a string.
+  Both are prefixed now — `string_index_of` and `array_index_of` — so neither wins the bare lookup
+  and the fallback picks on parameter one. The fallback knew `[T]`, Map, Set and the four builder
+  structs; `string` is a one-line addition, and `index_of` is the first set to need it because it
+  is the first whose members are a `string` and an `[T]`.
+
+  **Two things fell out that nobody asked for.** Named arguments still work
+  (`index_of(s: "abcabc", needle: "bc", from: 2)`), the set having no `builtin fn` member — unlike
+  `push`, which lost them in F207 for exactly that reason. And `index_of(...)` discarded is now
+  reported, because a two-member resolver-owned prelude set is read as pure by return type (F182);
+  standing alone it had been invisible to that rule. `make overload-sets-check` is 42 sets and 18
+  polymorphic builtins, up one set.
+
+  **Noticed, not fixed:** `lib/graphics/pdfobj.zm`'s module-local `bytes_concat_all(parts: [[byte]])`
+  loops `out = concat(out, p)`, which re-copies everything on every part — the quadratic shape
+  `lib/http/server.zm:527`'s own comment describes paying for and fixing. `concat(parts)` is one
+  pass and the same answer. Five call sites in that file.
+
+  One new fixture (`index_of_both_worlds`), `prefixed_builder_appenders_point_home` extended to
+  five hints, and `group_d_invisible_names`, `docs/SYNTAX.md` (two places) and the LSP completion
+  list updated. 1,115 fixtures, `make check` exit 0 with the North Star.

@@ -54,7 +54,7 @@ fn no_tls_server(l: net.Listener) {
     unwrap(net.write_text(second, "N"))
     val header = unwrap(net.read_exact(second, 4))
     unwrap(net.read_exact(second, number.u32_from_bytes(header, 0) - 4))
-    val body = bytes_concat(
+    val body = concat(
         string_to_bytes("S"),
         string_to_bytes("FATAL"),
         [0b],
@@ -63,7 +63,7 @@ fn no_tls_server(l: net.Listener) {
         string_to_bytes("Mplaintext startup reached"),
         [0b, 0b]
     )
-    unwrap(net.write(second, bytes_concat(string_to_bytes("E"), number.u32_to_bytes(len(body) + 4), body)))
+    unwrap(net.write(second, concat(string_to_bytes("E"), number.u32_to_bytes(len(body) + 4), body)))
     net.close(second)
 }
 

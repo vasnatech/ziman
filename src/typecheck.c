@@ -1757,6 +1757,8 @@ static const char *renamed_builder_fn(const char *name) {
                    {"setb_to_set", "snapshot"},
                    {"mutable_string_append", "append"},
                    {"mutable_string_append_byte", "append_byte"},
+                   {"bytes_concat", "concat"},
+                   {"bytes_index_of", "index_of"},
                    {"mutable_map_set_all", "merge"},
                    {"mutable_set_union", "union"},
                    {"mutable_set_intersect", "intersect"},

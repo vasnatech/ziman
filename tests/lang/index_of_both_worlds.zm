@@ -1,0 +1,35 @@
+// **`index_of` over a `string` and over a `[byte]`**, bare in both since F213, where the second
+// was `bytes_index_of` -- the last function in the prelude whose name stated what type argument
+// one had. Same question of each, same answer, differing only in what is scanned, which is the
+// rule the whole pairing effort has been applying.
+//
+// What it cost is the thing F205 left undone, and it is worth pinning because nothing else in the
+// prelude has this shape. `native_lookup(fn->name)` finds a native registered under the *declared*
+// name before the prefix fallback runs, so two natives sharing one name both resolve to whichever
+// was registered bare -- the string half was `index_of`, and it would have answered for the bytes
+// call too, scanning a handle as a string. Both carry a prefix now (`string_index_of`,
+// `array_index_of`), so neither wins the bare lookup and the fallback chooses on parameter one.
+// Teaching it `string` was a one-line addition: it knew `[T]`, Map, Set and the four builders.
+//
+// Both members are natives, so unlike a set with a `builtin fn` in it this one still takes named
+// arguments -- and being a two-member resolver-owned set, a discarded result is now reported,
+// which it was not while `index_of` stood alone.
+fn main() {
+    print(index_of("hello world", "world", 0))
+    print(index_of("abcabc", "bc", 2))
+    print(index_of("abc", "z", 0))
+    print(index_of("abc", "", 1))
+
+    val hay = string_to_bytes("a\r\n\r\nb")
+    print(index_of(hay, string_to_bytes("\r\n\r\n"), 0))
+    print(index_of(hay, string_to_bytes("b"), 0))
+    print(index_of(hay, string_to_bytes("z"), 0))
+
+    // Named arguments still resolve, the set having no builtin member.
+    print(index_of(s: "abcabc", needle: "bc", from: 2))
+
+    // And `concat` answers the question `bytes_concat` used to, over the same bytes.
+    print(concat(string_to_bytes("ab"), string_to_bytes("cd")))
+    val parts = [string_to_bytes("x"), string_to_bytes("yz")]
+    print(concat(parts))
+}

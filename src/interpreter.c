@@ -435,6 +435,10 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
                 Type p0 = fn->params.items[0].type;
                 const char *prefix = NULL;
                 if (p0.kind == TY_ARRAY) prefix = "array_";
+                /* F213: `index_of` is the first set whose members are a `string` and an `[T]`, so
+                 * the string world needed a prefix of its own. Every other string native is still
+                 * registered under its bare name and so never reaches this fallback at all. */
+                else if (p0.kind == TY_STRING) prefix = "string_";
                 else if (p0.kind == TY_MAP) prefix = "map_";
                 else if (p0.kind == TY_SET) prefix = "set_";
                 else if (p0.kind == TY_STRUCT && p0.struct_name != NULL) {

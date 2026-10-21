@@ -688,16 +688,6 @@ bytes (a socket, a file, an HTTP body) become a `string`, so it's the one place 
 checked; every other string function keeps working on whatever bytes a `string` already holds,
 same as always. See docs/DESIGN.md's UTF-8 correctness entry.
 
-### `bytes_concat`
-
-```
-pub fn bytes_concat(parts: variadic [byte]) -> [byte]
-```
-
-Any number of byte arrays joined into one, in a single pass. `concat(parts)` rather than
-`concat(parts: parts)`: the positional spread is what a builtin takes, named arguments being
-barred from them.
-
 ### `MutableArray`
 
 ```
@@ -866,14 +856,27 @@ cannot distinguish.
 builtin fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
 ```
 
-### `bytes_index_of`
+### `index_of`
 
 ```
-native fn bytes_index_of(haystack: [byte], needle: [byte], from: int) -> int
+native fn index_of(haystack: [byte], needle: [byte], from: int) -> int
 ```
 
 The position of the first occurrence of `needle` in `haystack` at or after `from`, or -1; an
-empty `needle` is found at `from`. For finding a delimiter (a CRLF CRLF, a boundary) in bytes.
+empty `needle` is found at `from`. For finding a delimiter (a CRLF CRLF, a boundary) in bytes:
+every HTTP header end, chunk-size line, trailer and multipart boundary in `lib/http` is this.
+
+**The bytes half of `index_of`, bare since F213**, where it was `bytes_index_of` -- the last
+function whose name stated what type argument one had, which the argument states. Same question
+of a `string` and of a `[byte]`, same answer, and the two differ only in what they scan.
+
+Giving it the bare name needed the one thing F205 left undone: `native_lookup(fn->name)` finds a
+native registered under the declared name *before* the prefix fallback runs, so two natives
+sharing a name both resolved to whichever was registered bare. The string half was registered as
+`index_of` and would have answered for both. Both are prefixed now -- `string_index_of` and
+`array_index_of` -- so neither resolves by the bare name and the fallback picks from parameter
+one, which is where they differ. That fallback knew `[T]`, Map, Set and the four builders; F213
+taught it `string`.
 
 ### `flat_map`
 
@@ -2209,7 +2212,8 @@ native fn index_of(s: string, needle: string, from: int) -> int
 ```
 
 The byte position of the first `needle` in `s` at or after `from` (`0 <= from <= len(s)`, a
-runtime error otherwise), or -1. An empty `needle` is found at `from`.
+runtime error otherwise), or -1. An empty `needle` is found at `from`. The `[byte]` half of the
+set is in array.zm, which carries why the two share the name and what it cost to arrange.
 
 ### `starts_with`
 

@@ -126,7 +126,7 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
     val offsets = mutable_array_new<int>()
     // A binary comment on line two, so that anything deciding whether this file is text or binary
     // decides binary. Every PDF writer does this.
-    val header = bytes_concat(
+    val header = concat(
         string_to_bytes("%PDF-1.7\n"),
         [37 as byte, 226 as byte, 227 as byte, 239 as byte, 10 as byte]
     )
@@ -136,7 +136,7 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
     var n = 0
     while n < len(w.bodies) {
         val body = w.bodies[n]
-        val opened = bytes_concat(string_to_bytes(concat(str(n + 1), " 0 obj\n")), body, string_to_bytes("\nendobj\n"))
+        val opened = concat(string_to_bytes(concat(str(n + 1), " 0 obj\n")), body, string_to_bytes("\nendobj\n"))
         push(offsets, at)
         push(parts, opened)
         at = at + len(opened)
@@ -163,7 +163,7 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
     if info_number > 0 {
         push(trailer, entry("Info", Obj.Ref(info_number)))
     }
-    val tail = bytes_concat(
+    val tail = concat(
         string_to_bytes("trailer\n"),
         obj_bytes(Obj.Dict(snapshot(trailer))),
         string_to_bytes(concat("\nstartxref\n", str(xref_at), "\n%%EOF\n"))
@@ -175,7 +175,7 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
 fn bytes_concat_all(parts: [[byte]]) -> [byte] {
     var out = string_to_bytes("")
     for p in parts {
-        out = bytes_concat(out, p)
+        out = concat(out, p)
     }
     return out
 }
@@ -223,7 +223,7 @@ fn obj_bytes(o: Obj) -> [byte] {
                 push(full, e)
             }
             push(full, entry("Length", Obj.Int(len(s.data))))
-            bytes_concat(
+            concat(
                 dict_bytes(snapshot(full)),
                 string_to_bytes("\nstream\n"),
                 s.data,

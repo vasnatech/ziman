@@ -45,8 +45,8 @@ fn main() {
     // slices of slices, and joining
     val s = slice<byte>(a, 1, 4)
     print(slice<byte>(s, 1, 3))
-    print(bytes_concat(s, [9b], slice<byte>(a, 0, 1)))
-    print(len(bytes_concat([0b], slice<byte>(a, 0, 0))))
+    print(concat(s, [9b], slice<byte>(a, 0, 1)))
+    print(len(concat([0b], slice<byte>(a, 0, 0))))
 
     // conversions
     val text = string_to_bytes("héllo")

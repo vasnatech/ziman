@@ -31,7 +31,7 @@ fn main() {
     unwrap(net.write_text(s, "hello net"))
     print(unwrap(net.read_text(s, 100)))
     // binary mode, including a 0 byte and 255
-    val sent = bytes_concat([0b, 1b, 255b], number.u32_to_bytes(305419896), number.u16_to_bytes(258))
+    val sent = concat([0b, 1b, 255b], number.u32_to_bytes(305419896), number.u16_to_bytes(258))
     unwrap(net.write(s, sent))
     val got = unwrap(net.read_exact(s, len(sent)))
     print(got == sent)

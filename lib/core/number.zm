@@ -311,8 +311,8 @@ pub fn format_byte(x: byte, fmt: NumberFormat) -> string {
 // Fixed-width integers and floats in `[byte]`, for binary protocols: the big-endian (network
 // order) unsigned integers Postgres's wire protocol is made of, and the little-endian IEEE-754
 // floats MySQL's binary protocol carries. A value out of range or an offset past the end of the
-// array is a runtime error. (`string_to_bytes`, `bytes_to_string` and `bytes_concat` are
-// prelude builtins.)
+// array is a runtime error. (`string_to_bytes` and `bytes_to_string` are prelude builtins, and
+// joining byte arrays is `concat`, which takes any `[T]`.)
 
 // `n` (0 to 65535) as 2 big-endian bytes.
 pub native fn u16_to_bytes(n: int) -> [byte]

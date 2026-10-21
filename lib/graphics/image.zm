@@ -304,7 +304,7 @@ pub fn decode_png(data: [byte], max_pixels: int) -> Result<Image, string> {
         }
         val body = slice<byte>(data, body_at, body_at + length)
         val declared = try u32_at(data, body_at + length)
-        val actual = crc32(bytes_concat(string_to_bytes(name), body))
+        val actual = crc32(concat(string_to_bytes(name), body))
         // A CRC check is eight lines and turns silent corruption into a message.
         if declared != actual {
             return err(concat("image.decode_png: the '", name, "' chunk fails its CRC"))
@@ -451,10 +451,10 @@ fn wrap_byte(v: int) -> byte {
 fn chunk(name: string, body: [byte]) -> [byte] {
     val head = mutable_array_new<byte>()
     push_u32(head, len(body))
-    val named = bytes_concat(snapshot(head), string_to_bytes(name), body)
+    val named = concat(snapshot(head), string_to_bytes(name), body)
     val tail = mutable_array_new<byte>()
-    push_u32(tail, crc32(bytes_concat(string_to_bytes(name), body)))
-    return bytes_concat(named, snapshot(tail))
+    push_u32(tail, crc32(concat(string_to_bytes(name), body)))
+    return concat(named, snapshot(tail))
 }
 
 fn push_u32(out: MutableArray<byte>, v: int) {

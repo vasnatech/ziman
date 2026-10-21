@@ -116,7 +116,7 @@ fn conn_err(message: string) -> DbError {
 }
 
 fn cstring(s: string) -> [byte] {
-    return bytes_concat(string_to_bytes(s), [0b])
+    return concat(string_to_bytes(s), [0b])
 }
 
 fn text_of(b: [byte], start: int, end: int) -> string {
@@ -133,7 +133,7 @@ fn cstring_end(b: [byte], start: int) -> int {
 }
 
 fn send_message(sock: Socket, kind: string, body: [byte]) -> Result<int, DbError> {
-    return db.lift_net<int>(net.write(sock, bytes_concat(string_to_bytes(kind), u32_to_bytes(len(body) + 4), body)))
+    return db.lift_net<int>(net.write(sock, concat(string_to_bytes(kind), u32_to_bytes(len(body) + 4), body)))
 }
 
 fn read_message(sock: Socket) -> Result<Message, DbError> {
@@ -230,7 +230,7 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
     try send_message(
         sock,
         "p",
-        bytes_concat(cstring("SCRAM-SHA-256"), u32_to_bytes(len(client_first)), string_to_bytes(client_first))
+        concat(cstring("SCRAM-SHA-256"), u32_to_bytes(len(client_first)), string_to_bytes(client_first))
     )
 
     val first = try expect_auth(sock, 11)
@@ -282,7 +282,7 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
 // ------------------------------------------------------------- handshake
 
 fn startup_message(url: PgUrl) -> [byte] {
-    val params = bytes_concat(
+    val params = concat(
         cstring("user"),
         cstring(url.user),
         cstring("database"),
@@ -291,7 +291,7 @@ fn startup_message(url: PgUrl) -> [byte] {
         cstring("UTF8"),
         [0b]
     )
-    return bytes_concat(u32_to_bytes(len(params) + startup_header_bytes), u32_to_bytes(protocol_version_3), params)
+    return concat(u32_to_bytes(len(params) + startup_header_bytes), u32_to_bytes(protocol_version_3), params)
 }
 
 // Everything after authentication succeeds, up to ReadyForQuery:
@@ -333,7 +333,7 @@ fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<unit, DbError> {
     }
     try db.lift_net<int>(net.write(
         sock,
-        bytes_concat(u32_to_bytes(startup_header_bytes), u32_to_bytes(ssl_request_code))
+        concat(u32_to_bytes(startup_header_bytes), u32_to_bytes(ssl_request_code))
     ))
     val reply = try db.lift_net<[byte]>(net.read_exact(sock, 1))
     val answer = text_of(reply, 0, 1)
@@ -536,7 +536,7 @@ fn encode_param(v: SqlValue) -> [byte] {
         Bytes(b) { concat("\\x", bytes_to_hex(b)) }
     }
     val payload = string_to_bytes(text)
-    return bytes_concat(u32_to_bytes(len(payload)), payload)
+    return concat(u32_to_bytes(len(payload)), payload)
 }
 
 fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
@@ -544,7 +544,7 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
     for p in params {
         push(encoded, encode_param(p))
     }
-    val bind_body = bytes_concat(
+    val bind_body = concat(
         cstring(""),
         cstring(""),
         u16_to_bytes(0),
@@ -552,10 +552,10 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
         concat(snapshot(encoded)),
         u16_to_bytes(0)
     )
-    val describe_body = bytes_concat(string_to_bytes("P"), cstring(""))
-    val execute_body = bytes_concat(cstring(""), u32_to_bytes(0))
-    val batch = bytes_concat(
-        frame("P", bytes_concat([0b], cstring(sql), u16_to_bytes(0))),
+    val describe_body = concat(string_to_bytes("P"), cstring(""))
+    val execute_body = concat(cstring(""), u32_to_bytes(0))
+    val batch = concat(
+        frame("P", concat([0b], cstring(sql), u16_to_bytes(0))),
         frame("B", bind_body),
         frame("D", describe_body),
         frame("E", execute_body),
@@ -566,7 +566,7 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
 }
 
 fn frame(kind: string, body: [byte]) -> [byte] {
-    return bytes_concat(string_to_bytes(kind), u32_to_bytes(len(body) + 4), body)
+    return concat(string_to_bytes(kind), u32_to_bytes(len(body) + 4), body)
 }
 
 fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
@@ -688,7 +688,7 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
     for p in params {
         push(encoded, encode_param(p))
     }
-    val bind_body = bytes_concat(
+    val bind_body = concat(
         cstring(""),
         cstring(""),
         u16_to_bytes(0),
@@ -696,11 +696,11 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
         concat(snapshot(encoded)),
         u16_to_bytes(0)
     )
-    val batch = bytes_concat(
-        frame("P", bytes_concat([0b], cstring(sql), u16_to_bytes(0))),
+    val batch = concat(
+        frame("P", concat([0b], cstring(sql), u16_to_bytes(0))),
         frame("B", bind_body),
-        frame("D", bytes_concat(string_to_bytes("P"), cstring(""))),
-        frame("E", bytes_concat(cstring(""), u32_to_bytes(cursor_fetch_rows))),
+        frame("D", concat(string_to_bytes("P"), cstring(""))),
+        frame("E", concat(cstring(""), u32_to_bytes(cursor_fetch_rows))),
         frame("H", [])
     )
     return switch db.lift_net<int>(net.write(sock, batch)) {
@@ -710,7 +710,7 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
 }
 
 fn continue_cursor(sock: Socket, id: int, names: [string], oids: [int]) -> CursorStep {
-    val batch = bytes_concat(frame("E", bytes_concat(cstring(""), u32_to_bytes(cursor_fetch_rows))), frame("H", []))
+    val batch = concat(frame("E", concat(cstring(""), u32_to_bytes(cursor_fetch_rows))), frame("H", []))
     return switch db.lift_net<int>(net.write(sock, batch)) {
         Ok(_) { finish_page(sock, id, names, oids) }
         Err(e) { failed_step(e) }

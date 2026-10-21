@@ -15,7 +15,7 @@ fn main() {
     print(sum)
     val h = crypto.sha256(b)
     print(len(h))
-    val c = bytes_concat(b, b)
+    val c = concat(b, b)
     print(len(c))
     val part = slice<byte>(c, 1000, 1500000)
     print(len(part))

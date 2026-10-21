@@ -92,13 +92,6 @@
 // same as always. See docs/DESIGN.md's UTF-8 correctness entry.
 native fn bytes_to_string(b: [byte]) -> Result<string, string>
 
-// Any number of byte arrays joined into one, in a single pass. `concat(parts)` rather than
-// `concat(parts: parts)`: the positional spread is what a builtin takes, named arguments being
-// barred from them.
-pub fn bytes_concat(parts: variadic [byte]) -> [byte] {
-    return concat(parts)
-}
-
 // The array counterpart of MutableString: `push` copies the whole array on every call, so
 // pushing in a loop is quadratic, while appending to a MutableArray is amortized O(1). Same
 // opaque `handle`, same thread-bound rule.
@@ -255,8 +248,21 @@ builtin fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
 builtin fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
 
 // The position of the first occurrence of `needle` in `haystack` at or after `from`, or -1; an
-// empty `needle` is found at `from`. For finding a delimiter (a CRLF CRLF, a boundary) in bytes.
-native fn bytes_index_of(haystack: [byte], needle: [byte], from: int) -> int
+// empty `needle` is found at `from`. For finding a delimiter (a CRLF CRLF, a boundary) in bytes:
+// every HTTP header end, chunk-size line, trailer and multipart boundary in `lib/http` is this.
+//
+// **The bytes half of `index_of`, bare since F213**, where it was `bytes_index_of` -- the last
+// function whose name stated what type argument one had, which the argument states. Same question
+// of a `string` and of a `[byte]`, same answer, and the two differ only in what they scan.
+//
+// Giving it the bare name needed the one thing F205 left undone: `native_lookup(fn->name)` finds a
+// native registered under the declared name *before* the prefix fallback runs, so two natives
+// sharing a name both resolved to whichever was registered bare. The string half was registered as
+// `index_of` and would have answered for both. Both are prefixed now -- `string_index_of` and
+// `array_index_of` -- so neither resolves by the bare name and the fallback picks from parameter
+// one, which is where they differ. That fallback knew `[T]`, Map, Set and the four builders; F213
+// taught it `string`.
+native fn index_of(haystack: [byte], needle: [byte], from: int) -> int
 
 // The substrate the six sort functions below are built on, and the only callers they have: the
 // scalar fast path (`is_sortable_scalars` and its two partners), the generic merge sort over

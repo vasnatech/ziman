@@ -88,7 +88,8 @@ native fn truncate_chars(s: string, max_chars: int) -> string
 native fn equals_ignore_case(a: string, b: string) -> bool
 
 // The byte position of the first `needle` in `s` at or after `from` (`0 <= from <= len(s)`, a
-// runtime error otherwise), or -1. An empty `needle` is found at `from`.
+// runtime error otherwise), or -1. An empty `needle` is found at `from`. The `[byte]` half of the
+// set is in array.zm, which carries why the two share the name and what it cost to arrange.
 native fn index_of(s: string, needle: string, from: int) -> int
 
 // True when `s` begins with `prefix`.

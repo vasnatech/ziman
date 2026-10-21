@@ -21,7 +21,7 @@ fn handle(s: net.Socket) {
     var buf: [byte] = []
     var end = find_head_end(buf)
     while end < 0 {
-        buf = bytes_concat(buf, unwrap(net.read(s, 4096)))
+        buf = concat(buf, unwrap(net.read(s, 4096)))
         end = find_head_end(buf)
     }
     val head = to_lower(unwrap(bytes_to_string(slice<byte>(buf, 0, end))))
@@ -31,7 +31,7 @@ fn handle(s: net.Socket) {
     }
     var body = slice<byte>(buf, end, len(buf))
     if want > len(body) {
-        body = bytes_concat(body, unwrap(net.read_exact(s, want - len(body))))
+        body = concat(body, unwrap(net.read_exact(s, want - len(body))))
     }
     if contains(head, "get /bin ") {
         body = [104b, 0b, 105b]

@@ -367,7 +367,9 @@ for x in seen { ... }                    // a set has one binder
   `mutable_map_update` became `update` over a cell and over a map entry,
   `mutable_map_update_all` became `update_all`, and `bytes_concat`, `split_once`,
   `inverse` and `result_map_err` only ever needed `pub`. `array_order_of` stays
-  unadvertised on purpose.
+  unadvertised on purpose. *(`bytes_concat` went further in F213 and was deleted: its body was
+  `return concat(parts)`, and `concat` has taken `variadic [T]` all along, so advertising it had
+  published a second spelling of a builtin.)*
 - **Group C, settled 2026-10-20**: `merge(a, b)` pours one map into another in either world
   (`set_all` is gone); `entries(m)` joins `keys` and `values` across both Map worlds;
   `map(c, f)` now covers a `Map` (`fn(K, V) -> R`, key-aware like `filter`) and a `Set`,
@@ -1935,11 +1937,14 @@ fn main() {
   message; `net_error_message(e)` renders one.
 - **Timeouts**: `net.set_timeout(s, millis)` applies to reads/writes (else a dead peer waits
   forever); no connect timeout beyond the OS default.
-- **`string_to_bytes`/`bytes_to_string`/`bytes_concat`** are prelude builtins: `bytes_to_string`
+- **`string_to_bytes`/`bytes_to_string`** are prelude builtins: `bytes_to_string`
   is a `Result` (`Err` on invalid UTF-8, naming the byte offset, or a 0 byte) -- the one real
   boundary where untrusted bytes become a `string`, so the one place UTF-8 is checked (see
-  "Strings are bytes" in "Builtins"). `bytes_concat(parts...)` joins many byte arrays in one
-  pass; sub-ranges are `slice<byte>(b, start, end)` (zero-copy).
+  "Strings are bytes" in "Builtins"). Those two are named for what they answer; the operations
+  *on* bytes need no `bytes_` name of their own, because `[byte]` is an array: `concat(parts...)`
+  joins many byte arrays in one pass, `index_of(haystack, needle, from)` finds a delimiter in one
+  (both bare since F213, where they were `bytes_concat` and `bytes_index_of`), and sub-ranges are
+  `slice<byte>(b, start, end)` (zero-copy).
 - **`number`**: big-endian `u16_to_bytes`/`u32_to_bytes`/`u16_from_bytes`/`u32_from_bytes` and
   float encodings network protocols are built from.
 - **Lines**: `net.lines(socket)`/`lines_with(socket, max_line_bytes)` is a lazy

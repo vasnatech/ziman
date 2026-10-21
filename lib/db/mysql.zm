@@ -186,7 +186,7 @@ fn conn_err(message: string) -> DbError {
 }
 
 fn cstring(s: string) -> [byte] {
-    return bytes_concat(string_to_bytes(s), [0b])
+    return concat(string_to_bytes(s), [0b])
 }
 
 fn text_of(b: [byte], start: int, end: int) -> string {
@@ -262,12 +262,12 @@ fn write_lenenc(v: int) -> [byte] {
         return [v as byte]
     }
     if v < 65536 {
-        return bytes_concat([lenenc_2_bytes as byte], le(v, 2))
+        return concat([lenenc_2_bytes as byte], le(v, 2))
     }
-    return if v < 16777216 { bytes_concat(
+    return if v < 16777216 { concat(
         [lenenc_3_bytes as byte],
         le(v, 3)
-    ) } else { bytes_concat([lenenc_8_bytes as byte], le(v, 8)) }
+    ) } else { concat([lenenc_8_bytes as byte], le(v, 8)) }
 }
 
 // --------------------------------------------------------------- packets
@@ -276,7 +276,7 @@ fn send_packet(sock: Socket, seq: int, body: [byte]) -> Result<int, DbError> {
     if len(body) >= 16777215 {
         return err(DbError.Sql("statement or parameters too large for one MySQL packet (16 MiB limit)"))
     }
-    return db.lift_net<int>(net.write(sock, bytes_concat(le(len(body), 3), [seq as byte], body)))
+    return db.lift_net<int>(net.write(sock, concat(le(len(body), 3), [seq as byte], body)))
 }
 
 // One logical packet; a payload of exactly 16 MiB - 1 continues in the next.
@@ -388,7 +388,7 @@ fn parse_hello(b: [byte]) -> Result<Hello, DbError> {
     val salt2 = slice<byte>(b, pos, pos + part2_len - 1)
     pos = pos + part2_len
     val plugin = text_of(b, pos, cstring_end(b, pos))
-    return Hello { caps: caps_low + caps_high * 65536, salt: bytes_concat(salt1, salt2), plugin: plugin }
+    return Hello { caps: caps_low + caps_high * 65536, salt: concat(salt1, salt2), plugin: plugin }
 }
 
 // The login scramble for an auth plugin (empty for an empty password).
@@ -401,11 +401,11 @@ fn scramble(plugin: string, password: string, salt: [byte]) -> Result<[byte], Db
     if plugin == "mysql_native_password" {
         val h1 = sha1(pw)
         val h2 = sha1(h1)
-        return bytes_xor(h1, sha1(bytes_concat(salt, h2)))
+        return bytes_xor(h1, sha1(concat(salt, h2)))
     }
     if plugin == "caching_sha2_password" {
         val p1 = sha256(pw)
-        return bytes_xor(p1, sha256(bytes_concat(sha256(p1), salt)))
+        return bytes_xor(p1, sha256(concat(sha256(p1), salt)))
     }
     return err(conn_err(format(
         "server asks for the '{}' authentication plugin, which this driver does not support (mysql_native_password and caching_sha2_password only)",
@@ -427,7 +427,7 @@ fn client_caps(with_ssl: bool) -> int {
 
 // The 32 bytes both the SSLRequest and the start of the login packet share.
 fn login_prefix(caps: int) -> [byte] {
-    return bytes_concat(le(caps, 4), le(max_packet_size, 4), [charset_utf8mb4 as byte], zeros(23))
+    return concat(le(caps, 4), le(max_packet_size, 4), [charset_utf8mb4 as byte], zeros(23))
 }
 
 // After the login packet: OK, an error, a request to switch plugin, or
@@ -507,7 +507,7 @@ fn handshake(sock: Socket, url: MyUrl) -> Result<int, DbError> {
         }
     }
     val reply = try scramble(hello.plugin, url.password, hello.salt)
-    val login = bytes_concat(
+    val login = concat(
         login_prefix(client_caps(tls)),
         cstring(url.user),
         write_lenenc(len(reply)),
@@ -930,7 +930,7 @@ fn le_int64(v: int) -> [byte] {
 }
 
 fn lenenc_bytes(raw: [byte]) -> [byte] {
-    return bytes_concat(write_lenenc(len(raw)), raw)
+    return concat(write_lenenc(len(raw)), raw)
 }
 
 // The type code (and unsigned flag) sent for a parameter.
@@ -960,7 +960,7 @@ fn param_value(v: SqlValue) -> [byte] {
 // COM_STMT_EXECUTE. `flags` is 0 for a plain execution or 1 (CURSOR_TYPE_READ_ONLY) to open a server-side
 // cursor whose rows are then asked for with COM_STMT_FETCH.
 fn execute_body(stmt_id: int, params: [SqlValue], flags: int) -> [byte] {
-    val head = bytes_concat([23b], le(stmt_id, 4), [flags as byte], le(1, 4))
+    val head = concat([23b], le(stmt_id, 4), [flags as byte], le(1, 4))
     if len(params) == 0 {
         return head
     }
@@ -983,7 +983,7 @@ fn execute_body(stmt_id: int, params: [SqlValue], flags: int) -> [byte] {
         push(types, param_type(p))
         push(values, param_value(p))
     }
-    return bytes_concat(
+    return concat(
         head,
         snapshot(bitmap),
         [1b],
@@ -995,12 +995,12 @@ fn execute_body(stmt_id: int, params: [SqlValue], flags: int) -> [byte] {
 // --------------------------------------------------------------- queries
 
 fn close_statement(sock: Socket, stmt_id: int) {
-    val _ = send_packet(sock, 0, bytes_concat([25b], le(stmt_id, 4)))
+    val _ = send_packet(sock, 0, concat([25b], le(stmt_id, 4)))
 }
 
 fn prepared_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
     val rewritten = try rewrite_placeholders(sql, params)
-    try send_packet(sock, 0, bytes_concat([22b], string_to_bytes(rewritten.sql)))
+    try send_packet(sock, 0, concat([22b], string_to_bytes(rewritten.sql)))
     val reply = try read_packet(sock)
     if is_err_packet(reply.body) {
         return err(parse_error(reply.body))
@@ -1020,7 +1020,7 @@ fn prepared_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
 
 fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
     if len(params) == 0 {
-        try send_packet(sock, 0, bytes_concat([3b], string_to_bytes(sql)))
+        try send_packet(sock, 0, concat([3b], string_to_bytes(sql)))
         return to_result(try read_all_results(sock), false)
     }
     return prepared_query(sock, sql, params)
@@ -1060,7 +1060,7 @@ fn column_names(columns: [Column]) -> [string] {
 // Asks for the next `cursor_fetch_rows` rows and reads them: binary rows, then an EOF whose status says
 // whether that was the last of them. The statement is closed when the cursor is finished or failed.
 fn fetch_page(sock: Socket, id: int, statement: int, columns: [Column]) -> CursorStep {
-    val sent = send_packet(sock, 0, bytes_concat([28b], le(statement, 4), le(cursor_fetch_rows, 4)))
+    val sent = send_packet(sock, 0, concat([28b], le(statement, 4), le(cursor_fetch_rows, 4)))
     if Err(e) = sent {
         return failed_step(e)
     }
@@ -1126,7 +1126,7 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
         return failed_step(e)
     }
     val statement_text = unwrap(rewritten)
-    val prepared = send_packet(sock, 0, bytes_concat([22b], string_to_bytes(statement_text.sql)))
+    val prepared = send_packet(sock, 0, concat([22b], string_to_bytes(statement_text.sql)))
     if Err(e) = prepared {
         return failed_step(e)
     }

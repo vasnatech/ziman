@@ -10,4 +10,9 @@ fn main() {
     mutable_array_push(b, 1)
     mutable_array_insert(b, 0, 2)
     print(mutable_array_remove(b, 0))
+
+    // F213's two, for the same reason one layer out: the prefix said argument one was bytes, and
+    // the argument says it. `bytes_concat`'s body was `return concat(parts)`.
+    print(bytes_concat(string_to_bytes("a"), string_to_bytes("b")))
+    print(bytes_index_of(string_to_bytes("ab"), string_to_bytes("b"), 0))
 }

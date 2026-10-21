@@ -10,4 +10,12 @@ ziman: type error at 12:11 in tests/lang/prefixed_builder_appenders_point_home.z
    |
 12 |     print(mutable_array_remove(b, 0))
    |           ^
-ziman: 3 errors
+ziman: type error at 16:11 in tests/lang/prefixed_builder_appenders_point_home.zm: 'bytes_concat' is now 'concat': a builder is a mutable collection, and these names lost the prefix that said which world the first argument came from -- the argument says it
+   |
+16 |     print(bytes_concat(string_to_bytes("a"), string_to_bytes("b")))
+   |           ^
+ziman: type error at 17:11 in tests/lang/prefixed_builder_appenders_point_home.zm: 'bytes_index_of' is now 'index_of': a builder is a mutable collection, and these names lost the prefix that said which world the first argument came from -- the argument says it
+   |
+17 |     print(bytes_index_of(string_to_bytes("ab"), string_to_bytes("b"), 0))
+   |           ^
+ziman: 5 errors
