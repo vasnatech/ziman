@@ -169,6 +169,7 @@ them against the code.
 - [`make tsan`'s collector configuration was linking an uninstrumented collector (2026-10-16)](#make-tsans-collector-configuration-was-linking-an-uninstrumented-collector-2026-10-16)
 - [`native` and builtin are two different mechanisms, and the difference is who owns the type rule (2026-10-18, F148)](#native-and-builtin-are-two-different-mechanisms-and-the-difference-is-who-owns-the-type-rule-2026-10-18-f148)
 - [An element write is one statement with two meanings (2026-10-18, F149)](#an-element-write-is-one-statement-with-two-meanings-2026-10-18-f149)
+- [Overloading available to a declaration (2026-10-19, F174-F201)](#overloading-available-to-a-declaration-2026-10-19-f174-f201)
 
 <!-- end index -->
 
@@ -621,6 +622,11 @@ them against the code.
   `decimal`'s equivalent of `floor`/`ceil`/`round` — Ziman has no
   argument-based overloading anywhere, so a different signature needs a
   different name, not the same name doing something else by arity.
+  **Superseded 2026-10-19 (F184):** overloading on every argument
+  position now exists, `round(x: float)` and `decimal_round(d: decimal,
+  scale: int)` differ in argument one, and merging them into one `round`
+  set is therefore possible. It has not been argued for. See
+  "Overloading available to a declaration" at the end of this file.
 - **The prelude — a fixed, small native module merged bare into every
   program, no `use` required and never qualified.** `bigint`/`decimal`
   arriving meant new type-specific functions with no obvious home
@@ -658,7 +664,18 @@ them against the code.
   native fn is exactly one fixed signature per declared name, and Ziman
   has no argument-based overloading anywhere, so a truly polymorphic-by-
   name builtin has nowhere to go without either generic native fn
-  signatures (not designed) or overloading (not wanted). The operators
+  signatures (not designed) or overloading (not wanted).
+  **Superseded 2026-10-19: overloading was wanted after all, and shipped
+  (F174-F184).** A `native fn` name may now carry several declarations,
+  so this is no longer a structural boundary — it is a choice. `abs` and
+  `len` had their hand-written arms deleted and resolve from their
+  declarations; they stay core because moving them to `native fn` buys
+  nothing. `str`, `contains`, `clear` and `snapshot` stay for measured
+  reasons: `contains` carries twelve distinct diagnostics, `clear` and
+  `snapshot` carry hints keyed on the rejected type, and `str` takes
+  expressions (a `switch` used as a value, an empty literal) that cannot
+  describe themselves to a resolver. See the "Overloading" entry.
+  The operators
   themselves were never a candidate either way, for the same "no
   overloading" reason — `+`/`-`/`==`/etc. stay hardcoded in
   `eval_binary`/`check_binary` regardless.
@@ -1385,6 +1402,18 @@ them against the code.
   coercion exists either). No ambiguity survives in a language with
   neither overloading nor coercion, even though the same-shaped call
   genuinely is ambiguous in one that has both.
+  **Revisited 2026-10-19, because half that reason stopped being true.**
+  Overloading shipped (F174-F184) and `remove_all`/`add` became variadic
+  in the same pass (F198, F199) — exactly the pair this paragraph said
+  could not coexist. The conclusion survives; it now rests on the
+  *other* half. Resolution never ranks and never coerces, so a single
+  array argument cannot win one signature over another by preference —
+  it either matches or it does not — and for a `variadic T` the two
+  readings would need the argument to have type `T` and type `[T]` at
+  once, which no type does. Checked on a `MutableSet<[int]>`:
+  `add(s, [1, 2])` adds one element and `add(s, [3], [4, 5])` adds two,
+  with nothing to disambiguate. `tools/overload_sets.sh` gates the
+  general case by refusing a set whose members no call can tell apart.
   **`join(pieces: string...) -> string`** is the concrete payoff,
   implemented natively (`src/prelude.c`'s `native_join`): two linear
   passes over the collected array (sum lengths, then copy into one
@@ -5606,7 +5635,7 @@ Ziman has no bitwise operators in its own syntax (`&`, `|`, `^`, `~`, `<<`, `>>`
 
 **A new module, not `number.zm`.** `number.zm` is about representation and conversion (hex, base64, byte-order, parsing); bitwise logic is a different concern with its own vocabulary (`and`/`or`/`xor`/`not`/`shift_left`/`shift_right`/`popcount`) that would swamp `number.zm`'s existing organization for six-times-three functions plus two set types. A sibling module, `bits`, keeps each file's job legible -- the same reasoning `math` split out of `number` for earlier for the rounding/`decimal_*` functions (see "Shortest-round-trip float display, and a `math` module" above).
 
-**Naming: `<type>_<op>`, matching the existing `int_to_hex`/`bigint_to_hex` precedent** -- `int_and`/`bigint_and`, not a generic overload-by-argument-type scheme Ziman's function resolution doesn't support anyway.
+**Naming: `<type>_<op>`, matching the existing `int_to_hex`/`bigint_to_hex` precedent** -- `int_and`/`bigint_and`, not a generic overload-by-argument-type scheme Ziman's function resolution doesn't support anyway. *(2026-10-19: it supports one now, F184 -- `int_and` and `bigint_and` differ in argument one and could be a single `and`. That `and` is a poor name for a function is a better reason to keep these apart than the one given here, which has expired.)*
 
 **`int` is trivial; `bigint` is not.** `int`'s six functions are one-line wrappers over C's native `&`/`|`/`^`/`~`/`<<`/`>>` on `int64_t` -- the only wrinkle is that a shift amount must be range-checked to 0-63 (a runtime error outside that range, rather than the undefined behavior C itself gives a native shift by the operand's own width or more). `bignum.c` stores `bigint` as sign-magnitude in base-1,000,000,000 decimal limbs -- fast string conversion, no binary view at all -- so there is no bit pattern to `&` two bigints together. Matching Java's `BigInteger`/Python's `int` exactly means matching *infinite* two's complement: a negative number conceptually has infinitely many leading 1-bits, so `bigint_and(-1n, 5n)` is `5n`, not `0n`. The algorithm (`native_bits.c`): convert each operand's magnitude to little-endian base-2^32 words (repeated `bignum_divmod` by 2^32, reversed by Horner's method back into a `bignum_mul`/`bignum_add` chain when going the other way -- the same "not chasing performance, reuse the tested arithmetic" tradeoff the decimal-limb choice itself already made); bring a negative operand into two's-complement form over a common, padded word count (invert then add 1); do the operation word by word; read the top word's sign bit to know whether to negate the result back out to sign-magnitude. `bigint_not(x)` needs none of this -- it's `-(x + 1)`, Java's own definition, exact via plain bignum arithmetic. `shift_left`/`shift_right` go through a `bignum_pow2` (exponentiation by squaring on the existing `bignum_mul`) rather than word-level shifting, again reusing tested code over writing a second arithmetic primitive. `shift_right` floors (rounds toward negative infinity) for both `int` and `bigint`, unlike `/` which truncates toward zero: `int_shift_right(-3, 1)` is `-2`, not `-1` (`-3 / 2`).
 
@@ -7039,6 +7068,14 @@ table keyed on the first parameter's type constructor -- not overload resolution
 not available to user code, since a second same-named `fn` in a program would make this C++
 overloading and half-undo the "no methods, a function takes its receiver as an argument" decision.
 
+**That last clause did not survive**: F184 made it available to user code the next day, and the
+"half-undo the no-methods decision" worry turned out to be about a different thing. A method call
+picks an implementation from a *receiver* -- dispatch on one distinguished argument, at the call
+site, and the thing that makes `x.foo()` and `foo(x)` read differently. Overload resolution reads
+*every* argument, picks a whole declaration, does it statically, and never ranks: there is no
+receiver and no privileged position, so a function still visibly takes its arguments. See
+"Overloading available to a declaration" below.
+
 
 ## An element write is one statement with two meanings (2026-10-18, F149)
 
@@ -7086,3 +7123,100 @@ it leaves its receiver alone, which is exactly the wrong thing to suggest about 
 reports that the write is `b[i] = v`. The `remove` family stayed prefixed for a sharper reason --
 the immutable forms answer with the new collection and the mutable ones answer with the element,
 the value, or a bool, so one name would have meant six things, half of them not collections.
+
+
+## Overloading available to a declaration (2026-10-19, F174-F201)
+
+The language's first principle list says "no overloading", and for most of the project that was
+true of what a *declaration* could do and false of what the language actually did. By the end of
+the collection-pairing pass there were **28 overloaded builtin names over 87 declarations** --
+`len` and `contains` with nine each, `str` with six -- every one resolved by a hand-written arm in
+`typecheck.c`, with the `builtin fn` entries in `lib/prelude.zm` as documentation the arms were
+free to contradict. Two paragraphs of this file asserted the absence of a feature the language had
+in 28 places. So the question F174 opened was not "should Ziman have overloading" but "should the
+28 sets it already has be spelled where they can be read, checked and reused".
+
+**What settled it was where the bugs came from.** Nine of the ten things that broke during the
+pairing pass trace to the arms, not to overloading: a diagnostic quoting `$mutable_array_lit`, a
+name that does not lex; a discarded `mutable(42)` accepted in silence, because the purity gate was
+keyed per *name* while purity is per *overload*; `concat`'s spread rule written twice with the two
+copies disagreeing; the quadratic lint keyed per name, advising a `MutableString` for an array;
+eight named-argument call sites broken and `sort<int>([])` made unspellable, because a builtin
+takes neither named arguments nor type arguments. Only the `[string]` ambiguity in `concat` was a
+cost of overloading itself. A feature whose absence is simulated by hand in 87 places is being paid
+for twice.
+
+**Full resolution rather than first-parameter, and the objection that looked fatal.** The first
+design resolved on argument one only; measured against the prelude it covered 43 of the 50 sets,
+and the seven it missed were not exotic (four `MutableSet` operations distinguished by argument
+two, `concat`'s arity rule, `mutable`'s catch-all arm). The objection to going further was that it
+is circular -- an overload must be chosen before a lambda or an empty `[]` can be typed, and the
+lambda cannot be typed before the overload is chosen. **Reading the code dissolved it.**
+`infer_call_type_args` already walks the arguments skipping exactly the ones
+`expr_needs_expected_type` flags, so the information needed was already being gathered for type
+inference. Resolution is therefore a **filter, not a search**: it types the self-describing
+arguments, reads the syntactic *shape* of the rest (a lambda's arity, `[]`, `ok(x)`, `Some(x)`),
+and narrows. No speculative type-checking, no backtracking, no constraint solver, no ranking.
+That this cost nothing structurally is the reason the feature was worth having; it is not a
+general argument for overloading in a language where it would cost something.
+
+**The three restrictions, each earned.** No return-type dispatch -- `to_set` and `to_mutable_set`
+take identical arguments and differ only in what they answer, and the pass showed that keeping
+them as two names gave the right answer, so the boundary is kept rather than relaxed. No
+specificity ranking -- `fn g<T>(a: [T])` beside `fn g(a: [int])` is a redefinition, reported where
+it is written, because ranking is where C++ and Java overloading become unreadable. No implicit
+conversion to make a member match, which is the no-coercion principle unchanged. Together these
+make the question "which overload does this call pick" answerable by reading the call and the
+declarations, with nothing in between.
+
+**Ambiguity is a compile error at both ends.** Two declarations no call could tell apart are
+refused where they are written (`ovl_indistinguishable_at`), and `tools/overload_sets.sh` gates
+the whole prelude in `make check` -- currently 39 resolver-owned sets, 0 unresolvable. A *call*
+left open by an argument that carries no type of its own is refused at the call, naming the
+argument that left the choice open. The warning the design took seriously was `concat`'s
+`[string]`: a `[string]` is both "the pieces of a string" and "one array of parts", and only
+having two names had kept those apart. A second instance has not appeared, and the two gates exist
+so that it would be an error rather than a silent second reading -- which is the failure mode this
+language refuses most consistently.
+
+**Two populations, and the line between them is the real finding.** An *overload set* is several
+real functions sharing a name. A *polymorphic builtin* is one implementation with several
+documented signatures. Stage 8 asked how many of the second could become the first and converted
+five arms of seventy -- `abs`, `swap`, `slice`, `to_set`, `len` -- before stopping on three
+constraints, each found by reading an arm rather than counting names (the estimate ran ~50, then
+~3, then 5). The message must be derivable from the declarations; a set carries one message where
+an arm may carry many (`contains` carries twelve, and an arm with twelve messages is not stating a
+type rule, it is answering differently depending on what you passed); and, the general one:
+
+> An overload set resolves from arguments that describe themselves. A function whose job is to
+> accept *anything* receives exactly the expressions that do not.
+
+`str` passed the first two tests, was converted, and broke `str(switch cut.fits { ... })` in real
+code, because a value block carries no type of its own -- measured, then reverted. So **the
+collection vocabulary is the natural home of overloading in this language and the universal verbs
+are not**, and the 65 remaining arms are a boundary rather than a backlog.
+
+**What it removed.** For a converted set, the divergence `tools/check_builtins.py` exists to
+catch, since the declaration *is* the rule rather than advice the arm may contradict -- but the
+tool is **not** redundant and was not deleted, because the polymorphic builtins are still
+dispatched and still need the guard that each one carries a declaration (stage 6 predicted its
+deletion and F183 withdrew the prediction). The per-name keying of purity, the discard gate and
+the quadratic lint, all of which were wrong for sets whose members differ. And
+`editors/vscode/syntaxes/ziman.tmLanguage.json`, the last hand-kept name list, which by then
+highlighted ten names deleted during the pairing pass and knew none of the 28 unprefixed ones; it
+is generated from `ziman --api builtins` now (`src/lsp.c` had already been derived, in F168).
+And the asymmetry that mattered most: `lib/graphics` could not express what
+`lib/prelude.zm` did, and now can.
+
+**It was used the same day.** The Map/Set pairing pass (F192-F201) rests on it entirely: one
+`filter` over all six collections, one `keys`/`values`/`items`/`get`/`get_or` over both Map worlds,
+the four set operations over both Set worlds, variadic `remove_all` and `add`. Names invisible to
+`--api builtins` went **20 to 1**. The roadmap entry had said the feature would be worth building
+if another row of the collection table wanted an overload; that test was met within a day.
+
+**Two things left deliberately unfinished.** `#[when_unmatched("...")]` (F187) was built to give a
+set a per-type hint, and stage 8 then stopped at five conversions, none of which needed it -- it
+has no production user, only a fixture, and is owed either a user or a retirement.
+`effectful_despite_answering` (F200) is a one-name veto list for the case the purity rule cannot
+see -- `remove(mb, k) -> Option<V>` is effectful *and* answers -- carrying a written promise that a
+third case means writing the attribute instead of extending the list.

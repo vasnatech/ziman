@@ -214,8 +214,11 @@ Builtins ship two ways. A small core set — `print`, `str`, `format`,
 `max`, `hash`, `channel_new`, `send`, `receive`, plus `==`/`!=` on
 scalar-element arrays — is handled directly by the type checker and
 interpreter, because each of those names needs to work unqualified
-across several types at once (no argument-based overloading exists
-anywhere else in the language). Everything else that has exactly one
+across several types at once (when this was written, no argument-based
+overloading existed anywhere else in the language; since F174-F184 it
+does, and `abs` and `len` now resolve from their own declarations rather
+than a hand-written arm -- they stay core because moving them buys
+nothing, not because they cannot move). Everything else that has exactly one
 fixed signature — `parse_int`, `parse_float`, `parse_bigint`,
 `parse_decimal`, `floor`, `ceil`, `round`, `decimal_round`, `concat`,
 `substring`, `split`, `trim`, `to_upper`, `to_lower`, `join` — instead

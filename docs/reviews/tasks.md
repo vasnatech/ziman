@@ -2832,3 +2832,53 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   **The pass is complete.** Eleven items across four groups; on the count that started it —
   *"how do I get a MutableMap's keys?"* answering **nothing exists** — every row of that table
   now answers with one name over both worlds.
+
+- [x] **F202** **The docs still said overloading was "not started", and the rationale for it had
+  no entry at all.** (raised 2026-10-20 by the user asking what was next; done 2026-10-20.)
+  No code change. `docs/ROADMAP.md`'s entry read **"Not started, and deliberately not started
+  yet"** for a feature shipped across F174-F184 and built on by F185-F201 — the most
+  authoritative-looking document in the repo asserting the opposite of the code, which is the
+  failure this project keeps paying for (SYNTAX's bare-array list stale by three renames, DESIGN's
+  sorting paragraph stale in three layers, the VS Code grammar in F183).
+
+  **Six live claims, not one.** Grepping for the assertion rather than fixing the entry found it
+  stated five more times outside the historical reviews:
+  - `docs/ROADMAP.md`'s own "a native takes exactly one signature per name" justification for
+    `decimal_round` — false since F184: `remove` and `filter` each have two `native fn`
+    declarations today.
+  - `docs/FEATURE-NOTES.md`: "no argument-based overloading exists anywhere else in the language".
+  - `docs/DESIGN.md`'s prelude-boundary entry: a polymorphic builtin "has nowhere to go without
+    either generic native fn signatures (not designed) or overloading (not wanted)".
+  - `docs/DESIGN.md`'s variadic entry: the Java varargs ambiguity cannot arise because "Ziman has
+    no overloading at all" — and F198/F199 had just made `remove_all` and `add` variadic, so both
+    halves of that sentence's premise were in play at once.
+  - `lib/core/number.zm`: "Ziman has no overloading, so one `format(x, ...)` across the five types
+    cannot exist."
+
+  **The variadic one was checked rather than patched, because its conclusion might have broken.**
+  It did not. Resolution never ranks and never coerces, so an array argument cannot win one
+  signature over another by preference, and for a `variadic T` the two readings would need one
+  argument to have type `T` and type `[T]` at once. Verified on a `MutableSet<[int]>`:
+  `add(s, [1, 2])` adds one element, `add(s, [3], [4, 5])` adds two. The paragraph keeps its
+  answer and loses the reason it gave for it.
+
+  **Two of the corrections name work that is now possible and was not before**, which is the part
+  worth having written down: `round(x: float)` beside `decimal_round(d: decimal, scale: int)`
+  differ in argument one and could be one `round` set, and `int_and`/`bigint_and` could be one
+  `and`. Neither is argued for here — `and` is a poor name for a function — but the reason
+  recorded against them had expired and a future reader would have believed it.
+
+  **`docs/DESIGN.md` had no overloading entry at all**, for a shipped language feature with its
+  own SYNTAX.md section. Added: why the principle fell (28 sets already existed as hand-written
+  arms, and nine of the ten pairing-pass bugs came from the arms rather than from overloading),
+  why full resolution rather than first-parameter (43 of 50, and the circularity objection
+  dissolving on contact with `infer_call_type_args`), the three restrictions and what each is
+  worth, the two populations and the "arguments that describe themselves" line between them, and
+  the two loose ends. `gen_design_index.py` picked it up: 138 sections.
+
+  **Two claims written into the first draft of this fix were themselves wrong, and F183 is where
+  that was caught.** `check_builtins.py` is *not* redundant — stage 6 predicted its deletion and
+  F183 withdrew the prediction, because the polymorphic builtins are still dispatched and still
+  need the guard. And `src/lsp.c` was already derived in F168; only the VS Code grammar was the
+  list F183 generated. Both corrected in `ROADMAP.md` and `DESIGN.md` before committing, by
+  reading the task record instead of trusting the summary of it.

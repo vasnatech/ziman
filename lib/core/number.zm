@@ -165,7 +165,9 @@ pub fn parse_byte(s: string) -> Result<byte, string> {
 // One engine, not five: every numeric type already has a canonical text (`str(x)`), so
 // `format_number` and `parse_number` work on *strings*, and `format_int`, `format_float`,
 // `format_bigint`, `format_decimal` and `format_byte` are one-line wrappers that supply the
-// text. (Ziman has no overloading, so one `format(x, ...)` across the five types cannot exist.)
+// text. (When this was written Ziman had no overloading, so one `format(x, ...)` across the five
+// types could not exist. Since F184 it could -- the five differ in argument one -- but the engine
+// above is the reason there are five thin wrappers, not the missing feature, so they stay.)
 //
 // A `NumberFormat` is a thousands separator, a decimal separator and an optional fixed number of
 // decimal places; `parse_pattern("#,###.00")` builds one from the familiar DecimalFormat-style

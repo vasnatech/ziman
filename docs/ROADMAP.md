@@ -1186,12 +1186,16 @@ from source.
 
 ## Larger, needs its own design pass
 
-- **Relaxing the no-overloading rule: let a *declaration* carry the dispatch the arms hand-code.**
+- **Relaxing the no-overloading rule: let a *declaration* carry the dispatch the arms hand-code.
+  Shipped 2026-10-19 (F174-F184), and built on the same day (F185-F201).**
   Raised 2026-10-18, at the end of the collection-pairing pass (F149-F162), from the question
   "now that we have quite a number of overloaded functions, what do you think on relaxing the
-  no-overloading rule?" **Not started, and deliberately not started yet** -- the evidence below is
-  one day old, and this project's habit is to write the case down and let it sit, which is what
-  declined `..=` and the handle-validation redesign.
+  no-overloading rule?" The evidence below is the case as it was argued; **what was actually
+  built, and where it stopped, is under "What shipped".** This entry predicted the opposite --
+  "not started, and deliberately not started yet", on the grounds that this project writes a case
+  down and lets it sit, which is what declined `..=` and the handle-validation redesign. The
+  prediction was wrong, and the thing that made it wrong is worth keeping: reading
+  `infer_call_type_args` dissolved the one objection that had looked fatal.
 
   **The rule to restate first, because it is not what the docs said.** Ziman does not lack
   argument-based overloading: it has **28 overloaded builtin names over 87 declarations** (`len`
@@ -1229,6 +1233,9 @@ from source.
   > on argument one are a compile error. No return-type dispatch, no ranking, no implicit
   > conversions -- F148's boundary exactly, which held.
 
+  **That narrow shape is not what shipped**: the user chose resolution over *every* argument
+  position instead, for the reason recorded below. Everything else in the box held.
+
   What that buys, all of it observed rather than imagined: the ten prefixed implementations under
   `reverse`/`filter`/`sort`/`sort_desc`/`sort_with` would simply *be* the overloads and F162's arm
   would disappear; an error would name a real function because one exists, dissolving the
@@ -1244,7 +1251,7 @@ from source.
   name to set -- and note those last two hand-kept lists went stale three times in one day
   (F151, F152, F160), which this would also fix by making them derivable.
 
-  **Designed, not started (2026-10-19): `docs/design/full-overloading.md`.** The user chose
+  **What shipped (2026-10-19): `docs/design/full-overloading.md`, F174-F184.** The user chose
   **full** resolution -- every argument position, not the first only -- after the first-parameter
   design measured out at 43 of the 50 existing sets. The superseded document is kept beside it for
   that measurement. The cost objection raised against full resolution (that it is circular, since
@@ -1253,6 +1260,39 @@ from source.
   `expr_needs_expected_type` flags, so resolution is a filter over self-describing positions plus
   the syntactic *shape* of the rest -- no speculation, no backtracking, no constraint solver. The
   earlier note below described the first-parameter design and is superseded.
+
+  Seven stages: the resolver running beside the arms (F176), declaration-site checking for
+  overlapping sets (F177), the 28 paired names converted into real overload sets (F178-F180),
+  purity and the discard gate read off the declaration rather than the name (F182), the last
+  hand-kept list generated instead of maintained (F183), and the feature opened to library and
+  program code (F184). Stage 4 came in **void** (F181 -- corrected by F185, which found the
+  reason given was wrong), and stage 6 turned out three-quarters already done. `make check` now
+  runs `tools/overload_sets.sh`, which reports **39 resolver-owned sets, 0 unresolvable**. For a
+  converted set the declaration *is* the rule rather than documentation an arm may contradict --
+  but `tools/check_builtins.py` was **not** made redundant as stage 6 predicted, because the
+  polymorphic builtins are still dispatched and still need its guard; F183 withdrew that
+  prediction.
+
+  **Stage 8 -- folding the polymorphic builtins in too -- converted five arms of seventy and
+  stopped on three constraints** (F186-F191). The "expects ..." sentence must be derivable from
+  the declarations; a set gets one message, not one per arm; and, the general one:
+
+  > An overload set resolves from arguments that describe themselves. A function whose job is to
+  > accept *anything* receives exactly the expressions that do not.
+
+  `abs`, `swap`, `slice`, `to_set` and `len` take collections and numbers and converted. `str`
+  passed the first two tests, was converted, broke `str(switch ... )` in real code because a value
+  block carries no type of its own, and was reverted. 65 arms remain and are **not** a backlog:
+  the collection vocabulary is the natural home of overloading in this language and the universal
+  verbs are not. The estimate for this stage ran ~50 -> ~3 -> 5 as each constraint was found by
+  reading the code rather than counting names.
+
+  **And it was used immediately.** The Map/Set pairing pass (F192-F201) rests on it entirely:
+  one `filter` over all six collections, one `keys`/`values`/`items`/`get`/`get_or` over both Map
+  worlds, the four set operations over both Set worlds, variadic `remove_all` and `add`. Names
+  invisible to `--api builtins` went **20 -> 1** (`array_order_of`, unadvertised on purpose per
+  F172). That is the "another row of the collection table wanting an overload" test below, met
+  within a day of the feature landing.
 
   **Superseded note (first-parameter design):** Written
   after the collection pass closed, on the user's request, and it changes one thing in this entry:
@@ -1264,12 +1304,17 @@ from source.
   two, leaving `concat` and `mutable` as documented arms, and stages the work so that each step
   has an observable invariant. It does not argue for starting.
 
-  **What would make it worth doing.** Another row of the collection table wanting an overload --
-  items 25-53, the ~29 read-only `array_*` helpers, are exactly that shape and would need ~12-25
-  new builder-walking implementations as things stand. If that work is wanted, it is cheaper after
-  this than before it. **What would argue against:** if the `[string]`-style ambiguity shows up a
-  second time, because a feature whose failure mode is "two readings, silently" is the one this
-  language most consistently refuses.
+  **What was to watch, and still is.** The argument against was that a second `[string]`-style
+  ambiguity -- one type belonging to two sets, giving two readings silently -- would be the
+  failure mode this language most consistently refuses. It has not appeared. The declaration-site
+  overlap check (F177) and the `overload_sets.sh` gate exist so that a second one is a compile
+  error rather than a surprise, and `ovl_indistinguishable_at` is what makes that checkable.
+
+  **Two loose ends left deliberately.** `#[when_unmatched("...")]` (F187) was built for stage 8's
+  per-set hints, and stage 8 then stopped at five conversions, none of which needed it -- it has
+  **no production user**, only a fixture, and is either owed one or owed a retirement.
+  `effectful_despite_answering` (F200) is a one-name veto list carrying a written promise that a
+  third case means writing the attribute rather than extending the list.
 
 - **`lib/graphics`: a 2D drawing model, with document and image backends -- all five phases
   built (F141-F145).** One `Scene` renders two ways: to PDF (vector paths, gradients, the standard
@@ -1739,7 +1784,23 @@ from source.
     no-overloading rule" below, which is the entry this paragraph now
     points at rather than the assumption it used to state. This isn't a remaining "not gotten to it" gap the way the
     type-specific functions were — it's the actual, structural boundary
-    of what the prelude mechanism can express. The operators themselves
+    of what the prelude mechanism can express.
+    **Updated again 2026-10-19: that boundary moved.** Overloading
+    available to a declaration shipped (F174-F184), and a `native fn`
+    name may now carry several declarations — `remove` and `filter`
+    already do. So the second of the two routes this paragraph named is
+    no longer missing, and the sentence above describing the structural
+    limit now describes a limit that was lifted. What that leaves is a
+    *choice* rather than a wall: `abs` and `len` had their hand-written
+    arms deleted and resolve from their declarations (F188, F190), but
+    both are still `builtin fn` with a core implementation, because
+    moving them to `native fn` buys nothing the resolver did not already
+    give. `str`, `contains`, `clear` and `snapshot` have reasons of
+    their own to stay core, and the reasons are measured, not assumed:
+    `contains` carries twelve distinct diagnostics, `clear` and
+    `snapshot` carry hints keyed on the type that was rejected, and
+    `str` takes expressions that cannot describe themselves. Those are
+    recorded under "Relaxing the no-overloading rule" below. The operators themselves
     (`+`/`-`/`==`/etc.) were never a candidate either way, for the same
     "no operator overloading" reason (see docs/DESIGN.md's "Numbers"
     entry) — those stay hardcoded in `eval_binary`/`check_binary`
@@ -1957,9 +2018,12 @@ from source.
   deliberately diverging from Java's well-known `BigDecimal.equals()`
   gotcha where scale participates in `equals()` but not `compareTo()`);
   `decimal_round(d, scale)` is the `floor`/`ceil`/`round` equivalent (a
-  separate name, not an overload — a native takes exactly one signature
-  per name; see "Relaxing the no-overloading rule" for what the builtins
-  do instead). A literal needs an explicit `d` suffix (`19.99d`,
+  separate name, not an overload — when this was written a native took
+  exactly one signature per name; **since F184 it does not**, and
+  `round(x: float) -> int` against `decimal_round(d: decimal, scale:
+  int) -> decimal` differ in argument one, so merging them into one
+  `round` set is now possible and simply has not been argued for. See
+  "Relaxing the no-overloading rule"). A literal needs an explicit `d` suffix (`19.99d`,
   `20d`). Both compose with everything already built: a generic type
   argument (`Box<bigint>`/`Box<decimal>`), an array element, and a
   `HashMap` key/value (`bigint` satisfies both `Eq`/`Hash`) all verified
