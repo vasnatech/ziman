@@ -1477,13 +1477,13 @@ static void warn_brace_interpolation(Env *env, Expr *e) {
  * with `#[effectful]` and `call_is_effectful_overload` vetoes the name. Those three could not be
  * listed at all until that attribute existed (F208). */
 static const char *const PURE_BUILTINS[] = {
-    "push", "insert", "set", "remove", "mutable", "swap",
+    "set", "remove", "mutable",
     "len", "str", "format", "contains", "abs", "min", "max", "hash", "compare", "error_message",
     "is_ok",
     "get", "get_or", "keys", "values", "merge", "filter", "remove_all",
     "items", "union", "intersect", "difference", "is_subset", "add",
-    "to_set", "concat",
-    "snapshot", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set",
+    "concat",
+    "snapshot", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from",
     NULL};
 
 /* The callee as the author wrote it: `rewritten_from` when the checker has replaced `callee` with
@@ -1558,8 +1558,8 @@ static int is_pure_builtin_name(const char *name) {
  * conversion removes its two entries the same way -- the name appears once per world. */
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
-    "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "to_set", "concat", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", NULL,
+    "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "concat", "snapshot", "mutable", "clear", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -1582,7 +1582,7 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * name with no declaration at all (`format`, `printf`, the parser's `$` names) can never appear
  * here -- there is nothing to canonicalize against. */
 static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
-    "abs", "len", "swap", "to_set", "filter", "keys", "values",
+    "abs", "len", "filter", "keys", "values",
     "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", NULL,
 };
 
@@ -2789,34 +2789,6 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * The indices are checked by the runtime so a computed one is caught, but the *type* of each is
      * checked here so the message names `swap` rather than the element write a rewrite would
      * otherwise blame. */
-    /* `narrow(b, start, end)`: keep that window of the builder, in place, answering nothing. The
-     * in-place counterpart of `slice`, which is a query and so copies. Builder-only, like `clear`
-     * and `snapshot`: an immutable array has nothing to narrow, `slice` making a new one instead.
-     * It replaced `mutable_array_truncate`, which was `narrow(b, 0, n)`. */
-    if (strcmp(name, "narrow") == 0) {
-        if (e->as.call.args.count != 3) {
-            ziman_error("type", e->line, e->col, "'narrow' takes exactly 3 arguments, found %d", e->as.call.args.count);
-        }
-        Expr *target = e->as.call.args.items[0];
-        Type target_type = check_expr(module, env, target);
-        if (!(target_type.kind == TY_STRUCT && target_type.struct_name != NULL &&
-              strcmp(target_type.struct_name, "MutableArray") == 0)) {
-            ziman_error("type", target->line, target->col,
-                        "'narrow' expects a MutableArray -- it shortens one in place, where an array has "
-                        "nothing to narrow and 'slice(a, start, end)' makes a new one -- found %s",
-                        type_name(target_type));
-        }
-        for (int i = 1; i < 3; i++) {
-            Expr *bound = e->as.call.args.items[i];
-            Type bound_type = check_expr(module, env, bound);
-            if (bound_type.kind != TY_INT) {
-                ziman_error("type", bound->line, bound->col, "argument %d of 'narrow' expects int, found %s", i + 1,
-                            type_name(bound_type));
-            }
-        }
-        *out = type_scalar(TY_VOID);
-        return 1;
-    }
 
     /* `slice(x, start, end)`: the elements from `start` up to `end`, as an array, from either
      * world. It was a `native` until 2026-10-18 and had to become a builtin to take both, every
@@ -3058,6 +3030,23 @@ static int bare_some_payload_type(Module *module, Env *env, Expr *e, Type *out) 
     return 1;
 }
 
+/* Whether `actual` cannot match `pattern` at the top level -- the shapes differ, so `unify_type`
+ * walks nothing and binds nothing. Its own contract leaves a structural mismatch to
+ * `check_value_against_param_type`, which runs *after* every type argument is known; when the
+ * mismatch is the reason one is not known, that check is never reached and the call used to fail
+ * as "cannot infer type argument 'T' ... write it explicitly". For a parameter like `narrow`'s
+ * `MutableArray<T>` given an `[int]` that is advice no `T` can satisfy, and F215 put `narrow`
+ * back on a builtin id rather than ship it. This is the fix F216 made instead. */
+static int shape_cannot_match(Type pattern, Type actual) {
+    if (pattern.kind == TY_TYPEVAR) return 0;
+    if (pattern.kind != actual.kind) return 1;
+    if (pattern.kind == TY_STRUCT) {
+        return pattern.struct_name == NULL || actual.struct_name == NULL
+               || strcmp(pattern.struct_name, actual.struct_name) != 0;
+    }
+    return 0;
+}
+
 static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, FunctionDecl *fn) {
     int n_params = fn->type_params.count;
     Type *bindings = ziman_xcalloc((size_t)n_params, sizeof(Type));
@@ -3067,6 +3056,14 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
     int fixed_count = is_variadic ? fn->params.count - 1 : fn->params.count;
     int given = e->as.call.args.count;
     int n = given < fixed_count ? given : fixed_count;
+
+    /* The first argument whose shape the declared parameter cannot match, kept for the failure
+     * below. Recorded rather than raised here, because an argument that binds nothing is only an
+     * error if some type parameter then goes unbound -- `None` binds nothing either, and the other
+     * arguments are expected to bind for it. */
+    int blame_pos = 0;
+    Type blame_pattern = (Type){0}, blame_actual = (Type){0};
+    const Expr *blame_at = NULL;
 
     for (int i = 0; i < n; i++) {
         Type pattern = fn->params.items[i].type;
@@ -3085,6 +3082,12 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
             continue;
         }
         Type actual = check_expr(module, env, arg);
+        if (blame_pos == 0 && shape_cannot_match(pattern, actual)) {
+            blame_pos = i + 1;
+            blame_pattern = pattern;
+            blame_actual = actual;
+            blame_at = arg;
+        }
         unify_type(pattern, actual, &fn->type_params, bindings, bound, arg, fn->name, i + 1);
     }
     if (is_variadic && given > fixed_count) {
@@ -3119,6 +3122,19 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
     TypeList out = {0};
     for (int i = 0; i < n_params; i++) {
         if (!bound[i]) {
+            /* An argument the parameter could not have matched is the real error, and naming it is
+             * what "write it explicitly" cannot do: no type argument makes an `[int]` a
+             * `MutableArray<T>`. `#[when_unmatched]` is appended here too -- a shape mismatch
+             * against the only declaration is precisely the case that attribute is for, and a
+             * single-declaration name never reaches the overload resolver that otherwise adds
+             * it. The old message stays for a call that really is uninferable, where every
+             * argument fits and none of them mentions the parameter. */
+            if (blame_pos > 0) {
+                ziman_error("type", blame_at->line, blame_at->col, "argument %d of '%s' expects %s, found %s%s%s",
+                            blame_pos, fn->name, type_name(blame_pattern), type_name(blame_actual),
+                            fn->when_unmatched != NULL ? " -- " : "",
+                            fn->when_unmatched != NULL ? fn->when_unmatched : "");
+            }
             ziman_error("type", e->line, e->col,
                         "cannot infer type argument '%s' of '%s' from its arguments; write it explicitly, e.g. '%s<...>(...)'",
                         fn->type_params.items[i].name, fn->name, fn->name);
@@ -3458,17 +3474,21 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return type_scalar(strcmp(name, "printf") == 0 ? TY_VOID : TY_STRING);
     }
 
+    /* The three `$` names the parser emits for `mutable(x)`. `to_mutable_set` was here too until
+     * F215 converted it to two `native fn` declarations -- and leaving it in this arm while taking
+     * its builtin id away is what made `items(to_mutable_set(xs))` segfault for one build: the arm
+     * answers before the resolver, so `call_fn` stayed NULL and the interpreter looked for an id
+     * that no longer existed. **Converting a name means deleting its arm, not only its id.** */
     if (strcmp(name, "$mutable_array_from") == 0 || strcmp(name, "$mutable_map_from") == 0 ||
-        strcmp(name, "$mutable_set_from") == 0 || strcmp(name, "to_mutable_set") == 0) {
+        strcmp(name, "$mutable_set_from") == 0) {
         if (e->as.call.args.count != 1) {
             ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", name, e->as.call.args.count);
         }
         Expr *arg = e->as.call.args.items[0];
         Type arg_type = check_expr(module, env, arg);
-        int from_array = strcmp(name, "to_mutable_set") == 0;
-        MutableShape source = strcmp(name, "$mutable_array_from") == 0 || from_array ? SHAPE_ARRAY
-                              : strcmp(name, "$mutable_map_from") == 0              ? SHAPE_MAP
-                                                                                    : SHAPE_SET;
+        MutableShape source = strcmp(name, "$mutable_array_from") == 0 ? SHAPE_ARRAY
+                              : strcmp(name, "$mutable_map_from") == 0  ? SHAPE_MAP
+                                                                        : SHAPE_SET;
         Type elem = type_scalar(TY_VOID), value = type_scalar(TY_VOID);
         if (!either_world(arg_type, source, &elem, &value)) {
             ziman_error("type", arg->line, arg->col, "'%s' expects %s or %s, found %s", name,
@@ -3476,14 +3496,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                         source == SHAPE_ARRAY ? "a MutableArray" : source == SHAPE_MAP ? "a MutableMap" : "a MutableSet",
                         type_name(arg_type));
         }
-        MutableShape result = from_array ? SHAPE_SET : source;
-        /* A set's element has to be hashable whichever way it got there; the Map and Set sources
-         * already were, so this only ever fires for `to_mutable_set`. */
-        if (result == SHAPE_SET && !type_supports_hashing(module, elem, 0)) {
-            ziman_error("type", arg->line, arg->col,
-                        "'%s' needs an element type that supports '==' and hashing, found %s", name, type_name(elem));
-        }
-        return mutable_handle_type(result, elem, result == SHAPE_MAP ? &value : NULL);
+        return mutable_handle_type(source, elem, source == SHAPE_MAP ? &value : NULL);
     }
 
     if (strcmp(name, "clear") == 0) {

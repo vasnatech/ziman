@@ -192,18 +192,36 @@ native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
 // Unlike truncate it does **not** clamp: `end` past the length is a runtime error, as it is for
 // `slice` and for an index. Truncate's clamp made `truncate(b, 99)` on a length-2 builder a silent
 // no-op, which hid a wrong computation rather than reporting it.
-builtin fn narrow<T>(b: MutableArray<T>, start: int, end: int)
+// `native fn` since F216, and the name that paid for the fix the whole family needed. Its only
+// parameter is `MutableArray<T>`, so an array argument binds no `T`, and type-argument inference
+// used to fail with "write it explicitly" -- advice no `T` can satisfy. F216 taught that failure
+// to blame the argument instead (`shape_cannot_match` in typecheck.c), so the message is now
+// "argument 1 of 'narrow' expects MutableArray<T>, found [int]" with the line below after it.
+// Every single-builder-parameter name is convertible on the back of that.
+#[when_unmatched("it shortens a MutableArray in place, where an array has nothing to narrow -- 'slice(a, start, end)' makes a new one instead")]
+native fn narrow<T>(b: MutableArray<T>, start: int, end: int)
 
 // **Exchanges the elements at `i` and `j`, in both worlds.** The same question of each, answered
 // the way each can: a new array from the array, nothing from the builder, which is written in
-// place. Both worlds are answered by the one builtin: unlike `push`, there is no prefixed name
-// underneath it, `mutable_array_swap` having been removed once this covered both.
+// place. Two `native fn` declarations since F216, one per world, where a single builtin id had
+// tested `args[0]` at run time. No prefixed *declaration* stands under it -- the
+// `mutable_array_swap` the vocabulary once had went when `swap` covered both worlds -- but the C
+// symbols keep the prefix, as every converted name's do.
+//
+// **What this costs, recorded because it is the largest of the conversions and was measured
+// twice.** `reverse` on a builder is a loop whose body is *only* this call, so the frame a native
+// call pushes is the whole per-iteration cost: 4,000,000 swaps through `reverse` run about **7-11%
+// slower** than the builtin id did. That is the price of the id table not growing without bound,
+// and the id table is what does not scale. Two things are *not* the answer to it: rewriting
+// `reverse` over `b[i]` is **63% worse** (three index operations are three handle lookups, where
+// this does the exchange inside one), and keeping one name on an id to save 10% of one prelude
+// loop is how the table got to seventy entries.
 //
 // The array form closes a gap rather than renaming one. Its only previous spelling was
 // `set(set(a, i, a[j]), j, a[i])`, which copies the whole array **twice** to move two slots,
 // because `set` always copies. This copies once.
-builtin fn swap<T>(a: [T], i: int, j: int) -> [T]
-builtin fn swap<T>(b: MutableArray<T>, i: int, j: int)
+native fn swap<T>(a: [T], i: int, j: int) -> [T]
+native fn swap<T>(b: MutableArray<T>, i: int, j: int)
 
 // **`items` back to front, as a new array; the one given is untouched**, arrays being values.
 // Native rather than written in Ziman so the result is one allocation of the known length, where
@@ -251,8 +269,8 @@ native fn iter<T>(items: [T]) -> Iter<T>
 // answer in the other world, and it has to be a second name rather than an overload: the two take
 // the *same* argument types and differ only in what they return, which first-argument dispatch
 // cannot distinguish.
-builtin fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
-builtin fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
+native fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
+native fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
 
 // The position of the first occurrence of `needle` in `haystack` at or after `from`, or -1; an
 // empty `needle` is found at `from`. For finding a delimiter (a CRLF CRLF, a boundary) in bytes:
@@ -430,7 +448,7 @@ pub fn sort_by_desc<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
 // exactly this shape since F199 (`builtin fn` for a `Set`, native for a `MutableSet`), which is
 // why it needed no new mechanism.
 #[at_least_one]
-builtin fn push<T>(a: [T], values: variadic T) -> [T]
+native fn push<T>(a: [T], values: variadic T) -> [T]
 
 // The MutableArray's `push` is the array's, for the reason `len` and `contains` are: appending is
 // the same question of both, so it is the same word. The difference is in what the call answers --
@@ -452,7 +470,7 @@ native fn push<T>(b: MutableArray<T>, values: variadic T)
 // and a set has neither -- F199 settled that `insert` is positional only and gave both set worlds
 // `add`, and F206 made the checker say so, the set form having gone on being accepted undeclared
 // for a pass after the decision.
-builtin fn insert<T>(a: [T], index: int, x: T) -> [T]
+native fn insert<T>(a: [T], index: int, x: T) -> [T]
 
 // An index in a MutableArray, for the same reason `push` is shared. `index` may be `len(b)`,
 // which appends -- the same rule the immutable form follows, so adding at the end needs no second
@@ -475,8 +493,8 @@ native fn insert<T>(b: MutableArray<T>, index: int, value: T)
 // argument that has the choice -- the handle is always a handle.
 
 // The one that changes shape rather than world: an array in, a set out.
-builtin fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
-builtin fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
+native fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
+native fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
 
 // The positions of `keys` in sorted order: the array of indices that, read in order, visits
 // `keys` smallest first, or largest first when `descending`. Stable in both directions -- equal

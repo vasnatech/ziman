@@ -158,6 +158,10 @@ void ziman_mutable_array_push_all(Value xs, Value source, int source_is_handle);
  * prelude.c. Both are reached by pointer identity from interpreter.c, not by name. */
 Value ziman_mutable_array_push(Value *args, int argc, int line, int col);
 void ziman_mutable_array_push_one(Value ab, Value element);
+/* `push`'s array half and its one-value shortcut, the twins of the two above. Both are reached by
+ * pointer identity from interpreter.c, not by name. */
+Value ziman_array_push_values(Value *args, int argc, int line, int col);
+Value ziman_array_push_one(Value arr, Value x);
 void ziman_mutable_map_set_all(Value m, Value source, int source_is_handle);
 void ziman_mutable_set_combine(Value s, Value source, int source_is_handle, int op);
 int ziman_mutable_set_is_subset(Value s, Value source, int source_is_handle);

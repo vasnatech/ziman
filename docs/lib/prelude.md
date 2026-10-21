@@ -762,7 +762,7 @@ from this only in what it returns.
 ### `narrow`
 
 ```
-builtin fn narrow<T>(b: MutableArray<T>, start: int, end: int)
+native fn narrow<T>(b: MutableArray<T>, start: int, end: int)
 ```
 
 **Keeps only the elements from `start` up to `end`, in place, answering nothing.** The in-place
@@ -781,24 +781,41 @@ loop, O(n) a call and so quadratic, against one pack-aware memmove here. `clear(
 Unlike truncate it does **not** clamp: `end` past the length is a runtime error, as it is for
 `slice` and for an index. Truncate's clamp made `truncate(b, 99)` on a length-2 builder a silent
 no-op, which hid a wrong computation rather than reporting it.
+`native fn` since F216, and the name that paid for the fix the whole family needed. Its only
+parameter is `MutableArray<T>`, so an array argument binds no `T`, and type-argument inference
+used to fail with "write it explicitly" -- advice no `T` can satisfy. F216 taught that failure
+to blame the argument instead (`shape_cannot_match` in typecheck.c), so the message is now
+"argument 1 of 'narrow' expects MutableArray<T>, found [int]" with the line below after it.
+Every single-builder-parameter name is convertible on the back of that.
 
 ### `swap`
 
 ```
-builtin fn swap<T>(a: [T], i: int, j: int) -> [T]
+native fn swap<T>(a: [T], i: int, j: int) -> [T]
 ```
 
 **Exchanges the elements at `i` and `j`, in both worlds.** The same question of each, answered
 the way each can: a new array from the array, nothing from the builder, which is written in
-place. Both worlds are answered by the one builtin: unlike `push`, there is no prefixed name
-underneath it, `mutable_array_swap` having been removed once this covered both.
+place. Two `native fn` declarations since F216, one per world, where a single builtin id had
+tested `args[0]` at run time. No prefixed *declaration* stands under it -- the
+`mutable_array_swap` the vocabulary once had went when `swap` covered both worlds -- but the C
+symbols keep the prefix, as every converted name's do.
+
+**What this costs, recorded because it is the largest of the conversions and was measured
+twice.** `reverse` on a builder is a loop whose body is *only* this call, so the frame a native
+call pushes is the whole per-iteration cost: 4,000,000 swaps through `reverse` run about **7-11%
+slower** than the builtin id did. That is the price of the id table not growing without bound,
+and the id table is what does not scale. Two things are *not* the answer to it: rewriting
+`reverse` over `b[i]` is **63% worse** (three index operations are three handle lookups, where
+this does the exchange inside one), and keeping one name on an id to save 10% of one prelude
+loop is how the table got to seventy entries.
 
 The array form closes a gap rather than renaming one. Its only previous spelling was
 `set(set(a, i, a[j]), j, a[i])`, which copies the whole array **twice** to move two slots,
 because `set` always copies. This copies once.
 
 ```
-builtin fn swap<T>(b: MutableArray<T>, i: int, j: int)
+native fn swap<T>(b: MutableArray<T>, i: int, j: int)
 ```
 
 ### `reverse`
@@ -843,7 +860,7 @@ rather than a cost to be removed.
 ### `to_set`
 
 ```
-builtin fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
+native fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
 ```
 
 **The distinct elements of a sequence, as a Set.** Named for its result rather than its source
@@ -860,7 +877,7 @@ the *same* argument types and differ only in what they return, which first-argum
 cannot distinguish.
 
 ```
-builtin fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
+native fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
 ```
 
 ### `index_of`
@@ -1013,7 +1030,7 @@ Descending by a computed key, on the snapshot, as `sort_by` is.
 ### `push`
 
 ```
-builtin fn push<T>(a: [T], values: variadic T) -> [T]
+native fn push<T>(a: [T], values: variadic T) -> [T]
 ```
 
 A new array with the values on the end; the original is unchanged, these being immutable values.
@@ -1046,7 +1063,7 @@ only** (F205). Parameter one is where these two declarations differ, so it lands
 ### `insert`
 
 ```
-builtin fn insert<T>(a: [T], index: int, x: T) -> [T]
+native fn insert<T>(a: [T], index: int, x: T) -> [T]
 ```
 
 **`insert` and `set` are not interchangeable, and each has its own error telling the reader
@@ -1076,13 +1093,13 @@ declarations differ, so it finds `mutable_array_insert`.
 ### `to_mutable_set`
 
 ```
-builtin fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
+native fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
 ```
 
 The one that changes shape rather than world: an array in, a set out.
 
 ```
-builtin fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
+native fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
 ```
 
 ### `array_order_of`

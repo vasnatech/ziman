@@ -3460,3 +3460,65 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   **-3.2%**, which is to say no difference the machine can resolve. The microbenchmark cost does
   not reach code that does anything with the window it takes. One new fixture
   (`slice_paired_declarations`). 1,116 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F215** **array.zm has no `builtin fn` left: all nine become native declarations, and the
+  conversion turns out to be *faster*.** (user-raised, "most builtin functions in array.zm can be
+  native functions", then — after I put two back on measurement — "stop bringing builtin functions
+  back. builtin approach is not scalable. That is why we added function overloading to ziman.";
+  done 2026-10-21.) `make overload-sets-check` moves to **46 resolver-owned sets and 14 polymorphic
+  builtins**, from 43/17. `to_set`, `to_mutable_set`, `narrow`, `swap` and the array halves of
+  `push` and `insert` all follow `slice` (F214); `grep -c '^builtin fn' lib/prelude/array.zm` is 0.
+
+  **I was wrong twice, and the user's direction was right both times.** First I converted `narrow`,
+  hit a bad diagnostic, and reverted it rather than fixing the cause. Then I converted `swap`,
+  measured 7–11% on `reverse`, and reverted that too. Both reverts were the local optimum and the
+  wrong call: the id table is what does not scale, and trading a name back onto it to save 10% of
+  one prelude loop is how the table reached seventy entries. Correcting course produced a better
+  answer than either revert, for both problems.
+
+  **The diagnostic was a real gap, and fixing it unblocks every name of that shape.** `narrow`'s
+  only parameter is `MutableArray<T>`, so an array argument binds no `T` and inference failed with
+  *"cannot infer type argument 'T' … write it explicitly"* — advice no `T` can satisfy.
+  **`unify_type` leaves a top-level shape mismatch unreported by contract**, deferring to
+  `check_value_against_param_type`, which runs only once every type argument is bound; when the
+  mismatch is *why* one is unbound, nothing reported it. `shape_cannot_match` records the first such
+  argument and the failure now blames it: *"argument 1 of 'narrow' expects MutableArray<T>, found
+  [int]"*, with `#[when_unmatched]` appended — a single-declaration name never reaches the overload
+  resolver that otherwise adds that line. The old message survives for a genuinely uninferable call
+  (`mutable_array_new()`), where every argument fits and none mentions the parameter.
+
+  **And the performance objection was mostly an artefact of the shim, not of native dispatch.**
+  Interleaved runs of three binaries from one tree:
+
+  | | builtin id | native | native + fast path |
+  |---|---|---|---|
+  | 2M `a = push(a, i)` (tip reuse) | 0.276 s | +67.8% | **−32.3%** |
+  | 500k `insert(a, 2, x)` | 0.107 s | −23.6% | **−21.1%** |
+  | 4M swaps via `reverse()` | 0.396 s | +10.9% | **+8.0%** |
+  | 2M `slice<byte>` | 0.234 s | +1.2% | +5.0% |
+
+  `push`'s +68% was **`collapse_variadic_args` allocating a one-element array on every call**, not
+  the frame — `a = push(a, i)` with one value is how the array-building loop is always written. The
+  builder half has skipped that since D18 (`ziman_mutable_array_push_one`); the array half now has
+  its twin, and is then **a third faster than the builtin ever was**, because an id walks a chain of
+  ~48 `else if` comparisons where a resolved `call_fn` is one pointer. `insert` is a fifth faster
+  for the same reason. **Only `swap` is genuinely slower** (+8%: `reverse` is a loop whose body is
+  nothing but the call), and rewriting `reverse` over `b[i]` is not the answer — that is 63% worse,
+  three handle lookups against one.
+
+  **The same mistake twice in one sitting: converting a name means deleting its arm, not only its
+  id.** `to_mutable_set` shared an arm with the `$mutable_*_from` names; leaving it there while
+  taking its id away made `items(to_mutable_set(xs))` **segfault**, because the arm answers before
+  the resolver and `call_fn` stayed NULL. I wrote that lesson into a comment — and then restored
+  `narrow`'s arm during the revert and segfaulted `narrow_mutable_array` the same way an hour later.
+  `to_set` had no arm, which is why it worked first time.
+
+  **F212's guard caught my own change twice.** Converting `swap` left `"swap"` in `PURE_BUILTINS`
+  with nothing dispatching it; converting `push`/`insert` left them in the builtin roster with no
+  `builtin fn` declaration. `make api-check` failed with exactly the messages those checks exist to
+  give, one commit after they were written.
+
+  `to_mutable_set`'s diagnostic improved by moving: the arm's *"needs an element type that supports
+  '==' and hashing"* is the `T: Eq + Hash` bound now, which answers *"type argument Channel<int>
+  does not satisfy bound 'Eq' required by type parameter 'T'"*. 1,116 fixtures, `make check` exit 0
+  with the North Star.

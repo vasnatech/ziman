@@ -1,1 +1,1 @@
-'narrow' expects a MutableArray -- it shortens one in place, where an array has nothing to narrow
+argument 1 of 'narrow' expects MutableArray<T>, found [int] -- it shortens a MutableArray in place, where an array has nothing to narrow -- 'slice(a, start, end)' makes a new one instead

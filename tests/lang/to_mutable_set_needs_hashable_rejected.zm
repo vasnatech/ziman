@@ -1,5 +1,8 @@
-// A set's element has to be hashable however it got there. The Map and Set sources already are by
-// their own declarations, so this is the one conversion where the check can actually fire.
+// A Set's element has to support `==` and hashing, whichever way it got there. F215 made
+// `to_mutable_set` two `native fn` declarations, so the bound that states this is the `T: Eq +
+// Hash` on them rather than a `type_supports_hashing` call in a hand-written arm -- and the
+// message improved by moving: it names the bound and the type parameter carrying it, where the
+// arm said only "needs an element type that supports '==' and hashing".
 fn main() {
     val c: Channel<int> = channel_new()
     val s = to_mutable_set([c])

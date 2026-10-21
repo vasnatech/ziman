@@ -1,4 +1,14 @@
-// Builder-only: an immutable array has nothing to narrow, and the message says what to use instead.
+// `narrow` shortens a MutableArray in place, so an array argument is a mistake with a specific
+// repair -- `slice(a, start, end)` makes a new array and is what an immutable one wants.
+//
+// **This fixture is why F216's inference fix exists.** The message came from a hand-written arm
+// until then. Converting `narrow` to a `native fn` moved the type rule onto the declaration, and
+// the first attempt answered "cannot infer type argument 'T' of 'narrow' from its arguments;
+// write it explicitly" -- advice no `T` can satisfy, since none makes an `[int]` a
+// `MutableArray<T>`. `unify_type` leaves a top-level shape mismatch unreported by contract,
+// deferring to a check that runs only once every type argument is bound, so when the mismatch is
+// *why* one is unbound nothing reported it. The failure now blames the argument, and
+// `#[when_unmatched]` carries the sentence the arm used to.
 fn main() {
     narrow([1, 2], 0, 1)
     print(1)

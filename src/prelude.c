@@ -2016,6 +2016,124 @@ Value ziman_narrow_mutable_array(Value b, int64_t start, int64_t end, int line, 
  * `slice(snapshot(b), s, e)` copies the *entire* builder first, since snapshot is O(n) and the
  * slice of it is then free, so a three-element window of a ten-thousand-element builder copied ten
  * thousand elements. */
+/* **One shim per declaration, for the names F215 took off the builtin ids.** Each is the body the
+ * `else if (bid == B_x)` branch had, with the world chosen by *which declaration* was resolved
+ * rather than by testing `args[0].type->kind` at run time -- which is the whole of what moving
+ * from one id to two declarations buys at this layer. None of them sets the result's element type
+ * and none has to: the `call_fn` path fixes up a generic native's return from `e->resolved_type`
+ * (interpreter.c), exactly as the branches did by hand. */
+static Value native_narrow_mutable_array(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return ziman_narrow_mutable_array(args[0], args[1].as.i, args[2].as.i, line, col);
+}
+
+static Value native_array_to_mutable_set(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return ziman_mutable_set_from_array(args[0], 0);
+}
+
+static Value native_mutable_array_to_mutable_set(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return ziman_mutable_set_from_array(args[0], 1);
+}
+
+/* `to_set` over either world, in one pass. The builder is read element by element through
+ * `ziman_array_builder_at` rather than snapshotted first, which would make the conversion two
+ * copies instead of one -- the reason the builder member exists at all. */
+static Value native_array_to_set(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MapObj *m = mapobj_empty();
+    for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), value_int(0));
+    return value_map(type_scalar_ref(TY_VOID), m);
+}
+
+static Value native_mutable_array_to_set(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MapObj *m = mapobj_empty();
+    int n = ziman_array_builder_length(args[0]);
+    for (int i = 0; i < n; i++) m = mapobj_set(m, ziman_array_builder_at(args[0], i), value_int(0));
+    return value_map(type_scalar_ref(TY_VOID), m);
+}
+
+/* `push`'s array member, F216. The variadic tail arrives as one array because
+ * `collapse_variadic_args` runs on the `call_fn` path -- which is the whole of what F207's
+ * `variadic_tail_is_array_spread` dance in `B_push` existed to work around, so converting the
+ * member deletes it rather than porting it. Each fold takes the buffer's next slot in place when
+ * the array it is given is the tip and there is room, which every result after the first one is,
+ * so appending k values costs about k and not k copies. */
+Value ziman_array_push_values(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Value out = args[0];
+    const ArrayObj *vals = args[1].as.arr;
+    for (int i = 0; i < vals->count; i++) {
+        out = value_array(type_scalar_ref(TY_VOID), array_push(out.as.arr, array_get(vals, i)));
+    }
+    return out;
+}
+
+/* The one-value `push(a, x)`, which is how almost every call to the array half is written, before
+ * `collapse_variadic_args` allocates a one-element array to carry it. **This is the whole of what
+ * F216's conversion cost and the whole of the fix**: measured without it, `a = push(a, i)` two
+ * million times ran 65% slower than the builtin id had, all of it that temporary. The builder half
+ * has had the same shortcut since D18 (`ziman_mutable_array_push_one`), and for the same reason;
+ * this is its twin, so neither world pays for a variadic it did not use. */
+Value ziman_array_push_one(Value arr, Value x) {
+    return value_array(type_scalar_ref(TY_VOID), array_push(arr.as.arr, x));
+}
+
+/* `insert`'s array member, F216: the body `call_insert` had in interpreter.c, which used the
+ * call's resolved type for nothing but tagging its result -- and the `call_fn` path tags a generic
+ * native's result itself. `index` may equal the length, which appends. */
+static Value native_array_insert(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const ArrayObj *old = args[0].as.arr;
+    int64_t i = args[1].as.i;
+    if (i < 0 || i > old->count) {
+        ziman_error("runtime", line, col, "insert index %lld out of bounds (array length %d)",
+                    (long long)i, old->count);
+    }
+    if (array_pack_kind(old) != PK_NONE) {
+        return value_array(type_scalar_ref(TY_VOID), array_packed_edit(old, 1, (int)i, args[2]));
+    }
+    int new_count = old->count + 1;
+    Value *items = ziman_xmalloc((size_t)new_count * sizeof(Value));
+    memcpy(items, old->boxed_items, (size_t)i * sizeof(Value));
+    items[i] = args[2];
+    memcpy(items + i + 1, old->boxed_items + i, (size_t)(old->count - (int)i) * sizeof(Value));
+    ArrayObj *packed = old->count == 0 ? array_try_pack(items, new_count) : NULL;
+    return value_array(type_scalar_ref(TY_VOID), packed != NULL ? packed : array_obj_new(items, new_count));
+}
+
+/* `swap`'s array member answers a copy with the two exchanged, in one allocation where
+ * `set(set(a, i, a[j]), j, a[i])` made two; the builder member writes in place and answers
+ * nothing. The prefix on this symbol is the only `mutable_array_swap` left anywhere -- the
+ * declaration of that name went when `swap` covered both worlds. */
+static Value native_array_swap(Value *args, int argc, int line, int col) {
+    (void)argc;
+    ArrayObj *old = args[0].as.arr;
+    int64_t i = args[1].as.i, j = args[2].as.i;
+    if (i < 0 || i >= old->count || j < 0 || j >= old->count) {
+        ziman_error("runtime", line, col, "swap index %lld/%lld out of bounds (array length %d)",
+                    (long long)i, (long long)j, old->count);
+    }
+    return value_array(type_scalar_ref(TY_VOID), array_swapped(old, (int)i, (int)j));
+}
+
+static Value native_mutable_array_swap(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return ziman_swap_mutable_array(args[0], args[1].as.i, args[2].as.i, line, col);
+}
+
 /* `slice`'s two members, native since F214. The implementations below are unchanged and were
  * reached from `B_slice`'s arm until then; these are the three-argument shims the resolver's path
  * needs. Neither sets the result's element type, and neither has to: the `call_fn` path fixes up a
@@ -2435,6 +2553,15 @@ void prelude_register(void) {
     native_register("array_flat_map", native_array_flat_map);
     native_register("array_reverse", native_array_reverse);
     native_register("array_slice", native_array_slice);
+    native_register("mutable_array_narrow", native_narrow_mutable_array);
+    native_register("array_to_mutable_set", native_array_to_mutable_set);
+    native_register("mutable_array_to_mutable_set", native_mutable_array_to_mutable_set);
+    native_register("array_to_set", native_array_to_set);
+    native_register("mutable_array_to_set", native_mutable_array_to_set);
+    native_register("array_swap", native_array_swap);
+    native_register("array_push", ziman_array_push_values);
+    native_register("array_insert", native_array_insert);
+    native_register("mutable_array_swap", native_mutable_array_swap);
     native_register("mutable_array_slice", native_mutable_array_slice);
     native_register("string_to_bytes", native_string_to_bytes);
     native_register("bytes_to_string", native_bytes_to_string);

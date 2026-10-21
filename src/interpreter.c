@@ -406,11 +406,22 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
      * it was measured (D18). Picked by comparing the already-cached native pointer rather than by
      * name, so every other call pays two integer tests and a relaxed load. On the very first call
      * the pointer is not resolved yet and this falls through to the general path, once. */
-    if (fn->is_native && raw_argc == 2 && !tail_is_array_spread &&
-        (NativeFn)__atomic_load_n(&fn->native_impl, __ATOMIC_RELAXED) == ziman_mutable_array_push) {
-        ziman_mutable_array_push_one(raw_args[0], raw_args[1]);
-        ziman_pop_frame();
-        return value_int(0);
+    if (fn->is_native && raw_argc == 2 && !tail_is_array_spread) {
+        NativeFn impl = (NativeFn)__atomic_load_n(&fn->native_impl, __ATOMIC_RELAXED);
+        if (impl == ziman_mutable_array_push) {
+            ziman_mutable_array_push_one(raw_args[0], raw_args[1]);
+            ziman_pop_frame();
+            return value_int(0);
+        }
+        /* The array half, since F216 made it a declaration too. Without this the temporary the
+         * collapse allocates is 65% of the call: `a = push(a, i)` is the array-building loop, and
+         * one value is how it is always written. The result's element type is patched by the
+         * caller, as it is for any generic native. */
+        if (impl == ziman_array_push_values) {
+            Value one = ziman_array_push_one(raw_args[0], raw_args[1]);
+            ziman_pop_frame();
+            return one;
+        }
     }
     int argc;
     Value *args = collapse_variadic_args(fn, raw_args, raw_argc, tail_is_array_spread, &argc);
@@ -967,26 +978,6 @@ static Value value_min_max(Module *module, Value *args, int argc, int want_min, 
  * value-semantics decision for arrays. Sharing `old->items[k]` Values by
  * plain struct copy into the new buffer is safe precisely because ArrayObj
  * is immutable once built (see value.h) -- there's nothing to alias into. */
-static Value call_push(Type array_type, Value arr, Value x) {
-    return value_array(type_ref(array_type), array_push(arr.as.arr, x));
-}
-
-static Value call_insert(Type array_type, Value arr, Value idx, Value x, int line, int col) {
-    ArrayObj *old = arr.as.arr;
-    int64_t i = idx.as.i;
-    if (i < 0 || i > old->count) {
-        ziman_error("runtime", line, col, "insert index %lld out of bounds (array length %d)", (long long)i, old->count);
-    }
-    if (array_pack_kind(old) != PK_NONE) return value_array(type_ref(array_type), array_packed_edit(old, 1, (int)i, x));
-    int new_count = old->count + 1;
-    Value *items = ziman_xmalloc((size_t)new_count * sizeof(Value));
-    memcpy(items, old->boxed_items, (size_t)i * sizeof(Value));
-    items[i] = x;
-    memcpy(items + i + 1, old->boxed_items + i, (size_t)(old->count - (int)i) * sizeof(Value));
-    ArrayObj *packed = old->count == 0 ? array_try_pack(items, new_count) : NULL;
-    return value_array(type_ref(array_type), packed != NULL ? packed : array_obj_new(items, new_count));
-}
-
 static Value call_set(Type array_type, Value arr, Value idx, Value x, int line, int col) {
     ArrayObj *old = arr.as.arr;
     int64_t i = idx.as.i;
@@ -1268,17 +1259,12 @@ typedef enum {
     B_mutable_array_push_all,
     B_mutable_array_from,
     B_mutable_array_lit,
-    B_narrow,
-    B_swap,
     B_concat,
     B_mutable_map_from,
     B_mutable_set_from,
-    B_to_mutable_set,
     B_clear,
     B_snapshot,
-    B_push,
     B_set,
-    B_insert,
     B_remove,
     B_map_get,
     B_map_get_or,
@@ -1291,7 +1277,6 @@ typedef enum {
     B_set_filter,
     B_map_remove_all,
     B_set_insert_all,
-    B_to_set,
     B_map_keys,
     B_map_values,
     B_set_items,
@@ -1331,17 +1316,12 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"len", B_len},
     {"$mutable_array_from", B_mutable_array_from},
     {"$mutable_array_lit", B_mutable_array_lit},
-    {"narrow", B_narrow},
-    {"swap", B_swap},
     {"concat", B_concat},
     {"$mutable_map_from", B_mutable_map_from},
     {"$mutable_set_from", B_mutable_set_from},
-    {"to_mutable_set", B_to_mutable_set},
     {"clear", B_clear},
     {"snapshot", B_snapshot},
-    {"push", B_push},
     {"set", B_set},
-    {"insert", B_insert},
     {"remove", B_remove},
     {"get", B_map_get},
     {"get_or", B_map_get_or},
@@ -1356,7 +1336,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"filter", B_map_filter},
     {"remove_all", B_map_remove_all},
     {"add", B_set_insert_all},
-    {"to_set", B_to_set},
     {"keys", B_map_keys},
     {"values", B_map_values},
     {"items", B_set_items},
@@ -1579,24 +1558,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                                                                 : ziman_concat_arrays(pieces);
                     if (e->resolved_type.kind != TY_STRING) result.type = &e->resolved_type;
                 }
-            } else if (bid == B_swap) {
-                /* Both worlds here, no rewrite: an array answers a copy with the two exchanged, in
-                 * one allocation where `set(set(a, i, a[j]), j, a[i])` made two; a builder is
-                 * written in place and answers nothing. */
-                int64_t si = args[1].as.i, sj = args[2].as.i;
-                if (args[0].type->kind == TY_STRUCT) {
-                    result = ziman_swap_mutable_array(args[0], si, sj, e->line, e->col);
-                } else {
-                    ArrayObj *old_arr = args[0].as.arr;
-                    if (si < 0 || si >= old_arr->count || sj < 0 || sj >= old_arr->count) {
-                        ziman_error("runtime", e->line, e->col,
-                                    "swap index %lld/%lld out of bounds (array length %d)",
-                                    (long long)si, (long long)sj, old_arr->count);
-                    }
-                    result = value_array(&e->resolved_type, array_swapped(old_arr, (int)si, (int)sj));
-                }
-            } else if (bid == B_narrow) {
-                result = ziman_narrow_mutable_array(args[0], args[1].as.i, args[2].as.i, e->line, e->col);
             } else if (bid == B_mutable_array_lit) {
                 result = ziman_mutable_array_lit(args, argc);
                 result.type = &e->resolved_type;
@@ -1607,9 +1568,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                        bid == B_mutable_set_from) {
                 result = ziman_mutable_map_from(args[0], bid == B_mutable_set_from);
                 result.type = &e->resolved_type;
-            } else if (bid == B_to_mutable_set) {
-                result = ziman_mutable_set_from_array(args[0], args[0].type->kind == TY_STRUCT);
-                result.type = &e->resolved_type;
             } else if (bid == B_clear) {
                 ziman_builder_clear(args[0]);
                 result = value_int(0); /* void return, as `send` and the other effects do */
@@ -1619,38 +1577,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                  * the call's own resolved type is what makes it an `[int]` rather than an array of
                  * nothing -- the same patch the plain-call path applies to any generic native. */
                 result.type = &e->resolved_type;
-            } else if (bid == B_push) {
-                /* `push(a, x, y, z)`. Each fold takes the buffer's next slot in place when the
-                 * array it is given is the tip and there is room -- which every result after the
-                 * first one is -- so appending k values costs about k, not k copies.
-                 *
-                 * The spread arm is here because of F207, and it is the one thing that conversion
-                 * cost at runtime. §12 concluded that converting a polymorphic builtin is "a
-                 * type-checking change only" because `call_fn` is left unrecorded and dispatch
-                 * stays on the id. **That does not hold for a variadic one.** `collapse_variadic_args`
-                 * runs on the `call_fn` path alone, so the id path had never been handed a spread:
-                 * the arm refused `push(a, [3, 4])` outright, and the declaration's `variadic T`
-                 * was dormant. Deleting the arm made the checker honour the declaration and
-                 * accept it, and `call_push` then appended the `[int]` itself into an `[int]`,
-                 * printing a garbage element rather than failing.
-                 *
-                 * The fix needed nothing new: `remove_all` (F198) and `add` (F199) are the same
-                 * split for the same reason, and both are above. **`push` was the one variadic
-                 * builtin that had never needed it, because its arm refused the spread** -- which
-                 * is the same shape of finding as F206's, an arm concealing what the declarations
-                 * already said. The flag is the checker's verdict rather than a test of the value
-                 * here, since `.type->kind == TY_ARRAY` cannot tell a spread from a lone element
-                 * whose type is itself an array (ast.h says this). */
-                result = args[0];
-                if (e->as.call.variadic_tail_is_array_spread) {
-                    for (int i = 0; i < args[1].as.arr->count; i++) {
-                        result = call_push(e->resolved_type, result, array_get(args[1].as.arr, i));
-                    }
-                } else {
-                    for (int i = 1; i < argc; i++) result = call_push(e->resolved_type, result, args[i]);
-                }
-            } else if ((bid == B_set || bid == B_insert) &&
-                       (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
+            } else if (bid == B_set && (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
                 Value stored = args[0].type->kind == TY_MAP ? args[2] : value_int(0);
                 result = value_map(args[0].type, mapobj_set(args[0].as.map, args[1], stored));
             } else if (bid == B_remove && (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
@@ -1742,18 +1669,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     for (int i = 1; i < argc; i++) m = mapobj_set(m, args[i], value_int(0));
                 }
                 result = value_map(args[0].type, m);
-            } else if (bid == B_to_set) {
-                /* Either world, in one pass: a handle is read element by element through
-                 * `ziman_array_builder_at` rather than snapshotted first, which would make the
-                 * conversion two copies instead of one. */
-                MapObj *m = mapobj_empty();
-                if (args[0].type->kind == TY_STRUCT) {
-                    int n = ziman_array_builder_length(args[0]);
-                    for (int i = 0; i < n; i++) m = mapobj_set(m, ziman_array_builder_at(args[0], i), value_int(0));
-                } else {
-                    for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), value_int(0));
-                }
-                result = value_map(&e->resolved_type, m);
             } else if (bid == B_map_keys) {
                 /* the key set, in the map's insertion order */
                 Value *keys;
@@ -1788,8 +1703,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     m = mapobj_set(m, args[i], is_map ? args[i + 1] : value_int(0));
                 }
                 result = value_map(&e->resolved_type, m);
-            } else if (bid == B_insert) {
-                result = call_insert(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
             } else if (bid == B_set) {
                 result = call_set(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
             } else if (bid == B_remove) {
