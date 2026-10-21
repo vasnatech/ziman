@@ -1015,15 +1015,27 @@ Variadic because appending several is one question, not several: a fold of one-v
 reuses the buffer's tip when it has room, so `push(a, x, y, z)` costs about what the three
 values cost rather than three copies of `a`.
 
+**These two declarations are the whole of `push`'s type checking since F207.** The set is mixed
+on purpose: the array form stays `builtin fn`, dispatched by its id (`B_push`), while the
+MutableArray form is a `native fn`, so the resolver records it on `call_fn` and the interpreter
+derives `mutable_array_push` from parameter one. One name, two mechanisms, no arm. `add` has had
+exactly this shape since F199 (`builtin fn` for a `Set`, native for a `MutableSet`), which is
+why it needed no new mechanism.
+
 ```
-builtin fn push<T>(b: MutableArray<T>, values: variadic T)
+native fn push<T>(b: MutableArray<T>, values: variadic T)
 ```
 
 The MutableArray's `push` is the array's, for the reason `len` and `contains` are: appending is
 the same question of both, so it is the same word. The difference is in what the call answers --
 a new array there, nothing here, the container having been written -- which is the difference
-between the two worlds and not a difference between the two names. The prefixed
-`mutable_array_push` remains as the spelling this rewrites to.
+between the two worlds and not a difference between the two names.
+
+`native fn` rather than `builtin fn`, which is what makes this half dispatchable without the
+arm that used to rewrite the callee: `is_native` is `!is_builtin`, so only a native reaches
+interpreter.c's symbol fallback, and that fallback derives the C symbol from **parameter one
+only** (F205). Parameter one is where these two declarations differ, so it lands on
+`mutable_array_push` and the array form is never a candidate for it.
 
 ### `insert`
 
@@ -1039,12 +1051,15 @@ and a set has neither -- F199 settled that `insert` is positional only and gave 
 for a pass after the decision.
 
 ```
-builtin fn insert<T>(b: MutableArray<T>, index: int, value: T)
+native fn insert<T>(b: MutableArray<T>, index: int, value: T)
 ```
 
-An index in a MutableArray, for the same reason `push` is shared, and rewritten onto
-`mutable_array_insert`. Neither set world has an `insert` form -- membership is `add` in both,
-and an index means nothing to a set.
+An index in a MutableArray, for the same reason `push` is shared. Neither set world has an
+`insert` form -- membership is `add` in both, and an index means nothing to a set.
+
+`native fn` for the reason the MutableArray `push` above is one, and the pair converted
+together in F207: the symbol fallback reads parameter one, which is the only place these two
+declarations differ, so it finds `mutable_array_insert`.
 
 ### `to_mutable_set`
 

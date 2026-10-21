@@ -345,10 +345,10 @@ them against the code.
   express. See docs/ROADMAP.md. *(This list also named
   `len`/`push`/`insert`/`set` and the generics they would need. Both
   halves of that have since gone: `builtin fn` carries generic
-  declarations, `len` became them in F188-F191, and F206 established that
-  `push` and `insert` can. `set` stays hand-written, but for its
-  per-argument messages rather than for anything the type checker cannot
-  say -- docs/design/full-overloading.md §13.)*
+  declarations, `len` became them in F188-F191, and `push` and `insert`
+  became them in F207. `set` stays hand-written, but for its per-argument
+  messages rather than for anything the type checker cannot say --
+  docs/design/full-overloading.md §13 and §14.)*
 - **`Result<T, E>` for recoverable errors — not exceptions, not general
   sum types, a second hardcoded parametric type instead (same trick as
   `[T]`).** Exceptions were ruled out on the same grounds classes and

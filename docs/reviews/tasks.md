@@ -3087,3 +3087,55 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   differ by type*, which a substring match cannot assert. Eight diagnostics, one per (name,
   argument-one type), verified by replacing one line with the old name-keyed arity message and
   watching it fail. 1,109 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F207** **`push` and `insert` become declarations, and a variadic builtin's id path turns
+  out not to be free.** (follows F206; done 2026-10-21.) F206 measured the three split arms and
+  found two convertible. This converts them: both arms are deleted, the callee rewrite and its
+  `rewritten_from` bookkeeping with them, and `make overload-sets-check` moves from 39
+  resolver-owned sets and 20 polymorphic builtins to **41 and 18**.
+
+  **The dispatch question had an answer already, which is the part that looked risky in advance.**
+  Each set is mixed: the array form stays `builtin fn` on its builtin id, the MutableArray form
+  becomes a `native fn`, so `if (!fn->is_builtin) e->call_fn = fn` records it and the interpreter's
+  symbol fallback derives `mutable_array_push`/`mutable_array_insert`. That fallback reads
+  **parameter one only** — which F205 met as a *limit*, when it stopped two `append` declarations
+  sharing a name — and parameter one is where these two declarations differ, so the limit is the
+  mechanism. `add` has had exactly this shape since F199, so nothing here is new.
+
+  **What was not free: §12's "a type-checking change only" is false for a variadic builtin, and
+  the failure was silent.** `collapse_variadic_args` runs on the `call_fn` path alone, so a
+  builtin dispatched by id gets the raw arguments and must spread a trailing array itself. `push`'s
+  arm had *refused* `push(a, [3, 4])`, so `B_push` had never been handed a spread and the
+  declaration's `variadic T` was dormant behind it. Deleting the arm made the checker honour the
+  declaration, accept the call, and append the `[int]` into an `[int]`:
+  `push([1, 2], [3, 4])` printed `[1, 2, 140432405179904]` where it had been a type error. Caught
+  by writing the fixture before believing the conversion, not by the suite — no existing fixture
+  passed a spread to `push`, the arm having made it impossible. **The fix needed nothing new**:
+  `B_map_remove_all` (F198) and `B_set_insert_all` (F199) already read the checker's
+  `variadic_tail_is_array_spread` for the same reason, and `push` was the one variadic builtin that
+  had never needed it. Same shape as F206's finding, one layer down — an arm concealing a gap
+  between what the declarations promise and what the runtime does.
+
+  **Two diagnostic regressions found and fixed, one accepted.**
+  1. `#[when_unmatched]` advice reached only the per-argument messages, so `insert(aSet, x)` —
+     both declarations eliminated on *arity* before any type was compared — said "no declaration
+     of 'insert' takes 2 argument(s)" and nothing else, losing the sentence F206 had just written
+     for it. The advice is about the name; which check ran last is not the author's choice.
+  2. The derived "expects" sentence collapsed every builder world into *"a builder"* whenever a
+     non-builder stood beside it, so `push` said *"expects [T] or a builder"* — a category of four
+     where one is accepted. It now collapses only when there is more than one to collapse.
+     **F186's own table claimed `slice`/`swap`/`to_set` derived the hand-written "an array or a
+     MutableArray"; they did not, and five `.err` fixtures had recorded the wrong wording, which
+     is how the claim survived unread.** `len` keeps "or a builder" and should.
+  3. *Accepted:* argument two loses "(the array's element type)" — `argument 2 of 'push' expects
+     int or [int], found string`. Not in F186's measured-clause list, and the same trade `abs`,
+     `len`, `slice`, `swap` and `to_set` already took.
+
+  One new fixture (`push_insert_mixed_dispatch`), both halves of both sets including both readings
+  of one trailing array on each. F206's `.diag` fixture is kept and reworded: most of its lines now
+  come from the resolver, but the property it asserts — the answer depends on the type, not the
+  name — did not change. Seven fixtures updated for the two message fixes. 1,110 fixtures,
+  `make check` exit 0 with the North Star.
+
+  **A claim corrected in my own F206 comments before committing:** they called this "the first
+  overload set whose members dispatch two different ways". `add` had been doing it since F199.

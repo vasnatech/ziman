@@ -1,1 +1,1 @@
-'wipe' expects [int] or a builder, found P -- an immutable collection is emptied by writing an empty one
+'wipe' expects [int] or MutableArray<int>, found P -- an immutable collection is emptied by writing an empty one

@@ -1,11 +1,18 @@
-# The three arms' own messages, one per (name, argument-one type). The columns differ on purpose:
-# a wrong *type* for argument one is reported at the argument, while `set`'s two refusals are
-# about the call as a whole -- there is no form of `set` that the type could have been right for.
-type 20:19 argument 1 of 'push' expects an array or a MutableArray, found Map<string, int>
-type 21:19 argument 1 of 'push' expects an array or a MutableArray, found Set<int>
-type 24:21 argument 1 of 'insert' expects an array or a MutableArray, found Set<int>
-type 25:12 argument 1 of 'insert' expects an array or a MutableArray, found MutableSet<int>
-type 26:12 argument 1 of 'insert' expects an array or a MutableArray, found MutableMap<string, int>
-type 29:14 a set has no 'set' -- use add(set, item) to add an item
-type 30:5 a set has no 'set' -- use add(set, item) to add an item
-type 31:5 a MutableArray element is written with 'b[i] = value', not with 'set'
+# F206 split the one `push`/`insert`/`set` arm three ways so each name's message could key on the
+# type it was given rather than on the name; F207 then deleted two of the three, `push` and
+# `insert` having come out with one message each. So most of this fixture now comes from the
+# *resolver*, and the lines still differ by type -- which is the thing a .err substring cannot
+# assert and the reason this is a .diag.
+#
+# The two `insert` arity lines are the F207 fix in place: the set's `#[when_unmatched]` advice used
+# to be appended only to the per-argument messages, so `insert(aSet, x)` -- where both declarations
+# are eliminated on arity before any type is compared -- said "no declaration of 'insert' takes 2
+# argument(s)" and nothing else. The advice is about the name, not about which check ran last.
+type 26:14 'push' expects [T] or MutableArray<T>, found Map<string, int> -- the other collections have their own word
+type 27:14 'push' expects [T] or MutableArray<T>, found Set<int> -- the other collections have their own word
+type 30:14 no declaration of 'insert' takes 2 argument(s) -- 'insert' places a value at an index and has no collection form; use set(map, key, value), add(set, item) or append(sb, s)
+type 31:5 no declaration of 'insert' takes 2 argument(s) -- 'insert' places a value at an index and has no collection form
+type 32:5 'insert' expects [T] or MutableArray<T>, found MutableMap<string, int> -- 'insert' places a value at an index
+type 35:14 a set has no 'set' -- use add(set, item) to add an item
+type 36:5 a set has no 'set' -- use add(set, item) to add an item
+type 37:5 a MutableArray element is written with 'b[i] = value', not with 'set'

@@ -2316,6 +2316,7 @@ static int is_builder_type(Type t);
  * Answers 0 when it cannot build one, and the caller falls back to the signature list. */
 static int overload_expected_types(const OverloadResolution *all, int pos, char *buf, size_t cap) {
     const char *seen[OVL_MAX_CANDIDATES];
+    const char *builder_name = NULL;
     int n = 0, builders = 0;
     for (int i = 0; i < all->live_count; i++) {
         Type t;
@@ -2323,7 +2324,9 @@ static int overload_expected_types(const OverloadResolution *all, int pos, char 
         if (is_builder_type(t)) {
             builders++;  /* one phrase for the four of them, appended last -- the hand-written
                           * sentences read "an array, string, map, set, builder or Mutable", with
-                          * the category after the concrete types, and so should this one */
+                          * the category after the concrete types, and so should this one. Only
+                          * when there are several, though: see the `builders > 1` below. */
+            builder_name = type_name(t);
             continue;
         }
         const char *text = type_name(t);
@@ -2349,7 +2352,13 @@ static int overload_expected_types(const OverloadResolution *all, int pos, char 
             }
         } else {
             if (n >= OVL_MAX_CANDIDATES) return 0;
-            seen[n++] = "a builder";
+            /* A category is a summary, and summarising one thing loses the thing. `push`,
+             * `insert`, `slice`, `swap` and `to_set` each take exactly one builder world
+             * alongside an array, and "expects [T] or a builder" told the reader that any of the
+             * four would do -- three of which are refused. F186's own table claimed the derived
+             * sentence for `slice`/`swap`/`to_set` was the hand-written "an array or a
+             * MutableArray"; it was not, and naming a lone builder is what makes that true. */
+            seen[n++] = builders > 1 ? "a builder" : builder_name;
         }
     }
     if (n < 2) return 0;
@@ -2436,8 +2445,14 @@ static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char
                         "the function, %s", name, generic, generic_type_construction(generic));
         }
     }
+    /* `tail` reaches this message as well as the per-argument ones since F207. The advice is about
+     * the *name* -- `insert(aSet, x)` wants to be told about `add` -- and which check happened to
+     * eliminate the last candidate is not something the author chose. It had been left off, so
+     * converting `insert` turned F206's "argument 1 of 'insert' expects ... use add(set, item)"
+     * into a bare "no declaration of 'insert' takes 2 argument(s)": the set's two declarations
+     * both take 3, so arity eliminated them before any type was compared. */
     ziman_error("type", e->line, e->col,
-                "no declaration of '%s' takes %d argument(s)%s", name, e->as.call.args.count, list);
+                "no declaration of '%s' takes %d argument(s)%s%s", name, e->as.call.args.count, tail, list);
 }
 
 /* Stage 1's only output: whether the resolver agrees with the arm that already decided.
@@ -3744,120 +3759,17 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return elem_type;
     }
 
-    /* `push`, `insert` and `set` shared one arm until F206, and the sharing showed in every
-     * message it produced. `expected_argc` came from the *name* before argument one had been
-     * looked at, so `insert(mutableSet, 2)` was told it "takes exactly 3 argument(s)" -- an arity
-     * no `insert` of a MutableSet has, there being no such `insert` at all -- and every rejected
-     * first argument was handed the same cross-reference, "(or, for set/insert/remove, a map or
-     * set)", whether or not the name it had been given accepts one: `push(sb, "a")` on a
-     * MutableString was told about maps and sets rather than about `append`.
+    /* `push`, `insert` and `set` shared one arm until F206, which split it three ways; F207 then
+     * deleted two of the three. What is left is `set`, and the reason it is left is in
+     * docs/design/full-overloading.md §13: it answers three different things depending on the type
+     * it rejected -- a MutableArray is told an element is written `b[i] = value`, either set world
+     * is told to use `add` -- and `#[when_unmatched]` is one line for a whole set, so the
+     * declarations cannot carry those. `push` and `insert` each had one message, the same sentence
+     * whatever was rejected, and that sentence is now an attribute in lib/prelude/array.zm.
      *
-     * Arity is a property of the (name, argument-one) pair, not of the name, so each arm now
-     * reads argument one first and asks about arity second. What the split is *for* is in
-     * docs/design/full-overloading.md §13: `push` and `insert` come out with one message each,
-     * the type rule, and are convertible; `set` comes out with three, keyed on the type it
-     * rejected, and is not. */
-
-    if (strcmp(name, "push") == 0) {
-        if (e->as.call.args.count < 1) {
-            ziman_error("type", e->line, e->col,
-                        "'push' takes an array or a MutableArray and at least one value, found %d argument(s)",
-                        e->as.call.args.count);
-        }
-        Expr *arr_arg = e->as.call.args.items[0];
-        Type arr_type = check_expr(module, env, arr_arg);
-
-        /* A MutableArray is appended to with the word an array is, because it is the same
-         * question; the prefixed native stays as the spelling the rewrite targets. */
-        if (arr_type.kind == TY_STRUCT && arr_type.struct_name != NULL &&
-            strcmp(arr_type.struct_name, "MutableArray") == 0) {
-            if (e->as.call.args.count < 2) {
-                ziman_error("type", e->line, e->col,
-                            "'push' takes a MutableArray and at least one value, found %d argument(s)",
-                            e->as.call.args.count);
-            }
-            e->as.call.rewritten_from = "push";
-            e->as.call.callee = ziman_xstrdup("mutable_array_push");
-            return check_expr(module, env, e);
-        }
-        if (arr_type.kind != TY_ARRAY) {
-            /* One sentence, the same whatever was rejected, which is what makes it expressible as
-             * a single `#[when_unmatched]` line when this arm becomes declarations. The parenthetical
-             * it replaces named `set/insert/remove` because three names shared the arm. */
-            ziman_error("type", arr_arg->line, arr_arg->col,
-                        "argument 1 of 'push' expects an array or a MutableArray, found %s -- the other "
-                        "collections have their own word: set(map, key, value), add(set, item), append(sb, s)",
-                        type_name(arr_type));
-        }
-
-        /* `push(a, x, y)` appends each value in turn, which is one allocation's worth of work per
-         * value rather than per call -- see the fold in the interpreter. */
-        if (e->as.call.args.count < 2) {
-            ziman_error("type", e->line, e->col, "'push' takes an array and at least one value, found %d argument(s)",
-                        e->as.call.args.count);
-        }
-        for (int i = 1; i < e->as.call.args.count; i++) {
-            Expr *value_arg = e->as.call.args.items[i];
-            Type value_type = check_expr(module, env, value_arg);
-            require_not_void(value_arg, "as an array element");
-            if (!type_equals(value_type, *arr_type.elem)) {
-                ziman_error("type", value_arg->line, value_arg->col,
-                            "argument %d of 'push' expects %s (the array's element type), found %s",
-                            i + 1, type_name(*arr_type.elem), type_name(value_type));
-            }
-        }
-        return arr_type;
-    }
-
-    if (strcmp(name, "insert") == 0) {
-        if (e->as.call.args.count < 1) {
-            ziman_error("type", e->line, e->col, "'insert' takes exactly 3 argument(s), found %d", e->as.call.args.count);
-        }
-        Expr *arr_arg = e->as.call.args.items[0];
-        Type arr_type = check_expr(module, env, arr_arg);
-
-        if (arr_type.kind == TY_STRUCT && arr_type.struct_name != NULL &&
-            strcmp(arr_type.struct_name, "MutableArray") == 0) {
-            if (e->as.call.args.count != 3) {
-                ziman_error("type", e->line, e->col, "'insert' takes exactly 3 argument(s), found %d",
-                            e->as.call.args.count);
-            }
-            e->as.call.rewritten_from = "insert";
-            e->as.call.callee = ziman_xstrdup("mutable_array_insert");
-            return check_expr(module, env, e);
-        }
-        if (arr_type.kind != TY_ARRAY) {
-            /* F199 settled that `insert` is positional only -- it had been doing two unrelated
-             * jobs, placing a value at an index and adding a member to a set -- but the set form
-             * went on being accepted here for another pass, undeclared, because this arm reached
-             * the map/set mutator before anything could ask whether a `Set` had an `insert`.
-             * F206 carries the decision out. */
-            ziman_error("type", arr_arg->line, arr_arg->col,
-                        "argument 1 of 'insert' expects an array or a MutableArray, found %s -- 'insert' places a "
-                        "value at an index and has no collection form; use set(map, key, value), add(set, item) "
-                        "or append(sb, s)",
-                        type_name(arr_type));
-        }
-
-        /* An index belongs to one value, so `insert` keeps its exact arity where `push` is variadic. */
-        if (e->as.call.args.count != 3) {
-            ziman_error("type", e->line, e->col, "'insert' takes exactly 3 argument(s), found %d", e->as.call.args.count);
-        }
-        Expr *idx_arg = e->as.call.args.items[1];
-        Type idx_type = check_expr(module, env, idx_arg);
-        if (idx_type.kind != TY_INT) {
-            ziman_error("type", idx_arg->line, idx_arg->col, "argument 2 of 'insert' expects int, found %s", type_name(idx_type));
-        }
-        Expr *value_arg = e->as.call.args.items[2];
-        Type value_type = check_expr(module, env, value_arg);
-        require_not_void(value_arg, "as an array element");
-        if (!type_equals(value_type, *arr_type.elem)) {
-            ziman_error("type", value_arg->line, value_arg->col,
-                        "argument 3 of 'insert' expects %s (the array's element type), found %s",
-                        type_name(*arr_type.elem), type_name(value_type));
-        }
-        return arr_type;
-    }
+     * Arity is read after argument one's type here, not before it. The shared arm took
+     * `expected_argc` from the name in its second statement, which is how `set(mutableSet, 2)`
+     * came to be told it "takes exactly 3 argument(s)" of a form that does not exist. */
 
     if (strcmp(name, "set") == 0) {
         if (e->as.call.args.count < 1) {

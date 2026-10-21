@@ -1639,9 +1639,33 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (bid == B_push) {
                 /* `push(a, x, y, z)`. Each fold takes the buffer's next slot in place when the
                  * array it is given is the tip and there is room -- which every result after the
-                 * first one is -- so appending k values costs about k, not k copies. */
+                 * first one is -- so appending k values costs about k, not k copies.
+                 *
+                 * The spread arm is here because of F207, and it is the one thing that conversion
+                 * cost at runtime. §12 concluded that converting a polymorphic builtin is "a
+                 * type-checking change only" because `call_fn` is left unrecorded and dispatch
+                 * stays on the id. **That does not hold for a variadic one.** `collapse_variadic_args`
+                 * runs on the `call_fn` path alone, so the id path had never been handed a spread:
+                 * the arm refused `push(a, [3, 4])` outright, and the declaration's `variadic T`
+                 * was dormant. Deleting the arm made the checker honour the declaration and
+                 * accept it, and `call_push` then appended the `[int]` itself into an `[int]`,
+                 * printing a garbage element rather than failing.
+                 *
+                 * The fix needed nothing new: `remove_all` (F198) and `add` (F199) are the same
+                 * split for the same reason, and both are above. **`push` was the one variadic
+                 * builtin that had never needed it, because its arm refused the spread** -- which
+                 * is the same shape of finding as F206's, an arm concealing what the declarations
+                 * already said. The flag is the checker's verdict rather than a test of the value
+                 * here, since `.type->kind == TY_ARRAY` cannot tell a spread from a lone element
+                 * whose type is itself an array (ast.h says this). */
                 result = args[0];
-                for (int i = 1; i < argc; i++) result = call_push(e->resolved_type, result, args[i]);
+                if (e->as.call.variadic_tail_is_array_spread) {
+                    for (int i = 0; i < args[1].as.arr->count; i++) {
+                        result = call_push(e->resolved_type, result, array_get(args[1].as.arr, i));
+                    }
+                } else {
+                    for (int i = 1; i < argc; i++) result = call_push(e->resolved_type, result, args[i]);
+                }
             } else if ((bid == B_set || bid == B_insert) &&
                        (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
                 Value stored = args[0].type->kind == TY_MAP ? args[2] : value_int(0);

@@ -409,6 +409,14 @@ hand:     'slice'/'swap'/'to_set' expects an array or a MutableArray, found P
 derived:  the same list, from the declarations
 ```
 
+> **This second row was wrong when written, and F207 made it true.** The derivation collapsed
+> every builder world into the phrase *"a builder"* whenever a non-builder type stood beside it,
+> so `slice` actually said *"'slice' expects [T] or a builder"* — which names a category of four
+> when exactly one of them is accepted. The collapse is a summary, and summarising one thing loses
+> the thing; it now applies only when there is more than one builder to collapse, so `slice`,
+> `swap`, `to_set`, `push` and `insert` name `MutableArray<T>` and `len` keeps *"or a builder"*.
+> Five `.err` fixtures recorded the old wording, which is how the claim survived unread.
+
 **Not derivable — a measured clause the signatures do not contain:**
 
 | | the clause |
@@ -460,6 +468,16 @@ resolver therefore does not record a `builtin fn` on `call_fn`: **types come fro
 declarations, dispatch stays on the id.** That makes every remaining conversion a type-checking
 change only, cheaper than §11 supposed, and it means the declarations do not need natives behind
 them.
+
+> **Corrected by F207 (2026-10-21): "a type-checking change only" does not hold for a *variadic*
+> builtin.** `collapse_variadic_args` runs on the `call_fn` path alone, so the id path is handed
+> the raw arguments and has to spread a trailing array itself. `push`'s arm had refused
+> `push(a, [3, 4])`, so `B_push` had never been given one, and deleting the arm made the checker
+> honour the declaration's `variadic T` and accept it — appending the `[int]` itself and printing
+> a garbage element. The fix was four lines and needed no new mechanism, `remove_all` (F198) and
+> `add` (F199) having the same split for the same reason; the point is that the runtime is not
+> automatically out of scope, and the thing to check for a variadic set is whether its id arm
+> reads `variadic_tail_is_array_spread`. See §14.
 
 **What it cost, and what step 4 owes.** `BUILTINS_NO_NAMED_ARGS` answers two questions that have
 now come apart: it is the registry of names the interpreter dispatches *and* the list of names
@@ -583,3 +601,68 @@ that gap permanently, which is one more argument for conversion than §11 had.
 
 Carried out in F206: 19 call sites moved to `add` (18 fixtures, one in `lib/core/toml.zm`), and
 `insert` on either set world is now refused.
+
+## 14. `push` and `insert` become declarations, and what the arm had been hiding
+
+Added 2026-10-21 (F207). §13 split the shared arm and measured the three names; this converts the
+two it found convertible. `make overload-sets-check` moves from **39 resolver-owned sets and 20
+polymorphic builtins** to **41 and 18**, which is the measurement to quote — the "70 arms" of §1
+came from a script that was never committed, and the running total has been re-derived by hand
+since, incorrectly at least once (§13's split *raised* the arm count by two before this lowered it
+again). The two collection arms left, `set` and `remove`, are both there for per-argument messages
+rather than for anything the declarations cannot express.
+
+### The dispatch question, which had an answer already
+
+Each set is now **mixed**: the array form stays `builtin fn` and is run by its builtin id, the
+MutableArray form is a `native fn`, so `if (!fn->is_builtin) e->call_fn = fn` records it and
+`interpreter.c`'s symbol fallback derives `mutable_array_push` / `mutable_array_insert` from it.
+That fallback reads **parameter one only** — which F205 found as a *limit*, when it stopped two
+`append` declarations from sharing a name — and parameter one is exactly where these two
+declarations differ, so the limit is the mechanism here. The arm's callee rewrite and its
+`rewritten_from` bookkeeping are both deleted.
+
+`add` has had this shape since F199 (`builtin fn` for a `Set`, native for a `MutableSet`), so
+nothing about the mixed set is new. That is worth saying plainly because it was the part that
+looked risky in advance and turned out to be precedent.
+
+### The part that was not free: a variadic builtin's id path
+
+§12 concluded that a conversion is "a type-checking change only". **For `push` that was false, and
+the failure was silent.** `collapse_variadic_args` runs on the `call_fn` path alone, so a builtin
+dispatched by id receives the raw arguments and must spread a trailing array itself. The arm had
+refused `push(a, [3, 4])` outright — argument two had to equal the element type — so `B_push` had
+never been handed a spread, and the declaration's `variadic T` was dormant behind the arm.
+Deleting the arm made the checker honour the declaration, accept the call, and append the `[int]`
+into an `[int]`:
+
+```
+push([1, 2], [3, 4])   before: type error, "argument 2 of 'push' expects int ... found [int]"
+                       after:  [1, 2, 140432405179904]
+```
+
+The fix reads the checker's own `variadic_tail_is_array_spread`, which `B_map_remove_all` (F198)
+and `B_set_insert_all` (F199) already do for the same reason — **`push` was the one variadic
+builtin that had never needed it, because its arm refused the shape.** Same finding as §13's, one
+layer down: an arm can conceal a gap between what the declarations promise and what the runtime
+does, and deleting it is what makes the promise load-bearing. For any remaining variadic set, the
+thing to check before converting is whether its id arm reads that flag.
+
+### What it cost in diagnostics, stated rather than buried
+
+Two losses, both on argument two and neither measured:
+
+| | before | after |
+|---|---|---|
+| `push([1], "s")` | `argument 2 of 'push' expects int (the array's element type), found string` | `argument 2 of 'push' expects int or [int], found string` |
+
+The parenthetical said *why* `int`, and the `or [int]` is the spread form the declaration really
+does accept. This is the ordinary message any declared generic variadic gives, and it is the same
+trade `abs`, `len`, `slice`, `swap` and `to_set` already took.
+
+Against that, a gain the conversion did not have to pay for: `#[when_unmatched]` advice now
+reaches the *arity* failure too. It had been appended only to the per-argument messages, so
+`insert(aSet, x)` — where both declarations are eliminated on arity before any type is compared —
+said *"no declaration of 'insert' takes 2 argument(s)"* and nothing else, losing the sentence §13
+had just written for it. The advice is about the **name**; which check eliminated the last
+candidate is not something the author chose.

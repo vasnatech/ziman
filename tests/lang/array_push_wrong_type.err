@@ -1,1 +1,1 @@
-argument 2 of 'push' expects int (the array's element type), found string
+argument 2 of 'push' expects int or [int], found string

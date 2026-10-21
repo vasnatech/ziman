@@ -373,16 +373,29 @@ pub fn sort_by_desc<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
 // Variadic because appending several is one question, not several: a fold of one-value pushes
 // reuses the buffer's tip when it has room, so `push(a, x, y, z)` costs about what the three
 // values cost rather than three copies of `a`.
+//
+// **These two declarations are the whole of `push`'s type checking since F207.** The set is mixed
+// on purpose: the array form stays `builtin fn`, dispatched by its id (`B_push`), while the
+// MutableArray form is a `native fn`, so the resolver records it on `call_fn` and the interpreter
+// derives `mutable_array_push` from parameter one. One name, two mechanisms, no arm. `add` has had
+// exactly this shape since F199 (`builtin fn` for a `Set`, native for a `MutableSet`), which is
+// why it needed no new mechanism.
 #[at_least_one]
 builtin fn push<T>(a: [T], values: variadic T) -> [T]
 
 // The MutableArray's `push` is the array's, for the reason `len` and `contains` are: appending is
 // the same question of both, so it is the same word. The difference is in what the call answers --
 // a new array there, nothing here, the container having been written -- which is the difference
-// between the two worlds and not a difference between the two names. The prefixed
-// `mutable_array_push` remains as the spelling this rewrites to.
+// between the two worlds and not a difference between the two names.
+//
+// `native fn` rather than `builtin fn`, which is what makes this half dispatchable without the
+// arm that used to rewrite the callee: `is_native` is `!is_builtin`, so only a native reaches
+// interpreter.c's symbol fallback, and that fallback derives the C symbol from **parameter one
+// only** (F205). Parameter one is where these two declarations differ, so it lands on
+// `mutable_array_push` and the array form is never a candidate for it.
 #[at_least_one]
-builtin fn push<T>(b: MutableArray<T>, values: variadic T)
+#[when_unmatched("the other collections have their own word: set(map, key, value), add(set, item), append(sb, s)")]
+native fn push<T>(b: MutableArray<T>, values: variadic T)
 
 // **`insert` and `set` are not interchangeable, and each has its own error telling the reader
 // which to use.** `insert` puts something where it was not, at an index; `set` replaces what is at
@@ -392,10 +405,14 @@ builtin fn push<T>(b: MutableArray<T>, values: variadic T)
 // for a pass after the decision.
 builtin fn insert<T>(a: [T], index: int, x: T) -> [T]
 
-// An index in a MutableArray, for the same reason `push` is shared, and rewritten onto
-// `mutable_array_insert`. Neither set world has an `insert` form -- membership is `add` in both,
-// and an index means nothing to a set.
-builtin fn insert<T>(b: MutableArray<T>, index: int, value: T)
+// An index in a MutableArray, for the same reason `push` is shared. Neither set world has an
+// `insert` form -- membership is `add` in both, and an index means nothing to a set.
+//
+// `native fn` for the reason the MutableArray `push` above is one, and the pair converted
+// together in F207: the symbol fallback reads parameter one, which is the only place these two
+// declarations differ, so it finds `mutable_array_insert`.
+#[when_unmatched("'insert' places a value at an index and has no collection form; use set(map, key, value), add(set, item) or append(sb, s)")]
+native fn insert<T>(b: MutableArray<T>, index: int, value: T)
 
 // **Each of these accepts the immutable form *or* the builder**, which is what `either_world()` in
 // the type checker means: `to_set` and `to_mutable_set` each take an array or a MutableArray,

@@ -1,1 +1,1 @@
-'fold' expects [T] or a builder, found Set<int>
+'fold' expects [T] or MutableArray<T>, found Set<int>

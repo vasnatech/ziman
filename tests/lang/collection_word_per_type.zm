@@ -8,6 +8,12 @@
 // Arity is a property of the (name, argument-one) pair, not of the name. Each line below is a
 // shape that used to get the wrong answer; the .diag pins which message each type now gets, since
 // the point of the split is *that they differ by type*, which a .err fixture cannot say.
+//
+// F207 then deleted two of the three arms -- `push` and `insert` are resolver-owned, their one
+// sentence each now an `#[when_unmatched]` attribute in lib/prelude/array.zm -- so most of these
+// lines come from the resolver and the fixture outlived the code it was written against. It is
+// kept because the property it asserts did not change: **the answer depends on the type, not the
+// name.** `set` is the one still arm-handled, and the last three lines are why.
 fn main() {
     val m = Map<string, int> { "a": 1 }
     val s = Set<int> { 1 }

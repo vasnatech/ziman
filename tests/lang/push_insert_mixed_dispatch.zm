@@ -1,0 +1,58 @@
+// F207: `push` and `insert` became resolver-owned declarations, and each set now dispatches
+// **two different ways** -- the shape `add` has had since F199, which is why it needed no new
+// mechanism.
+//
+// The array half stays `builtin fn`, run by its builtin id; the MutableArray half is a `native fn`,
+// so the resolver records it on `call_fn` and interpreter.c derives the C symbol from parameter
+// one -- `mutable_array_push`, `mutable_array_insert`. That fallback reads parameter one *only*
+// (F205 found this when it stopped two `append` declarations from sharing a name), which is
+// exactly the discrimination these sets need, parameter one being where they differ. No arm
+// rewrites the callee any more.
+//
+// So this fixture is about dispatch, not about types: if the two halves were ever to be confused,
+// a MutableArray `push` would run the array implementation and answer a new array instead of
+// writing the container -- which would show up here as the builder not having changed.
+fn main() {
+    // The immutable half: answers a new array, leaves the original alone.
+    val a = [1, 2]
+    val once = push(a, 3)
+    val many = push(a, 3, 4, 5)
+    val placed = insert(a, 0, 0)
+    print(a)
+    print(once)
+    print(many)
+    print(placed)
+
+    // The builder half: answers nothing, writes the container. Same two words.
+    val b = mutable([1, 2])
+    push(b, 3)
+    push(b, 4, 5)
+    insert(b, 0, 0)
+    print(snapshot(b))
+    print(len(b))
+
+    // The spread, which is what the conversion actually broke. `push(a, [3, 4])` was refused by
+    // the arm and is accepted by the declaration (`values: variadic T`), so deleting the arm woke
+    // a path the builtin id had never been given: `collapse_variadic_args` runs only for a
+    // `call_fn`, so `call_push` appended the `[int]` itself and printed a garbage element. Both
+    // readings of one trailing array are below, and which one applies comes from its static type.
+    print(push(a, [3, 4]))
+
+    // A nested element type, where a lone array argument is one element and not a spread -- the
+    // ambiguity docs/DESIGN.md's `_all` paragraph guards against, on both halves.
+    val nested = [[9]]
+    print(push(nested, [1, 2]))
+    print(push(nested, [[1, 2], [3]]))
+    val nb = mutable(nested)
+    push(nb, [1, 2])
+    print(snapshot(nb))
+    push(nb, [[7], [8]])
+    print(snapshot(nb))
+
+    // And the spread on the builder half, which never broke -- it goes through
+    // `collapse_variadic_args` on the `call_fn` path. Here so the two halves are asserted to agree
+    // about one trailing array, which is the property the two dispatch mechanisms could drift on.
+    val fb = mutable([1, 2])
+    push(fb, [3, 4])
+    print(snapshot(fb))
+}
