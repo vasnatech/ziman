@@ -667,8 +667,17 @@ typedef struct {
     const char *derived_from;
     /* The file this function was loaded from, or NULL for a bundled core
      * module and the prelude. What `--lint` uses to report only code the user
-     * owns. */
+     * owns. Load-bearing beyond display: typecheck.c keys
+     * `g_checking_program_body` on it and coverage.c skips a function without
+     * one, so a bundled declaration must keep it NULL. */
     const char *source_file;
+    /* Where it was written, for diagnostics only, when `source_file` is NULL:
+     * `lib/prelude/map.zm` for a prelude declaration. The prelude became ten
+     * files in F203, so a bare "type error at 58:27" no longer says which --
+     * and because the source is registered under this same name, the excerpt
+     * and caret come back with it. Never consulted for anything but the error
+     * file, which is what keeps it out of the two decisions above. */
+    const char *origin_file;
     /* A lambda written without `->`: its return type comes from the function
      * type it is used as, or else from its final expression. */
     int return_omitted;

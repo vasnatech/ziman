@@ -1919,7 +1919,12 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
                         "a prelude part cannot `use` another module -- every file in lib/prelude/ "
                         "is merged bare into every program, so they already see each other");
         }
-        for (int i = 0; i < part->functions.count; i++) function_list_push(&prelude_mod->functions, part->functions.items[i]);
+        for (int i = 0; i < part->functions.count; i++) {
+            /* Not `source_file`: that one means "the user wrote this" to the lint gate and to
+             * coverage. This one is for the diagnostic alone. */
+            part->functions.items[i]->origin_file = part_name;
+            function_list_push(&prelude_mod->functions, part->functions.items[i]);
+        }
         for (int i = 0; i < part->structs.count; i++) struct_list_push(&prelude_mod->structs, part->structs.items[i]);
         for (int i = 0; i < part->enums.count; i++) enum_list_push(&prelude_mod->enums, part->enums.items[i]);
         for (int i = 0; i < part->vals.count; i++) global_val_list_push(&prelude_mod->vals, part->vals.items[i]);

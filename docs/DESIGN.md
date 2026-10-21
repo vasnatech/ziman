@@ -7259,7 +7259,16 @@ line number in a blob that exists nowhere on disk, and this project edits the pr
 Each part is lexed on its own, so its line numbers are its own, and registered with
 `ziman_register_source` under its real path -- which makes prelude diagnostics *better* than
 before, since `print_excerpt` reads from that registry rather than from the filesystem and a
-bundled declaration previously carried no file name at all. The parts are merged into one `Module`
+bundled declaration previously carried no file name at all.
+
+Registering the source was not enough on its own, and finding that out is why it is worth writing
+down. `typecheck.c` sets the error file per function from `fn->source_file`, which is NULL here,
+so it cleared the name the loader had set and a prelude type error still printed a bare
+`type error at 58:27` -- now ambiguous across ten files where it had been unambiguous across one.
+The fix is a second field, `origin_file`, consulted for the error file **only** when
+`source_file` is NULL. Two fields rather than one because `source_file` is not a display field at
+all: it is the "the user wrote this" gate, and the whole point is to say where a declaration is
+without claiming the user owns it. The parts are merged into one `Module`
 before anything resolves against it, because a name may be declared in several of them and the
 resolver has to see the whole vocabulary at once to choose between declarations or report an
 overlap.

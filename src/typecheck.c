@@ -7106,7 +7106,10 @@ void typecheck(Module *module) {
     for (int i = 0; i < module->functions.count; i++) {
         FunctionDecl *fn = module->functions.items[i];
         ziman_set_error_context(fn->derived_from);
-        ziman_set_error_file(fn->source_file);
+        /* `origin_file` only when there is no `source_file`: a prelude declaration has no source
+         * file by design (see ast.h), and without this a type error inside the prelude reports a
+         * line number without saying which of its ten parts it is in. */
+        ziman_set_error_file(fn->source_file != NULL ? fn->source_file : fn->origin_file);
         g_checking_program_body = fn->source_file != NULL;
         jmp_buf jb;
         CheckState saved = check_state_save();
@@ -7140,7 +7143,7 @@ void typecheck(Module *module) {
     for (volatile int i = 0; i < module->functions.count; i++) {
         FunctionDecl *fn = module->functions.items[i];
         if (!fn->is_test) continue;
-        ziman_set_error_file(fn->source_file);
+        ziman_set_error_file(fn->source_file != NULL ? fn->source_file : fn->origin_file);
         jmp_buf jb;
         ziman_recovery_push(&jb);
         if (setjmp(jb) != 0) {

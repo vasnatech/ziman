@@ -2905,10 +2905,19 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   **Parsed per part rather than concatenated**, for one reason: a prelude error reporting a line
   number in a build-time blob that exists nowhere on disk is a cost paid every time this file is
   edited, which is often. Each part is registered under its real path with
-  `ziman_register_source`, so prelude diagnostics now print a file name and an excerpt where they
-  previously printed neither. `source_file` stays NULL on prelude declarations deliberately --
-  it is the user-code gate (`g_checking_program_body`) and the coverage filter, not a display
-  field, and stamping it would have put the prelude into `--coverage`.
+  `ziman_register_source`.
+
+  **And registering it was not enough -- I claimed the improvement before checking it.** Written
+  up as done, then tested by breaking `lib/prelude/map.zm` on purpose: the message was still a
+  bare `type error at 58:27`, no file, no excerpt, because `typecheck.c` re-sets the error file
+  per function from `fn->source_file`, which is NULL for everything bundled. Ambiguous across ten
+  files where it had been unambiguous across one -- a regression the split introduced and the
+  write-up had already denied. Fixed with `origin_file` on `FunctionDecl`, consulted for the
+  error file **only** when `source_file` is NULL. It has to be a second field: `source_file` is
+  the "user wrote this" gate (`g_checking_program_body`) and coverage.c's filter, so stamping the
+  parts' paths there would have put the prelude into `--coverage` reports. Verified the same way
+  it was falsified -- the message now reads
+  `type error at 58:27 in lib/prelude/map.zm: ...` with the source line and caret under it.
 
   **Verified by equality, not by the suite alone.** The 269 declaration lines, sorted, are
   byte-identical before and after; `ziman --api builtins` has identical content (order differs,
