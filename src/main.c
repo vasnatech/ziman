@@ -467,14 +467,22 @@ static int run_api(const char *module_name) {
      * a builtin and `--api` listed only modules, so it used `split(word, "")` instead, which
      * type-checks and then fails at runtime.
      *
-     * Printed from `lib/prelude.zm` itself rather than from a list kept here. A first version did
+     * Printed from `lib/prelude/<part>.zm` themselves rather than from a list kept here. A first version did
      * keep one, reusing typecheck.c's `BUILTINS_NO_NAMED_ARGS` -- and it did not contain `chars`,
      * because that table is the subset of builtins taking no named arguments, not the builtins. An
      * incomplete answer to "what exists" is worse than none, since it reads as "`chars` does not
      * exist". The prelude declares all of them with real signatures, so it is the honest source. */
     if (strcmp(module_name, "builtins") == 0) {
-        TokenList prelude_tokens = lex(prelude_source());
-        Module *prelude = parse(prelude_tokens);
+        /* Every part merged into one list, so the printing below -- and the "which builtins have
+         * no declaration" scan after it -- sees the whole vocabulary rather than one file's share.
+         * Only `functions` is needed here; the types come from the fixed list at the end. */
+        Module *prelude = ziman_xcalloc(1, sizeof(Module));
+        for (int p = 0; p < prelude_part_count(); p++) {
+            Module *part = parse(lex(prelude_part_source(p)));
+            for (int i = 0; i < part->functions.count; i++) {
+                function_list_push(&prelude->functions, part->functions.items[i]);
+            }
+        }
         printf("builtins -- callable with no 'use', from any program\n");
         for (int i = 0; i < prelude->functions.count; i++) {
             FunctionDecl *f = prelude->functions.items[i];
@@ -532,7 +540,7 @@ static int run_api(const char *module_name) {
                 /* No reason recorded means it simply has not been declared yet, which
                  * tools/check_builtins.py fails on -- said here too rather than printed as a bare
                  * name a reader would take for a deliberate exception. */
-                printf("  %-16s %s\n", bname, why != NULL ? why : "not yet declared in lib/prelude.zm");
+                printf("  %-16s %s\n", bname, why != NULL ? why : "not yet declared in lib/prelude/");
             }
             printf("\ndocs/SYNTAX.md \"Builtins\" has what each one takes.\n");
         }

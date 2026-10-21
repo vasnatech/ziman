@@ -56,11 +56,25 @@ ziman-nogc: $(SRC) $(HDR) $(CORELIB_HEADERS)
 # PRELUDE_SOURCE uses) rather than one unreadable giant line -- adjacent
 # string literals concatenate into a single one regardless of how many
 # physical lines or trailing "" the macro's definition spans.
-$(BUILD)/%_source.h: %.zm | $(BUILD)
-	awk -v src="$<" -v macro="$(shell echo $* | tr a-z A-Z)_SOURCE" \
+# One recipe, two rules: $(call embed_zm,MACRO_NAME). The prelude's parts go
+# through the same escaping as every bundled module, they just get their own
+# macro prefix so that lib/prelude/map.zm cannot collide with a future core
+# module named map.
+define embed_zm
+	awk -v src="$<" -v macro="$(1)" \
 	    'BEGIN { printf "/* Generated from %s -- do not edit directly. */\n#define %s \\\n", src, macro } \
 	     { gsub(/\\/, "\\\\"); gsub(/"/, "\\\""); gsub(/\?/, "\\?"); printf "    \"%s\\n\" \\\n", $$0 } \
 	     END { print "    \"\"" }' $< > $@
+endef
+
+$(BUILD)/%_source.h: %.zm | $(BUILD)
+	$(call embed_zm,$(shell echo $* | tr a-z A-Z)_SOURCE)
+
+# lib/prelude/<part>.zm -> build/prelude_<part>_source.h. An explicit rule, not
+# vpath: these are not modules, nothing may `use` them, and keeping them off the
+# vpath search is what guarantees a part can never be found as one.
+$(BUILD)/prelude_%_source.h: lib/prelude/%.zm | $(BUILD)
+	$(call embed_zm,PRELUDE_$(shell echo $* | tr a-z A-Z)_SOURCE)
 
 $(BUILD)/%.o: src/%.c | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<

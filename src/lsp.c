@@ -1410,7 +1410,7 @@ static const char *const KEYWORDS[] = {"fn", "val", "var", "if", "else", "while"
                                        "return", "true", "false", "unit", "as", "struct", "enum", "with", "pub", "use", "native", "variadic", "Result", "Channel", "Map", "Set",
                                        "int", "float", "bool", "string", "bigint", "decimal", "byte", "unit"};
 /* The names a program can call with no `use`, for completion: the builtin table the checker
- * itself dispatches on, plus lib/prelude.zm's own top-level functions, which are merged into every
+ * itself dispatches on, plus lib/prelude/<part>.zm's own top-level functions, which are merged into every
  * program the same way. Both are read from the real sources here rather than kept by hand.
  *
  * A hand-written list stood here until F167 and had drifted to 88 entries against 157 builtins --
@@ -1435,10 +1435,12 @@ static void build_globals(void) {
     if (g_globals != NULL) return;
     for (int i = 0; i < ziman_builtin_count(); i++) add_global_name(ziman_builtin_name(i));
     /* Parsed, not type-checked: completion wants the names, and the prelude is embedded in this
-     * binary, so this is the same two lines `--api builtins` uses in main.c. */
-    TokenList tokens = lex(prelude_source());
-    Module *prelude = parse(tokens);
-    for (int i = 0; i < prelude->functions.count; i++) {
+     * binary, so this is the same loop `--api builtins` uses in main.c. Every part of it, because
+     * a name declared in one is callable exactly as a name declared in another is. */
+    for (int p = 0; p < prelude_part_count(); p++) {
+      TokenList tokens = lex(prelude_part_source(p));
+      Module *prelude = parse(tokens);
+      for (int i = 0; i < prelude->functions.count; i++) {
         /* Everything callable, which here is everything in the file -- a non-pub prelude `fn` is
          * reachable with no `use` just as a `builtin fn` is, and F168 exists because leaving such
          * names out is what made this list miss 72 of them. `internal` is the one exclusion, and
@@ -1447,6 +1449,7 @@ static void build_globals(void) {
         FunctionDecl *f = prelude->functions.items[i];
         if (!fn_is_advertised(f)) continue;
         add_global_name(f->name);
+      }
     }
 }
 

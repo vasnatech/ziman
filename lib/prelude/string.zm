@@ -1,0 +1,216 @@
+// string.zm -- text and its builder `MutableString`, plus `join`.
+//
+// Indexes and lengths of strings are in bytes, not characters: the text is UTF-8, and `char_at`,
+// `substring` and `index_of` work on byte positions, so cutting inside a multi-byte character gives
+// text that is not valid UTF-8. `to_upper`, `to_lower` and `equals_ignore_case` change only the
+// ASCII letters A-Z.
+//
+// Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
+// loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
+// directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
+// whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
+// subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
+// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// header is generated from its source by the Makefile's prelude rule.
+//
+// A name whose declarations span more than one of these files lives in collections.zm, whole, so
+// that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
+// a declaration".
+
+// `format` for a template that is a value -- read from a message catalog, say, or a translation -- with string arguments:
+// `format_dynamic("{} of {}", ["3", "10"])` is `Ok("3 of 10")`. `{}` is the next argument and `{{`/`}}` are literal braces, as
+// in `format`. `format` checks its literal template and the number of its arguments before the program runs; this cannot, so it
+// is an Err (never a crash) if the template is malformed, has a different number of placeholders than arguments, or has a
+// precision (`{:.2}`: the arguments are strings, so there is nothing to round).
+native fn format_dynamic(template: string, args: [string]) -> Result<string, string>
+
+// The UTF-8 bytes of `s`.
+native fn string_to_bytes(s: string) -> [byte]
+
+// The bytes of `s` from `start` up to, not including, `end` (`0 <= start <= end <= len(s)`, a
+// runtime error otherwise).
+native fn substring(s: string, start: int, end: int) -> string
+
+// The pieces of `s` between each `sep`, empty pieces included: `split("a,b,,c", ",")` is
+// `[a, b, , c]`. `sep` must not be empty.
+native fn split(s: string, sep: string) -> [string]
+
+// `s` without leading and trailing blanks (space, tab, CR, LF).
+native fn trim(s: string) -> string
+
+// Whether `s` has no characters: `s == ""`.
+native fn is_empty(s: string) -> bool
+
+// Whether `s` is empty or only blanks (whatever `trim` removes): `trim(s) == ""`, without making the trimmed string.
+native fn is_blank(s: string) -> bool
+
+// The one-byte string at position `i` (`0 <= i < len(s)`, a runtime error otherwise), so
+// `char_at(s, i) == "x"` replaces `substring(s, i, i + 1) == "x"`. It is a byte, not a character.
+native fn char_at(s: string, i: int) -> string
+
+// The byte position of the last `needle` in `s`, or -1. An empty `needle` is found at `len(s)`.
+native fn last_index_of(s: string, needle: string) -> int
+
+// True when `c` appears in `s` starting at position `i`. False, never an error, when `i` is out
+// of range or `c` does not fit, so `is_char_at(s, p, "x")` replaces the guarded
+// `p < len(s) && char_at(s, p) == "x"`. `c` is normally one character but any text works.
+native fn is_char_at(s: string, i: int, c: string) -> bool
+
+//
+// Everything above (`len`, `substring`, `char_at`, `index_of`, ...) counts and cuts bytes, not
+// characters -- fast, and exactly right for ASCII, but `len("héllo")` is 6 and a `substring` can
+// split a multi-byte character in half, producing text that is no longer valid UTF-8. These
+// three functions are the code-point-aware alternative for text a person will actually read:
+// slower (each one walks the string decoding UTF-8), used only where that's what's wanted. See
+// docs/DESIGN.md's UTF-8 correctness entry for why both worlds stay, on purpose, rather than one
+// replacing the other.
+
+// `s` split into its individual code points, each its own one-character string:
+// `chars("héllo")` is `[h, é, l, l, o]`, not six one-byte pieces. A runtime error naming the
+// byte offset if `s` is not valid UTF-8 (only reachable by chaining a byte-level function like
+// `substring` into this one -- `bytes_to_string` already rejects invalid UTF-8 at the boundary
+// where it would otherwise enter a program).
+native fn chars(s: string) -> [string]
+
+// The number of code points in `s`: `char_count("héllo")` is 5, where `len("héllo")` (bytes) is
+// 6. Cheaper than `len(chars(s))` when only the count is wanted. Same UTF-8 requirement as `chars`.
+native fn char_count(s: string) -> int
+
+// `s` shortened to at most `max_chars` code points, without ever cutting one in half -- the safe
+// way to truncate text for display (`substring` counts bytes and can produce invalid UTF-8).
+// `max_chars >= char_count(s)` returns `s` unchanged; `max_chars` must not be negative. Same
+// UTF-8 requirement as `chars`.
+native fn truncate_chars(s: string, max_chars: int) -> string
+
+// True when `a` and `b` are equal when the ASCII letters A-Z are read as a-z (other bytes,
+// non-ASCII included, must match exactly). Builds no intermediate strings, unlike comparing
+// `to_lower(a)` and `to_lower(b)`.
+native fn equals_ignore_case(a: string, b: string) -> bool
+
+// The byte position of the first `needle` in `s` at or after `from` (`0 <= from <= len(s)`, a
+// runtime error otherwise), or -1. An empty `needle` is found at `from`.
+native fn index_of(s: string, needle: string, from: int) -> int
+
+// True when `s` begins with `prefix`.
+native fn starts_with(s: string, prefix: string) -> bool
+
+// True when `s` ends with `suffix`.
+native fn ends_with(s: string, suffix: string) -> bool
+
+// `s` with every non-overlapping `old` replaced by `new`. `old` must not be empty.
+native fn replace(s: string, old: string, new: string) -> string
+
+// `s` with the ASCII letters a-z made upper case; other bytes are unchanged.
+native fn to_upper(s: string) -> string
+
+// `s` with the ASCII letters A-Z made lower case; other bytes are unchanged.
+native fn to_lower(s: string) -> string
+
+// The strings `pieces` joined into one in a single pass, given one by one
+// (`join(pieces: "a", "b", "c")`) or as an array (`join(pieces: arr)`). `separator` goes between
+// the pieces, and `prefix` and `suffix` around the whole; each is optional in a named call:
+// `join(prefix: "[", suffix: "]", separator: ", ", pieces: arr)` is `[a, b, c]`. Written as a
+// native so that joining N strings is O(N), where adding them with `concat` one at a time is not.
+native fn join(
+    prefix: Option<string>,
+    suffix: Option<string>,
+    separator: Option<string>,
+    pieces: variadic string
+) -> string
+
+// Splits `s` at the FIRST `sep`: Some([before, after]), or None when `sep` is not in `s`. The
+// right tool for `key=value`, `host:port` and similar, where the value may itself contain the
+// separator (`split` would cut it apart). `sep` must not be empty.
+pub fn split_once(s: string, sep: string) -> Option<[string]> {
+    val at = index_of(s, sep, 0)
+    if at < 0 {
+        return Option<[string]>.None
+    }
+    return Option<[string]>.Some([substring(s, 0, at), substring(s, at + len(sep), len(s))])
+}
+
+// A mutable buffer for assembling a string piece by piece. Adding to a string with `concat` in
+// a loop copies the whole string each time and leaves the old copies as garbage; appending to a
+// MutableString is amortized O(1). `handle` is an opaque reference to the native buffer: do not
+// build or edit one directly, only through `mutable_string_new` and the `sb_*` functions. It belongs to the
+// thread that made it (`#[thread_bound]`): it cannot be a `Channel`'s element, a `spawn` argument or a
+// module-level `val`, and using one from another thread (through a closure, say) is a runtime error.
+// Hand the finished string over, not the builder.
+#[thread_bound]
+struct MutableString {
+    handle: int
+}
+
+// An empty builder. `capacity` is the bytes to reserve up front and `grow_factor` the multiple
+// its capacity grows by when an append would overflow it; both are optional, so `mutable_string_new()` is
+// usually all that is written.
+native fn mutable_string_new(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableString
+
+// Appends each of `pieces`, given one by one or as an array. The builder changes in place and
+// nothing is returned.
+native fn mutable_string_append(sb: MutableString, pieces: variadic string)
+
+// Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say):
+// `mutable_string_append_byte(sb, 195b, 169b)`. A string cannot hold a 0 byte, so if any byte is `0b` NOTHING
+// is appended and the result is false (true otherwise). The bytes need not be valid UTF-8 on
+// their own.
+native fn mutable_string_append_byte(sb: MutableString, b: variadic byte) -> bool
+
+// Reading and writing one byte of the buffer, and searching it: what lets a string being built be
+// inspected without `snapshot`, which copies all of it per call. Byte-indexed, like every string
+// operation in the language -- `len` is bytes and `char_at(s, i)` is the one-byte string at `i`, so
+// there is no UTF-8 question left to settle here.
+native fn mutable_string_get(sb: MutableString, index: int) -> string
+
+// Replaces one byte, mirroring the immutable `set(arr, i, x)`: one element in, one element out. A
+// `value` of any other length is a runtime error rather than a splice, because splicing would
+// change the length and `set` nowhere else in the language does that.
+native fn mutable_string_set(sb: MutableString, index: int, value: string)
+
+// The byte index of the first `needle` at or after `from` (`0 <= from <= len(sb)`, a runtime error
+// otherwise), or -1. An empty `needle` is found at `from`. Takes a `from` because the immutable
+// `index_of(s, needle, from)` does -- mirroring the twin matters more than saving an argument.
+native fn mutable_string_index_of(sb: MutableString, needle: string, from: int) -> int
+
+// The byte index of the last `needle`, or -1; an empty `needle` is found at `len(sb)`. No `from`,
+// because `last_index_of(s, needle)` has none either.
+native fn mutable_string_last_index_of(sb: MutableString, needle: string) -> int
+
+// The lines of `text`, without their terminators. Written because a cold model reaching for
+// `text.lines()` was sent to `split(text, "\n")`, which is close but not the same thing: `split`
+// leaves a `\r` on every line of CRLF text and leaves a trailing empty string after a final
+// newline, so "a\nb\n" splits into three pieces where it has two lines. Both of those are the
+// kind of difference that shows up as an off-by-one in someone's line count rather than as an
+// error (docs/reviews/tasks.md F35).
+//
+// A final newline is a terminator, not a separator -- "a\nb\n" and "a\nb" both have two lines --
+// which is how every line-oriented tool reads a text file. An empty string has no lines.
+pub fn lines(text: string) -> [string] {
+    if len(text) == 0 {
+        return []
+    }
+    var out: [string] = []
+    for piece in split(text, "\n") {
+        out = push(out, if ends_with(piece, "\r") { substring(piece, 0, len(piece) - 1) } else { piece })
+    }
+    // Only a *trailing* newline produces that last empty piece; a blank line in the middle is a
+    // real empty line and stays.
+    if ends_with(text, "\n") {
+        return slice<string>(out, 0, len(out) - 1)
+    }
+    return out
+}
+
+// `s` with its characters in the opposite order. Reverses *code points*, not bytes, so reversing
+// text outside ASCII gives text rather than mojibake -- the byte-level version of this is the
+// classic way to corrupt UTF-8, and `chars` already answers in code points.
+pub fn reverse_string(s: string) -> string {
+    val cs = chars(s)
+    var out = ""
+    var i = len(cs)
+    while i > 0 {
+        i = i - 1
+        out = concat(out, cs[i])
+    }
+    return out
+}

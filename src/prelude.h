@@ -5,7 +5,7 @@
 
 #include "value.h"
 
-/* Ziman's prelude: everything declared in lib/prelude.zm -- native
+/* Ziman's prelude: everything declared in lib/prelude/<part>.zm -- native
  * functions, but also ordinary Ziman types/functions/vals -- is always
  * available, bare and unqualified, in every program, no `use` needed,
  * unlike every other module (`fs`, which needs `use fs` and
@@ -21,13 +21,13 @@
  * every time a new scalar type shows up. `Option<T>` lives here for the
  * same "always needed, never worth a `use`" reason, despite being
  * ordinary Ziman source (an enum + one helper function) rather than
- * native code -- see lib/prelude.zm's own header comment for why
- * this is the one file in corelib that's never `use`-able, and
+ * native code -- see lib/prelude/prelude.zm's own header comment for
+ * why these are the files in corelib that are never `use`-able, and
  * docs/DESIGN.md's "Prelude" entry for the fuller reasoning.
  *
- * Mechanically, this is not a new loading concept -- the prelude's
- * source (prelude_source()) is parsed exactly like any other module and
- * its declarations (functions, structs, enums, global vals) are merged
+ * Mechanically, this is not a new loading concept -- each part's
+ * source is parsed exactly like any other module and the declarations
+ * (functions, structs, enums, global vals) of all of them are merged
  * directly into every program's flat Module, the same way the entry
  * module's own declarations are (see loader.c's load_module_graph) --
  * just always, and never self-qualified (so `parse_int`, not
@@ -37,7 +37,19 @@
  * works generically regardless of which module a declaration came from
  * -- see native.h -- so no new machinery was needed there either. */
 
-const char *prelude_source(void);
+/* The prelude is several files, not one: lib/prelude/<part>.zm, each embedded
+ * by the Makefile's prelude rule and listed in prelude.c's PARTS table.
+ * They are split by the type their names are about, with one exception --
+ * a name whose declarations would otherwise be spread over two or more
+ * parts lives whole in collections.zm, so that an overload set is never
+ * split across files and `--api builtins` can be read a part at a time.
+ *
+ * Each part is lexed separately, so a diagnostic inside the prelude gets
+ * that part's own line numbers; prelude_part_name() is what it is
+ * registered under for the source excerpt, and is a real repo path. */
+int prelude_part_count(void);
+const char *prelude_part_name(int i);
+const char *prelude_part_source(int i);
 
 /* Registers every prelude function's C implementation under its bare
  * name (native_register, from native.h) -- call once at startup, before

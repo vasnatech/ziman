@@ -7,7 +7,7 @@ declaration, which is the failure that started F148 -- a builtin with no signatu
 `--api builtins` can only name, an editor cannot complete, and a reader cannot find. That cost
 three corrections in one session.
 
-So every dispatched name must either be declared in lib/prelude.zm or appear below with the reason
+So every dispatched name must either be declared in lib/prelude/ or appear below with the reason
 it cannot be. "Not yet done" is a reason; the point is that it is written down rather than silent.
 """
 import pathlib
@@ -59,7 +59,7 @@ def main():
 
     for name in sorted(undeclared - set(reasons)):
         problems.append(f"'{name}' is dispatched by the interpreter, has no `builtin fn` declaration in "
-                        f"lib/prelude.zm, and no reason in src/typecheck.c's BUILTIN_NO_SIGNATURE")
+                        f"lib/prelude/, and no reason in src/typecheck.c's BUILTIN_NO_SIGNATURE")
     # A reason for a name that is also declared means one of the two has gone stale.
     for name in sorted(declared & set(reasons)):
         problems.append(f"'{name}' is declared `builtin fn` *and* has a reason in BUILTIN_NO_SIGNATURE "

@@ -1,0 +1,186 @@
+// option.zm -- `Option<T>` and `Result<T, E>`, the two types that answer "there may be nothing"
+// and "this may have failed". They share a file because they convert into each other
+// (`option_to_result`, `result_to_option`) and because `unwrap` is one overload set over both.
+//
+// Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
+// loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
+// directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
+// whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
+// subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
+// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// header is generated from its source by the Makefile's prelude rule.
+//
+// A name whose declarations span more than one of these files lives in collections.zm, whole, so
+// that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
+// a declaration".
+
+// A value that may be absent: `Some(value)` or `None`. Test with `Option.is_Some(o)` and read
+// with `Option.unwrap_Some(o)`, or with a `switch`. Available bare, like `Result`; unlike
+// `Result` it is ordinary Ziman source, an enum with one helper function.
+enum Option<T> {
+    Some(T)
+    None
+}
+
+// The Result and Option builtins. Declared, not defined -- each one's rule is a type-checker arm.
+//
+// `unwrap` is **not** here: it takes an `Option<T>` as well as a `Result<T, E>`, so it needs two
+// declarations and waits for `builtin fn` to accept an overload set.
+
+// **Why `unwrap_err` is lower case and `unwrap_Some` is not**, since the pair invites the question
+// twice over. For an enum, `is_V`/`unwrap_V` spells the variant exactly -- `Status.Active` gives
+// `is_Active` and `unwrap_Active`, and `Option` is a real prelude enum, so `Option.unwrap_Some`
+// exists and the bare `unwrap_Some` is its shorthand. `Result` is a *built-in type*, not an enum
+// you can address: `Result.is_Ok(...)` is a syntax error, and nothing generates an `is_Ok` or an
+// `unwrap_Ok` for a capital to agree with. Its `Ok` accessor is plain `unwrap`, carrying no
+// variant name at all, so capitalising only `unwrap_Err` would put a spelled-out variant beside
+// one with none. Each spelling tracks whether a generated function exists; neither is a slip.
+
+// `ok` and `err` take their type from the context, like `channel_new` and `Some`: the error type of
+// an `ok(...)` is nowhere in its argument, so a `val`/`var` annotation, a struct field, a `with`
+// override, a returned value or a parameter's type has to say which `Result` it is.
+builtin fn ok<T, E>(value: T) -> Result<T, E>
+
+builtin fn err<T, E>(error: E) -> Result<T, E>
+
+builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
+
+builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
+
+builtin fn is_Some<T>(o: Option<T>) -> bool
+
+builtin fn is_None<T>(o: Option<T>) -> bool
+
+builtin fn unwrap_Some<T>(o: Option<T>) -> T
+
+// The values that are actually there, in order, with the `None`s dropped. What builds a list out
+// of fields that may each be absent, without an `if` per field:
+//
+//     xml.element(xml.name("patient"), [], filter_present<xml.Node>(
+//         xml.opt_element("firstName", p.first_name),
+//         xml.opt_element("dateOfBirth", p.date_of_birth)
+//     ))
+//
+// Named `filter_present` rather than `array_present` since F170. The `array_` prefix said which
+// *world* the argument came from, which is what the prefix meant everywhere else; here the
+// argument is a written-out list of maybes and there is no other world it could have come from,
+// so the prefix was answering a question nobody asked. `filter_` says what it does instead, and
+// puts it beside `filter` where a reader looking for "keep some of these" will be.
+//
+// Variadic rather than taking an array, because the call site is nearly always a written-out
+// list of maybes rather than one already in hand; an array you do have goes in as
+// `filter_present<T>(items: existing)`, the spelling `concat_arrays` took before `concat` absorbed it.
+//
+// `filter` cannot do this: it keeps elements, so it would hand back `[Option<T>]` still
+// wrapped, and `flat_map` only does it by turning each value into a one- or zero-element
+// array, which allocates per element and reads like a puzzle.
+// Plain value `push`, not a MutableArray, and the reason is that `T` is generic: which spelling
+// wins depends on whether `T` packs, so the one chosen here is the one whose worst case is
+// mildest rather than the one that wins anywhere in particular.
+//
+// Every item present, which is the heaviest case and the one where a capacity hint is exactly
+// right rather than an over-estimate:
+//
+//                   n       push   builder   builder+capacity
+//     [int]      10,000    480 ms    343 ms         352 ms
+//     [int]     200,000   1040 ms    760 ms         712 ms
+//     [string]   10,000    617 ms   1278 ms        1250 ms
+//     [string]  200,000   1396 ms   3028 ms        2669 ms
+//
+// A packed buffer (`int`, `float`, `byte`, `bool`) is unscanned and a builder is about 1.4x
+// ahead of value `push` there. A boxed buffer is scanned for pointers at every collection, and
+// a builder ends up holding two large scanned regions at once -- the grown buffer and
+// `snapshot`'s copy of it -- where `push` grows one array in place and never copies, so `push`
+// is about 2x ahead instead. Worst case: `push` 1.4x, either builder 2.2x. Below a hundred
+// elements, which is what the variadic form is nearly always called with, all three are inside
+// the run-to-run noise.
+//
+// The capacity hint makes no material difference either way since the runtime stopped
+// allocating a boxed array it was about to discard. Measure one spelling per process if these
+// are ever re-run: taking all three in one gave the last of them a heap the earlier two had
+// already grown, which read as a 4x spread that does not exist.
+pub fn filter_present<T>(items: variadic Option<T>) -> [T] {
+    var out: [T] = []
+    for item in items {
+        if Some(value) = item {
+            out = push(out, value)
+        }
+    }
+    return out
+}
+
+// `filter_present` for a `Result`: the values that succeeded, in order, with the failures
+// dropped -- and `filter_err` for the other half, the reasons they failed. Added in F171 beside
+// `filter_present`, which they are shaped after exactly: variadic, so a written-out list of
+// fallible steps needs no array built first, and an array already in hand goes in as
+// `filter_ok<T, E>(items: existing)`.
+//
+// `pub` on all three, which in this file means only "`--api builtins` lists it" -- the prelude is
+// merged into every program, so visibility does not gate calling. `result_to_option` and
+// `option_to_result` beside them already carry it for that reason, and they are the closest
+// siblings these two have. `filter_present` was missing it, which is why it was in the list of 21
+// prelude functions a reader asking "what exists" could not see; the other 18 are their own task.
+//
+// Both type arguments are written even though each function returns only one of them, because
+// Ziman infers neither and `Result<T, E>` names both: `filter_ok<int, string>(...)` answers
+// `[int]`, `filter_err<int, string>(...)` answers `[string]` over the very same input.
+//
+// **Neither one propagates**, which is the whole point and also the risk: `filter_ok` *silently
+// discards* every failure, so it is for the cases where a failure is genuinely not news -- one
+// bad `Accept` range among ten, a malformed line in a feed that keeps going. When a failure
+// should stop the work, `try` and `if Err(e) =` are still the answer and always were. Calling
+// both on the same input is how to keep the successes and still report what was lost.
+pub fn filter_ok<T, E>(items: variadic Result<T, E>) -> [T] {
+    var out: [T] = []
+    for item in items {
+        if Ok(value) = item {
+            out = push(out, value)
+        }
+    }
+    return out
+}
+
+pub fn filter_err<T, E>(items: variadic Result<T, E>) -> [E] {
+    var out: [E] = []
+    for item in items {
+        if Err(reason) = item {
+            out = push(out, reason)
+        }
+    }
+    return out
+}
+
+// `r`'s Ok value, or None on Err -- the error itself is dropped, so use this only where the
+// caller truly doesn't care why something failed, not as a shortcut past handling it.
+// `r` with its error replaced by `convert(error)`; an Ok passes through untouched. The piece that was
+// missing wherever one module's error type has to become another's -- `fs` answers an `FsError` and a
+// caller whose own errors are strings wants `try result_map_err(fs.read_text(p), fs.fs_error_message)`
+// rather than four lines of switch at every call.
+pub fn result_map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F> {
+    return switch r {
+        Ok(v) { ok(v) }
+        Err(e) { err(convert(e)) }
+    }
+}
+
+pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T> {
+    return switch r {
+        Ok(value) { Option<T>.Some(value) }
+        Err(_) { Option<T>.None }
+    }
+}
+
+// The reverse of result_to_option: Some(value) becomes Ok(value), and None becomes
+// Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
+// formatted message) is skipped entirely on the common Some path.
+pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T, E> {
+    return switch o {
+        Some(value) { ok(value) }
+        None { err(err_supplier()) }
+    }
+}
+
+// `unwrap` is the one name shared by the two: a `Result`'s Ok payload, or an `Option`'s Some. The
+// Option form is why it is not spelled `unwrap_Ok` -- see the note above `ok`.
+builtin fn unwrap<T, E>(r: Result<T, E>) -> T
+builtin fn unwrap<T>(o: Option<T>) -> T

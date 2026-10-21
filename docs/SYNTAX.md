@@ -773,7 +773,7 @@ fn main() {
 - **A program's own function shadows a builtin of the same name.** `fn count(conn, table) -> int`
   is legal beside the builtin `count`, and a bare `count(...)` in that file reaches the program's
   one. The shadow is invisible to the library: the prelude's own calls always reach the builtin, so
-  shadowing `len` cannot break `lib/prelude.zm`. A `use`d module could always do this; the main
+  shadowing `len` cannot break `lib/prelude/`. A `use`d module could always do this; the main
   file could not until 2026-10-18, which was an asymmetry rather than a rule.
 - **Only real functions accept named calls** — the small set of core builtins the compiler
   special-cases by name (`print`, `len`, `push`, `hash`, ...) have one fixed unlabeled signature.
@@ -1197,7 +1197,7 @@ fn main() {
   **An overload set cannot be used as a function value**: `val f = describe` has no arguments to
   choose from. Wrap the one you mean in a function of your own.
 
-- **In `lib/prelude.zm`, visibility chooses what is *advertised*, not what is callable.** The
+- **In `lib/prelude/`, visibility chooses what is *advertised*, not what is callable.** The
   prelude is merged into every program, so every declaration in it is callable with no `use`
   whatever its modifier says — `pub` means only "`ziman --api builtins` lists it", and a plain
   `fn` there is reachable just the same. `internal` is the one modifier that subtracts: it
@@ -1255,7 +1255,7 @@ fn main() {
   is data *about* the builtin rather than the builtin. Two rules follow from that: the name must be
   one the interpreter actually dispatches (a typo is a compile error naming
   `ziman --api builtins`), and it is the one declaration exempt from "a builtin cannot be
-  redefined", since it is the declaration *of* one. Only `lib/prelude.zm` declares these.
+  redefined", since it is the declaration *of* one. Only `lib/prelude/` declares these.
   See DESIGN.md's "`native` and builtin are two different mechanisms" for why the two are not
   interchangeable: a `native fn`'s type is checked by the ordinary call path, a builtin's by a
   hand-written arm that can see the whole call expression.
@@ -1267,7 +1267,7 @@ fn main() {
   `json_compare`, so `compare`/`sort` on `Json` is a type error), `properties`, `log`, `net`,
   `http`/`server`/`client`, and the database layer `db`/`sql`/`sqlite`/`pg`/`mysql`. Each is an
   ordinary qualified module (`use fs`, always `fs.read_text`) except the prelude
-  (`lib/prelude.zm`), which merges bare into every program with no `use` at all (`Option<T>`,
+  (`lib/prelude/`), which merges bare into every program with no `use` at all (`Option<T>`,
   the builders, `parse_int`/`concat`/`split`/...; see docs/DESIGN.md's "Prelude" entry).
 
 ### Naming conventions for module functions

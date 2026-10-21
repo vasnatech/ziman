@@ -15,7 +15,14 @@ FOLDERS = {"core": "core", "db": "databases", "http": "HTTP", "time": "time"}
 
 mods = {}
 for path in glob.glob(os.path.join(ROOT, "lib", "*", "*.zm")):
-    mods[os.path.basename(path)[:-3]] = os.path.basename(os.path.dirname(path))
+    folder = os.path.basename(os.path.dirname(path))
+    # lib/prelude/ is not a folder of modules: its files are merged bare into every program and
+    # nothing can `use` one, so a dependency graph has nothing to say about them. They only became
+    # visible here when the prelude stopped being a single lib/prelude.zm, which this glob missed
+    # by shape rather than on purpose -- hence the explicit skip now.
+    if folder == "prelude":
+        continue
+    mods[os.path.basename(path)[:-3]] = folder
 
 deps = collections.defaultdict(set)
 for name in mods:

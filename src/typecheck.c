@@ -1592,7 +1592,7 @@ const char *ziman_builtin_name(int i) {
     return BUILTINS_NO_NAMED_ARGS[i];
 }
 
-/* Why a builtin has no `builtin fn` declaration in lib/prelude.zm, for the ones that can never have
+/* Why a builtin has no `builtin fn` declaration in lib/prelude/, for the ones that can never have
  * one. Every other dispatched name is declared there with a real signature (F148); these are the
  * exceptions, and `--api builtins` prints the reason beside the name rather than listing it bare
  * under a sentence that has to cover all of them at once.
@@ -3110,8 +3110,8 @@ static int g_builtin_shadow_count = 0;
  * told that one exists. */
 /* Whether the body being checked belongs to the program rather than to a bundled module. A shadow
  * is only visible from program code: the prelude's own functions sit in this same module's list,
- * so without this a program declaring `fn len(x: string)` made every `len(...)` *inside
- * lib/prelude.zm* resolve to it, and the prelude stopped type-checking. Shadowing a name is the
+ * so without this a program declaring `fn len(x: string)` made every `len(...)` *inside the
+ * prelude itself* resolve to it, and the prelude stopped type-checking. Shadowing a name is the
  * program's business and must not reach the library it is shadowing. */
 static int g_checking_program_body = 0;
 
@@ -3473,7 +3473,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
      *
      * The ordering is the dispatch: an array matches both `[T]` and the bare `T`, and the array
      * form wins, which is why `mutable([1, 2])` is never a `Mutable<[int]>`. That one is
-     * `mutable_new([1, 2])`, and lib/prelude.zm's note above these declarations says so. */
+     * `mutable_new([1, 2])`, and lib/prelude/collections.zm's note above these declarations says so. */
     if (strcmp(name, "mutable") == 0) {
         if (e->as.call.args.count != 1) {
             ziman_error("type", e->line, e->col, "'mutable' takes exactly 1 argument, found %d", e->as.call.args.count);
@@ -6959,7 +6959,7 @@ void typecheck(Module *module) {
                             "'%s' is declared 'builtin fn' but the interpreter dispatches no builtin of that name "
                             "-- 'ziman --api builtins' lists the ones it does", fn->name);
             }
-            /* **Only a bundled module may declare one**, which in practice means lib/prelude.zm,
+            /* **Only a bundled module may declare one**, which in practice means lib/prelude/,
              * the file `--api builtins` reads. A declaration stamped with a source file came from
              * a program, and a program declaring these would be adding overloads to the language's
              * own vocabulary -- the one thing F148's design says `builtin fn` must not become,

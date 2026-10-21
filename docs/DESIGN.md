@@ -170,6 +170,7 @@ them against the code.
 - [`native` and builtin are two different mechanisms, and the difference is who owns the type rule (2026-10-18, F148)](#native-and-builtin-are-two-different-mechanisms-and-the-difference-is-who-owns-the-type-rule-2026-10-18-f148)
 - [An element write is one statement with two meanings (2026-10-18, F149)](#an-element-write-is-one-statement-with-two-meanings-2026-10-18-f149)
 - [Overloading available to a declaration (2026-10-19, F174-F201)](#overloading-available-to-a-declaration-2026-10-19-f174-f201)
+- [The prelude is a directory, and the seam is the type a name is about (2026-10-20, F203)](#the-prelude-is-a-directory-and-the-seam-is-the-type-a-name-is-about-2026-10-20-f203)
 
 <!-- end index -->
 
@@ -1166,7 +1167,8 @@ them against the code.
   had ever exercised.
   Deliberately *not* made `use`-able under the name `prelude`, despite
   `lib/prelude.zm` sitting in the same directory as every module
-  that is: `lib/core/%.zm` doubles as `corelib.c`'s `use`-fallback lookup
+  that was (it is `lib/prelude/<part>.zm` since 2026-10-20, which puts
+  the point beyond doubt -- a directory of parts is not a module): `lib/core/%.zm` doubles as `corelib.c`'s `use`-fallback lookup
   table, and adding `prelude` to it would let `use prelude` parse the
   file a *second* time under a redundant qualifier (`prelude.Option`
   alongside the already-bare `Option`) — solved by getting its header
@@ -6989,7 +6991,7 @@ included, so that race reappears and looks like a new finding -- it is not. Repr
 Written down because a reviewer asked what the difference was and the answer was not recorded
 anywhere, while the consequence of not knowing it is measurable -- see the end of this entry.
 
-**A `native fn` is a function whose type can be written down.** It is declared in `lib/prelude.zm`
+**A `native fn` is a function whose type can be written down.** It is declared in `lib/prelude/`
 with a full signature, and registered by name to one C function of one fixed shape:
 
 ```c
@@ -7220,3 +7222,66 @@ has no production user, only a fixture, and is owed either a user or a retiremen
 `effectful_despite_answering` (F200) is a one-name veto list for the case the purity rule cannot
 see -- `remove(mb, k) -> Option<V>` is effectful *and* answers -- carrying a written promise that a
 third case means writing the attribute instead of extending the list.
+
+
+## The prelude is a directory, and the seam is the type a name is about (2026-10-20, F203)
+
+`lib/prelude.zm` had reached 1,971 lines and 269 declarations, which is the point at which "open
+the prelude" stops being a useful instruction. Split into `lib/prelude/<part>.zm`, ten files, each
+about one type: `array.zm` (873 lines), `string.zm`, `map.zm`, `set.zm`, `option.zm`, `channel.zm`,
+`iter.zm`, `mutable.zm`, `collections.zm`, and `prelude.zm` for the universal verbs that belong to
+no collection (`print`, `str`, `abs`, `min`, `max`, `hash`, `compare`, and number parsing).
+
+**The seam had to be chosen against the previous two passes, not with them.** F149-F201 spent
+themselves making one name cover several types -- `filter` over six collections, `len` over nine.
+Splitting by type puts the declarations of one overload set in several files, which undoes exactly
+the property those passes bought: that reading what `filter` accepts means reading one place.
+There are two coherent seams and they are duals. **By type** answers *"what can I do with a
+`Map`?"*; **by question** answers *"what does `filter` take?"*. A file layout can only have one.
+
+**So the rule is: by type, except that a set is never split.** A name whose declarations would
+otherwise land in two or more per-type files lives whole in `collections.zm`. Measured against the
+prelude as it stood, that is **13 names and 61 declarations** -- `len`, `contains`, `clear`,
+`snapshot`, `mutable`, `filter`, `map`, `remove`, `remove_all`, `set`, `get_or`, `update`,
+`concat`. Everything else is single-world and goes to its type's file. Two groupings are what keep
+that number small: `[T]` and `MutableArray<T>` share `array.zm`, so the five `sort*` names and
+`reverse` and `flat_map` stay put rather than being dragged out; `Option` and `Result` share
+`option.zm`, so `unwrap` does.
+
+**The first count of this was wrong, and the way it was wrong is the usual way.** A regex allowing
+leading whitespace counted `val out` and `val seen` *inside function bodies* as declarations and
+reported 27 spanning names over 55. Anchored at column 0 the answer is 13. Estimates made by
+counting matches overestimate; this file has said so three times now.
+
+**Parsed per part, not concatenated.** Concatenating the ten into one string at build time would
+have been near-zero C change, and was rejected for one reason: a prelude error would then report a
+line number in a blob that exists nowhere on disk, and this project edits the prelude constantly.
+Each part is lexed on its own, so its line numbers are its own, and registered with
+`ziman_register_source` under its real path -- which makes prelude diagnostics *better* than
+before, since `print_excerpt` reads from that registry rather than from the filesystem and a
+bundled declaration previously carried no file name at all. The parts are merged into one `Module`
+before anything resolves against it, because a name may be declared in several of them and the
+resolver has to see the whole vocabulary at once to choose between declarations or report an
+overlap.
+
+**`source_file` is deliberately still NULL on prelude declarations.** It is not a display field:
+`typecheck.c` sets `g_checking_program_body = fn->source_file != NULL`, and `coverage.c` skips a
+function without one. Stamping the parts' paths there would have put the prelude into `--coverage`
+reports and flipped the user-code gate. The path reaches diagnostics through the source registry
+instead, which has no second meaning.
+
+**What the split had to drag with it.** `gen_lib_deps.py` globs `lib/*/*.zm` and promptly listed
+all ten parts as modules in the dependency graph -- the old single file missed that glob by shape
+rather than on purpose, so the exclusion is now explicit. `gen_lib_manual.py` reads the Makefile's
+`PRELUDE_PARTS` rather than keeping its own list, so the manual cannot come to disagree with what
+is built; `docs/lib/prelude.md` stays one page, with a section per part. The parts are *not* on the
+Makefile's `vpath`, and have their own `$(BUILD)/prelude_%_source.h` rule: keeping them off the
+module search path is what guarantees `use map` can never find `lib/prelude/map.zm`.
+
+**Three defects fell out of reading 1,971 lines closely enough to move them.** Two doc comments
+compared a name to itself -- *"Named `filter_present` rather than `filter_present`"* and *"Named
+`iter` rather than `iter`"* -- both casualties of F170's rename, where the old name was replaced
+everywhere including inside the sentence explaining the rename. And ~100 lines of prose about the
+array pairing pass sat above `filter_present`, so the split carried it into `option.zm`; it is one
+consolidated section in `array.zm` now. A same-name comparison is worth grepping for after any
+rename pass: `` `x` rather than `x` `` is always a defect and never a sentence anyone would write.

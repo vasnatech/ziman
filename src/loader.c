@@ -1896,8 +1896,35 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
      * to a prelude enum (`Option<T>`) can appear in *any* module, not
      * just the entry one. See resolve_type_refs's own comment for the
      * reclassification fallback this enables. */
-    Module *prelude_mod = parse_file_contents(prelude_source());
+    /* The prelude is several files (lib/prelude/<part>.zm), merged into one module before anything
+     * resolves against it. It has to be one module and not a chain of them: a name may be declared
+     * in more than one part -- `sort` is two declarations in array.zm, and an overload set that
+     * spans worlds lives whole in collections.zm -- and the resolver has to see the entire
+     * vocabulary at once to choose between them or to report an overlap. Each part is lexed on its
+     * own so its line numbers are its own, and registered under its real path so that a diagnostic
+     * inside the prelude prints the right excerpt; the merge below is the same push-every-list
+     * shape load_module_graph uses for the program itself. */
+    Module *prelude_mod = ziman_xcalloc(1, sizeof(Module));
     prelude_mod->is_corelib = 1;
+    for (int p = 0; p < prelude_part_count(); p++) {
+        const char *part_name = prelude_part_name(p);
+        ziman_register_source(part_name, prelude_part_source(p));
+        ziman_set_error_file(part_name);
+        Module *part = parse_file_contents(prelude_part_source(p));
+        /* A `use` here would be silently dropped by the merge, and the prelude is the one place
+         * that cannot have one anyway (it is merged bare into every program, so there is nothing
+         * for it to import from that is not already beside it). */
+        if (part->uses.count > 0) {
+            ziman_error("module", part->uses.items[0].line, part->uses.items[0].col,
+                        "a prelude part cannot `use` another module -- every file in lib/prelude/ "
+                        "is merged bare into every program, so they already see each other");
+        }
+        for (int i = 0; i < part->functions.count; i++) function_list_push(&prelude_mod->functions, part->functions.items[i]);
+        for (int i = 0; i < part->structs.count; i++) struct_list_push(&prelude_mod->structs, part->structs.items[i]);
+        for (int i = 0; i < part->enums.count; i++) enum_list_push(&prelude_mod->enums, part->enums.items[i]);
+        for (int i = 0; i < part->vals.count; i++) global_val_list_push(&prelude_mod->vals, part->vals.items[i]);
+    }
+    ziman_set_error_file(NULL);
     resolve_cross_refs(&ldr, prelude_mod);
     ldr.prelude_mod = prelude_mod;
     g_prelude_for_hints = prelude_mod;
@@ -1960,7 +1987,7 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
      * -- is merged into every program the same way the entry module's
      * own declarations are: bare names, no self-qualify pass, no `use`
      * required. Structs/enums/vals, not just functions, since
-     * lib/prelude.zm carries ordinary Ziman declarations
+     * lib/prelude/<part>.zm carry ordinary Ziman declarations
      * (`Option<T>`) alongside native fn signatures now, not native-only
      * the way it used to be. Merged first, ahead of the entry module and
      * every dependency, so a global val there (none yet, but the

@@ -1,0 +1,914 @@
+// array.zm -- `[T]` and its builder `MutableArray<T>`: the bare helpers, the sort family, the
+// sequence questions and the algorithms, with each builder twin beside the immutable form it
+// mirrors. A name declared here over BOTH worlds is one overload set, which is why the two live in
+// one file rather than an array.zm and a mutable_array.zm.
+//
+// Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
+// loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
+// directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
+// whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
+// subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
+// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// header is generated from its source by the Makefile's prelude rule.
+//
+// A name whose declarations span more than one of these files lives in collections.zm, whole, so
+// that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
+// a declaration".
+
+// ---------------------------------------------------------------- why one name takes both worlds
+//
+// Every function here returns a new array and leaves its argument untouched when given an `[T]`,
+// and rearranges the buffer in place when given a `MutableArray<T>`. Type arguments are written
+// out at the call, since Ziman does not infer them: `map<int, string>(numbers, label)`. A function
+// argument is a named function or a lambda, and a lambda may use the enclosing function's
+// immutable locals. The array helpers were promoted out of the `collections` module by F120, so
+// that an array needs no more of an import than a Map's `get` or a Set's `union` does.
+//
+// **The five each world used to spell with its own prefix** -- `reverse`, `filter`, `sort`,
+// `sort_desc`, `sort_with`. Unlike `insert` against a MutableSet's `add`, **neither world owned
+// the bare name**: it was `array_reverse` against `mutable_array_reverse`, so sharing one takes
+// nothing from either and there was no winner to pick. The two worlds answer with different costs,
+// deliberately -- an array's form allocates a new array, a builder's rearranges its own buffer with
+// no copy at all, which is the whole reason a builder exists. `reverse(snapshot(xs))` would make
+// two copies where `reverse(xs)` makes none.
+//
+// **Two born paired: sorting by a computed key** -- `sort_by` and `sort_by_desc` compute
+// `key(item)` **once per item** and sort the keys, where
+// `sort_with(items, fn(a, b) { compare(key(a), key(b)) })` recomputes both keys inside every
+// comparison: O(n) key computations against O(n log n). For a field access the difference is
+// nothing; for a parsed date or a formatted string it is the whole reason the form exists. They
+// replace `array_sort_by_keys`/`_desc`, which asked the caller to build the key array itself and
+// so took **two** sequences -- the four world combinations of two arrays cannot be chosen from
+// argument one. `inverse` cannot stand in for `sort_by_desc` the way it does for a comparator: it
+// flips an `fn(T, T) -> int`, and a key extractor is not one.
+//
+// **The eleven sequence questions, which never had a builder form at all** -- `map`, `flat_map`,
+// `fold`, `for_each`, `find`, `first`, `last`, `any`, `all`, `count`, `sum`. A MutableArray could
+// not be folded or searched: the route was `fold(snapshot(b), ...)`, which **allocates and fills a
+// whole array before the first element is looked at**. Each walks its sequence once and keeps
+// nothing, so taking either world removes that copy without changing a meaning -- which is what
+// separates these from `iter`, whose `Iter` outlives the call and so cannot take a handle whose
+// contents may move underneath it. `array_join` was deleted rather than renamed: it was one line
+// delegating to `join`, which owns the bare name and does more (`prefix`/`suffix`).
+//
+// **The six that build a result from a walk** -- `distinct`, `group_by`, `index_by`,
+// `frequencies`, `min_by`, `max_by`. The first four allocate a Map or a Set whatever world they
+// are given, so the copy they save is a smaller share of their cost than it is for `fold`;
+// `min_by` and `max_by` allocate nothing and are the same case as the eleven above.
+//
+// **The four that ask an ordered sequence a question** -- `is_sorted`, `binary_search`,
+// `lower_bound`, `upper_bound`. These read their sequence with `len()` and `[i]` and nothing else,
+// so each builder twin is the array body verbatim -- F149's `b[i]` is what makes that literally
+// true rather than merely similar. Three of the four require the sequence to already be in order,
+// and that precondition is the caller's in either world. A builder is in fact the likelier place
+// for it to hold, since `sort(b)` rearranges in place and the thing you then search is the handle
+// itself: `binary_search(snapshot(b), x)` copies the whole buffer to ask a question that touches
+// O(log n) of it.
+//
+// `map`, `filter`, `concat`, `len`, `contains`, `remove`, `set`, `snapshot`, `clear` and `mutable`
+// are declared in collections.zm instead, because each of them also takes a Map, a Set or a
+// string, and an overload set is kept whole in one file.
+
+// The text of `b`, or an Err when `b` is not valid UTF-8 (naming the byte offset of the first
+// invalid sequence) or holds a 0 byte (a string cannot) -- the one real boundary where untrusted
+// bytes (a socket, a file, an HTTP body) become a `string`, so it's the one place this is
+// checked; every other string function keeps working on whatever bytes a `string` already holds,
+// same as always. See docs/DESIGN.md's UTF-8 correctness entry.
+native fn bytes_to_string(b: [byte]) -> Result<string, string>
+
+// Any number of byte arrays joined into one, in a single pass. `concat(parts)` rather than
+// `concat(parts: parts)`: the positional spread is what a builtin takes, named arguments being
+// barred from them.
+pub fn bytes_concat(parts: variadic [byte]) -> [byte] {
+    return concat(parts)
+}
+
+// The array counterpart of MutableString: `push` copies the whole array on every call, so
+// pushing in a loop is quadratic, while appending to a MutableArray is amortized O(1). Same
+// opaque `handle`, same thread-bound rule.
+#[thread_bound]
+struct MutableArray<T> {
+    handle: int
+}
+
+// The elements from `start` up to, not including, `end` (`0 <= start <= end <= len(x)`, a runtime
+// error otherwise), as an array from either world.
+//
+// **From an array it does not copy.** Arrays are immutable, so the result shares `a`'s storage,
+// like `substring`: free to build, and it keeps the whole of `a` alive.
+//
+// **From a MutableArray it copies the window, and must.** A view would share a buffer that can
+// still be pushed to, written through or truncated underneath it. So the answer is the same type
+// either way and only the cost differs -- and taking the builder directly is the point, because
+// `slice(snapshot(b), s, e)` copies the *whole* builder first (`snapshot` being O(n), the slice of
+// it then free), so a three-element window of a ten-thousand-element builder copied ten thousand
+// elements.
+builtin fn slice<T>(a: [T], start: int, end: int) -> [T]
+builtin fn slice<T>(b: MutableArray<T>, start: int, end: int) -> [T]
+
+// An empty builder; `capacity` and `grow_factor` are as in `mutable_string_new`.
+native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableArray<T>
+
+// **`length` copies of `value`, every slot addressable.** `mutable_array_new`'s `capacity` is not a
+// length: it reserves room and leaves `len` at 0, so `b[0] = v` after it is a runtime
+// out-of-bounds, and the only way to get slots you can index was to push them one by one. This is
+// the "n slots" constructor -- `[0] * n` or `new int[n]` elsewhere.
+//
+// Both parameters are required on purpose. A `fill: Option<T>` on `mutable_array_new` would make
+// that function's first parameter mean *capacity* without a fill and *length* with one, and an
+// argument whose meaning depends on whether a later one was passed is exactly what this library
+// keeps removing. Required also means it calls positionally -- `mutable_array_filled(5, 0)`, with
+// `T` read from `value` -- where an `Option` parameter would have forced a named call.
+//
+// There is no immutable twin: `snapshot(mutable_array_filled(n, v))` is the way to an `[T]` of
+// repeats, and `array_filled` would have to be a second name rather than an overload, differing
+// from this only in what it returns.
+native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
+
+// Appends each of `pieces`, given one by one or as an array. The builder changes in place.
+//
+// `internal` from here on wherever a bare name supersedes it: **write `push`, `insert`, `remove`,
+// `filter`, `sort_with`** -- those dispatch on argument 0 and land here. See the bare array
+// helpers further down for why the prefixed names must exist even though nobody should type one.
+// `mutable_array_new`/`_filled` stay advertised (real constructors, no bare form) and so do
+// `mutable_array_get`/`_set` (`b[i]` and `b[i] = v` rewrite to them, and diagnostics name them --
+// hiding those two would point an error message at something the listing denies exists).
+internal native fn mutable_array_push<T>(ab: MutableArray<T>, pieces: variadic T)
+
+// The element at `index`, counting from 0; a runtime error outside `0..len(ab)`.
+//
+// This and `mutable_array_set` are why a loop that needs what it has already appended does not have to call
+// `snapshot`, which copies the whole buffer every time -- in a loop, the quadratic cost a builder exists
+// to avoid (`--lint` flags that shape). `for x in ab` reads one the same way, without the indexing.
+native fn mutable_array_get<T>(ab: MutableArray<T>, index: int) -> T
+
+// Replaces the element at `index`; a runtime error outside `0..len(ab)`. Appending is `mutable_array_push`: this
+// only overwrites what is already there.
+native fn mutable_array_set<T>(ab: MutableArray<T>, index: int, value: T)
+
+// Inserts `value` at `index`, moving everything after it along. `index` may be `len(xs)`, which
+// appends -- the same rule the immutable `insert(arr, i, x)` follows, so adding at the end needs no
+// second function. O(n), where `mutable_array_push` is amortized O(1): a loop of
+// `mutable_array_insert(xs, 0, v)` is quadratic, which is why there is no `push_front` -- that name
+// would read as `push`'s twin and promise a cost it cannot give. Build tail-first and reverse once.
+internal native fn mutable_array_insert<T>(xs: MutableArray<T>, index: int, value: T)
+
+// Removes the element at `index` and answers it, moving everything after it back. O(n). There is no
+// `pop` because this is one: `mutable_array_remove(xs, len(xs) - 1)`.
+internal native fn mutable_array_remove<T>(xs: MutableArray<T>, index: int) -> T
+
+// **Keeps only the elements from `start` up to `end`, in place, answering nothing.** The in-place
+// counterpart of `slice`: that one is a *query*, so it answers a value and leaves its source alone,
+// and this one is a mutation, so it changes the container and answers nothing -- the same split that
+// keeps `remove` from being spelled like `slice` either way.
+//
+// Builder-only, like `clear` and `snapshot`. An immutable array has nothing to narrow: asking for a
+// window of one is `slice(a, start, end)`, which makes a new array for free by sharing storage.
+//
+// It replaced `mutable_array_truncate(xs, length)`, which was this with `start` at 0 and is the
+// reason for the half truncate could not do: dropping a **prefix**. That was
+// `mutable_array_remove(xs, 0)` in a loop, O(n) a call and so quadratic, against one pack-aware
+// memmove here. `clear(xs)` is `narrow(xs, 0, 0)` and stays the word for emptying.
+//
+// Unlike truncate it does **not** clamp: `end` past the length is a runtime error, as it is for
+// `slice` and for an index. Truncate's clamp made `truncate(b, 99)` on a length-2 builder a silent
+// no-op, which hid a wrong computation rather than reporting it.
+builtin fn narrow<T>(b: MutableArray<T>, start: int, end: int)
+
+// **Exchanges the elements at `i` and `j`, in both worlds.** The same question of each, answered
+// the way each can: a new array from the array, nothing from the builder, which is written in
+// place. Both worlds are answered by the one builtin: unlike `push`, there is no prefixed name
+// underneath it, `mutable_array_swap` having been removed once this covered both.
+//
+// The array form closes a gap rather than renaming one. Its only previous spelling was
+// `set(set(a, i, a[j]), j, a[i])`, which copies the whole array **twice** to move two slots,
+// because `set` always copies. This copies once.
+builtin fn swap<T>(a: [T], i: int, j: int) -> [T]
+builtin fn swap<T>(b: MutableArray<T>, i: int, j: int)
+
+// Reverses the buffer in place -- no copy at all, where `reverse(snapshot(xs))` makes two.
+pub fn reverse<T>(xs: MutableArray<T>) {
+    var i = 0
+    var j = len(xs) - 1
+    while i < j {
+        swap(xs, i, j)
+        i = i + 1
+        j = j - 1
+    }
+}
+
+// Sorts the buffer by the element type's own `compare`, ascending or descending. These two make
+// two copies -- the snapshot, and the sorted array -- and that is the cheaper option rather than a
+// compromise: for a packed `[int]`, `[float]` or `[byte]` buffer, `array_sort` compares *natively*,
+// with no interpreter call per comparison, which is worth far more than the two memcpys it costs.
+// `sort_with` below has no such option and so is genuinely in place.
+// The write-back is `mutable_array_set` per element rather than `clear` and push, so the buffer
+// keeps its capacity and the length never changes. Spelled out in both rather than shared, because
+// a helper here would be *public* -- everything in the prelude is -- and "overwrite the buffer with
+// this array" is not a function the design asked for.
+pub fn sort<T: Ord>(items: MutableArray<T>) {
+    for i, v in sort<T>(snapshot(items)) {
+        mutable_array_set<T>(items, i, v)
+    }
+}
+
+pub fn sort_desc<T: Ord>(xs: MutableArray<T>) {
+    for i, v in sort_desc<T>(snapshot(xs)) {
+        mutable_array_set<T>(xs, i, v)
+    }
+}
+
+// The same two by a computed key. `key` is called once per element, on the snapshot, so a key
+// function that reads the buffer it is sorting sees it unchanged throughout.
+pub fn sort_by<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
+    for i, v in sort_by<T, K>(snapshot(xs), key) {
+        mutable_array_set<T>(xs, i, v)
+    }
+}
+
+pub fn sort_by_desc<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
+    for i, v in sort_by_desc<T, K>(snapshot(xs), key) {
+        mutable_array_set<T>(xs, i, v)
+    }
+}
+
+// Sorts the buffer by `cmp`, **copying no elements at all**: a merge sort over positions, then the
+// permutation applied by following its cycles. It allocates two int64 order buffers and an n-byte
+// map -- 17 bytes per element, against the 80 a boxed element costs, twice, through a snapshot. A
+// comparator of your own always went through the interpreter per comparison, so unlike `sort` and
+// `sort_desc` there is no native comparison here to trade those copies for. Stable: equal elements
+// keep their input order.
+pub native fn sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
+
+// The elements of `items` as an Iter, for code that takes a lazy source but has an array. Named
+// `iter` rather than `iter_of_array` since F170: the argument already says what the source is, the
+// way `to_set` is named for its result, and `iter_from` beside it is the other constructor.
+//
+// It takes an array and **not** a MutableArray, which is what separates it from `fold`, `find` and
+// the rest of the either-world family: those walk their sequence once inside the call and keep
+// nothing, while the `Iter` this answers outlives the call, so a handle's contents could move
+// underneath it. `iter(snapshot(b))` is the builder route, and the copy it makes is the point
+// rather than a cost to be removed.
+native fn iter<T>(items: [T]) -> Iter<T>
+
+// Positionally paired; a key repeated in `keys` keeps the last value given for it.
+builtin fn map_from_arrays<K: Eq + Hash, V>(keys: [K], values: [V]) -> Map<K, V>
+
+// **The distinct elements of a sequence, as a Set.** Named for its result rather than its source
+// -- `set_from_array` until 2026-10-18 -- for two reasons. The argument already says what the
+// source is, which matters now that there are two of them; and the deduplication is the part a
+// reader has to be told about under the old name, while `to_set` implies it, a set having no
+// duplicates by definition. `to_` rather than `as_` because this allocates and copies: `as_` reads
+// as a view that costs nothing, which this is not.
+//
+// Either world, and the handle is read element by element rather than snapshotted first, so
+// accepting it saves a copy instead of hiding one. `to_mutable_set` is the same question with the
+// answer in the other world, and it has to be a second name rather than an overload: the two take
+// the *same* argument types and differ only in what they return, which first-argument dispatch
+// cannot distinguish.
+builtin fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
+builtin fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
+
+// The position of the first occurrence of `needle` in `haystack` at or after `from`, or -1; an
+// empty `needle` is found at `from`. For finding a delimiter (a CRLF CRLF, a boundary) in bytes.
+native fn bytes_index_of(haystack: [byte], needle: [byte], from: int) -> int
+
+// The substrate the six sort functions below are built on, and the only callers they have: the
+// scalar fast path (`is_sortable_scalars` and its two partners), the generic merge sort over
+// positions (`sort_positions`), and the permutation step (`permute`). `array_sort`,
+// `sort_desc`, `sort_with`, `sort_by`, `sort_by_desc` and
+// `array_order_of` are the whole of it; nothing outside this file calls any of the five.
+//
+// They are `internal`, which F172 made mean "reachable but not advertised": the prelude is merged
+// into every program so these stay callable, and the "is there such a function" diagnostic still
+// finds them, but `--api builtins` and the editor's completion leave them out. The header they
+// replace said to call `collections` and `datasource.open` instead -- a module deleted in F120 and
+// a driver that never called these -- which is what being listed with no way to say otherwise
+// does to a comment over five releases. `array_order_of` is the seam a caller would actually
+// want, and it is a plain `fn` above.
+
+// True for a packed `[int]`, `[float]` or `[byte]`, or an array of strings; `sort_scalar_order`
+// then returns the positions of `items` in stable sorted order (descending with `descending`)
+// without calling back into the interpreter.
+internal native fn is_sortable_scalars<T>(items: [T]) -> bool
+
+// The positions of `items` in stable sorted order; see `is_sortable_scalars`.
+internal native fn sort_scalar_order<T>(items: [T], descending: bool) -> [int]
+
+// `items` itself sorted, with no index array in between.
+internal native fn sort_scalars<T>(items: [T], descending: bool) -> [T]
+
+// `items[order[0]], items[order[1]], ...` for any element type, in one allocation.
+internal native fn permute<T>(items: [T], order: [int]) -> [T]
+
+// The positions 0..n ordered by `cmp(a, b)` (negative, zero or positive, like `compare`, over
+// two positions): a stable merge sort in two reused buffers.
+internal native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
+
+// See `map`.
+pub native fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
+
+// See `map`.
+pub native fn reverse<T>(items: [T]) -> [T]
+
+// `items` in ascending order of their own `compare`, which orders any number, string or byte,
+// and any struct or enum with a `<type>_compare` function (`#[derive(Ord)]` writes one). Stable:
+// equal elements keep their input order. Packed numbers and strings sort natively; anything else
+// goes through a generic stable merge sort.
+pub fn sort<T: Ord>(items: [T]) -> [T] {
+    // The two paths are `sort_scalars` and `sort_positions` + `permute`. Named here rather than
+    // in the doc comment above: they are `internal`, so a doc comment naming them would leave
+    // `docs/lib/prelude.md` pointing at entries that page no longer has.
+    if is_sortable_scalars<T>(items) {
+        return sort_scalars<T>(items, false)
+    }
+    return permute<T>(items, sort_positions(len(items), fn(x, y) { compare(items[x], items[y]) }))
+}
+
+// `items` in descending order of their own `compare`. Also stable, so this is not `array_sort`'s
+// result reversed -- that would flip ties.
+pub fn sort_desc<T: Ord>(items: [T]) -> [T] {
+    if is_sortable_scalars<T>(items) {
+        return sort_scalars<T>(items, true)
+    }
+    return permute<T>(items, sort_positions(len(items), fn(a, b) { compare(items[b], items[a]) }))
+}
+
+// `items` ordered by a comparator function (negative, zero or positive, like `compare`), for an
+// order that is neither the type's own nor a single key -- a two-field ordering, say. Stable.
+// `sort_by` covers the single-key case, and computes each key once rather than per
+// comparison.
+pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
+    return permute<T>(items, sort_positions(len(items), fn(a, b) { cmp(items[a], items[b]) }))
+}
+
+// **A comparator with its order turned round**, which is to `sort_with` what `sort_desc` is to
+// `sort`: `sort_with(xs, inverse(by_length))` rather than a second lambda written backwards, where
+// the only difference is which argument comes first and getting it wrong is silent. It composes,
+// so `inverse(inverse(cmp))` is `cmp`, and it is world-agnostic -- a comparator knows nothing
+// about arrays -- so the one function serves `sort_with` in both.
+//
+// Ordinary Ziman: it returns a closure over `cmp`, which needs nothing the language lacks.
+pub fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int {
+    return fn(a: T, b: T) -> int { cmp(b, a) }
+}
+
+// `items` in ascending order of `key(item)`, the key computed **once per element** and the
+// elements then permuted into the keys' order -- the decorate-sort-permute shape, with the
+// decorate step no longer the caller's job. `key` returning an int, float, byte or string also
+// keeps the native sort: `map` answers a real `[K]`, so `array_order_of`'s scalar fast
+// path still fires. Stable: equal keys keep their input order.
+pub fn sort_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
+    return permute<T>(items, array_order_of<K>(map<T, K>(items, key), false))
+}
+
+// `items` in descending order of `key(item)`. Also stable, so this is not `sort_by`'s
+// result reversed -- that would flip ties.
+pub fn sort_by_desc<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
+    return permute<T>(items, array_order_of<K>(map<T, K>(items, key), true))
+}
+
+// A new array with the values on the end; the original is unchanged, these being immutable values.
+// Variadic because appending several is one question, not several: a fold of one-value pushes
+// reuses the buffer's tip when it has room, so `push(a, x, y, z)` costs about what the three
+// values cost rather than three copies of `a`.
+builtin fn push<T>(a: [T], values: variadic T) -> [T]
+
+// The MutableArray's `push` is the array's, for the reason `len` and `contains` are: appending is
+// the same question of both, so it is the same word. The difference is in what the call answers --
+// a new array there, nothing here, the container having been written -- which is the difference
+// between the two worlds and not a difference between the two names. The prefixed
+// `mutable_array_push` remains as the spelling this rewrites to.
+builtin fn push<T>(b: MutableArray<T>, values: variadic T)
+
+// **`insert` and `set` are not interchangeable, and the asymmetry is deliberate** -- each has its
+// own error telling the reader which to use. `insert` puts something where it was not: at an index
+// in an array, or into a set. `set` replaces what is at a position: an array index, or a map key.
+// So a map has `set` and no `insert`, and a set has `insert` and no `set`.
+builtin fn insert<T>(a: [T], index: int, x: T) -> [T]
+
+// An index in a MutableArray, for the same reason `push` is shared, and rewritten onto
+// `mutable_array_insert`. A `MutableSet` has no `insert` form: it was left out with `set`'s, each
+// world's membership vocabulary being settled separately.
+builtin fn insert<T>(b: MutableArray<T>, index: int, value: T)
+
+// **Each of these accepts the immutable form *or* the builder**, which is what `either_world()` accepts the immutable form *or* the builder, which is what `either_world()` in the
+// type checker means: `to_set` and `to_mutable_set` each take an array or a MutableArray,
+// `union`'s second argument a Set or a MutableSet. Two declarations each, for the one
+// argument that has the choice -- the handle is always a handle.
+
+// The one that changes shape rather than world: an array in, a set out.
+builtin fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
+builtin fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
+
+// The positions of `keys` in sorted order: the array of indices that, read in order, visits
+// `keys` smallest first, or largest first when `descending`. Stable in both directions -- equal
+// keys keep their input order, and the descending result is not the ascending one reversed, which
+// would flip ties.
+//
+// This is the sort family's permutation primitive, and the only step of it generic over the key
+// type: packed numbers and strings take a native path, anything else (a struct, an enum, a
+// bigint) a stable merge sort calling `compare`. `sort_by`/`_desc` are built on it; `sort` is
+// not, reaching the merge sort directly.
+//
+// **Deliberately not `pub`** -- decided 2026-10-19 alongside F172, so that nobody completes the
+// job by adding the keyword. An index array has no advertised consumer: the function that
+// applies one is `internal`, and `sort_by` exists precisely so that a caller never holds one.
+// Publishing this would publish a value the vocabulary gives you nothing to do with. It stays a
+// plain `fn`, so it is callable with no `use` and documented in `docs/lib/prelude.md`; it is only
+// `ziman --api builtins` that does not claim it. Reopening the question means publishing
+// `permute` with it, as a pair -- see the F172 entry in docs/reviews/tasks.md.
+//
+// `array_sort_indices`/`_desc` were two one-line wrappers over this, one per value of
+// `descending`. They were deleted in F169 having never had a caller outside this file.
+fn array_order_of<K: Ord>(keys: [K], descending: bool) -> [int] {
+    // `sort_scalar_order` and `sort_positions`, both `internal` -- see `array_sort` on why the
+    // doc comment above does not name them.
+    if is_sortable_scalars<K>(keys) {
+        return sort_scalar_order<K>(keys, descending)
+    }
+    if descending {
+        return sort_positions(len(keys), fn(a, b) { compare(keys[b], keys[a]) })
+    }
+    return sort_positions(len(keys), fn(a, b) { compare(keys[a], keys[b]) })
+}
+
+// True when no element is greater than the one after it (an empty or one-element array is).
+pub fn is_sorted<T: Ord>(items: [T]) -> bool {
+    for i in 1..len(items) {
+        if compare(items[i - 1], items[i]) > 0 {
+            return false
+        }
+    }
+    return true
+}
+
+// In an already sorted array: the position of the first element that is not less than
+// `target` -- where `target` would be inserted to keep the order, before any equal
+// elements. `len(sorted)` when every element is smaller. O(log n).
+pub fn lower_bound<T: Ord>(sorted: [T], target: T) -> int {
+    var lo = 0
+    var hi = len(sorted)
+    while lo < hi {
+        val mid = lo + (hi - lo) / 2
+        if compare(sorted[mid], target) < 0 {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+// In an already sorted array: the position of the first element greater than `target` --
+// just after any equal elements. `upper_bound - lower_bound` is how many equal `target`.
+pub fn upper_bound<T: Ord>(sorted: [T], target: T) -> int {
+    var lo = 0
+    var hi = len(sorted)
+    while lo < hi {
+        val mid = lo + (hi - lo) / 2
+        if compare(sorted[mid], target) <= 0 {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+// The position of the first element equal to `target` in an already sorted array, or None.
+// O(log n).
+pub fn binary_search<T: Ord>(sorted: [T], target: T) -> Option<int> {
+    val at = lower_bound<T>(sorted, target)
+    return if at < len(sorted) && compare(sorted[at], target) == 0 {
+        Option<int>.Some(at)
+    } else {
+        Option<int>.None
+    }
+}
+
+// The first element for which `test` is true, or None.
+pub fn find<T>(items: [T], test: fn(T) -> bool) -> Option<T> {
+    for item in items {
+        if test(item) {
+            return Option<T>.Some(item)
+        }
+    }
+    return Option<T>.None
+}
+
+// The first element, or None for an empty array.
+pub fn first<T>(items: [T]) -> Option<T> {
+    return if len(items) > 0 { Option<T>.Some(items[0]) } else { Option<T>.None }
+}
+
+// The last element, or None for an empty array.
+pub fn last<T>(items: [T]) -> Option<T> {
+    return if len(items) > 0 { Option<T>.Some(items[len(items) - 1]) } else { Option<T>.None }
+}
+
+// The element whose `key` is smallest (the first such, on a tie), or None for an empty array.
+pub fn min_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T> {
+    if len(items) == 0 {
+        return Option<T>.None
+    }
+    var best = items[0]
+    var best_key = key(best)
+    for i in 1..len(items) {
+        val k = key(items[i])
+        if compare(k, best_key) < 0 {
+            best = items[i]
+            best_key = k
+        }
+    }
+    return Option<T>.Some(best)
+}
+
+// The element whose `key` is largest (the first such, on a tie), or None for an empty array.
+pub fn max_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> Option<T> {
+    if len(items) == 0 {
+        return Option<T>.None
+    }
+    var best = items[0]
+    var best_key = key(best)
+    for i in 1..len(items) {
+        val k = key(items[i])
+        if compare(k, best_key) > 0 {
+            best = items[i]
+            best_key = k
+        }
+    }
+    return Option<T>.Some(best)
+}
+
+// Left to right: `f(f(initial, items[0]), items[1])` and so on.
+pub fn fold<T, A>(items: [T], initial: A, f: fn(A, T) -> A) -> A {
+    var acc = initial
+    for item in items {
+        acc = f(acc, item)
+    }
+    return acc
+}
+
+// How many elements `test` is true for.
+pub fn count<T>(items: [T], test: fn(T) -> bool) -> int {
+    var n = 0
+    for item in items {
+        if test(item) {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+// True when `test` holds for at least one element (false for an empty array).
+pub fn any<T>(items: [T], test: fn(T) -> bool) -> bool {
+    for item in items {
+        if test(item) {
+            return true
+        }
+    }
+    return false
+}
+
+// True when `test` holds for every element (true for an empty array).
+pub fn all<T>(items: [T], test: fn(T) -> bool) -> bool {
+    for item in items {
+        if !test(item) {
+            return false
+        }
+    }
+    return true
+}
+
+// Calls `f` on every element, in order, for its effect.
+pub fn for_each<T>(items: [T], f: fn(T)) {
+    for item in items {
+        f(item)
+    }
+}
+
+// The distinct elements, each at its first position: `distinct([3, 1, 3, 2, 1])` is `[3, 1, 2]`.
+pub fn distinct<T: Eq + Hash>(items: [T]) -> [T] {
+    val seen = mutable_set_new<T>()
+    val out = mutable_array_new<T>()
+    for item in items {
+        if !contains(seen, item) {
+            mutable_set_add(seen, item)
+            mutable_array_push(out, item)
+        }
+    }
+    return snapshot(out)
+}
+
+// The elements grouped by `key`: a map from each key to the elements that have it, in input
+// order, with the keys in the order they first appear.
+pub fn group_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, [T]> {
+    val builders = mutable_map_new<K, MutableArray<T>>()
+    for item in items {
+        val k = key(item)
+        val found = get(builders, k)
+        if Some(b) = found {
+            mutable_array_push(b, item)
+        } else {
+            val started = mutable_array_new<T>(capacity: 4)
+            mutable_array_push(started, item)
+            set(builders, k, started)
+        }
+    }
+    val groups = mutable_map_new<K, [T]>()
+    for k, group in snapshot(builders) {
+        set(groups, k, snapshot(group))
+    }
+    return snapshot(groups)
+}
+
+// `array_join(items, sep)` stood here until 2026-10-18, as one line delegating to `join` above.
+// It was kept for the positional calling convention, because `join`'s parameters are all
+// `Option`-typed and so the useful calls are named -- and it was deleted once that was the only
+// thing it offered: `join` owns the name, does strictly more (`prefix`/`suffix`), and its 48
+// callers now say `join(separator: s, pieces: a)`, which is exactly what the wrapper expanded to.
+// Its own history argued for this: it had been a hand-written quadratic loop (18.05s on 40,000
+// pieces against 0.01s) kept alive by a comment that wrongly denied `join` could take an array
+// (docs/reviews/tasks.md F35, D17), and when that was corrected nobody asked whether the name
+// should outlive the implementation.
+
+// The total of `items`. A left fold with `+`, which is what anyone writes by hand, but `+` on
+// `int` traps on overflow in this language -- so this either answers the exact total or stops with
+// an error, and never the silently wrong number a wrapping sum would give.
+//
+// Integers only, deliberately: a float total depends on summation order for precision, so the
+// right answer there is a decision (naive, pairwise, Kahan) rather than a default, and `fold`
+// already expresses whichever one a caller wants.
+pub fn sum(items: [int]) -> int {
+    var total = 0
+    for item in items {
+        total = total + item
+    }
+    return total
+}
+
+//
+// Each is its array version's body with one word changed in the signature, and that is the point:
+// the bodies are written over `for x in`, `len(x)` and `x[i]`, all of which took either world from
+// the moment those questions stopped having per-type names. So nothing here walks a builder in a
+// new way -- the array versions already could, and only their parameter types said otherwise.
+//
+// They exist so the bare names can dispatch to them. The alternative was for each bare name to
+// `snapshot` a builder and call the array version, which is the copy this removes: a `fold` over a
+// builder allocated and filled a whole array before adding anything up.
+pub fn fold<T, A>(items: MutableArray<T>, initial: A, f: fn(A, T) -> A) -> A {
+    var acc = initial
+    for item in items {
+        acc = f(acc, item)
+    }
+    return acc
+}
+
+pub fn for_each<T>(items: MutableArray<T>, f: fn(T)) {
+    for item in items {
+        f(item)
+    }
+}
+
+pub fn find<T>(items: MutableArray<T>, test: fn(T) -> bool) -> Option<T> {
+    for item in items {
+        if test(item) {
+            return Option<T>.Some(item)
+        }
+    }
+    return Option<T>.None
+}
+
+pub fn first<T>(items: MutableArray<T>) -> Option<T> {
+    return if len(items) > 0 { Option<T>.Some(items[0]) } else { Option<T>.None }
+}
+
+pub fn last<T>(items: MutableArray<T>) -> Option<T> {
+    return if len(items) > 0 { Option<T>.Some(items[len(items) - 1]) } else { Option<T>.None }
+}
+
+pub fn any<T>(items: MutableArray<T>, test: fn(T) -> bool) -> bool {
+    for item in items {
+        if test(item) {
+            return true
+        }
+    }
+    return false
+}
+
+pub fn all<T>(items: MutableArray<T>, test: fn(T) -> bool) -> bool {
+    for item in items {
+        if !test(item) {
+            return false
+        }
+    }
+    return true
+}
+
+pub fn count<T>(items: MutableArray<T>, test: fn(T) -> bool) -> int {
+    var n = 0
+    for item in items {
+        if test(item) {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+pub fn sum(items: MutableArray<int>) -> int {
+    var total = 0
+    for item in items {
+        total = total + item
+    }
+    return total
+}
+
+//
+// Same shape as the eleven above: each is its array version's body with one word changed. Four of
+// them (`distinct`, `group_by`, `index_by`, `frequencies`) allocate a Map or a Set regardless, so
+// the copy they save is a smaller share of their cost than it is for `fold` -- still real on a
+// large input, just less of it. `min_by` and `max_by` allocate nothing at all and are the same case
+// as the eleven; they were grouped here by eye rather than by reading the bodies.
+//
+// `min_by`/`max_by` reach elements with `items[i]` inside `for i in 1..len(items)` rather than
+// iterating, which works on a builder only because F149 gave it `b[i]`.
+pub fn distinct<T: Eq + Hash>(items: MutableArray<T>) -> [T] {
+    val seen = mutable_set_new<T>()
+    val out = mutable_array_new<T>()
+    for item in items {
+        if !contains(seen, item) {
+            mutable_set_add(seen, item)
+            push(out, item)
+        }
+    }
+    return snapshot(out)
+}
+
+pub fn group_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map<K, [T]> {
+    val builders = mutable_map_new<K, MutableArray<T>>()
+    for item in items {
+        val k = key(item)
+        val found = get(builders, k)
+        if Some(b) = found {
+            push(b, item)
+        } else {
+            val started = mutable_array_new<T>(capacity: 4)
+            push(started, item)
+            set(builders, k, started)
+        }
+    }
+    val groups = mutable_map_new<K, [T]>()
+    for k, group in snapshot(builders) {
+        set(groups, k, snapshot(group))
+    }
+    return snapshot(groups)
+}
+
+pub fn index_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map<K, T> {
+    val index = mutable_map_new<K, T>()
+    for item in items {
+        set(index, key(item), item)
+    }
+    return snapshot(index)
+}
+
+pub fn frequencies<T: Eq + Hash>(items: MutableArray<T>) -> Map<T, int> {
+    val counts = mutable_map_new<T, int>()
+    for item in items {
+        val seen = get(counts, item)
+        set(counts, item, switch seen {
+            Some(n) { n + 1 }
+            None { 1 }
+        })
+    }
+    return snapshot(counts)
+}
+
+pub fn min_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) -> Option<T> {
+    if len(items) == 0 {
+        return Option<T>.None
+    }
+    var best = items[0]
+    var best_key = key(best)
+    for i in 1..len(items) {
+        val k = key(items[i])
+        if compare(k, best_key) < 0 {
+            best = items[i]
+            best_key = k
+        }
+    }
+    return Option<T>.Some(best)
+}
+
+pub fn max_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) -> Option<T> {
+    if len(items) == 0 {
+        return Option<T>.None
+    }
+    var best = items[0]
+    var best_key = key(best)
+    for i in 1..len(items) {
+        val k = key(items[i])
+        if compare(k, best_key) > 0 {
+            best = items[i]
+            best_key = k
+        }
+    }
+    return Option<T>.Some(best)
+}
+
+//
+// `is_sorted`, `lower_bound`, `upper_bound`, `binary_search`. These are the purest case of the
+// twin rule in this file: their array bodies reach the sequence through `len()` and `[i]` only, so
+// each one below is that body character for character with `[T]` changed to `MutableArray<T>` in
+// the signature. Nothing else could differ, because nothing else was array-specific.
+//
+// `binary_search` calls the *builder* `lower_bound` rather than its array twin, for
+// the same reason: taking `snapshot` to reuse the array version would copy the buffer to save
+// writing four lines.
+//
+// The "already sorted" precondition is unchanged and still the caller's. `sort(b)` leaves the
+// handle itself in order, so a builder is if anything the more natural subject -- the alternative
+// was `lower_bound(snapshot(b), x)`, a full copy for a question that reads O(log n) elements.
+pub fn is_sorted<T: Ord>(items: MutableArray<T>) -> bool {
+    for i in 1..len(items) {
+        if compare(items[i - 1], items[i]) > 0 {
+            return false
+        }
+    }
+    return true
+}
+
+pub fn lower_bound<T: Ord>(sorted: MutableArray<T>, target: T) -> int {
+    var lo = 0
+    var hi = len(sorted)
+    while lo < hi {
+        val mid = lo + (hi - lo) / 2
+        if compare(sorted[mid], target) < 0 {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+pub fn upper_bound<T: Ord>(sorted: MutableArray<T>, target: T) -> int {
+    var lo = 0
+    var hi = len(sorted)
+    while lo < hi {
+        val mid = lo + (hi - lo) / 2
+        if compare(sorted[mid], target) <= 0 {
+            lo = mid + 1
+        } else {
+            hi = mid
+        }
+    }
+    return lo
+}
+
+pub fn binary_search<T: Ord>(sorted: MutableArray<T>, target: T) -> Option<int> {
+    val at = lower_bound<T>(sorted, target)
+    return if at < len(sorted) && compare(sorted[at], target) == 0 {
+        Option<int>.Some(at)
+    } else {
+        Option<int>.None
+    }
+}
+
+pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U] {
+    val out = mutable_array_new<U>()
+    for item in items {
+        concat(out, f(item))
+    }
+    return snapshot(out)
+}
+
+// How many times each distinct element occurs: `frequencies<string>(["a", "b", "a"])` is
+// `{a: 2, b: 1}`, keys in the order they first appear.
+//
+// This comment was sitting above `array_join` instead, with no blank line between the two blocks,
+// so the generator published it as `array_join`'s documentation and shipped this function with
+// none at all (D21).
+pub fn frequencies<T: Eq + Hash>(items: [T]) -> Map<T, int> {
+    val counts = mutable_map_new<T, int>()
+    for item in items {
+        val seen = get(counts, item)
+        set(counts, item, switch seen {
+            Some(n) { n + 1 }
+            None { 1 }
+        })
+    }
+    return snapshot(counts)
+}
+
+// The elements keyed by `key`: a map from each key to the element that has it. When two elements share a
+// key the later one wins, like `set` on a map; use `group_by` to keep them all. Keys are in the order they
+// first appear.
+pub fn index_by<T, K: Eq + Hash>(items: [T], key: fn(T) -> K) -> Map<K, T> {
+    val index = mutable_map_new<K, T>()
+    for item in items {
+        set(index, key(item), item)
+    }
+    return snapshot(index)
+}

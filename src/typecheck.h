@@ -17,7 +17,7 @@ int ziman_name_distance(const char *a, const char *b);
 int ziman_builtin_count(void);
 const char *ziman_builtin_name(int i);
 /* The reason a builtin can never carry a `builtin fn` signature, or NULL when it can (and so
- * should have one in lib/prelude.zm). See the table's own comment in typecheck.c. */
+ * should have one in lib/prelude/). See the table's own comment in typecheck.c. */
 const char *ziman_builtin_no_signature_reason(const char *name);
 
 /* The language server checks any file, not just a program: no `main` is required. */

@@ -638,7 +638,7 @@ typedef struct {
     TypeParamList type_params; /* empty for an ordinary, non-generic function */
     Visibility visibility;
     int is_native;
-    /* A `builtin fn`: declared in lib/prelude.zm so that its signature can be printed, completed
+    /* A `builtin fn`: declared in lib/prelude/ so that its signature can be printed, completed
      * and grepped, while the *rule* stays in typecheck.c. The two are not interchangeable -- see
      * docs/DESIGN.md's "`native` and builtin are two different mechanisms" entry. Nothing checks
      * or calls through this declaration: every builtin arm in check_call returns before

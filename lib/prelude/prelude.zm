@@ -1,0 +1,77 @@
+// prelude.zm -- the functions and types every Ziman program has without a `use`, split across
+// this directory by the type each name is about: array.zm, map.zm, set.zm, string.zm, option.zm,
+// channel.zm, iter.zm and mutable.zm, with collections.zm for the names that take more than one
+// of them.
+//
+// This file holds what belongs to no collection at all: the universal verbs `print`, `str`,
+// `abs`, `min`, `max`, `hash` and `compare`, and parsing a number out of a string.
+//
+// Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
+// loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
+// directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
+// whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
+// subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
+// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// header is generated from its source by the Makefile's prelude rule.
+//
+// A name whose declarations span more than one of these files lives in collections.zm, whole, so
+// that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
+// a declaration".
+
+// The number in `s`, or an Err naming the text when it is not one or does not fit:
+// `parse_int("9223372036854775808")` is an Err. `parse_int` takes an optional leading `-` and decimal
+// digits only: no blanks around the number, no `+`, no `0x`, no `_` (`trim` first to allow blanks).
+native fn parse_int(s: string) -> Result<int, string>
+
+// A float from decimal or exponent text (`3.5`, `1e3`), or an Err: like `parse_int`, no blanks and no `+`, and
+// no hex (`0x10`). `nan`, `inf` and `-inf` (what `str` prints) are the non-finite floats it reads.
+// Anything `str` writes reads back, including a subnormal such as `5e-324`. Text naming a value
+// smaller than any subnormal (`1e-400`) rounds to `0.0`, the same rounding that makes `0.1` inexact;
+// text naming one too large (`1e400`) is an Err rather than silently becoming infinity, which is why
+// `inf` is accepted by name but `1e400` is not.
+native fn parse_float(s: string) -> Result<float, string>
+
+// A bigint from digits with an optional sign, or an Err. Any length.
+native fn parse_bigint(s: string) -> Result<bigint, string>
+
+// A decimal from digits with an optional fraction, keeping the scale as written (`"1.50"` stays
+// `1.50`), or an Err.
+native fn parse_decimal(s: string) -> Result<decimal, string>
+
+// **`print` takes a type parameter, not a top type.** `print` really does accept anything --
+// a lambda, a `Channel`, a `Set` -- but an ordinary `<T>` already says that and already works:
+// `fn log<T>(label: string, value: T) { print(value) }` compiles and prints all three. A top type
+// would be a new concept earning a single declaration, and a type whose values you could accept
+// and then do almost nothing with, so `print` uses the generics the language already has.
+builtin fn print<T>(a: T)
+
+// **Six scalars, and not `string`** -- `str("x")` is refused with "it's already a string", so
+// `str` is not an "accepts anything" builtin however much it looks like one. The set of
+// conversions is closed, which is why it is six overloads rather than one signature over a
+// type parameter: `str` on a lambda or a `Set` has no answer to give.
+builtin fn str(x: int) -> string
+builtin fn str(x: float) -> string
+builtin fn str(x: bool) -> string
+builtin fn str(x: bigint) -> string
+builtin fn str(x: decimal) -> string
+builtin fn str(x: byte) -> string
+
+builtin fn abs(x: int) -> int
+builtin fn abs(x: float) -> float
+builtin fn abs(x: bigint) -> bigint
+builtin fn abs(x: decimal) -> decimal
+
+//
+// The four builtins that a bound already describes exactly, so each is one declaration rather than
+// an overload set -- `Eq`, `Ord` and `Hash` have been type-parameter bounds since before this.
+
+builtin fn hash<T: Eq + Hash>(x: T) -> int
+
+// Negative, zero or positive; only the sign is meaningful.
+builtin fn compare<T: Ord>(a: T, b: T) -> int
+
+// Two or more arguments, or exactly one array as the whole list -- the ordinary variadic
+// convention, which is why "several values" and "an array of values" need no second declaration.
+builtin fn min<T: Ord>(values: variadic T) -> T
+
+builtin fn max<T: Ord>(values: variadic T) -> T

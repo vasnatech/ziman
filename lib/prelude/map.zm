@@ -1,0 +1,118 @@
+// map.zm -- `Map<K, V>` and its builder `MutableMap<K, V>`, plus `MapEntry<K, V>`. The questions
+// both worlds answer the same way (`keys`, `values`, `items`, `get`, `merge`, `entries`) are single
+// overload sets declared over the two of them here; the ones shared with Set and the arrays are in
+// collections.zm.
+//
+// Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
+// loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
+// directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
+// whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
+// subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
+// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// header is generated from its source by the Makefile's prelude rule.
+//
+// A name whose declarations span more than one of these files lives in collections.zm, whole, so
+// that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
+// a declaration".
+
+// The mutable counterparts of Map and Set, for building one entry by entry. `set` and `insert` on
+// a Map copy a few nodes each time; a builder changes its own private structure in place, so
+// adding n entries allocates O(n) in all, not O(n) per entry. `snapshot` and `snapshot`
+// snapshot what has been added so far into an ordinary Map or Set, and the builder stays usable.
+// Keys keep the order they were first added, and follow the same rule as a Map's (`Eq + Hash`).
+// Thread-bound like the other builders.
+#[thread_bound]
+struct MutableMap<K: Eq + Hash, V> {
+    handle: int
+}
+
+// An empty map builder.
+native fn mutable_map_new<K: Eq + Hash, V>() -> MutableMap<K, V>
+
+// The value of `key`, or None.
+pub native fn get<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
+
+// Removes `key` and answers whether it was there, without reporting what it held. The same
+// question `remove` answers for a set, and for the same reason: a `bool` needs no
+// wrapper where an `Option<V>` is a heap allocation, and a tracing collector prices a short-lived
+// allocation by how much is alive rather than by its size. Measured on a 100,000-entry map,
+// removing and re-inserting every key: 351-363 ns/op through `remove` against 110-112
+// through the bool-returning path -- the removal itself is a fraction of either. Reach for
+// `remove` only when the old value is actually needed.
+pub native fn discard<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K)
+
+// `f` applied to every value, keys and their order unchanged. Safe to write as a `for` plus a
+// `set` because iterating a MutableMap walks a snapshot of the entries, so the writes cannot
+// disturb the walk.
+pub fn update_all<K: Eq + Hash, V>(m: MutableMap<K, V>, f: fn(K, V) -> V) {
+    for k, v in m {
+        set<K, V>(m, k, f(k, v))
+    }
+}
+
+// The keys as an immutable `Set<K>`, in insertion order -- the same answer `keys` gives for a
+// Map, and the reason this returns a value rather than a handle: a result like this is nearly
+// always consumed by a `for` or returned, so handing back a handle would allocate a thread-bound
+// object per loop for nothing.
+pub fn keys<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Set<K> {
+    val out = mutable_set_new<K>()
+    for k in m {
+        val _added = mutable_set_add<K>(out, k)
+    }
+    return snapshot(out)
+}
+
+// The values as an array, in the keys' insertion order, as `values` gives for a Map.
+pub fn values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V] {
+    val out = mutable_array_new<V>()
+    for k, v in m {
+        mutable_array_push<V>(out, v)
+    }
+    return snapshot(out)
+}
+
+// The builtins over an immutable `Map` and `Set`.
+//
+// Declared, not defined: the rule for each is an arm in the type checker, which every call reaches
+// before the ordinary function lookup -- see SYNTAX.md's `builtin fn` entry. These exist so the
+// signature can be printed, completed and read.
+builtin fn get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
+
+// A `Set`, not an array: a map's keys are unique by construction, so the type that says so is the
+// honest one.
+builtin fn keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
+
+builtin fn values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
+
+// `other` wins where both have a key.
+builtin fn merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>
+
+// One key and its value, as `entries` returns them.
+struct MapEntry<K, V> {
+    key: K
+    value: V
+}
+
+// The entries of `m` as an array, in the map's insertion order: for collecting them, sorting them (by value,
+// say, with `sort_by_desc`) or taking the first few. Written with the type arguments:
+// `entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
+pub fn entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>] {
+    val out = mutable_array_new<MapEntry<K, V>>()
+    for k, v in m {
+        mutable_array_push(out, MapEntry<K, V> { key: k, value: v })
+    }
+    return snapshot(out)
+}
+
+// The entries of a MutableMap as an array, in insertion order -- the builder half of `entries`,
+// answering an immutable value for the same reason `keys` and `values` do.
+pub fn entries<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [MapEntry<K, V>] {
+    val out = mutable_array_new<MapEntry<K, V>>()
+    for k, v in m {
+        mutable_array_push(out, MapEntry<K, V> { key: k, value: v })
+    }
+    return snapshot(out)
+}
+
+builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
+builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)

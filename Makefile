@@ -101,21 +101,23 @@ install-hooks:
 # -MMD/-MP header tracking only kicks in from the second build onward,
 # once a .d file already mentions it. Add a new core module by adding
 # its name here and one line to corelib.c's CORE_MODULES table.
-#
-# `prelude` is the one exception: it's listed here purely to get its
-# header generated the same readable, never-hand-escaped way every other
-# lib/core or lib/db module does, but it deliberately has NO matching line in
-# corelib.c's CORE_MODULES table -- src/prelude.c reads its generated
-# header directly, and it's merged bare into every program by
-# loader.c's load_module_graph (see lib/prelude.zm's own header
-# comment), never through a `use`. Do not add it to corelib.c's table.
-CORELIB_MODULES := process url fs log metrics regex client random uuid clock time schedule json number math bits thread datasource sqlite mysql db net crypto pg http server os properties ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp test geom shape paint scene pdfobj pdf truetype font image stroker raster layout prelude
+CORELIB_MODULES := process url fs log metrics regex client random uuid clock time schedule json number math bits thread datasource sqlite mysql db net crypto pg http server os properties ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp test geom shape paint scene pdfobj pdf truetype font image stroker raster layout
+
+# The prelude is not a module and is deliberately NOT in CORELIB_MODULES: it has
+# no line in corelib.c's CORE_MODULES table, nothing can `use` it, and
+# loader.c's load_module_graph merges every part of it bare into every program
+# (see lib/prelude/prelude.zm's own header comment). It is several files rather
+# than one so that each is about one type; a name whose declarations would span
+# two of them lives whole in collections.zm, so an overload set is never split.
+# Add a part by adding a file in lib/prelude/, its name here, and one line in
+# src/prelude.c's PARTS table.
+PRELUDE_PARTS := prelude collections array channel iter map mutable option set string
 # Bundled modules live in lib/core (general-purpose), lib/db (SQL
 # drivers) lib/http (http, server, client), lib/time (time, zone, schedule) and lib/graphics (the 2D model and
 # its backends); `use` names are flat either way.
 vpath %.zm lib lib/core lib/db lib/graphics lib/http lib/time
 
-CORELIB_HEADERS := $(CORELIB_MODULES:%=$(BUILD)/%_source.h)
+CORELIB_HEADERS := $(CORELIB_MODULES:%=$(BUILD)/%_source.h) $(PRELUDE_PARTS:%=$(BUILD)/prelude_%_source.h)
 
 -include $(DEP)
 

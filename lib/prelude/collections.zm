@@ -1,0 +1,308 @@
+// collections.zm -- the questions every collection answers, and the only file whose names are not
+// about one type. A name lands here exactly when its declarations would otherwise be split across
+// two or more of the per-type files: `len` over nine types, `contains` over nine, `filter` over
+// six, `remove` over six. Keeping the set whole is the point -- reading what `filter` accepts means
+// reading one place.
+//
+// Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
+// loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
+// directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
+// whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
+// subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
+// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// header is generated from its source by the Makefile's prelude rule.
+//
+// A name whose declarations span more than one of these files lives in collections.zm, whole, so
+// that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
+// a declaration".
+
+// Every piece, in order, joined with no separator (`concat("a", "b", "c")` is `"abc"`; zero
+// pieces is `""`). For a separator or a prefix/suffix use `join`; for many pieces built up over
+// a loop, a `MutableString` (a fresh `concat` on every iteration copies everything so far, same
+// quadratic cost `--lint` already flags for `x = concat(x, ..)`).
+// **One name over three forms, chosen by the first argument**: pieces into a string, parts into a
+// new array, or parts appended to a MutableArray in place. `concat_arrays` and
+// `mutable_array_push_all` were the other two names until 2026-10-18.
+//
+// **One argument that is an array spreads** -- its elements are the pieces or the parts -- which is
+// the rule that keeps `concat(parts)` answering "xyz" for a `[string]`, as it did when the string
+// form was a native with a variadic tail. The cost is that concatenating a single array *as one
+// part* cannot be said: `concat(["a", "b"])` is the string `"ab"`, never a copy of the array. A
+// copy is `slice(a, 0, len(a))`. Two or more arguments are always pieces or parts, so
+// `concat(["a"], ["b"])` is `["a", "b"]`; only the one-argument case carries the rule.
+//
+// `concat(pieces: parts)` was legal while this was a native and is not now: a builtin takes no
+// named arguments. The positional spread `concat(parts)` is the same thing.
+builtin fn concat(pieces: variadic string) -> string
+builtin fn concat<T>(parts: variadic [T]) -> [T]
+
+// Appending to a builder answers nothing, the container having been written. The parts may come
+// from either world and may be mixed, which `mutable_array_push_all` allowed for its single source
+// and this keeps for all of them.
+builtin fn concat<T>(b: MutableArray<T>, parts: variadic [T])
+builtin fn concat<T>(b: MutableArray<T>, parts: variadic MutableArray<T>)
+
+// The value inside `o`, or `default_value` when `o` is None.
+pub fn get_or<T>(o: Option<T>, default_value: T) -> T {
+    return switch o {
+        Some(v) { v }
+        None { default_value }
+    }
+}
+
+// `f` applied to the value in the cell, stored back, and returned -- the counter idiom,
+// `update(n, fn(x) { x + 1 })`, and the same shape `update` has. Ordinary
+// Ziman over `mutable_get`/`mutable_set`, since there is no lookup for a native to save.
+pub fn update<T>(c: Mutable<T>, f: fn(T) -> T) -> T {
+    val next = f(mutable_get(c))
+    mutable_set(c, next)
+    return next
+}
+
+// Keeps only the elements `keep` answers true for, in place. The one filter in the language that
+// allocates nothing: it walks once with a write cursor trailing the read cursor, where
+// `filter(snapshot(xs), keep)` makes two copies. `keep` must not change the builder -- a
+// reallocation inside it cannot corrupt anything, but the rest of the walk would then be visiting
+// the buffer mid-compaction, the same class of thing as appending during a `for`.
+pub native fn filter<T>(xs: MutableArray<T>, keep: fn(T) -> bool)
+
+// Adds `key`, or replaces its value while keeping its position.
+pub native fn set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: V)
+
+// Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
+// `discard` instead when the removed value is not wanted: answering with an `Option`
+// means allocating one, which on a large map costs several times the removal itself.
+pub native fn remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
+
+// The value stored under `key`, or `default_value` when there is none -- `get_or` for a builder.
+// Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
+// loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
+pub native fn get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
+
+// Removes `item`; nothing happens when it is absent.
+pub native fn remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
+
+// `f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
+// lookup where `get` then `set` is two, which is the whole reason this exists where
+// `mutable_set`-on-a-cell did not need an equivalent.
+pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V {
+    val next = f(get<K, V>(m, key))
+    set<K, V>(m, key, next)
+    return next
+}
+
+// Drops every entry `keep` answers false for, in place -- the MutableMap half of `filter`, where
+// the `Map` half answers a new Map instead. Safe for the same snapshot reason as `update_all`.
+pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool) {
+    for k, v in m {
+        if !keep(k, v) {
+            val _dropped = remove<K, V>(m, k)
+        }
+    }
+}
+
+// Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
+// of what the singular takes, which for a map's `remove` is keys rather than entries.
+pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool {
+    var removed_any = false
+    for k in keys {
+        if Some(_old) = remove<K, V>(m, k) {
+            removed_any = true
+        }
+    }
+    return removed_any
+}
+
+// Drops each of `items`, answering whether any of them was there.
+pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
+    var removed_any = false
+    for item in items {
+        if remove<T>(s, item) {
+            removed_any = true
+        }
+    }
+    return removed_any
+}
+
+// Drops every element `keep` answers false for, in place -- the MutableSet half of `filter`.
+pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool) {
+    for item in s {
+        if !keep(item) {
+            val _dropped = remove<T>(s, item)
+        }
+    }
+}
+
+// The value under `key`, or `default_value` when there is none -- and no `Option` allocated either
+// way, which is why it is not `get` plus `unwrap_Some`.
+builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -> V
+
+builtin fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
+
+builtin fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
+
+builtin fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
+
+// `m` with `f` applied to every value, keys and their order unchanged:
+// `map<string, int, string>(stock, fn(n) { str(n) })`.
+pub fn map<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(K, V) -> R) -> Map<K, R> {
+    val out = mutable_map_new<K, R>()
+    for k, v in m {
+        set(out, k, f(k, v))
+    }
+    return snapshot(out)
+}
+
+// The set of `f(x)` for every `x` in `s`, in the order first produced. Two elements that map to the same
+// value become one: `map<int, int>(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1, 0}`.
+pub fn map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U> {
+    val out = mutable_set_new<U>()
+    for x in s {
+        mutable_set_add(out, f(x))
+    }
+    return snapshot(out)
+}
+
+// The array half of the dispatcher's prefix layer. **Write `map`, `filter`, `flat_map` and
+// `reverse`** -- these four are what those names resolve to when the first argument is an `[T]`,
+// and `map` and friends are what they resolve to when it is a builder.
+//
+// They have to exist under exactly these names because the dispatcher builds its target by
+// concatenating a prefix onto the bare name: `"array_" + "filter"`. (That loop was called
+// `WORLD_PAIRED` and was deleted by F179 -- the prefix is derived from parameter one's type in
+// `interpreter.c` now, and the resolver chooses the declaration.) They do not have to be *advertised*, and since F173 they are not -- 51 of the 64
+// `array_`/`mutable_array_` declarations in this file were already invisible for being plain
+// `fn`s, and these four stood out only because a `native fn` had no way to opt out before F172.
+// The whole prefix layer is now uniformly internal. Still callable, as everything here is.
+//
+// Native rather than written in Ziman: one allocation for the result, instead of a MutableArray's
+// growing buffers. This header used to say the bare names were "thin wrappers over these", which
+// F162/F163 turned around -- the bare name is the one to write, and these are the inside of it.
+pub native fn map<T, U>(items: [T], f: fn(T) -> U) -> [U]
+
+// See `map`.
+pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
+
+//
+// **Overload sets**: several declarations under one name, because no single signature states what
+// these accept. The interpreter dispatches each on `args[0]`, so the declarations describe a
+// dispatch that already exists rather than adding one -- there is no ranking, no implicit
+// conversion and no return-type-directed choice, and user code cannot declare one. docs/SYNTAX.md
+// has the rule, DESIGN.md's "`native` and builtin are two different mechanisms" has why.
+//
+// SYNTAX.md puts it better than a comment here can: "asking a collection its size never needs a
+// per-type name or a conversion."
+
+builtin fn len(s: string) -> int
+builtin fn len<T>(a: [T]) -> int
+builtin fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
+builtin fn len<T: Eq + Hash>(s: Set<T>) -> int
+builtin fn len<T>(b: MutableArray<T>) -> int
+builtin fn len(b: MutableString) -> int
+builtin fn len<K: Eq + Hash, V>(b: MutableMap<K, V>) -> int
+builtin fn len<T: Eq + Hash>(b: MutableSet<T>) -> int
+// A cell holds exactly one value, so its length is always 1.
+builtin fn len<T>(c: Mutable<T>) -> int
+
+// The same nine shapes, each asked the question its immutable counterpart answers: a substring of
+// text, an element of an array or set, a *key* of a map.
+builtin fn contains(s: string, needle: string) -> bool
+builtin fn contains<T: Eq>(a: [T], x: T) -> bool
+builtin fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
+builtin fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
+builtin fn contains<T: Eq>(b: MutableArray<T>, x: T) -> bool
+builtin fn contains(b: MutableString, needle: string) -> bool
+builtin fn contains<K: Eq + Hash, V>(b: MutableMap<K, V>, key: K) -> bool
+builtin fn contains<T: Eq + Hash>(b: MutableSet<T>, x: T) -> bool
+builtin fn contains<T: Eq>(c: Mutable<T>, x: T) -> bool
+
+// Each builder to its immutable counterpart. O(n), and the handle stays usable.
+//
+// **Four shapes, not five**: `len` and `contains` above also take a `Mutable<T>` cell and these two
+// deliberately do not, each refusing with its own reason. `snapshot` of a cell is `mutable_get` --
+// the same crossing out of the handle, but O(1) rather than the O(n) copy this name promises -- and
+// a cell has no `clear`, being always initialised, where emptying it would need exactly the zero
+// value its type may not have. Visible here rather than only on trying it.
+builtin fn snapshot<T>(b: MutableArray<T>) -> [T]
+builtin fn snapshot(b: MutableString) -> string
+builtin fn snapshot<K: Eq + Hash, V>(b: MutableMap<K, V>) -> Map<K, V>
+builtin fn snapshot<T: Eq + Hash>(b: MutableSet<T>) -> Set<T>
+
+// Empties a builder in place, keeping the handle.
+builtin fn clear<T>(b: MutableArray<T>)
+builtin fn clear(b: MutableString)
+builtin fn clear<K: Eq + Hash, V>(b: MutableMap<K, V>)
+builtin fn clear<T: Eq + Hash>(b: MutableSet<T>)
+
+// `set` has no MutableArray form on purpose: an element write there is `b[i] = value`, the same
+// sugar an array's element write gets, and a copying three-argument call would read as though it
+// left the container alone. `set(b, i, v)` says so rather than failing as an unknown overload.
+builtin fn set<T>(a: [T], index: int, x: T) -> [T]
+builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
+
+// `remove` takes all three: an index, a key, or the element itself.
+builtin fn remove<T>(a: [T], index: int) -> [T]
+builtin fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
+builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
+
+// **The MutableArray's `remove` answers the element, where the array's answers the array.** Taking
+// element i out is the same question of both, so it is the same word; what differs is the answer,
+// and that is the difference between the two worlds rather than between two names -- the same
+// reasoning that made `push` and `insert` shared. Discarding the element is how `pop` is spelled
+// (`remove(b, len(b) - 1)`), which is why that is not reported as a wasted result the way a
+// discarded `remove(a, i)` is: an array's `remove` copies and changes nothing, a builder's writes.
+//
+// There is no `MutableMap` or `MutableSet` form. Those answer an `Option<V>` and a `bool`, so one
+// name over all six would have meant the new collection three times and three different other
+// things -- each refusal names the function that does it instead.
+builtin fn remove<T>(b: MutableArray<T>, index: int) -> T
+
+// **`mutable(x)` makes the mutable counterpart of whatever it is given.** For the three
+// collections that have a builder it answers that builder, so it reads as `snapshot` backwards:
+// `snapshot` answers the immutable type each builder is building, `mutable` answers the builder
+// each collection is built with. For anything else -- a scalar, a string, a struct, an enum, even
+// another handle -- there is no builder to answer, and the mutable counterpart of a single value
+// is a cell, so it answers `Mutable<T>`.
+//
+// **The dispatch is by shape, and the collections win.** An array matches both `[T]` and the bare
+// `T` below it, and the array overload is the one that applies; the same for a `Map` and a `Set`.
+// That is the whole of the ordering, and the one thing it costs is that a *cell holding* one of
+// those three cannot be spelled this way -- `mutable([1, 2])` is a `MutableArray<int>`, never a
+// `Mutable<[int]>`. Write that one as `mutable_new([1, 2])`, which is what the cell's own
+// constructor is for and is unambiguous about which of the two you meant.
+//
+// Two consequences worth knowing rather than discovering. A string answers `Mutable<string>`, not
+// a MutableString: a MutableString is *filled* rather than converted (`mutable_string_new` then
+// `mutable_string_append`), so it is not this conversion -- and the corpus agrees, since of 133
+// `mutable_string_new` call sites exactly one seeds the buffer from a whole existing string. And a
+// builder answers a cell holding that same handle, **not a clone of it**; there is no way to clone
+// a builder at all, which is deliberate rather than pending. `mutable_array_from`,
+// `mutable_map_from` and `mutable_set_from` used to be that way and were removed once `mutable`
+// covered the conversion they were mostly used for: keeping both would have put two spellings on
+// one question, and the clone half had no caller outside its own fixtures.
+// **`mutable([])` takes its element type from the context**, `[]` being the one literal that
+// carries none of its own: `val xs: MutableArray<int> = mutable([])`, a parameter's declared type,
+// a `return`, or a struct literal field all supply it. With no context there is nothing to infer
+// from and the error says so, naming `mutable_array_new<int>()`, which needs none. `Map<K, V> {}`
+// and `Set<T> {}` write their own types, so neither ever had this gap.
+//
+// **A literal argument is built straight into the builder.** `mutable([1, 2])` makes the
+// MutableArray from the literal's elements without collecting them into an array first -- the
+// checker hands them over as the call's own arguments, which is what `$map_lit` has always done --
+// so three allocations and about 154 bytes per construction do not happen. Nothing observable
+// changes; `mutable(xs)` on a variable still copies, because there the copy is the point.
+builtin fn mutable<T>(items: [T]) -> MutableArray<T>
+builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
+builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
+builtin fn mutable<T>(item: T) -> Mutable<T>
+
+// These two have native array versions, so their twins are written rather than shared. Each
+// allocates a builder for the result where the native allocates the array directly -- one
+// allocation more on the way out, against a whole copy of the input saved on the way in.
+pub fn map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U] {
+    val out = mutable_array_new<U>(capacity: len(items))
+    for item in items {
+        push(out, f(item))
+    }
+    return snapshot(out)
+}

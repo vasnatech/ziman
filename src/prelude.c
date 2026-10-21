@@ -26,27 +26,58 @@
 #include "native.h"
 #include "value.h"
 
-/* Generated from lib/prelude.zm by the same Makefile rule every
- * other bundled module's header goes through -- real .zm source, never
- * a hand-escaped C string literal (see lib/prelude.zm's own header
- * comment for why this file, uniquely among corelib's modules, is never
- * registered in corelib.c's CORE_MODULES table). */
-#include "prelude_source.h"
+/* Generated from lib/prelude/<part>.zm by the Makefile's own prelude rule --
+ * real .zm source, never a hand-escaped C string literal (see
+ * lib/prelude/prelude.zm's own header comment for why these files,
+ * uniquely among corelib's modules, are never registered in corelib.c's
+ * CORE_MODULES table). */
+#include "prelude_prelude_source.h"
+#include "prelude_collections_source.h"
+#include "prelude_array_source.h"
+#include "prelude_channel_source.h"
+#include "prelude_iter_source.h"
+#include "prelude_map_source.h"
+#include "prelude_mutable_source.h"
+#include "prelude_option_source.h"
+#include "prelude_set_source.h"
+#include "prelude_string_source.h"
 #include "xalloc.h"
 
-/* PRELUDE_SOURCE is one long string literal, now that the prelude has
- * grown enough (MutableString among the latest additions) to exceed the
- * C99-mandated minimum translation limit of 4095 characters -- harmless
- * on every compiler this project targets. Silenced narrowly here, right
- * where the macro is actually expanded, the same way corelib.c already
- * does for COLLECTIONS_SOURCE and friends, rather than loosening
- * -Wpedantic project-wide. */
+/* Each PRELUDE_*_SOURCE is one long string literal, and several still
+ * exceed the C99-mandated minimum translation limit of 4095 characters
+ * on their own -- harmless on every compiler this project targets.
+ * Silenced narrowly here, right where the macros are expanded, the same
+ * way corelib.c already does for its own module sources, rather than
+ * loosening -Wpedantic project-wide.
+ *
+ * Order is the order `--api builtins` prints and the order the loader
+ * merges: the universal verbs first, then the cross-type questions, then
+ * the per-type files alphabetically. Nothing depends on it semantically
+ * -- declarations are looked up by name -- so it is chosen to read well.
+ * Adding a part means a file in lib/prelude/, its name in the Makefile's
+ * PRELUDE_PARTS, and one line here. */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Woverlength-strings"
-const char *prelude_source(void) {
-    return PRELUDE_SOURCE;
-}
+static const struct {
+    const char *name;
+    const char *source;
+} PARTS[] = {
+    {"lib/prelude/prelude.zm", PRELUDE_PRELUDE_SOURCE},
+    {"lib/prelude/collections.zm", PRELUDE_COLLECTIONS_SOURCE},
+    {"lib/prelude/array.zm", PRELUDE_ARRAY_SOURCE},
+    {"lib/prelude/channel.zm", PRELUDE_CHANNEL_SOURCE},
+    {"lib/prelude/iter.zm", PRELUDE_ITER_SOURCE},
+    {"lib/prelude/map.zm", PRELUDE_MAP_SOURCE},
+    {"lib/prelude/mutable.zm", PRELUDE_MUTABLE_SOURCE},
+    {"lib/prelude/option.zm", PRELUDE_OPTION_SOURCE},
+    {"lib/prelude/set.zm", PRELUDE_SET_SOURCE},
+    {"lib/prelude/string.zm", PRELUDE_STRING_SOURCE},
+};
 #pragma GCC diagnostic pop
+
+int prelude_part_count(void) { return (int)(sizeof PARTS / sizeof PARTS[0]); }
+const char *prelude_part_name(int i) { return PARTS[i].name; }
+const char *prelude_part_source(int i) { return PARTS[i].source; }
 
 /* Both number parsers used to hand the text straight to strtoll/strtod, which accept what a strict parser must not:
  * leading whitespace, a leading `+`, and (strtod) hex floats and `infinity`/`nan(...)`. The text is the whole number or
@@ -491,7 +522,7 @@ static Value native_join(Value *args, int argc, int line, int col) {
 /* --- MutableString -------------------------------------------------
  * A mutable string-accumulation handle, backed entirely here, native-
  * side -- Ziman code never sees anything but an opaque `handle: int`
- * (see lib/prelude.zm's MutableString struct). The handle IS the address of
+ * (see lib/prelude/string.zm's MutableString struct). The handle IS the address of
  * an individually heap-allocated MutableStringBuf, not an index into a
  * global table: a table would keep every builder ever made reachable
  * forever (each json_to_string node makes one), which is exactly the kind
@@ -503,7 +534,7 @@ static Value native_join(Value *args, int argc, int line, int col) {
  * A builder belongs to the thread that made it (`owner`): every operation
  * checks the calling thread, so sharing one -- by a channel, a closure, a
  * global -- is a clear runtime error and never a data race (the compiler
- * refuses the obvious ways first: see `#[thread_bound]` in prelude.zm). */
+ * refuses the obvious ways first: see `#[thread_bound]` in lib/prelude/string.zm). */
 /* A builder's handle is the address of its buffer, and `MutableArray`, `MutableMap`,
  * `MutableSet`, `MutableString` and `Mutable` are all constructible from Ziman as ordinary struct
  * literals over an `int` field. So each of these was validated by reading a magic word out of the
@@ -1635,7 +1666,7 @@ static Value native_mutable_map_get(Value *args, int argc, int line, int col) {
  * the `Option`-returning `get` it wraps (580-612 ns/op against 534-572 on a 100,000-entry map),
  * where the immutable `Map`'s own `map_get_or` (a builtin in interpreter.c, no wrapper) is 5-6x
  * faster than its `map_get`. Same shape as that builtin now. The idiom this exists for is the
- * word-count line in prelude.zm's own comment, which runs it once per input word. */
+ * word-count line in lib/prelude/map.zm's own comment, which runs it once per input word. */
 static Value native_mutable_map_get_or(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -1663,7 +1694,7 @@ static Value native_mutable_map_remove(Value *args, int argc, int line, int col)
 }
 
 /* `remove` without the `Option`. Same lookup, same tombstone; the only difference is that it does
- * not have to box what it removed, which on a large map is most of the cost -- see prelude.zm's own
+ * not have to box what it removed, which on a large map is most of the cost -- see map.zm's own
  * comment for the figures, and ROADMAP.md's Map/Set entry for why an allocation's price is set by
  * the live set rather than by its own size. */
 static Value native_mutable_map_discard(Value *args, int argc, int line, int col) {

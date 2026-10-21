@@ -1,0 +1,44 @@
+// iter.zm -- `Iter<T>`, a cursor over a source that is read once. `#[thread_bound]`: an Iter
+// belongs to the thread that made it.
+//
+// Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
+// loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
+// directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
+// whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
+// subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
+// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// header is generated from its source by the Makefile's prelude rule.
+//
+// A name whose declarations span more than one of these files lives in collections.zm, whole, so
+// that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
+// a declaration".
+
+// A lazy source of values, produced one at a time as a `for` loop asks for them: `for line in
+// lines { ... }` over an `Iter<Result<string, string>>` from `fs.lines`. Nothing is read ahead, so
+// the source can be far larger than memory, and stopping early (`break`, `return`, or `try`) leaves the
+// rest unread. `handle` is an opaque reference to the native source; a source that is not finished
+// or closed is closed when it is garbage collected. It can be walked once: a second `for` over the
+// same Iter carries on where the first stopped. It belongs to the thread that made it, like a builder
+// (`#[thread_bound]`): not a `Channel` element, a `spawn` argument or a module-level `val`, and walking or
+// closing it from another thread is a runtime error.
+#[thread_bound]
+struct Iter<T> {
+    handle: int
+}
+
+// An Iter written in Ziman. `next` returns the next item as `Some(item)`, or `None` at the end; `close` is
+// called once when the source is finished, left early by a `for` loop (`break`, `return`, `try`) or closed
+// with `iter_close`. A closure cannot change a variable it captured, so the state lives in whatever the
+// closures call: a native handle such as a socket or a database cursor, or a Channel. Unlike the built-in
+// sources it is NOT closed by the garbage collector (that would run your code from a finalizer), so
+// finish it or close it.
+native fn iter_from<T>(next: fn() -> Option<T>, close: fn()) -> Iter<T>
+
+// The next item of `it`, or None when it is exhausted. For a `while` loop that wants the items one
+// by one; `for` does this for you.
+native fn iter_next<T>(it: Iter<T>) -> Option<T>
+
+// Releases what `it` holds (a file, say) now instead of when it is collected. A `for` loop does this
+// itself when it is left early; call it when you take items by hand and stop before the end. Harmless
+// on one that is finished or already closed.
+native fn iter_close<T>(it: Iter<T>)

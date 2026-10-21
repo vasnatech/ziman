@@ -2882,3 +2882,49 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   need the guard. And `src/lsp.c` was already derived in F168; only the VS Code grammar was the
   list F183 generated. Both corrected in `ROADMAP.md` and `DESIGN.md` before committing, by
   reading the task record instead of trusting the summary of it.
+
+- [x] **F203** **`lib/prelude.zm` becomes `lib/prelude/`, ten files split by the type a name is
+  about.** (raised 2026-10-20 by the user; done 2026-10-20.) 1,971 lines and 269 declarations in
+  one file. Now `array.zm` (873), `collections.zm`, `option.zm`, `string.zm`, `map.zm`,
+  `prelude.zm`, `set.zm`, `channel.zm`, `iter.zm`, `mutable.zm`. Every file in the directory is
+  merged bare into every program exactly as the single file was.
+
+  **The seam was the whole question, and it runs against the previous two passes.** F149-F201 made
+  one name cover several types; splitting by type scatters an overload set across files. The user
+  chose option 2 of three: cut by type, then move any set that would be split into
+  `collections.zm`, whole. Measured, that is **13 names, 61 declarations**. `[T]` and
+  `MutableArray<T>` sharing `array.zm`, and `Option` and `Result` sharing `option.zm`, are what
+  keep it to 13 -- otherwise the five `sort*` names, `reverse`, `flat_map` and `unwrap` would have
+  gone to `collections.zm` too and the per-type files would hold almost nothing.
+
+  **I quoted the wrong number first.** The initial measurement said 27 names spanning 55 sections,
+  from a regex that allowed leading whitespace and so counted `val out` and `val seen` *inside
+  function bodies* as declarations. Anchored at column 0 it is 13. Corrected before the user
+  chose, which is the only reason it did not change the decision.
+
+  **Parsed per part rather than concatenated**, for one reason: a prelude error reporting a line
+  number in a build-time blob that exists nowhere on disk is a cost paid every time this file is
+  edited, which is often. Each part is registered under its real path with
+  `ziman_register_source`, so prelude diagnostics now print a file name and an excerpt where they
+  previously printed neither. `source_file` stays NULL on prelude declarations deliberately --
+  it is the user-code gate (`g_checking_program_body`) and the coverage filter, not a display
+  field, and stamping it would have put the prelude into `--coverage`.
+
+  **Verified by equality, not by the suite alone.** The 269 declaration lines, sorted, are
+  byte-identical before and after; `ziman --api builtins` has identical content (order differs,
+  by part); `overload_sets.sh` still reports 39 sets, 0 unresolvable; 1,102 fixtures pass.
+
+  **`gen_lib_deps.py` listed all ten parts as modules** the moment they existed, because it globs
+  `lib/*/*.zm` and the old single file missed that glob by shape rather than by intent. The
+  prelude is not a module and nothing can `use` one of its parts, so the exclusion is explicit
+  now. `gen_lib_manual.py` reads `PRELUDE_PARTS` out of the Makefile rather than keeping a list.
+  The parts are off the `vpath` with their own header rule, which is what makes `use map`
+  resolving to `lib/prelude/map.zm` impossible rather than merely unlikely.
+
+  **Three defects found by reading the file closely enough to move it.** Two doc comments compared
+  a name to itself -- *"Named `filter_present` rather than `filter_present`"*, *"Named `iter`
+  rather than `iter`"* -- both from F170 replacing the old name everywhere including inside the
+  sentence that explained the rename. And ~100 lines of array-pairing prose sat above
+  `filter_present`, so the split carried it into `option.zm`; it is one consolidated section in
+  `array.zm` now. **`` `x` rather than `x` `` is always a defect**, and worth grepping for after
+  any rename pass.

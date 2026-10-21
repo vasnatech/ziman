@@ -110,4 +110,4 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 
 | Module | What it is |
 |---|---|
-| [`prelude`](prelude.md) | The functions and types every Ziman program has without a `use`. |
+| [`prelude`](prelude.md) | The functions and types every Ziman program has without a `use`, split across this directory by the type each name is about. |

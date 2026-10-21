@@ -97,13 +97,50 @@ def signature(lines, i):
     return sig, j + 1
 
 
+def prelude_parts():
+    """lib/prelude/<part>.zm, in the Makefile's PRELUDE_PARTS order.
+
+    Read from the Makefile rather than listed here, so the manual cannot come to disagree with
+    what is actually built -- the same reason src/lsp.c's completion list and the VS Code grammar
+    are generated. A part missing from PRELUDE_PARTS is not in the binary, so it must not be in
+    the manual either."""
+    mk = read_lines(os.path.join(ROOT, "Makefile"))
+    for line in mk:
+        if line.startswith("PRELUDE_PARTS :="):
+            names = line.split(":=", 1)[1].split()
+            paths = [os.path.join(ROOT, "lib", "prelude", n + ".zm") for n in names]
+            missing = [p for p in paths if not os.path.exists(p)]
+            if missing:
+                sys.exit("gen_lib_manual.py: PRELUDE_PARTS names a file that is not there: %s"
+                         % ", ".join(missing))
+            return paths
+    sys.exit("gen_lib_manual.py: no PRELUDE_PARTS line in the Makefile -- it was renamed, and "
+             "this tool reads it rather than keeping its own copy")
+
+
 def parse(path):
-    prelude = os.path.basename(path) == "prelude.zm"
+    # A list of paths is the prelude, which is several files that make one page: each part becomes
+    # a section, and only the first part's header describes the page (every part repeats the same
+    # "merged bare into every program" paragraph, which would otherwise be printed ten times).
+    paths = path if isinstance(path, list) else [path]
+    prelude = len(paths) > 1 or os.path.basename(os.path.dirname(paths[0])) == "prelude"
     # `builtin fn` belongs here for the same reason it exists: a builtin with no documented
     # signature is one a reader cannot find. See DESIGN.md's "`native` and builtin are two
     # different mechanisms".
     decl = (r"(pub )?(native fn|builtin fn|fn|struct|enum|val) " if prelude
             else r"pub (native fn|builtin fn|fn|struct|enum|val) ")
+    header = []
+    entries = []  # (section, comment lines, signature)
+    for part_index, part_path in enumerate(paths):
+        hdr, part_entries = parse_one(part_path, decl,
+                                      os.path.basename(part_path) if len(paths) > 1 else None)
+        if part_index == 0:
+            header = hdr
+        entries += part_entries
+    return header, entries
+
+
+def parse_one(path, decl, fixed_section):
     lines = read_lines(path)
     i = 0
     header = []
@@ -111,14 +148,14 @@ def parse(path):
         header.append(lines[i])
         i += 1
     entries = []  # (section, comment lines, signature)
-    section = None
+    section = fixed_section
     pending = []
     while i < len(lines):
         l = lines[i]
         if l.startswith("//"):
             m = re.match(r"// -{3,}\s*(.*?)\s*-*$", l)
             if m and (m.group(1) or l.strip("/ -") == ""):
-                if m.group(1):
+                if m.group(1) and fixed_section is None:
                     section = m.group(1)
                 pending = []
             else:
@@ -177,7 +214,7 @@ def page(name, path, kind):
     header, entries = parse(path)
     text = intro(header, name)
     out = ["# `%s`" % name, ""]
-    with open(path) as f:
+    with open(path[0] if isinstance(path, list) else path) as f:
         experimental = is_experimental(f.read().split("\n"))
     if experimental:
         out += ["> **Experimental** -- see docs/DESIGN.md's \"Experimental modules\" entry. Generated from this",
@@ -205,7 +242,11 @@ def page(name, path, kind):
             current = section
             last_name = None
             if section:
-                out += ["## %s" % (section[:1].upper() + section[1:]), ""]
+                # A prelude part is a file name, so it reads as one rather than being
+                # sentence-cased into "Prelude.zm".
+                title = ("`%s`" % section if section.endswith(".zm")
+                         else section[:1].upper() + section[1:])
+                out += ["## %s" % title, ""]
         name_m = re.match(r"(?:pub )?(?:native fn|builtin fn|fn|struct|enum|val) (\w+)", sig)
         # `decl_name`, not `name`: `name` is this function's own parameter, the *module's* name,
         # and the last line uses it to strip the `<module>.zm --` prefix off the header comment.
@@ -251,13 +292,13 @@ def main():
             index.append("| [`%s`](%s.md) | %s |" % (name, name, summary.replace("|", "\\|")))
             seen.add(path)
         index.append("")
-    path = os.path.join(ROOT, "lib", "prelude.zm")
+    path = prelude_parts()
     text, summary = page("prelude", path, "")
     with open(os.path.join(OUT, "prelude.md"), "w") as f:
         f.write(text)
     index += ["## Always available", "", "| Module | What it is |", "|---|---|",
               "| [`prelude`](prelude.md) | %s |" % summary.replace("|", "\\|"), ""]
-    seen.add(path)
+    seen.update(path)
     for folder in ("core", "db", "http", "time"):
         for fn in sorted(os.listdir(os.path.join(ROOT, "lib", folder))):
             p = os.path.join(ROOT, "lib", folder, fn)

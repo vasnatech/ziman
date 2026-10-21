@@ -32,7 +32,7 @@ typedef struct IterObj {
      * abandoned one no longer leaves a dangling pointer in the validation table either
      * (docs/reviews/tasks.md F16). */
     int no_finalizer;
-    /* the thread that made it: an Iter is a mutable cursor and belongs to that thread (`#[thread_bound]` in prelude.zm), so walking or closing it from
+    /* the thread that made it: an Iter is a mutable cursor and belongs to that thread (`#[thread_bound]` in lib/prelude/iter.zm), so walking or closing it from
      * another thread is a runtime error. Set by iter_make. The collector's finalizer releases a dropped one from its own thread and is exempt. */
     pthread_t owner;
 } IterObj;

@@ -222,7 +222,7 @@ set. Build output goes to `build/`, never beside a source.
 | | |
 | --- | --- |
 | `src/` | the interpreter, in C |
-| `lib/` | the standard library, in Ziman (`core/`, `db/`, `http/`, `time/`, `prelude.zm`) |
+| `lib/` | the standard library, in Ziman (`core/`, `db/`, `http/`, `time/`, `prelude/`) |
 | `tests/c/` | standalone C unit tests of the C internals |
 | `tests/lang/` | the language itself: Ziman programs and their expected output |
 | `tests/stdlib/` | `#[test]` units for the bundled modules |

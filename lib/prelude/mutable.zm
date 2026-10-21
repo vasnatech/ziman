@@ -1,0 +1,42 @@
+// mutable.zm -- `Mutable<T>`, the one-value cell: the smallest builder, for state that is not a
+// collection.
+//
+// Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
+// loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
+// directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
+// whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
+// subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
+// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// header is generated from its source by the Makefile's prelude rule.
+//
+// A name whose declarations span more than one of these files lives in collections.zm, whole, so
+// that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
+// a declaration".
+
+// One cell holding one value: the root the other four mutable types specialise, and the primitive
+// that lets a new mutable shape be written in Ziman instead of added to the language. A ring buffer
+// is a struct over a `MutableArray` plus two `Mutable<int>`s; an LRU adds a `MutableMap`; a UI signal
+// is a cell plus a `MutableArray` of subscribers.
+//
+// Like the other four it belongs to the thread that made it (`#[thread_bound]`), it is neither
+// comparable nor hashable, and it is always initialised -- there is no empty `mutable_new<T>()`,
+// because `T` may have no zero, so a cell never holds nothing.
+//
+// It answers two of the four bare builtins and not the other two: `len(c)` is 1 and
+// `contains(c, v)` asks whether the value equals `v`, while `clear` has no zero to reset to and
+// `snapshot` names an O(n) copy where `mutable_get` is an O(1) read. A cell needs no
+// `from`/`snapshot` pair at all: `mutable_new` takes a value and `mutable_get` returns one, so the
+// crossing between the two worlds *is* the API.
+#[thread_bound]
+struct Mutable<T> {
+    handle: int
+}
+
+// A cell holding `value`.
+native fn mutable_new<T>(value: T) -> Mutable<T>
+
+// The value in the cell.
+native fn mutable_get<T>(c: Mutable<T>) -> T
+
+// Replaces the value in the cell.
+native fn mutable_set<T>(c: Mutable<T>, value: T)
