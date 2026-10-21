@@ -1,0 +1,21 @@
+// `renamed_to_syntax`: the old names whose answer is **notation**, not another function. They
+// cannot live in `renamed_builder_fn`'s table, which `tools/check_builtins.py` holds to naming a
+// declaration that exists -- that guard is the point of it, and `b[i]` is not a declaration.
+//
+// Three generations of element access land here. `ab_get`/`ab_set` were the first names; F149 made
+// `b[i]` and `b[i] = value` a rewrite onto `mutable_array_get`/`mutable_array_set`; F209 made them
+// an index the interpreter evaluates, so the calls they stood for are gone too. `map_from_arrays`
+// joined in F211 for a different reason: it had no caller anywhere in this repo or the North Star,
+// its two documented uses were one-entry label maps, and a map literal names each key beside its
+// value instead of pairing two positional lists whose lengths only a runtime check could compare.
+//
+// The hint matters more than usual for a removal: this one was taught in docs/SYNTAX.md's helper
+// list, so anybody who learned the vocabulary from that page has it in their fingers.
+fn main() {
+    val b = mutable([1, 2])
+    print(ab_get(b, 0))
+    ab_set(b, 0, 9)
+    print(mutable_array_get(b, 0))
+    mutable_array_set(b, 0, 9)
+    print(map_from_arrays(["method"], ["GET"]))
+}

@@ -16,7 +16,7 @@ Declare at start-up, record anywhere:
 metrics.counter("requests_total", "Requests answered, by method and route.")
 metrics.histogram("request_seconds", "How long a request took.", [0.005, 0.05, 0.5, 5.0])
 ...
-metrics.increment_with("requests_total", map_from_arrays(["method"], ["GET"]))
+metrics.increment_with("requests_total", Map<string, string> { "method": "GET" })
 metrics.observe("request_seconds", 0.0121)
 print(metrics.render())
 ```
@@ -154,7 +154,7 @@ route -- and keep it:
 
 
 ```
-val get_items = metrics.series("requests_total", map_from_arrays(["route"], ["/items"]))
+val get_items = metrics.series("requests_total", Map<string, string> { "route": "/items" })
 ...
 metrics.increment_at(get_items)      // no strings, no sorting, no lookup by name
 ```

@@ -239,9 +239,6 @@ pub fn reverse<T>(xs: MutableArray<T>) {
 // rather than a cost to be removed.
 native fn iter<T>(items: [T]) -> Iter<T>
 
-// Positionally paired; a key repeated in `keys` keeps the last value given for it.
-builtin fn map_from_arrays<K: Eq + Hash, V>(keys: [K], values: [V]) -> Map<K, V>
-
 // **The distinct elements of a sequence, as a Set.** Named for its result rather than its source
 // -- `set_from_array` until 2026-10-18 -- for two reasons. The argument already says what the
 // source is, which matters now that there are two of them; and the deduplication is the part a

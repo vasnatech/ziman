@@ -3787,6 +3787,14 @@ two kinds is two branches in `check_call`, not a type-system feature. A union ty
 representation would be a far bigger change than these nine functions justify, and a language that
 refuses general bounds should not acquire general unions for them.
 
+> **None of those eleven names is left (F211, 2026-10-21).** Ten lost the prefix to the bare name
+> that now owns the question — `union`, `intersect`, `difference`, `is_subset`, `insert_all`,
+> `filter`, `merge`, `remove_all` — over F195 to F201, and `to_set` kept its name because it is
+> named for its result. `map_from_arrays` is the last, and it went a different way: it was deleted
+> rather than renamed, having no caller anywhere in this repo or the North Star, and a map literal
+> says what it said. The paragraph's argument stands, and the hand-checked-builtin state it
+> describes is what the conversions have been dismantling ever since.
+
 **3. A fused conversion earns a name only when composition costs an extra full copy.**
 `to_mutable_set(xs)` (`mutable_set_from_array` when this was written) is one pass where
 `mutable(to_set(xs))` is two, so it exists. `mutable_array_from_set` does not: it is `mutable_array_from(set_items(s))` at one extra
@@ -7552,10 +7560,11 @@ corpus needed that.
 **The old names answer with syntax, which needed a second table.** `renamed_builder_fn` is held by
 `tools/check_builtins.py` to naming a declaration that exists — the guard F205 added after four
 entries rotted — and `b[i]` is not a declaration. Putting the syntax answers in the same table
-would have meant weakening that guard, so they get `renamed_to_syntax` and their own sentence:
-*"a MutableArray element is read and written with '[...]', so write 'b[i]' — element access is an
-index, not a function, and 'mutable_array_get' was the call it used to be."* `ab_get` and `ab_set`,
-the generation before, move there too; they had been pointing at `mutable_array_get`.
+would have meant weakening that guard, so they get `renamed_to_syntax` and their own shape:
+*"'mutable_array_get' is gone — write 'b[i]' instead: element access is an index rather than a
+function, so there is no name left to offer."* `ab_get` and `ab_set`, the generation before, move
+there too; they had been pointing at `mutable_array_get`. (F211 gave each entry its own reason
+rather than one shared sentence, when `map_from_arrays` joined them with a different story.)
 
 **What this does not change.** There is still no bare `get` or `set` for a builder, and
 `set(b, i, v)` is still refused with the message that an element write is `b[i] = value` — that

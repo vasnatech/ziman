@@ -1460,7 +1460,7 @@ static const char *const PURE_BUILTINS[] = {
     "len", "str", "format", "contains", "abs", "min", "max", "hash", "compare", "error_message",
     "is_ok", "is_Some", "is_None",
     "map_get", "map_get_or", "map_keys", "map_values", "map_merge", "map_filter",
-    "map_remove_all", "map_from_arrays",
+    "map_remove_all",
     "set_items", "set_union", "set_intersect", "set_difference", "set_is_subset",
     "to_set", "slice", "concat", "set_insert_all", "set_filter",
     "snapshot", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set",
@@ -1540,7 +1540,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "push", "insert", "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "map_from_arrays", "to_set", "slice", "concat", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "to_set", "slice", "concat", "snapshot", "mutable", "clear", "narrow", "swap", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -1754,19 +1754,32 @@ static const char *renamed_builder_fn(const char *name) {
  * A builder's element access was a call until F209 -- `mutable_array_get(b, i)` and
  * `mutable_array_set(b, i, v)`, which `b[i]` rewrote onto -- and `ab_get`/`ab_set` were the
  * generation of names before those. Both generations land here now. */
-static const char *renamed_to_syntax(const char *name) {
+static int renamed_to_syntax(const char *name, const char **now, const char **why) {
+    /* The element accesses share a sentence; the entries each carry their own so that a fifth
+     * does not have to fit someone else's. */
+    static const char *const ELEMENT =
+        "element access is an index rather than a function, so there is no name left to offer";
     static const struct {
         const char *was;
         const char *now;
-    } RENAMED[] = {{"ab_get", "b[i]"},
-                   {"ab_set", "b[i] = value"},
-                   {"mutable_array_get", "b[i]"},
-                   {"mutable_array_set", "b[i] = value"},
-                   {NULL, NULL}};
+        const char *why;
+    } RENAMED[] = {{"ab_get", "b[i]", ELEMENT},
+                   {"ab_set", "b[i] = value", ELEMENT},
+                   {"mutable_array_get", "b[i]", ELEMENT},
+                   {"mutable_array_set", "b[i] = value", ELEMENT},
+                   {"map_from_arrays", "Map<K, V> { key: value }",
+                    "a map literal names each key beside its value, where this paired two positional "
+                    "lists whose lengths could only be checked when the call ran; build one from two "
+                    "arrays computed at run time with a MutableMap and 'set' in a loop"},
+                   {NULL, NULL, NULL}};
     for (size_t k = 0; RENAMED[k].was != NULL; k++) {
-        if (strcmp(name, RENAMED[k].was) == 0) return RENAMED[k].now;
+        if (strcmp(name, RENAMED[k].was) == 0) {
+            *now = RENAMED[k].now;
+            *why = RENAMED[k].why;
+            return 1;
+        }
     }
-    return NULL;
+    return 0;
 }
 
 static const char *renamed_builder_type(const char *name) {
@@ -2652,20 +2665,6 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
     static const struct { const char *name; int argc; } TABLE[] = {
         {"__none__", 0},  /* every name this arm once checked now states its own type rule */
     };
-    if (strcmp(name, "map_from_arrays") == 0) {
-        if (e->as.call.args.count != 2) {
-            ziman_error("type", e->line, e->col, "'map_from_arrays' takes exactly 2 arguments, found %d", e->as.call.args.count);
-        }
-        Type keys = check_expr(module, env, e->as.call.args.items[0]);
-        Type vals = check_expr(module, env, e->as.call.args.items[1]);
-        if (keys.kind != TY_ARRAY || vals.kind != TY_ARRAY) {
-            ziman_error("type", e->line, e->col, "'map_from_arrays' expects two arrays (the keys and the values), found %s and %s", type_name(keys),
-                        type_name(vals));
-        }
-        *out = type_map(*keys.elem, *vals.elem);
-        check_type_well_formed(module, *out, e->line, e->col);
-        return 1;
-    }
     /* `to_set(xs)`: the distinct elements of a sequence, as a Set. Either world, like
      * `to_mutable_set` beside it -- the handle is read in one pass rather than snapshotted, so
      * accepting it saves a copy rather than hiding one. Named for its *result* because the
@@ -4216,15 +4215,14 @@ ordinary_call:;
                             "to look up the value at the same time", name);
             }
         }
-        const char *as_syntax = renamed_to_syntax(name);
-        if (as_syntax != NULL) {
-            /* Its own sentence, because "lost the prefix" is the wrong story for these: a
-             * MutableArray's element access did not get a shorter name, it stopped being a call
-             * at all, so there is nothing to offer but the syntax. */
-            ziman_error("type", e->line, e->col,
-                        "a MutableArray element is read and written with '[...]', so write '%s' -- element access "
-                        "is an index, not a function, and '%s' was the call it used to be",
-                        as_syntax, name);
+        const char *as_syntax = NULL;
+        const char *as_syntax_why = NULL;
+        if (renamed_to_syntax(name, &as_syntax, &as_syntax_why)) {
+            /* A shape of its own, separate from `renamed_builder_fn`'s "lost the prefix": these
+             * names did not get a shorter name, they stopped being calls, so the answer is the
+             * notation and the reason it is not a function any more. */
+            ziman_error("type", e->line, e->col, "'%s' is gone -- write '%s' instead: %s", name, as_syntax,
+                        as_syntax_why);
         }
         const char *renamed_fn = renamed_builder_fn(name);
         if (renamed_fn != NULL) {

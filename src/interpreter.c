@@ -1294,7 +1294,6 @@ typedef enum {
     B_map_remove_all,
     B_set_insert_all,
     B_to_set,
-    B_map_from_arrays,
     B_map_keys,
     B_map_values,
     B_set_items,
@@ -1361,7 +1360,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"remove_all", B_map_remove_all},
     {"add", B_set_insert_all},
     {"to_set", B_to_set},
-    {"map_from_arrays", B_map_from_arrays},
     {"keys", B_map_keys},
     {"values", B_map_values},
     {"items", B_set_items},
@@ -1770,13 +1768,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 } else {
                     for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), value_int(0));
                 }
-                result = value_map(&e->resolved_type, m);
-            } else if (bid == B_map_from_arrays) {
-                if (args[0].as.arr->count != args[1].as.arr->count) {
-                    ziman_error("runtime", e->line, e->col, "map_from_arrays: %d keys but %d values", args[0].as.arr->count, args[1].as.arr->count);
-                }
-                MapObj *m = mapobj_empty();
-                for (int i = 0; i < args[0].as.arr->count; i++) m = mapobj_set(m, array_get(args[0].as.arr, i), array_get(args[1].as.arr, i));
                 result = value_map(&e->resolved_type, m);
             } else if (bid == B_map_keys) {
                 /* the key set, in the map's insertion order */

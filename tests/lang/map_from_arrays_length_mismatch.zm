@@ -1,3 +1,0 @@
-fn main() {
-    print(map_from_arrays(["a", "b"], [1]))
-}

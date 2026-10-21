@@ -1,0 +1,21 @@
+ziman: type error at 16:11 in tests/lang/removed_names_point_at_syntax.zm: 'ab_get' is gone -- write 'b[i]' instead: element access is an index rather than a function, so there is no name left to offer
+   |
+16 |     print(ab_get(b, 0))
+   |           ^
+ziman: type error at 17:5 in tests/lang/removed_names_point_at_syntax.zm: 'ab_set' is gone -- write 'b[i] = value' instead: element access is an index rather than a function, so there is no name left to offer
+   |
+17 |     ab_set(b, 0, 9)
+   |     ^
+ziman: type error at 18:11 in tests/lang/removed_names_point_at_syntax.zm: 'mutable_array_get' is gone -- write 'b[i]' instead: element access is an index rather than a function, so there is no name left to offer
+   |
+18 |     print(mutable_array_get(b, 0))
+   |           ^
+ziman: type error at 19:5 in tests/lang/removed_names_point_at_syntax.zm: 'mutable_array_set' is gone -- write 'b[i] = value' instead: element access is an index rather than a function, so there is no name left to offer
+   |
+19 |     mutable_array_set(b, 0, 9)
+   |     ^
+ziman: type error at 20:11 in tests/lang/removed_names_point_at_syntax.zm: 'map_from_arrays' is gone -- write 'Map<K, V> { key: value }' instead: a map literal names each key beside its value, where this paired two positional lists whose lengths could only be checked when the call ran; build one from two arrays computed at run time with a MutableMap and 'set' in a loop
+   |
+20 |     print(map_from_arrays(["method"], ["GET"]))
+   |           ^
+ziman: 5 errors

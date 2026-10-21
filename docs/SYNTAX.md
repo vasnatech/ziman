@@ -354,9 +354,10 @@ for x in seen { ... }                    // a set has one binder
 ```
 
 - **Helpers** (return new collections, infer types from arguments): maps --
-  `get_or(m, k, default)`, `merge(a, b)` (`b` wins on shared keys),
-  `map_from_arrays(keys, values)` (equal lengths, else runtime error;
-  a repeated key keeps the last value); sets -- `union`/`intersect`/`difference(a, b)`
+  `get_or(m, k, default)`, `merge(a, b)` (`b` wins on shared keys); a small map is written as a
+  literal, `Map<string, int> { "a": 1 }`, and one built from two arrays computed at run time is a
+  `MutableMap` and `set` in a loop (`map_from_arrays(keys, values)` was this list's third entry
+  until F211, with no caller anywhere in the repo); sets -- `union`/`intersect`/`difference(a, b)`
   (`a`'s order, `b`'s extras appended for union), `is_subset(a, b)`, `to_set(items)`,
   `add(s, items...)`.
 - **The names `--api builtins` could not see are down to one.** Twenty when the Map/Set

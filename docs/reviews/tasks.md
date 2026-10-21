@@ -3246,9 +3246,11 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   **The old names answer with syntax, which needed a second table.** `renamed_builder_fn` is held
   by `tools/check_builtins.py` to naming a declaration that exists — F205's guard, added after four
   of its entries rotted — and `b[i]` is not a declaration, so putting the syntax answers there
-  would have meant weakening the guard. `renamed_to_syntax` gets its own sentence instead:
-  *"element access is an index, not a function, and 'mutable_array_get' was the call it used to
-  be."* `ab_get`/`ab_set` move there too, having pointed at `mutable_array_get`.
+  would have meant weakening the guard. `renamed_to_syntax` gets its own shape instead:
+  *"'mutable_array_get' is gone — write 'b[i]' instead: element access is an index rather than a
+  function, so there is no name left to offer."* `ab_get`/`ab_set` move there too, having pointed
+  at `mutable_array_get`. (F211 gave each entry its own reason rather than one shared sentence,
+  when `map_from_arrays` joined them with a different story.)
 
   **Two stale repair suggestions found beside the work.** Indexing a Set advised
   *"add with 's = set(s, value)'"*, writing one advised *"'s = insert(s, value)'"* — F199 made
@@ -3298,3 +3300,40 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `option.zm` 8, `collections.zm` 4, `prelude.zm` 2, `channel.zm` 2, `map.zm` 2) — those files are
   organised by world rather than by name, so pairing them is a separate decision and not this one.
   1,112 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F211** **`map_from_arrays` is deleted; a small map is a literal.** (user-raised, "is
+  map_from_arrays getting used?" then "delete it and move the docs to map literals"; done
+  2026-10-21.) **It had no caller.** Every occurrence in either repo was the declaration, a doc
+  comment, a documentation page, or the one fixture asserting its own length-mismatch error — so
+  the only `.zm` file that called it was a test of itself. Nothing in `lib/`, nothing in the North
+  Star, nothing in the benchmark reference solutions.
+
+  **And where the docs did teach it, the literal was already better.** Both places were one-entry
+  label maps for `lib/core/metrics.zm`: `map_from_arrays(["method"], ["GET"])` against
+  `Map<string, string> { "method": "GET" }`, which names the key beside its value instead of
+  splitting the pair across two positional lists — and the two-list form deferred "equal lengths"
+  to a runtime check, which is the hazard its fixture existed for. `docs/SYNTAX.md` listed it under
+  **Helpers** as ordinary vocabulary, so anyone learning the collections from that page met a name
+  the corpus never uses. That is F208's finding pointing the other way: the docs can teach a name
+  the code has no use for, as readily as the code can teach one the docs do not list.
+
+  **Not pure overlap, which is why the message says what to write instead.** A literal cannot take
+  two arrays computed at run time; that case is a `MutableMap` and `set` in a loop. Nothing in the
+  corpus did it, which is why there was no caller, but the replacement advice has to cover it.
+
+  Removed: the `builtin fn` declaration, `check_call`'s arm, `B_map_from_arrays` and its dispatch,
+  and its entries in `PURE_BUILTINS` and `BUILTINS_NO_NAMED_ARGS` (so it leaves
+  `ziman --api builtins` and the editor grammar). **`renamed_to_syntax` gained a per-entry
+  reason**: F209 gave the four element accesses one shared sentence, and `map_from_arrays` is in the
+  same situation — a name whose answer is notation, which is why it cannot go in
+  `renamed_builder_fn`, held by `tools/check_builtins.py` to targets that are real declarations —
+  but for a different reason, so each entry now carries its own. The old
+  `map_from_arrays_length_mismatch` fixture is replaced by `removed_names_point_at_syntax`, which
+  pins all five hints; **the element-access four had no fixture at all until now.**
+
+  **Noticed, not fixed:** `PURE_BUILTINS` still lists `map_get`, `map_get_or`, `map_keys`,
+  `map_values`, `map_merge`, `map_filter`, `map_remove_all`, `set_items`, `set_union`,
+  `set_intersect`, `set_difference`, `set_is_subset`, `set_insert_all` and `set_filter`, none of
+  which has had a declaration since F195-F201 took the prefix off. Same vacuous-list shape as
+  F208's two name lists, in a list that vetoes a diagnostic rather than asserting one — worth its
+  own pass. 1,112 fixtures, `make check` exit 0 with the North Star.

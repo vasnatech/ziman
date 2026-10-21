@@ -840,14 +840,6 @@ nothing, while the `Iter` this answers outlives the call, so a handle's contents
 underneath it. `iter(snapshot(b))` is the builder route, and the copy it makes is the point
 rather than a cost to be removed.
 
-### `map_from_arrays`
-
-```
-builtin fn map_from_arrays<K: Eq + Hash, V>(keys: [K], values: [V]) -> Map<K, V>
-```
-
-Positionally paired; a key repeated in `keys` keeps the last value given for it.
-
 ### `to_set`
 
 ```
