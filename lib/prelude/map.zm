@@ -15,10 +15,10 @@
 // that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
 // a declaration".
 
-// The mutable counterparts of Map and Set, for building one entry by entry. `set` and `insert` on
-// a Map copy a few nodes each time; a builder changes its own private structure in place, so
-// adding n entries allocates O(n) in all, not O(n) per entry. `snapshot` and `snapshot`
-// snapshot what has been added so far into an ordinary Map or Set, and the builder stays usable.
+// The mutable counterparts of Map and Set, for building one entry by entry. `set` on a Map and
+// `add` on a Set copy a few nodes each time; a builder changes its own private structure in place,
+// so adding n entries allocates O(n) in all, not O(n) per entry. `snapshot` takes what has been
+// added so far as an ordinary Map or Set, and the builder stays usable.
 // Keys keep the order they were first added, and follow the same rule as a Map's (`Eq + Hash`).
 // Thread-bound like the other builders.
 #[thread_bound]

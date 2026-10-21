@@ -384,19 +384,21 @@ builtin fn push<T>(a: [T], values: variadic T) -> [T]
 #[at_least_one]
 builtin fn push<T>(b: MutableArray<T>, values: variadic T)
 
-// **`insert` and `set` are not interchangeable, and the asymmetry is deliberate** -- each has its
-// own error telling the reader which to use. `insert` puts something where it was not: at an index
-// in an array, or into a set. `set` replaces what is at a position: an array index, or a map key.
-// So a map has `set` and no `insert`, and a set has `insert` and no `set`.
+// **`insert` and `set` are not interchangeable, and each has its own error telling the reader
+// which to use.** `insert` puts something where it was not, at an index; `set` replaces what is at
+// a position, an array index or a map key. So an array has both, a map has `set` and no `insert`,
+// and a set has neither -- F199 settled that `insert` is positional only and gave both set worlds
+// `add`, and F206 made the checker say so, the set form having gone on being accepted undeclared
+// for a pass after the decision.
 builtin fn insert<T>(a: [T], index: int, x: T) -> [T]
 
 // An index in a MutableArray, for the same reason `push` is shared, and rewritten onto
-// `mutable_array_insert`. A `MutableSet` has no `insert` form: it was left out with `set`'s, each
-// world's membership vocabulary being settled separately.
+// `mutable_array_insert`. Neither set world has an `insert` form -- membership is `add` in both,
+// and an index means nothing to a set.
 builtin fn insert<T>(b: MutableArray<T>, index: int, value: T)
 
-// **Each of these accepts the immutable form *or* the builder**, which is what `either_world()` accepts the immutable form *or* the builder, which is what `either_world()` in the
-// type checker means: `to_set` and `to_mutable_set` each take an array or a MutableArray,
+// **Each of these accepts the immutable form *or* the builder**, which is what `either_world()` in
+// the type checker means: `to_set` and `to_mutable_set` each take an array or a MutableArray,
 // `union`'s second argument a Set or a MutableSet. Two declarations each, for the one
 // argument that has the choice -- the handle is always a handle.
 

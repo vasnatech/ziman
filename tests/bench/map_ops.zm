@@ -257,7 +257,7 @@ fn main() {
     // `MutableSet` shares its storage with `MutableMap` (the same MutableMapBuf over the same
     // MapTable), so the flat-table work applies to it unchanged -- these rows exist to show that
     // rather than assume it. `Set` keeps the persistent trie for the same reason `Map` does: it is
-    // a value, and `insert(s, x)` must leave the old set intact.
+    // a value, and `add(s, x)` must leave the old set intact.
     //
     // There is no `discard` row and no need for one: `remove` already answers with a
     // `bool`, where `remove` answered with an `Option<V>` -- which is exactly the cost
@@ -306,7 +306,7 @@ fn main() {
     t = clock.monotonic_millis()
     for i in 0..ops {
         val k = i % size
-        acc = acc + k + len(insert(st, size + k))
+        acc = acc + k + len(add(st, size + k))
     }
     report("Set         insert (persist)", clock.monotonic_millis() - t, setbase)
 

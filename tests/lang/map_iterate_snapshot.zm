@@ -12,7 +12,7 @@ fn main() {
     print(m)
     var s = Set<string> { "a", "b" }
     for item in s {
-        s = insert(s, concat(item, item))
+        s = add(s, concat(item, item))
     }
     print(s)
     for item in s {

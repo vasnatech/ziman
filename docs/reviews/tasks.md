@@ -3026,3 +3026,64 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   1,108 fixtures, `make check` exit 0 with the North Star. Three new fixtures: the bare names, the
   old name landing on a real one, and the `.err` for the lint's new text.
+
+- [x] **F206** **The `push`/`insert`/`set` arm splits in three, and `insert` on a set finally
+  stops compiling.** (the open task from the 2026-10-20 pause; done 2026-10-21.) One arm held
+  three names. Splitting it was supposed to be bookkeeping — `push` could not become declarations
+  while it shared one (F204), and the sharing was the recorded reason F191 found `set`
+  unconvertible. It was not bookkeeping.
+
+  **The arm was answering by name where only the type can answer.** `expected_argc` came from
+  `strcmp(name, "push")` in the arm's second statement, before argument one had been
+  type-checked, and four shapes were getting told about a form they could not have had:
+  `insert(mutableSet, 2)` and `set(mutableSet, 2)` were told they "take exactly 3 argument(s)"
+  — there is no `insert` or `set` of a MutableSet at any arity; `push(sb, "a")` on a string
+  builder was offered "(or, for set/insert/remove, a map or set)" instead of `append`; and
+  `set(aSet, 2)` still said *"use insert(set, item)"*, which F199 had made `add` two passes
+  earlier. **None of those needed the split to fix** — they needed argument one's type, which the
+  arm had and discarded. Each arm now reads argument one first and asks about arity second.
+
+  **Counting the messages afterwards, the way F190 did, moves two names and not three.** `push`
+  and `insert` come out with one message each, the type rule, and the *same* sentence whatever was
+  rejected — *"the other collections have their own word: set(map, key, value), add(set, item),
+  append(sb, s)"* — which is the shape `#[when_unmatched]` carries. F186 had filed that
+  cross-reference under "not derivable" and it read like a permanent bar; it was an artifact of
+  three names sharing one message. **A clause that cannot be derived from the declarations is not
+  the same as a clause that has to vary by argument, and F186 did not separate them.** `set` comes
+  out with three messages, two of them keyed on the type it rejected (a MutableArray gets *"an
+  element is written with 'b[i] = value'"*, either set world gets *"a set has no 'set' — use
+  add(set, item)"*), so it stays arm-handled — now for F190's reason instead of a bookkeeping one.
+  **F191's stated reason for `set` was a fact about the code, not about `set`.**
+
+  **What the arm was hiding, and the general lesson.** `insert(aSet, x)` was **accepted,
+  undeclared, and contrary to a decision already taken.** F199 settled that `insert` is positional
+  only and gave both set worlds `add`; the arm kept accepting the set form because it reached the
+  map/set mutator before anything could ask whether a `Set` had an `insert` declaration. It was
+  absent from `ziman --api builtins` the whole time, and `docs/SYNTAX.md:350` was still teaching
+  it (*"a set adds with insert, not set"*). The user chose to carry F199 out rather than
+  retro-declare it. **A hand-written arm can keep a spelling alive after the declarations have
+  retired it, and no guard notices, because the arm answers before the declarations are
+  consulted** — `tools/check_builtins.py` verifies that rename hints point at declarations that
+  exist and that old names do not, and cannot see a name the checker accepts and no declaration
+  mentions. That is one more argument for conversion than §11 had.
+
+  19 call sites moved to `add`: 18 fixtures and `lib/core/toml.zm`'s duplicate-table guard. The
+  compiler found all of them — the file list was predicted from grep first and the suite agreed,
+  which is the one time this pass's name-counting was right. `check_collection_mutator` lost two
+  refusals that became unreachable (`insert` on a map, `set` on a set) and is now reached by
+  exactly three calls: `set` on a Map, `remove` on a Map or a Set.
+
+  **Found on the way, both pre-existing in `51bc55b`:** `lib/prelude/array.zm`'s `either_world`
+  banner had a duplicated clause spliced into one 160-column line (*"…which is what
+  `either_world()` accepts the immutable form *or* the builder, which is what `either_world()` in
+  the…"*), and `lib/prelude/map.zm` said *"`snapshot` and `snapshot` snapshot what has been
+  added"*. Neither is checked by anything: `fmt-check` does not reflow comments and the generated
+  `docs/lib/prelude.md` reproduced both faithfully. Also corrected: that same `map.zm` comment
+  said *"`set` and `insert` on a Map"* (a Map has no `insert`), `array.zm` claimed *"a set has
+  `insert` and no `set`"*, and `docs/DESIGN.md`'s C-ABI entry listed `len`/`push`/`insert`/`set`
+  as names that "still can't become ordinary declarations … generics that don't exist yet".
+
+  One new fixture, a `.diag` rather than a `.err`: the point of the split is *that the messages
+  differ by type*, which a substring match cannot assert. Eight diagnostics, one per (name,
+  argument-one type), verified by replacing one line with the old name-keyed arity message and
+  watching it fail. 1,109 fixtures, `make check` exit 0 with the North Star.

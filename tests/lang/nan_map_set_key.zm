@@ -25,8 +25,8 @@ fn main() {
 
     // one key, whichever NaN produced it
     var s = Set<float> {}
-    s = insert(s, n1)
-    s = insert(s, n2)
+    s = add(s, n1)
+    s = add(s, n2)
     printf("set: len {} contains {}\n", len(s), contains(s, n2))
 
     var m = Map<float, int> {}
@@ -36,8 +36,8 @@ fn main() {
 
     // -0.0 and 0.0 were already one key and stay one; `==` still equates them
     var z = Set<float> {}
-    z = insert(z, 0.0)
-    z = insert(z, -0.0)
+    z = add(z, 0.0)
+    z = add(z, -0.0)
     printf("zeroes: len {} (-0.0 == 0.0: {})\n", len(z), -0.0 == 0.0)
 
     // nested in a struct key, and in an array key

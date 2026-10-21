@@ -516,3 +516,70 @@ overloading in this language, and the universal verbs are not.
 
 **Stage 8 ends here.** Converted: `abs`, `swap`, `slice`, `to_set`, `len` — **65 arms, from 70**.
 The estimate went ~50 → ~3 → 5 as each constraint was found by reading rather than counting.
+
+## 13. Splitting a shared arm, and what it tells you that counting names does not
+
+Added 2026-10-21 (F206). F191 ended stage 8 with five arms converted and a stated reason for each
+refusal. One of those reasons was not a reason: **`set` was recorded as unconvertible because it
+"has no arm of its own", sharing one with `push` and `insert`.** That is a fact about the code, not
+about `set`, and it left the real question unasked. F204 hit the same wall from the other side —
+`push` had a variadic floor *and* a shared arm, and clearing the floor did not help.
+
+So the arm was split, one per name, and each name was measured by F190's test afterwards.
+
+### The split changed the messages before it changed anything else
+
+The shared arm computed `expected_argc` from the **name**, in its second statement, before argument
+one had been type-checked. Every message downstream of that inherited the assumption that a name
+has an arity. It does not; a *(name, argument-one type)* pair does. Four shapes were getting an
+answer about a form they could not have had:
+
+| call | the shared arm said | what is true |
+|---|---|---|
+| `insert(mutableSet, 2)` | "'insert' takes exactly 3 argument(s)" | no `insert` of a MutableSet exists, at any arity |
+| `set(mutableSet, 2)` | "'set' takes exactly 3 argument(s)" | same |
+| `push(mutableString, "a")` | "expects an array (or, for set/insert/remove, a map or set)" | the word is `append` |
+| `set(aSet, 2)` | "use insert(set, item)" | F199 made that `add`, two passes earlier |
+
+Each arm now reads argument one first and asks about arity second. **None of that needed the
+split** — it needed argument one's type, which the shared arm had and threw away. The split is what
+made it obvious.
+
+### The counts, and the two conversions they unblock
+
+| arm | messages beyond arity | |
+|---|---|---|
+| `push` | 1 | the type rule, derivable — **convertible** |
+| `insert` | 1 | the type rule, derivable — **convertible** |
+| `set` | 3 | two keyed on the rejected type — **not convertible** |
+
+`push` and `insert` each come out with one sentence, and it is the same sentence whatever was
+rejected: *"the other collections have their own word: set(map, key, value), add(set, item),
+append(sb, s)"*. That matters because it is the shape `#[when_unmatched]` can carry — one line for
+a whole set. F186 listed this cross-reference under "not derivable" and it looked like a reason
+these three could never be converted; it was an artifact of three names sharing one message, and
+splitting dissolved it. **A clause that cannot be derived from the declarations is not the same as
+a clause that has to vary by argument**, and F186 did not distinguish them.
+
+`set` keeps two refusals that genuinely vary: a MutableArray is told *"an element is written with
+'b[i] = value'"*, a set of either world is told *"a set has no 'set' — use add(set, item)"*. Both
+are measured, both are wanted, and `#[when_unmatched]` cannot say a different thing per argument.
+So `set` stays arm-handled, and now for the F190 reason instead of a bookkeeping one.
+
+### The decision the arm was hiding
+
+`insert` on a `Set` was **accepted, undeclared, and contrary to a decision already taken.** F199
+settled that `insert` is positional only and gave both set worlds `add`; the arm went on accepting
+`insert(aSet, x)` for two passes because it reached the map/set mutator before anything could ask
+whether a `Set` had an `insert` declaration. It was absent from `ziman --api builtins` the whole
+time, and `docs/SYNTAX.md` was still teaching it.
+
+That is the general lesson, and it is sharper than the one about messages: **a hand-written arm can
+keep a spelling alive after the declarations have retired it, and no guard notices, because the arm
+answers before the declarations are consulted.** `tools/check_builtins.py` checks that every rename
+hint points at a declaration that exists and every old name does not — it cannot check for a name
+the checker accepts and no declaration mentions. Converting an arm to declarations is what closes
+that gap permanently, which is one more argument for conversion than §11 had.
+
+Carried out in F206: 19 call sites moved to `add` (18 fixtures, one in `lib/core/toml.zm`), and
+`insert` on either set world is now refused.

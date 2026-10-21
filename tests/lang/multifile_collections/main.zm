@@ -19,9 +19,9 @@ fn main() {
     print(contains(m, "bob"))
 
     var s = Set<int> {}
-    s = insert(s, 1)
-    s = insert(s, 2)
-    s = insert(s, 1) // duplicate, no-op
+    s = add(s, 1)
+    s = add(s, 2)
+    s = add(s, 1) // duplicate, no-op
 
     print(contains(s, 1))
     print(contains(s, 2))

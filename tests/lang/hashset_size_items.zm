@@ -10,10 +10,10 @@ fn main() {
     var s = Set<int> {}
     print(len(s))
 
-    s = insert(s, 1)
-    s = insert(s, 2)
-    s = insert(s, 3)
-    s = insert(s, 2) // duplicate, no-op
+    s = add(s, 1)
+    s = add(s, 2)
+    s = add(s, 3)
+    s = add(s, 2) // duplicate, no-op
     print(len(s))
     print(sum(items(s)))
 

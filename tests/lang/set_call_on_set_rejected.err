@@ -1,1 +1,1 @@
-use insert(set, item)
+use add(set, item)

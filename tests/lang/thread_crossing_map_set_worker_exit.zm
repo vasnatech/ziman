@@ -21,7 +21,7 @@ fn worker(out: Channel<Map<string, int>>, outs: Channel<Set<int>>) {
     var s: Set<int> = Set<int> {}
     var j = 0
     while j < 50 {
-        s = insert(s, j)
+        s = add(s, j)
         j = j + 1
     }
     send(out, m)

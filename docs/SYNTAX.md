@@ -347,7 +347,7 @@ stock = remove(stock, "pear")            // no-op if absent
 print(len(stock))                        // 2
 print(contains(stock, "apple"))          // true (a set: contains(seen, 3))
 print(get(stock, "apple"))               // Some(4); None if absent -- always an Option<V>
-seen = insert(seen, 3)                   // a set adds with insert, not set
+seen = add(seen, 3)                      // a set adds with 'add'; 'insert' is positional only
 print(keys(stock))                       // {apple, fig}, a Set<string>
 print(values(stock))                     // [4, 9]; items(s) is the array of a set
 for name, qty in stock { ... }           // key and value; `for name in stock` binds keys only

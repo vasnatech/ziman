@@ -1,0 +1,11 @@
+# The three arms' own messages, one per (name, argument-one type). The columns differ on purpose:
+# a wrong *type* for argument one is reported at the argument, while `set`'s two refusals are
+# about the call as a whole -- there is no form of `set` that the type could have been right for.
+type 20:19 argument 1 of 'push' expects an array or a MutableArray, found Map<string, int>
+type 21:19 argument 1 of 'push' expects an array or a MutableArray, found Set<int>
+type 24:21 argument 1 of 'insert' expects an array or a MutableArray, found Set<int>
+type 25:12 argument 1 of 'insert' expects an array or a MutableArray, found MutableSet<int>
+type 26:12 argument 1 of 'insert' expects an array or a MutableArray, found MutableMap<string, int>
+type 29:14 a set has no 'set' -- use add(set, item) to add an item
+type 30:5 a set has no 'set' -- use add(set, item) to add an item
+type 31:5 a MutableArray element is written with 'b[i] = value', not with 'set'

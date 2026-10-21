@@ -610,7 +610,7 @@ pub fn parse_toml(text: string) -> Result<Json, string> {
                 if contains(defined, joined) {
                     return err(fail(text, p, format("table [{}] is defined more than once", joined)))
                 }
-                defined = insert(defined, joined)
+                defined = add(defined, joined)
             }
             val flushed = flush_table(root, pending, pending_path, pending_op)
             if Err(e) = flushed {

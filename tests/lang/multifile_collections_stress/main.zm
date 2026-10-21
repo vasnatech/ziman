@@ -16,7 +16,7 @@ fn main() {
 
     var s = Set<int> {}
     for i in 0..50 {
-        s = insert(s, i)
+        s = add(s, i)
     }
     var all_present = true
     for i in 0..50 {

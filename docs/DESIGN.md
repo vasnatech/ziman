@@ -339,11 +339,16 @@ them against the code.
   legacy path, explicit registration is what the ecosystem moved to
   (Android's own NDK guidance recommends it), and it's what Ziman's
   `native_register()` does from the start. What this does *not* solve:
-  `print`/`str`/`len`/`push`/`insert`/`set`/`format` still can't become
-  ordinary `native fn` declarations, because they need a top/"any" type,
-  a small union, or generics that don't exist yet — a C-ABI trick doesn't
-  change what the Ziman-level type checker can express. See
-  docs/ROADMAP.md.
+  `print`/`str`/`format` still can't become ordinary `native fn`
+  declarations, because they need a top/"any" type or a small union — a
+  C-ABI trick doesn't change what the Ziman-level type checker can
+  express. See docs/ROADMAP.md. *(This list also named
+  `len`/`push`/`insert`/`set` and the generics they would need. Both
+  halves of that have since gone: `builtin fn` carries generic
+  declarations, `len` became them in F188-F191, and F206 established that
+  `push` and `insert` can. `set` stays hand-written, but for its
+  per-argument messages rather than for anything the type checker cannot
+  say -- docs/design/full-overloading.md §13.)*
 - **`Result<T, E>` for recoverable errors — not exceptions, not general
   sum types, a second hardcoded parametric type instead (same trick as
   `[T]`).** Exceptions were ruled out on the same grounds classes and
@@ -3600,6 +3605,14 @@ The one divergence was that set: immutably `insert(s, x)`, mutably `mutable_set_
 in F199 (2026-10-20): `add` is the verb, variadic, in both worlds**, and `insert` means
 *positional* and only that. The paragraph above judged `add` "unavailable" on the reasoning
 below, which no longer holds -- see the correction there.
+
+*The checker caught up in F206 (2026-10-21).* F199 decided the verb and added `add`, but
+`insert(aSet, x)` went on compiling for two passes: `push`, `insert` and `set` shared one
+`typecheck.c` arm, and it reached the map/set mutator before anything could ask whether a `Set`
+had an `insert` declaration. The form was absent from `ziman --api builtins` the whole time and
+`docs/SYNTAX.md` still taught it. **A hand-written arm can keep a spelling alive after the
+declarations have retired it, and no guard notices, because the arm answers first** -- see
+docs/design/full-overloading.md §13.
 
 **`_all` takes the plural of what the singular takes.** `mutable_map_remove(key)` →
 `remove_all(variadic K)`; `mutable_map_set(key, value)` → `set_all(Map)`; `mutable_set_add(item)` →

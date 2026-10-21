@@ -28,7 +28,7 @@ fn main() {
     print(len(by_shape))
     print(get(by_shape, Set<int> { 1, 2 }))
     var seen = Set<Map<string, int>> {}
-    seen = insert(seen, a)
-    seen = insert(seen, b)
+    seen = add(seen, a)
+    seen = add(seen, b)
     print(len(seen))
 }

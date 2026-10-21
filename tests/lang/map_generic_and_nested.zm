@@ -14,7 +14,7 @@ fn count_by<K: Eq + Hash>(items: [K]) -> Map<K, int> {
 fn distinct<T: Eq + Hash>(items: [T]) -> [T] {
     var seen = Set<T> {}
     for item in items {
-        seen = insert(seen, item)
+        seen = add(seen, item)
     }
     return items(seen)
 }

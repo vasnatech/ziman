@@ -38,9 +38,9 @@ fn main() {
     print(get(by_rank, Rank.High("x")))
 
     var s = Set<Key> {}
-    s = insert(s, Key { patient: a, year: 2024 })
-    s = insert(s, Key { patient: a2, year: 2024 })
-    s = insert(s, Key { patient: a, year: 2025 })
+    s = add(s, Key { patient: a, year: 2024 })
+    s = add(s, Key { patient: a2, year: 2024 })
+    s = add(s, Key { patient: a, year: 2025 })
     print(len(s))
     print(contains(s, Key { patient: a2, year: 2025 }))
     print(contains(s, Key { patient: b, year: 2025 }))

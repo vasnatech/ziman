@@ -1031,18 +1031,20 @@ between the two worlds and not a difference between the two names. The prefixed
 builtin fn insert<T>(a: [T], index: int, x: T) -> [T]
 ```
 
-**`insert` and `set` are not interchangeable, and the asymmetry is deliberate** -- each has its
-own error telling the reader which to use. `insert` puts something where it was not: at an index
-in an array, or into a set. `set` replaces what is at a position: an array index, or a map key.
-So a map has `set` and no `insert`, and a set has `insert` and no `set`.
+**`insert` and `set` are not interchangeable, and each has its own error telling the reader
+which to use.** `insert` puts something where it was not, at an index; `set` replaces what is at
+a position, an array index or a map key. So an array has both, a map has `set` and no `insert`,
+and a set has neither -- F199 settled that `insert` is positional only and gave both set worlds
+`add`, and F206 made the checker say so, the set form having gone on being accepted undeclared
+for a pass after the decision.
 
 ```
 builtin fn insert<T>(b: MutableArray<T>, index: int, value: T)
 ```
 
 An index in a MutableArray, for the same reason `push` is shared, and rewritten onto
-`mutable_array_insert`. A `MutableSet` has no `insert` form: it was left out with `set`'s, each
-world's membership vocabulary being settled separately.
+`mutable_array_insert`. Neither set world has an `insert` form -- membership is `add` in both,
+and an index means nothing to a set.
 
 ### `to_mutable_set`
 
@@ -1578,10 +1580,10 @@ struct MutableMap<K: Eq + Hash, V> {
 }
 ```
 
-The mutable counterparts of Map and Set, for building one entry by entry. `set` and `insert` on
-a Map copy a few nodes each time; a builder changes its own private structure in place, so
-adding n entries allocates O(n) in all, not O(n) per entry. `snapshot` and `snapshot`
-snapshot what has been added so far into an ordinary Map or Set, and the builder stays usable.
+The mutable counterparts of Map and Set, for building one entry by entry. `set` on a Map and
+`add` on a Set copy a few nodes each time; a builder changes its own private structure in place,
+so adding n entries allocates O(n) in all, not O(n) per entry. `snapshot` takes what has been
+added so far as an ordinary Map or Set, and the builder stays usable.
 Keys keep the order they were first added, and follow the same rule as a Map's (`Eq + Hash`).
 Thread-bound like the other builders.
 
