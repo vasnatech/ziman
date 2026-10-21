@@ -2024,6 +2024,14 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             Value arr = eval_expr(module, env, e->as.index.array);
             Value idx = eval_expr(module, env, e->as.index.index);
             int64_t i = idx.as.i;
+            /* The two worlds the checker allows here, told apart by the value rather than by a
+             * flag on the Expr: an array holds its elements, a MutableArray holds a handle to a
+             * buffer. Reading a builder was a checker rewrite onto a `mutable_array_get` call
+             * until F209, which is the only reason that name had to exist -- and the only reason a
+             * traceback for `b[5]` carried a frame for a function nobody wrote. */
+            if (arr.type != NULL && arr.type->kind == TY_STRUCT) {
+                return ziman_mutable_array_index_get(arr, i, e->line, e->col);
+            }
             if (i < 0 || i >= arr.as.arr->count) {
                 ziman_error("runtime", e->line, e->col, "index %lld out of bounds (array length %d)", (long long)i, arr.as.arr->count);
             }
@@ -2364,12 +2372,23 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             env_define(env, s->as.decl.name, t, s->kind == STMT_VAR, v);
             return no_ctrl();
         }
-        /* Never reached: check_stmt rewrites every `a[i] = v` into the rebinding or the
-         * write-through it stands for. Present so that a future statement kind cannot reach the
-         * interpreter unnoticed through this switch. */
-        case STMT_INDEX_ASSIGN:
-            ziman_error("internal", s->line, s->col, "an index assignment reached the interpreter unrewritten");
-            break;
+        /* **A MutableArray's element write, and only that.** An array is a value, so `a[i] = v`
+         * is a rebinding and check_stmt rewrites it into one; a MutableArray is a container, so
+         * the write goes through the handle and the name is untouched. That half was a rewrite
+         * onto a `mutable_array_set` call until F209, when both element accesses stopped needing
+         * a function name at all -- so this case does the work instead of reporting that it was
+         * reached. Anything else is still a checker bug, which is what the else is for. */
+        case STMT_INDEX_ASSIGN: {
+            Expr *target = s->as.index_assign.target;
+            Value base = eval_expr(module, env, target->as.index.array);
+            if (base.type == NULL || base.type->kind != TY_STRUCT) {
+                ziman_error("internal", s->line, s->col, "an index assignment reached the interpreter unrewritten");
+            }
+            Value idx = eval_expr(module, env, target->as.index.index);
+            Value value = eval_expr(module, env, s->as.index_assign.value);
+            ziman_mutable_array_index_set(base, idx.as.i, value, s->line, s->col);
+            return no_ctrl();
+        }
         case STMT_ASSIGN: {
             Binding *b = s->resolved_depth >= 0 ? env_at_slot(env, s->resolved_depth, s->resolved_slot)
                                                  : env_lookup(env, s->as.assign.name);

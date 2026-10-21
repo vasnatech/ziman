@@ -221,10 +221,10 @@ fn clear_to(t: Target, c: Premul) {
     var i = 0
     val total = t.width * t.height
     while i < total {
-        mutable_array_set(t.data, i * 4, c.red)
-        mutable_array_set(t.data, i * 4 + 1, c.green)
-        mutable_array_set(t.data, i * 4 + 2, c.blue)
-        mutable_array_set(t.data, i * 4 + 3, c.alpha)
+        t.data[i * 4] = c.red
+        t.data[i * 4 + 1] = c.green
+        t.data[i * 4 + 2] = c.blue
+        t.data[i * 4 + 3] = c.alpha
         i = i + 1
     }
 }
@@ -406,7 +406,7 @@ fn rasterise_tile(outline: Path, gm: Matrix, samples: int) -> GlyphTile {
         row_coverage_shifted(row, width, e, live, device.winding, samples, y, left)
         var x = 0
         while x < width {
-            push(cover, mutable_array_get(row, x))
+            push(cover, row[x])
             x = x + 1
         }
         y = y + 1
@@ -501,7 +501,7 @@ fn clip_mask(
         row_coverage(row, t.width, e, live, device.winding, o.samples, y, 0, t.width - 1)
         var x = 0
         while x < t.width {
-            val here = mutable_array_get(row, x)
+            val here = row[x]
             val before = switch existing {
                 Some(prev) { prev[y * t.width + x] }
                 None { 1.0 }
@@ -594,7 +594,7 @@ fn fill_shape(
         val row_base = y * t.width
         var x = first_col
         while x <= last_col {
-            val cov = mutable_array_get(row, x)
+            val cov = row[x]
             // Below a 255th of a level there is nothing to add to an 8-bit channel, and skipping
             // it is what keeps a full-page fill from evaluating a gradient outside its own bounds.
             if cov > 0.002 {
@@ -657,15 +657,15 @@ fn plan_of(e: Edges, first_row: int, last_row: int) -> Plan {
     }
     i = 0
     while i < count {
-        val b = mutable_array_get(start, i) - first_row
-        mutable_array_set(counts, b, mutable_array_get(counts, b) + 1)
+        val b = start[i] - first_row
+        counts[b] = counts[b] + 1
         i = i + 1
     }
     var running = 0
     k = 0
     while k <= rows {
-        val here = mutable_array_get(counts, k)
-        mutable_array_set(counts, k, running)
+        val here = counts[k]
+        counts[k] = running
         running = running + here
         k = k + 1
     }
@@ -677,9 +677,9 @@ fn plan_of(e: Edges, first_row: int, last_row: int) -> Plan {
     }
     i = 0
     while i < count {
-        val b = mutable_array_get(start, i) - first_row
-        mutable_array_set(order, mutable_array_get(counts, b), i)
-        mutable_array_set(counts, b, mutable_array_get(counts, b) + 1)
+        val b = start[i] - first_row
+        order[counts[b]] = i
+        counts[b] = counts[b] + 1
         i = i + 1
     }
     return Plan { order: snapshot(order), start: snapshot(start), high: snapshot(high) }
@@ -696,9 +696,9 @@ fn advance_active(p: Plan, live: MutableArray<int>, cursor: int, y: int) -> int 
     var write = 0
     var read = 0
     while read < len(live) {
-        val idx = mutable_array_get(live, read)
+        val idx = live[read]
         if p.high[idx] > (y as float) {
-            mutable_array_set(live, write, idx)
+            live[write] = idx
             write = write + 1
         }
         read = read + 1
@@ -758,7 +758,7 @@ fn row_coverage_at(
     // edge lies within `[min_x, max_x]`, so no span can write outside it.
     var i = from_x
     while i <= to_x {
-        mutable_array_set(row, i, 0.0)
+        row[i] = 0.0
         i = i + 1
     }
     val weight = 1.0 / (samples as float)
@@ -789,7 +789,7 @@ fn crossings_at(
 ) {
     var at = 0
     while at < len(live) {
-        val i = mutable_array_get(live, at) * 4
+        val i = live[at] * 4
         val x0 = e.xy[i]
         val y0 = e.xy[i + 1]
         val x1 = e.xy[i + 2]
@@ -804,11 +804,11 @@ fn crossings_at(
             var at = len(xs)
             push(xs, x)
             push(dirs, dir)
-            while at > 0 && mutable_array_get(xs, at - 1) > x {
-                mutable_array_set(xs, at, mutable_array_get(xs, at - 1))
-                mutable_array_set(dirs, at, mutable_array_get(dirs, at - 1))
-                mutable_array_set(xs, at - 1, x)
-                mutable_array_set(dirs, at - 1, dir)
+            while at > 0 && xs[at - 1] > x {
+                xs[at] = xs[at - 1]
+                dirs[at] = dirs[at - 1]
+                xs[at - 1] = x
+                dirs[at - 1] = dir
                 at = at - 1
             }
         }
@@ -838,7 +838,7 @@ fn spans_from(
             EvenOdd { inside % 2 != 0 }
         }
         inside = switch winding {
-            NonZero { inside + mutable_array_get(dirs, i) }
+            NonZero { inside + dirs[i] }
             EvenOdd { inside + 1 }
         }
         val now_inside = switch winding {
@@ -846,9 +846,9 @@ fn spans_from(
             EvenOdd { inside % 2 != 0 }
         }
         if !was_inside && now_inside {
-            start = mutable_array_get(xs, i)
+            start = xs[i]
         } else if was_inside && !now_inside {
-            add_span(row, width, start - (shift as float), mutable_array_get(xs, i) - (shift as float), weight)
+            add_span(row, width, start - (shift as float), xs[i] - (shift as float), weight)
         }
         i = i + 1
     }
@@ -870,17 +870,17 @@ fn add_span(row: MutableArray<float>, width: int, from: float, to: float, weight
     val ia = clamp_int(floor(xa), 0, width - 1)
     val ib = clamp_int(floor(xb), 0, width - 1)
     if ia == ib {
-        mutable_array_set(row, ia, mutable_array_get(row, ia) + (xb - xa) * weight)
+        row[ia] = row[ia] + (xb - xa) * weight
         return
     }
     // The partial pixel at each end, and whole pixels between.
-    mutable_array_set(row, ia, mutable_array_get(row, ia) + (((ia + 1) as float) - xa) * weight)
+    row[ia] = row[ia] + (((ia + 1) as float) - xa) * weight
     var i = ia + 1
     while i < ib {
-        mutable_array_set(row, i, mutable_array_get(row, i) + weight)
+        row[i] = row[i] + weight
         i = i + 1
     }
-    mutable_array_set(row, ib, mutable_array_get(row, ib) + (xb - (ib as float)) * weight)
+    row[ib] = row[ib] + (xb - (ib as float)) * weight
     return
 }
 
@@ -889,10 +889,10 @@ fn add_span(row: MutableArray<float>, width: int, from: float, to: float, weight
 fn composite(t: Target, x: int, y: int, c: Premul, cov: float) {
     val at = (y * t.width + x) * 4
     val keep = 1.0 - c.alpha * cov
-    mutable_array_set(t.data, at, c.red * cov + mutable_array_get(t.data, at) * keep)
-    mutable_array_set(t.data, at + 1, c.green * cov + mutable_array_get(t.data, at + 1) * keep)
-    mutable_array_set(t.data, at + 2, c.blue * cov + mutable_array_get(t.data, at + 2) * keep)
-    mutable_array_set(t.data, at + 3, c.alpha * cov + mutable_array_get(t.data, at + 3) * keep)
+    t.data[at] = c.red * cov + t.data[at] * keep
+    t.data[at + 1] = c.green * cov + t.data[at + 1] * keep
+    t.data[at + 2] = c.blue * cov + t.data[at + 2] * keep
+    t.data[at + 3] = c.alpha * cov + t.data[at + 3] * keep
 }
 
 // ---- paints
@@ -1142,15 +1142,15 @@ fn edges_of(p: Path) -> Edges {
     var min_y = 0.0
     var max_y = 0.0
     if len(xy) >= 2 {
-        min_x = mutable_array_get(xy, 0)
+        min_x = xy[0]
         max_x = min_x
-        min_y = mutable_array_get(xy, 1)
+        min_y = xy[1]
         max_y = min_y
     }
     var i = 0
     while i + 1 < len(xy) {
-        val x = mutable_array_get(xy, i)
-        val y = mutable_array_get(xy, i + 1)
+        val x = xy[i]
+        val y = xy[i + 1]
         if x < min_x {
             min_x = x
         }
@@ -1196,12 +1196,12 @@ fn finish(t: Target, format: image.Pixels) -> Result<image.Image, string> {
     var i = 0
     if n == 4 {
         while i < total {
-            val a = mutable_array_get(t.data, i * 4 + 3)
+            val a = t.data[i * 4 + 3]
             // Un-premultiplied, because that is what `image.Image` holds and what PNG stores.
             val inv_a = if a > 0.0 { 1.0 / a } else { 0.0 }
-            var r = mutable_array_get(t.data, i * 4) * inv_a * 255.0 + 0.5
-            var g = mutable_array_get(t.data, i * 4 + 1) * inv_a * 255.0 + 0.5
-            var b = mutable_array_get(t.data, i * 4 + 2) * inv_a * 255.0 + 0.5
+            var r = t.data[i * 4] * inv_a * 255.0 + 0.5
+            var g = t.data[i * 4 + 1] * inv_a * 255.0 + 0.5
+            var b = t.data[i * 4 + 2] * inv_a * 255.0 + 0.5
             var av = a * 255.0 + 0.5
             if r > 255.0 {
                 r = 255.0
@@ -1225,9 +1225,9 @@ fn finish(t: Target, format: image.Pixels) -> Result<image.Image, string> {
         while i < total {
             // Already composited over whatever the canvas started as, so the premultiplied value
             // *is* the colour over that background. With no background that is black.
-            var r = mutable_array_get(t.data, i * 4) * 255.0 + 0.5
-            var g = mutable_array_get(t.data, i * 4 + 1) * 255.0 + 0.5
-            var b = mutable_array_get(t.data, i * 4 + 2) * 255.0 + 0.5
+            var r = t.data[i * 4] * 255.0 + 0.5
+            var g = t.data[i * 4 + 1] * 255.0 + 0.5
+            var b = t.data[i * 4 + 2] * 255.0 + 0.5
             if r > 255.0 {
                 r = 255.0
             }
@@ -1242,8 +1242,8 @@ fn finish(t: Target, format: image.Pixels) -> Result<image.Image, string> {
         }
     } else {
         while i < total {
-            var y = (0.299 * mutable_array_get(t.data, i * 4) + 0.587 * mutable_array_get(t.data, i * 4 + 1) +
-                    0.114 * mutable_array_get(t.data, i * 4 + 2)) * 255.0 + 0.5
+            var y = (0.299 * t.data[i * 4] + 0.587 * t.data[i * 4 + 1] +
+                    0.114 * t.data[i * 4 + 2]) * 255.0 + 0.5
             if y > 255.0 {
                 y = 255.0
             }

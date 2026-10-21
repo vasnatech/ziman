@@ -177,11 +177,14 @@ check("unqualified completion hides the internal prelude natives", not hidden, h
 # naming them here asserted nothing. Only the C symbols still carry the prefix.
 hidden = [n for n in ("mutable_set_add",) if n in labels]
 check("unqualified completion hides the prefix layer", not hidden, hidden)
-# The four with no bare form stay: `mutable_array_new`/`_filled` are constructors, and an editor
-# that stopped offering them would leave no way to discover how a builder is made.
-missing = [n for n in ("mutable_array_new", "mutable_array_filled", "mutable_array_get",
-                       "mutable_array_set") if n not in labels]
+# The two with no bare form stay: `mutable_array_new`/`_filled` are constructors, and an editor
+# that stopped offering them would leave no way to discover how a builder is made. It was four
+# until F209 deleted `mutable_array_get`/`_set`, element access having become an index rather than
+# a call the sugar rewrote onto.
+missing = [n for n in ("mutable_array_new", "mutable_array_filled") if n not in labels]
 check("unqualified completion keeps the prefixed names with no bare form", not missing, missing)
+gone = [n for n in ("mutable_array_get", "mutable_array_set") if n in labels]
+check("unqualified completion no longer offers the element accesses", not gone, gone)
 # The seam a caller would actually want is still there, and so is what it implements.
 missing = [n for n in ("sort", "sort_by", "array_order_of") if n not in labels]
 check("unqualified completion keeps the sorts the internals implement", not missing, missing)

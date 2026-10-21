@@ -36,10 +36,14 @@ fn main() {
     print(mutable_set_add<int>(s, 3))
     print(len(s))
 
-    // The two prefixed names that are *advertised* rather than internal -- `b[i]` and
-    // `b[i] = value` rewrite onto them, so an error message naming one has to be findable.
+    // The two prefixed declarations that are left are *advertised* rather than internal, so they
+    // belong to tests/run_api.sh's half of the rule rather than this one: `mutable_array_new` and
+    // `mutable_array_filled`, real constructors with no bare form. There were four until F209 --
+    // `mutable_array_get` and `mutable_array_set` were the other two, and `b[i]` and
+    // `b[i] = value` rewrote onto them. They are an index the interpreter evaluates now, so the
+    // element access this file used to pin as a *call* is syntax.
     val b = mutable([3, 1, 2])
-    print(mutable_array_get<int>(b, 0))
-    mutable_array_set<int>(b, 0, 4)
+    print(b[0])
+    b[0] = 4
     print(snapshot(b))
 }

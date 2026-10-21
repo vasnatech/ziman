@@ -46,7 +46,7 @@ fn distinct_alphas(img: image.Image) -> int {
             var found = false
             var i = 0
             while i < len(seen) {
-                if mutable_array_get(seen, i) == level {
+                if seen[i] == level {
                     found = true
                 }
                 i = i + 1

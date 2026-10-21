@@ -284,7 +284,7 @@ fn unit(from: Point, to: Point) -> Point {
 fn deduped(pts: [Point], closed: bool) -> [Point] {
     val out = mutable_array_new<Point>()
     for p in pts {
-        if len(out) == 0 || !same_point(mutable_array_get(out, len(out) - 1), p) {
+        if len(out) == 0 || !same_point(out[len(out) - 1], p) {
             push(out, p)
         }
     }
@@ -292,7 +292,7 @@ fn deduped(pts: [Point], closed: bool) -> [Point] {
     // right when the subpath *is* closed -- an open polyline that happens to end where it began
     // still has that last segment, and dropping its endpoint would quietly shorten the stroke.
     if closed && len(out) > 1 &&
-        same_point(mutable_array_get(out, 0), mutable_array_get(out, len(out) - 1)) {
+        same_point(out[0], out[len(out) - 1]) {
         val _ = remove(out, len(out) - 1)
     }
     return snapshot(out)

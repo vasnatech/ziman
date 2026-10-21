@@ -95,8 +95,8 @@ pub fn put(w: PdfWriter, number: int, o: Obj) -> Result<unit, string> {
     if number < 1 || number > len(w.bodies) {
         return err(concat("pdfobj.put: no object ", str(number), " has been reserved"))
     }
-    mutable_array_set(w.bodies, number - 1, obj_bytes(o))
-    mutable_array_set(w.filled, number - 1, true)
+    w.bodies[number - 1] = obj_bytes(o)
+    w.filled[number - 1] = true
     return unit
 }
 
@@ -105,7 +105,7 @@ pub fn put(w: PdfWriter, number: int, o: Obj) -> Result<unit, string> {
 pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> {
     var i = 0
     while i < len(w.filled) {
-        if !mutable_array_get(w.filled, i) {
+        if !w.filled[i] {
             return err(concat("pdfobj.finish: object ", str(i + 1), " was reserved and never put"))
         }
         i = i + 1
@@ -135,7 +135,7 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
 
     var n = 0
     while n < len(w.bodies) {
-        val body = mutable_array_get(w.bodies, n)
+        val body = w.bodies[n]
         val opened = bytes_concat(string_to_bytes(concat(str(n + 1), " 0 obj\n")), body, string_to_bytes("\nendobj\n"))
         push(offsets, at)
         push(parts, opened)
@@ -152,7 +152,7 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
     push(xref, string_to_bytes("0000000000 65535 f \n"))
     var k = 0
     while k < count {
-        push(xref, string_to_bytes(concat(pad10(mutable_array_get(offsets, k)), " 00000 n \n")))
+        push(xref, string_to_bytes(concat(pad10(offsets[k]), " 00000 n \n")))
         k = k + 1
     }
     push(parts, bytes_concat_all(snapshot(xref)))

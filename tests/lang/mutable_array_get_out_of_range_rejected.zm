@@ -1,7 +1,12 @@
-// The bounds are the builder's own length, not its capacity: `mutable_array_new` grows a buffer of 20 by default, and
-// reading element 0 of an empty builder would otherwise hand back whatever that buffer happens to hold.
+// The bounds are the builder's own length, not its capacity: `mutable_array_new` grows a buffer of
+// 20 by default, and reading element 0 of an empty builder would otherwise hand back whatever that
+// buffer happens to hold.
+//
+// The message is the array's own since F209, minus the world: `b[i]` is an index expression rather
+// than a rewrite onto `mutable_array_get`, so the "get index" prefix that told two function names
+// apart has nothing left to disambiguate, and there is no frame for a call the author never wrote.
 fn main() {
     val ab = mutable_array_new<int>()
     push(ab, 1, 2)
-    print(mutable_array_get(ab, 2))
+    print(ab[2])
 }

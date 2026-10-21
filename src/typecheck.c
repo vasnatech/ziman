@@ -756,7 +756,7 @@ typedef struct {
 } BuilderKindAdvice;
 
 static const BuilderKindAdvice BUILDER_KINDS[] = {
-    {"push", "len, mutable_array_get or 'for x in <the builder>'"},
+    {"push", "len, b[i] or 'for x in <the builder>'"},
     {"append", "len, or a MutableString you finish once after the loop"},
     {"set", "len, contains, get or get_or"},
     {"mutable_set_add", "len or contains"},
@@ -1714,8 +1714,6 @@ static const char *renamed_builder_fn(const char *name) {
         const char *now;
     } RENAMED[] = {{"ab_new", "mutable_array_new"},
                    {"ab_append", "push"},
-                   {"ab_get", "mutable_array_get"},
-                   {"ab_set", "mutable_array_set"},
                    {"ab_to_array", "snapshot"},
                    {"ab_len", "len"},
                    {"ab_clear", "clear"},
@@ -1743,6 +1741,27 @@ static const char *renamed_builder_fn(const char *name) {
                    {"mutable_array_push", "push"},
                    {"mutable_array_insert", "insert"},
                    {"mutable_array_remove", "remove"},
+                   {NULL, NULL}};
+    for (size_t k = 0; RENAMED[k].was != NULL; k++) {
+        if (strcmp(name, RENAMED[k].was) == 0) return RENAMED[k].now;
+    }
+    return NULL;
+}
+
+/* The old names whose answer is **syntax**, so they cannot live in the table above: that one is
+ * held by `tools/check_builtins.py` to naming a declaration that exists, which is the whole point
+ * of it, and `b[i]` is not a declaration. Keeping them apart is what lets that guard stay strict.
+ * A builder's element access was a call until F209 -- `mutable_array_get(b, i)` and
+ * `mutable_array_set(b, i, v)`, which `b[i]` rewrote onto -- and `ab_get`/`ab_set` were the
+ * generation of names before those. Both generations land here now. */
+static const char *renamed_to_syntax(const char *name) {
+    static const struct {
+        const char *was;
+        const char *now;
+    } RENAMED[] = {{"ab_get", "b[i]"},
+                   {"ab_set", "b[i] = value"},
+                   {"mutable_array_get", "b[i]"},
+                   {"mutable_array_set", "b[i] = value"},
                    {NULL, NULL}};
     for (size_t k = 0; RENAMED[k].was != NULL; k++) {
         if (strcmp(name, RENAMED[k].was) == 0) return RENAMED[k].now;
@@ -2743,7 +2762,7 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * `set(set(a, i, a[j]), j, a[i])` at two whole-array copies to move two slots.
      *
      * The indices are checked by the runtime so a computed one is caught, but the *type* of each is
-     * checked here so the message names `swap` rather than the `mutable_array_set` a rewrite would
+     * checked here so the message names `swap` rather than the element write a rewrite would
      * otherwise blame. */
     /* `narrow(b, start, end)`: keep that window of the builder, in place, answering nothing. The
      * in-place counterpart of `slice`, which is a query and so copies. Builder-only, like `clear`
@@ -4197,6 +4216,16 @@ ordinary_call:;
                             "to look up the value at the same time", name);
             }
         }
+        const char *as_syntax = renamed_to_syntax(name);
+        if (as_syntax != NULL) {
+            /* Its own sentence, because "lost the prefix" is the wrong story for these: a
+             * MutableArray's element access did not get a shorter name, it stopped being a call
+             * at all, so there is nothing to offer but the syntax. */
+            ziman_error("type", e->line, e->col,
+                        "a MutableArray element is read and written with '[...]', so write '%s' -- element access "
+                        "is an index, not a function, and '%s' was the call it used to be",
+                        as_syntax, name);
+        }
         const char *renamed_fn = renamed_builder_fn(name);
         if (renamed_fn != NULL) {
             /* One sentence for a table that now holds two kinds of rename, so it states the rule
@@ -4594,8 +4623,14 @@ static Type check_index(Module *module, Env *env, Expr *e) {
     /* A MutableArray answers `b[i]` for the same reason it answers `len(b)`: reading element i is
      * one of the questions every sequence answers, and needing a different word for it -- here
      * `mutable_array_get` -- was a per-type name for a question that has nothing per-type about
-     * it. The index is checked here rather than by the rewritten call so that the message names
-     * the array, not the function the author did not write. */
+     * it.
+     *
+     * **It is checked here and evaluated as an index, with no call anywhere (F209).** F149 made
+     * this a rewrite onto `mutable_array_get`, which meant that name had to be *declared* for the
+     * sugar to resolve and *advertised* so the frame a traceback printed named something a reader
+     * could look up -- a function nobody had written appearing in the stack for `b[5]`. The
+     * interpreter reads the handle directly now, the frame is gone, and the out-of-range message
+     * is the array's own with the length named for the type it came from. */
     if (arr_type.kind == TY_STRUCT && arr_type.struct_name != NULL &&
         strcmp(arr_type.struct_name, "MutableArray") == 0) {
         Type idx_type = check_expr(module, env, e->as.index.index);
@@ -4603,10 +4638,11 @@ static Type check_index(Module *module, Env *env, Expr *e) {
             ziman_error("type", e->as.index.index->line, e->as.index.index->col,
                         "array index must be int, found %s", type_name(idx_type));
         }
-        Expr *rewritten = mk_call_expr("mutable_array_get", e->as.index.array, e->line, e->col);
-        expr_list_push(&rewritten->as.call.args, e->as.index.index);
-        *e = *rewritten;
-        return check_expr(module, env, e);
+        if (arr_type.type_args.count != 1) {
+            ziman_error("type", e->as.index.array->line, e->as.index.array->col,
+                        "cannot index into %s -- its element type is not known here", type_name(arr_type));
+        }
+        return arr_type.type_args.items[0];
     }
     if (arr_type.kind != TY_ARRAY) {
         /* A map is the common case here, and `m[k]` is how most languages read one. Naming the
@@ -4622,7 +4658,7 @@ static Type check_index(Module *module, Env *env, Expr *e) {
         if (arr_type.kind == TY_SET) {
             ziman_error("type", e->as.index.array->line, e->as.index.array->col,
                         "a set is not indexed with '[...]' -- test membership with 'contains(s, value)', and add "
-                        "with 's = set(s, value)'");
+                        "with 's = add(s, value)'");
         }
         ziman_error("type", e->as.index.array->line, e->as.index.array->col, "cannot index into %s (not an array)", type_name(arr_type));
     }
@@ -5451,7 +5487,7 @@ static Expr *mk_call_expr(const char *callee, Expr *arg, int line, int col) {
 }
 
 /* The same, with the three arguments every element write takes: the collection, the index and the
- * value. `set(a, i, v)` and `mutable_array_set(a, i, v)` are both this shape. */
+ * value. `set(a, i, v)` and a builder's `b[i] = v` are both this shape. */
 static Expr *mk_call3_expr(const char *callee, Expr *a, Expr *b, Expr *c, int line, int col) {
     Expr *e = mk_call_expr(callee, a, line, col);
     expr_list_push(&e->as.call.args, b);
@@ -6025,11 +6061,13 @@ static Type check_value_block_expr(Module *module, Env *env, Expr *e, const Type
     return ctx.has_expected ? ctx.expected : ctx.first;
 }
 
-/* The index and the value of an `a[i] = v`, checked before the statement is rewritten into the
- * `set` or `mutable_array_set` it stands for. Doing it here is what keeps the message about the
- * array the author wrote: checked after the rewrite, a bad index reported "argument 2 of
- * 'mutable_array_set'" and a bad value reported a type-argument inference failure, both naming a
- * call that is not in the source. `what` is the receiver as the reader wrote it. */
+/* The index and the value of an `a[i] = v`, checked here rather than left to whatever the
+ * statement becomes. For an array that is still a rewrite into `set`; for a MutableArray there is
+ * nothing left to rewrite into since F209, the write going through the handle. Doing it here is
+ * what keeps the message about the array the author wrote: when both halves were rewrites, a bad
+ * index reported "argument 2 of 'mutable_array_set'" and a bad value reported a type-argument
+ * inference failure, both naming a call that is not in the source. `what` is the receiver as the
+ * reader wrote it. */
 static const Type *arr_type_elem(Type t) { return t.elem; }
 
 static void check_index_assign_parts(Module *module, Env *env, Expr *index, Expr *value,
@@ -6210,13 +6248,15 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             }
             if (base_type.kind == TY_STRUCT && base_type.struct_name != NULL &&
                 strcmp(base_type.struct_name, "MutableArray") == 0) {
+                /* **The one statement kind that reaches the interpreter as itself.** It was
+                 * rewritten onto a `mutable_array_set` call until F209; the write goes through the
+                 * handle now, so the statement needs no name to stand for and `mutable_array_set`
+                 * needs no declaration. `target`'s type is set for the benefit of anything that
+                 * walks a checked tree expecting every expression to carry one. */
                 check_index_assign_parts(module, env, index, value,
                                          base_type.type_args.count == 1 ? &base_type.type_args.items[0] : NULL,
                                          "a MutableArray");
-                Stmt *write = stmt_new(STMT_EXPR, s->line, s->col);
-                write->as.expr_stmt.expr = mk_call3_expr("mutable_array_set", base, index, value, s->line, s->col);
-                *s = *write;
-                check_stmt(module, env, s, fn_return_type, in_loop);
+                if (base_type.type_args.count == 1) target->resolved_type = base_type.type_args.items[0];
                 break;
             }
             /* Everything else, named so the reader is pointed at the write that does exist. The
@@ -6229,7 +6269,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             }
             if (base_type.kind == TY_SET) {
                 ziman_error("type", base->line, base->col,
-                            "a set is not written with '[...]' -- add with 's = insert(s, value)'");
+                            "a set is not written with '[...]' -- add with 's = add(s, value)'");
             }
             if (base_type.kind == TY_STRUCT && base_type.struct_name != NULL &&
                 strcmp(base_type.struct_name, "MutableMap") == 0) {

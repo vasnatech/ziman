@@ -703,10 +703,12 @@ had been passing for an accidental reason. The fact now lives on the declaration
 docs/DESIGN.md's "The last prefixed appenders go, and a mutation gets to say it answers something"
 for why an attribute and not a third entry in the list.
 
-**What is left prefixed is a different case, and the effort should stop here.**
-`mutable_array_new`/`_filled` and the other constructors have no bare form to supersede them;
-`mutable_array_get`/`_set` are what `b[i]` and `b[i] = value` rewrite to and what diagnostics
-name, and there is no bare `get` or `set` for a builder because `set(b, i, v)` is refused on
-purpose so that it can say an element write is `b[i] = value`. `mutable_set_add` is the one
-remaining `internal` prefixed native under a bare name (`add`, since F199), and it is the one
-candidate a §16 would be about.
+**What is left prefixed is a different case, and this effort should stop here.**
+`mutable_array_new`/`_filled` and the other constructors have no bare form to supersede them, and
+they are the whole of the prefix now: `mutable_array_get`/`_set` went in F209, which is outside
+this effort because it was not a conversion to an overload set at all. Those two were the target of
+`b[i]`'s rewrite rather than a second spelling of a function, and the answer was to stop rewriting
+— a MutableArray is indexed now, not called — rather than to find them a bare name. See
+docs/DESIGN.md's "`b[i]` stops being a call". `mutable_set_add` is the one remaining `internal`
+prefixed native under a bare name (`add`, since F199), and it is the one candidate a §16 would be
+about.

@@ -174,6 +174,7 @@ them against the code.
 - [A variadic parameter that cannot be empty (2026-10-20, F204)](#a-variadic-parameter-that-cannot-be-empty-2026-10-20-f204)
 - [`append` goes bare, and two names stay two (2026-10-20, F205)](#append-goes-bare-and-two-names-stay-two-2026-10-20-f205)
 - [The last prefixed appenders go, and a mutation gets to say it answers something (2026-10-21, F208)](#the-last-prefixed-appenders-go-and-a-mutation-gets-to-say-it-answers-something-2026-10-21-f208)
+- [`b[i]` stops being a call (2026-10-21, F209)](#bi-stops-being-a-call-2026-10-21-f209)
 
 <!-- end index -->
 
@@ -3594,8 +3595,8 @@ twice -- once per half. Guessability is the whole point of the exercise, so it w
 **Each verb means one thing, and matches its immutable twin where one exists.** `push` appends to
 an array's tail -- `push(arr, x)` on a value, `mutable_array_push(xs, x)` on a handle. `insert`
 puts a thing at a position, shifting what follows (`insert(arr, i, x)`, `mutable_array_insert`).
-`set` replaces at a key or index (`set(arr, i, x)`, `set(map, k, v)`, `mutable_array_set`,
-`mutable_map_set`). `add` hands a thing to a set and lets it decide (`mutable_set_add`). `append`
+`set` replaces at a key or index (`set(arr, i, x)`, `set(map, k, v)`, `mutable_map_set`; a
+builder's element write is `b[i] = value`, not a `set`, and says so). `add` hands a thing to a set and lets it decide (`mutable_set_add`). `append`
 concatenates onto the end of a text buffer (`append`, `append_byte`) and is used by nothing
 else -- a fifth verb, taken deliberately, because text genuinely reads as appended and
 `sb_append` is what it has always been called. *(Bare since F205; it was
@@ -3609,9 +3610,9 @@ prefix -- this entry chose the verb and never came back for the prefix.)*
 > `remove(b, i)`. The prefix survives only as the C symbol interpreter.c derives from parameter
 > one, which is where this entry's own reasoning put it. What is still prefixed and still a
 > declaration: `mutable_array_new` and `mutable_array_filled` (constructors, no bare form),
-> `mutable_array_get` and `mutable_array_set` (what `b[i]` and `b[i] = value` rewrite to), their
-> three `mutable_map_*`/`mutable_set_*`/`mutable_string_*` constructor counterparts, and
-> `mutable_set_add` beneath `add`.
+> their three `mutable_map_*`/`mutable_set_*`/`mutable_string_*` constructor counterparts, and
+> `mutable_set_add` beneath `add`. (`mutable_array_get` and `mutable_array_set` were on this list
+> for a day: F209 made `b[i]` and `b[i] = value` an index rather than a rewrite onto them.)
 
 The one divergence was that set: immutably `insert(s, x)`, mutably `mutable_set_add`. **Resolved
 in F199 (2026-10-20): `add` is the verb, variadic, in both worlds**, and `insert` means
@@ -3678,8 +3679,8 @@ update under rule 2 -- and `mutable(x)` covers the conversion. Everything else s
 MutableArray<T>
   mutable_array_new<T>(capacity: Option<int>, grow_factor: Option<float>)
   mutable_array_from<T>(xs: [T] | MutableArray<T>) -> MutableArray<T>
-  mutable_array_get<T>(xs, index) -> T
-  mutable_array_set<T>(xs, index, value)
+  mutable_array_get<T>(xs, index) -> T                   (removed in F209; `b[i]`)
+  mutable_array_set<T>(xs, index, value)                 (removed in F209; `b[i] = value`)
   mutable_array_push<T>(xs, item: T)                     (removed in F208; `push(b, x...)`)
   mutable_array_push_all<T>(xs, items: variadic T)       (removed in F161; `concat(b, parts...)`)
   mutable_array_insert<T>(xs, index, value)              (removed in F208; `insert(b, i, v)`)
@@ -7118,19 +7119,28 @@ different array, and the name has to be pointed at it. So `a[i] = v` on an array
 `a = set(a, i, v)` -- a rebinding, which needs `var`, and which can only be written where there is
 a name to rebind. A `MutableArray` is a container reached through a handle. Writing an element of
 one changes the thing every other holder of that handle can see, nothing is produced and no name is
-touched, so `b[i] = v` is `mutable_array_set(b, i, v)` and `val b` is correct.
+touched, so `b[i] = v` writes through the handle and `val b` is correct.
 
 Those are different statements. They differ in what they require of the left-hand side, in what
 they do to the binding, and in what a reader should expect of the value afterwards. The only thing
 that distinguishes them is the receiver's type, and the parser has no types.
 
 So the statement is parsed as itself -- `STMT_INDEX_ASSIGN`, holding the index expression and the
-value -- and `check_stmt` rewrites it in place into the assignment or the call it stands for, then
-checks that. The interpreter never sees the node; the defensive arm there reports an internal
-error rather than growing a third evaluation path for a statement that always becomes one of two
-that already work. Two things fall out of rewriting rather than re-implementing: the array form
-gets the ordinary "declared with 'val'" diagnostic without index assignment restating it, and the
-mutable form inherits whatever `mutable_array_set` already guarantees about bounds.
+value -- and `check_stmt` decides from the receiver's type which statement it is. The array form is
+rewritten in place into the rebinding and re-checked, which is what gets it the ordinary "declared
+with 'val'" diagnostic without index assignment restating it.
+
+> **The builder form stopped being a rewrite in F209 (2026-10-21).** It was rewritten into a
+> `mutable_array_set(b, i, v)` call, and `b[i]` into a `mutable_array_get(b, i)` call -- which is
+> the only reason those two names had to be *declared*, and the reason they were *advertised*
+> rather than `internal`: a traceback for `b[5]` printed a frame for a function the author had not
+> written, so the name had to be one a reader could look up. The interpreter evaluates both
+> accesses directly now (`EXPR_INDEX` and `STMT_INDEX_ASSIGN`, the one statement kind that reaches
+> it as itself), the frame is gone, and `b[5]` out of range reports
+> *"index 5 out of bounds (MutableArray length 1)"* beside an array's
+> *"index 5 out of bounds (array length 1)"* -- which is this entry's own argument, finally applied
+> to the error as well as the syntax. 139 call sites that spelled the access as a call
+> are the sugar now.
 
 **The previous arrangement was not neutral about this.** The rejection lived in the parser, so it
 was one message for every receiver: *"an array element cannot be assigned: arrays are values, not
@@ -7482,8 +7492,79 @@ runtime error and the lint's reader advice name; there is no bare `get` or `set`
 `set(b, i, v)` being refused on purpose so it can say that an element write is `b[i] = value`.
 Hiding those two would point a message at a name the listing denies exists.
 
+> **The second half of that paragraph lasted a day (F209, 2026-10-21).** It is a correct argument
+> about the rewrite and a wrong conclusion about the names: the fix was to stop rewriting, not to
+> keep the names findable. A MutableArray is indexed rather than called now, so there is no frame
+> to name and no declaration to keep — see "An element write is one statement with two meanings"
+> for the mechanism and "`b[i]` stops being a call" for the rest.
+
 **Accepted loss: `push` can no longer take named arguments.** `push(ab: b, pieces: ...)` worked
 while the prefixed name was a lone native; the bare name is shared with a `builtin fn`, and an
 id-dispatched name takes neither a named nor a type argument (F178's own note). Four call sites,
 all in fixtures exercising "several shapes", now positional. The reading is unchanged and the
 spelling nobody would choose.
+
+## `b[i]` stops being a call (2026-10-21, F209)
+
+F149 made `b[i]` and `b[i] = value` work on a `MutableArray` by **rewriting them into calls** —
+`mutable_array_get(b, i)` and `mutable_array_set(b, i, v)` — which is why those two names existed
+and, more to the point, why they were `pub`. A rewrite target has to be declared for the sugar to
+resolve at all, and an advertised name is what keeps a traceback honest:
+
+```
+ziman: runtime error at 4:12: get index 5 out of bounds (MutableArray length 1)
+    at mutable_array_get (4:12)        ← for code that only ever wrote b[5]
+```
+
+The frame is `fn->name`, so hiding the declaration would have pointed a stack trace at something
+`--api builtins` denied existed. F208's entry states that as the reason the two names stay. **It is
+a correct argument about the rewrite and the wrong conclusion**: the thing to remove was the
+rewrite, not the evidence of it.
+
+**A MutableArray is indexed now, not called.** `EXPR_INDEX` already evaluated an array's `a[i]`
+directly; it now tells the two worlds apart by the value it got — an array holds its elements, a
+builder holds a handle — and reads the buffer through `ziman_mutable_array_index_get`. The write
+side makes `STMT_INDEX_ASSIGN` **the one statement kind that reaches the interpreter as itself**:
+the array half is still rewritten into the rebinding it stands for (`a = set(a, i, v)`, which is
+what earns it the ordinary `val`/`var` diagnostic for free), and the builder half is evaluated
+where it stands. The two C functions keep the world prefix, which is the one place it has meant
+anything since F208.
+
+**The error reports what F149's own entry argued for.** With no call there is no frame, and the
+message drops a prefix that existed only to tell two function names apart:
+
+```
+index 5 out of bounds (MutableArray length 1)      beside an array's
+index 5 out of bounds (array length 1)
+```
+
+F149 was about `b[i] = v` and `a[i] = v` being one syntax over two statements. The errors now agree
+with the syntax, which they did not while one of the two went through a function.
+
+**139 call sites still spelled the access as a call**, which is F208's finding again:
+`--api builtins` listing a name is not what teaches it, the corpus is, and the corpus was written
+before the sugar existed. They are `t.data[i * 4] = c.red` and `row[x]` now. Converted with a
+paren- and quote-aware pass rather than a regex — the arguments are arbitrary expressions, and
+`counts[b] = counts[b] + 1` is a `set` whose *value* contains a `get`, so the pass runs to a
+fixpoint. It refuses a base that is not an atom rather than inventing `(a + b)[i]`; nothing in the
+corpus needed that.
+
+**The old names answer with syntax, which needed a second table.** `renamed_builder_fn` is held by
+`tools/check_builtins.py` to naming a declaration that exists — the guard F205 added after four
+entries rotted — and `b[i]` is not a declaration. Putting the syntax answers in the same table
+would have meant weakening that guard, so they get `renamed_to_syntax` and their own sentence:
+*"a MutableArray element is read and written with '[...]', so write 'b[i]' — element access is an
+index, not a function, and 'mutable_array_get' was the call it used to be."* `ab_get` and `ab_set`,
+the generation before, move there too; they had been pointing at `mutable_array_get`.
+
+**What this does not change.** There is still no bare `get` or `set` for a builder, and
+`set(b, i, v)` is still refused with the message that an element write is `b[i] = value` — that
+refusal is now the only place the word appears, which is where it belongs. `mutable_array_new` and
+`mutable_array_filled` remain, and are the whole of the `mutable_array_*` vocabulary.
+
+**Two stale repair suggestions found beside the work and fixed.** Indexing a `Set` advised
+*"add with 's = set(s, value)'"* and writing one advised *"add with 's = insert(s, value)'"*. F199
+made `add` the word in both set worlds and F206 made the checker refuse both of those spellings, so
+each message was telling the reader to write a type error. Both say `add(s, value)` now. They are
+the same rot as F208's two vacuous name lists: a message that names another part of the language
+goes stale when that part moves, and nothing was watching.

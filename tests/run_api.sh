@@ -86,10 +86,11 @@ for internal_name in mutable_set_add; do
         pass=$((pass + 1)); echo "ok   a prefix-layer native stays out: $internal_name"
     fi
 done
-# The four that stay: two real constructors with no bare form, and the two `b[i]`/`b[i] = v`
-# rewrite to -- those are named in diagnostics, so hiding them would point an error message at a
-# name this listing denies exists.
-for kept in mutable_array_new mutable_array_filled mutable_array_get mutable_array_set; do
+# The two that stay: real constructors with no bare form. It was four until F209, when `b[i]` and
+# `b[i] = value` stopped being a rewrite onto `mutable_array_get`/`_set` and became an index the
+# interpreter evaluates, so the two calls they stood for have no declaration to list -- and the
+# traceback frame that made listing them necessary is gone with them.
+for kept in mutable_array_new mutable_array_filled; do
     has "the prefixed name with no bare form is still listed: $kept" "fn $kept" "$builtins"
 done
 

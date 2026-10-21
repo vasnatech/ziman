@@ -1,16 +1,16 @@
 // F96: a MutableArray can be read and written in place, and iterated. Before this it was append-only, so a
 // loop that needed what it had already appended had to call `snapshot` -- a full copy per call, which in
 // a loop is the quadratic cost a builder exists to avoid (`--lint` flags that shape, and its message now
-// names `mutable_array_get`). MutableMap and MutableSet have had `get`/`contains`/`len` from the start; this is the
+// names `b[i]`). MutableMap and MutableSet have had `get`/`contains`/`len` from the start; this is the
 // same thing for the one builder that did not.
 fn main() {
     val ab = mutable_array_new<int>()
     push(ab, 10, 20, 30)
-    print(mutable_array_get(ab, 0))
-    print(mutable_array_get(ab, len(ab) - 1))
+    print(ab[0])
+    print(ab[len(ab) - 1])
 
     // Overwriting what is there, which is not appending: the length does not change.
-    mutable_array_set(ab, 1, 99)
+    ab[1] = 99
     print(snapshot(ab))
     print(len(ab))
 
@@ -28,7 +28,7 @@ fn main() {
     // The boxed path: an element type that is not byte/bool/int/float keeps Values rather than packing.
     val names = mutable_array_new<string>()
     push(names, "ada", "grace")
-    print(mutable_array_get(names, 1))
+    print(names[1])
     for n in names {
         print(n)
     }

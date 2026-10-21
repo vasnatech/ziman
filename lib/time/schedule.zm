@@ -263,7 +263,7 @@ fn parse_field(field: string, min: int, max: int, names: [string], label: string
         }
         var at = from
         while at <= to {
-            mutable_array_set(hits, at, true)
+            hits[at] = true
             at = at + step
         }
     }
@@ -357,19 +357,19 @@ pub fn run_until(jobs: [Job], stop: Channel<unit>, on_error: fn(string, string))
                 val j = jobs[i]
                 switch j.schedule {
                     EveryMillis(ms) {
-                        if now_mono >= mutable_array_get(due_at, i) {
+                        if now_mono >= due_at[i] {
                             start(j, on_error)
                             // From now, not from when it was due: a process that was paused or a
                             // job that ran long should not come back to a queue of missed runs it
                             // then fires back to back.
-                            mutable_array_set(due_at, i, clock.monotonic_millis() + ms)
+                            due_at[i] = clock.monotonic_millis() + ms
                         }
                     }
                     DailyAtUtc(target) {
                         // Fires on the first look after the target passes, and once a day: the day
                         // guard is what stops it firing again on every slice until midnight.
-                        if sec_of_day >= target && epoch_day > mutable_array_get(last_day, i) {
-                            mutable_array_set(last_day, i, epoch_day)
+                        if sec_of_day >= target && epoch_day > last_day[i] {
+                            last_day[i] = epoch_day
                             start(j, on_error)
                         }
                     }
@@ -378,8 +378,8 @@ pub fn run_until(jobs: [Job], stop: Channel<unit>, on_error: fn(string, string))
                         // already wakes several times a second, so asking "does now match" is six
                         // array reads, where working out the next matching instant means calendar
                         // arithmetic over month lengths and leap years for no gain.
-                        if now_secs > mutable_array_get(last_sec, i) && cron_matches_at(spec, now_secs) {
-                            mutable_array_set(last_sec, i, now_secs)
+                        if now_secs > last_sec[i] && cron_matches_at(spec, now_secs) {
+                            last_sec[i] = now_secs
                             start(j, on_error)
                         }
                     }

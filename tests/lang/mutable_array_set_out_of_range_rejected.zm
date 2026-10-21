@@ -1,6 +1,8 @@
-// `mutable_array_set` overwrites; it never extends. Setting one past the end is a mistake, not an append.
+// An element write overwrites; it never extends. Setting one past the end is a mistake, not an
+// append -- `push` is the append. The write half of `mutable_array_get_out_of_range_rejected`,
+// which carries why the message reads as it does.
 fn main() {
     val ab = mutable_array_new<string>()
     push(ab, "ada")
-    mutable_array_set(ab, 1, "grace")
+    ab[1] = "grace"
 }

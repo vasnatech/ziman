@@ -1,6 +1,7 @@
-// The element type is checked before the statement is rewritten, so the message names the array the
-// author wrote. Checked afterwards it read "cannot infer type argument 'T'", about a call to
-// mutable_array_set that is nowhere in this file.
+// The element type is checked where the statement is, so the message names the array the author
+// wrote. The statement used to be rewritten into a `mutable_array_set` call and checking it
+// afterwards read "cannot infer type argument 'T'", about a call that was nowhere in this file;
+// since F209 there is no call to be rewritten into, so the hazard is gone rather than guarded.
 fn main() {
     val b = mutable<int>([1, 2])
     b[0] = "nine"

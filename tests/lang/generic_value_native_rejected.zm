@@ -4,9 +4,11 @@
 //
 // This used `slice<int>` until 2026-10-18, when `slice` became a builtin to take either world --
 // and builtins have their *own* refusal for value position, which is
-// `function_values_builtin_rejected`'s subject. `mutable_array_get` is a generic native for the
-// same reason `slice` was, so it keeps this fixture testing what it was written to test.
+// `function_values_builtin_rejected`'s subject. It then used `mutable_array_get<int>` until F209
+// deleted that declaration, `b[i]` having stopped being a rewrite onto a call. `mutable_array_filled`
+// is a generic native for the same reason both of those were, and is a single declaration rather
+// than a member of an overload set, which would refuse value position for its own reason.
 fn main() {
-    val f = mutable_array_get<int>
-    print(f(mutable([1]), 0))
+    val f = mutable_array_filled<int>
+    print(f(3, 0))
 }

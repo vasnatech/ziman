@@ -300,9 +300,8 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   x)` is amortised O(1) (spare room kept, the next `push` on that exact array writes into it
   instead of copying); `insert`/`set`/`remove` always copy the whole array, so replacing every
   element one `set` at a time is O(n²) -- `MutableArray<T>` (`mutable_array_new`,
-  `mutable_array_filled`, `mutable_array_push`, `mutable_array_get`, `mutable_array_set`,
-  `mutable_array_insert`,
-  `mutable_array_remove`, `narrow`, `swap`, `reverse`, `filter`, `sort`/`_desc`/`_with`, plus the
+  `mutable_array_filled`, `b[i]`, `b[i] = value`, `push`, `insert`, `remove`,
+  `narrow`, `swap`, `reverse`, `filter`, `sort`/`_desc`/`_with`, plus the
   bare `len`, `contains`, `clear` and `snapshot`) is the right tool for building/editing a
   large array piece by piece. `insert` takes `0..len` inclusive, so inserting at the length appends;
   **`narrow(b, start, end)` keeps that window in place** and is the in-place counterpart of `slice`:
@@ -328,7 +327,7 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   `[int]`, `[float]` or `[byte]` buffer those two compare *natively*, with no interpreter call per
   comparison, which is worth far more than two memcpys. A comparator of your own always went
   through the interpreter, so `sort_with` had no such trade to make. It
-  reads back in place: `len(xs)`, `mutable_array_get` and `for x in xs` cost nothing, where
+  reads back in place: `len(xs)`, `xs[i]` and `for x in xs` cost nothing, where
   `snapshot` copies the whole buffer every call (`--lint` flags that in a loop). See
   "Builtins" for exact signatures.
 

@@ -322,35 +322,35 @@ fn bounds_builder() -> BoundsAcc {
 }
 
 fn include(acc: BoundsAcc, p: Point) {
-    if !mutable_array_get(acc.seen, 0) {
-        mutable_array_set(acc.seen, 0, true)
-        mutable_array_set(acc.min_x, 0, p.x)
-        mutable_array_set(acc.min_y, 0, p.y)
-        mutable_array_set(acc.max_x, 0, p.x)
-        mutable_array_set(acc.max_y, 0, p.y)
+    if !acc.seen[0] {
+        acc.seen[0] = true
+        acc.min_x[0] = p.x
+        acc.min_y[0] = p.y
+        acc.max_x[0] = p.x
+        acc.max_y[0] = p.y
         return
     }
-    if p.x < mutable_array_get(acc.min_x, 0) {
-        mutable_array_set(acc.min_x, 0, p.x)
+    if p.x < acc.min_x[0] {
+        acc.min_x[0] = p.x
     }
-    if p.y < mutable_array_get(acc.min_y, 0) {
-        mutable_array_set(acc.min_y, 0, p.y)
+    if p.y < acc.min_y[0] {
+        acc.min_y[0] = p.y
     }
-    if p.x > mutable_array_get(acc.max_x, 0) {
-        mutable_array_set(acc.max_x, 0, p.x)
+    if p.x > acc.max_x[0] {
+        acc.max_x[0] = p.x
     }
-    if p.y > mutable_array_get(acc.max_y, 0) {
-        mutable_array_set(acc.max_y, 0, p.y)
+    if p.y > acc.max_y[0] {
+        acc.max_y[0] = p.y
     }
 }
 
 fn bounds_of(acc: BoundsAcc) -> Rect {
-    if !mutable_array_get(acc.seen, 0) {
+    if !acc.seen[0] {
         return empty_rect()
     }
-    val x = mutable_array_get(acc.min_x, 0)
-    val y = mutable_array_get(acc.min_y, 0)
-    return rect_of(x, y, mutable_array_get(acc.max_x, 0) - x, mutable_array_get(acc.max_y, 0) - y)
+    val x = acc.min_x[0]
+    val y = acc.min_y[0]
+    return rect_of(x, y, acc.max_x[0] - x, acc.max_y[0] - y)
 }
 
 // A quadratic's derivative is linear, so there is at most one turning point per axis.

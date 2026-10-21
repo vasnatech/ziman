@@ -2,6 +2,10 @@
 // writing element i are the questions every sequence answers, and `mutable_array_get`/`_set` were
 // per-type names for them. The container is written in place, so there is no rebinding here and
 // `val` is right -- the opposite of the array in diag_index_assign.
+//
+// F149 made these a rewrite onto those two calls; F209 made them an index the interpreter
+// evaluates, so the names are gone and this file no longer stands for a call at all. What it pins
+// did not change, which is the point.
 fn main() {
     val b = mutable<int>([10, 20, 30])
     print(b[1])

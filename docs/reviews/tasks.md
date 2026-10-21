@@ -3211,3 +3211,52 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   Two new fixtures (`prefixed_builder_appenders_point_home`, `effectful_on_void_rejected`), three
   reworked. 1,112 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F209** **`b[i]` on a builder stops being a call, and the last two prefixed element
+  accesses go.** (follows F208; user-raised, "lets remove mutable_array_get and mutable_array_set
+  from array.zm"; done 2026-10-21.) F149 made `b[i]` and `b[i] = value` work on a MutableArray by
+  rewriting them into `mutable_array_get`/`mutable_array_set` calls, which is why those two names
+  had to be declared, and why they were `pub` rather than `internal`: the frame a traceback prints
+  is `fn->name`, so `b[5]` out of range printed `at mutable_array_get` for code that never wrote
+  one, and hiding the declaration would have pointed a stack trace at a name `--api builtins`
+  denied existed. **F208's entry gives that as the reason the two stay. It is a correct argument
+  about the rewrite and the wrong conclusion** — the thing to remove was the rewrite.
+
+  **A MutableArray is indexed now, not called.** `EXPR_INDEX` tells the two worlds apart by the
+  value (an array holds its elements, a builder a handle) and reads through
+  `ziman_mutable_array_index_get`. `STMT_INDEX_ASSIGN` becomes **the one statement kind that
+  reaches the interpreter as itself**: the array half is still rewritten into the rebinding it
+  stands for, which is what earns it the ordinary `val`/`var` diagnostic for free, and the builder
+  half is evaluated where it stands. No frame, and the message loses a prefix that existed only to
+  tell two function names apart: `index 5 out of bounds (MutableArray length 1)` beside an array's
+  `index 5 out of bounds (array length 1)`. **F149 was about one syntax over two statements; the
+  errors agree with the syntax now, which they did not while one of the two went through a
+  function.**
+
+  **139 call sites still spelled the access as a call** — 142 occurrences of the two names in
+  `.zm` files less the two declarations and the one value-position reference in
+  `generic_value_native_rejected`, counted as
+  `git grep -h -o -E 'mutable_array_(get|set)[<(]' <before> -- '*.zm'` — F208's finding again, one layer
+  on: `--api builtins` listing a name is not what teaches it, and the corpus was written before the
+  sugar existed. Converted with a paren- and quote-aware pass run to a fixpoint, not a regex:
+  `counts[b] = counts[b] + 1` is a `set` whose *value* holds a `get`, so one pass leaves the inner
+  call behind. It refuses a base that is not an atom rather than inventing `(a + b)[i]`; nothing in
+  the corpus needed that, and the only two refusals were the declarations themselves.
+
+  **The old names answer with syntax, which needed a second table.** `renamed_builder_fn` is held
+  by `tools/check_builtins.py` to naming a declaration that exists — F205's guard, added after four
+  of its entries rotted — and `b[i]` is not a declaration, so putting the syntax answers there
+  would have meant weakening the guard. `renamed_to_syntax` gets its own sentence instead:
+  *"element access is an index, not a function, and 'mutable_array_get' was the call it used to
+  be."* `ab_get`/`ab_set` move there too, having pointed at `mutable_array_get`.
+
+  **Two stale repair suggestions found beside the work.** Indexing a Set advised
+  *"add with 's = set(s, value)'"*, writing one advised *"'s = insert(s, value)'"* — F199 made
+  `add` the word in both set worlds and F206 made the checker refuse both spellings, so each
+  message was telling the reader to write a type error. Same rot as F208's two vacuous name lists.
+
+  Also moved: `generic_value_native_rejected` needed a new generic native and takes
+  `mutable_array_filled`, the fixture having already been repointed once when `slice` became a
+  builtin; `prelude_internal_still_callable` stops pinning an element access as a call;
+  `lint_builder_array_read_in_place` and `lint_builder_snapshot_in_loop` record `b[i]` as the
+  reader advice. 1,112 fixtures, `make check` exit 0 with the North Star.

@@ -61,6 +61,11 @@ void prelude_register(void);
  * does, so a builder read from the wrong thread fails there rather than here. */
 int ziman_array_builder_length(Value ab);
 Value ziman_array_builder_at(Value ab, int i);
+/* `b[i]` and `b[i] = value`, bounds-checked. Called from interpreter.c's EXPR_INDEX and
+ * STMT_INDEX_ASSIGN, not registered as natives: a MutableArray's element access is an index
+ * expression, not a function with a name (F209). */
+Value ziman_mutable_array_index_get(Value ab, int64_t i, int line, int col);
+void ziman_mutable_array_index_set(Value ab, int64_t i, Value value, int line, int col);
 
 /* The length of any of the four builders, for the bare `len` builtin: a MutableArray's or
  * MutableString's element/byte count, a MutableMap's entries or a MutableSet's elements. Only

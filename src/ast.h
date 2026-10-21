@@ -455,10 +455,12 @@ struct Stmt {
         struct { char *name; Expr *value; } assign;
         /* `a[i] = v`. The parser cannot tell which of two statements this is --
          * an immutable array is rebound (`a = set(a, i, v)`) while a
-         * MutableArray is mutated in place (`mutable_array_set(a, i, v)`), and
-         * only the type of `target.array` decides. So it is parsed as itself and
-         * check_stmt rewrites it in place into one of those two, which is why
-         * the interpreter never sees this node. */
+         * MutableArray is written through its handle -- and only the type of
+         * `target.array` decides. So it is parsed as itself, and check_stmt
+         * rewrites the array half into that rebinding while leaving the builder
+         * half alone for the interpreter to evaluate. Both halves were rewrites
+         * until F209, the builder's onto a `mutable_array_set` call, which is
+         * why that name had to exist. */
         struct { Expr *target; Expr *value; } index_assign;
         struct { Expr *cond; Stmt *then_block; Stmt *else_block; } if_stmt;
         struct { Expr *cond; Stmt *body; } while_stmt;

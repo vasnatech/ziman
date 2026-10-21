@@ -555,7 +555,7 @@ fn append_simple(f: Face, at: int, contours: int, dx: float, dy: float, b: shape
     var x = 0
     var i = 0
     while i < point_count {
-        val flag = mutable_array_get(flags, i)
+        val flag = flags[i]
         val short = flag / 2 % 2 == 1
         val same_or_positive = flag / 16 % 2 == 1
         if short {
@@ -573,7 +573,7 @@ fn append_simple(f: Face, at: int, contours: int, dx: float, dy: float, b: shape
     var y = 0
     i = 0
     while i < point_count {
-        val flag = mutable_array_get(flags, i)
+        val flag = flags[i]
         val short = flag / 4 % 2 == 1
         val same_or_positive = flag / 32 % 2 == 1
         if short {
@@ -673,11 +673,11 @@ fn emit_contour(
 }
 
 fn on_curve(flags: MutableArray<int>, at: int) -> bool {
-    return mutable_array_get(flags, at) % 2 == 1
+    return flags[at] % 2 == 1
 }
 
 fn point_at(xs: MutableArray<float>, ys: MutableArray<float>, at: int, dx: float, dy: float) -> geom.Point {
-    return geom.point_of(mutable_array_get(xs, at) + dx, mutable_array_get(ys, at) + dy)
+    return geom.point_of(xs[at] + dx, ys[at] + dy)
 }
 
 fn mid(a: geom.Point, b: geom.Point) -> geom.Point {

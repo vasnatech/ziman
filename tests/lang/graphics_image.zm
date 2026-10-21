@@ -159,7 +159,7 @@ fn main() {
     for b in png {
         push(corrupt, b)
     }
-    mutable_array_set(corrupt, len(png) - 20, ((png[len(png) - 20] as int) + 1) as byte)
+    corrupt[len(png) - 20] = ((png[len(png) - 20] as int) + 1) as byte
     print(concat("a flipped byte:      ", refusal(image.decode_png(snapshot(corrupt), 1000000))))
 
     // ---- JPEG: shape only, which is all `DCTDecode` pass-through needs

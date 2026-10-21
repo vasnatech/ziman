@@ -2648,7 +2648,7 @@ fn park_loop(
         // Highest index first, so removing one does not shift the next one being examined.
         var i = len(parked) - 1
         while i >= 0 {
-            val c = mutable_array_get(parked, i)
+            val c = parked[i]
             val buffered = len(c.session.buffer) > 0
             val expired = now >= c.deadline_ms
             if expired && !buffered {
@@ -2696,7 +2696,7 @@ fn park_loop(
             while r >= 0 {
                 val at = ready[r]
                 if at < len(parked) {
-                    val c = mutable_array_get(parked, at)
+                    val c = parked[at]
                     if Some(_) = try_receive(slots) {
                         remove(parked, at)
                         spawn worker(

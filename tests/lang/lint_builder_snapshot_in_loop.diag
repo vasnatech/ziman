@@ -1,7 +1,7 @@
 # One per builder kind, and the half worth pinning is that the advice is still per-type: each names
 # its own readers. With one conversion name left, the kind comes from the appender in the loop body
 # instead of from the call, which is also what keeps these four messages distinct.
-lint 12:9 'snapshot' converts the whole of 'seen' on every pass of this loop, and the loop keeps adding to it (quadratic); read it in place with len, mutable_array_get or 'for x in <the builder>'
+lint 12:9 'snapshot' converts the whole of 'seen' on every pass of this loop, and the loop keeps adding to it (quadratic); read it in place with len, b[i] or 'for x in <the builder>'
 lint 25:9 read it in place with len, contains, get or get_or
 lint 36:9 read it in place with len, or a MutableString you finish once after the loop
 lint 47:9 read it in place with len or contains

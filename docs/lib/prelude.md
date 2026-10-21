@@ -759,28 +759,6 @@ There is no immutable twin: `snapshot(mutable_array_filled(n, v))` is the way to
 repeats, and `array_filled` would have to be a second name rather than an overload, differing
 from this only in what it returns.
 
-### `mutable_array_get`
-
-```
-native fn mutable_array_get<T>(ab: MutableArray<T>, index: int) -> T
-```
-
-The element at `index`, counting from 0; a runtime error outside `0..len(ab)`.
-
-This and `mutable_array_set` are why a loop that needs what it has already appended does not
-have to call `snapshot`, which copies the whole buffer every time -- in a loop, the quadratic
-cost a builder exists to avoid (`--lint` flags that shape). `for x in ab` reads one the same
-way, without the indexing, and `b[i]` is this call with the prefix left off.
-
-### `mutable_array_set`
-
-```
-native fn mutable_array_set<T>(ab: MutableArray<T>, index: int, value: T)
-```
-
-Replaces the element at `index`; a runtime error outside `0..len(ab)`. Appending is `push`: this
-only overwrites what is already there. `b[i] = value` is this call.
-
 ### `narrow`
 
 ```
@@ -842,7 +820,7 @@ two copies -- the snapshot, and the sorted array -- and that is the cheaper opti
 compromise: for a packed `[int]`, `[float]` or `[byte]` buffer, `array_sort` compares *natively*,
 with no interpreter call per comparison, which is worth far more than the two memcpys it costs.
 `sort_with` below has no such option and so is genuinely in place.
-The write-back is `mutable_array_set` per element rather than `clear` and push, so the buffer
+The write-back is `items[i] = v` per element rather than `clear` and push, so the buffer
 keeps its capacity and the length never changes. Spelled out in both rather than shared, because
 a helper here would be *public* -- everything in the prelude is -- and "overwrite the buffer with
 this array" is not a function the design asked for.

@@ -126,18 +126,18 @@ pub fn set(c: Canvas, x: int, y: int, colour: Color) -> Result<unit, string> {
         Gray8 {
             // The usual luminance weights, so a colour drawn into a mask reads as its brightness.
             val v = 0.299 * colour.red + 0.587 * colour.green + 0.114 * colour.blue
-            mutable_array_set(c.data, at, to_byte(v))
+            c.data[at] = to_byte(v)
         }
         Rgb8 {
-            mutable_array_set(c.data, at, to_byte(colour.red))
-            mutable_array_set(c.data, at + 1, to_byte(colour.green))
-            mutable_array_set(c.data, at + 2, to_byte(colour.blue))
+            c.data[at] = to_byte(colour.red)
+            c.data[at + 1] = to_byte(colour.green)
+            c.data[at + 2] = to_byte(colour.blue)
         }
         Rgba8 {
-            mutable_array_set(c.data, at, to_byte(colour.red))
-            mutable_array_set(c.data, at + 1, to_byte(colour.green))
-            mutable_array_set(c.data, at + 2, to_byte(colour.blue))
-            mutable_array_set(c.data, at + 3, to_byte(colour.alpha))
+            c.data[at] = to_byte(colour.red)
+            c.data[at + 1] = to_byte(colour.green)
+            c.data[at + 2] = to_byte(colour.blue)
+            c.data[at + 3] = to_byte(colour.alpha)
         }
     }
     return unit
@@ -396,10 +396,10 @@ fn unfilter(raw: [byte], width: int, height: int, format: Pixels) -> Result<Imag
         var x = 0
         while x < stride {
             val cur = raw[row_at + x] as int
-            val left = if x >= n { mutable_array_get(out, y * stride + x - n) as int } else { 0 }
-            val up = if y > 0 { mutable_array_get(out, (y - 1) * stride + x) as int } else { 0 }
+            val left = if x >= n { out[y * stride + x - n] as int } else { 0 }
+            val up = if y > 0 { out[(y - 1) * stride + x] as int } else { 0 }
             val up_left = if x >= n && y > 0 {
-                mutable_array_get(out, (y - 1) * stride + x - n) as int
+                out[(y - 1) * stride + x - n] as int
             } else {
                 0
             }

@@ -1,1 +1,1 @@
-'mutable_array_get' is a generic native function, so it can't be used as a value -- wrap it in a lambda
+'mutable_array_filled' is a generic native function, so it can't be used as a value -- wrap it in a lambda

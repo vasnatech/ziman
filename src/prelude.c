@@ -1464,28 +1464,32 @@ static Value mutable_array_element_at(const MutableArrayBuf *buf, size_t i) {
  * quadratic cost MutableArray exists to avoid (`--lint` already flags that shape; see
  * lint_builder_read_by_conversion). MutableMap and MutableSet have had `get`/`contains` from the start; this
  * is the same thing for the one builder that was append-only. */
-static Value native_mutable_array_get(Value *args, int argc, int line, int col) {
-    (void)argc;
-    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
-    int64_t i = args[1].as.i;
+/* `b[i]` and `b[i] = value`, reached straight from the interpreter's index paths rather than
+ * through a call. They were `native_mutable_array_get`/`_set` until F209, registered natives that
+ * the checker rewrote `b[i]` onto -- which is why `mutable_array_get` and `mutable_array_set` had
+ * to be declared and advertised, and why a traceback for `b[5]` carried a frame for a function the
+ * author never wrote. Both still take `mutable_array_table_get`'s ownership check, same as every
+ * other builder operation.
+ *
+ * The message says "index", not "get index"/"set index": the prefix existed to tell two function
+ * names apart, and the position now names itself the way an array's `a[5]` always has. */
+Value ziman_mutable_array_index_get(Value ab, int64_t i, int line, int col) {
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(ab));
     if (i < 0 || (size_t)i >= buf->length) {
-        ziman_error("runtime", line, col, "get index %lld out of bounds (MutableArray length %lld)",
+        ziman_error("runtime", line, col, "index %lld out of bounds (MutableArray length %lld)",
                     (long long)i, (long long)buf->length);
     }
     return mutable_array_element_at(buf, (size_t)i);
 }
 
-static Value native_mutable_array_set(Value *args, int argc, int line, int col) {
-    (void)argc;
-    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
-    int64_t i = args[1].as.i;
+void ziman_mutable_array_index_set(Value ab, int64_t i, Value value, int line, int col) {
+    MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(ab));
     if (i < 0 || (size_t)i >= buf->length) {
-        ziman_error("runtime", line, col, "set index %lld out of bounds (MutableArray length %lld)",
+        ziman_error("runtime", line, col, "index %lld out of bounds (MutableArray length %lld)",
                     (long long)i, (long long)buf->length);
     }
-    if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)i, args[2]);
-    else buf->items[i] = args[2];
-    return value_int(0); /* void return -- the caller never uses this */
+    if (buf->pkind != PK_NONE) pack_store(buf->pkind, buf->pdata, (int)i, value);
+    else buf->items[i] = value;
 }
 
 
@@ -1958,9 +1962,10 @@ Value ziman_mutable_array_from(Value source, int source_is_handle) {
 /* Exchanges two elements of a builder, in place. Was three lines of Ziman over
  * `mutable_array_get`/`_set` until 2026-10-18, and moved into C for the messages rather than for
  * the speed: `swap(b, 0, 9)` reported "get index 9 out of bounds", naming a function the author
- * had not written, because the rewrite landed on sugar that called one. Now both `swap` and
- * `swap` reports the range it was given. Pack-aware, so a packed buffer exchanges by its element
- * stride.
+ * had not written, because the rewrite landed on sugar that called one. `swap` reports the range
+ * it was given now. (F209 took that hazard out at the root -- element access is an index rather
+ * than a call, so no sugar lands on a name -- but moving this into C was right anyway, for the
+ * pack-awareness below.) Pack-aware, so a packed buffer exchanges by its element stride.
  *
  * Reached straight from the builtin's arm rather than through a registered native: the prefixed
  * `mutable_array_swap` was removed once `swap` covered both worlds, so there is no name for a
@@ -2436,8 +2441,6 @@ void prelude_register(void) {
     native_register("mutable_array_new", native_mutable_array_new);
     native_register("mutable_array_filled", native_mutable_array_filled);
     native_register("mutable_array_push", ziman_mutable_array_push);
-    native_register("mutable_array_get", native_mutable_array_get);
-    native_register("mutable_array_set", native_mutable_array_set);
 
     /* See mutable_array_mark_contents/mutable_map_mark_contents's own comments and gc_mark_register_struct_content_marker's
      * (gc_mark.h) for why these are needed at all. */

@@ -451,7 +451,7 @@ fn columns_of(g: Grid, width: float, d: Document) -> Result<[float], string> {
         i = 0
         while i < len(g.columns) {
             switch g.columns[i].width {
-                Proportional(x) { mutable_array_set(out, i, spare * x / shares) }
+                Proportional(x) { out[i] = spare * x / shares }
                 Fixed(_) { unit }
                 Auto { unit }
             }
@@ -839,7 +839,7 @@ pub fn paginate(d: Document, t: PageTemplate) -> Result<[Scene], string> {
     }
     var at = 0
     while at < len(queue) {
-        val b = mutable_array_get(queue, at)
+        val b = queue[at]
         at = at + 1
         val room = frame_h - y
         val s = try split_block(b, frame_w, room, d)
@@ -907,7 +907,7 @@ pub fn paginate(d: Document, t: PageTemplate) -> Result<[Scene], string> {
             }
             None { unit }
         }
-        for op in mutable_array_get(pages, n) {
+        for op in pages[n] {
             push(ops, op)
         }
         switch t.footer {

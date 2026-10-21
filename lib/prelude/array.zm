@@ -125,37 +125,40 @@ native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<f
 // from this only in what it returns.
 native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
 
-// ------------------------------------------------- the two prefixed names left, and why they are
+// --------------------------------------------- the only prefixed names left, and why they are two
 //
-// **The prefixed appenders are gone as of F208: write `push`, `insert`, `remove`, `filter`,
-// `sort_with`.** Each of those dispatches on argument one and has a MutableArray declaration of
-// its own, so `mutable_array_push`, `mutable_array_insert` and `mutable_array_remove` had become a
-// second spelling of a name that already worked -- `internal`, so nothing completed or advertised
-// them, but 767 call sites across this repo and the North Star went on typing them because they
-// were what the prelude's own code typed. The C symbols keep the prefix, which is the one place it
-// still means anything (interpreter.c's symbol fallback).
+// **The two constructors above are the whole of the prefix now.** `mutable_array_new` and
+// `mutable_array_filled` have no bare form to supersede them -- a constructor is named for what it
+// builds -- and they are the last two `mutable_array_*` declarations in the language.
 //
-// **`mutable_array_new` and `mutable_array_filled` stay**: they are real constructors with no bare
-// form to supersede them, and a constructor is named for what it builds.
+// **The appenders went in F208: write `push`, `insert`, `remove`, `filter`, `sort_with`.** Each
+// dispatches on argument one and has a MutableArray declaration of its own, so
+// `mutable_array_push`, `mutable_array_insert` and `mutable_array_remove` had become a second
+// spelling of a name that already worked -- `internal`, so nothing completed or advertised them,
+// and 767 call sites across this repo and the North Star went on typing them because they were
+// what the prelude's own code typed.
 //
-// **`mutable_array_get` and `mutable_array_set` stay too, and are advertised rather than
-// `internal`.** They are not a second spelling of anything: there is no bare `get` or `set` for a
-// MutableArray, `set(b, i, v)` being refused on purpose so that it can say an element write is
-// `b[i] = value`. These two are what that sugar rewrites *to*, and what the out-of-range runtime
-// error and the `--lint` builder advice name, so hiding them would point a message at something
-// the listing denies exists.
-
-// The element at `index`, counting from 0; a runtime error outside `0..len(ab)`.
+// **The element accesses went in F209: write `b[i]` and `b[i] = value`.** Those two read
+// differently from the rest, because `mutable_array_get` and `mutable_array_set` were not a second
+// spelling of a *function* -- there is no bare `get` or `set` for a builder, `set(b, i, v)` being
+// refused on purpose so that it can say an element write is `b[i] = value`. They were the target
+// of that sugar: F149 made `b[i]` a checker rewrite onto a call, which is why the call had to be
+// declared for the sugar to resolve and advertised so that the frame a traceback printed named
+// something a reader could look up. **A MutableArray is indexed now rather than called** --
+// `EXPR_INDEX` and `STMT_INDEX_ASSIGN` reach the buffer directly -- so there is no frame for a
+// function nobody wrote, and `b[5]` reports `index 5 out of bounds (MutableArray length 1)` beside
+// an array's `index 5 out of bounds (array length 1)`, which is what F149 was about in the first
+// place. The 139 call sites in this repo that still spelled it as a call are the sugar now, so
+// the corpus teaches the sugar.
 //
-// This and `mutable_array_set` are why a loop that needs what it has already appended does not
-// have to call `snapshot`, which copies the whole buffer every time -- in a loop, the quadratic
-// cost a builder exists to avoid (`--lint` flags that shape). `for x in ab` reads one the same
-// way, without the indexing, and `b[i]` is this call with the prefix left off.
-native fn mutable_array_get<T>(ab: MutableArray<T>, index: int) -> T
-
-// Replaces the element at `index`; a runtime error outside `0..len(ab)`. Appending is `push`: this
-// only overwrites what is already there. `b[i] = value` is this call.
-native fn mutable_array_set<T>(ab: MutableArray<T>, index: int, value: T)
+// Reading a builder in place is still the point of all this: a loop that needs what it has already
+// appended does not have to call `snapshot`, which copies the whole buffer every time -- in a
+// loop, the quadratic cost a builder exists to avoid (`--lint` flags that shape). `for x in b`
+// reads one the same way, without the indexing.
+//
+// The C symbols keep the prefix throughout, which is the one place it still means anything:
+// interpreter.c's symbol fallback for the natives, and `ziman_mutable_array_index_get`/`_set` for
+// the two element accesses.
 
 // **Keeps only the elements from `start` up to `end`, in place, answering nothing.** The in-place
 // counterpart of `slice`: that one is a *query*, so it answers a value and leaves its source alone,
@@ -202,19 +205,19 @@ pub fn reverse<T>(xs: MutableArray<T>) {
 // compromise: for a packed `[int]`, `[float]` or `[byte]` buffer, `array_sort` compares *natively*,
 // with no interpreter call per comparison, which is worth far more than the two memcpys it costs.
 // `sort_with` below has no such option and so is genuinely in place.
-// The write-back is `mutable_array_set` per element rather than `clear` and push, so the buffer
+// The write-back is `items[i] = v` per element rather than `clear` and push, so the buffer
 // keeps its capacity and the length never changes. Spelled out in both rather than shared, because
 // a helper here would be *public* -- everything in the prelude is -- and "overwrite the buffer with
 // this array" is not a function the design asked for.
 pub fn sort<T: Ord>(items: MutableArray<T>) {
     for i, v in sort<T>(snapshot(items)) {
-        mutable_array_set<T>(items, i, v)
+        items[i] = v
     }
 }
 
 pub fn sort_desc<T: Ord>(xs: MutableArray<T>) {
     for i, v in sort_desc<T>(snapshot(xs)) {
-        mutable_array_set<T>(xs, i, v)
+        xs[i] = v
     }
 }
 
@@ -222,13 +225,13 @@ pub fn sort_desc<T: Ord>(xs: MutableArray<T>) {
 // function that reads the buffer it is sorting sees it unchanged throughout.
 pub fn sort_by<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
     for i, v in sort_by<T, K>(snapshot(xs), key) {
-        mutable_array_set<T>(xs, i, v)
+        xs[i] = v
     }
 }
 
 pub fn sort_by_desc<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
     for i, v in sort_by_desc<T, K>(snapshot(xs), key) {
-        mutable_array_set<T>(xs, i, v)
+        xs[i] = v
     }
 }
 
