@@ -1262,11 +1262,6 @@ typedef enum {
     B_printf,
     B_len,
     B_mutable_array_push_all,
-    B_mutable_map_set_all,
-    B_mutable_set_union,
-    B_mutable_set_intersect,
-    B_mutable_set_difference,
-    B_mutable_set_is_subset,
     B_mutable_array_from,
     B_mutable_array_lit,
     B_slice,
@@ -1527,7 +1522,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(0);
             } else if (bid == B_len) {
                 result = call_len(args[0]);
-            } else if ((bid == B_mutable_map_set_all || bid == B_map_merge)
+            } else if (bid == B_map_merge
                        && args[0].type->kind == TY_STRUCT) {
                 /* `merge` over a MutableMap. One name, one id -- same shape as the four set
                  * operations below: the immutable id arrives here too, and a builder first
@@ -1539,16 +1534,12 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
              * builtin id -- so the immutable ids arrive here too, and a **builder first
              * argument** takes the in-place path. This branch sits before the immutable ones on
              * purpose: everything that is not a handle falls through to them. */
-            } else if ((bid == B_mutable_set_union || bid == B_set_union ||
-                        bid == B_mutable_set_intersect || bid == B_set_intersect ||
-                        bid == B_mutable_set_difference || bid == B_set_difference)
+            } else if ((bid == B_set_union || bid == B_set_intersect || bid == B_set_difference)
                        && args[0].type->kind == TY_STRUCT) {
-                int op = (bid == B_mutable_set_union || bid == B_set_union) ? 0
-                       : (bid == B_mutable_set_intersect || bid == B_set_intersect) ? 1 : 2;
+                int op = bid == B_set_union ? 0 : bid == B_set_intersect ? 1 : 2;
                 ziman_mutable_set_combine(args[0], args[1], args[1].type->kind == TY_STRUCT, op);
                 result = value_int(0);
-            } else if ((bid == B_mutable_set_is_subset || bid == B_set_is_subset)
-                       && args[0].type->kind == TY_STRUCT) {
+            } else if (bid == B_set_is_subset && args[0].type->kind == TY_STRUCT) {
                 result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type->kind == TY_STRUCT));
             } else if (bid == B_concat) {
                 /* Three forms in one name, chosen the way the checker chose: a builder first

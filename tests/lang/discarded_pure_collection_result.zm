@@ -1,0 +1,32 @@
+// **Every one of these thirteen was silently accepted until F212**, with its whole output thrown
+// away. `PURE_BUILTINS` is the list of names whose discarded result is an error, and the Map/Set
+// pairing of F195-F201 renamed fourteen of its entries -- `set_union` to `union`, `map_keys` to
+// `keys`, `set_insert_all` to `add` -- each rename leaving the old name in the list and adding
+// none of the new ones. The stale entries cost nothing, a call to a name that does not resolve
+// failing earlier; the **missing** ones were the bug, and `tools/check_builtins.py` now holds
+// every entry to being a name that can reach the gate, so half a rename cannot pass again.
+//
+// Each line is the pure immutable member of a set whose builder member writes in place, so
+// discarding it cannot have been meant. The builder members stay discardable, which is
+// `discard_overload_purity_allowed`'s half. `add` and `remove_all` needed `#[effectful]` on their
+// builder members first: those answer a bool *and* write the container, so listing the name
+// without the attribute would have refused "make sure x is in here".
+fn main() {
+    val m = Map<string, int> { "a": 1 }
+    val m2 = Map<string, int> { "b": 2 }
+    val s = Set<int> { 1 }
+    val s2 = Set<int> { 1, 2 }
+    union(s, s2)
+    intersect(s, s2)
+    difference(s, s2)
+    is_subset(s, s2)
+    items(s)
+    keys(m)
+    values(m)
+    merge(m, m2)
+    get(m, "a")
+    get_or(m, "a", 0)
+    filter(s, fn(x: int) -> bool { return x > 0 })
+    add(s, 9)
+    remove_all(m, "a")
+}

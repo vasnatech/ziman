@@ -3337,3 +3337,53 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   which has had a declaration since F195-F201 took the prefix off. Same vacuous-list shape as
   F208's two name lists, in a list that vetoes a diagnostic rather than asserting one — worth its
   own pass. 1,112 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F212** **`PURE_BUILTINS` was half-renamed, which was silently accepting thirteen discarded
+  results — and the arm beside it was segfaulting on five names.** (user-raised, "fix
+  PURE_BUILTINS too", following the note left in F211; done 2026-10-21.)
+
+  **The list and the hole are the same rename, half-applied.** F195-F201 took the prefix off
+  fourteen entries — `set_union` → `union`, `map_keys` → `keys`, `set_insert_all` → `add`,
+  `map_remove_all` → `remove_all` and ten more — and **each rename left the old name in the list
+  and added none of the new ones.** F211's note called the fourteen stale entries the defect; they
+  are not. A call to a name that does not resolve fails earlier, so a stale entry can never match
+  and costs nothing. **The missing thirteen were the bug**: `union(s1, s2)`, `intersect`,
+  `difference`, `is_subset`, `items`, `keys`, `values`, `merge`, `get`, `get_or`, `filter`, `add`
+  and `remove_all` were all accepted in statement position with their whole output thrown away,
+  which is the single mistake this list exists to catch. Measured by probing each name rather than
+  by reading, which is also how the direction of the error was found — I had it backwards.
+
+  **Two names could not be listed until `#[effectful]` existed.** `add(s, items...)` and
+  `remove_all` answer a bool *and* write the container, so the name alone would have refused "make
+  sure these are in here". Their builder members carry the attribute now, which fixes the
+  complementary wart recorded in F208: `add(mutableSet, x)` discarded had been a type error since
+  F199, so `val _ = add(s, x)` was the spelling the corpus was forced into. Both directions of that
+  name were wrong, in opposite ways.
+
+  **The arm beside it was worse than stale.** `check_call` still accepted `mutable_set_union`,
+  `mutable_set_intersect`, `mutable_set_difference`, `mutable_set_is_subset` and
+  `mutable_map_set_all`, type-checking each against a real signature — and F195-F201 had removed
+  their runtime dispatch, so each reached the interpreter as a builtin id no name maps to.
+  **Four of the five segfaulted.** `mutable_set_is_subset` looked safe only because it answers a
+  bool and the dropped-result gate refused the statement form before anything ran;
+  `print(mutable_set_is_subset(ms, s))` crashed like the others. The arm is deleted and the five
+  answer with their bare names. Third time an arm has been found keeping a spelling alive after
+  the declarations retired it (F206, F208), and the first time the consequence was a crash. The
+  five unreachable `B_mutable_set_*`/`B_mutable_map_set_all` ids and their dead disjuncts went too.
+
+  **The guard is the point.** `tools/check_builtins.py` now holds every `PURE_BUILTINS` entry to
+  being a name the interpreter dispatches or a name a rewrite records in `rewritten_from` (which
+  is what makes `mutable` a legitimate entry). Proven by putting `set_union` and `map_keys` back
+  and watching it fail. Half a rename cannot pass again — this is the third table in that file to
+  get such a check, after `BUILTIN_NO_SIGNATURE` (F148) and `renamed_builder_fn` (F205).
+
+  **`is_Some` and `is_None` were also removed, and leave a hole this records rather than hides.**
+  `check_call` rewrites them into `Option.is_Some(o)` enum accesses, so by the time the gate looks
+  the statement is not an `EXPR_CALL` and the entries could never match. Discarding one is still
+  accepted. Closing it means teaching the gate about enum accesses, or giving that rewrite a
+  `rewritten_from`; neither belongs in this pass.
+
+  Two new fixtures (`discarded_pure_collection_result` pins all thirteen,
+  `prefixed_set_ops_point_home` pins the five that crashed), `discard_overload_purity_allowed`
+  extended for the two now-legitimate discards, and `docs/SYNTAX.md`'s last `mutable_map_set_all`
+  reference is `merge`. 1,114 fixtures, `make check` exit 0 with the North Star.

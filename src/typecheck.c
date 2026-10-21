@@ -1455,16 +1455,35 @@ static void warn_brace_interpolation(Env *env, Expr *e) {
  * and that one is not a judgement call: adding them reported 30 errors across docs/lib/examples
  * alone, because `unwrap(fs.write_text(...))` is the corpus's own idiom for "abort if this
  * failed" -- the value is genuinely unwanted and the abort is the point. */
+/* **The Map/Set pairing left this list half-renamed, and F212 is the other half.** F195-F201 took
+ * the prefix off fourteen of these -- `set_union` became `union`, `map_keys` became `keys`,
+ * `set_insert_all` became `add` -- and each rename deleted nothing and added nothing here, so the
+ * list went on naming fourteen names that no longer resolve while thirteen that do went unlisted.
+ * A stale entry costs nothing, since a call to a name that does not exist fails earlier; **the
+ * missing ones were the bug**, and `union(s1, s2)`, `keys(m)`, `get(m, k)` and ten more were
+ * accepted in statement position with their whole output thrown away, which is the mistake this
+ * list exists to catch. `tools/check_builtins.py` now holds every entry to being a name that can
+ * actually reach the gate, so half a rename cannot pass again.
+ *
+ * `is_Some` and `is_None` were also removed, for a different reason: `check_call` rewrites them
+ * into `Option.is_Some(o)` enum accesses, so the statement is no longer an `EXPR_CALL` by the time
+ * the gate looks and the entries could never match. Discarding one is still accepted -- a real if
+ * narrow hole, recorded in the F212 entry rather than left as a list that looks like it covers it.
+ *
+ * **A name here, not an overload.** Purity is per overload, so the `t.kind != TY_VOID` test beside
+ * this one is what makes a list of names safe: `filter` is here, and its three builder members
+ * return nothing, so only the Map/Set/array members can trip it. Where a builder member is
+ * effectful *and* answers something -- `add`, `remove_all`, `remove` -- the declaration says so
+ * with `#[effectful]` and `call_is_effectful_overload` vetoes the name. Those three could not be
+ * listed at all until that attribute existed (F208). */
 static const char *const PURE_BUILTINS[] = {
     "push", "insert", "set", "remove", "mutable", "swap",
     "len", "str", "format", "contains", "abs", "min", "max", "hash", "compare", "error_message",
-    "is_ok", "is_Some", "is_None",
-    "map_get", "map_get_or", "map_keys", "map_values", "map_merge", "map_filter",
-    "map_remove_all",
-    "set_items", "set_union", "set_intersect", "set_difference", "set_is_subset",
-    "to_set", "slice", "concat", "set_insert_all", "set_filter",
+    "is_ok",
+    "get", "get_or", "keys", "values", "merge", "filter", "remove_all",
+    "items", "union", "intersect", "difference", "is_subset", "add",
+    "to_set", "slice", "concat",
     "snapshot", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "to_mutable_set",
-    "mutable_set_is_subset",
     NULL};
 
 /* The callee as the author wrote it: `rewritten_from` when the checker has replaced `callee` with
@@ -1738,6 +1757,11 @@ static const char *renamed_builder_fn(const char *name) {
                    {"setb_to_set", "snapshot"},
                    {"mutable_string_append", "append"},
                    {"mutable_string_append_byte", "append_byte"},
+                   {"mutable_map_set_all", "merge"},
+                   {"mutable_set_union", "union"},
+                   {"mutable_set_intersect", "intersect"},
+                   {"mutable_set_difference", "difference"},
+                   {"mutable_set_is_subset", "is_subset"},
                    {"mutable_array_push", "push"},
                    {"mutable_array_insert", "insert"},
                    {"mutable_array_remove", "remove"},
@@ -3430,44 +3454,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             }
         }
         return type_scalar(strcmp(name, "printf") == 0 ? TY_VOID : TY_STRING);
-    }
-
-    if (strcmp(name, "mutable_map_set_all") == 0 ||
-        strcmp(name, "mutable_set_union") == 0 || strcmp(name, "mutable_set_intersect") == 0 ||
-        strcmp(name, "mutable_set_difference") == 0 || strcmp(name, "mutable_set_is_subset") == 0) {
-        if (e->as.call.args.count != 2) {
-            ziman_error("type", e->line, e->col, "'%s' takes exactly 2 arguments, found %d", name, e->as.call.args.count);
-        }
-        int is_array = 0;
-        int is_map = strcmp(name, "mutable_map_set_all") == 0;
-        MutableShape shape = is_array ? SHAPE_ARRAY : is_map ? SHAPE_MAP : SHAPE_SET;
-        Expr *target = e->as.call.args.items[0];
-        Type target_type = check_expr(module, env, target);
-        /* The first argument is always the handle -- only the *second* takes either world. */
-        if (target_type.kind != TY_STRUCT || target_type.struct_name == NULL ||
-            strcmp(target_type.struct_name, mutable_handle_name(shape)) != 0) {
-            ziman_error("type", target->line, target->col, "argument 1 of '%s' expects a %s, found %s", name,
-                        mutable_handle_name(shape), type_name(target_type));
-        }
-        Type want = type_scalar(TY_VOID), want_value = type_scalar(TY_VOID);
-        if (!either_world(target_type, shape, &want, &want_value)) {
-            ziman_error("type", target->line, target->col, "'%s' needs %s's element type, which is not known here", name,
-                        mutable_handle_name(shape));
-        }
-        Expr *other = e->as.call.args.items[1];
-        Type other_type = check_expr(module, env, other);
-        Type got = type_scalar(TY_VOID), got_value = type_scalar(TY_VOID);
-        if (!either_world(other_type, shape, &got, &got_value)) {
-            ziman_error("type", other->line, other->col, "argument 2 of '%s' expects %s or %s, found %s", name,
-                        shape == SHAPE_ARRAY ? "an array" : shape == SHAPE_MAP ? "a Map" : "a Set",
-                        mutable_handle_name(shape), type_name(other_type));
-        }
-        if (!type_equals(got, want) || (is_map && !type_equals(got_value, want_value))) {
-            ziman_error("type", other->line, other->col,
-                        "argument 2 of '%s' holds %s where the %s holds %s", name, type_name(got),
-                        mutable_handle_name(shape), type_name(want));
-        }
-        return strcmp(name, "mutable_set_is_subset") == 0 ? type_scalar(TY_BOOL) : type_scalar(TY_VOID);
     }
 
     if (strcmp(name, "$mutable_array_from") == 0 || strcmp(name, "$mutable_map_from") == 0 ||

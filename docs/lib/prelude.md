@@ -341,6 +341,9 @@ pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> boo
 Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
 of what the singular takes, which for a map's `remove` is keys rather than entries.
 
+`#[effectful]` for the reason `remove` itself carries it: the call writes the map, and "was any
+of it there?" is an answer "delete these if present" has no use for.
+
 ```
 pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 ```
@@ -1978,6 +1981,11 @@ pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 Adds each of `items`, answering whether any of them was new. The singular `mutable_set_add` is
 not variadic, which is what keeps a `MutableSet<[int]>` from being a special case -- one element
 or several is never ambiguous when only the `_all` form takes many.
+
+`#[effectful]`, because "did anything change?" is an answer you are usually entitled to ignore:
+`add(s, x)` on its own is "make sure x is in here", and that is the ordinary call. Without the
+attribute the dropped-result gate reads a non-void prelude overload as pure and refuses it, as
+it did from F199 until F212.
 
 ### `items`
 

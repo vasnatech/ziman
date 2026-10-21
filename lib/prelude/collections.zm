@@ -109,7 +109,11 @@ pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool) {
 
 // Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
 // of what the singular takes, which for a map's `remove` is keys rather than entries.
+//
+// `#[effectful]` for the reason `remove` itself carries it: the call writes the map, and "was any
+// of it there?" is an answer "delete these if present" has no use for.
 #[at_least_one]
+#[effectful]
 pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool {
     var removed_any = false
     for k in keys {
@@ -122,6 +126,7 @@ pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> boo
 
 // Drops each of `items`, answering whether any of them was there.
 #[at_least_one]
+#[effectful]
 pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
     var removed_any = false
     for item in items {

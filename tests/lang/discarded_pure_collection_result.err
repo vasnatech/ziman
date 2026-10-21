@@ -1,0 +1,53 @@
+ziman: type error at 19:5 in tests/lang/discarded_pure_collection_result.zm: the Set<int> returned by 'union' is discarded, and 'union' has no other effect -- bind the result ('val x = union(...)', or 'val _ = ...' to discard on purpose)
+   |
+19 |     union(s, s2)
+   |     ^
+ziman: type error at 20:5 in tests/lang/discarded_pure_collection_result.zm: the Set<int> returned by 'intersect' is discarded, and 'intersect' has no other effect -- bind the result ('val x = intersect(...)', or 'val _ = ...' to discard on purpose)
+   |
+20 |     intersect(s, s2)
+   |     ^
+ziman: type error at 21:5 in tests/lang/discarded_pure_collection_result.zm: the Set<int> returned by 'difference' is discarded, and 'difference' has no other effect -- bind the result ('val x = difference(...)', or 'val _ = ...' to discard on purpose)
+   |
+21 |     difference(s, s2)
+   |     ^
+ziman: type error at 22:5 in tests/lang/discarded_pure_collection_result.zm: the bool returned by 'is_subset' is discarded, and 'is_subset' has no other effect -- bind the result ('val x = is_subset(...)', or 'val _ = ...' to discard on purpose)
+   |
+22 |     is_subset(s, s2)
+   |     ^
+ziman: type error at 23:5 in tests/lang/discarded_pure_collection_result.zm: the [int] returned by 'items' is discarded, and 'items' has no other effect -- bind the result ('val x = items(...)', or 'val _ = ...' to discard on purpose)
+   |
+23 |     items(s)
+   |     ^
+ziman: type error at 24:5 in tests/lang/discarded_pure_collection_result.zm: the Set<string> returned by 'keys' is discarded, and 'keys' has no other effect -- bind the result ('val x = keys(...)', or 'val _ = ...' to discard on purpose)
+   |
+24 |     keys(m)
+   |     ^
+ziman: type error at 25:5 in tests/lang/discarded_pure_collection_result.zm: the [int] returned by 'values' is discarded, and 'values' has no other effect -- bind the result ('val x = values(...)', or 'val _ = ...' to discard on purpose)
+   |
+25 |     values(m)
+   |     ^
+ziman: type error at 26:5 in tests/lang/discarded_pure_collection_result.zm: the Map<string, int> returned by 'merge' is discarded, and 'merge' has no other effect -- bind the result ('val x = merge(...)', or 'val _ = ...' to discard on purpose)
+   |
+26 |     merge(m, m2)
+   |     ^
+ziman: type error at 27:5 in tests/lang/discarded_pure_collection_result.zm: the Option<int> returned by 'get' is discarded, and 'get' has no other effect -- bind the result ('val x = get(...)', or 'val _ = ...' to discard on purpose)
+   |
+27 |     get(m, "a")
+   |     ^
+ziman: type error at 28:5 in tests/lang/discarded_pure_collection_result.zm: the int returned by 'get_or' is discarded, and 'get_or' has no other effect -- bind the result ('val x = get_or(...)', or 'val _ = ...' to discard on purpose)
+   |
+28 |     get_or(m, "a", 0)
+   |     ^
+ziman: type error at 29:5 in tests/lang/discarded_pure_collection_result.zm: the Set<int> returned by 'filter' is discarded, and 'filter' has no other effect -- bind the result ('val x = filter(...)', or 'val _ = ...' to discard on purpose)
+   |
+29 |     filter(s, fn(x: int) -> bool { return x > 0 })
+   |     ^
+ziman: type error at 30:5 in tests/lang/discarded_pure_collection_result.zm: the Set<int> returned by 'add' is discarded, and 'add' has no other effect -- bind the result ('val x = add(...)', or 'val _ = ...' to discard on purpose)
+   |
+30 |     add(s, 9)
+   |     ^
+ziman: type error at 31:5 in tests/lang/discarded_pure_collection_result.zm: the Map<string, int> returned by 'remove_all' is discarded, and 'remove_all' has no other effect -- bind the result ('val x = remove_all(...)', or 'val _ = ...' to discard on purpose)
+   |
+31 |     remove_all(m, "a")
+   |     ^
+ziman: 13 errors

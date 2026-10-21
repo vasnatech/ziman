@@ -10,11 +10,20 @@ three corrections in one session.
 So every dispatched name must either be declared in lib/prelude/ or appear below with the reason
 it cannot be. "Not yet done" is a reason; the point is that it is written down rather than silent.
 
-It also checks a second table for the same kind of rot: `renamed_builder_fn`'s old-name hints.
-Each says "'x' is now 'y'", and nothing was holding `y` to being a name that still exists -- so
-F195 and F200 renamed four of the targets out from under it and the compiler went on telling
-people to call `mutable_map_get`, which had not existed for a day. A hint naming something that
-is not there is worse than no hint: it reads as authoritative and costs a search.
+It also checks two more tables for the same kind of rot.
+
+`renamed_builder_fn`'s old-name hints each say "'x' is now 'y'", and nothing was holding `y` to
+being a name that still exists -- so F195 and F200 renamed four of the targets out from under it
+and the compiler went on telling people to call `mutable_map_get`, which had not existed for a day.
+A hint naming something that is not there is worse than no hint: it reads as authoritative and
+costs a search.
+
+`PURE_BUILTINS` is the list of names whose discarded result is an error. Here a stale entry is not
+the bug but the evidence of one: F195-F201 took the prefix off fourteen of them and each rename
+left the old name in place and never added the new one, so the list named fourteen names that no
+longer resolve while thirteen that did went unlisted -- and `union(s1, s2)` in statement position
+was accepted with its whole output thrown away. Every entry must now be a name the interpreter
+dispatches or a name a rewrite records in `rewritten_from`, so half a rename cannot pass again.
 """
 import pathlib
 import re
@@ -54,6 +63,26 @@ def rename_hints():
         raise SystemExit("check_builtins.py: renamed_builder_fn not found in src/typecheck.c -- it was "
                          "renamed or moved, and this tool reads it rather than copying it")
     return re.findall(r'\{"([^"]+)",\s*"([^"]+)"\}', m.group(1))
+
+
+def pure_builtins():
+    """`src/typecheck.c`'s PURE_BUILTINS, read rather than copied."""
+    src = TYPECHECK_C.read_text()
+    m = re.search(r"static const char \*const PURE_BUILTINS\[\] = \{(.*?)NULL\};", src, re.S)
+    if m is None:
+        raise SystemExit("check_builtins.py: PURE_BUILTINS not found in src/typecheck.c -- it was "
+                         "renamed or moved, and this tool reads it rather than copying it")
+    return re.findall(r'"([^"]+)"', m.group(1))
+
+
+def rewrite_sources():
+    """The names `check_stmt`/`check_call` record in `rewritten_from`.
+
+    PURE_BUILTINS is matched against `authored_callee`, which answers `rewritten_from` when the
+    checker has replaced the callee -- so `mutable` is a legitimate entry even though no builtin
+    is dispatched under that name.
+    """
+    return set(re.findall(r'rewritten_from\s*=\s*"([^"]+)"', TYPECHECK_C.read_text()))
 
 
 def recorded_reasons():
@@ -100,6 +129,18 @@ def main():
         problems.append(f"'{name}' has a reason in BUILTIN_NO_SIGNATURE but the interpreter dispatches no "
                         f"builtin of that name -- drop it")
 
+    # Every PURE_BUILTINS entry must be a name that can actually reach the dropped-result gate.
+    # F212 found fourteen that could not: the Map/Set pairing (F195-F201) renamed `set_union` to
+    # `union` and so on, and each rename left the old name here and never added the new one -- so
+    # the list named fourteen names that no longer resolve while thirteen that do went unlisted,
+    # and `union(s1, s2)` was accepted with its result thrown away. A stale entry is harmless on
+    # its own; it is the *evidence* of the missing one, which is why this checks it.
+    for name in sorted(set(pure_builtins()) - (declared | undeclared | rewrite_sources())):
+        problems.append(f"PURE_BUILTINS lists '{name}', which the interpreter dispatches no builtin of "
+                        f"and no rewrite records in `rewritten_from` -- it can never reach the "
+                        f"dropped-result gate, so either the name moved and its replacement is missing "
+                        f"from the list, or the entry should go")
+
     # Every old-name hint must point at a name that exists.
     hints = rename_hints()
     available = prelude_declarations() | declared | undeclared
@@ -117,7 +158,8 @@ def main():
         return 1
     print(f"check_builtins.py: {len(declared)} builtins declared, "
           f"{len(reasons)} with a recorded reason they cannot be, "
-          f"{len(hints)} rename hints all pointing at names that exist")
+          f"{len(hints)} rename hints all pointing at names that exist, "
+          f"{len(pure_builtins())} pure builtins all reachable by the dropped-result gate")
     return 0
 
 

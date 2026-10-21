@@ -28,7 +28,13 @@ internal native fn mutable_set_add<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> 
 // Adds each of `items`, answering whether any of them was new. The singular `mutable_set_add` is
 // not variadic, which is what keeps a `MutableSet<[int]>` from being a special case -- one element
 // or several is never ambiguous when only the `_all` form takes many.
+//
+// `#[effectful]`, because "did anything change?" is an answer you are usually entitled to ignore:
+// `add(s, x)` on its own is "make sure x is in here", and that is the ordinary call. Without the
+// attribute the dropped-result gate reads a non-void prelude overload as pure and refuses it, as
+// it did from F199 until F212.
 #[at_least_one]
+#[effectful]
 pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
     var added_any = false
     for item in items {

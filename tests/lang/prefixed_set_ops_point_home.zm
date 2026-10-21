@@ -1,0 +1,21 @@
+// **These five type-checked and then segfaulted**, which is what F212 found while fixing
+// `PURE_BUILTINS`. F195-F201 gave the four MutableSet operations and the MutableMap bulk write
+// their bare names -- `union`, `intersect`, `difference`, `is_subset`, `merge` -- and removed the
+// prefixed names' runtime dispatch, but left the `check_call` arm that accepted them. So each
+// resolved, type-checked against a real signature, and reached the interpreter as a builtin id no
+// name maps to: `mutable_set_union(ms, s)` crashed. `mutable_set_is_subset` was the one that
+// looked fine, because it answers a bool and the dropped-result gate refused the statement form
+// before anything ran -- `print(mutable_set_is_subset(ms, s))` crashed like the rest.
+//
+// The arm is gone and the five answer with the bare name, which is the third time an arm has been
+// found keeping a spelling alive after the declarations retired it (F206, F208, F212) -- and the
+// first time the consequence was a crash rather than a wrong message.
+fn main() {
+    val ms = mutable_set_new<int>()
+    val mm = mutable_map_new<string, int>()
+    mutable_set_union(ms, Set<int> { 1 })
+    mutable_set_intersect(ms, Set<int> { 1 })
+    mutable_set_difference(ms, Set<int> { 1 })
+    print(mutable_set_is_subset(ms, Set<int> { 1 }))
+    mutable_map_set_all(mm, Map<string, int> { "a": 1 })
+}

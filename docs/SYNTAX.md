@@ -462,7 +462,7 @@ for x in seen { ... }                    // a set has one binder
   `union`/`intersect`/`difference`/`is_subset` on a MutableSet all change (or read) the handle in
   the first argument, and the rest take either world -- `concat` takes any number of them, mixed
   freely. The three self-aliasing cases get three different answers, each deliberate:
-  `concat(xs, xs)` **doubles** the array, `mutable_map_set_all(m, m)` is a no-op, and
+  `concat(xs, xs)` **doubles** the array, `merge(m, m)` is a no-op, and
   `difference(s, s)` **empties** the set. Union and intersect with yourself are no-ops
   and `_is_subset(s, s)` is true. With several aliasing parts the appends are *sequential*, each
   reading the target as it now is: `concat(c, c, c)` on a one-element builder answers four.
