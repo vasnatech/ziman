@@ -1,0 +1,161 @@
+// result.zm -- `Result<T, E>`, the type that answers "this may have failed". A **built-in type**
+// rather than a prelude enum: `Result.is_Ok(...)` is a syntax error, there is no generated `is_Ok`
+// or `unwrap_Ok`, and `Ok`/`Err` are reached through `ok`/`err`, `unwrap`/`unwrap_err` and
+// `if Ok(v) = r`. `Option<T>` is the opposite -- ordinary Ziman source in option.zm -- which is
+// what the naming note below is about.
+//
+// **Split from option.zm on 2026-10-22.** The two shared a file "because they convert into each
+// other and because `unwrap` is one overload set over both", which the filing rule had already
+// answered: a declaration lives in the file for the type its first argument has, and a set is
+// split when its members' types are. So `unwrap` has one member here and one there, as `len` has
+// five files and `filter` three, and the conversions sit with their *source* -- `result_to_option`
+// here, `option_to_result` in option.zm. `--api builtins` prints each set as one block regardless.
+
+// Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
+// loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
+// directory `pub` means what it means anywhere else as of 2026-10-22: **a declaration without it
+// cannot be called from outside the prelude.** `internal` reaches the bundled library's own
+// package, so lib/ may call one and a program may not, and a bare declaration belongs to the file
+// that declares it. It also still chooses what `ziman --api builtins` advertises.
+//
+// That is a change. Until then `pub` said nothing about reachability here -- the prelude is merged
+// bare into every program, so a call into it resolves as an ordinary same-module call and there was
+// no boundary to check at -- and F172 relied on the gap, leaving names hidden from completion *and*
+// callable. Seven were on the far side of it, and every caller outside the prelude moved to the
+// public spelling first.
+//
+// **Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
+// changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through
+// `fn_is_global_vocabulary` whatever their visibility says, so 143 of them carried no modifier at
+// all while 125 of their neighbours did -- one keyword, two meanings, depending on the kind of
+// declaration it sat on. Writing it everywhere costs nothing (`--api builtins` is byte-identical
+// across the change, which is how the sweep was checked) and buys the reading that **a bare
+// declaration in this directory is deliberately not public**. There is exactly one, `array_order_of`
+// in array.zm, which F172 decided should stay invisible, plus the six `internal` natives.
+//
+// What `pub` does *not* do here is gate reachability, and that is a property of the prelude rather
+// than of `native`: these files are merged bare into every program, so there is no import boundary
+// for a non-public declaration to be refused at. In a *module* `pub` is load-bearing in the
+// ordinary way -- `metrics.zm`'s own `native fn declare_raw` is private, and
+// `metrics.declare_raw(...)` is refused with "add 'pub' to export it". Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// header is generated from its source by the Makefile's prelude rule.
+//
+// **A declaration lives in the file for the type its first argument has.** So `concat`'s string
+// form is in string.zm and its array forms in array.zm, and `get_or`'s `Option` form is in
+// option.zm with its two map forms in map.zm -- one overload set, read where each member's type
+// lives.
+//
+// **`ziman --api builtins` prints an overload set as one block**, so the listing answers "what
+// does this name accept" in one place even when the sources do not.
+//
+// That sentence was here, in all ten of these headers, as the reason splitting a set across files
+// was safe -- and **it was false for a day**. The listing is built in file order, which grouped
+// every set only while no set was ever split; checked on 2026-10-22, `filter` came out in two
+// blocks 56 lines apart, `concat` in two, `get_or` in two, and `snapshot` and `clear` in **four**
+// each. The listing now groups by name (a set appears where its first advertised member does, so
+// the file order's topical reading survives), which made the claim true rather than deleting it.
+// A pure reordering: 307 lines before and after, identical as sets.
+//
+// `docs/lib/prelude.md` is **not** grouped -- it is organised as one `##` section per file, so a
+// split set still has a `###` heading in each. The listing is the one place to read a whole set.
+//
+// That reverses the older rule, which kept a split set whole in collections.zm -- **and that file
+// is gone**, retired on 2026-10-22 once the last of its names had been filed by type. **Every set
+// splits, however many files that means**: `len` and `contains` across five each, `snapshot` and
+// `clear` across four, `filter`, `remove` and `mutable` across three, `set`, `remove_all` and
+// `map` across three, `concat`, `get_or`, `update` and `flat_map` across two or one. Nothing is
+// exempt and nothing is left over. See docs/DESIGN.md's "Overloading available to a declaration",
+// and prelude.zm's header for what collections.zm's own header carried.
+
+// **Why `unwrap_err` is lower case and `unwrap_Some` is not**, since the pair invites the question
+// twice over. For an enum, `is_V`/`unwrap_V` spells the variant exactly -- `Status.Active` gives
+// `is_Active` and `unwrap_Active`, and `Option` is a real prelude enum, so `Option.unwrap_Some`
+// exists and the bare `unwrap_Some` is its shorthand. `Result` is a *built-in type*, not an enum
+// you can address: `Result.is_Ok(...)` is a syntax error, and nothing generates an `is_Ok` or an
+// `unwrap_Ok` for a capital to agree with. Its `Ok` accessor is plain `unwrap`, carrying no
+// variant name at all, so capitalising only `unwrap_Err` would put a spelled-out variant beside
+// one with none. Each spelling tracks whether a generated function exists; neither is a slip.
+
+// `ok` and `err` take their type from the context, like `channel_new` and `Some`: the error type of
+// an `ok(...)` is nowhere in its argument, so a `val`/`var` annotation, a struct field, a `with`
+// override, a returned value or a parameter's type has to say which `Result` it is.
+//
+// That context-dependence is why these two are among the handful of builtins that cannot become
+// declarations: a native takes already-evaluated arguments against a fixed signature and has
+// nowhere to read an expected type from, so `ok(5)` would leave `E` unbound. The arm exists to say
+// so when no context supplied one.
+pub builtin fn ok<T, E>(value: T) -> Result<T, E>
+
+pub builtin fn err<T, E>(error: E) -> Result<T, E>
+
+// Whether `r` is an `Ok`. `is_ok(r)` and `if Ok(v) = r` ask the same question; the second also
+// binds the value, so this is for the cases that only need the answer.
+pub builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
+
+// `r`'s error, which is a runtime error when `r` is an `Ok` -- the mirror of `unwrap`, and lower
+// case for the reason the note at the top of this file gives.
+pub builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
+
+// **The Ok values, in order, with the failures dropped**, and `filter_err` is the same over the
+// errors. Added in F171 shaped after option.zm's `filter_present` exactly: variadic, so a
+// written-out list of fallible steps needs no array built first, and an array already in hand goes
+// in as `filter_ok<T, E>(items: existing)`.
+//
+// Both type arguments are written even though each answers only one of them, since
+// Ziman infers neither and `Result<T, E>` names both: `filter_ok<int, string>(...)` answers
+// `[int]`, `filter_err<int, string>(...)` answers `[string]` over the very same input.
+//
+// **Neither one propagates**, which is the whole point and also the risk: `filter_ok` *silently
+// discards* every failure, so it is for the cases where a failure is genuinely not news -- one
+// bad `Accept` range among ten, a malformed line in a feed that keeps going. When a failure
+// should stop the work, `try` and `if Err(e) =` are still the answer and always were. Calling
+// both on the same input is how to keep the successes and still report what was lost.
+pub fn filter_ok<T, E>(items: variadic Result<T, E>) -> [T] {
+    var out: [T] = []
+    for item in items {
+        if Ok(value) = item {
+            out = push(out, value)
+        }
+    }
+    return out
+}
+
+// The errors, in order, with the successes dropped -- `filter_ok`'s other half.
+pub fn filter_err<T, E>(items: variadic Result<T, E>) -> [E] {
+    var out: [E] = []
+    for item in items {
+        if Err(reason) = item {
+            out = push(out, reason)
+        }
+    }
+    return out
+}
+
+// `r` with its error replaced by `convert(error)`; an Ok passes through untouched. The piece that was
+// missing wherever one module's error type has to become another's -- `fs` answers an `FsError` and a
+// caller whose own errors are strings wants `try result_map_err(fs.read_text(p), fs.fs_error_message)`
+// rather than four lines of switch at every call.
+pub fn result_map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F> {
+    return switch r {
+        Ok(v) { ok(v) }
+        Err(e) { err(convert(e)) }
+    }
+}
+
+// `r`'s Ok value, or None on Err -- the error itself is dropped, so use this only where the
+// caller truly doesn't care why something failed, not as a shortcut past handling it.
+// `option_to_result` in option.zm is the reverse.
+//
+// This sentence had been attached to `result_map_err` above, two declarations away from what it
+// describes, so `result_to_option` published with no comment of its own and `result_map_err` with
+// a first sentence about something else. Found 2026-10-22 by moving the file.
+pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T> {
+    return switch r {
+        Ok(value) { Option<T>.Some(value) }
+        Err(_) { Option<T>.None }
+    }
+}
+
+// A `Result`'s Ok payload, which is a runtime error on an `Err`. `unwrap`'s other member takes an
+// `Option<T>` and is in option.zm; that Option form is why this is not spelled `unwrap_Ok`.
+pub builtin fn unwrap<T, E>(r: Result<T, E>) -> T

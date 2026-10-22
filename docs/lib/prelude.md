@@ -2153,22 +2153,6 @@ auditing every prelude declaration that writes an argument and answers a value, 
 
 ## `option.zm`
 
-### `ok`
-
-```
-pub builtin fn ok<T, E>(value: T) -> Result<T, E>
-```
-
-`ok` and `err` take their type from the context, like `channel_new` and `Some`: the error type of
-an `ok(...)` is nowhere in its argument, so a `val`/`var` annotation, a struct field, a `with`
-override, a returned value or a parameter's type has to say which `Result` it is.
-
-### `err`
-
-```
-pub builtin fn err<T, E>(error: E) -> Result<T, E>
-```
-
 ### `get_or`
 
 ```
@@ -2182,18 +2166,6 @@ map forms ask, which is why it shares their name rather than being an `option_un
 is `value` across all three forms of this set, where `set(m, key, value)` uses the same word for
 the thing being written -- the type tells them apart, and the alternative was a fourth spelling
 of "the other one".
-
-### `is_ok`
-
-```
-pub builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
-```
-
-### `unwrap_err`
-
-```
-pub builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
-```
 
 ### `is_Some`
 
@@ -2272,25 +2244,81 @@ allocating a boxed array it was about to discard. Measure one spelling per proce
 are ever re-run: taking all three in one gave the last of them a heap the earlier two had
 already grown, which read as a 4x spread that does not exist.
 
+### `option_to_result`
+
+```
+pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T, E>
+```
+
+The reverse of result_to_option: Some(value) becomes Ok(value), and None becomes
+Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
+formatted message) is skipped entirely on the common Some path.
+
+### `unwrap`
+
+```
+pub builtin fn unwrap<T>(o: Option<T>) -> T
+```
+
+An `Option`'s Some payload, which is a runtime error on a `None`. `unwrap` is the one name
+shared by the two types -- its `Result` member is in result.zm -- and **this** member is why it
+is not spelled `unwrap_Ok`: a name carrying one type's variant would not fit the other.
+result.zm's header has the full note on why `unwrap_err` is lower case where `unwrap_Some` is
+not.
+
+## `result.zm`
+
+### `ok`
+
+```
+pub builtin fn ok<T, E>(value: T) -> Result<T, E>
+```
+
+`ok` and `err` take their type from the context, like `channel_new` and `Some`: the error type of
+an `ok(...)` is nowhere in its argument, so a `val`/`var` annotation, a struct field, a `with`
+override, a returned value or a parameter's type has to say which `Result` it is.
+
+That context-dependence is why these two are among the handful of builtins that cannot become
+declarations: a native takes already-evaluated arguments against a fixed signature and has
+nowhere to read an expected type from, so `ok(5)` would leave `E` unbound. The arm exists to say
+so when no context supplied one.
+
+### `err`
+
+```
+pub builtin fn err<T, E>(error: E) -> Result<T, E>
+```
+
+### `is_ok`
+
+```
+pub builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
+```
+
+Whether `r` is an `Ok`. `is_ok(r)` and `if Ok(v) = r` ask the same question; the second also
+binds the value, so this is for the cases that only need the answer.
+
+### `unwrap_err`
+
+```
+pub builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
+```
+
+`r`'s error, which is a runtime error when `r` is an `Ok` -- the mirror of `unwrap`, and lower
+case for the reason the note at the top of this file gives.
+
 ### `filter_ok`
 
 ```
 pub fn filter_ok<T, E>(items: variadic Result<T, E>) -> [T]
 ```
 
-`filter_present` for a `Result`: the values that succeeded, in order, with the failures
-dropped -- and `filter_err` for the other half, the reasons they failed. Added in F171 beside
-`filter_present`, which they are shaped after exactly: variadic, so a written-out list of
-fallible steps needs no array built first, and an array already in hand goes in as
-`filter_ok<T, E>(items: existing)`.
+**The Ok values, in order, with the failures dropped**, and `filter_err` is the same over the
+errors. Added in F171 shaped after option.zm's `filter_present` exactly: variadic, so a
+written-out list of fallible steps needs no array built first, and an array already in hand goes
+in as `filter_ok<T, E>(items: existing)`.
 
-`pub` on all three, which in this file means only "`--api builtins` lists it" -- the prelude is
-merged into every program, so visibility does not gate calling. `result_to_option` and
-`option_to_result` beside them already carry it for that reason, and they are the closest
-siblings these two have. `filter_present` was missing it, which is why it was in the list of 21
-prelude functions a reader asking "what exists" could not see; the other 18 are their own task.
-
-Both type arguments are written even though each function returns only one of them, because
+Both type arguments are written even though each answers only one of them, since
 Ziman infers neither and `Result<T, E>` names both: `filter_ok<int, string>(...)` answers
 `[int]`, `filter_err<int, string>(...)` answers `[string]` over the very same input.
 
@@ -2306,14 +2334,14 @@ both on the same input is how to keep the successes and still report what was lo
 pub fn filter_err<T, E>(items: variadic Result<T, E>) -> [E]
 ```
 
+The errors, in order, with the successes dropped -- `filter_ok`'s other half.
+
 ### `result_map_err`
 
 ```
 pub fn result_map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F>
 ```
 
-`r`'s Ok value, or None on Err -- the error itself is dropped, so use this only where the
-caller truly doesn't care why something failed, not as a shortcut past handling it.
 `r` with its error replaced by `convert(error)`; an Ok passes through untouched. The piece that was
 missing wherever one module's error type has to become another's -- `fs` answers an `FsError` and a
 caller whose own errors are strings wants `try result_map_err(fs.read_text(p), fs.fs_error_message)`
@@ -2325,15 +2353,13 @@ rather than four lines of switch at every call.
 pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T>
 ```
 
-### `option_to_result`
+`r`'s Ok value, or None on Err -- the error itself is dropped, so use this only where the
+caller truly doesn't care why something failed, not as a shortcut past handling it.
+`option_to_result` in option.zm is the reverse.
 
-```
-pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T, E>
-```
-
-The reverse of result_to_option: Some(value) becomes Ok(value), and None becomes
-Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
-formatted message) is skipped entirely on the common Some path.
+This sentence had been attached to `result_map_err` above, two declarations away from what it
+describes, so `result_to_option` published with no comment of its own and `result_map_err` with
+a first sentence about something else. Found 2026-10-22 by moving the file.
 
 ### `unwrap`
 
@@ -2341,12 +2367,8 @@ formatted message) is skipped entirely on the common Some path.
 pub builtin fn unwrap<T, E>(r: Result<T, E>) -> T
 ```
 
-`unwrap` is the one name shared by the two: a `Result`'s Ok payload, or an `Option`'s Some. The
-Option form is why it is not spelled `unwrap_Ok` -- see the note above `ok`.
-
-```
-pub builtin fn unwrap<T>(o: Option<T>) -> T
-```
+A `Result`'s Ok payload, which is a runtime error on an `Err`. `unwrap`'s other member takes an
+`Option<T>` and is in option.zm; that Option form is why this is not spelled `unwrap_Ok`.
 
 ## `set.zm`
 

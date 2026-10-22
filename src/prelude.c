@@ -38,6 +38,7 @@
 #include "prelude_map_source.h"
 #include "prelude_mutable_source.h"
 #include "prelude_option_source.h"
+#include "prelude_result_source.h"
 #include "prelude_set_source.h"
 #include "prelude_string_source.h"
 #include "xalloc.h"
@@ -68,6 +69,7 @@ static const struct {
     {"lib/prelude/map.zm", PRELUDE_MAP_SOURCE},
     {"lib/prelude/mutable.zm", PRELUDE_MUTABLE_SOURCE},
     {"lib/prelude/option.zm", PRELUDE_OPTION_SOURCE},
+    {"lib/prelude/result.zm", PRELUDE_RESULT_SOURCE},
     {"lib/prelude/set.zm", PRELUDE_SET_SOURCE},
     {"lib/prelude/string.zm", PRELUDE_STRING_SOURCE},
 };

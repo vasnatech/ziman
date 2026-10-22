@@ -1,6 +1,13 @@
-// option.zm -- `Option<T>` and `Result<T, E>`, the two types that answer "there may be nothing"
-// and "this may have failed". They share a file because they convert into each other
-// (`option_to_result`, `result_to_option`) and because `unwrap` is one overload set over both.
+// option.zm -- `Option<T>`, the type that answers "there may be nothing". Ordinary Ziman source:
+// an enum, which is why `Option.is_Some(o)` and `Option.unwrap_Some(o)` exist and the bare
+// `is_Some`/`unwrap_Some` are their shorthand.
+//
+// **`Result<T, E>` was here until 2026-10-22 and is in result.zm now.** The two shared a file
+// "because they convert into each other and because `unwrap` is one overload set over both" --
+// which the filing rule had already answered: a declaration lives in the file for the type its
+// first argument has, and a set is split when its members' types are. So `unwrap` has one member
+// here and one there, as `len` has five files, and each conversion sits with its *source*:
+// `option_to_result` here, `result_to_option` in result.zm.
 //
 // Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
 // loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
@@ -66,26 +73,14 @@ enum Option<T> {
     None
 }
 
-// The Result and Option builtins. Declared, not defined -- each one's rule is a type-checker arm.
+// The Option builtins. Declared, not defined -- each one's rule is a type-checker arm, and for
+// these three the arm *rewrites* rather than computes: `is_Some(o)` becomes the `Option.is_Some(o)`
+// enum access, which is why they cannot simply become natives and why discarding one is not caught
+// by the dropped-result gate (the statement is no longer a call by the time it looks).
 //
-// `unwrap` is **not** here: it takes an `Option<T>` as well as a `Result<T, E>`, so it needs two
-// declarations and waits for `builtin fn` to accept an overload set.
-
-// **Why `unwrap_err` is lower case and `unwrap_Some` is not**, since the pair invites the question
-// twice over. For an enum, `is_V`/`unwrap_V` spells the variant exactly -- `Status.Active` gives
-// `is_Active` and `unwrap_Active`, and `Option` is a real prelude enum, so `Option.unwrap_Some`
-// exists and the bare `unwrap_Some` is its shorthand. `Result` is a *built-in type*, not an enum
-// you can address: `Result.is_Ok(...)` is a syntax error, and nothing generates an `is_Ok` or an
-// `unwrap_Ok` for a capital to agree with. Its `Ok` accessor is plain `unwrap`, carrying no
-// variant name at all, so capitalising only `unwrap_Err` would put a spelled-out variant beside
-// one with none. Each spelling tracks whether a generated function exists; neither is a slip.
-
-// `ok` and `err` take their type from the context, like `channel_new` and `Some`: the error type of
-// an `ok(...)` is nowhere in its argument, so a `val`/`var` annotation, a struct field, a `with`
-// override, a returned value or a parameter's type has to say which `Result` it is.
-pub builtin fn ok<T, E>(value: T) -> Result<T, E>
-
-pub builtin fn err<T, E>(error: E) -> Result<T, E>
+// `unwrap`'s Option member is at the bottom of the file, beside the note on its spelling; its
+// Result member is in result.zm. The sentence here used to say `unwrap` "waits for `builtin fn` to
+// accept an overload set" -- it has accepted one since F178.
 
 // **The value inside `o`, or `value` when `o` is None** -- the one-entry case of the question the
 // map forms ask, which is why it shares their name rather than being an `option_unwrap_or`.
@@ -100,10 +95,6 @@ pub fn get_or<T>(o: Option<T>, value: T) -> T {
         None { value }
     }
 }
-
-pub builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
-
-pub builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
 
 pub builtin fn is_Some<T>(o: Option<T>) -> bool
 
@@ -167,67 +158,6 @@ pub fn filter_present<T>(items: variadic Option<T>) -> [T] {
     return out
 }
 
-// `filter_present` for a `Result`: the values that succeeded, in order, with the failures
-// dropped -- and `filter_err` for the other half, the reasons they failed. Added in F171 beside
-// `filter_present`, which they are shaped after exactly: variadic, so a written-out list of
-// fallible steps needs no array built first, and an array already in hand goes in as
-// `filter_ok<T, E>(items: existing)`.
-//
-// `pub` on all three, which in this file means only "`--api builtins` lists it" -- the prelude is
-// merged into every program, so visibility does not gate calling. `result_to_option` and
-// `option_to_result` beside them already carry it for that reason, and they are the closest
-// siblings these two have. `filter_present` was missing it, which is why it was in the list of 21
-// prelude functions a reader asking "what exists" could not see; the other 18 are their own task.
-//
-// Both type arguments are written even though each function returns only one of them, because
-// Ziman infers neither and `Result<T, E>` names both: `filter_ok<int, string>(...)` answers
-// `[int]`, `filter_err<int, string>(...)` answers `[string]` over the very same input.
-//
-// **Neither one propagates**, which is the whole point and also the risk: `filter_ok` *silently
-// discards* every failure, so it is for the cases where a failure is genuinely not news -- one
-// bad `Accept` range among ten, a malformed line in a feed that keeps going. When a failure
-// should stop the work, `try` and `if Err(e) =` are still the answer and always were. Calling
-// both on the same input is how to keep the successes and still report what was lost.
-pub fn filter_ok<T, E>(items: variadic Result<T, E>) -> [T] {
-    var out: [T] = []
-    for item in items {
-        if Ok(value) = item {
-            out = push(out, value)
-        }
-    }
-    return out
-}
-
-pub fn filter_err<T, E>(items: variadic Result<T, E>) -> [E] {
-    var out: [E] = []
-    for item in items {
-        if Err(reason) = item {
-            out = push(out, reason)
-        }
-    }
-    return out
-}
-
-// `r`'s Ok value, or None on Err -- the error itself is dropped, so use this only where the
-// caller truly doesn't care why something failed, not as a shortcut past handling it.
-// `r` with its error replaced by `convert(error)`; an Ok passes through untouched. The piece that was
-// missing wherever one module's error type has to become another's -- `fs` answers an `FsError` and a
-// caller whose own errors are strings wants `try result_map_err(fs.read_text(p), fs.fs_error_message)`
-// rather than four lines of switch at every call.
-pub fn result_map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F> {
-    return switch r {
-        Ok(v) { ok(v) }
-        Err(e) { err(convert(e)) }
-    }
-}
-
-pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T> {
-    return switch r {
-        Ok(value) { Option<T>.Some(value) }
-        Err(_) { Option<T>.None }
-    }
-}
-
 // The reverse of result_to_option: Some(value) becomes Ok(value), and None becomes
 // Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
 // formatted message) is skipped entirely on the common Some path.
@@ -238,7 +168,9 @@ pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T
     }
 }
 
-// `unwrap` is the one name shared by the two: a `Result`'s Ok payload, or an `Option`'s Some. The
-// Option form is why it is not spelled `unwrap_Ok` -- see the note above `ok`.
-pub builtin fn unwrap<T, E>(r: Result<T, E>) -> T
+// An `Option`'s Some payload, which is a runtime error on a `None`. `unwrap` is the one name
+// shared by the two types -- its `Result` member is in result.zm -- and **this** member is why it
+// is not spelled `unwrap_Ok`: a name carrying one type's variant would not fit the other.
+// result.zm's header has the full note on why `unwrap_err` is lower case where `unwrap_Some` is
+// not.
 pub builtin fn unwrap<T>(o: Option<T>) -> T

@@ -114,7 +114,7 @@ CORELIB_MODULES := process url fs log metrics regex client random uuid clock tim
 # src/prelude.c's PARTS table; removing one is the same three edits, which is
 # what retired `collections` on 2026-10-22 once the last of its names had been
 # filed by type.
-PRELUDE_PARTS := prelude array channel iter map mutable option set string
+PRELUDE_PARTS := prelude array channel iter map mutable option result set string
 # Bundled modules live in lib/core (general-purpose), lib/db (SQL
 # drivers) lib/http (http, server, client), lib/time (time, zone, schedule) and lib/graphics (the 2D model and
 # its backends); `use` names are flat either way.
