@@ -2744,6 +2744,20 @@ static Value native_map_remove_all(Value *args, int argc, int line, int col) {
     return value_map(args[0].type, m);
 }
 
+/* `remove_keys` over an immutable Map: the map without any key the given Set holds. A separate
+ * name rather than a `remove_all` member because the overload could not exist -- see the
+ * declaration in lib/prelude/map.zm for the refusal and why it is not a bug in the rule. */
+static Value native_map_remove_keys(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MapObj *m = args[0].as.map;
+    Value *keys;
+    mapobj_entries(args[1].as.map, &keys, NULL);
+    for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_remove(m, keys[i]);
+    return value_map(args[0].type, m);
+}
+
 /* `remove` over the three immutable collections, which answer a new collection without the thing
  * removed and leave their argument alone -- the builder members of the same name write in place
  * and answer what they took out, which is the difference between the two worlds rather than
@@ -2910,6 +2924,7 @@ void prelude_register(void) {
     native_register("map_merge", native_map_merge);
     native_register("mutable_map_merge", native_mutable_map_merge);
     native_register("map_remove_all", native_map_remove_all);
+    native_register("map_remove_keys", native_map_remove_keys);
     native_register("array_remove", native_array_remove);
     native_register("map_remove", native_map_remove);
     native_register("set_remove", native_set_remove);

@@ -1833,6 +1833,42 @@ them in place and answers whether any was there, where this answers the map that
 MutableSet form is in set.zm, and `remove` -- the singular of it -- has its two map members
 just above.
 
+### `remove_keys`
+
+```
+pub native fn remove_keys<K: Eq + Hash, V>(m: Map<K, V>, keys: Set<K>) -> Map<K, V>
+```
+
+**`m` without any key that `keys` holds**, and **a second name for what looks like one
+question** -- which is a cost taken deliberately, so the reasoning is here rather than left to
+be rediscovered and "fixed".
+
+`remove_all(m, keys: Set<K>)` cannot be a declaration. Tried on 2026-10-22:
+
+
+```
+function 'remove_all' is already defined -- two declarations may share a name only when
+every call can tell them apart
+```
+
+The sibling above takes `variadic K`, and **a `Set<K>` argument satisfies that too** -- as one
+element whose type happens to be a set, which `Map<Set<int>, V>` makes a real map to want. So no
+call can tell "remove these keys" from "remove this one key, which is a set", and the rule is
+right to refuse rather than pick. The same shape as `concat`'s second wall and `mutable`'s.
+
+**What was already possible**, and is still the shorter way when the set is at hand:
+`remove_all(m, items(drop))` -- `items` answers the elements as an array and the variadic's
+lone-array spread takes it, in both worlds. This exists for the call that reads better naming
+the set, and for the one that would otherwise pay for an intermediate array.
+
+```
+pub fn remove_keys<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: Set<K>) -> bool
+```
+
+The builder half: the entries are dropped in place and the answer is whether any of them was
+there. `#[effectful]` for the reason `remove_all`'s builder form carries it -- the call writes
+the map, and "was any of it there?" is an answer "make sure these are gone" has no use for.
+
 ### `get_or`
 
 ```
