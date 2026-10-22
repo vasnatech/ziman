@@ -2049,12 +2049,18 @@ A cell holding `value`.
 ### `len`
 
 ```
-pub native fn len<T>(cell: Mutable<T>) -> int
+pub fn len<T>(cell: Mutable<T>) -> int
 ```
 
 A cell holds exactly one value, so its length is always 1 -- `len`'s ninth member, and the only
 one of the nine that is not about a collection. The other eight are in array.zm, string.zm,
 map.zm and set.zm.
+
+**Ordinary Ziman rather than a native, since 2026-10-22.** The other eight ask their argument
+something; this one does not, and a constant is not worth a C function. It made `len` a mixed
+set -- eight natives and one Ziman body, the shape `push` had -- which costs this member the
+frame-free shortcut the natives get (`impl == ziman_len` in interpreter.c, worth +23% on `len`
+when it was added) and that is the right trade for a call that can only ever answer 1.
 
 ### `contains`
 

@@ -2034,8 +2034,14 @@ Value ziman_len(Value *args, int argc, int line, int col) {
     if (v.type->kind == TY_STRING) return value_int((int64_t)v.as.str.len);
     if (v.type->kind == TY_MAP || v.type->kind == TY_SET) return value_int(v.as.map->count);
     /* One of the four builders, or a cell: a struct over a thread-bound handle, so the length
-     * lives in the handle's table rather than in the struct. A `Mutable<T>` holds exactly one
-     * value, which needs no asking. */
+     * lives in the handle's table rather than in the struct.
+     *
+     * **A cell no longer arrives here**, its `len` having become ordinary Ziman that returns 1
+     * (lib/prelude/mutable.zm, 2026-10-22), so eight of the nine declarations reach this and the
+     * ninth does not. The `MUTABLE_CELL` test stays anyway: `ziman_builder_length` falls through
+     * to `mutable_map_get_buf` for a kind it does not recognise, so dropping it would turn a
+     * stray cell into a misread map rather than a loud failure. One comparison against a silent
+     * wrong answer. */
     if (v.type->kind == TY_STRUCT) {
         MutableKind kind = ziman_mutable_kind(v.type);
         if (kind == MUTABLE_CELL) return value_int(1);
