@@ -478,6 +478,14 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
                     static const struct { const char *type_name; const char *prefix; } WORLDS[] = {
                         {"MutableArray", "mutable_array_"}, {"MutableMap", "mutable_map_"},
                         {"MutableSet", "mutable_set_"},     {"MutableString", "mutable_string_"},
+                        /* The cell, added when `mutable_get`/`mutable_set` became `get`/`set`
+                         * (2026-10-22). Its prefix has no second underscore, so `get` on a
+                         * `Mutable<T>` lands on the `mutable_get` that was already registered and
+                         * the rename costs no C at all. Exact matching is what keeps this from
+                         * colliding with `MutableSet`: `mutable_` + `set` is `mutable_set`, the
+                         * cell's setter, where the set's own family is `mutable_set_add` and
+                         * friends -- two names a letter apart, and the table never guesses. */
+                        {"Mutable", "mutable_"},
                     };
                     for (size_t w = 0; w < sizeof WORLDS / sizeof WORLDS[0]; w++) {
                         if (strcmp(p0.struct_name, WORLDS[w].type_name) == 0) {

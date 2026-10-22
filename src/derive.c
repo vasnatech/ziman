@@ -1144,7 +1144,7 @@ static void refuse_handle_field(Module *module, const char *target, Type t, int 
         ziman_error("syntax", line, col,
                     "derive(%s) cannot convert '%s': it is a thread-bound handle, and nothing written out could "
                     "decode back to the same mutable object. Hand over the finished value and convert that instead "
-                    "-- snapshot(x) for a mutable collection, mutable_get(c) for a Mutable",
+                    "-- snapshot(x) for a mutable collection, get(c) for a Mutable",
                     target, type_name(t));
     }
     if (t.elem != NULL) refuse_handle_field(module, target, *t.elem, line, col);

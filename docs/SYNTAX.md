@@ -429,7 +429,7 @@ for x in seen { ... }                    // a set has one binder
 - **No derive converts one**: `#[derive(Json)]`, `Row` and `Properties` all refuse a field whose
   type is a thread-bound handle, however deeply nested -- inside an `Option`, an array, a type
   argument. Nothing written out could decode back to the same mutable object, so hand over the
-  finished value and derive that: `snapshot(x)` for a collection, `mutable_get(c)` for a cell.
+  finished value and derive that: `snapshot(x)` for a collection, `get(c)` for a cell.
 - **Printing one**: a handle prints as the value it is building -- `[1, 2, 3]` for a
   `MutableArray`, its text for a `MutableString`, `{a: 1}` for a `MutableMap`, `Mutable(5)` for a
   cell -- not as the one-field struct it is. A handle *inside* another value prints a summary
@@ -2824,17 +2824,27 @@ a type error.
   `MutableSet`), and for a `Mutable<T>` cell, whose length is always 1. So asking a collection its
   size never needs a per-type name or a conversion. It answers for a *handle*, not for a struct
   that holds one, which has no length of its own.
-- `mutable_new(v) -> Mutable<T>` / `mutable_get(c) -> T` / `mutable_set(c, v)` /
-  `mutable_update(c, f: fn(T) -> T) -> T` — one cell holding one value: the root the four mutable
-  collections specialise, and what lets a new mutable shape be written in Ziman instead of added to
-  the language (a ring buffer is a struct over a `MutableArray` plus two `Mutable<int>`s). An
-  update returns the new value, so a counter is `mutable_update(n, fn(x) { x + 1 })`. Always
-  initialised -- there is no empty `mutable_new<T>()`, because `T` may have no zero -- and `T` is
-  anything, including another handle. It answers `len(c)` and `contains(c, v)` but **not**
-  `snapshot` or `clear`: crossing out is `mutable_get`, an O(1) read rather than an O(n) copy, and
-  emptying would need exactly the zero its type may not have. So a cell has no `from`/`snapshot`
-  pair at all -- `mutable_new` takes a value and `mutable_get` returns one, which *is* the crossing
-  between the two worlds.
+- `mutable_new(v) -> Mutable<T>` / `get(c) -> T` / `set(c, v)` / `update(c, f: fn(T) -> T) -> T`
+  — one cell holding one value: the root the four mutable collections specialise, and what lets a
+  new mutable shape be written in Ziman instead of added to the language (a ring buffer is a struct
+  over a `MutableArray` plus two `Mutable<int>`s). An update returns the new value, so a counter is
+  `update(n, fn(x) { x + 1 })` — and because that writes the cell, the answer may be thrown away:
+  `update` carries `#[effectful]`, which is what makes the counter idiom a statement.
+
+  **Three of those four names are shared.** `get`, `set` and `update` each take a cell *and* a map,
+  told apart by the argument: `get(c)` against `get(m, key)`, `set(c, v)` against
+  `set(m, key, value)` and `set(a, index, x)`, `update(c, f)` against `update(m, key, f)`. They
+  were `mutable_get`, `mutable_set` and `mutable_update` until the prefix came off (`update` with
+  F201, the other two on 2026-10-22); the old spellings answer with the new one rather than "no
+  such function". Only the constructor keeps a prefix, because `mutable_new(v)` is not a question
+  anything else answers.
+
+  Always initialised — there is no empty `mutable_new<T>()`, because `T` may have no zero — and `T`
+  is anything, including another handle. A cell answers `len(c)`, which is always 1, and
+  `contains(c, v)`, but **not** `snapshot` or `clear`: crossing out is `get`, an O(1) read rather
+  than an O(n) copy, and emptying would need exactly the zero its type may not have. So a cell has
+  no `from`/`snapshot` pair at all — `mutable_new` takes a value and `get` returns one, which *is*
+  the crossing between the two worlds.
 - `clear(b)` — empties a builder and leaves it usable, for reusing one across the passes of an
   outer loop instead of allocating a fresh one each time. Takes a builder only: an empty `Map` or
   array is a value you write down (`Map<K, V> {}`, `[]`), not something you do to one you have. A

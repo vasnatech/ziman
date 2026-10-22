@@ -2102,21 +2102,36 @@ a builder at all, which is deliberate rather than pending. `mutable_array_from`,
 covered the conversion they were mostly used for: keeping both would have put two spellings on
 one question, and the clone half had no caller outside its own fixtures.
 
-### `mutable_get`
+### `get`
 
 ```
-pub native fn mutable_get<T>(cell: Mutable<T>) -> T
+pub native fn get<T>(cell: Mutable<T>) -> T
 ```
 
 The value in the cell.
+**The value in the cell**, O(1). `get`'s other two members take a Map and a MutableMap and
+answer an `Option<V>`, because a key may be absent; a cell always holds a value, so this one
+answers it directly and the arity tells the three apart.
 
-### `mutable_set`
+**`mutable_get` until 2026-10-22.** The prefix said which world the name belonged to, which is
+what the bare names have been replacing since F178 -- and `get` was already the word for
+reaching into a map. The old spelling answers with this one rather than "no such function".
+
+### `set`
 
 ```
-pub native fn mutable_set<T>(cell: Mutable<T>, value: T)
+pub native fn set<T>(cell: Mutable<T>, value: T)
 ```
 
 Replaces the value in the cell.
+**Replaces the value in the cell**, answering nothing. `set`'s other three members take a Map, a
+MutableMap and an array, all with a key or an index between the container and the value; a cell
+has one slot and needs none, so two arguments against three is what tells them apart.
+
+**`mutable_set` until 2026-10-22**, and this one needed the type checker's help: `set` keeps an
+arm for the three per-type refusals it carries (a Set, a MutableArray, a MutableSet each get
+their own message), and that arm claimed the name before any declaration was reached. It
+declines for a cell now, as it already did for a Map and a MutableMap.
 
 ### `update`
 

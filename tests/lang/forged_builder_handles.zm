@@ -36,7 +36,7 @@ fn use_string(done: Channel<string>) {
 
 fn use_cell(done: Channel<string>) {
     val b = Mutable<int> { handle: 1 }
-    mutable_set(b, 1)
+    set(b, 1)
     send(done, "cell: not refused")
 }
 

@@ -8,17 +8,17 @@
 // siblings were removed once `mutable` covered the conversion they were mostly used for.
 fn main() {
     val ci = mutable(7)
-    mutable_set<int>(ci, 8)
-    print(mutable_get<int>(ci))
+    set<int>(ci, 8)
+    print(get<int>(ci))
 
     val cs = mutable("hi")
-    mutable_set<string>(cs, "there")
-    print(mutable_get<string>(cs))
+    set<string>(cs, "there")
+    print(get<string>(cs))
 
-    print(mutable_get<bool>(mutable(true)))
+    print(get<bool>(mutable(true)))
 
     val ab = mutable<int>([1, 2])
-    val held = mutable_get<MutableArray<int>>(mutable(ab))
+    val held = get<MutableArray<int>>(mutable(ab))
     push(held, 3)
     print(snapshot(ab))
 }

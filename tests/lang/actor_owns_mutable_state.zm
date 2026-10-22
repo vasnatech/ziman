@@ -38,7 +38,7 @@ fn cache(requests: Channel<Request>) {
         switch r.op {
             Get(k) {
                 val found = get(store, k)
-                if Option.is_Some(found) { mutable_set(hits, mutable_get(hits) + 1) }
+                if Option.is_Some(found) { set(hits, get(hits) + 1) }
                 append(log, "g")
                 send(r.reply, found)
             }
@@ -48,16 +48,16 @@ fn cache(requests: Channel<Request>) {
                 send(r.reply, Some(r.value))
             }
             Bump {
-                mutable_set(hits, mutable_get(hits) + 1)
-                send(r.reply, Some(mutable_get(hits)))
+                set(hits, get(hits) + 1)
+                send(r.reply, Some(get(hits)))
             }
-            Total { send(r.reply, Some(mutable_get(hits))) }
+            Total { send(r.reply, Some(get(hits))) }
             Stop {
                 running = false
                 // The log proves the state is the *same* state across every request, not a fresh
                 // one per message: it has one character per Get/Put the actor ever served.
                 print(format("log: {} ({} chars)", snapshot(log), len(log)))
-                send(r.reply, Some(mutable_get(hits)))
+                send(r.reply, Some(get(hits)))
             }
         }
     }

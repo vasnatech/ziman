@@ -13,7 +13,7 @@ fn main() {
     update(hits, fn(n: int) -> int { return n + 1 })
     update(hits, fn(n: int) -> int { return n + 1 })
     update(hits, fn(n: int) -> int { return n + 1 })
-    print(mutable_get(hits))
+    print(get(hits))
 
     // the MutableMap form, for the same reason: the entry is written and the new value is an
     // answer "bump this counter" has no use for

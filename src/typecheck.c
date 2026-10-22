@@ -1757,7 +1757,13 @@ static const char *renamed_builder_fn(const char *name) {
     static const struct {
         const char *was;
         const char *now;
-    } RENAMED[] = {{"ab_new", "mutable_array_new"},
+    } RENAMED[] = {/* The cell's two, 2026-10-22: `get` and `set` take a `Mutable<T>` now, joining
+                    * the sets that already had those names for a map and an array. The prefix was
+                    * the last of its kind on a *reachable* name -- `mutable_array_new` and
+                    * `mutable_array_filled` keep theirs, being constructors with no bare form. */
+                   {"mutable_get", "get"},
+                   {"mutable_set", "set"},
+                   {"ab_new", "mutable_array_new"},
                    {"ab_append", "push"},
                    {"ab_to_array", "snapshot"},
                    {"ab_len", "len"},
@@ -3871,14 +3877,18 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                 ziman_error("type", e->line, e->col, "a set has no 'set' -- use add(set, item) to add an item");
             }
             /* F200 gave `set` a MutableMap declaration, and the shared arm claimed the name before
-             * the declaration could be reached. The arm declines the one shape it does not handle. */
-            if (strcmp(coll_type.struct_name, "MutableMap") == 0) {
+             * the declaration could be reached. The arm declines every shape it does not refuse:
+             * a MutableMap, a Map (since the Map member became a declaration), and a `Mutable<T>`
+             * cell, whose `set` was `mutable_set` until 2026-10-22. */
+            if (strcmp(coll_type.struct_name, "MutableMap") == 0 ||
+                strcmp(coll_type.struct_name, "Mutable") == 0) {
                 goto ordinary_call;
             }
         }
         if (coll_type.kind != TY_ARRAY) {
             ziman_error("type", coll_arg->line, coll_arg->col,
-                        "argument 1 of 'set' expects an array, a Map or a MutableMap, found %s", type_name(coll_type));
+                        "argument 1 of 'set' expects an array, a Map, a MutableMap or a Mutable cell, found %s",
+                        type_name(coll_type));
         }
 
         if (e->as.call.args.count != 3) {

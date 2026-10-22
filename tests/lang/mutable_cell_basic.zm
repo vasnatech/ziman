@@ -2,12 +2,12 @@
 // the last block -- a mutable shape written in Ziman rather than added to the language.
 fn main() {
     val n = mutable_new(0)
-    print(mutable_get(n))
-    mutable_set(n, 5)
-    print(mutable_get(n))
+    print(get(n))
+    set(n, 5)
+    print(get(n))
     // The counter idiom, and the same shape update has: returns the new value.
     print(update(n, fn(x) { x + 1 }))
-    print(mutable_get(n))
+    print(get(n))
 
     // Two of the four bare builtins, and not the other two: a cell holds exactly one value, so its
     // length needs no asking and `contains` is "is that value this one".
@@ -19,9 +19,9 @@ fn main() {
     val inner = mutable_array_new<int>()
     push(inner, 1, 2)
     val holder = mutable_new(inner)
-    push(mutable_get(holder), 3)
-    print(snapshot(mutable_get(holder)))
-    print(mutable_get(mutable_new("text")))
+    push(get(holder), 3)
+    print(snapshot(get(holder)))
+    print(get(mutable_new("text")))
 
     // A counter whose state is shared by every copy of the struct, because the struct is a value
     // and the cell is a handle -- the distinction the design keeps visible.
@@ -38,9 +38,9 @@ struct Counter {
 }
 
 fn bump(c: Counter) {
-    mutable_set(c.slot, mutable_get(c.slot) + 1)
+    set(c.slot, get(c.slot) + 1)
 }
 
 fn reading(c: Counter) -> int {
-    return mutable_get(c.slot)
+    return get(c.slot)
 }

@@ -143,7 +143,7 @@ pub fn close(conn: Connection) {
 // right way round: an unwind leaves a connection whose state this code cannot inspect, and
 // replacing it is the conservative answer (A48).
 fn settle_cell(conn: Connection, taken: Connection, broken: Mutable<bool>) {
-    if mutable_get(broken) {
+    if get(broken) {
         discard(conn, taken)
         return
     }
@@ -162,7 +162,7 @@ fn pooled_execute(conn: Connection, sql: string, params: [SqlValue]) -> Result<i
     val broken = mutable_new(true)
     defer settle_cell(conn, inner, broken)
     val result = execute(inner, sql, params)
-    mutable_set(broken, is_connection_error<int>(result))
+    set(broken, is_connection_error<int>(result))
     return result
 }
 
@@ -171,7 +171,7 @@ fn pooled_query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Ro
     val broken = mutable_new(true)
     defer settle_cell(conn, inner, broken)
     val result = query(inner, sql, params)
-    mutable_set(broken, is_connection_error<[Row]>(result))
+    set(broken, is_connection_error<[Row]>(result))
     return result
 }
 
@@ -480,7 +480,7 @@ pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, D
     val broken = mutable_new(true)
     defer settle_cell(conn, tx, broken)
     val result = run_transaction<R>(tx, work)
-    mutable_set(broken, is_connection_error<R>(result))
+    set(broken, is_connection_error<R>(result))
     return result
 }
 

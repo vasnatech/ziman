@@ -1,1 +1,1 @@
-derive(Row) cannot convert 'MyHandle': it is a thread-bound handle, and nothing written out could decode back to the same mutable object. Hand over the finished value and convert that instead -- snapshot(x) for a mutable collection, mutable_get(c) for a Mutable
+derive(Row) cannot convert 'MyHandle': it is a thread-bound handle, and nothing written out could decode back to the same mutable object. Hand over the finished value and convert that instead -- snapshot(x) for a mutable collection, get(c) for a Mutable

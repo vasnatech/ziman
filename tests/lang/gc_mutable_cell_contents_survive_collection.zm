@@ -44,10 +44,10 @@ fn main() {
     var n = 1
     while n < 40 {
         val tag = concat("t", str(n))
-        mutable_set(cell, fill(tag))
+        set(cell, fill(tag))
         os.collect_garbage()
         // Read back only through the cell, after the collection.
-        val pairs = snapshot(mutable_get(cell))
+        val pairs = snapshot(get(cell))
         if len(pairs) != 4 {
             ok = false
             print(concat("WRONG LENGTH at ", str(n)))
