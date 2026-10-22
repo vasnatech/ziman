@@ -58,8 +58,9 @@
 // are given, so the copy they save is a smaller share of their cost than it is for `fold`;
 // `min_by` and `max_by` allocate nothing and are the same case as the eleven above.
 //
-// **The four that ask an ordered sequence a question** -- `is_sorted`, `binary_search`,
-// `lower_bound`, `upper_bound`. These read their sequence with `len()` and `[i]` and nothing else,
+// **The five that ask an ordered sequence a question** -- `is_sorted`, `is_sorted_desc`,
+// `binary_search`, `lower_bound`, `upper_bound`. These read their sequence with `len()` and `[i]`
+// and nothing else,
 // so each builder twin is the array body verbatim -- F149's `b[i]` is what makes that literally
 // true rather than merely similar. Three of the four require the sequence to already be in order,
 // and that precondition is the caller's in either world. A builder is in fact the likelier place
@@ -569,6 +570,35 @@ pub fn is_sorted<T: Ord>(items: [T]) -> bool {
 pub fn is_sorted<T: Ord>(items: MutableArray<T>) -> bool {
     for i in 1..len(items) {
         if compare(items[i - 1], items[i]) > 0 {
+            return false
+        }
+    }
+    return true
+}
+
+// True when no element is *less* than the one after it -- what `sort_desc` leaves behind, as
+// `is_sorted` is what `sort` leaves behind. An empty or one-element array is both, and so is an
+// array of equal elements: neither question is strict, so `[2, 2, 2]` answers true to each.
+//
+// **It does not unlock a descending `binary_search`.** The three searches below all assume
+// ascending order and there are no descending twins of them, so a descending sequence is searched
+// by `inverse`-ing nothing and reversing nothing: either keep it ascending and read it backwards,
+// or search with `lower_bound` on the ascending copy. This answers a question about an order; it
+// does not install one.
+pub fn is_sorted_desc<T: Ord>(items: [T]) -> bool {
+    for i in 1..len(items) {
+        if compare(items[i - 1], items[i]) < 0 {
+            return false
+        }
+    }
+    return true
+}
+
+// The builder twin, the array body with one word of the signature changed -- `len()` and `[i]` are
+// all it reads, which is what makes that literally true here rather than merely similar.
+pub fn is_sorted_desc<T: Ord>(items: MutableArray<T>) -> bool {
+    for i in 1..len(items) {
+        if compare(items[i - 1], items[i]) < 0 {
             return false
         }
     }

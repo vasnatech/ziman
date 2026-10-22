@@ -1192,6 +1192,29 @@ pub fn is_sorted<T: Ord>(items: MutableArray<T>) -> bool
 The precondition is the caller's in either world, and `sort(b)` leaves the handle itself in
 order, so a builder is if anything the more natural subject than an array.
 
+### `is_sorted_desc`
+
+```
+pub fn is_sorted_desc<T: Ord>(items: [T]) -> bool
+```
+
+True when no element is *less* than the one after it -- what `sort_desc` leaves behind, as
+`is_sorted` is what `sort` leaves behind. An empty or one-element array is both, and so is an
+array of equal elements: neither question is strict, so `[2, 2, 2]` answers true to each.
+
+**It does not unlock a descending `binary_search`.** The three searches below all assume
+ascending order and there are no descending twins of them, so a descending sequence is searched
+by `inverse`-ing nothing and reversing nothing: either keep it ascending and read it backwards,
+or search with `lower_bound` on the ascending copy. This answers a question about an order; it
+does not install one.
+
+```
+pub fn is_sorted_desc<T: Ord>(items: MutableArray<T>) -> bool
+```
+
+The builder twin, the array body with one word of the signature changed -- `len()` and `[i]` are
+all it reads, which is what makes that literally true here rather than merely similar.
+
 ### `lower_bound`
 
 ```

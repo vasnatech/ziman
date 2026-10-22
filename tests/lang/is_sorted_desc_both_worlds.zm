@@ -1,0 +1,32 @@
+// `is_sorted_desc` is to `sort_desc` what `is_sorted` is to `sort`: it answers whether a sequence
+// is already in that order, over either world, reading only `len()` and `[i]`.
+//
+// **Neither question is strict**, which is the part worth pinning: "no element is greater than the
+// one after it" and "no element is less than the one after it" are both true of an array of equal
+// elements and of an empty or one-element one. So `[2, 2, 2]` and `[]` answer true to both, and a
+// caller testing `is_sorted(x) && !is_sorted_desc(x)` is asking for strictly ascending rather than
+// for ascending.
+fn main() {
+    print(is_sorted_desc([3, 2, 1]))
+    print(is_sorted_desc([3, 3, 1]))
+    print(is_sorted_desc([1, 2, 3]))
+    print(is_sorted_desc([1]))
+    val empty: [int] = []
+    print(is_sorted_desc(empty))
+
+    // both questions are true of equal elements, and of nothing at all
+    print(is_sorted([2, 2, 2]))
+    print(is_sorted_desc([2, 2, 2]))
+    print(is_sorted(empty))
+
+    // strings order too, and so does anything with a derived compare
+    print(is_sorted_desc(["c", "b", "a"]))
+
+    // the builder twin, over the same buffer sort_desc leaves behind
+    val b = mutable([5, 1, 4, 2])
+    print(is_sorted_desc(b))
+    sort_desc(b)
+    print(snapshot(b))
+    print(is_sorted_desc(b))
+    print(is_sorted(b))
+}
