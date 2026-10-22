@@ -234,7 +234,8 @@ pub fn json_require_bool_field(j: Json, key: string) -> Result<bool, string> {
     return err(format("field '{}' must be a boolean", key))
 }
 
-// An object as a Map, each value decoded by `decode`: `json_to_map<int>(j, int_from_json)`.
+// An object as a Map, each value decoded by `decode`: `json_to_map(j, int_from_json)` -- `V` comes
+// from `decode`'s own return type, so writing it is optional.
 pub fn json_to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<Map<string, V>, string> {
     if JObject(fields) = j {
         val out = mutable_map_new<string, V>()
@@ -258,7 +259,7 @@ pub fn json_from_map<V>(m: Map<string, V>, encode: fn(V) -> Json) -> Json {
 
 // A JSON object of strings as a Map<string, string>.
 pub fn json_to_string_map(j: Json) -> Result<Map<string, string>, string> {
-    return json_to_map<string>(j, string_from_json)
+    return json_to_map(j, string_from_json)
 }
 
 // Indented output: `indent` spaces per level, one array element or object field per

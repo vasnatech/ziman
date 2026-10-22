@@ -28,10 +28,17 @@
 // ---------------------------------------------------------------- why one name takes both worlds
 //
 // Every function here returns a new array and leaves its argument untouched when given an `[T]`,
-// and rearranges the buffer in place when given a `MutableArray<T>`. Type arguments are written
-// out at the call, since Ziman does not infer them: `map<int, string>(numbers, label)`. A function
-// argument is a named function or a lambda, and a lambda may use the enclosing function's
-// immutable locals. The array helpers were promoted out of the `collections` module by F120, so
+// and rearranges the buffer in place when given a `MutableArray<T>`. A function argument is a
+// named function or a lambda, and a lambda may use the enclosing function's immutable locals.
+//
+// **Type arguments are inferred, including from a lambda's body**, so `map(numbers, label)` and
+// `map(numbers, fn(n) { str(n) })` both resolve. This said the opposite -- *"written out at the
+// call, since Ziman does not infer them: `map<int, string>(numbers, label)`"* -- until
+// 2026-10-22, and half of it was never true: a named function and a fully annotated lambda have
+// always bound both parameters. What was missing was the *result* type of a lambda that did not
+// write one, which the second inference pass reads off the body; see docs/DESIGN.md's "A lambda
+// argument can answer a type parameter". The sort family's own internals here were written in the
+// explicit style this sentence taught, and are the sweep that followed it. The array helpers were promoted out of the `collections` module by F120, so
 // that an array needs no more of an import than a Map's `get` or a Set's `union` does.
 //
 // **The five each world used to spell with its own prefix** -- `reverse`, `filter`, `sort`,
@@ -431,7 +438,7 @@ pub fn sort<T: Ord>(items: [T]) -> [T] {
     if is_sortable_scalars<T>(items) {
         return sort_scalars<T>(items, false)
     }
-    return permute<T>(items, sort_positions(len(items), fn(x, y) { compare(items[x], items[y]) }))
+    return permute(items, sort_positions(len(items), fn(x, y) { compare(items[x], items[y]) }))
 }
 
 // Sorts the buffer by the element type's own `compare`. **The one twin here that does not save a
@@ -445,7 +452,7 @@ pub fn sort<T: Ord>(items: [T]) -> [T] {
 // because a helper here would be *public* -- everything in the prelude is -- and "overwrite the
 // buffer with this array" is not a function the design asked for.
 pub fn sort<T: Ord>(items: MutableArray<T>) {
-    for i, v in sort<T>(snapshot(items)) {
+    for i, v in sort(snapshot(items)) {
         items[i] = v
     }
 }
@@ -456,12 +463,12 @@ pub fn sort_desc<T: Ord>(items: [T]) -> [T] {
     if is_sortable_scalars<T>(items) {
         return sort_scalars<T>(items, true)
     }
-    return permute<T>(items, sort_positions(len(items), fn(a, b) { compare(items[b], items[a]) }))
+    return permute(items, sort_positions(len(items), fn(a, b) { compare(items[b], items[a]) }))
 }
 
 // Descending, and the same trade as `sort`: two copies bought with a native comparison.
 pub fn sort_desc<T: Ord>(items: MutableArray<T>) {
-    for i, v in sort_desc<T>(snapshot(items)) {
+    for i, v in sort_desc(snapshot(items)) {
         items[i] = v
     }
 }
@@ -471,7 +478,7 @@ pub fn sort_desc<T: Ord>(items: MutableArray<T>) {
 // `sort_by` covers the single-key case, and computes each key once rather than per
 // comparison.
 pub fn sort_with<T>(items: [T], cmp: fn(T, T) -> int) -> [T] {
-    return permute<T>(items, sort_positions(len(items), fn(a, b) { cmp(items[a], items[b]) }))
+    return permute(items, sort_positions(len(items), fn(a, b) { cmp(items[a], items[b]) }))
 }
 
 // Sorts the buffer by `cmp`, **copying no elements at all**: a merge sort over positions, then the
@@ -511,13 +518,13 @@ pub fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int {
 // `[b, a, c]` and `sort_by(rs, r.k)` answers `[b, c, a]`. Pick by the order you want; the cost is
 // the tie-breaker only when both orders are correct for the job.
 pub fn sort_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
-    return permute<T>(items, array_order_of<K>(map<T, K>(items, key), false))
+    return permute(items, array_order_of(map(items, key), false))
 }
 
 // The same by a computed key. `key` is called once per element, on the snapshot, so a key
 // function that reads the buffer it is sorting sees it unchanged throughout.
 pub fn sort_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) {
-    for i, v in sort_by<T, K>(snapshot(items), key) {
+    for i, v in sort_by(snapshot(items), key) {
         items[i] = v
     }
 }
@@ -547,9 +554,9 @@ pub fn sort_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) {
 // comparator of its own.
 
 pub fn sort_by<T, K1: Ord, K2: Ord>(items: [T], key1: fn(T) -> K1, key2: fn(T) -> K2) -> [T] {
-    val k1 = map<T, K1>(items, key1)
-    val k2 = map<T, K2>(items, key2)
-    return permute<T>(items, sort_positions(len(items), fn(a, b) {
+    val k1 = map(items, key1)
+    val k2 = map(items, key2)
+    return permute(items, sort_positions(len(items), fn(a, b) {
         val c1 = compare(k1[a], k1[b])
         if c1 != 0 {
             return c1
@@ -565,10 +572,10 @@ pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord>(
     key2: fn(T) -> K2,
     key3: fn(T) -> K3
 ) -> [T] {
-    val k1 = map<T, K1>(items, key1)
-    val k2 = map<T, K2>(items, key2)
-    val k3 = map<T, K3>(items, key3)
-    return permute<T>(items, sort_positions(len(items), fn(a, b) {
+    val k1 = map(items, key1)
+    val k2 = map(items, key2)
+    val k3 = map(items, key3)
+    return permute(items, sort_positions(len(items), fn(a, b) {
         val c1 = compare(k1[a], k1[b])
         if c1 != 0 {
             return c1
@@ -589,11 +596,11 @@ pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord>(
     key3: fn(T) -> K3,
     key4: fn(T) -> K4
 ) -> [T] {
-    val k1 = map<T, K1>(items, key1)
-    val k2 = map<T, K2>(items, key2)
-    val k3 = map<T, K3>(items, key3)
-    val k4 = map<T, K4>(items, key4)
-    return permute<T>(items, sort_positions(len(items), fn(a, b) {
+    val k1 = map(items, key1)
+    val k2 = map(items, key2)
+    val k3 = map(items, key3)
+    val k4 = map(items, key4)
+    return permute(items, sort_positions(len(items), fn(a, b) {
         val c1 = compare(k1[a], k1[b])
         if c1 != 0 {
             return c1
@@ -619,12 +626,12 @@ pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord, K5: Ord>(
     key4: fn(T) -> K4,
     key5: fn(T) -> K5
 ) -> [T] {
-    val k1 = map<T, K1>(items, key1)
-    val k2 = map<T, K2>(items, key2)
-    val k3 = map<T, K3>(items, key3)
-    val k4 = map<T, K4>(items, key4)
-    val k5 = map<T, K5>(items, key5)
-    return permute<T>(items, sort_positions(len(items), fn(a, b) {
+    val k1 = map(items, key1)
+    val k2 = map(items, key2)
+    val k3 = map(items, key3)
+    val k4 = map(items, key4)
+    val k5 = map(items, key5)
+    return permute(items, sort_positions(len(items), fn(a, b) {
         val c1 = compare(k1[a], k1[b])
         if c1 != 0 {
             return c1
@@ -649,7 +656,7 @@ pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord, K5: Ord>(
 // handle keeps its identity and its capacity, as the one-key twin above does.
 
 pub fn sort_by<T, K1: Ord, K2: Ord>(items: MutableArray<T>, key1: fn(T) -> K1, key2: fn(T) -> K2) {
-    for i, v in sort_by<T, K1, K2>(snapshot(items), key1, key2) {
+    for i, v in sort_by(snapshot(items), key1, key2) {
         items[i] = v
     }
 }
@@ -660,7 +667,7 @@ pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord>(
     key2: fn(T) -> K2,
     key3: fn(T) -> K3
 ) {
-    for i, v in sort_by<T, K1, K2, K3>(snapshot(items), key1, key2, key3) {
+    for i, v in sort_by(snapshot(items), key1, key2, key3) {
         items[i] = v
     }
 }
@@ -672,7 +679,7 @@ pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord>(
     key3: fn(T) -> K3,
     key4: fn(T) -> K4
 ) {
-    for i, v in sort_by<T, K1, K2, K3, K4>(snapshot(items), key1, key2, key3, key4) {
+    for i, v in sort_by(snapshot(items), key1, key2, key3, key4) {
         items[i] = v
     }
 }
@@ -685,7 +692,7 @@ pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord, K5: Ord>(
     key4: fn(T) -> K4,
     key5: fn(T) -> K5
 ) {
-    for i, v in sort_by<T, K1, K2, K3, K4, K5>(snapshot(items), key1, key2, key3, key4, key5) {
+    for i, v in sort_by(snapshot(items), key1, key2, key3, key4, key5) {
         items[i] = v
     }
 }
@@ -693,12 +700,12 @@ pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord, K5: Ord>(
 // `items` in descending order of `key(item)`. Also stable, so this is not `sort_by`'s
 // result reversed -- that would flip ties.
 pub fn sort_by_desc<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
-    return permute<T>(items, array_order_of<K>(map<T, K>(items, key), true))
+    return permute(items, array_order_of(map(items, key), true))
 }
 
 // Descending by a computed key, on the snapshot, as `sort_by` is.
 pub fn sort_by_desc<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) {
-    for i, v in sort_by_desc<T, K>(snapshot(items), key) {
+    for i, v in sort_by_desc(snapshot(items), key) {
         items[i] = v
     }
 }

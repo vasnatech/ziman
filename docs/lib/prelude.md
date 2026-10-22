@@ -324,14 +324,19 @@ pub fn map<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(K, V) -> R) -> Map<K, R>
 ```
 
 `m` with `f` applied to every value, keys and their order unchanged:
-`map<string, int, string>(stock, fn(n) { str(n) })`.
+`map(stock, fn(k, v) { str(v) })`. **`f` takes the key as well as the value**, which is what the
+example here got wrong from the day it was written: it read
+`map<string, int, string>(stock, fn(n) { str(n) })`, and a one-parameter lambda against
+`fn(K, V) -> R` is refused -- *"this lambda takes 1 parameter(s) but a function taking 2 is
+expected"* -- with or without the type arguments. A prelude doc comment is compiled by nothing,
+which is how it stood. The key is usually unused, as here; name it and ignore it.
 
 ```
 pub fn map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U>
 ```
 
 The set of `f(x)` for every `x` in `s`, in the order first produced. Two elements that map to the same
-value become one: `map<int, int>(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1, 0}`.
+value become one: `map(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1, 0}`.
 
 ```
 pub native fn map<T, U>(items: [T], f: fn(T) -> U) -> [U]

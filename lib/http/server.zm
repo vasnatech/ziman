@@ -1391,7 +1391,7 @@ pub fn json_encoder<O>(to_json: fn(O) -> Json) -> Encoder<O> {
 pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]> {
     val write = to_json
     return encoder<[O]>(mime.application_json(), fn(items: [O]) -> [byte] {
-        return json_to_bytes(Json.JArray(map<O, Json>(items, write)))
+        return json_to_bytes(Json.JArray(map(items, write)))
     })
 }
 

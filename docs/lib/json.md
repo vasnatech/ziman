@@ -287,7 +287,8 @@ boolean.
 pub fn json_to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<Map<string, V>, string>
 ```
 
-An object as a Map, each value decoded by `decode`: `json_to_map<int>(j, int_from_json)`.
+An object as a Map, each value decoded by `decode`: `json_to_map(j, int_from_json)` -- `V` comes
+from `decode`'s own return type, so writing it is optional.
 
 ### `json_from_map`
 
