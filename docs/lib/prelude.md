@@ -903,6 +903,30 @@ cannot distinguish.
 native fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
 ```
 
+### `to_mutable_set`
+
+```
+native fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
+```
+
+**The same question with the answer in the other world**: the distinct elements as a *builder*,
+ready to be added to. It is the second name the paragraph above explains -- not an overload of
+`to_set`, because the two take the same argument types and differ only in what they return, and
+first-argument dispatch cannot tell those apart.
+
+It earns a name rather than being spelled `mutable(to_set(xs))`, which is **two** passes and two
+allocations where this is one. That is the rule for a fused conversion in this library: a name
+when composing costs an extra full copy, and not otherwise -- which is why there is no
+`mutable_array_from_set` (see docs/DESIGN.md).
+
+Four declarations across the two names, each taking either world in its one argument that has
+the choice -- the handle is always a handle. That is what `either_world()` in the type checker
+is for, and these two names are its clearest case.
+
+```
+native fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
+```
+
 ### `index_of`
 
 ```
@@ -1212,18 +1236,6 @@ promise a cost it cannot give. Build tail-first and `reverse` once.
 together in F207: the symbol fallback reads parameter one, which is the only place these two
 declarations differ, so it finds `mutable_array_insert`.
 
-### `to_mutable_set`
-
-```
-native fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
-```
-
-The one that changes shape rather than world: an array in, a set out.
-
-```
-native fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
-```
-
 ### `array_order_of`
 
 ```
@@ -1467,6 +1479,30 @@ pub fn all<T>(items: MutableArray<T>, test: fn(T) -> bool) -> bool
 
 Short-circuits on the first false, as `any` does on the first true.
 
+### `none`
+
+```
+pub fn none<T>(items: [T], test: fn(T) -> bool) -> bool
+```
+
+True when `test` holds for **no** element (true for an empty array), completing the trio with
+`any` and `all`.
+
+**It is `any`'s complement, not `all`'s**, and the difference is worth having straight because
+the three names invite the wrong pairing. `none(p)` is `!any(p)`: nothing satisfies `p`. The
+complement of `all(p)` is a different question -- "something fails `p`" -- which is
+`any(items, fn(x) { !p(x) })` and has no name here, because negating the test says it as
+clearly. So the trio is not a lattice of three; it is `any`, its negation, and the universal.
+
+An empty sequence answers true to both `all` and `none` and false to `any`, which is the usual
+vacuous-truth reading and the one every other `all` in this library already has.
+
+```
+pub fn none<T>(items: MutableArray<T>, test: fn(T) -> bool) -> bool
+```
+
+Short-circuits on the first true, as `any` does -- the same walk, the opposite answer.
+
 ### `for_each`
 
 ```
@@ -1521,15 +1557,79 @@ The total of `items`. A left fold with `+`, which is what anyone writes by hand,
 `int` traps on overflow in this language -- so this either answers the exact total or stops with
 an error, and never the silently wrong number a wrapping sum would give.
 
-Integers only, deliberately: a float total depends on summation order for precision, so the
-right answer there is a decision (naive, pairwise, Kahan) rather than a default, and `fold`
-already expresses whichever one a caller wants.
+**Every numeric element type, one declaration per type per world.** `int`, `float`, `bigint`,
+`decimal` and `byte` -- ten declarations, because `sum` cannot be generic over them: `T: Ord`
+would admit `string`, there is no `Num` bound in this language, and a generic body could not
+write the zero it starts from. One declaration per type is what states the set exactly.
+
+**It was `int` only until the float caveat was written down rather than acted on.** The stated
+reason was that a float total depends on summation order for precision, so the right answer is
+a decision (naive, pairwise, Kahan) rather than a default. That is true and it is not a reason
+to withhold the name: a caller who writes the `fold` by hand gets naive left-to-right too, just
+with more code. So `sum` over floats is **naive, left to right**, said out loud here, and a
+caller who needs pairwise or Kahan still writes the `fold` -- now by choosing it rather than by
+having no alternative. `bigint` and `decimal` are exact and have no such caveat.
+
+**`sum` over bytes answers `int`.** Partly because 256 bytes can exceed what a byte holds, so a
+byte total would wrap or trap on nearly any real input; and partly because this language refuses
+`byte + byte` outright ("use 'as' to cast explicitly"), so the accumulation has to widen anyway.
+It is the one member whose answer is not its element type.
+
+**What widening the set cost: `sum([])` no longer resolves.** A bare empty literal carries no
+element type, and five members now accept it -- where one member meant there was nothing to
+choose. `sum` has no type parameter to write it on either, so the repair is to annotate the
+array (`val none: [int] = []` then `sum(none)`), which is what the ambiguity error asks for by
+name. Two fixtures said `sum([])` and now say that instead. It is the honest price of the name
+covering five types rather than one, and the only call that changed.
 
 ```
 pub fn sum(items: MutableArray<int>) -> int
 ```
 
-`int` only, as the array form is, and for the same reason: see that one.
+The builder twin, reading the handle in place.
+
+```
+pub fn sum(items: [float]) -> float
+```
+
+Naive, left to right -- see the note on the `int` form above for why that is stated rather than
+avoided, and what to write when the summation order matters.
+
+```
+pub fn sum(items: MutableArray<float>) -> float
+```
+
+```
+pub fn sum(items: [bigint]) -> bigint
+```
+
+Exact and unbounded, so neither the overflow note nor the precision note applies.
+
+```
+pub fn sum(items: MutableArray<bigint>) -> bigint
+```
+
+```
+pub fn sum(items: [decimal]) -> decimal
+```
+
+Exact in base ten, so a total of money or of measured quantities is the figure you expect --
+which is the whole reason `decimal` exists beside `float`.
+
+```
+pub fn sum(items: MutableArray<decimal>) -> decimal
+```
+
+```
+pub fn sum(items: [byte]) -> int
+```
+
+**Answers `int`, not `byte`** -- the one member whose answer is not its element type. See the
+note on the `int` form for both reasons.
+
+```
+pub fn sum(items: MutableArray<byte>) -> int
+```
 
 ### `frequencies`
 

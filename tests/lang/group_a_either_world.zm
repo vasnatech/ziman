@@ -43,6 +43,9 @@ fn main() {
     // an empty literal dispatches to the array half unchecked -- it cannot be a handle, and its
     // type comes from the array function's parameter plus any type argument written here
     print(first<int>([]))
-    print(sum([]))
+    // `sum` has no type parameter to carry it, and five numeric members since the family was
+    // widened, so a bare `[]` has nothing to choose between them -- the empty array is annotated.
+    val no_ints: [int] = []
+    print(sum(no_ints))
     print(map<int, int>([], dbl))
 }

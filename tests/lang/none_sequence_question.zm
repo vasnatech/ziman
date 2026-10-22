@@ -1,0 +1,39 @@
+// `none` completes the trio with `any` and `all`: true when `test` holds for no element.
+//
+// **It is `any`'s complement, not `all`'s**, which is the one thing worth pinning because the
+// three names invite the wrong pairing. `none(p)` is `!any(p)`. The complement of `all(p)` is
+// "something fails `p`", a different question, spelled `any(items, fn(x) { !p(x) })` -- it has no
+// name here because negating the test says it as clearly.
+//
+// An empty sequence answers **true to both `all` and `none`** and false to `any`: the vacuous
+// reading every other `all` in this library already has.
+fn main() {
+    val xs = [1, 2, 3]
+    val big = fn(n: int) -> bool { return n > 10 }
+    val pos = fn(n: int) -> bool { return n > 0 }
+    val even = fn(n: int) -> bool { return n % 2 == 0 }
+
+    print(none<int>(xs, big))   // nothing is over ten
+    print(none<int>(xs, pos))   // everything is positive, so not none
+    print(none<int>(xs, even))  // 2 is even
+
+    // none is !any, for each of the three predicates
+    print(none<int>(xs, big) == !any<int>(xs, big))
+    print(none<int>(xs, pos) == !any<int>(xs, pos))
+    print(none<int>(xs, even) == !any<int>(xs, even))
+
+    // and the complement of `all` is the other question, which needs the negated test
+    print(!all<int>(xs, even))
+    print(any<int>(xs, fn(n: int) -> bool { return !even(n) }))
+
+    // the vacuous case: empty is both all and none, and not any
+    val empty: [int] = []
+    print(all<int>(empty, pos))
+    print(none<int>(empty, pos))
+    print(any<int>(empty, pos))
+
+    // the builder twin walks the handle in place
+    val b = mutable(xs)
+    print(none<int>(b, big))
+    print(none<int>(b, pos))
+}

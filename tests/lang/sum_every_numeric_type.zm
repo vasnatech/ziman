@@ -1,0 +1,44 @@
+// `sum` over all five numeric element types, in both worlds. It cannot be generic over them:
+// `T: Ord` would admit `string`, this language has no `Num` bound, and a generic body could not
+// write the zero it starts from -- so it is one declaration per type per world, which states the
+// set exactly.
+//
+// Three properties worth pinning. `sum` over **bytes answers `int`**, the one member whose answer
+// is not its element type -- 256 bytes can exceed what a byte holds, and `byte + byte` is refused
+// outright here, so the accumulation widens either way. `bigint` and `decimal` are **exact**, so a
+// decimal total is the figure you expect where a float total is not. And the float form is
+// **naive, left to right**, which is stated rather than avoided: a caller who writes the `fold` by
+// hand gets the same order, so withholding the name bought nothing.
+fn main() {
+    print(sum([1, 2, 3]))
+    print(sum([1.5, 2.25]))
+    print(sum([10n, 20n, 30n]))
+    print(sum([1.10d, 2.20d]))
+    print(sum([200b, 100b]))  // 300: wider than a byte holds
+
+    // the empty case is the zero of each type
+    val ei: [int] = []
+    val ef: [float] = []
+    val eb: [bigint] = []
+    val ed: [decimal] = []
+    val ey: [byte] = []
+    print(sum(ei))
+    print(sum(ef))
+    print(sum(eb))
+    print(sum(ed))
+    print(sum(ey))
+
+    // decimal is exact where float is not: 0.1 + 0.2 in each
+    print(sum([0.1, 0.2]))
+    print(sum([0.1d, 0.2d]))
+
+    // bigint carries past what an int would
+    print(sum([9223372036854775807n, 1n]))
+
+    // and every builder twin reads its handle in place
+    print(sum(mutable([1, 2, 3])))
+    print(sum(mutable([1.5, 2.25])))
+    print(sum(mutable([10n, 20n])))
+    print(sum(mutable([1.10d, 2.20d])))
+    print(sum(mutable([200b, 100b])))
+}
