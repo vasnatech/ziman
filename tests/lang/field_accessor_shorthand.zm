@@ -1,0 +1,44 @@
+// **`Type::field` is the field-accessor shorthand**, standing for
+// `fn($x: Type) { $x.field }`. It exists for the key-taking family -- `sort_by`, `min_by`,
+// `max_by`, `group_by`, `index_by`, `map` -- where the lambda names the type twice and the field
+// once to say one field: `fn(r: Row) -> string { return r.dept }` against `Row::dept`. That is the
+// same argument `b[i]` won over `mutable_array_get(b, i)`, not an argument about length.
+//
+// **`.` could not have been the separator.** `Type.member` is already enum-variant access, so
+// `P.age` answers "no enum named 'P'" -- `::` was unused in the lexer.
+//
+// It desugars in the *parser* into the lambda it means, so closures, captures, GC rooting and
+// `--fmt` all see an ordinary lambda and no later phase knows about it. The body is the bare
+// expression `$x.field` rather than `return $x.field`, because a lambda using `return` cannot have
+// its return type inferred and the parser has no module to look a field's type up in; a final
+// expression is inferred, which is how the field's type arrives. The parameter is `$x`, which does
+// not lex as an identifier, so it can neither collide with nor be named by anything written.
+struct Row {
+    dept: string
+    age: int
+}
+
+fn main() {
+    val rows = [Row { dept: "b", age: 30 }, Row { dept: "a", age: 40 }, Row { dept: "b", age: 20 }]
+
+    // what it is for: one key, and the multi-key form where the noise was worst
+    print(map<Row, string>(rows, Row::dept))
+    print(map<Row, int>(sort_by<Row, string, int>(rows, Row::dept, Row::age), Row::age))
+
+    // the rest of the key-taking family
+    print(min_by<Row, int>(rows, Row::age))
+    print(max_by<Row, string>(rows, Row::dept))
+    print(len(group_by<Row, string>(rows, Row::dept)))
+    print(len(index_by<Row, int>(rows, Row::age)))
+    print(len(frequencies<string>(map<Row, string>(rows, Row::dept))))
+
+    // it is an ordinary function value: bindable, with its type inferred from the field
+    val key = Row::age
+    print(key(rows[0]))
+    print(count<Row>(rows, fn(r: Row) -> bool { return key(r) > 25 }))
+
+    // and it reaches a builder's twin as any other key does
+    val b = mutable(rows)
+    sort_by<Row, int>(b, Row::age)
+    print(map<Row, int>(snapshot(b), Row::age))
+}

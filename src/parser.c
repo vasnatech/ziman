@@ -380,6 +380,8 @@ static Type parse_type(Parser *p) {
 static Expr *parse_expr(Parser *p);
 static ParamList parse_params(Parser *p);
 static Stmt *parse_block(Parser *p);
+/* `Type::field` -- see the definition below parse_statement's declaration for what it builds. */
+static Expr *field_accessor_lambda(Parser *p, const char *type_name, Token *at);
 static Stmt *parse_if(Parser *p);
 static Stmt *parse_if_value(Parser *p);
 static Stmt *parse_switch(Parser *p);
@@ -783,7 +785,11 @@ static Expr *parse_primary(Parser *p) {
                         e->as.enum_access.type_args = qualified_type_args;
                         return e;
                     }
-                    ziman_error("syntax", second->line, second->col, "expected '{' or '.' after '%s'", qualified);
+                    if (check(p, TOK_COLON_COLON)) {
+                        return field_accessor_lambda(p, qualified, t);
+                    }
+                    ziman_error("syntax", second->line, second->col,
+                                "expected '{', '.' or '::' after '%s'", qualified);
                 }
                 /* `qualifier.func<Type>(args)` -- a generic function call
                  * into another module. Same ambiguity, and same one-token
@@ -833,6 +839,10 @@ static Expr *parse_primary(Parser *p) {
                 }
             }
             p->pos = saved_pos; /* not a qualified reference -- back out, leave '.' for parse_postfix */
+        }
+        if (check(p, TOK_COLON_COLON)) {
+            require_upper_start(t, "a type name before '::'");
+            return field_accessor_lambda(p, name, t);
         }
         Expr *e = expr_new(EXPR_IDENT, t->line, t->col);
         e->as.ident_name = name;
@@ -1295,6 +1305,55 @@ static void hoist_stmt(Stmt *s, StmtList *out) {
 }
 
 static Stmt *parse_statement(Parser *p);
+
+/* **`Type::field` -- the field-accessor shorthand**, built here for both the plain `Row::dept` and
+ * the module-qualified `model.Item::qty`. It stands for
+ * `fn($x: Type) -> <field type> { $x.field }`, and that is literally what it becomes: the lambda
+ * carries its parameter type and leaves the return type omitted, so the checker fills the field's
+ * type in through the ordinary inference it already does for `fn(n) { str(n) }`. Desugaring in the
+ * parser rather than carrying a node of its own is what leaves every later phase untouched --
+ * closures, captures, GC rooting and `--fmt` all see an ordinary lambda -- and there is no *name*
+ * for the desugar to land on, which is the hazard F209 took out of `b[i]`.
+ *
+ * The body is the bare expression `$x.field` and not `return $x.field`: a lambda that uses
+ * `return` cannot have its return type inferred, and the parser has no module to look a field's
+ * type up in. The parameter is `$x`, which does not lex as an identifier, so it can neither
+ * collide with nor be referred to by anything written.
+ *
+ * `.` could not have been the separator: `Type.member` is already enum-variant access
+ * (`Option<T>.Some`), which is why `P.age` answers "no enum named 'P'". `::` was unused. */
+static Expr *field_accessor_lambda(Parser *p, const char *type_name, Token *at) {
+    advance_tok(p); /* '::' */
+    Token *field = expect(p, TOK_IDENT, "a field name after '::'");
+    require_lower_start(field, "a field name");
+    if (check(p, TOK_COLON_COLON)) {
+        ziman_error("syntax", cur(p)->line, cur(p)->col,
+                    "'%s::%.*s::...' is not supported -- '::' names one field of one type. For a nested "
+                    "field write the lambda out: 'fn(x: %s) { x.%.*s.<field> }'",
+                    type_name, field->length, field->start, type_name, field->length, field->start);
+    }
+    FunctionDecl *fn = ziman_xcalloc(1, sizeof(FunctionDecl));
+    fn->name = (char *)"lambda";
+    fn->line = at->line;
+    fn->col = at->col;
+    Param param = {(char *)"$x", type_struct(type_name), 0, NULL, NULL, at->line, at->col, 0};
+    param_list_push(&fn->params, param);
+    fn->return_type = type_scalar(TY_VOID);
+    fn->return_omitted = 1;
+    Expr *self = expr_new(EXPR_IDENT, at->line, at->col);
+    self->as.ident_name = ziman_xstrdup("$x");
+    Expr *access = expr_new(EXPR_FIELD_ACCESS, field->line, field->col);
+    access->as.field_access.base = self;
+    access->as.field_access.field_name = dup_token_text(field);
+    Stmt *last = stmt_new(STMT_EXPR, field->line, field->col);
+    last->as.expr_stmt.expr = access;
+    Stmt *block = stmt_new(STMT_BLOCK, at->line, at->col);
+    stmt_list_push(&block->as.block.stmts, last);
+    fn->body = block;
+    Expr *e = expr_new(EXPR_LAMBDA, at->line, at->col);
+    e->lambda_decl = fn;
+    return e;
+}
 
 static Stmt *parse_block(Parser *p) {
     ZIMAN_STACK_CHECK();

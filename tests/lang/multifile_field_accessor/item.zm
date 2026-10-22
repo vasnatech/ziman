@@ -1,0 +1,5 @@
+// The struct `main.zm` reaches with `item.Item::qty`.
+pub struct Item {
+    name: string
+    qty: int
+}

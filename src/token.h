@@ -62,6 +62,7 @@ typedef enum {
     TOK_RBRACKET,
     TOK_COMMA,
     TOK_COLON,
+    TOK_COLON_COLON, /* :: -- only in `Type::field`, the field-accessor shorthand */
     TOK_DOT,
     TOK_DOTDOT, /* .. -- only legal directly after 'in' in a for-loop header */
     TOK_ARROW, /* -> */

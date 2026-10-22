@@ -1,0 +1,13 @@
+// `Type::field` desugars into `fn($x: Type) { $x.field }`, so an unknown type is caught by the
+// ordinary parameter-type check and an unknown field by ordinary field access. Neither message is
+// written for this feature, which is what desugaring into something the checker already handles
+// buys -- and both name the thing the author wrote rather than the lambda it became.
+struct Row {
+    dept: string
+    age: int
+}
+
+fn main() {
+    val a = Row::nope
+    print(a)
+}

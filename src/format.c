@@ -100,7 +100,7 @@ static int scan(const char *src, size_t len, Items *out, char *err, size_t err_s
             it.len = (int)(j - i);
             i = j;
         } else {
-            static const char *two[] = {"==", "!=", "<=", ">=", "&&", "||", "->", ".."};
+            static const char *two[] = {"==", "!=", "<=", ">=", "&&", "||", "->", "..", "::"};
             int l = 1;
             for (size_t k = 0; k < sizeof two / sizeof two[0]; k++) {
                 if (i + 1 < len && src[i] == two[k][0] && src[i + 1] == two[k][1]) l = 2;
@@ -162,6 +162,10 @@ static int need_space(const Item *p, const Item *c, const Item *pp, int in_use_l
     /* two operator characters written together (`++`, `=-`) stay together, so a
      * formatter never turns one token pair into another */
     if (!orig && is_op_char(p) && is_op_char(c)) return 0;
+    /* `Type::field` binds as tight as `.` on both sides. It is listed before the two-operator
+     * rule's reach because `:` is not an operator character, so nothing else would have kept the
+     * pair together, and `--fmt` printing `Row:: dept` is how this was noticed. */
+    if (is(c, "::") || is(p, "::")) return 0;
     /* nothing before these */
     if (is(c, ",") || is(c, ")") || is(c, "]") || is(c, ":") || is(c, ".") || is(c, "..")) return 0;
     if (is(p, "(") || is(p, "[") || is(p, ".") || is(p, "..") || is(p, "#") || is(p, "!")) return 0;

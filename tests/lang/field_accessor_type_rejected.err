@@ -1,0 +1,4 @@
+ziman: type error at 11:18 in tests/lang/field_accessor_type_rejected.zm: no field 'nope' on struct 'Row'
+   |
+11 |     val a = Row::nope
+   |                  ^

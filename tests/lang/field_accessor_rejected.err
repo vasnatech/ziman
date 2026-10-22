@@ -1,0 +1,13 @@
+ziman: syntax error at 11:13 in tests/lang/field_accessor_rejected.zm: a type name before '::' must start with an uppercase letter
+   |
+11 |     val c = row::dept
+   |             ^
+ziman: syntax error at 12:18 in tests/lang/field_accessor_rejected.zm: a field name must not start with an uppercase letter (uppercase is reserved for type names)
+   |
+12 |     val d = Row::Dept
+   |                  ^
+ziman: syntax error at 13:22 in tests/lang/field_accessor_rejected.zm: 'Row::dept::...' is not supported -- '::' names one field of one type. For a nested field write the lambda out: 'fn(x: Row) { x.dept.<field> }'
+   |
+13 |     val e = Row::dept::x
+   |                      ^
+ziman: 3 errors

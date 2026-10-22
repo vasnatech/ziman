@@ -1,0 +1,15 @@
+// What `Type::field` refuses at *parse* time. Only the nested form is written for this feature;
+// the two name-shape rules are the parser's existing `require_upper_start`/`require_lower_start`,
+// applied at a new site. The type and field *existence* checks are a separate fixture
+// (`field_accessor_type_rejected`), because a syntax error stops the parse before the checker runs.
+struct Row {
+    dept: string
+    age: int
+}
+
+fn main() {
+    val c = row::dept
+    val d = Row::Dept
+    val e = Row::dept::x
+    print(1)
+}

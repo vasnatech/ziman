@@ -1,0 +1,24 @@
+// `Type::field` over a **module-qualified** type, which is the shape that matters most: of the 28
+// single-field-accessor lambdas measured across this repo and the North Star when the shorthand
+// was proposed, 17 were in the North Star and 13 of those named a qualified type -- one dense run
+// in `recipe.zm`'s `per_serving`, thirteen lambdas differing only in the field.
+//
+// The qualified form needed its own parser branch: `module.Type` already expected `{` for a struct
+// literal or `.` for an enum variant, and `::` was a third thing to accept there. Without it the
+// densest real case would have been the one the shorthand missed.
+use item
+
+fn scaled_sum(items: [item.Item], pick: fn(item.Item) -> int, by: int) -> int {
+    var total = 0
+    for i in items {
+        total = total + pick(i) * by
+    }
+    return total
+}
+
+fn main() {
+    val items = [item.Item { name: "b", qty: 2 }, item.Item { name: "a", qty: 5 }]
+    print(scaled_sum(items, item.Item::qty, 10))
+    print(map<item.Item, string>(items, item.Item::name))
+    print(map<item.Item, int>(sort_by<item.Item, string>(items, item.Item::name), item.Item::qty))
+}

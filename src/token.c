@@ -58,6 +58,7 @@ const char *token_type_name(TokenType type) {
         case TOK_RBRACKET: return "']'";
         case TOK_COMMA: return "','";
         case TOK_COLON: return "':'";
+        case TOK_COLON_COLON: return "'::'";
         case TOK_DOT: return "'.'";
         case TOK_DOTDOT: return "'..'";
         case TOK_ARROW: return "'->'";

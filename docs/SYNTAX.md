@@ -124,7 +124,12 @@ call           := primary { "(" [ arg_list ] ")" }
 arg_list       := expr { "," expr }
 primary        := INT_LIT | FLOAT_LIT | STRING_LIT | "true" | "false"
                  | IDENT | qualified_call | qualified_struct_lit | enum_access
+                 | field_accessor
                  | "(" expr ")" | array_lit | struct_lit | with_expr
+field_accessor := [ IDENT "." ] TYPE_IDENT "::" IDENT
+                    (* `Row::dept`, or `model.Item::qty` for a qualified type:
+                       a function value answering that field. One field only.
+                       See "Function values". *)
 array_lit      := "[" [ expr { "," expr } ] "]"
 struct_lit     := TYPE_IDENT "{" [ field_init { "," field_init } ] "}"
 qualified_call        := IDENT "." IDENT "(" [ arg_list ] ")"
@@ -606,8 +611,9 @@ for i, x in arr { ... }       // index + value together
 ## Function values
 
 A function can be passed around: its type is `fn(A, B) -> R` (no `-> R` for a
-function that returns nothing). Two things are values of that type: the name of
-a top-level function, and a *lambda*, an anonymous function written in place.
+function that returns nothing). Three things are values of that type: the name of
+a top-level function, a *lambda* — an anonymous function written in place — and
+`Type::field`, the field-accessor shorthand below.
 
 ```ziman
 
@@ -672,6 +678,36 @@ fn main() {
 - **In the standard library**: `map`/`filter`/`flat_map`/`fold`/`count`/`any`/`all`/
   `find`/`first`/`last`/`min_by`/`max_by`/`distinct`/`group_by`/`for_each`/`sort_with`, type
   arguments written at the call. Pass a lambda for anything needing the enclosing scope.
+
+### `Type::field`, the field-accessor shorthand
+
+`Type::field` is a function value that answers that field of that type —
+`Row::dept` is `fn(r: Row) { r.dept }`, with the field's type taken from the
+struct. It exists for the key-taking family (`sort_by`, `min_by`, `max_by`,
+`group_by`, `index_by`, `map`), where the lambda names the type twice and the
+field once to say one field.
+
+```ziman
+
+struct Row {
+    dept: string
+    age: int
+}
+
+fn main() {
+    val rows = [Row { dept: "b", age: 30 }, Row { dept: "a", age: 40 }]
+    print(map<Row, string>(rows, Row::dept))                      // [b, a]
+    print(len(sort_by<Row, string, int>(rows, Row::dept, Row::age)))
+    val key = Row::age                // an ordinary fn(Row) -> int
+    print(key(rows[0]))               // 30
+}
+```
+
+The separator is `::` and not `.` because `Type.member` already means
+enum-variant access (`Option<T>.Some`). A module-qualified type works the same
+way — `model.Item::qty`. One field only: `Row::addr::city` is refused, and the
+message gives the lambda to write instead. Since Ziman has no methods, `::`
+means exactly this and nothing else.
 
 ## Structs
 

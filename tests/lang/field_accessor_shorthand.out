@@ -1,0 +1,10 @@
+[b, a, b]
+[40, 20, 30]
+Some(Row { dept: b, age: 20 })
+Some(Row { dept: b, age: 30 })
+2
+3
+2
+30
+2
+[20, 30, 40]

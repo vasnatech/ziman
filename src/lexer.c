@@ -466,7 +466,19 @@ TokenList lex(const char *source) {
             case '[': advance(&lx); emit(&lx, TOK_LBRACKET, start, 1, line, col); continue;
             case ']': advance(&lx); emit(&lx, TOK_RBRACKET, start, 1, line, col); continue;
             case ',': advance(&lx); emit(&lx, TOK_COMMA, start, 1, line, col); continue;
-            case ':': advance(&lx); emit(&lx, TOK_COLON, start, 1, line, col); continue;
+            case ':':
+                advance(&lx);
+                /* `::` is one token and means only `Type::field`. A `:` never follows a `:` in any
+                 * other position -- a named argument, a parameter type, a map-literal entry and a
+                 * struct-literal field all take exactly one -- so there is nothing for this to
+                 * steal. */
+                if (peek(&lx) == ':') {
+                    advance(&lx);
+                    emit(&lx, TOK_COLON_COLON, start, 2, line, col);
+                    continue;
+                }
+                emit(&lx, TOK_COLON, start, 1, line, col);
+                continue;
             case '?': advance(&lx); emit(&lx, TOK_QUESTION, start, 1, line, col); continue;
             case '#': advance(&lx); emit(&lx, TOK_HASH, start, 1, line, col); continue;
             case '.':
