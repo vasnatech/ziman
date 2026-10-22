@@ -505,48 +505,48 @@ A cell holds exactly one value, so its length is always 1.
 ### `contains`
 
 ```
-builtin fn contains(s: string, needle: string) -> bool
+native fn contains(s: string, needle: string) -> bool
 ```
 
 The same nine shapes, each asked the question its immutable counterpart answers: a substring of
 text, an element of an array or set, a *key* of a map.
 
 ```
-builtin fn contains<T: Eq>(items: [T], x: T) -> bool
+native fn contains<T: Eq>(items: [T], x: T) -> bool
 ```
 
 ```
-builtin fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
+native fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
 ```
 
 ```
-builtin fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
+native fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
 ```
 
 ```
-builtin fn contains<T: Eq>(items: MutableArray<T>, x: T) -> bool
+native fn contains<T: Eq>(items: MutableArray<T>, x: T) -> bool
 ```
 
 ```
-builtin fn contains(s: MutableString, needle: string) -> bool
+native fn contains(s: MutableString, needle: string) -> bool
 ```
 
 ```
-builtin fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
+native fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
 ```
 
 ```
-builtin fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
+native fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
 ```
 
 ```
-builtin fn contains<T: Eq>(c: Mutable<T>, x: T) -> bool
+native fn contains<T: Eq>(c: Mutable<T>, x: T) -> bool
 ```
 
 ### `snapshot`
 
 ```
-builtin fn snapshot<T>(items: MutableArray<T>) -> [T]
+native fn snapshot<T>(items: MutableArray<T>) -> [T]
 ```
 
 Each builder to its immutable counterpart. O(n), and the handle stays usable.
@@ -558,35 +558,35 @@ a cell has no `clear`, being always initialised, where emptying it would need ex
 value its type may not have. Visible here rather than only on trying it.
 
 ```
-builtin fn snapshot(s: MutableString) -> string
+native fn snapshot(s: MutableString) -> string
 ```
 
 ```
-builtin fn snapshot<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Map<K, V>
+native fn snapshot<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Map<K, V>
 ```
 
 ```
-builtin fn snapshot<T: Eq + Hash>(s: MutableSet<T>) -> Set<T>
+native fn snapshot<T: Eq + Hash>(s: MutableSet<T>) -> Set<T>
 ```
 
 ### `clear`
 
 ```
-builtin fn clear<T>(items: MutableArray<T>)
+native fn clear<T>(items: MutableArray<T>)
 ```
 
 Empties a builder in place, keeping the handle.
 
 ```
-builtin fn clear(s: MutableString)
+native fn clear(s: MutableString)
 ```
 
 ```
-builtin fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)
+native fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)
 ```
 
 ```
-builtin fn clear<T: Eq + Hash>(s: MutableSet<T>)
+native fn clear<T: Eq + Hash>(s: MutableSet<T>)
 ```
 
 ### `set`
@@ -2268,7 +2268,7 @@ pub fn items<T: Eq + Hash>(s: MutableSet<T>) -> [T]
 The elements as an array, in insertion order, as `items` gives for a Set.
 
 ```
-builtin fn items<T: Eq + Hash>(s: Set<T>) -> [T]
+native fn items<T: Eq + Hash>(s: Set<T>) -> [T]
 ```
 
 ### `union`

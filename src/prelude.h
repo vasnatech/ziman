@@ -163,6 +163,13 @@ void ziman_mutable_array_push_one(Value ab, Value element);
 /* `len` over all nine types it accepts -- one implementation, registered under the bare name,
  * which is right here because every one of the nine declarations wants it. */
 Value ziman_len(Value *args, int argc, int line, int col);
+/* `contains`, `snapshot` and `clear` over every type each accepts -- one implementation per
+ * name, registered under the bare name, which is right whenever all of a set's members want
+ * the same code (see ziman_len). */
+Value ziman_contains(Value *args, int argc, int line, int col);
+Value ziman_set_items(Value *args, int argc, int line, int col);
+Value ziman_snapshot(Value *args, int argc, int line, int col);
+Value ziman_clear(Value *args, int argc, int line, int col);
 Value ziman_array_push_values(Value *args, int argc, int line, int col);
 Value ziman_array_push_one(Value arr, Value x);
 void ziman_mutable_map_set_all(Value m, Value source, int source_is_handle);

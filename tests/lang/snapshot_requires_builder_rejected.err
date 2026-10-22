@@ -1,1 +1,1 @@
-'snapshot' expects a builder -- a MutableArray, MutableString, MutableMap or MutableSet -- found [int]
+'snapshot' expects MutableArray<T>, MutableString, MutableMap<K, V> or MutableSet<T>, found [int] -- a Mutable cell is read with 'mutable_get', not snapshotted -- this names an O(n) copy of a collection and reading the one value a cell holds is O(1)

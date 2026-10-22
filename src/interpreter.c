@@ -667,34 +667,6 @@ static Value call_str(Value arg) {
     return value_string(value_display(arg));
 }
 
-static Value call_contains(Value first, Value second) {
-    if (first.type->kind == TY_STRING) {
-        return value_bool(value_str_find(first.as.str.ptr, first.as.str.len, second.as.str.ptr, second.as.str.len, 0) >= 0);
-    }
-    if (first.type->kind == TY_MAP || first.type->kind == TY_SET) {
-        Value ignored;
-        return value_bool(mapobj_get(first.as.map, second, &ignored));
-    }
-    /* One of the four builders, or a `Mutable<T>` cell: the contents live behind the handle, not
-     * in the struct. */
-    if (first.type->kind == TY_STRUCT) {
-        MutableKind kind = ziman_mutable_kind(first.type);
-        if (kind == MUTABLE_CELL) return value_bool(ziman_cell_contains(first, second));
-        return value_bool(ziman_builder_contains(first, second, kind));
-    }
-    ArrayObj *arr = first.as.arr;
-    if (arr->bytes != NULL) {
-        if (second.type->kind != TY_BYTE) return value_bool(0);
-        return value_bool(memchr(arr->bytes, second.as.by, (size_t)arr->count) != NULL);
-    }
-    for (int i = 0; i < arr->count; i++) {
-        /* value_key_equals, matching the Map/Set branch a dozen lines up: `contains` is one builtin
-         * and must answer "is this present" the same way whichever container it is given, so a NaN
-         * stored in an array is found exactly as a NaN stored in a Set is. */
-        if (value_key_equals(array_get(arr, i), second)) return value_bool(1);
-    }
-    return value_bool(0);
-}
 
 /* Scalars only (matching type_supports_hashing in typecheck.c) --
  * FNV-1a for strings, the raw bit pattern for a float, the value itself
@@ -1258,8 +1230,6 @@ typedef enum {
     B_concat,
     B_mutable_map_from,
     B_mutable_set_from,
-    B_clear,
-    B_snapshot,
     B_set,
     B_remove,
     B_map_get,
@@ -1275,7 +1245,6 @@ typedef enum {
     B_set_insert_all,
     B_map_keys,
     B_map_values,
-    B_set_items,
     B_map_lit,
     B_set_lit,
     B_ok,
@@ -1285,7 +1254,6 @@ typedef enum {
     B_is_ok,
     B_unwrap,
     B_unwrap_err,
-    B_contains,
     B_hash,
     B_compare,
     B_error_message,
@@ -1314,8 +1282,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"concat", B_concat},
     {"$mutable_map_from", B_mutable_map_from},
     {"$mutable_set_from", B_mutable_set_from},
-    {"clear", B_clear},
-    {"snapshot", B_snapshot},
     {"set", B_set},
     {"remove", B_remove},
     {"get", B_map_get},
@@ -1333,7 +1299,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"add", B_set_insert_all},
     {"keys", B_map_keys},
     {"values", B_map_values},
-    {"items", B_set_items},
     {"$map_lit", B_map_lit},
     {"$set_lit", B_set_lit},
     {"ok", B_ok},
@@ -1343,7 +1308,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"is_ok", B_is_ok},
     {"unwrap", B_unwrap},
     {"unwrap_err", B_unwrap_err},
-    {"contains", B_contains},
     {"hash", B_hash},
     {"compare", B_compare},
     {"error_message", B_error_message},
@@ -1561,15 +1525,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                        bid == B_mutable_set_from) {
                 result = ziman_mutable_map_from(args[0], bid == B_mutable_set_from);
                 result.type = &e->resolved_type;
-            } else if (bid == B_clear) {
-                ziman_builder_clear(args[0]);
-                result = value_int(0); /* void return, as `send` and the other effects do */
-            } else if (bid == B_snapshot) {
-                result = ziman_builder_snapshot(args[0]);
-                /* The natives behind it tag their result TY_VOID or a placeholder element type, so
-                 * the call's own resolved type is what makes it an `[int]` rather than an array of
-                 * nothing -- the same patch the plain-call path applies to any generic native. */
-                result.type = &e->resolved_type;
             } else if (bid == B_set && (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
                 Value stored = args[0].type->kind == TY_MAP ? args[2] : value_int(0);
                 result = value_map(args[0].type, mapobj_set(args[0].as.map, args[1], stored));
@@ -1669,7 +1624,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 MapObj *ks = mapobj_empty();
                 for (int i = 0; i < args[0].as.map->count; i++) ks = mapobj_set(ks, keys[i], value_int(0));
                 result = value_map(&e->resolved_type, ks);
-            } else if (bid == B_map_values || bid == B_set_items) {
+            } else if (bid == B_map_values) {
                 /* By the id, not by the callee's spelling. This read `callee[0] == 'm'` to tell
                  * `map_values` from `set_items`, which stopped being true the moment F194 renamed
                  * the first to `values`: the branch silently answered with the keys instead of
@@ -1682,13 +1637,14 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                  * `callee[1] == 'm'` told `$map_lit` from `$set_lit`. The last was safe -- the
                  * parser emits those two and nothing renames them -- and went anyway, because
                  * "safe for now" is what the other three were. */
-                int want_values = bid == B_map_values;
-                Value *keys, *vals;
-                mapobj_entries(args[0].as.map, want_values ? NULL : &keys, want_values ? &vals : NULL);
+                /* `items` over a `Set<T>` shared this branch until its name came off the builtin
+                 * id; `want_values` picked between them by the *id*, never by the spelling, which
+                 * is the lesson above. With one id left there is nothing to pick. */
+                Value *vals;
+                mapobj_entries(args[0].as.map, NULL, &vals);
                 int n = args[0].as.map->count;
-                Value *items = want_values ? vals : keys;
-                ArrayObj *packed = array_try_pack(items, n);
-                result = value_array(&e->resolved_type, packed != NULL ? packed : array_obj_new(items, n));
+                ArrayObj *packed = array_try_pack(vals, n);
+                result = value_array(&e->resolved_type, packed != NULL ? packed : array_obj_new(vals, n));
             } else if (bid == B_map_lit || bid == B_set_lit) {
                 int is_map = bid == B_map_lit;
                 MapObj *m = mapobj_empty();
@@ -1714,8 +1670,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = call_unwrap(args[0], e->line, e->col);
             } else if (bid == B_unwrap_err) {
                 result = call_unwrap_err(args[0], e->line, e->col);
-            } else if (bid == B_contains) {
-                result = call_contains(args[0], args[1]);
             } else if (bid == B_hash) {
                 result = call_hash(args[0]);
             } else if (bid == B_compare) {

@@ -1,3 +1,10 @@
+// **F217 traded two messages for one.** `clear`'s arm answered a Mutable cell and a Map with
+// different sentences; `#[when_unmatched]` is one line for a whole set, so both facts now ride on
+// the same line and this fixture and `clear_requires_builder_rejected` pin the same text with a
+// different 'found'. That is F190's criterion biting: an arm answering per rejected type cannot be
+// fully replaced. The resolver still names the four builder types, which is what the arm's first
+// clause did, so what was lost is the *targeting*, not the content.
+//
 // And no `clear`, for the same reason there is no empty `mutable_new<T>()`: emptying a cell would
 // need exactly the zero value `T` may not have. A cell always holds something, by construction.
 fn main() {

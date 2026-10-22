@@ -1,1 +1,1 @@
-a Mutable has no 'snapshot': use mutable_get, which is the same crossing out of the handle. 'snapshot' names an O(n) copy of a collection; reading the one value a cell holds is O(1)
+'snapshot' expects MutableArray<T>, MutableString, MutableMap<K, V> or MutableSet<T>, found Mutable<int> -- a Mutable cell is read with 'mutable_get', not snapshotted -- this names an O(n) copy of a collection and reading the one value a cell holds is O(1)

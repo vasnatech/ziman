@@ -54,7 +54,7 @@ pub fn items<T: Eq + Hash>(s: MutableSet<T>) -> [T] {
     return snapshot(out)
 }
 
-builtin fn items<T: Eq + Hash>(s: Set<T>) -> [T]
+native fn items<T: Eq + Hash>(s: Set<T>) -> [T]
 
 builtin fn union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 

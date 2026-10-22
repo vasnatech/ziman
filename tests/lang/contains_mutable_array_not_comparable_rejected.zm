@@ -1,3 +1,7 @@
+// **The message improved by converting.** The arm said "'contains' requires a MutableArray of a
+// comparable ('==') element type"; the declarations carry `T: Eq`, so the resolver names the bound
+// and the type parameter that requires it. Same gain `to_mutable_set` got in F215.
+//
 // The same requirement `contains` already makes of an array: the element type has to support `==`,
 // or "is this present" has no answer. A MutableMap's key and a MutableSet's element need no such
 // check -- their declarations are already bounded `Eq + Hash` -- so the MutableArray is the only

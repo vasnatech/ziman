@@ -2261,6 +2261,80 @@ Value ziman_builder_snapshot(Value v) {
     return native_mutable_map_snapshot(&v, 1, 0, 0);
 }
 
+/* `items` over a `Set<T>`: its elements as an array, in insertion order. A Set is a MapObj whose
+ * values are placeholders, so the elements are its keys. The MutableSet member of the same name is
+ * ordinary Ziman beside its declaration; this is the immutable half, which shared a builtin id
+ * with `values` until the name was converted. */
+Value ziman_set_items(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Value *keys;
+    mapobj_entries(args[0].as.map, &keys, NULL);
+    int n = args[0].as.map->count;
+    ArrayObj *packed = array_try_pack(keys, n);
+    return value_array(type_scalar_ref(TY_VOID), packed != NULL ? packed : array_obj_new(keys, n));
+}
+
+/* `contains` over all nine types it accepts, registered under the bare name: one question, and
+ * the nine declarations say only which types may be asked it. This was `call_contains` in
+ * interpreter.c until the name came off its builtin id; it sits here now, beside
+ * `ziman_builder_contains` and `ziman_cell_contains`, which it calls. */
+Value ziman_contains(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Value first = args[0], second = args[1];
+    if (first.type->kind == TY_STRING) {
+        return value_bool(value_str_find(first.as.str.ptr, first.as.str.len, second.as.str.ptr, second.as.str.len, 0) >= 0);
+    }
+    if (first.type->kind == TY_MAP || first.type->kind == TY_SET) {
+        Value ignored;
+        return value_bool(mapobj_get(first.as.map, second, &ignored));
+    }
+    /* One of the four builders, or a `Mutable<T>` cell: the contents live behind the handle, not
+     * in the struct. */
+    if (first.type->kind == TY_STRUCT) {
+        MutableKind kind = ziman_mutable_kind(first.type);
+        if (kind == MUTABLE_CELL) return value_bool(ziman_cell_contains(first, second));
+        return value_bool(ziman_builder_contains(first, second, kind));
+    }
+    ArrayObj *arr = first.as.arr;
+    if (arr->bytes != NULL) {
+        if (second.type->kind != TY_BYTE) return value_bool(0);
+        return value_bool(memchr(arr->bytes, second.as.by, (size_t)arr->count) != NULL);
+    }
+    for (int i = 0; i < arr->count; i++) {
+        /* value_key_equals, matching the Map/Set branch a dozen lines up: `contains` is one builtin
+         * and must answer "is this present" the same way whichever container it is given, so a NaN
+         * stored in an array is found exactly as a NaN stored in a Set is. */
+        if (value_key_equals(array_get(arr, i), second)) return value_bool(1);
+    }
+    return value_bool(0);
+}
+
+/* `snapshot` over the four builders, registered under the bare name: every one of the four
+ * declarations wants this same dispatch, as `len`'s nine do. The result's type comes from the
+ * call's own `resolved_type` on the `call_fn` path -- the natives below tag theirs TY_VOID or a
+ * placeholder element type -- except for the MutableString member, which has no type parameter for
+ * that patch to fire on and so tags its own `string` correctly here. */
+Value ziman_snapshot(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return ziman_builder_snapshot(args[0]);
+}
+
+/* `clear` over the same four, and `contains` over all nine types it accepts -- both one
+ * implementation under the bare name for the same reason. */
+Value ziman_clear(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    ziman_builder_clear(args[0]);
+    return value_int(0); /* void return, as `send` and the other effects do */
+}
+
 /* `clear` on one of the four handles: empty it and leave it usable. A MutableArray or a
  * MutableString keeps its buffer and resets the length, which is what native_mutable_array_clear already did.
  *
@@ -2580,6 +2654,10 @@ void prelude_register(void) {
     native_register("array_flat_map", native_array_flat_map);
     native_register("array_reverse", native_array_reverse);
     native_register("len", ziman_len);
+    native_register("contains", ziman_contains);
+    native_register("set_items", ziman_set_items);
+    native_register("snapshot", ziman_snapshot);
+    native_register("clear", ziman_clear);
     native_register("array_slice", native_array_slice);
     native_register("mutable_array_narrow", native_narrow_mutable_array);
     native_register("array_to_mutable_set", native_array_to_mutable_set);

@@ -1,3 +1,6 @@
+// As `mutable_cell_has_no_clear_rejected`: one `#[when_unmatched]` line now carries what two arm
+// messages carried, so a cell and a non-builder get the same advice with a different 'found'.
+//
 // The cell is the one mutable type with no `snapshot`, and the message says why rather than listing
 // the four that have one: crossing out of a cell is `mutable_get`, an O(1) read, where `snapshot`
 // names an O(n) copy of a collection.

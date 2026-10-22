@@ -1478,12 +1478,12 @@ static void warn_brace_interpolation(Env *env, Expr *e) {
  * listed at all until that attribute existed (F208). */
 static const char *const PURE_BUILTINS[] = {
     "set", "remove", "mutable",
-    "str", "format", "contains", "abs", "min", "max", "hash", "compare", "error_message",
+    "str", "format", "abs", "min", "max", "hash", "compare", "error_message",
     "is_ok",
     "get", "get_or", "keys", "values", "merge", "filter", "remove_all",
-    "items", "union", "intersect", "difference", "is_subset", "add",
+    "union", "intersect", "difference", "is_subset", "add",
     "concat",
-    "snapshot", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from",
+    "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from",
     NULL};
 
 /* The callee as the author wrote it: `rewritten_from` when the checker has replaced `callee` with
@@ -1557,9 +1557,9 @@ static int is_pure_builtin_name(const char *name) {
  * `tools/check_builtins.py` is what noticed the entry had been left behind. Every later
  * conversion removes its two entries the same way -- the name appears once per world. */
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
-    "print", "printf", "str", "format", "contains", "hash", "compare", "error_message", "abs", "min", "max",
+    "print", "printf", "str", "format", "hash", "compare", "error_message", "abs", "min", "max",
     "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "concat", "snapshot", "mutable", "clear", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "concat", "mutable", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -1583,7 +1583,7 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * here -- there is nothing to canonicalize against. */
 static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
     "abs", "filter", "keys", "values",
-    "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", NULL,
+    "get", "get_or", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", NULL,
 };
 
 static int builtin_refuses_named_args(const char *name) {
@@ -3183,9 +3183,6 @@ static Type mutable_handle_type(MutableShape shape, Type elem, const Type *value
     return t;
 }
 
-static int is_mutable_cell_type(Type t) {
-    return t.kind == TY_STRUCT && t.struct_name != NULL && strcmp(t.struct_name, "Mutable") == 0;
-}
 
 static int is_builder_type(Type t) {
     if (t.kind != TY_STRUCT || t.struct_name == NULL) return 0;
@@ -3499,28 +3496,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return mutable_handle_type(source, elem, source == SHAPE_MAP ? &value : NULL);
     }
 
-    if (strcmp(name, "clear") == 0) {
-        if (e->as.call.args.count != 1) {
-            ziman_error("type", e->line, e->col, "'clear' takes exactly 1 argument, found %d", e->as.call.args.count);
-        }
-        Expr *arg = e->as.call.args.items[0];
-        Type arg_type = check_expr(module, env, arg);
-        if (is_mutable_cell_type(arg_type)) {
-            ziman_error("type", arg->line, arg->col,
-                        "a Mutable has no 'clear': it is always initialised, and emptying it would need exactly the "
-                        "zero value its type may not have. Put something in it with mutable_set instead");
-        }
-        if (!is_builder_type(arg_type)) {
-            /* Only a handle can be emptied. An empty Map or array is a value you write down
-             * (`Map<K, V> {}`, `[]`), not a thing you do to one you already have. */
-            ziman_error("type", arg->line, arg->col,
-                        "'clear' expects a builder -- a MutableArray, MutableString, MutableMap or MutableSet -- found %s; "
-                        "an immutable collection is emptied by writing an empty one",
-                        type_name(arg_type));
-        }
-        return type_scalar(TY_VOID);
-    }
-
     /* `mutable(x)`: the mutable counterpart of whatever it is given. The three collections that
      * have a builder rewrite onto the `mutable_*_from` they mirror, so each inherits that
      * family's result-type derivation rather than repeating it here. Everything else -- a scalar,
@@ -3570,136 +3545,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         e->as.call.rewritten_from = "mutable";
         e->as.call.callee = ziman_xstrdup(target);
         return check_expr(module, env, e);
-    }
-
-    if (strcmp(name, "snapshot") == 0) {
-        if (e->as.call.args.count != 1) {
-            ziman_error("type", e->line, e->col, "'snapshot' takes exactly 1 argument, found %d", e->as.call.args.count);
-        }
-        Expr *arg = e->as.call.args.items[0];
-        Type arg_type = check_expr(module, env, arg);
-        if (is_mutable_cell_type(arg_type)) {
-            ziman_error("type", arg->line, arg->col,
-                        "a Mutable has no 'snapshot': use mutable_get, which is the same crossing out of the handle. "
-                        "'snapshot' names an O(n) copy of a collection; reading the one value a cell holds is O(1)");
-        }
-        if (!is_builder_type(arg_type)) {
-            ziman_error("type", arg->line, arg->col,
-                        "'snapshot' expects a builder -- a MutableArray, MutableString, MutableMap or MutableSet -- found %s",
-                        type_name(arg_type));
-        }
-        /* The one builtin whose result type is a function of its argument's, which `map_keys`
-         * already does the same way: each builder answers the immutable type it is building. */
-        if (strcmp(arg_type.struct_name, "MutableString") == 0) return type_scalar(TY_STRING);
-        if (arg_type.type_args.count < 1) {
-            ziman_error("type", arg->line, arg->col, "'snapshot' needs %s's element type, which is not known here",
-                        arg_type.struct_name);
-        }
-        if (strcmp(arg_type.struct_name, "MutableArray") == 0) return type_array(arg_type.type_args.items[0]);
-        if (strcmp(arg_type.struct_name, "MutableSet") == 0) return type_set(arg_type.type_args.items[0]);
-        if (arg_type.type_args.count < 2) {
-            ziman_error("type", arg->line, arg->col, "'snapshot' needs MutableMap's value type, which is not known here");
-        }
-        return type_map(arg_type.type_args.items[0], arg_type.type_args.items[1]);
-    }
-
-    if (strcmp(name, "contains") == 0) {
-        if (e->as.call.args.count != 2) {
-            ziman_error("type", e->line, e->col, "'contains' takes exactly 2 arguments, found %d", e->as.call.args.count);
-        }
-        Expr *first_arg = e->as.call.args.items[0];
-        Type first_type = check_expr(module, env, first_arg);
-        Expr *second_arg = e->as.call.args.items[1];
-
-        if (first_type.kind == TY_STRING) {
-            Type second_type = check_expr(module, env, second_arg);
-            if (second_type.kind != TY_STRING) {
-                ziman_error("type", second_arg->line, second_arg->col, "argument 2 of 'contains' expects string, found %s", type_name(second_type));
-            }
-            return type_scalar(TY_BOOL);
-        }
-        if (first_type.kind == TY_MAP || first_type.kind == TY_SET) {
-            Type key_type = *first_type.elem;
-            Type second_type = check_expr_expecting(module, env, &e->as.call.args.items[1], key_type);
-            if (!type_equals(second_type, key_type)) {
-                ziman_error("type", second_arg->line, second_arg->col, "argument 2 of 'contains' expects %s (the %s's %s type), found %s",
-                            type_name(key_type), first_type.kind == TY_MAP ? "map" : "set", first_type.kind == TY_MAP ? "key" : "element",
-                            type_name(second_type));
-            }
-            return type_scalar(TY_BOOL);
-        }
-        if (first_type.kind == TY_ARRAY) {
-            Type elem_type = *first_type.elem;
-            if (!type_supports_equality(module, elem_type, 0)) {
-                ziman_error("type", first_arg->line, first_arg->col,
-                            "'contains' requires an array of a comparable ('==') element type, found %s", type_name(first_type));
-            }
-            Type second_type = check_expr(module, env, second_arg);
-            if (!type_equals(second_type, elem_type)) {
-                ziman_error("type", second_arg->line, second_arg->col,
-                            "argument 2 of 'contains' expects %s (the array's element type), found %s",
-                            type_name(elem_type), type_name(second_type));
-            }
-            return type_scalar(TY_BOOL);
-        }
-        if (is_mutable_cell_type(first_type)) {
-            /* A cell holds exactly one value, so `contains` asks whether that value equals the
-             * needle -- the same question, for a collection of one. */
-            if (first_type.type_args.count < 1) {
-                ziman_error("type", first_arg->line, first_arg->col, "'contains' needs Mutable's value type, which is not known here");
-            }
-            Type want = first_type.type_args.items[0];
-            if (!type_supports_equality(module, want, 0)) {
-                ziman_error("type", first_arg->line, first_arg->col,
-                            "'contains' requires a Mutable of a comparable ('==') value type, found %s", type_name(first_type));
-            }
-            Type second_type = check_expr_expecting(module, env, &e->as.call.args.items[1], want);
-            if (!type_equals(second_type, want)) {
-                ziman_error("type", second_arg->line, second_arg->col,
-                            "argument 2 of 'contains' expects %s (the Mutable's value type), found %s", type_name(want),
-                            type_name(second_type));
-            }
-            return type_scalar(TY_BOOL);
-        }
-        if (is_builder_type(first_type)) {
-            /* The question each builder answers is its immutable counterpart's: a substring for a
-             * MutableString, a key for a MutableMap, an element for the other two. The element or
-             * key type is the declaration's first type argument (`MutableArray<T>`,
-             * `MutableMap<K, V>`, `MutableSet<T>`); MutableString is not generic and takes a
-             * string. */
-            if (strcmp(first_type.struct_name, "MutableString") == 0) {
-                Type second_type = check_expr(module, env, second_arg);
-                if (second_type.kind != TY_STRING) {
-                    ziman_error("type", second_arg->line, second_arg->col,
-                                "argument 2 of 'contains' expects string (a MutableString holds text), found %s",
-                                type_name(second_type));
-                }
-                return type_scalar(TY_BOOL);
-            }
-            if (first_type.type_args.count < 1) {
-                ziman_error("type", first_arg->line, first_arg->col, "'contains' needs %s's element type, which is not known here",
-                            first_type.struct_name);
-            }
-            Type want = first_type.type_args.items[0];
-            int is_array_builder = strcmp(first_type.struct_name, "MutableArray") == 0;
-            /* Only the MutableArray needs this said: a MutableMap's key and a MutableSet's element
-             * are already `Eq + Hash` by their declarations' own bounds, so there is nothing left
-             * to check for them. */
-            if (is_array_builder && !type_supports_equality(module, want, 0)) {
-                ziman_error("type", first_arg->line, first_arg->col,
-                            "'contains' requires a MutableArray of a comparable ('==') element type, found %s",
-                            type_name(first_type));
-            }
-            Type second_type = check_expr_expecting(module, env, &e->as.call.args.items[1], want);
-            if (!type_equals(second_type, want)) {
-                ziman_error("type", second_arg->line, second_arg->col,
-                            "argument 2 of 'contains' expects %s (the %s's %s type), found %s", type_name(want),
-                            first_type.struct_name, is_array_builder ? "element" : (strcmp(first_type.struct_name, "MutableMap") == 0 ? "key" : "element"),
-                            type_name(second_type));
-            }
-            return type_scalar(TY_BOOL);
-        }
-        ziman_error("type", first_arg->line, first_arg->col, "'contains' expects a string, array, map, set or builder as its first argument, found %s", type_name(first_type));
     }
 
     if (strcmp(name, "compare") == 0) {
