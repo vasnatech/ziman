@@ -396,7 +396,7 @@ fn tag_at(data: [byte], at: int) -> Result<string, string> {
     if at + 4 > len(data) {
         return err("truetype: read past the end of the font reading a table tag")
     }
-    return switch bytes_to_string(slice<byte>(data, at, at + 4)) {
+    return switch bytes_to_string(slice(data, at, at + 4)) {
         Ok(s) { ok(s) }
         // A tag is four bytes that happen to be ASCII in every real font; one that is not is
         // reported rather than failing the whole parse, since the table is one this module

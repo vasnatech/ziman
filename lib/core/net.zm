@@ -278,7 +278,7 @@ pub fn listen_tls_with_options(host: string, port: int, options: TlsServerOption
         port,
         options.cert_file,
         options.key_file,
-        get_or<string>(options.client_ca_file, ""),
+        get_or(options.client_ca_file, ""),
         options.require_client_cert,
         options.alpn
     )
@@ -407,7 +407,7 @@ fn line_item(bytes: [byte]) -> Result<string, NetError> {
     if end > 0 && bytes[end - 1] == 13b {
         end = end - 1
     }
-    val text = bytes_to_string(slice<byte>(bytes, 0, end))
+    val text = bytes_to_string(slice(bytes, 0, end))
     if !is_ok(text) {
         return line_error("line contains a NUL byte")
     }
@@ -418,8 +418,8 @@ fn next_line(s: Socket, cell: Channel<LineBuffer>, max_line_bytes: int) -> Optio
     val state = receive(cell)
     val at = index_of(state.data, [10b], 0)
     if at >= 0 {
-        send(cell, LineBuffer { data: slice<byte>(state.data, at + 1, len(state.data)), eof: state.eof })
-        return Option<Result<string, NetError>>.Some(line_item(slice<byte>(state.data, 0, at)))
+        send(cell, LineBuffer { data: slice(state.data, at + 1, len(state.data)), eof: state.eof })
+        return Option<Result<string, NetError>>.Some(line_item(slice(state.data, 0, at)))
     }
     if state.eof {
         send(cell, LineBuffer { data: [], eof: true })
@@ -552,9 +552,9 @@ pub fn start_tls_with_options(s: Socket, host: string, options: TlsClientOptions
         s.handle,
         host,
         tls_verify_level(options.verify),
-        get_or<string>(options.ca_file, ""),
-        get_or<string>(options.cert_file, ""),
-        get_or<string>(options.key_file, ""),
+        get_or(options.ca_file, ""),
+        get_or(options.cert_file, ""),
+        get_or(options.key_file, ""),
         options.alpn
     ) {
         Ok(_) { unit }

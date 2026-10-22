@@ -262,7 +262,7 @@ pub fn lines(s: string) -> [string] {
     // Only a *trailing* newline produces that last empty piece; a blank line in the middle is a
     // real empty line and stays.
     if ends_with(s, "\n") {
-        return slice<string>(out, 0, len(out) - 1)
+        return slice(out, 0, len(out) - 1)
     }
     return out
 }

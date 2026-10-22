@@ -120,7 +120,7 @@ fn cstring(s: string) -> [byte] {
 }
 
 fn text_of(b: [byte], start: int, end: int) -> string {
-    return unwrap(bytes_to_string(slice<byte>(b, start, end)))
+    return unwrap(bytes_to_string(slice(b, start, end)))
 }
 
 // Index of the 0 byte at or after `start`.
@@ -178,8 +178,8 @@ fn parse_error(body: [byte]) -> DbError {
 // postgres://user[:password]@host[:port]/database[?sslmode=...&sslrootcert=...]
 fn parse_url(url: string) -> Result<PgUrl, DbError> {
     val u = try db.parse_url(url, ["postgres://", "postgresql://"], 5432)
-    val sslmode = get_or<string>(db.url_param(u, "sslmode"), "disable")
-    val sslrootcert = get_or<string>(db.url_param(u, "sslrootcert"), "")
+    val sslmode = get_or(db.url_param(u, "sslmode"), "disable")
+    val sslrootcert = get_or(db.url_param(u, "sslrootcert"), "")
     if sslmode != "disable" && sslmode != "prefer" && sslmode != "require" && sslmode != "verify-ca" && sslmode != "verify-full" {
         return err(conn_err(concat(
             "unsupported sslmode (use disable, prefer, require, verify-ca or verify-full): ",
@@ -460,7 +460,7 @@ fn parse_data_row(body: [byte], oids: [int]) -> Result<[SqlValue], DbError> {
         if length == 4294967295 {
             push(values, SqlValue.Null)
         } else {
-            val v = try decode_value(oids[i], slice<byte>(body, pos, pos + length))
+            val v = try decode_value(oids[i], slice(body, pos, pos + length))
             push(values, v)
             pos = pos + length
         }

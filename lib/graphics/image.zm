@@ -302,7 +302,7 @@ pub fn decode_png(data: [byte], max_pixels: int) -> Result<Image, string> {
         if body_at + length + 4 > len(data) {
             return err(concat("image.decode_png: the '", name, "' chunk is truncated"))
         }
-        val body = slice<byte>(data, body_at, body_at + length)
+        val body = slice(data, body_at, body_at + length)
         val declared = try u32_at(data, body_at + length)
         val actual = crc32(concat(string_to_bytes(name), body))
         // A CRC check is eight lines and turns silent corruption into a message.
@@ -476,7 +476,7 @@ fn tag_at(data: [byte], at: int) -> Result<string, string> {
     if at + 4 > len(data) {
         return err("image: read past the end of the data")
     }
-    return switch bytes_to_string(slice<byte>(data, at, at + 4)) {
+    return switch bytes_to_string(slice(data, at, at + 4)) {
         Ok(s) { ok(s) }
         Err(_) { ok("????") }
     }

@@ -84,7 +84,7 @@ fn counter_bytes(counter: int) -> [byte] {
     var digits: [int] = []
     var rest = counter
     for _ in 0..8 {
-        digits = push<int>(digits, rest % 256)
+        digits = push(digits, rest % 256)
         rest = rest / 256
     }
     for i in 0..8 {

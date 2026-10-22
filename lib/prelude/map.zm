@@ -61,7 +61,7 @@ pub native fn discard<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K)
 pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool {
     var removed_any = false
     for k in keys {
-        if Some(_old) = remove<K, V>(m, k) {
+        if Some(_old) = remove(m, k) {
             removed_any = true
         }
     }
@@ -98,8 +98,8 @@ builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
 // lookup where `get` then `set` is two, which is the whole reason this exists where
 // `mutable_set`-on-a-cell did not need an equivalent. `update`'s cell form is in mutable.zm.
 pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V {
-    val next = f(get<K, V>(m, key))
-    set<K, V>(m, key, next)
+    val next = f(get(m, key))
+    set(m, key, next)
     return next
 }
 
@@ -108,7 +108,7 @@ pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> 
 // disturb the walk.
 pub fn update_all<K: Eq + Hash, V>(m: MutableMap<K, V>, f: fn(K, V) -> V) {
     for k, v in m {
-        set<K, V>(m, k, f(k, v))
+        set(m, k, f(k, v))
     }
 }
 
@@ -128,7 +128,7 @@ pub fn keys<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Set<K> {
 pub fn values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V] {
     val out = mutable_array_new<V>()
     for k, v in m {
-        push<V>(out, v)
+        push(out, v)
     }
     return snapshot(out)
 }

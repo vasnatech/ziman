@@ -180,7 +180,7 @@ fn lift<T>(r: Result<T, NetError>) -> Result<T, HttpError> {
 }
 
 fn text_of(b: [byte], start: int, end: int) -> Result<string, HttpError> {
-    if Ok(s) = bytes_to_string(slice<byte>(b, start, end)) {
+    if Ok(s) = bytes_to_string(slice(b, start, end)) {
         return s
     }
     return err(HttpError.BadRequest("request contains a NUL byte"))
@@ -314,7 +314,7 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: i
             }
             Err(_) { return err(HttpError.BadRequest(format("invalid chunk size '{}'", size_line))) }
         }
-        buf = slice<byte>(buf, eol + 2, len(buf))
+        buf = slice(buf, eol + 2, len(buf))
         if n == 0 {
             // trailers: header lines up to a blank line, all ignored
             var trailer_end = index_of(buf, crlf, 0)
@@ -328,11 +328,11 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: i
                     trailer_end = index_of(buf, crlf, 0)
                 }
                 if trailer_end != 0 {
-                    buf = slice<byte>(buf, trailer_end + 2, len(buf))
+                    buf = slice(buf, trailer_end + 2, len(buf))
                     trailer_end = index_of(buf, crlf, 0)
                 }
             }
-            return ChunkedBody { body: snapshot(body), rest: slice<byte>(buf, 2, len(buf)) }
+            return ChunkedBody { body: snapshot(body), rest: slice(buf, 2, len(buf)) }
         }
         total = total + n
         if total > cap {
@@ -345,8 +345,8 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: i
         if buf[n] != 13b || buf[n + 1] != 10b {
             return err(HttpError.BadRequest("a chunk is not followed by CRLF"))
         }
-        push(body, slice<byte>(buf, 0, n))
-        buf = slice<byte>(buf, n + 2, len(buf))
+        push(body, slice(buf, 0, n))
+        buf = slice(buf, n + 2, len(buf))
     }
     return err(HttpError.BadRequest("unreachable"))
 }
@@ -476,7 +476,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         if Some(expect_chunked) = expect_chunked && equals_ignore_case(expect_chunked, "100-continue") {
             try lift<int>(net.write_text(sock, continue_response))
         }
-        val decoded = try read_chunked(sock, slice<byte>(buf, head_end, len(buf)), limit_ms, started, body_cap)
+        val decoded = try read_chunked(sock, slice(buf, head_end, len(buf)), limit_ms, started, body_cap)
         try restore_timeout(sock, limit_ms, true)
         val chunked_request = Request {
             method: method_parse(method_text),
@@ -518,7 +518,7 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         return err(HttpError.BodyTooLarge)
     }
 
-    var rest = slice<byte>(buf, head_end, len(buf))
+    var rest = slice(buf, head_end, len(buf))
     if content_length > len(rest) {
         val expect = header_value(header_list, "Expect")
         if Some(expect) = expect && equals_ignore_case(expect, "100-continue") {
@@ -538,8 +538,8 @@ pub fn read_request(session: Session) -> Result<Exchange, HttpError> {
         rest = snapshot(acc)
     }
     try restore_timeout(sock, limit_ms, lowered || session.fresh)
-    val body = slice<byte>(rest, 0, content_length)
-    val leftover = slice<byte>(rest, content_length, len(rest))
+    val body = slice(rest, 0, content_length)
+    val leftover = slice(rest, content_length, len(rest))
 
     val request = Request {
         method: method_parse(method_text),
@@ -1170,7 +1170,7 @@ fn part_of(chunk: [byte]) -> Result<Part, HttpError> {
     if blank < 0 {
         return err(HttpError.BadRequest("a multipart part has no blank line after its headers"))
     }
-    val block = switch bytes_to_string(slice<byte>(chunk, 0, blank)) {
+    val block = switch bytes_to_string(slice(chunk, 0, blank)) {
         Ok(text) { text }
         Err(_) { return err(HttpError.BadRequest("a multipart part's headers are not text")) }
     }
@@ -1184,7 +1184,7 @@ fn part_of(chunk: [byte]) -> Result<Part, HttpError> {
         name: name,
         filename: disposition_param(disposition, "filename"),
         content_type: if len(declared) > 0 { Option<string>.Some(declared) } else { Option<string>.None },
-        body: slice<byte>(chunk, blank + 4, len(chunk))
+        body: slice(chunk, blank + 4, len(chunk))
     })
 }
 
@@ -1233,7 +1233,7 @@ pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
     while true {
         var from = at + len(delim)
         // `--boundary--` ends the body. Anything after it is an epilogue, which RFC 2046 says to ignore.
-        if from + 2 <= len(body) && slice<byte>(body, from, from + 2) == close {
+        if from + 2 <= len(body) && slice(body, from, from + 2) == close {
             return ok(snapshot(out))
         }
         val next = index_of(body, delim, from)
@@ -1244,10 +1244,10 @@ pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
             return err(HttpError.BadRequest(concat("a multipart body of more than ", str(max_parts), " parts")))
         }
         // The CRLF that ends the boundary line is not part of the part's headers.
-        if from + 2 <= len(body) && slice<byte>(body, from, from + 2) == line_end {
+        if from + 2 <= len(body) && slice(body, from, from + 2) == line_end {
             from = from + 2
         }
-        push(out, try part_of(slice<byte>(body, from, next)))
+        push(out, try part_of(slice(body, from, next)))
         at = next
     }
     return ok(snapshot(out))
@@ -1611,7 +1611,7 @@ pub fn secure_handler<C, U, O, E>(
         decoders: Option<[Decoder<unit>]>.None,
         blank: Option<unit>.Some(unit),
         encoders: encoders,
-        status: get_or<int>(status, 200),
+        status: get_or(status, 200),
         run: fn(ctx: C, caller: U, id: unit, filter: unit, input: unit) -> Result<O, E> { return go(ctx, caller) },
         api: api
     )
@@ -1635,7 +1635,7 @@ pub fn secure_path_handler<C, U, P, O, E>(
         decoders: Option<[Decoder<unit>]>.None,
         blank: Option<unit>.Some(unit),
         encoders: encoders,
-        status: get_or<int>(status, 200),
+        status: get_or(status, 200),
         run: fn(ctx: C, caller: U, id: P, filter: unit, input: unit) -> Result<O, E> { return go(ctx, caller, id) },
         api: api
     )
@@ -1660,7 +1660,7 @@ pub fn secure_query_handler<C, U, Q, O, E>(
         decoders: Option<[Decoder<unit>]>.None,
         blank: Option<unit>.Some(unit),
         encoders: encoders,
-        status: get_or<int>(status, 200),
+        status: get_or(status, 200),
         run: fn(ctx: C, caller: U, id: unit, filter: Q, input: unit) -> Result<O, E> { return go(ctx, caller, filter) },
         api: api
     )
@@ -1685,7 +1685,7 @@ pub fn secure_body_handler<C, U, I, O, E>(
         decoders: Option<[Decoder<I>]>.Some(decoders),
         blank: Option<I>.None,
         encoders: encoders,
-        status: get_or<int>(status, 200),
+        status: get_or(status, 200),
         run: fn(ctx: C, caller: U, id: unit, filter: unit, input: I) -> Result<O, E> { return go(ctx, caller, input) },
         api: api
     )
@@ -1711,7 +1711,7 @@ pub fn secure_path_body_handler<C, U, P, I, O, E>(
         decoders: Option<[Decoder<I>]>.Some(decoders),
         blank: Option<I>.None,
         encoders: encoders,
-        status: get_or<int>(status, 200),
+        status: get_or(status, 200),
         run: fn(ctx: C, caller: U, id: P, filter: unit, input: I) -> Result<O, E> { return go(ctx, caller, id, input) },
         api: api
     )
@@ -2030,12 +2030,12 @@ fn routes_with<C>(endpoints: [Endpoint<C>], meter: bool) -> Routes<C> {
         set(
             methods,
             key,
-            push(get_or<[int]>(get(methods, key), none), i)
+            push(get_or(get(methods, key), none), i)
         )
         set(
             lengths,
             len(p.parts),
-            push(get_or<[int]>(get(lengths, len(p.parts)), none), i)
+            push(get_or(get(lengths, len(p.parts)), none), i)
         )
         i = i + 1
     }
@@ -2471,7 +2471,7 @@ fn connection_key(sock: Socket, limit: int) -> string {
     if limit < 1 {
         return ""
     }
-    return get_or<string>(net.peer_address(sock), "")
+    return get_or(net.peer_address(sock), "")
 }
 
 // One burst of serving on a connection the poller handed over: requests are served while the next

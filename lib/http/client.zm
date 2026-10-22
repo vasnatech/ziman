@@ -255,7 +255,7 @@ fn read_head(sock: Socket) -> Result<Head, ClientError> {
         val at = index_of(buf, crlf_crlf, 0)
         head_end = if at < 0 { -1 } else { at + 4 }
     }
-    val head = try text_of(slice<byte>(buf, 0, head_end - 4))
+    val head = try text_of(slice(buf, 0, head_end - 4))
     val lines = split(head, "\r\n")
     val status_parts = split(lines[0], " ")
     if len(status_parts) < 2 || !starts_with(status_parts[0], "HTTP/1.") {
@@ -279,7 +279,7 @@ fn read_head(sock: Socket) -> Result<Head, ClientError> {
         status: status,
         status_line: lines[0],
         headers: snapshot(headers),
-        rest: slice<byte>(buf, head_end, len(buf))
+        rest: slice(buf, head_end, len(buf))
     })
 }
 
@@ -299,7 +299,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
             buf = step
             eol = index_of(buf, crlf, 0)
         }
-        val line = try text_of(slice<byte>(buf, 0, eol))
+        val line = try text_of(slice(buf, 0, eol))
         val size_text = trim(split(line, ";")[0])
         val size = switch int_from_hex(size_text) {
             Ok(v) {
@@ -310,7 +310,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
             }
             Err(_) { return err(ClientError.BadResponse(concat("invalid chunk size: ", size_text))) }
         }
-        buf = slice<byte>(buf, eol + 2, len(buf))
+        buf = slice(buf, eol + 2, len(buf))
         if size == 0 {
             var trailer_end = index_of(buf, crlf, 0)
             while trailer_end != 0 {
@@ -323,7 +323,7 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
                     trailer_end = index_of(buf, crlf, 0)
                 }
                 if trailer_end != 0 {
-                    buf = slice<byte>(buf, trailer_end + 2, len(buf))
+                    buf = slice(buf, trailer_end + 2, len(buf))
                     trailer_end = index_of(buf, crlf, 0)
                 }
             }
@@ -337,8 +337,8 @@ fn read_chunked(sock: Socket, start: [byte]) -> Result<Body, ClientError> {
             val step = try more(sock, buf)
             buf = step
         }
-        push(body, slice<byte>(buf, 0, size))
-        buf = slice<byte>(buf, size + 2, len(buf))
+        push(body, slice(buf, 0, size))
+        buf = slice(buf, size + 2, len(buf))
     }
     return ok(Body { bytes: [], clean: false })
 }
@@ -398,7 +398,7 @@ fn read_body(sock: Socket, head: Head, head_only: bool) -> Result<Body, ClientEr
                 clean: true
             })
         }
-        return ok(Body { bytes: slice<byte>(head.rest, 0, n), clean: len(head.rest) == n })
+        return ok(Body { bytes: slice(head.rest, 0, n), clean: len(head.rest) == n })
     }
     return read_to_close(sock, head.rest)
 }
@@ -448,7 +448,7 @@ fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientErro
     } else {
         val upper = os.getenv(if u.secure { "HTTPS_PROXY" } else { "HTTP_PROXY" })
         val lower = os.getenv(if u.secure { "https_proxy" } else { "http_proxy" })
-        text = get_or<string>(upper, get_or<string>(lower, ""))
+        text = get_or(upper, get_or(lower, ""))
         if len(text) > 0 && no_proxy_matches(u.host) {
             text = ""
         }
@@ -469,7 +469,7 @@ fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientErro
 // True if `NO_PROXY` (a comma-separated list of hosts, `.suffixes` and `*`) covers `host`.
 fn no_proxy_matches(host: string) -> bool {
     val upper = os.getenv("NO_PROXY")
-    val list = get_or<string>(upper, get_or<string>(os.getenv("no_proxy"), ""))
+    val list = get_or(upper, get_or(os.getenv("no_proxy"), ""))
     for raw in split(list, ",") {
         val entry = to_lower(trim(raw))
         if entry == "*" {
@@ -1122,14 +1122,14 @@ pub fn request(
     val outcome = try run(
         method,
         url,
-        get_or<[Header]>(headers, []),
+        get_or(headers, []),
         body,
-        get_or<int>(timeout_ms, default_timeout_ms),
-        get_or<int>(max_redirects, default_max_redirects),
+        get_or(timeout_ms, default_timeout_ms),
+        get_or(max_redirects, default_max_redirects),
         ca_file,
         proxy,
-        get_or<bool>(compress, true),
-        get_or<bool>(reuse, true),
+        get_or(compress, true),
+        get_or(reuse, true),
         cookie_jar()
     )
     return ok(outcome.response)
@@ -1154,14 +1154,14 @@ pub fn request_with_jar(
     val outcome = try run(
         method,
         url,
-        get_or<[Header]>(headers, []),
+        get_or(headers, []),
         body,
-        get_or<int>(timeout_ms, default_timeout_ms),
-        get_or<int>(max_redirects, default_max_redirects),
+        get_or(timeout_ms, default_timeout_ms),
+        get_or(max_redirects, default_max_redirects),
         ca_file,
         proxy,
-        get_or<bool>(compress, true),
-        get_or<bool>(reuse, true),
+        get_or(compress, true),
+        get_or(reuse, true),
         jar
     )
     return ok(JarResponse { response: outcome.response, jar: outcome.jar })
@@ -1278,7 +1278,7 @@ fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte],
                 }
                 buf = unwrap(more_bytes)
             }
-            buf = slice<byte>(buf, 2, len(buf))
+            buf = slice(buf, 2, len(buf))
         }
         var eol = index_of(buf, crlf, 0)
         while eol < 0 {
@@ -1294,7 +1294,7 @@ fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte],
             buf = unwrap(more_bytes)
             eol = index_of(buf, crlf, 0)
         }
-        val line = text_of(slice<byte>(buf, 0, eol))
+        val line = text_of(slice(buf, 0, eol))
         if Err(e) = line {
             send(cell, finished)
             return body_failure(e)
@@ -1313,7 +1313,7 @@ fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte],
                 return body_failure(ClientError.BadResponse(concat("invalid chunk size: ", size_text)))
             }
         }
-        buf = slice<byte>(buf, eol + 2, len(buf))
+        buf = slice(buf, eol + 2, len(buf))
         if n == 0 {
             send(cell, finished)
             return body_end()
@@ -1344,8 +1344,8 @@ fn next_body_block(s: Socket, cell: Channel<BodyState>) -> Option<Result<[byte],
         block = unwrap(got)
     }
     if st.mode != 2 && len(block) > st.left {
-        rest = slice<byte>(block, st.left, len(block))
-        block = slice<byte>(block, 0, st.left)
+        rest = slice(block, st.left, len(block))
+        block = slice(block, 0, st.left)
     }
     var left = st.left - len(block)
     if st.mode == 2 {
@@ -1386,11 +1386,11 @@ pub fn stream(
         return err(ClientError.BadUrl(e))
     }
     val u = unwrap(parsed)
-    val timeout = get_or<int>(timeout_ms, default_timeout_ms)
+    val timeout = get_or(timeout_ms, default_timeout_ms)
     val via = try proxy_for(u, proxy)
     val sock = try open_socket(u, via, ca_file, timeout)
     val _ = net.set_timeout(sock, timeout)
-    val sent = write_request(sock, method, u, via, get_or<[Header]>(headers, []), body, false, false)
+    val sent = write_request(sock, method, u, via, get_or(headers, []), body, false, false)
     if Err(e) = sent {
         net.close(sock)
         return err(e)

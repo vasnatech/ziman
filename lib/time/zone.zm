@@ -356,7 +356,7 @@ fn c_string(data: [byte], pos: int, limit: int) -> string {
     while end < limit && data[end] != 0b {
         end = end + 1
     }
-    return unwrap(bytes_to_string(slice<byte>(data, pos, end)))
+    return unwrap(bytes_to_string(slice(data, pos, end)))
 }
 
 // One block of the file whose header starts at `hdr`; `wide` when its times are 8 bytes (version 2+).
@@ -430,7 +430,7 @@ pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string> {
     while end < len(data) && data[end] != 10b {
         end = end + 1
     }
-    val text = unwrap(bytes_to_string(slice<byte>(data, second.next + 1, end)))
+    val text = unwrap(bytes_to_string(slice(data, second.next + 1, end)))
     if len(text) == 0 {
         return ok(second.rules)
     }

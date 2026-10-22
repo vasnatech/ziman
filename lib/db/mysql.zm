@@ -190,7 +190,7 @@ fn cstring(s: string) -> [byte] {
 }
 
 fn text_of(b: [byte], start: int, end: int) -> string {
-    return unwrap(bytes_to_string(slice<byte>(b, start, end)))
+    return unwrap(bytes_to_string(slice(b, start, end)))
 }
 
 fn cstring_end(b: [byte], start: int) -> int {
@@ -373,7 +373,7 @@ fn parse_hello(b: [byte]) -> Result<Hello, DbError> {
         return err(conn_err(format("unsupported MySQL protocol version {}", b[0] as int)))
     }
     var pos = cstring_end(b, 1) + 1 + 4
-    val salt1 = slice<byte>(b, pos, pos + 8)
+    val salt1 = slice(b, pos, pos + 8)
     pos = pos + 9
     val caps_low = read_le(b, pos, 2)
     pos = pos + 2 + 1 + 2
@@ -385,7 +385,7 @@ fn parse_hello(b: [byte]) -> Result<Hello, DbError> {
     if part2_len < 13 {
         part2_len = 13
     }
-    val salt2 = slice<byte>(b, pos, pos + part2_len - 1)
+    val salt2 = slice(b, pos, pos + part2_len - 1)
     pos = pos + part2_len
     val plugin = text_of(b, pos, cstring_end(b, pos))
     return Hello { caps: caps_low + caps_high * 65536, salt: concat(salt1, salt2), plugin: plugin }
@@ -461,7 +461,7 @@ fn finish_auth(
             if data_end > data_start && p.body[data_end - 1] == 0b {
                 data_end = data_end - 1
             }
-            salt = slice<byte>(p.body, data_start, data_end)
+            salt = slice(p.body, data_start, data_end)
             val reply = try scramble(plugin, password, salt)
             try send_packet(sock, seq, reply)
         } else if first == 1 {
@@ -662,7 +662,7 @@ fn decode_text_row(body: [byte], columns: [Column]) -> Result<[SqlValue], DbErro
         if l.is_null {
             push(values, SqlValue.Null)
         } else {
-            push(values, decode_text_value(c, slice<byte>(body, l.next, l.next + l.value)))
+            push(values, decode_text_value(c, slice(body, l.next, l.next + l.value)))
         }
         pos = l.next + l.value
     }
@@ -802,7 +802,7 @@ fn decode_binary_value(c: Column, b: [byte], pos: int) -> Result<SqlValue, DbErr
         return SqlValue.Text(decode_time(b, pos))
     }
     val l = read_lenenc(b, pos)
-    val raw = slice<byte>(b, l.next, l.next + l.value)
+    val raw = slice(b, l.next, l.next + l.value)
     return if is_binary_column(c) { SqlValue.Bytes(raw) } else { text_or_bytes(raw) }
 }
 

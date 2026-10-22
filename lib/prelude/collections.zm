@@ -84,7 +84,7 @@ pub native fn filter<T>(items: MutableArray<T>, keep: fn(T) -> bool)
 pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool) {
     for k, v in m {
         if !keep(k, v) {
-            val _dropped = remove<K, V>(m, k)
+            val _dropped = remove(m, k)
         }
     }
 }
@@ -93,7 +93,7 @@ pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool) {
 pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool) {
     for item in s {
         if !keep(item) {
-            val _dropped = remove<T>(s, item)
+            val _dropped = remove(s, item)
         }
     }
 }

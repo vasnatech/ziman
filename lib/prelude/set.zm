@@ -66,7 +66,7 @@ pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
 pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
     var removed_any = false
     for item in items {
-        if remove<T>(s, item) {
+        if remove(s, item) {
             removed_any = true
         }
     }
@@ -77,7 +77,7 @@ pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
 pub fn items<T: Eq + Hash>(s: MutableSet<T>) -> [T] {
     val out = mutable_array_new<T>()
     for item in s {
-        push<T>(out, item)
+        push(out, item)
     }
     return snapshot(out)
 }
