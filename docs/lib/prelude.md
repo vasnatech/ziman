@@ -2078,11 +2078,33 @@ answering an immutable value for the same reason `keys` and `values` do.
 ### `merge`
 
 ```
-pub native fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
+pub native fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: variadic Map<K, V>)
 ```
 
+**Every map in `entries`, in order, written into `m`**; a later one wins, and `m`'s own entry
+wins over nothing -- an existing key keeps its position and takes the new value. Answers
+nothing, the container having been written, where the immutable member above answers a new Map.
+
+**Variadic since 2026-10-22**, as the immutable member became on the same day. The parts may
+come from either world, but **not mixed in one call**: one declaration takes a tail of `Map`s
+and the other a tail of `MutableMap`s, a variadic parameter having exactly one type. That is the
+third of `concat`'s walls, and `concat` only clears it because an arm chooses for it and one C
+function reads either world per element -- there is no arm here, so `merge(mb, m1, b2)` is
+refused and the repair is two calls. Worth knowing rather than discovering.
+
+**`#[at_least_one]` is load-bearing, not just sensible.** Without it the two declarations are
+indistinguishable: `merge(mb)` passes an empty tail, which fits both, and the declaration
+checker refuses the pair outright. With it the minimum arity is 2 -- `ovl_min_arity` counts the
+attribute as part of the arity for exactly this reason -- and at two arguments position one is a
+`Map` against a `MutableMap`, which is disjoint. It is also what `merge(mb)` deserves, being a
+call that would do nothing.
+
+One C function serves both, as before: the symbol fallback reads parameter one and both have a
+`MutableMap` there, so `mutable_map_merge` tells the worlds apart by each element's own runtime
+kind -- which is also why it would already handle a mixed tail if a rule ever chose one.
+
 ```
-pub native fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
+pub native fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: variadic MutableMap<K, V>)
 ```
 
 ### `snapshot`

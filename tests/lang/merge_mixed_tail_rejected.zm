@@ -1,0 +1,14 @@
+// A variadic parameter has exactly one type, so one `merge` declaration takes a tail of `Map`s and
+// the other a tail of `MutableMap`s -- and **neither takes a tail mixing them**. That is the third
+// of `concat`'s three walls, and `concat` only clears it because an arm chooses for it and one C
+// function reads either world per element. There is no arm for `merge`, so the repair is two calls.
+//
+// The C function behind both declarations already reads each element's own runtime kind, so it
+// would handle a mixed tail if a rule ever chose one; what cannot be expressed is the declaration.
+fn main() {
+    val m = Map<string, int> { "a": 1 }
+    val b = mutable(Map<string, int> { "b": 2 })
+    val mb = mutable(Map<string, int> {})
+    merge(mb, m, b)
+    print(len(snapshot(mb)))
+}

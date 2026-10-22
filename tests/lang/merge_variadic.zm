@@ -31,10 +31,26 @@ fn main() {
     print(a)
     print(b)
 
-    // the two in-place members are unchanged: a MutableMap first argument, taking either world
-    // for the second, writing in place and answering nothing
+    // **The two in-place members are variadic on their second parameter too**, one taking a tail
+    // of `Map`s and the other a tail of `MutableMap`s. `#[at_least_one]` on both is load-bearing
+    // rather than merely sensible: without it `merge(mb)` passes an empty tail that fits both and
+    // the declaration checker refuses the pair outright. With it the floor is two arguments, where
+    // position one is a `Map` against a `MutableMap` and disjoint.
     val mb = mutable(a)
     merge(mb, b)
-    merge(mb, mutable(c))
     print(snapshot(mb))
+    merge(mb, b, c)
+    print(snapshot(mb))
+    // the tail spreads from a lone array here as well
+    merge(mb, all)
+    print(snapshot(mb))
+    // and the MutableMap-tail declaration, one and several
+    val b1 = mutable(Map<string, int> { "f": 6 })
+    val b2 = mutable(Map<string, int> { "g": 7 })
+    merge(mb, b1)
+    merge(mb, b1, b2)
+    print(snapshot(mb))
+    // named
+    merge(m: mb, entries: all)
+    print(len(snapshot(mb)))
 }

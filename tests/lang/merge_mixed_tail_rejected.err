@@ -1,0 +1,1 @@
+argument 3 of 'merge' expects Map<string, int>, found MutableMap<string, int>

@@ -2269,6 +2269,23 @@ static void overload_resolve(Module *module, Env *env, Expr *e, const char *name
                 memset(binds, 0, sizeof binds);
                 memset(bound, 0, (size_t)n * sizeof bound[0]);
                 ok = param_accepts(pattern, actual, &f->type_params, binds, bound);
+                /* **The lone-array spread, which selection has to model because inference does.**
+                 * One argument at the variadic position may be an array *of* the element type,
+                 * standing for the whole tail -- the rule that makes `concat(parts)` and
+                 * `push(b, values)` work -- and `infer_call_type_args` reads it that way. This
+                 * filter did not, which went unnoticed while every variadic set had exactly one
+                 * variadic member: the loop above runs only `while (live_count > 1)`, so a lone
+                 * surviving candidate was never type-checked here and inference saw the argument
+                 * first. Give a set two variadic members and the filter runs -- `merge(arrayOfMaps)`
+                 * was refused as "expects Map<K, V> or a builder, found [Map<string, int>]" the
+                 * moment `merge`'s in-place members became variadic (2026-10-22), for an argument
+                 * the chosen declaration then accepted perfectly well. */
+                if (!ok && pos == f->params.count - 1 && pos == argc - 1
+                    && f->params.items[pos].is_variadic) {
+                    memset(binds, 0, sizeof binds);
+                    memset(bound, 0, (size_t)n * sizeof bound[0]);
+                    ok = param_accepts(type_array(pattern), actual, &f->type_params, binds, bound);
+                }
             }
             if (ok) { r->matched[keep] = r->matched[i] + 1; r->live[keep++] = f; }
         }
@@ -2418,6 +2435,8 @@ static int overload_expected_types(const OverloadResolution *all, int pos, char 
     return at < cap;
 }
 
+static int ovl_min_arity(const FunctionDecl *f);
+
 static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char *name) {
     OverloadResolution r;
     overload_resolve(module, env, e, name, &r);
@@ -2427,6 +2446,28 @@ static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char
     char list[1024];
     list[0] = '\0';
     if (r.outcome == OVL_AMBIGUOUS) {
+        /* **A call below every candidate's `#[at_least_one]` floor is short, not ambiguous**, and
+         * saying "more than one declaration accepts these arguments" of it is false -- none of
+         * them does. `ovl_arity_fits` keeps a too-short variadic candidate alive deliberately, so
+         * that the dedicated message below can name the floor instead of the set reporting no
+         * match at all; the cost is that two candidates distinguished only *past* the floor both
+         * survive and look ambiguous. `add(s)` never hit it because its two members differ at
+         * position 0, so one is eliminated and the ordinary argument check speaks. `merge(mb)` did,
+         * the moment `merge`'s in-place members became variadic (2026-10-22): they are a
+         * `MutableMap` either way and differ only in the tail.
+         *
+         * Same sentence the ordinary path gives, so one rule reads one way. */
+        int all_short = r.live_count > 0;
+        for (int i = 0; i < r.live_count && all_short; i++) {
+            if (ovl_min_arity(r.live[i]) <= e->as.call.args.count) all_short = 0;
+        }
+        if (all_short) {
+            ziman_error("type", e->line, e->col,
+                        "function '%s' expects at least %d argument(s), found %d -- its last parameter is "
+                        "variadic but needs at least one value, since the call would otherwise do nothing "
+                        "(pass an array to spread a list that may be empty)",
+                        name, ovl_min_arity(r.live[0]), e->as.call.args.count);
+        }
         overload_report_candidates(&r, list, sizeof list);
         /* An ambiguity must come with its escape, or the feature has made something unsayable
          * (the design's §5). After the self-describing filter has run, what is left undecided is

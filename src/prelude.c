@@ -2730,14 +2730,24 @@ static Value native_map_merge(Value *args, int argc, int line, int col) {
 }
 
 /* **One symbol for both in-place declarations**, because the symbol fallback reads parameter one
- * and both have a `MutableMap` there -- they differ in parameter *two*, a `Map` or another
- * `MutableMap`, which this tells apart by that argument's own runtime kind. The same shape
- * `mutable_array_concat` has, and the reason a set can have more declarations than symbols. */
+ * and both have a `MutableMap` there -- they differ in parameter *two*, a tail of `Map`s or a tail
+ * of `MutableMap`s, which this tells apart by each element's own runtime kind. The same shape
+ * `mutable_array_concat` has, and the reason a set can have more declarations than symbols.
+ *
+ * **Variadic on that second parameter since 2026-10-22**, so `args[1]` is one array of maps
+ * however the call was written. Reading the kind per element rather than once for the array is
+ * what would let a *mixed* tail work; the declarations cannot express one (a variadic parameter
+ * has a single type) and there is no arm here to choose, so no call delivers one today -- but the
+ * loop does not care, which is the cheaper of the two ways to be wrong. */
 static Value native_mutable_map_merge(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    ziman_mutable_map_set_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
+    const ArrayObj *entries = args[1].as.arr;
+    for (int i = 0; i < entries->count; i++) {
+        Value next = array_get(entries, i);
+        ziman_mutable_map_set_all(args[0], next, next.type->kind == TY_STRUCT);
+    }
     return value_int(0); /* void return */
 }
 

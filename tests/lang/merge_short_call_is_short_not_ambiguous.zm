@@ -1,0 +1,18 @@
+// `merge(mb)` is **short, not ambiguous**, and saying otherwise was false.
+//
+// `ovl_arity_fits` keeps a too-short variadic candidate alive on purpose, so that the dedicated
+// floor message can name the floor instead of the set reporting no match at all. The cost is that
+// two candidates distinguished only *past* the floor both survive and look ambiguous -- which is
+// exactly `merge`'s two in-place members, a `MutableMap` either way and differing only in the
+// tail. Before 2026-10-22 this reported *"'merge' is ambiguous here -- more than one declaration
+// accepts these arguments"*, of a call that neither accepts.
+//
+// `add(s)` never hit it: its two members differ at position 0, so one is eliminated and the
+// ordinary argument check speaks. The resolver now checks whether *every* surviving candidate is
+// below its own floor before calling a call ambiguous, and gives the same sentence the ordinary
+// path gives.
+fn main() {
+    val mb = mutable(Map<string, int> { "a": 1 })
+    merge(mb)
+    print(len(snapshot(mb)))
+}
