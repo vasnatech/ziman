@@ -190,6 +190,25 @@ check("unqualified completion no longer offers the element accesses", not gone, 
 # The seam a caller would actually want is still there, and so is what it implements.
 missing = [n for n in ("sort", "sort_by", "array_order_of") if n not in labels]
 check("unqualified completion keeps the sorts the internals implement", not missing, missing)
+# The keyword/type half of the list is the one part `src/lsp.c` keeps **by hand** -- this process
+# is the compiler and has no `--api builtins` to read -- so it is the part that rots. On
+# 2026-10-21 it had `unit` twice, no `internal` (one of exactly three visibility levels, the gap
+# the editor grammar closed in F75) and four of the fourteen built-in generic types, **`Option`
+# among the ten missing**, which is as written as `Result`.
+missing = [n for n in ("Channel", "Guard", "Iter", "Map", "MapEntry", "Mutable", "MutableArray",
+                       "MutableMap", "MutableSet", "MutableString", "Option", "Result", "Selected",
+                       "Set") if n not in labels]
+check("unqualified completion offers every built-in generic type", not missing, missing)
+missing = [n for n in ("pub", "internal", "native", "variadic", "use", "try", "defer", "switch",
+                       "with", "unit") if n not in labels]
+check("unqualified completion offers the modifiers and soft keywords", not missing, missing)
+# `builtin` is not among them on purpose: a program cannot declare one, so completing it would
+# offer a keyword that does not type-check outside the prelude.
+check("unqualified completion does not offer 'builtin'", "builtin" not in labels, "offered")
+# A duplicate is invisible in an editor's own dedup but means the list was edited without being
+# read, which is how the other two defects arrived.
+dupes = sorted({n for n in labels if labels.count(n) > 1})
+check("unqualified completion has no duplicate labels", not dupes, dupes)
 
 r = request("workspace/symbol", {"query": "doub"})
 check("workspace symbols by name", any(x["name"] == "double" and x["location"]["uri"] == util_uri for x in r["result"]), r)

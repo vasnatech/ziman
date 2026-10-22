@@ -1,5 +1,14 @@
-// Exercises every construct the grammar highlights -- open this file to
-// eyeball a grammar change.
+// Exercises every construct the grammar highlights -- open this file to eyeball a grammar change.
+//
+// **`make showcase-check` compiles it**, which is the only thing keeping the claim above true. It
+// did not until 2026-10-21, and by then it called `set_union` and `map_get`, both renamed to `union`
+// and `get` in the Map/Set pairing pass (F195-F201) -- so the file a new user opens to see the
+// highlighting had named two functions that no longer exist for three passes. Nothing compiled it,
+// which is the same failure the grammar's own name lists had before `gen_vscode_grammar.py`
+// derived them from `--api builtins`.
+//
+// Add a construct here whenever the grammar learns one: a rule with nothing to colour in this file
+// is a rule nobody will notice breaking.
 
 use models/user as u
 
@@ -39,13 +48,69 @@ fn maps_and_sets() {
     for name, score in scores {
         printf("{} = {}\n", name, score)
     }
-    val tags = set_union(Set<string> { "a" }, Set<string> { "b" })
-    print(map_get(scores, "ann"))
+    val tags = union(Set<string> { "a" }, Set<string> { "b" })
+    print(get(scores, "ann"))
     print(contains(tags, "a"))
-    val amount = 19.99d + 0.01d
-    val level = 200b
-    val huge = 123456789012345678901234567890n
+    val amount: decimal = 19.99d + 0.01d
+    val level: byte = 200b
+    val huge: bigint = 123456789012345678901234567890n
     print(amount)
+    print(level)
+    print(huge)
+}
+
+// The builder half of the two collection worlds, and the one place `snapshot` reads as the
+// crossing it is.
+fn builders() -> [string] {
+    val names = mutable_array_new<string>()
+    push(names, "ada", "grace")
+    val text = mutable_string_new()
+    append(text, "hello", ", ", "world")
+    print(snapshot(text))
+    print(len(names))
+    return snapshot(names)
+}
+
+// `variadic` on a parameter, `internal` on a declaration, and a `unit` return written out: three
+// things the grammar colours that nothing else here was exercising.
+internal fn total(label: string, values: variadic int) -> unit {
+    var sum = 0
+    for v in values {
+        sum = sum + v
+    }
+    printf("{} = {}\n", label, sum)
+}
+
+// `switch`, `defer`, `try` and a `Result`, with `ok`/`err` -- and a text block, which the grammar
+// has a rule of its own for. `switch` covers every variant and has no default arm, so adding one to
+// `Shape` turns this into a compile error rather than into a silent fallthrough.
+fn classify(shape: Shape) -> Result<string, string> {
+    defer print("classified")
+    val word = switch shape {
+        Circle(r) { concat("circle ", str(r)) }
+        Rectangle(corner) { concat("rect ", str(corner.x)) }
+        Origin { "origin" }
+    }
+    if len(word) == 0 {
+        return err("empty")
+    }
+    return ok(word)
+}
+
+fn report() -> Result<string, string> {
+    val word = try classify(Shape.Circle(2.0))
+    val banner = """
+        a text block keeps its newlines
+        and needs no escaping for "quotes"
+        """
+    print(banner)
+    return ok(word)
+}
+
+// `Type::field`, the field-accessor shorthand: `Point::x` is `fn(p: Point) { p.x }`, and the
+// grammar colours `::` as one operator with a property after it.
+fn accessors(points: [Point]) -> [int] {
+    return map<Point, int>(points, Point::x)
 }
 
 fn main() {
@@ -99,6 +164,12 @@ fn main() {
         print(Shape.unwrap_Circle(shape))
     }
     print(Shape.Origin == Shape.Origin)
+
+    total("squares", 1, 4, 9)
+    print(builders())
+    print(unwrap(report()))
+    print(accessors([p1, p2]))
+    maps_and_sets()
 
     val work_in: Channel<int> = channel_new()
     val work_out: Channel<int> = channel_new()

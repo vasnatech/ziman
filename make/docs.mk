@@ -85,4 +85,16 @@ vscode-grammar-check: $(BIN)
 	python3 tools/gen_vscode_grammar.py $(BIN)
 	git diff --exit-code -- editors/vscode/syntaxes/ziman.tmLanguage.json
 
-docs-check: lib-manual-check corelib-reference-check not-yet-check experimental-check doc-module-check syntax-check design-index-check vscode-grammar-check
+# The grammar's name lists are derived, but `showcase.zm` -- the file the extension's README sends a
+# reader to in order to eyeball a highlighting change -- was hand-written and compiled by nothing.
+# By 2026-10-21 it called `set_union` and `map_get`, renamed to `union` and `get` by F195-F201, so
+# the demonstration of the language named two functions the language does not have. Compiling it is
+# the whole guard, and it catches the next rename for free. `--fmt --check` as well, since a file
+# shown off as exemplary should be formatted the way the formatter formats it.
+#
+# This checks `models/user.zm` too, which showcase.zm `use`s and which has no `main` of its own.
+showcase-check: $(BIN)
+	$(BIN) --check editors/vscode/showcase.zm
+	$(BIN) --fmt --check editors/vscode/showcase.zm
+
+docs-check: lib-manual-check corelib-reference-check not-yet-check experimental-check doc-module-check syntax-check design-index-check vscode-grammar-check showcase-check

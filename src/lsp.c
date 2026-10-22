@@ -1406,8 +1406,23 @@ static void handle_document_symbol(const JVal *id, const JVal *params) {
     send_result(id, b.s);
 }
 
+/* Keywords, modifiers and type names for completion -- the one list here that is **not** derived
+ * from the sources, because this process is the compiler and has no `--api builtins` to ask.
+ * `tools/gen_vscode_grammar.py` derives the editor grammar's copy of the type names by scanning
+ * that output, so the two can disagree; `editors/vscode/showcase.zm` writes both populations and
+ * `make showcase-check` compiles it, which is the cheapest thing standing between this list and
+ * the rot it had.
+ *
+ * Three defects fixed on 2026-10-21, all of them the same kind: `unit` appeared twice; `internal`
+ * was missing, so one of exactly three visibility levels could not be completed -- the identical
+ * gap the grammar had and closed in F75; and ten of the fourteen built-in generic types were
+ * absent, **`Option` among them**, which is as written as `Result`. `builtin` is deliberately not
+ * here: a program cannot declare one, so completing it would offer a keyword that does not
+ * type-check outside the prelude. */
 static const char *const KEYWORDS[] = {"fn", "val", "var", "if", "else", "while", "for", "in", "break", "continue", "spawn", "defer", "try", "switch",
-                                       "return", "true", "false", "unit", "as", "struct", "enum", "with", "pub", "use", "native", "variadic", "Result", "Channel", "Map", "Set",
+                                       "return", "true", "false", "as", "struct", "enum", "with", "use", "pub", "internal", "native", "variadic",
+                                       "Channel", "Guard", "Iter", "Map", "MapEntry", "Mutable", "MutableArray", "MutableMap", "MutableSet",
+                                       "MutableString", "Option", "Result", "Selected", "Set",
                                        "int", "float", "bool", "string", "bigint", "decimal", "byte", "unit"};
 /* The names a program can call with no `use`, for completion: the builtin table the checker
  * itself dispatches on, plus lib/prelude/<part>.zm's own top-level functions, which are merged into every

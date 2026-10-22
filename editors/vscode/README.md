@@ -3,15 +3,24 @@
 Support for `.zm` files: a TextMate grammar for highlighting, and a client for the
 built-in language server (`ziman --lsp`, see "Language server" below). The grammar highlights:
 
-- keywords (`fn`, `val`, `var`, `if`, `else`, `while`, `for`, `in`, `return`, `switch`, `defer`,
-  `spawn`, `struct`, `enum`, `with`, `pub`, `use`, `as`, `native`)
-- the primitive types (`int`, `float`, `bool`, `string`, `bigint`, `decimal`, `byte`) and the
-  built-in generic types (`Result`, `Option`, `Channel`, `Map`, `Set`)
-- comments, strings (with `\n`/`\t`/`\"`/`\\` escapes), numbers including the `123n` bigint,
-  `19.99d` decimal and `200b` byte literals, `true`/`false`
-- `#[derive(...)]` attributes
+- keywords (`fn`, `val`, `var`, `if`, `else`, `while`, `for`, `in`, `break`, `continue`, `return`,
+  `switch`, `defer`, `try`, `spawn`, `struct`, `enum`, `with`, `use`, `as`) and the modifiers
+  (`pub`, `internal`, `native`, `builtin`, `variadic`)
+- the primitive types (`int`, `float`, `bool`, `string`, `bigint`, `decimal`, `byte`, `unit`) and
+  the built-in generic types, the `Mutable*` builder family among them
+- comments, text blocks (`"""`), strings (with `\n`/`\t`/`\"`/`\\` escapes), numbers including
+  the `123n` bigint, `19.99d` decimal and `200b` byte literals, `true`/`false`
+- attributes, declaration-level (`#[derive(...)]`, `#[test]`) and file-level (`#![experimental]`)
+- `::`, the field-accessor shorthand, as one operator with the field after it as a property:
+  `Point::x` is `fn(p: Point) { p.x }`
 - function names at both declaration (`fn greet`) and call (`greet(...)`) sites, with the
-  builtins (`len`, `set`, `insert`, `map_get`, `set_union`, `sb_append`, ...) in their own scope
+  builtins (`len`, `set`, `insert`, `get`, `union`, `append`, ...) in their own scope
+
+**The two name lists are generated, not hand-kept.** `tools/gen_vscode_grammar.py` rewrites the
+`builtin-types` and `builtin-functions` patterns from `ziman --api builtins`, and
+`make vscode-grammar-check` fails when the committed grammar is not what it produces. Everything
+else in the grammar is hand-written. The lists were hand-kept until 2026-10-19, by which point they
+highlighted six names that had been deleted and knew none of the 28 that had been renamed.
 - type/struct names, using Ziman's own enforced casing rule (a value or
   function name can never start uppercase, so any capitalized identifier
   is reliably a type) — this also lights up qualified references like
@@ -56,8 +65,15 @@ language indicator in the status bar and pick "Ziman".
 - `syntaxes/ziman.tmLanguage.json` — the actual TextMate grammar.
 - `showcase.zm` (+ `models/user.zm`, which it `use`s) — a file exercising
   every highlighted construct, for eyeballing changes to the grammar.
-  It's genuine, runnable Ziman, not just plausible-looking text: verified
-  with `ziman editors/vscode/showcase.zm` from the repo root.
+  It's genuine, runnable Ziman, not just plausible-looking text, and
+  **`make showcase-check` is what keeps that true**: it type-checks the
+  file and holds it to `--fmt`, inside `docs-check` and so inside
+  `check-fast`. Nothing compiled it until 2026-10-21, and by then it
+  called `set_union` and `map_get` — renamed to `union` and `get` by
+  F195-F201 — so the demonstration of the language named two functions
+  the language does not have. Add a construct here whenever the grammar
+  learns one; a rule with nothing to colour in this file is a rule
+  nobody will notice breaking.
 
 ## Language server
 
@@ -90,8 +106,8 @@ save, 4-space indentation, a ruler at 120, and `"""` closing like other quotes.
 
 **Snippets** (type the prefix, Tab): `main`, `fn`, `pubfn`, `fnr` (returns a `Result`), `struct`,
 `enum`, `derive`, `switch`, `switchr` (switch on a `Result`), `if`, `ifelse`, `for`, `fori`, `forr`,
-`while`, `val`, `valq` (`val x = call()?`), `use`, `usea` (`as`), `usen` (`use mod.Name`), `spawn`,
-`defer`, `block` (a `"""` text block), `pr`.
+`while`, `val`, `valt` (`val x = try call()`), `use`, `usea` (`as`), `usen` (`use mod.Name`),
+`spawn`, `defer`, `block` (a `"""` text block), `pr`.
 
 **Commands** (Command Palette, category "Ziman"): *Run File* (Ctrl+Alt+R, also the play button in the
 editor title) runs the current file in a terminal; *Run Program (main.zm)* (Ctrl+Alt+M) runs the
