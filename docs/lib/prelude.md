@@ -38,8 +38,9 @@ split set still has a `###` heading in each. The listing is the one place to rea
 That reverses the older rule, which kept a split set whole in collections.zm. What remains in
 collections.zm is the names whose members span so many types that no one file is theirs -- `len`
 over nine, `contains` over nine, `remove` over six -- plus `map` and `flat_map`, which `map`'s
-Map and Set members pin there, `mutable`, whose fourth member takes a bare `T` and so has no
-file at all, and `filter`, down to four since its array pair moved to array.zm on 2026-10-22. **Everything else splits, however few files that
+Map and Set members pin there, and `mutable`, whose fourth member takes a bare `T` and so has no
+file at all. `filter` was the last to leave, on 2026-10-22: two members each to array.zm, map.zm
+and set.zm. **Everything else splits, however few files that
 means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
 and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
 
@@ -225,49 +226,6 @@ builtin fn max<T: Ord>(values: variadic T) -> T
 ```
 
 ## `collections.zm`
-
-### `filter`
-
-```
-pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool)
-```
-
-Drops every entry `keep` answers false for, in place -- the MutableMap half of `filter`, where
-the `Map` half answers a new Map instead. Safe for the same snapshot reason as `update_all`.
-
-```
-pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool)
-```
-
-Drops every element `keep` answers false for, in place -- the MutableSet half of `filter`.
-
-```
-pub native fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
-```
-
-The entries `keep` answers true for, as a new Map; keys keep their order. The immutable half of
-the MutableMap form above, which writes in place and answers nothing. **`keep` takes the key as
-well as the value.**
-
-**`native fn` since 2026-10-22**, where these two shared one `builtin fn` id whose branch
-switched on `args[0].type->kind` to tell a Map from a Set at run time. The symbol fallback reads
-parameter one, so each now finds a C function of its own -- `map_filter` and `set_filter` -- and
-neither has to ask what it was given. The conversion needed one new thing: a native walking a
-collection's entries while calling back into Ziman is the first of its shape, and the guard that
-branch held over its whole loop had to be exported for a native to hold it (`native.h`'s
-`native_gc_unsafe_enter`, which is candid about what could and could not be reproduced).
-
-What it buys, beyond the standing direction that builtins go: the declarations are the signature
-of record, `filter(m: stock, keep: p)` is accepted where a builtin id took no named argument,
-and `filter` leaves `PURE_BUILTINS` -- discarding the result is still refused, now by the
-return-type rule reading the resolved declaration.
-
-```
-pub native fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
-```
-
-The elements `keep` answers true for, as a new Set, in their existing order. A Set is a MapObj
-whose values are placeholders, so `keep` takes one argument where the Map form takes two.
 
 ### `remove`
 
@@ -1914,6 +1872,33 @@ lookup where `get` then `set` is two, which is the whole reason this exists wher
 `#[effectful]` for the reason the cell form carries it: the call writes the entry, and the new
 value is an answer `update(counts, k, bump)` on its own line has no use for.
 
+### `filter`
+
+```
+pub native fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
+```
+
+The entries `keep` answers true for, as a new Map; keys keep their order. **`keep` takes the key
+as well as the value.** `filter`'s other four members are in set.zm and array.zm, one pair per
+world, and `ziman --api builtins` prints all six as one block.
+
+**`native fn` since 2026-10-22**, where this and the `Set` form shared one `builtin fn` id whose
+branch switched on `args[0].type->kind` at run time. The symbol fallback reads parameter one, so
+each found a C function of its own -- `map_filter` and `set_filter` -- and neither has to ask
+what it was given. That conversion needed one new thing: a native walking a collection's entries
+while calling back into Ziman was the first of its shape, and the guard the branch held over its
+whole loop had to be exported for a native to hold it (`native.h`'s `native_gc_unsafe_enter`,
+which is candid about what could and could not be reproduced).
+
+```
+pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool)
+```
+
+Drops every entry `keep` answers false for, in place -- the builder half, which writes the map
+and answers nothing where the form above answers a new one. Safe to write as a `for` plus a
+`remove` for the same reason `update_all` is: iterating a MutableMap walks a snapshot of the
+entries, so the writes cannot disturb the walk.
+
 ### `update_all`
 
 ```
@@ -2359,6 +2344,24 @@ itself, the singular over all six collections, stays in collections.zm.
 
 `#[effectful]` for the reason `add` carries it: "did anything change?" is an answer
 "make sure these are gone" has no use for.
+
+### `filter`
+
+```
+pub native fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
+```
+
+The elements `keep` answers true for, as a new Set, in their existing order. A Set is a MapObj
+whose values are placeholders, so `keep` takes one argument where `filter`'s Map form takes two.
+`native fn` since 2026-10-22; map.zm's member carries the account of that conversion, the two
+having shared one builtin id.
+
+```
+pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool)
+```
+
+Drops every element `keep` answers false for, in place -- the builder half, which writes the set
+and answers nothing where the form above answers a new one.
 
 ### `items`
 

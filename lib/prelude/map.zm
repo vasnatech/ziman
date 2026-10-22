@@ -33,8 +33,9 @@
 // That reverses the older rule, which kept a split set whole in collections.zm. What remains in
 // collections.zm is the names whose members span so many types that no one file is theirs -- `len`
 // over nine, `contains` over nine, `remove` over six -- plus `map` and `flat_map`, which `map`'s
-// Map and Set members pin there, `mutable`, whose fourth member takes a bare `T` and so has no
-// file at all, and `filter`, down to four since its array pair moved to array.zm on 2026-10-22. **Everything else splits, however few files that
+// Map and Set members pin there, and `mutable`, whose fourth member takes a bare `T` and so has no
+// file at all. `filter` was the last to leave, on 2026-10-22: two members each to array.zm, map.zm
+// and set.zm. **Everything else splits, however few files that
 // means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
 // and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
 
@@ -118,6 +119,31 @@ pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> 
     val next = f(get(m, key))
     set(m, key, next)
     return next
+}
+
+// The entries `keep` answers true for, as a new Map; keys keep their order. **`keep` takes the key
+// as well as the value.** `filter`'s other four members are in set.zm and array.zm, one pair per
+// world, and `ziman --api builtins` prints all six as one block.
+//
+// **`native fn` since 2026-10-22**, where this and the `Set` form shared one `builtin fn` id whose
+// branch switched on `args[0].type->kind` at run time. The symbol fallback reads parameter one, so
+// each found a C function of its own -- `map_filter` and `set_filter` -- and neither has to ask
+// what it was given. That conversion needed one new thing: a native walking a collection's entries
+// while calling back into Ziman was the first of its shape, and the guard the branch held over its
+// whole loop had to be exported for a native to hold it (`native.h`'s `native_gc_unsafe_enter`,
+// which is candid about what could and could not be reproduced).
+pub native fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
+
+// Drops every entry `keep` answers false for, in place -- the builder half, which writes the map
+// and answers nothing where the form above answers a new one. Safe to write as a `for` plus a
+// `remove` for the same reason `update_all` is: iterating a MutableMap walks a snapshot of the
+// entries, so the writes cannot disturb the walk.
+pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool) {
+    for k, v in m {
+        if !keep(k, v) {
+            val _dropped = remove(m, k)
+        }
+    }
 }
 
 // `f` applied to every value, keys and their order unchanged. Safe to write as a `for` plus a

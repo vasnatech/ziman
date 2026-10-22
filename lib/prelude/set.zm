@@ -31,8 +31,9 @@
 // That reverses the older rule, which kept a split set whole in collections.zm. What remains in
 // collections.zm is the names whose members span so many types that no one file is theirs -- `len`
 // over nine, `contains` over nine, `remove` over six -- plus `map` and `flat_map`, which `map`'s
-// Map and Set members pin there, `mutable`, whose fourth member takes a bare `T` and so has no
-// file at all, and `filter`, down to four since its array pair moved to array.zm on 2026-10-22. **Everything else splits, however few files that
+// Map and Set members pin there, and `mutable`, whose fourth member takes a bare `T` and so has no
+// file at all. `filter` was the last to leave, on 2026-10-22: two members each to array.zm, map.zm
+// and set.zm. **Everything else splits, however few files that
 // means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
 // and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
 
@@ -91,6 +92,22 @@ pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
         }
     }
     return removed_any
+}
+
+// The elements `keep` answers true for, as a new Set, in their existing order. A Set is a MapObj
+// whose values are placeholders, so `keep` takes one argument where `filter`'s Map form takes two.
+// `native fn` since 2026-10-22; map.zm's member carries the account of that conversion, the two
+// having shared one builtin id.
+pub native fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
+
+// Drops every element `keep` answers false for, in place -- the builder half, which writes the set
+// and answers nothing where the form above answers a new one.
+pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool) {
+    for item in s {
+        if !keep(item) {
+            val _dropped = remove(s, item)
+        }
+    }
 }
 
 // The elements as an array, in insertion order, as `items` gives for a Set.
