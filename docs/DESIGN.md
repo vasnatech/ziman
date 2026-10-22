@@ -177,6 +177,7 @@ them against the code.
 - [`b[i]` stops being a call (2026-10-21, F209)](#bi-stops-being-a-call-2026-10-21-f209)
 - [`concat` keeps the decision and gives up the dispatch (2026-10-21)](#concat-keeps-the-decision-and-gives-up-the-dispatch-2026-10-21)
 - [The filing rule finishes, and six against four is where the line fell (2026-10-21)](#the-filing-rule-finishes-and-six-against-four-is-where-the-line-fell-2026-10-21)
+- [A lambda argument can answer a type parameter (2026-10-21)](#a-lambda-argument-can-answer-a-type-parameter-2026-10-21)
 
 <!-- end index -->
 
@@ -7683,3 +7684,69 @@ and that is content work rather than a reordering.
 
 1,127 fixtures, every guard green. iter.zm turned out to still state the rule this replaced, having
 been missed when the reversal shipped; all ten headers now say the same thing.
+
+
+## A lambda argument can answer a type parameter (2026-10-21)
+
+`map(points, Point::x)` did not compile. It had to be written `map<Point, int>(points, Point::x)`,
+naming both the type the field is read from and the field's own type — at a call site whose whole
+argument for existing is that `fn(p: Point) -> int { return p.x }` names them and `Point::x` does
+not. The shorthand shipped two days earlier with that noted as its open gap.
+
+**It was never about `::`.** `Point::x` desugars in the parser into `fn($x: Point) { $x.x }`, so it
+inherited a general hole: **a lambda argument never contributed to inferring a generic result.**
+Every one of these failed identically, with "cannot infer type argument 'U' of 'map' ... write it
+explicitly":
+
+```
+map(xs, fn(n: int) { n * 2 })      // parameter annotated, result not
+map(xs, fn(n) { n * 2 })           // neither annotated
+map(xs, fn(n) -> string { str(n) }) // result annotated, parameter not
+map(points, Point::x)
+```
+
+**Why the first pass cannot do it.** `infer_call_type_args` walks the arguments once and skips
+every one that `expr_needs_expected_type` claims — an empty `[]`, a bare `None`, an `ok(x)`, and a
+lambda missing any annotation, because filling a lambda's parameter in needs the expected type and
+the expected type is what is being inferred. Skipping is right. Never looking again was the bug.
+
+**The second pass.** Once the other arguments have bound what they can, substitute those bindings
+into the declared parameter type: `fn(T) -> U` with `T` bound from `xs` becomes `fn(int) -> U`. A
+lambda whose parameters have all become concrete **types on its own** — its body is checkable with
+no expectation at all, and a final bare expression answers the result. Then unify that against the
+pattern, which binds `U`.
+
+The part that had to be got right is what *not* to pass down. Handing `want` whole to
+`check_lambda_expecting` is the obvious move and is wrong: it assigns `*want->elem` as the return
+type, so the lambda comes back typed `fn(int) -> U` with a typevar standing where the answer
+belongs. Passing `NULL` is the path that reads the body instead. It memoises on `lambda_checked`,
+so the ordinary argument loop reuses the result rather than checking the body twice, and the
+lambda's own annotations win wherever it has them — which is why all four shapes above work and
+argument order does not matter (`fn pair<A, B>(f: fn(A) -> B, x: A)` infers as well as `apply`).
+
+**One refusal had to be added back, and it is the interesting part.** The pass first made this
+compile:
+
+```
+map(xs, fn(n: int) { print(n) })    // answered [0, 0, 0]
+```
+
+A body that answers nothing leaves the lambda's result `void`, `U` bound to void, and `map` built
+an array of nothing whose slots printed as zeros. **That is worse than the refusal it replaced** —
+an unhelpful message beats a wrong answer — so the pass records such an argument instead of
+unifying it, and the error names the argument and what is missing from it rather than asking for a
+type argument no body can produce a value of. It fires only when the declared *result* is the
+unknown: a parameter written `fn(T)` wants nothing back, which is what `for_each` is, so there is
+no type parameter in the result position, the second pass skips the argument, and the void lambda
+is accepted as it always was.
+
+**What it cost elsewhere.** One fixture changed its expected message:
+`apply(5, fn(n) { return n * 2 })` now reports the lambda's own rule — *"cannot infer the return
+type of a lambda that uses 'return' — write `-> T` after the parameters"* — instead of asking for
+the call's type arguments. That is a different rule, not this one: a lambda using `return` with no
+`->` is refused outright, so the second pass gets nothing from it. The new message is reported at
+the lambda and names a smaller edit than `apply<int, int>(...)`. Lifting that `return` restriction
+is a separate decision and was not taken here.
+
+`tests/lang/field_accessor_shorthand.zm` lost its type arguments on every line, and its `.out` is
+byte-identical — the behaviour was always right, only unsayable. 1,129 fixtures.

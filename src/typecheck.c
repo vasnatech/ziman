@@ -3117,6 +3117,55 @@ static int shape_cannot_match(Type pattern, Type actual) {
     return 0;
 }
 
+/* A lambda argument's own type, once the call can say what its *parameters* are -- the second
+ * inference pass, and the one thing the first cannot do.
+ *
+ * The first pass skips every argument `expr_needs_expected_type` claims, and a lambda missing
+ * either a parameter type or its `->` is one of them. So `map(ps, fn(p: Point) { p.x })` bound `T`
+ * from `ps` and then gave up on `U` with "write it explicitly" -- advice about the one thing the
+ * lambda body already states. `Point::x` desugars to exactly that lambda, which is how the
+ * field-accessor shorthand inherited the gap: `map(points, Point::x)` had to be written
+ * `map<Point, int>(points, Point::x)`, naming both the type it was reading the field from and the
+ * field's own type.
+ *
+ * What makes the second pass possible is that the first one has already bound what the other
+ * arguments say. Substituting those bindings into the declared parameter type turns `fn(T) -> U`
+ * into `fn(Point) -> U`, and a lambda whose parameters are all concrete **types on its own**: its
+ * body is checkable with no expectation at all, and a final bare expression answers the result.
+ *
+ * It deliberately does not hand `want`'s *return* type to the body. That is the type parameter
+ * being inferred, and passing `want` whole to check_lambda_expecting is what used to type the
+ * lambda `fn(Point) -> U` -- a typevar standing where the answer should be. Passing NULL is the
+ * path that reads the body instead; it memoises on `lambda_checked`, so the ordinary argument loop
+ * reuses this result rather than checking the body a second time.
+ *
+ * A lambda that writes `return` with no `->` is refused by that path ("write `-> T` after the
+ * parameters"), which is the language's own rule and a better message than the one this replaces.
+ * The lambda's own annotations win wherever it has them, so `fn(p: Point)`, `fn(p)` and
+ * `fn(p) -> int` all work here. */
+static int lambda_arg_type(Module *module, Env *env, Expr *arg, Type want, TypeParamList *params,
+                           Type *out) {
+    if (arg->kind != EXPR_LAMBDA) return 0;
+    FunctionDecl *lam = (FunctionDecl *)arg->lambda_decl;
+    if (lam == NULL) return 0;
+    if (want.kind != TY_FUNC || want.type_args.count != lam->params.count) return 0;
+    /* Every parameter has to be answerable: the lambda declared it, or what is left of `want`
+     * after substitution no longer mentions a type parameter the first pass failed to bind. */
+    for (int i = 0; i < lam->params.count; i++) {
+        if (lam->params.items[i].type_omitted && type_mentions_any(want.type_args.items[i], params)) {
+            return 0;
+        }
+    }
+    for (int i = 0; i < lam->params.count; i++) {
+        Param *param = &lam->params.items[i];
+        if (!param->type_omitted) continue;
+        param->type = want.type_args.items[i];
+        param->type_omitted = 0;
+    }
+    *out = check_lambda_expecting(module, env, arg, NULL);
+    return 1;
+}
+
 static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, FunctionDecl *fn) {
     int n_params = fn->type_params.count;
     Type *bindings = ziman_xcalloc((size_t)n_params, sizeof(Type));
@@ -3189,6 +3238,54 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
         }
     }
 
+    /* The second pass: the lambda arguments the first one had to skip, now that the others have
+     * said what they can. Runs only while something is still unbound, and only over arguments a
+     * lambda could answer for -- see lambda_arg_type. The partial substitution is what carries the
+     * first pass's work in: an unbound parameter stays as its own typevar, so `fn(T) -> U` with
+     * `T` bound becomes `fn(Point) -> U` and the helper can tell the one it can supply from the
+     * one it is there to learn. */
+    /* A lambda that answers nothing, where the parameter's result type is what is being inferred.
+     * Recorded rather than unified: binding the type argument to "no value" is how the second pass
+     * first made `map(xs, fn(x: int) { print(x) })` compile and answer `[0, 0]`, which is worse
+     * than the refusal it replaced -- the old message was unhelpful, that result is wrong. */
+    int void_lambda_pos = 0;
+    const Expr *void_lambda_at = NULL;
+
+    int all_bound = 1;
+    for (int i = 0; i < n_params; i++) {
+        if (!bound[i]) all_bound = 0;
+    }
+    if (!all_bound) {
+        TypeList partial = {0};
+        for (int i = 0; i < n_params; i++) {
+            type_list_push(&partial, bound[i] ? bindings[i] : type_typevar(fn->type_params.items[i].name));
+        }
+        for (int i = 0; i < n; i++) {
+            Type pattern = fn->params.items[i].type;
+            if (!type_mentions_any(pattern, &fn->type_params)) continue;
+            if (type_fully_bound(pattern, &fn->type_params, bound)) continue;
+            Expr *arg = e->as.call.args.items[i];
+            Type actual = (Type){0};
+            if (!lambda_arg_type(module, env, arg, substitute_type(pattern, &fn->type_params, &partial),
+                                 &fn->type_params, &actual)) {
+                continue;
+            }
+            /* Only when the declared *result* is the unknown: a parameter written `fn(T) -> unit`
+             * wants nothing back, so void is the right answer there and unifies against a concrete
+             * `unit` without going near a type argument. */
+            int result_is_unknown = pattern.kind == TY_FUNC
+                                 && !type_fully_bound(*pattern.elem, &fn->type_params, bound);
+            if (result_is_unknown && actual.kind == TY_FUNC && actual.elem->kind == TY_VOID) {
+                if (void_lambda_pos == 0) {
+                    void_lambda_pos = i + 1;
+                    void_lambda_at = arg;
+                }
+                continue;
+            }
+            unify_type(pattern, actual, &fn->type_params, bindings, bound, arg, fn->name, i + 1);
+        }
+    }
+
     TypeList out = {0};
     for (int i = 0; i < n_params; i++) {
         if (!bound[i]) {
@@ -3204,6 +3301,16 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
                             blame_pos, fn->name, type_name(blame_pattern), type_name(blame_actual),
                             fn->when_unmatched != NULL ? " -- " : "",
                             fn->when_unmatched != NULL ? fn->when_unmatched : "");
+            }
+            /* The second pass typed a lambda argument and found it answers nothing, which names
+             * both the argument and what is missing from it -- where "write it explicitly" would
+             * be asking for a type argument no body can produce a value of. */
+            if (void_lambda_pos > 0) {
+                ziman_error("type", void_lambda_at->line, void_lambda_at->col,
+                            "argument %d of '%s' is a lambda that answers nothing, so there is nothing for "
+                            "type argument '%s' to be -- end its body with the value it should produce, or "
+                            "write `-> T` and a 'return'",
+                            void_lambda_pos, fn->name, fn->type_params.items[i].name);
             }
             ziman_error("type", e->line, e->col,
                         "cannot infer type argument '%s' of '%s' from its arguments; write it explicitly, e.g. '%s<...>(...)'",

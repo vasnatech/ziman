@@ -1,1 +1,1 @@
-cannot infer type argument 'B' of 'apply'
+cannot infer the return type of a lambda that uses 'return' -- write `-> T` after the parameters

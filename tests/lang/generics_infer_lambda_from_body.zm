@@ -1,0 +1,66 @@
+// **A lambda argument can answer a type parameter** (2026-10-21). The first inference pass skips
+// any lambda that is missing an annotation -- it needs the expected type to fill in a parameter --
+// so nothing ever read one again and a generic *result* could not be inferred from a lambda at
+// all. `map(xs, fn(x) { x * 2 })` bound `T` from `xs` and then refused with "cannot infer type
+// argument 'U' ... write it explicitly", which is advice about the one thing the body states.
+//
+// A second pass runs over the skipped lambdas once the other arguments have bound what they can:
+// those bindings are substituted into the declared parameter type, turning `fn(T) -> U` into
+// `fn(int) -> U`, and a lambda whose parameters have all become concrete is checked with **no
+// expected type at all** -- the path that reads the body, where a final bare expression answers
+// the result. Passing the expected type whole instead is what used to type the lambda
+// `fn(int) -> U`, a typevar standing where the answer belongs.
+//
+// All four annotation shapes reach it, and the lambda's own annotations win wherever it has them.
+fn apply<A, B>(x: A, f: fn(A) -> B) -> B {
+    return f(x)
+}
+
+// The lambda before the argument that binds its parameter, so the pass cannot depend on order.
+fn apply_flipped<A, B>(f: fn(A) -> B, x: A) -> B {
+    return f(x)
+}
+
+struct Point {
+    x: int
+    y: int
+}
+
+fn main() {
+    val xs = [1, 2, 3]
+
+    // the parameter annotated, the result read off the body
+    print(map(xs, fn(n: int) { n * 2 }))
+    // neither annotated: the parameter comes from `[T]`, the result from the body
+    print(map(xs, fn(n) { n * 2 }))
+    // the result annotated, the parameter inferred
+    print(map(xs, fn(n) -> string { str(n) }))
+    // a body that is not one expression
+    print(map(xs, fn(n: int) {
+        val doubled = n * 2
+        doubled + 1
+    }))
+
+    // a changed element type, which is the whole point of `U` being separate from `T`
+    val ps = [Point { x: 1, y: 2 }, Point { x: 3, y: 4 }]
+    print(map(ps, fn(p: Point) { p.x }))
+    // and the shorthand that desugars to exactly that lambda
+    print(map(ps, Point::x))
+    print(map(ps, Point::y))
+
+    // the same through a declaration of this file's own, in both argument orders
+    print(apply(5, fn(n: int) { n + 1 }))
+    print(apply(5, fn(n) { str(n) }))
+    print(apply_flipped(fn(n: int) { n * 10 }, 7))
+
+    // nested, so the inner call's result is what the outer one infers from
+    print(map(map(xs, fn(n: int) { str(n) }), fn(s: string) { len(s) }))
+
+    // the builder twin, where the lambda's parameter comes from a MutableArray
+    val b = mutable(xs)
+    print(map(b, fn(n: int) { n - 1 }))
+
+    // a fold, where the accumulator is bound by the seed rather than by the sequence
+    print(fold(xs, 0, fn(acc: int, n: int) { acc + n }))
+    print(fold(xs, "", fn(acc: string, n: int) { concat(acc, str(n)) }))
+}

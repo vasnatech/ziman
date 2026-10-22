@@ -108,9 +108,12 @@ fn report() -> Result<string, string> {
 }
 
 // `Type::field`, the field-accessor shorthand: `Point::x` is `fn(p: Point) { p.x }`, and the
-// grammar colours `::` as one operator with a property after it.
+// grammar colours `::` as one operator with a property after it. No type arguments: `map`'s result
+// type is read off the lambda's body, which it was not until 2026-10-21 -- this line had to be
+// `map<Point, int>(points, Point::x)`, naming both the type the field is read from and the field's
+// own type, at a call site whose whole point is not naming them.
 fn accessors(points: [Point]) -> [int] {
-    return map<Point, int>(points, Point::x)
+    return map(points, Point::x)
 }
 
 fn main() {

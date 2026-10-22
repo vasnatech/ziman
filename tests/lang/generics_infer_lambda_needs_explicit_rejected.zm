@@ -1,3 +1,17 @@
+// A lambda argument that cannot be typed still refuses the call, but as of 2026-10-21 it refuses
+// at the lambda and names the cheaper repair.
+//
+// **What changed.** A second inference pass now reads a lambda argument's body: the first pass
+// binds what the other arguments say, those bindings are substituted into the declared parameter
+// type (`fn(A) -> B` with `A` bound becomes `fn(int) -> B`), and a lambda whose parameters are all
+// concrete types on its own -- so its result answers `B`. That fixed `map(xs, fn(x) { x * 2 })`,
+// `map(ps, fn(p: Point) { p.x })` and `map(points, Point::x)`, which all used to demand their type
+// arguments in writing.
+//
+// **This one still cannot be typed, and the reason is a different rule**: a lambda that uses
+// `return` with no `->` has its return type refused outright, so the second pass gets nothing from
+// it. The message that comes back is now that rule's, reported on the lambda rather than on the
+// call, and `-> int` here is a smaller edit than `apply<int, int>(...)`. Both still work.
 fn apply<A, B>(x: A, f: fn(A) -> B) -> B {
     return f(x)
 }

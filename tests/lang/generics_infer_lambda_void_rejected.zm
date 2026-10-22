@@ -1,0 +1,20 @@
+// The second inference pass stops where the body answers nothing. A lambda whose last statement
+// produces no value leaves its result type `void`, and binding a type argument to "no value" is
+// not an inference -- it is a wrong program typed anyway.
+//
+// **This is a refusal the fix had to add back.** The pass first made this call compile and answer
+// `[0, 0, 0]`: `U` bound to void, `map` built an array of nothing, and the zeros are whatever the
+// slots happened to hold. That is worse than the "cannot infer type argument 'U'" it replaced --
+// an unhelpful message beats a wrong answer -- so the pass records the lambda instead of unifying
+// it, and the error names the argument and what is missing from it.
+//
+// **Only when the declared *result* is the unknown**, which is why this refuses nothing that
+// should work. A parameter written `fn(T)` wants nothing back -- `for_each<T>(items: [T], f: fn(T))`
+// is exactly that, and is what this call should have been -- so there is no type parameter in the
+// result position, the second pass skips the argument entirely, and the ordinary argument check
+// accepts the void lambda. `for_each([1, 2, 3], fn(n: int) { print(n) })` and its unannotated
+// `fn(n) { print(n) }` both compile.
+fn main() {
+    val xs = [1, 2, 3]
+    print(map(xs, fn(n: int) { print(n) }))
+}
