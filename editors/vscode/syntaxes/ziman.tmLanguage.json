@@ -41,9 +41,10 @@
       ]
     },
     "strings": {
+      "comment": "`end` includes `$` because a double-quoted string cannot span lines in Ziman -- the lexer refuses one with `unterminated string literal`, and `\"\"\"` is the multi-line form. Without it a single stray quote put every following line of the file inside this scope, which is how one bad attribute (see `attributes`) coloured a whole file as a string.",
       "name": "string.quoted.double.ziman",
       "begin": "\"",
-      "end": "\"",
+      "end": "\"|$",
       "patterns": [
         {
           "name": "constant.character.escape.ziman",
@@ -77,9 +78,13 @@
       "match": "\\b(int|float|bool|string|bigint|decimal|byte|unit)\\b"
     },
     "attributes": {
-      "comment": "#[derive(Json, Ord, ...)] and the module-level #![experimental] / #![deprecated(\"...\")]. The `!` is optional: without it this rule did not match the module form at all, so the `!` coloured as logical-not and the attribute name was left bare (docs/reviews/tasks.md F75).",
+      "comment": "#[derive(Json, Ord, ...)] and the module-level #![experimental] / #![deprecated(\"...\")]. The `!` is optional: without it this rule did not match the module form at all, so the `!` coloured as logical-not and the attribute name was left bare (docs/reviews/tasks.md F75). A begin/end pair rather than one `match` since 2026-10-22: the old `#!?\\[[^\\]]*\\]` could not see past a `]` inside the attribute's own string, and `clear`'s `#[when_unmatched(\"... an empty one ('[]', 'Map<K, V> {}') ...\")]` has one. The match ended inside `'[]'`, the rest of the line coloured as code, and its closing quote opened a string that ran to the end of the file. Including `#strings` is what fixes it: the quoted text is consumed before `end` is tried, so a `]` inside it is never seen -- leftmost-match wins in TextMate, and the opening quote comes before that `]`.",
       "name": "meta.attribute.ziman",
-      "match": "#!?\\[[^\\]]*\\]"
+      "begin": "#!?\\[",
+      "end": "\\]",
+      "patterns": [
+        { "include": "#strings" }
+      ]
     },
     "builtin-types": {
       "comment": "the language's built-in generic types",

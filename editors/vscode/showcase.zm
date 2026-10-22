@@ -36,6 +36,19 @@ fn double_worker(inbox: Channel<int>, reply: Channel<int>) {
     send(reply, n * 2)
 }
 
+// **An attribute whose message contains `[`, `]` and quotes**, which broke highlighting for the
+// rest of the file until 2026-10-22: the grammar's attribute rule was one `match` of
+// `#!?\[[^\]]*\]`, a negated class that cannot see past the `]` in `'[]'`. The scan ended inside
+// the message, the remainder coloured as code, and the closing quote opened a string that ran to
+// the end of the file -- 191 lines of lib/prelude/array.zm, measured with vscode-textmate. The rule
+// is a begin/end pair including `#strings` now, and `tools/check_grammar.py` keeps it that way.
+// This line is the shape that found it; if the highlighting below is a single string colour, that
+// rule has regressed.
+#[deprecated("replaced -- an empty list is '[]' and an empty map is 'Map<K, V> {}'")]
+fn superseded() -> int {
+    return 7
+}
+
 #[derive(Json)]
 struct Profile {
     scores: Map<string, int>
@@ -168,6 +181,7 @@ fn main() {
     }
     print(Shape.Origin == Shape.Origin)
 
+    print(superseded())
     total("squares", 1, 4, 9)
     print(builders())
     print(unwrap(report()))
