@@ -1,0 +1,15 @@
+// The one message `remove`'s arm carried that its six declarations cannot state: a MutableString
+// has no element removal. **No fixture asserted it while the arm owned it** -- found when the arm
+// was deleted on 2026-10-22 and the message had to be put somewhere.
+//
+// It is `#[when_unmatched]` now, which is one line for a whole set, so this advice is what *any*
+// unmatched `remove` gets -- including `remove(5, 1)`, where a reader is told about MutableString
+// for no reason. That is the trade `clear` and `snapshot` already made (F190's criterion: the
+// content survives, the aim does not). What improved is the clause before it: the list of accepted
+// types is derived from the six signatures now, where the arm hand-wrote one that could fall
+// behind them.
+fn main() {
+    val sb = mutable_string_new()
+    append(sb, "abc")
+    print(remove(sb, 0))
+}

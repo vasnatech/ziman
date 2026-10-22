@@ -1477,7 +1477,7 @@ static void warn_brace_interpolation(Env *env, Expr *e) {
  * with `#[effectful]` and `call_is_effectful_overload` vetoes the name. Those three could not be
  * listed at all until that attribute existed (F208). */
 static const char *const PURE_BUILTINS[] = {
-    "set", "remove", "mutable",
+    "set", "mutable",
     "str", "format", "abs", "min", "max", "hash", "compare", "error_message",
     "is_ok",
     "get", "get_or", "keys", "values", "merge", "remove_all",
@@ -1576,7 +1576,7 @@ static int is_pure_builtin_name(const char *name) {
  * conversion removes its two entries the same way -- the name appears once per world. */
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "hash", "compare", "error_message", "abs", "min", "max",
-    "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
+    "set", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
     "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "keys", "values", "get", "get_or", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "mutable", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
 };
 
@@ -3878,58 +3878,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                         type_name(*coll_type.elem), type_name(value_type));
         }
         return coll_type;
-    }
-
-    if (strcmp(name, "remove") == 0) {
-        if (e->as.call.args.count < 1) {
-            ziman_error("type", e->line, e->col, "'remove' takes exactly 2 arguments, found %d", e->as.call.args.count);
-        }
-        Expr *arr_arg = e->as.call.args.items[0];
-        Type arr_type = check_expr(module, env, arr_arg);
-        if (arr_type.kind == TY_MAP || arr_type.kind == TY_SET) {
-            return check_collection_mutator(module, env, e, name, arr_type);
-        }
-        if (e->as.call.args.count != 2) {
-            ziman_error("type", e->line, e->col, "'remove' takes exactly 2 arguments, found %d", e->as.call.args.count);
-        }
-
-        if (arr_type.kind != TY_ARRAY) {
-            /* The old message said "expects an array" while a Map and a Set were accepted two
-             * branches up, and said nothing about the builders, each of which has its own removal
-             * under its own name. */
-            if (arr_type.kind == TY_STRUCT && arr_type.struct_name != NULL) {
-                /* `remove` has all three builder forms -- `MutableArray`'s answers the element it
-                 * took out, `MutableMap`'s the `Option<V>` it took out, `MutableSet`'s whether the
-                 * item was there -- so the arm declines to the resolver instead of refusing. The
-                 * two messages that stood here named `mutable_map_remove` and `mutable_map_discard`,
-                 * which no longer exist.
-                 *
-                 * A MutableArray was the last of the three to stop being handled here: until F208
-                 * this branch rewrote the callee to `mutable_array_remove` and the *only* reason a
-                 * discarded `remove(b, 0)` -- how `pop` is spelled -- was accepted is that the
-                 * gate did not recognise the rewritten name. The declaration says it now, with
-                 * `#[effectful]`. */
-                if (strcmp(arr_type.struct_name, "MutableArray") == 0 ||
-                    strcmp(arr_type.struct_name, "MutableMap") == 0 ||
-                    strcmp(arr_type.struct_name, "MutableSet") == 0) {
-                    goto ordinary_call;
-                }
-                if (strcmp(arr_type.struct_name, "MutableString") == 0) {
-                    ziman_error("type", arr_arg->line, arr_arg->col,
-                                "a MutableString has no element removal -- take 'snapshot' and use 'substring', "
-                                "then build a fresh one");
-                }
-            }
-            ziman_error("type", arr_arg->line, arr_arg->col,
-                        "argument 1 of 'remove' expects an array, a MutableArray, a Map or a Set, found %s",
-                        type_name(arr_type));
-        }
-        Expr *idx_arg = e->as.call.args.items[1];
-        Type idx_type = check_expr(module, env, idx_arg);
-        if (idx_type.kind != TY_INT) {
-            ziman_error("type", idx_arg->line, idx_arg->col, "argument 2 of 'remove' expects int, found %s", type_name(idx_type));
-        }
-        return arr_type;
     }
 
     /* `is_Some(o)`, `is_None(o)` and `unwrap_Some(o)`: Option's own helpers without the `Option.`, rewritten in

@@ -2637,6 +2637,55 @@ static Value native_array_filter(Value *args, int argc, int line, int col) {
     return permute_array(args[0].type, a, keep, kept, line, col);
 }
 
+/* `remove` over the three immutable collections, which answer a new collection without the thing
+ * removed and leave their argument alone -- the builder members of the same name write in place
+ * and answer what they took out, which is the difference between the two worlds rather than
+ * between two names.
+ *
+ * Three natives since 2026-10-22, where one builtin id served all three: its branch tested
+ * `args[0].type->kind` for a Map or a Set and otherwise fell through to the array case in
+ * `call_remove`. Parameter one is what the symbol fallback reads, so each has its own symbol now
+ * and none of them asks what it was given. Nothing here calls back into Ziman, so unlike
+ * `map_filter`/`set_filter` these need no collection guard.
+ *
+ * The array form is `call_remove` moved out of interpreter.c unchanged: bounds-checked against the
+ * length, one `array_packed_edit` when the elements are packed, and otherwise two memcpys around
+ * the hole. The result's element type is patched by the caller, as it is for any generic native. */
+static Value native_array_remove(Value *args, int argc, int line, int col) {
+    (void)argc;
+    ArrayObj *old = args[0].as.arr;
+    int64_t i = args[1].as.i;
+    if (i < 0 || i >= old->count) {
+        ziman_error("runtime", line, col, "remove index %lld out of bounds (array length %d)",
+                    (long long)i, old->count);
+    }
+    if (array_pack_kind(old) != PK_NONE) {
+        return value_array(args[0].type, array_packed_edit(old, 3, (int)i, value_int(0)));
+    }
+    int new_count = old->count - 1;
+    Value *items = ziman_xmalloc((size_t)new_count * sizeof(Value));
+    memcpy(items, old->boxed_items, (size_t)i * sizeof(Value));
+    memcpy(items + i, old->boxed_items + i + 1, (size_t)(new_count - (int)i) * sizeof(Value));
+    return value_array(args[0].type, array_obj_new(items, new_count));
+}
+
+/* A Map without `key`, and a Set without `item`: one `mapobj_remove` each, and absent is not an
+ * error -- the answer is a collection equal to the argument. One `value_map` serves both, a Set
+ * being a MapObj whose values are placeholders. */
+static Value native_map_remove(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return value_map(args[0].type, mapobj_remove(args[0].as.map, args[1]));
+}
+
+static Value native_set_remove(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return value_map(args[0].type, mapobj_remove(args[0].as.map, args[1]));
+}
+
 /* `filter` over an immutable **Map** and **Set**: the entries `keep` answers true for, as a new
  * collection of the same kind, insertion order preserved. Two natives since 2026-10-22, where one
  * builtin branch in interpreter.c served both by switching on `args[0].type->kind` at run time --
@@ -2746,6 +2795,9 @@ void prelude_register(void) {
     native_register("array_index_of", native_bytes_index_of);
     native_register("array_map", native_array_map);
     native_register("array_filter", native_array_filter);
+    native_register("array_remove", native_array_remove);
+    native_register("map_remove", native_map_remove);
+    native_register("set_remove", native_set_remove);
     native_register("map_filter", native_map_filter);
     native_register("set_filter", native_set_filter);
     native_register("array_flat_map", native_array_flat_map);

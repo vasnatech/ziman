@@ -148,12 +148,34 @@ pub native fn remove<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
 #[effectful]
 pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
 
-// `remove` takes all three: an index, a key, or the element itself.
-builtin fn remove<T>(items: [T], index: int) -> [T]
+// **`remove` takes all three: an index, a key, or the element itself** -- and the immutable half
+// answers a new collection without it, where the builder members above write in place and answer
+// what they took out. An index out of bounds is a runtime error; a key or element that is absent
+// is not, the answer being a collection equal to the argument.
+//
+// **`native fn` since 2026-10-22, and the arm went with them.** One builtin id served all three:
+// its branch tested `args[0].type->kind` for a Map or a Set and otherwise fell through to the
+// array case. Parameter one is what the interpreter's symbol fallback reads, so each declaration
+// finds a symbol of its own -- `array_remove`, `map_remove`, `set_remove` -- and none of them asks
+// what it was given. These were the last `builtin fn` in this file but for `mutable`.
+//
+// **What the arm had and the declarations do not**, since the trade is worth stating rather than
+// discovering: it answered a `MutableString` with advice of its own, and `#[when_unmatched]` is
+// one line for a whole set, so that line is now what *any* unmatched `remove` gets. The same trade
+// `clear` and `snapshot` made (F190's criterion: the content survives, the aim does not). Its
+// other three messages are no loss -- the arity checks and `argument 2 of 'remove' expects int`
+// are what the resolver says anyway, and the list of accepted types it hand-wrote is now derived
+// from these six signatures, so it cannot fall behind them again.
+//
+// `x` became `item` on the Set member while the names were free to change: a builtin took no named
+// argument, so nothing could have been calling it `x:`, and `item` is what the MutableSet member
+// above and `add` already use for the same role.
+#[when_unmatched("a MutableString has no element removal -- take 'snapshot' and use 'substring', then build a fresh one")]
+pub native fn remove<T>(items: [T], index: int) -> [T]
 
-builtin fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
+pub native fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
 
-builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
+pub native fn remove<T: Eq + Hash>(s: Set<T>, item: T) -> Set<T>
 
 // **O(n)**: everything after `index` moves back. There is no `pop` because this is one --
 // `remove(b, len(b) - 1)`, which moves nothing.

@@ -966,20 +966,6 @@ static Value call_set(Type array_type, Value arr, Value idx, Value x, int line, 
     return value_array(type_ref(array_type), array_obj_new(items, old->count));
 }
 
-static Value call_remove(Type array_type, Value arr, Value idx, int line, int col) {
-    ArrayObj *old = arr.as.arr;
-    int64_t i = idx.as.i;
-    if (i < 0 || i >= old->count) {
-        ziman_error("runtime", line, col, "remove index %lld out of bounds (array length %d)", (long long)i, old->count);
-    }
-    if (array_pack_kind(old) != PK_NONE) return value_array(type_ref(array_type), array_packed_edit(old, 3, (int)i, value_int(0)));
-    int new_count = old->count - 1;
-    Value *items = ziman_xmalloc((size_t)new_count * sizeof(Value));
-    memcpy(items, old->boxed_items, (size_t)i * sizeof(Value));
-    memcpy(items + i, old->boxed_items + i + 1, (size_t)(new_count - (int)i) * sizeof(Value));
-    return value_array(type_ref(array_type), array_obj_new(items, new_count));
-}
-
 static Value call_ok(Type result_type, Value x) {
     return value_result(type_ref(result_type), result_obj_new(1, x));
 }
@@ -1236,7 +1222,6 @@ typedef enum {
     B_mutable_map_from,
     B_mutable_set_from,
     B_set,
-    B_remove,
     B_map_get,
     B_map_get_or,
     B_map_merge,
@@ -1285,7 +1270,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"$mutable_map_from", B_mutable_map_from},
     {"$mutable_set_from", B_mutable_set_from},
     {"set", B_set},
-    {"remove", B_remove},
     {"get", B_map_get},
     {"get_or", B_map_get_or},
     {"merge", B_map_merge},
@@ -1490,8 +1474,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (bid == B_set && (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
                 Value stored = args[0].type->kind == TY_MAP ? args[2] : value_int(0);
                 result = value_map(args[0].type, mapobj_set(args[0].as.map, args[1], stored));
-            } else if (bid == B_remove && (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
-                result = value_map(args[0].type, mapobj_remove(args[0].as.map, args[1]));
             } else if (bid == B_map_get) {
                 Value found;
                 if (mapobj_get(args[0].as.map, args[1], &found)) {
@@ -1588,8 +1570,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_map(&e->resolved_type, m);
             } else if (bid == B_set) {
                 result = call_set(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
-            } else if (bid == B_remove) {
-                result = call_remove(e->resolved_type, args[0], args[1], e->line, e->col);
             } else if (bid == B_ok) {
                 result = call_ok(e->resolved_type, args[0]);
             } else if (bid == B_err) {

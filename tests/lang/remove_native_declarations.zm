@@ -1,0 +1,45 @@
+// `remove`'s three immutable members became `native fn` on 2026-10-22, and its arm went with them.
+// One builtin id had served all three: the branch tested `args[0].type->kind` for a Map or a Set
+// and otherwise fell through to the array case. Parameter one is what the symbol fallback reads, so
+// each declaration finds its own symbol -- `array_remove`, `map_remove`, `set_remove` -- and none
+// asks what it was given. They were the last `builtin fn` in collections.zm but for `mutable`.
+//
+// Six members over two worlds: the immutable three answer a new collection without the thing
+// removed, the builder three write in place and answer what they took out.
+fn main() {
+    // the immutable three: a new collection, the argument untouched
+    val a = [1, 2, 3]
+    print(remove(a, 1))
+    print(a)
+    val m = Map<string, int> { "a": 1, "b": 2 }
+    print(remove(m, "a"))
+    print(m)
+    val s = Set<int> { 1, 2, 3 }
+    print(remove(s, 2))
+    print(s)
+
+    // an absent key or element is not an error -- the answer equals the argument
+    print(remove(Map<string, int> { "a": 1 }, "zz"))
+    print(remove(Set<int> { 1 }, 9))
+
+    // **Named arguments, which the builtin id could never take**, and the reason `x` became `item`
+    // on the Set member while nothing could yet have been calling it: a builtin has no declaration
+    // to name a parameter of, so the rename was free.
+    print(remove(items: [1, 2, 3], index: 0))
+    print(remove(m: Map<string, int> { "a": 1, "b": 2 }, key: "b"))
+    print(remove(s: Set<int> { 1, 2 }, item: 1))
+    // and a type argument, for the same reason
+    print(remove<int>([7, 8], 0))
+
+    // the builder three still resolve, and each answers what it took out
+    val b = mutable([1, 2, 3])
+    print(remove(b, 0))
+    print(snapshot(b))
+    val mb = mutable(Map<string, int> { "a": 1 })
+    print(remove(mb, "a"))
+    print(remove(mb, "a"))
+    val sb = mutable(Set<int> { 1, 2 })
+    print(remove(sb, 1))
+    print(remove(sb, 1))
+    print(snapshot(sb))
+}

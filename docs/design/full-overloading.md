@@ -616,8 +616,20 @@ two it found convertible. `make overload-sets-check` moves from **39 resolver-ow
 polymorphic builtins** to **41 and 18**, which is the measurement to quote — the "70 arms" of §1
 came from a script that was never committed, and the running total has been re-derived by hand
 since, incorrectly at least once (§13's split *raised* the arm count by two before this lowered it
-again). The two collection arms left, `set` and `remove`, are both there for per-argument messages
-rather than for anything the declarations cannot express.
+again).
+
+**One collection arm is left, `set`.** This said two, `set` and `remove`, "both there for
+per-argument messages rather than for anything the declarations cannot express" -- and that second
+clause is what made `remove`'s convertible: on 2026-10-22 its three immutable members became
+`native fn` and the arm was deleted. Of its four messages, three *were* what the resolver says
+anyway (two arity checks and `argument 2 of 'remove' expects int`), and the list of accepted types
+it hand-wrote is now derived from the six signatures, so it can no longer fall behind them. Only
+the fourth was real -- a `MutableString` answered with "take 'snapshot' and use 'substring'" -- and
+it moved to `#[when_unmatched]`, which is one line per set, so every unmatched `remove` now gets
+that advice whether or not it passed a MutableString. F190's criterion again: the content survives,
+the aim does not. **No fixture had ever asserted that message while the arm owned it**, which is
+why the trade was invisible until the arm was deleted; `tests/lang/remove_mutable_string_rejected`
+pins it now.
 
 ### The dispatch question, which had an answer already
 
