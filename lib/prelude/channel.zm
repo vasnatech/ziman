@@ -6,7 +6,22 @@
 // directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
 // whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
 // subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
-// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// callable.
+//
+// **Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
+// changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through
+// `fn_is_global_vocabulary` whatever their visibility says, so 143 of them carried no modifier at
+// all while 125 of their neighbours did -- one keyword, two meanings, depending on the kind of
+// declaration it sat on. Writing it everywhere costs nothing (`--api builtins` is byte-identical
+// across the change, which is how the sweep was checked) and buys the reading that **a bare
+// declaration in this directory is deliberately not public**. There is exactly one, `array_order_of`
+// in array.zm, which F172 decided should stay invisible, plus the six `internal` natives.
+//
+// What `pub` does *not* do here is gate reachability, and that is a property of the prelude rather
+// than of `native`: these files are merged bare into every program, so there is no import boundary
+// for a non-public declaration to be refused at. In a *module* `pub` is load-bearing in the
+// ordinary way -- `metrics.zm`'s own `native fn declare_raw` is private, and
+// `metrics.declare_raw(...)` is refused with "add 'pub' to export it". Native functions are registered by prelude_register() in src/prelude.c, and each file's
 // header is generated from its source by the Makefile's prelude rule.
 //
 // **A declaration lives in the file for the type its first argument has.** So `concat`'s string
@@ -54,34 +69,34 @@ enum Selected<A, B> {
 
 // Takes its element type from the context, like `ok`/`err`/`Some`: a `val` with a declared
 // `Channel<T>`, a struct field, a `with` override, a returned value, or a parameter's type.
-builtin fn channel_new<T>() -> Channel<T>
+pub builtin fn channel_new<T>() -> Channel<T>
 
 // Blocks until there is room; refused on a closed channel.
-builtin fn send<T>(channel: Channel<T>, value: T)
+pub builtin fn send<T>(channel: Channel<T>, value: T)
 
 // False when the channel is full or closed, rather than blocking.
-builtin fn try_send<T>(channel: Channel<T>, value: T) -> bool
+pub builtin fn try_send<T>(channel: Channel<T>, value: T) -> bool
 
 // Blocks until a value arrives. A closed and drained channel is a runtime error here --
 // `receive_option` is the shape that answers "closed" as a value.
-builtin fn receive<T>(channel: Channel<T>) -> T
+pub builtin fn receive<T>(channel: Channel<T>) -> T
 
 // None when the channel is empty, rather than blocking.
-builtin fn try_receive<T>(channel: Channel<T>) -> Option<T>
+pub builtin fn try_receive<T>(channel: Channel<T>) -> Option<T>
 
 // None when the channel is closed and drained.
-builtin fn receive_option<T>(channel: Channel<T>) -> Option<T>
+pub builtin fn receive_option<T>(channel: Channel<T>) -> Option<T>
 
 // None when `millis` elapses first.
-builtin fn receive_timeout<T>(channel: Channel<T>, millis: int) -> Option<T>
+pub builtin fn receive_timeout<T>(channel: Channel<T>, millis: int) -> Option<T>
 
-builtin fn channel_len<T>(channel: Channel<T>) -> int
+pub builtin fn channel_len<T>(channel: Channel<T>) -> int
 
-builtin fn channel_close<T>(channel: Channel<T>)
+pub builtin fn channel_close<T>(channel: Channel<T>)
 
 // Whichever of the two has a value first, and which one it was. `first` and `second` are the
 // `Selected` variants' names, not an order of preference -- neither channel is favoured.
-builtin fn select2<A, B>(first: Channel<A>, second: Channel<B>) -> Selected<A, B>
+pub builtin fn select2<A, B>(first: Channel<A>, second: Channel<B>) -> Selected<A, B>
 
 // A guard sends `message` on `channel` when nothing references it any more: a database
 // connection holds one whose message is its "close" request, so a connection dropped without an
@@ -91,4 +106,4 @@ struct Guard {
 }
 
 // A guard that sends `message` on `channel` when it is collected.
-native fn guard_new<T>(channel: Channel<T>, message: T) -> Guard
+pub native fn guard_new<T>(channel: Channel<T>, message: T) -> Guard

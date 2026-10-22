@@ -10,7 +10,22 @@
 // directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
 // whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
 // subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
-// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// callable.
+//
+// **Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
+// changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through
+// `fn_is_global_vocabulary` whatever their visibility says, so 143 of them carried no modifier at
+// all while 125 of their neighbours did -- one keyword, two meanings, depending on the kind of
+// declaration it sat on. Writing it everywhere costs nothing (`--api builtins` is byte-identical
+// across the change, which is how the sweep was checked) and buys the reading that **a bare
+// declaration in this directory is deliberately not public**. There is exactly one, `array_order_of`
+// in array.zm, which F172 decided should stay invisible, plus the six `internal` natives.
+//
+// What `pub` does *not* do here is gate reachability, and that is a property of the prelude rather
+// than of `native`: these files are merged bare into every program, so there is no import boundary
+// for a non-public declaration to be refused at. In a *module* `pub` is load-bearing in the
+// ordinary way -- `metrics.zm`'s own `native fn declare_raw` is private, and
+// `metrics.declare_raw(...)` is refused with "add 'pub' to export it". Native functions are registered by prelude_register() in src/prelude.c, and each file's
 // header is generated from its source by the Makefile's prelude rule.
 //
 // **A declaration lives in the file for the type its first argument has.** So `concat`'s string
@@ -45,10 +60,10 @@
 // in `format`. `format` checks its literal template and the number of its arguments before the program runs; this cannot, so it
 // is an Err (never a crash) if the template is malformed, has a different number of placeholders than arguments, or has a
 // precision (`{:.2}`: the arguments are strings, so there is nothing to round).
-native fn format_dynamic(template: string, args: [string]) -> Result<string, string>
+pub native fn format_dynamic(template: string, args: [string]) -> Result<string, string>
 
 // The UTF-8 bytes of `s`.
-native fn string_to_bytes(s: string) -> [byte]
+pub native fn string_to_bytes(s: string) -> [byte]
 
 // The bytes of `s` from `start` up to, not including, `end` (`0 <= start <= end <= len(s)`, a
 // runtime error otherwise).
@@ -56,15 +71,15 @@ native fn string_to_bytes(s: string) -> [byte]
 // seven members are in array.zm, map.zm, set.zm and mutable.zm; `--api builtins` prints all nine
 // as one block, and array.zm's members carry the account of why nine declarations share one C
 // function.
-native fn len(s: string) -> int
-native fn len(s: MutableString) -> int
+pub native fn len(s: string) -> int
+pub native fn len(s: MutableString) -> int
 
 // **Whether `needle` appears in it** -- the form the shared question takes for text, where an
 // array is asked about an element and a map about a key.
-native fn contains(s: string, needle: string) -> bool
-native fn contains(s: MutableString, needle: string) -> bool
+pub native fn contains(s: string, needle: string) -> bool
+pub native fn contains(s: MutableString, needle: string) -> bool
 
-native fn substring(s: string, start: int, end: int) -> string
+pub native fn substring(s: string, start: int, end: int) -> string
 
 // The pieces of `s` between each `sep`, empty pieces included: `split("a,b,,c", ",")` is
 // `[a, b, , c]`. `sep` must not be empty.
@@ -107,30 +122,30 @@ native fn substring(s: string, start: int, end: int) -> string
 // indistinguishable pair as a redefinition; see its comment in src/ast.h. Converting `mutable` is
 // blocked for its own reasons, recorded in docs/design/full-overloading.md §4.
 #[compiler_resolved]
-native fn concat(pieces: variadic string) -> string
+pub native fn concat(pieces: variadic string) -> string
 
-native fn split(s: string, separator: string) -> [string]
+pub native fn split(s: string, separator: string) -> [string]
 
 // `s` without leading and trailing blanks (space, tab, CR, LF).
-native fn trim(s: string) -> string
+pub native fn trim(s: string) -> string
 
 // Whether `s` has no characters: `s == ""`.
-native fn is_empty(s: string) -> bool
+pub native fn is_empty(s: string) -> bool
 
 // Whether `s` is empty or only blanks (whatever `trim` removes): `trim(s) == ""`, without making the trimmed string.
-native fn is_blank(s: string) -> bool
+pub native fn is_blank(s: string) -> bool
 
 // The one-byte string at position `i` (`0 <= i < len(s)`, a runtime error otherwise), so
 // `char_at(s, i) == "x"` replaces `substring(s, i, i + 1) == "x"`. It is a byte, not a character.
-native fn char_at(s: string, i: int) -> string
+pub native fn char_at(s: string, i: int) -> string
 
 // The byte position of the last `needle` in `s`, or -1. An empty `needle` is found at `len(s)`.
-native fn last_index_of(s: string, needle: string) -> int
+pub native fn last_index_of(s: string, needle: string) -> int
 
 // True when `c` appears in `s` starting at position `i`. False, never an error, when `i` is out
 // of range or `c` does not fit, so `is_char_at(s, p, "x")` replaces the guarded
 // `p < len(s) && char_at(s, p) == "x"`. `c` is normally one character but any text works.
-native fn is_char_at(s: string, i: int, c: string) -> bool
+pub native fn is_char_at(s: string, i: int, c: string) -> bool
 
 //
 // Everything above (`len`, `substring`, `char_at`, `index_of`, ...) counts and cuts bytes, not
@@ -146,49 +161,49 @@ native fn is_char_at(s: string, i: int, c: string) -> bool
 // byte offset if `s` is not valid UTF-8 (only reachable by chaining a byte-level function like
 // `substring` into this one -- `bytes_to_string` already rejects invalid UTF-8 at the boundary
 // where it would otherwise enter a program).
-native fn chars(s: string) -> [string]
+pub native fn chars(s: string) -> [string]
 
 // The number of code points in `s`: `char_count("héllo")` is 5, where `len("héllo")` (bytes) is
 // 6. Cheaper than `len(chars(s))` when only the count is wanted. Same UTF-8 requirement as `chars`.
-native fn char_count(s: string) -> int
+pub native fn char_count(s: string) -> int
 
 // `s` shortened to at most `max_chars` code points, without ever cutting one in half -- the safe
 // way to truncate text for display (`substring` counts bytes and can produce invalid UTF-8).
 // `max_chars >= char_count(s)` returns `s` unchanged; `max_chars` must not be negative. Same
 // UTF-8 requirement as `chars`.
-native fn truncate_chars(s: string, max_chars: int) -> string
+pub native fn truncate_chars(s: string, max_chars: int) -> string
 
 // True when `a` and `b` are equal when the ASCII letters A-Z are read as a-z (other bytes,
 // non-ASCII included, must match exactly). Builds no intermediate strings, unlike comparing
 // `to_lower(a)` and `to_lower(b)`.
-native fn equals_ignore_case(a: string, b: string) -> bool
+pub native fn equals_ignore_case(a: string, b: string) -> bool
 
 // The byte position of the first `needle` in `s` at or after `from` (`0 <= from <= len(s)`, a
 // runtime error otherwise), or -1. An empty `needle` is found at `from`. The `[byte]` half of the
 // set is in array.zm, which carries why the two share the name and what it cost to arrange.
-native fn index_of(s: string, needle: string, from: int) -> int
+pub native fn index_of(s: string, needle: string, from: int) -> int
 
 // True when `s` begins with `prefix`.
-native fn starts_with(s: string, prefix: string) -> bool
+pub native fn starts_with(s: string, prefix: string) -> bool
 
 // True when `s` ends with `suffix`.
-native fn ends_with(s: string, suffix: string) -> bool
+pub native fn ends_with(s: string, suffix: string) -> bool
 
 // `s` with every non-overlapping `old` replaced by `new`. `old` must not be empty.
-native fn replace(s: string, old: string, new: string) -> string
+pub native fn replace(s: string, old: string, new: string) -> string
 
 // `s` with the ASCII letters a-z made upper case; other bytes are unchanged.
-native fn to_upper(s: string) -> string
+pub native fn to_upper(s: string) -> string
 
 // `s` with the ASCII letters A-Z made lower case; other bytes are unchanged.
-native fn to_lower(s: string) -> string
+pub native fn to_lower(s: string) -> string
 
 // The strings `pieces` joined into one in a single pass, given one by one
 // (`join(pieces: "a", "b", "c")`) or as an array (`join(pieces: arr)`). `separator` goes between
 // the pieces, and `prefix` and `suffix` around the whole; each is optional in a named call:
 // `join(prefix: "[", suffix: "]", separator: ", ", pieces: arr)` is `[a, b, c]`. Written as a
 // native so that joining N strings is O(N), where adding them with `concat` one at a time is not.
-native fn join(
+pub native fn join(
     prefix: Option<string>,
     suffix: Option<string>,
     separator: Option<string>,
@@ -221,12 +236,12 @@ struct MutableString {
 // An empty builder. `capacity` is the bytes to reserve up front and `grow_factor` the multiple
 // its capacity grows by when an append would overflow it; both are optional, so `mutable_string_new()` is
 // usually all that is written.
-native fn mutable_string_new(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableString
+pub native fn mutable_string_new(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableString
 
 // Appends each of `pieces`, given one by one or as an array. The builder changes in place and
 // nothing is returned.
 #[at_least_one]
-native fn append(s: MutableString, pieces: variadic string)
+pub native fn append(s: MutableString, pieces: variadic string)
 
 // Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say):
 // `append_byte(sb, 195b, 169b)`. A string cannot hold a 0 byte, so if any byte is `0b` NOTHING
@@ -241,27 +256,27 @@ native fn append(s: MutableString, pieces: variadic string)
 // ordinary call has no use for"; if `append_byte` ever joins an overload set, the dropped-result
 // gate refusing a discarded result will be right.
 #[at_least_one]
-native fn append_byte(s: MutableString, pieces: variadic byte) -> bool
+pub native fn append_byte(s: MutableString, pieces: variadic byte) -> bool
 
 // Reading and writing one byte of the buffer, and searching it: what lets a string being built be
 // inspected without `snapshot`, which copies all of it per call. Byte-indexed, like every string
 // operation in the language -- `len` is bytes and `char_at(s, i)` is the one-byte string at `i`, so
 // there is no UTF-8 question left to settle here.
-native fn mutable_string_get(s: MutableString, index: int) -> string
+pub native fn mutable_string_get(s: MutableString, index: int) -> string
 
 // Replaces one byte, mirroring the immutable `set(arr, i, x)`: one element in, one element out. A
 // `value` of any other length is a runtime error rather than a splice, because splicing would
 // change the length and `set` nowhere else in the language does that.
-native fn mutable_string_set(s: MutableString, index: int, value: string)
+pub native fn mutable_string_set(s: MutableString, index: int, value: string)
 
 // The byte index of the first `needle` at or after `from` (`0 <= from <= len(sb)`, a runtime error
 // otherwise), or -1. An empty `needle` is found at `from`. Takes a `from` because the immutable
 // `index_of(s, needle, from)` does -- mirroring the twin matters more than saving an argument.
-native fn mutable_string_index_of(s: MutableString, needle: string, from: int) -> int
+pub native fn mutable_string_index_of(s: MutableString, needle: string, from: int) -> int
 
 // The byte index of the last `needle`, or -1; an empty `needle` is found at `len(sb)`. No `from`,
 // because `last_index_of(s, needle)` has none either.
-native fn mutable_string_last_index_of(s: MutableString, needle: string) -> int
+pub native fn mutable_string_last_index_of(s: MutableString, needle: string) -> int
 
 // What has been appended so far as an ordinary `string`; O(n), and the builder stays usable
 // afterwards. The one crossing out of a MutableString, and the reason there is no
@@ -270,10 +285,10 @@ native fn mutable_string_last_index_of(s: MutableString, needle: string) -> int
 //
 // **In a loop this is the quadratic cost the builder exists to avoid.** `append` is what a loop
 // writes; `snapshot` is what runs once at the end (`--lint` flags the other shape).
-native fn snapshot(s: MutableString) -> string
+pub native fn snapshot(s: MutableString) -> string
 
 // Empties the builder in place, keeping the handle and its capacity.
-native fn clear(s: MutableString)
+pub native fn clear(s: MutableString)
 
 // The lines of `text`, without their terminators. Written because a cold model reaching for
 // `text.lines()` was sent to `split(text, "\n")`, which is close but not the same thing: `split`

@@ -6,7 +6,22 @@
 // directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
 // whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
 // subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
-// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// callable.
+//
+// **Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
+// changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through
+// `fn_is_global_vocabulary` whatever their visibility says, so 143 of them carried no modifier at
+// all while 125 of their neighbours did -- one keyword, two meanings, depending on the kind of
+// declaration it sat on. Writing it everywhere costs nothing (`--api builtins` is byte-identical
+// across the change, which is how the sweep was checked) and buys the reading that **a bare
+// declaration in this directory is deliberately not public**. There is exactly one, `array_order_of`
+// in array.zm, which F172 decided should stay invisible, plus the six `internal` natives.
+//
+// What `pub` does *not* do here is gate reachability, and that is a property of the prelude rather
+// than of `native`: these files are merged bare into every program, so there is no import boundary
+// for a non-public declaration to be refused at. In a *module* `pub` is load-bearing in the
+// ordinary way -- `metrics.zm`'s own `native fn declare_raw` is private, and
+// `metrics.declare_raw(...)` is refused with "add 'pub' to export it". Native functions are registered by prelude_register() in src/prelude.c, and each file's
 // header is generated from its source by the Makefile's prelude rule.
 //
 // **A declaration lives in the file for the type its first argument has.** So `concat`'s string
@@ -55,13 +70,13 @@ struct Iter<T> {
 // closures call: a native handle such as a socket or a database cursor, or a Channel. Unlike the built-in
 // sources it is NOT closed by the garbage collector (that would run your code from a finalizer), so
 // finish it or close it.
-native fn iter_from<T>(next: fn() -> Option<T>, close: fn()) -> Iter<T>
+pub native fn iter_from<T>(next: fn() -> Option<T>, close: fn()) -> Iter<T>
 
 // The next item of `it`, or None when it is exhausted. For a `while` loop that wants the items one
 // by one; `for` does this for you.
-native fn iter_next<T>(it: Iter<T>) -> Option<T>
+pub native fn iter_next<T>(it: Iter<T>) -> Option<T>
 
 // Releases what `it` holds (a file, say) now instead of when it is collected. A `for` loop does this
 // itself when it is left early; call it when you take items by hand and stop before the end. Harmless
 // on one that is finished or already closed.
-native fn iter_close<T>(it: Iter<T>)
+pub native fn iter_close<T>(it: Iter<T>)

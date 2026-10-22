@@ -7,7 +7,22 @@
 // directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
 // whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
 // subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
-// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// callable.
+//
+// **Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
+// changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through
+// `fn_is_global_vocabulary` whatever their visibility says, so 143 of them carried no modifier at
+// all while 125 of their neighbours did -- one keyword, two meanings, depending on the kind of
+// declaration it sat on. Writing it everywhere costs nothing (`--api builtins` is byte-identical
+// across the change, which is how the sweep was checked) and buys the reading that **a bare
+// declaration in this directory is deliberately not public**. There is exactly one, `array_order_of`
+// in array.zm, which F172 decided should stay invisible, plus the six `internal` natives.
+//
+// What `pub` does *not* do here is gate reachability, and that is a property of the prelude rather
+// than of `native`: these files are merged bare into every program, so there is no import boundary
+// for a non-public declaration to be refused at. In a *module* `pub` is load-bearing in the
+// ordinary way -- `metrics.zm`'s own `native fn declare_raw` is private, and
+// `metrics.declare_raw(...)` is refused with "add 'pub' to export it". Native functions are registered by prelude_register() in src/prelude.c, and each file's
 // header is generated from its source by the Makefile's prelude rule.
 //
 // **A declaration lives in the file for the type its first argument has.** So `concat`'s string
@@ -62,9 +77,9 @@ enum Option<T> {
 // `ok` and `err` take their type from the context, like `channel_new` and `Some`: the error type of
 // an `ok(...)` is nowhere in its argument, so a `val`/`var` annotation, a struct field, a `with`
 // override, a returned value or a parameter's type has to say which `Result` it is.
-builtin fn ok<T, E>(value: T) -> Result<T, E>
+pub builtin fn ok<T, E>(value: T) -> Result<T, E>
 
-builtin fn err<T, E>(error: E) -> Result<T, E>
+pub builtin fn err<T, E>(error: E) -> Result<T, E>
 
 // **The value inside `o`, or `value` when `o` is None** -- the one-entry case of the question the
 // map forms ask, which is why it shares their name rather than being an `option_unwrap_or`.
@@ -80,15 +95,15 @@ pub fn get_or<T>(o: Option<T>, value: T) -> T {
     }
 }
 
-builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
+pub builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
 
-builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
+pub builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
 
-builtin fn is_Some<T>(o: Option<T>) -> bool
+pub builtin fn is_Some<T>(o: Option<T>) -> bool
 
-builtin fn is_None<T>(o: Option<T>) -> bool
+pub builtin fn is_None<T>(o: Option<T>) -> bool
 
-builtin fn unwrap_Some<T>(o: Option<T>) -> T
+pub builtin fn unwrap_Some<T>(o: Option<T>) -> T
 
 // The values that are actually there, in order, with the `None`s dropped. What builds a list out
 // of fields that may each be absent, without an `if` per field:
@@ -219,5 +234,5 @@ pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T
 
 // `unwrap` is the one name shared by the two: a `Result`'s Ok payload, or an `Option`'s Some. The
 // Option form is why it is not spelled `unwrap_Ok` -- see the note above `ok`.
-builtin fn unwrap<T, E>(r: Result<T, E>) -> T
-builtin fn unwrap<T>(o: Option<T>) -> T
+pub builtin fn unwrap<T, E>(r: Result<T, E>) -> T
+pub builtin fn unwrap<T>(o: Option<T>) -> T

@@ -8,7 +8,22 @@
 // directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
 // whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
 // subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
-// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// callable.
+//
+// **Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
+// changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through
+// `fn_is_global_vocabulary` whatever their visibility says, so 143 of them carried no modifier at
+// all while 125 of their neighbours did -- one keyword, two meanings, depending on the kind of
+// declaration it sat on. Writing it everywhere costs nothing (`--api builtins` is byte-identical
+// across the change, which is how the sweep was checked) and buys the reading that **a bare
+// declaration in this directory is deliberately not public**. There is exactly one, `array_order_of`
+// in array.zm, which F172 decided should stay invisible, plus the six `internal` natives.
+//
+// What `pub` does *not* do here is gate reachability, and that is a property of the prelude rather
+// than of `native`: these files are merged bare into every program, so there is no import boundary
+// for a non-public declaration to be refused at. In a *module* `pub` is load-bearing in the
+// ordinary way -- `metrics.zm`'s own `native fn declare_raw` is private, and
+// `metrics.declare_raw(...)` is refused with "add 'pub' to export it". Native functions are registered by prelude_register() in src/prelude.c, and each file's
 // header is generated from its source by the Makefile's prelude rule.
 //
 // **A declaration lives in the file for the type its first argument has.** So `concat`'s string
@@ -126,7 +141,7 @@
 // bytes (a socket, a file, an HTTP body) become a `string`, so it's the one place this is
 // checked; every other string function keeps working on whatever bytes a `string` already holds,
 // same as always. See docs/DESIGN.md's UTF-8 correctness entry.
-native fn bytes_to_string(bytes: [byte]) -> Result<string, string>
+pub native fn bytes_to_string(bytes: [byte]) -> Result<string, string>
 
 // The array counterpart of MutableString: `push` copies the whole array on every call, so
 // pushing in a loop is quadratic, while appending to a MutableArray is amortized O(1). Same
@@ -155,8 +170,8 @@ struct MutableArray<T> {
 // already took named and type arguments, being listed in `BUILTINS_WITH_NAMED_ARGS`, and its
 // diagnostics were already derived from these two signatures rather than hand-written, which is
 // what made it the cheapest of the remaining polymorphic builtins to convert.
-native fn slice<T>(items: [T], start: int, end: int) -> [T]
-native fn slice<T>(items: MutableArray<T>, start: int, end: int) -> [T]
+pub native fn slice<T>(items: [T], start: int, end: int) -> [T]
+pub native fn slice<T>(items: MutableArray<T>, start: int, end: int) -> [T]
 
 // **Every part, in order, joined into one new array** -- `concat`'s array world. The string world
 // is in string.zm and carries the three reasons no call can pick among these four declarations,
@@ -166,7 +181,7 @@ native fn slice<T>(items: MutableArray<T>, start: int, end: int) -> [T]
 // the string form carries: `concat([[1], [2]])` is `[1, 2]`, as is `concat([1], [2])`. What cannot
 // be said is concatenating a single array as one part, which is `slice(items, 0, len(items))`.
 #[compiler_resolved]
-native fn concat<T>(parts: variadic [T]) -> [T]
+pub native fn concat<T>(parts: variadic [T]) -> [T]
 
 // **Appending to a builder answers nothing**, the container having been written. The parts may
 // come from either world **and may be mixed** -- `concat(b, [5], mutable([6]), [7])` -- which
@@ -176,12 +191,12 @@ native fn concat<T>(parts: variadic [T]) -> [T]
 // function. They do not tell each other apart either -- `concat(b)` passes an empty tail, which
 // fits both -- so both carry the attribute.
 #[compiler_resolved]
-native fn concat<T>(items: MutableArray<T>, parts: variadic [T])
+pub native fn concat<T>(items: MutableArray<T>, parts: variadic [T])
 #[compiler_resolved]
-native fn concat<T>(items: MutableArray<T>, parts: variadic MutableArray<T>)
+pub native fn concat<T>(items: MutableArray<T>, parts: variadic MutableArray<T>)
 
 // An empty builder; `capacity` and `grow_factor` are as in `mutable_string_new`.
-native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableArray<T>
+pub native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableArray<T>
 
 // **The MutableArray holding `items`' elements** -- `mutable`'s array member, and `snapshot`
 // backwards: `snapshot` answers the immutable type a builder is building, `mutable` the builder a
@@ -198,7 +213,7 @@ native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<f
 // checker hands them over as the call's own arguments, which is what `$map_lit` has always done --
 // so three allocations and about 154 bytes per construction do not happen. Nothing observable
 // changes; `mutable(xs)` on a variable still copies, because there the copy is the point.
-builtin fn mutable<T>(items: [T]) -> MutableArray<T>
+pub builtin fn mutable<T>(items: [T]) -> MutableArray<T>
 
 // **`length` copies of `value`, every slot addressable.** `mutable_array_new`'s `capacity` is not a
 // length: it reserves room and leaves `len` at 0, so `b[0] = v` after it is a runtime
@@ -214,7 +229,7 @@ builtin fn mutable<T>(items: [T]) -> MutableArray<T>
 // There is no immutable twin: `snapshot(mutable_array_filled(n, v))` is the way to an `[T]` of
 // repeats, and `array_filled` would have to be a second name rather than an overload, differing
 // from this only in what it returns.
-native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
+pub native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
 
 // **Its length**, O(1) in both worlds. `len`'s nine members are one C function registered under
 // the bare name -- the declarations say only which types may be asked the question, and this is
@@ -227,14 +242,14 @@ native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
 // needs a per-type name or a conversion". There is no ranking, no implicit conversion and no
 // return-type-directed choice -- each member is picked by what argument one is, which is the
 // dispatch the interpreter already had.
-native fn len<T>(items: [T]) -> int
-native fn len<T>(items: MutableArray<T>) -> int
+pub native fn len<T>(items: [T]) -> int
+pub native fn len<T>(items: MutableArray<T>) -> int
 
 // **Whether `x` is an element**, O(n) in both worlds -- the question `len`'s nine are asked
 // alongside, each in the form its type gives it: an element of an array or a set, a *key* of a
 // map, a substring of text.
-native fn contains<T: Eq>(items: [T], x: T) -> bool
-native fn contains<T: Eq>(items: MutableArray<T>, x: T) -> bool
+pub native fn contains<T: Eq>(items: [T], x: T) -> bool
+pub native fn contains<T: Eq>(items: MutableArray<T>, x: T) -> bool
 
 // --------------------------------------------- the only prefixed names left, and why they are two
 //
@@ -288,12 +303,12 @@ native fn contains<T: Eq>(items: MutableArray<T>, x: T) -> bool
 // shape). A loop that needs what it has already appended reads `b[i]` or `for x in b` instead; see
 // the banner above.
 #[when_unmatched("a Mutable cell is read with 'mutable_get', not snapshotted -- this names an O(n) copy of a collection and reading the one value a cell holds is O(1)")]
-native fn snapshot<T>(items: MutableArray<T>) -> [T]
+pub native fn snapshot<T>(items: MutableArray<T>) -> [T]
 
 // Empties a builder in place, keeping the handle. `narrow(items, 0, 0)` is the same thing said
 // the long way, and this is the word for it.
 #[when_unmatched("an immutable collection is emptied by writing an empty one ('[]', 'Map<K, V> {}'), and a Mutable cell has no 'clear' at all -- it is always initialised, so put something in it with mutable_set")]
-native fn clear<T>(items: MutableArray<T>)
+pub native fn clear<T>(items: MutableArray<T>)
 
 // **`f` applied to every element, as a new array.** `map`'s array member; the Map member is in
 // map.zm and the Set member in set.zm, each answering the type it was given.
@@ -366,7 +381,7 @@ pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U] {
 // "argument 1 of 'narrow' expects MutableArray<T>, found [int]" with the line below after it.
 // Every single-builder-parameter name is convertible on the back of that.
 #[when_unmatched("it shortens a MutableArray in place, where an array has nothing to narrow -- 'slice(a, start, end)' makes a new one instead")]
-native fn narrow<T>(items: MutableArray<T>, start: int, end: int)
+pub native fn narrow<T>(items: MutableArray<T>, start: int, end: int)
 
 // **Exchanges the elements at `i` and `j`, in both worlds.** The same question of each, answered
 // the way each can: a new array from the array, nothing from the builder, which is written in
@@ -387,8 +402,8 @@ native fn narrow<T>(items: MutableArray<T>, start: int, end: int)
 // The array form closes a gap rather than renaming one. Its only previous spelling was
 // `set(set(a, i, a[j]), j, a[i])`, which copies the whole array **twice** to move two slots,
 // because `set` always copies. This copies once.
-native fn swap<T>(items: [T], i: int, j: int) -> [T]
-native fn swap<T>(items: MutableArray<T>, i: int, j: int)
+pub native fn swap<T>(items: [T], i: int, j: int) -> [T]
+pub native fn swap<T>(items: MutableArray<T>, i: int, j: int)
 
 // **`items` back to front, as a new array; the one given is untouched**, arrays being values.
 // Native rather than written in Ziman so the result is one allocation of the known length, where
@@ -445,7 +460,7 @@ pub native fn filter<T>(items: MutableArray<T>, keep: fn(T) -> bool)
 // nothing, while the `Iter` this answers outlives the call, so a handle's contents could move
 // underneath it. `iter(snapshot(b))` is the builder route, and the copy it makes is the point
 // rather than a cost to be removed.
-native fn iter<T>(items: [T]) -> Iter<T>
+pub native fn iter<T>(items: [T]) -> Iter<T>
 
 // **The distinct elements of a sequence, as a Set.** Named for its result rather than its source
 // -- `set_from_array` until 2026-10-18 -- for two reasons. The argument already says what the
@@ -459,8 +474,8 @@ native fn iter<T>(items: [T]) -> Iter<T>
 // answer in the other world, and it has to be a second name rather than an overload: the two take
 // the *same* argument types and differ only in what they return, which first-argument dispatch
 // cannot distinguish.
-native fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
-native fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
+pub native fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
+pub native fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
 
 // **The same question with the answer in the other world**: the distinct elements as a *builder*,
 // ready to be added to. It is the second name the paragraph above explains -- not an overload of
@@ -475,8 +490,8 @@ native fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
 // Four declarations across the two names, each taking either world in its one argument that has
 // the choice -- the handle is always a handle. That is what `either_world()` in the type checker
 // is for, and these two names are its clearest case.
-native fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
-native fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
+pub native fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
+pub native fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
 
 // The position of the first occurrence of `needle` in `haystack` at or after `from`, or -1; an
 // empty `needle` is found at `from`. For finding a delimiter (a CRLF CRLF, a boundary) in bytes:
@@ -493,7 +508,7 @@ native fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
 // `array_index_of` -- so neither resolves by the bare name and the fallback picks from parameter
 // one, which is where they differ. That fallback knew `[T]`, Map, Set and the four builders; F213
 // taught it `string`.
-native fn index_of(haystack: [byte], needle: [byte], from: int) -> int
+pub native fn index_of(haystack: [byte], needle: [byte], from: int) -> int
 
 // The substrate the six sort functions below are built on, and the only callers they have: the
 // scalar fast path (`is_sortable_scalars` and its two partners), the generic merge sort over
@@ -843,7 +858,7 @@ pub fn sort_by_desc<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K) {
 // exactly this shape since F199 (`builtin fn` for a `Set`, native for a `MutableSet`), which is
 // why it needed no new mechanism.
 #[at_least_one]
-native fn push<T>(items: [T], values: variadic T) -> [T]
+pub native fn push<T>(items: [T], values: variadic T) -> [T]
 
 // The MutableArray's `push` is the array's, for the reason `len` and `contains` are: appending is
 // the same question of both, so it is the same word. The difference is in what the call answers --
@@ -857,7 +872,7 @@ native fn push<T>(items: [T], values: variadic T) -> [T]
 // `mutable_array_push` and the array form is never a candidate for it.
 #[at_least_one]
 #[when_unmatched("the other collections have their own word: set(map, key, value), add(set, item), append(sb, s)")]
-native fn push<T>(items: MutableArray<T>, values: variadic T)
+pub native fn push<T>(items: MutableArray<T>, values: variadic T)
 
 // **`insert` and `set` are not interchangeable, and each has its own error telling the reader
 // which to use.** `insert` puts something where it was not, at an index; `set` replaces what is at
@@ -865,7 +880,7 @@ native fn push<T>(items: MutableArray<T>, values: variadic T)
 // and a set has neither -- F199 settled that `insert` is positional only and gave both set worlds
 // `add`, and F206 made the checker say so, the set form having gone on being accepted undeclared
 // for a pass after the decision.
-native fn insert<T>(items: [T], index: int, x: T) -> [T]
+pub native fn insert<T>(items: [T], index: int, x: T) -> [T]
 
 // An index in a MutableArray, for the same reason `push` is shared. `index` may be `len(b)`,
 // which appends -- the same rule the immutable form follows, so adding at the end needs no second
@@ -880,7 +895,7 @@ native fn insert<T>(items: [T], index: int, x: T) -> [T]
 // together in F207: the symbol fallback reads parameter one, which is the only place these two
 // declarations differ, so it finds `mutable_array_insert`.
 #[when_unmatched("'insert' places a value at an index and has no collection form; use set(map, key, value), add(set, item) or append(sb, s)")]
-native fn insert<T>(items: MutableArray<T>, index: int, value: T)
+pub native fn insert<T>(items: MutableArray<T>, index: int, value: T)
 
 // **A new array with `index` replaced** -- `set`'s array member, the other two being a Map's and a
 // MutableMap's in map.zm, which replace the value under a key.
@@ -888,7 +903,7 @@ native fn insert<T>(items: MutableArray<T>, index: int, value: T)
 // `set` has no MutableArray form on purpose: an element write there is `b[i] = value`, the same
 // sugar an array's element write gets, and a copying three-argument call would read as though it
 // left the container alone. `set(b, i, v)` says so rather than failing as an unknown overload.
-builtin fn set<T>(items: [T], index: int, x: T) -> [T]
+pub builtin fn set<T>(items: [T], index: int, x: T) -> [T]
 
 // **A new array without `index`** -- `remove`'s array member, and the third of the element verbs
 // the banner above introduces. An index out of bounds is a runtime error. The Map, Set, MutableMap
@@ -939,7 +954,7 @@ pub native fn remove<T>(items: [T], index: int) -> [T]
 // `check_call`'s arm rewrote the callee first, and `call_remove` only ever handled an array, so
 // the id path would have read an `ArrayObj` out of a handle had anything reached it.
 #[effectful]
-native fn remove<T>(items: MutableArray<T>, index: int) -> T
+pub native fn remove<T>(items: MutableArray<T>, index: int) -> T
 
 // The positions of `keys` in sorted order: the array of indices that, read in order, visits
 // `keys` smallest first, or largest first when `descending`. Stable in both directions -- equal

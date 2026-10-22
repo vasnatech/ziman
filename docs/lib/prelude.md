@@ -13,7 +13,22 @@ loader, so everything here is callable with no `use` and `use prelude` does not 
 directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
 whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
 subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
-callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+callable.
+
+**Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
+changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through
+`fn_is_global_vocabulary` whatever their visibility says, so 143 of them carried no modifier at
+all while 125 of their neighbours did -- one keyword, two meanings, depending on the kind of
+declaration it sat on. Writing it everywhere costs nothing (`--api builtins` is byte-identical
+across the change, which is how the sweep was checked) and buys the reading that **a bare
+declaration in this directory is deliberately not public**. There is exactly one, `array_order_of`
+in array.zm, which F172 decided should stay invisible, plus the six `internal` natives.
+
+What `pub` does *not* do here is gate reachability, and that is a property of the prelude rather
+than of `native`: these files are merged bare into every program, so there is no import boundary
+for a non-public declaration to be refused at. In a *module* `pub` is load-bearing in the
+ordinary way -- `metrics.zm`'s own `native fn declare_raw` is private, and
+`metrics.declare_raw(...)` is refused with "add 'pub' to export it". Native functions are registered by prelude_register() in src/prelude.c, and each file's
 header is generated from its source by the Makefile's prelude rule.
 
 **A declaration lives in the file for the type its first argument has.** So `concat`'s string
@@ -130,7 +145,7 @@ bbb
 ### `parse_int`
 
 ```
-native fn parse_int(s: string) -> Result<int, string>
+pub native fn parse_int(s: string) -> Result<int, string>
 ```
 
 The number in `s`, or an Err naming the text when it is not one or does not fit:
@@ -140,7 +155,7 @@ digits only: no blanks around the number, no `+`, no `0x`, no `_` (`trim` first 
 ### `parse_float`
 
 ```
-native fn parse_float(s: string) -> Result<float, string>
+pub native fn parse_float(s: string) -> Result<float, string>
 ```
 
 A float from decimal or exponent text (`3.5`, `1e3`), or an Err: like `parse_int`, no blanks and no `+`, and
@@ -153,7 +168,7 @@ text naming one too large (`1e400`) is an Err rather than silently becoming infi
 ### `parse_bigint`
 
 ```
-native fn parse_bigint(s: string) -> Result<bigint, string>
+pub native fn parse_bigint(s: string) -> Result<bigint, string>
 ```
 
 A bigint from digits with an optional sign, or an Err. Any length.
@@ -161,7 +176,7 @@ A bigint from digits with an optional sign, or an Err. Any length.
 ### `parse_decimal`
 
 ```
-native fn parse_decimal(s: string) -> Result<decimal, string>
+pub native fn parse_decimal(s: string) -> Result<decimal, string>
 ```
 
 A decimal from digits with an optional fraction, keeping the scale as written (`"1.50"` stays
@@ -170,7 +185,7 @@ A decimal from digits with an optional fraction, keeping the scale as written (`
 ### `print`
 
 ```
-builtin fn print<T>(x: T)
+pub builtin fn print<T>(x: T)
 ```
 
 **`print` takes a type parameter, not a top type.** `print` really does accept anything --
@@ -182,7 +197,7 @@ and then do almost nothing with, so `print` uses the generics the language alrea
 ### `str`
 
 ```
-builtin fn str(x: int) -> string
+pub builtin fn str(x: int) -> string
 ```
 
 **Six scalars, and not `string`** -- `str("x")` is refused with "it's already a string", so
@@ -191,53 +206,53 @@ conversions is closed, which is why it is six overloads rather than one signatur
 type parameter: `str` on a lambda or a `Set` has no answer to give.
 
 ```
-builtin fn str(x: float) -> string
+pub builtin fn str(x: float) -> string
 ```
 
 ```
-builtin fn str(x: bool) -> string
+pub builtin fn str(x: bool) -> string
 ```
 
 ```
-builtin fn str(x: bigint) -> string
+pub builtin fn str(x: bigint) -> string
 ```
 
 ```
-builtin fn str(x: decimal) -> string
+pub builtin fn str(x: decimal) -> string
 ```
 
 ```
-builtin fn str(x: byte) -> string
+pub builtin fn str(x: byte) -> string
 ```
 
 ### `abs`
 
 ```
-builtin fn abs(x: int) -> int
+pub builtin fn abs(x: int) -> int
 ```
 
 ```
-builtin fn abs(x: float) -> float
+pub builtin fn abs(x: float) -> float
 ```
 
 ```
-builtin fn abs(x: bigint) -> bigint
+pub builtin fn abs(x: bigint) -> bigint
 ```
 
 ```
-builtin fn abs(x: decimal) -> decimal
+pub builtin fn abs(x: decimal) -> decimal
 ```
 
 ### `hash`
 
 ```
-builtin fn hash<T: Eq + Hash>(x: T) -> int
+pub builtin fn hash<T: Eq + Hash>(x: T) -> int
 ```
 
 ### `compare`
 
 ```
-builtin fn compare<T: Ord>(a: T, b: T) -> int
+pub builtin fn compare<T: Ord>(a: T, b: T) -> int
 ```
 
 Negative, zero or positive; only the sign is meaningful.
@@ -245,7 +260,7 @@ Negative, zero or positive; only the sign is meaningful.
 ### `min`
 
 ```
-builtin fn min<T: Ord>(values: variadic T) -> T
+pub builtin fn min<T: Ord>(values: variadic T) -> T
 ```
 
 Two or more arguments, or exactly one array as the whole list -- the ordinary variadic
@@ -254,7 +269,7 @@ convention, which is why "several values" and "an array of values" need no secon
 ### `max`
 
 ```
-builtin fn max<T: Ord>(values: variadic T) -> T
+pub builtin fn max<T: Ord>(values: variadic T) -> T
 ```
 
 ## `array.zm`
@@ -262,7 +277,7 @@ builtin fn max<T: Ord>(values: variadic T) -> T
 ### `bytes_to_string`
 
 ```
-native fn bytes_to_string(bytes: [byte]) -> Result<string, string>
+pub native fn bytes_to_string(bytes: [byte]) -> Result<string, string>
 ```
 
 The text of `b`, or an Err when `b` is not valid UTF-8 (naming the byte offset of the first
@@ -286,7 +301,7 @@ opaque `handle`, same thread-bound rule.
 ### `slice`
 
 ```
-native fn slice<T>(items: [T], start: int, end: int) -> [T]
+pub native fn slice<T>(items: [T], start: int, end: int) -> [T]
 ```
 
 The elements from `start` up to, not including, `end` (`0 <= start <= end <= len(x)`, a runtime
@@ -310,13 +325,13 @@ diagnostics were already derived from these two signatures rather than hand-writ
 what made it the cheapest of the remaining polymorphic builtins to convert.
 
 ```
-native fn slice<T>(items: MutableArray<T>, start: int, end: int) -> [T]
+pub native fn slice<T>(items: MutableArray<T>, start: int, end: int) -> [T]
 ```
 
 ### `concat`
 
 ```
-native fn concat<T>(parts: variadic [T]) -> [T]
+pub native fn concat<T>(parts: variadic [T]) -> [T]
 ```
 
 **Every part, in order, joined into one new array** -- `concat`'s array world. The string world
@@ -328,7 +343,7 @@ the string form carries: `concat([[1], [2]])` is `[1, 2]`, as is `concat([1], [2
 be said is concatenating a single array as one part, which is `slice(items, 0, len(items))`.
 
 ```
-native fn concat<T>(items: MutableArray<T>, parts: variadic [T])
+pub native fn concat<T>(items: MutableArray<T>, parts: variadic [T])
 ```
 
 **Appending to a builder answers nothing**, the container having been written. The parts may
@@ -340,13 +355,13 @@ function. They do not tell each other apart either -- `concat(b)` passes an empt
 fits both -- so both carry the attribute.
 
 ```
-native fn concat<T>(items: MutableArray<T>, parts: variadic MutableArray<T>)
+pub native fn concat<T>(items: MutableArray<T>, parts: variadic MutableArray<T>)
 ```
 
 ### `mutable_array_new`
 
 ```
-native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableArray<T>
+pub native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableArray<T>
 ```
 
 An empty builder; `capacity` and `grow_factor` are as in `mutable_string_new`.
@@ -354,7 +369,7 @@ An empty builder; `capacity` and `grow_factor` are as in `mutable_string_new`.
 ### `mutable`
 
 ```
-builtin fn mutable<T>(items: [T]) -> MutableArray<T>
+pub builtin fn mutable<T>(items: [T]) -> MutableArray<T>
 ```
 
 **The MutableArray holding `items`' elements** -- `mutable`'s array member, and `snapshot`
@@ -376,7 +391,7 @@ changes; `mutable(xs)` on a variable still copies, because there the copy is the
 ### `mutable_array_filled`
 
 ```
-native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
+pub native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
 ```
 
 **`length` copies of `value`, every slot addressable.** `mutable_array_new`'s `capacity` is not a
@@ -397,7 +412,7 @@ from this only in what it returns.
 ### `len`
 
 ```
-native fn len<T>(items: [T]) -> int
+pub native fn len<T>(items: [T]) -> int
 ```
 
 **Its length**, O(1) in both worlds. `len`'s nine members are one C function registered under
@@ -413,13 +428,13 @@ return-type-directed choice -- each member is picked by what argument one is, wh
 dispatch the interpreter already had.
 
 ```
-native fn len<T>(items: MutableArray<T>) -> int
+pub native fn len<T>(items: MutableArray<T>) -> int
 ```
 
 ### `contains`
 
 ```
-native fn contains<T: Eq>(items: [T], x: T) -> bool
+pub native fn contains<T: Eq>(items: [T], x: T) -> bool
 ```
 
 **Whether `x` is an element**, O(n) in both worlds -- the question `len`'s nine are asked
@@ -427,13 +442,13 @@ alongside, each in the form its type gives it: an element of an array or a set, 
 map, a substring of text.
 
 ```
-native fn contains<T: Eq>(items: MutableArray<T>, x: T) -> bool
+pub native fn contains<T: Eq>(items: MutableArray<T>, x: T) -> bool
 ```
 
 ### `snapshot`
 
 ```
-native fn snapshot<T>(items: MutableArray<T>) -> [T]
+pub native fn snapshot<T>(items: MutableArray<T>) -> [T]
 ```
 
 **Each builder to the immutable value it is building.** O(n), and the handle stays usable
@@ -456,7 +471,7 @@ the banner above.
 ### `clear`
 
 ```
-native fn clear<T>(items: MutableArray<T>)
+pub native fn clear<T>(items: MutableArray<T>)
 ```
 
 Empties a builder in place, keeping the handle. `narrow(items, 0, 0)` is the same thing said
@@ -517,7 +532,7 @@ which is what makes this flat.
 ### `narrow`
 
 ```
-native fn narrow<T>(items: MutableArray<T>, start: int, end: int)
+pub native fn narrow<T>(items: MutableArray<T>, start: int, end: int)
 ```
 
 **Keeps only the elements from `start` up to `end`, in place, answering nothing.** The in-place
@@ -546,7 +561,7 @@ Every single-builder-parameter name is convertible on the back of that.
 ### `swap`
 
 ```
-native fn swap<T>(items: [T], i: int, j: int) -> [T]
+pub native fn swap<T>(items: [T], i: int, j: int) -> [T]
 ```
 
 **Exchanges the elements at `i` and `j`, in both worlds.** The same question of each, answered
@@ -570,7 +585,7 @@ The array form closes a gap rather than renaming one. Its only previous spelling
 because `set` always copies. This copies once.
 
 ```
-native fn swap<T>(items: MutableArray<T>, i: int, j: int)
+pub native fn swap<T>(items: MutableArray<T>, i: int, j: int)
 ```
 
 ### `reverse`
@@ -630,7 +645,7 @@ appending during a `for`.
 ### `iter`
 
 ```
-native fn iter<T>(items: [T]) -> Iter<T>
+pub native fn iter<T>(items: [T]) -> Iter<T>
 ```
 
 The elements of `items` as an Iter, for code that takes a lazy source but has an array. Named
@@ -646,7 +661,7 @@ rather than a cost to be removed.
 ### `to_set`
 
 ```
-native fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
+pub native fn to_set<T: Eq + Hash>(items: [T]) -> Set<T>
 ```
 
 **The distinct elements of a sequence, as a Set.** Named for its result rather than its source
@@ -663,13 +678,13 @@ the *same* argument types and differ only in what they return, which first-argum
 cannot distinguish.
 
 ```
-native fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
+pub native fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
 ```
 
 ### `to_mutable_set`
 
 ```
-native fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
+pub native fn to_mutable_set<T: Eq + Hash>(items: [T]) -> MutableSet<T>
 ```
 
 **The same question with the answer in the other world**: the distinct elements as a *builder*,
@@ -687,13 +702,13 @@ the choice -- the handle is always a handle. That is what `either_world()` in th
 is for, and these two names are its clearest case.
 
 ```
-native fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
+pub native fn to_mutable_set<T: Eq + Hash>(items: MutableArray<T>) -> MutableSet<T>
 ```
 
 ### `index_of`
 
 ```
-native fn index_of(haystack: [byte], needle: [byte], from: int) -> int
+pub native fn index_of(haystack: [byte], needle: [byte], from: int) -> int
 ```
 
 The position of the first occurrence of `needle` in `haystack` at or after `from`, or -1; an
@@ -939,7 +954,7 @@ Descending by a computed key, on the snapshot, as `sort_by` is.
 ### `push`
 
 ```
-native fn push<T>(items: [T], values: variadic T) -> [T]
+pub native fn push<T>(items: [T], values: variadic T) -> [T]
 ```
 
 A new array with the values on the end; the original is unchanged, these being immutable values.
@@ -955,7 +970,7 @@ exactly this shape since F199 (`builtin fn` for a `Set`, native for a `MutableSe
 why it needed no new mechanism.
 
 ```
-native fn push<T>(items: MutableArray<T>, values: variadic T)
+pub native fn push<T>(items: MutableArray<T>, values: variadic T)
 ```
 
 The MutableArray's `push` is the array's, for the reason `len` and `contains` are: appending is
@@ -972,7 +987,7 @@ only** (F205). Parameter one is where these two declarations differ, so it lands
 ### `insert`
 
 ```
-native fn insert<T>(items: [T], index: int, x: T) -> [T]
+pub native fn insert<T>(items: [T], index: int, x: T) -> [T]
 ```
 
 **`insert` and `set` are not interchangeable, and each has its own error telling the reader
@@ -983,7 +998,7 @@ and a set has neither -- F199 settled that `insert` is positional only and gave 
 for a pass after the decision.
 
 ```
-native fn insert<T>(items: MutableArray<T>, index: int, value: T)
+pub native fn insert<T>(items: MutableArray<T>, index: int, value: T)
 ```
 
 An index in a MutableArray, for the same reason `push` is shared. `index` may be `len(b)`,
@@ -1002,7 +1017,7 @@ declarations differ, so it finds `mutable_array_insert`.
 ### `set`
 
 ```
-builtin fn set<T>(items: [T], index: int, x: T) -> [T]
+pub builtin fn set<T>(items: [T], index: int, x: T) -> [T]
 ```
 
 **A new array with `index` replaced** -- `set`'s array member, the other two being a Map's and a
@@ -1040,7 +1055,7 @@ functions that no longer existed.
 builtin takes no named argument, so nothing could have been calling it `x:`.
 
 ```
-native fn remove<T>(items: MutableArray<T>, index: int) -> T
+pub native fn remove<T>(items: MutableArray<T>, index: int) -> T
 ```
 
 **O(n)**: everything after `index` moves back. There is no `pop` because this is one --
@@ -1519,7 +1534,7 @@ and a bare prelude `Either` would then collide with. Available bare, like `Optio
 ### `channel_new`
 
 ```
-builtin fn channel_new<T>() -> Channel<T>
+pub builtin fn channel_new<T>() -> Channel<T>
 ```
 
 Takes its element type from the context, like `ok`/`err`/`Some`: a `val` with a declared
@@ -1528,7 +1543,7 @@ Takes its element type from the context, like `ok`/`err`/`Some`: a `val` with a 
 ### `send`
 
 ```
-builtin fn send<T>(channel: Channel<T>, value: T)
+pub builtin fn send<T>(channel: Channel<T>, value: T)
 ```
 
 Blocks until there is room; refused on a closed channel.
@@ -1536,7 +1551,7 @@ Blocks until there is room; refused on a closed channel.
 ### `try_send`
 
 ```
-builtin fn try_send<T>(channel: Channel<T>, value: T) -> bool
+pub builtin fn try_send<T>(channel: Channel<T>, value: T) -> bool
 ```
 
 False when the channel is full or closed, rather than blocking.
@@ -1544,7 +1559,7 @@ False when the channel is full or closed, rather than blocking.
 ### `receive`
 
 ```
-builtin fn receive<T>(channel: Channel<T>) -> T
+pub builtin fn receive<T>(channel: Channel<T>) -> T
 ```
 
 Blocks until a value arrives. A closed and drained channel is a runtime error here --
@@ -1553,7 +1568,7 @@ Blocks until a value arrives. A closed and drained channel is a runtime error he
 ### `try_receive`
 
 ```
-builtin fn try_receive<T>(channel: Channel<T>) -> Option<T>
+pub builtin fn try_receive<T>(channel: Channel<T>) -> Option<T>
 ```
 
 None when the channel is empty, rather than blocking.
@@ -1561,7 +1576,7 @@ None when the channel is empty, rather than blocking.
 ### `receive_option`
 
 ```
-builtin fn receive_option<T>(channel: Channel<T>) -> Option<T>
+pub builtin fn receive_option<T>(channel: Channel<T>) -> Option<T>
 ```
 
 None when the channel is closed and drained.
@@ -1569,7 +1584,7 @@ None when the channel is closed and drained.
 ### `receive_timeout`
 
 ```
-builtin fn receive_timeout<T>(channel: Channel<T>, millis: int) -> Option<T>
+pub builtin fn receive_timeout<T>(channel: Channel<T>, millis: int) -> Option<T>
 ```
 
 None when `millis` elapses first.
@@ -1577,19 +1592,19 @@ None when `millis` elapses first.
 ### `channel_len`
 
 ```
-builtin fn channel_len<T>(channel: Channel<T>) -> int
+pub builtin fn channel_len<T>(channel: Channel<T>) -> int
 ```
 
 ### `channel_close`
 
 ```
-builtin fn channel_close<T>(channel: Channel<T>)
+pub builtin fn channel_close<T>(channel: Channel<T>)
 ```
 
 ### `select2`
 
 ```
-builtin fn select2<A, B>(first: Channel<A>, second: Channel<B>) -> Selected<A, B>
+pub builtin fn select2<A, B>(first: Channel<A>, second: Channel<B>) -> Selected<A, B>
 ```
 
 Whichever of the two has a value first, and which one it was. `first` and `second` are the
@@ -1610,7 +1625,7 @@ explicit close still ends the thread that owns its socket (once the garbage coll
 ### `guard_new`
 
 ```
-native fn guard_new<T>(channel: Channel<T>, message: T) -> Guard
+pub native fn guard_new<T>(channel: Channel<T>, message: T) -> Guard
 ```
 
 A guard that sends `message` on `channel` when it is collected.
@@ -1637,7 +1652,7 @@ closing it from another thread is a runtime error.
 ### `iter_from`
 
 ```
-native fn iter_from<T>(next: fn() -> Option<T>, close: fn()) -> Iter<T>
+pub native fn iter_from<T>(next: fn() -> Option<T>, close: fn()) -> Iter<T>
 ```
 
 An Iter written in Ziman. `next` returns the next item as `Some(item)`, or `None` at the end; `close` is
@@ -1650,7 +1665,7 @@ finish it or close it.
 ### `iter_next`
 
 ```
-native fn iter_next<T>(it: Iter<T>) -> Option<T>
+pub native fn iter_next<T>(it: Iter<T>) -> Option<T>
 ```
 
 The next item of `it`, or None when it is exhausted. For a `while` loop that wants the items one
@@ -1659,7 +1674,7 @@ by one; `for` does this for you.
 ### `iter_close`
 
 ```
-native fn iter_close<T>(it: Iter<T>)
+pub native fn iter_close<T>(it: Iter<T>)
 ```
 
 Releases what `it` holds (a file, say) now instead of when it is collected. A `for` loop does this
@@ -1686,7 +1701,7 @@ Thread-bound like the other builders.
 ### `mutable_map_new`
 
 ```
-native fn mutable_map_new<K: Eq + Hash, V>() -> MutableMap<K, V>
+pub native fn mutable_map_new<K: Eq + Hash, V>() -> MutableMap<K, V>
 ```
 
 An empty map builder.
@@ -1694,7 +1709,7 @@ An empty map builder.
 ### `len`
 
 ```
-native fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
+pub native fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
 ```
 
 **How many entries**, O(1) in both worlds. `len`'s other seven members are in array.zm,
@@ -1702,13 +1717,13 @@ string.zm, set.zm and mutable.zm, and array.zm's carry the account of why nine d
 share one C function.
 
 ```
-native fn len<K: Eq + Hash, V>(m: MutableMap<K, V>) -> int
+pub native fn len<K: Eq + Hash, V>(m: MutableMap<K, V>) -> int
 ```
 
 ### `contains`
 
 ```
-native fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
+pub native fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
 ```
 
 **Whether `key` is present** -- a *key*, which is the form the shared question takes for a map,
@@ -1716,13 +1731,13 @@ where an array is asked about an element and text about a substring. For "is thi
 here", walk `values`.
 
 ```
-native fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
+pub native fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
 ```
 
 ### `mutable`
 
 ```
-builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
+pub builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
 ```
 
 **The MutableMap holding `entries`** -- `mutable`'s map member, and `snapshot` backwards. Its
@@ -2108,7 +2123,7 @@ answering an immutable value for the same reason `keys` and `values` do.
 ### `snapshot`
 
 ```
-native fn snapshot<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Map<K, V>
+pub native fn snapshot<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Map<K, V>
 ```
 
 The entries added so far as an ordinary `Map`, in insertion order; O(n), and the builder stays
@@ -2119,7 +2134,7 @@ the MutableArray form in array.zm.
 ### `clear`
 
 ```
-native fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)
+pub native fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)
 ```
 
 Empties the builder in place, keeping the handle.
@@ -2152,7 +2167,7 @@ crossing between the two worlds *is* the API.
 ### `mutable_new`
 
 ```
-native fn mutable_new<T>(value: T) -> Mutable<T>
+pub native fn mutable_new<T>(value: T) -> Mutable<T>
 ```
 
 A cell holding `value`.
@@ -2160,7 +2175,7 @@ A cell holding `value`.
 ### `len`
 
 ```
-native fn len<T>(cell: Mutable<T>) -> int
+pub native fn len<T>(cell: Mutable<T>) -> int
 ```
 
 A cell holds exactly one value, so its length is always 1 -- `len`'s ninth member, and the only
@@ -2170,7 +2185,7 @@ map.zm and set.zm.
 ### `contains`
 
 ```
-native fn contains<T: Eq>(cell: Mutable<T>, x: T) -> bool
+pub native fn contains<T: Eq>(cell: Mutable<T>, x: T) -> bool
 ```
 
 Whether the value in the cell equals `x`: the one-value case of the question the other eight
@@ -2179,7 +2194,7 @@ members ask of a collection.
 ### `mutable`
 
 ```
-builtin fn mutable<T>(item: T) -> Mutable<T>
+pub builtin fn mutable<T>(item: T) -> Mutable<T>
 ```
 
 **`mutable(x)` makes the mutable counterpart of whatever it is given, and this is the member for
@@ -2210,7 +2225,7 @@ one question, and the clone half had no caller outside its own fixtures.
 ### `mutable_get`
 
 ```
-native fn mutable_get<T>(cell: Mutable<T>) -> T
+pub native fn mutable_get<T>(cell: Mutable<T>) -> T
 ```
 
 The value in the cell.
@@ -2218,7 +2233,7 @@ The value in the cell.
 ### `mutable_set`
 
 ```
-native fn mutable_set<T>(cell: Mutable<T>, value: T)
+pub native fn mutable_set<T>(cell: Mutable<T>, value: T)
 ```
 
 Replaces the value in the cell.
@@ -2259,7 +2274,7 @@ with `Option.unwrap_Some(o)`, or with a `switch`. Available bare, like `Result`;
 ### `ok`
 
 ```
-builtin fn ok<T, E>(value: T) -> Result<T, E>
+pub builtin fn ok<T, E>(value: T) -> Result<T, E>
 ```
 
 `ok` and `err` take their type from the context, like `channel_new` and `Some`: the error type of
@@ -2269,7 +2284,7 @@ override, a returned value or a parameter's type has to say which `Result` it is
 ### `err`
 
 ```
-builtin fn err<T, E>(error: E) -> Result<T, E>
+pub builtin fn err<T, E>(error: E) -> Result<T, E>
 ```
 
 ### `get_or`
@@ -2289,31 +2304,31 @@ of "the other one".
 ### `is_ok`
 
 ```
-builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
+pub builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
 ```
 
 ### `unwrap_err`
 
 ```
-builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
+pub builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
 ```
 
 ### `is_Some`
 
 ```
-builtin fn is_Some<T>(o: Option<T>) -> bool
+pub builtin fn is_Some<T>(o: Option<T>) -> bool
 ```
 
 ### `is_None`
 
 ```
-builtin fn is_None<T>(o: Option<T>) -> bool
+pub builtin fn is_None<T>(o: Option<T>) -> bool
 ```
 
 ### `unwrap_Some`
 
 ```
-builtin fn unwrap_Some<T>(o: Option<T>) -> T
+pub builtin fn unwrap_Some<T>(o: Option<T>) -> T
 ```
 
 ### `filter_present`
@@ -2441,14 +2456,14 @@ formatted message) is skipped entirely on the common Some path.
 ### `unwrap`
 
 ```
-builtin fn unwrap<T, E>(r: Result<T, E>) -> T
+pub builtin fn unwrap<T, E>(r: Result<T, E>) -> T
 ```
 
 `unwrap` is the one name shared by the two: a `Result`'s Ok payload, or an `Option`'s Some. The
 Option form is why it is not spelled `unwrap_Ok` -- see the note above `ok`.
 
 ```
-builtin fn unwrap<T>(o: Option<T>) -> T
+pub builtin fn unwrap<T>(o: Option<T>) -> T
 ```
 
 ## `set.zm`
@@ -2466,7 +2481,7 @@ A mutable set under construction; see MutableMap.
 ### `mutable_set_new`
 
 ```
-native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
+pub native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
 ```
 
 An empty set builder.
@@ -2474,7 +2489,7 @@ An empty set builder.
 ### `len`
 
 ```
-native fn len<T: Eq + Hash>(s: Set<T>) -> int
+pub native fn len<T: Eq + Hash>(s: Set<T>) -> int
 ```
 
 **How many elements**, O(1) in both worlds. `len`'s other seven members are in array.zm,
@@ -2482,26 +2497,26 @@ string.zm, map.zm and mutable.zm, and array.zm's carry the account of why nine d
 share one C function.
 
 ```
-native fn len<T: Eq + Hash>(s: MutableSet<T>) -> int
+pub native fn len<T: Eq + Hash>(s: MutableSet<T>) -> int
 ```
 
 ### `contains`
 
 ```
-native fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
+pub native fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
 ```
 
 **Whether `x` is a member** -- O(1) here, where the array form of the same question is O(n),
 which is most of why a Set is worth converting to.
 
 ```
-native fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
+pub native fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
 ```
 
 ### `mutable`
 
 ```
-builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
+pub builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
 ```
 
 **The MutableSet holding `items`** -- `mutable`'s set member, and `snapshot` backwards. Its array
@@ -2593,83 +2608,83 @@ pub fn items<T: Eq + Hash>(s: MutableSet<T>) -> [T]
 The elements as an array, in insertion order, as `items` gives for a Set.
 
 ```
-native fn items<T: Eq + Hash>(s: Set<T>) -> [T]
+pub native fn items<T: Eq + Hash>(s: Set<T>) -> [T]
 ```
 
 ### `union`
 
 ```
-builtin fn union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+pub builtin fn union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 ```
 
 ### `intersect`
 
 ```
-builtin fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+pub builtin fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 ```
 
 ### `difference`
 
 ```
-builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+pub builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 ```
 
 ### `is_subset`
 
 ```
-builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
+pub builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
 ```
 
 ### `add`
 
 ```
-builtin fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
+pub builtin fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
 ```
 
 ### `union`
 
 ```
-builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+pub builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 ```
 
 ```
-builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+pub builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 ```
 
 ### `intersect`
 
 ```
-builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+pub builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 ```
 
 ```
-builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+pub builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 ```
 
 ### `difference`
 
 ```
-builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+pub builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 ```
 
 ```
-builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+pub builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 ```
 
 ### `is_subset`
 
 ```
-builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
+pub builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
 ```
 
 ```
-builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
+pub builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
 ```
 
 ### `snapshot`
 
 ```
-native fn snapshot<T: Eq + Hash>(s: MutableSet<T>) -> Set<T>
+pub native fn snapshot<T: Eq + Hash>(s: MutableSet<T>) -> Set<T>
 ```
 
 The elements added so far as an ordinary `Set`, in insertion order; O(n), and the builder stays
@@ -2679,7 +2694,7 @@ the builder is building, which is what makes it `snapshot` and not a second `ite
 ### `clear`
 
 ```
-native fn clear<T: Eq + Hash>(s: MutableSet<T>)
+pub native fn clear<T: Eq + Hash>(s: MutableSet<T>)
 ```
 
 Empties the builder in place, keeping the handle.
@@ -2689,7 +2704,7 @@ Empties the builder in place, keeping the handle.
 ### `format_dynamic`
 
 ```
-native fn format_dynamic(template: string, args: [string]) -> Result<string, string>
+pub native fn format_dynamic(template: string, args: [string]) -> Result<string, string>
 ```
 
 `format` for a template that is a value -- read from a message catalog, say, or a translation -- with string arguments:
@@ -2701,7 +2716,7 @@ precision (`{:.2}`: the arguments are strings, so there is nothing to round).
 ### `string_to_bytes`
 
 ```
-native fn string_to_bytes(s: string) -> [byte]
+pub native fn string_to_bytes(s: string) -> [byte]
 ```
 
 The UTF-8 bytes of `s`.
@@ -2709,7 +2724,7 @@ The UTF-8 bytes of `s`.
 ### `len`
 
 ```
-native fn len(s: string) -> int
+pub native fn len(s: string) -> int
 ```
 
 The bytes of `s` from `start` up to, not including, `end` (`0 <= start <= end <= len(s)`, a
@@ -2720,32 +2735,32 @@ as one block, and array.zm's members carry the account of why nine declarations 
 function.
 
 ```
-native fn len(s: MutableString) -> int
+pub native fn len(s: MutableString) -> int
 ```
 
 ### `contains`
 
 ```
-native fn contains(s: string, needle: string) -> bool
+pub native fn contains(s: string, needle: string) -> bool
 ```
 
 **Whether `needle` appears in it** -- the form the shared question takes for text, where an
 array is asked about an element and a map about a key.
 
 ```
-native fn contains(s: MutableString, needle: string) -> bool
+pub native fn contains(s: MutableString, needle: string) -> bool
 ```
 
 ### `substring`
 
 ```
-native fn substring(s: string, start: int, end: int) -> string
+pub native fn substring(s: string, start: int, end: int) -> string
 ```
 
 ### `concat`
 
 ```
-native fn concat(pieces: variadic string) -> string
+pub native fn concat(pieces: variadic string) -> string
 ```
 
 The pieces of `s` between each `sep`, empty pieces included: `split("a,b,,c", ",")` is
@@ -2792,13 +2807,13 @@ blocked for its own reasons, recorded in docs/design/full-overloading.md §4.
 ### `split`
 
 ```
-native fn split(s: string, separator: string) -> [string]
+pub native fn split(s: string, separator: string) -> [string]
 ```
 
 ### `trim`
 
 ```
-native fn trim(s: string) -> string
+pub native fn trim(s: string) -> string
 ```
 
 `s` without leading and trailing blanks (space, tab, CR, LF).
@@ -2806,7 +2821,7 @@ native fn trim(s: string) -> string
 ### `is_empty`
 
 ```
-native fn is_empty(s: string) -> bool
+pub native fn is_empty(s: string) -> bool
 ```
 
 Whether `s` has no characters: `s == ""`.
@@ -2814,7 +2829,7 @@ Whether `s` has no characters: `s == ""`.
 ### `is_blank`
 
 ```
-native fn is_blank(s: string) -> bool
+pub native fn is_blank(s: string) -> bool
 ```
 
 Whether `s` is empty or only blanks (whatever `trim` removes): `trim(s) == ""`, without making the trimmed string.
@@ -2822,7 +2837,7 @@ Whether `s` is empty or only blanks (whatever `trim` removes): `trim(s) == ""`, 
 ### `char_at`
 
 ```
-native fn char_at(s: string, i: int) -> string
+pub native fn char_at(s: string, i: int) -> string
 ```
 
 The one-byte string at position `i` (`0 <= i < len(s)`, a runtime error otherwise), so
@@ -2831,7 +2846,7 @@ The one-byte string at position `i` (`0 <= i < len(s)`, a runtime error otherwis
 ### `last_index_of`
 
 ```
-native fn last_index_of(s: string, needle: string) -> int
+pub native fn last_index_of(s: string, needle: string) -> int
 ```
 
 The byte position of the last `needle` in `s`, or -1. An empty `needle` is found at `len(s)`.
@@ -2839,7 +2854,7 @@ The byte position of the last `needle` in `s`, or -1. An empty `needle` is found
 ### `is_char_at`
 
 ```
-native fn is_char_at(s: string, i: int, c: string) -> bool
+pub native fn is_char_at(s: string, i: int, c: string) -> bool
 ```
 
 True when `c` appears in `s` starting at position `i`. False, never an error, when `i` is out
@@ -2849,7 +2864,7 @@ of range or `c` does not fit, so `is_char_at(s, p, "x")` replaces the guarded
 ### `chars`
 
 ```
-native fn chars(s: string) -> [string]
+pub native fn chars(s: string) -> [string]
 ```
 
 `s` split into its individual code points, each its own one-character string:
@@ -2861,7 +2876,7 @@ where it would otherwise enter a program).
 ### `char_count`
 
 ```
-native fn char_count(s: string) -> int
+pub native fn char_count(s: string) -> int
 ```
 
 The number of code points in `s`: `char_count("héllo")` is 5, where `len("héllo")` (bytes) is
@@ -2870,7 +2885,7 @@ The number of code points in `s`: `char_count("héllo")` is 5, where `len("héll
 ### `truncate_chars`
 
 ```
-native fn truncate_chars(s: string, max_chars: int) -> string
+pub native fn truncate_chars(s: string, max_chars: int) -> string
 ```
 
 `s` shortened to at most `max_chars` code points, without ever cutting one in half -- the safe
@@ -2881,7 +2896,7 @@ UTF-8 requirement as `chars`.
 ### `equals_ignore_case`
 
 ```
-native fn equals_ignore_case(a: string, b: string) -> bool
+pub native fn equals_ignore_case(a: string, b: string) -> bool
 ```
 
 True when `a` and `b` are equal when the ASCII letters A-Z are read as a-z (other bytes,
@@ -2891,7 +2906,7 @@ non-ASCII included, must match exactly). Builds no intermediate strings, unlike 
 ### `index_of`
 
 ```
-native fn index_of(s: string, needle: string, from: int) -> int
+pub native fn index_of(s: string, needle: string, from: int) -> int
 ```
 
 The byte position of the first `needle` in `s` at or after `from` (`0 <= from <= len(s)`, a
@@ -2901,7 +2916,7 @@ set is in array.zm, which carries why the two share the name and what it cost to
 ### `starts_with`
 
 ```
-native fn starts_with(s: string, prefix: string) -> bool
+pub native fn starts_with(s: string, prefix: string) -> bool
 ```
 
 True when `s` begins with `prefix`.
@@ -2909,7 +2924,7 @@ True when `s` begins with `prefix`.
 ### `ends_with`
 
 ```
-native fn ends_with(s: string, suffix: string) -> bool
+pub native fn ends_with(s: string, suffix: string) -> bool
 ```
 
 True when `s` ends with `suffix`.
@@ -2917,7 +2932,7 @@ True when `s` ends with `suffix`.
 ### `replace`
 
 ```
-native fn replace(s: string, old: string, new: string) -> string
+pub native fn replace(s: string, old: string, new: string) -> string
 ```
 
 `s` with every non-overlapping `old` replaced by `new`. `old` must not be empty.
@@ -2925,7 +2940,7 @@ native fn replace(s: string, old: string, new: string) -> string
 ### `to_upper`
 
 ```
-native fn to_upper(s: string) -> string
+pub native fn to_upper(s: string) -> string
 ```
 
 `s` with the ASCII letters a-z made upper case; other bytes are unchanged.
@@ -2933,7 +2948,7 @@ native fn to_upper(s: string) -> string
 ### `to_lower`
 
 ```
-native fn to_lower(s: string) -> string
+pub native fn to_lower(s: string) -> string
 ```
 
 `s` with the ASCII letters A-Z made lower case; other bytes are unchanged.
@@ -2941,7 +2956,7 @@ native fn to_lower(s: string) -> string
 ### `join`
 
 ```
-native fn join(
+pub native fn join(
     prefix: Option<string>,
     suffix: Option<string>,
     separator: Option<string>,
@@ -2984,7 +2999,7 @@ Hand the finished string over, not the builder.
 ### `mutable_string_new`
 
 ```
-native fn mutable_string_new(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableString
+pub native fn mutable_string_new(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableString
 ```
 
 An empty builder. `capacity` is the bytes to reserve up front and `grow_factor` the multiple
@@ -2994,7 +3009,7 @@ usually all that is written.
 ### `append`
 
 ```
-native fn append(s: MutableString, pieces: variadic string)
+pub native fn append(s: MutableString, pieces: variadic string)
 ```
 
 Appends each of `pieces`, given one by one or as an array. The builder changes in place and
@@ -3003,7 +3018,7 @@ nothing is returned.
 ### `append_byte`
 
 ```
-native fn append_byte(s: MutableString, pieces: variadic byte) -> bool
+pub native fn append_byte(s: MutableString, pieces: variadic byte) -> bool
 ```
 
 Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say):
@@ -3022,7 +3037,7 @@ gate refusing a discarded result will be right.
 ### `mutable_string_get`
 
 ```
-native fn mutable_string_get(s: MutableString, index: int) -> string
+pub native fn mutable_string_get(s: MutableString, index: int) -> string
 ```
 
 Reading and writing one byte of the buffer, and searching it: what lets a string being built be
@@ -3033,7 +3048,7 @@ there is no UTF-8 question left to settle here.
 ### `mutable_string_set`
 
 ```
-native fn mutable_string_set(s: MutableString, index: int, value: string)
+pub native fn mutable_string_set(s: MutableString, index: int, value: string)
 ```
 
 Replaces one byte, mirroring the immutable `set(arr, i, x)`: one element in, one element out. A
@@ -3043,7 +3058,7 @@ change the length and `set` nowhere else in the language does that.
 ### `mutable_string_index_of`
 
 ```
-native fn mutable_string_index_of(s: MutableString, needle: string, from: int) -> int
+pub native fn mutable_string_index_of(s: MutableString, needle: string, from: int) -> int
 ```
 
 The byte index of the first `needle` at or after `from` (`0 <= from <= len(sb)`, a runtime error
@@ -3053,7 +3068,7 @@ otherwise), or -1. An empty `needle` is found at `from`. Takes a `from` because 
 ### `mutable_string_last_index_of`
 
 ```
-native fn mutable_string_last_index_of(s: MutableString, needle: string) -> int
+pub native fn mutable_string_last_index_of(s: MutableString, needle: string) -> int
 ```
 
 The byte index of the last `needle`, or -1; an empty `needle` is found at `len(sb)`. No `from`,
@@ -3062,7 +3077,7 @@ because `last_index_of(s, needle)` has none either.
 ### `snapshot`
 
 ```
-native fn snapshot(s: MutableString) -> string
+pub native fn snapshot(s: MutableString) -> string
 ```
 
 What has been appended so far as an ordinary `string`; O(n), and the builder stays usable
@@ -3076,7 +3091,7 @@ writes; `snapshot` is what runs once at the end (`--lint` flags the other shape)
 ### `clear`
 
 ```
-native fn clear(s: MutableString)
+pub native fn clear(s: MutableString)
 ```
 
 Empties the builder in place, keeping the handle and its capacity.

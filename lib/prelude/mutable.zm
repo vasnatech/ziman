@@ -6,7 +6,22 @@
 // directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
 // whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
 // subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
-// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// callable.
+//
+// **Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
+// changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through
+// `fn_is_global_vocabulary` whatever their visibility says, so 143 of them carried no modifier at
+// all while 125 of their neighbours did -- one keyword, two meanings, depending on the kind of
+// declaration it sat on. Writing it everywhere costs nothing (`--api builtins` is byte-identical
+// across the change, which is how the sweep was checked) and buys the reading that **a bare
+// declaration in this directory is deliberately not public**. There is exactly one, `array_order_of`
+// in array.zm, which F172 decided should stay invisible, plus the six `internal` natives.
+//
+// What `pub` does *not* do here is gate reachability, and that is a property of the prelude rather
+// than of `native`: these files are merged bare into every program, so there is no import boundary
+// for a non-public declaration to be refused at. In a *module* `pub` is load-bearing in the
+// ordinary way -- `metrics.zm`'s own `native fn declare_raw` is private, and
+// `metrics.declare_raw(...)` is refused with "add 'pub' to export it". Native functions are registered by prelude_register() in src/prelude.c, and each file's
 // header is generated from its source by the Makefile's prelude rule.
 //
 // **A declaration lives in the file for the type its first argument has.** So `concat`'s string
@@ -56,16 +71,16 @@ struct Mutable<T> {
 }
 
 // A cell holding `value`.
-native fn mutable_new<T>(value: T) -> Mutable<T>
+pub native fn mutable_new<T>(value: T) -> Mutable<T>
 
 // A cell holds exactly one value, so its length is always 1 -- `len`'s ninth member, and the only
 // one of the nine that is not about a collection. The other eight are in array.zm, string.zm,
 // map.zm and set.zm.
-native fn len<T>(cell: Mutable<T>) -> int
+pub native fn len<T>(cell: Mutable<T>) -> int
 
 // Whether the value in the cell equals `x`: the one-value case of the question the other eight
 // members ask of a collection.
-native fn contains<T: Eq>(cell: Mutable<T>, x: T) -> bool
+pub native fn contains<T: Eq>(cell: Mutable<T>, x: T) -> bool
 
 // **`mutable(x)` makes the mutable counterpart of whatever it is given, and this is the member for
 // everything that is not one of the three collections.** For an array, a Map or a Set it answers
@@ -91,13 +106,13 @@ native fn contains<T: Eq>(cell: Mutable<T>, x: T) -> bool
 // `mutable_map_from` and `mutable_set_from` used to be that way and were removed once `mutable`
 // covered the conversion they were mostly used for: keeping both would have put two spellings on
 // one question, and the clone half had no caller outside its own fixtures.
-builtin fn mutable<T>(item: T) -> Mutable<T>
+pub builtin fn mutable<T>(item: T) -> Mutable<T>
 
 // The value in the cell.
-native fn mutable_get<T>(cell: Mutable<T>) -> T
+pub native fn mutable_get<T>(cell: Mutable<T>) -> T
 
 // Replaces the value in the cell.
-native fn mutable_set<T>(cell: Mutable<T>, value: T)
+pub native fn mutable_set<T>(cell: Mutable<T>, value: T)
 
 // `f` applied to the value in the cell, stored back, and returned -- the counter idiom,
 // `update(n, fn(x) { x + 1 })`. Ordinary Ziman over `mutable_get`/`mutable_set`, since there is no

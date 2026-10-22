@@ -6,7 +6,22 @@
 // directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
 // whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
 // subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
-// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// callable.
+//
+// **Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
+// changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through
+// `fn_is_global_vocabulary` whatever their visibility says, so 143 of them carried no modifier at
+// all while 125 of their neighbours did -- one keyword, two meanings, depending on the kind of
+// declaration it sat on. Writing it everywhere costs nothing (`--api builtins` is byte-identical
+// across the change, which is how the sweep was checked) and buys the reading that **a bare
+// declaration in this directory is deliberately not public**. There is exactly one, `array_order_of`
+// in array.zm, which F172 decided should stay invisible, plus the six `internal` natives.
+//
+// What `pub` does *not* do here is gate reachability, and that is a property of the prelude rather
+// than of `native`: these files are merged bare into every program, so there is no import boundary
+// for a non-public declaration to be refused at. In a *module* `pub` is load-bearing in the
+// ordinary way -- `metrics.zm`'s own `native fn declare_raw` is private, and
+// `metrics.declare_raw(...)` is refused with "add 'pub' to export it". Native functions are registered by prelude_register() in src/prelude.c, and each file's
 // header is generated from its source by the Makefile's prelude rule.
 //
 // **A declaration lives in the file for the type its first argument has.** So `concat`'s string
@@ -43,24 +58,24 @@ struct MutableSet<T: Eq + Hash> {
 }
 
 // An empty set builder.
-native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
+pub native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
 
 // **How many elements**, O(1) in both worlds. `len`'s other seven members are in array.zm,
 // string.zm, map.zm and mutable.zm, and array.zm's carry the account of why nine declarations
 // share one C function.
-native fn len<T: Eq + Hash>(s: Set<T>) -> int
-native fn len<T: Eq + Hash>(s: MutableSet<T>) -> int
+pub native fn len<T: Eq + Hash>(s: Set<T>) -> int
+pub native fn len<T: Eq + Hash>(s: MutableSet<T>) -> int
 
 // **Whether `x` is a member** -- O(1) here, where the array form of the same question is O(n),
 // which is most of why a Set is worth converting to.
-native fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
-native fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
+pub native fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
+pub native fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
 
 // **The MutableSet holding `items`** -- `mutable`'s set member, and `snapshot` backwards. Its array
 // and Map members are in array.zm and map.zm, and the member for everything else is in mutable.zm,
 // which carries the account of how the four are told apart. `Set<T> {}` writes its own type, so
 // this never had the empty-literal gap `mutable([])` has.
-builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
+pub builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
 
 // The set of `f(x)` for every `x` in `s`, in the order first produced. Two elements that map to the
 // same value become one: `map(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1, 0}`. `map`'s array
@@ -158,35 +173,35 @@ pub fn items<T: Eq + Hash>(s: MutableSet<T>) -> [T] {
     return snapshot(out)
 }
 
-native fn items<T: Eq + Hash>(s: Set<T>) -> [T]
+pub native fn items<T: Eq + Hash>(s: Set<T>) -> [T]
 
-builtin fn union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+pub builtin fn union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 
-builtin fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+pub builtin fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 
-builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+pub builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 
-builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
+pub builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
 
 #[at_least_one]
-builtin fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
+pub builtin fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
 
-builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
-builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+pub builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+pub builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 
-builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
-builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+pub builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+pub builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 
-builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
-builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+pub builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+pub builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 
-builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
-builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
+pub builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
+pub builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
 
 // The elements added so far as an ordinary `Set`, in insertion order; O(n), and the builder stays
 // usable afterwards. `items` answers the same elements as an array -- this one answers the type
 // the builder is building, which is what makes it `snapshot` and not a second `items`.
-native fn snapshot<T: Eq + Hash>(s: MutableSet<T>) -> Set<T>
+pub native fn snapshot<T: Eq + Hash>(s: MutableSet<T>) -> Set<T>
 
 // Empties the builder in place, keeping the handle.
-native fn clear<T: Eq + Hash>(s: MutableSet<T>)
+pub native fn clear<T: Eq + Hash>(s: MutableSet<T>)

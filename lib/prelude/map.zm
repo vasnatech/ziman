@@ -10,7 +10,22 @@
 // directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
 // whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
 // subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
-// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// callable.
+//
+// **Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
+// changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through
+// `fn_is_global_vocabulary` whatever their visibility says, so 143 of them carried no modifier at
+// all while 125 of their neighbours did -- one keyword, two meanings, depending on the kind of
+// declaration it sat on. Writing it everywhere costs nothing (`--api builtins` is byte-identical
+// across the change, which is how the sweep was checked) and buys the reading that **a bare
+// declaration in this directory is deliberately not public**. There is exactly one, `array_order_of`
+// in array.zm, which F172 decided should stay invisible, plus the six `internal` natives.
+//
+// What `pub` does *not* do here is gate reachability, and that is a property of the prelude rather
+// than of `native`: these files are merged bare into every program, so there is no import boundary
+// for a non-public declaration to be refused at. In a *module* `pub` is load-bearing in the
+// ordinary way -- `metrics.zm`'s own `native fn declare_raw` is private, and
+// `metrics.declare_raw(...)` is refused with "add 'pub' to export it". Native functions are registered by prelude_register() in src/prelude.c, and each file's
 // header is generated from its source by the Makefile's prelude rule.
 //
 // **A declaration lives in the file for the type its first argument has.** So `concat`'s string
@@ -52,19 +67,19 @@ struct MutableMap<K: Eq + Hash, V> {
 }
 
 // An empty map builder.
-native fn mutable_map_new<K: Eq + Hash, V>() -> MutableMap<K, V>
+pub native fn mutable_map_new<K: Eq + Hash, V>() -> MutableMap<K, V>
 
 // **How many entries**, O(1) in both worlds. `len`'s other seven members are in array.zm,
 // string.zm, set.zm and mutable.zm, and array.zm's carry the account of why nine declarations
 // share one C function.
-native fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
-native fn len<K: Eq + Hash, V>(m: MutableMap<K, V>) -> int
+pub native fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
+pub native fn len<K: Eq + Hash, V>(m: MutableMap<K, V>) -> int
 
 // **Whether `key` is present** -- a *key*, which is the form the shared question takes for a map,
 // where an array is asked about an element and text about a substring. For "is this value in
 // here", walk `values`.
-native fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
-native fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
+pub native fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
+pub native fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
 
 // **The MutableMap holding `entries`** -- `mutable`'s map member, and `snapshot` backwards. Its
 // array and Set members are in array.zm and set.zm, and the member for everything else is in
@@ -87,7 +102,7 @@ native fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
 // either giving `mutable` `#[compiler_resolved]` and a rule that records `call_fn` (the `concat`
 // shape, for a set whose own attribute comment says a second user is a reason to doubt the second)
 // or making the bare-`T` member narrower, which is a language question rather than a conversion.
-builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
+pub builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
 
 // `m` with `f` applied to every value, keys and their order unchanged:
 // `map(stock, fn(k, v) { str(v) })`. **`f` takes the key as well as the value**, which is what the
@@ -392,7 +407,7 @@ pub fn entries<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [MapEntry<K, V>] {
 // usable afterwards. `snapshot`'s other three members take a MutableArray, a MutableString and a
 // MutableSet, each in the file for its type, and the refusal the whole set shares is written on
 // the MutableArray form in array.zm.
-native fn snapshot<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Map<K, V>
+pub native fn snapshot<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Map<K, V>
 
 // Empties the builder in place, keeping the handle.
-native fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)
+pub native fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)

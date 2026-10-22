@@ -11,7 +11,22 @@
 // directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
 // whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
 // subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
-// callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
+// callable.
+//
+// **Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
+// changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through
+// `fn_is_global_vocabulary` whatever their visibility says, so 143 of them carried no modifier at
+// all while 125 of their neighbours did -- one keyword, two meanings, depending on the kind of
+// declaration it sat on. Writing it everywhere costs nothing (`--api builtins` is byte-identical
+// across the change, which is how the sweep was checked) and buys the reading that **a bare
+// declaration in this directory is deliberately not public**. There is exactly one, `array_order_of`
+// in array.zm, which F172 decided should stay invisible, plus the six `internal` natives.
+//
+// What `pub` does *not* do here is gate reachability, and that is a property of the prelude rather
+// than of `native`: these files are merged bare into every program, so there is no import boundary
+// for a non-public declaration to be refused at. In a *module* `pub` is load-bearing in the
+// ordinary way -- `metrics.zm`'s own `native fn declare_raw` is private, and
+// `metrics.declare_raw(...)` is refused with "add 'pub' to export it". Native functions are registered by prelude_register() in src/prelude.c, and each file's
 // header is generated from its source by the Makefile's prelude rule.
 //
 // **A declaration lives in the file for the type its first argument has.** So `concat`'s string
@@ -77,7 +92,7 @@
 // The number in `s`, or an Err naming the text when it is not one or does not fit:
 // `parse_int("9223372036854775808")` is an Err. `parse_int` takes an optional leading `-` and decimal
 // digits only: no blanks around the number, no `+`, no `0x`, no `_` (`trim` first to allow blanks).
-native fn parse_int(s: string) -> Result<int, string>
+pub native fn parse_int(s: string) -> Result<int, string>
 
 // A float from decimal or exponent text (`3.5`, `1e3`), or an Err: like `parse_int`, no blanks and no `+`, and
 // no hex (`0x10`). `nan`, `inf` and `-inf` (what `str` prints) are the non-finite floats it reads.
@@ -85,51 +100,51 @@ native fn parse_int(s: string) -> Result<int, string>
 // smaller than any subnormal (`1e-400`) rounds to `0.0`, the same rounding that makes `0.1` inexact;
 // text naming one too large (`1e400`) is an Err rather than silently becoming infinity, which is why
 // `inf` is accepted by name but `1e400` is not.
-native fn parse_float(s: string) -> Result<float, string>
+pub native fn parse_float(s: string) -> Result<float, string>
 
 // A bigint from digits with an optional sign, or an Err. Any length.
-native fn parse_bigint(s: string) -> Result<bigint, string>
+pub native fn parse_bigint(s: string) -> Result<bigint, string>
 
 // A decimal from digits with an optional fraction, keeping the scale as written (`"1.50"` stays
 // `1.50`), or an Err.
-native fn parse_decimal(s: string) -> Result<decimal, string>
+pub native fn parse_decimal(s: string) -> Result<decimal, string>
 
 // **`print` takes a type parameter, not a top type.** `print` really does accept anything --
 // a lambda, a `Channel`, a `Set` -- but an ordinary `<T>` already says that and already works:
 // `fn log<T>(label: string, value: T) { print(value) }` compiles and prints all three. A top type
 // would be a new concept earning a single declaration, and a type whose values you could accept
 // and then do almost nothing with, so `print` uses the generics the language already has.
-builtin fn print<T>(x: T)
+pub builtin fn print<T>(x: T)
 
 // **Six scalars, and not `string`** -- `str("x")` is refused with "it's already a string", so
 // `str` is not an "accepts anything" builtin however much it looks like one. The set of
 // conversions is closed, which is why it is six overloads rather than one signature over a
 // type parameter: `str` on a lambda or a `Set` has no answer to give.
-builtin fn str(x: int) -> string
-builtin fn str(x: float) -> string
-builtin fn str(x: bool) -> string
-builtin fn str(x: bigint) -> string
-builtin fn str(x: decimal) -> string
-builtin fn str(x: byte) -> string
+pub builtin fn str(x: int) -> string
+pub builtin fn str(x: float) -> string
+pub builtin fn str(x: bool) -> string
+pub builtin fn str(x: bigint) -> string
+pub builtin fn str(x: decimal) -> string
+pub builtin fn str(x: byte) -> string
 
-builtin fn abs(x: int) -> int
-builtin fn abs(x: float) -> float
-builtin fn abs(x: bigint) -> bigint
-builtin fn abs(x: decimal) -> decimal
+pub builtin fn abs(x: int) -> int
+pub builtin fn abs(x: float) -> float
+pub builtin fn abs(x: bigint) -> bigint
+pub builtin fn abs(x: decimal) -> decimal
 
 //
 // The four builtins that a bound already describes exactly, so each is one declaration rather than
 // an overload set -- `Eq`, `Ord` and `Hash` have been type-parameter bounds since before this.
 
-builtin fn hash<T: Eq + Hash>(x: T) -> int
+pub builtin fn hash<T: Eq + Hash>(x: T) -> int
 
 // Negative, zero or positive; only the sign is meaningful.
-builtin fn compare<T: Ord>(a: T, b: T) -> int
+pub builtin fn compare<T: Ord>(a: T, b: T) -> int
 
 // Two or more arguments, or exactly one array as the whole list -- the ordinary variadic
 // convention, which is why "several values" and "an array of values" need no second declaration.
 #[at_least_one]
-builtin fn min<T: Ord>(values: variadic T) -> T
+pub builtin fn min<T: Ord>(values: variadic T) -> T
 
 #[at_least_one]
-builtin fn max<T: Ord>(values: variadic T) -> T
+pub builtin fn max<T: Ord>(values: variadic T) -> T
