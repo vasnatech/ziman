@@ -1,0 +1,59 @@
+// `sort_by` takes up to five keys, the later ones breaking ties in the earlier. **Each key is
+// still computed once per element**, which is what separates this from the composite comparator a
+// reader would otherwise write: `sort_with(x, fn(a, b) { ... })` recomputes every key inside every
+// comparison, measured 27x slower than one key through `sort_by` on 200,000 rows.
+//
+// Three properties this pins. The order is lexicographic over the keys in the order given. It is
+// **stable**, so a tie on every key keeps the input order -- which is also why
+// `sort_by(x, k1, k2)` agrees with `sort_by(sort_by(x, k2), k1)`, the two-pass route to the same
+// place at twice the sorting. And a key that is constant contributes nothing, so padding a call
+// out to five keys cannot change what three would have answered.
+struct Row {
+    dept: string
+    age: int
+    name: string
+}
+
+fn show(rs: [Row]) -> string {
+    val out = mutable_string_new()
+    for r in rs {
+        append(out, r.dept, str(r.age), r.name, " ")
+    }
+    return snapshot(out)
+}
+
+fn main() {
+    val rows = [
+        Row { dept: "b", age: 30, name: "x" },
+        Row { dept: "a", age: 40, name: "q" },
+        Row { dept: "b", age: 20, name: "y" },
+        Row { dept: "a", age: 40, name: "p" },
+        Row { dept: "a", age: 20, name: "z" }
+    ]
+    val dept = fn(r: Row) -> string { return r.dept }
+    val age = fn(r: Row) -> int { return r.age }
+    val name = fn(r: Row) -> string { return r.name }
+
+    // one key: ties keep input order, so a40q precedes a40p
+    print(show(sort_by<Row, string>(rows, dept)))
+    // two: age breaks the dept tie
+    print(show(sort_by<Row, string, int>(rows, dept, age)))
+    // three: name breaks the age tie, so a40p now precedes a40q
+    print(show(sort_by<Row, string, int, string>(rows, dept, age, name)))
+
+    // the two-pass route agrees with the one-pass one, because both are stable
+    print(show(sort_by<Row, string>(sort_by<Row, int>(rows, age), dept)))
+
+    // four and five keys: a constant key contributes nothing, so these match the three-key answer
+    val same = fn(r: Row) -> int { return 7 }
+    print(show(sort_by<Row, string, int, string, int>(rows, dept, age, name, same)))
+    print(show(sort_by<Row, string, int, string, int, int>(rows, dept, age, name, same, same)))
+
+    // the builder twins write back in place and keep the handle
+    val b = mutable(rows)
+    sort_by<Row, string, int>(b, dept, age)
+    print(show(snapshot(b)))
+    sort_by<Row, string, int, string>(b, dept, age, name)
+    print(show(snapshot(b)))
+    print(len(b))
+}

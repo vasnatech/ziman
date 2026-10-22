@@ -450,6 +450,174 @@ pub fn sort_by<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K) {
     }
 }
 
+// **The same by two keys and up to five**, the later ones breaking ties in the earlier: `dept`
+// then `age` within a department. **Each key is still computed once per element**, which is the
+// whole reason this family exists and the reason it is not written as a composite comparator --
+// `sort_with(items, fn(a, b) { ... compare(key2(a), key2(b)) ... })` recomputes every key inside
+// every comparison, and that measured 27x slower than one key through `sort_by` on 200,000 rows
+// (see `sort`). Here the k key arrays are built in k passes and the comparator reads *those* by
+// position, so it calls nothing.
+//
+// Stable, so a tie on every key keeps the input order -- which also means `sort_by(x, k1, k2)` and
+// `sort_by(sort_by(x, k2), k1)` agree, the second being the two-pass way to the same place at
+// twice the sorting. One pass is why this exists.
+//
+// **Only the one-key form keeps the scalar fast path.** That one hands a real `[K]` to
+// `array_order_of`, which sorts packed ints, floats, bytes and strings in C; a composite order
+// cannot be expressed as one key array, so these go through `sort_positions` and compare in the
+// interpreter. Two keys over 200,000 rows is therefore nearer `sort_with`'s cost than
+// `sort_by`'s -- still one key computation per element per key, which is the part that matters for
+// an expensive key, but not the native comparison. Sorting by one key is the cheap case and stays
+// the one to reach for when one key will do.
+//
+// Five is where it stops, for the reason any arity limit exists: a sixth would be another
+// declaration, and a record needing six tie-breakers wants a key function answering a tuple or a
+// comparator of its own.
+
+pub fn sort_by<T, K1: Ord, K2: Ord>(items: [T], key1: fn(T) -> K1, key2: fn(T) -> K2) -> [T] {
+    val k1 = map<T, K1>(items, key1)
+    val k2 = map<T, K2>(items, key2)
+    return permute<T>(items, sort_positions(len(items), fn(a, b) {
+        val c1 = compare(k1[a], k1[b])
+        if c1 != 0 {
+            return c1
+        }
+        return compare(k2[a], k2[b])
+    }))
+}
+
+// Three keys, same shape.
+pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord>(
+    items: [T],
+    key1: fn(T) -> K1,
+    key2: fn(T) -> K2,
+    key3: fn(T) -> K3
+) -> [T] {
+    val k1 = map<T, K1>(items, key1)
+    val k2 = map<T, K2>(items, key2)
+    val k3 = map<T, K3>(items, key3)
+    return permute<T>(items, sort_positions(len(items), fn(a, b) {
+        val c1 = compare(k1[a], k1[b])
+        if c1 != 0 {
+            return c1
+        }
+        val c2 = compare(k2[a], k2[b])
+        if c2 != 0 {
+            return c2
+        }
+        return compare(k3[a], k3[b])
+    }))
+}
+
+// Four keys, same shape.
+pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord>(
+    items: [T],
+    key1: fn(T) -> K1,
+    key2: fn(T) -> K2,
+    key3: fn(T) -> K3,
+    key4: fn(T) -> K4
+) -> [T] {
+    val k1 = map<T, K1>(items, key1)
+    val k2 = map<T, K2>(items, key2)
+    val k3 = map<T, K3>(items, key3)
+    val k4 = map<T, K4>(items, key4)
+    return permute<T>(items, sort_positions(len(items), fn(a, b) {
+        val c1 = compare(k1[a], k1[b])
+        if c1 != 0 {
+            return c1
+        }
+        val c2 = compare(k2[a], k2[b])
+        if c2 != 0 {
+            return c2
+        }
+        val c3 = compare(k3[a], k3[b])
+        if c3 != 0 {
+            return c3
+        }
+        return compare(k4[a], k4[b])
+    }))
+}
+
+// Five keys, same shape.
+pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord, K5: Ord>(
+    items: [T],
+    key1: fn(T) -> K1,
+    key2: fn(T) -> K2,
+    key3: fn(T) -> K3,
+    key4: fn(T) -> K4,
+    key5: fn(T) -> K5
+) -> [T] {
+    val k1 = map<T, K1>(items, key1)
+    val k2 = map<T, K2>(items, key2)
+    val k3 = map<T, K3>(items, key3)
+    val k4 = map<T, K4>(items, key4)
+    val k5 = map<T, K5>(items, key5)
+    return permute<T>(items, sort_positions(len(items), fn(a, b) {
+        val c1 = compare(k1[a], k1[b])
+        if c1 != 0 {
+            return c1
+        }
+        val c2 = compare(k2[a], k2[b])
+        if c2 != 0 {
+            return c2
+        }
+        val c3 = compare(k3[a], k3[b])
+        if c3 != 0 {
+            return c3
+        }
+        val c4 = compare(k4[a], k4[b])
+        if c4 != 0 {
+            return c4
+        }
+        return compare(k5[a], k5[b])
+    }))
+}
+
+// The builder twins, each the array form over a snapshot with the result written back -- so the
+// handle keeps its identity and its capacity, as the one-key twin above does.
+
+pub fn sort_by<T, K1: Ord, K2: Ord>(xs: MutableArray<T>, key1: fn(T) -> K1, key2: fn(T) -> K2) {
+    for i, v in sort_by<T, K1, K2>(snapshot(xs), key1, key2) {
+        xs[i] = v
+    }
+}
+
+pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord>(
+    xs: MutableArray<T>,
+    key1: fn(T) -> K1,
+    key2: fn(T) -> K2,
+    key3: fn(T) -> K3
+) {
+    for i, v in sort_by<T, K1, K2, K3>(snapshot(xs), key1, key2, key3) {
+        xs[i] = v
+    }
+}
+
+pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord>(
+    xs: MutableArray<T>,
+    key1: fn(T) -> K1,
+    key2: fn(T) -> K2,
+    key3: fn(T) -> K3,
+    key4: fn(T) -> K4
+) {
+    for i, v in sort_by<T, K1, K2, K3, K4>(snapshot(xs), key1, key2, key3, key4) {
+        xs[i] = v
+    }
+}
+
+pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord, K5: Ord>(
+    xs: MutableArray<T>,
+    key1: fn(T) -> K1,
+    key2: fn(T) -> K2,
+    key3: fn(T) -> K3,
+    key4: fn(T) -> K4,
+    key5: fn(T) -> K5
+) {
+    for i, v in sort_by<T, K1, K2, K3, K4, K5>(snapshot(xs), key1, key2, key3, key4, key5) {
+        xs[i] = v
+    }
+}
+
 // `items` in descending order of `key(item)`. Also stable, so this is not `sort_by`'s
 // result reversed -- that would flip ties.
 pub fn sort_by_desc<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {

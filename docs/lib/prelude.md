@@ -1060,6 +1060,80 @@ pub fn sort_by<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K)
 The same by a computed key. `key` is called once per element, on the snapshot, so a key
 function that reads the buffer it is sorting sees it unchanged throughout.
 
+```
+pub fn sort_by<T, K1: Ord, K2: Ord>(items: [T], key1: fn(T) -> K1, key2: fn(T) -> K2) -> [T]
+```
+
+```
+pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord>(
+    items: [T],
+    key1: fn(T) -> K1,
+    key2: fn(T) -> K2,
+    key3: fn(T) -> K3
+) -> [T]
+```
+
+Three keys, same shape.
+
+```
+pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord>(
+    items: [T],
+    key1: fn(T) -> K1,
+    key2: fn(T) -> K2,
+    key3: fn(T) -> K3,
+    key4: fn(T) -> K4
+) -> [T]
+```
+
+Four keys, same shape.
+
+```
+pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord, K5: Ord>(
+    items: [T],
+    key1: fn(T) -> K1,
+    key2: fn(T) -> K2,
+    key3: fn(T) -> K3,
+    key4: fn(T) -> K4,
+    key5: fn(T) -> K5
+) -> [T]
+```
+
+Five keys, same shape.
+
+```
+pub fn sort_by<T, K1: Ord, K2: Ord>(xs: MutableArray<T>, key1: fn(T) -> K1, key2: fn(T) -> K2)
+```
+
+```
+pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord>(
+    xs: MutableArray<T>,
+    key1: fn(T) -> K1,
+    key2: fn(T) -> K2,
+    key3: fn(T) -> K3
+)
+```
+
+```
+pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord>(
+    xs: MutableArray<T>,
+    key1: fn(T) -> K1,
+    key2: fn(T) -> K2,
+    key3: fn(T) -> K3,
+    key4: fn(T) -> K4
+)
+```
+
+```
+pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord, K5: Ord>(
+    xs: MutableArray<T>,
+    key1: fn(T) -> K1,
+    key2: fn(T) -> K2,
+    key3: fn(T) -> K3,
+    key4: fn(T) -> K4,
+    key5: fn(T) -> K5
+)
+```
+
 ### `sort_by_desc`
 
 ```
