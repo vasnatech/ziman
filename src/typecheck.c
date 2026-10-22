@@ -1482,7 +1482,6 @@ static const char *const PURE_BUILTINS[] = {
     "is_ok",
     "get", "get_or", "keys", "values", "merge", "filter", "remove_all",
     "union", "intersect", "difference", "is_subset", "add",
-    "concat",
     "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from",
     NULL};
 
@@ -1493,6 +1492,25 @@ static const char *authored_callee(const Expr *e) {
 }
 
 static int overload_set_size(Module *module, const char *name);
+
+/* The `concat` declaration a call resolved to, found by what parameter one is: `string` for the
+ * pieces form, `[T]` for the parts form, a struct (a MutableArray) for the in-place form, which
+ * has two parameters. `concat`'s arm hands the call to it on `call_fn`, which is what makes the
+ * name four `native fn` declarations with no builtin id behind them even though **the resolver
+ * could never have chosen between them**: two of the four differ only in what they return, both
+ * accept no arguments at all, and the in-place one takes a variadic tail that may mix worlds. The
+ * arm keeps the decision and gives up the dispatch, which is the only part that had to be a
+ * builtin. */
+static void *concat_member(Module *module, TypeKind first_kind, int nparams) {
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *f = module->functions.items[i];
+        if (strcmp(f->name, "concat") != 0 || f->params.count == 0) continue;
+        if (nparams != 0 && f->params.count != nparams) continue;
+        if (nparams == 0 && f->params.count != 1) continue;
+        if (f->params.items[0].type.kind == first_kind) return f;
+    }
+    return NULL;
+}
 
 /* Purity, read off the declaration instead of a list -- stage 5 of
  * docs/design/full-overloading.md, for the part of the list that no longer needs to exist.
@@ -1559,7 +1577,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "hash", "compare", "error_message", "abs", "min", "max",
     "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "concat", "mutable", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "mutable", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -2647,9 +2665,23 @@ static int ovl_is_resolver_owned(Module *module, const char *name) {
     return 0;
 }
 
+/* The third population, and the smallest: `#[compiler_resolved]`, where the declarations are the
+ * resolver's to *call* but not the resolver's to *choose* -- a rule in check_call picks and records
+ * `call_fn`. `concat` is the one, and the check runs backwards on it. The bar for the first
+ * population is that every pair can be told apart; the bar here is that some pair **cannot**,
+ * because a set whose members a call can already distinguish has no business turning the first
+ * check off. So the attribute cannot spread to a set that does not need it without failing here. */
+static int ovl_is_compiler_resolved(Module *module, const char *name) {
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *f = module->functions.items[i];
+        if (strcmp(f->name, name) == 0 && f->compiler_resolved) return 1;
+    }
+    return 0;
+}
+
 static void overload_sets_report(Module *module) {
     if (getenv("ZIMAN_OVERLOAD_SETS") == NULL) return;
-    int sets = 0, bad = 0, polymorphic = 0;
+    int sets = 0, bad = 0, polymorphic = 0, hand = 0;
     for (int i = 0; i < module->functions.count; i++) {
         FunctionDecl *a = module->functions.items[i];
         int first = 1;
@@ -2663,6 +2695,28 @@ static void overload_sets_report(Module *module) {
         }
         if (members < 2) continue;
         if (!ovl_is_resolver_owned(module, a->name)) { polymorphic++; continue; }
+        if (ovl_is_compiler_resolved(module, a->name)) {
+            hand++;
+            int indistinguishable = 0;
+            for (int x = 0; x < module->functions.count && !indistinguishable; x++) {
+                if (strcmp(module->functions.items[x]->name, a->name) != 0) continue;
+                for (int y = x + 1; y < module->functions.count; y++) {
+                    if (strcmp(module->functions.items[y]->name, a->name) != 0) continue;
+                    if (ovl_indistinguishable_at(module->functions.items[x],
+                                                 module->functions.items[y]) >= 0) {
+                        indistinguishable = 1;
+                        break;
+                    }
+                }
+            }
+            if (!indistinguishable) {
+                bad++;
+                fprintf(stderr, "overload-set: '%s' carries #[compiler_resolved] but every call can "
+                                "tell its declarations apart -- the attribute turns off a check it "
+                                "does not need and should go\n", a->name);
+            }
+            continue;
+        }
         sets++;
         int reported = 0;
         for (int x = 0; x < module->functions.count; x++) {
@@ -2679,7 +2733,8 @@ static void overload_sets_report(Module *module) {
         }
     }
     fprintf(stderr, "overload-set: %d resolver-owned set(s), %d unresolvable; "
-                    "%d polymorphic builtin(s) not checked\n", sets, bad, polymorphic);
+                    "%d polymorphic builtin(s) not checked; %d compiler-resolved\n",
+            sets, bad, polymorphic, hand);
 }
 
 static int check_collection_helper(Module *module, Env *env, Expr *e, const char *name, Type *out) {
@@ -2715,7 +2770,11 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
      * one-argument case carries the rule. */
     if (strcmp(name, "concat") == 0) {
         if (e->as.call.args.count == 0) {
-            *out = type_scalar(TY_STRING); /* `concat()` is "", as it was as a native */
+            /* `concat()` is "", as it was as a native before 2026-10-18 and is again. Both the
+             * pieces and the parts form accept no arguments, so nothing in the call chooses and
+             * the arm answers; the empty tail reaches `ziman_concat_strings` as an empty array. */
+            e->call_fn = concat_member(module, TY_STRING, 0);
+            *out = type_scalar(TY_STRING);
             return 1;
         }
         Expr *first = e->as.call.args.items[0];
@@ -2740,6 +2799,9 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
                                 type_name(part_type));
                 }
             }
+            /* Either tail declaration serves: the shim reads each part's own runtime type, which
+             * is what lets one call mix the two worlds. */
+            e->call_fn = concat_member(module, TY_STRUCT, 2);
             *out = type_scalar(TY_VOID);
             return 1;
         }
@@ -2747,15 +2809,22 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
         /* the lone-array spread */
         if (e->as.call.args.count == 1 && first_type.kind == TY_ARRAY) {
             if (first_type.elem->kind == TY_STRING) {
+                e->call_fn = concat_member(module, TY_STRING, 0);
+                e->as.call.variadic_tail_is_array_spread = 1;
                 *out = type_scalar(TY_STRING);
                 return 1;
             }
             if (first_type.elem->kind == TY_ARRAY) {
+                e->call_fn = concat_member(module, TY_ARRAY, 0);
+                e->as.call.variadic_tail_is_array_spread = 1;
                 *out = *first_type.elem;
                 check_type_well_formed(module, *out, e->line, e->col);
                 return 1;
             }
-            *out = first_type; /* one part of a kind that cannot spread: a copy */
+            /* One part of a kind that cannot spread: a copy. Not a spread, so the collapse wraps
+             * the one argument as the single part, which `ziman_concat_arrays` then copies. */
+            e->call_fn = concat_member(module, TY_ARRAY, 0);
+            *out = first_type;
             check_type_well_formed(module, *out, e->line, e->col);
             return 1;
         }
@@ -2775,6 +2844,7 @@ static int check_collection_helper(Module *module, Env *env, Expr *e, const char
                             type_name(first_type), type_name(part_type));
             }
         }
+        e->call_fn = concat_member(module, to_string ? TY_STRING : TY_ARRAY, 0);
         *out = first_type;
         return 1;
     }
@@ -6941,6 +7011,42 @@ void typecheck(Module *module) {
                 g_builtin_shadows[g_builtin_shadow_count++] = fn;
             }
         }
+        /* `#[compiler_resolved]` is refused where it would mean nothing, as `#[at_least_one]` and
+         * `#[effectful]` are: it exists to turn off the distinguishability check below, so a
+         * declaration no pair of which that check would have rejected is carrying an attribute
+         * whose only effect is to disable a live guard. Checked here rather than in the parser
+         * because the claim is about the *set*, which only the module knows.
+         *
+         * `tools/overload_sets.sh` reports the same thing per set; this is the version that cannot
+         * be skipped. Every declaration is examined, not only the second and later ones, so a lone
+         * function wearing it is refused too -- with no sibling there is nothing to be told apart
+         * from. */
+        if (fn->compiler_resolved) {
+            if (fn->is_builtin) {
+                ziman_error("type", fn->line, fn->col,
+                            "#[compiler_resolved] on '%s' means nothing on a 'builtin fn' -- a builtin is "
+                            "dispatched by name and the resolver never chooses among its signatures, so the "
+                            "check this attribute turns off was already skipped",
+                            fn->name);
+            } else {
+                int needed = 0;
+                int fn_is_prelude = fn->source_file == NULL;
+                for (int q = 0; q < module->functions.count && !needed; q++) {
+                    FunctionDecl *other = module->functions.items[q];
+                    if (other == fn || other->is_builtin || strcmp(other->name, fn->name) != 0) continue;
+                    if ((other->source_file == NULL) != fn_is_prelude) continue;
+                    if (ovl_indistinguishable_at(fn, other) >= 0) needed = 1;
+                }
+                if (!needed) {
+                    ziman_error("type", fn->line, fn->col,
+                                "#[compiler_resolved] on '%s' turns off a check it does not need -- every call "
+                                "can already tell this declaration from the others of that name, so remove the "
+                                "attribute; it is for a set no argument list can resolve, where a rule in the "
+                                "compiler chooses instead",
+                                fn->name);
+                }
+            }
+        }
         if (!fn->is_builtin && find_function(module, fn->name) != fn) {
             const FunctionDecl *first = find_function(module, fn->name);
             /* A program declaration shadows a prelude one whatever kind it is -- see the
@@ -6973,6 +7079,10 @@ void typecheck(Module *module) {
                     FunctionDecl *other = module->functions.items[q];
                     if (other == fn || strcmp(other->name, fn->name) != 0) continue;
                     if ((other->source_file == NULL) != fn_is_prelude) continue;
+                    /* `#[compiler_resolved]` on either side: a rule in check_call chooses between
+                     * them, so there is nothing for this check to protect -- see the attribute's
+                     * comment in ast.h for the one name that carries it and why. */
+                    if (fn->compiler_resolved || other->compiler_resolved) continue;
                     if (ovl_indistinguishable_at(fn, other) >= 0) clash = other;
                 }
                 if (clash != NULL) {

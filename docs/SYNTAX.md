@@ -1630,10 +1630,10 @@ val by_age = sort_by<Patient, int>(patients, fn(p: Patient) -> int { return p.ag
 
 ## Attributes and derive
 
-`#[...]`, above a declaration, attaches compile-time metadata to it. Seven are interpreted:
+`#[...]`, above a declaration, attaches compile-time metadata to it. Eight are interpreted:
 `derive` (below) and `thread_bound` on a `struct`/`enum`, and `test`, `deprecated`,
-`when_unmatched`, `at_least_one` and `effectful` on a function; other names parse but have no
-effect yet.
+`when_unmatched`, `at_least_one`, `effectful` and `compiler_resolved` on a function; other names
+parse but have no effect yet.
 
 `#[at_least_one]` says the function's trailing `variadic` parameter needs a value — see
 "Variadic parameters". It takes no argument, since a function has at most one variadic parameter
@@ -1649,6 +1649,26 @@ declarations on a builder are the exception — `remove(b, i)` answers the eleme
 the `Option<V>` it took out, `remove(sb, x)` whether the item was there, and throwing any of them
 away is how `pop` and "delete if present" are spelled. Like `#[at_least_one]` it takes no argument
 and is refused where it could mean nothing, here on a function that answers nothing at all.
+
+`#[compiler_resolved]` says the declarations sharing this name **cannot be told apart by their
+arguments**, and that a rule inside the compiler chooses among them. It exempts them from the rule
+that two declarations may share a name only when every call can tell them apart — the rule under
+"Overloading", which is otherwise a redefinition error.
+
+One name in the prelude carries it, `concat`, and it is not a facility for programs. `concat()`
+with no arguments is accepted by its string form and its array form alike; `concat(someStrings)`
+fits both and they differ only in what they return, which is never a basis for choosing; and
+`concat(b, [5], mutable([6]), [7])` passes a variadic tail mixing an array with a builder, which no
+single variadic parameter can describe. The compiler decides all three, as it did when the name was
+a builtin.
+
+Two things keep it from being a way to ship a set no call can resolve. It is **refused where it
+would mean nothing**, like `#[at_least_one]` and `#[effectful]`: a declaration that every call can
+already tell from its siblings — or that has none — is an error, since the attribute would only be
+disabling a working check. And for any name the compiler has no rule for, the error moves to the
+call rather than disappearing: the resolver finds two declarations accepting the arguments and
+reports an ambiguity, listing them. So the attribute takes no argument, and marking your own
+functions with it gains you nothing.
 
 `#[when_unmatched("...")]` on any member of an **overload set** adds one line to the error raised
 when a call matches none of them. The error already names the types that position accepts, worked

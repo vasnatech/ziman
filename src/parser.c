@@ -2578,6 +2578,7 @@ typedef struct {
     const char *when_unmatched;      /* `#[when_unmatched("...")]`'s text, or NULL */
     int at_least_one;                /* `#[at_least_one]` was among them */
     int effectful;                   /* `#[effectful]` was among them */
+    int compiler_resolved;           /* `#[compiler_resolved]` was among them */
 } DeriveList;
 
 static void derive_list_push(DeriveList *list, char *name) {
@@ -2609,6 +2610,15 @@ static void apply_at_least_one(FunctionDecl *fn, const DeriveList *derives) {
  * with no variadic parameter. It is not refused outside the prelude: the dropped-result gate only
  * ever asks about a prelude overload set or a polymorphic builtin, so in your own code the
  * attribute is inert rather than wrong, exactly as a `pub` in lib/prelude/ is. */
+/* `#[compiler_resolved]` says a rule in the type checker chooses among this name's declarations.
+ * Refused on a name with only one declaration?  No -- the parser cannot see the others yet, so the
+ * claim is checked where the set is: the distinguishability pass simply has nothing to exempt when
+ * a set has one member, which makes the attribute inert rather than wrong there. */
+static void apply_compiler_resolved(FunctionDecl *fn, const DeriveList *derives) {
+    if (!derives->compiler_resolved) return;
+    fn->compiler_resolved = 1;
+}
+
 static void apply_effectful(FunctionDecl *fn, const DeriveList *derives) {
     if (!derives->effectful) return;
     if (fn->return_type.kind == TY_VOID) {
@@ -2661,6 +2671,10 @@ static DeriveList parse_attributes(Parser *p) {
                  * there is nothing within it to name. Checked against the return type once the
                  * signature has been parsed. */
                 derives.effectful = 1;
+            } else if (item_name->length == 17 && strncmp(item_name->start, "compiler_resolved", 17) == 0) {
+                /* No argument: it is a fact about the whole declaration, and about the set it
+                 * belongs to rather than about any one parameter. */
+                derives.compiler_resolved = 1;
             } else if (item_name->length == 14 && strncmp(item_name->start, "when_unmatched", 14) == 0) {
                 /* Takes a string for the same reason `deprecated` does: it is prose for whoever
                  * hits the error, not a name the compiler resolves. Unlike `deprecated` the
@@ -2816,6 +2830,7 @@ Module *parse(TokenList tokens) {
             fn->when_unmatched = derives.when_unmatched;
             apply_at_least_one(fn, &derives);
             apply_effectful(fn, &derives);
+            apply_compiler_resolved(fn, &derives);
             if (derives.is_test) {
                 ziman_error("syntax", fn->line, fn->col, "#[test] cannot apply to a %s function ('%s')",
                             is_builtin ? "builtin" : "native", fn->name);
@@ -2839,6 +2854,7 @@ Module *parse(TokenList tokens) {
             fn->when_unmatched = derives.when_unmatched;
             apply_at_least_one(fn, &derives);
             apply_effectful(fn, &derives);
+            apply_compiler_resolved(fn, &derives);
             function_list_push(&module->functions, fn);
         }
         ziman_recovery_pop();

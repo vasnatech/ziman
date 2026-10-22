@@ -502,6 +502,9 @@ static int run_api(const char *module_name) {
              * reader comparing that with `distinct(b) -> [T]` has no way to tell that one of the
              * two writes its argument and so may be called for the write alone. */
             if (f->is_effectful) printf("\n#[effectful]");
+            /* Printed because it changes what the signatures mean: these four cannot be told apart
+             * by their arguments, so a reader comparing them needs to know the compiler chooses. */
+            if (f->compiler_resolved) printf("\n#[compiler_resolved]");
             printf(f->is_builtin ? "\nbuiltin fn %s" : "\nfn %s", f->name);
             print_type_params(&f->type_params);
             printf("(");

@@ -49,8 +49,9 @@ fn main() {
     print(filter_present<int>(Option<int>.Some(1), Option<int>.None, Option<int>.Some(3)))
     print(filter_present<string>(Option<string>.None, Option<string>.None))
     print(len(filter_present<int>()))
-    // an array already in hand goes in under the parameter name, which a native takes and a
-    // builtin does not -- `concat` lost this spelling when it became one
+    // an array already in hand goes in under the parameter name, which a declaration takes and a
+    // builtin id does not -- `concat` lost this spelling when it became one in 2026-10-18 and got
+    // it back on 2026-10-21, when its four shapes became declarations again
     val held = [Option<string>.Some("a"), Option<string>.None, Option<string>.Some("b")]
     print(filter_present<string>(items: held))
 

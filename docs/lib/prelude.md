@@ -685,28 +685,31 @@ native fn slice<T>(items: MutableArray<T>, start: int, end: int) -> [T]
 ### `concat`
 
 ```
-builtin fn concat<T>(parts: variadic [T]) -> [T]
+native fn concat<T>(parts: variadic [T]) -> [T]
 ```
 
 **Every part, in order, joined into one new array** -- `concat`'s array world. The string world
-is in string.zm and carries the three reasons this name cannot become declarations.
+is in string.zm and carries the three reasons no call can pick among these four declarations,
+which is what `#[compiler_resolved]` stands in for.
 
 **One argument that is an array of arrays spreads**, its elements being the parts, the same rule
 the string form carries: `concat([[1], [2]])` is `[1, 2]`, as is `concat([1], [2])`. What cannot
 be said is concatenating a single array as one part, which is `slice(items, 0, len(items))`.
 
 ```
-builtin fn concat<T>(items: MutableArray<T>, parts: variadic [T])
+native fn concat<T>(items: MutableArray<T>, parts: variadic [T])
 ```
 
 **Appending to a builder answers nothing**, the container having been written. The parts may
 come from either world **and may be mixed** -- `concat(b, [5], mutable([6]), [7])` -- which
 `mutable_array_push_all` allowed for its single source and this keeps for all of them. That
-mixing is reason 3 in string.zm for why these cannot be declarations: a variadic parameter has
-one type.
+mixing is reason 3 in string.zm: a variadic parameter has one type, so these two declarations
+each state half of the tail a call may pass and the rule sends the whole of it to one C
+function. They do not tell each other apart either -- `concat(b)` passes an empty tail, which
+fits both -- so both carry the attribute.
 
 ```
-builtin fn concat<T>(items: MutableArray<T>, parts: variadic MutableArray<T>)
+native fn concat<T>(items: MutableArray<T>, parts: variadic MutableArray<T>)
 ```
 
 ### `mutable_array_new`
@@ -2366,7 +2369,7 @@ runtime error otherwise).
 ### `concat`
 
 ```
-builtin fn concat(pieces: variadic string) -> string
+native fn concat(pieces: variadic string) -> string
 ```
 
 The pieces of `s` between each `sep`, empty pieces included: `split("a,b,,c", ",")` is
@@ -2384,22 +2387,31 @@ more arguments are always pieces, so only the one-argument case carries the rule
 **The array and MutableArray forms of this name are in array.zm**, beside the types they take.
 `ziman --api builtins` still lists all four together; what is split is where you read them.
 
-**It stays `builtin fn`, and three separate things stop it becoming declarations.** Written down
-because each is a wall rather than a cost, and each was found by trying:
+**Four `native fn` declarations that the signatures alone cannot tell apart**, which is why all
+four carry `#[compiler_resolved]` and why this entry is long. Three calls choose nothing:
 
-1. `concat()` with no arguments answers `""`. Both the string and the array form accept zero
-   arguments, so nothing in the call chooses -- the arm answers by fiat.
+1. `concat()` with no arguments answers `""`. The string form and the array form both accept
+   zero arguments, so the rule answers the string by fiat -- the same fiat the builtin used.
 2. `concat(parts)` for a `[string]` must answer `"xyz"`. The array form accepts that same
    argument as one part and would answer `[string]`. The two differ **only in what they
    return**, and F148 ruled out choosing an overload by return type -- it is the same reason
    `to_set` and `to_mutable_set` have to be two names.
 3. `concat(b, [5], mutable([6]), [7])` mixes an array and a builder in one variadic tail. A
-   declaration's variadic parameter has **one** type, so two declarations cannot accept a mixed
-   tail and a single one would need a union type -- which docs/DESIGN.md refuses outright ("a
-   language that refuses general bounds should not acquire general unions for them").
+   declaration's variadic parameter has **one** type, so the two builder declarations each state
+   half of what the call may pass, and the rule routes the whole tail to one C function that
+   reads either world per element. A single declaration would need a union type, which
+   docs/DESIGN.md refuses outright ("a language that refuses general bounds should not acquire
+   general unions for them"). `concat(b)` with an empty tail likewise fits both.
 
-So this is not the next conversion waiting to be done; it is the one that cannot be. Converting
-`mutable` is blocked for its own reasons, recorded in docs/design/full-overloading.md §4.
+For three sessions this was recorded here as the conversion that *could not* be done, and the
+three walls above are why -- but they are all walls in front of **picking a declaration from the
+arguments**, and none of them is a reason for the name to keep a builtin id. `#[compiler_resolved]`
+says that out loud: the rule in check_call still chooses, exactly as the arm did, and what it
+records is `call_fn` instead of an id, so the declarations are the signature of record, named
+arguments and `--api builtins` come from them, and the ~48-comparison id walk is gone. The
+attribute is also the only thing keeping these four past the check that refuses an
+indistinguishable pair as a redefinition; see its comment in src/ast.h. Converting `mutable` is
+blocked for its own reasons, recorded in docs/design/full-overloading.md §4.
 
 ### `split`
 

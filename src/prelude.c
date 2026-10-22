@@ -244,8 +244,11 @@ static Value string_slice(Value parent, size_t start, size_t len) {
     return value_string_view(SPTR(parent) + start, len, term);
 }
 
-/* `concat` is a builtin since 2026-10-18, so its arm assembles the pieces itself rather than
- * receiving a collapsed variadic tail -- which is why this takes the array directly. */
+/* Takes the array directly because `concat`'s arm assembles the pieces itself rather than letting
+ * the variadic tail be collapsed for it -- the arm having to decide which of the four declarations
+ * a call means before anything can be assembled. That was true while `concat` was a builtin
+ * (2026-10-18) and stayed true when it became four `#[compiler_resolved]` declarations on
+ * 2026-10-21: what the conversion moved was the dispatch, not the decision. */
 Value ziman_concat_strings(const ArrayObj *pieces) {
     size_t total = 0;
     for (int i = 0; i < pieces->count; i++) {
@@ -2261,6 +2264,50 @@ Value ziman_builder_snapshot(Value v) {
     return native_mutable_map_snapshot(&v, 1, 0, 0);
 }
 
+/* **`concat`'s three shims, one per world.** Each takes its variadic tail already collapsed into
+ * one array, which is what the builtin branch had to assemble by hand -- and the lone-array spread
+ * it had to re-derive from `e->resolved_type` is now the checker's `variadic_tail_is_array_spread`,
+ * read once by `collapse_variadic_args`.
+ *
+ * `concat` keeps its `check_call` arm, unlike every other converted name, because its choice is not
+ * one the resolver can make: `concat()` is `""` and both forms accept no arguments, and
+ * `concat(someStrings)` must answer a string where the array form would answer `[string]` -- two
+ * readings that differ only in what they return, which F148 ruled out as a basis for choosing. So
+ * the arm chooses and records the declaration on `call_fn`, and the call runs as an ordinary
+ * native from there. The builtin id is gone; what stayed is the *decision*, which is the part the
+ * resolver was never able to make. */
+Value ziman_string_concat(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return ziman_concat_strings(args[0].as.arr);
+}
+
+Value ziman_array_concat(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return ziman_concat_arrays(args[0].as.arr);
+}
+
+/* The builder half: every part appended to `args[0]` in place, answering nothing. **One symbol
+ * serves both of its declarations and a mixed tail**, which is the third thing the resolver could
+ * not have done: `concat(b, [5], mutable([6]), [7])` mixes worlds in one variadic tail, a
+ * declaration's variadic parameter has one type, and a union type is refused outright. The arm
+ * type-checks each part against either world, and here each part's own runtime type says whether
+ * it is a handle -- so the mixing is checked where it can be and dispatched where it is cheap. */
+Value ziman_mutable_array_concat(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    const ArrayObj *parts = args[1].as.arr;
+    for (int i = 0; i < parts->count; i++) {
+        Value part = array_get(parts, i);
+        ziman_mutable_array_push_all(args[0], part, part.type->kind == TY_STRUCT);
+    }
+    return value_int(0); /* void return */
+}
+
 /* `items` over a `Set<T>`: its elements as an array, in insertion order. A Set is a MapObj whose
  * values are placeholders, so the elements are its keys. The MutableSet member of the same name is
  * ordinary Ziman beside its declaration; this is the immutable half, which shared a builtin id
@@ -2656,6 +2703,9 @@ void prelude_register(void) {
     native_register("len", ziman_len);
     native_register("contains", ziman_contains);
     native_register("set_items", ziman_set_items);
+    native_register("string_concat", ziman_string_concat);
+    native_register("array_concat", ziman_array_concat);
+    native_register("mutable_array_concat", ziman_mutable_array_concat);
     native_register("snapshot", ziman_snapshot);
     native_register("clear", ziman_clear);
     native_register("array_slice", native_array_slice);

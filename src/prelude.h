@@ -168,6 +168,10 @@ Value ziman_len(Value *args, int argc, int line, int col);
  * the same code (see ziman_len). */
 Value ziman_contains(Value *args, int argc, int line, int col);
 Value ziman_set_items(Value *args, int argc, int line, int col);
+/* `concat`'s three worlds; each takes its variadic tail already collapsed into one array. */
+Value ziman_string_concat(Value *args, int argc, int line, int col);
+Value ziman_array_concat(Value *args, int argc, int line, int col);
+Value ziman_mutable_array_concat(Value *args, int argc, int line, int col);
 Value ziman_snapshot(Value *args, int argc, int line, int col);
 Value ziman_clear(Value *args, int argc, int line, int col);
 Value ziman_array_push_values(Value *args, int argc, int line, int col);

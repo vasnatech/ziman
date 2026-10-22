@@ -172,8 +172,9 @@ pub fn matrix_concat(outer: Matrix, inner: Matrix) -> Matrix
 `inner` first, then `outer`: `transform_point(matrix_concat(o, i), p)` is
 `transform_point(o, transform_point(i, p))`.
 
-Named `matrix_concat` rather than `concat` because `concat` is a builtin: a module function of
-that name would read as the string one at every call site inside this file.
+Named `matrix_concat` rather than `concat` because `concat` is a prelude name over strings and
+arrays: a module function of that name would shadow it inside this file, and would read as the
+string one at every call site here.
 
 ### `transform_point`
 

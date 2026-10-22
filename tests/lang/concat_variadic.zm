@@ -4,8 +4,11 @@ fn main() {
     print(concat("solo"))
     val parts: [string] = ["x", "y", "z"]
     print(concat(parts))
-    // `concat(pieces: parts)` was legal while concat was a native, and a builtin takes no named
-    // arguments -- the positional spread one line up is the same thing. Two or more arguments are
-    // never a spread, so two `[string]`s are two *parts* and answer an array, not a string.
+    // `concat(pieces: parts)` is the same spread written with the parameter's name. It was legal,
+    // then a syntax error for the three days `concat` was dispatched by a builtin id -- a builtin
+    // has no declaration to take a name from -- and is legal again now that the four shapes are
+    // `#[compiler_resolved]` declarations. Two or more arguments are never a spread, so two
+    // `[string]`s are two *parts* and answer an array, not a string.
+    print(concat(pieces: parts))
     print(concat(parts, ["w"]))
 }

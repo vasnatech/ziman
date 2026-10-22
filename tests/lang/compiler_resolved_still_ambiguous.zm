@@ -1,0 +1,21 @@
+// The attribute cannot be used to ship a set no call can resolve. It exempts the *declarations*
+// from the redefinition rule, on the grounds that a rule in the compiler chooses instead -- and
+// `concat` is the one name such a rule exists for. For any other name the error simply moves from
+// the declaration to the call, where the resolver finds two declarations accepting the arguments
+// and says so with the better message: it can list what it is choosing between.
+//
+// So the attribute buys a prelude name a hand-written rule it already had, and buys program code
+// nothing at all.
+#[compiler_resolved]
+fn pick(xs: variadic int) -> int {
+    return 1
+}
+
+#[compiler_resolved]
+fn pick(xs: variadic int) -> int {
+    return 2
+}
+
+fn main() {
+    print(pick(7))
+}

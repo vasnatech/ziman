@@ -226,6 +226,11 @@ Three properties every one of these must keep:
 declarations, which *become* the overloads; `tools/check_builtins.py`; the pairing entries in
 `BUILTIN_NO_SIGNATURE`; and 68 of the 70 bespoke arms, `concat` and `mutable` excepted.
 
+`concat` turned out to be only half an exception: its arm stays, because nothing in a call chooses
+among its four shapes, but the *dispatch* went, the four becoming `native fn` declarations marked
+`#[compiler_resolved]` while the arm records its choice on `call_fn`. What a bespoke arm has to
+keep is the decision, not the id -- see §16.
+
 **Moved from name-keyed to set-keyed**, which is the bulk of the work:
 
 | | today | after |
@@ -347,10 +352,12 @@ distinction this document got wrong for a day (§11). Nine declarations sharing 
 one implementation too, since a native is located by its declaration's name.
 
 The second population also explains the two sets that §4 predicted would be unresolvable.
-**`concat` and `mutable` are both polymorphic builtins**, so the resolver never looks at them, and
-the declaration-site check was measuring a population it does not govern. Against the population
-it does, the bar is not "exactly two offenders" but **zero**, and `tools/overload_sets.sh` now
-asserts that.
+**`concat` and `mutable` were both polymorphic builtins**, so the resolver never looked at them,
+and the declaration-site check was measuring a population it does not govern. Against the
+population it does, the bar is not "exactly two offenders" but **zero**, and
+`tools/overload_sets.sh` now asserts that. `concat` has since become a third population of one,
+`#[compiler_resolved]` (§16), which the same tool counts apart and checks inversely; `mutable`
+remains a polymorphic builtin for the reasons in §4.
 
 The distinction matters beyond bookkeeping, because it is the honest answer to "does Ziman have
 overloading": it has 28 overload sets and 22 polymorphic builtins, and `docs/ROADMAP.md`'s
@@ -712,3 +719,57 @@ this effort because it was not a conversion to an overload set at all. Those two
 docs/DESIGN.md's "`b[i]` stops being a call". `mutable_set_add` is the one remaining `internal`
 prefixed native under a bare name (`add`, since F199), and it is the one candidate a §16 would be
 about.
+
+
+## 16. `concat`, and separating the decision from the dispatch
+
+Added 2026-10-21. §6 excepted `concat` from the arms this effort deletes, §10 filed it under the
+polymorphic builtins the resolver never looks at, and string.zm carried a long comment calling it
+*the conversion that cannot be done*, with three walls to prove it. The comment was right about
+the walls and wrong about the conclusion.
+
+**The three walls.** Each was found by trying, and each is still there:
+
+1. `concat()` with no arguments must answer `""`. The string form and the array form both accept
+   zero arguments, so the call contains nothing to choose by.
+2. `concat(parts)` for a `[string]` must answer `"xyz"`, while the array form accepts the same
+   argument as a single part and would answer `[string]`. The two differ **only in return type**,
+   which F148 ruled out as a basis for choosing — the same reason `to_set` and `to_mutable_set`
+   are two names.
+3. `concat(b, [5], mutable([6]), [7])` mixes an array and a builder in one variadic tail, and a
+   variadic parameter has one type. Two declarations can each state half of the tail; neither can
+   state the whole of it, and a single one would need a union type, which docs/DESIGN.md refuses.
+
+**What they are walls in front of.** All three block *picking a declaration from the arguments*.
+None of them is a reason for the name to keep a builtin **id** — and that was the conflation. A
+builtin id buys two things at once: a rule that chooses, and a dispatch that runs. `concat` needs
+the first and never needed the second. Splitting them is the whole change: `#[compiler_resolved]`
+marks the four declarations, the arm in `check_call` chooses exactly as before and records its
+choice on `e->call_fn` instead of leaving an id for the interpreter to walk.
+
+**What that is worth.** The declarations become the signature of record, so `--api builtins`,
+editor completion and the error messages all read from them; named arguments work for the first
+time (`concat(pieces: "p")` was a syntax error while the name was dispatched by id); the ~48-step
+`else if` walk through the interpreter's dispatch is gone, which is why `push` and `insert` got
+*faster* when they converted (§14); and `PURE_BUILTINS` loses an entry, purity now being read off
+the declaration by the return-type rule rather than asserted by name.
+
+**The fourth wall, and why the attribute is not a loophole.** The declaration checker enforces
+distinguishability too: two same-origin declarations may share a name only when every call can
+tell them apart, which is exactly what walls 1 and 3 say `concat` cannot do. `builtin fn` members
+were exempt because the resolver never looked at them; `native fn` members are not. So the
+conversion needs the exemption to be *stated*, and stating it on the declaration is better than
+the alternative the author of this change first reached for — a list of names in `typecheck.c`,
+which is the thing every stage of this effort has been deleting.
+
+The risk is obvious: an attribute that turns off the check for a set no call can resolve is a way
+to ship a broken set. `tools/overload_sets.sh` closes that by running the check **inversely** on
+the new population — a set that carries `#[compiler_resolved]` while every call *can* tell its
+declarations apart is reported as a defect, the attribute being dead weight that disables a live
+check. So the exemption cannot spread to a set that does not need it, and the two populations stay
+measured: **52 resolver-owned sets, 0 unresolvable; 9 polymorphic builtins; 1 compiler-resolved.**
+
+**One member, one expectation.** A second name wanting this attribute should be read as a reason
+to doubt the second, not as a precedent. Walls 1 and 2 are peculiar to `concat`: it is the only
+prelude name whose two worlds answer *different types* to the *same* argument. `mutable` stays a
+polymorphic builtin for its own reasons (§4) and is not a candidate.

@@ -175,6 +175,7 @@ them against the code.
 - [`append` goes bare, and two names stay two (2026-10-20, F205)](#append-goes-bare-and-two-names-stay-two-2026-10-20-f205)
 - [The last prefixed appenders go, and a mutation gets to say it answers something (2026-10-21, F208)](#the-last-prefixed-appenders-go-and-a-mutation-gets-to-say-it-answers-something-2026-10-21-f208)
 - [`b[i]` stops being a call (2026-10-21, F209)](#bi-stops-being-a-call-2026-10-21-f209)
+- [`concat` keeps the decision and gives up the dispatch (2026-10-21)](#concat-keeps-the-decision-and-gives-up-the-dispatch-2026-10-21)
 
 <!-- end index -->
 
@@ -7577,3 +7578,62 @@ made `add` the word in both set worlds and F206 made the checker refuse both of 
 each message was telling the reader to write a type error. Both say `add(s, value)` now. They are
 the same rot as F208's two vacuous name lists: a message that names another part of the language
 goes stale when that part moves, and nothing was watching.
+
+
+## `concat` keeps the decision and gives up the dispatch (2026-10-21)
+
+`concat` was the last bespoke arm this effort had written off. Three sessions of comments in
+lib/prelude/string.zm called it *the conversion that cannot be done* and listed three walls to
+prove it, and §6 and §10 of docs/design/full-overloading.md both excepted it by name. The walls
+were real. The conclusion was wrong, and the mistake is worth recording because it is a kind:
+**two things were bundled into one and the argument against one was read as an argument against
+both.**
+
+A `builtin fn` buys a *rule that chooses* and a *dispatch that runs*. The three walls are all in
+front of choosing:
+
+1. `concat()` answers `""`, and the string form and the array form both accept no arguments.
+2. `concat(someStrings)` must answer `"xyz"`, while the array form takes the same argument as one
+   part and would answer `[string]`. They differ **only in return type**, which F148 ruled out as a
+   basis for resolution — the reason `to_set` and `to_mutable_set` are two names.
+3. `concat(b, [5], mutable([6]), [7])` mixes an array and a builder in one variadic tail, and a
+   variadic parameter has one type. Two declarations can each state half of that tail. Neither can
+   state the whole, and a union type is refused outright.
+
+Not one of them is a reason the name needs a builtin **id**. So the arm stays and chooses exactly
+as before, while the four declarations become `native fn` and the arm records its pick on
+`e->call_fn` — the same mechanism every conversion since F178 has used, applied to a set the
+resolver still cannot resolve.
+
+**What it buys.** The declarations become the signature of record, so `--api builtins`, completion
+and the errors read from them. Named arguments work for the first time: `concat(pieces: "p")` was
+a *syntax error* while the name was an id, there being no parameter to name — and so was
+`concat<int>([1], [2])`. `PURE_BUILTINS` loses an entry, purity now being read off the return type
+of the resolved declaration. And the interpreter's ~48-comparison `else if` walk is gone, which is
+why `push` and `insert` got faster when they converted rather than slower.
+
+**The fourth wall was the declaration checker**, which enforces the same distinguishability as the
+call site: two declarations may share a name only when every call can tell them apart. `builtin fn`
+members were exempt because the resolver never looked at them; `native fn` members are not. The
+first instinct was a list of names in `typecheck.c` exempting `concat` — exactly the shape every
+stage of this effort has been deleting. It became an attribute instead, `#[compiler_resolved]`,
+which the declaration carries and which `--api builtins` prints, since a reader comparing four
+signatures that cannot be told apart needs to know something else is choosing.
+
+**An attribute that turns off a safety check needs its own check, and gets three.** The guard it
+disables is the one that catches a set no call can resolve, so:
+
+- It is **refused where it would mean nothing**, as `#[at_least_one]` and `#[effectful]` are: a
+  declaration whose siblings every call can already distinguish — or that has none — is a compile
+  error, the attribute having no effect but to disable a working guard. A `builtin fn` wearing it
+  is refused too, for the same reason in reverse.
+- `tools/overload_sets.sh` counts the new population apart and checks it **inversely**: 52
+  resolver-owned sets with zero unresolvable, 9 polymorphic builtins, 1 compiler-resolved.
+- **The hazard closes itself.** Marking two genuinely ambiguous declarations in program code does
+  not ship them; the error moves from the declaration to the call, where the resolver finds both
+  accepting the arguments and reports an ambiguity that *lists* them. The attribute buys a prelude
+  name the rule it already had and buys program code nothing, which is the best outcome available
+  for an exemption: it cannot be used for the thing it looks like it enables.
+
+1,127 fixtures. `concat`'s own diagnostics are unchanged, being derived from the arm as before, and
+every shape is now a fixture rather than a comment: tests/lang/concat_declarations.zm.

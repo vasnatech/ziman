@@ -35,8 +35,9 @@ pub fn rect_contains(r: Rect, p: Point) -> bool
 ```
 
 **Three names differ from the first draft of this document, each for a reason the language gave.**
-`matrix_concat` rather than `concat`, because `concat` is a builtin and a module function of that
-name reads as the string one at every call site inside the file. `transform_point` rather than
+`matrix_concat` rather than `concat`, because `concat` is a prelude name over strings and arrays;
+a module function of that name shadows it inside the file and reads as the string one at every call
+site there. `transform_point` rather than
 `apply`, which says what it does. And the constants -- `identity()`, `empty_rect()`, `paint.black()`
 -- are **functions rather than `pub val`s**, because a qualified global val is not reachable:
 `geom.identity` is a type error asking for `use geom.identity` and a bare name, so a caller who

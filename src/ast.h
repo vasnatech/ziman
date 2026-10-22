@@ -708,6 +708,20 @@ typedef struct {
      * for a marker on the declaration if a second such case appeared; by F208 there were three,
      * which is where a list of names in typecheck.c stops being cheaper than the attribute. */
     int is_effectful;
+    /* `#[compiler_resolved]`: the members of this overload set are **not** told apart by their
+     * argument lists -- a rule in `check_call` chooses between them and records the choice on
+     * `call_fn`. It exempts the declaration from the distinguishability check, which otherwise
+     * reports an indistinguishable pair as a redefinition, and that exemption is the whole of what
+     * it does.
+     *
+     * One name carries it: `concat`. Its pieces form and its parts form both accept a lone
+     * `[string]` and differ only in what they return, which F148 ruled out as a basis for
+     * choosing; `concat()` with no arguments is accepted by both; and the in-place form takes a
+     * variadic tail that may mix an array with a builder, which no single variadic parameter can
+     * state. Marking it is what let the name stop being a builtin id while keeping the decision
+     * where it has to be. **A second user should be read as a reason to doubt the second, not as a
+     * precedent** -- the check this turns off is the one that catches a set no call can resolve. */
+    int compiler_resolved;
     /* `#[when_unmatched("...")]`: one extra line on the error raised when a call matches no
      * member of this declaration's overload set. The resolver already names the types the
      * position accepts, derived from the declarations; this carries what the declarations

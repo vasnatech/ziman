@@ -1,0 +1,16 @@
+// `#[compiler_resolved]` is refused where it would mean nothing, as `#[at_least_one]` and
+// `#[effectful]` are. The attribute's only effect is to exempt a declaration from the rule that
+// two of them may share a name only when every call can tell them apart -- so wearing it without
+// needing it disables a live check and buys nothing.
+//
+// `one` has no sibling at all, which is the extreme case: there is nothing to be told apart from.
+// A distinguishable pair is refused for the same reason, and the check runs over every declaration
+// rather than only the second and later ones, which is why this one-declaration file reports.
+#[compiler_resolved]
+fn one(n: int) -> int {
+    return n
+}
+
+fn main() {
+    print(one(1))
+}

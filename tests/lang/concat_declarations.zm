@@ -1,0 +1,47 @@
+// `concat` stopped being a builtin id on 2026-10-21 and became four `native fn` declarations
+// marked `#[compiler_resolved]`: the arm in `check_call` still chooses among them, because no
+// argument list can, but it records the choice on `call_fn` instead of leaving an id for the
+// interpreter to dispatch. See docs/design/full-overloading.md §16 for the four walls that made
+// this look impossible for three sessions, and string.zm for the three that are still there.
+//
+// Every shape, including the three that no call can resolve and the two things the id could never
+// do.
+fn main() {
+    // Wall 1: both the string form and the array form accept no arguments. The rule answers the
+    // string by fiat, as the builtin did -- this line prints an empty one.
+    print(concat())
+
+    // The string form.
+    print(concat("a"))
+    print(concat("a", "b", "c"))
+
+    // Wall 2: a lone `[string]` fits both forms and they differ only in what they return. It
+    // spreads as pieces, so this is "xyz" and not `[string]`.
+    val parts: [string] = ["x", "y", "z"]
+    print(concat(parts))
+
+    // The array form, where the same spreading rule applies to an array of arrays.
+    print(concat([[1], [2]]))
+    print(concat([1], [2]))
+    print(concat([1, 2]))
+    print(concat([65b], [66b]))
+
+    // Wall 3: one variadic tail, mixed worlds. Two declarations each state half of it.
+    val b = mutable([1])
+    concat(b, [5], mutable([6]), [7])
+    print(snapshot(b))
+    concat(b, mutable([8]))
+    print(snapshot(b))
+    // An empty tail fits both builder declarations, which is why both carry the attribute.
+    concat(b)
+    print(snapshot(b))
+
+    // **Named arguments**, which a name dispatched by id could never take: `concat(pieces: "p")`
+    // was a syntax error while `concat` was a builtin, there being no declaration to name a
+    // parameter of.
+    print(concat(pieces: "p"))
+    print(concat(parts: [[9], [10]]))
+
+    // **A type argument**, for the same reason.
+    print(concat<int>([1], [2]))
+}
