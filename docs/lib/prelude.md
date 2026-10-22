@@ -251,6 +251,21 @@ pub fn get_or<T>(o: Option<T>, default_value: T) -> T
 
 The value inside `o`, or `default_value` when `o` is None.
 
+```
+pub native fn get_or<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, default_value: V) -> V
+```
+
+The value stored under `key`, or `default_value` when there is none -- `get_or` for a builder.
+Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
+loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
+
+```
+builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -> V
+```
+
+The value under `key`, or `default_value` when there is none -- and no `Option` allocated either
+way, which is why it is not `get` plus `unwrap_Some`.
+
 ### `update`
 
 ```
@@ -260,6 +275,14 @@ pub fn update<T>(cell: Mutable<T>, f: fn(T) -> T) -> T
 `f` applied to the value in the cell, stored back, and returned -- the counter idiom,
 `update(n, fn(x) { x + 1 })`, and the same shape `update` has. Ordinary
 Ziman over `mutable_get`/`mutable_set`, since there is no lookup for a native to save.
+
+```
+pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V
+```
+
+`f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
+lookup where `get` then `set` is two, which is the whole reason this exists where
+`mutable_set`-on-a-cell did not need an equivalent.
 
 ### `filter`
 
@@ -273,6 +296,39 @@ allocates nothing: it walks once with a write cursor trailing the read cursor, w
 reallocation inside it cannot corrupt anything, but the rest of the walk would then be visiting
 the buffer mid-compaction, the same class of thing as appending during a `for`.
 
+```
+pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool)
+```
+
+Drops every entry `keep` answers false for, in place -- the MutableMap half of `filter`, where
+the `Map` half answers a new Map instead. Safe for the same snapshot reason as `update_all`.
+
+```
+pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool)
+```
+
+Drops every element `keep` answers false for, in place -- the MutableSet half of `filter`.
+
+```
+builtin fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
+```
+
+The entries `keep` answers true for, as a new Map; keys keep their order. The immutable half of
+the MutableMap form above, which writes in place and answers nothing.
+
+```
+builtin fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
+```
+
+The elements `keep` answers true for, as a new Set, in their existing order.
+
+```
+pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
+```
+
+`f` applied to every element, as a new array of the ones it kept -- `filter`'s array member,
+native for the reason `map`'s is.
+
 ### `set`
 
 ```
@@ -280,6 +336,18 @@ pub native fn set<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, value: V)
 ```
 
 Adds `key`, or replaces its value while keeping its position.
+
+```
+builtin fn set<T>(items: [T], index: int, x: T) -> [T]
+```
+
+`set` has no MutableArray form on purpose: an element write there is `b[i] = value`, the same
+sugar an array's element write gets, and a copying three-argument call would read as though it
+left the container alone. `set(b, i, v)` says so rather than failing as an unknown overload.
+
+```
+builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
+```
 
 ### `remove`
 
@@ -295,42 +363,50 @@ means allocating one, which on a large map costs several times the removal itsel
 gate would read "answers something" as "has no effect" and refuse `remove(mb, k)` in statement
 position, which is "delete if present" and perfectly ordinary.
 
-### `get_or`
-
-```
-pub native fn get_or<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, default_value: V) -> V
-```
-
-The value stored under `key`, or `default_value` when there is none -- `get_or` for a builder.
-Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
-loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
-
-### `remove`
-
 ```
 pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
 ```
 
 Removes `item`, answering whether it was there; nothing happens when it is absent.
 
-### `update`
-
 ```
-pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V
+builtin fn remove<T>(items: [T], index: int) -> [T]
 ```
 
-`f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
-lookup where `get` then `set` is two, which is the whole reason this exists where
-`mutable_set`-on-a-cell did not need an equivalent.
-
-### `filter`
+`remove` takes all three: an index, a key, or the element itself.
 
 ```
-pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool)
+builtin fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
 ```
 
-Drops every entry `keep` answers false for, in place -- the MutableMap half of `filter`, where
-the `Map` half answers a new Map instead. Safe for the same snapshot reason as `update_all`.
+```
+builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
+```
+
+```
+native fn remove<T>(items: MutableArray<T>, index: int) -> T
+```
+
+**O(n)**: everything after `index` moves back. There is no `pop` because this is one --
+`remove(b, len(b) - 1)`, which moves nothing.
+
+**The MutableArray's `remove` answers the element, where the array's answers the array.** Taking
+element i out is the same question of both, so it is the same word; what differs is the answer,
+and that is the difference between the two worlds rather than between two names -- the same
+reasoning that made `push` and `insert` shared. Discarding the element is how `pop` is spelled
+(`remove(b, len(b) - 1)`), which is why that is not reported as a wasted result the way a
+discarded `remove(a, i)` is: an array's `remove` copies and changes nothing, a builder's writes.
+That is what `#[effectful]` states; it is on the two builder forms above for the same reason.
+
+There is no `MutableMap` or `MutableSet` form. Those answer an `Option<V>` and a `bool`, so one
+name over all six would have meant the new collection three times and three different other
+things -- each refusal names the function that does it instead.
+
+`native` rather than `builtin`, so the resolver owns it and `mutable_array_remove` needs no
+declaration of its own: the interpreter's symbol fallback reads parameter one and finds the
+registered `mutable_array_remove`. It was a `builtin fn` until F208 and the builtin id never
+ran -- `check_call`'s arm rewrote the callee first, and `call_remove` only ever handled an
+array, so the id path would have read an `ArrayObj` out of a handle had anything reached it.
 
 ### `remove_all`
 
@@ -350,40 +426,12 @@ pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 
 Drops each of `items`, answering whether any of them was there.
 
-### `filter`
-
-```
-pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool)
-```
-
-Drops every element `keep` answers false for, in place -- the MutableSet half of `filter`.
-
-### `get_or`
-
-```
-builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -> V
-```
-
-The value under `key`, or `default_value` when there is none -- and no `Option` allocated either
-way, which is why it is not `get` plus `unwrap_Some`.
-
-### `filter`
-
-```
-builtin fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
-```
-
-### `remove_all`
-
 ```
 builtin fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
 ```
 
-### `filter`
-
-```
-builtin fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
-```
+`m` without any of `keys`, as a new Map. The immutable half: the MutableMap form above drops
+them in place and answers whether any was there, where this answers the map that is left.
 
 ### `map`
 
@@ -452,15 +500,6 @@ pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U]
 The MutableArray member, as `map`'s is: the builder is walked in place and the results collected
 into a fresh one. `concat(out, f(item))` appends each answered array rather than nesting it,
 which is what makes this flat.
-
-### `filter`
-
-```
-pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
-```
-
-`f` applied to every element, as a new array of the ones it kept -- `filter`'s array member,
-native for the reason `map`'s is.
 
 ### `len`
 
@@ -588,61 +627,6 @@ native fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)
 ```
 native fn clear<T: Eq + Hash>(s: MutableSet<T>)
 ```
-
-### `set`
-
-```
-builtin fn set<T>(items: [T], index: int, x: T) -> [T]
-```
-
-`set` has no MutableArray form on purpose: an element write there is `b[i] = value`, the same
-sugar an array's element write gets, and a copying three-argument call would read as though it
-left the container alone. `set(b, i, v)` says so rather than failing as an unknown overload.
-
-```
-builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
-```
-
-### `remove`
-
-```
-builtin fn remove<T>(items: [T], index: int) -> [T]
-```
-
-`remove` takes all three: an index, a key, or the element itself.
-
-```
-builtin fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
-```
-
-```
-builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
-```
-
-```
-native fn remove<T>(items: MutableArray<T>, index: int) -> T
-```
-
-**O(n)**: everything after `index` moves back. There is no `pop` because this is one --
-`remove(b, len(b) - 1)`, which moves nothing.
-
-**The MutableArray's `remove` answers the element, where the array's answers the array.** Taking
-element i out is the same question of both, so it is the same word; what differs is the answer,
-and that is the difference between the two worlds rather than between two names -- the same
-reasoning that made `push` and `insert` shared. Discarding the element is how `pop` is spelled
-(`remove(b, len(b) - 1)`), which is why that is not reported as a wasted result the way a
-discarded `remove(a, i)` is: an array's `remove` copies and changes nothing, a builder's writes.
-That is what `#[effectful]` states; it is on the two builder forms above for the same reason.
-
-There is no `MutableMap` or `MutableSet` form. Those answer an `Option<V>` and a `bool`, so one
-name over all six would have meant the new collection three times and three different other
-things -- each refusal names the function that does it instead.
-
-`native` rather than `builtin`, so the resolver owns it and `mutable_array_remove` needs no
-declaration of its own: the interpreter's symbol fallback reads parameter one and finds the
-registered `mutable_array_remove`. It was a `builtin fn` until F208 and the builtin id never
-ran -- `check_call`'s arm rewrote the callee first, and `call_remove` only ever handled an
-array, so the id path would have read an `ArrayObj` out of a handle had anything reached it.
 
 ### `mutable`
 
