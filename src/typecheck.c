@@ -1480,7 +1480,7 @@ static const char *const PURE_BUILTINS[] = {
     "set", "remove", "mutable",
     "str", "format", "abs", "min", "max", "hash", "compare", "error_message",
     "is_ok",
-    "get", "get_or", "keys", "values", "merge", "filter", "remove_all",
+    "get", "get_or", "keys", "values", "merge", "remove_all",
     "union", "intersect", "difference", "is_subset", "add",
     "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from",
     NULL};
@@ -1577,7 +1577,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "hash", "compare", "error_message", "abs", "min", "max",
     "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "mutable", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "keys", "values", "get", "get_or", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "mutable", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -1600,7 +1600,7 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * name with no declaration at all (`format`, `printf`, the parser's `$` names) can never appear
  * here -- there is nothing to canonicalize against. */
 static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
-    "abs", "filter", "keys", "values",
+    "abs", "keys", "values",
     "get", "get_or", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", NULL,
 };
 

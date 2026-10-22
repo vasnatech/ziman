@@ -105,6 +105,12 @@ static __thread int t_gc_unsafe_depth = 0;
 static void gc_unsafe_enter(void) { t_gc_unsafe_depth++; }
 static void gc_unsafe_leave(void) { t_gc_unsafe_depth--; }
 
+/* The same pair for native functions, which live in prelude.c and cannot see the statics. Exported
+ * when `filter` over a Map and a Set stopped being a builtin (2026-10-22): that branch guarded its
+ * whole loop here, and a native had no way to. See native.h for when a native needs it. */
+void native_gc_unsafe_enter(void) { gc_unsafe_enter(); }
+void native_gc_unsafe_leave(void) { gc_unsafe_leave(); }
+
 /* `int` is 64-bit and never wraps: overflow is a runtime error, the same
  * spirit as `bigint as int` / `int as byte` clamping rather than wrapping
  * silently. Use `bigint` when a value can outgrow 64 bits. */
@@ -1238,8 +1244,6 @@ typedef enum {
     B_set_intersect,
     B_set_difference,
     B_set_is_subset,
-    B_map_filter,
-    B_set_filter,
     B_map_remove_all,
     B_set_insert_all,
     B_map_keys,
@@ -1289,10 +1293,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"intersect", B_set_intersect},
     {"difference", B_set_difference},
     {"is_subset", B_set_is_subset},
-    /* One entry, because one branch serves both: B_map_filter's code switches on
-     * whether args[0] is a Map or a Set. Since F193 both declarations are named
-     * `filter`, so the name the interpreter looks up is the bare one. */
-    {"filter", B_map_filter},
     {"remove_all", B_map_remove_all},
     {"add", B_set_insert_all},
     {"keys", B_map_keys},
@@ -1526,35 +1526,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 mapobj_entries(args[0].as.map, &keys, NULL);
                 for (int i = 0; i < args[0].as.map->count && subset; i++) subset = mapobj_get(args[1].as.map, keys[i], &ignored);
                 result = value_bool(subset);
-            } else if (bid == B_map_filter || bid == B_set_filter) {
-                int is_map = args[0].type->kind == TY_MAP;
-                Value *keys, *vals = NULL;
-                mapobj_entries(args[0].as.map, &keys, is_map ? &vals : NULL);
-                ClosureObj *clo = args[1].as.clo;
-                MapObj *m = mapobj_empty();
-                /* keys/vals (mapobj_entries, above) hold every entry up front, one plain malloc'd
-                 * array -- guarded for the same reason EXPR_CALL's own args[] loop is: entries not
-                 * yet reached by this loop are unrooted for as long as any of them are still
-                 * pending, and clo->fn's own call can recurse back into Ziman code. */
-                gc_unsafe_enter();
-                for (int i = 0; i < args[0].as.map->count; i++) {
-                    Value call_args[2] = {keys[i], is_map ? vals[i] : value_int(0)};
-                    int nargs = is_map ? 2 : 1;
-                    Value verdict;
-                    if (clo->ncaptured == 0) {
-                        verdict = call_function(module, clo->fn, call_args, nargs, 0, e->line, e->col);
-                    } else {
-                        Value *all = ziman_xmalloc((size_t)(clo->ncaptured + nargs) * sizeof(Value));
-                        memcpy(all, clo->captured, (size_t)clo->ncaptured * sizeof(Value));
-                        memcpy(all + clo->ncaptured, call_args, (size_t)nargs * sizeof(Value));
-                        verdict = call_function(module, clo->fn, all, clo->ncaptured + nargs, 0, e->line, e->col);
-                        free(all);
-                    }
-                    if (verdict.as.b) m = mapobj_set(m, keys[i], call_args[1]);
-                }
-                gc_unsafe_leave();
-                result = value_map(args[0].type, m);
-            } else if (bid == B_map_remove_all) {
+                        } else if (bid == B_map_remove_all) {
                 /* Variadic since F198, so the keys arrive either as a spread array (one argument
                  * whose own type is `[K]`, which the checker has already decided -- see
                  * `variadic_tail_is_array_spread`) or written out one per argument. A `native`

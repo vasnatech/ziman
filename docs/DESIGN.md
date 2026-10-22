@@ -179,6 +179,7 @@ them against the code.
 - [The filing rule finishes, and six against four is where the line fell (2026-10-21)](#the-filing-rule-finishes-and-six-against-four-is-where-the-line-fell-2026-10-21)
 - [A lambda argument can answer a type parameter (2026-10-21)](#a-lambda-argument-can-answer-a-type-parameter-2026-10-21)
 - [`--api builtins` groups an overload set, and the claim that it already did (2026-10-22)](#--api-builtins-groups-an-overload-set-and-the-claim-that-it-already-did-2026-10-22)
+- [`filter` over a Map and a Set, and a guard natives could not reach (2026-10-22)](#filter-over-a-map-and-a-set-and-a-guard-natives-could-not-reach-2026-10-22)
 
 <!-- end index -->
 
@@ -7793,3 +7794,43 @@ a whole set reads as a set. Restructuring the manual is a larger question than t
 one went unchecked through the change that broke it, a day of edits, and ten copies. The same shape
 as F212's two vacuous name lists and `showcase.zm`'s three passes of not compiling: *the sentence
 that explains why something is safe is the sentence least likely to be tested.*
+
+
+## `filter` over a Map and a Set, and a guard natives could not reach (2026-10-22)
+
+The last two `builtin fn` members of `filter` become `native fn`. They had shared **one** builtin
+id whose branch asked `args[0].type->kind` at run time to tell a Map from a Set; the symbol
+fallback reads parameter one, so each now finds a C function of its own, `map_filter` and
+`set_filter`, and neither has to ask what it was given. No arm to delete — `filter` never had one,
+being declaration-checked already — so this is the id, its roster entry, its 28-line branch, and
+three name-list entries (`BUILTINS_NO_NAMED_ARGS`, `BUILTINS_WITH_NAMED_ARGS`, `PURE_BUILTINS`).
+
+Named arguments work for the first time (`filter(m: stock, keep: p)`), type arguments too, and
+discarding the result is still refused — now by F182's return-type rule reading the resolved
+declaration instead of by a name in a list. Measured at 2,000 entries × 1,200 rounds, interleaved:
+old 1.37/1.40/1.37s against new 1.40/1.36/1.49s, which is noise. The predicate is a Ziman call per
+entry and that dominates, the same reason `contains`, `snapshot`, `clear` and `items` came out at
++0.8%.
+
+**The part worth recording is what the conversion needed.** A native that walks a collection's
+entries *and* calls back into Ziman is the first of its shape. `mapobj_entries` hands back a plain
+`malloc`'d array of keys and values, which neither an Env nor a frame holds — and the custom root
+sources are Env chains and frames, not the C stack. `native_call_closure` already wraps its own
+call in Phase 3's collection guard, but not the gap *between* two calls, and `mapobj_set` allocates
+in that gap on every kept entry. The builtin branch had held the guard over its whole loop;
+`gc_unsafe_enter`/`gc_unsafe_leave` are static to interpreter.c, so a native had no way to. They
+are exported now as `native_gc_unsafe_enter`/`_leave` (native.h), which is the second thing
+`native.h` gives a native after `native_call_closure`, and the next Map or Set builtin to convert
+will want it too.
+
+**And the honest part: the guard is kept without a demonstrated failure.** Phase 3 is mark-sweep
+rather than copying (MEMORY.md, 2026-09-30), so the hazard would be a free rather than a
+relocation, and Boehm's own conservative stack scan plausibly keeps the source collection alive
+through the native's `args` regardless. I tried to break it: 20,000 entries, a predicate allocating
+40 strings and a builder per call, the source map an *unbound temporary* so no Env roots it, three
+runs — correct answers every time with the guard removed, and the full suite green too. It stays
+because the code it replaces guarded this same loop and cites a real incident for the rule, and
+removing a guard one cannot prove unnecessary is the riskier direction. Both comments say that
+rather than asserting a mechanism; the first draft of them claimed a *moving* collection would
+"leave the entries pointing at their old locations", which MEMORY.md had superseded a month before
+this was written.

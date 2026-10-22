@@ -242,17 +242,32 @@ pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool)
 Drops every element `keep` answers false for, in place -- the MutableSet half of `filter`.
 
 ```
-builtin fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
+pub native fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<K, V>
 ```
 
 The entries `keep` answers true for, as a new Map; keys keep their order. The immutable half of
-the MutableMap form above, which writes in place and answers nothing.
+the MutableMap form above, which writes in place and answers nothing. **`keep` takes the key as
+well as the value.**
+
+**`native fn` since 2026-10-22**, where these two shared one `builtin fn` id whose branch
+switched on `args[0].type->kind` to tell a Map from a Set at run time. The symbol fallback reads
+parameter one, so each now finds a C function of its own -- `map_filter` and `set_filter` -- and
+neither has to ask what it was given. The conversion needed one new thing: a native walking a
+collection's entries while calling back into Ziman is the first of its shape, and the guard that
+branch held over its whole loop had to be exported for a native to hold it (`native.h`'s
+`native_gc_unsafe_enter`, which is candid about what could and could not be reproduced).
+
+What it buys, beyond the standing direction that builtins go: the declarations are the signature
+of record, `filter(m: stock, keep: p)` is accepted where a builtin id took no named argument,
+and `filter` leaves `PURE_BUILTINS` -- discarding the result is still refused, now by the
+return-type rule reading the resolved declaration.
 
 ```
-builtin fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
+pub native fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
 ```
 
-The elements `keep` answers true for, as a new Set, in their existing order.
+The elements `keep` answers true for, as a new Set, in their existing order. A Set is a MapObj
+whose values are placeholders, so `keep` takes one argument where the Map form takes two.
 
 ### `remove`
 

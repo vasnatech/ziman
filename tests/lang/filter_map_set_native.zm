@@ -1,0 +1,41 @@
+// `filter` over an immutable Map and Set became two `native fn` declarations on 2026-10-22, where
+// the two had shared one `builtin fn` id whose branch switched on `args[0].type->kind` at run
+// time. The symbol fallback reads parameter one, so each has its own C function now -- `map_filter`
+// and `set_filter` -- and neither asks what it was given.
+//
+// Order is the part worth pinning: both keep the order their source had, which for a Map is the
+// keys' insertion order and for a Set the order its elements were first produced.
+fn main() {
+    val m = Map<string, int> { "a": 1, "b": 2, "c": 3, "d": 4 }
+    print(filter(m, fn(k, v) { v % 2 == 0 }))
+    print(filter(m, fn(k: string, v: int) -> bool { return k == "a" }))
+    print(filter(m, fn(k, v) { v > 10 }))
+    print(len(filter(Map<string, int> {}, fn(k, v) { true })))
+
+    // **Named arguments, which a builtin id could never take** -- there is no declaration to name
+    // a parameter of. All-named, since a call may not mix the two forms.
+    print(filter(m: m, keep: fn(k, v) { v == 3 }))
+
+    val s = Set<int> { 3, 1, 2, 4 }
+    print(filter(s, fn(n) { n > 2 }))
+    print(filter(s: s, keep: fn(n) { false }))
+    // a type argument, for the same reason
+    print(filter<int>(s, fn(n) { n == 1 }))
+
+    // a closure over an enclosing local, which is what the exported collection guard is about:
+    // the predicate runs Ziman code in the middle of a walk over the source's entries
+    val floor = 2
+    print(filter(s, fn(n) { n >= floor }))
+
+    // the other four members of the same name still resolve, two of them in array.zm
+    print(filter([1, 2, 3, 4], fn(n) { n % 2 == 1 }))
+    val b = mutable([1, 2, 3, 4])
+    filter(b, fn(n) { n > 2 })
+    print(snapshot(b))
+    val mb = mutable(m)
+    filter(mb, fn(k, v) { v < 3 })
+    print(snapshot(mb))
+    val sb = mutable(s)
+    filter(sb, fn(n) { n != 1 })
+    print(snapshot(sb))
+}

@@ -2637,6 +2637,54 @@ static Value native_array_filter(Value *args, int argc, int line, int col) {
     return permute_array(args[0].type, a, keep, kept, line, col);
 }
 
+/* `filter` over an immutable **Map** and **Set**: the entries `keep` answers true for, as a new
+ * collection of the same kind, insertion order preserved. Two natives since 2026-10-22, where one
+ * builtin branch in interpreter.c served both by switching on `args[0].type->kind` at run time --
+ * the symbol fallback reads parameter one, so a `Map` lands on `map_filter` and a `Set` on
+ * `set_filter` and neither has to ask what it was given.
+ *
+ * **Both guard the whole loop, not each call.** `mapobj_entries` hands back a plain `malloc`'d
+ * array of keys and values, which neither an Env nor a frame holds, and `mapobj_set` allocates on
+ * every kept entry -- so a collection in the gap between two predicate calls is the window.
+ * `native_call_closure` guards its own call and not that gap, which is why native.h exports the
+ * pair. The builtin branch guarded this same loop, and that is the reason the guard is here: **no
+ * failing case was reproducible without it** -- see native.h for what was tried -- so it is
+ * retained as the conservative choice rather than on a demonstrated failure. */
+static Value native_map_filter(Value *args, int argc, int line, int col) {
+    (void)argc;
+    Value *keys, *vals;
+    mapobj_entries(args[0].as.map, &keys, &vals);
+    int n = args[0].as.map->count;
+    MapObj *out = mapobj_empty();
+    native_gc_unsafe_enter();
+    for (int i = 0; i < n; i++) {
+        Value pair[2] = {keys[i], vals[i]};
+        if (native_call_closure(args[1], pair, 2, line, col).as.b) {
+            out = mapobj_set(out, keys[i], vals[i]);
+        }
+    }
+    native_gc_unsafe_leave();
+    return value_map(args[0].type, out);
+}
+
+/* A Set is a MapObj whose values are placeholders, so the predicate takes one argument and the
+ * kept entry is stored with the same placeholder the source used. */
+static Value native_set_filter(Value *args, int argc, int line, int col) {
+    (void)argc;
+    Value *keys;
+    mapobj_entries(args[0].as.map, &keys, NULL);
+    int n = args[0].as.map->count;
+    MapObj *out = mapobj_empty();
+    native_gc_unsafe_enter();
+    for (int i = 0; i < n; i++) {
+        if (native_call_closure(args[1], &keys[i], 1, line, col).as.b) {
+            out = mapobj_set(out, keys[i], value_int(0));
+        }
+    }
+    native_gc_unsafe_leave();
+    return value_map(args[0].type, out);
+}
+
 static Value native_array_flat_map(Value *args, int argc, int line, int col) {
     (void)argc;
     const ArrayObj *a = args[0].as.arr;
@@ -2698,6 +2746,8 @@ void prelude_register(void) {
     native_register("array_index_of", native_bytes_index_of);
     native_register("array_map", native_array_map);
     native_register("array_filter", native_array_filter);
+    native_register("map_filter", native_map_filter);
+    native_register("set_filter", native_set_filter);
     native_register("array_flat_map", native_array_flat_map);
     native_register("array_reverse", native_array_reverse);
     native_register("len", ziman_len);
