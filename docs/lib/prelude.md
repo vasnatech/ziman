@@ -2047,36 +2047,6 @@ arguments are never a spread.
 nothing useful -- the same reason `add` and `remove_all` carry it. `merge(a)` is allowed and
 answers `a`.
 
-### `MapEntry`
-
-```
-struct MapEntry<K, V> {
-    key: K
-    value: V
-}
-```
-
-One key and its value, as `entries` returns them.
-
-### `entries`
-
-```
-pub fn entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>]
-```
-
-The entries of `m` as an array, in the map's insertion order: for collecting them, sorting them (by value,
-say, with `sort_by_desc`) or taking the first few. Written with the type arguments:
-`entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
-
-```
-pub fn entries<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [MapEntry<K, V>]
-```
-
-The entries of a MutableMap as an array, in insertion order -- the builder half of `entries`,
-answering an immutable value for the same reason `keys` and `values` do.
-
-### `merge`
-
 ```
 pub native fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: variadic Map<K, V>)
 ```
@@ -2106,6 +2076,34 @@ kind -- which is also why it would already handle a mixed tail if a rule ever ch
 ```
 pub native fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: variadic MutableMap<K, V>)
 ```
+
+### `MapEntry`
+
+```
+struct MapEntry<K, V> {
+    key: K
+    value: V
+}
+```
+
+One key and its value, as `entries` returns them.
+
+### `entries`
+
+```
+pub fn entries<K: Eq + Hash, V>(m: Map<K, V>) -> [MapEntry<K, V>]
+```
+
+The entries of `m` as an array, in the map's insertion order: for collecting them, sorting them (by value,
+say, with `sort_by_desc`) or taking the first few. Written with the type arguments:
+`entries<string, int>(stock)`. To only walk a map, `for k, v in m` needs no array.
+
+```
+pub fn entries<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [MapEntry<K, V>]
+```
+
+The entries of a MutableMap as an array, in insertion order -- the builder half of `entries`,
+answering an immutable value for the same reason `keys` and `values` do.
 
 ### `snapshot`
 
