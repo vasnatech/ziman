@@ -178,6 +178,7 @@ them against the code.
 - [`concat` keeps the decision and gives up the dispatch (2026-10-21)](#concat-keeps-the-decision-and-gives-up-the-dispatch-2026-10-21)
 - [The filing rule finishes, and six against four is where the line fell (2026-10-21)](#the-filing-rule-finishes-and-six-against-four-is-where-the-line-fell-2026-10-21)
 - [A lambda argument can answer a type parameter (2026-10-21)](#a-lambda-argument-can-answer-a-type-parameter-2026-10-21)
+- [`--api builtins` groups an overload set, and the claim that it already did (2026-10-22)](#--api-builtins-groups-an-overload-set-and-the-claim-that-it-already-did-2026-10-22)
 
 <!-- end index -->
 
@@ -7750,3 +7751,45 @@ is a separate decision and was not taken here.
 
 `tests/lang/field_accessor_shorthand.zm` lost its type arguments on every line, and its `.out` is
 byte-identical — the behaviour was always right, only unsayable. 1,129 fixtures.
+
+
+## `--api builtins` groups an overload set, and the claim that it already did (2026-10-22)
+
+All ten prelude headers said this, as the reason a declaration could live in the file for its first
+argument's type while its siblings lived elsewhere:
+
+> `ziman --api builtins` still prints a set together, so the listing answers "what does this name
+> accept" in one place even when the sources do not.
+
+**It was false, and it was false because of the change it was justifying.** The listing is built
+from the prelude parts merged in *file order* and printed straight through, so it grouped a set
+only while no set was ever split — which was true right up until the filing rule reversed on
+2026-10-21 and started splitting them. Measured the day after, with `filter`'s array pair the
+occasion for looking: `filter` printed in two blocks 56 lines apart, `concat` in two, `get_or` in
+two, and `snapshot` and `clear` in **four** each.
+
+So the sentence was not merely stale. It described a property that the rule citing it destroyed,
+and it had been copied into ten files, which is how a justification survives the thing that
+falsifies it: nobody runs the command, because the sentence already says what it would show.
+
+**The listing groups by name now**, which made the claim true rather than deleting it. A set prints
+where its **first advertised member** does, not in alphabetical order: the file order is topical —
+a string's functions together, an array's together — and sorting the whole list would scatter that
+to fix the smaller problem. Verified as a pure reordering rather than by eye: 307 lines before and
+after, identical as sets.
+
+`tests/run_api.sh` now checks twelve names, on the *sequence of signatures* rather than on line
+numbers, because an attribute prints on a line of its own between two signatures — `concat`'s four
+and `remove`'s six are deliberately non-consecutive lines while still being one block. The property
+is that no other name's signature falls between a name's first and last. Against the ungrouped
+listing, 7 of the 12 fail, naming the spread (`snapshot`: 4 declarations over 197 slots); the other
+five pass either way, their members all living in one file.
+
+**`docs/lib/prelude.md` is still not grouped**, and the headers now say so. It is organised as one
+`##` section per file, so a split set keeps a `###` heading in each — the listing is the one place
+a whole set reads as a set. Restructuring the manual is a larger question than this was.
+
+**The transferable part.** A claim about what a tool prints is checkable in one command, and this
+one went unchecked through the change that broke it, a day of edits, and ten copies. The same shape
+as F212's two vacuous name lists and `showcase.zm`'s three passes of not compiling: *the sentence
+that explains why something is safe is the sentence least likely to be tested.*

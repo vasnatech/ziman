@@ -146,6 +146,37 @@ else
     pass=$((pass + 1)); echo "ok   a blank line keeps a banner out of the docs"
 fi
 
+# **An overload set prints as one block.** The listing is built from the prelude parts merged in
+# file order, and the filing rule (2026-10-21) puts a name's declarations in the file for each
+# one's first argument type -- so printing straight through scattered every split set: `filter` in
+# two blocks 56 lines apart, `concat` in two, `get_or` in two, `snapshot` and `clear` in four each.
+# All ten prelude headers had been citing this listing as the thing that made splitting safe, so
+# the claim was false for a day. Checked by name, per set, rather than by eye: every declaration of
+# the name must sit in one unbroken run of lines.
+#
+# Checked on the *sequence of signatures*, not on line numbers: an attribute prints on its own line
+# between two signatures, so `concat`'s four and `remove`'s six are deliberately non-consecutive
+# lines while still being one block. What must hold is that no other name's signature falls between
+# a name's first and last.
+"$BIN" --api builtins 2>/dev/null | sed -nE 's/^(builtin )?fn ([A-Za-z_][A-Za-z_0-9]*).*/\2/p' > "$work/order"
+for name in filter concat snapshot clear get_or len contains remove mutable map set update; do
+    count=$(grep -c "^$name$" "$work/order")
+    first=$(grep -n "^$name$" "$work/order" | head -1 | cut -d: -f1)
+    last=$(grep -n "^$name$" "$work/order" | tail -1 | cut -d: -f1)
+    if [ "$count" -eq 0 ]; then
+        fail=$((fail + 1)); echo "FAIL '$name' is not in the listing at all" >&2
+    elif [ "$((last - first + 1))" -eq "$count" ]; then
+        pass=$((pass + 1)); echo "ok   '$name' prints as one block ($count declarations)"
+    else
+        fail=$((fail + 1))
+        intruders=$(sed -n "$((first + 1)),$((last - 1))p" "$work/order" | grep -v "^$name$" |
+                    sort -u | tr '\n' ' ')
+        echo "FAIL '$name' has $count declarations spread over $((last - first + 1)) slots, with" >&2
+        echo "     $intruders between them -- a reader cannot see what the name accepts in one" >&2
+        echo "     place, which is what all ten prelude headers promise this listing does" >&2
+    fi
+done
+
 "$BIN" --api nosuchthing >/dev/null 2>&1
 if [ $? -eq 1 ]; then pass=$((pass + 1)); echo "ok   an unknown name exits 1"
 else fail=$((fail + 1)); echo "FAIL an unknown name should exit 1" >&2; fi

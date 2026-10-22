@@ -455,6 +455,41 @@ static void print_api_module(const char *name, Module *m) {
     }
 }
 
+/* What this listing claims is the vocabulary, which is not the same as what is callable: the
+ * prelude is merged into every program, so every declaration in it is callable whatever it says
+ * here. `pub` and `internal` choose what gets advertised. */
+static int api_advertises(FunctionDecl *f) {
+    if (!fn_is_advertised(f)) return 0;
+    return f->visibility == VIS_PUBLIC || fn_is_global_vocabulary(f);
+}
+
+static void print_builtin_entry(FunctionDecl *f) {
+    /* Printed because it is part of the contract the signature states: without it the list would
+     * advertise `add(s, items: variadic T)` and say nothing about `add(s)` being refused. */
+    if (f->variadic_at_least_one) printf("\n#[at_least_one]");
+    /* Printed for the same reason: the signature alone says `remove(b, i) -> T`, and a reader
+     * comparing that with `distinct(b) -> [T]` has no way to tell that one of the two writes its
+     * argument and so may be called for the write alone. */
+    if (f->is_effectful) printf("\n#[effectful]");
+    /* Printed because it changes what the signatures mean: `concat`'s four cannot be told apart by
+     * their arguments, so a reader comparing them needs to know the compiler chooses. */
+    if (f->compiler_resolved) printf("\n#[compiler_resolved]");
+    /* `builtin fn` keeps its keyword here rather than being flattened to `fn`: which of the two
+     * owns the type rule is a real difference and the one docs/DESIGN.md's "`native` and builtin
+     * are two different mechanisms" entry is about. */
+    printf(f->is_builtin ? "\nbuiltin fn %s" : "\nfn %s", f->name);
+    print_type_params(&f->type_params);
+    printf("(");
+    for (int pi = 0; pi < f->params.count; pi++) {
+        if (pi > 0) printf(", ");
+        printf("%s: ", f->params.items[pi].name);
+        if (f->params.items[pi].is_variadic) printf("variadic ");
+        print_type("", f->params.items[pi].type);
+    }
+    printf(")");
+    if (f->return_type.kind != TY_VOID) print_type(" -> ", f->return_type);
+}
+
 static int run_api(const char *module_name) {
     if (module_name == NULL) {
         printf("bundled modules (ziman --api <name> for one of them):\n");
@@ -484,38 +519,35 @@ static int run_api(const char *module_name) {
             }
         }
         printf("builtins -- callable with no 'use', from any program\n");
+        /* **An overload set prints as one block.** The parts are merged in file order above, and
+         * printing them straight through scattered every set whose members live in different
+         * files -- which, since the filing rule put a declaration in the file for its first
+         * argument's type (2026-10-21), is most of them: measured before this change, `filter`
+         * came out in two blocks 56 lines apart, `concat` in two, `get_or` in two, and `snapshot`
+         * and `clear` in **four** each.
+         *
+         * That mattered more than a tidiness complaint, because the prelude headers had all ten
+         * been citing this listing as the thing that made splitting a set across files safe --
+         * "`--api builtins` still prints a set together, so the listing answers 'what does this
+         * name accept' in one place even when the sources do not". It did not. It does now, and
+         * the sentence is true for the first time.
+         *
+         * A set appears where its **first** advertised member does, rather than the whole list
+         * being sorted by name: the file order is topical -- a string's functions together, an
+         * array's together -- and sorting would scatter that to fix the smaller problem. */
         for (int i = 0; i < prelude->functions.count; i++) {
             FunctionDecl *f = prelude->functions.items[i];
-            /* What is advertised, which is not what is callable: the prelude is merged into
-             * every program, so every declaration in this file is callable whatever it says
-             * here. `pub` and `internal` choose what this list claims is the vocabulary. */
-            if (!fn_is_advertised(f)) continue;
-            if (f->visibility != VIS_PUBLIC && !fn_is_global_vocabulary(f)) continue;
-            /* `builtin fn` keeps its keyword here rather than being flattened to `fn`: which of
-             * the two owns the type rule is a real difference and the one docs/DESIGN.md's
-             * "`native` and builtin are two different mechanisms" entry is about. */
-            /* Printed because it is part of the contract the signature states: without it the
-             * list would advertise `add(s, items: variadic T)` and say nothing about `add(s)`
-             * being refused. */
-            if (f->variadic_at_least_one) printf("\n#[at_least_one]");
-            /* Printed for the same reason: the signature alone says `remove(b, i) -> T`, and a
-             * reader comparing that with `distinct(b) -> [T]` has no way to tell that one of the
-             * two writes its argument and so may be called for the write alone. */
-            if (f->is_effectful) printf("\n#[effectful]");
-            /* Printed because it changes what the signatures mean: these four cannot be told apart
-             * by their arguments, so a reader comparing them needs to know the compiler chooses. */
-            if (f->compiler_resolved) printf("\n#[compiler_resolved]");
-            printf(f->is_builtin ? "\nbuiltin fn %s" : "\nfn %s", f->name);
-            print_type_params(&f->type_params);
-            printf("(");
-            for (int pi = 0; pi < f->params.count; pi++) {
-                if (pi > 0) printf(", ");
-                printf("%s: ", f->params.items[pi].name);
-                if (f->params.items[pi].is_variadic) printf("variadic ");
-                print_type("", f->params.items[pi].type);
+            if (!api_advertises(f)) continue;
+            int already = 0;
+            for (int j = 0; j < i && !already; j++) {
+                FunctionDecl *g = prelude->functions.items[j];
+                if (api_advertises(g) && strcmp(g->name, f->name) == 0) already = 1;
             }
-            printf(")");
-            if (f->return_type.kind != TY_VOID) print_type(" -> ", f->return_type);
+            if (already) continue;  /* printed with the group at its first member */
+            for (int k = i; k < prelude->functions.count; k++) {
+                FunctionDecl *g = prelude->functions.items[k];
+                if (api_advertises(g) && strcmp(g->name, f->name) == 0) print_builtin_entry(g);
+            }
         }
         /* And the ones the *interpreter* dispatches by name that still have no declaration to
          * print a signature from. Leaving them out entirely was the second half of the same
