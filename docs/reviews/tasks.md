@@ -3522,3 +3522,39 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   '==' and hashing"* is the `T: Eq + Hash` bound now, which answers *"type argument Channel<int>
   does not satisfy bound 'Eq' required by type parameter 'T'"*. 1,116 fixtures, `make check` exit 0
   with the North Star.
+
+- [x] **F216** **`flat_map` moves beside `map`, and the comment above them that described a layer
+  deleted three times over is rewritten.** (user-raised, "fix that comment block" / "I want
+  flat_map and map to be in the same file, close to each other"; done 2026-10-21.)
+
+  **The comment was wrong in every clause but its first**, and had survived three changes that each
+  falsified part of it. It introduced `map`, `filter`, `flat_map` and `reverse`'s array members as
+  *"the array half of the dispatcher's prefix layer"*, which had to exist *"under exactly these
+  names because the dispatcher builds its target by concatenating a prefix onto the bare name"*,
+  were *"not advertised, and since F173 they are not"*, and made up a layer that was *"now
+  uniformly internal"*. F179 deleted the concatenating loop — the C symbol comes from parameter
+  one's type and the resolver picks the declaration. F178-F180 made these declarations the overload
+  *members* rather than a layer beneath anything. And all four are `pub` and listed in
+  `--api builtins`, which is checkable in one command. A parenthetical had been added inside it
+  correcting the first sentence while leaving the rest; that is the shape to watch for — a comment
+  patched once reads as maintained.
+
+  **`flat_map` is the one name in collections.zm that the filing rule does not reach**, and the
+  header now says so rather than leaving a reader to find the contradiction. Both its declarations
+  are array-world, so array.zm is where "a name lands here exactly when its declarations would
+  otherwise be split across two or more of the per-type files" puts it. It is `map` with a
+  flattening join — one word of the signature apart, `-> [U]` against `-> U` — and `map` cannot
+  move to array.zm, its Map and Set members pinning it. So grouping by the question beat the filing
+  rule for this one name, recorded as the precedent in both headers: a second case means rewriting
+  the rule rather than adding another exception.
+
+  **`map`'s own four members were split 169/179/203/327**, the MutableArray one orphaned at the end
+  of the file past `mutable` — the same shape F210 found in array.zm, and the same cost: it was
+  published under a group comment about something else. The four are contiguous now with
+  `flat_map`'s two after them, and each of the three that had no comment of its own got one.
+  `filter`'s array member keeps its place in `filter`'s own run and no longer says only *"See
+  `map`."*
+
+  collections.zm stays organised by question rather than by world; this did not change that, it
+  moved one name into the question it belongs to. 1,116 fixtures, `make check` exit 0 with the
+  North Star.

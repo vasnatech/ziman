@@ -405,21 +405,53 @@ value become one: `map<int, int>(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1,
 pub native fn map<T, U>(items: [T], f: fn(T) -> U) -> [U]
 ```
 
-The array half of the dispatcher's prefix layer. **Write `map`, `filter`, `flat_map` and
-`reverse`** -- these four are what those names resolve to when the first argument is an `[T]`,
-and `map` and friends are what they resolve to when it is a builder.
+**`f` applied to every element, as a new array.** The array member of the set, beside the Map
+and Set members above and the MutableArray member below -- `flat_map` follows, being the same
+walk with a flattening join, and the two read better together than either reads alone.
 
-They have to exist under exactly these names because the dispatcher builds its target by
-concatenating a prefix onto the bare name: `"array_" + "filter"`. (That loop was called
-`WORLD_PAIRED` and was deleted by F179 -- the prefix is derived from parameter one's type in
-`interpreter.c` now, and the resolver chooses the declaration.) They do not have to be *advertised*, and since F173 they are not -- 51 of the 64
-`array_`/`mutable_array_` declarations in this file were already invisible for being plain
-`fn`s, and these four stood out only because a `native fn` had no way to opt out before F172.
-The whole prefix layer is now uniformly internal. Still callable, as everything here is.
+**Native rather than written in Ziman**, unlike the Map, Set and MutableArray members: the
+result's length is known from the input's, so this allocates the array once where a Ziman body
+would grow a builder and snapshot it. That is the whole reason this one member is native, and
+the three below say the same thing from the other side.
 
-Native rather than written in Ziman: one allocation for the result, instead of a MutableArray's
-growing buffers. This header used to say the bare names were "thin wrappers over these", which
-F162/F163 turned around -- the bare name is the one to write, and these are the inside of it.
+*This block used to describe "the array half of the dispatcher's prefix layer" -- four `array_*`
+natives that the bare names resolved onto by string concatenation, deliberately unadvertised.
+Every part of that is gone: F179 deleted the concatenating loop (the C symbol is derived from
+parameter one's type now, and the resolver picks the declaration), F178-F180 made these
+declarations the overload members themselves rather than a layer beneath them, and they are
+`pub` and listed in `--api builtins`. The comment survived all three and was still claiming the
+layer was "uniformly internal" in F216.*
+
+```
+pub fn map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U]
+```
+
+The MutableArray member: the array body with the source read in place, so the copy `map` over a
+snapshot would have made does not happen. Written in Ziman rather than shared with the native
+above because it allocates a builder for the result where that one allocates the array
+directly -- one allocation more on the way out, against a whole copy of the input saved on the
+way in. The capacity is the input's length, so the builder never grows.
+
+### `flat_map`
+
+```
+pub native fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
+```
+
+**`flat_map` is `map` and then `concat`**, in one pass: `f` answers an array per element and
+they are joined. It is the only name in this file whose declarations do *not* span two of the
+per-type files -- both are array-world, so the rule at the top would put it in array.zm, and it
+lived there until F216. It is here because `map` is here and cannot leave (its Map and Set
+members pin it), and reading the two apart is reading half a question: the difference between
+them is one word of the signature, `-> U` against `-> [U]`.
+
+```
+pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U]
+```
+
+The MutableArray member, as `map`'s is: the builder is walked in place and the results collected
+into a fresh one. `concat(out, f(item))` appends each answered array rather than nesting it,
+which is what makes this flat.
 
 ### `filter`
 
@@ -427,7 +459,8 @@ F162/F163 turned around -- the bare name is the one to write, and these are the 
 pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
 ```
 
-See `map`.
+`f` applied to every element, as a new array of the ones it kept -- `filter`'s array member,
+native for the reason `map`'s is.
 
 ### `len`
 
@@ -664,16 +697,6 @@ builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
 builtin fn mutable<T>(item: T) -> Mutable<T>
 ```
 
-### `map`
-
-```
-pub fn map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U]
-```
-
-These two have native array versions, so their twins are written rather than shared. Each
-allocates a builder for the result where the native allocates the array directly -- one
-allocation more on the way out, against a whole copy of the input saved on the way in.
-
 ## `array.zm`
 
 ### `bytes_to_string`
@@ -901,20 +924,6 @@ sharing a name both resolved to whichever was registered bare. The string half w
 `array_index_of` -- so neither resolves by the bare name and the fallback picks from parameter
 one, which is where they differ. That fallback knew `[T]`, Map, Set and the four builders; F213
 taught it `string`.
-
-### `flat_map`
-
-```
-pub native fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
-```
-
-See `map`.
-
-```
-pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U]
-```
-
-Walks the builder once and collects into a fresh one; see `map`.
 
 ### `sort`
 

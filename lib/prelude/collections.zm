@@ -15,6 +15,13 @@
 // A name whose declarations span more than one of these files lives in collections.zm, whole, so
 // that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
 // a declaration".
+//
+// **`flat_map` is the one name here that the rule above does not reach**, both its declarations
+// being array-world. It is here because it is `map` with a flattening join -- one word of the
+// signature apart, `-> [U]` against `-> U` -- and `map` cannot go to array.zm, its Map and Set
+// members pinning it here. Grouping by the question beat the filing rule for that one name
+// (F216); if a second ever wants the same, this is the precedent and the rule above needs
+// rewriting rather than another exception.
 
 // Every piece, in order, joined with no separator (`concat("a", "b", "c")` is `"abc"`; zero
 // pieces is `""`). For a separator or a prefix/suffix use `join`; for many pieces built up over
@@ -177,24 +184,58 @@ pub fn map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U> {
     return snapshot(out)
 }
 
-// The array half of the dispatcher's prefix layer. **Write `map`, `filter`, `flat_map` and
-// `reverse`** -- these four are what those names resolve to when the first argument is an `[T]`,
-// and `map` and friends are what they resolve to when it is a builder.
+// **`f` applied to every element, as a new array.** The array member of the set, beside the Map
+// and Set members above and the MutableArray member below -- `flat_map` follows, being the same
+// walk with a flattening join, and the two read better together than either reads alone.
 //
-// They have to exist under exactly these names because the dispatcher builds its target by
-// concatenating a prefix onto the bare name: `"array_" + "filter"`. (That loop was called
-// `WORLD_PAIRED` and was deleted by F179 -- the prefix is derived from parameter one's type in
-// `interpreter.c` now, and the resolver chooses the declaration.) They do not have to be *advertised*, and since F173 they are not -- 51 of the 64
-// `array_`/`mutable_array_` declarations in this file were already invisible for being plain
-// `fn`s, and these four stood out only because a `native fn` had no way to opt out before F172.
-// The whole prefix layer is now uniformly internal. Still callable, as everything here is.
+// **Native rather than written in Ziman**, unlike the Map, Set and MutableArray members: the
+// result's length is known from the input's, so this allocates the array once where a Ziman body
+// would grow a builder and snapshot it. That is the whole reason this one member is native, and
+// the three below say the same thing from the other side.
 //
-// Native rather than written in Ziman: one allocation for the result, instead of a MutableArray's
-// growing buffers. This header used to say the bare names were "thin wrappers over these", which
-// F162/F163 turned around -- the bare name is the one to write, and these are the inside of it.
+// *This block used to describe "the array half of the dispatcher's prefix layer" -- four `array_*`
+// natives that the bare names resolved onto by string concatenation, deliberately unadvertised.
+// Every part of that is gone: F179 deleted the concatenating loop (the C symbol is derived from
+// parameter one's type now, and the resolver picks the declaration), F178-F180 made these
+// declarations the overload members themselves rather than a layer beneath them, and they are
+// `pub` and listed in `--api builtins`. The comment survived all three and was still claiming the
+// layer was "uniformly internal" in F216.*
 pub native fn map<T, U>(items: [T], f: fn(T) -> U) -> [U]
 
-// See `map`.
+// The MutableArray member: the array body with the source read in place, so the copy `map` over a
+// snapshot would have made does not happen. Written in Ziman rather than shared with the native
+// above because it allocates a builder for the result where that one allocates the array
+// directly -- one allocation more on the way out, against a whole copy of the input saved on the
+// way in. The capacity is the input's length, so the builder never grows.
+pub fn map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U] {
+    val out = mutable_array_new<U>(capacity: len(items))
+    for item in items {
+        push(out, f(item))
+    }
+    return snapshot(out)
+}
+
+// **`flat_map` is `map` and then `concat`**, in one pass: `f` answers an array per element and
+// they are joined. It is the only name in this file whose declarations do *not* span two of the
+// per-type files -- both are array-world, so the rule at the top would put it in array.zm, and it
+// lived there until F216. It is here because `map` is here and cannot leave (its Map and Set
+// members pin it), and reading the two apart is reading half a question: the difference between
+// them is one word of the signature, `-> U` against `-> [U]`.
+pub native fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
+
+// The MutableArray member, as `map`'s is: the builder is walked in place and the results collected
+// into a fresh one. `concat(out, f(item))` appends each answered array rather than nesting it,
+// which is what makes this flat.
+pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U] {
+    val out = mutable_array_new<U>()
+    for item in items {
+        concat(out, f(item))
+    }
+    return snapshot(out)
+}
+
+// `f` applied to every element, as a new array of the ones it kept -- `filter`'s array member,
+// native for the reason `map`'s is.
 pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
 
 //
@@ -320,14 +361,3 @@ builtin fn mutable<T>(items: [T]) -> MutableArray<T>
 builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
 builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
 builtin fn mutable<T>(item: T) -> Mutable<T>
-
-// These two have native array versions, so their twins are written rather than shared. Each
-// allocates a builder for the result where the native allocates the array directly -- one
-// allocation more on the way out, against a whole copy of the input saved on the way in.
-pub fn map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U] {
-    val out = mutable_array_new<U>(capacity: len(items))
-    for item in items {
-        push(out, f(item))
-    }
-    return snapshot(out)
-}

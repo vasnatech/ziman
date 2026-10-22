@@ -83,7 +83,10 @@
 //
 // `map`, `filter`, `concat`, `len`, `contains`, `remove`, `set`, `snapshot`, `clear` and `mutable`
 // are declared in collections.zm instead, because each of them also takes a Map, a Set or a
-// string, and an overload set is kept whole in one file.
+// string, and an overload set is kept whole in one file. **`flat_map` is there too and is the one
+// exception to that reasoning**: both its declarations are array-world, so this file is where the
+// rule puts it, but it is `map` with a flattening join and the two are unreadable apart -- so it
+// sits beside `map`, which cannot move here because its Map and Set members pin it (F216).
 
 // The text of `b`, or an Err when `b` is not valid UTF-8 (naming the byte offset of the first
 // invalid sequence) or holds a 0 byte (a string cannot) -- the one real boundary where untrusted
@@ -320,18 +323,6 @@ internal native fn permute<T>(items: [T], order: [int]) -> [T]
 // The positions 0..n ordered by `cmp(a, b)` (negative, zero or positive, like `compare`, over
 // two positions): a stable merge sort in two reused buffers.
 internal native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
-
-// See `map`.
-pub native fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
-
-// Walks the builder once and collects into a fresh one; see `map`.
-pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U] {
-    val out = mutable_array_new<U>()
-    for item in items {
-        concat(out, f(item))
-    }
-    return snapshot(out)
-}
 
 // `items` in ascending order of their own `compare`, which orders any number, string or byte,
 // and any struct or enum with a `<type>_compare` function (`#[derive(Ord)]` writes one). Stable:
