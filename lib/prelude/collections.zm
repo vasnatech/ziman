@@ -1,15 +1,23 @@
 // collections.zm -- the questions every collection answers, and the only file whose names are not
-// about one type. Seven names are left: `len` over nine types, `contains` over nine, `filter` over
-// six, `remove` over six, `mutable` over four of which one is a bare `T`, and `map` with
+// about one type. Seven names are left: `len` over nine types, `contains` over nine, `remove` over
+// six, `filter` over four, `mutable` over four of which one is a bare `T`, and `map` with
 // `flat_map` beside it.
 //
-// **Six against four is where the line fell.** A name stays here when its members span so many of
-// the per-type files that none of them is its home, and the threshold is not a principle -- it is
-// where reading one file stopped answering "what does this name accept". `snapshot` and `clear`
-// have four members each and left, one per file; `filter` and `remove` have six and stayed. What
-// makes those two different in kind rather than in degree is that they reach *both* worlds of all
-// three collections, so every per-type file would hold a fragment and `--api builtins` would be
-// the only place the set exists at all.
+// **A name stays here when its members span so many of the per-type files that none of them is its
+// home**, and the threshold is not a principle -- it is where reading one file stopped answering
+// "what does this name accept". `snapshot` and `clear` had four members each and left, one per
+// file. `remove` has six, reaching *both* worlds of all three collections, so every per-type file
+// would hold a fragment and `--api builtins` would be the only place the whole set exists.
+//
+// **`filter` is the open question, and it is recorded as one rather than argued away.** Its array
+// pair went to array.zm on 2026-10-22 at the user's instruction, leaving four members here that
+// are Map, Set, MutableMap and MutableSet -- two worlds of two collections, not three. The filing
+// rule would send those to map.zm and set.zm and leave `filter` with no entry here at all, which
+// is probably where this ends up. What holds it back is only that **`remove` is in exactly the
+// same position and has not moved**: its six include an array pair that the same rule would
+// likewise send to array.zm, and splitting one of the two while the other stays is the
+// inconsistency to resolve, in whichever direction. Until then `filter`'s six live in two files
+// and nothing shows them together, which the header below is no longer quiet about.
 //
 // Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
 // loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
@@ -22,14 +30,22 @@
 // **A declaration lives in the file for the type its first argument has.** So `concat`'s string
 // form is in string.zm and its array forms in array.zm, and `get_or`'s `Option` form is in
 // option.zm with its two map forms in map.zm -- one overload set, read where each member's type
-// lives. `ziman --api builtins` still prints a set together, so the listing answers "what does
-// this name accept" in one place even when the sources do not.
+// lives.
+//
+// **Nothing shows a split set in one place, and this used to claim otherwise.** The sentence here
+// read *"`ziman --api builtins` still prints a set together, so the listing answers 'what does
+// this name accept' in one place even when the sources do not"* -- which was true only while no
+// set was ever split, since that listing is in **file order**. Checked on 2026-10-22: `filter` is
+// printed in two blocks 56 lines apart, `concat` in two, `get_or` in two, and `snapshot` and
+// `clear` in **four** each. So the listing was cited as what made splitting safe and does not do
+// it. `docs/lib/prelude.md` has the same shape, one `###` heading per file. Grouping the listing
+// by name would make the sentence true and is not done yet.
 //
 // That reverses the older rule, which kept a split set whole in collections.zm. What remains in
 // collections.zm is the names whose members span so many types that no one file is theirs -- `len`
-// over nine, `contains` over nine, `filter` over six, `remove` over six -- plus `map` and
-// `flat_map`, which `map`'s Map and Set members pin there, and `mutable`, whose fourth member
-// takes a bare `T` and so has no file at all. **Everything else splits, however few files that
+// over nine, `contains` over nine, `remove` over six -- plus `map` and `flat_map`, which `map`'s
+// Map and Set members pin there, `mutable`, whose fourth member takes a bare `T` and so has no
+// file at all, and `filter`, down to four since its array pair moved to array.zm on 2026-10-22. **Everything else splits, however few files that
 // means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
 // and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
 //
@@ -72,13 +88,6 @@
 // (F216); if a second ever wants the same, this is the precedent and the rule above needs
 // rewriting rather than another exception.
 
-// Keeps only the elements `keep` answers true for, in place. The one filter in the language that
-// allocates nothing: it walks once with a write cursor trailing the read cursor, where
-// `filter(snapshot(xs), keep)` makes two copies. `keep` must not change the builder -- a
-// reallocation inside it cannot corrupt anything, but the rest of the walk would then be visiting
-// the buffer mid-compaction, the same class of thing as appending during a `for`.
-pub native fn filter<T>(items: MutableArray<T>, keep: fn(T) -> bool)
-
 // Drops every entry `keep` answers false for, in place -- the MutableMap half of `filter`, where
 // the `Map` half answers a new Map instead. Safe for the same snapshot reason as `update_all`.
 pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool) {
@@ -104,10 +113,6 @@ builtin fn filter<K: Eq + Hash, V>(m: Map<K, V>, keep: fn(K, V) -> bool) -> Map<
 
 // The elements `keep` answers true for, as a new Set, in their existing order.
 builtin fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
-
-// `f` applied to every element, as a new array of the ones it kept -- `filter`'s array member,
-// native for the reason `map`'s is.
-pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
 
 // Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
 // `discard` instead when the removed value is not wanted: answering with an `Option`

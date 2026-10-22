@@ -19,14 +19,22 @@ header is generated from its source by the Makefile's prelude rule.
 **A declaration lives in the file for the type its first argument has.** So `concat`'s string
 form is in string.zm and its array forms in array.zm, and `get_or`'s `Option` form is in
 option.zm with its two map forms in map.zm -- one overload set, read where each member's type
-lives. `ziman --api builtins` still prints a set together, so the listing answers "what does
-this name accept" in one place even when the sources do not.
+lives.
+
+**Nothing shows a split set in one place, and this used to claim otherwise.** The sentence here
+read *"`ziman --api builtins` still prints a set together, so the listing answers 'what does
+this name accept' in one place even when the sources do not"* -- which was true only while no
+set was ever split, since that listing is in **file order**. Checked on 2026-10-22: `filter` is
+printed in two blocks 56 lines apart, `concat` in two, `get_or` in two, and `snapshot` and
+`clear` in **four** each. So the listing was cited as what made splitting safe and does not do
+it. `docs/lib/prelude.md` has the same shape, one `###` heading per file. Grouping the listing
+by name would make the sentence true and is not done yet.
 
 That reverses the older rule, which kept a split set whole in collections.zm. What remains in
 collections.zm is the names whose members span so many types that no one file is theirs -- `len`
-over nine, `contains` over nine, `filter` over six, `remove` over six -- plus `map` and
-`flat_map`, which `map`'s Map and Set members pin there, and `mutable`, whose fourth member
-takes a bare `T` and so has no file at all. **Everything else splits, however few files that
+over nine, `contains` over nine, `remove` over six -- plus `map` and `flat_map`, which `map`'s
+Map and Set members pin there, `mutable`, whose fourth member takes a bare `T` and so has no
+file at all, and `filter`, down to four since its array pair moved to array.zm on 2026-10-22. **Everything else splits, however few files that
 means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
 and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
 
@@ -216,16 +224,6 @@ builtin fn max<T: Ord>(values: variadic T) -> T
 ### `filter`
 
 ```
-pub native fn filter<T>(items: MutableArray<T>, keep: fn(T) -> bool)
-```
-
-Keeps only the elements `keep` answers true for, in place. The one filter in the language that
-allocates nothing: it walks once with a write cursor trailing the read cursor, where
-`filter(snapshot(xs), keep)` makes two copies. `keep` must not change the builder -- a
-reallocation inside it cannot corrupt anything, but the rest of the walk would then be visiting
-the buffer mid-compaction, the same class of thing as appending during a `for`.
-
-```
 pub fn filter<K: Eq + Hash, V>(m: MutableMap<K, V>, keep: fn(K, V) -> bool)
 ```
 
@@ -250,13 +248,6 @@ builtin fn filter<T: Eq + Hash>(s: Set<T>, keep: fn(T) -> bool) -> Set<T>
 ```
 
 The elements `keep` answers true for, as a new Set, in their existing order.
-
-```
-pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
-```
-
-`f` applied to every element, as a new array of the ones it kept -- `filter`'s array member,
-native for the reason `map`'s is.
 
 ### `remove`
 
@@ -752,6 +743,37 @@ pub fn reverse<T>(items: MutableArray<T>)
 ```
 
 Reverses the buffer in place -- no copy at all, where `reverse(snapshot(xs))` makes two.
+
+### `filter`
+
+```
+pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
+```
+
+**The elements `keep` answers true for, as a new array**, in their existing order. `filter`'s
+array member; the Map, Set, MutableMap and MutableSet members are in collections.zm, and
+nothing prints all six in one place -- see the header above.
+
+`native fn` for the reason `map`'s array member is one: the walk is a C loop over the elements
+with one call back into Ziman per element, where the Ziman version would also pay for a builder
+it then snapshots.
+
+It sat in collections.zm with the other four until 2026-10-22, which the filing rule had always
+said was wrong -- a declaration lives in the file for its first argument's type -- and the pair
+below is why it matters: `reverse`'s two members above and these two are the same lesson twice,
+so they read better in one file than the whole of `filter` did in another.
+
+```
+pub native fn filter<T>(items: MutableArray<T>, keep: fn(T) -> bool)
+```
+
+**Keeps only the elements `keep` answers true for, in place.** The one filter in the language
+that allocates nothing: it walks once with a write cursor trailing the read cursor, where
+`filter(snapshot(xs), keep)` makes two copies -- the same two `reverse(snapshot(xs))` makes.
+
+`keep` must not change the builder. A reallocation inside it cannot corrupt anything, but the
+rest of the walk would then be visiting the buffer mid-compaction, the same class of thing as
+appending during a `for`.
 
 ### `iter`
 
