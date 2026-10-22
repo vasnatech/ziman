@@ -35,8 +35,10 @@
 // **Two born paired: sorting by a computed key** -- `sort_by` and `sort_by_desc` compute
 // `key(item)` **once per item** and sort the keys, where
 // `sort_with(items, fn(a, b) { compare(key(a), key(b)) })` recomputes both keys inside every
-// comparison: O(n) key computations against O(n log n). For a field access the difference is
-// nothing; for a parsed date or a formatted string it is the whole reason the form exists. They
+// comparison: O(n) key computations against O(n log n). For a parsed date or a formatted string
+// that is the whole reason the form exists -- and even for a plain field access it is not nothing,
+// because a key array of scalars sorts in C where a comparator cannot: 200,000 rows by an `int`
+// field are 0.04 s through `sort_by` and 1.07 s through the equivalent `sort_with` (F216). They
 // replace `array_sort_by_keys`/`_desc`, which asked the caller to build the key array itself and
 // so took **two** sequences -- the four world combinations of two arrays cannot be chosen from
 // argument one. `inverse` cannot stand in for `sort_by_desc` the way it does for a comparator: it
@@ -328,6 +330,27 @@ internal native fn sort_positions(n: int, cmp: fn(int, int) -> int) -> [int]
 // and any struct or enum with a `<type>_compare` function (`#[derive(Ord)]` writes one). Stable:
 // equal elements keep their input order. Packed numbers and strings sort natively; anything else
 // goes through a generic stable merge sort.
+//
+// **Those two paths are three hundred times apart, so it is worth knowing which one a call takes.**
+// Measured at 200,000 elements (F216; a 2026-era desktop, so read the ratios and not the seconds):
+//
+//     sort([int]) / sort_desc([int])     0.01 s   packed, compared natively
+//     sort([string])                     0.06 s   packed, compared natively
+//     sort([Row]) with #[derive(Ord)]    3.2  s   a Ziman compare per comparison
+//
+// The generic path is O(n log n) and correct -- it scales as it should, 0.69/1.44/3.18 s over
+// 50k/100k/200k -- it simply calls `Row_compare` about 3.5 million times at this size, and each of
+// those is an interpreter call. `sort_with` is the same story for the same reason (0.69 s on
+// `[int]` with a comparator of your own, 70x the native path).
+//
+// **If one field decides the order, `sort_by` is the form to reach for** -- 0.04 s on the same
+// 200,000 rows, because the key is computed once per element and the keys then sort natively.
+// **It is not a faster `sort`, though: it is a different ordering.** `sort` by a derived `Ord`
+// compares every field in declaration order, so it is total; `sort_by` compares one key and leaves
+// ties in input order. Three rows, two sharing a key, make the difference visible:
+//
+//     sort(rs)            [b, a, c]   k, then name
+//     sort_by(rs, r.k)    [b, c, a]   k only, so the tie keeps its input order
 pub fn sort<T: Ord>(items: [T]) -> [T] {
     // The two paths are `sort_scalars` and `sort_positions` + `permute`. Named here rather than
     // in the doc comment above: they are `internal`, so a doc comment naming them would leave
@@ -402,6 +425,18 @@ pub fn inverse<T>(cmp: fn(T, T) -> int) -> fn(T, T) -> int {
 // decorate step no longer the caller's job. `key` returning an int, float, byte or string also
 // keeps the native sort: `map` answers a real `[K]`, so `array_order_of`'s scalar fast
 // path still fires. Stable: equal keys keep their input order.
+//
+// **That fast path is the whole point, and it is large**: 200,000 structs sorted by an `int` field
+// take 0.04 s here, against 3.2 s for `sort` over the same rows with a derived `Ord` and 1.07 s for
+// `sort_with` comparing the same field -- the key is computed 200,000 times instead of being
+// recomputed inside 3.5 million comparisons, and `[int]` keys then sort in C.
+//
+// **It is a different ordering, not a cheaper one**, which is the part worth reading twice before
+// swapping one for the other. A derived `Ord` compares every field in declaration order and is
+// therefore total; this compares one key and, being stable, leaves ties in their input order. On
+// `[Row { k: 1, name: "c" }, Row { k: 1, name: "a" }, Row { k: 0, name: "b" }]`, `sort` answers
+// `[b, a, c]` and `sort_by(rs, r.k)` answers `[b, c, a]`. Pick by the order you want; the cost is
+// the tie-breaker only when both orders are correct for the job.
 pub fn sort_by<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T] {
     return permute<T>(items, array_order_of<K>(map<T, K>(items, key), false))
 }
