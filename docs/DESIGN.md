@@ -176,6 +176,7 @@ them against the code.
 - [The last prefixed appenders go, and a mutation gets to say it answers something (2026-10-21, F208)](#the-last-prefixed-appenders-go-and-a-mutation-gets-to-say-it-answers-something-2026-10-21-f208)
 - [`b[i]` stops being a call (2026-10-21, F209)](#bi-stops-being-a-call-2026-10-21-f209)
 - [`concat` keeps the decision and gives up the dispatch (2026-10-21)](#concat-keeps-the-decision-and-gives-up-the-dispatch-2026-10-21)
+- [The filing rule finishes, and six against four is where the line fell (2026-10-21)](#the-filing-rule-finishes-and-six-against-four-is-where-the-line-fell-2026-10-21)
 
 <!-- end index -->
 
@@ -7637,3 +7638,48 @@ disables is the one that catches a set no call can resolve, so:
 
 1,127 fixtures. `concat`'s own diagnostics are unchanged, being derived from the arm as before, and
 every shape is now a fixture rather than a comment: tests/lang/concat_declarations.zm.
+
+
+## The filing rule finishes, and six against four is where the line fell (2026-10-21)
+
+The prelude became a directory in F203 with the seam "a file is about one type", and collections.zm
+was the exception: the file for names that are about *no* one type. The original rule put a name
+there as soon as its declarations would otherwise be split across two files, which kept every
+overload set whole in one place. That reversed on 2026-10-21 — **a declaration lives in the file for
+the type its first argument has** — and this is the other half of that change, the part that moves
+the sets the reversal was about.
+
+Five left collections.zm: `update` to mutable.zm and map.zm; `set` to map.zm (two members) and
+array.zm; `remove_all` to map.zm (two) and set.zm; `snapshot` and `clear` to four files each, one
+member apiece. Seven names stayed — `len` over nine types, `contains` over nine, `filter` over six,
+`remove` over six, `mutable` over four of which one takes a bare `T` and so has no file at all, and
+`map` with `flat_map` beside it (F216).
+
+**The threshold is not a principle, and the comment in collections.zm says so.** `snapshot` has four
+members and splits one per file; `filter` has six and stays whole. What makes those different in
+kind rather than in degree is that `filter` and `remove` reach *both* worlds of all three
+collections, so every per-type file would hold a fragment and `--api builtins` would be the only
+place the whole set exists. Four members over four files is still four files a reader can be sent
+to; six over six is a set with no home. Where exactly it tips is a judgement, and recording that it
+is one is better than inventing a rule that sounds inevitable.
+
+**One observable thing changed, and it is worth knowing before the next split.** A set's
+`#[when_unmatched]` error lists the types it accepts in *declaration* order, and declaration order
+is file load order once a set spans files. So `snapshot`'s refusal went from naming
+"MutableArray<T>, MutableString, MutableMap<K, V> or MutableSet<T>" — collections.zm's hand-chosen
+order, sequence-like first — to "MutableArray<T>, MutableMap<K, V>, MutableSet<T> or MutableString",
+which is array, map, set, string: the prelude's files in alphabetical order. Four `.err` fixtures
+pinned the old wording and now pin the new. The list is still complete and still deterministic; what
+a split set gives up is the ability to choose the order a reader meets the types in, and no amount
+of commenting in one file can get it back.
+
+**What is left is the same work one layer in.** map.zm and set.zm still group their own names by
+world rather than by set — `get`, `keys`, `values`, `merge` in one, `add`, `union`, `intersect`,
+`difference`, `is_subset` in the other, each with a builder block and an immutable block between
+them, which is exactly the shape F210 found in array.zm and the sweep found in collections.zm. It
+is a larger piece than it looks: most of those immutable declarations carry no doc comment at all,
+so the blank entries they publish in `docs/lib/prelude.md` have to be *written* rather than moved,
+and that is content work rather than a reordering.
+
+1,127 fixtures, every guard green. iter.zm turned out to still state the rule this replaced, having
+been missed when the reversal shipped; all ten headers now say the same thing.

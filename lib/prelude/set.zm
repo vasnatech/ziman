@@ -15,11 +15,13 @@
 // lives. `ziman --api builtins` still prints a set together, so the listing answers "what does
 // this name accept" in one place even when the sources do not.
 //
-// That reverses the older rule, which kept a split set whole in collections.zm. What remains here
-// is the names whose members span so many types that no one file is theirs -- `len` over nine,
-// `contains` over nine, `filter` over six, `remove` over six -- plus `map` and `flat_map`, which
-// `map`'s Map and Set members pin here. See docs/DESIGN.md's "Overloading available to a
-// declaration".
+// That reverses the older rule, which kept a split set whole in collections.zm. What remains in
+// collections.zm is the names whose members span so many types that no one file is theirs -- `len`
+// over nine, `contains` over nine, `filter` over six, `remove` over six -- plus `map` and
+// `flat_map`, which `map`'s Map and Set members pin there, and `mutable`, whose fourth member
+// takes a bare `T` and so has no file at all. **Everything else splits, however few files that
+// means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
+// and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
 
 // A mutable set under construction; see MutableMap.
 #[thread_bound]
@@ -51,6 +53,24 @@ pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
         }
     }
     return added_any
+}
+
+// Drops each of `items`, answering whether any of them was there -- `add`'s opposite, and variadic
+// for the same reason. The map form answers the same question of keys and is in map.zm; `remove`
+// itself, the singular over all six collections, stays in collections.zm.
+//
+// `#[effectful]` for the reason `add` carries it: "did anything change?" is an answer
+// "make sure these are gone" has no use for.
+#[at_least_one]
+#[effectful]
+pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
+    var removed_any = false
+    for item in items {
+        if remove<T>(s, item) {
+            removed_any = true
+        }
+    }
+    return removed_any
 }
 
 // The elements as an array, in insertion order, as `items` gives for a Set.
@@ -86,3 +106,11 @@ builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 
 builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
 builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
+
+// The elements added so far as an ordinary `Set`, in insertion order; O(n), and the builder stays
+// usable afterwards. `items` answers the same elements as an array -- this one answers the type
+// the builder is building, which is what makes it `snapshot` and not a second `items`.
+native fn snapshot<T: Eq + Hash>(s: MutableSet<T>) -> Set<T>
+
+// Empties the builder in place, keeping the handle.
+native fn clear<T: Eq + Hash>(s: MutableSet<T>)

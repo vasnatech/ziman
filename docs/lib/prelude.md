@@ -22,11 +22,13 @@ option.zm with its two map forms in map.zm -- one overload set, read where each 
 lives. `ziman --api builtins` still prints a set together, so the listing answers "what does
 this name accept" in one place even when the sources do not.
 
-That reverses the older rule, which kept a split set whole in collections.zm. What remains here
-is the names whose members span so many types that no one file is theirs -- `len` over nine,
-`contains` over nine, `filter` over six, `remove` over six -- plus `map` and `flat_map`, which
-`map`'s Map and Set members pin here. See docs/DESIGN.md's "Overloading available to a
-declaration".
+That reverses the older rule, which kept a split set whole in collections.zm. What remains in
+collections.zm is the names whose members span so many types that no one file is theirs -- `len`
+over nine, `contains` over nine, `filter` over six, `remove` over six -- plus `map` and
+`flat_map`, which `map`'s Map and Set members pin there, and `mutable`, whose fourth member
+takes a bare `T` and so has no file at all. **Everything else splits, however few files that
+means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
+and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
 
 *This module is never imported: everything it declares is available bare in every program.*
 
@@ -211,24 +213,6 @@ builtin fn max<T: Ord>(values: variadic T) -> T
 
 ## `collections.zm`
 
-### `update`
-
-```
-pub fn update<T>(cell: Mutable<T>, f: fn(T) -> T) -> T
-```
-
-`f` applied to the value in the cell, stored back, and returned -- the counter idiom,
-`update(n, fn(x) { x + 1 })`, and the same shape `update` has. Ordinary
-Ziman over `mutable_get`/`mutable_set`, since there is no lookup for a native to save.
-
-```
-pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V
-```
-
-`f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
-lookup where `get` then `set` is two, which is the whole reason this exists where
-`mutable_set`-on-a-cell did not need an equivalent.
-
 ### `filter`
 
 ```
@@ -273,26 +257,6 @@ pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
 
 `f` applied to every element, as a new array of the ones it kept -- `filter`'s array member,
 native for the reason `map`'s is.
-
-### `set`
-
-```
-pub native fn set<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, value: V)
-```
-
-Adds `key`, or replaces its value while keeping its position.
-
-```
-builtin fn set<T>(items: [T], index: int, x: T) -> [T]
-```
-
-`set` has no MutableArray form on purpose: an element write there is `b[i] = value`, the same
-sugar an array's element write gets, and a copying three-argument call would read as though it
-left the container alone. `set(b, i, v)` says so rather than failing as an unknown overload.
-
-```
-builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
-```
 
 ### `remove`
 
@@ -352,31 +316,6 @@ declaration of its own: the interpreter's symbol fallback reads parameter one an
 registered `mutable_array_remove`. It was a `builtin fn` until F208 and the builtin id never
 ran -- `check_call`'s arm rewrote the callee first, and `call_remove` only ever handled an
 array, so the id path would have read an `ArrayObj` out of a handle had anything reached it.
-
-### `remove_all`
-
-```
-pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool
-```
-
-Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
-of what the singular takes, which for a map's `remove` is keys rather than entries.
-
-`#[effectful]` for the reason `remove` itself carries it: the call writes the map, and "was any
-of it there?" is an answer "delete these if present" has no use for.
-
-```
-pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
-```
-
-Drops each of `items`, answering whether any of them was there.
-
-```
-builtin fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
-```
-
-`m` without any of `keys`, as a new Map. The immutable half: the MutableMap form above drops
-them in place and answers whether any was there, where this answers the map that is left.
 
 ### `map`
 
@@ -525,52 +464,6 @@ native fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
 
 ```
 native fn contains<T: Eq>(cell: Mutable<T>, x: T) -> bool
-```
-
-### `snapshot`
-
-```
-native fn snapshot<T>(items: MutableArray<T>) -> [T]
-```
-
-Each builder to its immutable counterpart. O(n), and the handle stays usable.
-
-**Four shapes, not five**: `len` and `contains` above also take a `Mutable<T>` cell and these two
-deliberately do not, each refusing with its own reason. `snapshot` of a cell is `mutable_get` --
-the same crossing out of the handle, but O(1) rather than the O(n) copy this name promises -- and
-a cell has no `clear`, being always initialised, where emptying it would need exactly the zero
-value its type may not have. Visible here rather than only on trying it.
-
-```
-native fn snapshot(s: MutableString) -> string
-```
-
-```
-native fn snapshot<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Map<K, V>
-```
-
-```
-native fn snapshot<T: Eq + Hash>(s: MutableSet<T>) -> Set<T>
-```
-
-### `clear`
-
-```
-native fn clear<T>(items: MutableArray<T>)
-```
-
-Empties a builder in place, keeping the handle.
-
-```
-native fn clear(s: MutableString)
-```
-
-```
-native fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)
-```
-
-```
-native fn clear<T: Eq + Hash>(s: MutableSet<T>)
 ```
 
 ### `mutable`
@@ -740,6 +633,38 @@ keeps removing. Required also means it calls positionally -- `mutable_array_fill
 There is no immutable twin: `snapshot(mutable_array_filled(n, v))` is the way to an `[T]` of
 repeats, and `array_filled` would have to be a second name rather than an overload, differing
 from this only in what it returns.
+
+### `snapshot`
+
+```
+native fn snapshot<T>(items: MutableArray<T>) -> [T]
+```
+
+**Each builder to the immutable value it is building.** O(n), and the handle stays usable
+afterwards, which is what makes `snapshot` a reader rather than a finisher: a builder can be
+snapshotted, appended to and snapshotted again.
+
+**Four shapes, not five, and the other three are elsewhere** -- a MutableString's in string.zm,
+a MutableMap's in map.zm, a MutableSet's in set.zm, one declaration per file for the type it
+takes. What stays here is the refusal the whole set shares, because `#[when_unmatched]` is read
+off whichever member writes it: `len` and `contains` take a `Mutable<T>` cell and these two
+deliberately do not. `snapshot` of a cell is `mutable_get` -- the same crossing out of the
+handle, but O(1) rather than the O(n) copy this name promises -- and a cell has no `clear`,
+being always initialised, where emptying it would need exactly the zero value its type may not
+have. mutable.zm says the same thing from the cell's side.
+
+**In a loop, `snapshot` is the quadratic cost a builder exists to avoid** (`--lint` flags that
+shape). A loop that needs what it has already appended reads `b[i]` or `for x in b` instead; see
+the banner above.
+
+### `clear`
+
+```
+native fn clear<T>(items: MutableArray<T>)
+```
+
+Empties a builder in place, keeping the handle. `narrow(items, 0, 0)` is the same thing said
+the long way, and this is the word for it.
 
 ### `narrow`
 
@@ -1194,6 +1119,19 @@ promise a cost it cannot give. Build tail-first and `reverse` once.
 `native fn` for the reason the MutableArray `push` above is one, and the pair converted
 together in F207: the symbol fallback reads parameter one, which is the only place these two
 declarations differ, so it finds `mutable_array_insert`.
+
+### `set`
+
+```
+builtin fn set<T>(items: [T], index: int, x: T) -> [T]
+```
+
+**A new array with `index` replaced** -- `set`'s array member, the other two being a Map's and a
+MutableMap's in map.zm, which replace the value under a key.
+
+`set` has no MutableArray form on purpose: an element write there is `b[i] = value`, the same
+sugar an array's element write gets, and a copying three-argument call would read as though it
+left the container alone. `set(b, i, v)` says so rather than failing as an unknown overload.
 
 ### `array_order_of`
 
@@ -1839,6 +1777,27 @@ removing and re-inserting every key: 351-363 ns/op through `remove` against 110-
 through the bool-returning path -- the removal itself is a fraction of either. Reach for
 `remove` only when the old value is actually needed.
 
+### `remove_all`
+
+```
+pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool
+```
+
+Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
+of what the singular takes, which for a map's `remove` is keys rather than entries.
+
+`#[effectful]` for the reason `remove` itself carries it: the call writes the map, and "was any
+of it there?" is an answer "delete these if present" has no use for.
+
+```
+builtin fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
+```
+
+`m` without any of `keys`, as a new Map. The immutable half: the MutableMap form above drops
+them in place and answers whether any was there, where this answers the map that is left. The
+MutableSet form is in set.zm, and `remove` itself -- the singular over all six collections --
+stays in collections.zm.
+
 ### `get_or`
 
 ```
@@ -1856,6 +1815,33 @@ The same of a builder. Ordinary Ziman rather than a builtin, since it is exactly
 the point is that a counting loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line
 instead of four. The `Option` form of this name is in option.zm, being the one-entry case of the
 same question.
+
+### `set`
+
+```
+pub native fn set<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, value: V)
+```
+
+Adds `key`, or replaces its value while keeping its position.
+
+```
+builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
+```
+
+A new Map with `key` added, or with its value replaced and its position kept -- the immutable
+half of the builder form above, which writes in place and answers nothing. `set`'s third member
+takes an array and an index and is in array.zm; neither set world has one, membership being
+`add` in both, and no builder has one either, an element write being `b[i] = value`.
+
+### `update`
+
+```
+pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V
+```
+
+`f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
+lookup where `get` then `set` is two, which is the whole reason this exists where
+`mutable_set`-on-a-cell did not need an equivalent. `update`'s cell form is in mutable.zm.
 
 ### `update_all`
 
@@ -1959,6 +1945,25 @@ builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
 builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
 ```
 
+### `snapshot`
+
+```
+native fn snapshot<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Map<K, V>
+```
+
+The entries added so far as an ordinary `Map`, in insertion order; O(n), and the builder stays
+usable afterwards. `snapshot`'s other three members take a MutableArray, a MutableString and a
+MutableSet, each in the file for its type, and the refusal the whole set shares is written on
+the MutableArray form in array.zm.
+
+### `clear`
+
+```
+native fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)
+```
+
+Empties the builder in place, keeping the handle.
+
 ## `mutable.zm`
 
 ### `Mutable`
@@ -2007,6 +2012,17 @@ native fn mutable_set<T>(cell: Mutable<T>, value: T)
 ```
 
 Replaces the value in the cell.
+
+### `update`
+
+```
+pub fn update<T>(cell: Mutable<T>, f: fn(T) -> T) -> T
+```
+
+`f` applied to the value in the cell, stored back, and returned -- the counter idiom,
+`update(n, fn(x) { x + 1 })`. Ordinary Ziman over `mutable_get`/`mutable_set`, since there is no
+lookup for a native to save, where the MutableMap form of this name is a native precisely
+because there is one. That form takes a key and is in map.zm, with the entry it updates.
 
 ## `option.zm`
 
@@ -2253,6 +2269,19 @@ or several is never ambiguous when only the `_all` form takes many.
 attribute the dropped-result gate reads a non-void prelude overload as pure and refuses it, as
 it did from F199 until F212.
 
+### `remove_all`
+
+```
+pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
+```
+
+Drops each of `items`, answering whether any of them was there -- `add`'s opposite, and variadic
+for the same reason. The map form answers the same question of keys and is in map.zm; `remove`
+itself, the singular over all six collections, stays in collections.zm.
+
+`#[effectful]` for the reason `add` carries it: "did anything change?" is an answer
+"make sure these are gone" has no use for.
+
 ### `items`
 
 ```
@@ -2334,6 +2363,24 @@ builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
 ```
 builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
 ```
+
+### `snapshot`
+
+```
+native fn snapshot<T: Eq + Hash>(s: MutableSet<T>) -> Set<T>
+```
+
+The elements added so far as an ordinary `Set`, in insertion order; O(n), and the builder stays
+usable afterwards. `items` answers the same elements as an array -- this one answers the type
+the builder is building, which is what makes it `snapshot` and not a second `items`.
+
+### `clear`
+
+```
+native fn clear<T: Eq + Hash>(s: MutableSet<T>)
+```
+
+Empties the builder in place, keeping the handle.
 
 ## `string.zm`
 
@@ -2674,6 +2721,28 @@ native fn mutable_string_last_index_of(s: MutableString, needle: string) -> int
 
 The byte index of the last `needle`, or -1; an empty `needle` is found at `len(sb)`. No `from`,
 because `last_index_of(s, needle)` has none either.
+
+### `snapshot`
+
+```
+native fn snapshot(s: MutableString) -> string
+```
+
+What has been appended so far as an ordinary `string`; O(n), and the builder stays usable
+afterwards. The one crossing out of a MutableString, and the reason there is no
+`mutable_string_to_string`: `snapshot` is the word every builder uses, its other three members
+taking a MutableArray, a MutableMap and a MutableSet in their own files.
+
+**In a loop this is the quadratic cost the builder exists to avoid.** `append` is what a loop
+writes; `snapshot` is what runs once at the end (`--lint` flags the other shape).
+
+### `clear`
+
+```
+native fn clear(s: MutableString)
+```
+
+Empties the builder in place, keeping the handle and its capacity.
 
 ### `lines`
 

@@ -17,11 +17,13 @@
 // lives. `ziman --api builtins` still prints a set together, so the listing answers "what does
 // this name accept" in one place even when the sources do not.
 //
-// That reverses the older rule, which kept a split set whole in collections.zm. What remains here
-// is the names whose members span so many types that no one file is theirs -- `len` over nine,
-// `contains` over nine, `filter` over six, `remove` over six -- plus `map` and `flat_map`, which
-// `map`'s Map and Set members pin here. See docs/DESIGN.md's "Overloading available to a
-// declaration".
+// That reverses the older rule, which kept a split set whole in collections.zm. What remains in
+// collections.zm is the names whose members span so many types that no one file is theirs -- `len`
+// over nine, `contains` over nine, `filter` over six, `remove` over six -- plus `map` and
+// `flat_map`, which `map`'s Map and Set members pin there, and `mutable`, whose fourth member
+// takes a bare `T` and so has no file at all. **Everything else splits, however few files that
+// means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
+// and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
 
 // The mutable counterparts of Map and Set, for building one entry by entry. `set` on a Map and
 // `add` on a Set copy a few nodes each time; a builder changes its own private structure in place,
@@ -49,6 +51,30 @@ pub native fn get<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
 // `remove` only when the old value is actually needed.
 pub native fn discard<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K)
 
+// Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
+// of what the singular takes, which for a map's `remove` is keys rather than entries.
+//
+// `#[effectful]` for the reason `remove` itself carries it: the call writes the map, and "was any
+// of it there?" is an answer "delete these if present" has no use for.
+#[at_least_one]
+#[effectful]
+pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool {
+    var removed_any = false
+    for k in keys {
+        if Some(_old) = remove<K, V>(m, k) {
+            removed_any = true
+        }
+    }
+    return removed_any
+}
+
+// `m` without any of `keys`, as a new Map. The immutable half: the MutableMap form above drops
+// them in place and answers whether any was there, where this answers the map that is left. The
+// MutableSet form is in set.zm, and `remove` itself -- the singular over all six collections --
+// stays in collections.zm.
+#[at_least_one]
+builtin fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
+
 // **The value under `key`, or `value` when there is none** -- and no `Option` allocated either
 // way, which is why it is not `get` plus `unwrap_Some`.
 builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> V
@@ -58,6 +84,24 @@ builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> V
 // instead of four. The `Option` form of this name is in option.zm, being the one-entry case of the
 // same question.
 pub native fn get_or<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, value: V) -> V
+
+// Adds `key`, or replaces its value while keeping its position.
+pub native fn set<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, value: V)
+
+// A new Map with `key` added, or with its value replaced and its position kept -- the immutable
+// half of the builder form above, which writes in place and answers nothing. `set`'s third member
+// takes an array and an index and is in array.zm; neither set world has one, membership being
+// `add` in both, and no builder has one either, an element write being `b[i] = value`.
+builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
+
+// `f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
+// lookup where `get` then `set` is two, which is the whole reason this exists where
+// `mutable_set`-on-a-cell did not need an equivalent. `update`'s cell form is in mutable.zm.
+pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V {
+    val next = f(get<K, V>(m, key))
+    set<K, V>(m, key, next)
+    return next
+}
 
 // `f` applied to every value, keys and their order unchanged. Safe to write as a `for` plus a
 // `set` because iterating a MutableMap walks a snapshot of the entries, so the writes cannot
@@ -134,3 +178,12 @@ pub fn entries<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [MapEntry<K, V>] {
 
 builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
 builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
+
+// The entries added so far as an ordinary `Map`, in insertion order; O(n), and the builder stays
+// usable afterwards. `snapshot`'s other three members take a MutableArray, a MutableString and a
+// MutableSet, each in the file for its type, and the refusal the whole set shares is written on
+// the MutableArray form in array.zm.
+native fn snapshot<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Map<K, V>
+
+// Empties the builder in place, keeping the handle.
+native fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)

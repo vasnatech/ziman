@@ -19,11 +19,13 @@
 // lives. `ziman --api builtins` still prints a set together, so the listing answers "what does
 // this name accept" in one place even when the sources do not.
 //
-// That reverses the older rule, which kept a split set whole in collections.zm. What remains here
-// is the names whose members span so many types that no one file is theirs -- `len` over nine,
-// `contains` over nine, `filter` over six, `remove` over six -- plus `map` and `flat_map`, which
-// `map`'s Map and Set members pin here. See docs/DESIGN.md's "Overloading available to a
-// declaration".
+// That reverses the older rule, which kept a split set whole in collections.zm. What remains in
+// collections.zm is the names whose members span so many types that no one file is theirs -- `len`
+// over nine, `contains` over nine, `filter` over six, `remove` over six -- plus `map` and
+// `flat_map`, which `map`'s Map and Set members pin there, and `mutable`, whose fourth member
+// takes a bare `T` and so has no file at all. **Everything else splits, however few files that
+// means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
+// and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
 
 // `format` for a template that is a value -- read from a message catalog, say, or a translation -- with string arguments:
 // `format_dynamic("{} of {}", ["3", "10"])` is `Ok("3 of 10")`. `{}` is the next argument and `{{`/`}}` are literal braces, as
@@ -227,6 +229,18 @@ native fn mutable_string_index_of(s: MutableString, needle: string, from: int) -
 // The byte index of the last `needle`, or -1; an empty `needle` is found at `len(sb)`. No `from`,
 // because `last_index_of(s, needle)` has none either.
 native fn mutable_string_last_index_of(s: MutableString, needle: string) -> int
+
+// What has been appended so far as an ordinary `string`; O(n), and the builder stays usable
+// afterwards. The one crossing out of a MutableString, and the reason there is no
+// `mutable_string_to_string`: `snapshot` is the word every builder uses, its other three members
+// taking a MutableArray, a MutableMap and a MutableSet in their own files.
+//
+// **In a loop this is the quadratic cost the builder exists to avoid.** `append` is what a loop
+// writes; `snapshot` is what runs once at the end (`--lint` flags the other shape).
+native fn snapshot(s: MutableString) -> string
+
+// Empties the builder in place, keeping the handle and its capacity.
+native fn clear(s: MutableString)
 
 // The lines of `text`, without their terminators. Written because a cold model reaching for
 // `text.lines()` was sent to `split(text, "\n")`, which is close but not the same thing: `split`

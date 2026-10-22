@@ -17,11 +17,13 @@
 // lives. `ziman --api builtins` still prints a set together, so the listing answers "what does
 // this name accept" in one place even when the sources do not.
 //
-// That reverses the older rule, which kept a split set whole in collections.zm. What remains here
-// is the names whose members span so many types that no one file is theirs -- `len` over nine,
-// `contains` over nine, `filter` over six, `remove` over six -- plus `map` and `flat_map`, which
-// `map`'s Map and Set members pin here. See docs/DESIGN.md's "Overloading available to a
-// declaration".
+// That reverses the older rule, which kept a split set whole in collections.zm. What remains in
+// collections.zm is the names whose members span so many types that no one file is theirs -- `len`
+// over nine, `contains` over nine, `filter` over six, `remove` over six -- plus `map` and
+// `flat_map`, which `map`'s Map and Set members pin there, and `mutable`, whose fourth member
+// takes a bare `T` and so has no file at all. **Everything else splits, however few files that
+// means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
+// and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
 
 // ---------------------------------------------------------------- why one name takes both worlds
 //
@@ -211,6 +213,30 @@ native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
 // The C symbols keep the prefix throughout, which is the one place it still means anything:
 // interpreter.c's symbol fallback for the natives, and `ziman_mutable_array_index_get`/`_set` for
 // the two element accesses.
+
+// **Each builder to the immutable value it is building.** O(n), and the handle stays usable
+// afterwards, which is what makes `snapshot` a reader rather than a finisher: a builder can be
+// snapshotted, appended to and snapshotted again.
+//
+// **Four shapes, not five, and the other three are elsewhere** -- a MutableString's in string.zm,
+// a MutableMap's in map.zm, a MutableSet's in set.zm, one declaration per file for the type it
+// takes. What stays here is the refusal the whole set shares, because `#[when_unmatched]` is read
+// off whichever member writes it: `len` and `contains` take a `Mutable<T>` cell and these two
+// deliberately do not. `snapshot` of a cell is `mutable_get` -- the same crossing out of the
+// handle, but O(1) rather than the O(n) copy this name promises -- and a cell has no `clear`,
+// being always initialised, where emptying it would need exactly the zero value its type may not
+// have. mutable.zm says the same thing from the cell's side.
+//
+// **In a loop, `snapshot` is the quadratic cost a builder exists to avoid** (`--lint` flags that
+// shape). A loop that needs what it has already appended reads `b[i]` or `for x in b` instead; see
+// the banner above.
+#[when_unmatched("a Mutable cell is read with 'mutable_get', not snapshotted -- this names an O(n) copy of a collection and reading the one value a cell holds is O(1)")]
+native fn snapshot<T>(items: MutableArray<T>) -> [T]
+
+// Empties a builder in place, keeping the handle. `narrow(items, 0, 0)` is the same thing said
+// the long way, and this is the word for it.
+#[when_unmatched("an immutable collection is emptied by writing an empty one ('[]', 'Map<K, V> {}'), and a Mutable cell has no 'clear' at all -- it is always initialised, so put something in it with mutable_set")]
+native fn clear<T>(items: MutableArray<T>)
 
 // **Keeps only the elements from `start` up to `end`, in place, answering nothing.** The in-place
 // counterpart of `slice`: that one is a *query*, so it answers a value and leaves its source alone,
@@ -727,6 +753,14 @@ native fn insert<T>(items: [T], index: int, x: T) -> [T]
 // declarations differ, so it finds `mutable_array_insert`.
 #[when_unmatched("'insert' places a value at an index and has no collection form; use set(map, key, value), add(set, item) or append(sb, s)")]
 native fn insert<T>(items: MutableArray<T>, index: int, value: T)
+
+// **A new array with `index` replaced** -- `set`'s array member, the other two being a Map's and a
+// MutableMap's in map.zm, which replace the value under a key.
+//
+// `set` has no MutableArray form on purpose: an element write there is `b[i] = value`, the same
+// sugar an array's element write gets, and a copying three-argument call would read as though it
+// left the container alone. `set(b, i, v)` says so rather than failing as an unknown overload.
+builtin fn set<T>(items: [T], index: int, x: T) -> [T]
 
 // The positions of `keys` in sorted order: the array of indices that, read in order, visits
 // `keys` smallest first, or largest first when `descending`. Stable in both directions -- equal

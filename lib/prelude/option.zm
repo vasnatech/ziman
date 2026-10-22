@@ -16,11 +16,13 @@
 // lives. `ziman --api builtins` still prints a set together, so the listing answers "what does
 // this name accept" in one place even when the sources do not.
 //
-// That reverses the older rule, which kept a split set whole in collections.zm. What remains here
-// is the names whose members span so many types that no one file is theirs -- `len` over nine,
-// `contains` over nine, `filter` over six, `remove` over six -- plus `map` and `flat_map`, which
-// `map`'s Map and Set members pin here. See docs/DESIGN.md's "Overloading available to a
-// declaration".
+// That reverses the older rule, which kept a split set whole in collections.zm. What remains in
+// collections.zm is the names whose members span so many types that no one file is theirs -- `len`
+// over nine, `contains` over nine, `filter` over six, `remove` over six -- plus `map` and
+// `flat_map`, which `map`'s Map and Set members pin there, and `mutable`, whose fourth member
+// takes a bare `T` and so has no file at all. **Everything else splits, however few files that
+// means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
+// and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
 
 // A value that may be absent: `Some(value)` or `None`. Test with `Option.is_Some(o)` and read
 // with `Option.unwrap_Some(o)`, or with a `switch`. Available bare, like `Result`; unlike
