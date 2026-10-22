@@ -12,9 +12,17 @@
 // callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
 // header is generated from its source by the Makefile's prelude rule.
 //
-// A name whose declarations span more than one of these files lives in collections.zm, whole, so
-// that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
-// a declaration".
+// **A declaration lives in the file for the type its first argument has.** So `concat`'s string
+// form is in string.zm and its array forms in array.zm, and `get_or`'s `Option` form is in
+// option.zm with its two map forms in map.zm -- one overload set, read where each member's type
+// lives. `ziman --api builtins` still prints a set together, so the listing answers "what does
+// this name accept" in one place even when the sources do not.
+//
+// That reverses the older rule, which kept a split set whole in collections.zm. What remains here
+// is the names whose members span so many types that no one file is theirs -- `len` over nine,
+// `contains` over nine, `filter` over six, `remove` over six -- plus `map` and `flat_map`, which
+// `map`'s Map and Set members pin here. See docs/DESIGN.md's "Overloading available to a
+// declaration".
 //
 // **Within this file a set's members sit together**, in the order the file had them. They were
 // grouped by *world* until the sweep -- the builder mutators in one block and the immutable
@@ -45,49 +53,6 @@
 // members pinning it here. Grouping by the question beat the filing rule for that one name
 // (F216); if a second ever wants the same, this is the precedent and the rule above needs
 // rewriting rather than another exception.
-
-// Every piece, in order, joined with no separator (`concat("a", "b", "c")` is `"abc"`; zero
-// pieces is `""`). For a separator or a prefix/suffix use `join`; for many pieces built up over
-// a loop, a `MutableString` (a fresh `concat` on every iteration copies everything so far, same
-// quadratic cost `--lint` already flags for `x = concat(x, ..)`).
-// **One name over three forms, chosen by the first argument**: pieces into a string, parts into a
-// new array, or parts appended to a MutableArray in place. `concat_arrays` and
-// `mutable_array_push_all` were the other two names until 2026-10-18.
-//
-// **One argument that is an array spreads** -- its elements are the pieces or the parts -- which is
-// the rule that keeps `concat(parts)` answering "xyz" for a `[string]`, as it did when the string
-// form was a native with a variadic tail. The cost is that concatenating a single array *as one
-// part* cannot be said: `concat(["a", "b"])` is the string `"ab"`, never a copy of the array. A
-// copy is `slice(a, 0, len(a))`. Two or more arguments are always pieces or parts, so
-// `concat(["a"], ["b"])` is `["a", "b"]`; only the one-argument case carries the rule.
-//
-// `concat(pieces: parts)` was legal while this was a native and is not now: a builtin takes no
-// named arguments. The positional spread `concat(parts)` is the same thing.
-builtin fn concat(pieces: variadic string) -> string
-builtin fn concat<T>(parts: variadic [T]) -> [T]
-
-// Appending to a builder answers nothing, the container having been written. The parts may come
-// from either world and may be mixed, which `mutable_array_push_all` allowed for its single source
-// and this keeps for all of them.
-builtin fn concat<T>(items: MutableArray<T>, parts: variadic [T])
-builtin fn concat<T>(items: MutableArray<T>, parts: variadic MutableArray<T>)
-
-// The value inside `o`, or `default_value` when `o` is None.
-pub fn get_or<T>(o: Option<T>, default_value: T) -> T {
-    return switch o {
-        Some(v) { v }
-        None { default_value }
-    }
-}
-
-// The value stored under `key`, or `default_value` when there is none -- `get_or` for a builder.
-// Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
-// loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
-pub native fn get_or<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, default_value: V) -> V
-
-// The value under `key`, or `default_value` when there is none -- and no `Option` allocated either
-// way, which is why it is not `get` plus `unwrap_Some`.
-builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -> V
 
 // `f` applied to the value in the cell, stored back, and returned -- the counter idiom,
 // `update(n, fn(x) { x + 1 })`, and the same shape `update` has. Ordinary

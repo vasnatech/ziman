@@ -9,9 +9,17 @@
 // callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
 // header is generated from its source by the Makefile's prelude rule.
 //
-// A name whose declarations span more than one of these files lives in collections.zm, whole, so
-// that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
-// a declaration".
+// **A declaration lives in the file for the type its first argument has.** So `concat`'s string
+// form is in string.zm and its array forms in array.zm, and `get_or`'s `Option` form is in
+// option.zm with its two map forms in map.zm -- one overload set, read where each member's type
+// lives. `ziman --api builtins` still prints a set together, so the listing answers "what does
+// this name accept" in one place even when the sources do not.
+//
+// That reverses the older rule, which kept a split set whole in collections.zm. What remains here
+// is the names whose members span so many types that no one file is theirs -- `len` over nine,
+// `contains` over nine, `filter` over six, `remove` over six -- plus `map` and `flat_map`, which
+// `map`'s Map and Set members pin here. See docs/DESIGN.md's "Overloading available to a
+// declaration".
 
 // Which of `select2`'s two channels had a value first, and the value: `First(v)` from the
 // `first` channel or `Second(v)` from the `second`. The parameters are named for the variants,

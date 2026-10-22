@@ -19,6 +19,6 @@ fn main() {
     print(items(mutable(Set<int> { 1, 2, 3 })))
 
     // named arguments, and the empty cases
-    print(get_or(m: m, key: "z", default_value: 0))
+    print(get_or(m: m, key: "z", value: 0))
     print(len(items(Set<int> { })))
 }

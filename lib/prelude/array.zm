@@ -11,9 +11,17 @@
 // callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
 // header is generated from its source by the Makefile's prelude rule.
 //
-// A name whose declarations span more than one of these files lives in collections.zm, whole, so
-// that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
-// a declaration".
+// **A declaration lives in the file for the type its first argument has.** So `concat`'s string
+// form is in string.zm and its array forms in array.zm, and `get_or`'s `Option` form is in
+// option.zm with its two map forms in map.zm -- one overload set, read where each member's type
+// lives. `ziman --api builtins` still prints a set together, so the listing answers "what does
+// this name accept" in one place even when the sources do not.
+//
+// That reverses the older rule, which kept a split set whole in collections.zm. What remains here
+// is the names whose members span so many types that no one file is theirs -- `len` over nine,
+// `contains` over nine, `filter` over six, `remove` over six -- plus `map` and `flat_map`, which
+// `map`'s Map and Set members pin here. See docs/DESIGN.md's "Overloading available to a
+// declaration".
 
 // ---------------------------------------------------------------- why one name takes both worlds
 //
@@ -127,6 +135,22 @@ struct MutableArray<T> {
 // what made it the cheapest of the remaining polymorphic builtins to convert.
 native fn slice<T>(items: [T], start: int, end: int) -> [T]
 native fn slice<T>(items: MutableArray<T>, start: int, end: int) -> [T]
+
+// **Every part, in order, joined into one new array** -- `concat`'s array world. The string world
+// is in string.zm and carries the three reasons this name cannot become declarations.
+//
+// **One argument that is an array of arrays spreads**, its elements being the parts, the same rule
+// the string form carries: `concat([[1], [2]])` is `[1, 2]`, as is `concat([1], [2])`. What cannot
+// be said is concatenating a single array as one part, which is `slice(items, 0, len(items))`.
+builtin fn concat<T>(parts: variadic [T]) -> [T]
+
+// **Appending to a builder answers nothing**, the container having been written. The parts may
+// come from either world **and may be mixed** -- `concat(b, [5], mutable([6]), [7])` -- which
+// `mutable_array_push_all` allowed for its single source and this keeps for all of them. That
+// mixing is reason 3 in string.zm for why these cannot be declarations: a variadic parameter has
+// one type.
+builtin fn concat<T>(items: MutableArray<T>, parts: variadic [T])
+builtin fn concat<T>(items: MutableArray<T>, parts: variadic MutableArray<T>)
 
 // An empty builder; `capacity` and `grow_factor` are as in `mutable_string_new`.
 native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<float> = 2.0) -> MutableArray<T>

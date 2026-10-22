@@ -16,9 +16,17 @@ subtracts, taking a name out of `--api builtins` and out of editor completion wh
 callable. Native functions are registered by prelude_register() in src/prelude.c, and each file's
 header is generated from its source by the Makefile's prelude rule.
 
-A name whose declarations span more than one of these files lives in collections.zm, whole, so
-that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
-a declaration".
+**A declaration lives in the file for the type its first argument has.** So `concat`'s string
+form is in string.zm and its array forms in array.zm, and `get_or`'s `Option` form is in
+option.zm with its two map forms in map.zm -- one overload set, read where each member's type
+lives. `ziman --api builtins` still prints a set together, so the listing answers "what does
+this name accept" in one place even when the sources do not.
+
+That reverses the older rule, which kept a split set whole in collections.zm. What remains here
+is the names whose members span so many types that no one file is theirs -- `len` over nine,
+`contains` over nine, `filter` over six, `remove` over six -- plus `map` and `flat_map`, which
+`map`'s Map and Set members pin here. See docs/DESIGN.md's "Overloading available to a
+declaration".
 
 *This module is never imported: everything it declares is available bare in every program.*
 
@@ -202,69 +210,6 @@ builtin fn max<T: Ord>(values: variadic T) -> T
 ```
 
 ## `collections.zm`
-
-### `concat`
-
-```
-builtin fn concat(pieces: variadic string) -> string
-```
-
-Every piece, in order, joined with no separator (`concat("a", "b", "c")` is `"abc"`; zero
-pieces is `""`). For a separator or a prefix/suffix use `join`; for many pieces built up over
-a loop, a `MutableString` (a fresh `concat` on every iteration copies everything so far, same
-quadratic cost `--lint` already flags for `x = concat(x, ..)`).
-**One name over three forms, chosen by the first argument**: pieces into a string, parts into a
-new array, or parts appended to a MutableArray in place. `concat_arrays` and
-`mutable_array_push_all` were the other two names until 2026-10-18.
-
-**One argument that is an array spreads** -- its elements are the pieces or the parts -- which is
-the rule that keeps `concat(parts)` answering "xyz" for a `[string]`, as it did when the string
-form was a native with a variadic tail. The cost is that concatenating a single array *as one
-part* cannot be said: `concat(["a", "b"])` is the string `"ab"`, never a copy of the array. A
-copy is `slice(a, 0, len(a))`. Two or more arguments are always pieces or parts, so
-`concat(["a"], ["b"])` is `["a", "b"]`; only the one-argument case carries the rule.
-
-`concat(pieces: parts)` was legal while this was a native and is not now: a builtin takes no
-named arguments. The positional spread `concat(parts)` is the same thing.
-
-```
-builtin fn concat<T>(parts: variadic [T]) -> [T]
-```
-
-```
-builtin fn concat<T>(items: MutableArray<T>, parts: variadic [T])
-```
-
-Appending to a builder answers nothing, the container having been written. The parts may come
-from either world and may be mixed, which `mutable_array_push_all` allowed for its single source
-and this keeps for all of them.
-
-```
-builtin fn concat<T>(items: MutableArray<T>, parts: variadic MutableArray<T>)
-```
-
-### `get_or`
-
-```
-pub fn get_or<T>(o: Option<T>, default_value: T) -> T
-```
-
-The value inside `o`, or `default_value` when `o` is None.
-
-```
-pub native fn get_or<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, default_value: V) -> V
-```
-
-The value stored under `key`, or `default_value` when there is none -- `get_or` for a builder.
-Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
-loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
-
-```
-builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, default_value: V) -> V
-```
-
-The value under `key`, or `default_value` when there is none -- and no `Option` allocated either
-way, which is why it is not `get` plus `unwrap_Some`.
 
 ### `update`
 
@@ -735,6 +680,33 @@ what made it the cheapest of the remaining polymorphic builtins to convert.
 
 ```
 native fn slice<T>(items: MutableArray<T>, start: int, end: int) -> [T]
+```
+
+### `concat`
+
+```
+builtin fn concat<T>(parts: variadic [T]) -> [T]
+```
+
+**Every part, in order, joined into one new array** -- `concat`'s array world. The string world
+is in string.zm and carries the three reasons this name cannot become declarations.
+
+**One argument that is an array of arrays spreads**, its elements being the parts, the same rule
+the string form carries: `concat([[1], [2]])` is `[1, 2]`, as is `concat([1], [2])`. What cannot
+be said is concatenating a single array as one part, which is `slice(items, 0, len(items))`.
+
+```
+builtin fn concat<T>(items: MutableArray<T>, parts: variadic [T])
+```
+
+**Appending to a builder answers nothing**, the container having been written. The parts may
+come from either world **and may be mixed** -- `concat(b, [5], mutable([6]), [7])` -- which
+`mutable_array_push_all` allowed for its single source and this keeps for all of them. That
+mixing is reason 3 in string.zm for why these cannot be declarations: a variadic parameter has
+one type.
+
+```
+builtin fn concat<T>(items: MutableArray<T>, parts: variadic MutableArray<T>)
 ```
 
 ### `mutable_array_new`
@@ -1864,6 +1836,24 @@ removing and re-inserting every key: 351-363 ns/op through `remove` against 110-
 through the bool-returning path -- the removal itself is a fraction of either. Reach for
 `remove` only when the old value is actually needed.
 
+### `get_or`
+
+```
+builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> V
+```
+
+**The value under `key`, or `value` when there is none** -- and no `Option` allocated either
+way, which is why it is not `get` plus `unwrap_Some`.
+
+```
+pub native fn get_or<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, value: V) -> V
+```
+
+The same of a builder. Ordinary Ziman rather than a builtin, since it is exactly that switch:
+the point is that a counting loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line
+instead of four. The `Option` form of this name is in option.zm, being the one-entry case of the
+same question.
+
 ### `update_all`
 
 ```
@@ -2045,6 +2035,20 @@ override, a returned value or a parameter's type has to say which `Result` it is
 ```
 builtin fn err<T, E>(error: E) -> Result<T, E>
 ```
+
+### `get_or`
+
+```
+pub fn get_or<T>(o: Option<T>, value: T) -> T
+```
+
+**The value inside `o`, or `value` when `o` is None** -- the one-entry case of the question the
+map forms ask, which is why it shares their name rather than being an `option_unwrap_or`.
+
+`value` is the fallback, not something stored: `get_or(o, 0)` reads "get, or nought". The name
+is `value` across all three forms of this set, where `set(m, key, value)` uses the same word for
+the thing being written -- the type tells them apart, and the alternative was a fourth spelling
+of "the other one".
 
 ### `is_ok`
 
@@ -2359,14 +2363,49 @@ native fn substring(s: string, start: int, end: int) -> string
 The bytes of `s` from `start` up to, not including, `end` (`0 <= start <= end <= len(s)`, a
 runtime error otherwise).
 
+### `concat`
+
+```
+builtin fn concat(pieces: variadic string) -> string
+```
+
+The pieces of `s` between each `sep`, empty pieces included: `split("a,b,,c", ",")` is
+`[a, b, , c]`. `sep` must not be empty.
+**Every piece, in order, joined with no separator** (`concat("a", "b", "c")` is `"abc"`; zero
+pieces is `""`). For a separator or a prefix/suffix use `join`; for many pieces built up over a
+loop, a `MutableString` -- a fresh `concat` on every iteration copies everything so far, the
+quadratic cost `--lint` already flags for `x = concat(x, ..)`.
+
+**One argument that is an array spreads** -- its elements are the pieces -- which is the rule
+that keeps `concat(parts)` answering `"xyz"` for a `[string]`. The cost is that concatenating a
+single array *as one piece* cannot be said: `concat(["a", "b"])` is `"ab"`, never a copy. Two or
+more arguments are always pieces, so only the one-argument case carries the rule.
+
+**The array and MutableArray forms of this name are in array.zm**, beside the types they take.
+`ziman --api builtins` still lists all four together; what is split is where you read them.
+
+**It stays `builtin fn`, and three separate things stop it becoming declarations.** Written down
+because each is a wall rather than a cost, and each was found by trying:
+
+1. `concat()` with no arguments answers `""`. Both the string and the array form accept zero
+   arguments, so nothing in the call chooses -- the arm answers by fiat.
+2. `concat(parts)` for a `[string]` must answer `"xyz"`. The array form accepts that same
+   argument as one part and would answer `[string]`. The two differ **only in what they
+   return**, and F148 ruled out choosing an overload by return type -- it is the same reason
+   `to_set` and `to_mutable_set` have to be two names.
+3. `concat(b, [5], mutable([6]), [7])` mixes an array and a builder in one variadic tail. A
+   declaration's variadic parameter has **one** type, so two declarations cannot accept a mixed
+   tail and a single one would need a union type -- which docs/DESIGN.md refuses outright ("a
+   language that refuses general bounds should not acquire general unions for them").
+
+So this is not the next conversion waiting to be done; it is the one that cannot be. Converting
+`mutable` is blocked for its own reasons, recorded in docs/design/full-overloading.md §4.
+
 ### `split`
 
 ```
 native fn split(s: string, separator: string) -> [string]
 ```
-
-The pieces of `s` between each `sep`, empty pieces included: `split("a,b,,c", ",")` is
-`[a, b, , c]`. `sep` must not be empty.
 
 ### `trim`
 
