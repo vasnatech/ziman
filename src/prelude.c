@@ -32,7 +32,6 @@
  * uniquely among corelib's modules, are never registered in corelib.c's
  * CORE_MODULES table). */
 #include "prelude_prelude_source.h"
-#include "prelude_collections_source.h"
 #include "prelude_array_source.h"
 #include "prelude_channel_source.h"
 #include "prelude_iter_source.h"
@@ -63,7 +62,6 @@ static const struct {
     const char *source;
 } PARTS[] = {
     {"lib/prelude/prelude.zm", PRELUDE_PRELUDE_SOURCE},
-    {"lib/prelude/collections.zm", PRELUDE_COLLECTIONS_SOURCE},
     {"lib/prelude/array.zm", PRELUDE_ARRAY_SOURCE},
     {"lib/prelude/channel.zm", PRELUDE_CHANNEL_SOURCE},
     {"lib/prelude/iter.zm", PRELUDE_ITER_SOURCE},

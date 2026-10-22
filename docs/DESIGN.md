@@ -180,6 +180,7 @@ them against the code.
 - [A lambda argument can answer a type parameter (2026-10-21)](#a-lambda-argument-can-answer-a-type-parameter-2026-10-21)
 - [`--api builtins` groups an overload set, and the claim that it already did (2026-10-22)](#--api-builtins-groups-an-overload-set-and-the-claim-that-it-already-did-2026-10-22)
 - [`filter` over a Map and a Set, and a guard natives could not reach (2026-10-22)](#filter-over-a-map-and-a-set-and-a-guard-natives-could-not-reach-2026-10-22)
+- [collections.zm is retired (2026-10-22)](#collectionszm-is-retired-2026-10-22)
 
 <!-- end index -->
 
@@ -7834,3 +7835,54 @@ removing a guard one cannot prove unnecessary is the riskier direction. Both com
 rather than asserting a mechanism; the first draft of them claimed a *moving* collection would
 "leave the entries pointing at their old locations", which MEMORY.md had superseded a month before
 this was written.
+
+
+## collections.zm is retired (2026-10-22)
+
+The prelude became a directory in F203 with one exception built in: a file for the names that are
+about no one type. `collections.zm` held them under the rule that an overload set is never split,
+and when the filing rule reversed -- a declaration lives in the file for the type its first
+argument has -- that file had no reason left. Its names went out one at a time over two days:
+`concat`, `get_or`, `update`, `set`, `remove_all`, `snapshot`, `clear`; then `filter` and `remove`,
+six members each; then `map`, `flat_map`, `len`, `contains` and `mutable` together, 28 declarations
+in one move, which emptied it. Nine parts now, and deleting the tenth took the three edits adding
+one takes, reversed: the file, the Makefile's `PRELUDE_PARTS`, one line in prelude.c's `PARTS`.
+
+**Where the twelve-member names ended up**: `len` and `contains` across five files each (array,
+string, map, set, mutable -- two per file but for the cell's one), `filter`, `remove` and `mutable`
+across three, `map` across three, `flat_map` back in array.zm.
+
+**One thing had to be true first, and it was not when the splitting started.** The reason to keep a
+set whole was that nothing else showed it whole: *"every per-type file would hold a fragment and
+`--api builtins` would be the only place the whole set exists"*. That listing was in file order, so
+it did not group a split set either -- the claim was false for a day, and is the subject of its own
+entry. Grouping it by name is what made this restructuring readable rather than merely tidy:
+`len`'s nine print as one block across five files, and `tests/run_api.sh` asserts that for twelve
+names. **Without the listing fix this change would have scattered the vocabulary with nothing to
+reassemble it.**
+
+**F216's exception retired itself.** `flat_map` had been moved *to* collections.zm to sit beside
+`map`, both its declarations being array-world and the filing rule therefore pointing at array.zm;
+the note recording that said a second such name would mean rewriting the rule rather than adding
+another exception. No second name came. Instead `map`'s array members moved to array.zm, so
+`flat_map` followed them home and now satisfies the rule *and* sits beside `map`'s array half.
+
+**What the deleted header carried, and where it went.** prelude.zm now holds the parameter-name
+scheme (one role, one name, across every declaration that has it), the rule that a set's members
+sit together within whichever file they land in, and the one piece of work collections.zm left
+behind: **map.zm and set.zm are still grouped by world** -- `get`, `keys`, `values`, `merge` split
+in one, `add`, `union`, `intersect`, `difference`, `is_subset` in the other. That is larger than a
+reorder, because most of those immutable declarations have no doc comment, so the blank entries
+they publish in `docs/lib/prelude.md` have to be written rather than moved.
+
+**Five stale cross-references fell out of the move**, each a comment in another file claiming
+something still lived in collections.zm, and one older one that the move exposed: the MutableArray
+`remove` had said *"There is no `MutableMap` or `MutableSet` form"*, true the day it was written
+(2026-10-18, when those two were still prefixed names) and false from the Map/Set pairing pass
+onward, since that pass gave them exactly that bare name. Moving a comment is a good way to find
+out whether it is still true.
+
+1,133 fixtures, every guard green. One `.err` fixture changed: `len`'s accepted-type list is in
+declaration order, which is file order, so it reads "[T], Map<K, V>, Mutable<T>, Set<T>, string or
+a builder" where it had read "string, [T], Map<K, V>, Set<T>, Mutable<T>". The cost of a split set,
+recorded when `snapshot` first paid it.

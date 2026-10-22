@@ -7182,7 +7182,7 @@ void typecheck(Module *module) {
         ziman_set_error_context(fn->derived_from);
         /* `origin_file` only when there is no `source_file`: a prelude declaration has no source
          * file by design (see ast.h), and without this a type error inside the prelude reports a
-         * line number without saying which of its ten parts it is in. */
+         * line number without saying which of its parts it is in. */
         ziman_set_error_file(fn->source_file != NULL ? fn->source_file : fn->origin_file);
         g_checking_program_body = fn->source_file != NULL;
         jmp_buf jb;

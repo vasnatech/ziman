@@ -107,11 +107,14 @@ CORELIB_MODULES := process url fs log metrics regex client random uuid clock tim
 # no line in corelib.c's CORE_MODULES table, nothing can `use` it, and
 # loader.c's load_module_graph merges every part of it bare into every program
 # (see lib/prelude/prelude.zm's own header comment). It is several files rather
-# than one so that each is about one type; a name whose declarations would span
-# two of them lives whole in collections.zm, so an overload set is never split.
+# than one so that each is about one type, and a declaration lives in the part
+# for the type its first argument has -- so an overload set *is* split when its
+# members' types are, and `--api builtins` groups it back together by name.
 # Add a part by adding a file in lib/prelude/, its name here, and one line in
-# src/prelude.c's PARTS table.
-PRELUDE_PARTS := prelude collections array channel iter map mutable option set string
+# src/prelude.c's PARTS table; removing one is the same three edits, which is
+# what retired `collections` on 2026-10-22 once the last of its names had been
+# filed by type.
+PRELUDE_PARTS := prelude array channel iter map mutable option set string
 # Bundled modules live in lib/core (general-purpose), lib/db (SQL
 # drivers) lib/http (http, server, client), lib/time (time, zone, schedule) and lib/graphics (the 2D model and
 # its backends); `use` names are flat either way.

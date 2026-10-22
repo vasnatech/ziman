@@ -35,14 +35,46 @@ A pure reordering: 307 lines before and after, identical as sets.
 `docs/lib/prelude.md` is **not** grouped -- it is organised as one `##` section per file, so a
 split set still has a `###` heading in each. The listing is the one place to read a whole set.
 
-That reverses the older rule, which kept a split set whole in collections.zm. What remains in
-collections.zm is the names whose members span so many types that no one file is theirs -- `len`
-over nine, `contains` over nine, `remove` over six -- plus `map` and `flat_map`, which `map`'s
-Map and Set members pin there, and `mutable`, whose fourth member takes a bare `T` and so has no
-file at all. `filter` was the last to leave, on 2026-10-22: two members each to array.zm, map.zm
-and set.zm. **Everything else splits, however few files that
-means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
-and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
+**There were eleven parts until 2026-10-22; collections.zm was the eleventh and is gone.** It
+held the names that were about no one type, under the older rule that an overload set is never
+split -- and the filing rule reversed that, so its names left one at a time: `concat`, `get_or`,
+`update`, `set`, `remove_all`, `snapshot`, `clear`, then `filter` and `remove`, then `map`,
+`flat_map`, `len`, `contains` and `mutable`. The last five went together, 28 declarations, and
+emptied the file. Deleting it took the three edits adding a part takes, reversed: the file, the
+Makefile's `PRELUDE_PARTS`, one line in src/prelude.c's `PARTS` table.
+
+What that file's header carried and this one now does: the parameter-name scheme below, the rule
+that a set's members sit together within whichever file they land in, and the one piece of work
+it left behind -- **map.zm and set.zm are still grouped by world**, `get`, `keys`, `values` and
+`merge` split in map.zm and `add`, `union`, `intersect`, `difference` and `is_subset` in set.zm,
+each with a builder block and an immutable block between them. That is a larger piece than it
+looks: most of those immutable declarations have no doc comment at all, so the blank entries
+they publish in `docs/lib/prelude.md` have to be written rather than moved.
+
+**Parameter names are part of the call surface**, because anything not dispatched by a builtin
+id takes named arguments -- so one role gets one name across every declaration that has it,
+whichever type it happens to be. The receiver of a sequence is `items` (both `[T]` and
+`MutableArray<T>`), of a map `m`, of a set `s`, of text `s`, of a channel `channel` and of a
+cell `cell` -- those last two were both `c` until the names were swept, which made one letter
+mean two types. The prefix era named them for their world -- `a`/`b`, `m`/`mb`, `s`/`sb` --
+which is the thing F205 recorded as the wrong half of a rename, and it was still half-applied
+until the names were swept.
+
+**A role name beats the type name when it says more**, and those are kept deliberately rather
+than flattened: `sorted` on `lower_bound`/`upper_bound`/`binary_search` states the precondition
+at the call site, `parts` on `concat` and `pieces` on `append` name what is being joined,
+`entries`/`item` on `mutable` name the source being converted, `other` is the second operand of
+a set operation, `keep` on `filter` says what true means where `test` on `any`/`all`/`none`
+merely asks, `separator` is `join`'s and `split`'s, `haystack`/`needle` are a search's, and
+`i`/`j` on `swap` are a symmetric pair that `index` would not improve.
+
+That reverses the older rule, which kept a split set whole in collections.zm -- **and that file
+is gone**, retired on 2026-10-22 once the last of its names had been filed by type. **Every set
+splits, however many files that means**: `len` and `contains` across five each, `snapshot` and
+`clear` across four, `filter`, `remove` and `mutable` across three, `set`, `remove_all` and
+`map` across three, `concat`, `get_or`, `update` and `flat_map` across two or one. Nothing is
+exempt and nothing is left over. See docs/DESIGN.md's "Overloading available to a declaration",
+and prelude.zm's header for what collections.zm's own header carried.
 
 *This module is never imported: everything it declares is available bare in every program.*
 
@@ -225,295 +257,6 @@ convention, which is why "several values" and "an array of values" need no secon
 builtin fn max<T: Ord>(values: variadic T) -> T
 ```
 
-## `collections.zm`
-
-### `remove`
-
-```
-pub native fn remove<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
-```
-
-Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
-`discard` instead when the removed value is not wanted: answering with an `Option`
-means allocating one, which on a large map costs several times the removal itself.
-
-`#[effectful]` because it both writes the map and answers a value: without it the dropped-result
-gate would read "answers something" as "has no effect" and refuse `remove(mb, k)` in statement
-position, which is "delete if present" and perfectly ordinary.
-
-```
-pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
-```
-
-Removes `item`, answering whether it was there; nothing happens when it is absent.
-
-```
-pub native fn remove<T>(items: [T], index: int) -> [T]
-```
-
-**`remove` takes all three: an index, a key, or the element itself** -- and the immutable half
-answers a new collection without it, where the builder members above write in place and answer
-what they took out. An index out of bounds is a runtime error; a key or element that is absent
-is not, the answer being a collection equal to the argument.
-
-**`native fn` since 2026-10-22, and the arm went with them.** One builtin id served all three:
-its branch tested `args[0].type->kind` for a Map or a Set and otherwise fell through to the
-array case. Parameter one is what the interpreter's symbol fallback reads, so each declaration
-finds a symbol of its own -- `array_remove`, `map_remove`, `set_remove` -- and none of them asks
-what it was given. These were the last `builtin fn` in this file but for `mutable`.
-
-**What the arm had and the declarations do not**, since the trade is worth stating rather than
-discovering: it answered a `MutableString` with advice of its own, and `#[when_unmatched]` is
-one line for a whole set, so that line is now what *any* unmatched `remove` gets. The same trade
-`clear` and `snapshot` made (F190's criterion: the content survives, the aim does not). Its
-other three messages are no loss -- the arity checks and `argument 2 of 'remove' expects int`
-are what the resolver says anyway, and the list of accepted types it hand-wrote is now derived
-from these six signatures, so it cannot fall behind them again.
-
-`x` became `item` on the Set member while the names were free to change: a builtin took no named
-argument, so nothing could have been calling it `x:`, and `item` is what the MutableSet member
-above and `add` already use for the same role.
-
-```
-pub native fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
-```
-
-```
-pub native fn remove<T: Eq + Hash>(s: Set<T>, item: T) -> Set<T>
-```
-
-```
-native fn remove<T>(items: MutableArray<T>, index: int) -> T
-```
-
-**O(n)**: everything after `index` moves back. There is no `pop` because this is one --
-`remove(b, len(b) - 1)`, which moves nothing.
-
-**The MutableArray's `remove` answers the element, where the array's answers the array.** Taking
-element i out is the same question of both, so it is the same word; what differs is the answer,
-and that is the difference between the two worlds rather than between two names -- the same
-reasoning that made `push` and `insert` shared. Discarding the element is how `pop` is spelled
-(`remove(b, len(b) - 1)`), which is why that is not reported as a wasted result the way a
-discarded `remove(a, i)` is: an array's `remove` copies and changes nothing, a builder's writes.
-That is what `#[effectful]` states; it is on the two builder forms above for the same reason.
-
-There is no `MutableMap` or `MutableSet` form. Those answer an `Option<V>` and a `bool`, so one
-name over all six would have meant the new collection three times and three different other
-things -- each refusal names the function that does it instead.
-
-`native` rather than `builtin`, so the resolver owns it and `mutable_array_remove` needs no
-declaration of its own: the interpreter's symbol fallback reads parameter one and finds the
-registered `mutable_array_remove`. It was a `builtin fn` until F208 and the builtin id never
-ran -- `check_call`'s arm rewrote the callee first, and `call_remove` only ever handled an
-array, so the id path would have read an `ArrayObj` out of a handle had anything reached it.
-
-### `map`
-
-```
-pub fn map<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(K, V) -> R) -> Map<K, R>
-```
-
-`m` with `f` applied to every value, keys and their order unchanged:
-`map(stock, fn(k, v) { str(v) })`. **`f` takes the key as well as the value**, which is what the
-example here got wrong from the day it was written: it read
-`map<string, int, string>(stock, fn(n) { str(n) })`, and a one-parameter lambda against
-`fn(K, V) -> R` is refused -- *"this lambda takes 1 parameter(s) but a function taking 2 is
-expected"* -- with or without the type arguments. A prelude doc comment is compiled by nothing,
-which is how it stood. The key is usually unused, as here; name it and ignore it.
-
-```
-pub fn map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U>
-```
-
-The set of `f(x)` for every `x` in `s`, in the order first produced. Two elements that map to the same
-value become one: `map(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1, 0}`.
-
-```
-pub native fn map<T, U>(items: [T], f: fn(T) -> U) -> [U]
-```
-
-**`f` applied to every element, as a new array.** The array member of the set, beside the Map
-and Set members above and the MutableArray member below -- `flat_map` follows, being the same
-walk with a flattening join, and the two read better together than either reads alone.
-
-**Native rather than written in Ziman**, unlike the Map, Set and MutableArray members: the
-result's length is known from the input's, so this allocates the array once where a Ziman body
-would grow a builder and snapshot it. That is the whole reason this one member is native, and
-the three below say the same thing from the other side.
-
-*This block used to describe "the array half of the dispatcher's prefix layer" -- four `array_*`
-natives that the bare names resolved onto by string concatenation, deliberately unadvertised.
-Every part of that is gone: F179 deleted the concatenating loop (the C symbol is derived from
-parameter one's type now, and the resolver picks the declaration), F178-F180 made these
-declarations the overload members themselves rather than a layer beneath them, and they are
-`pub` and listed in `--api builtins`. The comment survived all three and was still claiming the
-layer was "uniformly internal" in F216.*
-
-```
-pub fn map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U]
-```
-
-The MutableArray member: the array body with the source read in place, so the copy `map` over a
-snapshot would have made does not happen. Written in Ziman rather than shared with the native
-above because it allocates a builder for the result where that one allocates the array
-directly -- one allocation more on the way out, against a whole copy of the input saved on the
-way in. The capacity is the input's length, so the builder never grows.
-
-### `flat_map`
-
-```
-pub native fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
-```
-
-**`flat_map` is `map` and then `concat`**, in one pass: `f` answers an array per element and
-they are joined. It is the only name in this file whose declarations do *not* span two of the
-per-type files -- both are array-world, so the rule at the top would put it in array.zm, and it
-lived there until F216. It is here because `map` is here and cannot leave (its Map and Set
-members pin it), and reading the two apart is reading half a question: the difference between
-them is one word of the signature, `-> U` against `-> [U]`.
-
-```
-pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U]
-```
-
-The MutableArray member, as `map`'s is: the builder is walked in place and the results collected
-into a fresh one. `concat(out, f(item))` appends each answered array rather than nesting it,
-which is what makes this flat.
-
-### `len`
-
-```
-native fn len(s: string) -> int
-```
-
-```
-native fn len<T>(items: [T]) -> int
-```
-
-```
-native fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
-```
-
-```
-native fn len<T: Eq + Hash>(s: Set<T>) -> int
-```
-
-```
-native fn len<T>(items: MutableArray<T>) -> int
-```
-
-```
-native fn len(s: MutableString) -> int
-```
-
-```
-native fn len<K: Eq + Hash, V>(m: MutableMap<K, V>) -> int
-```
-
-```
-native fn len<T: Eq + Hash>(s: MutableSet<T>) -> int
-```
-
-```
-native fn len<T>(cell: Mutable<T>) -> int
-```
-
-A cell holds exactly one value, so its length is always 1.
-
-### `contains`
-
-```
-native fn contains(s: string, needle: string) -> bool
-```
-
-The same nine shapes, each asked the question its immutable counterpart answers: a substring of
-text, an element of an array or set, a *key* of a map.
-
-```
-native fn contains<T: Eq>(items: [T], x: T) -> bool
-```
-
-```
-native fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
-```
-
-```
-native fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
-```
-
-```
-native fn contains<T: Eq>(items: MutableArray<T>, x: T) -> bool
-```
-
-```
-native fn contains(s: MutableString, needle: string) -> bool
-```
-
-```
-native fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
-```
-
-```
-native fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
-```
-
-```
-native fn contains<T: Eq>(cell: Mutable<T>, x: T) -> bool
-```
-
-### `mutable`
-
-```
-builtin fn mutable<T>(items: [T]) -> MutableArray<T>
-```
-
-**`mutable(x)` makes the mutable counterpart of whatever it is given.** For the three
-collections that have a builder it answers that builder, so it reads as `snapshot` backwards:
-`snapshot` answers the immutable type each builder is building, `mutable` answers the builder
-each collection is built with. For anything else -- a scalar, a string, a struct, an enum, even
-another handle -- there is no builder to answer, and the mutable counterpart of a single value
-is a cell, so it answers `Mutable<T>`.
-
-**The dispatch is by shape, and the collections win.** An array matches both `[T]` and the bare
-`T` below it, and the array overload is the one that applies; the same for a `Map` and a `Set`.
-That is the whole of the ordering, and the one thing it costs is that a *cell holding* one of
-those three cannot be spelled this way -- `mutable([1, 2])` is a `MutableArray<int>`, never a
-`Mutable<[int]>`. Write that one as `mutable_new([1, 2])`, which is what the cell's own
-constructor is for and is unambiguous about which of the two you meant.
-
-Two consequences worth knowing rather than discovering. A string answers `Mutable<string>`, not
-a MutableString: a MutableString is *filled* rather than converted (`mutable_string_new` then
-`append`), so it is not this conversion -- and the corpus agrees, since of 133
-`mutable_string_new` call sites exactly one seeds the buffer from a whole existing string. And a
-builder answers a cell holding that same handle, **not a clone of it**; there is no way to clone
-a builder at all, which is deliberate rather than pending. `mutable_array_from`,
-`mutable_map_from` and `mutable_set_from` used to be that way and were removed once `mutable`
-covered the conversion they were mostly used for: keeping both would have put two spellings on
-one question, and the clone half had no caller outside its own fixtures.
-**`mutable([])` takes its element type from the context**, `[]` being the one literal that
-carries none of its own: `val xs: MutableArray<int> = mutable([])`, a parameter's declared type,
-a `return`, or a struct literal field all supply it. With no context there is nothing to infer
-from and the error says so, naming `mutable_array_new<int>()`, which needs none. `Map<K, V> {}`
-and `Set<T> {}` write their own types, so neither ever had this gap.
-
-**A literal argument is built straight into the builder.** `mutable([1, 2])` makes the
-MutableArray from the literal's elements without collecting them into an array first -- the
-checker hands them over as the call's own arguments, which is what `$map_lit` has always done --
-so three allocations and about 154 bytes per construction do not happen. Nothing observable
-changes; `mutable(xs)` on a variable still copies, because there the copy is the point.
-
-```
-builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
-```
-
-```
-builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
-```
-
-```
-builtin fn mutable<T>(item: T) -> Mutable<T>
-```
-
 ## `array.zm`
 
 ### `bytes_to_string`
@@ -608,6 +351,28 @@ native fn mutable_array_new<T>(capacity: Option<int> = 20, grow_factor: Option<f
 
 An empty builder; `capacity` and `grow_factor` are as in `mutable_string_new`.
 
+### `mutable`
+
+```
+builtin fn mutable<T>(items: [T]) -> MutableArray<T>
+```
+
+**The MutableArray holding `items`' elements** -- `mutable`'s array member, and `snapshot`
+backwards: `snapshot` answers the immutable type a builder is building, `mutable` the builder a
+collection is built with. Its Map and Set members are in map.zm and set.zm, and the member for
+everything else is in mutable.zm, which carries the account of how the four are told apart.
+
+**`mutable([])` takes its element type from the context**, `[]` being the one literal that
+carries none of its own: `val xs: MutableArray<int> = mutable([])`, a parameter's declared type,
+a `return`, or a struct literal field all supply it. With no context there is nothing to infer
+from and the error says so, naming `mutable_array_new<int>()`, which needs none.
+
+**A literal argument is built straight into the builder.** `mutable([1, 2])` makes the
+MutableArray from the literal's elements without collecting them into an array first -- the
+checker hands them over as the call's own arguments, which is what `$map_lit` has always done --
+so three allocations and about 154 bytes per construction do not happen. Nothing observable
+changes; `mutable(xs)` on a variable still copies, because there the copy is the point.
+
 ### `mutable_array_filled`
 
 ```
@@ -628,6 +393,42 @@ keeps removing. Required also means it calls positionally -- `mutable_array_fill
 There is no immutable twin: `snapshot(mutable_array_filled(n, v))` is the way to an `[T]` of
 repeats, and `array_filled` would have to be a second name rather than an overload, differing
 from this only in what it returns.
+
+### `len`
+
+```
+native fn len<T>(items: [T]) -> int
+```
+
+**Its length**, O(1) in both worlds. `len`'s nine members are one C function registered under
+the bare name -- the declarations say only which types may be asked the question, and this is
+the one place a bare native registration is right. The other seven are in string.zm, map.zm,
+set.zm and mutable.zm, two per file but for the cell's one; `--api builtins` prints all nine as
+one block.
+
+**Nine declarations over one implementation is not a layer**, and the note that used to stand
+over all of them said it better than this can: SYNTAX.md's "asking a collection its size never
+needs a per-type name or a conversion". There is no ranking, no implicit conversion and no
+return-type-directed choice -- each member is picked by what argument one is, which is the
+dispatch the interpreter already had.
+
+```
+native fn len<T>(items: MutableArray<T>) -> int
+```
+
+### `contains`
+
+```
+native fn contains<T: Eq>(items: [T], x: T) -> bool
+```
+
+**Whether `x` is an element**, O(n) in both worlds -- the question `len`'s nine are asked
+alongside, each in the form its type gives it: an element of an array or a set, a *key* of a
+map, a substring of text.
+
+```
+native fn contains<T: Eq>(items: MutableArray<T>, x: T) -> bool
+```
 
 ### `snapshot`
 
@@ -660,6 +461,58 @@ native fn clear<T>(items: MutableArray<T>)
 
 Empties a builder in place, keeping the handle. `narrow(items, 0, 0)` is the same thing said
 the long way, and this is the word for it.
+
+### `map`
+
+```
+pub native fn map<T, U>(items: [T], f: fn(T) -> U) -> [U]
+```
+
+**`f` applied to every element, as a new array.** `map`'s array member; the Map member is in
+map.zm and the Set member in set.zm, each answering the type it was given.
+
+**Native rather than written in Ziman**, unlike the other three members: the result's length is
+known from the input's, so this allocates the array once where a Ziman body would grow a builder
+and snapshot it.
+
+*This block used to describe "the array half of the dispatcher's prefix layer" -- four `array_*`
+natives that the bare names resolved onto by string concatenation, deliberately unadvertised.
+Every part of that is gone: F179 deleted the concatenating loop (the C symbol is derived from
+parameter one's type now, and the resolver picks the declaration), F178-F180 made these
+declarations the overload members themselves rather than a layer beneath them, and they are
+`pub` and listed in `--api builtins`. The comment survived all three and was still claiming the
+layer was "uniformly internal" in F216.*
+
+```
+pub fn map<T, U>(items: MutableArray<T>, f: fn(T) -> U) -> [U]
+```
+
+The MutableArray member: the array body with the source read in place, so the copy `map` over a
+snapshot would have made does not happen. Written in Ziman rather than shared with the native
+above because it allocates a builder for the result where that one allocates the array
+directly -- one allocation more on the way out, against a whole copy of the input saved on the
+way in. The capacity is the input's length, so the builder never grows.
+
+### `flat_map`
+
+```
+pub native fn flat_map<T, U>(items: [T], f: fn(T) -> [U]) -> [U]
+```
+
+**`flat_map` is `map` and then `concat`**, in one pass: `f` answers an array per element and they
+are joined. Both its declarations are array-world, so the filing rule puts it here -- and it is
+beside `map`'s array members, which is what F216 moved it to collections.zm to achieve when
+`map` could not leave. `map` has left now, so the two read together *and* the rule is satisfied;
+that exception is retired rather than overridden. The difference between them is one word of the
+signature, `-> U` against `-> [U]`.
+
+```
+pub fn flat_map<T, U>(items: MutableArray<T>, f: fn(T) -> [U]) -> [U]
+```
+
+The MutableArray member, as `map`'s is: the builder is walked in place and the results collected
+into a fresh one. `concat(out, f(item))` appends each answered array rather than nesting it,
+which is what makes this flat.
 
 ### `narrow`
 
@@ -750,8 +603,8 @@ pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
 ```
 
 **The elements `keep` answers true for, as a new array**, in their existing order. `filter`'s
-array member; the Map, Set, MutableMap and MutableSet members are in collections.zm, and
-`ziman --api builtins` prints all six as one block.
+array member; the Map and MutableMap members are in map.zm, the Set and MutableSet members in
+set.zm, and `ziman --api builtins` prints all six as one block.
 
 `native fn` for the reason `map`'s array member is one: the walk is a C loop over the elements
 with one call back into Ziman per element, where the Ziman version would also pay for a builder
@@ -1158,6 +1011,63 @@ MutableMap's in map.zm, which replace the value under a key.
 `set` has no MutableArray form on purpose: an element write there is `b[i] = value`, the same
 sugar an array's element write gets, and a copying three-argument call would read as though it
 left the container alone. `set(b, i, v)` says so rather than failing as an unknown overload.
+
+### `remove`
+
+```
+pub native fn remove<T>(items: [T], index: int) -> [T]
+```
+
+**A new array without `index`** -- `remove`'s array member, and the third of the element verbs
+the banner above introduces. An index out of bounds is a runtime error. The Map, Set, MutableMap
+and MutableSet members are in map.zm and set.zm; `--api builtins` prints all six as one block.
+
+**`native fn` since 2026-10-22, and `remove`'s arm went with the conversion.** One builtin id had
+served the three immutable members: its branch tested `args[0].type->kind` for a Map or a Set and
+otherwise fell through to the array case. Parameter one is what the symbol fallback reads, so
+each declaration finds a symbol of its own -- `array_remove`, `map_remove`, `set_remove`.
+
+**The arm's one irreplaceable message lives here**, because `#[when_unmatched]` is read off
+whichever member writes it: a `MutableString` has no element removal. That line is now what
+*any* unmatched `remove` gets, including one that passed an int, which is the trade `clear` and
+`snapshot` made before it (F190's criterion: the content survives, the aim does not). The arm's
+other three messages were no loss -- two arity checks and `argument 2 of 'remove' expects int`
+are what the resolver says anyway, and the list of accepted types it hand-wrote is derived from
+the six signatures now, so it cannot fall behind them again. It had, once, by naming two
+functions that no longer existed.
+
+`x` became `item` on the Set member during that conversion, while the rename was still free: a
+builtin takes no named argument, so nothing could have been calling it `x:`.
+
+```
+native fn remove<T>(items: MutableArray<T>, index: int) -> T
+```
+
+**O(n)**: everything after `index` moves back. There is no `pop` because this is one --
+`remove(b, len(b) - 1)`, which moves nothing.
+
+**The MutableArray's `remove` answers the element, where the array's answers the array.** Taking
+element i out is the same question of both, so it is the same word; what differs is the answer,
+and that is the difference between the two worlds rather than between two names -- the same
+reasoning that made `push` and `insert` shared. Discarding the element is how `pop` is spelled
+(`remove(b, len(b) - 1)`), which is why that is not reported as a wasted result the way a
+discarded `remove(a, i)` is: an array's `remove` copies and changes nothing, a builder's writes.
+That is what `#[effectful]` states, and the MutableMap and MutableSet members carry it for the
+same reason.
+
+**The six do not all answer the same kind of thing**, which is why one name over them needed
+saying out loud: the three immutable members each answer a new collection, while the three
+builder members answer three different things -- the element here, the `Option<V>` that was
+stored in map.zm, whether the item was there in set.zm. This paragraph used to read *"There is
+no `MutableMap` or `MutableSet` form"*, which was true the day it was written (2026-10-18, when
+those two were still prefixed names) and false from the Map/Set pairing pass onward, since that
+pass gave them this exact bare name. Found 2026-10-22 by moving the comment.
+
+`native` rather than `builtin`, so the resolver owns it and `mutable_array_remove` needs no
+declaration of its own: the symbol fallback reads parameter one and finds the registered
+`mutable_array_remove`. It was a `builtin fn` until F208 and the builtin id never ran --
+`check_call`'s arm rewrote the callee first, and `call_remove` only ever handled an array, so
+the id path would have read an `ArrayObj` out of a handle had anything reached it.
 
 ### `array_order_of`
 
@@ -1781,6 +1691,61 @@ native fn mutable_map_new<K: Eq + Hash, V>() -> MutableMap<K, V>
 
 An empty map builder.
 
+### `len`
+
+```
+native fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
+```
+
+**How many entries**, O(1) in both worlds. `len`'s other seven members are in array.zm,
+string.zm, set.zm and mutable.zm, and array.zm's carry the account of why nine declarations
+share one C function.
+
+```
+native fn len<K: Eq + Hash, V>(m: MutableMap<K, V>) -> int
+```
+
+### `contains`
+
+```
+native fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
+```
+
+**Whether `key` is present** -- a *key*, which is the form the shared question takes for a map,
+where an array is asked about an element and text about a substring. For "is this value in
+here", walk `values`.
+
+```
+native fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
+```
+
+### `mutable`
+
+```
+builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
+```
+
+**The MutableMap holding `entries`** -- `mutable`'s map member, and `snapshot` backwards. Its
+array and Set members are in array.zm and set.zm, and the member for everything else is in
+mutable.zm, which carries the account of how the four are told apart. `Map<K, V> {}` writes its
+own types, so this never had the empty-literal gap `mutable([])` has.
+
+### `map`
+
+```
+pub fn map<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(K, V) -> R) -> Map<K, R>
+```
+
+`m` with `f` applied to every value, keys and their order unchanged:
+`map(stock, fn(k, v) { str(v) })`. **`f` takes the key as well as the value**, which is what the
+example here got wrong from the day it was written: it read
+`map<string, int, string>(stock, fn(n) { str(n) })`, and a one-parameter lambda against
+`fn(K, V) -> R` is refused -- *"this lambda takes 1 parameter(s) but a function taking 2 is
+expected"* -- with or without the type arguments. A prelude doc comment is compiled by nothing,
+which is how it stood. The key is usually unused, as here; name it and ignore it.
+
+`map`'s array members are in array.zm with `flat_map`, and its Set member in set.zm.
+
 ### `get`
 
 ```
@@ -1803,6 +1768,30 @@ removing and re-inserting every key: 351-363 ns/op through `remove` against 110-
 through the bool-returning path -- the removal itself is a fraction of either. Reach for
 `remove` only when the old value is actually needed.
 
+### `remove`
+
+```
+pub native fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
+```
+
+**A new Map without `key`** -- `remove`'s Map member. A key that is absent is not an error; the
+answer is a map equal to the argument. `native fn` since 2026-10-22; array.zm's member carries
+the account of that conversion and the `#[when_unmatched]` line the whole set shares.
+
+```
+pub native fn remove<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
+```
+
+Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
+`discard` instead when the removed value is not wanted: answering with an `Option` means
+allocating one, which on a large map costs several times the removal itself.
+
+`#[effectful]` because it both writes the map and answers a value: without it the dropped-result
+gate would read "answers something" as "has no effect" and refuse `remove(mb, k)` in statement
+position, which is "delete if present" and perfectly ordinary. The MutableArray and MutableSet
+members carry it for the same reason, each answering something different -- the element, and
+whether the item was there.
+
 ### `remove_all`
 
 ```
@@ -1821,8 +1810,8 @@ builtin fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K,
 
 `m` without any of `keys`, as a new Map. The immutable half: the MutableMap form above drops
 them in place and answers whether any was there, where this answers the map that is left. The
-MutableSet form is in set.zm, and `remove` itself -- the singular over all six collections --
-stays in collections.zm.
+MutableSet form is in set.zm, and `remove` -- the singular of it -- has its two map members
+just above.
 
 ### `get_or`
 
@@ -2052,6 +2041,56 @@ native fn mutable_new<T>(value: T) -> Mutable<T>
 ```
 
 A cell holding `value`.
+
+### `len`
+
+```
+native fn len<T>(cell: Mutable<T>) -> int
+```
+
+A cell holds exactly one value, so its length is always 1 -- `len`'s ninth member, and the only
+one of the nine that is not about a collection. The other eight are in array.zm, string.zm,
+map.zm and set.zm.
+
+### `contains`
+
+```
+native fn contains<T: Eq>(cell: Mutable<T>, x: T) -> bool
+```
+
+Whether the value in the cell equals `x`: the one-value case of the question the other eight
+members ask of a collection.
+
+### `mutable`
+
+```
+builtin fn mutable<T>(item: T) -> Mutable<T>
+```
+
+**`mutable(x)` makes the mutable counterpart of whatever it is given, and this is the member for
+everything that is not one of the three collections.** For an array, a Map or a Set it answers
+that collection's builder (those three members are in array.zm, map.zm and set.zm); for anything
+else -- a scalar, a string, a struct, an enum, even another handle -- there is no builder to
+answer, and the mutable counterpart of a single value is a cell.
+
+**The dispatch is by shape, and the collections win.** An array matches both `[T]` and the bare
+`T` here, and the array member is the one that applies; the same for a `Map` and a `Set`. The
+arm in `check_call` decides that, **not declaration order** -- which is worth saying now that
+the four live in four files and a reader cannot see them in one order at all. Checked by moving
+this member above the other three and re-running: the same answers. The one thing the rule costs
+is that a *cell holding* one of those three cannot be spelled this way -- `mutable([1, 2])` is a
+`MutableArray<int>`, never a `Mutable<[int]>`. Write that one as `mutable_new([1, 2])`, which is
+what the cell's own constructor is for and is unambiguous about which of the two you meant.
+
+Two consequences worth knowing rather than discovering. A string answers `Mutable<string>`, not
+a MutableString: a MutableString is *filled* rather than converted (`mutable_string_new` then
+`append`), so it is not this conversion -- and the corpus agrees, since of 133
+`mutable_string_new` call sites exactly one seeds the buffer from a whole existing string. And a
+builder answers a cell holding that same handle, **not a clone of it**; there is no way to clone
+a builder at all, which is deliberate rather than pending. `mutable_array_from`,
+`mutable_map_from` and `mutable_set_from` used to be that way and were removed once `mutable`
+covered the conversion they were mostly used for: keeping both would have put two spellings on
+one question, and the clone half had no caller outside its own fixtures.
 
 ### `mutable_get`
 
@@ -2317,6 +2356,54 @@ native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
 
 An empty set builder.
 
+### `len`
+
+```
+native fn len<T: Eq + Hash>(s: Set<T>) -> int
+```
+
+**How many elements**, O(1) in both worlds. `len`'s other seven members are in array.zm,
+string.zm, map.zm and mutable.zm, and array.zm's carry the account of why nine declarations
+share one C function.
+
+```
+native fn len<T: Eq + Hash>(s: MutableSet<T>) -> int
+```
+
+### `contains`
+
+```
+native fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
+```
+
+**Whether `x` is a member** -- O(1) here, where the array form of the same question is O(n),
+which is most of why a Set is worth converting to.
+
+```
+native fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
+```
+
+### `mutable`
+
+```
+builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
+```
+
+**The MutableSet holding `items`** -- `mutable`'s set member, and `snapshot` backwards. Its array
+and Map members are in array.zm and map.zm, and the member for everything else is in mutable.zm,
+which carries the account of how the four are told apart. `Set<T> {}` writes its own type, so
+this never had the empty-literal gap `mutable([])` has.
+
+### `map`
+
+```
+pub fn map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U>
+```
+
+The set of `f(x)` for every `x` in `s`, in the order first produced. Two elements that map to the
+same value become one: `map(Set<int> { 1, 2, 3 }, fn(n) { n % 2 })` is `{1, 0}`. `map`'s array
+members are in array.zm with `flat_map`, and its Map member in map.zm.
+
 ### `add`
 
 ```
@@ -2332,6 +2419,25 @@ or several is never ambiguous when only the `_all` form takes many.
 attribute the dropped-result gate reads a non-void prelude overload as pure and refuses it, as
 it did from F199 until F212.
 
+### `remove`
+
+```
+pub native fn remove<T: Eq + Hash>(s: Set<T>, item: T) -> Set<T>
+```
+
+**A new Set without `item`** -- `remove`'s Set member. An element that is absent is not an error;
+the answer is a set equal to the argument. `native fn` since 2026-10-22, and the parameter was
+`x` until that conversion made the rename free. array.zm's member carries the account of it and
+the `#[when_unmatched]` line the whole set shares.
+
+```
+pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
+```
+
+Removes `item`, answering whether it was there; nothing happens when it is absent. `#[effectful]`
+for the reason `add` carries it: the call writes the set, and "was it there?" is an answer
+"delete if present" has no use for.
+
 ### `remove_all`
 
 ```
@@ -2339,8 +2445,8 @@ pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 ```
 
 Drops each of `items`, answering whether any of them was there -- `add`'s opposite, and variadic
-for the same reason. The map form answers the same question of keys and is in map.zm; `remove`
-itself, the singular over all six collections, stays in collections.zm.
+for the same reason. The map form answers the same question of keys and is in map.zm, and
+`remove` -- the singular of it -- has its two set members just above.
 
 `#[effectful]` for the reason `add` carries it: "did anything change?" is an answer
 "make sure these are gone" has no use for.
@@ -2485,14 +2591,41 @@ native fn string_to_bytes(s: string) -> [byte]
 
 The UTF-8 bytes of `s`.
 
+### `len`
+
+```
+native fn len(s: string) -> int
+```
+
+The bytes of `s` from `start` up to, not including, `end` (`0 <= start <= end <= len(s)`, a
+runtime error otherwise).
+**Its length in bytes**, not characters -- `char_count` is the character question. `len`'s other
+seven members are in array.zm, map.zm, set.zm and mutable.zm; `--api builtins` prints all nine
+as one block, and array.zm's members carry the account of why nine declarations share one C
+function.
+
+```
+native fn len(s: MutableString) -> int
+```
+
+### `contains`
+
+```
+native fn contains(s: string, needle: string) -> bool
+```
+
+**Whether `needle` appears in it** -- the form the shared question takes for text, where an
+array is asked about an element and a map about a key.
+
+```
+native fn contains(s: MutableString, needle: string) -> bool
+```
+
 ### `substring`
 
 ```
 native fn substring(s: string, start: int, end: int) -> string
 ```
-
-The bytes of `s` from `start` up to, not including, `end` (`0 <= start <= end <= len(s)`, a
-runtime error otherwise).
 
 ### `concat`
 

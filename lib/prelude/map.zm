@@ -1,7 +1,9 @@
 // map.zm -- `Map<K, V>` and its builder `MutableMap<K, V>`, plus `MapEntry<K, V>`. The questions
 // both worlds answer the same way (`keys`, `values`, `items`, `get`, `merge`, `entries`) are single
-// overload sets declared over the two of them here; the ones shared with Set and the arrays are in
-// collections.zm.
+// overload sets declared over the two of them here, and so are the map members of the names that
+// reach further -- `len`, `contains`, `filter`, `remove`, `map`, `set`, `snapshot`, `clear`,
+// `mutable`, `get_or`, `update`, `remove_all`. Their other members are in the file for each one's
+// own type; `--api builtins` prints a whole set as one block.
 //
 // Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
 // loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
@@ -30,14 +32,13 @@
 // `docs/lib/prelude.md` is **not** grouped -- it is organised as one `##` section per file, so a
 // split set still has a `###` heading in each. The listing is the one place to read a whole set.
 //
-// That reverses the older rule, which kept a split set whole in collections.zm. What remains in
-// collections.zm is the names whose members span so many types that no one file is theirs -- `len`
-// over nine, `contains` over nine, `remove` over six -- plus `map` and `flat_map`, which `map`'s
-// Map and Set members pin there, and `mutable`, whose fourth member takes a bare `T` and so has no
-// file at all. `filter` was the last to leave, on 2026-10-22: two members each to array.zm, map.zm
-// and set.zm. **Everything else splits, however few files that
-// means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
-// and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
+// That reverses the older rule, which kept a split set whole in collections.zm -- **and that file
+// is gone**, retired on 2026-10-22 once the last of its names had been filed by type. **Every set
+// splits, however many files that means**: `len` and `contains` across five each, `snapshot` and
+// `clear` across four, `filter`, `remove` and `mutable` across three, `set`, `remove_all` and
+// `map` across three, `concat`, `get_or`, `update` and `flat_map` across two or one. Nothing is
+// exempt and nothing is left over. See docs/DESIGN.md's "Overloading available to a declaration",
+// and prelude.zm's header for what collections.zm's own header carried.
 
 // The mutable counterparts of Map and Set, for building one entry by entry. `set` on a Map and
 // `add` on a Set copy a few nodes each time; a builder changes its own private structure in place,
@@ -53,6 +54,41 @@ struct MutableMap<K: Eq + Hash, V> {
 // An empty map builder.
 native fn mutable_map_new<K: Eq + Hash, V>() -> MutableMap<K, V>
 
+// **How many entries**, O(1) in both worlds. `len`'s other seven members are in array.zm,
+// string.zm, set.zm and mutable.zm, and array.zm's carry the account of why nine declarations
+// share one C function.
+native fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
+native fn len<K: Eq + Hash, V>(m: MutableMap<K, V>) -> int
+
+// **Whether `key` is present** -- a *key*, which is the form the shared question takes for a map,
+// where an array is asked about an element and text about a substring. For "is this value in
+// here", walk `values`.
+native fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
+native fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
+
+// **The MutableMap holding `entries`** -- `mutable`'s map member, and `snapshot` backwards. Its
+// array and Set members are in array.zm and set.zm, and the member for everything else is in
+// mutable.zm, which carries the account of how the four are told apart. `Map<K, V> {}` writes its
+// own types, so this never had the empty-literal gap `mutable([])` has.
+builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
+
+// `m` with `f` applied to every value, keys and their order unchanged:
+// `map(stock, fn(k, v) { str(v) })`. **`f` takes the key as well as the value**, which is what the
+// example here got wrong from the day it was written: it read
+// `map<string, int, string>(stock, fn(n) { str(n) })`, and a one-parameter lambda against
+// `fn(K, V) -> R` is refused -- *"this lambda takes 1 parameter(s) but a function taking 2 is
+// expected"* -- with or without the type arguments. A prelude doc comment is compiled by nothing,
+// which is how it stood. The key is usually unused, as here; name it and ignore it.
+//
+// `map`'s array members are in array.zm with `flat_map`, and its Set member in set.zm.
+pub fn map<K: Eq + Hash, V, R>(m: Map<K, V>, f: fn(K, V) -> R) -> Map<K, R> {
+    val out = mutable_map_new<K, R>()
+    for k, v in m {
+        set(out, k, f(k, v))
+    }
+    return snapshot(out)
+}
+
 // The value of `key`, or None.
 pub native fn get<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
 
@@ -64,6 +100,23 @@ pub native fn get<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
 // through the bool-returning path -- the removal itself is a fraction of either. Reach for
 // `remove` only when the old value is actually needed.
 pub native fn discard<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K)
+
+// **A new Map without `key`** -- `remove`'s Map member. A key that is absent is not an error; the
+// answer is a map equal to the argument. `native fn` since 2026-10-22; array.zm's member carries
+// the account of that conversion and the `#[when_unmatched]` line the whole set shares.
+pub native fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
+
+// Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
+// `discard` instead when the removed value is not wanted: answering with an `Option` means
+// allocating one, which on a large map costs several times the removal itself.
+//
+// `#[effectful]` because it both writes the map and answers a value: without it the dropped-result
+// gate would read "answers something" as "has no effect" and refuse `remove(mb, k)` in statement
+// position, which is "delete if present" and perfectly ordinary. The MutableArray and MutableSet
+// members carry it for the same reason, each answering something different -- the element, and
+// whether the item was there.
+#[effectful]
+pub native fn remove<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
 
 // Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
 // of what the singular takes, which for a map's `remove` is keys rather than entries.
@@ -84,8 +137,8 @@ pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> boo
 
 // `m` without any of `keys`, as a new Map. The immutable half: the MutableMap form above drops
 // them in place and answers whether any was there, where this answers the map that is left. The
-// MutableSet form is in set.zm, and `remove` itself -- the singular over all six collections --
-// stays in collections.zm.
+// MutableSet form is in set.zm, and `remove` -- the singular of it -- has its two map members
+// just above.
 #[at_least_one]
 builtin fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
 

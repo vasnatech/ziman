@@ -39,10 +39,12 @@
 
 /* The prelude is several files, not one: lib/prelude/<part>.zm, each embedded
  * by the Makefile's prelude rule and listed in prelude.c's PARTS table.
- * They are split by the type their names are about, with one exception --
- * a name whose declarations would otherwise be spread over two or more
- * parts lives whole in collections.zm, so that an overload set is never
- * split across files and `--api builtins` can be read a part at a time.
+ * They are split by the type their names are about: a declaration lives in
+ * the part for the type its first argument has, so an overload set *is*
+ * split when its members' types are, and `--api builtins` groups a set back
+ * together by name. There was an exception until 2026-10-22 -- a split name
+ * lived whole in collections.zm -- and that part is gone, its last names
+ * having been filed by type.
  *
  * Each part is lexed separately, so a diagnostic inside the prelude gets
  * that part's own line numbers; prelude_part_name() is what it is

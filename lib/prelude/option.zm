@@ -29,14 +29,13 @@
 // `docs/lib/prelude.md` is **not** grouped -- it is organised as one `##` section per file, so a
 // split set still has a `###` heading in each. The listing is the one place to read a whole set.
 //
-// That reverses the older rule, which kept a split set whole in collections.zm. What remains in
-// collections.zm is the names whose members span so many types that no one file is theirs -- `len`
-// over nine, `contains` over nine, `remove` over six -- plus `map` and `flat_map`, which `map`'s
-// Map and Set members pin there, and `mutable`, whose fourth member takes a bare `T` and so has no
-// file at all. `filter` was the last to leave, on 2026-10-22: two members each to array.zm, map.zm
-// and set.zm. **Everything else splits, however few files that
-// means**: `snapshot` and `clear` across four each, `set` and `remove_all` across three, `get_or`
-// and `update` across two. See docs/DESIGN.md's "Overloading available to a declaration".
+// That reverses the older rule, which kept a split set whole in collections.zm -- **and that file
+// is gone**, retired on 2026-10-22 once the last of its names had been filed by type. **Every set
+// splits, however many files that means**: `len` and `contains` across five each, `snapshot` and
+// `clear` across four, `filter`, `remove` and `mutable` across three, `set`, `remove_all` and
+// `map` across three, `concat`, `get_or`, `update` and `flat_map` across two or one. Nothing is
+// exempt and nothing is left over. See docs/DESIGN.md's "Overloading available to a declaration",
+// and prelude.zm's header for what collections.zm's own header carried.
 
 // A value that may be absent: `Some(value)` or `None`. Test with `Option.is_Some(o)` and read
 // with `Option.unwrap_Some(o)`, or with a `switch`. Available bare, like `Result`; unlike
