@@ -46,6 +46,13 @@ struct MutableSet<T: Eq + Hash> {
 native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
 
 // Adds `item`; nothing happens when it is already there.
+//
+// `#[effectful]` is true of it -- the call writes the set and "was it new?" is incidental -- and
+// inert today: the dropped-result gate only reaches a name that is in `PURE_BUILTINS` or has more
+// than one prelude declaration, and this has neither. It is marked so that the fact lives on the
+// declaration rather than being rediscovered if the name ever joins a set, which is how `update`
+// came to be refused in statement position for a pass.
+#[effectful]
 internal native fn mutable_set_add<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
 
 // Adds each of `items`, answering whether any of them was new. The singular `mutable_set_add` is

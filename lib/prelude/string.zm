@@ -220,6 +220,14 @@ native fn append(s: MutableString, pieces: variadic string)
 // `append_byte(sb, 195b, 169b)`. A string cannot hold a 0 byte, so if any byte is `0b` NOTHING
 // is appended and the result is false (true otherwise). The bytes need not be valid UTF-8 on
 // their own.
+//
+// **Deliberately not `#[effectful]`**, which the 2026-10-22 audit of that attribute stopped at.
+// It writes its argument and answers a value, which is the shape of the three `remove`s and of
+// `add` -- but their `bool` says "did anything change?", an answer a caller is entitled to ignore,
+// and this one says **whether anything was appended at all**. Discarding that loses a failure
+// silently. So the criterion is not "mutates and answers" but "mutates, and the answer is one the
+// ordinary call has no use for"; if `append_byte` ever joins an overload set, the dropped-result
+// gate refusing a discarded result will be right.
 #[at_least_one]
 native fn append_byte(s: MutableString, pieces: variadic byte) -> bool
 

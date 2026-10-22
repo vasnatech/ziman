@@ -1890,6 +1890,9 @@ pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> 
 lookup where `get` then `set` is two, which is the whole reason this exists where
 `mutable_set`-on-a-cell did not need an equivalent. `update`'s cell form is in mutable.zm.
 
+`#[effectful]` for the reason the cell form carries it: the call writes the entry, and the new
+value is an answer `update(counts, k, bump)` on its own line has no use for.
+
 ### `update_all`
 
 ```
@@ -2070,6 +2073,13 @@ pub fn update<T>(cell: Mutable<T>, f: fn(T) -> T) -> T
 `update(n, fn(x) { x + 1 })`. Ordinary Ziman over `mutable_get`/`mutable_set`, since there is no
 lookup for a native to save, where the MutableMap form of this name is a native precisely
 because there is one. That form takes a key and is in map.zm, with the entry it updates.
+
+**`#[effectful]` because the counter idiom above is a statement.** `update` writes the cell and
+answers the new value, so the return-type rule -- which reads "answers something" as "has no
+effect" across these sets -- refused `update(n, fn(x) { x + 1 })` on its own line with *"the int
+returned by 'update' is discarded, and 'update' has no other effect"*, of the one function in
+the file whose whole job is that effect. Missing since the attribute existed (F208) and found by
+auditing every prelude declaration that writes an argument and answers a value, 2026-10-22.
 
 ## `option.zm`
 
@@ -2728,6 +2738,14 @@ Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say
 `append_byte(sb, 195b, 169b)`. A string cannot hold a 0 byte, so if any byte is `0b` NOTHING
 is appended and the result is false (true otherwise). The bytes need not be valid UTF-8 on
 their own.
+
+**Deliberately not `#[effectful]`**, which the 2026-10-22 audit of that attribute stopped at.
+It writes its argument and answers a value, which is the shape of the three `remove`s and of
+`add` -- but their `bool` says "did anything change?", an answer a caller is entitled to ignore,
+and this one says **whether anything was appended at all**. Discarding that loses a failure
+silently. So the criterion is not "mutates and answers" but "mutates, and the answer is one the
+ordinary call has no use for"; if `append_byte` ever joins an overload set, the dropped-result
+gate refusing a discarded result will be right.
 
 ### `mutable_string_get`
 

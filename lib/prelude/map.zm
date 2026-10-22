@@ -110,6 +110,10 @@ builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
 // `f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
 // lookup where `get` then `set` is two, which is the whole reason this exists where
 // `mutable_set`-on-a-cell did not need an equivalent. `update`'s cell form is in mutable.zm.
+//
+// `#[effectful]` for the reason the cell form carries it: the call writes the entry, and the new
+// value is an answer `update(counts, k, bump)` on its own line has no use for.
+#[effectful]
 pub fn update<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, f: fn(Option<V>) -> V) -> V {
     val next = f(get(m, key))
     set(m, key, next)

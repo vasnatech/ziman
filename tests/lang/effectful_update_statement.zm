@@ -1,0 +1,28 @@
+// `update` on its own line. It writes its argument and answers the new value, so the
+// dropped-result rule -- which across the prelude's overload sets reads "answers something" as
+// "has no effect" -- refused the counter idiom with *"the int returned by 'update' is discarded,
+// and 'update' has no other effect"*, of the one function in mutable.zm whose whole job is that
+// effect. `#[effectful]` is the override, and both members were missing it from the day the
+// attribute existed (F208) until an audit of every prelude declaration that writes an argument and
+// answers a value, 2026-10-22.
+//
+// The cell form's own doc comment advertises `update(n, fn(x) { x + 1 })` as *the counter idiom*,
+// which is a statement. That is what makes this a bug and not a preference.
+fn main() {
+    val hits = mutable(0)
+    update(hits, fn(n: int) -> int { return n + 1 })
+    update(hits, fn(n: int) -> int { return n + 1 })
+    update(hits, fn(n: int) -> int { return n + 1 })
+    print(mutable_get(hits))
+
+    // the MutableMap form, for the same reason: the entry is written and the new value is an
+    // answer "bump this counter" has no use for
+    val counts = mutable(Map<string, int> { "a": 1 })
+    update(counts, "a", fn(o: Option<int>) -> int { return get_or(o, 0) + 1 })
+    update(counts, "b", fn(o: Option<int>) -> int { return get_or(o, 0) + 1 })
+    print(snapshot(counts))
+
+    // and the value is still there to take when it is wanted
+    val next = update(hits, fn(n: int) -> int { return n * 10 })
+    print(next)
+}
