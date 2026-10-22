@@ -56,8 +56,8 @@ fn main() {
 
     // the builders share the trie, so they share the fix
     val sb = mutable_set_new<float>()
-    mutable_set_add<float>(sb, n1)
-    mutable_set_add<float>(sb, n2)
+    add<float>(sb, n1)
+    add<float>(sb, n2)
     printf("MutableSet: len {} contains {}\n", len(sb), contains(sb, n1))
 
     // the split must not leak into `==` at any depth

@@ -33,8 +33,8 @@ fn main() {
     print(remove(m, "c"))
 
     val s = mutable_set_new<int>()
-    print(mutable_set_add(s, 1))
-    print(mutable_set_add(s, 1))
+    print(add(s, 1))
+    print(add(s, 1))
     print(add(s, 2, 3, 1))
     print(add(s, 1))
     print(items(s))

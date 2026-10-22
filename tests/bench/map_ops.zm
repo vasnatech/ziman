@@ -264,7 +264,7 @@ fn main() {
     // `discard` was added to avoid.
     val setb = mutable_set_new<int>()
     for i in 0..size {
-        mutable_set_add<int>(setb, i)
+        add<int>(setb, i)
     }
     val st = snapshot(setb)
     printf("\nSet/MutableSet over {} items, {} ops each\n", size, ops)
@@ -331,7 +331,7 @@ fn main() {
     for i in 0..ops {
         val k = i % size
         acc = acc + k
-        if mutable_set_add<int>(setb, k) {
+        if add<int>(setb, k) {
             acc = acc + 1
         }
     }
@@ -344,7 +344,7 @@ fn main() {
         if remove<int>(setb, k) {
             acc = acc + 1
         }
-        mutable_set_add<int>(setb, k)
+        add<int>(setb, k)
     }
     report("MutableSet  remove+add     ", clock.monotonic_millis() - t, setbase_if)
 

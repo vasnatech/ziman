@@ -20,8 +20,8 @@ fn main() {
     print(len(mb))
 
     val st = mutable_set_new<int>()
-    mutable_set_add(st, 7)
-    mutable_set_add(st, 7)
+    add(st, 7)
+    add(st, 7)
     print(len(st))
     print(len(st))
 

@@ -38,12 +38,12 @@ fn main() {
     print(snapshot(mb))
 
     val st = mutable_set_new<int>()
-    mutable_set_add(st, 1)
-    mutable_set_add(st, 2)
+    add(st, 1)
+    add(st, 2)
     val set_before = snapshot(st)
     clear(st)
     print(len(st))
     print(set_before)
-    mutable_set_add(st, 7)
+    add(st, 7)
     print(snapshot(st))
 }

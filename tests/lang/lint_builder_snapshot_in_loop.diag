@@ -1,6 +1,12 @@
 # One per builder kind, and the half worth pinning is that the advice is still per-type: each names
 # its own readers. With one conversion name left, the kind comes from the appender in the loop body
 # instead of from the call, which is also what keeps these four messages distinct.
+#
+# **The MutableSet case passed for the wrong reason until 2026-10-22.** `BUILDER_KINDS` keyed it on
+# `mutable_set_add`, which F199 replaced with `add` and made `internal` -- so the lint could not
+# read the kind of any loop a program would actually write, and this file only reached four
+# warnings because it still used the obsolete name. Migrating it to `add` dropped the count to
+# three, which is how the dead branch was found.
 lint 12:9 'snapshot' converts the whole of 'seen' on every pass of this loop, and the loop keeps adding to it (quadratic); read it in place with len, b[i] or 'for x in <the builder>'
 lint 25:9 read it in place with len, contains, get or get_or
 lint 36:9 read it in place with len, or a MutableString you finish once after the loop

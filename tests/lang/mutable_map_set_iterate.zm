@@ -27,9 +27,9 @@ fn main() {
     }
 
     val s = mutable_set_new<int>()
-    mutable_set_add(s, 7)
-    mutable_set_add(s, 3)
-    mutable_set_add(s, 7)
+    add(s, 7)
+    add(s, 3)
+    add(s, 7)
     for x in s {
         print(x)
     }

@@ -749,7 +749,16 @@ static void lint_quadratic_accumulation(const Stmt *s) {
  * the reading: it is the *variable* that picks the entry, and a MutableArray type-checks against
  * `push` and nothing else here. The array half of `push` cannot be confused for the builder half
  * either, because `push(arr, x)` in statement position is already the discarded-result error
- * below -- there is no loop body where it stands and means something. */
+ * below -- there is no loop body where it stands and means something.
+ *
+ * **The MutableSet entry was keyed on `mutable_set_add` until 2026-10-22, and that branch was
+ * dead.** F199 made `add` the word in both set worlds, and `mutable_set_add` has been `internal`
+ * ever since -- so any real loop writes `add(seen, x)` and the kind could not be read at all,
+ * which means the one lint on this page that exists to catch a quadratic silently stopped
+ * catching it for a MutableSet. It passed its own fixture only because the fixture still used the
+ * obsolete name; migrating that fixture to `add` is what exposed it, three warnings firing where
+ * four were expected. The third rename to break this table (F162 and F205 were the others), and
+ * the reason the entries are now the names a program would actually write. */
 typedef struct {
     const char *appender;
     const char *readers;
@@ -759,7 +768,7 @@ static const BuilderKindAdvice BUILDER_KINDS[] = {
     {"push", "len, b[i] or 'for x in <the builder>'"},
     {"append", "len, or a MutableString you finish once after the loop"},
     {"set", "len, contains, get or get_or"},
-    {"mutable_set_add", "len or contains"},
+    {"add", "len or contains"},
     {NULL, NULL}};
 
 

@@ -24,7 +24,7 @@ fn use_map(done: Channel<string>) {
 
 fn use_set(done: Channel<string>) {
     val b = MutableSet<int> { handle: 1 }
-    mutable_set_add(b, 1)
+    add(b, 1)
     send(done, "set: not refused")
 }
 

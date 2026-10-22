@@ -28,7 +28,7 @@ fn main() {
     print(keys(m))
 
     val st = mutable_set_new<string>()
-    mutable_set_add(st, "x")
+    add(st, "x")
     print(snapshot(st))
     print(contains(snapshot(st), "x"))
 

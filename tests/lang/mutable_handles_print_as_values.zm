@@ -33,7 +33,7 @@ fn main() {
     print(m)
 
     val s = mutable_set_new<int>()
-    mutable_set_add(s, 7)
+    add(s, 7)
     print(s)
 
     print(mutable_new(5))

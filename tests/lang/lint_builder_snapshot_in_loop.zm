@@ -46,7 +46,7 @@ fn uniq(ns: [int]) -> int {
     for v in ns {
         val so_far = snapshot(seen)
         n = n + len(so_far)
-        mutable_set_add(seen, v)
+        add(seen, v)
     }
     return n
 }

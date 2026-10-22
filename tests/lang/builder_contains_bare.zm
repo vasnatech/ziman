@@ -29,7 +29,7 @@ fn main() {
     print(contains(mb, "a"))
 
     val st = mutable_set_new<int>()
-    mutable_set_add(st, 7)
+    add(st, 7)
     print(contains(st, 7))
     print(contains(st, 8))
     print(contains(st, 7))
