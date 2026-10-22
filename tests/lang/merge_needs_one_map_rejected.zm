@@ -1,0 +1,6 @@
+// `#[at_least_one]` on `merge`'s variadic parameter: with no map there is nothing to take `K` and
+// `V` from and nothing to answer, so the call is refused rather than answering an empty map of
+// some inferred-from-nothing type. The same reason `add` and `remove_all` carry it.
+fn main() {
+    print(len(merge()))
+}

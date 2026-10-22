@@ -2025,10 +2025,27 @@ pub native fn values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
 ### `merge`
 
 ```
-pub native fn merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>
+pub native fn merge<K: Eq + Hash, V>(maps: variadic Map<K, V>) -> Map<K, V>
 ```
 
-`other` wins where both have a key.
+**Every map in order, joined into one new Map**; a later map wins where an earlier one has the
+same key. Keys keep the order they were first seen in.
+
+**Variadic, and this replaced a two-parameter form rather than joining it.** `merge(a, b)` was
+`merge(m: Map<K, V>, other: Map<K, V>)` until 2026-10-22, and the two could not coexist: a
+variadic `Map<K, V>` accepts exactly two maps as well, so no call could tell them apart and the
+declaration checker refuses the pair. Replacing is the right direction anyway -- the binary form
+*is* the two-element case -- and every `merge(a, b)` call site is unchanged, because a variadic
+parameter takes them written out. What did change is the parameter name, from `m`/`other` to
+`maps`, which only a named call could notice.
+
+**One argument that is an array of maps spreads**, its elements being the maps, the same rule
+`concat` and `push` follow: `merge(candidates)` for a `[Map<K, V>]` merges them all. Two or more
+arguments are never a spread.
+
+`#[at_least_one]`, because `merge()` has no map to take `K` and `V` from and would answer
+nothing useful -- the same reason `add` and `remove_all` carry it. `merge(a)` is allowed and
+answers `a`.
 
 ### `MapEntry`
 

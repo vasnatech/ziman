@@ -2706,17 +2706,27 @@ static Value native_map_values(Value *args, int argc, int line, int col) {
     return value_array(type_scalar_ref(TY_VOID), packed != NULL ? packed : array_obj_new(vals, n));
 }
 
-/* `other` wins where both have a key. One `mapobj_set` per entry of the second map onto the
- * first, which shares structure rather than copying it. */
+/* Every map in order onto the first, a later one winning where an earlier has the same key. One
+ * `mapobj_set` per entry, which shares structure rather than copying it.
+ *
+ * **Variadic since 2026-10-22, so `args[0]` is one array of maps** however the call was written --
+ * written out, or a lone array spread. The declaration replaced a two-parameter form; a variadic
+ * `Map<K, V>` accepts exactly two maps as well, so the two could not have coexisted. `#[at_least_one]`
+ * guarantees the array is non-empty, which is what lets the first element be the accumulator. */
 static Value native_map_merge(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    MapObj *m = args[0].as.map;
-    Value *keys, *vals;
-    mapobj_entries(args[1].as.map, &keys, &vals);
-    for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_set(m, keys[i], vals[i]);
-    return value_map(args[0].type, m);
+    const ArrayObj *maps = args[0].as.arr;
+    Value first = array_get(maps, 0);
+    MapObj *m = first.as.map;
+    for (int i = 1; i < maps->count; i++) {
+        Value next = array_get(maps, i);
+        Value *keys, *vals;
+        mapobj_entries(next.as.map, &keys, &vals);
+        for (int j = 0; j < next.as.map->count; j++) m = mapobj_set(m, keys[j], vals[j]);
+    }
+    return value_map(first.type, m);
 }
 
 /* **One symbol for both in-place declarations**, because the symbol fallback reads parameter one

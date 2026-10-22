@@ -33,7 +33,7 @@ fn main() {
     print(get_or(m: m, key: "z", value: 7))
     print(keys(m: m))
     print(values(m: m))
-    print(merge(m: m, other: Map<string, int> { "x": 9 }))
+    print(merge(maps: [m, Map<string, int> { "x": 9 }]))
     print(set(m: m, key: "f", value: 6))
     print(set(items: [1, 2, 3], index: 1, x: 99))
     print(remove_all(m: m, keys: "b"))
