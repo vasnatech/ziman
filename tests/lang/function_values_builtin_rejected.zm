@@ -1,4 +1,13 @@
+// A builtin is not a function value: there is no FunctionDecl to hand over, only an id the
+// interpreter dispatches, so the refusal is its own message rather than a type mismatch.
+//
+// This pinned `len` until F217 made `len` nine `native fn` declarations. `len` now answers the
+// *overload set* refusal instead ("names more than one function ... there are no arguments here to
+// choose between them"), which is `generic_value_native_rejected`'s neighbour and a different
+// rule. `compare` is a builtin with a single declaration, so it still reaches this one -- and as
+// the builtins keep converting, the name this fixture uses will keep needing to move. That is the
+// point of it: when nothing is left to put here, the message can go too.
 fn main() {
-    val f = len
+    val f = compare
     print(1)
 }

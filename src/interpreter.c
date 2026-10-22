@@ -400,6 +400,19 @@ static void run_defers(Module *module, Env *env) {
 
 static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, int raw_argc, int tail_is_array_spread, int call_line, int call_col) {
     ZIMAN_STACK_CHECK();
+    /* **`len(x)` before the frame is pushed at all.** It takes one argument, allocates nothing and
+     * cannot fail, so there is no error for a frame to be named in and nothing for the collapse to
+     * do. Measured: converting `len`'s nine declarations off the builtin id cost **+28.6%** on
+     * 9,000,000 calls without this and **the frame push was almost all of it** -- `len` is the
+     * hottest function in the language, since every `while i < len(x)` pays it once a pass.
+     *
+     * Picked by the already-cached native pointer, like the two `push` shortcuts below, so every
+     * other call pays one integer test and a relaxed load. On the very first call the pointer is
+     * unresolved and this falls through, once. */
+    if (fn->is_native && raw_argc == 1 &&
+        (NativeFn)__atomic_load_n(&fn->native_impl, __ATOMIC_RELAXED) == ziman_len) {
+        return ziman_len(raw_args, 1, call_line, call_col);
+    }
     ziman_push_frame(fn->name, fn->source_file, call_line, call_col);
     /* `push(b, x)` with exactly one element, before the variadic collapse allocates a
      * temporary array to carry it -- see ziman_mutable_array_push_one for what that cost is and how
@@ -652,22 +665,6 @@ static Value call_print(Value arg) {
 
 static Value call_str(Value arg) {
     return value_string(value_display(arg));
-}
-
-static Value call_len(Value v) {
-    if (v.type->kind == TY_STRING) {
-        return value_int((int64_t)v.as.str.len);
-    }
-    if (v.type->kind == TY_MAP || v.type->kind == TY_SET) return value_int(v.as.map->count);
-    /* One of the four builders: a struct over a thread-bound handle, so the length lives in the
-     * handle's own table rather than in the struct (see prelude.h's ziman_builder_length). A
-     * `Mutable<T>` cell holds exactly one value, which needs no asking. */
-    if (v.type->kind == TY_STRUCT) {
-        MutableKind kind = ziman_mutable_kind(v.type);
-        if (kind == MUTABLE_CELL) return value_int(1);
-        return value_int(ziman_builder_length(v, kind));
-    }
-    return value_int(v.as.arr->count);
 }
 
 static Value call_contains(Value first, Value second) {
@@ -1255,7 +1252,6 @@ typedef enum {
     B_str,
     B_format,
     B_printf,
-    B_len,
     B_mutable_array_push_all,
     B_mutable_array_from,
     B_mutable_array_lit,
@@ -1313,7 +1309,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"str", B_str},
     {"format", B_format},
     {"printf", B_printf},
-    {"len", B_len},
     {"$mutable_array_from", B_mutable_array_from},
     {"$mutable_array_lit", B_mutable_array_lit},
     {"concat", B_concat},
@@ -1501,8 +1496,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 fwrite(text.as.str.ptr, 1, text.as.str.len, stdout);
                 fflush(stdout);
                 result = value_int(0);
-            } else if (bid == B_len) {
-                result = call_len(args[0]);
             } else if (bid == B_map_merge
                        && args[0].type->kind == TY_STRUCT) {
                 /* `merge` over a MutableMap. One name, one id -- same shape as the four set

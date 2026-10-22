@@ -2016,6 +2016,33 @@ Value ziman_narrow_mutable_array(Value b, int64_t start, int64_t end, int line, 
  * `slice(snapshot(b), s, e)` copies the *entire* builder first, since snapshot is O(n) and the
  * slice of it is then free, so a three-element window of a ten-thousand-element builder copied ten
  * thousand elements. */
+/* **`len` over all nine types, one implementation, registered under the bare name.** §11 of
+ * docs/design/full-overloading.md predicted exactly this: "all nine would be named `len`, so all
+ * nine find the one registration: no new implementation, no new C code". It is the one place where
+ * registering under the bare name is right rather than a hazard -- F213 had to *prefix* two
+ * `index_of` registrations because the two members wanted different code, and here all nine want
+ * the same, so `native_lookup("len")` answering for every one of them is the point.
+ *
+ * The body is `B_len`'s, which dispatched on the runtime type for the same reason: a length is one
+ * question and the nine declarations say only which types may be asked it. */
+Value ziman_len(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Value v = args[0];
+    if (v.type->kind == TY_STRING) return value_int((int64_t)v.as.str.len);
+    if (v.type->kind == TY_MAP || v.type->kind == TY_SET) return value_int(v.as.map->count);
+    /* One of the four builders, or a cell: a struct over a thread-bound handle, so the length
+     * lives in the handle's table rather than in the struct. A `Mutable<T>` holds exactly one
+     * value, which needs no asking. */
+    if (v.type->kind == TY_STRUCT) {
+        MutableKind kind = ziman_mutable_kind(v.type);
+        if (kind == MUTABLE_CELL) return value_int(1);
+        return value_int(ziman_builder_length(v, kind));
+    }
+    return value_int(v.as.arr->count);
+}
+
 /* **One shim per declaration, for the names F215 took off the builtin ids.** Each is the body the
  * `else if (bid == B_x)` branch had, with the world chosen by *which declaration* was resolved
  * rather than by testing `args[0].type->kind` at run time -- which is the whole of what moving
@@ -2552,6 +2579,7 @@ void prelude_register(void) {
     native_register("array_filter", native_array_filter);
     native_register("array_flat_map", native_array_flat_map);
     native_register("array_reverse", native_array_reverse);
+    native_register("len", ziman_len);
     native_register("array_slice", native_array_slice);
     native_register("mutable_array_narrow", native_narrow_mutable_array);
     native_register("array_to_mutable_set", native_array_to_mutable_set);

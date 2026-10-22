@@ -1478,7 +1478,7 @@ static void warn_brace_interpolation(Env *env, Expr *e) {
  * listed at all until that attribute existed (F208). */
 static const char *const PURE_BUILTINS[] = {
     "set", "remove", "mutable",
-    "len", "str", "format", "contains", "abs", "min", "max", "hash", "compare", "error_message",
+    "str", "format", "contains", "abs", "min", "max", "hash", "compare", "error_message",
     "is_ok",
     "get", "get_or", "keys", "values", "merge", "filter", "remove_all",
     "items", "union", "intersect", "difference", "is_subset", "add",
@@ -1557,7 +1557,7 @@ static int is_pure_builtin_name(const char *name) {
  * `tools/check_builtins.py` is what noticed the entry had been left behind. Every later
  * conversion removes its two entries the same way -- the name appears once per world. */
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
-    "print", "printf", "str", "format", "len", "contains", "hash", "compare", "error_message", "abs", "min", "max",
+    "print", "printf", "str", "format", "contains", "hash", "compare", "error_message", "abs", "min", "max",
     "set", "remove", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
     "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "filter", "keys", "values", "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "concat", "snapshot", "mutable", "clear", "concat", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
 };
@@ -1582,7 +1582,7 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * name with no declaration at all (`format`, `printf`, the parser's `$` names) can never appear
  * here -- there is nothing to canonicalize against. */
 static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
-    "abs", "len", "filter", "keys", "values",
+    "abs", "filter", "keys", "values",
     "get", "get_or", "items", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", NULL,
 };
 

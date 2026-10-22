@@ -160,6 +160,9 @@ Value ziman_mutable_array_push(Value *args, int argc, int line, int col);
 void ziman_mutable_array_push_one(Value ab, Value element);
 /* `push`'s array half and its one-value shortcut, the twins of the two above. Both are reached by
  * pointer identity from interpreter.c, not by name. */
+/* `len` over all nine types it accepts -- one implementation, registered under the bare name,
+ * which is right here because every one of the nine declarations wants it. */
+Value ziman_len(Value *args, int argc, int line, int col);
 Value ziman_array_push_values(Value *args, int argc, int line, int col);
 Value ziman_array_push_one(Value arr, Value x);
 void ziman_mutable_map_set_all(Value m, Value source, int source_is_handle);

@@ -1,1 +1,1 @@
-'len' is a builtin, not a function value
+'compare' is a builtin, not a function value -- wrap it in a function of your own to pass it around

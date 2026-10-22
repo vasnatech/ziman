@@ -465,39 +465,39 @@ native for the reason `map`'s is.
 ### `len`
 
 ```
-builtin fn len(s: string) -> int
+native fn len(s: string) -> int
 ```
 
 ```
-builtin fn len<T>(items: [T]) -> int
+native fn len<T>(items: [T]) -> int
 ```
 
 ```
-builtin fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
+native fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
 ```
 
 ```
-builtin fn len<T: Eq + Hash>(s: Set<T>) -> int
+native fn len<T: Eq + Hash>(s: Set<T>) -> int
 ```
 
 ```
-builtin fn len<T>(items: MutableArray<T>) -> int
+native fn len<T>(items: MutableArray<T>) -> int
 ```
 
 ```
-builtin fn len(s: MutableString) -> int
+native fn len(s: MutableString) -> int
 ```
 
 ```
-builtin fn len<K: Eq + Hash, V>(m: MutableMap<K, V>) -> int
+native fn len<K: Eq + Hash, V>(m: MutableMap<K, V>) -> int
 ```
 
 ```
-builtin fn len<T: Eq + Hash>(s: MutableSet<T>) -> int
+native fn len<T: Eq + Hash>(s: MutableSet<T>) -> int
 ```
 
 ```
-builtin fn len<T>(c: Mutable<T>) -> int
+native fn len<T>(c: Mutable<T>) -> int
 ```
 
 A cell holds exactly one value, so its length is always 1.
