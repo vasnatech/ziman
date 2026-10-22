@@ -1917,6 +1917,28 @@ lookup where `get` then `set` is two, which is the whole reason this exists wher
 `#[effectful]` for the reason the cell form carries it: the call writes the entry, and the new
 value is an answer `update(counts, k, bump)` on its own line has no use for.
 
+```
+pub fn update<K: Eq + Hash, V>(m: Map<K, V>, key: K, f: fn(Option<V>) -> V) -> Map<K, V>
+```
+
+**A new Map with `key`'s value replaced by `f` applied to what was there** -- `None` when
+nothing was -- the immutable half of the builder form above. The key keeps its position when it
+was present and is appended when it was not, `set` deciding that either way.
+
+**It pays two lookups where the builder form pays one**, which is worth stating because that
+saving is the builder form's whole reason for existing: this body *is* `get` then `set`, the
+line a caller writes today, and the name is what it buys. A native could do it in one walk and
+would be the version that earns its place; this is deliberately the plain one.
+
+**No `#[effectful]`**, unlike the other two members of the name: this copies and changes
+nothing, so a discarded result is a mistake and the dropped-result rule should keep refusing it.
+That is the whole difference between the immutable and builder halves of a name, read off the
+return type -- and the reason the attribute exists is the three places where that reading is
+wrong.
+
+`update_all` has no immutable member and needs none: `map(m, fn(k, v) { ... })` already answers
+a new Map with every value replaced, so the asymmetry is only on the single-entry form.
+
 ### `filter`
 
 ```

@@ -1,0 +1,1 @@
+the Map<string, int> returned by 'update' is discarded, and 'update' has no other effect

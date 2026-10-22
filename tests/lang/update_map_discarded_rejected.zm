@@ -1,0 +1,16 @@
+// The other half of `effectful_update_statement`, and the pair is the point: **three members of
+// one name, two of which may have their answer thrown away and one of which may not.**
+//
+//   update(cell, f)          writes the cell, answers the new value   -> statement is fine
+//   update(mutableMap, k, f) writes the entry, answers the new value   -> statement is fine
+//   update(map, k, f)        copies, changes nothing, answers a Map    -> statement is a mistake
+//
+// Nothing in the signatures says which is which -- all three answer something -- so the rule is
+// read off the return type (`answers something` means `has no effect` across the prelude's sets)
+// and `#[effectful]` is the override the two builder members carry. This fixture is what stops
+// someone adding that attribute to the member below on the grounds that its siblings have it:
+// `update(m, k, f)` on an immutable Map throws the whole result away and does nothing at all.
+fn main() {
+    val m = Map<string, int> { "a": 1 }
+    update(m, "a", fn(o: Option<int>) -> int { return 2 })
+}

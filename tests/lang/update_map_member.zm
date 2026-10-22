@@ -1,0 +1,40 @@
+// `update`'s immutable member, added 2026-10-22: a new Map with `key`'s value replaced by `f`
+// applied to what was there, `None` when nothing was. The name had two members until then, both
+// over something mutable -- a MutableMap entry and a `Mutable<T>` cell -- so the question "what is
+// this one entry, changed" could only be asked of a builder.
+//
+// **The three members divide on whether discarding the answer is a mistake**, which is the rule
+// read off the return type: the two builder members write their argument and answer something
+// incidental, so they carry `#[effectful]` and a bare statement is the ordinary call; this one
+// copies and changes nothing, so a discarded result is refused. The same signature shape, opposite
+// verdicts, and nothing but the attribute to tell them apart.
+//
+// It pays two lookups where the builder member pays one -- its body is the `get` then `set` a
+// caller writes today -- which is the builder member's own stated reason for existing. A native
+// would do it in one walk; this is the plain version on purpose.
+fn main() {
+    val m = Map<string, int> { "a": 1, "b": 2 }
+
+    // present: `f` sees Some
+    print(update(m, "a", fn(o: Option<int>) -> int { return get_or(o, 0) + 10 }))
+    // absent: `f` sees None, and the key is appended
+    print(update(m, "new", fn(o: Option<int>) -> int { return get_or(o, 0) + 1 }))
+    // the source is untouched, which is the half of this the builder member cannot offer
+    print(m)
+
+    // position is kept for a key that was there, and `set` decides that either way
+    print(keys(update(m, "a", fn(o: Option<int>) -> int { return 99 })))
+    print(keys(update(m, "z", fn(o: Option<int>) -> int { return 0 })))
+
+    // named and type arguments
+    print(update(m: m, key: "b", f: fn(o: Option<int>) -> int { return 7 }))
+    print(update<string, int>(m, "b", fn(o: Option<int>) -> int { return 8 }))
+
+    // the other two members still resolve: three arguments tell the maps from the cell, and
+    // Map from MutableMap tells the two three-argument members apart
+    val mb = mutable(m)
+    print(update(mb, "a", fn(o: Option<int>) -> int { return get_or(o, 0) + 100 }))
+    print(snapshot(mb))
+    val c = mutable(5)
+    print(update(c, fn(n: int) -> int { return n * 2 }))
+}
