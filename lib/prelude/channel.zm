@@ -13,7 +13,9 @@
 // that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
 // a declaration".
 
-// Which of `select2`'s two channels had a value first, and the value: `First(a)` or `Second(b)`.
+// Which of `select2`'s two channels had a value first, and the value: `First(v)` from the
+// `first` channel or `Second(v)` from the `second`. The parameters are named for the variants,
+// so a call says which answer it is asking about: `select2(first: inbox, second: control)`.
 // Named for what it is rather than a general `Either`, which programs commonly declare themselves
 // and a bare prelude `Either` would then collide with. Available bare, like `Option`.
 enum Selected<A, B> {
@@ -32,30 +34,31 @@ enum Selected<A, B> {
 builtin fn channel_new<T>() -> Channel<T>
 
 // Blocks until there is room; refused on a closed channel.
-builtin fn send<T>(c: Channel<T>, value: T)
+builtin fn send<T>(channel: Channel<T>, value: T)
 
 // False when the channel is full or closed, rather than blocking.
-builtin fn try_send<T>(c: Channel<T>, value: T) -> bool
+builtin fn try_send<T>(channel: Channel<T>, value: T) -> bool
 
 // Blocks until a value arrives. A closed and drained channel is a runtime error here --
 // `receive_option` is the shape that answers "closed" as a value.
-builtin fn receive<T>(c: Channel<T>) -> T
+builtin fn receive<T>(channel: Channel<T>) -> T
 
 // None when the channel is empty, rather than blocking.
-builtin fn try_receive<T>(c: Channel<T>) -> Option<T>
+builtin fn try_receive<T>(channel: Channel<T>) -> Option<T>
 
 // None when the channel is closed and drained.
-builtin fn receive_option<T>(c: Channel<T>) -> Option<T>
+builtin fn receive_option<T>(channel: Channel<T>) -> Option<T>
 
 // None when `millis` elapses first.
-builtin fn receive_timeout<T>(c: Channel<T>, millis: int) -> Option<T>
+builtin fn receive_timeout<T>(channel: Channel<T>, millis: int) -> Option<T>
 
-builtin fn channel_len<T>(c: Channel<T>) -> int
+builtin fn channel_len<T>(channel: Channel<T>) -> int
 
-builtin fn channel_close<T>(c: Channel<T>)
+builtin fn channel_close<T>(channel: Channel<T>)
 
-// Whichever of the two has a value first, and which one it was.
-builtin fn select2<A, B>(a: Channel<A>, b: Channel<B>) -> Selected<A, B>
+// Whichever of the two has a value first, and which one it was. `first` and `second` are the
+// `Selected` variants' names, not an order of preference -- neither channel is favoured.
+builtin fn select2<A, B>(first: Channel<A>, second: Channel<B>) -> Selected<A, B>
 
 // A guard sends `message` on `channel` when nothing references it any more: a database
 // connection holds one whose message is its "close" request, so a connection dropped without an
@@ -64,5 +67,5 @@ struct Guard {
     handle: int
 }
 
-// A guard that sends `message` on `ch` when it is collected.
-native fn guard_new<T>(c: Channel<T>, message: T) -> Guard
+// A guard that sends `message` on `channel` when it is collected.
+native fn guard_new<T>(channel: Channel<T>, message: T) -> Guard

@@ -254,7 +254,7 @@ The value inside `o`, or `default_value` when `o` is None.
 ### `update`
 
 ```
-pub fn update<T>(c: Mutable<T>, f: fn(T) -> T) -> T
+pub fn update<T>(cell: Mutable<T>, f: fn(T) -> T) -> T
 ```
 
 `f` applied to the value in the cell, stored back, and returned -- the counter idiom,
@@ -497,7 +497,7 @@ native fn len<T: Eq + Hash>(s: MutableSet<T>) -> int
 ```
 
 ```
-native fn len<T>(c: Mutable<T>) -> int
+native fn len<T>(cell: Mutable<T>) -> int
 ```
 
 A cell holds exactly one value, so its length is always 1.
@@ -540,7 +540,7 @@ native fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
 ```
 
 ```
-native fn contains<T: Eq>(c: Mutable<T>, x: T) -> bool
+native fn contains<T: Eq>(cell: Mutable<T>, x: T) -> bool
 ```
 
 ### `snapshot`
@@ -1677,7 +1677,9 @@ enum Selected<A, B> {
 }
 ```
 
-Which of `select2`'s two channels had a value first, and the value: `First(a)` or `Second(b)`.
+Which of `select2`'s two channels had a value first, and the value: `First(v)` from the
+`first` channel or `Second(v)` from the `second`. The parameters are named for the variants,
+so a call says which answer it is asking about: `select2(first: inbox, second: control)`.
 Named for what it is rather than a general `Either`, which programs commonly declare themselves
 and a bare prelude `Either` would then collide with. Available bare, like `Option`.
 
@@ -1693,7 +1695,7 @@ Takes its element type from the context, like `ok`/`err`/`Some`: a `val` with a 
 ### `send`
 
 ```
-builtin fn send<T>(c: Channel<T>, value: T)
+builtin fn send<T>(channel: Channel<T>, value: T)
 ```
 
 Blocks until there is room; refused on a closed channel.
@@ -1701,7 +1703,7 @@ Blocks until there is room; refused on a closed channel.
 ### `try_send`
 
 ```
-builtin fn try_send<T>(c: Channel<T>, value: T) -> bool
+builtin fn try_send<T>(channel: Channel<T>, value: T) -> bool
 ```
 
 False when the channel is full or closed, rather than blocking.
@@ -1709,7 +1711,7 @@ False when the channel is full or closed, rather than blocking.
 ### `receive`
 
 ```
-builtin fn receive<T>(c: Channel<T>) -> T
+builtin fn receive<T>(channel: Channel<T>) -> T
 ```
 
 Blocks until a value arrives. A closed and drained channel is a runtime error here --
@@ -1718,7 +1720,7 @@ Blocks until a value arrives. A closed and drained channel is a runtime error he
 ### `try_receive`
 
 ```
-builtin fn try_receive<T>(c: Channel<T>) -> Option<T>
+builtin fn try_receive<T>(channel: Channel<T>) -> Option<T>
 ```
 
 None when the channel is empty, rather than blocking.
@@ -1726,7 +1728,7 @@ None when the channel is empty, rather than blocking.
 ### `receive_option`
 
 ```
-builtin fn receive_option<T>(c: Channel<T>) -> Option<T>
+builtin fn receive_option<T>(channel: Channel<T>) -> Option<T>
 ```
 
 None when the channel is closed and drained.
@@ -1734,7 +1736,7 @@ None when the channel is closed and drained.
 ### `receive_timeout`
 
 ```
-builtin fn receive_timeout<T>(c: Channel<T>, millis: int) -> Option<T>
+builtin fn receive_timeout<T>(channel: Channel<T>, millis: int) -> Option<T>
 ```
 
 None when `millis` elapses first.
@@ -1742,22 +1744,23 @@ None when `millis` elapses first.
 ### `channel_len`
 
 ```
-builtin fn channel_len<T>(c: Channel<T>) -> int
+builtin fn channel_len<T>(channel: Channel<T>) -> int
 ```
 
 ### `channel_close`
 
 ```
-builtin fn channel_close<T>(c: Channel<T>)
+builtin fn channel_close<T>(channel: Channel<T>)
 ```
 
 ### `select2`
 
 ```
-builtin fn select2<A, B>(a: Channel<A>, b: Channel<B>) -> Selected<A, B>
+builtin fn select2<A, B>(first: Channel<A>, second: Channel<B>) -> Selected<A, B>
 ```
 
-Whichever of the two has a value first, and which one it was.
+Whichever of the two has a value first, and which one it was. `first` and `second` are the
+`Selected` variants' names, not an order of preference -- neither channel is favoured.
 
 ### `Guard`
 
@@ -1774,10 +1777,10 @@ explicit close still ends the thread that owns its socket (once the garbage coll
 ### `guard_new`
 
 ```
-native fn guard_new<T>(c: Channel<T>, message: T) -> Guard
+native fn guard_new<T>(channel: Channel<T>, message: T) -> Guard
 ```
 
-A guard that sends `message` on `ch` when it is collected.
+A guard that sends `message` on `channel` when it is collected.
 
 ## `iter.zm`
 
@@ -2015,7 +2018,7 @@ A cell holding `value`.
 ### `mutable_get`
 
 ```
-native fn mutable_get<T>(c: Mutable<T>) -> T
+native fn mutable_get<T>(cell: Mutable<T>) -> T
 ```
 
 The value in the cell.
@@ -2023,7 +2026,7 @@ The value in the cell.
 ### `mutable_set`
 
 ```
-native fn mutable_set<T>(c: Mutable<T>, value: T)
+native fn mutable_set<T>(cell: Mutable<T>, value: T)
 ```
 
 Replaces the value in the cell.

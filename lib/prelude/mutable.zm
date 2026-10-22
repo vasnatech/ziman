@@ -36,7 +36,7 @@ struct Mutable<T> {
 native fn mutable_new<T>(value: T) -> Mutable<T>
 
 // The value in the cell.
-native fn mutable_get<T>(c: Mutable<T>) -> T
+native fn mutable_get<T>(cell: Mutable<T>) -> T
 
 // Replaces the value in the cell.
-native fn mutable_set<T>(c: Mutable<T>, value: T)
+native fn mutable_set<T>(cell: Mutable<T>, value: T)

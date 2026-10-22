@@ -19,7 +19,9 @@
 // **Parameter names are part of the call surface**, because anything not dispatched by a builtin
 // id takes named arguments -- so one role gets one name across every declaration that has it,
 // whichever type it happens to be. The receiver of a sequence is `items` (both `[T]` and
-// `MutableArray<T>`), of a map `m`, of a set `s`, of text `s`, of a channel or a cell `c`. The
+// `MutableArray<T>`), of a map `m`, of a set `s`, of text `s`, of a channel `channel` and of a
+// cell `cell` -- those last two were both `c` until the names were swept, which made one letter
+// mean two types. The
 // prefix era named them for their world -- `a`/`b`, `m`/`mb`, `s`/`sb` -- which is the thing F205
 // recorded as the wrong half of a rename, and it was still half-applied until the names were swept.
 //
@@ -75,9 +77,9 @@ pub fn get_or<T>(o: Option<T>, default_value: T) -> T {
 // `f` applied to the value in the cell, stored back, and returned -- the counter idiom,
 // `update(n, fn(x) { x + 1 })`, and the same shape `update` has. Ordinary
 // Ziman over `mutable_get`/`mutable_set`, since there is no lookup for a native to save.
-pub fn update<T>(c: Mutable<T>, f: fn(T) -> T) -> T {
-    val next = f(mutable_get(c))
-    mutable_set(c, next)
+pub fn update<T>(cell: Mutable<T>, f: fn(T) -> T) -> T {
+    val next = f(mutable_get(cell))
+    mutable_set(cell, next)
     return next
 }
 
@@ -272,7 +274,7 @@ native fn len(s: MutableString) -> int
 native fn len<K: Eq + Hash, V>(m: MutableMap<K, V>) -> int
 native fn len<T: Eq + Hash>(s: MutableSet<T>) -> int
 // A cell holds exactly one value, so its length is always 1.
-native fn len<T>(c: Mutable<T>) -> int
+native fn len<T>(cell: Mutable<T>) -> int
 
 // The same nine shapes, each asked the question its immutable counterpart answers: a substring of
 // text, an element of an array or set, a *key* of a map.
@@ -284,7 +286,7 @@ native fn contains<T: Eq>(items: MutableArray<T>, x: T) -> bool
 native fn contains(s: MutableString, needle: string) -> bool
 native fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
 native fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
-native fn contains<T: Eq>(c: Mutable<T>, x: T) -> bool
+native fn contains<T: Eq>(cell: Mutable<T>, x: T) -> bool
 
 // Each builder to its immutable counterpart. O(n), and the handle stays usable.
 //
