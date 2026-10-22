@@ -16,6 +16,21 @@
 // that an overload set is never split across files; see docs/DESIGN.md's "Overloading available to
 // a declaration".
 //
+// **Parameter names are part of the call surface**, because anything not dispatched by a builtin
+// id takes named arguments -- so one role gets one name across every declaration that has it,
+// whichever type it happens to be. The receiver of a sequence is `items` (both `[T]` and
+// `MutableArray<T>`), of a map `m`, of a set `s`, of text `s`, of a channel or a cell `c`. The
+// prefix era named them for their world -- `a`/`b`, `m`/`mb`, `s`/`sb` -- which is the thing F205
+// recorded as the wrong half of a rename, and it was still half-applied until the names were swept.
+//
+// **A role name beats the type name when it says more**, and those are kept deliberately rather
+// than flattened: `sorted` on `lower_bound`/`upper_bound`/`binary_search` states the precondition
+// at the call site, `parts` on `concat` and `pieces` on `append` name what is being joined,
+// `entries`/`item` on `mutable` name the source being converted, `other` is the second operand of
+// a set operation, `keep` on `filter` says what true means where `test` on `any`/`all`/`none`
+// merely asks, `separator` is `join`'s and `split`'s, `haystack`/`needle` are a search's, and
+// `i`/`j` on `swap` are a symmetric pair that `index` would not improve.
+//
 // **`flat_map` is the one name here that the rule above does not reach**, both its declarations
 // being array-world. It is here because it is `map` with a flattening join -- one word of the
 // signature apart, `-> [U]` against `-> U` -- and `map` cannot go to array.zm, its Map and Set
@@ -46,8 +61,8 @@ builtin fn concat<T>(parts: variadic [T]) -> [T]
 // Appending to a builder answers nothing, the container having been written. The parts may come
 // from either world and may be mixed, which `mutable_array_push_all` allowed for its single source
 // and this keeps for all of them.
-builtin fn concat<T>(b: MutableArray<T>, parts: variadic [T])
-builtin fn concat<T>(b: MutableArray<T>, parts: variadic MutableArray<T>)
+builtin fn concat<T>(items: MutableArray<T>, parts: variadic [T])
+builtin fn concat<T>(items: MutableArray<T>, parts: variadic MutableArray<T>)
 
 // The value inside `o`, or `default_value` when `o` is None.
 pub fn get_or<T>(o: Option<T>, default_value: T) -> T {
@@ -71,10 +86,10 @@ pub fn update<T>(c: Mutable<T>, f: fn(T) -> T) -> T {
 // `filter(snapshot(xs), keep)` makes two copies. `keep` must not change the builder -- a
 // reallocation inside it cannot corrupt anything, but the rest of the walk would then be visiting
 // the buffer mid-compaction, the same class of thing as appending during a `for`.
-pub native fn filter<T>(xs: MutableArray<T>, keep: fn(T) -> bool)
+pub native fn filter<T>(items: MutableArray<T>, keep: fn(T) -> bool)
 
 // Adds `key`, or replaces its value while keeping its position.
-pub native fn set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: V)
+pub native fn set<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, value: V)
 
 // Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
 // `discard` instead when the removed value is not wanted: answering with an `Option`
@@ -84,16 +99,16 @@ pub native fn set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: V)
 // gate would read "answers something" as "has no effect" and refuse `remove(mb, k)` in statement
 // position, which is "delete if present" and perfectly ordinary.
 #[effectful]
-pub native fn remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
+pub native fn remove<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
 
 // The value stored under `key`, or `default_value` when there is none -- `get_or` for a builder.
 // Ordinary Ziman rather than a builtin, since it is exactly this switch: the point is that a counting
 // loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of four.
-pub native fn get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
+pub native fn get_or<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, default_value: V) -> V
 
 // Removes `item`, answering whether it was there; nothing happens when it is absent.
 #[effectful]
-pub native fn remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
+pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
 
 // `f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
 // lookup where `get` then `set` is two, which is the whole reason this exists where
@@ -249,26 +264,26 @@ pub native fn filter<T>(items: [T], keep: fn(T) -> bool) -> [T]
 // per-type name or a conversion."
 
 builtin fn len(s: string) -> int
-builtin fn len<T>(a: [T]) -> int
+builtin fn len<T>(items: [T]) -> int
 builtin fn len<K: Eq + Hash, V>(m: Map<K, V>) -> int
 builtin fn len<T: Eq + Hash>(s: Set<T>) -> int
-builtin fn len<T>(b: MutableArray<T>) -> int
-builtin fn len(b: MutableString) -> int
-builtin fn len<K: Eq + Hash, V>(b: MutableMap<K, V>) -> int
-builtin fn len<T: Eq + Hash>(b: MutableSet<T>) -> int
+builtin fn len<T>(items: MutableArray<T>) -> int
+builtin fn len(s: MutableString) -> int
+builtin fn len<K: Eq + Hash, V>(m: MutableMap<K, V>) -> int
+builtin fn len<T: Eq + Hash>(s: MutableSet<T>) -> int
 // A cell holds exactly one value, so its length is always 1.
 builtin fn len<T>(c: Mutable<T>) -> int
 
 // The same nine shapes, each asked the question its immutable counterpart answers: a substring of
 // text, an element of an array or set, a *key* of a map.
 builtin fn contains(s: string, needle: string) -> bool
-builtin fn contains<T: Eq>(a: [T], x: T) -> bool
+builtin fn contains<T: Eq>(items: [T], x: T) -> bool
 builtin fn contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> bool
 builtin fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
-builtin fn contains<T: Eq>(b: MutableArray<T>, x: T) -> bool
-builtin fn contains(b: MutableString, needle: string) -> bool
-builtin fn contains<K: Eq + Hash, V>(b: MutableMap<K, V>, key: K) -> bool
-builtin fn contains<T: Eq + Hash>(b: MutableSet<T>, x: T) -> bool
+builtin fn contains<T: Eq>(items: MutableArray<T>, x: T) -> bool
+builtin fn contains(s: MutableString, needle: string) -> bool
+builtin fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
+builtin fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
 builtin fn contains<T: Eq>(c: Mutable<T>, x: T) -> bool
 
 // Each builder to its immutable counterpart. O(n), and the handle stays usable.
@@ -278,25 +293,25 @@ builtin fn contains<T: Eq>(c: Mutable<T>, x: T) -> bool
 // the same crossing out of the handle, but O(1) rather than the O(n) copy this name promises -- and
 // a cell has no `clear`, being always initialised, where emptying it would need exactly the zero
 // value its type may not have. Visible here rather than only on trying it.
-builtin fn snapshot<T>(b: MutableArray<T>) -> [T]
-builtin fn snapshot(b: MutableString) -> string
-builtin fn snapshot<K: Eq + Hash, V>(b: MutableMap<K, V>) -> Map<K, V>
-builtin fn snapshot<T: Eq + Hash>(b: MutableSet<T>) -> Set<T>
+builtin fn snapshot<T>(items: MutableArray<T>) -> [T]
+builtin fn snapshot(s: MutableString) -> string
+builtin fn snapshot<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Map<K, V>
+builtin fn snapshot<T: Eq + Hash>(s: MutableSet<T>) -> Set<T>
 
 // Empties a builder in place, keeping the handle.
-builtin fn clear<T>(b: MutableArray<T>)
-builtin fn clear(b: MutableString)
-builtin fn clear<K: Eq + Hash, V>(b: MutableMap<K, V>)
-builtin fn clear<T: Eq + Hash>(b: MutableSet<T>)
+builtin fn clear<T>(items: MutableArray<T>)
+builtin fn clear(s: MutableString)
+builtin fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)
+builtin fn clear<T: Eq + Hash>(s: MutableSet<T>)
 
 // `set` has no MutableArray form on purpose: an element write there is `b[i] = value`, the same
 // sugar an array's element write gets, and a copying three-argument call would read as though it
 // left the container alone. `set(b, i, v)` says so rather than failing as an unknown overload.
-builtin fn set<T>(a: [T], index: int, x: T) -> [T]
+builtin fn set<T>(items: [T], index: int, x: T) -> [T]
 builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
 
 // `remove` takes all three: an index, a key, or the element itself.
-builtin fn remove<T>(a: [T], index: int) -> [T]
+builtin fn remove<T>(items: [T], index: int) -> [T]
 builtin fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
 builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
 
@@ -321,7 +336,7 @@ builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
 // ran -- `check_call`'s arm rewrote the callee first, and `call_remove` only ever handled an
 // array, so the id path would have read an `ArrayObj` out of a handle had anything reached it.
 #[effectful]
-native fn remove<T>(b: MutableArray<T>, index: int) -> T
+native fn remove<T>(items: MutableArray<T>, index: int) -> T
 
 // **`mutable(x)` makes the mutable counterpart of whatever it is given.** For the three
 // collections that have a builder it answers that builder, so it reads as `snapshot` backwards:

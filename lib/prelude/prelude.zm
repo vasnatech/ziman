@@ -43,7 +43,7 @@ native fn parse_decimal(s: string) -> Result<decimal, string>
 // `fn log<T>(label: string, value: T) { print(value) }` compiles and prints all three. A top type
 // would be a new concept earning a single declaration, and a type whose values you could accept
 // and then do almost nothing with, so `print` uses the generics the language already has.
-builtin fn print<T>(a: T)
+builtin fn print<T>(x: T)
 
 // **Six scalars, and not `string`** -- `str("x")` is refused with "it's already a string", so
 // `str` is not an "accepts anything" builtin however much it looks like one. The set of

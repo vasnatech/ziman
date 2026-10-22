@@ -4,7 +4,7 @@
 // This was assumed to be a property of *builtins* -- the sites that needed the qualified spelling
 // were all `push` onto a MutableArray -- and it is not. A plain function with a
 // `variadic Option<int>` parameter refused the same thing, while the same function with a fixed
-// `Option<int>` parameter accepted it. `push(b: MutableArray<T>, values: variadic T)` is declared
+// `Option<int>` parameter accepted it. `push(items: MutableArray<T>, values: variadic T)` is declared
 // in the prelude like any other function; what it has is a variadic tail, which went through a
 // bare `check_expr` where a fixed parameter goes through `check_value_against_param_type`.
 fn count_opts(pieces: variadic Option<int>) -> int {

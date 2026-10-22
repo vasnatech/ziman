@@ -114,7 +114,7 @@ A decimal from digits with an optional fraction, keeping the scale as written (`
 ### `print`
 
 ```
-builtin fn print<T>(a: T)
+builtin fn print<T>(x: T)
 ```
 
 **`print` takes a type parameter, not a top type.** `print` really does accept anything --
@@ -232,7 +232,7 @@ builtin fn concat<T>(parts: variadic [T]) -> [T]
 ```
 
 ```
-builtin fn concat<T>(b: MutableArray<T>, parts: variadic [T])
+builtin fn concat<T>(items: MutableArray<T>, parts: variadic [T])
 ```
 
 Appending to a builder answers nothing, the container having been written. The parts may come
@@ -240,7 +240,7 @@ from either world and may be mixed, which `mutable_array_push_all` allowed for i
 and this keeps for all of them.
 
 ```
-builtin fn concat<T>(b: MutableArray<T>, parts: variadic MutableArray<T>)
+builtin fn concat<T>(items: MutableArray<T>, parts: variadic MutableArray<T>)
 ```
 
 ### `get_or`
@@ -264,7 +264,7 @@ Ziman over `mutable_get`/`mutable_set`, since there is no lookup for a native to
 ### `filter`
 
 ```
-pub native fn filter<T>(xs: MutableArray<T>, keep: fn(T) -> bool)
+pub native fn filter<T>(items: MutableArray<T>, keep: fn(T) -> bool)
 ```
 
 Keeps only the elements `keep` answers true for, in place. The one filter in the language that
@@ -276,7 +276,7 @@ the buffer mid-compaction, the same class of thing as appending during a `for`.
 ### `set`
 
 ```
-pub native fn set<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, value: V)
+pub native fn set<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, value: V)
 ```
 
 Adds `key`, or replaces its value while keeping its position.
@@ -284,7 +284,7 @@ Adds `key`, or replaces its value while keeping its position.
 ### `remove`
 
 ```
-pub native fn remove<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
+pub native fn remove<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
 ```
 
 Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
@@ -298,7 +298,7 @@ position, which is "delete if present" and perfectly ordinary.
 ### `get_or`
 
 ```
-pub native fn get_or<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K, default_value: V) -> V
+pub native fn get_or<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, default_value: V) -> V
 ```
 
 The value stored under `key`, or `default_value` when there is none -- `get_or` for a builder.
@@ -308,7 +308,7 @@ loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line instead of f
 ### `remove`
 
 ```
-pub native fn remove<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
+pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
 ```
 
 Removes `item`, answering whether it was there; nothing happens when it is absent.
@@ -469,7 +469,7 @@ builtin fn len(s: string) -> int
 ```
 
 ```
-builtin fn len<T>(a: [T]) -> int
+builtin fn len<T>(items: [T]) -> int
 ```
 
 ```
@@ -481,19 +481,19 @@ builtin fn len<T: Eq + Hash>(s: Set<T>) -> int
 ```
 
 ```
-builtin fn len<T>(b: MutableArray<T>) -> int
+builtin fn len<T>(items: MutableArray<T>) -> int
 ```
 
 ```
-builtin fn len(b: MutableString) -> int
+builtin fn len(s: MutableString) -> int
 ```
 
 ```
-builtin fn len<K: Eq + Hash, V>(b: MutableMap<K, V>) -> int
+builtin fn len<K: Eq + Hash, V>(m: MutableMap<K, V>) -> int
 ```
 
 ```
-builtin fn len<T: Eq + Hash>(b: MutableSet<T>) -> int
+builtin fn len<T: Eq + Hash>(s: MutableSet<T>) -> int
 ```
 
 ```
@@ -512,7 +512,7 @@ The same nine shapes, each asked the question its immutable counterpart answers:
 text, an element of an array or set, a *key* of a map.
 
 ```
-builtin fn contains<T: Eq>(a: [T], x: T) -> bool
+builtin fn contains<T: Eq>(items: [T], x: T) -> bool
 ```
 
 ```
@@ -524,19 +524,19 @@ builtin fn contains<T: Eq + Hash>(s: Set<T>, x: T) -> bool
 ```
 
 ```
-builtin fn contains<T: Eq>(b: MutableArray<T>, x: T) -> bool
+builtin fn contains<T: Eq>(items: MutableArray<T>, x: T) -> bool
 ```
 
 ```
-builtin fn contains(b: MutableString, needle: string) -> bool
+builtin fn contains(s: MutableString, needle: string) -> bool
 ```
 
 ```
-builtin fn contains<K: Eq + Hash, V>(b: MutableMap<K, V>, key: K) -> bool
+builtin fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
 ```
 
 ```
-builtin fn contains<T: Eq + Hash>(b: MutableSet<T>, x: T) -> bool
+builtin fn contains<T: Eq + Hash>(s: MutableSet<T>, x: T) -> bool
 ```
 
 ```
@@ -546,7 +546,7 @@ builtin fn contains<T: Eq>(c: Mutable<T>, x: T) -> bool
 ### `snapshot`
 
 ```
-builtin fn snapshot<T>(b: MutableArray<T>) -> [T]
+builtin fn snapshot<T>(items: MutableArray<T>) -> [T]
 ```
 
 Each builder to its immutable counterpart. O(n), and the handle stays usable.
@@ -558,41 +558,41 @@ a cell has no `clear`, being always initialised, where emptying it would need ex
 value its type may not have. Visible here rather than only on trying it.
 
 ```
-builtin fn snapshot(b: MutableString) -> string
+builtin fn snapshot(s: MutableString) -> string
 ```
 
 ```
-builtin fn snapshot<K: Eq + Hash, V>(b: MutableMap<K, V>) -> Map<K, V>
+builtin fn snapshot<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Map<K, V>
 ```
 
 ```
-builtin fn snapshot<T: Eq + Hash>(b: MutableSet<T>) -> Set<T>
+builtin fn snapshot<T: Eq + Hash>(s: MutableSet<T>) -> Set<T>
 ```
 
 ### `clear`
 
 ```
-builtin fn clear<T>(b: MutableArray<T>)
+builtin fn clear<T>(items: MutableArray<T>)
 ```
 
 Empties a builder in place, keeping the handle.
 
 ```
-builtin fn clear(b: MutableString)
+builtin fn clear(s: MutableString)
 ```
 
 ```
-builtin fn clear<K: Eq + Hash, V>(b: MutableMap<K, V>)
+builtin fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)
 ```
 
 ```
-builtin fn clear<T: Eq + Hash>(b: MutableSet<T>)
+builtin fn clear<T: Eq + Hash>(s: MutableSet<T>)
 ```
 
 ### `set`
 
 ```
-builtin fn set<T>(a: [T], index: int, x: T) -> [T]
+builtin fn set<T>(items: [T], index: int, x: T) -> [T]
 ```
 
 `set` has no MutableArray form on purpose: an element write there is `b[i] = value`, the same
@@ -606,7 +606,7 @@ builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
 ### `remove`
 
 ```
-builtin fn remove<T>(a: [T], index: int) -> [T]
+builtin fn remove<T>(items: [T], index: int) -> [T]
 ```
 
 `remove` takes all three: an index, a key, or the element itself.
@@ -620,7 +620,7 @@ builtin fn remove<T: Eq + Hash>(s: Set<T>, x: T) -> Set<T>
 ```
 
 ```
-native fn remove<T>(b: MutableArray<T>, index: int) -> T
+native fn remove<T>(items: MutableArray<T>, index: int) -> T
 ```
 
 **O(n)**: everything after `index` moves back. There is no `pop` because this is one --
@@ -702,7 +702,7 @@ builtin fn mutable<T>(item: T) -> Mutable<T>
 ### `bytes_to_string`
 
 ```
-native fn bytes_to_string(b: [byte]) -> Result<string, string>
+native fn bytes_to_string(bytes: [byte]) -> Result<string, string>
 ```
 
 The text of `b`, or an Err when `b` is not valid UTF-8 (naming the byte offset of the first
@@ -726,7 +726,7 @@ opaque `handle`, same thread-bound rule.
 ### `slice`
 
 ```
-native fn slice<T>(a: [T], start: int, end: int) -> [T]
+native fn slice<T>(items: [T], start: int, end: int) -> [T]
 ```
 
 The elements from `start` up to, not including, `end` (`0 <= start <= end <= len(x)`, a runtime
@@ -750,7 +750,7 @@ diagnostics were already derived from these two signatures rather than hand-writ
 what made it the cheapest of the remaining polymorphic builtins to convert.
 
 ```
-native fn slice<T>(b: MutableArray<T>, start: int, end: int) -> [T]
+native fn slice<T>(items: MutableArray<T>, start: int, end: int) -> [T]
 ```
 
 ### `mutable_array_new`
@@ -785,7 +785,7 @@ from this only in what it returns.
 ### `narrow`
 
 ```
-native fn narrow<T>(b: MutableArray<T>, start: int, end: int)
+native fn narrow<T>(items: MutableArray<T>, start: int, end: int)
 ```
 
 **Keeps only the elements from `start` up to `end`, in place, answering nothing.** The in-place
@@ -814,7 +814,7 @@ Every single-builder-parameter name is convertible on the back of that.
 ### `swap`
 
 ```
-native fn swap<T>(a: [T], i: int, j: int) -> [T]
+native fn swap<T>(items: [T], i: int, j: int) -> [T]
 ```
 
 **Exchanges the elements at `i` and `j`, in both worlds.** The same question of each, answered
@@ -838,7 +838,7 @@ The array form closes a gap rather than renaming one. Its only previous spelling
 because `set` always copies. This copies once.
 
 ```
-native fn swap<T>(b: MutableArray<T>, i: int, j: int)
+native fn swap<T>(items: MutableArray<T>, i: int, j: int)
 ```
 
 ### `reverse`
@@ -859,7 +859,7 @@ and a builder rearranges the buffer it already owns, so `reverse(snapshot(xs))` 
 copies to do what `reverse(xs)` does with none.
 
 ```
-pub fn reverse<T>(xs: MutableArray<T>)
+pub fn reverse<T>(items: MutableArray<T>)
 ```
 
 Reverses the buffer in place -- no copy at all, where `reverse(snapshot(xs))` makes two.
@@ -1012,7 +1012,7 @@ pub fn sort_desc<T: Ord>(items: [T]) -> [T]
 result reversed -- that would flip ties.
 
 ```
-pub fn sort_desc<T: Ord>(xs: MutableArray<T>)
+pub fn sort_desc<T: Ord>(items: MutableArray<T>)
 ```
 
 Descending, and the same trade as `sort`: two copies bought with a native comparison.
@@ -1029,7 +1029,7 @@ order that is neither the type's own nor a single key -- a two-field ordering, s
 comparison.
 
 ```
-pub native fn sort_with<T>(xs: MutableArray<T>, cmp: fn(T, T) -> int)
+pub native fn sort_with<T>(items: MutableArray<T>, cmp: fn(T, T) -> int)
 ```
 
 Sorts the buffer by `cmp`, **copying no elements at all**: a merge sort over positions, then the
@@ -1078,7 +1078,7 @@ therefore total; this compares one key and, being stable, leaves ties in their i
 the tie-breaker only when both orders are correct for the job.
 
 ```
-pub fn sort_by<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K)
+pub fn sort_by<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K)
 ```
 
 The same by a computed key. `key` is called once per element, on the snapshot, so a key
@@ -1125,12 +1125,12 @@ pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord, K5: Ord>(
 Five keys, same shape.
 
 ```
-pub fn sort_by<T, K1: Ord, K2: Ord>(xs: MutableArray<T>, key1: fn(T) -> K1, key2: fn(T) -> K2)
+pub fn sort_by<T, K1: Ord, K2: Ord>(items: MutableArray<T>, key1: fn(T) -> K1, key2: fn(T) -> K2)
 ```
 
 ```
 pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord>(
-    xs: MutableArray<T>,
+    items: MutableArray<T>,
     key1: fn(T) -> K1,
     key2: fn(T) -> K2,
     key3: fn(T) -> K3
@@ -1139,7 +1139,7 @@ pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord>(
 
 ```
 pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord>(
-    xs: MutableArray<T>,
+    items: MutableArray<T>,
     key1: fn(T) -> K1,
     key2: fn(T) -> K2,
     key3: fn(T) -> K3,
@@ -1149,7 +1149,7 @@ pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord>(
 
 ```
 pub fn sort_by<T, K1: Ord, K2: Ord, K3: Ord, K4: Ord, K5: Ord>(
-    xs: MutableArray<T>,
+    items: MutableArray<T>,
     key1: fn(T) -> K1,
     key2: fn(T) -> K2,
     key3: fn(T) -> K3,
@@ -1168,7 +1168,7 @@ pub fn sort_by_desc<T, K: Ord>(items: [T], key: fn(T) -> K) -> [T]
 result reversed -- that would flip ties.
 
 ```
-pub fn sort_by_desc<T, K: Ord>(xs: MutableArray<T>, key: fn(T) -> K)
+pub fn sort_by_desc<T, K: Ord>(items: MutableArray<T>, key: fn(T) -> K)
 ```
 
 Descending by a computed key, on the snapshot, as `sort_by` is.
@@ -1176,7 +1176,7 @@ Descending by a computed key, on the snapshot, as `sort_by` is.
 ### `push`
 
 ```
-native fn push<T>(a: [T], values: variadic T) -> [T]
+native fn push<T>(items: [T], values: variadic T) -> [T]
 ```
 
 A new array with the values on the end; the original is unchanged, these being immutable values.
@@ -1192,7 +1192,7 @@ exactly this shape since F199 (`builtin fn` for a `Set`, native for a `MutableSe
 why it needed no new mechanism.
 
 ```
-native fn push<T>(b: MutableArray<T>, values: variadic T)
+native fn push<T>(items: MutableArray<T>, values: variadic T)
 ```
 
 The MutableArray's `push` is the array's, for the reason `len` and `contains` are: appending is
@@ -1209,7 +1209,7 @@ only** (F205). Parameter one is where these two declarations differ, so it lands
 ### `insert`
 
 ```
-native fn insert<T>(a: [T], index: int, x: T) -> [T]
+native fn insert<T>(items: [T], index: int, x: T) -> [T]
 ```
 
 **`insert` and `set` are not interchangeable, and each has its own error telling the reader
@@ -1220,7 +1220,7 @@ and a set has neither -- F199 settled that `insert` is positional only and gave 
 for a pass after the decision.
 
 ```
-native fn insert<T>(b: MutableArray<T>, index: int, value: T)
+native fn insert<T>(items: MutableArray<T>, index: int, value: T)
 ```
 
 An index in a MutableArray, for the same reason `push` is shared. `index` may be `len(b)`,
@@ -1774,7 +1774,7 @@ explicit close still ends the thread that owns its socket (once the garbage coll
 ### `guard_new`
 
 ```
-native fn guard_new<T>(ch: Channel<T>, message: T) -> Guard
+native fn guard_new<T>(c: Channel<T>, message: T) -> Guard
 ```
 
 A guard that sends `message` on `ch` when it is collected.
@@ -1858,7 +1858,7 @@ An empty map builder.
 ### `get`
 
 ```
-pub native fn get<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
+pub native fn get<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
 ```
 
 The value of `key`, or None.
@@ -1866,7 +1866,7 @@ The value of `key`, or None.
 ### `discard`
 
 ```
-pub native fn discard<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K)
+pub native fn discard<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K)
 ```
 
 Removes `key` and answers whether it was there, without reporting what it held. The same
@@ -2375,7 +2375,7 @@ runtime error otherwise).
 ### `split`
 
 ```
-native fn split(s: string, sep: string) -> [string]
+native fn split(s: string, separator: string) -> [string]
 ```
 
 The pieces of `s` between each `sep`, empty pieces included: `split("a,b,,c", ",")` is
@@ -2544,7 +2544,7 @@ native so that joining N strings is O(N), where adding them with `concat` one at
 ### `split_once`
 
 ```
-pub fn split_once(s: string, sep: string) -> Option<[string]>
+pub fn split_once(s: string, separator: string) -> Option<[string]>
 ```
 
 Splits `s` at the FIRST `sep`: Some([before, after]), or None when `sep` is not in `s`. The
@@ -2580,7 +2580,7 @@ usually all that is written.
 ### `append`
 
 ```
-native fn append(sb: MutableString, pieces: variadic string)
+native fn append(s: MutableString, pieces: variadic string)
 ```
 
 Appends each of `pieces`, given one by one or as an array. The builder changes in place and
@@ -2589,7 +2589,7 @@ nothing is returned.
 ### `append_byte`
 
 ```
-native fn append_byte(sb: MutableString, b: variadic byte) -> bool
+native fn append_byte(s: MutableString, pieces: variadic byte) -> bool
 ```
 
 Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say):
@@ -2600,7 +2600,7 @@ their own.
 ### `mutable_string_get`
 
 ```
-native fn mutable_string_get(sb: MutableString, index: int) -> string
+native fn mutable_string_get(s: MutableString, index: int) -> string
 ```
 
 Reading and writing one byte of the buffer, and searching it: what lets a string being built be
@@ -2611,7 +2611,7 @@ there is no UTF-8 question left to settle here.
 ### `mutable_string_set`
 
 ```
-native fn mutable_string_set(sb: MutableString, index: int, value: string)
+native fn mutable_string_set(s: MutableString, index: int, value: string)
 ```
 
 Replaces one byte, mirroring the immutable `set(arr, i, x)`: one element in, one element out. A
@@ -2621,7 +2621,7 @@ change the length and `set` nowhere else in the language does that.
 ### `mutable_string_index_of`
 
 ```
-native fn mutable_string_index_of(sb: MutableString, needle: string, from: int) -> int
+native fn mutable_string_index_of(s: MutableString, needle: string, from: int) -> int
 ```
 
 The byte index of the first `needle` at or after `from` (`0 <= from <= len(sb)`, a runtime error
@@ -2631,7 +2631,7 @@ otherwise), or -1. An empty `needle` is found at `from`. Takes a `from` because 
 ### `mutable_string_last_index_of`
 
 ```
-native fn mutable_string_last_index_of(sb: MutableString, needle: string) -> int
+native fn mutable_string_last_index_of(s: MutableString, needle: string) -> int
 ```
 
 The byte index of the last `needle`, or -1; an empty `needle` is found at `len(sb)`. No `from`,
@@ -2640,7 +2640,7 @@ because `last_index_of(s, needle)` has none either.
 ### `lines`
 
 ```
-pub fn lines(text: string) -> [string]
+pub fn lines(s: string) -> [string]
 ```
 
 The lines of `text`, without their terminators. Written because a cold model reaching for

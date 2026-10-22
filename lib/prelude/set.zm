@@ -23,7 +23,7 @@ struct MutableSet<T: Eq + Hash> {
 native fn mutable_set_new<T: Eq + Hash>() -> MutableSet<T>
 
 // Adds `item`; nothing happens when it is already there.
-internal native fn mutable_set_add<T: Eq + Hash>(sb: MutableSet<T>, item: T) -> bool
+internal native fn mutable_set_add<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
 
 // Adds each of `items`, answering whether any of them was new. The singular `mutable_set_add` is
 // not variadic, which is what keeps a `MutableSet<[int]>` from being a special case -- one element

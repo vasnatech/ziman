@@ -33,7 +33,7 @@ native fn substring(s: string, start: int, end: int) -> string
 
 // The pieces of `s` between each `sep`, empty pieces included: `split("a,b,,c", ",")` is
 // `[a, b, , c]`. `sep` must not be empty.
-native fn split(s: string, sep: string) -> [string]
+native fn split(s: string, separator: string) -> [string]
 
 // `s` without leading and trailing blanks (space, tab, CR, LF).
 native fn trim(s: string) -> string
@@ -122,12 +122,12 @@ native fn join(
 // Splits `s` at the FIRST `sep`: Some([before, after]), or None when `sep` is not in `s`. The
 // right tool for `key=value`, `host:port` and similar, where the value may itself contain the
 // separator (`split` would cut it apart). `sep` must not be empty.
-pub fn split_once(s: string, sep: string) -> Option<[string]> {
-    val at = index_of(s, sep, 0)
+pub fn split_once(s: string, separator: string) -> Option<[string]> {
+    val at = index_of(s, separator, 0)
     if at < 0 {
         return Option<[string]>.None
     }
-    return Option<[string]>.Some([substring(s, 0, at), substring(s, at + len(sep), len(s))])
+    return Option<[string]>.Some([substring(s, 0, at), substring(s, at + len(separator), len(s))])
 }
 
 // A mutable buffer for assembling a string piece by piece. Adding to a string with `concat` in
@@ -150,34 +150,34 @@ native fn mutable_string_new(capacity: Option<int> = 20, grow_factor: Option<flo
 // Appends each of `pieces`, given one by one or as an array. The builder changes in place and
 // nothing is returned.
 #[at_least_one]
-native fn append(sb: MutableString, pieces: variadic string)
+native fn append(s: MutableString, pieces: variadic string)
 
 // Appends raw bytes, for text assembled from decoded bytes (a percent-decoder, say):
 // `append_byte(sb, 195b, 169b)`. A string cannot hold a 0 byte, so if any byte is `0b` NOTHING
 // is appended and the result is false (true otherwise). The bytes need not be valid UTF-8 on
 // their own.
 #[at_least_one]
-native fn append_byte(sb: MutableString, b: variadic byte) -> bool
+native fn append_byte(s: MutableString, pieces: variadic byte) -> bool
 
 // Reading and writing one byte of the buffer, and searching it: what lets a string being built be
 // inspected without `snapshot`, which copies all of it per call. Byte-indexed, like every string
 // operation in the language -- `len` is bytes and `char_at(s, i)` is the one-byte string at `i`, so
 // there is no UTF-8 question left to settle here.
-native fn mutable_string_get(sb: MutableString, index: int) -> string
+native fn mutable_string_get(s: MutableString, index: int) -> string
 
 // Replaces one byte, mirroring the immutable `set(arr, i, x)`: one element in, one element out. A
 // `value` of any other length is a runtime error rather than a splice, because splicing would
 // change the length and `set` nowhere else in the language does that.
-native fn mutable_string_set(sb: MutableString, index: int, value: string)
+native fn mutable_string_set(s: MutableString, index: int, value: string)
 
 // The byte index of the first `needle` at or after `from` (`0 <= from <= len(sb)`, a runtime error
 // otherwise), or -1. An empty `needle` is found at `from`. Takes a `from` because the immutable
 // `index_of(s, needle, from)` does -- mirroring the twin matters more than saving an argument.
-native fn mutable_string_index_of(sb: MutableString, needle: string, from: int) -> int
+native fn mutable_string_index_of(s: MutableString, needle: string, from: int) -> int
 
 // The byte index of the last `needle`, or -1; an empty `needle` is found at `len(sb)`. No `from`,
 // because `last_index_of(s, needle)` has none either.
-native fn mutable_string_last_index_of(sb: MutableString, needle: string) -> int
+native fn mutable_string_last_index_of(s: MutableString, needle: string) -> int
 
 // The lines of `text`, without their terminators. Written because a cold model reaching for
 // `text.lines()` was sent to `split(text, "\n")`, which is close but not the same thing: `split`
@@ -188,17 +188,17 @@ native fn mutable_string_last_index_of(sb: MutableString, needle: string) -> int
 //
 // A final newline is a terminator, not a separator -- "a\nb\n" and "a\nb" both have two lines --
 // which is how every line-oriented tool reads a text file. An empty string has no lines.
-pub fn lines(text: string) -> [string] {
-    if len(text) == 0 {
+pub fn lines(s: string) -> [string] {
+    if len(s) == 0 {
         return []
     }
     var out: [string] = []
-    for piece in split(text, "\n") {
+    for piece in split(s, "\n") {
         out = push(out, if ends_with(piece, "\r") { substring(piece, 0, len(piece) - 1) } else { piece })
     }
     // Only a *trailing* newline produces that last empty piece; a blank line in the middle is a
     // real empty line and stays.
-    if ends_with(text, "\n") {
+    if ends_with(s, "\n") {
         return slice<string>(out, 0, len(out) - 1)
     }
     return out

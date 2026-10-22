@@ -30,7 +30,7 @@ struct MutableMap<K: Eq + Hash, V> {
 native fn mutable_map_new<K: Eq + Hash, V>() -> MutableMap<K, V>
 
 // The value of `key`, or None.
-pub native fn get<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
+pub native fn get<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
 
 // Removes `key` and answers whether it was there, without reporting what it held. The same
 // question `remove` answers for a set, and for the same reason: a `bool` needs no
@@ -39,7 +39,7 @@ pub native fn get<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K) -> Option<V>
 // removing and re-inserting every key: 351-363 ns/op through `remove` against 110-112
 // through the bool-returning path -- the removal itself is a fraction of either. Reach for
 // `remove` only when the old value is actually needed.
-pub native fn discard<K: Eq + Hash, V>(mb: MutableMap<K, V>, key: K)
+pub native fn discard<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K)
 
 // `f` applied to every value, keys and their order unchanged. Safe to write as a `for` plus a
 // `set` because iterating a MutableMap walks a snapshot of the entries, so the writes cannot

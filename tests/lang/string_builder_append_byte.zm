@@ -19,7 +19,7 @@ fn main() {
     val m = mutable_string_new()
     print(append_byte(m, 104b, 105b))
     print(append_byte(m, 33b, 0b, 33b))
-    print(append_byte(sb: m, b: [111b, 107b]))
+    print(append_byte(s: m, pieces: [111b, 107b]))
     print(snapshot(m))
 
     print(unwrap(http.percent_decode("caf%C3%A9 au+lait%21", true)))

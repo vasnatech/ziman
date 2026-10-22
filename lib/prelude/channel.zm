@@ -65,4 +65,4 @@ struct Guard {
 }
 
 // A guard that sends `message` on `ch` when it is collected.
-native fn guard_new<T>(ch: Channel<T>, message: T) -> Guard
+native fn guard_new<T>(c: Channel<T>, message: T) -> Guard
