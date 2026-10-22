@@ -1480,7 +1480,6 @@ static const char *const PURE_BUILTINS[] = {
     "set", "mutable",
     "str", "format", "abs", "min", "max", "hash", "compare", "error_message",
     "is_ok",
-    "get", "get_or", "keys", "values", "merge", "remove_all",
     "union", "intersect", "difference", "is_subset", "add",
     "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from",
     NULL};
@@ -1577,7 +1576,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "hash", "compare", "error_message", "abs", "min", "max",
     "set", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "keys", "values", "get", "get_or", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", "mutable", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "union", "intersect", "difference", "is_subset", "add", "mutable", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -1600,8 +1599,8 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * name with no declaration at all (`format`, `printf`, the parser's `$` names) can never appear
  * here -- there is nothing to canonicalize against. */
 static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
-    "abs", "keys", "values",
-    "get", "get_or", "union", "intersect", "difference", "is_subset", "remove_all", "add", "merge", NULL,
+    "abs", "set",
+    "union", "intersect", "difference", "is_subset", "add", NULL,
 };
 
 static int builtin_refuses_named_args(const char *name) {
@@ -2034,40 +2033,6 @@ static void canonicalize_named_args(Expr *e, FunctionDecl *fn) {
     e->as.call.args.count = variadic_omitted ? fixed_count : fn->params.count;
     e->as.call.args.capacity = fn->params.count;
     e->as.call.arg_names = NULL;
-}
-
-/* `set`/`insert`/`remove` on a Map or Set (`coll_type`, the already-checked first
- * argument). Returns the collection's own type: like an array's, these build a new
- * value and leave the argument untouched. */
-/* The three calls the collection arms delegate here: `set` on a Map, and `remove` on either a Map
- * or a Set. It used to be reached with `insert` too, and carried a refusal for each name that did
- * not fit -- `insert` on a map, `set` on a set. F206 moved both into the arms that own those names,
- * where argument one's type is already known: `insert` no longer reaches this function at all
- * (F199 made it positional only), and `set` reaches it only for the shape it accepts. */
-static Type check_collection_mutator(Module *module, Env *env, Expr *e, const char *name, Type coll_type) {
-    int is_map = coll_type.kind == TY_MAP;
-    int is_set_call = strcmp(name, "set") == 0;
-    int expected_argc = (is_map && is_set_call) ? 3 : 2;
-    if (e->as.call.args.count != expected_argc) {
-        ziman_error("type", e->line, e->col, "'%s' on %s takes exactly %d arguments, found %d", name, type_name(coll_type), expected_argc,
-                    e->as.call.args.count);
-    }
-    Type key_type = *coll_type.elem;
-    Type got = check_expr_expecting(module, env, &e->as.call.args.items[1], key_type);
-    if (!type_equals(got, key_type)) {
-        ziman_error("type", e->as.call.args.items[1]->line, e->as.call.args.items[1]->col, "argument 2 of '%s' expects %s (the %s's %s type), found %s", name,
-                    type_name(key_type), is_map ? "map" : "set", is_map ? "key" : "element", type_name(got));
-    }
-    if (is_map && is_set_call) {
-        Type value_type = *coll_type.elem_err;
-        Type vgot = check_expr_expecting(module, env, &e->as.call.args.items[2], value_type);
-        require_not_void(e->as.call.args.items[2], "as a map value");
-        if (!type_equals(vgot, value_type)) {
-            ziman_error("type", e->as.call.args.items[2]->line, e->as.call.args.items[2]->col,
-                        "argument 3 of 'set' expects %s (the map's value type), found %s", type_name(value_type), type_name(vgot));
-        }
-    }
-    return coll_type;
 }
 
 /* `Map<K, V> { k: v, ... }` and `Set<T> { a, ... }`, parsed into calls to `$map_lit`/`$set_lit`
@@ -3826,8 +3791,13 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         Expr *coll_arg = e->as.call.args.items[0];
         Type coll_type = check_expr(module, env, coll_arg);
 
+        /* A Map declines to the resolver as a MutableMap already did. That branch only routed to
+         * a shared `set`/`remove` helper that checked the arity and the key's type -- both of
+         * which the resolver says anyway, bar a "(the map's key type)" parenthetical -- and it was
+         * that helper's last caller, so the helper is gone too. The three refusals below are what
+         * keeps the arm. */
         if (coll_type.kind == TY_MAP) {
-            return check_collection_mutator(module, env, e, name, coll_type);
+            goto ordinary_call;
         }
 
         /* The two refusals below are keyed on the type that was rejected rather than stating the

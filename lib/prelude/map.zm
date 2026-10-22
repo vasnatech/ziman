@@ -70,6 +70,23 @@ native fn contains<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> bool
 // array and Set members are in array.zm and set.zm, and the member for everything else is in
 // mutable.zm, which carries the account of how the four are told apart. `Map<K, V> {}` writes its
 // own types, so this never had the empty-literal gap `mutable([])` has.
+//
+// **The one `builtin fn` left in this file, and the only one of its ten that could not convert.**
+// Tried on 2026-10-22 and the declaration checker refused it, which is §4's recorded blocker met
+// head-on rather than inherited:
+//
+//     function 'mutable' is already defined (line 94) -- two declarations may share a name only
+//     when every call can tell them apart
+//
+// Line 94 is mutable.zm's `mutable<T>(item: T) -> Mutable<T>`, and a `Map` satisfies a bare `T` as
+// well as it satisfies this, so the pair is indistinguishable. The exemption that lets the four
+// coexist today is that they are all `builtin fn`; the moment one stops being one, it is measured
+// against the others. **And the arm does not help**, because unlike `concat`'s it does not choose a
+// declaration -- it rewrites the callee to `$mutable_map_from`, so these four declarations are
+// documentation of a dispatch that happens under other names. Converting this member would mean
+// either giving `mutable` `#[compiler_resolved]` and a rule that records `call_fn` (the `concat`
+// shape, for a set whose own attribute comment says a second user is a reason to doubt the second)
+// or making the bare-`T` member narrower, which is a language question rather than a conversion.
 builtin fn mutable<K: Eq + Hash, V>(entries: Map<K, V>) -> MutableMap<K, V>
 
 // `m` with `f` applied to every value, keys and their order unchanged:
@@ -140,11 +157,11 @@ pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> boo
 // MutableSet form is in set.zm, and `remove` -- the singular of it -- has its two map members
 // just above.
 #[at_least_one]
-builtin fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
+pub native fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
 
 // **The value under `key`, or `value` when there is none** -- and no `Option` allocated either
 // way, which is why it is not `get` plus `unwrap_Some`.
-builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> V
+pub native fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> V
 
 // The same of a builder. Ordinary Ziman rather than a builtin, since it is exactly that switch:
 // the point is that a counting loop (`set(counts, k, get_or(counts, k, 0) + 1)`) reads as one line
@@ -159,7 +176,7 @@ pub native fn set<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, value: V)
 // half of the builder form above, which writes in place and answers nothing. `set`'s third member
 // takes an array and an index and is in array.zm; neither set world has one, membership being
 // `add` in both, and no builder has one either, an element write being `b[i] = value`.
-builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
+pub native fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
 
 // `f` applied to whatever is at `key` -- `None` when nothing is -- stored back, and returned. One
 // lookup where `get` then `set` is two, which is the whole reason this exists where
@@ -234,16 +251,16 @@ pub fn values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V] {
 // Declared, not defined: the rule for each is an arm in the type checker, which every call reaches
 // before the ordinary function lookup -- see SYNTAX.md's `builtin fn` entry. These exist so the
 // signature can be printed, completed and read.
-builtin fn get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
+pub native fn get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
 
 // A `Set`, not an array: a map's keys are unique by construction, so the type that says so is the
 // honest one.
-builtin fn keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
+pub native fn keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
 
-builtin fn values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
+pub native fn values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
 
 // `other` wins where both have a key.
-builtin fn merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>
+pub native fn merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>
 
 // One key and its value, as `entries` returns them.
 struct MapEntry<K, V> {
@@ -272,8 +289,8 @@ pub fn entries<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [MapEntry<K, V>] {
     return snapshot(out)
 }
 
-builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
-builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
+pub native fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
+pub native fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
 
 // The entries added so far as an ordinary `Map`, in insertion order; O(n), and the builder stays
 // usable afterwards. `snapshot`'s other three members take a MutableArray, a MutableString and a

@@ -1,0 +1,51 @@
+// map.zm's builtins became native declarations on 2026-10-22 -- nine of its ten. Six names had no
+// `check_call` arm at all (`get`, `get_or`, `keys`, `values`, `merge`, `remove_all`): they were
+// declaration-checked already, so the conversion was the ids, the branches and three name lists,
+// with no diagnostics to replace. `set`'s Map member went too, its arm keeping the three measured
+// per-type refusals that one `#[when_unmatched]` line cannot say.
+//
+// Each finds its C function through parameter one -- `map_get`, `map_get_or`, `map_keys`,
+// `map_values`, `map_merge`, `map_remove_all`, `map_set` -- with **one symbol serving two
+// declarations** for the in-place `merge`: both have a `MutableMap` first, differing in parameter
+// two, which `mutable_map_merge` tells apart by that argument's own runtime kind.
+fn main() {
+    val m = Map<string, int> { "a": 1, "b": 2, "c": 3 }
+
+    print(get(m, "a"))
+    print(get(m, "z"))
+    print(get_or(m, "b", 0))
+    print(get_or(m, "z", 9))
+    print(keys(m))
+    print(values(m))
+    print(merge(m, Map<string, int> { "b": 20, "d": 4 }))
+    print(set(m, "e", 5))
+    print(len(keys(Map<string, int> {})))
+
+    // `remove_all` is variadic, so the keys arrive written out or as one array to spread
+    print(remove_all(m, "a", "c"))
+    val ks: [string] = ["a", "b"]
+    print(remove_all(m, ks))
+
+    // **Named arguments, which a builtin id could never take.** `set` gains them too even though
+    // its array member keeps its id: the name is declaration-checked now, so the arguments are
+    // put in declaration order before the arm reads them positionally.
+    print(get(m: m, key: "a"))
+    print(get_or(m: m, key: "z", value: 7))
+    print(keys(m: m))
+    print(values(m: m))
+    print(merge(m: m, other: Map<string, int> { "x": 9 }))
+    print(set(m: m, key: "f", value: 6))
+    print(set(items: [1, 2, 3], index: 1, x: 99))
+    print(remove_all(m: m, keys: "b"))
+    // and type arguments
+    print(get<string, int>(m, "a"))
+
+    // the in-place `merge` pair, one symbol over two declarations
+    val mb = mutable(Map<string, int> { "a": 1 })
+    merge(mb, Map<string, int> { "b": 2 })
+    merge(mb, mutable(Map<string, int> { "c": 3 }))
+    print(snapshot(mb))
+
+    // the source is untouched throughout -- these answer new maps
+    print(m)
+}

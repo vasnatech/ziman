@@ -2635,6 +2635,115 @@ static Value native_array_filter(Value *args, int argc, int line, int col) {
     return permute_array(args[0].type, a, keep, kept, line, col);
 }
 
+/* `set` over an immutable Map: a new map with `key` added or its value replaced, its position
+ * kept. The arm still owns the name -- it carries three measured per-type refusals a single
+ * `#[when_unmatched]` line cannot (a Set, a MutableArray, a MutableSet each get their own), and
+ * §13 of the overloading design is why the whole name is not converted. What it no longer owns is
+ * the **Map** shape: that branch only routed to the shared `check_collection_mutator`, so the
+ * declaration can say it instead, and the arm declines to the resolver as it already did for a
+ * MutableMap. `set` is a mixed set now, the array member still a `builtin fn` run by its id. */
+static Value native_map_set(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return value_map(args[0].type, mapobj_set(args[0].as.map, args[1], args[2]));
+}
+
+/* ---- the immutable Map's own questions, converted off their builtin ids 2026-10-22 ----------
+ *
+ * Six names, eight declarations, each found through parameter one: `map_get`, `map_get_or`,
+ * `map_keys`, `map_values`, `map_merge`, `map_remove_all`, and one `mutable_map_merge` serving both
+ * in-place forms. None had a `check_call` arm -- they were declaration-checked already, listed in
+ * `BUILTINS_WITH_NAMED_ARGS` -- so the conversion is the id, the branch and the name lists, with no
+ * diagnostics to replace.
+ *
+ * The result types are placeholders patched by the caller, as for any generic native:
+ * `type_option_ref()` for an `Option<V>`, `type_scalar_ref(TY_VOID)` for the rest. */
+static Value native_map_get(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Value found;
+    if (mapobj_get(args[0].as.map, args[1], &found)) {
+        return value_enum(type_option_ref(), enum_obj_new("Option", "Some", 1, found));
+    }
+    return value_enum(type_option_ref(), enum_obj_option_none());
+}
+
+/* No `Option` allocated either way, which is the whole reason this is not `get` plus `unwrap_Some`
+ * -- the same point native_mutable_map_get_or above makes for the builder. */
+static Value native_map_get_or(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Value found;
+    return mapobj_get(args[0].as.map, args[1], &found) ? found : args[2];
+}
+
+/* The keys as a `Set<K>`, in the map's insertion order. A Set is a MapObj whose values are
+ * placeholders, so this is the same walk with `value_int(0)` for each value. */
+static Value native_map_keys(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Value *keys;
+    mapobj_entries(args[0].as.map, &keys, NULL);
+    MapObj *ks = mapobj_empty();
+    for (int i = 0; i < args[0].as.map->count; i++) ks = mapobj_set(ks, keys[i], value_int(0));
+    return value_map(type_scalar_ref(TY_VOID), ks);
+}
+
+/* The values as an array, in the keys' insertion order. Packed when they all admit it, as
+ * `ziman_set_items` packs a set's elements. */
+static Value native_map_values(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Value *vals;
+    mapobj_entries(args[0].as.map, NULL, &vals);
+    int n = args[0].as.map->count;
+    ArrayObj *packed = array_try_pack(vals, n);
+    return value_array(type_scalar_ref(TY_VOID), packed != NULL ? packed : array_obj_new(vals, n));
+}
+
+/* `other` wins where both have a key. One `mapobj_set` per entry of the second map onto the
+ * first, which shares structure rather than copying it. */
+static Value native_map_merge(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MapObj *m = args[0].as.map;
+    Value *keys, *vals;
+    mapobj_entries(args[1].as.map, &keys, &vals);
+    for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_set(m, keys[i], vals[i]);
+    return value_map(args[0].type, m);
+}
+
+/* **One symbol for both in-place declarations**, because the symbol fallback reads parameter one
+ * and both have a `MutableMap` there -- they differ in parameter *two*, a `Map` or another
+ * `MutableMap`, which this tells apart by that argument's own runtime kind. The same shape
+ * `mutable_array_concat` has, and the reason a set can have more declarations than symbols. */
+static Value native_mutable_map_merge(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    ziman_mutable_map_set_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
+    return value_int(0); /* void return */
+}
+
+/* Variadic, so the keys arrive as one collapsed array whichever way they were written -- which is
+ * the half of this the builtin could not have: it saw the raw `args` and had to ask the checker's
+ * own `variadic_tail_is_array_spread` which shape had been passed. */
+static Value native_map_remove_all(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MapObj *m = args[0].as.map;
+    const ArrayObj *keys = args[1].as.arr;
+    for (int i = 0; i < keys->count; i++) m = mapobj_remove(m, array_get(keys, i));
+    return value_map(args[0].type, m);
+}
+
 /* `remove` over the three immutable collections, which answer a new collection without the thing
  * removed and leave their argument alone -- the builder members of the same name write in place
  * and answer what they took out, which is the difference between the two worlds rather than
@@ -2793,6 +2902,14 @@ void prelude_register(void) {
     native_register("array_index_of", native_bytes_index_of);
     native_register("array_map", native_array_map);
     native_register("array_filter", native_array_filter);
+    native_register("map_set", native_map_set);
+    native_register("map_get", native_map_get);
+    native_register("map_get_or", native_map_get_or);
+    native_register("map_keys", native_map_keys);
+    native_register("map_values", native_map_values);
+    native_register("map_merge", native_map_merge);
+    native_register("mutable_map_merge", native_mutable_map_merge);
+    native_register("map_remove_all", native_map_remove_all);
     native_register("array_remove", native_array_remove);
     native_register("map_remove", native_map_remove);
     native_register("set_remove", native_set_remove);

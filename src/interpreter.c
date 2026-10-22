@@ -1222,17 +1222,11 @@ typedef enum {
     B_mutable_map_from,
     B_mutable_set_from,
     B_set,
-    B_map_get,
-    B_map_get_or,
-    B_map_merge,
     B_set_union,
     B_set_intersect,
     B_set_difference,
     B_set_is_subset,
-    B_map_remove_all,
     B_set_insert_all,
-    B_map_keys,
-    B_map_values,
     B_map_lit,
     B_set_lit,
     B_ok,
@@ -1270,17 +1264,11 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"$mutable_map_from", B_mutable_map_from},
     {"$mutable_set_from", B_mutable_set_from},
     {"set", B_set},
-    {"get", B_map_get},
-    {"get_or", B_map_get_or},
-    {"merge", B_map_merge},
     {"union", B_set_union},
     {"intersect", B_set_intersect},
     {"difference", B_set_difference},
     {"is_subset", B_set_is_subset},
-    {"remove_all", B_map_remove_all},
     {"add", B_set_insert_all},
-    {"keys", B_map_keys},
-    {"values", B_map_values},
     {"$map_lit", B_map_lit},
     {"$set_lit", B_set_lit},
     {"ok", B_ok},
@@ -1442,13 +1430,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 fwrite(text.as.str.ptr, 1, text.as.str.len, stdout);
                 fflush(stdout);
                 result = value_int(0);
-            } else if (bid == B_map_merge
-                       && args[0].type->kind == TY_STRUCT) {
-                /* `merge` over a MutableMap. One name, one id -- same shape as the four set
-                 * operations below: the immutable id arrives here too, and a builder first
-                 * argument takes the in-place path before the immutable branch can see it. */
-                ziman_mutable_map_set_all(args[0], args[1], args[1].type->kind == TY_STRUCT);
-                result = value_int(0);
             /* One name, two worlds, one id. F196 gave the four set operations their bare names
              * (`union`, `intersect`, `difference`, `is_subset`), and a name resolves to a single
              * builtin id -- so the immutable ids arrive here too, and a **builder first
@@ -1471,25 +1452,15 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                        bid == B_mutable_set_from) {
                 result = ziman_mutable_map_from(args[0], bid == B_mutable_set_from);
                 result.type = &e->resolved_type;
-            } else if (bid == B_set && (args[0].type->kind == TY_MAP || args[0].type->kind == TY_SET)) {
-                Value stored = args[0].type->kind == TY_MAP ? args[2] : value_int(0);
-                result = value_map(args[0].type, mapobj_set(args[0].as.map, args[1], stored));
-            } else if (bid == B_map_get) {
-                Value found;
-                if (mapobj_get(args[0].as.map, args[1], &found)) {
-                    result = value_enum(&e->resolved_type, enum_obj_new("Option", "Some", 1, found));
-                } else {
-                    result = value_enum(&e->resolved_type, enum_obj_option_none());
-                }
-            } else if (bid == B_map_get_or) {
-                Value found;
-                result = mapobj_get(args[0].as.map, args[1], &found) ? found : args[2];
-            } else if (bid == B_map_merge || bid == B_set_union) {
+            } else if (bid == B_set_union) {
+                /* `union` over two immutable Sets: every entry of the second onto the first.
+                 * `merge` shared this branch until 2026-10-22, when the Map members became
+                 * natives -- the two questions are the same walk, which is why one id served
+                 * both, and `map_merge` in prelude.c is now that walk written once for a map. */
                 MapObj *m = args[0].as.map;
-                Value *keys, *vals = NULL;
-                int is_map = args[1].type->kind == TY_MAP;
-                mapobj_entries(args[1].as.map, &keys, is_map ? &vals : NULL);
-                for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_set(m, keys[i], is_map ? vals[i] : value_int(0));
+                Value *keys;
+                mapobj_entries(args[1].as.map, &keys, NULL);
+                for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_set(m, keys[i], value_int(0));
                 result = value_map(args[0].type, m);
             } else if (bid == B_set_intersect || bid == B_set_difference) {
                 int keep_present = bid == B_set_intersect;
@@ -1508,20 +1479,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 mapobj_entries(args[0].as.map, &keys, NULL);
                 for (int i = 0; i < args[0].as.map->count && subset; i++) subset = mapobj_get(args[1].as.map, keys[i], &ignored);
                 result = value_bool(subset);
-                        } else if (bid == B_map_remove_all) {
-                /* Variadic since F198, so the keys arrive either as a spread array (one argument
-                 * whose own type is `[K]`, which the checker has already decided -- see
-                 * `variadic_tail_is_array_spread`) or written out one per argument. A `native`
-                 * variadic tail would have been handed one array either way; a builtin gets the
-                 * raw `args`, which is the same split `concat` documents above. */
-                MapObj *m = args[0].as.map;
-                if (e->as.call.variadic_tail_is_array_spread) {
-                    for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_remove(m, array_get(args[1].as.arr, i));
-                } else {
-                    for (int i = 1; i < argc; i++) m = mapobj_remove(m, args[i]);
-                }
-                result = value_map(args[0].type, m);
-            } else if (bid == B_set_insert_all) {
+                        } else if (bid == B_set_insert_all) {
                 /* `add` on a Set, variadic since F199 and subsuming what `insert(s, x)` and
                  * `set_insert_all(s, items)` were separately. Same spread/written-out split as
                  * `remove_all`: a builtin gets the raw `args`, so the checker's own
@@ -1533,34 +1491,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     for (int i = 1; i < argc; i++) m = mapobj_set(m, args[i], value_int(0));
                 }
                 result = value_map(args[0].type, m);
-            } else if (bid == B_map_keys) {
-                /* the key set, in the map's insertion order */
-                Value *keys;
-                mapobj_entries(args[0].as.map, &keys, NULL);
-                MapObj *ks = mapobj_empty();
-                for (int i = 0; i < args[0].as.map->count; i++) ks = mapobj_set(ks, keys[i], value_int(0));
-                result = value_map(&e->resolved_type, ks);
-            } else if (bid == B_map_values) {
-                /* By the id, not by the callee's spelling. This read `callee[0] == 'm'` to tell
-                 * `map_values` from `set_items`, which stopped being true the moment F194 renamed
-                 * the first to `values`: the branch silently answered with the keys instead of
-                 * the values, and the only sign was a fixture printing `[a, b]` where `[1, 2]`
-                 * belonged. **A name is not a discriminator once names can be shared.**
-                 *
-                 * F196 swept the other three: `callee[4] == 'i'` told `set_intersect` from
-                 * `set_difference`, `callee[12] == 'u'` picked among the three mutable set
-                 * operations (and would have read past the end of a shorter name), and
-                 * `callee[1] == 'm'` told `$map_lit` from `$set_lit`. The last was safe -- the
-                 * parser emits those two and nothing renames them -- and went anyway, because
-                 * "safe for now" is what the other three were. */
-                /* `items` over a `Set<T>` shared this branch until its name came off the builtin
-                 * id; `want_values` picked between them by the *id*, never by the spelling, which
-                 * is the lesson above. With one id left there is nothing to pick. */
-                Value *vals;
-                mapobj_entries(args[0].as.map, NULL, &vals);
-                int n = args[0].as.map->count;
-                ArrayObj *packed = array_try_pack(vals, n);
-                result = value_array(&e->resolved_type, packed != NULL ? packed : array_obj_new(vals, n));
             } else if (bid == B_map_lit || bid == B_set_lit) {
                 int is_map = bid == B_map_lit;
                 MapObj *m = mapobj_empty();

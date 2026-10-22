@@ -1730,6 +1730,26 @@ array and Set members are in array.zm and set.zm, and the member for everything 
 mutable.zm, which carries the account of how the four are told apart. `Map<K, V> {}` writes its
 own types, so this never had the empty-literal gap `mutable([])` has.
 
+**The one `builtin fn` left in this file, and the only one of its ten that could not convert.**
+Tried on 2026-10-22 and the declaration checker refused it, which is §4's recorded blocker met
+head-on rather than inherited:
+
+
+```
+function 'mutable' is already defined (line 94) -- two declarations may share a name only
+when every call can tell them apart
+```
+
+Line 94 is mutable.zm's `mutable<T>(item: T) -> Mutable<T>`, and a `Map` satisfies a bare `T` as
+well as it satisfies this, so the pair is indistinguishable. The exemption that lets the four
+coexist today is that they are all `builtin fn`; the moment one stops being one, it is measured
+against the others. **And the arm does not help**, because unlike `concat`'s it does not choose a
+declaration -- it rewrites the callee to `$mutable_map_from`, so these four declarations are
+documentation of a dispatch that happens under other names. Converting this member would mean
+either giving `mutable` `#[compiler_resolved]` and a rule that records `call_fn` (the `concat`
+shape, for a set whose own attribute comment says a second user is a reason to doubt the second)
+or making the bare-`T` member narrower, which is a language question rather than a conversion.
+
 ### `map`
 
 ```
@@ -1805,7 +1825,7 @@ of what the singular takes, which for a map's `remove` is keys rather than entri
 of it there?" is an answer "delete these if present" has no use for.
 
 ```
-builtin fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
+pub native fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
 ```
 
 `m` without any of `keys`, as a new Map. The immutable half: the MutableMap form above drops
@@ -1816,7 +1836,7 @@ just above.
 ### `get_or`
 
 ```
-builtin fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> V
+pub native fn get_or<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> V
 ```
 
 **The value under `key`, or `value` when there is none** -- and no `Option` allocated either
@@ -1840,7 +1860,7 @@ pub native fn set<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K, value: V)
 Adds `key`, or replaces its value while keeping its position.
 
 ```
-builtin fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
+pub native fn set<K: Eq + Hash, V>(m: Map<K, V>, key: K, value: V) -> Map<K, V>
 ```
 
 A new Map with `key` added, or with its value replaced and its position kept -- the immutable
@@ -1920,7 +1940,7 @@ The values as an array, in the keys' insertion order, as `values` gives for a Ma
 ### `get`
 
 ```
-builtin fn get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
+pub native fn get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
 ```
 
 The builtins over an immutable `Map` and `Set`.
@@ -1932,7 +1952,7 @@ signature can be printed, completed and read.
 ### `keys`
 
 ```
-builtin fn keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
+pub native fn keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
 ```
 
 A `Set`, not an array: a map's keys are unique by construction, so the type that says so is the
@@ -1941,13 +1961,13 @@ honest one.
 ### `values`
 
 ```
-builtin fn values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
+pub native fn values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
 ```
 
 ### `merge`
 
 ```
-builtin fn merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>
+pub native fn merge<K: Eq + Hash, V>(m: Map<K, V>, other: Map<K, V>) -> Map<K, V>
 ```
 
 `other` wins where both have a key.
@@ -1983,11 +2003,11 @@ answering an immutable value for the same reason `keys` and `values` do.
 ### `merge`
 
 ```
-builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
+pub native fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: Map<K, V>)
 ```
 
 ```
-builtin fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
+pub native fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: MutableMap<K, V>)
 ```
 
 ### `snapshot`
