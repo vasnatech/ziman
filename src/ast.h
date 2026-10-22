@@ -767,9 +767,25 @@ static inline int fn_has_body(const FunctionDecl *fn) {
     return !fn->is_native && !fn->is_builtin;
 }
 
-/* Whether a name is reachable from any program without an import: a `native fn` and a
- * `builtin fn` both are, whatever their declared visibility, because they are the language's own
- * vocabulary rather than a module's exports. */
+/* Whether a **prelude** declaration belongs to the language's own vocabulary rather than to a
+ * module's exports, which is what lets `--api builtins` list one that was never marked `pub`.
+ *
+ * **It does not gate reachability, and said it did until 2026-10-22.** The comment here read
+ * "whether a name is reachable from any program without an import: a `native fn` and a
+ * `builtin fn` both are, whatever their declared visibility" -- true of the prelude, false of a
+ * module, and not what decides either. There are exactly two callers, both prelude-only:
+ * main.c's `api_advertises` and loader.c's `prelude_has_function`. Resolution never consults it.
+ *
+ * What is actually true: the prelude is **outside** visibility rather than exempt from it, being
+ * merged bare into every program, so a plain `native fn len` is callable because there is no
+ * import boundary for `VIS_PRIVATE` to gate -- not because `native` overrides privacy. In a
+ * module `pub` means exactly what it says of any declaration: `metrics.zm`'s own `declare_raw` is
+ * a `native fn` with no modifier, and `metrics.declare_raw(...)` is refused with "function
+ * 'declare_raw' in module 'metrics' is private (add 'pub' to export it)". Checked, not assumed.
+ *
+ * The one real asymmetry is advertising, and it is `fn_is_advertised` below rather than this:
+ * being listed turns on `!= VIS_INTERNAL`, so `internal` is the opt-out and `pub` on a prelude
+ * native is a statement of intent rather than a switch. */
 static inline int fn_is_global_vocabulary(const FunctionDecl *fn) {
     return fn->is_native || fn->is_builtin;
 }
