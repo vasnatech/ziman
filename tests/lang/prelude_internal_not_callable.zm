@@ -1,0 +1,22 @@
+// **A non-`pub` prelude declaration is not callable from outside the prelude**, as of 2026-10-22.
+// This file replaces `prelude_internal_still_callable`, which pinned the opposite and whose own
+// comment said that hiding these "would have broken exactly this, and silently".
+//
+// What changed and why. The prelude is merged bare into every program, so a call into it resolves
+// as an ordinary same-module call and there was no import boundary for `pub` to be checked at --
+// so `pub` said nothing about reachability here, only about what `--api builtins` advertises, and
+// F172 relied on the gap: it left names hidden from completion *and still callable*. That middle
+// state is gone. `pub` is reachable, `internal` reaches its own package (the bundled library may
+// call one, a program may not), and a bare declaration belongs to its own file.
+//
+// Seven names were on the far side of it: the five natives behind the sorts, `mutable_set_add`,
+// and `array_order_of`. Every caller outside the prelude moved to the public spelling first --
+// 30 `mutable_set_add` calls across 15 files became `add`, which is what `add` has meant in both
+// set worlds since F199, and `src/derive.c` emits `add` now for the same reason.
+//
+// `mutable_array_new` and `mutable_array_filled` are the counter-case and stay callable: prefixed
+// but `pub`, real constructors with no bare form, and tests/run_api.sh holds that half.
+fn main() {
+    val s = mutable_set_new<int>()
+    print(mutable_set_add<int>(s, 3))
+}

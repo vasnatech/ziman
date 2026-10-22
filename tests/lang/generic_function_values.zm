@@ -7,6 +7,23 @@ fn describe<T>(x: T) -> string { return format("<{}>", x) }
 
 fn wrap<T>(x: T) -> [T] { return [x] }
 
+// A *bounded* generic with one declaration, for the value-position case below. This was
+// `array_order_of` until 2026-10-22, when the prelude stopped being reachable past `pub`: a
+// fixture is program code, and that one is prelude-internal machinery. Declaring it here is better
+// anyway -- the fixture is about generic functions as values, not about what the prelude keeps
+// private.
+fn ranked<K: Ord>(keys: [K], descending: bool) -> [int] {
+    var idx: [int] = []
+    for i, k in keys {
+        idx = push(idx, i)
+    }
+    val by_key = sort_by(idx, fn(i: int) { keys[i] })
+    if descending {
+        return reverse(by_key)
+    }
+    return by_key
+}
+
 fn main() {
     val f = identity<int>
     print(f(5))
@@ -15,9 +32,10 @@ fn main() {
     print(twice<int>(identity<int>, 3))
     print(map<int, string>([1, 2, 3], describe<int>))
     print(map<string, [string]>(["a", "b"], wrap<string>))
-    // `array_order_of`, not `sort`: F178 made `sort` an overload set, and a set has no argument
-    // list in value position to choose from, so it cannot be one. This fixture is about generic
-    // functions as values, so it uses a generic function that still has one declaration.
-    val h = array_order_of<int>
+    // A *bounded* generic in value position, and one with a single declaration: `sort` cannot be
+    // one, F178 having made it an overload set, and a set has no argument list in value position to
+    // choose from. `ranked` above is declared here for that, where this used the prelude's
+    // `array_order_of` until it stopped being reachable from program code.
+    val h = ranked<int>
     print(h([3, 1, 2], false))
 }

@@ -1243,15 +1243,22 @@ fn main() {
   **An overload set cannot be used as a function value**: `val f = describe` has no arguments to
   choose from. Wrap the one you mean in a function of your own.
 
-- **In `lib/prelude/`, visibility chooses what is *advertised*, not what is callable.** The
-  prelude is merged into every program, so every declaration in it is callable with no `use`
-  whatever its modifier says — `pub` means only "`ziman --api builtins` lists it", and a plain
-  `fn` there is reachable just the same. `internal` is the one modifier that subtracts: it
-  takes a declaration out of `--api builtins` and out of the editor's completion while leaving
-  it callable, which is how the five natives behind the sorts (`sort_positions`, `permute`,
-  `is_sortable_scalars`, `sort_scalar_order`, `sort_scalars`) stopped being presented as
-  vocabulary. A `native fn` had no other way to opt out: it is reachable from every program by
-  construction, so until then the list advertised it no matter what its own comment said.
+- **In `lib/prelude/`, visibility means what it means anywhere else** — since 2026-10-22. A
+  declaration you can call with no `use` is one marked `pub`, and there are 268 of them; the rest
+  are the prelude's own machinery and calling one is a compile error naming which kind it is.
+  `internal` reaches the bundled library's own package, so a module in lib/ may call
+  `sort_positions` and a program may not. A declaration with no modifier belongs to the file that
+  declares it: `array_order_of` is the only one, and `sort_by`/`sort_by_desc` in the same file are
+  its only callers.
+
+  **It did not work that way before, and the difference is worth knowing if you read older
+  comments.** The prelude is merged bare into every program, so a call into it resolves as an
+  ordinary same-module call and there was no import boundary for `pub` to be checked at — so `pub`
+  chose only what `ziman --api builtins` advertises, and every declaration was callable whatever
+  its modifier said. `internal` was the only modifier that subtracted anything, and it subtracted
+  advertising rather than reach. Seven names lived in that gap; the thirty-odd calls they had
+  outside the prelude moved to the public spellings (`add` for `mutable_set_add`, `sort_by` for
+  `array_order_of`) before the rule changed.
 - **`[pub] val NAME[: Type] = <expr>` at module top level declares a global value** — evaluated
   once before `main` runs, in file order, never per-call. No global `var` (Ziman's concurrency
   model is single-writer actors over `Channel<T>`; see docs/DESIGN.md's "Global val" entry).

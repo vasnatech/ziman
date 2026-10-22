@@ -7,10 +7,16 @@
 //
 // Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
 // loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
-// directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
-// whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
-// subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
-// callable.
+// directory `pub` means what it means anywhere else as of 2026-10-22: **a declaration without it
+// cannot be called from outside the prelude.** `internal` reaches the bundled library's own
+// package, so lib/ may call one and a program may not, and a bare declaration belongs to the file
+// that declares it. It also still chooses what `ziman --api builtins` advertises.
+//
+// That is a change. Until then `pub` said nothing about reachability here -- the prelude is merged
+// bare into every program, so a call into it resolves as an ordinary same-module call and there was
+// no boundary to check at -- and F172 relied on the gap, leaving names hidden from completion *and*
+// callable. Seven were on the far side of it, and every caller outside the prelude moved to the
+// public spelling first.
 //
 // **Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
 // changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through

@@ -1,0 +1,1 @@
+function 'mutable_set_add' is internal to the bundled library's own package -- it is part of the prelude's own machinery, not its vocabulary, and nothing outside the prelude may call it

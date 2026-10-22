@@ -4168,6 +4168,36 @@ ordinary_call:;
     if (shadow_fn == NULL && fn != NULL && overload_set_size(module, name) > 1) {
         fn = overload_pick(module, env, e, name);
     }
+    /* **The prelude's own visibility, enforced from outside it (2026-10-22).**
+     *
+     * The prelude is merged bare into every program, so a call into it resolves as an ordinary
+     * same-module call and there is no import boundary for `pub` to be checked at -- which meant
+     * `pub` said nothing about reachability here, only about what `--api builtins` advertises. A
+     * non-`pub` prelude declaration was callable by anyone, and F172 relied on that: it left
+     * `array_order_of` bare so the name would be hidden from completion *and still callable*,
+     * which is the middle state this removes.
+     *
+     * The rule now matches what the modifier means everywhere else: `pub` is reachable, `internal`
+     * reaches its own package (the bundled library, so lib/ may call one and a program may not),
+     * and a bare declaration is the prelude's own. `g_checking_program_body` is the side of the
+     * boundary -- it is false only while a prelude declaration's own body is being checked -- and
+     * `module->is_corelib` is what makes `internal` mean package rather than nothing.
+     *
+     * Every overload set is uniformly visible, checked when this went in, so one test here is
+     * enough and the resolver needs no filter of its own. If that ever stops being true, a set
+     * with one `pub` member and one without would resolve to the hidden one and report it here,
+     * which is the right failure but the wrong message. */
+    if (fn != NULL && fn->source_file == NULL && g_checking_program_body
+        && fn->visibility != VIS_PUBLIC
+        && !(fn->visibility == VIS_INTERNAL && module->is_corelib)) {
+        ziman_error("type", e->line, e->col,
+                    "function '%s' is %s -- it is part of the prelude's own machinery, not its "
+                    "vocabulary, and nothing outside the prelude may call it",
+                    name,
+                    fn->visibility == VIS_INTERNAL
+                        ? "internal to the bundled library's own package"
+                        : "private to the file that declares it");
+    }
     lint_deprecated_use(fn, e->line, e->col);
     if (fn == NULL) {
         /* Inside a #[derive] expansion, a missing <type>_to_json / _from_json

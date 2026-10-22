@@ -181,6 +181,7 @@ them against the code.
 - [`--api builtins` groups an overload set, and the claim that it already did (2026-10-22)](#--api-builtins-groups-an-overload-set-and-the-claim-that-it-already-did-2026-10-22)
 - [`filter` over a Map and a Set, and a guard natives could not reach (2026-10-22)](#filter-over-a-map-and-a-set-and-a-guard-natives-could-not-reach-2026-10-22)
 - [collections.zm is retired (2026-10-22)](#collectionszm-is-retired-2026-10-22)
+- [The prelude stops being outside visibility (2026-10-22)](#the-prelude-stops-being-outside-visibility-2026-10-22)
 
 <!-- end index -->
 
@@ -7886,3 +7887,55 @@ out whether it is still true.
 declaration order, which is file order, so it reads "[T], Map<K, V>, Mutable<T>, Set<T>, string or
 a builder" where it had read "string, [T], Map<K, V>, Set<T>, Mutable<T>". The cost of a split set,
 recorded when `snapshot` first paid it.
+
+
+## The prelude stops being outside visibility (2026-10-22)
+
+`pub` said nothing about reachability in `lib/prelude/`. The parts are merged bare into every
+program, so a call into the prelude resolves as an ordinary same-module call and there was no
+import boundary for a modifier to be checked at — `pub` chose only what `ziman --api builtins`
+advertises, and every declaration was callable whatever it said. Asked whether natives are public
+by default I first answered from a comment that claimed the same thing, which is how this started.
+
+**Two halves, and the first is what made the second possible.** 143 declarations carried no
+modifier — 91 `native fn` and 52 `builtin fn` — against 125 that did, because `pub` is *inert* on
+those kinds: they are advertised through `fn_is_global_vocabulary` regardless. One keyword, two
+meanings, depending on the kind of declaration it sat on, which is why `snapshot` and `clear` in
+map.zm looked like an oversight beside seventeen `pub native` siblings. Writing `pub` on all 268
+public declarations is checkable as cosmetic — `--api builtins` is byte-identical across it — and
+it buys the reading that **a bare declaration is deliberately not public**.
+
+**Then the rule.** A prelude declaration must be `pub` to be called from outside the prelude;
+`internal` reaches the bundled library's own package, so lib/ may call `sort_positions` and a
+program may not; a bare declaration belongs to the file that declares it. `g_checking_program_body`
+is the boundary — false only while a prelude body is being checked — and `module->is_corelib` is
+what makes `internal` mean package rather than nothing. Verified in both directions: a bundled
+module can call `mutable_set_add`, a program cannot.
+
+**This reverses F172, which chose the middle state on purpose.** It left names hidden from
+completion *and still callable*, and `prelude_internal_still_callable` pinned exactly that, its
+comment warning that hiding them "would have broken exactly this, and silently". That fixture is
+replaced by two rejection tests, one per kind of refusal.
+
+**Seven names were in the gap**, and every caller outside the prelude moved to the public spelling
+before the rule went in: 30 `mutable_set_add` calls across 15 files became `add`, which is what
+`add` has meant in both set worlds since F199. Two fixtures that called `array_order_of` directly
+now prove the same stability through `sort_by`/`sort_by_desc`, its only consumers; two that used it
+as a generic function value declare their own bounded generic, which is better than depending on
+prelude machinery to test the language.
+
+**What migrating found.** `BUILDER_KINDS` keys the quadratic-snapshot lint's advice on the appender
+in the loop body, and its MutableSet entry was `mutable_set_add` — so that lint had caught nothing
+for a MutableSet since F199, and its fixture only reached four warnings because the fixture itself
+used the obsolete name. Migrating it dropped the count to three. Third rename to break that table.
+And `src/derive.c` *emits* `mutable_set_add`, so `map_json_derive` failed the moment the rule went
+in: generated code is attributed to the user's file, which is outside the prelude. Both are the
+same lesson as F208's — a rename's blast radius is not the `.zm` files.
+
+**What this does not do.** File-private is not enforced *within* the prelude: the parts are one
+merged unit, so `array_order_of` is refused to a program but not to another prelude part. Nothing
+needs it today — `sort_by` and `sort_by_desc` are in the same file — and enforcing it would need a
+per-part notion the merge deliberately does not keep.
+
+`docs/lib/prelude.md` now requires `pub` like every other page, so the one non-`pub` declaration
+stopped being advertised as vocabulary a program is refused for using. 1,142 fixtures.

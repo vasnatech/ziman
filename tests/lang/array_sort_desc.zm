@@ -14,7 +14,9 @@ fn main() {
     for p in sort_by_desc<P, int>(people, fn(p: P) -> int { return p.age }) {
         print(concat(p.name, str(p.age)))
     }
-    // the *permutation* is stable the same way, which is what sort_by_desc is built on.
-    // `array_order_of` is the one primitive since F169 deleted the two sort_indices wrappers.
-    print(array_order_of<int>([5, 9, 5, 1], true))
+    // The *permutation* under it is stable the same way, which is what `sort_by_desc` is built
+    // on, and this called `array_order_of` directly to show it. That declaration is the prelude's
+    // one non-`pub` name and stopped being reachable from program code on 2026-10-22; the
+    // `sort_by_desc` loop above has equal ages in it, so the stability it was pinning is pinned
+    // there -- by the consumer, which is the only caller that exists outside the prelude anyway.
 }

@@ -1,5 +1,15 @@
+// A type argument that does not satisfy its parameter's bound, caught in **value position** --
+// where there is no call to blame, so the error has to name the type parameter and the bound.
+//
+// The subject is declared here. It was the prelude's `array_order_of<K: Ord>` until 2026-10-22,
+// when a non-`pub` prelude declaration stopped being reachable from program code; a fixture is
+// program code, and that one is prelude-internal machinery. A local declaration also keeps the
+// fixture honest about what it tests, which is the bound check and not the prelude.
+fn ranked<K: Ord>(keys: [K], descending: bool) -> [int] {
+    return []
+}
 
 fn main() {
-    val f = array_order_of<bool>
+    val f = ranked<bool>
     print(1)
 }

@@ -1,0 +1,11 @@
+// The other half: `array_order_of` is the prelude's one declaration with no modifier at all, so it
+// is private to the file that declares it (array.zm) rather than internal to the package -- and the
+// message says which, because the repair differs. F172 chose bare deliberately, "so that nobody
+// completes the job by adding the keyword", when bare still meant callable; it means private now.
+//
+// Its only consumers are `sort_by` and `sort_by_desc` in array.zm, which is what made it safe to
+// close: nothing outside the prelude called it except four fixtures that were testing it directly
+// or using it as a generic function value, and those now declare their own subject.
+fn main() {
+    print(len(array_order_of<int>([3, 1, 2], false)))
+}

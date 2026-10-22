@@ -10,10 +10,16 @@ This file holds what belongs to no collection at all: the universal verbs `print
 
 Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
 loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
-directory `pub` does not control reachability -- a plain `fn` is just as callable -- it controls
-whether `ziman --api builtins` advertises the name, and `internal` is the one modifier that
-subtracts, taking a name out of `--api builtins` and out of editor completion while leaving it
-callable.
+directory `pub` means what it means anywhere else as of 2026-10-22: **a declaration without it
+cannot be called from outside the prelude.** `internal` reaches the bundled library's own
+package, so lib/ may call one and a program may not, and a bare declaration belongs to the file
+that declares it. It also still chooses what `ziman --api builtins` advertises.
+
+That is a change. Until then `pub` said nothing about reachability here -- the prelude is merged
+bare into every program, so a call into it resolves as an ordinary same-module call and there was
+no boundary to check at -- and F172 relied on the gap, leaving names hidden from completion *and*
+callable. Seven were on the far side of it, and every caller outside the prelude moved to the
+public spelling first.
 
 **Every public declaration here is written `pub` as of 2026-10-22, including the ones where it
 changes nothing.** It is inert on a `native fn` or a `builtin fn`: those are advertised through
@@ -285,18 +291,6 @@ invalid sequence) or holds a 0 byte (a string cannot) -- the one real boundary w
 bytes (a socket, a file, an HTTP body) become a `string`, so it's the one place this is
 checked; every other string function keeps working on whatever bytes a `string` already holds,
 same as always. See docs/DESIGN.md's UTF-8 correctness entry.
-
-### `MutableArray`
-
-```
-struct MutableArray<T> {
-    handle: int
-}
-```
-
-The array counterpart of MutableString: `push` copies the whole array on every call, so
-pushing in a loop is quadratic, while appending to a MutableArray is amortized O(1). Same
-opaque `handle`, same thread-bound rule.
 
 ### `slice`
 
@@ -1084,33 +1078,6 @@ declaration of its own: the symbol fallback reads parameter one and finds the re
 `check_call`'s arm rewrote the callee first, and `call_remove` only ever handled an array, so
 the id path would have read an `ArrayObj` out of a handle had anything reached it.
 
-### `array_order_of`
-
-```
-fn array_order_of<K: Ord>(keys: [K], descending: bool) -> [int]
-```
-
-The positions of `keys` in sorted order: the array of indices that, read in order, visits
-`keys` smallest first, or largest first when `descending`. Stable in both directions -- equal
-keys keep their input order, and the descending result is not the ascending one reversed, which
-would flip ties.
-
-This is the sort family's permutation primitive, and the only step of it generic over the key
-type: packed numbers and strings take a native path, anything else (a struct, an enum, a
-bigint) a stable merge sort calling `compare`. `sort_by`/`_desc` are built on it; `sort` is
-not, reaching the merge sort directly.
-
-**Deliberately not `pub`** -- decided 2026-10-19 alongside F172, so that nobody completes the
-job by adding the keyword. An index array has no advertised consumer: the function that
-applies one is `internal`, and `sort_by` exists precisely so that a caller never holds one.
-Publishing this would publish a value the vocabulary gives you nothing to do with. It stays a
-plain `fn`, so it is callable with no `use` and documented in `docs/lib/prelude.md`; it is only
-`ziman --api builtins` that does not claim it. Reopening the question means publishing
-`permute` with it, as a pair -- see the F172 entry in docs/reviews/tasks.md.
-
-`array_sort_indices`/`_desc` were two one-line wrappers over this, one per value of
-`descending`. They were deleted in F169 having never had a caller outside this file.
-
 ### `is_sorted`
 
 ```
@@ -1516,21 +1483,6 @@ Allocates its Map either way; last key wins, as in the array form.
 
 ## `channel.zm`
 
-### `Selected`
-
-```
-enum Selected<A, B> {
-    First(A)
-    Second(B)
-}
-```
-
-Which of `select2`'s two channels had a value first, and the value: `First(v)` from the
-`first` channel or `Second(v)` from the `second`. The parameters are named for the variants,
-so a call says which answer it is asking about: `select2(first: inbox, second: control)`.
-Named for what it is rather than a general `Either`, which programs commonly declare themselves
-and a bare prelude `Either` would then collide with. Available bare, like `Option`.
-
 ### `channel_new`
 
 ```
@@ -1610,18 +1562,6 @@ pub builtin fn select2<A, B>(first: Channel<A>, second: Channel<B>) -> Selected<
 Whichever of the two has a value first, and which one it was. `first` and `second` are the
 `Selected` variants' names, not an order of preference -- neither channel is favoured.
 
-### `Guard`
-
-```
-struct Guard {
-    handle: int
-}
-```
-
-A guard sends `message` on `channel` when nothing references it any more: a database
-connection holds one whose message is its "close" request, so a connection dropped without an
-explicit close still ends the thread that owns its socket (once the garbage collector notices).
-
 ### `guard_new`
 
 ```
@@ -1631,23 +1571,6 @@ pub native fn guard_new<T>(channel: Channel<T>, message: T) -> Guard
 A guard that sends `message` on `channel` when it is collected.
 
 ## `iter.zm`
-
-### `Iter`
-
-```
-struct Iter<T> {
-    handle: int
-}
-```
-
-A lazy source of values, produced one at a time as a `for` loop asks for them: `for line in
-lines { ... }` over an `Iter<Result<string, string>>` from `fs.lines`. Nothing is read ahead, so
-the source can be far larger than memory, and stopping early (`break`, `return`, or `try`) leaves the
-rest unread. `handle` is an opaque reference to the native source; a source that is not finished
-or closed is closed when it is garbage collected. It can be walked once: a second `for` over the
-same Iter carries on where the first stopped. It belongs to the thread that made it, like a builder
-(`#[thread_bound]`): not a `Channel` element, a `spawn` argument or a module-level `val`, and walking or
-closing it from another thread is a runtime error.
 
 ### `iter_from`
 
@@ -1682,21 +1605,6 @@ itself when it is left early; call it when you take items by hand and stop befor
 on one that is finished or already closed.
 
 ## `map.zm`
-
-### `MutableMap`
-
-```
-struct MutableMap<K: Eq + Hash, V> {
-    handle: int
-}
-```
-
-The mutable counterparts of Map and Set, for building one entry by entry. `set` on a Map and
-`add` on a Set copy a few nodes each time; a builder changes its own private structure in place,
-so adding n entries allocates O(n) in all, not O(n) per entry. `snapshot` takes what has been
-added so far as an ordinary Map or Set, and the builder stays usable.
-Keys keep the order they were first added, and follow the same rule as a Map's (`Eq + Hash`).
-Thread-bound like the other builders.
 
 ### `mutable_map_new`
 
@@ -2092,17 +2000,6 @@ kind -- which is also why it would already handle a mixed tail if a rule ever ch
 pub native fn merge<K: Eq + Hash, V>(m: MutableMap<K, V>, entries: variadic MutableMap<K, V>)
 ```
 
-### `MapEntry`
-
-```
-struct MapEntry<K, V> {
-    key: K
-    value: V
-}
-```
-
-One key and its value, as `entries` returns them.
-
 ### `entries`
 
 ```
@@ -2140,29 +2037,6 @@ pub native fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)
 Empties the builder in place, keeping the handle.
 
 ## `mutable.zm`
-
-### `Mutable`
-
-```
-struct Mutable<T> {
-    handle: int
-}
-```
-
-One cell holding one value: the root the other four mutable types specialise, and the primitive
-that lets a new mutable shape be written in Ziman instead of added to the language. A ring buffer
-is a struct over a `MutableArray` plus two `Mutable<int>`s; an LRU adds a `MutableMap`; a UI signal
-is a cell plus a `MutableArray` of subscribers.
-
-Like the other four it belongs to the thread that made it (`#[thread_bound]`), it is neither
-comparable nor hashable, and it is always initialised -- there is no empty `mutable_new<T>()`,
-because `T` may have no zero, so a cell never holds nothing.
-
-It answers two of the four bare builtins and not the other two: `len(c)` is 1 and
-`contains(c, v)` asks whether the value equals `v`, while `clear` has no zero to reset to and
-`snapshot` names an O(n) copy where `mutable_get` is an O(1) read. A cell needs no
-`from`/`snapshot` pair at all: `mutable_new` takes a value and `mutable_get` returns one, so the
-crossing between the two worlds *is* the API.
 
 ### `mutable_new`
 
@@ -2257,19 +2131,6 @@ the file whose whole job is that effect. Missing since the attribute existed (F2
 auditing every prelude declaration that writes an argument and answers a value, 2026-10-22.
 
 ## `option.zm`
-
-### `Option`
-
-```
-enum Option<T> {
-    Some(T)
-    None
-}
-```
-
-A value that may be absent: `Some(value)` or `None`. Test with `Option.is_Some(o)` and read
-with `Option.unwrap_Some(o)`, or with a `switch`. Available bare, like `Result`; unlike
-`Result` it is ordinary Ziman source, an enum with one helper function.
 
 ### `ok`
 
@@ -2467,16 +2328,6 @@ pub builtin fn unwrap<T>(o: Option<T>) -> T
 ```
 
 ## `set.zm`
-
-### `MutableSet`
-
-```
-struct MutableSet<T: Eq + Hash> {
-    handle: int
-}
-```
-
-A mutable set under construction; see MutableMap.
 
 ### `mutable_set_new`
 
@@ -2979,22 +2830,6 @@ pub fn split_once(s: string, separator: string) -> Option<[string]>
 Splits `s` at the FIRST `sep`: Some([before, after]), or None when `sep` is not in `s`. The
 right tool for `key=value`, `host:port` and similar, where the value may itself contain the
 separator (`split` would cut it apart). `sep` must not be empty.
-
-### `MutableString`
-
-```
-struct MutableString {
-    handle: int
-}
-```
-
-A mutable buffer for assembling a string piece by piece. Adding to a string with `concat` in
-a loop copies the whole string each time and leaves the old copies as garbage; appending to a
-MutableString is amortized O(1). `handle` is an opaque reference to the native buffer: do not
-build or edit one directly, only through `mutable_string_new` and the `sb_*` functions. It belongs to the
-thread that made it (`#[thread_bound]`): it cannot be a `Channel`'s element, a `spawn` argument or a
-module-level `val`, and using one from another thread (through a closure, say) is a runtime error.
-Hand the finished string over, not the builder.
 
 ### `mutable_string_new`
 

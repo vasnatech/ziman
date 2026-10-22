@@ -123,12 +123,15 @@ def parse(path):
     # a section, and only the first part's header describes the page (every part repeats the same
     # "merged bare into every program" paragraph, which would otherwise be printed ten times).
     paths = path if isinstance(path, list) else [path]
-    prelude = len(paths) > 1 or os.path.basename(os.path.dirname(paths[0])) == "prelude"
     # `builtin fn` belongs here for the same reason it exists: a builtin with no documented
     # signature is one a reader cannot find. See DESIGN.md's "`native` and builtin are two
     # different mechanisms".
-    decl = (r"(pub )?(native fn|builtin fn|fn|struct|enum|val) " if prelude
-            else r"pub (native fn|builtin fn|fn|struct|enum|val) ")
+    # `pub` is required of a prelude declaration too since 2026-10-22: a non-`pub` one cannot be
+    # called from outside the prelude, so listing it in the manual would advertise as vocabulary
+    # something a reader's program is refused for using. It was optional here while natives were
+    # advertised whatever their visibility said -- 143 of them carried no modifier -- and that
+    # sweep is what made one rule serve both.
+    decl = r"pub (native fn|builtin fn|fn|struct|enum|val) "
     header = []
     entries = []  # (section, comment lines, signature)
     for part_index, part_path in enumerate(paths):

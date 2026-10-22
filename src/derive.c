@@ -494,7 +494,13 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
             cb_appendf(cb, "    val %s = mutable_set_new<%s>()\n", bld, et);
             cb_appendf(cb, "    for %s in Json.unwrap_JArray(%s) {\n", item, src_expr);
             emit_from_json(*t.elem, item, item_val, cb, tmp, line, col, NULL);
-            cb_appendf(cb, "    mutable_set_add<%s>(%s, %s)\n", et, bld, item_val);
+            /* `add`, not `mutable_set_add`: F199 made that the word in both set worlds and left
+             * the prefixed one `internal`, which only mattered once a non-`pub` prelude name
+             * stopped being reachable from outside the prelude (2026-10-22) -- generated code is
+             * attributed to the user's file, so it is outside. Emitting the internal name failed
+             * `map_json_derive` the moment that rule went in, which is the third time this
+             * generator has been the blast radius of a prelude rename. */
+            cb_appendf(cb, "    add<%s>(%s, %s)\n", et, bld, item_val);
             cb_appendf(cb, "    }\n");
             cb_appendf(cb, "    val %s = snapshot(%s)\n", dst_var, bld);
             return;
