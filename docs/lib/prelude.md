@@ -97,6 +97,13 @@ splits, however many files that means**: `len` and `contains` across five each, 
 exempt and nothing is left over. See docs/DESIGN.md's "Overloading available to a declaration",
 and prelude.zm's header for what collections.zm's own header carried.
 
+**result.zm was added the same day, and is the rule read forwards rather than backwards.**
+`Result<T, E>` had shared option.zm with `Option<T>` "because they convert into each other and
+because `unwrap` is one overload set over both" -- the same reasoning the rule replaced, so
+`unwrap` has one member in each file now and each conversion sits with its source. Retiring one
+part and adding another are the same three edits: the file, the Makefile's `PRELUDE_PARTS`, one
+line in src/prelude.c's `PARTS` table.
+
 *This module is never imported: everything it declares is available bare in every program.*
 
 ## Example
