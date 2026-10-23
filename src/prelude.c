@@ -2772,6 +2772,35 @@ static Value native_map_remove_all(Value *args, int argc, int line, int col) {
     return value_map(args[0].type, m);
 }
 
+/* `abs` over the four numeric scalars, converted off its builtin id 2026-10-22. **One
+ * registration under the bare name answers for all four declarations**, as `len`'s nine do: the
+ * symbol fallback derives a prefix from parameter one's type and a *scalar* has none, so there is
+ * nowhere for `int_abs`/`float_abs` to come from and nothing to gain from them -- each branch is
+ * two lines and the switch is what the builtin did anyway.
+ *
+ * `abs(INT64_MIN)` is a runtime error rather than itself, which is the one case worth stating: the
+ * positive value does not exist in the range, and `int` overflow is an error here rather than a
+ * wrap (see interpreter.c's `int_overflow`). The bigint form has no such limit, which is what it
+ * is for.
+ *
+ * F191 named `abs` among the names that *can* convert -- "`len`, `abs`, `slice`, `swap`, `to_set`
+ * take collections and numbers, which always describe themselves" -- against `str`, which cannot
+ * for the reason recorded above its declarations. This is that sentence acted on. */
+Value ziman_abs(Value *args, int argc, int line, int col) {
+    (void)argc;
+    Value x = args[0];
+    if (x.type->kind == TY_INT) {
+        if (x.as.i == INT64_MIN) {
+            ziman_error("runtime", line, col,
+                        "integer overflow in 'abs' (int is 64-bit; use bigint for larger values)");
+        }
+        return value_int(x.as.i < 0 ? -x.as.i : x.as.i);
+    }
+    if (x.type->kind == TY_BIGINT) return value_bigint(bignum_abs(*x.as.bi));
+    if (x.type->kind == TY_DECIMAL) return value_decimal(decimal_abs(*x.as.dec));
+    return value_float(x.as.f < 0 ? -x.as.f : x.as.f);
+}
+
 /* `remove_keys` over an immutable Map: the map without any key the given Set holds. A separate
  * name rather than a `remove_all` member because the overload could not exist -- see the
  * declaration in lib/prelude/map.zm for the refusal and why it is not a bug in the rule. */
@@ -2953,6 +2982,7 @@ void prelude_register(void) {
     native_register("mutable_map_merge", native_mutable_map_merge);
     native_register("map_remove_all", native_map_remove_all);
     native_register("map_remove_keys", native_map_remove_keys);
+    native_register("abs", ziman_abs);
     native_register("array_remove", native_array_remove);
     native_register("map_remove", native_map_remove);
     native_register("set_remove", native_set_remove);

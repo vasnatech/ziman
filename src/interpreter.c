@@ -911,20 +911,6 @@ static Value value_error_message(Module *module, Value e, int line, int col) {
     return call_function(module, fn, args, 1, 0, line, col);
 }
 
-static Value call_abs(Value x, int line, int col) {
-    if (x.type->kind == TY_INT) {
-        if (x.as.i == INT64_MIN) int_overflow(line, col, "abs");
-        return value_int(x.as.i < 0 ? -x.as.i : x.as.i);
-    }
-    if (x.type->kind == TY_BIGINT) {
-        return value_bigint(bignum_abs(*x.as.bi));
-    }
-    if (x.type->kind == TY_DECIMAL) {
-        return value_decimal(decimal_abs(*x.as.dec));
-    }
-    return value_float(x.as.f < 0 ? -x.as.f : x.as.f);
-}
-
 /* `min`/`max`: variadic and `Ord`-bounded, not just the four numeric scalars this used to be
  * limited to. One linear scan calling `value_compare` per candidate -- already the native,
  * direct-C-comparison path for int/float/bigint/decimal/byte/string (see its own TY_INT/.../
@@ -1247,7 +1233,6 @@ typedef enum {
     B_hash,
     B_compare,
     B_error_message,
-    B_abs,
     B_min,
     B_max,
     B_channel_new,
@@ -1289,7 +1274,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"hash", B_hash},
     {"compare", B_compare},
     {"error_message", B_error_message},
-    {"abs", B_abs},
     {"min", B_min},
     {"max", B_max},
     {"channel_new", B_channel_new},
@@ -1528,8 +1512,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(value_compare(module, args[0], args[1], e->line, e->col));
             } else if (bid == B_error_message) {
                 result = value_error_message(module, args[0], e->line, e->col);
-            } else if (bid == B_abs) {
-                result = call_abs(args[0], e->line, e->col);
             } else if (bid == B_min) {
                 result = value_min_max(module, args, argc, 1, e->line, e->col);
             } else if (bid == B_max) {

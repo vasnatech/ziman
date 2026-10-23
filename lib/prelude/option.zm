@@ -109,6 +109,13 @@ pub builtin fn is_None<T>(o: Option<T>) -> bool
 
 pub builtin fn unwrap_Some<T>(o: Option<T>) -> T
 
+// An `Option`'s Some payload, which is a runtime error on a `None`. `unwrap` is the one name
+// shared by the two types -- its `Result` member is in result.zm -- and **this** member is why it
+// is not spelled `unwrap_Ok`: a name carrying one type's variant would not fit the other.
+// result.zm's header has the full note on why `unwrap_err` is lower case where `unwrap_Some` is
+// not.
+pub builtin fn unwrap<T>(o: Option<T>) -> T
+
 // The values that are actually there, in order, with the `None`s dropped. What builds a list out
 // of fields that may each be absent, without an `if` per field:
 //
@@ -174,10 +181,3 @@ pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T
         None { err(err_supplier()) }
     }
 }
-
-// An `Option`'s Some payload, which is a runtime error on a `None`. `unwrap` is the one name
-// shared by the two types -- its `Result` member is in result.zm -- and **this** member is why it
-// is not spelled `unwrap_Ok`: a name carrying one type's variant would not fit the other.
-// result.zm's header has the full note on why `unwrap_err` is lower case where `unwrap_Some` is
-// not.
-pub builtin fn unwrap<T>(o: Option<T>) -> T

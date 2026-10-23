@@ -247,19 +247,33 @@ pub builtin fn str(x: byte) -> string
 ### `abs`
 
 ```
-pub builtin fn abs(x: int) -> int
+pub native fn abs(x: int) -> int
+```
+
+**The magnitude, for each of the four numeric scalars.** No `byte` member: a byte is unsigned,
+so its magnitude is itself and `abs(b)` would be a call that cannot do anything.
+
+**`abs` on `int`'s most negative value is a runtime error**, not itself. -9223372036854775808
+has no positive counterpart in 64 bits, and this language reports integer overflow rather than
+wrapping -- `bigint` is the type with no such edge, which is most of what it is for.
+
+**`native fn` since 2026-10-22, where `str` beside it stays a builtin.** F191 measured both and
+separated them: an overload set resolves from arguments that describe themselves, and these four
+take numbers, which always do. `str` takes *expressions* -- `str(switch cut.fits { ... })` is
+real code -- and a value block carries no type for the resolver to choose with. One registration
+under the bare name serves all four, as `len`'s nine do, because a scalar parameter has no world
+prefix for the symbol fallback to build a per-type symbol from.
+
+```
+pub native fn abs(x: float) -> float
 ```
 
 ```
-pub builtin fn abs(x: float) -> float
+pub native fn abs(x: bigint) -> bigint
 ```
 
 ```
-pub builtin fn abs(x: bigint) -> bigint
-```
-
-```
-pub builtin fn abs(x: decimal) -> decimal
+pub native fn abs(x: decimal) -> decimal
 ```
 
 ### `hash`
@@ -2202,6 +2216,18 @@ pub builtin fn is_None<T>(o: Option<T>) -> bool
 pub builtin fn unwrap_Some<T>(o: Option<T>) -> T
 ```
 
+### `unwrap`
+
+```
+pub builtin fn unwrap<T>(o: Option<T>) -> T
+```
+
+An `Option`'s Some payload, which is a runtime error on a `None`. `unwrap` is the one name
+shared by the two types -- its `Result` member is in result.zm -- and **this** member is why it
+is not spelled `unwrap_Ok`: a name carrying one type's variant would not fit the other.
+result.zm's header has the full note on why `unwrap_err` is lower case where `unwrap_Some` is
+not.
+
 ### `filter_present`
 
 ```
@@ -2270,18 +2296,6 @@ pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T
 The reverse of result_to_option: Some(value) becomes Ok(value), and None becomes
 Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
 formatted message) is skipped entirely on the common Some path.
-
-### `unwrap`
-
-```
-pub builtin fn unwrap<T>(o: Option<T>) -> T
-```
-
-An `Option`'s Some payload, which is a runtime error on a `None`. `unwrap` is the one name
-shared by the two types -- its `Result` member is in result.zm -- and **this** member is why it
-is not spelled `unwrap_Ok`: a name carrying one type's variant would not fit the other.
-result.zm's header has the full note on why `unwrap_err` is lower case where `unwrap_Some` is
-not.
 
 ## `result.zm`
 
