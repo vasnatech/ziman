@@ -2370,15 +2370,40 @@ static Value native_mutable_set_to_mutable_array(Value *args, int argc, int line
  * `array_try_pack` is what makes this worth being native for a packable key type: the keys come
  * back as a `Value *` and a packed buffer is unscanned by the collector, so a `[int]` of keys
  * costs no pointer scanning at all. */
+/* The tail all three of these share: wrap `n` already-gathered keys as an immutable array, packed
+ * when the element type allows it. `array_try_pack` is the part worth being native for -- a packed
+ * buffer is unscanned by the collector, so an array of `int` keys costs no pointer scanning at
+ * all -- and it is the same tail whether the keys came from a MapObj or a MutableMapBuf. The
+ * element type is patched by the caller, as for any generic native. */
+static Value keys_as_array_tail(Value *keys, int n) {
+    ArrayObj *packed = array_try_pack(keys, n);
+    return value_array(type_scalar_ref(TY_VOID), packed != NULL ? packed : array_obj_new(keys, n));
+}
+
 Value ziman_keys_as_array(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
     Value *keys;
     mapobj_entries(args[0].as.map, &keys, NULL);
-    int n = args[0].as.map->count;
-    ArrayObj *packed = array_try_pack(keys, n);
-    return value_array(type_scalar_ref(TY_VOID), packed != NULL ? packed : array_obj_new(keys, n));
+    return keys_as_array_tail(keys, args[0].as.map->count);
+}
+
+/* The builder-set half of `to_array`, `native fn` since 2026-10-22. It was ordinary Ziman -- a
+ * MutableArray built by pushing every element and then snapshotted -- which is three passes and two
+ * buffers where this is one of each: `maptable_entries` already hands back the elements contiguous,
+ * so there is nothing to push into.
+ *
+ * A MutableSet is a MutableMapBuf, which is the only difference from `ziman_keys_as_array` above:
+ * the elements come from the table rather than from a MapObj, and the tail is shared. */
+static Value native_mutable_set_to_array(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
+    Value *keys;
+    int n = maptable_entries(&buf->t, &keys, NULL);
+    return keys_as_array_tail(keys, n);
 }
 
 /* `contains` over all nine types it accepts, registered under the bare name: one question, and
@@ -3180,6 +3205,7 @@ void prelude_register(void) {
     native_register("contains", ziman_contains);
     native_register("set_to_array", ziman_keys_as_array);
     native_register("map_keys_array", ziman_keys_as_array);
+    native_register("mutable_set_to_array", native_mutable_set_to_array);
     native_register("set_to_mutable_array", native_set_to_mutable_array);
     native_register("mutable_set_to_mutable_array", native_mutable_set_to_mutable_array);
     native_register("set_union", native_set_union);

@@ -2688,12 +2688,21 @@ would be a second spelling of `snapshot`, and the retired `ab_to_array` points a
 exactly that reason -- a name whose closeness to this one is worth knowing about.
 
 ```
-pub fn to_array<T: Eq + Hash>(s: MutableSet<T>) -> [T]
+pub native fn to_array<T: Eq + Hash>(s: MutableSet<T>) -> [T]
 ```
 
 The same of a builder, which had no comment of its own until 2026-10-22 and so published a bare
-signature in `docs/lib/prelude.md`. Ordinary Ziman where the immutable member is a native: it
-walks the builder and pushes, which is what a `for` over a MutableSet already does.
+signature in `docs/lib/prelude.md`.
+
+**`native fn` later the same day**, where it had been a Ziman loop pushing every element into a
+MutableArray and snapshotting it -- three passes and two buffers, against one of each here,
+because `maptable_entries` already hands the elements back contiguous and there is nothing left
+to push into. Measured on a 100,000-element set, 20 calls per run: **6.0 ms per call before,
+1.1 ms after**, about 5.7x. Insertion order is preserved, checked at 2,000 elements against the
+order they went in, which is past the point the table grows.
+
+It shares its tail with the immutable member and with `keys_array`: a MutableSet is a
+MutableMapBuf where a Set is a MapObj, and that is the only difference between the three walks.
 
 **The pair reads immutable-first now.** It was the one set in this file ordered the other way
 round, against the rule prelude.zm's header states, and the comment that existed sat on this
