@@ -109,6 +109,7 @@ module-path-check: $(BIN)
 # merges.
 overload-sets-check: $(BIN)
 	@./tools/overload_sets.sh $(BIN)
+	@python3 tools/check_set_adjacency.py
 
 northstar-if-available: $(BIN)
 	@./tests/run_northstar.sh $(BIN)

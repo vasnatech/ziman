@@ -83,8 +83,12 @@ It was "a larger piece than it looks" for the reason recorded: fourteen of those
 had no doc comment, so moving them was the small half and writing what they do was the rest.
 map.zm's `values` and set.zm's whole thirteen-declaration tail published blank entries in
 `docs/lib/prelude.md`; none does now. **The rule is that a set's members are adjacent, and no
-file breaks it** -- which makes it worth re-running the detector after any move rather than
-trusting that nothing drifted.
+file breaks it** -- which was worth re-running a detector after any move rather than trusting
+that nothing drifted, and is checked by `tools/check_set_adjacency.py` as of 2026-10-23 so that
+nobody has to remember to. It was added after a rename split `index_of` across 107 lines of
+string.zm with the build, the suite and every other guard green: `mutable_string_index_of`
+became a member of `index_of` and stayed where it sat, which is a thing only this rule notices.
+A reader caught it instead, which is the gap a guard is for.
 
 **Parameter names are part of the call surface**, because anything not dispatched by a builtin
 id takes named arguments -- so one role gets one name across every declaration that has it,
@@ -3029,6 +3033,17 @@ pub native fn last_index_of(s: string, needle: string) -> int
 
 The byte position of the last `needle` in `s`, or -1. An empty `needle` is found at `len(s)`.
 
+```
+pub native fn last_index_of(s: MutableString, needle: string) -> int
+```
+
+The same of a builder: no `from`, because the immutable member above has none either.
+
+**`mutable_string_last_index_of` until 2026-10-22**, the third of F205's prefix leftovers and a
+free rename -- the symbol the fallback derives from `last_index_of` on a MutableString is the one
+already registered. It sits here rather than in the MutableString block below because a set's
+members sit together, which is the rule that block predates.
+
 ### `is_char_at`
 
 ```
@@ -3090,6 +3105,19 @@ pub native fn index_of(s: string, needle: string, from: int) -> int
 The byte position of the first `needle` in `s` at or after `from` (`0 <= from <= len(s)`, a
 runtime error otherwise), or -1. An empty `needle` is found at `from`. The `[byte]` half of the
 set is in array.zm, which carries why the two share the name and what it cost to arrange.
+
+```
+pub native fn index_of(s: MutableString, needle: string, from: int) -> int
+```
+
+The same of a builder, searched in place so a string being built can be inspected without
+`snapshot`, which copies all of it per call. `0 <= from <= len(sb)`, a runtime error otherwise.
+
+**`mutable_string_index_of` until 2026-10-22**, and the rename is what its own comment had been
+asking for: it took a `from` "because the immutable `index_of(s, needle, from)` does -- mirroring
+the twin matters more than saving an argument", which argues for sharing the twin's *name* rather
+than for matching its shape under a different one. Three members now, one per world -- `[byte]`
+in array.zm, `string` above, `MutableString` here -- and the symbol is unchanged.
 
 ### `starts_with`
 
@@ -3202,10 +3230,15 @@ gate refusing a discarded result will be right.
 pub native fn mutable_string_get(s: MutableString, index: int) -> string
 ```
 
-Reading and writing one byte of the buffer, and searching it: what lets a string being built be
-inspected without `snapshot`, which copies all of it per call. Byte-indexed, like every string
-operation in the language -- `len` is bytes and `char_at(s, i)` is the one-byte string at `i`, so
-there is no UTF-8 question left to settle here.
+Reading and writing one byte of the buffer: what lets a string being built be inspected without
+`snapshot`, which copies all of it per call. Byte-indexed, like every string operation in the
+language -- `len` is bytes and `char_at(s, i)` is the one-byte string at `i`, so there is no
+UTF-8 question left to settle here.
+
+**Searching it used to be here too**, and moved on 2026-10-22 when
+`mutable_string_index_of`/`mutable_string_last_index_of` became members of `index_of` and
+`last_index_of`: a set's members sit together, so they went up to join their immutable twins.
+What stays is what this world alone has.
 
 ### `set`
 
@@ -3226,34 +3259,6 @@ The symbol is unchanged: the fallback derives `mutable_string_set` from `set` on
 so the C registration is exactly what it was. What the rename did cost is one line in the `set`
 arm, the last arm-handled name in the prelude: it refused every shape it did not recognise, so a
 MutableString had to be added to the list it declines to the resolver instead.
-
-### `index_of`
-
-```
-pub native fn index_of(s: MutableString, needle: string, from: int) -> int
-```
-
-The byte index of the first `needle` at or after `from` (`0 <= from <= len(sb)`, a runtime error
-otherwise), or -1. An empty `needle` is found at `from`.
-
-**`mutable_string_index_of` until 2026-10-22**, and the rename is what its own comment had been
-asking for: it took a `from` "because the immutable `index_of(s, needle, from)` does -- mirroring
-the twin matters more than saving an argument", which is an argument for sharing the twin's name
-rather than for matching its shape under a different one. Three members now -- `[byte]`,
-`string`, `MutableString` -- and the symbol is unchanged, the fallback deriving
-`mutable_string_index_of` from `index_of` on a MutableString.
-
-### `last_index_of`
-
-```
-pub native fn last_index_of(s: MutableString, needle: string) -> int
-```
-
-The byte index of the last `needle`, or -1; an empty `needle` is found at `len(sb)`. No `from`,
-because the immutable member has none either.
-
-**`mutable_string_last_index_of` until 2026-10-22**, the third of the prefix leftovers, and the
-same free rename: the symbol the fallback derives is the one already registered.
 
 ### `snapshot`
 

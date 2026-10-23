@@ -81,8 +81,12 @@
 // had no doc comment, so moving them was the small half and writing what they do was the rest.
 // map.zm's `values` and set.zm's whole thirteen-declaration tail published blank entries in
 // `docs/lib/prelude.md`; none does now. **The rule is that a set's members are adjacent, and no
-// file breaks it** -- which makes it worth re-running the detector after any move rather than
-// trusting that nothing drifted.
+// file breaks it** -- which was worth re-running a detector after any move rather than trusting
+// that nothing drifted, and is checked by `tools/check_set_adjacency.py` as of 2026-10-23 so that
+// nobody has to remember to. It was added after a rename split `index_of` across 107 lines of
+// string.zm with the build, the suite and every other guard green: `mutable_string_index_of`
+// became a member of `index_of` and stayed where it sat, which is a thing only this rule notices.
+// A reader caught it instead, which is the gap a guard is for.
 //
 // **Parameter names are part of the call surface**, because anything not dispatched by a builtin
 // id takes named arguments -- so one role gets one name across every declaration that has it,
