@@ -1,19 +1,23 @@
 // Everything without a builder answers a `Mutable<T>` cell, the mutable counterpart of a single
-// value. A string is in this half rather than answering a MutableString, because a MutableString is
-// *filled* rather than converted and so is not this conversion.
+// value.
 //
-// A builder is in this half too, and it answers a cell holding that same handle rather than a clone
-// of it -- pushing through what comes back out changes the original, which is what the last two
-// lines check. There is no way to clone a builder at all: `mutable_array_from` and its two
-// siblings were removed once `mutable` covered the conversion they were mostly used for.
+// **A string was in this half until 2026-10-23 and is not any more.** The reason it was is worth
+// keeping, because it is the sentence that was overturned: "a MutableString is *filled* rather than
+// converted and so is not this conversion". The distinction did not survive -- a MutableArray is
+// filled too, `push` being the only way into one, and `mutable([1, 2])` converts anyway. What
+// settled it is that the old answer *compiled*: `mutable("hi")` matched the bare `T` and the
+// complaint arrived at whatever touched the cell, pointing at a line that was not the mistake.
+// `mutable(s)` is text's builder now, and string.zm carries the account.
+//
+// A builder is still in this half, and it answers a cell holding that same handle rather than a
+// clone of it -- pushing through what comes back out changes the original, which is what the last
+// two lines check, and which is now true of a MutableString argument as well. There is no way to
+// clone a builder at all: `mutable_array_from` and its two siblings were removed once `mutable`
+// covered the conversion they were mostly used for.
 fn main() {
     val ci = mutable(7)
     set<int>(ci, 8)
     print(get<int>(ci))
-
-    val cs = mutable("hi")
-    set<string>(cs, "there")
-    print(get<string>(cs))
 
     print(get<bool>(mutable(true)))
 
@@ -21,4 +25,10 @@ fn main() {
     val held = get<MutableArray<int>>(mutable(ab))
     push(held, 3)
     print(snapshot(ab))
+
+    // the same of text's builder, which `mutable(s)` now produces but `mutable(sb)` still wraps
+    val sb = mutable("hi")
+    val held_sb = get<MutableString>(mutable(sb))
+    append(held_sb, " there")
+    print(snapshot(sb))
 }

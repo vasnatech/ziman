@@ -1188,6 +1188,7 @@ typedef enum {
     B_mutable_array_from,
     B_mutable_array_lit,
     B_mutable_map_from,
+    B_mutable_string_from,
     B_mutable_set_from,
     B_set,
     B_map_lit,
@@ -1222,6 +1223,7 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"$mutable_array_from", B_mutable_array_from},
     {"$mutable_array_lit", B_mutable_array_lit},
     {"$mutable_map_from", B_mutable_map_from},
+    {"$mutable_string_from", B_mutable_string_from},
     {"$mutable_set_from", B_mutable_set_from},
     {"set", B_set},
     {"$map_lit", B_map_lit},
@@ -1388,6 +1390,12 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (bid == B_mutable_array_from) {
                 result = ziman_mutable_array_from(args[0], args[0].type->kind == TY_STRUCT);
                 result.type = &e->resolved_type;
+            } else if (bid == B_mutable_string_from) {
+                /* The fourth builder world, 2026-10-23. `mutable(s)` on text answered a
+                 * `Mutable<string>` cell until then, because the `mutable` arm's own comment had
+                 * listed a string among the things with "no builder to answer" -- which
+                 * MutableString has been since it existed. */
+                result = ziman_mutable_string_from(args[0], args[0].type->kind == TY_STRUCT);
             } else if (bid == B_mutable_map_from ||
                        bid == B_mutable_set_from) {
                 result = ziman_mutable_map_from(args[0], bid == B_mutable_set_from);

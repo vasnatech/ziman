@@ -140,6 +140,9 @@ int ziman_mutable_map_entries(Value m, Value **keys, Value **vals);
  * typechecker has established which kind `source` is, so `source_is_handle` says so rather than
  * these guessing from the type again. */
 Value ziman_mutable_array_from(Value source, int source_is_handle);
+/* `mutable(s)` over text: a MutableString holding what `s` holds, from either string world.
+ * Capacity is the content plus the default headroom, so a following `append` does not realloc. */
+Value ziman_mutable_string_from(Value source, int source_is_handle);
 Value ziman_mutable_array_lit(const Value *items, int n);
 Value ziman_slice_array(Value a, int64_t start, int64_t end, int line, int col);
 Value ziman_slice_mutable_array(Value b, int64_t start, int64_t end, int line, int col);

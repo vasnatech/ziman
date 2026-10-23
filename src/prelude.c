@@ -608,6 +608,44 @@ static void mutable_string_ensure_capacity(MutableStringBuf *buf, size_t additio
     buf->capacity = new_capacity;
 }
 
+/* `mutable(s)` over text: a MutableString holding what `s` holds, which is the fourth corner of a
+ * table that had three.
+ *
+ * **Added 2026-10-23**, reversing a decision `mutable_cell_fallback` had recorded: text answered a
+ * `Mutable<string>` cell, because "a MutableString is *filled* rather than converted and so is not
+ * this conversion". A MutableArray is filled too and `mutable([1, 2])` converts anyway, so the
+ * distinction did not hold; what settled it is that the old answer compiled and failed later.
+ *
+ * Capacity is the content plus the default headroom, so the common `mutable(s)` then append does
+ * not reallocate on its first write. `source_is_handle` copies a builder instead -- the shape
+ * `$mutable_array_from` has for its world, and unreachable from `mutable` for the same reason it
+ * is there: a builder argument answers a cell, so only a `string` is ever routed here. */
+Value ziman_mutable_string_from(Value source, int source_is_handle) {
+    const char *src;
+    size_t len;
+    if (source_is_handle) {
+        const MutableStringBuf *from = mutable_string_table_get(mutable_string_handle_of(source));
+        src = from->data;
+        len = from->length;
+    } else {
+        src = SPTR(source);
+        len = SLEN(source);
+    }
+    MutableStringBuf *buf = ziman_xmalloc(sizeof(MutableStringBuf));
+    buf->capacity = len + 20;
+    buf->length = 0;
+    buf->grow_factor = 2.0;
+    buf->data = zalloc_atomic(buf->capacity);
+    if (len > 0) {
+        memcpy(buf->data, src, len);
+        buf->length = len;
+    }
+    int64_t handle = mutable_string_table_register(buf);
+    Value *fields = ziman_xmalloc(sizeof(Value));
+    fields[0] = value_int(handle);
+    return value_struct(type_ref(type_struct("MutableString")), struct_obj_new(STRINGBUILDER_FIELD_NAMES, fields, 1));
+}
+
 static Value native_mutable_string_new(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;

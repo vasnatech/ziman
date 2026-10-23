@@ -1585,7 +1585,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "hash", "compare", "error_message",
     "set", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "mutable", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "mutable", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "$mutable_string_from", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -3807,6 +3807,25 @@ static Type check_call(Module *module, Env *env, Expr *e) {
      * its builtin id away is what made `items(to_mutable_set(xs))` segfault for one build: the arm
      * answers before the resolver, so `call_fn` stayed NULL and the interpreter looked for an id
      * that no longer existed. **Converting a name means deleting its arm, not only its id.** */
+    /* The fourth builder world's target, 2026-10-23. Separate from the three below rather than a
+     * fourth `MutableShape`: those are parameterised by an element type and a MutableString has
+     * none, so `either_world` and `mutable_handle_type` have nothing to do here. */
+    if (strcmp(name, "$mutable_string_from") == 0) {
+        if (e->as.call.args.count != 1) {
+            ziman_error("type", e->line, e->col, "'%s' takes exactly 1 argument, found %d", name, e->as.call.args.count);
+        }
+        Expr *arg = e->as.call.args.items[0];
+        Type arg_type = check_expr(module, env, arg);
+        /* A `string` only. Its three siblings accept either world through `either_world`, which is
+         * a leftover from when `mutable_array_from` and friends were callable names -- the
+         * `mutable` arm sends none of them a builder, because a builder argument answers a cell.
+         * Not copied here: an unreachable branch reads as a capability. */
+        if (arg_type.kind != TY_STRING) {
+            ziman_error("type", arg->line, arg->col, "'%s' expects a string, found %s", name, type_name(arg_type));
+        }
+        return type_struct("MutableString");
+    }
+
     if (strcmp(name, "$mutable_array_from") == 0 || strcmp(name, "$mutable_map_from") == 0 ||
         strcmp(name, "$mutable_set_from") == 0) {
         if (e->as.call.args.count != 1) {
@@ -3827,11 +3846,19 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         return mutable_handle_type(source, elem, source == SHAPE_MAP ? &value : NULL);
     }
 
-    /* `mutable(x)`: the mutable counterpart of whatever it is given. The three collections that
-     * have a builder rewrite onto the `mutable_*_from` they mirror, so each inherits that
-     * family's result-type derivation rather than repeating it here. Everything else -- a scalar,
-     * a string, a struct, another handle -- has no builder to answer, so it rewrites onto
-     * `mutable_new` and answers a `Mutable<T>` cell.
+    /* `mutable(x)`: the mutable counterpart of whatever it is given. The **four** worlds that have
+     * a builder rewrite onto the `mutable_*_from` they mirror, so each inherits that family's
+     * result-type derivation rather than repeating it here. Everything else -- a scalar, a struct,
+     * another handle -- has no builder to answer, so it rewrites onto `mutable_new` and answers a
+     * `Mutable<T>` cell.
+     *
+     * **It was three worlds until 2026-10-23**, and text was excluded on purpose rather than by
+     * omission: `mutable_cell_fallback`'s header had it that "a MutableString is *filled* rather
+     * than converted and so is not this conversion". The distinction did not survive -- a
+     * MutableArray is filled too, `push` being the only way into one, and `mutable([1, 2])`
+     * converts anyway. What decided it is that the old answer *compiled*: `mutable("hi")` matched
+     * the bare `T`, and the complaint arrived later at whatever touched the cell, pointing at a
+     * line that was not the mistake.
      *
      * The ordering is the dispatch: an array matches both `[T]` and the bare `T`, and the array
      * form wins, which is why `mutable([1, 2])` is never a `Mutable<[int]>`. That one is
@@ -3869,10 +3896,11 @@ static Type check_call(Module *module, Env *env, Expr *e) {
             e->as.call.args = arg->as.array_lit.elements;
             return mutable_handle_type(SHAPE_ARRAY, *arg_type.elem, NULL);
         }
-        const char *target = arg_type.kind == TY_ARRAY ? "$mutable_array_from"
-                           : arg_type.kind == TY_MAP   ? "$mutable_map_from"
-                           : arg_type.kind == TY_SET   ? "$mutable_set_from"
-                                                       : "mutable_new";
+        const char *target = arg_type.kind == TY_ARRAY  ? "$mutable_array_from"
+                           : arg_type.kind == TY_MAP    ? "$mutable_map_from"
+                           : arg_type.kind == TY_SET    ? "$mutable_set_from"
+                           : arg_type.kind == TY_STRING ? "$mutable_string_from"
+                                                        : "mutable_new";
         e->as.call.rewritten_from = "mutable";
         e->as.call.callee = ziman_xstrdup(target);
         return check_expr(module, env, e);

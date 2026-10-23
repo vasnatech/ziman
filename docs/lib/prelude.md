@@ -3242,6 +3242,46 @@ Splits `s` at the FIRST `sep`: Some([before, after]), or None when `sep` is not 
 right tool for `key=value`, `host:port` and similar, where the value may itself contain the
 separator (`split` would cut it apart). `sep` must not be empty.
 
+### `mutable`
+
+```
+pub builtin fn mutable(s: string) -> MutableString
+```
+
+**A MutableString holding what `s` holds** -- `mutable`'s text member, the fourth of the four
+builder worlds. `mutable`'s other members take an array, a Map and a Set (array.zm, map.zm,
+set.zm), and its last one takes anything else and answers a `Mutable<T>` cell (mutable.zm).
+
+**Added 2026-10-23, reversing a recorded decision rather than filling an oversight.**
+`mutable("hi")` answered a `Mutable<string>` cell before, and `mutable_cell_fallback`'s own
+header gave the reason: "a string is in this half rather than answering a MutableString, because
+a MutableString is *filled* rather than converted and so is not this conversion."
+
+What did not survive is that distinction. A MutableArray is filled too -- `push` is how anything
+gets into one -- and `mutable([1, 2])` converts anyway, handing back a builder holding those
+elements. A MutableString holding `"hi"` is the same shape of answer, so "filled rather than
+converted" separated text from the other three worlds without separating the operations.
+
+What the old behaviour cost is worth recording, because it is the argument that won: it
+*compiled*. `mutable("hi")` matched the bare `T`, and the complaint arrived later at whatever was
+done with the cell -- `append` saying it "expects MutableString, found Mutable<string>", pointing
+at a line that was not the mistake.
+
+It is a `builtin fn` like its four siblings rather than a declaration the resolver owns, because
+the arm does the dispatch. That is not a style choice: `mutable(s: string)` beside
+`mutable<T>(item: T)` is refused outright -- "two declarations may share a name only when every
+call can tell them apart" -- so a concrete member cannot sit beside the generic one at all. The
+same wall `remove_keys` documents for a `Set<K>` beside a `variadic K`. The arm is what lets the
+specific world win, which is also why `mutable([1, 2])` has never been a `Mutable<[int]>`.
+
+Capacity is the content plus the default headroom, so the usual `mutable(s)` then `append` does
+not reallocate on its first write.
+
+**A `MutableString` argument still answers a cell**, not a copy -- `mutable(sb)` is
+`Mutable<MutableString>` holding that same handle. That is unchanged and is true of the other
+three worlds too: the arm routes `[T]`, `Map`, `Set` and `string`, and a *builder* argument falls
+through to the cell, which `mutable_cell_fallback` pins. There is no way to clone a builder.
+
 ### `mutable_string_new`
 
 ```

@@ -1,0 +1,48 @@
+// `mutable(x)` over all four builder worlds, text added 2026-10-23:
+//
+//     mutable(s: string)          -> MutableString
+//     mutable(items: [T])         -> MutableArray<T>
+//     mutable(entries: Map<K, V>) -> MutableMap<K, V>
+//     mutable(items: Set<T>)      -> MutableSet<T>
+//     mutable(item: T)            -> Mutable<T>        everything else, a cell
+//
+// **Text was excluded on purpose until then**, and the reversed reasoning is in
+// `mutable_cell_fallback`: "a MutableString is *filled* rather than converted and so is not this
+// conversion". A MutableArray is filled too and `mutable([1, 2])` converts anyway, so that did not
+// separate the operations -- and the old answer *compiled*, handing back a `Mutable<string>` cell
+// whose first `append` was the error, at a line that was not the mistake.
+//
+// **Five `builtin fn` declarations, and they have to be builtins.** `mutable(s: string)` beside
+// `mutable<T>(item: T)` is refused outright -- "two declarations may share a name only when every
+// call can tell them apart" -- so a concrete member cannot sit beside the generic one at all; the
+// same wall `remove_keys` documents for a `Set<K>` beside a `variadic K`. The arm does the
+// dispatch, which is what lets the specific world win, and is why `mutable([1, 2])` has never been
+// a `Mutable<[int]>`.
+fn main() {
+    val sb = mutable("héllo")
+    append(sb, " world")
+    print(snapshot(sb))
+    print(len(sb))
+    print(byte_len(sb))
+    print(char_at(sb, 0))
+
+    // empty text is a usable builder, not an error
+    val e = mutable("")
+    print(byte_len(e))
+    append(e, "x")
+    print(snapshot(e))
+
+    // the other four, unchanged
+    val a = mutable([1, 2])
+    push(a, 3)
+    print(snapshot(a))
+    val m = mutable(Map<string, int> { "a": 1 })
+    set(m, "b", 2)
+    print(snapshot(m))
+    val st = mutable(to_set([1, 2]))
+    add(st, 3)
+    print(to_array(st))
+    val cell = mutable(7)
+    set(cell, 9)
+    print(get(cell))
+}

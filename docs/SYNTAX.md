@@ -531,12 +531,17 @@ for x in seen { ... }                    // a set has one binder
   for: keeping both put two spellings on one question. Their either-world half was a **clone**, and
   that went with them, so **a builder cannot be cloned**; it had no caller outside its own
   fixtures.
-- **`mutable(x)` answers the mutable counterpart of whatever it is given.** For the three
-  collections that have a builder that is the builder, which reads as `snapshot` backwards:
+- **`mutable(x)` answers the mutable counterpart of whatever it is given.** For the four worlds
+  that have a builder that is the builder, which reads as `snapshot` backwards:
   `mutable([1, 2])` is a `MutableArray<int>`, `mutable(s)` a `MutableSet`, `mutable(m)` a
-  `MutableMap`. For **anything else** -- a scalar, a
-  string, a struct, an enum, even another handle -- there is no builder to answer and the mutable
+  `MutableMap`, and `mutable("hi")` a `MutableString` holding `"hi"`. For **anything else** -- a
+  scalar, a struct, an enum, even another handle -- there is no builder to answer and the mutable
   counterpart of a single value is a cell, so it is `Mutable<T>`.
+  **Text joined on 2026-10-23**, reversing a recorded decision that it belonged in the cell half
+  "because a MutableString is *filled* rather than converted". A MutableArray is filled too and
+  converts anyway; what settled it is that the old answer compiled and then failed at whatever
+  touched the cell, pointing at a line that was not the mistake. A *builder* argument still
+  answers a cell holding that same handle -- there is no way to clone a builder.
   A **literal** argument is built straight into the builder -- `mutable([1, 2])` never collects the
   elements into an array first, saving three allocations per construction -- while `mutable(xs)` on
   a variable copies, the copy being the point there. `mutable([])` takes its element type from the
