@@ -637,6 +637,18 @@ pub val pi = 3.14159265358979323846
 
 pub val e = 2.71828182845904523536
 
+pub native fn abs(x: int) -> int
+
+pub native fn abs(x: float) -> float
+
+pub native fn abs(x: bigint) -> bigint
+
+pub native fn abs(x: decimal) -> decimal
+
+pub native fn min<T: Ord>(values: variadic T) -> T
+
+pub native fn max<T: Ord>(values: variadic T) -> T
+
 pub native fn sqrt(x: float) -> float
 
 pub native fn pow(base: float, exponent: float) -> float
