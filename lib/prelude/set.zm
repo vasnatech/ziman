@@ -99,20 +99,10 @@ pub builtin fn mutable<T: Eq + Hash>(items: Set<T>) -> MutableSet<T>
 pub fn map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U> {
     val out = mutable_set_new<U>()
     for x in s {
-        mutable_set_add(out, f(x))
+        add(out, f(x))
     }
     return snapshot(out)
 }
-
-// Adds `item`; nothing happens when it is already there.
-//
-// `#[effectful]` is true of it -- the call writes the set and "was it new?" is incidental -- and
-// inert today: the dropped-result gate only reaches a name that is in `PURE_BUILTINS` or has more
-// than one prelude declaration, and this has neither. It is marked so that the fact lives on the
-// declaration rather than being rediscovered if the name ever joins a set, which is how `update`
-// came to be refused in statement position for a pass.
-#[effectful]
-internal native fn mutable_set_add<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
 
 // Adds each of `items`, answering whether any of them was new. The singular `mutable_set_add` is
 // not variadic, which is what keeps a `MutableSet<[int]>` from being a special case -- one element
@@ -138,17 +128,17 @@ internal native fn mutable_set_add<T: Eq + Hash>(s: MutableSet<T>, item: T) -> b
 pub native fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
 
 // The same written into the builder, answering whether any of them was new.
+//
+// **`native fn` since 2026-10-22, which retired `mutable_set_add`.** This was an ordinary Ziman
+// loop over an `internal native fn mutable_set_add(s, item)`, so the prelude held a second
+// spelling of its own vocabulary for the one purpose of being looped over -- and every caller
+// inside lib/ used the second spelling because `internal` let them. Five of those became `add`,
+// and the loop moved into C where the one-element primitive already lived. The symbol is still
+// `mutable_set_add`: the fallback reads parameter one, so the C name keeps what the Ziman name
+// gave up, which is the whole job of that fallback.
 #[at_least_one]
 #[effectful]
-pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
-    var added_any = false
-    for item in items {
-        if mutable_set_add<T>(s, item) {
-            added_any = true
-        }
-    }
-    return added_any
-}
+pub native fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 
 // **A new Set without `item`** -- `remove`'s Set member. An element that is absent is not an error;
 // the answer is a set equal to the argument. `native fn` since 2026-10-22, and the parameter was

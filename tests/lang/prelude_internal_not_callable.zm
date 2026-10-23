@@ -14,9 +14,19 @@
 // 30 `mutable_set_add` calls across 15 files became `add`, which is what `add` has meant in both
 // set worlds since F199, and `src/derive.c` emits `add` now for the same reason.
 //
+// **Six, as of later the same day: `mutable_set_add` does not exist at all now**, which is why
+// this fixture's subject moved to `is_sortable_scalars`. `add`'s builder member became a
+// `native fn` and took the name's job with it -- the Ziman loop over a one-element primitive
+// became a C loop, registered under the same symbol the fallback already derives from a
+// `MutableSet` first argument. The five remaining `internal` declarations are all in array.zm.
+//
+// The subject is interchangeable on purpose: what is pinned is the *rule*, not the name, so any
+// `internal` prelude declaration does. Picking one that is also load-bearing (the sort fast path
+// reads it on every `sort` of a packed array) is better than picking the most obscure, because a
+// name nothing depends on is a name that can quietly disappear and take the test with it.
+//
 // `mutable_array_new` and `mutable_array_filled` are the counter-case and stay callable: prefixed
 // but `pub`, real constructors with no bare form, and tests/run_api.sh holds that half.
 fn main() {
-    val s = mutable_set_new<int>()
-    print(mutable_set_add<int>(s, 3))
+    print(is_sortable_scalars<int>([3, 1, 2]))
 }

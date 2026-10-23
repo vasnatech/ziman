@@ -1382,7 +1382,7 @@ pub fn distinct<T: Eq + Hash>(items: [T]) -> [T] {
     val out = mutable_array_new<T>()
     for item in items {
         if !contains(seen, item) {
-            mutable_set_add(seen, item)
+            add(seen, item)
             push(out, item)
         }
     }
@@ -1396,7 +1396,7 @@ pub fn distinct<T: Eq + Hash>(items: MutableArray<T>) -> [T] {
     val out = mutable_array_new<T>()
     for item in items {
         if !contains(seen, item) {
-            mutable_set_add(seen, item)
+            add(seen, item)
             push(out, item)
         }
     }

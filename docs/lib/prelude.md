@@ -2524,10 +2524,18 @@ because a value has nothing to report -- which is the difference between the two
 name, and why only the builder half is `#[effectful]`.
 
 ```
-pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
+pub native fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 ```
 
 The same written into the builder, answering whether any of them was new.
+
+**`native fn` since 2026-10-22, which retired `mutable_set_add`.** This was an ordinary Ziman
+loop over an `internal native fn mutable_set_add(s, item)`, so the prelude held a second
+spelling of its own vocabulary for the one purpose of being looped over -- and every caller
+inside lib/ used the second spelling because `internal` let them. Five of those became `add`,
+and the loop moved into C where the one-element primitive already lived. The symbol is still
+`mutable_set_add`: the fallback reads parameter one, so the C name keeps what the Ziman name
+gave up, which is the whole job of that fallback.
 
 ### `remove`
 

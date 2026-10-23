@@ -484,7 +484,12 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
                          * the rename costs no C at all. Exact matching is what keeps this from
                          * colliding with `MutableSet`: `mutable_` + `set` is `mutable_set`, the
                          * cell's setter, where the set's own family is `mutable_set_add` and
-                         * friends -- two names a letter apart, and the table never guesses. */
+                         * friends -- two names a letter apart, and the table never guesses.
+                         *
+                         * That pair stopped being hypothetical the same day. `mutable_set_add` was
+                         * a declared Ziman name reached by its own spelling; it is now *only* a C
+                         * symbol, derived here from `add` on a `MutableSet`. Both halves of the
+                         * near-collision are live and both are reached through this table. */
                         {"Mutable", "mutable_"},
                     };
                     for (size_t w = 0; w < sizeof WORLDS / sizeof WORLDS[0]; w++) {

@@ -1650,17 +1650,37 @@ static Value native_mutable_map_set(Value *args, int argc, int line, int col) {
     return value_int(0);
 }
 
-/* True when the element was not already there, so a caller can dedupe without a `contains` first.
- * Skips the store when it is present, which is equivalent -- a set's values are unused and
- * overwriting a key keeps its place -- and cheaper. */
+/* `add` over a MutableSet: each of `items` put in, answering whether any of them was new, so a
+ * caller can dedupe without a `contains` first. An element already present is skipped rather than
+ * rewritten, which is equivalent -- a set's values are unused and overwriting a key keeps its
+ * place -- and cheaper.
+ *
+ * **This is `add`'s builder member itself since 2026-10-22, not a primitive underneath it.** The
+ * declaration `internal native fn mutable_set_add(s, item)` is gone: `add` was an ordinary Ziman
+ * loop calling it once per element, which meant the prelude carried a second spelling of its own
+ * vocabulary for the single purpose of being looped over. The symbol fallback reads parameter one,
+ * so `add` on a `MutableSet` lands on this registration anyway -- the C name keeps exactly what
+ * the Ziman name gave up, which is what that fallback is for.
+ *
+ * `args[1]` is one array however the call was written, `collapse_variadic_args` having run before
+ * any native is entered; `#[at_least_one]` is what makes `add(s)` a compile error, and a spread of
+ * an empty array is a legal call that adds nothing and answers false.
+ *
+ * The buffer pointer is fetched once and held across the loop, as `ziman_mutable_set_combine`
+ * does: `maptable_set` grows the table's own storage, not the struct that owns it. */
 static Value native_mutable_set_add(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
     MutableMapBuf *buf = mutable_map_get_buf(args[0]);
-    /* One lookup, not two: the table reports whether the key was new, where the trie needed a
-     * `get` first to answer the same question. */
-    return value_bool(maptable_set(&buf->t, args[1], value_int(0)));
+    const ArrayObj *items = args[1].as.arr;
+    int added_any = 0;
+    /* One lookup per element, not two: the table reports whether the key was new, where the trie
+     * needed a `get` first to answer the same question. */
+    for (int i = 0; i < items->count; i++) {
+        if (maptable_set(&buf->t, array_get(items, i), value_int(0))) added_any = 1;
+    }
+    return value_bool(added_any);
 }
 
 static Value native_mutable_map_get(Value *args, int argc, int line, int col) {

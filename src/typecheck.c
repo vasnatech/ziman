@@ -752,8 +752,9 @@ static void lint_quadratic_accumulation(const Stmt *s) {
  * below -- there is no loop body where it stands and means something.
  *
  * **The MutableSet entry was keyed on `mutable_set_add` until 2026-10-22, and that branch was
- * dead.** F199 made `add` the word in both set worlds, and `mutable_set_add` has been `internal`
- * ever since -- so any real loop writes `add(seen, x)` and the kind could not be read at all,
+ * dead.** F199 made `add` the word in both set worlds, and `mutable_set_add` was `internal` from
+ * then until it was deleted outright later the same day -- so any real loop writes `add(seen, x)`
+ * and the kind could not be read at all,
  * which means the one lint on this page that exists to catch a quadratic silently stopped
  * catching it for a MutableSet. It passed its own fixture only because the fixture still used the
  * obsolete name; migrating that fixture to `add` is what exposed it, three warnings firing where
