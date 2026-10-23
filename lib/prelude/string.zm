@@ -139,6 +139,15 @@ pub native fn byte_len(s: MutableString) -> int
 pub native fn contains(s: string, needle: string) -> bool
 pub native fn contains(s: MutableString, needle: string) -> bool
 
+// **The bytes of `s` from `start` up to but not including `end`** (`0 <= start <= end <=
+// byte_len(s)`, a runtime error otherwise). `substring(s, i, i)` is the empty string, and
+// `substring(s, 0, byte_len(s))` is `s`.
+//
+// **Byte offsets, so it can cut a character in half**: `substring("héllo", 0, 2)` ends mid-`é` and
+// answers a string that is not valid UTF-8. That is the one way to manufacture one without going
+// through `bytes_to_string`, which rejects it -- and the reason the code-point functions can fail
+// on a value that already exists. Pair it with `byte_len`, never `len`, and reach for
+// `truncate(s, n)` when the limit is in characters.
 pub native fn substring(s: string, start: int, end: int) -> string
 
 // The pieces of `s` between each `sep`, empty pieces included: `split("a,b,,c", ",")` is
@@ -184,6 +193,16 @@ pub native fn substring(s: string, start: int, end: int) -> string
 #[compiler_resolved]
 pub native fn concat(pieces: variadic string) -> string
 
+// **The pieces of `s` between each `separator`, empty pieces included**: `split("a,b,,c", ",")` is
+// `[a, b, , c]`, four pieces, because the two commas in a row have an empty piece between them.
+// `separator` must not be empty (a runtime error), since every position would match.
+//
+// **An empty `s` has no pieces at all** -- `split("", ",")` is `[]`, not `[""]` -- which is the
+// edge worth knowing, and the opposite of what a fold over the separators would give. `lines` makes
+// the same choice about a trailing newline for the same reason.
+//
+// `split_once` is the one to use when only the first separator matters, as in `key=value`, where
+// the value may itself contain one.
 pub native fn split(s: string, separator: string) -> [string]
 
 // `s` without leading and trailing blanks (space, tab, CR, LF).

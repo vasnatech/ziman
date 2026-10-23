@@ -107,10 +107,25 @@ pub fn get_or<T>(o: Option<T>, value: T) -> T {
     }
 }
 
+// **Whether `o` holds a value.** The bare shorthand for `Option.is_Some(o)`, which exists because
+// `Option` is an ordinary prelude enum and every enum gets an `is_V` per variant.
+//
+// `if Some(v) = o` asks the same question *and* binds the value, so it is the better call whenever
+// the value is wanted; this is for the cases that only need the answer -- a guard, a filter's
+// predicate, a count.
 pub builtin fn is_Some<T>(o: Option<T>) -> bool
 
+// **Whether `o` holds nothing**, the negation of `is_Some` and spelled out because `!is_Some(o)`
+// reads as a double negative at a call site.
 pub builtin fn is_None<T>(o: Option<T>) -> bool
 
+// **The value inside `o`, a runtime error on a `None`.** The generated accessor for the variant,
+// and the long name beside `unwrap`: this one says which variant it takes where `unwrap` carries no
+// variant name at all. The note at the top of result.zm has why one is capitalised and
+// `unwrap_err` is not.
+//
+// Reach for `get_or(o, fallback)` or `if Some(v) = o` instead wherever a `None` is possible; this
+// is the call that says "it is there, and a program bug if not".
 pub builtin fn unwrap_Some<T>(o: Option<T>) -> T
 
 // An `Option`'s Some payload, which is a runtime error on a `None`. `unwrap` is the one name

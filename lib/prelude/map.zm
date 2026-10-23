@@ -1,5 +1,5 @@
 // map.zm -- `Map<K, V>` and its builder `MutableMap<K, V>`, plus `MapEntry<K, V>`. The questions
-// both worlds answer the same way (`keys`, `values`, `items`, `get`, `merge`, `entries`) are single
+// both worlds answer the same way (`keys`, `keys_array`, `values`, `get`, `merge`, `entries`) are single
 // overload sets declared over the two of them here, and so are the map members of the names that
 // reach further -- `len`, `contains`, `filter`, `remove`, `map`, `set`, `snapshot`, `clear`,
 // `mutable`, `get_or`, `update`. Their other members are in the file for each one's
@@ -237,7 +237,7 @@ pub native fn remove<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> 
 // why `remove_keys` outlived the name it was a sibling of.
 //
 // **What was already possible**, and is still the shorter way when the set is at hand:
-// `remove(m, to_array(drop))` -- `items` answers the elements as an array and the variadic's
+// `remove(m, to_array(drop))` -- `to_array` answers the set's elements as an array and the variadic's
 // lone-array spread takes it, in both worlds. This exists for the call that reads better naming
 // the set, and for the one that would otherwise pay for an intermediate array.
 pub native fn remove_keys<K: Eq + Hash, V>(m: Map<K, V>, keys: Set<K>) -> Map<K, V>

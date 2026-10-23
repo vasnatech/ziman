@@ -107,8 +107,20 @@ pub builtin fn receive_option<T>(channel: Channel<T>) -> Option<T>
 // None when `millis` elapses first.
 pub builtin fn receive_timeout<T>(channel: Channel<T>, millis: int) -> Option<T>
 
+// **How many values are queued**, which is the one number a `Channel` answers. Useful for a metric
+// or a log line; **not** for deciding whether a `receive` will block, because another thread may
+// send or receive between the two calls. `try_receive` is the one that answers that without racing.
 pub builtin fn channel_len<T>(channel: Channel<T>) -> int
 
+// **Says the producer is done**: no further `send` is allowed, and closing twice is harmless.
+// Already-queued values still deliver, so a close is not a discard.
+//
+// What each receiver does afterwards is the point of having it: `receive_option` blocks as usual
+// and answers `None` once the channel is closed *and* drained, which is the sentinel-free way to
+// end a `for` over a channel. Plain `receive` on closed-and-empty is a runtime error instead, and
+// `receive_timeout`'s `None` cannot be told apart from the drained case. `send`/`try_send` on a
+// closed channel is a runtime error, and a `send` already blocked on a full channel is woken by the
+// close and fails the same way.
 pub builtin fn channel_close<T>(channel: Channel<T>)
 
 // Whichever of the two has a value first, and which one it was. `first` and `second` are the

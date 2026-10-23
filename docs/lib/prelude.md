@@ -269,6 +269,18 @@ pub builtin fn str(x: byte) -> string
 pub builtin fn hash<T: Eq + Hash>(x: T) -> int
 ```
 
+**A structural hash of `x`**, so `a == b` implies `hash(a) == hash(b)` -- which is what makes it
+usable as a `Map` key's or a `Set` element's hash, and the reason `Hash` is a bound rather than a
+method. Equal values of any hashable shape agree, however deep: two separately built `[1, 2]`
+hash alike, as do two `Json` trees with the same contents.
+
+**Not cryptographic, and not stable across versions of the language.** Never persist one, never
+send one over a wire, never derive an identifier from one -- a `Map` lives for one program run
+and so does its hash.
+
+`-0.0` and `0.0` hash alike, since they are `==`. `NaN` is never found in a `Map` at all,
+equalling nothing including itself, which is a property of `==` rather than of this.
+
 ### `compare`
 
 ```
@@ -1546,11 +1558,25 @@ None when `millis` elapses first.
 pub builtin fn channel_len<T>(channel: Channel<T>) -> int
 ```
 
+**How many values are queued**, which is the one number a `Channel` answers. Useful for a metric
+or a log line; **not** for deciding whether a `receive` will block, because another thread may
+send or receive between the two calls. `try_receive` is the one that answers that without racing.
+
 ### `channel_close`
 
 ```
 pub builtin fn channel_close<T>(channel: Channel<T>)
 ```
+
+**Says the producer is done**: no further `send` is allowed, and closing twice is harmless.
+Already-queued values still deliver, so a close is not a discard.
+
+What each receiver does afterwards is the point of having it: `receive_option` blocks as usual
+and answers `None` once the channel is closed *and* drained, which is the sentinel-free way to
+end a `for` over a channel. Plain `receive` on closed-and-empty is a runtime error instead, and
+`receive_timeout`'s `None` cannot be told apart from the drained case. `send`/`try_send` on a
+closed channel is a runtime error, and a `send` already blocked on a full channel is woken by the
+close and fails the same way.
 
 ### `select2`
 
@@ -1817,7 +1843,7 @@ substance: the variadic parameter is what it was ever about, and `remove` holds 
 why `remove_keys` outlived the name it was a sibling of.
 
 **What was already possible**, and is still the shorter way when the set is at hand:
-`remove(m, to_array(drop))` -- `items` answers the elements as an array and the variadic's
+`remove(m, to_array(drop))` -- `to_array` answers the set's elements as an array and the variadic's
 lone-array spread takes it, in both worlds. This exists for the call that reads better naming
 the set, and for the one that would otherwise pay for an intermediate array.
 
@@ -2198,8 +2224,14 @@ pub native fn set<T>(cell: Mutable<T>, value: T)
 
 Replaces the value in the cell.
 **Replaces the value in the cell**, answering nothing. `set`'s other three members take a Map, a
-MutableMap and an array, all with a key or an index between the container and the value; a cell
-has one slot and needs none, so two arguments against three is what tells them apart.
+MutableMap and a MutableString, all with a key or an index between the container and the value;
+a cell has one slot and needs none, so two arguments against three is what tells them apart.
+
+It said "a Map, a MutableMap and an array" until 2026-10-23, which was wrong twice over: an
+array's `set` is handled by the type checker's arm rather than being a declaration at all, and
+the MutableString member -- `mutable_string_set` before the prefix went -- was missing from the
+list. The count happened to stay right while both halves of it were not, which is the kind of
+sentence a numeric check passes and a reader does not.
 
 **`mutable_set` until 2026-10-22**, and this one needed the type checker's help: `set` keeps an
 arm for the three per-type refusals it carries (a Set, a MutableArray, a MutableSet each get
@@ -2246,17 +2278,35 @@ of "the other one".
 pub builtin fn is_Some<T>(o: Option<T>) -> bool
 ```
 
+**Whether `o` holds a value.** The bare shorthand for `Option.is_Some(o)`, which exists because
+`Option` is an ordinary prelude enum and every enum gets an `is_V` per variant.
+
+`if Some(v) = o` asks the same question *and* binds the value, so it is the better call whenever
+the value is wanted; this is for the cases that only need the answer -- a guard, a filter's
+predicate, a count.
+
 ### `is_None`
 
 ```
 pub builtin fn is_None<T>(o: Option<T>) -> bool
 ```
 
+**Whether `o` holds nothing**, the negation of `is_Some` and spelled out because `!is_Some(o)`
+reads as a double negative at a call site.
+
 ### `unwrap_Some`
 
 ```
 pub builtin fn unwrap_Some<T>(o: Option<T>) -> T
 ```
+
+**The value inside `o`, a runtime error on a `None`.** The generated accessor for the variant,
+and the long name beside `unwrap`: this one says which variant it takes where `unwrap` carries no
+variant name at all. The note at the top of result.zm has why one is capitalised and
+`unwrap_err` is not.
+
+Reach for `get_or(o, fallback)` or `if Some(v) = o` instead wherever a `None` is possible; this
+is the call that says "it is there, and a program bug if not".
 
 ### `unwrap`
 
@@ -2983,6 +3033,16 @@ pub native fn contains(s: MutableString, needle: string) -> bool
 pub native fn substring(s: string, start: int, end: int) -> string
 ```
 
+**The bytes of `s` from `start` up to but not including `end`** (`0 <= start <= end <=
+byte_len(s)`, a runtime error otherwise). `substring(s, i, i)` is the empty string, and
+`substring(s, 0, byte_len(s))` is `s`.
+
+**Byte offsets, so it can cut a character in half**: `substring("héllo", 0, 2)` ends mid-`é` and
+answers a string that is not valid UTF-8. That is the one way to manufacture one without going
+through `bytes_to_string`, which rejects it -- and the reason the code-point functions can fail
+on a value that already exists. Pair it with `byte_len`, never `len`, and reach for
+`truncate(s, n)` when the limit is in characters.
+
 ### `concat`
 
 ```
@@ -3035,6 +3095,17 @@ blocked for its own reasons, recorded in docs/design/full-overloading.md §4.
 ```
 pub native fn split(s: string, separator: string) -> [string]
 ```
+
+**The pieces of `s` between each `separator`, empty pieces included**: `split("a,b,,c", ",")` is
+`[a, b, , c]`, four pieces, because the two commas in a row have an empty piece between them.
+`separator` must not be empty (a runtime error), since every position would match.
+
+**An empty `s` has no pieces at all** -- `split("", ",")` is `[]`, not `[""]` -- which is the
+edge worth knowing, and the opposite of what a fold over the separators would give. `lines` makes
+the same choice about a trailing newline for the same reason.
+
+`split_once` is the one to use when only the first separator matters, as in `key=value`, where
+the value may itself contain one.
 
 ### `trim`
 

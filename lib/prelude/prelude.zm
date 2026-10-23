@@ -173,6 +173,17 @@ pub builtin fn str(x: byte) -> string
 // a map or a sort rather than anything about numbers. `compare` is what `min`/`max` are built from,
 // which is the relationship, not a reason to file them together.
 
+// **A structural hash of `x`**, so `a == b` implies `hash(a) == hash(b)` -- which is what makes it
+// usable as a `Map` key's or a `Set` element's hash, and the reason `Hash` is a bound rather than a
+// method. Equal values of any hashable shape agree, however deep: two separately built `[1, 2]`
+// hash alike, as do two `Json` trees with the same contents.
+//
+// **Not cryptographic, and not stable across versions of the language.** Never persist one, never
+// send one over a wire, never derive an identifier from one -- a `Map` lives for one program run
+// and so does its hash.
+//
+// `-0.0` and `0.0` hash alike, since they are `==`. `NaN` is never found in a `Map` at all,
+// equalling nothing including itself, which is a property of `==` rather than of this.
 pub builtin fn hash<T: Eq + Hash>(x: T) -> int
 
 // Negative, zero or positive; only the sign is meaningful.

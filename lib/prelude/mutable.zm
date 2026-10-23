@@ -145,8 +145,14 @@ pub native fn get<T>(cell: Mutable<T>) -> T
 
 // Replaces the value in the cell.
 // **Replaces the value in the cell**, answering nothing. `set`'s other three members take a Map, a
-// MutableMap and an array, all with a key or an index between the container and the value; a cell
-// has one slot and needs none, so two arguments against three is what tells them apart.
+// MutableMap and a MutableString, all with a key or an index between the container and the value;
+// a cell has one slot and needs none, so two arguments against three is what tells them apart.
+//
+// It said "a Map, a MutableMap and an array" until 2026-10-23, which was wrong twice over: an
+// array's `set` is handled by the type checker's arm rather than being a declaration at all, and
+// the MutableString member -- `mutable_string_set` before the prefix went -- was missing from the
+// list. The count happened to stay right while both halves of it were not, which is the kind of
+// sentence a numeric check passes and a reader does not.
 //
 // **`mutable_set` until 2026-10-22**, and this one needed the type checker's help: `set` keeps an
 // arm for the three per-type refusals it carries (a Set, a MutableArray, a MutableSet each get
