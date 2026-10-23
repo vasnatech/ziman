@@ -5,7 +5,7 @@ fn main() {
         set(counts, w, get_or<string, int>(counts, w, 0) + 1)
     }
     val m = snapshot(counts)
-    val words = sort_with<string>(items(keys(m)), fn(a: string, b: string) -> int {
+    val words = sort_with<string>(to_array(keys(m)), fn(a: string, b: string) -> int {
         val ca = switch get(m, a) { Some(n) { n } None { 0 } }
         val cb = switch get(m, b) { Some(n) { n } None { 0 } }
         return if ca != cb { compare(cb, ca) } else { compare(a, b) }

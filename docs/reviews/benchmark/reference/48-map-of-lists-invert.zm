@@ -14,7 +14,7 @@ fn main() {
         i = i + 1
     }
     val m = snapshot(inverted)
-    for s in sort<string>(items(keys(m))) {
+    for s in sort<string>(to_array(keys(m))) {
         val who: [string] = switch get(m, s) {
             Some(xs) { xs }
             None { [] }
