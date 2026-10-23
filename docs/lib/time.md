@@ -32,6 +32,9 @@ instant and `instant_to_localdatetime_in` / `localdatetime_to_instant_in` conver
 saving applied.
 
 Limits: years are 0 or later (no BCE), and there is no locale, month name or weekday support.
+That last one is tracked as of 2026-10-23 rather than merely noted: ROADMAP.md's "Locale support"
+entry has it as item 5, where the hole is shaped like a missing pattern letter for
+`datetime_format_of` rather than a missing module.
 
 `use time` -- or `use time.Name` to bring one item in bare.
 

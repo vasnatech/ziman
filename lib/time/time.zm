@@ -27,6 +27,9 @@
 // saving applied.
 //
 // Limits: years are 0 or later (no BCE), and there is no locale, month name or weekday support.
+// That last one is tracked as of 2026-10-23 rather than merely noted: ROADMAP.md's "Locale support"
+// entry has it as item 5, where the hole is shaped like a missing pattern letter for
+// `datetime_format_of` rather than a missing module.
 
 // Implementation notes. Modeled on java.time, scoped down in two deliberate ways:
 //

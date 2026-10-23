@@ -2725,6 +2725,69 @@ from source.
   `[a..b]`'s fate by taking the syntax. Absent one of those, the F93 diagnostics are the cheaper half
   of this idea and are already shipped.
 
+- **Locale support: a `Locale` and the functions that would have to take one.** Raised 2026-10-23
+  ("we may need Locale support"), which is the trigger F44 had been waiting for -- that entry
+  sequenced indexed placeholders "behind a decision about localisation that nobody has asked for".
+  Somebody has now asked.
+
+  **Nothing is designed yet. What this entry is for is the surface**, because the cost of locale
+  support is not one module -- it is that a dozen existing functions currently answer a
+  locale-independent question and would have to grow a locale-dependent one beside it. Measured on
+  2026-10-23 rather than assumed:
+
+  **1. Case mapping is ASCII-only, and silently so.** `to_upper("héllo straße İ")` is
+  `HéLLO STRAßE İ` -- the `é` unchanged, the `ß` unchanged where German wants `SS`, the dotted
+  capital `İ` unchanged where Turkish wants a dotless lowercase. `SYNTAX.md` says "ASCII only" and
+  the implementation agrees; what is missing is any way to ask for more.
+
+  **2. `equals_ignore_case` is ASCII-only too, which is the sharpest trap of the four.**
+  `equals_ignore_case("hello", "HELLO")` is true and `equals_ignore_case("héllo", "HÉLLO")` is
+  **false**. A caller testing user input against a constant gets the right answer for English and
+  the wrong one for everything else, with no error and no hint.
+
+  **3. String order is code points, which is nobody's collation.**
+  `sort(["zebra", "ärger", "apple", "Zulu"])` is `[Zulu, apple, zebra, ärger]`: capitals before
+  lowercase because ASCII puts them there, and `ärger` *after* `zebra` because U+00E4 > U+007A.
+  German collation puts `ärger` next to `apple`, Swedish puts it after `z` -- so the current answer
+  is not a default that happens to suit one locale, it is one that suits none. This is the hardest
+  piece: `compare<T: Ord>` is a single total order used by `sort`, `Map` and `Set`, and a
+  locale-aware order cannot replace it (a `Map`'s key order must not depend on a locale) -- it has
+  to be a *separate* comparator passed to `sort_with`.
+
+  **4. Numbers are the C locale.** `str(1234567.89)` is `1234567.89`: no grouping separator, and no
+  way to ask for one. `parse_float` rejects both `1234,56` and `1,234.56`, which is correct for a
+  wire format and wrong for a form field.
+
+  **5. Dates have no names at all.** `time.zm`'s own header: "there is no locale, month name or
+  weekday support". `datetime_format_of` takes a pattern, so the hole is shaped like a pattern
+  letter that does not exist rather than a missing module.
+
+  **6. No message catalogue, and `format_dynamic` -- the function F44 kept as the landing site for
+  one -- was deleted on 2026-10-22** as unused. That is the one piece this entry makes *more*
+  expensive than F44 assumed: a catalogue needs a runtime template, `format` refuses a computed
+  first argument by design, and the function that bridged that is gone. It was 40 lines over a
+  scanner `format` and `printf` still share, so restoring it is cheap -- but it has to be restored,
+  and indexed placeholders (`{0}`, `{1}`), which F44 costed, would go into it.
+
+  **Two Unicode questions sit underneath all of this and are not locale-dependent, so they could be
+  settled first and separately.** `len` counts code points as of 2026-10-23, not graphemes: a flag
+  or a skin-tone emoji counts as several. And nothing normalises -- precomposed `é` (U+00E9) has
+  `len` 1, decomposed `e` + U+0301 has `len` 2, and `==` says they differ, so two strings that
+  render identically are unequal. Any locale story that compares user input needs an answer to the
+  second one; a `Locale` does not help with it.
+
+  **The shape to decide, not decided here.** Whether a `Locale` is an explicit argument
+  (`to_upper(s, locale)`), an ambient value, or a module (`locale.to_upper`); whether the data is
+  bundled (CLDR is tens of megabytes and this interpreter embeds its whole standard library as C
+  string constants) or read from the host (ICU, or the platform's own, which is a dependency this
+  project has otherwise avoided); and whether the first slice is just **case mapping plus month and
+  weekday names**, which covers most of what a backend actually renders, with collation and number
+  formatting deferred.
+
+  **Not started. The next step is a decision about data, not code**: bundled, host-provided, or a
+  deliberately tiny table for a handful of languages. Everything above is reachable from either
+  answer, and the measurement is here so the next pass does not have to re-take it.
+
 ## Explicitly out of scope for now (see DESIGN.md "Non-goals")
 
 - Tree-native/structural source of truth — Ziman's source of truth is
@@ -2949,6 +3012,11 @@ from source.
   it. This entry's own finding is why that was cheap -- the justifying case was absent and so was
   its groundwork -- and it is also why the deletion is reversible: the function was 40 lines over a
   scanner that `format` and `printf` still share.)*
+
+  *(2026-10-23: localisation was asked for -- "we may need Locale support" -- so the trigger this
+  entry sequenced behind has fired. See "Locale support" under "Larger, needs its own design pass"
+  for the measured surface; indexed placeholders are item 6 there, and restoring `format_dynamic`
+  is a precondition for them rather than a separate question.)*
 
 - **`serve`: per-client connection cap -- done (2026-10-07).** `header_timeout_ms` (E7) frees a slot from a client that dawdles within seconds, but a
   flood from one address can still fill all `max_connections` slots. A cap per client address (`max_connections_per_client`, default 0 = off, since
