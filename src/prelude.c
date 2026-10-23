@@ -2358,7 +2358,19 @@ static Value native_mutable_set_to_mutable_array(Value *args, int argc, int line
     return ziman_mutable_array_lit(keys, n);
 }
 
-Value ziman_set_to_array(Value *args, int argc, int line, int col) {
+/* **A MapObj's keys as an array, which is two declarations' worth of question.** A Set is a MapObj
+ * whose values are placeholders, so `to_array(s)` over an immutable Set and `keys_array(m)` over an
+ * immutable Map are the same walk -- the elements of one are the keys of the other. One function,
+ * registered under `set_to_array` and `map_keys_array`.
+ *
+ * It was `ziman_set_items` and then `ziman_set_to_array` earlier the same day; the neutral name is
+ * the honest one once a second declaration reaches it, since neither "set" nor "to_array" is true
+ * of both callers.
+ *
+ * `array_try_pack` is what makes this worth being native for a packable key type: the keys come
+ * back as a `Value *` and a packed buffer is unscanned by the collector, so a `[int]` of keys
+ * costs no pointer scanning at all. */
+Value ziman_keys_as_array(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -2742,7 +2754,7 @@ static Value native_map_keys(Value *args, int argc, int line, int col) {
 }
 
 /* The values as an array, in the keys' insertion order. Packed when they all admit it, as
- * `ziman_set_to_array` packs a set's elements. */
+ * `ziman_keys_as_array` packs a set's elements. */
 static Value native_map_values(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -3166,7 +3178,8 @@ void prelude_register(void) {
     native_register("array_reverse", native_array_reverse);
     native_register("len", ziman_len);
     native_register("contains", ziman_contains);
-    native_register("set_to_array", ziman_set_to_array);
+    native_register("set_to_array", ziman_keys_as_array);
+    native_register("map_keys_array", ziman_keys_as_array);
     native_register("set_to_mutable_array", native_set_to_mutable_array);
     native_register("mutable_set_to_mutable_array", native_mutable_set_to_mutable_array);
     native_register("set_union", native_set_union);

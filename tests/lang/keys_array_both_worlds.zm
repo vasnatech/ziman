@@ -1,0 +1,50 @@
+// `keys_array(m) -> [K]` over both Map worlds, added 2026-10-22.
+//
+// **Why it is not an overload of `keys`.** `keys(m) -> Set<K>` and `keys(m) -> [K]` differ only in
+// what they answer, and two declarations may share a name only when every *call* can tell them
+// apart -- which a return type cannot do. Checked directly: two `fn f(x: int)` differing only in
+// return type are refused with "function 'f' is already defined ... two declarations may share a
+// name only when every call can tell them apart". `math.floor`/`math.floor_float` is the
+// established answer to this shape and `keys_array` follows it.
+//
+// **Why it is not `to_array(m)`.** That name would claim to convert the map, where a map answers
+// three different questions -- its keys, its values, its entries -- and `to_array` could only be
+// one of them. `to_array` is for a collection with a single obvious element type, which is why it
+// takes the two set worlds.
+//
+// **Why it is not just `to_array(keys(m))`.** That builds an entire `Set<K>` -- every key hashed
+// into a trie -- and then walks it back out into the array that was wanted. Measured at about 10x
+// this on a 100,000-entry map, which is the fused-conversion rule DESIGN.md states being satisfied
+// by a wide margin rather than by a judgement call.
+//
+// The immutable member shares one C function with `to_array`'s Set member: a Set is a MapObj whose
+// values are placeholders, so a set's elements and a map's keys are the same walk.
+fn main() {
+    val mb = mutable_map_new<string, int>()
+    set(mb, "b", 2)
+    set(mb, "a", 1)
+    set(mb, "c", 3)
+    val m = snapshot(mb)
+
+    // insertion order, and the same order `values` uses -- the correspondence is the point
+    print(keys_array(m))
+    print(values(m))
+    print(keys(m))
+
+    // the builder world answers the same thing
+    print(keys_array(mb))
+
+    // an empty map in either world is an empty array, not an error
+    val e = mutable_map_new<int, int>()
+    print(keys_array(e))
+    print(keys_array(snapshot(e)))
+
+    // a packable key type, where the native's array_try_pack earns its keep
+    val nb = mutable_map_new<int, string>()
+    set(nb, 10, "x")
+    set(nb, 20, "y")
+    print(keys_array(snapshot(nb)))
+
+    // named argument, which an ordinary declaration takes
+    print(keys_array(m: m))
+}

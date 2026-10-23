@@ -419,11 +419,20 @@ for x in seen { ... }                    // a set has one binder
   `to_mutable_set` go array-to-set over both array worlds, `to_array` and `to_mutable_array` come
   back over both set worlds. It is not `snapshot` — that answers the type a builder is *building*,
   where these answer a different type, which is why `to_array` takes no `MutableArray`.
-- **`keys(m)` and `values(m)` take a `Map` or a `MutableMap`**, the second row of the Map/Set
-  pairing pass. Both answer immutable values from either world -- `keys` a `Set<K>`, `values` a
-  `[V]` -- because a result like this is nearly always consumed by a `for` or returned, so
-  handing back a handle would allocate a thread-bound one for nothing. `map_keys`, `map_values`,
-  `mutable_map_keys` and `mutable_map_values` no longer exist in any spelling.
+- **`keys(m)`, `keys_array(m)` and `values(m)` take a `Map` or a `MutableMap`**, the second row of
+  the Map/Set pairing pass. All answer immutable values from either world -- `keys` a `Set<K>`,
+  `keys_array` a `[K]`, `values` a `[V]` -- because a result like this is nearly always consumed by
+  a `for` or returned, so handing back a handle would allocate a thread-bound one for nothing.
+  `map_keys`, `map_values`, `mutable_map_keys` and `mutable_map_values` no longer exist in any
+  spelling.
+- **`keys_array` is a separate name because a return type cannot tell two declarations apart.**
+  Added 2026-10-22. `keys(m) -> Set<K>` and `keys(m) -> [K]` differ only in what they answer, and a
+  name may be shared only when every *call* can distinguish the members, so this is `math.floor`
+  and `math.floor_float` again: one question, two answer types, a suffix naming the answer because
+  the resolver cannot. It is **not** `to_array(m)`, which would claim to convert the map rather
+  than to answer one of the three different questions a map can be asked. It earns its place on
+  cost too: `to_array(keys(m))` builds an entire `Set<K>` to walk straight back out of, about 10x
+  this on a 100,000-entry map.
 - **`filter(c, keep)` takes any of the six collections**, which is the first row of the Map/Set
   pairing pass: an array or a `MutableArray` with `keep: fn(T) -> bool`, a `Map` or a
   `MutableMap` with `keep: fn(K, V) -> bool`, a `Set` or a `MutableSet` with `fn(T) -> bool`. The
