@@ -97,6 +97,11 @@ pub builtin fn err<T, E>(error: E) -> Result<T, E>
 
 // Whether `r` is an `Ok`. `is_ok(r)` and `if Ok(v) = r` ask the same question; the second also
 // binds the value, so this is for the cases that only need the answer.
+//
+// **`r` is the Result receiver everywhere in this file**, as `m` is a Map's, `s` a Set's or a
+// string's and `o` an Option's. One letter is right here for the reason it is wrong for a channel
+// and a cell: those were both `c` until the names were swept, so one letter meant two types.
+// Nothing else in the prelude is received as `r`.
 pub builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
 
 // A `Result`'s Ok payload, which is a runtime error on an `Err`. `unwrap`'s other member takes an
@@ -115,6 +120,13 @@ pub builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
 // Both type arguments are written even though each answers only one of them, since
 // Ziman infers neither and `Result<T, E>` names both: `filter_ok<int, string>(...)` answers
 // `[int]`, `filter_err<int, string>(...)` answers `[string]` over the very same input.
+//
+// **The parameter stays `items`, not `results`**, which is the one name in this file a reader
+// might expect to have been improved and should not be. `items` is the prelude's word for the
+// receiver of a sequence, and these two are filters: `filter` takes `items`, so does
+// `filter_present`, and all four read the same way at a call site. `results` would say only what
+// the signature already says, where `items` says which role the argument plays -- the distinction
+// the naming rule turns on.
 //
 // **Neither one propagates**, which is the whole point and also the risk: `filter_ok` *silently
 // discards* every failure, so it is for the cases where a failure is genuinely not news -- one
@@ -150,18 +162,22 @@ pub fn filter_err<T, E>(items: variadic Result<T, E>) -> [E] {
 // this is the fifth member of a set split across five files; `--api builtins` prints all five as
 // one block.
 //
-// The transform is named `convert` rather than the `f` its four siblings use, which is a real
-// inconsistency and deliberate: `map_err` directly below takes `convert`, and these two are read
-// together far more often than `map` over a Result is read beside `map` over a Set. Parameter
-// names are part of the call surface here -- `map(r: r, convert: ...)` is a legal call -- so this
-// is a choice, not an oversight. If it ever grates, the fix is to rename it to `f` and leave
-// `map_err` alone, since `f` is the name the set agreed on first.
+// **The transform is `f`, the name its four siblings use**, and it was `convert` for about an hour
+// until the rule the prelude states about itself was applied to it: parameter names are part of the
+// call surface, because anything not dispatched by a builtin id takes named arguments, so one role
+// gets one name across every declaration that has it. `map(items: xs, f: g)` and `map(r: r, f: g)`
+// are both legal calls; a member that spelled it differently would make the set's call surface
+// depend on which type you happened to be holding. The prelude says `f` fourteen times.
+//
+// `map_err` below keeps `convert`, which is not the same inconsistency: it is its own name rather
+// than a member of this set, so nothing constrains it, and `convert` says more about a function
+// whose whole job is turning one module's error type into another's.
 //
 // Ordinary Ziman rather than a native, like three of the four other members: a `switch` over two
 // variants is the whole implementation and there is nothing a native would make faster.
-pub fn map<T, E, U>(r: Result<T, E>, convert: fn(T) -> U) -> Result<U, E> {
+pub fn map<T, E, U>(r: Result<T, E>, f: fn(T) -> U) -> Result<U, E> {
     return switch r {
-        Ok(v) { ok(convert(v)) }
+        Ok(v) { ok(f(v)) }
         Err(e) { err(e) }
     }
 }

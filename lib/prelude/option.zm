@@ -173,16 +173,23 @@ pub fn filter_present<T>(items: variadic Option<T>) -> [T] {
 }
 
 // The reverse of `to_option` in result.zm: Some(value) becomes Ok(value), and None becomes
-// Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
+// Err(make_err()) -- a function, not a plain value, so building the error (an allocation, a
 // formatted message) is skipped entirely on the common Some path.
+//
+// **`make_err` was `err_supplier` until 2026-10-22**, the only `_supplier` in the prelude and a
+// Java interface name where every neighbouring function parameter is a short imperative saying
+// what the function does in this call: `keep` on `filter`, `test` on `any`/`all`/`none`, `cmp` on
+// `sort_with`, `key` on `sort_by`, `next` and `close` on `iter_from`. `make_err` answers the
+// question a reader actually has here -- what goes in the Err -- where `_supplier` named the
+// shape of the argument, which its type already gives.
 //
 // **Named `option_to_result` until 2026-10-22.** The `option_` prefix said argument one is an
 // `Option` and argument one says that, the same rule that took the prefix off `map_err` and
 // `to_option` the same day; the old name points here. Named for its target like `to_set`, which
 // had been doing this since long before.
-pub fn to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T, E> {
+pub fn to_result<T, E>(o: Option<T>, make_err: fn() -> E) -> Result<T, E> {
     return switch o {
         Some(value) { ok(value) }
-        None { err(err_supplier()) }
+        None { err(make_err()) }
     }
 }
