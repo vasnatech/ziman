@@ -2,11 +2,18 @@
 
 The functions and types every Ziman program has without a `use`, split across
 this directory by the type each name is about: array.zm, map.zm, set.zm, string.zm, option.zm,
-channel.zm, iter.zm and mutable.zm, with collections.zm for the names that take more than one
-of them.
+result.zm, channel.zm, iter.zm and mutable.zm.
 
 This file holds what belongs to no collection at all: the universal verbs `print`, `str`,
-`abs`, `min`, `max`, `hash` and `compare`, and parsing a number out of a string.
+`hash` and `compare`, and parsing a number out of a string.
+
+**`abs`, `min` and `max` were here until 2026-10-22 and are in the `math` module now**, so they
+are `math.abs(x)` and `math.min(a, b)` behind a `use math` rather than bare vocabulary. The
+prelude is the set of names a program gets without asking for them, and arithmetic beyond the
+operators is not in it: `math.floor` and `math.round` were already a `use` away and are no more
+specialised than `math.abs`. It cost 76 call sites across four trees, the backend repo included,
+which is the honest measure of how much bare vocabulary is worth -- and the reason to spend it
+is that `print` and `str` really do belong nowhere else, where these three had a module waiting.
 
 Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
 loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
@@ -244,38 +251,6 @@ pub builtin fn str(x: decimal) -> string
 pub builtin fn str(x: byte) -> string
 ```
 
-### `abs`
-
-```
-pub native fn abs(x: int) -> int
-```
-
-**The magnitude, for each of the four numeric scalars.** No `byte` member: a byte is unsigned,
-so its magnitude is itself and `abs(b)` would be a call that cannot do anything.
-
-**`abs` on `int`'s most negative value is a runtime error**, not itself. -9223372036854775808
-has no positive counterpart in 64 bits, and this language reports integer overflow rather than
-wrapping -- `bigint` is the type with no such edge, which is most of what it is for.
-
-**`native fn` since 2026-10-22, where `str` beside it stays a builtin.** F191 measured both and
-separated them: an overload set resolves from arguments that describe themselves, and these four
-take numbers, which always do. `str` takes *expressions* -- `str(switch cut.fits { ... })` is
-real code -- and a value block carries no type for the resolver to choose with. One registration
-under the bare name serves all four, as `len`'s nine do, because a scalar parameter has no world
-prefix for the symbol fallback to build a per-type symbol from.
-
-```
-pub native fn abs(x: float) -> float
-```
-
-```
-pub native fn abs(x: bigint) -> bigint
-```
-
-```
-pub native fn abs(x: decimal) -> decimal
-```
-
 ### `hash`
 
 ```
@@ -289,21 +264,6 @@ pub builtin fn compare<T: Ord>(a: T, b: T) -> int
 ```
 
 Negative, zero or positive; only the sign is meaningful.
-
-### `min`
-
-```
-pub native fn min<T: Ord>(values: variadic T) -> T
-```
-
-Two or more arguments, or exactly one array as the whole list -- the ordinary variadic
-convention, which is why "several values" and "an array of values" need no second declaration.
-
-### `max`
-
-```
-pub native fn max<T: Ord>(values: variadic T) -> T
-```
 
 ## `array.zm`
 

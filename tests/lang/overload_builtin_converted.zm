@@ -1,15 +1,25 @@
-// F188 (stage 8 step 3): `abs` is the first polymorphic builtin whose type rule comes from its
+// F188 (stage 8 step 3): `abs` was the first polymorphic builtin whose type rule came from its
 // declarations rather than from a hand-written arm. Its four `builtin fn` lines were already
-// there, documenting what the arm checked; the arm is gone and the resolver checks them.
+// there, documenting what the arm checked; the arm went and the resolver checked them instead.
 //
-// **Nothing in the runtime changed.** `abs` is still dispatched by its builtin id -- the
-// resolver deliberately does not record a `builtin fn` on `call_fn`, because a builtin has no
-// body and `interpreter.c` consults `call_fn` first. So this is a type-checking change only,
-// which is what makes the remaining ~50 conversions cheap.
+// **The entry's "nothing in the runtime changed" expired on 2026-10-22, twice over, and this
+// fixture is where both steps are visible.** F188 left `abs` dispatched by its builtin id,
+// because the resolver deliberately does not record a `builtin fn` on `call_fn` -- a builtin has
+// no body and `interpreter.c` consults `call_fn` first -- so the conversion really was
+// type-checking only, which is what made the remaining conversions cheap. Then the four
+// declarations became `native fn`, which retired the id, its branch and `call_abs`; and then the
+// name left the prelude for the `math` module, so it is `math.abs(x)` behind a `use` and the
+// implementation is `native_math_abs` in src/native_math.c.
+//
+// What survives all of that is F188's actual finding, which is why this fixture is still worth
+// keeping: four declarations under one name, each a different scalar, resolved from the arguments
+// with no arm anywhere. The spelling moved; the mechanism is the one F188 built.
+use math
+
 fn main() {
-    print(abs(-3))
-    print(abs(-2.5))
-    print(abs(-7n))
-    print(abs(-1.50d))
-    print(abs(0))
+    print(math.abs(-3))
+    print(math.abs(-2.5))
+    print(math.abs(-7n))
+    print(math.abs(-1.50d))
+    print(math.abs(0))
 }

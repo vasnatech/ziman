@@ -3,6 +3,7 @@
 
 #include <math.h>
 
+#include "bignum.h"
 #include "decimal.h"
 #include "error.h"
 #include "native.h"
@@ -14,6 +15,71 @@
  * value `parse_float("nan")` already produces -- `compare<T: Ord>` already gives NaN a total
  * order (see "Ordering" in docs/SYNTAX.md), so it is an ordinary, well-supported float value
  * here, not a special case that needs a Result instead. See lib/core/math.zm. */
+
+/* `abs`, `min` and `max`, which were the prelude's until 2026-10-22 and are the `math` module's
+ * now. They were bare vocabulary -- `abs(x)`, `min(a, b)`, no `use` -- and moving them cost 76
+ * call sites across four trees, so the reason is worth stating: the prelude is the names a program
+ * gets without asking, and these three are arithmetic, which is what this module is. `math.floor`
+ * and `math.round` were already here and no more specialised than `math.abs`.
+ *
+ * Registered as `math::abs` and friends, the qualified spelling every module native uses. One
+ * symbol serves `abs`'s four declarations, as it did under the bare name: a scalar parameter gives
+ * the symbol fallback no world prefix to build a per-type symbol from, and there would be nothing
+ * to gain if it did. */
+static Value native_math_abs(Value *args, int argc, int line, int col) {
+    (void)argc;
+    Value x = args[0];
+    if (x.type->kind == TY_INT) {
+        /* -9223372036854775808 has no positive counterpart in 64 bits, and this language reports
+         * integer overflow rather than wrapping. `bigint` is the type with no such edge. */
+        if (x.as.i == INT64_MIN) {
+            ziman_error("runtime", line, col,
+                        "integer overflow in 'abs' (int is 64-bit; use bigint for larger values)");
+        }
+        return value_int(x.as.i < 0 ? -x.as.i : x.as.i);
+    }
+    if (x.type->kind == TY_BIGINT) return value_bigint(bignum_abs(*x.as.bi));
+    if (x.type->kind == TY_DECIMAL) return value_decimal(decimal_abs(*x.as.dec));
+    return value_float(x.as.f < 0 ? -x.as.f : x.as.f);
+}
+
+/* `min`/`max`: variadic and `Ord`-bounded, not just the four numeric scalars these were once
+ * limited to -- see docs/DESIGN.md's "Variadic, Ord-bounded min/max" entry. One linear scan
+ * calling `compare` per candidate, which for int/float/bigint/decimal/byte/string is already a
+ * direct C comparison, so this needs no separate fast path for them the way `sort` gives a packed
+ * array its own routine: a single comparison per element is not where sorting's O(n log n) cost
+ * lives. A struct's or enum's own `<type>_compare` is reached exactly as `compare` and `sort`
+ * reach it, through native_value_compare.
+ *
+ * **`args[0]` is one array whichever way the call was written**, because `collapse_variadic_args`
+ * runs before a native is entered -- so the "two or more values, or one array as the whole list"
+ * convention is handled before this sees anything, where the dispatched builtin this replaced had
+ * to test `argc == 1 && args[0]` an array itself. That test was also the one piece of the old arm
+ * that could not be right for every `T`: `Ord` admits `[int]`, so `min` of two arrays and `min` of
+ * one array to spread looked identical to it. The collapse distinguishes them from the
+ * declaration, which is the thing a declaration knows and an arm does not. */
+static Value native_math_min_max(Value *args, int want_min, int line, int col) {
+    const ArrayObj *values = args[0].as.arr;
+    const char *name = want_min ? "min" : "max";
+    if (values->count == 0) ziman_error("runtime", line, col, "'%s' of an empty array", name);
+    Value best = array_get(values, 0);
+    for (int i = 1; i < values->count; i++) {
+        Value item = array_get(values, i);
+        int c = native_value_compare(item, best, line, col);
+        if (want_min ? c < 0 : c > 0) best = item;
+    }
+    return best;
+}
+
+static Value native_math_min(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return native_math_min_max(args, 1, line, col);
+}
+
+static Value native_math_max(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return native_math_min_max(args, 0, line, col);
+}
 
 static Value native_math_sqrt(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
@@ -135,6 +201,9 @@ static Value native_math_decimal_pow(Value *args, int argc, int line, int col) {
 }
 
 void native_math_register(void) {
+    native_register("math::abs", native_math_abs);
+    native_register("math::min", native_math_min);
+    native_register("math::max", native_math_max);
     native_register("math::sqrt", native_math_sqrt);
     native_register("math::pow", native_math_pow);
     native_register("math::exp", native_math_exp);

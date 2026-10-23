@@ -102,6 +102,7 @@ flowchart LR
     log --> json
     log --> number
     log --> os
+    markdown --> math
     metrics --> os
     migrate --> crypto
     migrate --> datasource
@@ -135,6 +136,7 @@ flowchart LR
     process --> fs
     process --> os
     properties --> fs
+    properties --> math
     properties --> os
     raster --> font
     raster --> geom
@@ -195,8 +197,8 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `markdown`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread`, `xml` |
-| 1 | `crypto`, `geom`, `json`, `os`, `pdfobj`, `url` |
+| 0 | `bits`, `clock`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread`, `xml` |
+| 1 | `crypto`, `geom`, `json`, `markdown`, `os`, `pdfobj`, `url` |
 | 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `paint`, `shape`, `toml`, `yaml` |
 | 3 | `csv`, `image`, `log`, `mysql`, `pg`, `process`, `properties`, `scene`, `server`, `sqlite`, `stroker`, `truetype`, `uuid`, `zone` |
 | 4 | `datasource`, `font`, `time` |
@@ -223,8 +225,8 @@ otherwise: everything on a layer depends only on lower layers.
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
 | `log` | `clock`, `fs`, `json`, `number`, `os` | - |
-| `markdown` | - | - |
-| `math` | - | `geom`, `raster`, `shape`, `stroker` |
+| `markdown` | `math` | - |
+| `math` | - | `geom`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
 | `metrics` | `os` | `server` |
 | `migrate` | `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |
 | `mime` | - | `client`, `http`, `server` |
@@ -239,7 +241,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `pdfobj` | `compress` | `pdf` |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `process` | `fs`, `os` | - |
-| `properties` | `fs`, `os` | - |
+| `properties` | `fs`, `math`, `os` | - |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `uuid` |
 | `raster` | `font`, `geom`, `image`, `math`, `paint`, `scene`, `shape`, `stroker`, `truetype` | - |
 | `regex` | - | - |

@@ -3,6 +3,10 @@
 // message came from the arm until 2026-10-22 and now comes from the attribute, which is why it
 // names the parameter and the escape (an array spreads, and may be empty at the type level even
 // though this one would then fail at run time -- min_max_empty_array_rejected is that case).
+//
+// `min` left the prelude for the `math` module the same day, hence `math.min()` and `use math`.
+use math
+
 fn main() {
-    print(min())
+    print(math.min())
 }

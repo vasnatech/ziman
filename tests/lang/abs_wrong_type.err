@@ -1,1 +1,1 @@
-'abs' expects int, float, bigint or decimal, found string
+'math::abs' expects int, float, bigint or decimal, found string

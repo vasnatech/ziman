@@ -1,11 +1,15 @@
+// `abs`/`min`/`max` moved from the prelude to the `math` module on 2026-10-22, so these
+// are `math.`-qualified and the fixture needs a `use`.
+use math
+
 fn main() {
     val a: bigint = 100n
     val b: bigint = 7n
     print(a / b)
     print(a % b)
     print(hash(a) == hash(a))
-    print(min(a, b))
-    print(max(a, b))
-    print(abs(-a))
+    print(math.min(a, b))
+    print(math.max(a, b))
+    print(math.abs(-a))
     print(-a)
 }

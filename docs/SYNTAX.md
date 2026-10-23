@@ -163,7 +163,7 @@ restricted set of positions -- see "`if` and `switch` as values" below.
 
 ## Types
 
-- `int` — 64-bit signed integer. **Never wraps**: `+ - * /` (`MIN / -1`), unary `-`, `abs(MIN)`
+- `int` — 64-bit signed integer. **Never wraps**: `+ - * /` (`MIN / -1`), unary `-`, `math.abs(MIN)`
   overflow are a runtime error, consistent with `bigint as int`/`int as byte` clamping instead
   of wrapping. A literal must fit `[-9223372036854775808, 9223372036854775807]` (overflow is a
   compile error naming the `n` bigint suffix, not silent saturation). `float as int` truncates
@@ -2770,7 +2770,7 @@ rather than undefined behavior or a crash:
 | What | Limit | Where it's enforced |
 |---|---|---|
 | Recursion / call depth | machine- and config-dependent (see "Stack depth" above) | every call and nested expression |
-| `int`/`bigint` arithmetic overflow | traps, never silently wraps or saturates (`+`/`-`/`*`/`/`, `abs(MIN)`) | the interpreter |
+| `int`/`bigint` arithmetic overflow | traps, never silently wraps or saturates (`+`/`-`/`*`/`/`, `math.abs(MIN)`) | the interpreter |
 | An `int` literal past `int`'s range | a compile-time error, not silent saturation | the parser |
 | `bigint`/exact-`decimal` digit count (`parse_json_exact`, literals) | 1,000 digits | `json`'s number parser |
 | A parsed number's exponent size | 100,000 | `json`'s number parser |
@@ -2929,13 +2929,15 @@ a type error.
   so `a == b` implies `hash(a) == hash(b)` for free; `-0.0`/`0.0` hash alike, `NaN` is never
   found (doesn't equal itself). Not cryptographic, not stable across language versions --
   never persist a hash, use it only within one program run.
-- `abs(x: T) -> T` — `T` is `int`/`float`/`bigint`/`decimal`, not `byte`.
-- `min(items: variadic T) -> T` / `max(items: variadic T) -> T` — variadic and `Ord`-bounded like
-  `compare`/`sort`: two-or-more arguments or one array (the `variadic T` convention); at least one
-  value required (`min()` is a compile error, an empty array a runtime one); every argument the
-  same `T`, no implicit mixing.
-- Rounding (`floor`/`ceil`/`round`, `decimal_round`/`_floor`/`_ceil`) and `decimal_pow` live in
-  the `math` module now, not here.
+- `abs`, `min` and `max` moved to the `math` module on 2026-10-22 and are **no longer bare
+  vocabulary**: `use math`, then `math.abs(x)`, `math.min(a, b)`. `math.abs`'s `T` is
+  `int`/`float`/`bigint`/`decimal`, not `byte`; `math.min`/`math.max` are variadic and
+  `Ord`-bounded like `compare`/`sort` — two-or-more arguments or one array (the `variadic T`
+  convention), at least one value required (`math.min()` is a compile error, an empty array a
+  runtime one), every argument the same `T` with no implicit mixing. The prelude is the names a
+  program gets without asking, and arithmetic beyond the operators is not among them.
+- Rounding (`floor`/`ceil`/`round`, `decimal_round`/`_floor`/`_ceil`) and `decimal_pow` are in
+  the `math` module too, and always were.
 - `push(arr: [T], values: variadic T) -> [T]` — new array with the values appended;
   `arr = push(arr, x)` in a loop is amortised O(1) (the result keeps spare room the *newest*
   version's next `push` reuses; an older version's `push` still copies, so no version changes

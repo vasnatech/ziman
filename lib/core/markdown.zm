@@ -36,6 +36,10 @@
 
 #![experimental]
 
+// For `math.max` when choosing a fence longer than any backtick run in the content. `abs`,
+// `min` and `max` were bare prelude vocabulary until 2026-10-22 and are this module's now.
+use math
+
 // ------------------------------------------------------------------ the model
 
 // How a table column is aligned, which GFM writes into the delimiter row as `:---`, `---:` or
@@ -451,7 +455,7 @@ fn write_block(block: Block, out: MutableString) -> Result<bool, string> {
             append(out, "---\n")
         }
         CodeBlock(c) {
-            val fence = repeat_char("`", max(3, longest_backtick_run(c.text) + 1))
+            val fence = repeat_char("`", math.max(3, longest_backtick_run(c.text) + 1))
             append(out, fence, c.info, "\n", c.text)
             if !ends_with(c.text, "\n") && c.text != "" {
                 append(out, "\n")

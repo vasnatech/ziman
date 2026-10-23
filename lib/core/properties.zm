@@ -28,6 +28,9 @@
 // one fails startup and every lookup afterwards is a plain array scan.
 
 use fs
+// For `math.min` in the edit-distance scan below; it was bare prelude vocabulary until
+// 2026-10-22.
+use math
 use os
 
 // One setting: its `key`, its `value`, and `source`, where it came from (a file, the environment,
@@ -324,7 +327,7 @@ fn distance(a: string, b: string) -> int {
         var left = i + 1
         for j in 0..len(b) {
             val cost = if is_char_at(a, i, char_at(b, j)) { 0 } else { 1 }
-            left = min(min(left + 1, prev[j + 1] + 1), prev[j] + cost)
+            left = math.min(math.min(left + 1, prev[j + 1] + 1), prev[j] + cost)
             push(row, left)
         }
         prev = snapshot(row)

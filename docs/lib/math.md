@@ -71,6 +71,72 @@ pub val e = 2.71828182845904523536
 
 The base of the natural logarithm. Same as `pi`: `use math.e` to use it bare.
 
+### `abs`
+
+```
+pub native fn abs(x: int) -> int
+```
+
+**The magnitude, for each of the four numeric scalars.** No `byte` member: a byte is unsigned,
+so its magnitude is itself and `abs(b)` would be a call that cannot do anything.
+
+**`abs` on `int`'s most negative value is a runtime error**, not itself. -9223372036854775808
+has no positive counterpart in 64 bits, and this language reports integer overflow rather than
+wrapping -- `bigint` is the type with no such edge, which is most of what it is for.
+
+**`native fn` since 2026-10-22, where `str` in the prelude stays a builtin.** F191 measured both
+and separated them: an overload set resolves from arguments that describe themselves, and these
+four take numbers, which always do. `str` takes *expressions* -- `str(switch cut.fits { ... })`
+is real code -- and a value block carries no type for the resolver to choose with, which
+tests/lang/value_block_cannot_narrow_an_overload_set.zm pins as a language fact. One registration
+(`math::abs`) serves all four, because a scalar parameter has no world prefix for the symbol
+fallback to build a per-type symbol from.
+
+```
+pub native fn abs(x: float) -> float
+```
+
+```
+pub native fn abs(x: bigint) -> bigint
+```
+
+```
+pub native fn abs(x: decimal) -> decimal
+```
+
+### `min`
+
+```
+pub native fn min<T: Ord>(values: variadic T) -> T
+```
+
+**The smallest of several values, or of one array.** Two or more arguments, or exactly one array
+as the whole list -- the ordinary variadic convention, which is why "several values" and "an
+array of values" need no second declaration.
+
+`Ord`-bounded rather than limited to the numeric scalars, so `math.min` over strings, over an
+`Option`, or over a `#[derive(Ord)]` struct is the same call; a struct's or enum's own
+`<type>_compare` is reached exactly as `compare` and `sort` reach it.
+
+**`native fn` since 2026-10-22**, where the declaration had said all of this for longer: the arm
+it replaced was restating `variadic T`, `T: Ord` and `#[at_least_one]` in C. Being an ordinary
+declaration is also what lets `math.min<int>(values: [1, 2])` take a type argument and a named
+argument, which a dispatched builtin could not.
+
+`math.min` of an empty array is a runtime error -- there is no answer to give, and `Ord` has no
+least value to invent one from. An array is the only way to reach it, since `#[at_least_one]`
+refuses `math.min()` at compile time.
+
+### `max`
+
+```
+pub native fn max<T: Ord>(values: variadic T) -> T
+```
+
+The largest, under the same rules as `min` above -- including an empty array being a runtime
+error. Stated separately rather than sharing `min`'s comment because `docs/lib/math.md` has one
+`###` entry per declaration, and a shared comment leaves this one blank.
+
 ### `sqrt`
 
 ```

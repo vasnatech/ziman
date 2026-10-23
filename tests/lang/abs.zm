@@ -1,6 +1,10 @@
+// `abs`/`min`/`max` moved from the prelude to the `math` module on 2026-10-22, so these
+// are `math.`-qualified and the fixture needs a `use`.
+use math
+
 fn main() {
-    print(abs(-5))
-    print(abs(5))
-    print(abs(-3.5))
-    print(abs(3.5))
+    print(math.abs(-5))
+    print(math.abs(5))
+    print(math.abs(-3.5))
+    print(math.abs(3.5))
 }

@@ -4,6 +4,12 @@
 // argument fixed `T` instead, because `min<T: Ord>(values: variadic T)` is where "the same type"
 // was written down all along: one type parameter, so the second argument has nothing to disagree
 // with except what the first already bound.
+//
+// `min` then left the prelude for the `math` module the same day, which is why the call is
+// `math.min` and the message names `'math::min'` -- the registration spelling, as every module
+// function's diagnostics already use (`math::sqrt` reads the same way).
+use math
+
 fn main() {
-    print(min(3, 3.5))
+    print(math.min(3, 3.5))
 }

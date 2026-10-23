@@ -1,3 +1,7 @@
+// `abs`/`min`/`max` moved from the prelude to the `math` module on 2026-10-22, so these
+// are `math.`-qualified and the fixture needs a `use`.
+use math
+
 enum Shape { Circle(int) Square(int) Empty }
 
 fn area(s: Shape) -> int {
@@ -24,7 +28,7 @@ fn main() {
     print(msg)
     val tag = if n > 100 { "huge" } else if n > 3 { "mid" } else { "low" }
     print(tag)
-    print(max(if n > 2 { n } else { 0 }, 4))
+    print(math.max(if n > 2 { n } else { 0 }, 4))
     val label: Option<string> = Option<string>.Some(if n > 1 { "a" } else { "b" })
     print(label)
     print(if n > 1 { if n > 4 { "x" } else { "y" } } else { "z" })

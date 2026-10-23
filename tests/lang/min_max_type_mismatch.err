@@ -1,1 +1,1 @@
-argument 2 of 'min' expects int, which an earlier argument fixed as type argument 'T' -- found float
+argument 2 of 'math::min' expects int, which an earlier argument fixed as type argument 'T' -- found float

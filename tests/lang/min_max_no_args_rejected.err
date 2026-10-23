@@ -1,1 +1,1 @@
-function 'min' needs at least one value for its variadic parameter 'values', since the call would otherwise do nothing (pass an array to spread a list that may be empty)
+function 'math::min' needs at least one value for its variadic parameter 'values', since the call would otherwise do nothing (pass an array to spread a list that may be empty)
