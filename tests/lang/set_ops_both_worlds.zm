@@ -5,8 +5,12 @@
 // them**: a MutableSet's operand may come from either world. That is the case stage 7's resolver
 // was built for -- argument one narrows to the builder pair, argument two picks one.
 //
-// The immutable halves take only a Set as their operand, where the builder halves take either.
-// That asymmetry predates this pairing and is left alone rather than quietly widened.
+// The immutable halves took only a Set as their operand, where the builder halves take either.
+// That asymmetry predated this pairing and was left alone rather than quietly widened -- **until
+// 2026-10-22, when `is_subset` gained its fourth declaration and only `is_subset` did.** It now
+// has one per receiver/operand pair; `union`, `intersect` and `difference` still take a `Set`
+// operand when the receiver is immutable, so the gap is an exception now rather than the rule it
+// was. `is_subset_four_pairs` covers the widened name.
 //
 // **`union` and `intersect` went variadic on 2026-10-22** and their coverage moved to
 // `union_and_intersect_variadic`; the calls below still read as two-operand because a variadic

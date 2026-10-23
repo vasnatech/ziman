@@ -2832,6 +2832,22 @@ answers a value in both worlds -- there is nothing to write -- so its two in-pla
 differ from the immutable one only in what `s` is, not in what the call means.
 
 ```
+pub native fn is_subset<T: Eq + Hash>(s: Set<T>, other: MutableSet<T>) -> bool
+```
+
+The same question of a builder operand. **This is the one place the four set operations' old
+asymmetry is closed**, added 2026-10-22: a builder receiver has always taken an operand from
+either world, where an immutable receiver took only a `Set`, and that gap was documented as
+predating the pairing and "left alone rather than quietly widened". It is widened here and only
+here, deliberately -- `union` and `intersect` would each need a second variadic declaration and
+`difference` a second operand form, none of which was asked for.
+
+Four declarations now, one per receiver/operand pair, all distinguishable because each pair of
+argument types is distinct. Two symbols: the fallback reads parameter one, so the two immutable
+receivers share `set_is_subset` and tell the operand apart by its runtime kind, exactly as the
+two builder receivers share `mutable_set_is_subset`.
+
+```
 pub native fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
 ```
 

@@ -1,0 +1,48 @@
+// `is_subset` over every receiver/operand pair, four declarations as of 2026-10-22.
+//
+// **This is the one place the four set operations' asymmetry is closed.** A builder receiver had
+// always taken an operand from either world; an immutable receiver took only a `Set`. That gap was
+// documented as predating the Map/Set pairing and "left alone rather than quietly widened" -- and
+// it is widened here and only here. `union` and `intersect` would each need a second *variadic*
+// declaration to match, and `difference` a second operand form; none of that was asked for, so
+// those three keep the gap and it is an exception now rather than a rule.
+//
+// Four declarations, two symbols. The fallback reads parameter one, so the two immutable receivers
+// share `set_is_subset` and tell the operand apart by its own runtime kind, exactly as the two
+// builder receivers share `mutable_set_is_subset`. All four pairs are distinguishable because each
+// pair of argument types is distinct.
+//
+// The receiver's elements drive the walk in every pair, so the cost is O(len(s)) lookups with an
+// early exit on the first element missing -- which is why the smaller set reads better as `s`.
+fn main() {
+    val small = to_set([1, 2])
+    val big = to_set([1, 2, 3])
+    val mb_small = mutable_set_new<int>()
+    add(mb_small, 1, 2)
+    val mb_big = mutable_set_new<int>()
+    add(mb_big, 1, 2, 3)
+
+    // each pair, true then false
+    print(is_subset(small, big))
+    print(is_subset(big, small))
+    print(is_subset(small, mb_big))
+    print(is_subset(big, mb_small))
+    print(is_subset(mb_small, big))
+    print(is_subset(mb_big, small))
+    print(is_subset(mb_small, mb_big))
+    print(is_subset(mb_big, mb_small))
+
+    // an empty receiver is a subset of anything, including across worlds
+    val none: [int] = []
+    val empty = to_set(none)
+    val mb_empty = mutable_set_new<int>()
+    print(is_subset(empty, big))
+    print(is_subset(empty, mb_big))
+    print(is_subset(empty, mb_empty))
+
+    // and nothing non-empty is a subset of an empty operand
+    print(is_subset(small, mb_empty))
+
+    // a set is its own subset, read out of the other world
+    print(is_subset(big, mb_big))
+}

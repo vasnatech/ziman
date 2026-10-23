@@ -2961,16 +2961,33 @@ static Value native_set_difference(Value *args, int argc, int line, int col) {
     return value_map(args[0].type, set_keep_step(args[0].as.map, args[1].as.map, 0));
 }
 
+/* `is_subset` with an immutable receiver, over **either** operand world since 2026-10-22 -- the
+ * one declaration that closes the asymmetry the four set operations had kept, where a builder
+ * receiver took an operand from either world and an immutable receiver took only a `Set`.
+ *
+ * Two declarations to one symbol, as each builder member's pair already is: the fallback reads
+ * parameter one, so `(Set, Set)` and `(Set, MutableSet)` both land here and argument two's own
+ * runtime kind says which arrived. `ziman_mutable_set_is_subset` is the mirror of this -- the same
+ * walk with the two sides swapped -- and reads its elements from a table where this reads them from
+ * a MapObj.
+ *
+ * The receiver's elements drive the walk either way, so this is O(len(s)) lookups and an early exit
+ * on the first element missing. */
 static Value native_set_is_subset(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
+    MutableMapBuf *from = args[1].type->kind == TY_STRUCT ? mutable_map_get_buf(args[1]) : NULL;
     Value *keys;
-    Value ignored;
-    int subset = 1;
     mapobj_entries(args[0].as.map, &keys, NULL);
-    for (int i = 0; i < args[0].as.map->count && subset; i++) subset = mapobj_get(args[1].as.map, keys[i], &ignored);
-    return value_bool(subset);
+    int n = args[0].as.map->count;
+    for (int i = 0; i < n; i++) {
+        Value ignored; /* mapobj_get always writes through this; see ziman_mutable_set_combine. */
+        int in_other = from != NULL ? maptable_get(&from->t, keys[i], NULL)
+                                    : mapobj_get(args[1].as.map, keys[i], &ignored);
+        if (!in_other) return value_bool(0);
+    }
+    return value_bool(1);
 }
 
 /* The three builder members, each over either world in parameter two. `op` is the same 0/1/2 the

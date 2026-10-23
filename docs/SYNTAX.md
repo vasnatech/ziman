@@ -405,8 +405,12 @@ for x in seen { ... }                    // a set has one binder
   had.
 - **`union`, `intersect`, `difference` and `is_subset` take either world**, the awkward row:
   each has three declarations, and **argument two** chooses between two of them, because a
-  `MutableSet`'s operand may come from either world. The immutable halves still take only a
-  `Set` as their operand, an asymmetry that predates the pairing and was left alone.
+  `MutableSet`'s operand may come from either world. The immutable halves took only a
+  `Set` as their operand, an asymmetry that predated the pairing and was left alone —
+  **and is closed for `is_subset` as of 2026-10-22 and for nothing else.** `is_subset` has four
+  declarations now, one per receiver/operand pair. `union` and `intersect` would each need a second
+  *variadic* declaration to match and `difference` a second operand form; neither was asked for, so
+  the asymmetry stands for those three and is now an exception rather than a rule.
 - **`union` and `intersect` are variadic as of 2026-10-22**, in `merge`'s shape: the immutable
   member has no distinguished receiver at all (`union(a, b, c)` and `union(sets)` are the same
   call, so folding a list needs no loop), and each in-place member takes any number of operands.
