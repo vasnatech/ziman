@@ -1,1 +1,1 @@
-'mutable_string_append' is now 'append': these names lost the prefix that said which world the first argument came from -- the argument says it
+'mutable_string_append' is now 'append': these names carried a word for the world their first argument comes from -- a prefix for most of them, a suffix for two -- and the argument says it

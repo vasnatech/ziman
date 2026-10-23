@@ -10,8 +10,8 @@
 fn main() {
     val sb = mutable_string_new()
     append(sb, "hello world")
-    print(mutable_string_get(sb, 0))
-    print(mutable_string_get(sb, 4))
+    print(char_at(sb, 0))
+    print(char_at(sb, 4))
     print(index_of(sb, "o", 0))
     print(last_index_of(sb, "o"))
     print(index_of(sb, "world", 0))

@@ -1,1 +1,1 @@
-'result_to_option' is now 'to_option': these names lost the prefix that said which world the first argument came from -- the argument says it
+'result_to_option' is now 'to_option': these names carried a word for the world their first argument comes from -- a prefix for most of them, a suffix for two -- and the argument says it

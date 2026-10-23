@@ -18,7 +18,7 @@ The string and collection toolkit is **builtin and unqualified**. No `use`, no m
 
 | | |
 | --- | --- |
-| text | `len` `substring` `slice` `char_at` `is_char_at` `index_of` `last_index_of` `contains` `starts_with` `split` `split_once` `lines` `trim` `replace` `reverse_string` `equals_ignore_case` |
+| text | `len` `substring` `slice` `char_at` `is_char_at` `index_of` `last_index_of` `contains` `starts_with` `split` `split_once` `lines` `trim` `replace` `reverse` `truncate` `byte_len` `equals_ignore_case` |
 | building text | `concat` `sort` `filter` `reverse` `map` `fold` `find` `sum` `format` `printf` `str` `join` |
 | arrays & maps | `len` `push` `contains` `insert` `slice` `concat` `snapshot` `clear` |
 | numbers | `abs` `min` `parse_int` `compare` |

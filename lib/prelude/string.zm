@@ -195,9 +195,22 @@ pub native fn is_empty(s: string) -> bool
 // Whether `s` is empty or only blanks (whatever `trim` removes): `trim(s) == ""`, without making the trimmed string.
 pub native fn is_blank(s: string) -> bool
 
-// The one-byte string at position `i` (`0 <= i < len(s)`, a runtime error otherwise), so
-// `char_at(s, i) == "x"` replaces `substring(s, i, i + 1) == "x"`. It is a byte, not a character.
+// The one-byte string at position `i` (`0 <= i < byte_len(s)`, a runtime error otherwise), so
+// `char_at(s, i) == "x"` replaces `substring(s, i, i + 1) == "x"`. It is a byte, not a character,
+// and `i` is a byte offset -- pair it with `byte_len`, not `len`.
 pub native fn char_at(s: string, i: int) -> string
+
+// The same of a builder, read in place: what lets a string being built be inspected without
+// `snapshot`, which copies all of it per call.
+//
+// **`mutable_string_get` until 2026-10-23**, the fourth and last of F205's prefix leftovers and
+// the only one that was not free. The other three derived the symbol already registered; this one
+// did not, and worse, **`char_at` was registered under its bare name** -- which
+// `native_lookup(fn->name)` finds before the world-prefix fallback is ever consulted, so both
+// members would have run the `string` implementation and read a handle as text. That is the trap
+// `last_index_of` fell into the day before. The registrations are `string_char_at` and
+// `mutable_string_char_at` now, and the rename cost two lines of C rather than none.
+pub native fn char_at(s: MutableString, i: int) -> string
 
 // The byte position of the last `needle` in `s`, or -1. An empty `needle` is found at `len(s)`.
 pub native fn last_index_of(s: string, needle: string) -> int
@@ -235,7 +248,12 @@ pub native fn chars(s: string) -> [string]
 // way to truncate text for display (`substring` counts bytes and can produce invalid UTF-8).
 // `max_chars >= len(s)` returns `s` unchanged; `max_chars` must not be negative. Same
 // UTF-8 requirement as `chars`.
-pub native fn truncate_chars(s: string, max_chars: int) -> string
+// **`truncate_chars` until 2026-10-23.** The `_chars` said which unit the limit is in, back when
+// `len` counted bytes and the distinction had to be in the name. `len` counts characters now, so
+// characters are what the prelude means by a length unless it says `byte_len`, and the suffix was
+// restating the default. The parameter keeps `max_chars`, which is where the unit now lives --
+// one word, at the call site, where it is read.
+pub native fn truncate(s: string, max_chars: int) -> string
 
 // True when `a` and `b` are equal when the ASCII letters A-Z are read as a-z (other bytes,
 // non-ASCII included, must match exactly). Builds no intermediate strings, unlike comparing
@@ -332,17 +350,12 @@ pub native fn append(s: MutableString, pieces: variadic string)
 #[at_least_one]
 pub native fn append_byte(s: MutableString, pieces: variadic byte) -> bool
 
-// Reading and writing one byte of the buffer: what lets a string being built be inspected without
-// `snapshot`, which copies all of it per call. Byte-indexed, like every string operation in the
-// language -- `len` is bytes and `char_at(s, i)` is the one-byte string at `i`, so there is no
-// UTF-8 question left to settle here.
+// Writing one byte of the buffer: what lets a string being built be changed in place.
 //
-// **Searching it used to be here too**, and moved on 2026-10-22 when
-// `mutable_string_index_of`/`mutable_string_last_index_of` became members of `index_of` and
-// `last_index_of`: a set's members sit together, so they went up to join their immutable twins.
-// What stays is what this world alone has.
-pub native fn mutable_string_get(s: MutableString, index: int) -> string
-
+// **Reading one used to be here too, and searching before that.** `mutable_string_get` became
+// `char_at`'s builder member on 2026-10-23 and went up to join its twin, as
+// `mutable_string_index_of` and `mutable_string_last_index_of` did the day before. A set's members
+// sit together, so what is left here is what this world alone has: a write.
 // Replaces one byte: one element in, one element out. A `value` of any other length is a runtime
 // error rather than a splice, because splicing would change the length and `set` nowhere else in
 // the language does that.
@@ -398,7 +411,14 @@ pub fn lines(s: string) -> [string] {
 // `s` with its characters in the opposite order. Reverses *code points*, not bytes, so reversing
 // text outside ASCII gives text rather than mojibake -- the byte-level version of this is the
 // classic way to corrupt UTF-8, and `chars` already answers in code points.
-pub fn reverse_string(s: string) -> string {
+//
+// **`reverse_string` until 2026-10-23**, the last `_string` suffix in the prelude. It said which
+// type the argument is, which the argument says; `reverse`'s two array members are in array.zm and
+// this is the text one, filed here because a declaration lives in the file for its first
+// argument's type. Ordinary Ziman where those two are native, so the rename touched no C at all --
+// and `reverse` had no bare registration to shadow it, which is the question worth asking first
+// after `char_at` and `last_index_of` both did.
+pub fn reverse(s: string) -> string {
     val cs = chars(s)
     var out = ""
     var i = len(cs)

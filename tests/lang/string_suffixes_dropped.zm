@@ -1,0 +1,42 @@
+// `truncate_chars` became `truncate` and `reverse_string` became `reverse` on 2026-10-23, and
+// `mutable_string_get` became `char_at`'s builder member the same day. All three old names point
+// home.
+//
+// **Two of these are suffixes, which the shared message had to grow to cover.** It said "these
+// names lost the prefix that said which world the first argument came from" -- true of every entry
+// in that table until `_chars` and `_string` arrived. The rule is the same read from either end: a
+// word naming the type of argument one, which argument one says. The second time that sentence has
+// been widened rather than left half-true, after "a builder is a mutable collection" went.
+//
+// **`_chars` was made redundant by a different change.** It said which unit the limit counts in,
+// back when `len` counted bytes and the distinction had to be in the name. `len` counts characters
+// as of the same week, so characters are what the prelude means by a length unless it says
+// `byte_len`. The parameter keeps `max_chars`, which is where the unit now lives -- at the call
+// site, where it is read.
+//
+// **`char_at` is the one of the three that cost C.** The other prefix leftovers derived the symbol
+// already registered; `char_at` was registered *bare*, which `native_lookup(fn->name)` finds
+// before the world-prefix fallback is consulted -- so both members would have run the `string`
+// implementation and read a builder handle as text. That is the trap `last_index_of` fell into the
+// day before. `string_char_at` and `mutable_string_char_at` now.
+fn main() {
+    // truncate, with the unit in the parameter rather than the name
+    print(truncate("héllo world", 5))
+    print(truncate("héllo", 99))
+
+    // char_at over both worlds, which is what the merge bought
+    val s = "héllo"
+    val sb = mutable_string_new()
+    append(sb, "héllo")
+    print(char_at(s, 0))
+    print(char_at(sb, 0))
+    print(char_at(sb, 1) == char_at(s, 1))
+
+    // reverse over all three members of its set, code points not bytes
+    print(reverse("héllo"))
+    print(reverse([1, 2, 3]))
+    val b = mutable_array_new<int>()
+    push(b, 1, 2, 3)
+    reverse(b)
+    print(snapshot(b))
+}

@@ -1,20 +1,20 @@
-ziman: type error at 10:5 in tests/lang/prefixed_builder_appenders_point_home.zm: 'mutable_array_push' is now 'push': these names lost the prefix that said which world the first argument came from -- the argument says it
+ziman: type error at 10:5 in tests/lang/prefixed_builder_appenders_point_home.zm: 'mutable_array_push' is now 'push': these names carried a word for the world their first argument comes from -- a prefix for most of them, a suffix for two -- and the argument says it
    |
 10 |     mutable_array_push(b, 1)
    |     ^
-ziman: type error at 11:5 in tests/lang/prefixed_builder_appenders_point_home.zm: 'mutable_array_insert' is now 'insert': these names lost the prefix that said which world the first argument came from -- the argument says it
+ziman: type error at 11:5 in tests/lang/prefixed_builder_appenders_point_home.zm: 'mutable_array_insert' is now 'insert': these names carried a word for the world their first argument comes from -- a prefix for most of them, a suffix for two -- and the argument says it
    |
 11 |     mutable_array_insert(b, 0, 2)
    |     ^
-ziman: type error at 12:11 in tests/lang/prefixed_builder_appenders_point_home.zm: 'mutable_array_remove' is now 'remove': these names lost the prefix that said which world the first argument came from -- the argument says it
+ziman: type error at 12:11 in tests/lang/prefixed_builder_appenders_point_home.zm: 'mutable_array_remove' is now 'remove': these names carried a word for the world their first argument comes from -- a prefix for most of them, a suffix for two -- and the argument says it
    |
 12 |     print(mutable_array_remove(b, 0))
    |           ^
-ziman: type error at 16:11 in tests/lang/prefixed_builder_appenders_point_home.zm: 'bytes_concat' is now 'concat': these names lost the prefix that said which world the first argument came from -- the argument says it
+ziman: type error at 16:11 in tests/lang/prefixed_builder_appenders_point_home.zm: 'bytes_concat' is now 'concat': these names carried a word for the world their first argument comes from -- a prefix for most of them, a suffix for two -- and the argument says it
    |
 16 |     print(bytes_concat(to_bytes("a"), to_bytes("b")))
    |           ^
-ziman: type error at 17:11 in tests/lang/prefixed_builder_appenders_point_home.zm: 'bytes_index_of' is now 'index_of': these names lost the prefix that said which world the first argument came from -- the argument says it
+ziman: type error at 17:11 in tests/lang/prefixed_builder_appenders_point_home.zm: 'bytes_index_of' is now 'index_of': these names carried a word for the world their first argument comes from -- a prefix for most of them, a suffix for two -- and the argument says it
    |
 17 |     print(bytes_index_of(to_bytes("ab"), to_bytes("b"), 0))
    |           ^

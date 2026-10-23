@@ -14,9 +14,9 @@ fn main() {
     print(len(lines("")))
 
     // Reversal is by code point, so text outside ASCII comes back as text.
-    print(reverse_string("abc"))
-    print(reverse_string("añb"))
-    print(reverse_string(""))
+    print(reverse("abc"))
+    print(reverse("añb"))
+    print(reverse(""))
 
     // `sep` goes between, not after.
     print(join(separator: "-", pieces: ["2026", "10", "09"]))

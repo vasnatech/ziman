@@ -3066,8 +3066,24 @@ Whether `s` is empty or only blanks (whatever `trim` removes): `trim(s) == ""`, 
 pub native fn char_at(s: string, i: int) -> string
 ```
 
-The one-byte string at position `i` (`0 <= i < len(s)`, a runtime error otherwise), so
-`char_at(s, i) == "x"` replaces `substring(s, i, i + 1) == "x"`. It is a byte, not a character.
+The one-byte string at position `i` (`0 <= i < byte_len(s)`, a runtime error otherwise), so
+`char_at(s, i) == "x"` replaces `substring(s, i, i + 1) == "x"`. It is a byte, not a character,
+and `i` is a byte offset -- pair it with `byte_len`, not `len`.
+
+```
+pub native fn char_at(s: MutableString, i: int) -> string
+```
+
+The same of a builder, read in place: what lets a string being built be inspected without
+`snapshot`, which copies all of it per call.
+
+**`mutable_string_get` until 2026-10-23**, the fourth and last of F205's prefix leftovers and
+the only one that was not free. The other three derived the symbol already registered; this one
+did not, and worse, **`char_at` was registered under its bare name** -- which
+`native_lookup(fn->name)` finds before the world-prefix fallback is ever consulted, so both
+members would have run the `string` implementation and read a handle as text. That is the trap
+`last_index_of` fell into the day before. The registrations are `string_char_at` and
+`mutable_string_char_at` now, and the rename cost two lines of C rather than none.
 
 ### `last_index_of`
 
@@ -3110,16 +3126,21 @@ byte offset if `s` is not valid UTF-8 (only reachable by chaining a byte-level f
 `substring` into this one -- `bytes_to_string` already rejects invalid UTF-8 at the boundary
 where it would otherwise enter a program).
 
-### `truncate_chars`
+### `truncate`
 
 ```
-pub native fn truncate_chars(s: string, max_chars: int) -> string
+pub native fn truncate(s: string, max_chars: int) -> string
 ```
 
 `s` shortened to at most `max_chars` code points, without ever cutting one in half -- the safe
 way to truncate text for display (`substring` counts bytes and can produce invalid UTF-8).
 `max_chars >= len(s)` returns `s` unchanged; `max_chars` must not be negative. Same
 UTF-8 requirement as `chars`.
+**`truncate_chars` until 2026-10-23.** The `_chars` said which unit the limit is in, back when
+`len` counted bytes and the distinction had to be in the name. `len` counts characters now, so
+characters are what the prelude means by a length unless it says `byte_len`, and the suffix was
+restating the default. The parameter keeps `max_chars`, which is where the unit now lives --
+one word, at the call site, where it is read.
 
 ### `equals_ignore_case`
 
@@ -3259,28 +3280,18 @@ silently. So the criterion is not "mutates and answers" but "mutates, and the an
 ordinary call has no use for"; if `append_byte` ever joins an overload set, the dropped-result
 gate refusing a discarded result will be right.
 
-### `mutable_string_get`
-
-```
-pub native fn mutable_string_get(s: MutableString, index: int) -> string
-```
-
-Reading and writing one byte of the buffer: what lets a string being built be inspected without
-`snapshot`, which copies all of it per call. Byte-indexed, like every string operation in the
-language -- `len` is bytes and `char_at(s, i)` is the one-byte string at `i`, so there is no
-UTF-8 question left to settle here.
-
-**Searching it used to be here too**, and moved on 2026-10-22 when
-`mutable_string_index_of`/`mutable_string_last_index_of` became members of `index_of` and
-`last_index_of`: a set's members sit together, so they went up to join their immutable twins.
-What stays is what this world alone has.
-
 ### `set`
 
 ```
 pub native fn set(s: MutableString, index: int, value: string)
 ```
 
+Writing one byte of the buffer: what lets a string being built be changed in place.
+
+**Reading one used to be here too, and searching before that.** `mutable_string_get` became
+`char_at`'s builder member on 2026-10-23 and went up to join its twin, as
+`mutable_string_index_of` and `mutable_string_last_index_of` did the day before. A set's members
+sit together, so what is left here is what this world alone has: a write.
 Replaces one byte: one element in, one element out. A `value` of any other length is a runtime
 error rather than a splice, because splicing would change the length and `set` nowhere else in
 the language does that.
@@ -3333,12 +3344,19 @@ error (docs/reviews/tasks.md F35).
 A final newline is a terminator, not a separator -- "a\nb\n" and "a\nb" both have two lines --
 which is how every line-oriented tool reads a text file. An empty string has no lines.
 
-### `reverse_string`
+### `reverse`
 
 ```
-pub fn reverse_string(s: string) -> string
+pub fn reverse(s: string) -> string
 ```
 
 `s` with its characters in the opposite order. Reverses *code points*, not bytes, so reversing
 text outside ASCII gives text rather than mojibake -- the byte-level version of this is the
 classic way to corrupt UTF-8, and `chars` already answers in code points.
+
+**`reverse_string` until 2026-10-23**, the last `_string` suffix in the prelude. It said which
+type the argument is, which the argument says; `reverse`'s two array members are in array.zm and
+this is the text one, filed here because a declaration lives in the file for its first
+argument's type. Ordinary Ziman where those two are native, so the rename touched no C at all --
+and `reverse` had no bare registration to shadow it, which is the question worth asking first
+after `char_at` and `last_index_of` both did.

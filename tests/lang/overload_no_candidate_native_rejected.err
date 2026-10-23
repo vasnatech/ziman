@@ -1,1 +1,1 @@
-'reverse' expects [T] or MutableArray<T>, found Set<int>
+'reverse' expects [T], string or MutableArray<T>, found Set<int>

@@ -3,14 +3,14 @@ fn main() {
     print(byte_len(s))          // byte length: 14 (é and ö are each 2 bytes)
     print(len(s))   // character count: 12
     print(chars(s))
-    print(truncate_chars(s, 5))    // "héllo" -- never splits é
-    print(truncate_chars(s, 0))
-    print(is_empty(truncate_chars(s, 0)))
-    print(truncate_chars(s, 100))  // longer than the string: unchanged
+    print(truncate(s, 5))    // "héllo" -- never splits é
+    print(truncate(s, 0))
+    print(is_empty(truncate(s, 0)))
+    print(truncate(s, 100))  // longer than the string: unchanged
 
     print(chars(""))
     print(len(""))
-    print(truncate_chars("", 5))
+    print(truncate("", 5))
 
     // ASCII-only text: chars/char_count agree with the byte-based functions
     val ascii = "hello"

@@ -3585,6 +3585,10 @@ What makes the rename cheap is that Ziman's strings are **byte-indexed** already
 `char_at(s, i)` is "the one-byte string at `i`", and `char_count` is the separate explicit helper.
 The UTF-8 ambiguity that usually makes a mutable string hard was settled for immutable strings long
 ago, so `len`, `mutable_string_get` and `mutable_string_set` all mean bytes, consistently.
+*(2026-10-23: two of those three moved. `len` on text counts code points now and `byte_len` is the
+byte question; `mutable_string_get` is `char_at`'s builder member and `mutable_string_set` is
+`set`'s. The byte-indexing itself is unchanged -- `char_at`, `substring`, `set` and the searches
+all still take byte offsets, which is what `byte_len` bounds.)*
 
 The honest counterweight: this is the **one rename in the set that loses prior art rather than
 gaining guessability**. `StringBuilder` is Java, C# and Go, and a cold model writes it correctly
@@ -3741,6 +3745,7 @@ MutableString                                      #[thread_bound]
   append(s, pieces: variadic string)
   append_byte(s, bytes: variadic byte)
   mutable_string_get(s, index) -> string            the one-byte string, as char_at
+                                                    (now `char_at`; 2026-10-23)
   mutable_string_set(s, index, value)               (now `set`; 2026-10-22)
   mutable_string_index_of(s, needle) -> int         (now `index_of`; 2026-10-22)
   mutable_string_last_index_of(s, needle) -> int    (now `last_index_of`; 2026-10-22)

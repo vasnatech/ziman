@@ -1801,6 +1801,21 @@ static const char *renamed_builder_fn(const char *name) {
                    {"mutable_string_set", "set"},
                    {"mutable_string_index_of", "index_of"},
                    {"mutable_string_last_index_of", "last_index_of"},
+                   /* The fourth and last of that batch, 2026-10-23, and the only one that cost C:
+                    * `char_at` was registered bare, so both members would have run the `string`
+                    * implementation. `string_char_at` and `mutable_string_char_at` now. */
+                   {"mutable_string_get", "char_at"},
+                   /* **Two suffixes rather than prefixes**, the same day and the same rule read
+                    * from the other end: `_chars` and `_string` said what the argument is, which
+                    * the argument says. `len` counting characters is what made `_chars` redundant,
+                    * characters being the unit the prelude means unless it says `byte_len`.
+                    *
+                    * The shared sentence said "lost the prefix" until these two arrived and made
+                    * it false. It says "a prefix for most of them, a suffix for two" now -- which
+                    * is the second time this message has had to be widened rather than left
+                    * half-true, after "a builder is a mutable collection" went. */
+                   {"truncate_chars", "truncate"},
+                   {"reverse_string", "reverse"},
                    {"bytes_concat", "concat"},
                    {"bytes_index_of", "index_of"},
                    {"mutable_map_set_all", "merge"},
@@ -4383,8 +4398,8 @@ ordinary_call:;
              * than extended -- the prefix rule is the whole of what these renames share, and the
              * rest was a fact about the first batch. */
             ziman_error("type", e->line, e->col,
-                        "'%s' is now '%s': these names lost the prefix that said which world the first argument "
-                        "came from -- the argument says it",
+                        "'%s' is now '%s': these names carried a word for the world their first argument comes "
+                        "from -- a prefix for most of them, a suffix for two -- and the argument says it",
                         name, renamed_fn);
         }
         const char *suggestion = suggest_function_name(module, name);

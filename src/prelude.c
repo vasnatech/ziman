@@ -1090,7 +1090,7 @@ static Value native_string_to_bytes(Value *args, int argc, int line, int col) {
 }
 
 /* ---- UTF-8: a strict validator/decoder, used by bytes_to_string and the codepoint functions
- * below (chars, char_count, truncate_chars) -- see docs/DESIGN.md's UTF-8 correctness entry.
+ * below (chars, len over text, truncate) -- see docs/DESIGN.md's UTF-8 correctness entry.
  *
  * Deliberately not shared with regex.c's own decode(): that one is lenient on purpose (an
  * invalid sequence falls back to one raw byte, so a regex never fails to match just because the
@@ -1204,11 +1204,11 @@ static Value native_byte_len(Value *args, int argc, int line, int col) {
  * in half. Stops at the earlier of `max_chars` code points or the end of `s`; `max_chars >=
  * char_count(s)` returns `s` itself, unchanged. Same UTF-8 validity requirement and error as
  * `chars`. */
-static Value native_truncate_chars(Value *args, int argc, int line, int col) {
+static Value native_truncate(Value *args, int argc, int line, int col) {
     (void)argc;
     int64_t max_chars = args[1].as.i;
     if (max_chars < 0) {
-        ziman_error("runtime", line, col, "truncate_chars: max_chars must not be negative (got %lld)", (long long)max_chars);
+        ziman_error("runtime", line, col, "truncate: max_chars must not be negative (got %lld)", (long long)max_chars);
     }
     const uint8_t *s = (const uint8_t *)SPTR(args[0]);
     size_t len = SLEN(args[0]);
@@ -1218,7 +1218,7 @@ static Value native_truncate_chars(Value *args, int argc, int line, int col) {
         uint32_t cp;
         int n = ziman_utf8_decode_strict(s, len, pos, &cp);
         if (n == 0) {
-            ziman_error("runtime", line, col, "truncate_chars: string is not valid UTF-8 (invalid sequence at byte %zu)", pos);
+            ziman_error("runtime", line, col, "truncate: string is not valid UTF-8 (invalid sequence at byte %zu)", pos);
         }
         pos += (size_t)n;
         count++;
@@ -3223,7 +3223,12 @@ void prelude_register(void) {
     native_register("string_last_index_of", native_last_index_of);
     native_register("is_char_at", native_is_char_at);
     native_register("equals_ignore_case", native_equals_ignore_case);
-    native_register("char_at", native_char_at);
+    /* `string_char_at`, not the bare name, since 2026-10-23: `char_at` gained a `MutableString`
+     * member when `mutable_string_get` merged into it, and a bare registration is found by
+     * `native_lookup(fn->name)` before the world-prefix fallback is consulted -- so both members
+     * would have run this one, reading a handle as text. The same trap `last_index_of` fell into
+     * the day before, and the reason that one is `string_last_index_of` now. */
+    native_register("string_char_at", native_char_at);
     native_register("starts_with", native_starts_with);
     native_register("ends_with", native_ends_with);
     native_register("replace", native_replace);
@@ -3302,8 +3307,8 @@ void prelude_register(void) {
     native_register("bytes_to_string", native_bytes_to_string);
     native_register("chars", native_chars);
     native_register("byte_len", native_byte_len);
-    native_register("truncate_chars", native_truncate_chars);
-    native_register("mutable_string_get", native_mutable_string_get);
+    native_register("string_truncate", native_truncate);
+    native_register("mutable_string_char_at", native_mutable_string_get);
     native_register("mutable_string_set", native_mutable_string_set);
     native_register("mutable_string_index_of", native_mutable_string_index_of);
     native_register("mutable_string_last_index_of", native_mutable_string_last_index_of);

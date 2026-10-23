@@ -2964,16 +2964,20 @@ a type error.
   chaining a byte-level cut into one, since `bytes_to_string` already rejects invalid UTF-8 at the
   one real boundary: `len(s) -> int` (code points), `chars(s) -> [string]` (split into them:
   `chars("héllo")` is `[h,é,l,l,o]`, and `len(s)` is cheaper than `len(chars(s))`),
-  `truncate_chars(s, max_chars) -> string` (shortened without cutting a code point in half;
-  `max_chars >= len(s)` returns `s` unchanged, negative is a runtime error).
+  `truncate(s, max_chars) -> string` (shortened without cutting a code point in half;
+  `max_chars >= len(s)` returns `s` unchanged, negative is a runtime error). **It was
+  `truncate_chars` until 2026-10-23**: the suffix said which unit the limit counts in, back when
+  `len` counted bytes; characters are the default unit now unless a name says `byte_len`, and the
+  parameter keeps `max_chars` so the unit stays at the call site.
 - `trim(s) -> string` — leading/trailing whitespace removed.
 - `lines(text) -> [string]` — the lines, without their terminators. Not the same as
   `split(text, "\n")`: a `\r` is removed from each line of CRLF text, and a final newline
   *terminates* the last line rather than starting an empty one, so `"a\nb\n"` and `"a\nb"` both
   have two lines. A blank line in the middle is a real line and stays; an empty string has none.
-- `reverse_string(s) -> string` — `s` with its characters in the opposite order, reversing *code
-  points* rather than bytes, so text outside ASCII comes back as text. `reverse` is the array
-  version, and takes a builder too. `is_empty(s) -> bool` (`s == ""`);
+- `reverse(s) -> string` — `s` with its characters in the opposite order, reversing *code points*
+  rather than bytes, so text outside ASCII comes back as text. **It was `reverse_string` until
+  2026-10-23**, the last `_string` suffix in the prelude; `reverse` is one set of three now, this
+  member plus an array and a builder in array.zm. `is_empty(s) -> bool` (`s == ""`);
   `is_blank(s) -> bool` (empty or only whitespace). `to_upper`/`to_lower(s) -> string` — ASCII only.
 - `parse_int`/`parse_float`/`parse_bigint`/`parse_decimal(s) -> Result<_, string>` — parses all
   of `s`; `Err` on leading/trailing junk (blanks, a leading `+`) or a non-parse. A number is an

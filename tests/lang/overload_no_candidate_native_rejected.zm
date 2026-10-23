@@ -2,6 +2,11 @@
 // `overload_no_candidate_rejected` because the two reach the resolver by different routes: this
 // one's chosen declaration would have been resolved to a C symbol through the world prefix that
 // F180 left in `interpreter.c`, and getting there at all is what is being pinned.
+//
+// The list in the message grew a `string` on 2026-10-23, when `reverse_string` became `reverse`'s
+// text member -- which is the other half of what this fixture is good for. The sentence is built
+// from the declarations rather than written down anywhere, so adding a member to a set widens its
+// refusal for free, and this notices when one does.
 fn main() {
     print(reverse(Set<int> { 1, 2 }))
 }
