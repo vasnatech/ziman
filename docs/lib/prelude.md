@@ -2247,15 +2247,20 @@ allocating a boxed array it was about to discard. Measure one spelling per proce
 are ever re-run: taking all three in one gave the last of them a heap the earlier two had
 already grown, which read as a 4x spread that does not exist.
 
-### `option_to_result`
+### `to_result`
 
 ```
-pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T, E>
+pub fn to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T, E>
 ```
 
-The reverse of result_to_option: Some(value) becomes Ok(value), and None becomes
+The reverse of `to_option` in result.zm: Some(value) becomes Ok(value), and None becomes
 Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
 formatted message) is skipped entirely on the common Some path.
+
+**Named `option_to_result` until 2026-10-22.** The `option_` prefix said argument one is an
+`Option` and argument one says that, the same rule that took the prefix off `map_err` and
+`to_option` the same day; the old name points here. Named for its target like `to_set`, which
+had been doing this since long before.
 
 ## `result.zm`
 
@@ -2373,25 +2378,33 @@ rather than four lines of switch at every call.
 
 **Named `result_map_err` until 2026-10-22.** The `result_` prefix said which world the first
 argument came from and the argument already says it, which is the rule every other prefix drop
-followed; the old name points here, as those do. `result_to_option` keeps its prefix on purpose
-and is not an oversight: there the prefix names the *source* of a conversion, pairing with
-`option_to_result` in option.zm, so dropping it would leave two functions called `to_option` and
-`to_result` that say nothing about what they convert from.
+followed; the old name points here, as those do. `to_option` below lost its `result_` prefix the
+same day for the same reason.
 
-### `result_to_option`
+**This comment argued the opposite for about an hour**, and the argument is worth recording as
+wrong rather than deleting: it said the prefix on `result_to_option` named a conversion's
+*source* rather than its world, so dropping it would leave a `to_option` that says nothing about
+what it converts from. `to_set` is what refutes that -- it has been in array.zm all along,
+prefix-free, named for its target, with `[T]` or `MutableArray<T>` read from argument one. The
+source was never in the name; it was always in the argument, which is the prefix rule exactly.
+
+### `to_option`
 
 ```
-pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T>
+pub fn to_option<T, E>(r: Result<T, E>) -> Option<T>
 ```
 
 `r`'s Ok value, or None on Err -- the error itself is dropped, so use this only where the
-caller truly doesn't care why something failed, not as a shortcut past handling it.
-`option_to_result` in option.zm is the reverse.
+caller truly doesn't care why something failed, not as a shortcut past handling it. `to_result`
+in option.zm is the reverse, and the pair reads as one word each way.
+
+**Named `result_to_option` until 2026-10-22**, when the prefix went for the reason every other
+prefix went: it said argument one is a `Result`, and argument one says that. The old name points
+here. `to_set` in array.zm is the shape this now matches -- a conversion named for its target.
 
 This sentence had been attached to `map_err` above (then called `result_map_err`), two
-declarations away from what it
-describes, so `result_to_option` published with no comment of its own and `map_err` with
-a first sentence about something else. Found 2026-10-22 by moving the file.
+declarations away from what it describes, so this function published with no comment of its own
+and `map_err` with a first sentence about something else. Found 2026-10-22 by moving the file.
 
 ## `set.zm`
 

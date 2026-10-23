@@ -1799,11 +1799,18 @@ static const char *renamed_builder_fn(const char *name) {
                    {"mutable_array_push", "push"},
                    {"mutable_array_insert", "insert"},
                    {"mutable_array_remove", "remove"},
-                   /* Not a builder, and the first entry here whose world is a `Result`: the `result_`
-                    * prefix said which world argument one came from and the argument says it, which is
-                    * the rule all of these follow. `result_to_option` deliberately keeps its prefix --
-                    * there it names a conversion's *source*, pairing with `option_to_result`. */
+                   /* The `Result`/`Option` world's three, 2026-10-22, and the first entries here
+                    * that are neither a collection nor a builder. Same rule as every other: the
+                    * prefix said which world argument one came from and the argument says it.
+                    *
+                    * The two conversions were added an hour after `map_err`, overruling a comment
+                    * that had just argued they should keep their prefixes because those named a
+                    * conversion's *source* rather than its world. `to_set` in array.zm refutes
+                    * that and predates all of this: prefix-free, named for its target, source read
+                    * from argument one. */
                    {"result_map_err", "map_err"},
+                   {"result_to_option", "to_option"},
+                   {"option_to_result", "to_result"},
                    {NULL, NULL}};
     for (size_t k = 0; RENAMED[k].was != NULL; k++) {
         if (strcmp(name, RENAMED[k].was) == 0) return RENAMED[k].now;

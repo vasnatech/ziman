@@ -7,7 +7,7 @@
 // which the filing rule had already answered: a declaration lives in the file for the type its
 // first argument has, and a set is split when its members' types are. So `unwrap` has one member
 // here and one there, as `len` has five files, and each conversion sits with its *source*:
-// `option_to_result` here, `result_to_option` in result.zm.
+// `to_result` here, `to_option` in result.zm.
 //
 // Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
 // loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
@@ -172,10 +172,15 @@ pub fn filter_present<T>(items: variadic Option<T>) -> [T] {
     return out
 }
 
-// The reverse of result_to_option: Some(value) becomes Ok(value), and None becomes
+// The reverse of `to_option` in result.zm: Some(value) becomes Ok(value), and None becomes
 // Err(err_supplier()) -- a function, not a plain value, so building the error (an allocation, a
 // formatted message) is skipped entirely on the common Some path.
-pub fn option_to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T, E> {
+//
+// **Named `option_to_result` until 2026-10-22.** The `option_` prefix said argument one is an
+// `Option` and argument one says that, the same rule that took the prefix off `map_err` and
+// `to_option` the same day; the old name points here. Named for its target like `to_set`, which
+// had been doing this since long before.
+pub fn to_result<T, E>(o: Option<T>, err_supplier: fn() -> E) -> Result<T, E> {
     return switch o {
         Some(value) { ok(value) }
         None { err(err_supplier()) }

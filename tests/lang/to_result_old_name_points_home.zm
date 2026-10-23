@@ -1,0 +1,7 @@
+// The other half of to_option_and_to_result_old_names_point_home: `option_to_result` is now
+// `to_result`. Separate file because a `.err` fixture asserts one message and this pair is two
+// renames in opposite directions -- checking only one would leave the other free to regress.
+fn main() {
+    val o = Option<int>.Some(1)
+    print(is_ok(option_to_result(o, fn() -> string { return "none" })))
+}

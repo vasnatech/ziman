@@ -397,7 +397,7 @@ pub fn delete_cookie_header(name: string, path: string, domain: string) -> Heade
 pub fn content_type(headers: [Header]) -> Option<mime.MediaType> {
     return switch header_value(headers, "Content-Type") {
         None { None }
-        Some(value) { result_to_option(mime.parse(value)) }
+        Some(value) { to_option(mime.parse(value)) }
     }
 }
 

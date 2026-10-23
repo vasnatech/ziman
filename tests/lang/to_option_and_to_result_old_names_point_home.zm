@@ -1,0 +1,17 @@
+// `result_to_option` and `option_to_result` became `to_option` and `to_result` on 2026-10-22, and
+// both old names point home. They are the second and third `renamed_builder_fn` entries that are
+// neither a collection nor a builder, after `result_map_err` the same day.
+//
+// **The rename overruled a comment arguing against it**, which is why this fixture spells out the
+// rule rather than just checking two strings. The argument was that these prefixes named a
+// conversion's *source* rather than argument one's world, so `to_option` alone would not say what
+// it converts from. `to_set` in array.zm refutes it and always did: prefix-free, named for its
+// target, with `[T]` or `MutableArray<T>` read from argument one. The source was never in the
+// name. A conversion is named for where it goes, and argument one says where it came from.
+//
+// Both directions still exist and still pair -- `to_option(r)` drops an error, `to_result(o, f)`
+// supplies one -- and now read as one word each way.
+fn main() {
+    val r: Result<int, string> = ok(1)
+    print(is_Some(result_to_option(r)))
+}

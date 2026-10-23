@@ -8,9 +8,11 @@
 // here. The clause is gone; the prefix rule, which is the whole of what these renames share, is
 // what the sentence says now. The four fixtures that pinned the old wording moved with it.
 //
-// `result_to_option` deliberately keeps its prefix and is *not* in the table: there the prefix
-// names a conversion's source, pairing with `option_to_result`, so dropping it would leave a
-// `to_option` that says nothing about what it converts from.
+// This fixture's first version claimed `result_to_option` keeps its prefix on purpose, "because
+// there the prefix names a conversion's source". That lasted about an hour: both conversions were
+// renamed to `to_option` and `to_result` the same day, and `to_set` -- prefix-free, named for its
+// target, source read from argument one -- had been the counterexample in array.zm all along.
+// Pinned in to_option_and_to_result_old_names_point_home.
 fn main() {
     val r: Result<int, string> = err("bad")
     print(is_ok(result_map_err(r, fn(e: string) -> int { return len(e) })))
