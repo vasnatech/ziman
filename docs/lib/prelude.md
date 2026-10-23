@@ -2442,7 +2442,7 @@ members are in array.zm with `flat_map`, and its Map member in map.zm.
 ### `add`
 
 ```
-pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
+pub builtin fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
 ```
 
 Adds each of `items`, answering whether any of them was new. The singular `mutable_set_add` is
@@ -2453,6 +2453,17 @@ or several is never ambiguous when only the `_all` form takes many.
 `add(s, x)` on its own is "make sure x is in here", and that is the ordinary call. Without the
 attribute the dropped-result gate reads a non-void prelude overload as pure and refuses it, as
 it did from F199 until F212.
+
+**A new `Set` with every one of `items` added**, the immutable half: an element already present
+changes nothing and keeps its position. It answers the set rather than "was anything new",
+because a value has nothing to report -- which is the difference between the two halves of this
+name, and why only the builder half is `#[effectful]`.
+
+```
+pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
+```
+
+The same written into the builder, answering whether any of them was new.
 
 ### `remove`
 
@@ -2522,35 +2533,15 @@ pub native fn items<T: Eq + Hash>(s: Set<T>) -> [T]
 pub builtin fn union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 ```
 
-### `intersect`
-
-```
-pub builtin fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
-```
-
-### `difference`
-
-```
-pub builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
-```
-
-### `is_subset`
-
-```
-pub builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
-```
-
-### `add`
-
-```
-pub builtin fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
-```
-
-### `union`
+**Every element of either**, `s` first and `other`'s new elements after, each in the order it
+was first seen.
 
 ```
 pub builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 ```
+
+The same written into `s`, answering nothing. Two declarations for one question: `other` is a
+`Set` here and a `MutableSet` below, and a parameter cannot be both.
 
 ```
 pub builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
@@ -2559,8 +2550,17 @@ pub builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 ### `intersect`
 
 ```
+pub builtin fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+```
+
+**Only the elements in both**, in `s`'s order. O(len(s)) lookups against `other`, which is why
+the smaller set reads better as `s`.
+
+```
 pub builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 ```
+
+The same written into `s`, answering nothing.
 
 ```
 pub builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
@@ -2569,14 +2569,33 @@ pub builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 ### `difference`
 
 ```
+pub builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+```
+
+**`s` without anything `other` holds**, in `s`'s order. Not symmetric: `difference(a, b)` and
+`difference(b, a)` are different questions, which is why the receiver is named `s` and the
+argument `other` rather than giving them matching names.
+
+```
 pub builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 ```
+
+The same written into `s`, answering nothing.
 
 ```
 pub builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 ```
 
 ### `is_subset`
+
+```
+pub builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
+```
+
+**Whether every element of `s` is in `other`.** True of an empty `s` against anything, which is
+the convention every set type uses and the one case worth stating. Unlike the three above this
+answers a value in both worlds -- there is nothing to write -- so its two in-place members
+differ from the immutable one only in what `s` is, not in what the call means.
 
 ```
 pub builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool

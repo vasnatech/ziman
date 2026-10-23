@@ -119,6 +119,15 @@ internal native fn mutable_set_add<T: Eq + Hash>(s: MutableSet<T>, item: T) -> b
 // `add(s, x)` on its own is "make sure x is in here", and that is the ordinary call. Without the
 // attribute the dropped-result gate reads a non-void prelude overload as pure and refuses it, as
 // it did from F199 until F212.
+//
+// **A new `Set` with every one of `items` added**, the immutable half: an element already present
+// changes nothing and keeps its position. It answers the set rather than "was anything new",
+// because a value has nothing to report -- which is the difference between the two halves of this
+// name, and why only the builder half is `#[effectful]`.
+#[at_least_one]
+pub builtin fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
+
+// The same written into the builder, answering whether any of them was new.
 #[at_least_one]
 #[effectful]
 pub fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
@@ -188,25 +197,50 @@ pub fn items<T: Eq + Hash>(s: MutableSet<T>) -> [T] {
 
 pub native fn items<T: Eq + Hash>(s: Set<T>) -> [T]
 
+// ------------------------------------------------------------------- the four set operations
+//
+// `union`, `intersect`, `difference` and `is_subset`, each over both worlds, and each in the same
+// shape: one immutable member answering a new `Set`, then **two** in-place members because `other`
+// may come from either world and a parameter has exactly one type. That second pair is not a
+// choice -- the same wall `concat` and `merge` document -- and one builtin id serves all three
+// members of each name, taking the in-place path when argument one is a handle.
+//
+// They were an undocumented block of thirteen declarations until 2026-10-22, grouped by world:
+// four immutable operations, then `add`'s immutable member, then the eight in-place ones. Every
+// one of the thirteen published a blank entry in `docs/lib/prelude.md`, which is the cost
+// collections.zm's own header measured and the reason a set's members now sit together.
+
+// **Every element of either**, `s` first and `other`'s new elements after, each in the order it
+// was first seen.
 pub builtin fn union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 
-pub builtin fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
-
-pub builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
-
-pub builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
-
-#[at_least_one]
-pub builtin fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
-
+// The same written into `s`, answering nothing. Two declarations for one question: `other` is a
+// `Set` here and a `MutableSet` below, and a parameter cannot be both.
 pub builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 pub builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 
+// **Only the elements in both**, in `s`'s order. O(len(s)) lookups against `other`, which is why
+// the smaller set reads better as `s`.
+pub builtin fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+
+// The same written into `s`, answering nothing.
 pub builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 pub builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 
+// **`s` without anything `other` holds**, in `s`'s order. Not symmetric: `difference(a, b)` and
+// `difference(b, a)` are different questions, which is why the receiver is named `s` and the
+// argument `other` rather than giving them matching names.
+pub builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+
+// The same written into `s`, answering nothing.
 pub builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 pub builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+
+// **Whether every element of `s` is in `other`.** True of an empty `s` against anything, which is
+// the convention every set type uses and the one case worth stating. Unlike the three above this
+// answers a value in both worlds -- there is nothing to write -- so its two in-place members
+// differ from the immutable one only in what `s` is, not in what the call means.
+pub builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
 
 pub builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
 pub builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
