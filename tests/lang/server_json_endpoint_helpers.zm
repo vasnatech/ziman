@@ -32,11 +32,11 @@ fn main() {
 
     // Both failures a caller can cause, kept distinct: not JSON at all, versus JSON that is not
     // this model. Only the first carries the parser's own message.
-    print(switch dec.decode(string_to_bytes("not json")) {
+    print(switch dec.decode(to_bytes("not json")) {
         Ok(p) { "accepted" }
         Err(e) { e }
     })
-    print(switch dec.decode(string_to_bytes("{\"x\":1}")) {
+    print(switch dec.decode(to_bytes("{\"x\":1}")) {
         Ok(p) { "accepted" }
         Err(e) { e }
     })

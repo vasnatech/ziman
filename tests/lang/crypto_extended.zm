@@ -4,19 +4,19 @@ use number
 fn main() {
     val parts = mutable_array_new<byte>()
     for i in 0..100000 {
-        push<byte>(parts, string_to_bytes("aaaaaaaaaa"))
+        push<byte>(parts, to_bytes("aaaaaaaaaa"))
     }
     val big = snapshot(parts)
-    print(number.bytes_to_hex(crypto.sha512(string_to_bytes("abc"))))
-    print(number.bytes_to_hex(crypto.sha512(string_to_bytes(""))))
-    print(number.bytes_to_hex(crypto.hmac_sha512(string_to_bytes("key"),
-        string_to_bytes("The quick brown fox jumps over the lazy dog"))))
-    print(number.bytes_to_hex(crypto.pbkdf2_hmac_sha512(string_to_bytes("password"), string_to_bytes("salt"), 2, 40)))
-    print(number.bytes_to_hex(crypto.pbkdf2_hmac_sha256(string_to_bytes("password"), string_to_bytes("salt"), 4096,
+    print(number.bytes_to_hex(crypto.sha512(to_bytes("abc"))))
+    print(number.bytes_to_hex(crypto.sha512(to_bytes(""))))
+    print(number.bytes_to_hex(crypto.hmac_sha512(to_bytes("key"),
+        to_bytes("The quick brown fox jumps over the lazy dog"))))
+    print(number.bytes_to_hex(crypto.pbkdf2_hmac_sha512(to_bytes("password"), to_bytes("salt"), 2, 40)))
+    print(number.bytes_to_hex(crypto.pbkdf2_hmac_sha256(to_bytes("password"), to_bytes("salt"), 4096,
         20)))
     print(number.bytes_to_hex(crypto.sha256(big)))
     print(crypto.base64url_encode([251b, 255b, 254b]))
-    print(crypto.base64url_encode(string_to_bytes("ab")))
+    print(crypto.base64url_encode(to_bytes("ab")))
     print(crypto.base64_encode([251b, 255b, 254b]))
     // base64url and standard base64 decode, strictly
     print(crypto.base64url_decode("-__-"))

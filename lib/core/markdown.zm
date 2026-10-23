@@ -559,7 +559,7 @@ pub fn markdown_to_string(doc: Document) -> Result<string, string> {
 // `markdown_to_string` as UTF-8 bytes: an HTTP body, or what `fs.write_bytes` takes.
 pub fn markdown_to_bytes(doc: Document) -> Result<[byte], string> {
     val s = try markdown_to_string(doc)
-    return ok(string_to_bytes(s))
+    return ok(to_bytes(s))
 }
 
 // One block as Markdown text, for embedding in a document built some other way.

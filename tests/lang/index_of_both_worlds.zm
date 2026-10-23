@@ -20,16 +20,16 @@ fn main() {
     print(index_of("abc", "z", 0))
     print(index_of("abc", "", 1))
 
-    val hay = string_to_bytes("a\r\n\r\nb")
-    print(index_of(hay, string_to_bytes("\r\n\r\n"), 0))
-    print(index_of(hay, string_to_bytes("b"), 0))
-    print(index_of(hay, string_to_bytes("z"), 0))
+    val hay = to_bytes("a\r\n\r\nb")
+    print(index_of(hay, to_bytes("\r\n\r\n"), 0))
+    print(index_of(hay, to_bytes("b"), 0))
+    print(index_of(hay, to_bytes("z"), 0))
 
     // Named arguments still resolve, the set having no builtin member.
     print(index_of(s: "abcabc", needle: "bc", from: 2))
 
     // And `concat` answers the question `bytes_concat` used to, over the same bytes.
-    print(concat(string_to_bytes("ab"), string_to_bytes("cd")))
-    val parts = [string_to_bytes("x"), string_to_bytes("yz")]
+    print(concat(to_bytes("ab"), to_bytes("cd")))
+    val parts = [to_bytes("x"), to_bytes("yz")]
     print(concat(parts))
 }

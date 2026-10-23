@@ -28,7 +28,7 @@ fn main() {
     print(str(http.accepts([h("accept", "application/json;q=0.0")], json)))
     print(str(http.accepts([h("Accept", "garbage")], json)))
 
-    val r = server.media_response(200, string_to_bytes("x"), mime.with_param(mime.text_csv(), "charset", "utf-8"))
+    val r = server.media_response(200, to_bytes("x"), mime.with_param(mime.text_csv(), "charset", "utf-8"))
     print(show(http.content_type(r.headers)))
     print(show(http.content_type(server.json_response(200, "{}").headers)))
     print(show(http.content_type(server.text_response(200, "hi").headers)))

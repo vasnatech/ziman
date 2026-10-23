@@ -2042,10 +2042,15 @@ fn main() {
   message; `net_error_message(e)` renders one.
 - **Timeouts**: `net.set_timeout(s, millis)` applies to reads/writes (else a dead peer waits
   forever); no connect timeout beyond the OS default.
-- **`string_to_bytes`/`bytes_to_string`** are prelude builtins: `bytes_to_string`
+- **`to_bytes`/`bytes_to_string`** are prelude natives: `bytes_to_string`
   is a `Result` (`Err` on invalid UTF-8, naming the byte offset, or a 0 byte) -- the one real
   boundary where untrusted bytes become a `string`, so the one place UTF-8 is checked (see
-  "Strings are bytes" in "Builtins"). Those two are named for what they answer; the operations
+  "Strings are bytes" in "Builtins"). **`to_bytes` was `string_to_bytes` until 2026-10-22**: the
+  prefix named argument one's world, which the argument says, and a conversion is named for what it
+  answers. Its twin keeps the longer name on purpose — `to_string` would be a third spelling beside
+  `str(x)` for scalars and `snapshot(sb)` for a builder, and the two were never mirror images
+  anyway, since every string has bytes and not every byte sequence is a string. Those two are
+  named for what they answer; the operations
   *on* bytes need no `bytes_` name of their own, because `[byte]` is an array: `concat(parts...)`
   joins many byte arrays in one pass, `index_of(haystack, needle, from)` finds a delimiter in one
   (both bare since F213, where they were `bytes_concat` and `bytes_index_of`), and sub-ranges are

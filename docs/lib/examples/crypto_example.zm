@@ -2,9 +2,9 @@ use crypto
 use number.bytes_to_hex
 
 fn main() {
-    val data = string_to_bytes("abc")
+    val data = to_bytes("abc")
     print(bytes_to_hex(crypto.sha256(data)))
-    print(bytes_to_hex(crypto.hmac_sha256(string_to_bytes("key"), data)))
+    print(bytes_to_hex(crypto.hmac_sha256(to_bytes("key"), data)))
 
     // Compare secrets in constant time, not with ==.
     print(crypto.bytes_equal(crypto.sha256(data), crypto.sha256(data)))
@@ -14,6 +14,6 @@ fn main() {
     print(is_ok(crypto.base64_decode("***")))
 
     // A password hash: many iterations, a salt, a fixed output length.
-    val key = crypto.pbkdf2_hmac_sha256(string_to_bytes("secret"), string_to_bytes("salt"), 1000, 16)
+    val key = crypto.pbkdf2_hmac_sha256(to_bytes("secret"), to_bytes("salt"), 1000, 16)
     print(len(key))
 }

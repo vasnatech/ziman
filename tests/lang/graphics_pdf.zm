@@ -28,7 +28,7 @@ fn ok_or_fail(label: string, r: Result<[byte], string>) -> [byte] {
         }
         Err(why) {
             print(concat(label, ": FAILED -- ", why))
-            string_to_bytes("")
+            to_bytes("")
         }
     }
 }

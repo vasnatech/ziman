@@ -56,7 +56,7 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
 // encoding) instead of `%20`.
 pub fn percent_encode(s: string, plus_for_space: bool) -> string {
     val out = mutable_string_new()
-    for b in string_to_bytes(s) {
+    for b in to_bytes(s) {
         val c = b as int
         val unreserved = (c >= 48 && c <= 57) || (c >= 65 && c <= 90) || (c >= 97 && c <= 122) || c == 45 || c == 95 || c == 46 || c == 126
         if unreserved {

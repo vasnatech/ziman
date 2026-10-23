@@ -49,7 +49,7 @@ fn main() {
     print(len(concat([0b], slice<byte>(a, 0, 0))))
 
     // conversions
-    val text = string_to_bytes("héllo")
+    val text = to_bytes("héllo")
     print(len(text))
     print(unwrap(bytes_to_string(text)))
     print(is_ok(bytes_to_string([104b, 0b, 105b])))
@@ -62,8 +62,8 @@ fn main() {
     print(len(ab))
 
     // crypto works on packed input and produces a comparable result
-    print(crypto.base64_encode(string_to_bytes("abc")))
-    print(len(crypto.sha256(string_to_bytes("abc"))))
+    print(crypto.base64_encode(to_bytes("abc")))
+    print(len(crypto.sha256(to_bytes("abc"))))
     print(crypto.bytes_xor([1b, 2b], [3b, 3b]))
 
     // a slice outlives the array it was cut from (matters under the GC build)

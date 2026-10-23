@@ -17,7 +17,7 @@ fn main() {
         print(error_message(e))
     }
 
-    val v = jwt.verify("not-a-real-token", string_to_bytes("key"))
+    val v = jwt.verify("not-a-real-token", to_bytes("key"))
     if Err(e) = v {
         print(error_message(e))
     }

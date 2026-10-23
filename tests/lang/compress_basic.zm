@@ -11,11 +11,11 @@ fn main() {
     print(bytes_to_string(unwrap(compress.decompress(gz, 1000))))
     print(bytes_to_string(unwrap(compress.decompress(zl, 1000))))
     // round trips
-    val text = string_to_bytes("the quick brown fox jumps over the lazy dog")
+    val text = to_bytes("the quick brown fox jumps over the lazy dog")
     print(unwrap(compress.gunzip(compress.gzip(text), 1000)) == text)
     print(unwrap(compress.inflate(compress.deflate(text), 1000)) == text)
     print(unwrap(compress.decompress(compress.gzip(text), 1000)) == text)
-    print(len(compress.gzip(string_to_bytes(""))) > 0)
+    print(len(compress.gzip(to_bytes(""))) > 0)
     val nothing: [byte] = []
     print(unwrap(compress.decompress(compress.gzip(nothing), 10)) == nothing)
     // errors
@@ -27,7 +27,7 @@ fn main() {
     // a large, highly compressible input shrinks a lot and comes back exactly; the limit protects
     val parts = mutable_array_new<byte>()
     for i in 0..30000 {
-        push<byte>(parts, string_to_bytes("abc"))
+        push<byte>(parts, to_bytes("abc"))
     }
     val big = snapshot(parts)
     val packed = compress.gzip(big)

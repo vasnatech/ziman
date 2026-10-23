@@ -492,7 +492,7 @@ fn a_parsed_document_writes_back_as_the_text_it_came_from() {
 
 #[test]
 fn bytes_in_and_bytes_out() {
-    val doc = test.assert_ok(xml.parse_xml_bytes(string_to_bytes("<a>héllo</a>")))
+    val doc = test.assert_ok(xml.parse_xml_bytes(to_bytes("<a>héllo</a>")))
     test.assert_eq("héllo", xml.text_of(doc.root))
     val out = test.assert_ok(xml.xml_to_bytes(doc))
     test.assert(contains(test.assert_ok(bytes_to_string(out)), "héllo"))

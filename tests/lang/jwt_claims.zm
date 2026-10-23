@@ -14,7 +14,7 @@ fn show(r: Result<Json, jwt.JwtError>) {
 }
 
 fn token(claims: Json) -> string {
-    return unwrap(jwt.sign(claims, string_to_bytes("a shared secret of some length")))
+    return unwrap(jwt.sign(claims, to_bytes("a shared secret of some length")))
 }
 
 fn obj(fields: Map<string, Json>) -> Json {
@@ -22,7 +22,7 @@ fn obj(fields: Map<string, Json>) -> Json {
 }
 
 fn main() {
-    val key = string_to_bytes("a shared secret of some length")
+    val key = to_bytes("a shared secret of some length")
     val now = 1000
 
     // exp: required by default, checked, and a number
@@ -67,7 +67,7 @@ fn main() {
 
     // all together, and the signature is still checked first
     show(jwt.verify_claims(token: issued, key: key, now: now, issuer: "health-record", audience: "web"))
-    show(jwt.verify_claims(token: one, key: string_to_bytes("another secret"), now: now, audience: "web"))
+    show(jwt.verify_claims(token: one, key: to_bytes("another secret"), now: now, audience: "web"))
 
     // reading the claims
     val claims = unwrap(jwt.verify_claims(token: many, key: key, now: now))

@@ -123,10 +123,10 @@ pub fn totp(key: [byte], unix_seconds: int) -> string {
 // even after a match, so the time taken does not say which step (or whether one) matched.
 pub fn totp_matching_step(key: [byte], code: string, unix_seconds: int, window: int) -> Option<int> {
     var found: Option<int> = None
-    val typed = string_to_bytes(trim(code))
+    val typed = to_bytes(trim(code))
     for step in (0 - window)..(window + 1) {
         val at = unix_seconds + step * 30
-        val expected = string_to_bytes(totp(key, at))
+        val expected = to_bytes(totp(key, at))
         if len(expected) == len(typed) && crypto.bytes_equal(expected, typed) {
             found = Option<int>.Some(at / 30)
         }
@@ -144,7 +144,7 @@ pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int) -> 
 fn uri_encode(text: string) -> string {
     val out = mutable_string_new()
     val hex = "0123456789ABCDEF"
-    for b in string_to_bytes(text) {
+    for b in to_bytes(text) {
         val v = b as int
         if (v >= 48 && v <= 57) || (v >= 65 && v <= 90) || (v >= 97 && v <= 122) || v == 45 || v == 95 || v == 46 || v == 126 {
             append_byte(out, b)

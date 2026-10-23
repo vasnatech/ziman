@@ -186,7 +186,7 @@ fn conn_err(message: string) -> DbError {
 }
 
 fn cstring(s: string) -> [byte] {
-    return concat(string_to_bytes(s), [0b])
+    return concat(to_bytes(s), [0b])
 }
 
 fn text_of(b: [byte], start: int, end: int) -> string {
@@ -397,7 +397,7 @@ fn scramble(plugin: string, password: string, salt: [byte]) -> Result<[byte], Db
     if password == "" {
         return empty
     }
-    val pw = string_to_bytes(password)
+    val pw = to_bytes(password)
     if plugin == "mysql_native_password" {
         val h1 = sha1(pw)
         val h2 = sha1(h1)
@@ -952,7 +952,7 @@ fn param_value(v: SqlValue) -> [byte] {
         Int(n) { le_int64(n) }
         Float(f) { f64_to_bytes(f) }
         Bool(b) { if b { [1b] } else { [0b] } }
-        Text(s) { lenenc_bytes(string_to_bytes(s)) }
+        Text(s) { lenenc_bytes(to_bytes(s)) }
         Bytes(b) { lenenc_bytes(b) }
     }
 }
@@ -1000,7 +1000,7 @@ fn close_statement(sock: Socket, stmt_id: int) {
 
 fn prepared_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
     val rewritten = try rewrite_placeholders(sql, params)
-    try send_packet(sock, 0, concat([22b], string_to_bytes(rewritten.sql)))
+    try send_packet(sock, 0, concat([22b], to_bytes(rewritten.sql)))
     val reply = try read_packet(sock)
     if is_err_packet(reply.body) {
         return err(parse_error(reply.body))
@@ -1020,7 +1020,7 @@ fn prepared_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
 
 fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
     if len(params) == 0 {
-        try send_packet(sock, 0, concat([3b], string_to_bytes(sql)))
+        try send_packet(sock, 0, concat([3b], to_bytes(sql)))
         return to_result(try read_all_results(sock), false)
     }
     return prepared_query(sock, sql, params)
@@ -1126,7 +1126,7 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
         return failed_step(e)
     }
     val statement_text = unwrap(rewritten)
-    val prepared = send_packet(sock, 0, concat([22b], string_to_bytes(statement_text.sql)))
+    val prepared = send_packet(sock, 0, concat([22b], to_bytes(statement_text.sql)))
     if Err(e) = prepared {
         return failed_step(e)
     }

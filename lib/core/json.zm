@@ -117,7 +117,7 @@ pub fn parse_json_bytes_exact(data: [byte]) -> Result<Json, string> {
 
 // `j` as compact JSON text, as bytes: the body of an HTTP message, or what `fs.write_bytes` takes.
 pub fn json_to_bytes(j: Json) -> [byte] {
-    return string_to_bytes(json_to_string(j))
+    return to_bytes(json_to_string(j))
 }
 
 // `j` as compact JSON text (no spaces), objects in key insertion order. A float is written

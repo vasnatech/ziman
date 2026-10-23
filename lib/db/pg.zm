@@ -116,7 +116,7 @@ fn conn_err(message: string) -> DbError {
 }
 
 fn cstring(s: string) -> [byte] {
-    return concat(string_to_bytes(s), [0b])
+    return concat(to_bytes(s), [0b])
 }
 
 fn text_of(b: [byte], start: int, end: int) -> string {
@@ -133,7 +133,7 @@ fn cstring_end(b: [byte], start: int) -> int {
 }
 
 fn send_message(sock: Socket, kind: string, body: [byte]) -> Result<int, DbError> {
-    return db.lift_net<int>(net.write(sock, concat(string_to_bytes(kind), u32_to_bytes(len(body) + 4), body)))
+    return db.lift_net<int>(net.write(sock, concat(to_bytes(kind), u32_to_bytes(len(body) + 4), body)))
 }
 
 fn read_message(sock: Socket) -> Result<Message, DbError> {
@@ -230,7 +230,7 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
     try send_message(
         sock,
         "p",
-        concat(cstring("SCRAM-SHA-256"), u32_to_bytes(len(client_first)), string_to_bytes(client_first))
+        concat(cstring("SCRAM-SHA-256"), u32_to_bytes(len(client_first)), to_bytes(client_first))
     )
 
     val first = try expect_auth(sock, 11)
@@ -251,23 +251,23 @@ fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
         return err(conn_err("malformed SCRAM salt or iteration count"))
     }
 
-    val salted = pbkdf2_hmac_sha256(string_to_bytes(password), unwrap(salt), unwrap(iterations), 32)
-    val client_key = hmac_sha256(salted, string_to_bytes("Client Key"))
+    val salted = pbkdf2_hmac_sha256(to_bytes(password), unwrap(salt), unwrap(iterations), 32)
+    val client_key = hmac_sha256(salted, to_bytes("Client Key"))
     val stored_key = sha256(client_key)
     val client_final_without_proof = concat("c=biws,r=", combined_nonce)
-    val auth_message = string_to_bytes(join(
+    val auth_message = to_bytes(join(
         separator: ",",
         pieces: [client_first_bare, server_first, client_final_without_proof]
     ))
     val client_signature = hmac_sha256(stored_key, auth_message)
     val proof = bytes_xor(client_key, client_signature)
     val client_final = concat(client_final_without_proof, ",p=", base64_encode(proof))
-    try send_message(sock, "p", string_to_bytes(client_final))
+    try send_message(sock, "p", to_bytes(client_final))
 
     val final = try expect_auth(sock, 12)
     val server_final = text_of(final.body, 4, len(final.body))
     val verifier = scram_attr(server_final, "v")
-    val server_key = hmac_sha256(salted, string_to_bytes("Server Key"))
+    val server_key = hmac_sha256(salted, to_bytes("Server Key"))
     val expected = base64_encode(hmac_sha256(server_key, auth_message))
     if Some(v) = verifier {
         if v != expected {
@@ -535,7 +535,7 @@ fn encode_param(v: SqlValue) -> [byte] {
         Bool(b) { if b { "1" } else { "0" } }
         Bytes(b) { concat("\\x", bytes_to_hex(b)) }
     }
-    val payload = string_to_bytes(text)
+    val payload = to_bytes(text)
     return concat(u32_to_bytes(len(payload)), payload)
 }
 
@@ -552,7 +552,7 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
         concat(snapshot(encoded)),
         u16_to_bytes(0)
     )
-    val describe_body = concat(string_to_bytes("P"), cstring(""))
+    val describe_body = concat(to_bytes("P"), cstring(""))
     val execute_body = concat(cstring(""), u32_to_bytes(0))
     val batch = concat(
         frame("P", concat([0b], cstring(sql), u16_to_bytes(0))),
@@ -566,7 +566,7 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
 }
 
 fn frame(kind: string, body: [byte]) -> [byte] {
-    return concat(string_to_bytes(kind), u32_to_bytes(len(body) + 4), body)
+    return concat(to_bytes(kind), u32_to_bytes(len(body) + 4), body)
 }
 
 fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
@@ -699,7 +699,7 @@ fn start_cursor(sock: Socket, id: int, sql: string, params: [SqlValue]) -> Curso
     val batch = concat(
         frame("P", concat([0b], cstring(sql), u16_to_bytes(0))),
         frame("B", bind_body),
-        frame("D", concat(string_to_bytes("P"), cstring(""))),
+        frame("D", concat(to_bytes("P"), cstring(""))),
         frame("E", concat(cstring(""), u32_to_bytes(cursor_fetch_rows))),
         frame("H", [])
     )

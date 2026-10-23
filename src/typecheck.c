@@ -1823,6 +1823,12 @@ static const char *renamed_builder_fn(const char *name) {
                    {"result_map_err", "map_err"},
                    {"result_to_option", "to_option"},
                    {"option_to_result", "to_result"},
+                   /* `string_to_bytes` the same day, and the one entry both rules agree on: the
+                    * prefix named argument one's world *and* the name described its argument where
+                    * a conversion is named for its result. `bytes_to_string` keeps its name --
+                    * `to_string` would be a third spelling beside `str` and `snapshot`, and it
+                    * answers a Result where its twin cannot fail. */
+                   {"string_to_bytes", "to_bytes"},
                    {NULL, NULL}};
     for (size_t k = 0; RENAMED[k].was != NULL; k++) {
         if (strcmp(name, RENAMED[k].was) == 0) return RENAMED[k].now;

@@ -888,7 +888,7 @@ fn quote_double(s: string) -> string {
         } else if c == "\r" {
             append(out, "\\r")
         } else if compare(c, " ") < 0 {
-            val code = string_to_bytes(c)[0] as int
+            val code = to_bytes(c)[0] as int
             append(
                 out,
                 "\\x",

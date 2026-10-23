@@ -67,7 +67,7 @@ fn main() {
     val empty = unwrap(client.request(method: HttpMethod.Get, url: url))
     print(len(empty.body))
 
-    val text = client.request(method: HttpMethod.Post, url: url, body: string_to_bytes("plain text"))
+    val text = client.request(method: HttpMethod.Post, url: url, body: to_bytes("plain text"))
     print(unwrap(bytes_to_string(unwrap(text).body)))
 
     val bin_url = format("{}bin", url)

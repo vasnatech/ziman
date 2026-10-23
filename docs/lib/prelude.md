@@ -2875,13 +2875,29 @@ Empties the builder in place, keeping the handle.
 
 ## `string.zm`
 
-### `string_to_bytes`
+### `to_bytes`
 
 ```
-pub native fn string_to_bytes(s: string) -> [byte]
+pub native fn to_bytes(s: string) -> [byte]
 ```
 
-The UTF-8 bytes of `s`.
+**The UTF-8 bytes of `s`.**
+
+**`string_to_bytes` until 2026-10-22.** The `string_` prefix said argument one is a `string`,
+which argument one says -- the rule every other prefix drop followed -- and a conversion is named
+for what it answers, which is the rule `to_option`/`to_result` settled and `to_set`/`to_array`
+had been following all along. Both rules point the same way here. The old name points home.
+
+The symbol is unchanged and no C moved: the fallback derives `string_to_bytes` from `to_bytes` on
+a `string`, which is exactly what was registered. Checked for the trap that caught
+`last_index_of` the same day -- a bare registration would be found before the fallback is
+consulted -- and nothing registers `to_bytes`.
+
+**`bytes_to_string` keeps its name**, so the pair is deliberately asymmetric. Reversing it would
+make a third `to_string` beside `str(x)` for scalars and `snapshot(sb)` for a builder, and
+`snapshot`'s own comment already defends that boundary. It also answers a `Result` where this
+cannot fail, so the two were never mirror images: every string has bytes, and not every byte
+sequence is a string.
 
 ### `len`
 

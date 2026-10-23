@@ -71,5 +71,5 @@ fn main() {
     print(is_ok(zone.parse_posix_rule("AB")))
     print(is_ok(zone.parse_posix_rule("EST5EDT,M13.2.0,M11.1.0")))
     print(is_ok(zone.parse_posix_rule("EST5EDT,M3.2.0")))
-    print(is_ok(zone.parse_rules(string_to_bytes("not a zone file at all, just some text that is long enough"))))
+    print(is_ok(zone.parse_rules(to_bytes("not a zone file at all, just some text that is long enough"))))
 }

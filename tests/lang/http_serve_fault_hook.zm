@@ -16,7 +16,7 @@ fn render(status: int, message: string) -> http.Response {
     // in for the HSTS one an application adds to everything else it answers.
     val body = format("{{\"error\":{{\"code\":{},\"detail\":\"{}\"}}}}", status, message)
     return server.with_header(
-        server.with_header(server.response(status, string_to_bytes(body)), "Content-Type", "application/json"),
+        server.with_header(server.response(status, to_bytes(body)), "Content-Type", "application/json"),
         "Strict-Transport-Security",
         "max-age=31536000"
     )

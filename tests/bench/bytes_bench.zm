@@ -6,7 +6,7 @@ fn main() {
         append(sb, "0123456789")
     }
     val s = snapshot(sb)
-    val b = string_to_bytes(s)
+    val b = to_bytes(s)
     print(len(b))
     var sum = 0
     for x in b {

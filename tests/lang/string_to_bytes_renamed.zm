@@ -1,0 +1,35 @@
+// `string_to_bytes` became `to_bytes` on 2026-10-22 and the old name points home. **The one rename
+// both naming rules agree on**: the `string_` prefix named argument one's world, which the argument
+// says, and the name described its argument where a conversion is named for its result.
+//
+// 208 call sites across lib/, tests/, the doc examples and the benchmark references -- much the
+// largest sweep of the day -- and no C moved: the fallback derives `string_to_bytes` from
+// `to_bytes` on a `string`, which is exactly what was registered. Checked for the trap that caught
+// `last_index_of` hours earlier, where a *bare* registration is found before the fallback is
+// consulted and every member of the set silently ran the wrong implementation. Nothing registers
+// `to_bytes`, and this was run rather than reasoned about.
+//
+// **`bytes_to_string` keeps its name, so the pair is asymmetric on purpose.** `to_string` would be
+// a third spelling beside `str(x)` for scalars and `snapshot(sb)` for a builder, and `snapshot`'s
+// own comment already defends that boundary. The two were never mirror images: this cannot fail,
+// its twin answers a `Result`, because every string has bytes and not every byte sequence is a
+// string.
+fn main() {
+    val b = to_bytes("hi")
+    print(len(b))
+    print(b)
+
+    // the round trip, and the Result that makes the pair asymmetric
+    print(bytes_to_string(b))
+    print(is_ok(bytes_to_string(to_bytes(""))))
+
+    // `[byte]` is an array, so the operations on bytes need no name of their own
+    print(index_of(to_bytes("abc"), to_bytes("b"), 0))
+    print(concat(to_bytes("ab"), to_bytes("cd")))
+    print(len(slice<byte>(to_bytes("abcd"), 1, 3)))
+
+    // a non-ASCII string is its UTF-8 bytes, which is where the byte length differs
+    print(len(to_bytes("é")))
+    print(len("é"))
+    print(char_count("é"))
+}

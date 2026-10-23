@@ -40,7 +40,7 @@ fn main() {
     print(last_index_of(s, "o"))
 
     // the other members of each set, which the renames must not have disturbed
-    print(index_of(string_to_bytes("abc"), string_to_bytes("b"), 0))
+    print(index_of(to_bytes("abc"), to_bytes("b"), 0))
     print(set(Map<string, int> { "a": 1 }, "b", 2))
     print(set([1, 2, 3], 1, 99))
     val cell = mutable(5)

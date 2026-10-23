@@ -43,14 +43,14 @@ fn main() {
     for i in 0..200 {
         append(sb, "compress me please ")
     }
-    val big = server.response(200, string_to_bytes(snapshot(sb)))
+    val big = server.response(200, to_bytes(snapshot(sb)))
     printf("original: {} bytes\n", len(big.body))
 
     show("gzip offered", server.compressed(accepting("gzip, deflate"), big, 1024))
     show("gzip refused by q=0", server.compressed(accepting("gzip;q=0"), big, 1024))
     show("identity only", server.compressed(accepting("identity"), big, 1024))
     show("no Accept-Encoding", server.compressed(req_of([]), big, 1024))
-    show("under the floor", server.compressed(accepting("gzip"), server.response(200, string_to_bytes("tiny")), 1024))
+    show("under the floor", server.compressed(accepting("gzip"), server.response(200, to_bytes("tiny")), 1024))
 
     // A handler that already encoded its body is left alone -- no second gzip, and no Vary either,
     // since this function did not decide anything about the encoding.

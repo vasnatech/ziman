@@ -17,7 +17,7 @@ fn send_bytes(port: int, n: int) -> int {
     for i in 0..n {
         append(b, "x")
     }
-    return switch client.request(method: HttpMethod.Post, url: format("http://127.0.0.1:{}/", port), body: string_to_bytes(snapshot(b))) {
+    return switch client.request(method: HttpMethod.Post, url: format("http://127.0.0.1:{}/", port), body: to_bytes(snapshot(b))) {
         Ok(resp) { resp.status }
         Err(_) { 0 - 1 }
     }

@@ -428,7 +428,7 @@ fn is_name_start(s: string, p: int) -> bool {
     if index_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_:", c, 0) >= 0 {
         return true
     }
-    return (string_to_bytes(c)[0] as int) >= 128
+    return (to_bytes(c)[0] as int) >= 128
 }
 
 fn is_name_char(s: string, p: int) -> bool {
@@ -557,7 +557,7 @@ fn read_text(s: string, pos: int) -> Result<PStr, string> {
         if is_char_at(s, p, "&") {
             p = try read_reference(s, p, out)
         } else {
-            val code = string_to_bytes(char_at(s, p))[0] as int
+            val code = to_bytes(char_at(s, p))[0] as int
             if illegal_char(code) {
                 return err(fail(s, p, "a control character XML cannot represent"))
             }
@@ -588,7 +588,7 @@ fn read_attr_value(s: string, pos: int) -> Result<PStr, string> {
         if is_char_at(s, p, "&") {
             p = try read_reference(s, p, out)
         } else {
-            val code = string_to_bytes(char_at(s, p))[0] as int
+            val code = to_bytes(char_at(s, p))[0] as int
             if illegal_char(code) {
                 return err(fail(s, p, "a control character XML cannot represent"))
             }
@@ -908,7 +908,7 @@ fn has_bom(s: string) -> bool {
     if len(s) < 3 {
         return false
     }
-    val b = string_to_bytes(substring(s, 0, 3))
+    val b = to_bytes(substring(s, 0, 3))
     return (b[0] as int) == 239 && (b[1] as int) == 187 && (b[2] as int) == 191
 }
 
@@ -1031,7 +1031,7 @@ fn escape_text(s: string, out: MutableString) -> Result<bool, string> {
     var i = 0
     while i < len(s) {
         val c = char_at(s, i)
-        val code = string_to_bytes(c)[0] as int
+        val code = to_bytes(c)[0] as int
         if illegal_char(code) {
             return err(format(
                 "the text contains character {}, which XML 1.0 cannot represent in any form (there is no '&#{};')",
@@ -1060,7 +1060,7 @@ fn escape_attr(s: string, out: MutableString) -> Result<bool, string> {
     var i = 0
     while i < len(s) {
         val c = char_at(s, i)
-        val code = string_to_bytes(c)[0] as int
+        val code = to_bytes(c)[0] as int
         if illegal_char(code) {
             return err(format(
                 "an attribute value contains character {}, which XML 1.0 cannot represent",
@@ -1302,7 +1302,7 @@ pub fn xml_to_string_pretty(doc: Document, indent: string) -> Result<string, str
 // `xml_to_string` as UTF-8 bytes: an HTTP body, or what `fs.write_bytes` takes.
 pub fn xml_to_bytes(doc: Document) -> Result<[byte], string> {
     val s = try xml_to_string(doc)
-    return ok(string_to_bytes(s))
+    return ok(to_bytes(s))
 }
 
 // One element as XML text, with no declaration: a fragment to embed in a document being built

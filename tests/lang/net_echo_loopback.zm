@@ -38,10 +38,10 @@ fn main() {
     print(number.u32_from_bytes(got, 3))
     print(number.u16_from_bytes(got, 7))
     print(len(slice<byte>(got, 3, 7)))
-    print(unwrap(bytes_to_string(string_to_bytes("round trip"))))
+    print(unwrap(bytes_to_string(to_bytes("round trip"))))
     print(is_ok(bytes_to_string([65b, 0b])))
     // a large-ish message arrives whole via read_exact even if TCP splits it
-    val big = string_to_bytes(join(separator: "", pieces: [format("{}", 12345), "-", format("{}", 67890)]))
+    val big = to_bytes(join(separator: "", pieces: [format("{}", 12345), "-", format("{}", 67890)]))
     unwrap(net.write(s, big))
     print(len(unwrap(net.read_exact(s, len(big)))))
 

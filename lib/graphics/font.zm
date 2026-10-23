@@ -224,7 +224,7 @@ pub fn codepoints_of(text: string) -> [int] {
 }
 
 pub fn codepoint_of(ch: string) -> int {
-    val b = string_to_bytes(ch)
+    val b = to_bytes(ch)
     if len(b) == 0 {
         return -1
     }

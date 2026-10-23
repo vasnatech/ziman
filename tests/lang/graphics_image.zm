@@ -38,7 +38,7 @@ fn same_bytes(a: [byte], b: [byte]) -> bool {
 }
 
 fn has(data: [byte], text: string) -> bool {
-    val want = string_to_bytes(text)
+    val want = to_bytes(text)
     var at = 0
     while at + len(want) <= len(data) {
         var k = 0
@@ -146,10 +146,10 @@ fn main() {
 
     // A known CRC-32 vector: the four bytes "IEND" are 0xAE426082, which is the value every PNG
     // ever written ends with. A wrong polynomial or a missing final inversion fails here.
-    print(concat("crc32(\"IEND\"):       ", str(image.crc32(string_to_bytes("IEND")))))
+    print(concat("crc32(\"IEND\"):       ", str(image.crc32(to_bytes("IEND")))))
 
     val png = image.encode_png(sample(16, 12, image.Pixels.Rgb8))
-    print(concat("not a PNG:           ", refusal(image.decode_png(string_to_bytes("not a png at all"), 1000))))
+    print(concat("not a PNG:           ", refusal(image.decode_png(to_bytes("not a png at all"), 1000))))
     print(concat("too short:           ", refusal(image.decode_png(bytes_of([137, 80]), 1000))))
     print(concat("past the pixel cap:  ", refusal(image.decode_png(png, 100))))
 

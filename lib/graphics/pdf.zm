@@ -125,9 +125,9 @@ pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string> {
         }
         val content_dict: [Entry] = []
         val content_number = if o.compress {
-            pdfobj.add(w, pdfobj.flate_stream(content_dict, string_to_bytes(built.stream)))
+            pdfobj.add(w, pdfobj.flate_stream(content_dict, to_bytes(built.stream)))
         } else {
-            pdfobj.add(w, pdfobj.stream(content_dict, string_to_bytes(built.stream)))
+            pdfobj.add(w, pdfobj.stream(content_dict, to_bytes(built.stream)))
         }
         val page_entries = mutable_array_new<Entry>()
         push(page_entries, entry("Type", Obj.Name("Page")))
@@ -376,7 +376,7 @@ fn embedded_font(w: pdfobj.PdfWriter, face: truetype.Face, used: [int]) -> Resul
     ]
     val to_unicode = pdfobj.add(
         w,
-        pdfobj.flate_stream([], string_to_bytes(try to_unicode_cmap(face, used)))
+        pdfobj.flate_stream([], to_bytes(try to_unicode_cmap(face, used)))
     )
     return ok(Obj.Dict([
         entry("Type", Obj.Name("Font")),

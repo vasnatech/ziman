@@ -10,7 +10,7 @@ fn ca() -> Option<string> {
 }
 
 fn request() -> [byte] {
-    return concat(string_to_bytes("GET / HTTP/1.0"), [13b, 10b, 13b, 10b])
+    return concat(to_bytes("GET / HTTP/1.0"), [13b, 10b, 13b, 10b])
 }
 
 // A plain (non-TLS) server that says hello and hangs up.

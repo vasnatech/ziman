@@ -11,7 +11,7 @@
 use http
 use server
 fn fault(status: int, message: string) -> http.Response {
-    return server.response(status, string_to_bytes(message))
+    return server.response(status, to_bytes(message))
 }
 fn req_of(method: http.HttpMethod, headers: [http.Header]) -> http.Request {
     return http.Request {
@@ -32,7 +32,7 @@ fn show(label: string, r: http.Response) {
 }
 fn main() {
     val policy = server.cors_policy(["https://app.example"])
-    val inner = server.response(200, string_to_bytes("hi"))
+    val inner = server.response(200, to_bytes("hi"))
 
     // a preflight from an allowed origin
     val pre = req_of(http.HttpMethod.Options, [

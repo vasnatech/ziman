@@ -19,7 +19,7 @@ an `Err` if the data is corrupt, truncated, or would expand past it.
 use compress
 
 fn main() {
-    val data = string_to_bytes("hello hello hello hello hello hello")
+    val data = to_bytes("hello hello hello hello hello hello")
     val packed = compress.gzip(data)
     print(len(packed) < len(data))
 
@@ -27,7 +27,7 @@ fn main() {
     val unpacked = unwrap(compress.gunzip(packed, 1000))
     print(unwrap(bytes_to_string(unpacked)))
     print(is_ok(compress.gunzip(packed, 10)))
-    print(is_ok(compress.gunzip(string_to_bytes("not gzip"), 1000)))
+    print(is_ok(compress.gunzip(to_bytes("not gzip"), 1000)))
 }
 ```
 

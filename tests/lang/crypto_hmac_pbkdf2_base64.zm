@@ -2,7 +2,7 @@ use crypto
 use number
 
 fn b(s: string) -> [byte] {
-    return string_to_bytes(s)
+    return to_bytes(s)
 }
 
 fn hex(x: [byte]) -> string {

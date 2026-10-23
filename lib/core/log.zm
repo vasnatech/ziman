@@ -150,7 +150,7 @@ pub fn enabled(l: Logger, level: Level) -> bool {
 // DEL, not on text.
 fn single_line(message: string) -> string {
     val out = mutable_string_new()
-    for b in string_to_bytes(message) {
+    for b in to_bytes(message) {
         val c = b as int
         if c == 10 {
             append(out, "\\n")

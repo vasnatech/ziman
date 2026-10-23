@@ -254,7 +254,7 @@ pub fn request(
 Sends one request and returns the (final) response, its body as bytes.
   method        an `http.HttpMethod` (`HttpMethod.Get`, `HttpMethod.Post`, ...)
   headers       extra request headers; Host, Content-Length and Connection are always set by the client
-  body          the request body, if any, as bytes (`string_to_bytes(text)` for text)
+  body          the request body, if any, as bytes (`to_bytes(text)` for text)
   timeout_ms    per read/write, default 30000
   max_redirects redirects to follow, default 5 (0 = return the 3xx as it is)
   ca_file       a PEM file of trusted CAs for https, instead of the system store (a private CA, a test

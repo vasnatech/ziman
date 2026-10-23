@@ -22,14 +22,14 @@ fn main() {
     show(jwt.verify_at(rfc, key, 1300819380, 0))
     show(jwt.verify_at(rfc, key, 1300819390, 30))
     // the wrong key, a changed payload, a changed signature
-    show(jwt.verify_at(rfc, string_to_bytes("another key entirely"), 1300819379, 0))
+    show(jwt.verify_at(rfc, to_bytes("another key entirely"), 1300819379, 0))
     val parts = split(rfc, ".")
-    val forged = join(separator: ".", pieces: [parts[0], crypto.base64url_encode(string_to_bytes("{\"iss\":\"mallory\"}")), parts[2]])
+    val forged = join(separator: ".", pieces: [parts[0], crypto.base64url_encode(to_bytes("{\"iss\":\"mallory\"}")), parts[2]])
     show(jwt.verify_at(forged, key, 1300819379, 0))
     show(jwt.verify_at(join(separator: ".", pieces: [parts[0], parts[1], "AAAA"]), key, 1300819379, 0))
 
     // signing: the algorithm follows the key's size, and a token verifies with the key that signed it
-    print(jwt.algorithm_for_key(string_to_bytes("0123456789012345678901234567890123456789")))
+    print(jwt.algorithm_for_key(to_bytes("0123456789012345678901234567890123456789")))
     val long_key = random_bytes(64)
     val mid_key = random_bytes(48)
     for k in [key, mid_key, long_key] {
@@ -62,9 +62,9 @@ fn main() {
     show(jwt.verify_at("a.b", key, 0, 0))
     show(jwt.verify_at("!!!.b.c", key, 0, 0))
     // `alg: none` and algorithms that need a public key are refused
-    val none_header = crypto.base64url_encode(string_to_bytes("{\"alg\":\"none\"}"))
-    val body = crypto.base64url_encode(string_to_bytes("{\"sub\":\"admin\"}"))
+    val none_header = crypto.base64url_encode(to_bytes("{\"alg\":\"none\"}"))
+    val body = crypto.base64url_encode(to_bytes("{\"sub\":\"admin\"}"))
     show(jwt.verify_at(format("{}.{}.", none_header, body), key, 0, 0))
-    val rs_header = crypto.base64url_encode(string_to_bytes("{\"alg\":\"RS256\"}"))
+    val rs_header = crypto.base64url_encode(to_bytes("{\"alg\":\"RS256\"}"))
     show(jwt.verify_at(format("{}.{}.AAAA", rs_header, body), key, 0, 0))
 }

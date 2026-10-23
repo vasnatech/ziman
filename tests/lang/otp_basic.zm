@@ -2,7 +2,7 @@ use crypto
 use otp
 
 fn main() {
-    val key = string_to_bytes("12345678901234567890")
+    val key = to_bytes("12345678901234567890")
     print(otp.hotp(key, 0, 6))
     print(otp.hotp(key, 1, 6))
     print(otp.hotp(key, 9, 6))
@@ -19,7 +19,7 @@ fn main() {
     val enc = otp.base32_encode(key)
     print(enc)
     print(unwrap(bytes_to_string(unwrap(otp.base32_decode(enc)))) == "12345678901234567890")
-    print(otp.base32_encode(string_to_bytes("foobar")))
+    print(otp.base32_encode(to_bytes("foobar")))
     print(len(otp.generate_secret()))
     print(otp.hotp(key, 0, 8))
     print(otp.provisioning_uri("Health Record", "ada+x@example.com", "JBSWY3DPEHPK3PXP"))

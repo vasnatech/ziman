@@ -86,7 +86,7 @@ pub fn add(w: PdfWriter, o: Obj) -> int {
 // every page, so one of the two must be written knowing only the other's number. Without
 // reserve-then-fill this module would need a second pass or a mutable graph.
 pub fn reserve(w: PdfWriter) -> int {
-    push(w.bodies, string_to_bytes(""))
+    push(w.bodies, to_bytes(""))
     push(w.filled, false)
     return len(w.bodies)
 }
@@ -127,7 +127,7 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
     // A binary comment on line two, so that anything deciding whether this file is text or binary
     // decides binary. Every PDF writer does this.
     val header = concat(
-        string_to_bytes("%PDF-1.7\n"),
+        to_bytes("%PDF-1.7\n"),
         [37 as byte, 226 as byte, 227 as byte, 239 as byte, 10 as byte]
     )
     push(parts, header)
@@ -136,7 +136,7 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
     var n = 0
     while n < len(w.bodies) {
         val body = w.bodies[n]
-        val opened = concat(string_to_bytes(concat(str(n + 1), " 0 obj\n")), body, string_to_bytes("\nendobj\n"))
+        val opened = concat(to_bytes(concat(str(n + 1), " 0 obj\n")), body, to_bytes("\nendobj\n"))
         push(offsets, at)
         push(parts, opened)
         at = at + len(opened)
@@ -146,13 +146,13 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
     val count = len(w.bodies)
     val xref_at = at
     val xref = mutable_array_new<[byte]>()
-    push(xref, string_to_bytes(concat("xref\n0 ", str(count + 1), "\n")))
+    push(xref, to_bytes(concat("xref\n0 ", str(count + 1), "\n")))
     // Entry zero is the head of the free list, and the format is fixed-width: exactly 20 bytes per
     // entry, which is what makes the table indexable by object number.
-    push(xref, string_to_bytes("0000000000 65535 f \n"))
+    push(xref, to_bytes("0000000000 65535 f \n"))
     var k = 0
     while k < count {
-        push(xref, string_to_bytes(concat(pad10(offsets[k]), " 00000 n \n")))
+        push(xref, to_bytes(concat(pad10(offsets[k]), " 00000 n \n")))
         k = k + 1
     }
     push(parts, bytes_concat_all(snapshot(xref)))
@@ -164,16 +164,16 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
         push(trailer, entry("Info", Obj.Ref(info_number)))
     }
     val tail = concat(
-        string_to_bytes("trailer\n"),
+        to_bytes("trailer\n"),
         obj_bytes(Obj.Dict(snapshot(trailer))),
-        string_to_bytes(concat("\nstartxref\n", str(xref_at), "\n%%EOF\n"))
+        to_bytes(concat("\nstartxref\n", str(xref_at), "\n%%EOF\n"))
     )
     push(parts, tail)
     return ok(bytes_concat_all(snapshot(parts)))
 }
 
 fn bytes_concat_all(parts: [[byte]]) -> [byte] {
-    var out = string_to_bytes("")
+    var out = to_bytes("")
     for p in parts {
         out = concat(out, p)
     }
@@ -192,25 +192,25 @@ fn pad10(n: int) -> string {
 
 fn obj_bytes(o: Obj) -> [byte] {
     return switch o {
-        Null { string_to_bytes("null") }
-        Bool(b) { string_to_bytes(if b { "true" } else { "false" }) }
-        Int(n) { string_to_bytes(str(n)) }
-        Real(x) { string_to_bytes(real_text(x)) }
-        Name(n) { string_to_bytes(concat("/", n)) }
-        Str(s) { string_to_bytes(concat("(", escaped(s), ")")) }
-        Bytes(b) { string_to_bytes(concat("<", hex_of(b), ">")) }
+        Null { to_bytes("null") }
+        Bool(b) { to_bytes(if b { "true" } else { "false" }) }
+        Int(n) { to_bytes(str(n)) }
+        Real(x) { to_bytes(real_text(x)) }
+        Name(n) { to_bytes(concat("/", n)) }
+        Str(s) { to_bytes(concat("(", escaped(s), ")")) }
+        Bytes(b) { to_bytes(concat("<", hex_of(b), ">")) }
         Array(items) {
             val parts = mutable_array_new<[byte]>()
-            push(parts, string_to_bytes("["))
+            push(parts, to_bytes("["))
             var first = true
             for it in items {
                 if !first {
-                    push(parts, string_to_bytes(" "))
+                    push(parts, to_bytes(" "))
                 }
                 first = false
                 push(parts, obj_bytes(it))
             }
-            push(parts, string_to_bytes("]"))
+            push(parts, to_bytes("]"))
             bytes_concat_all(snapshot(parts))
         }
         Dict(entries) { dict_bytes(entries) }
@@ -225,23 +225,23 @@ fn obj_bytes(o: Obj) -> [byte] {
             push(full, entry("Length", Obj.Int(len(s.data))))
             concat(
                 dict_bytes(snapshot(full)),
-                string_to_bytes("\nstream\n"),
+                to_bytes("\nstream\n"),
                 s.data,
-                string_to_bytes("\nendstream")
+                to_bytes("\nendstream")
             )
         }
-        Ref(n) { string_to_bytes(concat(str(n), " 0 R")) }
+        Ref(n) { to_bytes(concat(str(n), " 0 R")) }
     }
 }
 
 fn dict_bytes(entries: [Entry]) -> [byte] {
     val parts = mutable_array_new<[byte]>()
-    push(parts, string_to_bytes("<<"))
+    push(parts, to_bytes("<<"))
     for e in entries {
-        push(parts, string_to_bytes(concat(" /", e.key, " ")))
+        push(parts, to_bytes(concat(" /", e.key, " ")))
         push(parts, obj_bytes(e.value))
     }
-    push(parts, string_to_bytes(" >>"))
+    push(parts, to_bytes(" >>"))
     return bytes_concat_all(snapshot(parts))
 }
 
@@ -273,7 +273,7 @@ pub fn real_text(x: float) -> string {
 // written as an octal escape rather than raw -- a stray byte in a literal is unparseable.
 fn escaped(s: string) -> string {
     val out = mutable_string_new()
-    for b in string_to_bytes(s) {
+    for b in to_bytes(s) {
         val c = b as int
         if c == 40 || c == 41 || c == 92 {
             append(out, "\\", bytes_to_char(b))
@@ -433,7 +433,7 @@ fn starts_with_bytes(data: [byte], text: string) -> bool {
 }
 
 fn matches_at(data: [byte], at: int, text: string) -> bool {
-    val needle = string_to_bytes(text)
+    val needle = to_bytes(text)
     if at < 0 || at + len(needle) > len(data) {
         return false
     }
@@ -452,7 +452,7 @@ fn index_of_bytes(data: [byte], text: string, from: int) -> int {
 }
 
 fn index_of_bytes_within(data: [byte], text: string, from: int, until: int) -> int {
-    val needle = string_to_bytes(text)
+    val needle = to_bytes(text)
     var at = if from < 0 { 0 } else { from }
     while at + len(needle) <= until {
         if matches_at(data, at, text) {
@@ -472,7 +472,7 @@ fn last_index_of_bytes(data: [byte], text: string) -> int {
 }
 
 fn last_index_of_bytes_before(data: [byte], text: string, before: int) -> int {
-    val needle = string_to_bytes(text)
+    val needle = to_bytes(text)
     var at = before - len(needle)
     while at >= 0 {
         if matches_at(data, at, text) {

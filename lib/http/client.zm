@@ -501,7 +501,7 @@ fn host_header(u: Url) -> string {
 
 // `Basic base64(user:password)` for the raw `user:password` of a URL or proxy (percent-decoded).
 fn basic_auth(userinfo: string) -> string {
-    return concat("Basic ", base64_encode(string_to_bytes(switch percent_decode(userinfo, false) {
+    return concat("Basic ", base64_encode(to_bytes(switch percent_decode(userinfo, false) {
         Ok(v) { v }
         Err(_) { userinfo }
     })))
@@ -1098,7 +1098,7 @@ fn run(
 // Sends one request and returns the (final) response, its body as bytes.
 //   method        an `http.HttpMethod` (`HttpMethod.Get`, `HttpMethod.Post`, ...)
 //   headers       extra request headers; Host, Content-Length and Connection are always set by the client
-//   body          the request body, if any, as bytes (`string_to_bytes(text)` for text)
+//   body          the request body, if any, as bytes (`to_bytes(text)` for text)
 //   timeout_ms    per read/write, default 30000
 //   max_redirects redirects to follow, default 5 (0 = return the 3xx as it is)
 //   ca_file       a PEM file of trusted CAs for https, instead of the system store (a private CA, a test
@@ -1187,7 +1187,7 @@ pub fn post_json(url: string, body: string) -> Result<Response, ClientError> {
     return request(
         method: HttpMethod.Post,
         url: url,
-        body: string_to_bytes(body),
+        body: to_bytes(body),
         headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_json()) }]
     )
 }
@@ -1197,7 +1197,7 @@ pub fn put_json(url: string, body: string) -> Result<Response, ClientError> {
     return request(
         method: HttpMethod.Put,
         url: url,
-        body: string_to_bytes(body),
+        body: to_bytes(body),
         headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_json()) }]
     )
 }
@@ -1217,7 +1217,7 @@ pub fn post_form(url: string, fields: Map<string, string>) -> Result<Response, C
     return request(
         method: HttpMethod.Post,
         url: url,
-        body: string_to_bytes(form_encode(fields)),
+        body: to_bytes(form_encode(fields)),
         headers: [Header { name: "Content-Type", value: mime.to_string(mime.application_form()) }]
     )
 }

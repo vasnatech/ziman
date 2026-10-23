@@ -3,7 +3,7 @@ use number
 
 fn main() {
     val sb = mutable_string_new()
-    for b in crypto.sha256(string_to_bytes("ziman")) {
+    for b in crypto.sha256(to_bytes("ziman")) {
         append(sb, number.byte_to_hex(b))
     }
     print(to_lower(snapshot(sb)))

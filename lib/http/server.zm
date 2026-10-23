@@ -611,12 +611,12 @@ pub fn media_response(status: int, body: [byte], media: mime.MediaType) -> Respo
 
 // A response with `status` and `body`, `Content-Type: application/json`.
 pub fn json_response(status: int, body: string) -> Response {
-    return media_response(status, string_to_bytes(body), mime.application_json())
+    return media_response(status, to_bytes(body), mime.application_json())
 }
 
 // A response with `status` and `body`, `Content-Type: text/plain; charset=utf-8`.
 pub fn text_response(status: int, body: string) -> Response {
-    return media_response(status, string_to_bytes(body), mime.with_param(mime.text_plain(), "charset", "utf-8"))
+    return media_response(status, to_bytes(body), mime.with_param(mime.text_plain(), "charset", "utf-8"))
 }
 
 // `text` as a JSON string literal, quotes included: `"` and `\` and the control characters escaped, every
@@ -624,7 +624,7 @@ pub fn text_response(status: int, body: string) -> Response {
 fn json_quoted(text: string) -> string {
     val out = mutable_string_new()
     append(out, "\"")
-    for b in string_to_bytes(text) {
+    for b in to_bytes(text) {
         if b == 34b {
             append(out, "\\\"")
         } else if b == 92b {
@@ -783,7 +783,7 @@ pub fn write_response(sock: Socket, req: Request, response: Response) -> Result<
         append(sb, "Connection: close\r\n")
     }
     append(sb, "\r\n")
-    val head = string_to_bytes(snapshot(sb))
+    val head = to_bytes(snapshot(sb))
     val sent = if HttpMethod.is_Head(req.method) { head } else { concat(head, resp.body) }
     try lift<int>(net.write(sock, sent))
     return keep
@@ -1166,7 +1166,7 @@ fn part_header(block: string, name: string) -> string {
 
 // One part, from its headers through to the end of its bytes.
 fn part_of(chunk: [byte]) -> Result<Part, HttpError> {
-    val blank = index_of(chunk, string_to_bytes("\r\n\r\n"), 0)
+    val blank = index_of(chunk, to_bytes("\r\n\r\n"), 0)
     if blank < 0 {
         return err(HttpError.BadRequest("a multipart part has no blank line after its headers"))
     }
@@ -1221,10 +1221,10 @@ pub fn multipart_with(req: Request, max_parts: int) -> Result<[Part], HttpError>
     // Every boundary but the first is preceded by a CRLF that belongs to the delimiter, not to the part
     // before it. Prepending one lets the first be found the same way instead of as a special case, and
     // costs a copy of a body already bounded by `max_body_bytes`.
-    val body = concat([string_to_bytes("\r\n"), req.body])
-    val delim = string_to_bytes(concat("\r\n--", boundary))
-    val close = string_to_bytes("--")
-    val line_end = string_to_bytes("\r\n")
+    val body = concat([to_bytes("\r\n"), req.body])
+    val delim = to_bytes(concat("\r\n--", boundary))
+    val close = to_bytes("--")
+    val line_end = to_bytes("\r\n")
     val out = mutable_array_new<Part>()
     var at = index_of(body, delim, 0)
     if at < 0 {
@@ -1398,7 +1398,7 @@ pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]> {
 // An encoder for answers of `media` that are text: `encode` writes a string and the encoder turns it into bytes.
 pub fn text_encoder<O>(media: mime.MediaType, encode: fn(O) -> string) -> Encoder<O> {
     val go = encode
-    return Encoder<O> { media: media, encode: fn(value: O) -> [byte] { return string_to_bytes(go(value)) } }
+    return Encoder<O> { media: media, encode: fn(value: O) -> [byte] { return to_bytes(go(value)) } }
 }
 
 // The encoder the client most wants, or `None` -- a 406 -- when it wants none of them.
@@ -1970,7 +1970,7 @@ pub fn metrics_response() -> Response {
     // that does not want them can render `metrics.render()` itself.
     metrics.record_runtime()
     return with_header(
-        response(status_ok, string_to_bytes(metrics.render())),
+        response(status_ok, to_bytes(metrics.render())),
         "Content-Type",
         "text/plain; version=0.0.4; charset=utf-8"
     )

@@ -39,7 +39,7 @@ fn respond(s: net.Socket, status_line: string, extra: string, body: [byte]) {
 }
 
 fn text(s: string) -> [byte] {
-    return string_to_bytes(s)
+    return to_bytes(s)
 }
 
 fn handle(s: net.Socket, port: int) {

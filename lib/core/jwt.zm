@@ -123,10 +123,10 @@ pub fn sign_with(claims: Json, key: [byte], algorithm: string) -> Result<string,
     })
     val signing_input = format(
         "{}.{}",
-        crypto.base64url_encode(string_to_bytes(json_to_string(header))),
-        crypto.base64url_encode(string_to_bytes(json_to_string(claims)))
+        crypto.base64url_encode(to_bytes(json_to_string(header))),
+        crypto.base64url_encode(to_bytes(json_to_string(claims)))
     )
-    if Some(signature) = mac(algorithm, key, string_to_bytes(signing_input)) {
+    if Some(signature) = mac(algorithm, key, to_bytes(signing_input)) {
         return ok(format("{}.{}", signing_input, crypto.base64url_encode(signature)))
     }
     return err(format("unsupported algorithm '{}': use HS256, HS384 or HS512", algorithm))
@@ -226,7 +226,7 @@ fn check(
     if Err(_) = algorithm {
         return JwtError.Malformed("the header has no 'alg'")
     }
-    val expected = switch mac(unwrap(algorithm), key, string_to_bytes(format("{}.{}", parts[0], parts[1]))) {
+    val expected = switch mac(unwrap(algorithm), key, to_bytes(format("{}.{}", parts[0], parts[1]))) {
         Some(e) { e }
         None { return JwtError.UnsupportedAlgorithm(unwrap(algorithm)) }
     }
