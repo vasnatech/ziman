@@ -104,9 +104,19 @@ pub fn map<T: Eq + Hash, U: Eq + Hash>(s: Set<T>, f: fn(T) -> U) -> Set<U> {
     return snapshot(out)
 }
 
-// Adds each of `items`, answering whether any of them was new. The singular `mutable_set_add` is
-// not variadic, which is what keeps a `MutableSet<[int]>` from being a special case -- one element
-// or several is never ambiguous when only the `_all` form takes many.
+// Adds each of `items`, answering whether any of them was new.
+//
+// **A `MutableSet<[int]>` is not a special case, and this comment used to claim the wrong reason
+// for that.** It said the singular `mutable_set_add` being non-variadic was what kept one element
+// and several apart -- which stopped being true when that name was deleted (2026-10-22), and had
+// never been the reason. The receiver pins `T`, so each shape reads one way only: a lone `[int]`
+// is one element, because a spread would have to be `[[int]]`, and a lone `[[int]]` is a spread,
+// because an element would have to be `[int]`. Measured on all three shapes, including the
+// written-out `add(s, [1, 2], [3, 4])`.
+//
+// `min`/`max` are the genuinely ambiguous case and the contrast worth keeping: nothing there pins
+// `T`, so `min([[3, 9], [1, 2]])` has both readings available and the spread wins by preference.
+// A variadic whose first parameter fixes the element type has no such gap.
 //
 // `#[effectful]`, because "did anything change?" is an answer you are usually entitled to ignore:
 // `add(s, x)` on its own is "make sure x is in here", and that is the ordinary call. Without the
