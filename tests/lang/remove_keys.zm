@@ -1,17 +1,23 @@
-// `remove_keys` takes a `Set<K>` of keys, where `remove_all` takes them variadically. **Two names
+// `remove_keys` takes a `Set<K>` of keys, where `remove` takes them variadically. **Two names
 // for what reads like one question**, and this file is the reason it has to be two.
 //
-// `remove_all(m, keys: Set<K>)` cannot be a declaration -- tried 2026-10-22 and refused with
+// `remove(m, keys: Set<K>)` cannot be a declaration -- tried 2026-10-22 and refused with
 // *"'remove_all' is already defined -- two declarations may share a name only when every call can
-// tell them apart"*. Its sibling takes `variadic K`, and a `Set<K>` satisfies that as well: as one
-// element whose type happens to be a set.
+// tell them apart"*. The message names `remove_all` because that is what the variadic parameter
+// belonged to when the wall was first hit, earlier the same day; `remove` absorbed that name a few
+// hours later and the wall came with the parameter, unchanged in substance. Its sibling takes
+// `variadic K`, and a `Set<K>` satisfies that as well: as one element whose type happens to be a
+// set.
+//
+// **This is why `remove_keys` outlived the name it was a sibling of.** A plural that a variadic can
+// absorb gets absorbed; one that cannot be a declaration at all has to keep its own name.
 //
 // The last two calls here are that collision made concrete. On a `Map<Set<int>, string>` the two
 // readings are both real and both wanted, and they answer differently -- so a single name would
 // have had to pick one and be wrong for the other. The rule refuses rather than picks, which is
 // what it is for.
 //
-// When the set is already at hand, `remove_all(m, items(drop))` is still the shorter way: `items`
+// When the set is already at hand, `remove(m, items(drop))` is still the shorter way: `items`
 // answers the elements as an array and the variadic's lone-array spread takes it, in both worlds.
 fn main() {
     val m = Map<string, int> { "a": 1, "b": 2, "c": 3 }
@@ -34,12 +40,12 @@ fn main() {
     remove_keys(mb, Set<string> { "b" })
     print(snapshot(mb))
 
-    // and what the two names keep apart. `remove_all` reads the set as ONE key; `remove_keys`
+    // and what the two names keep apart. `remove` reads the set as ONE key; `remove_keys`
     // reads it as a set OF keys. One name could not have meant both.
     val nested = Map<Set<int>, string> { Set<int> { 1 }: "one", Set<int> { 2 }: "two" }
-    print(keys(remove_all(nested, Set<int> { 1 })))
+    print(keys(remove(nested, Set<int> { 1 })))
     print(keys(remove_keys(nested, Set<Set<int>> { Set<int> { 2 } })))
 
     // the route that already worked, for a set in hand
-    print(remove_all(m, items(Set<string> { "a", "c" })))
+    print(remove(m, items(Set<string> { "a", "c" })))
 }

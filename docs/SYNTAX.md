@@ -389,13 +389,20 @@ for x in seen { ... }                    // a set has one binder
   whether anything was new — so the variadic form subsumes the singular rather than
   conflicting with it. **`insert` is positional only now**: it puts a value at an index in
   an array, and no longer doubles as set membership.
-- **`remove_all(c, keys)` takes a `Map`, a `MutableMap` or a `MutableSet`**, the last row of the
-  pairing pass's first group, and all three take `variadic` — so an array, several values, one
-  value or none spell the same call in every world. The immutable half answers a new `Map`, the
-  builders whether anything was removed. It stays a separate name from `remove`: a variadic
-  `remove` would subsume the singular for `Map`, `Set` and `MutableSet`, but not for
-  `MutableMap`, whose singular answers the removed `Option<V>` where the plural answers `bool`
-  — and an array's `remove` takes an *index*, which must not become variadic.
+- **`remove(c, keys)` is variadic for a `Map`, a `MutableMap`, a `Set` and a `MutableSet`** — an
+  array, several values or one value spell the same call in every world, and `#[at_least_one]`
+  makes none a compile error. The immutable halves answer a new `Map` or `Set`, the builders
+  whether anything was removed. **An array's `remove` stays singular and takes an *index*.**
+- **`remove_all` was that name until 2026-10-22**, and the paragraph here had already worked out
+  both the merge and its one obstacle: *"a variadic `remove` would subsume the singular for `Map`,
+  `Set` and `MutableSet`, but not for `MutableMap`, whose singular answers the removed `Option<V>`
+  where the plural answers `bool` — and an array's `remove` takes an *index*, which must not become
+  variadic."* All of that held. The merge happened anyway, by spending the `Option<V>`:
+  `remove(mm, k)` answers `bool` now, so taking a value out of a `MutableMap` in one step is no
+  longer expressible. Nothing in lib/, tests/ or the sample backend ever read it — the only two
+  readers were `remove_all` and `remove_keys`, each using it as a presence test. The old name
+  points at the new one, and `remove`'s immutable `Set` member is a capability the plural never
+  had.
 - **`union`, `intersect`, `difference` and `is_subset` take either world**, the awkward row:
   each has three declarations, and **argument two** chooses between two of them, because a
   `MutableSet`'s operand may come from either world. The immutable halves still take only a
@@ -448,14 +455,15 @@ for x in seen { ... }                    // a set has one binder
 - **The mutable collections**: `MutableMap<K, V>` (`mutable_map_new`/`_set`/`_get`/`_get_or`/
   `_remove`/`_update`/`_update_all`/`_filter`/`_remove_all`/`_keys`/`_values`) and `MutableSet<T>`
   (`mutable_set_new`/`_add`/`_add_all`/`_remove`/`_remove_all`/`_filter`/`_items`), the
-  `MutableArray` counterparts. **The single-element mutators report what they did**:
-  `remove` on a MutableMap answers the value that was there as an `Option<V>` (the entry is otherwise
-  gone, and recovering it would need a `get` first), while a set's `add` and `remove` answer a
-  `bool`, so a caller can dedupe without a `contains` first. Each `_all` form is variadic and
-  answers whether anything changed. *(The singular is variadic too since F199; what keeps a
+  `MutableArray` counterparts. **The mutators report what they did**: `add` and `remove` answer a
+  `bool` — whether anything was added or removed — so a caller can dedupe without a `contains`
+  first. `remove` on a MutableMap answered the value that was there, as an `Option<V>`, until
+  2026-10-22; it answers `bool` like the rest now, and the `_all` forms that used to sit beside
+  these were absorbed into the same names when `remove` went variadic. *(What keeps a
   `MutableSet<[int]>` from being a special case is that the checker compares the argument against
-  the **element type**, not that the singular is fixed-arity. Each of these carries
-  `#[at_least_one]`, so the no-op call is a compile error.)* `_keys` and `_values` return the immutable `Set<K>`
+  the **element type**: argument one fixes it, so a lone `[int]` is one element and a lone `[[int]]`
+  is a spread, each having only one reading. Each of these carries `#[at_least_one]`, so the no-op
+  call is a compile error.)* `_keys` and `_values` return the immutable `Set<K>`
   and `[V]`, not handles -- a result like that is nearly always consumed by a `for` or returned,
   so a handle would allocate a thread-bound object per loop for nothing. Each mutates its own private trie in place (O(n) total instead of copying per
   entry) -- use one in a loop adding many entries. Type arguments are written out
@@ -783,7 +791,7 @@ fn main() {
 - **`#[at_least_one]` on the function raises that floor to one.** Zero is the default because a
   variadic with an identity reads perfectly well empty — `concat()` is `""`, and a SQL
   `query(conn, sql)` with no bind parameters is the common case, not a mistake. It is the
-  *mutations* that have no empty reading: `add(s)`, `remove_all(s)` and `push(xs)` change nothing,
+  *mutations* that have no empty reading: `add(s)`, `remove(s)` and `push(xs)` change nothing,
   so the prelude marks those. An **empty array still passes**, as one argument rather than none —
   that is how a caller spreads a list that may be empty, deliberately rather than by omission.
 - **Inside the function it's an ordinary array** of the declared element type (`nums: variadic int`

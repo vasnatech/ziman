@@ -1,0 +1,18 @@
+// `remove_all` was deleted on 2026-10-22 and the old name points at `remove`, which took its
+// variadic parameter. A different kind of retirement from the prefix drops in
+// `renamed_builder_fn`, and it has its own table and its own sentence for that reason: nothing was
+// renamed here. The plural stopped being a separate question once the singular could take many,
+// so the answer is the same name with more arguments.
+//
+// `add` had been variadic in both set worlds since F199, which is what made `remove` the
+// asymmetric one and this merge the obvious move.
+//
+// Two names look like they belong in that table and do not. `update_all` takes `fn(K, V) -> V`
+// and applies it to every entry, where `update` targets one key -- "all" names the extent of the
+// walk, not a plural of the argument, so no variadic could absorb it. `remove_keys` takes a
+// `Set<K>`, which cannot be a declaration beside `variadic K` at all, so it outlived the name it
+// was a sibling of; map.zm carries that wall.
+fn main() {
+    val m = Map<string, int> { "a": 1 }
+    print(keys(remove_all(m, "a")))
+}

@@ -26,8 +26,8 @@ fn main() {
     filter(m, fn(k: string, v: int) -> bool { return v < 50 })
     print(keys(m))
 
-    print(remove_all(m, "b", "nope"))
-    print(remove_all(m, "nope"))
+    print(remove(m, "b", "nope"))
+    print(remove(m, "nope"))
     print(keys(m))
     print(remove(m, "c"))
     print(remove(m, "c"))
@@ -42,6 +42,6 @@ fn main() {
     print(items(s))
     print(remove(s, 3))
     print(remove(s, 3))
-    print(remove_all(s, 1, 9))
+    print(remove(s, 1, 9))
     print(len(s))
 }

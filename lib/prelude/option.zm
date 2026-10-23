@@ -60,9 +60,10 @@
 // That reverses the older rule, which kept a split set whole in collections.zm -- **and that file
 // is gone**, retired on 2026-10-22 once the last of its names had been filed by type. **Every set
 // splits, however many files that means**: `len` and `contains` across five each, `snapshot` and
-// `clear` across four, `filter`, `remove` and `mutable` across three, `set`, `remove_all` and
-// `map` across three, `concat`, `get_or`, `update` and `flat_map` across two or one. Nothing is
-// exempt and nothing is left over. See docs/DESIGN.md's "Overloading available to a declaration",
+// `clear` across four, `filter`, `remove`, `mutable`, `set` and `map` across three, `concat`,
+// `get_or`, `update` and `flat_map` across two or one. Nothing is exempt and nothing is left over.
+// `remove_all` was in this list until 2026-10-22, when `remove` went variadic and absorbed it --
+// a set can leave the list by being merged into another, not only by being filed. See docs/DESIGN.md's "Overloading available to a declaration",
 // and prelude.zm's header for what collections.zm's own header carried.
 //
 // **result.zm was added the same day, and is the rule read forwards rather than backwards.**

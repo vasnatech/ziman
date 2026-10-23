@@ -1483,7 +1483,7 @@ static void warn_brace_interpolation(Env *env, Expr *e) {
  * **A name here, not an overload.** Purity is per overload, so the `t.kind != TY_VOID` test beside
  * this one is what makes a list of names safe: `filter` is here, and its three builder members
  * return nothing, so only the Map/Set/array members can trip it. Where a builder member is
- * effectful *and* answers something -- `add`, `remove_all`, `remove` -- the declaration says so
+ * effectful *and* answers something -- `add` and `remove` -- the declaration says so
  * with `#[effectful]` and `call_is_effectful_overload` vetoes the name. Those three could not be
  * listed at all until that attribute existed (F208). */
 static const char *const PURE_BUILTINS[] = {
@@ -1820,6 +1820,33 @@ static const char *renamed_builder_fn(const char *name) {
                    {NULL, NULL}};
     for (size_t k = 0; RENAMED[k].was != NULL; k++) {
         if (strcmp(name, RENAMED[k].was) == 0) return RENAMED[k].now;
+    }
+    return NULL;
+}
+
+/* A different kind of retirement from `renamed_builder_fn`'s, and it earns its own table and its
+ * own sentence rather than being filed with the prefix drops: **these names were absorbed by a
+ * variadic parameter.** Nothing was renamed -- the plural form simply stopped being a separate
+ * question once the singular could take many, so the answer is the same name with more arguments.
+ *
+ * `remove_all` went that way on 2026-10-22, in all three worlds it had (Map, MutableMap,
+ * MutableSet), after `add` had been variadic in both set worlds since F199 and made `remove` the
+ * asymmetric one. The merge cost one capability, recorded at the declaration: `remove` on a
+ * MutableMap answered the value it took out, and a variadic form has no single value to answer.
+ *
+ * **`update_all` is the name that looks like it belongs here and does not.** It takes
+ * `fn(K, V) -> V` and applies it to *every* entry, where `update` targets one key -- "all" names
+ * the extent of the walk, not a plural of the argument, so there is no variadic that could absorb
+ * it. `remove_keys` is the other near-miss: it takes a `Set<K>`, which cannot be a declaration
+ * beside `variadic K` at all (see map.zm's own note), so it outlived the name it was a sibling
+ * of. */
+static const char *absorbed_by_variadic_fn(const char *name) {
+    static const struct {
+        const char *was;
+        const char *now;
+    } ABSORBED[] = {{"remove_all", "remove"}, {NULL, NULL}};
+    for (size_t k = 0; ABSORBED[k].was != NULL; k++) {
+        if (strcmp(name, ABSORBED[k].was) == 0) return ABSORBED[k].now;
     }
     return NULL;
 }
@@ -4239,6 +4266,13 @@ ordinary_call:;
              * notation and the reason it is not a function any more. */
             ziman_error("type", e->line, e->col, "'%s' is gone -- write '%s' instead: %s", name, as_syntax,
                         as_syntax_why);
+        }
+        const char *absorbed_fn = absorbed_by_variadic_fn(name);
+        if (absorbed_fn != NULL) {
+            ziman_error("type", e->line, e->col,
+                        "'%s' is now '%s': the singular takes a variadic parameter, so one name covers one "
+                        "argument or many -- '%s(x)' and '%s(x, y, z)' and '%s(xs)' are all it",
+                        name, absorbed_fn, absorbed_fn, absorbed_fn, absorbed_fn);
         }
         const char *renamed_fn = renamed_builder_fn(name);
         if (renamed_fn != NULL) {

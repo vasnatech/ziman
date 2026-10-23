@@ -8,7 +8,7 @@
 //
 // Each line is the pure immutable member of a set whose builder member writes in place, so
 // discarding it cannot have been meant. The builder members stay discardable, which is
-// `discard_overload_purity_allowed`'s half. `add` and `remove_all` needed `#[effectful]` on their
+// `discard_overload_purity_allowed`'s half. `add` and `remove` needed `#[effectful]` on their
 // builder members first: those answer a bool *and* write the container, so listing the name
 // without the attribute would have refused "make sure x is in here".
 fn main() {
@@ -28,5 +28,5 @@ fn main() {
     get_or(m, "a", 0)
     filter(s, fn(x: int) -> bool { return x > 0 })
     add(s, 9)
-    remove_all(m, "a")
+    remove(m, "a")
 }

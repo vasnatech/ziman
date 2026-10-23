@@ -7,8 +7,8 @@
 true
 false
 {a, c}
-Some(4)
-None
+true
+false
 true
 false
 true

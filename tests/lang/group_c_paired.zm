@@ -8,6 +8,19 @@
 //   3. `remove` answers the value it took out; `discard` answers nothing. Both kept -- the value
 //      is wanted about half the time, and building an `Option` to throw away is what `discard`
 //      exists to avoid. `discard` answered a `bool` before this.
+//
+// **Decision 3 was reversed on 2026-10-22**, and both halves of it are kept above because the
+// reversal is the interesting part. `remove` went variadic to absorb `remove_all`, and a variadic
+// form has no single value to answer, so it answers `bool` now. The premise that went was "the
+// value is wanted about half the time": measured across lib/, tests/ and the sample backend, it
+// was wanted **nowhere** -- the only two readers were `remove_all` and `remove_keys`, each using
+// it as a presence test with the binding discarded.
+//
+// That leaves `discard` with nothing to avoid. The two calls at the bottom of this file --
+// `remove(mm, "a")` discarded and `discard(mm, "b")` -- are now the same operation at the same
+// cost, which is the clearest place in the tree to see that the pair has collapsed into one. Left
+// standing rather than deleted in the same breath, because keeping or dropping `discard` is its
+// own decision.
 fn main() {
     val m = Map<string, int> { "a": 1, "b": 2 }
 

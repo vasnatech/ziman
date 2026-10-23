@@ -46,8 +46,8 @@ ziman: type error at 30:5 in tests/lang/discarded_pure_collection_result.zm: the
    |
 30 |     add(s, 9)
    |     ^
-ziman: type error at 31:5 in tests/lang/discarded_pure_collection_result.zm: the Map<string, int> returned by 'remove_all' is discarded, and 'remove_all' has no other effect -- bind the result ('val x = remove_all(...)', or 'val _ = ...' to discard on purpose)
+ziman: type error at 31:5 in tests/lang/discarded_pure_collection_result.zm: the Map<string, int> returned by 'remove' is discarded, and 'remove' does not modify its argument -- arrays, maps and sets are values, so assign the result back ('arr = remove(arr, ...)'), or build one up with MutableArray/MutableMap ('val _ = ...' discards on purpose)
    |
-31 |     remove_all(m, "a")
+31 |     remove(m, "a")
    |     ^
 ziman: 13 errors

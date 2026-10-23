@@ -1,0 +1,1 @@
+'remove_all' is now 'remove': the singular takes a variadic parameter, so one name covers one argument or many -- 'remove(x)' and 'remove(x, y, z)' and 'remove(xs)' are all it

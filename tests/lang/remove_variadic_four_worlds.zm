@@ -1,0 +1,36 @@
+// `remove` taking `variadic` over a Map, a MutableMap, a Set and a MutableSet.
+//
+// **This was `remove_all_three_worlds` until 2026-10-22**, when `remove` went variadic and
+// absorbed that name -- F197/F198 had built it as a separate plural, item 6 and the last of
+// Group A. Four worlds now rather than three: `remove_all` never had an immutable `Set` form, so
+// "a set without these" took a fold or a `filter`, and the merge handed it over for free.
+//
+// The Map half took `keys: [K]` when the row was first paired, which left one name with two call
+// shapes; F198 made it variadic too, and that is the shape `remove` inherited. Every world takes
+// an array, several values or one value -- and *not* none, `#[at_least_one]` being part of the
+// arity.
+//
+// The returns still differ, for the usual reason: the immutable halves answer a new Map or Set,
+// the builders answer whether anything was actually removed. The MutableMap builder answered the
+// removed `Option<V>` before the merge and answers `bool` with the others now; that is the one
+// capability it cost, and map.zm's declaration carries the account of it.
+//
+// An array's `remove` is deliberately absent: it takes an *index*, so a variadic form would be a
+// different operation with shift semantics to define rather than the same one over more arguments.
+fn main() {
+    val m = Map<string, int> { "a": 1, "b": 2, "c": 3 }
+    print(remove(m, ["a", "b"]))
+    print(remove(m, "a", "b"))
+    print(remove(m, "a"))
+    print(len(m))
+
+    val mm = mutable(m)
+    print(remove(mm, "a", "b"))
+    print(snapshot(mm))
+    print(remove(mm, "zz"))
+
+    val ms = mutable(Set<int> { 1, 2, 3 })
+    print(remove(ms, [1, 2]))
+    print(snapshot(ms))
+    print(remove(ms, 9))
+}

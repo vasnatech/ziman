@@ -1,6 +1,6 @@
 // `merge` over any number of maps, 2026-10-22. It **replaced** a two-parameter form rather than
 // joining it: a variadic `Map<K, V>` accepts exactly two maps as well, so the pair is
-// indistinguishable and the declaration checker refuses it -- the same wall `remove_all`'s `Set<K>`
+// indistinguishable and the declaration checker refuses it -- the same wall `remove`'s `Set<K>`
 // form hit, answered the other way because here the variadic *subsumes* the binary form instead of
 // meaning something different from it. Every `merge(a, b)` call site is unchanged; only a named
 // call could notice, the parameters having gone from `m`/`other` to `maps`.

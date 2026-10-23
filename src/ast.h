@@ -692,7 +692,7 @@ typedef struct {
     /* `#[at_least_one]`: the variadic parameter needs one argument, not zero. Off by default,
      * because a variadic with an identity reads perfectly well empty -- `concat()` is "", and a
      * SQL `query(conn, sql)` with no bind parameters is the common case, not a mistake. It is the
-     * *mutations* that have no zero reading: `add(s)`, `remove_all(s)` and `push(xs)` all do
+     * *mutations* that have no zero reading: `add(s)`, `remove(s)` and `push(xs)` all do
      * nothing, and before F199 made them variadic each of them was an arity error. Checked at the
      * call, and folded into the overload resolver's arity range so a set still resolves. */
     int variadic_at_least_one;

@@ -52,9 +52,10 @@
 // That reverses the older rule, which kept a split set whole in collections.zm -- **and that file
 // is gone**, retired on 2026-10-22 once the last of its names had been filed by type. **Every set
 // splits, however many files that means**: `len` and `contains` across five each, `snapshot` and
-// `clear` across four, `filter`, `remove` and `mutable` across three, `set`, `remove_all` and
-// `map` across three, `concat`, `get_or`, `update` and `flat_map` across two or one. Nothing is
-// exempt and nothing is left over. See docs/DESIGN.md's "Overloading available to a declaration",
+// `clear` across four, `filter`, `remove`, `mutable`, `set` and `map` across three, `concat`,
+// `get_or`, `update` and `flat_map` across two or one. Nothing is exempt and nothing is left over.
+// `remove_all` was in this list until 2026-10-22, when `remove` went variadic and absorbed it --
+// a set can leave the list by being merged into another, not only by being filed. See docs/DESIGN.md's "Overloading available to a declaration",
 // and prelude.zm's header for what collections.zm's own header carried.
 //
 // **result.zm was added the same day, and is the rule read forwards rather than backwards.**
@@ -150,35 +151,27 @@ pub native fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
 #[effectful]
 pub native fn add<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 
-// **A new Set without `item`** -- `remove`'s Set member. An element that is absent is not an error;
-// the answer is a set equal to the argument. `native fn` since 2026-10-22, and the parameter was
-// `x` until that conversion made the rename free. array.zm's member carries the account of it and
-// the `#[when_unmatched]` line the whole set shares.
-pub native fn remove<T: Eq + Hash>(s: Set<T>, item: T) -> Set<T>
+// **A new Set without any of `items`** -- `remove`'s Set member. An element that is absent is not
+// an error; the answer is a set equal to the argument. `native fn` since 2026-10-22, and the
+// parameter was `x` until that conversion made the rename free. array.zm's member carries the
+// account of it and the `#[when_unmatched]` line the whole set shares.
+//
+// **Variadic since 2026-10-22, and this member gained rather than merged**: `remove_all` never had
+// an immutable Set form, so "a set without these" took a fold or a `filter` before. `add` beside it
+// has been variadic in both worlds since F199, which is the asymmetry this closed.
+#[at_least_one]
+pub native fn remove<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
 
-// Removes `item`, answering whether it was there; nothing happens when it is absent. `#[effectful]`
-// for the reason `add` carries it: the call writes the set, and "was it there?" is an answer
-// "delete if present" has no use for.
-#[effectful]
-pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
-
-// Drops each of `items`, answering whether any of them was there -- `add`'s opposite, and variadic
-// for the same reason. The map form answers the same question of keys and is in map.zm, and
-// `remove` -- the singular of it -- has its two set members just above.
+// Drops each of `items`, answering whether any of them was there; nothing happens for one that is
+// absent. **`add`'s exact opposite in shape as well as in meaning since 2026-10-22**, when
+// `remove_all` was deleted and its variadic parameter moved here -- the two had been a plural name
+// against a singular one, which was the only thing keeping `add` and `remove` from reading alike.
 //
 // `#[effectful]` for the reason `add` carries it: "did anything change?" is an answer
 // "make sure these are gone" has no use for.
 #[at_least_one]
 #[effectful]
-pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool {
-    var removed_any = false
-    for item in items {
-        if remove(s, item) {
-            removed_any = true
-        }
-    }
-    return removed_any
-}
+pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 
 // The elements `keep` answers true for, as a new Set, in their existing order. A Set is a MapObj
 // whose values are placeholders, so `keep` takes one argument where `filter`'s Map form takes two.

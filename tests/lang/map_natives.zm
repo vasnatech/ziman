@@ -1,11 +1,11 @@
 // map.zm's builtins became native declarations on 2026-10-22 -- nine of its ten. Six names had no
-// `check_call` arm at all (`get`, `get_or`, `keys`, `values`, `merge`, `remove_all`): they were
+// `check_call` arm at all (`get`, `get_or`, `keys`, `values`, `merge`, `remove`): they were
 // declaration-checked already, so the conversion was the ids, the branches and three name lists,
 // with no diagnostics to replace. `set`'s Map member went too, its arm keeping the three measured
 // per-type refusals that one `#[when_unmatched]` line cannot say.
 //
 // Each finds its C function through parameter one -- `map_get`, `map_get_or`, `map_keys`,
-// `map_values`, `map_merge`, `map_remove_all`, `map_set` -- with **one symbol serving two
+// `map_values`, `map_merge`, `map_set` -- with **one symbol serving two
 // declarations** for the in-place `merge`: both have a `MutableMap` first, differing in parameter
 // two, which `mutable_map_merge` tells apart by that argument's own runtime kind.
 fn main() {
@@ -21,10 +21,10 @@ fn main() {
     print(set(m, "e", 5))
     print(len(keys(Map<string, int> {})))
 
-    // `remove_all` is variadic, so the keys arrive written out or as one array to spread
-    print(remove_all(m, "a", "c"))
+    // `remove` is variadic, so the keys arrive written out or as one array to spread
+    print(remove(m, "a", "c"))
     val ks: [string] = ["a", "b"]
-    print(remove_all(m, ks))
+    print(remove(m, ks))
 
     // **Named arguments, which a builtin id could never take.** `set` gains them too even though
     // its array member keeps its id: the name is declaration-checked now, so the arguments are
@@ -36,7 +36,7 @@ fn main() {
     print(merge(maps: [m, Map<string, int> { "x": 9 }]))
     print(set(m: m, key: "f", value: 6))
     print(set(items: [1, 2, 3], index: 1, x: 99))
-    print(remove_all(m: m, keys: "b"))
+    print(remove(m: m, keys: "b"))
     // and type arguments
     print(get<string, int>(m, "a"))
 

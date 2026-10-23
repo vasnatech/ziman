@@ -107,9 +107,10 @@ merely asks, `separator` is `join`'s and `split`'s, `haystack`/`needle` are a se
 That reverses the older rule, which kept a split set whole in collections.zm -- **and that file
 is gone**, retired on 2026-10-22 once the last of its names had been filed by type. **Every set
 splits, however many files that means**: `len` and `contains` across five each, `snapshot` and
-`clear` across four, `filter`, `remove` and `mutable` across three, `set`, `remove_all` and
-`map` across three, `concat`, `get_or`, `update` and `flat_map` across two or one. Nothing is
-exempt and nothing is left over. See docs/DESIGN.md's "Overloading available to a declaration",
+`clear` across four, `filter`, `remove`, `mutable`, `set` and `map` across three, `concat`,
+`get_or`, `update` and `flat_map` across two or one. Nothing is exempt and nothing is left over.
+`remove_all` was in this list until 2026-10-22, when `remove` went variadic and absorbed it --
+a set can leave the list by being merged into another, not only by being filed. See docs/DESIGN.md's "Overloading available to a declaration",
 and prelude.zm's header for what collections.zm's own header carried.
 
 **result.zm was added the same day, and is the rule read forwards rather than backwards.**
@@ -1708,58 +1709,78 @@ The same of a builder.
 pub native fn discard<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K)
 ```
 
-Removes `key` and answers whether it was there, without reporting what it held. The same
-question `remove` answers for a set, and for the same reason: a `bool` needs no
-wrapper where an `Option<V>` is a heap allocation, and a tracing collector prices a short-lived
-allocation by how much is alive rather than by its size. Measured on a 100,000-entry map,
-removing and re-inserting every key: 351-363 ns/op through `remove` against 110-112
-through the bool-returning path -- the removal itself is a fraction of either. Reach for
-`remove` only when the old value is actually needed.
+Removes `key` and answers nothing. **Its reason for existing changed on 2026-10-22 without its
+usefulness changing**, which is the kind of thing worth catching in writing rather than
+rediscovering.
+
+It existed because `remove` answered an `Option<V>`: a heap allocation per removal, where a
+tracing collector prices a short-lived allocation by how much is alive rather than by its size.
+Measured then on a 100,000-entry map, removing and re-inserting every key: 351-363 ns/op through
+`remove` against 110-112 here. `remove` answers a `bool` now, so that gap should have closed --
+and it did not. Re-measured the same day, one spelling per process: `remove` 41-51 ms per 100,000
+ops against 12-13 ms here, the same 3.5x. The allocation moved rather than went, because `remove`
+is variadic now and a variadic parameter builds a one-element array per call to carry its
+argument.
+
+So this is the single-key fast path, and it will stay one until `remove` gets the one-element
+shortcut `push` has in interpreter.c (D18). Reach for `remove` when several keys go at once;
+reach for this in a loop.
 
 ### `remove`
 
 ```
-pub native fn remove<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Map<K, V>
+pub native fn remove<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
 ```
 
-**A new Map without `key`** -- `remove`'s Map member. A key that is absent is not an error; the
-answer is a map equal to the argument. `native fn` since 2026-10-22; array.zm's member carries
-the account of that conversion and the `#[when_unmatched]` line the whole set shares.
+**A new Map without any of `keys`** -- `remove`'s Map member. A key that is absent is not an
+error; the answer is a map equal to the argument. `native fn` since 2026-10-22; array.zm's member
+carries the account of that conversion and the `#[when_unmatched]` line the whole set shares.
+
+**Variadic since 2026-10-22, which is where `remove_all` went.** The plural was a separate name
+taking the plural of what the singular took, and a variadic parameter is how this language says
+that -- `add` had already been both for a set since F199, so `remove` was the asymmetric one.
+Nothing is ambiguous: argument one fixes `K`, so a lone `[K]` argument spreads and a lone `K`
+does not, each having only one reading. set.zm's `add` carries the measurement.
 
 ```
-pub native fn remove<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
+pub native fn remove<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool
 ```
 
-Removes `key`, answering what was stored under it; nothing happens when it is absent. Use
-`discard` instead when the removed value is not wanted: answering with an `Option` means
-allocating one, which on a large map costs several times the removal itself.
+Drops each of `keys`, answering whether any of them was actually there; a key that is absent is
+not an error.
 
-`#[effectful]` because it both writes the map and answers a value: without it the dropped-result
-gate would read "answers something" as "has no effect" and refuse `remove(mb, k)` in statement
-position, which is "delete if present" and perfectly ordinary. The MutableArray and MutableSet
-members carry it for the same reason, each answering something different -- the element, and
-whether the item was there.
+**It answered `Option<V>` -- the value it took out -- until 2026-10-22, and now answers `bool`.**
+That is the one capability this merge spent, and it was spent deliberately: a variadic form has
+no single value to answer, so keeping the `Option` would have meant keeping `remove_all` for this
+one member and the name would have survived for a single declaration. Nothing in lib/, tests/ or
+the sample backend ever read the value -- the only two readers were `remove_all` and
+`remove_keys`, each using it as a presence test with the binding discarded. Taking a value out of
+a MutableMap in one step is no longer expressible; `get` then `remove` is two.
 
-### `remove_all`
+**It is not cheaper, which is worth stating because it looks as though it should be.** The
+`Option` was an allocation per removal -- `discard`'s whole reason for existing -- and dropping
+it bought nothing, because a variadic parameter allocates a one-element array per call to carry
+the argument. One trade for another. Measured one spelling per process (the repeated lesson from
+option.zm: measuring several in one process reads the later ones against a heap the earlier ones
+already grew), 100,000-entry map, removing and re-inserting every key:
 
-```
-pub fn remove_all<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> bool
-```
-
-Drops each of `keys`, answering whether any of them was actually there. `_all` takes the plural
-of what the singular takes, which for a map's `remove` is keys rather than entries.
-
-`#[effectful]` for the reason `remove` itself carries it: the call writes the map, and "was any
-of it there?" is an answer "delete these if present" has no use for.
 
 ```
-pub native fn remove_all<K: Eq + Hash, V>(m: Map<K, V>, keys: variadic K) -> Map<K, V>
+old remove  Option, singular     38-45 ms
+new remove  bool, variadic       41-51 ms
+discard     void, singular       12-13 ms
 ```
 
-`m` without any of `keys`, as a new Map. The immutable half: the MutableMap form above drops
-them in place and answers whether any was there, where this answers the map that is left. The
-MutableSet form is in set.zm, and `remove` -- the singular of it -- has its two map members
-just above.
+So `discard` keeps a real reason to exist, and it is a *different* reason than the one its own
+comment gives: not that it avoids building an `Option`, but that it avoids the variadic collapse.
+`push` has a one-element fast path in interpreter.c for exactly this cost (D18), picked by
+comparing the cached native pointer; `remove` has none yet, and adding one is what would make
+`discard` genuinely redundant.
+
+`#[effectful]`, because "was any of it there?" is an answer "delete these if present" has no use
+for. It was needed for a sharper reason while this answered a value: without it the
+dropped-result gate read "answers something" as "has no effect" and refused `remove(mb, k)` in
+statement position.
 
 ### `remove_keys`
 
@@ -1771,7 +1792,8 @@ pub native fn remove_keys<K: Eq + Hash, V>(m: Map<K, V>, keys: Set<K>) -> Map<K,
 question** -- which is a cost taken deliberately, so the reasoning is here rather than left to
 be rediscovered and "fixed".
 
-`remove_all(m, keys: Set<K>)` cannot be a declaration. Tried on 2026-10-22:
+`remove(m, keys: Set<K>)` cannot be a declaration. Tried on 2026-10-22 against `remove_all`,
+which is the name the variadic parameter then belonged to:
 
 
 ```
@@ -1784,8 +1806,12 @@ element whose type happens to be a set, which `Map<Set<int>, V>` makes a real ma
 call can tell "remove these keys" from "remove this one key, which is a set", and the rule is
 right to refuse rather than pick. The same shape as `concat`'s second wall and `mutable`'s.
 
+**The wall moved to `remove` when `remove_all` was deleted the same day** and is unchanged in
+substance: the variadic parameter is what it was ever about, and `remove` holds it now. This is
+why `remove_keys` outlived the name it was a sibling of.
+
 **What was already possible**, and is still the shorter way when the set is at hand:
-`remove_all(m, items(drop))` -- `items` answers the elements as an array and the variadic's
+`remove(m, items(drop))` -- `items` answers the elements as an array and the variadic's
 lone-array spread takes it, in both worlds. This exists for the call that reads better naming
 the set, and for the one that would otherwise pay for an intermediate array.
 
@@ -1794,7 +1820,7 @@ pub fn remove_keys<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: Set<K>) -> bool
 ```
 
 The builder half: the entries are dropped in place and the answer is whether any of them was
-there. `#[effectful]` for the reason `remove_all`'s builder form carries it -- the call writes
+there. `#[effectful]` for the reason `remove`'s builder form carries it -- the call writes
 the map, and "was any of it there?" is an answer "make sure these are gone" has no use for.
 
 ### `get_or`
@@ -1963,7 +1989,7 @@ parameter takes them written out. What did change is the parameter name, from `m
 arguments are never a spread.
 
 `#[at_least_one]`, because `merge()` has no map to take `K` and `V` from and would answer
-nothing useful -- the same reason `add` and `remove_all` carry it. `merge(a)` is allowed and
+nothing useful -- the same reason `add` and `remove` carry it. `merge(a)` is allowed and
 answers `a`.
 
 ```
@@ -2550,31 +2576,26 @@ gave up, which is the whole job of that fallback.
 ### `remove`
 
 ```
-pub native fn remove<T: Eq + Hash>(s: Set<T>, item: T) -> Set<T>
+pub native fn remove<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
 ```
 
-**A new Set without `item`** -- `remove`'s Set member. An element that is absent is not an error;
-the answer is a set equal to the argument. `native fn` since 2026-10-22, and the parameter was
-`x` until that conversion made the rename free. array.zm's member carries the account of it and
-the `#[when_unmatched]` line the whole set shares.
+**A new Set without any of `items`** -- `remove`'s Set member. An element that is absent is not
+an error; the answer is a set equal to the argument. `native fn` since 2026-10-22, and the
+parameter was `x` until that conversion made the rename free. array.zm's member carries the
+account of it and the `#[when_unmatched]` line the whole set shares.
+
+**Variadic since 2026-10-22, and this member gained rather than merged**: `remove_all` never had
+an immutable Set form, so "a set without these" took a fold or a `filter` before. `add` beside it
+has been variadic in both worlds since F199, which is the asymmetry this closed.
 
 ```
-pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, item: T) -> bool
+pub native fn remove<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
 ```
 
-Removes `item`, answering whether it was there; nothing happens when it is absent. `#[effectful]`
-for the reason `add` carries it: the call writes the set, and "was it there?" is an answer
-"delete if present" has no use for.
-
-### `remove_all`
-
-```
-pub fn remove_all<T: Eq + Hash>(s: MutableSet<T>, items: variadic T) -> bool
-```
-
-Drops each of `items`, answering whether any of them was there -- `add`'s opposite, and variadic
-for the same reason. The map form answers the same question of keys and is in map.zm, and
-`remove` -- the singular of it -- has its two set members just above.
+Drops each of `items`, answering whether any of them was there; nothing happens for one that is
+absent. **`add`'s exact opposite in shape as well as in meaning since 2026-10-22**, when
+`remove_all` was deleted and its variadic parameter moved here -- the two had been a plural name
+against a singular one, which was the only thing keeping `add` and `remove` from reading alike.
 
 `#[effectful]` for the reason `add` carries it: "did anything change?" is an answer
 "make sure these are gone" has no use for.

@@ -42,13 +42,13 @@ fn main() {
     remove(s, 7)
     print(len(s))
 
-    // `add` and `remove_all` on a builder joined them in F212, for the reason their own comments
+    // `add` and `remove` on a builder joined them in F212, for the reason their own comments
     // give: each writes the container and answers whether anything changed, and "make sure these
     // are in here" / "delete these if present" has no use for that answer. Both were *refused*
     // from F199 until then, so `val _ = add(s, x)` was the spelling the corpus had to use.
     add(s, 1, 2)
-    remove_all(s, 1)
-    remove_all(m, "gone")
+    remove(s, 1)
+    remove(m, "gone")
     print(len(s))
     print(len(m))
 }

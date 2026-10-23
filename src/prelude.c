@@ -1712,17 +1712,6 @@ static Value native_mutable_map_get_or(Value *args, int argc, int line, int col)
  * recovering it would need a `get` first. A set's answers whether it was there at all, since its
  * values are unused -- which is why these can no longer share one native as they did when both
  * returned nothing. */
-static Value native_mutable_map_remove(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
-    Value found;
-    if (!maptable_remove(&buf->t, args[1], &found)) {
-        return value_enum(type_option_ref(), enum_obj_option_none());
-    }
-    return value_enum(type_option_ref(), enum_obj_new("Option", "Some", 1, found));
-}
 
 /* `remove` without the `Option`. Same lookup, same tombstone; the only difference is that it does
  * not have to box what it removed, which on a large map is most of the cost -- see map.zm's own
@@ -1736,13 +1725,6 @@ static Value native_mutable_map_discard(Value *args, int argc, int line, int col
     return value_bool(maptable_remove(&buf->t, args[1], NULL));
 }
 
-static Value native_mutable_set_remove(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
-    return value_bool(maptable_remove(&buf->t, args[1], NULL));
-}
 
 
 
@@ -2684,7 +2666,7 @@ static Value native_map_set(Value *args, int argc, int line, int col) {
 /* ---- the immutable Map's own questions, converted off their builtin ids 2026-10-22 ----------
  *
  * Six names, eight declarations, each found through parameter one: `map_get`, `map_get_or`,
- * `map_keys`, `map_values`, `map_merge`, `map_remove_all`, and one `mutable_map_merge` serving both
+ * `map_keys`, `map_values`, `map_merge`, and one `mutable_map_merge` serving both
  * in-place forms. None had a `check_call` arm -- they were declaration-checked already, listed in
  * `BUILTINS_WITH_NAMED_ARGS` -- so the conversion is the id, the branch and the name lists, with no
  * diagnostics to replace.
@@ -2786,15 +2768,6 @@ static Value native_mutable_map_merge(Value *args, int argc, int line, int col) 
 /* Variadic, so the keys arrive as one collapsed array whichever way they were written -- which is
  * the half of this the builtin could not have: it saw the raw `args` and had to ask the checker's
  * own `variadic_tail_is_array_spread` which shape had been passed. */
-static Value native_map_remove_all(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    MapObj *m = args[0].as.map;
-    const ArrayObj *keys = args[1].as.arr;
-    for (int i = 0; i < keys->count; i++) m = mapobj_remove(m, array_get(keys, i));
-    return value_map(args[0].type, m);
-}
 
 /* `abs` over the four numeric scalars, converted off its builtin id 2026-10-22. **One
  * registration under the bare name answers for all four declarations**, as `len`'s nine do: the
@@ -2934,6 +2907,54 @@ static Value native_set_add(Value *args, int argc, int line, int col) {
     return value_map(args[0].type, m);
 }
 
+/* `remove` over a collection, variadic since 2026-10-22 -- **two implementations for four
+ * symbols**, which is what the merge with `remove_all` left behind.
+ *
+ * There were five functions here: `map_remove` and `set_remove` were byte-identical
+ * `mapobj_remove` calls, `mutable_map_remove` and `mutable_set_remove` differed only in that one
+ * built an `Option` out of the removed value, and `map_remove_all` was already the loop all of
+ * them now are. Going variadic made each pair the same code, and dropping the `Option` made the
+ * builder pair the same code too, so one function serves `map_remove` and `set_remove` and
+ * another serves `mutable_map_remove` and `mutable_set_remove`. A Set is a MapObj whose values are
+ * placeholders and a MutableSet is a MutableMapBuf with the same, which is why the pairing works
+ * at all; it was true before and the Option was the only thing hiding it.
+ *
+ * `args[1]` is one array however the call was written -- `collapse_variadic_args` runs first --
+ * and `#[at_least_one]` is what makes `remove(m)` a compile error. */
+static Value native_map_remove(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MapObj *m = args[0].as.map;
+    const ArrayObj *keys = args[1].as.arr;
+    for (int i = 0; i < keys->count; i++) m = mapobj_remove(m, array_get(keys, i));
+    return value_map(args[0].type, m);
+}
+
+/* The builder pair: removes in place and answers whether any of them was there.
+ *
+ * **This is where the `Option<V>` went.** `remove` on a MutableMap answered the value it took out,
+ * which no caller in this repository ever read -- the only two readers were `remove_all` and
+ * `remove_keys`, both using it as a presence test and discarding the binding. A variadic form has
+ * no single value to answer, so the merge chose the `bool` its three sibling worlds already
+ * answered. It is also strictly cheaper: the `Option` was an allocation per removal, which
+ * `discard` existed to avoid and which `remove` no longer makes.
+ *
+ * The buffer pointer is held across the loop, as `ziman_mutable_set_combine` does: `maptable_remove`
+ * works on the table's own storage, not the struct that owns it. */
+static Value native_mutable_map_remove(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
+    const ArrayObj *keys = args[1].as.arr;
+    int removed_any = 0;
+    for (int i = 0; i < keys->count; i++) {
+        if (maptable_remove(&buf->t, array_get(keys, i), NULL)) removed_any = 1;
+    }
+    return value_bool(removed_any);
+}
+
 /* `remove_keys` over an immutable Map: the map without any key the given Set holds. A separate
  * name rather than a `remove_all` member because the overload could not exist -- see the
  * declaration in lib/prelude/map.zm for the refusal and why it is not a bug in the rule. */
@@ -2983,19 +3004,7 @@ static Value native_array_remove(Value *args, int argc, int line, int col) {
 /* A Map without `key`, and a Set without `item`: one `mapobj_remove` each, and absent is not an
  * error -- the answer is a collection equal to the argument. One `value_map` serves both, a Set
  * being a MapObj whose values are placeholders. */
-static Value native_map_remove(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    return value_map(args[0].type, mapobj_remove(args[0].as.map, args[1]));
-}
 
-static Value native_set_remove(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
-    return value_map(args[0].type, mapobj_remove(args[0].as.map, args[1]));
-}
 
 /* `filter` over an immutable **Map** and **Set**: the entries `keep` answers true for, as a new
  * collection of the same kind, insertion order preserved. Two natives since 2026-10-22, where one
@@ -3101,7 +3110,7 @@ void prelude_register(void) {
     native_register("mutable_map_discard", native_mutable_map_discard);
     native_register("mutable_set_new", native_mutable_set_new);
     native_register("mutable_set_add", native_mutable_set_add);
-    native_register("mutable_set_remove", native_mutable_set_remove);
+    native_register("mutable_set_remove", native_mutable_map_remove);
     native_register("guard_new", native_guard_new);
     native_register("array_index_of", native_bytes_index_of);
     native_register("array_map", native_array_map);
@@ -3113,11 +3122,10 @@ void prelude_register(void) {
     native_register("map_values", native_map_values);
     native_register("map_merge", native_map_merge);
     native_register("mutable_map_merge", native_mutable_map_merge);
-    native_register("map_remove_all", native_map_remove_all);
     native_register("map_remove_keys", native_map_remove_keys);
     native_register("array_remove", native_array_remove);
     native_register("map_remove", native_map_remove);
-    native_register("set_remove", native_set_remove);
+    native_register("set_remove", native_map_remove);
     native_register("map_filter", native_map_filter);
     native_register("set_filter", native_set_filter);
     native_register("array_flat_map", native_array_flat_map);
