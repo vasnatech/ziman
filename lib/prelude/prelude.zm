@@ -66,8 +66,9 @@
 // split -- and the filing rule reversed that, so its names left one at a time: `concat`, `get_or`,
 // `update`, `set`, `remove_all`, `snapshot`, `clear`, then `filter` and `remove`, then `map`,
 // `flat_map`, `len`, `contains` and `mutable`. The last five went together, 28 declarations, and
-// emptied the file. Deleting it took the three edits adding a part takes, reversed: the file, the
-// Makefile's `PRELUDE_PARTS`, one line in src/prelude.c's `PARTS` table.
+// emptied the file. Deleting it took the edits adding a part takes, reversed: the file, the
+// Makefile's `PRELUDE_PARTS`, and two lines in src/prelude.c -- an `#include` and a row in its
+// `PARTS` table.
 //
 // What that file's header carried and this one now does: the parameter-name scheme below, the rule
 // that a set's members sit together within whichever file they land in, and the one piece of work
@@ -86,9 +87,10 @@
 // **Parameter names are part of the call surface**, because anything not dispatched by a builtin
 // id takes named arguments -- so one role gets one name across every declaration that has it,
 // whichever type it happens to be. The receiver of a sequence is `items` (both `[T]` and
-// `MutableArray<T>`), of a map `m`, of a set `s`, of text `s`, of a channel `channel` and of a
-// cell `cell` -- those last two were both `c` until the names were swept, which made one letter
-// mean two types. The prefix era named them for their world -- `a`/`b`, `m`/`mb`, `s`/`sb` --
+// `MutableArray<T>`), of a map `m`, of a set `s`, of text `s`, of a `Result` `result`, of a
+// channel `channel` and of a cell `cell` -- those last three are whole words, and the two that
+// were `c` until the names were swept are why: one letter meant two types, and a letter is always
+// one type away from that. `result` was `r` until 2026-10-22 for the same reason. The prefix era named them for their world -- `a`/`b`, `m`/`mb`, `s`/`sb` --
 // which is the thing F205 recorded as the wrong half of a rename, and it was still half-applied
 // until the names were swept.
 //
@@ -112,8 +114,11 @@
 // `Result<T, E>` had shared option.zm with `Option<T>` "because they convert into each other and
 // because `unwrap` is one overload set over both" -- the same reasoning the rule replaced, so
 // `unwrap` has one member in each file now and each conversion sits with its source. Retiring one
-// part and adding another are the same three edits: the file, the Makefile's `PRELUDE_PARTS`, one
-// line in src/prelude.c's `PARTS` table.
+// part and adding another are the same edits, and there are four, not the three this said until
+// 2026-10-22: the file, the Makefile's `PRELUDE_PARTS`, and *two* lines in src/prelude.c -- an
+// `#include` of the generated header as well as the row in its `PARTS` table. Leaving the
+// `#include` out stops the build with `PRELUDE_<NAME>_SOURCE undeclared`, which is how the
+// miscount was found: by adding a part and hitting it.
 
 // The number in `s`, or an Err naming the text when it is not one or does not fit:
 // `parse_int("9223372036854775808")` is an Err. `parse_int` takes an optional leading `-` and decimal

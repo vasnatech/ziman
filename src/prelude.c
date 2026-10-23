@@ -55,7 +55,11 @@
  * the per-type files alphabetically. Nothing depends on it semantically
  * -- declarations are looked up by name -- so it is chosen to read well.
  * Adding a part means a file in lib/prelude/, its name in the Makefile's
- * PRELUDE_PARTS, and one line here. */
+ * PRELUDE_PARTS, and *two* lines here -- the #include above as well as the row
+ * below. This said "one line" until 2026-10-22, when adding a part and leaving
+ * the #include out stopped the build with `PRELUDE_MATH_SOURCE undeclared`.
+ * There are as many of each as there are parts, which is the cheap check: ten
+ * #includes, ten rows, ten names in PRELUDE_PARTS. */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Woverlength-strings"
 static const struct {

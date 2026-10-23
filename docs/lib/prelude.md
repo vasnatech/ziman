@@ -68,8 +68,9 @@ held the names that were about no one type, under the older rule that an overloa
 split -- and the filing rule reversed that, so its names left one at a time: `concat`, `get_or`,
 `update`, `set`, `remove_all`, `snapshot`, `clear`, then `filter` and `remove`, then `map`,
 `flat_map`, `len`, `contains` and `mutable`. The last five went together, 28 declarations, and
-emptied the file. Deleting it took the three edits adding a part takes, reversed: the file, the
-Makefile's `PRELUDE_PARTS`, one line in src/prelude.c's `PARTS` table.
+emptied the file. Deleting it took the edits adding a part takes, reversed: the file, the
+Makefile's `PRELUDE_PARTS`, and two lines in src/prelude.c -- an `#include` and a row in its
+`PARTS` table.
 
 What that file's header carried and this one now does: the parameter-name scheme below, the rule
 that a set's members sit together within whichever file they land in, and the one piece of work
@@ -88,9 +89,10 @@ trusting that nothing drifted.
 **Parameter names are part of the call surface**, because anything not dispatched by a builtin
 id takes named arguments -- so one role gets one name across every declaration that has it,
 whichever type it happens to be. The receiver of a sequence is `items` (both `[T]` and
-`MutableArray<T>`), of a map `m`, of a set `s`, of text `s`, of a channel `channel` and of a
-cell `cell` -- those last two were both `c` until the names were swept, which made one letter
-mean two types. The prefix era named them for their world -- `a`/`b`, `m`/`mb`, `s`/`sb` --
+`MutableArray<T>`), of a map `m`, of a set `s`, of text `s`, of a `Result` `result`, of a
+channel `channel` and of a cell `cell` -- those last three are whole words, and the two that
+were `c` until the names were swept are why: one letter meant two types, and a letter is always
+one type away from that. `result` was `r` until 2026-10-22 for the same reason. The prefix era named them for their world -- `a`/`b`, `m`/`mb`, `s`/`sb` --
 which is the thing F205 recorded as the wrong half of a rename, and it was still half-applied
 until the names were swept.
 
@@ -114,8 +116,11 @@ and prelude.zm's header for what collections.zm's own header carried.
 `Result<T, E>` had shared option.zm with `Option<T>` "because they convert into each other and
 because `unwrap` is one overload set over both" -- the same reasoning the rule replaced, so
 `unwrap` has one member in each file now and each conversion sits with its source. Retiring one
-part and adding another are the same three edits: the file, the Makefile's `PRELUDE_PARTS`, one
-line in src/prelude.c's `PARTS` table.
+part and adding another are the same edits, and there are four, not the three this said until
+2026-10-22: the file, the Makefile's `PRELUDE_PARTS`, and *two* lines in src/prelude.c -- an
+`#include` of the generated header as well as the row in its `PARTS` table. Leaving the
+`#include` out stops the build with `PRELUDE_<NAME>_SOURCE undeclared`, which is how the
+miscount was found: by adding a part and hitting it.
 
 *This module is never imported: everything it declares is available bare in every program.*
 
@@ -2292,24 +2297,34 @@ so when no context supplied one.
 pub builtin fn err<T, E>(error: E) -> Result<T, E>
 ```
 
+The failure, and the mirror of `ok` in what it leaves unsaid: `ok(5)` has no `E` in its argument
+and `err("bad")` has no `T`, so both read the Result they are becoming from their context.
+
+It had no comment of its own until 2026-10-22 -- it shared `ok`'s block above, which is enough
+for a reader of the source and not enough for `docs/lib/prelude.md`, where every declaration
+gets its own `###` heading and this one published a blank entry under it. The same shape `max`
+had next to `min` in prelude.zm. A shared comment is a blank entry in the manual; the detector
+for that is worth re-running after any move.
+
 ### `is_ok`
 
 ```
-pub builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
+pub builtin fn is_ok<T, E>(result: Result<T, E>) -> bool
 ```
 
-Whether `r` is an `Ok`. `is_ok(r)` and `if Ok(v) = r` ask the same question; the second also
-binds the value, so this is for the cases that only need the answer.
+Whether `result` is an `Ok`. `is_ok(result)` and `if Ok(v) = result` ask the same question; the
+second also binds the value, so this is for the cases that only need the answer.
 
-**`r` is the Result receiver everywhere in this file**, as `m` is a Map's, `s` a Set's or a
-string's and `o` an Option's. One letter is right here for the reason it is wrong for a channel
-and a cell: those were both `c` until the names were swept, so one letter meant two types.
-Nothing else in the prelude is received as `r`.
+**`result` is the Result receiver everywhere in this file**, spelled out rather than the `r` it
+was until 2026-10-22. The prelude has both habits -- `m` for a map, `s` for a set or a string --
+and a whole word is the one that has survived contact: `channel` and `cell` were both `c` until
+the names were swept, and one letter meaning two types is exactly the failure a letter invites.
+A word cannot collide with the next type that wants the same initial.
 
 ### `unwrap`
 
 ```
-pub builtin fn unwrap<T, E>(r: Result<T, E>) -> T
+pub builtin fn unwrap<T, E>(result: Result<T, E>) -> T
 ```
 
 A `Result`'s Ok payload, which is a runtime error on an `Err`. `unwrap`'s other member takes an
@@ -2318,10 +2333,10 @@ A `Result`'s Ok payload, which is a runtime error on an `Err`. `unwrap`'s other 
 ### `unwrap_err`
 
 ```
-pub builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
+pub builtin fn unwrap_err<T, E>(result: Result<T, E>) -> E
 ```
 
-`r`'s error, which is a runtime error when `r` is an `Ok` -- the mirror of `unwrap`, and lower
+`result`'s error, which is a runtime error when it is an `Ok` -- the mirror of `unwrap`, and lower
 case for the reason the note at the top of this file gives.
 
 ### `filter_ok`
@@ -2339,12 +2354,11 @@ Both type arguments are written even though each answers only one of them, since
 Ziman infers neither and `Result<T, E>` names both: `filter_ok<int, string>(...)` answers
 `[int]`, `filter_err<int, string>(...)` answers `[string]` over the very same input.
 
-**The parameter stays `items`, not `results`**, which is the one name in this file a reader
-might expect to have been improved and should not be. `items` is the prelude's word for the
-receiver of a sequence, and these two are filters: `filter` takes `items`, so does
-`filter_present`, and all four read the same way at a call site. `results` would say only what
-the signature already says, where `items` says which role the argument plays -- the distinction
-the naming rule turns on.
+**The parameter is `items`, not `results`**, where the single `Result` next door is `result`.
+These two are filters and `items` is the prelude's word for a sequence receiver: `filter` takes
+`items`, so does `filter_present`, and all four read the same way at a call site. `results`
+would say only what the signature already says, where `items` says which role the argument
+plays -- the distinction the naming rule turns on.
 
 **Neither one propagates**, which is the whole point and also the risk: `filter_ok` *silently
 discards* every failure, so it is for the cases where a failure is genuinely not news -- one
@@ -2363,10 +2377,10 @@ The errors, in order, with the successes dropped -- `filter_ok`'s other half.
 ### `map`
 
 ```
-pub fn map<T, E, U>(r: Result<T, E>, f: fn(T) -> U) -> Result<U, E>
+pub fn map<T, E, U>(result: Result<T, E>, f: fn(T) -> U) -> Result<U, E>
 ```
 
-**`r`'s Ok value transformed, with an Err passing through untouched** -- the `Result` member of
+**The Ok value transformed, with an Err passing through untouched** -- the `Result` member of
 `map`, joining the four that already answer the same question for a `[T]`, a `MutableArray<T>`,
 a `Map<K, V>` and a `Set<T>`. `map_err` below is the mirror over the error.
 
@@ -2374,12 +2388,12 @@ It lives here because a declaration lives in the file for the type its first arg
 this is the fifth member of a set split across five files; `--api builtins` prints all five as
 one block.
 
-**The transform is `f`, the name its four siblings use**, and it was `convert` for about an hour
-until the rule the prelude states about itself was applied to it: parameter names are part of the
-call surface, because anything not dispatched by a builtin id takes named arguments, so one role
-gets one name across every declaration that has it. `map(items: xs, f: g)` and `map(r: r, f: g)`
-are both legal calls; a member that spelled it differently would make the set's call surface
-depend on which type you happened to be holding. The prelude says `f` fourteen times.
+**The transform is `f`, the name its four siblings use.** Parameter names are part of the call
+surface here, because anything not dispatched by a builtin id takes named arguments, so one role
+gets one name across every declaration that has it: `map(items: xs, f: g)` and
+`map(result: r, f: g)` are both legal, and a member that spelled the transform differently would
+make the set's call surface depend on which type you happened to be holding. The prelude says
+`f` fourteen times, against `key` twelve, `test` ten, `keep` six and `cmp` three.
 
 `map_err` below keeps `convert`, which is not the same inconsistency: it is its own name rather
 than a member of this set, so nothing constrains it, and `convert` says more about a function
@@ -2391,43 +2405,38 @@ variants is the whole implementation and there is nothing a native would make fa
 ### `map_err`
 
 ```
-pub fn map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F>
+pub fn map_err<T, E, F>(result: Result<T, E>, convert: fn(E) -> F) -> Result<T, F>
 ```
 
-`r` with its error replaced by `convert(error)`; an Ok passes through untouched. The piece that was
+The error replaced by `convert(error)`, with an Ok passing through untouched. The piece that was
 missing wherever one module's error type has to become another's -- `fs` answers an `FsError` and a
 caller whose own errors are strings wants `try map_err(fs.read_text(p), fs.fs_error_message)`
 rather than four lines of switch at every call.
 
 **Named `result_map_err` until 2026-10-22.** The `result_` prefix said which world the first
 argument came from and the argument already says it, which is the rule every other prefix drop
-followed; the old name points here, as those do. `to_option` below lost its `result_` prefix the
-same day for the same reason.
-
-**This comment argued the opposite for about an hour**, and the argument is worth recording as
-wrong rather than deleting: it said the prefix on `result_to_option` named a conversion's
-*source* rather than its world, so dropping it would leave a `to_option` that says nothing about
-what it converts from. `to_set` is what refutes that -- it has been in array.zm all along,
-prefix-free, named for its target, with `[T]` or `MutableArray<T>` read from argument one. The
-source was never in the name; it was always in the argument, which is the prefix rule exactly.
+followed; the old name points here, as those do. `to_option` below went the same way, and the
+note there has the rule the two of them settled.
 
 ### `to_option`
 
 ```
-pub fn to_option<T, E>(r: Result<T, E>) -> Option<T>
+pub fn to_option<T, E>(result: Result<T, E>) -> Option<T>
 ```
 
-`r`'s Ok value, or None on Err -- the error itself is dropped, so use this only where the
+The Ok value, or None on Err -- the error itself is dropped, so use this only where the
 caller truly doesn't care why something failed, not as a shortcut past handling it. `to_result`
 in option.zm is the reverse, and the pair reads as one word each way.
 
 **Named `result_to_option` until 2026-10-22**, when the prefix went for the reason every other
 prefix went: it said argument one is a `Result`, and argument one says that. The old name points
-here. `to_set` in array.zm is the shape this now matches -- a conversion named for its target.
+here.
 
-This sentence had been attached to `map_err` above (then called `result_map_err`), two
-declarations away from what it describes, so this function published with no comment of its own
-and `map_err` with a first sentence about something else. Found 2026-10-22 by moving the file.
+**A conversion is named for where it goes; argument one says where it came from.** That is the
+rule this rename settled, and it is worth stating because the opposite was argued first: that
+`result_` named a conversion's *source*, so a bare `to_option` would not say what it converts
+from. `to_set` refutes it and predates all of this -- prefix-free in array.zm, named for its
+target, taking `[T]` or `MutableArray<T>`. The source was never in the name.
 
 ## `set.zm`
 

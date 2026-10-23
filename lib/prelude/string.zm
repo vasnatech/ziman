@@ -65,8 +65,11 @@
 // `Result<T, E>` had shared option.zm with `Option<T>` "because they convert into each other and
 // because `unwrap` is one overload set over both" -- the same reasoning the rule replaced, so
 // `unwrap` has one member in each file now and each conversion sits with its source. Retiring one
-// part and adding another are the same three edits: the file, the Makefile's `PRELUDE_PARTS`, one
-// line in src/prelude.c's `PARTS` table.
+// part and adding another are the same edits, and there are four, not the three this said until
+// 2026-10-22: the file, the Makefile's `PRELUDE_PARTS`, and *two* lines in src/prelude.c -- an
+// `#include` of the generated header as well as the row in its `PARTS` table. Leaving the
+// `#include` out stops the build with `PRELUDE_<NAME>_SOURCE undeclared`, which is how the
+// miscount was found: by adding a part and hitting it.
 
 // `format` for a template that is a value -- read from a message catalog, say, or a translation -- with string arguments:
 // `format_dynamic("{} of {}", ["3", "10"])` is `Ok("3 of 10")`. `{}` is the next argument and `{{`/`}}` are literal braces, as
