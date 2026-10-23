@@ -20,7 +20,7 @@ fn main() {
     intersect(s, s2)
     difference(s, s2)
     is_subset(s, s2)
-    items(s)
+    to_array(s)
     keys(m)
     values(m)
     merge(m, m2)

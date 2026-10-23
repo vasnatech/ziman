@@ -616,7 +616,7 @@ pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, strin
         push(flat, cells)
         i = i + 1
     }
-    val names = items(snapshot(columns))
+    val names = to_array(snapshot(columns))
     val out = mutable_string_new()
     write_row(out, names, delimiter)
     for cells in snapshot(flat) {

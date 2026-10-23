@@ -87,7 +87,9 @@
 // **Parameter names are part of the call surface**, because anything not dispatched by a builtin
 // id takes named arguments -- so one role gets one name across every declaration that has it,
 // whichever type it happens to be. The receiver of a sequence is `items` (both `[T]` and
-// `MutableArray<T>`), of a map `m`, of a set `s`, of text `s`, of a `Result` `result`, of a
+// `MutableArray<T>`) -- unambiguously so since 2026-10-22, when the `items` *function* became
+// `to_array` and one word stopped naming a function, a receiver and a variadic payload at once --
+// of a map `m`, of a set `s`, of text `s`, of a `Result` `result`, of a
 // channel `channel` and of a cell `cell` -- those last three are whole words, and the two that
 // were `c` until the names were swept are why: one letter meant two types, and a letter is always
 // one type away from that. `result` was `r` until 2026-10-22 for the same reason. The prefix era named them for their world -- `a`/`b`, `m`/`mb`, `s`/`sb` --

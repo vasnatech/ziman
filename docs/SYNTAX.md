@@ -353,7 +353,7 @@ print(contains(stock, "apple"))          // true (a set: contains(seen, 3))
 print(get(stock, "apple"))               // Some(4); None if absent -- always an Option<V>
 seen = add(seen, 3)                      // a set adds with 'add'; 'insert' is positional only
 print(keys(stock))                       // {apple, fig}, a Set<string>
-print(values(stock))                     // [4, 9]; items(s) is the array of a set
+print(values(stock))                     // [4, 9]; to_array(s) is the array of a set
 for name, qty in stock { ... }           // key and value; `for name in stock` binds keys only
 for x in seen { ... }                    // a set has one binder
 ```
@@ -407,10 +407,18 @@ for x in seen { ... }                    // a set has one binder
   each has three declarations, and **argument two** chooses between two of them, because a
   `MutableSet`'s operand may come from either world. The immutable halves still take only a
   `Set` as their operand, an asymmetry that predates the pairing and was left alone.
-- **`get(m, k)`, `get_or(m, k, d)` and `items(s)` take either world too**, items 3 and 4
+- **`get(m, k)`, `get_or(m, k, d)` and `to_array(s)` take either world too**, items 3 and 4
   of the same pass: a `Map` or a `MutableMap` for the first two, a `Set` or a `MutableSet`
-  for `items`. `map_get`, `map_get_or`, `set_items`, `mutable_map_get`, `mutable_map_get_or`
-  and `mutable_set_items` no longer exist in any spelling.
+  for `to_array`. `map_get`, `map_get_or`, `set_items`, `mutable_map_get`, `mutable_map_get_or`
+  and `mutable_set_items` no longer exist in any spelling. **`to_array` was itself `items` until
+  2026-10-22**, renamed because a conversion is named for what it answers, not for what its
+  argument holds — the rule `to_option`/`to_result` settled and `to_set` had been following all
+  along. The old name was also the prelude's word for a sequence *parameter*, so one word had
+  named a function, a receiver and a payload.
+- **`to_mutable_array(s)` is the fourth corner**, added the same day: `to_set` and
+  `to_mutable_set` go array-to-set over both array worlds, `to_array` and `to_mutable_array` come
+  back over both set worlds. It is not `snapshot` — that answers the type a builder is *building*,
+  where these answer a different type, which is why `to_array` takes no `MutableArray`.
 - **`keys(m)` and `values(m)` take a `Map` or a `MutableMap`**, the second row of the Map/Set
   pairing pass. Both answer immutable values from either world -- `keys` a `Set<K>`, `values` a
   `[V]` -- because a result like this is nearly always consumed by a `for` or returned, so
@@ -536,7 +544,7 @@ for x in seen { ... }                    // a set has one binder
 - **Values, like arrays** -- `set`/`insert`/`remove` return a new collection, leaving the
   argument untouched. A persistent hash trie internally, so an update copies only a few nodes:
   building an n-entry map is O(n log n).
-- **Insertion order**: `keys`/`values`/`items`/`for`/`print` all go in first-inserted
+- **Insertion order**: `keys`/`values`/`to_array`/`for`/`print` all go in first-inserted
   order; overwriting a key keeps its place, removing and re-adding sends it to the end. `for`
   walks a snapshot (rebinding the collection mid-loop doesn't change what's visited or error).
 - **Equality/hashing ignore order** -- `==` is true for the same entries (a map's values must

@@ -169,7 +169,7 @@ Value ziman_len(Value *args, int argc, int line, int col);
  * name, registered under the bare name, which is right whenever all of a set's members want
  * the same code (see ziman_len). */
 Value ziman_contains(Value *args, int argc, int line, int col);
-Value ziman_set_items(Value *args, int argc, int line, int col);
+Value ziman_set_to_array(Value *args, int argc, int line, int col);
 /* `concat`'s three worlds; each takes its variadic tail already collapsed into one array. */
 Value ziman_string_concat(Value *args, int argc, int line, int col);
 Value ziman_array_concat(Value *args, int argc, int line, int col);

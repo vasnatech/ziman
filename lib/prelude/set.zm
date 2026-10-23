@@ -189,8 +189,31 @@ pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool) {
     }
 }
 
-// The elements as an array, in insertion order, as `items` gives for a Set.
-pub fn items<T: Eq + Hash>(s: MutableSet<T>) -> [T] {
+// **The elements as an array, in insertion order.** `to_set` is the other direction, and the two
+// names are deliberately a pair: a conversion is named for what it answers, which is the rule
+// `to_option`/`to_result` settled and `to_set`/`to_mutable_set` had been following all along.
+//
+// **It was `items` until 2026-10-22.** The old name said what the *argument* holds, which the
+// argument's own type already says, and it collided with itself twice over: `items` is the
+// prelude's word for a sequence *parameter* (every array receiver, and the variadic tail of `add`
+// and `remove`), so one word named a function, a receiver and a payload. The old name points here.
+//
+// **Not the same question as `snapshot`, and this is the distinction worth getting right.**
+// `snapshot(b)` answers *the type the builder is building* -- a MutableArray's snapshot is `[T]`, a
+// MutableSet's is `Set<T>`. `to_array(s)` answers a *different* type from the one it was given.
+// That is why `to_array` takes the two **set** worlds and not a `MutableArray`: `to_array(builder)`
+// would be a second spelling of `snapshot`, and the retired `ab_to_array` points at `snapshot` for
+// exactly that reason -- a name whose closeness to this one is worth knowing about.
+pub native fn to_array<T: Eq + Hash>(s: Set<T>) -> [T]
+
+// The same of a builder, which had no comment of its own until 2026-10-22 and so published a bare
+// signature in `docs/lib/prelude.md`. Ordinary Ziman where the immutable member is a native: it
+// walks the builder and pushes, which is what a `for` over a MutableSet already does.
+//
+// **The pair reads immutable-first now.** It was the one set in this file ordered the other way
+// round, against the rule prelude.zm's header states, and the comment that existed sat on this
+// member and pointed at the undocumented one above it ("as `items` gives for a Set").
+pub fn to_array<T: Eq + Hash>(s: MutableSet<T>) -> [T] {
     val out = mutable_array_new<T>()
     for item in s {
         push(out, item)
@@ -198,7 +221,21 @@ pub fn items<T: Eq + Hash>(s: MutableSet<T>) -> [T] {
     return snapshot(out)
 }
 
-pub native fn items<T: Eq + Hash>(s: Set<T>) -> [T]
+// **The elements as a builder**, the cross-world half of the pair above -- `to_mutable_set` is to
+// `to_set` what this is to `to_array`, and the four names make one table:
+//
+//     to_set           [T] or MutableArray<T>  ->  Set<T>
+//     to_mutable_set   [T] or MutableArray<T>  ->  MutableSet<T>
+//     to_array         Set<T> or MutableSet<T> ->  [T]
+//     to_mutable_array Set<T> or MutableSet<T> ->  MutableArray<T>
+//
+// Added 2026-10-22 with the rename, because the row was missing: `mutable(to_array(s))` was the
+// only way to get there and allocates twice, an immutable array to throw away and then the
+// builder. Both members are native for the reason `to_mutable_set` is -- one pass over the
+// elements straight into the buffer.
+pub native fn to_mutable_array<T: Eq + Hash>(s: Set<T>) -> MutableArray<T>
+
+pub native fn to_mutable_array<T: Eq + Hash>(s: MutableSet<T>) -> MutableArray<T>
 
 // ------------------------------------------------------------------- the four set operations
 //

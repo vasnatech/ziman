@@ -15,11 +15,11 @@ fn main() {
     s = add(s, 3)
     s = add(s, 2) // duplicate, no-op
     print(len(s))
-    print(sum(items(s)))
+    print(sum(to_array(s)))
 
     s = remove(s, 2)
     print(len(s))
-    print(sum(items(s)))
+    print(sum(to_array(s)))
 
     s = remove(s, 99) // no-op
     print(len(s))

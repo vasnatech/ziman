@@ -17,7 +17,7 @@
 // have had to pick one and be wrong for the other. The rule refuses rather than picks, which is
 // what it is for.
 //
-// When the set is already at hand, `remove(m, items(drop))` is still the shorter way: `items`
+// When the set is already at hand, `remove(m, to_array(drop))` is still the shorter way: `items`
 // answers the elements as an array and the variadic's lone-array spread takes it, in both worlds.
 fn main() {
     val m = Map<string, int> { "a": 1, "b": 2, "c": 3 }
@@ -47,5 +47,5 @@ fn main() {
     print(keys(remove_keys(nested, Set<Set<int>> { Set<int> { 2 } })))
 
     // the route that already worked, for a set in hand
-    print(remove(m, items(Set<string> { "a", "c" })))
+    print(remove(m, to_array(Set<string> { "a", "c" })))
 }

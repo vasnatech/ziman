@@ -1851,6 +1851,30 @@ static const char *absorbed_by_variadic_fn(const char *name) {
     return NULL;
 }
 
+/* A third kind, and the last of the three tables: **renamed to say what it answers.** Not a prefix
+ * drop (the old name had none) and not an absorption (nothing merged) -- the name described its
+ * *argument* where the convention is to describe the *result*, which is the rule `to_option` and
+ * `to_result` settled and `to_set`/`to_mutable_set` had been following since long before.
+ *
+ * `items(s)` became `to_array(s)` on 2026-10-22. The old name was also the prelude's word for a
+ * sequence *parameter* -- every array receiver, and the variadic tail of `add` and `remove` -- so
+ * one word named a function, a receiver and a payload at once.
+ *
+ * Deliberately *not* here: `entries(m)`, which answers `[MapEntry<K, V>]` rather than the map's
+ * keys or values and so is not a `to_` conversion of anything, and `snapshot(b)`, which answers
+ * the type a builder is building rather than a different type. The retired `ab_to_array` points at
+ * `snapshot`, not at `to_array`, and that is correct: it was a builder's own conversion. */
+static const char *renamed_for_result_fn(const char *name) {
+    static const struct {
+        const char *was;
+        const char *now;
+    } RENAMED_FOR_RESULT[] = {{"items", "to_array"}, {NULL, NULL}};
+    for (size_t k = 0; RENAMED_FOR_RESULT[k].was != NULL; k++) {
+        if (strcmp(name, RENAMED_FOR_RESULT[k].was) == 0) return RENAMED_FOR_RESULT[k].now;
+    }
+    return NULL;
+}
+
 /* The old names whose answer is **syntax**, so they cannot live in the table above: that one is
  * held by `tools/check_builtins.py` to naming a declaration that exists, which is the whole point
  * of it, and `b[i]` is not a declaration. Keeping them apart is what lets that guard stay strict.
@@ -4266,6 +4290,13 @@ ordinary_call:;
              * notation and the reason it is not a function any more. */
             ziman_error("type", e->line, e->col, "'%s' is gone -- write '%s' instead: %s", name, as_syntax,
                         as_syntax_why);
+        }
+        const char *for_result_fn = renamed_for_result_fn(name);
+        if (for_result_fn != NULL) {
+            ziman_error("type", e->line, e->col,
+                        "'%s' is now '%s': a conversion is named for what it answers, not for what its "
+                        "argument holds -- '%s' is the pair of 'to_set'",
+                        name, for_result_fn, for_result_fn);
         }
         const char *absorbed_fn = absorbed_by_variadic_fn(name);
         if (absorbed_fn != NULL) {

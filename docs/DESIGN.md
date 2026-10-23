@@ -3807,6 +3807,13 @@ refuses general bounds should not acquire general unions for them.
 `mutable(to_set(xs))` is two, so it exists. `mutable_array_from_set` does not: it is `mutable_array_from(set_items(s))` at one extra
 copy and nothing asks for it. Nor does `mutable_map_from_arrays`.
 
+*(2026-10-22: the set-to-builder row exists now, as `to_mutable_array(s)` over both set worlds —
+a user asked for it. Worth reading the sentence above again, because the reversal is in its second
+clause and not its first: `mutable(to_array(s))` costs exactly the one extra full copy that
+`mutable(to_set(xs))` does, so the stated rule admitted this row all along and "nothing asks for
+it" is what declined it. The rule is really two tests, cost and demand, and only the cost half was
+written as the heading. `mutable_map_from_arrays` is still declined on both.)*
+
 For the two hash types `from` saves something different from a copy: it can duplicate the trie's
 nodes with leaves shared, exactly as `mapobj_snapshot` does in the other direction, instead of
 hashing and inserting every entry one at a time. Relatedly, **neither `mutable_map_new` nor

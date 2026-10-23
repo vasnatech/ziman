@@ -1,0 +1,17 @@
+// `items` became `to_array` on 2026-10-22 and the old name points at it. The third and last of
+// the rename tables in typecheck.c, each with its own reason and its own sentence:
+//
+//   renamed_builder_fn        lost a prefix naming argument one's world (the argument says it)
+//   absorbed_by_variadic_fn   a plural the singular's variadic parameter took over
+//   renamed_for_result_fn     named for its argument where a conversion is named for its result
+//
+// This is the third. `items(s)` said what the argument holds, which the argument's own type
+// already says, and the word was simultaneously the prelude's name for a sequence *parameter* --
+// every array receiver, and the variadic tail of `add` and `remove` -- so one spelling named a
+// function, a receiver and a payload.
+//
+// Deliberately not in that table: `entries(m)`, which answers `[MapEntry<K, V>]` rather than a
+// conversion of the map, and `snapshot(b)`, which answers the type a builder is building.
+fn main() {
+    print(items(to_set([1, 2])))
+}

@@ -2324,7 +2324,41 @@ Value ziman_mutable_array_concat(Value *args, int argc, int line, int col) {
  * values are placeholders, so the elements are its keys. The MutableSet member of the same name is
  * ordinary Ziman beside its declaration; this is the immutable half, which shared a builtin id
  * with `values` until the name was converted. */
-Value ziman_set_items(Value *args, int argc, int line, int col) {
+/* `to_mutable_array` over either set world: the elements as a builder rather than as an immutable
+ * array, which is the cross-world half of the pair `to_array` opens.
+ *
+ * **Native rather than `mutable(to_array(s))`**, which is what it would be in Ziman and would
+ * allocate twice -- an immutable array to throw away, then the builder. `to_mutable_set` is native
+ * for the same reason and this mirrors it: `array_to_mutable_set` is to `to_set` what this is to
+ * `to_array`.
+ *
+ * One pass over the set's keys straight into a MutableArray, through the same
+ * `ziman_mutable_array_lit` that builds a `MutableArray<T> { ... }` literal -- it takes a raw
+ * `Value *` and a count, which is exactly the shape `mapobj_entries` and `maptable_entries` hand
+ * back. The element type is patched by the caller, as it is for any generic native. */
+static Value native_set_to_mutable_array(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Value *keys;
+    mapobj_entries(args[0].as.map, &keys, NULL);
+    return ziman_mutable_array_lit(keys, args[0].as.map->count);
+}
+
+/* The builder-set half. A MutableSet is a MutableMapBuf, so its elements come from `maptable_entries`
+ * where the immutable form reads a MapObj -- the one difference between the two, and the reason the
+ * symbol fallback needs both registrations. */
+static Value native_mutable_set_to_mutable_array(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MutableMapBuf *buf = mutable_map_get_buf(args[0]);
+    Value *keys;
+    int n = maptable_entries(&buf->t, &keys, NULL);
+    return ziman_mutable_array_lit(keys, n);
+}
+
+Value ziman_set_to_array(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
@@ -2708,7 +2742,7 @@ static Value native_map_keys(Value *args, int argc, int line, int col) {
 }
 
 /* The values as an array, in the keys' insertion order. Packed when they all admit it, as
- * `ziman_set_items` packs a set's elements. */
+ * `ziman_set_to_array` packs a set's elements. */
 static Value native_map_values(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
@@ -3132,7 +3166,9 @@ void prelude_register(void) {
     native_register("array_reverse", native_array_reverse);
     native_register("len", ziman_len);
     native_register("contains", ziman_contains);
-    native_register("set_items", ziman_set_items);
+    native_register("set_to_array", ziman_set_to_array);
+    native_register("set_to_mutable_array", native_set_to_mutable_array);
+    native_register("mutable_set_to_mutable_array", native_mutable_set_to_mutable_array);
     native_register("set_union", native_set_union);
     native_register("set_intersect", native_set_intersect);
     native_register("set_difference", native_set_difference);

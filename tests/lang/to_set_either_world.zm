@@ -21,8 +21,8 @@ fn main() {
     // either world, deduplicating in both, into each world
     print(to_set([1, 2, 1, 3, 2]))
     print(to_set(xs))
-    print(items(to_mutable_set([1, 2, 1, 3, 2])))
-    print(items(to_mutable_set(xs)))
+    print(to_array(to_mutable_set([1, 2, 1, 3, 2])))
+    print(to_array(to_mutable_set(xs)))
 
     // the source value is untouched by writes through the handle
     val source = Map<string, int> { "k": 1 }

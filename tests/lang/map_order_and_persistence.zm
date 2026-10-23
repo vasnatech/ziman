@@ -7,7 +7,7 @@ fn main() {
     print(base)
     print(changed)
     print(keys(changed))
-    print(items(keys(changed)))
+    print(to_array(keys(changed)))
     print(contains(keys(changed), "z"))
     print(values(changed))
     for k, v in changed {

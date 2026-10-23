@@ -89,7 +89,9 @@ trusting that nothing drifted.
 **Parameter names are part of the call surface**, because anything not dispatched by a builtin
 id takes named arguments -- so one role gets one name across every declaration that has it,
 whichever type it happens to be. The receiver of a sequence is `items` (both `[T]` and
-`MutableArray<T>`), of a map `m`, of a set `s`, of text `s`, of a `Result` `result`, of a
+`MutableArray<T>`) -- unambiguously so since 2026-10-22, when the `items` *function* became
+`to_array` and one word stopped naming a function, a receiver and a variadic payload at once --
+of a map `m`, of a set `s`, of text `s`, of a `Result` `result`, of a
 channel `channel` and of a cell `cell` -- those last three are whole words, and the two that
 were `c` until the names were swept are why: one letter meant two types, and a letter is always
 one type away from that. `result` was `r` until 2026-10-22 for the same reason. The prefix era named them for their world -- `a`/`b`, `m`/`mb`, `s`/`sb` --
@@ -1811,7 +1813,7 @@ substance: the variadic parameter is what it was ever about, and `remove` holds 
 why `remove_keys` outlived the name it was a sibling of.
 
 **What was already possible**, and is still the shorter way when the set is at hand:
-`remove(m, items(drop))` -- `items` answers the elements as an array and the variadic's
+`remove(m, to_array(drop))` -- `items` answers the elements as an array and the variadic's
 lone-array spread takes it, in both worlds. This exists for the call that reads better naming
 the set, and for the one that would otherwise pay for an intermediate array.
 
@@ -2618,16 +2620,64 @@ pub fn filter<T: Eq + Hash>(s: MutableSet<T>, keep: fn(T) -> bool)
 Drops every element `keep` answers false for, in place -- the builder half, which writes the set
 and answers nothing where the form above answers a new one.
 
-### `items`
+### `to_array`
 
 ```
-pub fn items<T: Eq + Hash>(s: MutableSet<T>) -> [T]
+pub native fn to_array<T: Eq + Hash>(s: Set<T>) -> [T]
 ```
 
-The elements as an array, in insertion order, as `items` gives for a Set.
+**The elements as an array, in insertion order.** `to_set` is the other direction, and the two
+names are deliberately a pair: a conversion is named for what it answers, which is the rule
+`to_option`/`to_result` settled and `to_set`/`to_mutable_set` had been following all along.
+
+**It was `items` until 2026-10-22.** The old name said what the *argument* holds, which the
+argument's own type already says, and it collided with itself twice over: `items` is the
+prelude's word for a sequence *parameter* (every array receiver, and the variadic tail of `add`
+and `remove`), so one word named a function, a receiver and a payload. The old name points here.
+
+**Not the same question as `snapshot`, and this is the distinction worth getting right.**
+`snapshot(b)` answers *the type the builder is building* -- a MutableArray's snapshot is `[T]`, a
+MutableSet's is `Set<T>`. `to_array(s)` answers a *different* type from the one it was given.
+That is why `to_array` takes the two **set** worlds and not a `MutableArray`: `to_array(builder)`
+would be a second spelling of `snapshot`, and the retired `ab_to_array` points at `snapshot` for
+exactly that reason -- a name whose closeness to this one is worth knowing about.
 
 ```
-pub native fn items<T: Eq + Hash>(s: Set<T>) -> [T]
+pub fn to_array<T: Eq + Hash>(s: MutableSet<T>) -> [T]
+```
+
+The same of a builder, which had no comment of its own until 2026-10-22 and so published a bare
+signature in `docs/lib/prelude.md`. Ordinary Ziman where the immutable member is a native: it
+walks the builder and pushes, which is what a `for` over a MutableSet already does.
+
+**The pair reads immutable-first now.** It was the one set in this file ordered the other way
+round, against the rule prelude.zm's header states, and the comment that existed sat on this
+member and pointed at the undocumented one above it ("as `items` gives for a Set").
+
+### `to_mutable_array`
+
+```
+pub native fn to_mutable_array<T: Eq + Hash>(s: Set<T>) -> MutableArray<T>
+```
+
+**The elements as a builder**, the cross-world half of the pair above -- `to_mutable_set` is to
+`to_set` what this is to `to_array`, and the four names make one table:
+
+
+```
+to_set           [T] or MutableArray<T>  ->  Set<T>
+to_mutable_set   [T] or MutableArray<T>  ->  MutableSet<T>
+to_array         Set<T> or MutableSet<T> ->  [T]
+to_mutable_array Set<T> or MutableSet<T> ->  MutableArray<T>
+```
+
+Added 2026-10-22 with the rename, because the row was missing: `mutable(to_array(s))` was the
+only way to get there and allocates twice, an immutable array to throw away and then the
+builder. Both members are native for the reason `to_mutable_set` is -- one pass over the
+elements straight into the buffer.
+
+```
+pub native fn to_mutable_array<T: Eq + Hash>(s: MutableSet<T>) -> MutableArray<T>
 ```
 
 ### `union`

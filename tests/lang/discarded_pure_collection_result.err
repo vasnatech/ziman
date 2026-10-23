@@ -14,9 +14,9 @@ ziman: type error at 22:5 in tests/lang/discarded_pure_collection_result.zm: the
    |
 22 |     is_subset(s, s2)
    |     ^
-ziman: type error at 23:5 in tests/lang/discarded_pure_collection_result.zm: the [int] returned by 'items' is discarded, and 'items' has no other effect -- bind the result ('val x = items(...)', or 'val _ = ...' to discard on purpose)
+ziman: type error at 23:5 in tests/lang/discarded_pure_collection_result.zm: the [int] returned by 'to_array' is discarded, and 'to_array' has no other effect -- bind the result ('val x = to_array(...)', or 'val _ = ...' to discard on purpose)
    |
-23 |     items(s)
+23 |     to_array(s)
    |     ^
 ziman: type error at 24:5 in tests/lang/discarded_pure_collection_result.zm: the Set<string> returned by 'keys' is discarded, and 'keys' has no other effect -- bind the result ('val x = keys(...)', or 'val _ = ...' to discard on purpose)
    |

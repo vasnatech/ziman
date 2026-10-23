@@ -1,0 +1,1 @@
+'items' is now 'to_array': a conversion is named for what it answers, not for what its argument holds -- 'to_array' is the pair of 'to_set'

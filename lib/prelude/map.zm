@@ -237,7 +237,7 @@ pub native fn remove<K: Eq + Hash, V>(m: MutableMap<K, V>, keys: variadic K) -> 
 // why `remove_keys` outlived the name it was a sibling of.
 //
 // **What was already possible**, and is still the shorter way when the set is at hand:
-// `remove(m, items(drop))` -- `items` answers the elements as an array and the variadic's
+// `remove(m, to_array(drop))` -- `items` answers the elements as an array and the variadic's
 // lone-array spread takes it, in both worlds. This exists for the call that reads better naming
 // the set, and for the one that would otherwise pay for an intermediate array.
 pub native fn remove_keys<K: Eq + Hash, V>(m: Map<K, V>, keys: Set<K>) -> Map<K, V>

@@ -1,0 +1,44 @@
+// `to_array` and `to_mutable_array` over both set worlds, the two rows that complete the
+// conversion table `to_set`/`to_mutable_set` started:
+//
+//     to_set           [T] or MutableArray<T>  ->  Set<T>
+//     to_mutable_set   [T] or MutableArray<T>  ->  MutableSet<T>
+//     to_array         Set<T> or MutableSet<T> ->  [T]
+//     to_mutable_array Set<T> or MutableSet<T> ->  MutableArray<T>
+//
+// `to_array` was `items` until 2026-10-22 and `to_mutable_array` is new that day. DESIGN.md's
+// "A fused conversion earns a name only when composition costs an extra full copy" had declined
+// the fourth row, and the reversal is in that rule's *second* clause rather than its first:
+// `mutable(to_array(s))` costs the same one extra copy `mutable(to_set(xs))` does, so the cost
+// test admitted it all along and "nothing asks for it" is what had declined it.
+//
+// **Not `snapshot`.** That answers the type a builder is building; these answer a different type
+// from the one they were given, which is why `to_array` takes no `MutableArray` -- it would be a
+// second spelling of `snapshot`, and the retired `ab_to_array` points at `snapshot` for exactly
+// that reason.
+fn main() {
+    val s = to_set([3, 1, 2])
+    val ms = mutable_set_new<string>()
+    add(ms, "b", "a")
+
+    // insertion order, not sorted, from either world
+    print(to_array(s))
+    print(to_array(ms))
+
+    // the builder forms are real builders: push after converting
+    val b = to_mutable_array(s)
+    push(b, 9)
+    print(snapshot(b))
+
+    val sb = to_mutable_array(ms)
+    push(sb, "c")
+    print(snapshot(sb))
+
+    // an empty set gives an empty array and an empty builder, not an error
+    val none: [int] = []
+    print(to_array(to_set(none)))
+    print(len(to_mutable_array(to_set(none))))
+
+    // and the round trip
+    print(to_array(to_set(to_array(s))))
+}

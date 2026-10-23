@@ -16,7 +16,7 @@ fn distinct<T: Eq + Hash>(items: [T]) -> [T] {
     for item in items {
         seen = add(seen, item)
     }
-    return items(seen)
+    return to_array(seen)
 }
 
 fn total(m: Map<string, int>) -> int {
