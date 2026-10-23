@@ -66,11 +66,17 @@ Makefile's `PRELUDE_PARTS`, one line in src/prelude.c's `PARTS` table.
 
 What that file's header carried and this one now does: the parameter-name scheme below, the rule
 that a set's members sit together within whichever file they land in, and the one piece of work
-it left behind -- **map.zm and set.zm are still grouped by world**, `get`, `keys`, `values` and
-`merge` split in map.zm and `add`, `union`, `intersect`, `difference` and `is_subset` in set.zm,
-each with a builder block and an immutable block between them. That is a larger piece than it
-looks: most of those immutable declarations have no doc comment at all, so the blank entries
-they publish in `docs/lib/prelude.md` have to be written rather than moved.
+it left behind, **which is now done**: map.zm and set.zm were still grouped by world -- `get`,
+`keys`, `values` and `merge` split in one, `add`, `union`, `intersect`, `difference` and
+`is_subset` in the other, each with a builder block and an immutable block between them. Every
+set's members sit together in every file now, immutable first.
+
+It was "a larger piece than it looks" for the reason recorded: fourteen of those declarations
+had no doc comment, so moving them was the small half and writing what they do was the rest.
+map.zm's `values` and set.zm's whole thirteen-declaration tail published blank entries in
+`docs/lib/prelude.md`; none does now. **The rule is that a set's members are adjacent, and no
+file breaks it** -- which makes it worth re-running the detector after any move rather than
+trusting that nothing drifted.
 
 **Parameter names are part of the call surface**, because anything not dispatched by a builtin
 id takes named arguments -- so one role gets one name across every declaration that has it,
