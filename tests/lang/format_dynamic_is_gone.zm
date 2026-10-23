@@ -1,0 +1,18 @@
+// `format_dynamic` was deleted on 2026-10-22 and the name answers with where to go instead.
+//
+// It had no caller in this library, in the sample backend or in any example -- only its own
+// fixture, which went with it. **It is the one deletion that removed a capability rather than a
+// second spelling of one**, which is why the message says what to do instead at length:
+// `map_from_arrays` had a map literal and `bytes_concat`'s whole body was `return concat(parts)`,
+// where `format` cannot take a computed template and nothing else can either.
+//
+// It lives in `renamed_to_syntax` rather than the rename table, which is the same reason
+// `map_from_arrays` does: that table is held by `tools/check_builtins.py` to naming a declaration
+// that exists, and there is no declaration to name here.
+//
+// The feature it was built for -- a message catalogue looking templates up at run time -- never
+// arrived. F44 had already found no catalogue in this library or the backend, `time.zm` with no
+// locale support at all, and `{0}`-style placeholders in 0 of 30 cold benchmark attempts.
+fn main() {
+    print(format_dynamic("{} of {}", ["3", "10"]))
+}

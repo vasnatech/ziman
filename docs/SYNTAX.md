@@ -2857,10 +2857,14 @@ a type error.
   away from zero exactly, a `float` by its binary value (like C's `printf("%.2f")`); a compile
   error on any other type, and nothing else follows the colon. `{{`/`}}` write a literal
   `{`/`}` (a lone `}` or an unmatched `{` is a compile error).
-- `format_dynamic(template: string, args: [string]) -> Result<string, string>` — `format` for a
-  template that's a runtime *value* (a message catalog), string arguments only; what `format`
-  checks at compile time (malformed template, placeholder/argument count, `{:.N}` on a string)
-  becomes an `Err` instead.
+- **`format_dynamic` was here and was deleted on 2026-10-22**, having no caller in this library,
+  in the sample backend or in any example — only its own fixture. It was `format` for a template
+  that is a runtime *value*, answering a `Result` because the checks `format` makes at compile
+  time had to become data. **Nothing replaces it**: a template is a literal again, and a template
+  that is genuinely a value has to be scanned by hand. The old name says so rather than reading as
+  undefined. Noted plainly because it is the one deletion here that removed a capability rather
+  than a second spelling of one — `map_from_arrays` had a map literal and `bytes_concat` had
+  `concat`.
 - `len(arr) -> int` / `len(s: string) -> int` — element count, or byte length. Also answers for a
   `Map`, a `Set`, and any of the four builders (`MutableArray`, `MutableString`, `MutableMap`,
   `MutableSet`), and for a `Mutable<T>` cell, whose length is always 1. So asking a collection its

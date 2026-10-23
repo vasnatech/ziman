@@ -1904,6 +1904,17 @@ static int renamed_to_syntax(const char *name, const char **now, const char **wh
                     "a map literal names each key beside its value, where this paired two positional "
                     "lists whose lengths could only be checked when the call ran; build one from two "
                     "arrays computed at run time with a MutableMap and 'set' in a loop"},
+                   /* Deleted 2026-10-22 rather than renamed: it had no caller in this library, in
+                    * the sample backend or in any example, only its own fixture. It is in this
+                    * table rather than the one above because there is no declaration to point at --
+                    * `format`'s literal template is the nearest thing, and for a template that
+                    * really is a value the answer is now to scan it yourself. */
+                   {"format_dynamic", "format(\"{} of {}\", a, b)",
+                    "a template is a literal again. `format` checks its placeholders against its "
+                    "arguments before the program runs, which only a literal allows -- that check is "
+                    "what the name gave up, and it answered a Result because of it. For a template "
+                    "that is genuinely a value, split it on \"{}\" and join the pieces with the "
+                    "arguments"},
                    {NULL, NULL, NULL}};
     for (size_t k = 0; RENAMED[k].was != NULL; k++) {
         if (strcmp(name, RENAMED[k].was) == 0) {

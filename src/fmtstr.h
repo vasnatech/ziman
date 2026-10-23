@@ -3,7 +3,7 @@
 
 #include <stddef.h>
 
-/* The template language of `format`, `printf` and `format_dynamic`, read in one place so the type checker (which
+/* The template language of `format` and `printf`, read in one place so the type checker (which
  * counts and types the placeholders of a literal) and the runtime (which fills them) can never disagree:
  *
  *   {}       the next argument, displayed as `print` displays it

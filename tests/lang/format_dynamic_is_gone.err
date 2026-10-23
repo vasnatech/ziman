@@ -1,0 +1,1 @@
+'format_dynamic' is gone -- write 'format("{} of {}", a, b)' instead: a template is a literal again.

@@ -2945,6 +2945,10 @@ from source.
   i18n story needed rather than the first. **And there is no AI-first case either:** `{0}`-style
   placeholders appear in **0 of 30** cold benchmark attempts. Sequenced behind a decision about
   localisation that nobody has asked for; `format_dynamic` remains where they would land.
+  *(2026-10-22: `format_dynamic` was deleted, so they have nowhere to land and would arrive with
+  it. This entry's own finding is why that was cheap -- the justifying case was absent and so was
+  its groundwork -- and it is also why the deletion is reversible: the function was 40 lines over a
+  scanner that `format` and `printf` still share.)*
 
 - **`serve`: per-client connection cap -- done (2026-10-07).** `header_timeout_ms` (E7) frees a slot from a client that dawdles within seconds, but a
   flood from one address can still fill all `max_connections` slots. A cap per client address (`max_connections_per_client`, default 0 = off, since

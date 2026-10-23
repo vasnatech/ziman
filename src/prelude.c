@@ -186,56 +186,6 @@ static Value native_parse_decimal(Value *args, int argc, int line, int col) {
     return value_result(type_ref(result_type), result_obj_new(1, value_decimal(d)));
 }
 
-/* format_dynamic(template, args): `format` for a template that is a value, with string arguments: `{}` is the next one and
- * `{{`/`}}` are braces. Unlike `format` nothing is checked before the program runs, so a template with a different number of
- * placeholders than arguments, a malformed one, or one with a precision (`{:.2}` needs a number, and these are strings) is an
- * Err. */
-static Value native_format_dynamic(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
-    Type result_type = type_result(type_scalar(TY_STRING), type_scalar(TY_STRING));
-    const char *fmt = args[0].as.str.ptr;
-    size_t fmt_len = args[0].as.str.len;
-    ArrayObj *given = args[1].as.arr;
-    size_t cap = 64, len = 0;
-    char *buf = zalloc_atomic(cap);
-    int placeholders = 0;
-    size_t pos = 0;
-    FmtPiece piece;
-    char err[256];
-    int r;
-    while ((r = fmt_next(fmt, fmt_len, &pos, &piece, err, sizeof err)) > 0) {
-        const char *src = piece.text;
-        size_t src_len = piece.len;
-        if (piece.placeholder) {
-            if (piece.precision >= 0) {
-                return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(
-                    "a precision ('{:.N}') needs a number, and format_dynamic's arguments are strings"))));
-            }
-            if (placeholders < given->count) {
-                Value a = array_get(given, placeholders);
-                src = a.as.str.ptr;
-                src_len = (size_t)a.as.str.len;
-            } else {
-                src_len = 0;
-            }
-            placeholders++;
-        }
-        while (len + src_len + 1 > cap) {
-            cap *= 2;
-            buf = ziman_xrealloc(buf, cap);
-        }
-        memcpy(buf + len, src, src_len);
-        len += src_len;
-    }
-    if (r < 0) return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(err))));
-    if (placeholders != given->count) {
-        char msg[160];
-        snprintf(msg, sizeof msg, "the template has %d placeholder(s) but %d argument(s) were given", placeholders, given->count);
-        return value_result(type_ref(result_type), result_obj_new(0, value_string(ziman_xstrdup(msg))));
-    }
-    buf[len] = '\0';
-    return value_result(type_ref(result_type), result_obj_new(1, value_string(buf)));
-}
 
 #define SPTR(v) ((v).as.str.ptr)
 #define SLEN(v) ((size_t)(v).as.str.len)
@@ -3229,7 +3179,6 @@ void prelude_register(void) {
     native_register("parse_float", native_parse_float);
     native_register("parse_bigint", native_parse_bigint);
     native_register("parse_decimal", native_parse_decimal);
-    native_register("format_dynamic", native_format_dynamic);
     native_register("substring", native_substring);
     native_register("split", native_split);
     native_register("string_index_of", native_index_of);
