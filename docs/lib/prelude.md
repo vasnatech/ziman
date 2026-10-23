@@ -1699,10 +1699,23 @@ which is how it stood. The key is usually unused, as here; name it and ignore it
 ### `get`
 
 ```
+pub native fn get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
+```
+
+**The value of `key`, or None.** Both worlds answer the same way, and the `Option` is the whole
+of the difference from `get_or`: this one reports absence, that one substitutes for it.
+
+These two sat 200 lines apart until 2026-10-22, the file having been grouped by world -- every
+immutable member under one banner and every builder member elsewhere. That banner called them
+"the builtins over an immutable `Map` and `Set`", of which three things were wrong: they are
+`native fn` since the map.zm conversions, there is no `Set` member here at all, and a reader
+looking up `get` found one half of it.
+
+```
 pub native fn get<K: Eq + Hash, V>(m: MutableMap<K, V>, key: K) -> Option<V>
 ```
 
-The value of `key`, or None.
+The same of a builder.
 
 ### `discard`
 
@@ -1909,48 +1922,39 @@ disturb the walk.
 ### `keys`
 
 ```
-pub fn keys<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Set<K>
-```
-
-The keys as an immutable `Set<K>`, in insertion order -- the same answer `keys` gives for a
-Map, and the reason this returns a value rather than a handle: a result like this is nearly
-always consumed by a `for` or returned, so handing back a handle would allocate a thread-bound
-object per loop for nothing.
-
-### `values`
-
-```
-pub fn values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V]
-```
-
-The values as an array, in the keys' insertion order, as `values` gives for a Map.
-
-### `get`
-
-```
-pub native fn get<K: Eq + Hash, V>(m: Map<K, V>, key: K) -> Option<V>
-```
-
-The builtins over an immutable `Map` and `Set`.
-
-Declared, not defined: the rule for each is an arm in the type checker, which every call reaches
-before the ordinary function lookup -- see SYNTAX.md's `builtin fn` entry. These exist so the
-signature can be printed, completed and read.
-
-### `keys`
-
-```
 pub native fn keys<K: Eq + Hash, V>(m: Map<K, V>) -> Set<K>
 ```
 
-A `Set`, not an array: a map's keys are unique by construction, so the type that says so is the
-honest one.
+**The keys, in insertion order.** A `Set`, not an array: a map's keys are unique by
+construction, so the type that says so is the honest one.
+
+```
+pub fn keys<K: Eq + Hash, V>(m: MutableMap<K, V>) -> Set<K>
+```
+
+The same of a builder, and the reason this returns a value rather than a handle: a result like
+this is nearly always consumed by a `for` or returned, so handing back a handle would allocate a
+thread-bound object per loop for nothing.
 
 ### `values`
 
 ```
 pub native fn values<K: Eq + Hash, V>(m: Map<K, V>) -> [V]
 ```
+
+**The values as an array, in the keys' insertion order.** An array rather than a `Set`, which is
+the asymmetry with `keys` worth noticing: values are not unique, and collapsing duplicates would
+lose the correspondence with `keys(m)` that makes the pair useful together.
+
+This declaration had no doc comment at all until 2026-10-22 and published blank in
+`docs/lib/prelude.md` -- it sat third under a banner that described the group, which is the cost
+the collections.zm sweep measured and the reason a set's members now sit together.
+
+```
+pub fn values<K: Eq + Hash, V>(m: MutableMap<K, V>) -> [V]
+```
+
+The same of a builder.
 
 ### `merge`
 
