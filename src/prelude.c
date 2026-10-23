@@ -2796,13 +2796,25 @@ static Value native_map_values(Value *args, int argc, int line, int col) {
  *
  * **Variadic since 2026-10-22, so `args[0]` is one array of maps** however the call was written --
  * written out, or a lone array spread. The declaration replaced a two-parameter form; a variadic
- * `Map<K, V>` accepts exactly two maps as well, so the two could not have coexisted. `#[at_least_one]`
- * guarantees the array is non-empty, which is what lets the first element be the accumulator. */
+ * `Map<K, V>` accepts exactly two maps as well, so the two could not have coexisted.
+ *
+ * **This said `#[at_least_one]` "guarantees the array is non-empty, which is what lets the first
+ * element be the accumulator", and that was false and crashed.** The attribute guarantees at least
+ * one *argument*; an empty array spread is one argument, which SYNTAX.md documents as the
+ * deliberate way to spread a list that may be empty. So `merge(xs)` with `xs: [Map<K, V>]` empty
+ * reached `array_get(maps, 0)` on an empty buffer and segfaulted -- found 2026-10-22 while checking
+ * this same edge for `union`.
+ *
+ * The empty answer is the empty map rather than an error, which is the rule the language already
+ * states for a variadic with an identity: `concat()` is `""`. `min`/`max` raise instead because
+ * they have no identity to give. The placeholder result type is patched by the caller, as for any
+ * generic native. */
 static Value native_map_merge(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
     const ArrayObj *maps = args[0].as.arr;
+    if (maps->count == 0) return value_map(type_scalar_ref(TY_VOID), mapobj_empty());
     Value first = array_get(maps, 0);
     MapObj *m = first.as.map;
     for (int i = 1; i < maps->count; i++) {

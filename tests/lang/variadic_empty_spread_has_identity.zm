@@ -1,0 +1,44 @@
+// **An empty array spread is one argument, not zero**, so `#[at_least_one]` does not make a
+// variadic's buffer non-empty -- and a native that assumes it does crashes. `merge(xs)` with
+// `xs: [Map<K, V>]` empty segfaulted on `array_get(maps, 0)` until 2026-10-22, with a comment
+// above it asserting the guarantee it did not have: "`#[at_least_one]` guarantees the array is
+// non-empty, which is what lets the first element be the accumulator."
+//
+// SYNTAX.md documents the empty spread as deliberate -- "that is how a caller spreads a list that
+// may be empty, deliberately rather than by omission" -- so it is ordinary input, not a misuse.
+//
+// **The empty answer is the identity where there is one**, which is the rule the language already
+// states for `concat()` being `""`. Every variadic below was swept for this on the day the crash
+// was found; `merge` was the only one that read element zero unguarded. `min`/`max` are the
+// deliberate exception: no identity exists for "the smallest of nothing", so they raise.
+fn main() {
+    val no_maps: [Map<string, int>] = []
+    val no_arrays: [[int]] = []
+    val no_ints: [int] = []
+    val no_strings: [string] = []
+    val no_options: [Option<int>] = []
+
+    print(len(merge(no_maps)))
+    print(concat(no_arrays))
+    print(concat(no_strings))
+    print(push([1], no_ints))
+    print(len(remove(Map<string, int> { "a": 1 }, no_strings)))
+    print(len(remove(to_set([1]), no_ints)))
+    print(len(add(to_set([1]), no_ints)))
+    print(filter_present(no_options))
+
+    val b = mutable_array_new<int>()
+    push(b, no_ints)
+    print(len(b))
+
+    val mm = mutable_map_new<string, int>()
+    merge(mm, no_maps)
+    print(len(mm))
+
+    val ms = mutable_set_new<int>()
+    print(add(ms, no_ints))
+
+    val sb = mutable_string_new()
+    append(sb, no_strings)
+    print(len(sb))
+}
