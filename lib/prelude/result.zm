@@ -99,6 +99,10 @@ pub builtin fn err<T, E>(error: E) -> Result<T, E>
 // binds the value, so this is for the cases that only need the answer.
 pub builtin fn is_ok<T, E>(r: Result<T, E>) -> bool
 
+// A `Result`'s Ok payload, which is a runtime error on an `Err`. `unwrap`'s other member takes an
+// `Option<T>` and is in option.zm; that Option form is why this is not spelled `unwrap_Ok`.
+pub builtin fn unwrap<T, E>(r: Result<T, E>) -> T
+
 // `r`'s error, which is a runtime error when `r` is an `Ok` -- the mirror of `unwrap`, and lower
 // case for the reason the note at the top of this file gives.
 pub builtin fn unwrap_err<T, E>(r: Result<T, E>) -> E
@@ -138,11 +142,42 @@ pub fn filter_err<T, E>(items: variadic Result<T, E>) -> [E] {
     return out
 }
 
+// **`r`'s Ok value transformed, with an Err passing through untouched** -- the `Result` member of
+// `map`, joining the four that already answer the same question for a `[T]`, a `MutableArray<T>`,
+// a `Map<K, V>` and a `Set<T>`. `map_err` below is the mirror over the error.
+//
+// It lives here because a declaration lives in the file for the type its first argument has, so
+// this is the fifth member of a set split across five files; `--api builtins` prints all five as
+// one block.
+//
+// The transform is named `convert` rather than the `f` its four siblings use, which is a real
+// inconsistency and deliberate: `map_err` directly below takes `convert`, and these two are read
+// together far more often than `map` over a Result is read beside `map` over a Set. Parameter
+// names are part of the call surface here -- `map(r: r, convert: ...)` is a legal call -- so this
+// is a choice, not an oversight. If it ever grates, the fix is to rename it to `f` and leave
+// `map_err` alone, since `f` is the name the set agreed on first.
+//
+// Ordinary Ziman rather than a native, like three of the four other members: a `switch` over two
+// variants is the whole implementation and there is nothing a native would make faster.
+pub fn map<T, E, U>(r: Result<T, E>, convert: fn(T) -> U) -> Result<U, E> {
+    return switch r {
+        Ok(v) { ok(convert(v)) }
+        Err(e) { err(e) }
+    }
+}
+
 // `r` with its error replaced by `convert(error)`; an Ok passes through untouched. The piece that was
 // missing wherever one module's error type has to become another's -- `fs` answers an `FsError` and a
-// caller whose own errors are strings wants `try result_map_err(fs.read_text(p), fs.fs_error_message)`
+// caller whose own errors are strings wants `try map_err(fs.read_text(p), fs.fs_error_message)`
 // rather than four lines of switch at every call.
-pub fn result_map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F> {
+//
+// **Named `result_map_err` until 2026-10-22.** The `result_` prefix said which world the first
+// argument came from and the argument already says it, which is the rule every other prefix drop
+// followed; the old name points here, as those do. `result_to_option` keeps its prefix on purpose
+// and is not an oversight: there the prefix names the *source* of a conversion, pairing with
+// `option_to_result` in option.zm, so dropping it would leave two functions called `to_option` and
+// `to_result` that say nothing about what they convert from.
+pub fn map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T, F> {
     return switch r {
         Ok(v) { ok(v) }
         Err(e) { err(convert(e)) }
@@ -153,8 +188,9 @@ pub fn result_map_err<T, E, F>(r: Result<T, E>, convert: fn(E) -> F) -> Result<T
 // caller truly doesn't care why something failed, not as a shortcut past handling it.
 // `option_to_result` in option.zm is the reverse.
 //
-// This sentence had been attached to `result_map_err` above, two declarations away from what it
-// describes, so `result_to_option` published with no comment of its own and `result_map_err` with
+// This sentence had been attached to `map_err` above (then called `result_map_err`), two
+// declarations away from what it
+// describes, so `result_to_option` published with no comment of its own and `map_err` with
 // a first sentence about something else. Found 2026-10-22 by moving the file.
 pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T> {
     return switch r {
@@ -162,7 +198,3 @@ pub fn result_to_option<T, E>(r: Result<T, E>) -> Option<T> {
         Err(_) { Option<T>.None }
     }
 }
-
-// A `Result`'s Ok payload, which is a runtime error on an `Err`. `unwrap`'s other member takes an
-// `Option<T>` and is in option.zm; that Option form is why this is not spelled `unwrap_Ok`.
-pub builtin fn unwrap<T, E>(r: Result<T, E>) -> T

@@ -1799,6 +1799,11 @@ static const char *renamed_builder_fn(const char *name) {
                    {"mutable_array_push", "push"},
                    {"mutable_array_insert", "insert"},
                    {"mutable_array_remove", "remove"},
+                   /* Not a builder, and the first entry here whose world is a `Result`: the `result_`
+                    * prefix said which world argument one came from and the argument says it, which is
+                    * the rule all of these follow. `result_to_option` deliberately keeps its prefix --
+                    * there it names a conversion's *source*, pairing with `option_to_result`. */
+                   {"result_map_err", "map_err"},
                    {NULL, NULL}};
     for (size_t k = 0; RENAMED[k].was != NULL; k++) {
         if (strcmp(name, RENAMED[k].was) == 0) return RENAMED[k].now;
@@ -4224,15 +4229,22 @@ ordinary_call:;
         }
         const char *renamed_fn = renamed_builder_fn(name);
         if (renamed_fn != NULL) {
-            /* One sentence for a table that now holds two kinds of rename, so it states the rule
-             * both followed rather than the details of either: the old names said which *world*
-             * the first argument came from, and the argument already says that. Naming the four
-             * bare questions here was true of F104's entries and false of the ones added since
+            /* One sentence for a table that holds several kinds of rename, so it states the rule
+             * they all followed rather than the details of any one: the old names said which
+             * *world* the first argument came from, and the argument already says that. Naming the
+             * four bare questions here was true of F104's entries and false of the ones added since
              * (`mapb_get` is `get`, `mutable_string_append` is `append`), which is exactly the
-             * kind of half-updated message this project keeps paying for. */
+             * kind of half-updated message this project keeps paying for.
+             *
+             * **And it had already happened to the clause this used to open with**, "a builder is
+             * a mutable collection": `bytes_concat` and `bytes_index_of` are a `[byte]`, which is
+             * an array and not a builder, so the sentence had been false for two entries before
+             * `result_map_err` arrived on 2026-10-22 and made it false for a third. Dropped rather
+             * than extended -- the prefix rule is the whole of what these renames share, and the
+             * rest was a fact about the first batch. */
             ziman_error("type", e->line, e->col,
-                        "'%s' is now '%s': a builder is a mutable collection, and these names lost the prefix "
-                        "that said which world the first argument came from -- the argument says it",
+                        "'%s' is now '%s': these names lost the prefix that said which world the first argument "
+                        "came from -- the argument says it",
                         name, renamed_fn);
         }
         const char *suggestion = suggest_function_name(module, name);

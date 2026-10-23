@@ -427,7 +427,7 @@ fn next_object(
 // record at a time (via `next_object`) as the caller asks for them.
 fn open_records(path: string, sep: string, typed: bool) -> Result<Iter<Result<Json, string>>, string> {
     try check_delimiter(sep)
-    val lines = try result_map_err(fs.lines(path), fs.fs_error_message)
+    val lines = try map_err(fs.lines(path), fs.fs_error_message)
     val cell: Channel<int> = channel_new()
     send(cell, 0)
     val header_text = switch read_record(lines, cell, sep) {

@@ -1,20 +1,20 @@
-ziman: type error at 16:5 in tests/lang/prefixed_set_ops_point_home.zm: 'mutable_set_union' is now 'union': a builder is a mutable collection, and these names lost the prefix that said which world the first argument came from -- the argument says it
+ziman: type error at 16:5 in tests/lang/prefixed_set_ops_point_home.zm: 'mutable_set_union' is now 'union': these names lost the prefix that said which world the first argument came from -- the argument says it
    |
 16 |     mutable_set_union(ms, Set<int> { 1 })
    |     ^
-ziman: type error at 17:5 in tests/lang/prefixed_set_ops_point_home.zm: 'mutable_set_intersect' is now 'intersect': a builder is a mutable collection, and these names lost the prefix that said which world the first argument came from -- the argument says it
+ziman: type error at 17:5 in tests/lang/prefixed_set_ops_point_home.zm: 'mutable_set_intersect' is now 'intersect': these names lost the prefix that said which world the first argument came from -- the argument says it
    |
 17 |     mutable_set_intersect(ms, Set<int> { 1 })
    |     ^
-ziman: type error at 18:5 in tests/lang/prefixed_set_ops_point_home.zm: 'mutable_set_difference' is now 'difference': a builder is a mutable collection, and these names lost the prefix that said which world the first argument came from -- the argument says it
+ziman: type error at 18:5 in tests/lang/prefixed_set_ops_point_home.zm: 'mutable_set_difference' is now 'difference': these names lost the prefix that said which world the first argument came from -- the argument says it
    |
 18 |     mutable_set_difference(ms, Set<int> { 1 })
    |     ^
-ziman: type error at 19:11 in tests/lang/prefixed_set_ops_point_home.zm: 'mutable_set_is_subset' is now 'is_subset': a builder is a mutable collection, and these names lost the prefix that said which world the first argument came from -- the argument says it
+ziman: type error at 19:11 in tests/lang/prefixed_set_ops_point_home.zm: 'mutable_set_is_subset' is now 'is_subset': these names lost the prefix that said which world the first argument came from -- the argument says it
    |
 19 |     print(mutable_set_is_subset(ms, Set<int> { 1 }))
    |           ^
-ziman: type error at 20:5 in tests/lang/prefixed_set_ops_point_home.zm: 'mutable_map_set_all' is now 'merge': a builder is a mutable collection, and these names lost the prefix that said which world the first argument came from -- the argument says it
+ziman: type error at 20:5 in tests/lang/prefixed_set_ops_point_home.zm: 'mutable_map_set_all' is now 'merge': these names lost the prefix that said which world the first argument came from -- the argument says it
    |
 20 |     mutable_map_set_all(mm, Map<string, int> { "a": 1 })
    |     ^

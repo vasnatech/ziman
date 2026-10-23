@@ -11,7 +11,7 @@
 //                          argument one
 //   `mutable_map_update_all` -> `update_all`
 //
-// The other four -- `bytes_concat`, `split_once`, `inverse`, `result_map_err` -- only ever needed
+// The other four -- `bytes_concat`, `split_once`, `inverse`, `map_err` -- only ever needed
 // the `pub` keyword; they were callable all along and simply undiscoverable. `bytes_concat` was
 // deleted in F213: its whole body was `return concat(parts)`, and `concat` has taken `variadic [T]`
 // all along, so making it discoverable had advertised a second spelling of a builtin.
@@ -38,5 +38,5 @@ fn main() {
     print(concat([65b], [66b]))
     print(split_once("a=b", "="))
     print(sort_with([3, 1, 2], inverse<int>(fn(a: int, b: int) -> int { return compare(a, b) })))
-    print(result_map_err<int, string, int>(err("bad"), fn(e: string) -> int { return len(e) }))
+    print(map_err<int, string, int>(err("bad"), fn(e: string) -> int { return len(e) }))
 }

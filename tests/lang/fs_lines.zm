@@ -2,7 +2,7 @@ use fs
 use os
 
 fn count_matching(path: string, needle: string) -> Result<int, string> {
-    val lines = try result_map_err(fs.lines(path), fs.fs_error_message)
+    val lines = try map_err(fs.lines(path), fs.fs_error_message)
     var n = 0
     for line in lines {
         val text = try line
@@ -14,7 +14,7 @@ fn count_matching(path: string, needle: string) -> Result<int, string> {
 }
 
 fn first(path: string) -> Result<string, string> {
-    val lines = try result_map_err(fs.lines(path), fs.fs_error_message)
+    val lines = try map_err(fs.lines(path), fs.fs_error_message)
     for line in lines {
         return line
     }

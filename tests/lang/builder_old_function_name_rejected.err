@@ -1,1 +1,1 @@
-'ab_to_array' is now 'snapshot': a builder is a mutable collection, and these names lost the prefix that said which world the first argument came from -- the argument says it
+'ab_to_array' is now 'snapshot': these names lost the prefix that said which world the first argument came from -- the argument says it

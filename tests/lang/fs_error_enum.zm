@@ -48,5 +48,5 @@ fn main() {
 }
 
 fn read_as_string(path: string) -> Result<string, string> {
-    return result_map_err(fs.read_text(path), fs.fs_error_message)
+    return map_err(fs.read_text(path), fs.fs_error_message)
 }

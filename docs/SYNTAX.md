@@ -371,7 +371,7 @@ for x in seen { ... }                    // a set has one binder
   one-entry case of the question it already asks of a `Map`), `mutable_update` and
   `mutable_map_update` became `update` over a cell and over a map entry,
   `mutable_map_update_all` became `update_all`, and `bytes_concat`, `split_once`,
-  `inverse` and `result_map_err` only ever needed `pub`. `array_order_of` stays
+  `inverse` and `map_err` (then called `result_map_err`) only ever needed `pub`. `array_order_of` stays
   unadvertised on purpose. *(`bytes_concat` went further in F213 and was deleted: its body was
   `return concat(parts)`, and `concat` has taken `variadic [T]` all along, so advertising it had
   published a second spelling of a builtin.)*

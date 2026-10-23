@@ -487,7 +487,7 @@ pub fn load_rules(name: string) -> Result<ZoneRules, string> {
     if !fs.exists(path) || fs.is_dir(path) {
         return err(format("unknown time zone '{}'", name))
     }
-    return parse_rules(try result_map_err(fs.read_bytes(path), fs.fs_error_message))
+    return parse_rules(try map_err(fs.read_bytes(path), fs.fs_error_message))
 }
 
 // ---------------------------------------------------------------- looking a time up
