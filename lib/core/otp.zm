@@ -53,7 +53,7 @@ pub fn base32_decode(text: string) -> Result<[byte], string> {
     val out = mutable_array_new<byte>()
     var buffer = 0
     var bits = 0
-    for i in 0..byte_len(text) {
+    for i in 0..len(text) {
         val c = to_upper(char_at(text, i))
         if c == "=" || c == " " || c == "-" {
             continue

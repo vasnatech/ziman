@@ -207,7 +207,7 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
     var matched = false
     for prefix in prefixes {
         if !matched && starts_with(url, prefix) {
-            rest = substring(url, byte_len(prefix), byte_len(url))
+            rest = substring(url, len(prefix), len(url))
             matched = true
         }
     }
@@ -241,7 +241,7 @@ pub fn parse_url(url: string, prefixes: [string], default_port: int) -> Result<D
     var hostport = authority
     if at >= 0 {
         userinfo = substring(authority, 0, at)
-        hostport = substring(authority, at + 1, byte_len(authority))
+        hostport = substring(authority, at + 1, len(authority))
     }
     var user = userinfo
     var password = ""

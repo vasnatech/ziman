@@ -228,7 +228,7 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
     val parts = mutable_array_new<DateTimePart>()
     var literal_buf = ""
     var i = 0
-    val plen = byte_len(pattern)
+    val plen = len(pattern)
     while i < plen {
         if matches_token(pattern, i, "yyyy") {
             if literal_buf != "" {
@@ -349,7 +349,7 @@ struct ParsedFields {
 }
 
 fn parse_fixed_width_int(s: string, start: int, width: int) -> Result<int, string> {
-    if start + width > byte_len(s) {
+    if start + width > len(s) {
         return err(format("'{}' is too short (expected {} more character(s))", s, width))
     }
     return parse_int(substring(s, start, start + width))
@@ -366,7 +366,7 @@ fn parse_year(s: string, start: int) -> Result<[int], string> {
         return ok([unwrap(r), start + 4])
     }
     var end = start + 1
-    while end < byte_len(s) && contains("0123456789", char_at(s, end)) {
+    while end < len(s) && contains("0123456789", char_at(s, end)) {
         end = end + 1
     }
     val digits = end - start - 1
@@ -456,7 +456,7 @@ fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> 
             }
         }
     }
-    if si != byte_len(s) {
+    if si != len(s) {
         return err(format("'{}' has trailing content after position {}", s, si))
     }
     return ok(ParsedFields {
@@ -735,7 +735,7 @@ pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTi
 fn widen_fraction(s: string) -> Result<string, string> {
     val dot = index_of(s, ".", 0)
     var end = dot + 1
-    while end < byte_len(s) && contains("0123456789", char_at(s, end)) {
+    while end < len(s) && contains("0123456789", char_at(s, end)) {
         end = end + 1
     }
     val digits = end - dot - 1
@@ -743,7 +743,7 @@ fn widen_fraction(s: string) -> Result<string, string> {
         return err(format("'{}': the fraction of a second needs 1 to 9 digits, found {}", s, digits))
     }
     val zeros = substring("000000000", 0, 9 - digits)
-    return ok(concat(substring(s, 0, end), zeros, substring(s, end, byte_len(s))))
+    return ok(concat(substring(s, 0, end), zeros, substring(s, end, len(s))))
 }
 
 // `to_string`'s own output only includes the fractional part when
@@ -859,15 +859,15 @@ pub fn duration_to_string(d: Duration) -> string {
 // the parsed seconds -- verified against duration_to_string's own
 // worked example (-0.5s prints "PT-0.500000000S") before trusting it.
 pub fn duration_from_string(s: string) -> Result<Duration, string> {
-    if byte_len(s) < 3 || !starts_with(s, "PT") || !ends_with(s, "S") {
+    if len(s) < 3 || !starts_with(s, "PT") || !ends_with(s, "S") {
         return err(format("invalid duration '{}': expected PT<seconds>[.<nanos>]S", s))
     }
-    val body = substring(s, 2, byte_len(s) - 1)
+    val body = substring(s, 2, len(s) - 1)
     var negative = false
     var rest = body
     if starts_with(rest, "-") {
         negative = true
-        rest = substring(rest, 1, byte_len(rest))
+        rest = substring(rest, 1, len(rest))
     }
     val parts = split(rest, ".")
     val mag_seconds_r = parse_int(parts[0])
@@ -1080,7 +1080,7 @@ pub fn zoneoffset_from_string(s: string) -> Result<ZoneOffset, string> {
     if s == "Z" {
         return ok(zoneoffset_utc())
     }
-    if byte_len(s) != 6 {
+    if len(s) != 6 {
         return err(format("invalid zone offset '{}': expected 'Z' or '+HH:MM'/'-HH:MM'", s))
     }
     val sign_char = substring(s, 0, 1)
@@ -1302,11 +1302,11 @@ pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> st
 // time (see the pattern-language comment above) -- no need to search
 // for where the calendar part ends, and no need to recompute it here.
 pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, string> {
-    if byte_len(s) < fmt.width {
+    if len(s) < fmt.width {
         return err(format("'{}' is too short to match the given format", s))
     }
     val datetime_part = substring(s, 0, fmt.width)
-    val offset_part = substring(s, fmt.width, byte_len(s))
+    val offset_part = substring(s, fmt.width, len(s))
     val dt_r = localdatetime_parse_pattern(datetime_part, fmt)
     if Err(e) = dt_r {
         return err(e)

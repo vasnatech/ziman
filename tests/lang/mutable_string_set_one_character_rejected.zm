@@ -1,6 +1,11 @@
 // `set` replaces one element everywhere else in the language, so it does here too: a longer value
 // would change the length, which `set` nowhere else does. Appending or rebuilding is how you change
 // a MutableString's length.
+//
+// **"One element" means one character since 2026-10-23**, where it meant one byte before -- so a
+// multi-byte character is now accepted and splices the bytes (see
+// mutable_string_set_splices_characters), while two characters are still refused. The count in the
+// message is characters for that reason.
 fn main() {
     val sb = mutable_string_new()
     append(sb, "abc")

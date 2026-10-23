@@ -143,11 +143,10 @@ int main(void) {
      * and preserving it through a real cycle, not re-proving the traversal logic itself. */
     char *label_buf = gc_heap_alloc(h2, GC_ATOMIC, strlen("kept across a collection") + 1);
     memcpy(label_buf, "kept across a collection", strlen("kept across a collection") + 1);
-    Value label_val;
-    label_val.type = type_scalar_ref(TY_STRING);
-    label_val.as.str.ptr = label_buf;
-    label_val.as.str.len = (uint32_t)strlen("kept across a collection");
-    label_val.as.str.term = 1;
+    /* Through the real constructor rather than assembled field by field, so this test does not
+     * carry its own copy of how a string Value is laid out -- it gained a flags word in 2026-10-23's
+     * character-indexing change, and a hand-build is what had to be found and fixed for it. */
+    Value label_val = value_string_view(label_buf, strlen("kept across a collection"), 1);
 
     Value *struct_fields = gc_heap_alloc(h2, GC_VALUES, 2 * sizeof(Value));
     struct_fields[0] = value_int(7);
@@ -213,11 +212,7 @@ int main(void) {
     const char *msg = "reachable only through an Env binding, not the stack";
     char *env_str_buf = gc_heap_alloc(h3, GC_ATOMIC, strlen(msg) + 1);
     memcpy(env_str_buf, msg, strlen(msg) + 1);
-    Value env_str_val;
-    env_str_val.type = type_scalar_ref(TY_STRING);
-    env_str_val.as.str.ptr = env_str_buf;
-    env_str_val.as.str.len = (uint32_t)strlen(msg);
-    env_str_val.as.str.term = 1;
+    Value env_str_val = value_string_view(env_str_buf, strlen(msg), 1); /* see label_val above */
     env_define(env, "s", *env_str_val.type, 0, env_str_val);
 
     gc_heap_collect(h3, mark_env_ctx, env);

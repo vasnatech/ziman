@@ -109,11 +109,11 @@ pub fn parse_url(url: string) -> Result<Url, string> {
     var secure = false
     var rest = ""
     if starts_with(url, "http://") {
-        rest = substring(url, 7, byte_len(url))
+        rest = substring(url, 7, len(url))
     } else {
         if starts_with(url, "https://") {
             secure = true
-            rest = substring(url, 8, byte_len(url))
+            rest = substring(url, 8, len(url))
         } else {
             return err("only http:// and https:// URLs are supported")
         }
@@ -129,7 +129,7 @@ pub fn parse_url(url: string) -> Result<Url, string> {
     }
     if cut >= 0 {
         authority = substring(no_fragment, 0, cut)
-        target = substring(no_fragment, cut, byte_len(no_fragment))
+        target = substring(no_fragment, cut, len(no_fragment))
         if !starts_with(target, "/") {
             target = concat("/", target)
         }
@@ -138,7 +138,7 @@ pub fn parse_url(url: string) -> Result<Url, string> {
     val at = last_index_of(authority, "@")
     if at >= 0 {
         userinfo = substring(authority, 0, at)
-        authority = substring(authority, at + 1, byte_len(authority))
+        authority = substring(authority, at + 1, len(authority))
     }
     if authority == "" {
         return err("missing host")
@@ -155,18 +155,18 @@ pub fn parse_url(url: string) -> Result<Url, string> {
             return err("unterminated [ in host")
         }
         host = substring(authority, 1, close)
-        val after = substring(authority, close + 1, byte_len(authority))
+        val after = substring(authority, close + 1, len(authority))
         if after != "" {
             if !starts_with(after, ":") {
                 return err("unexpected text after ] in host")
             }
-            port_text = substring(after, 1, byte_len(after))
+            port_text = substring(after, 1, len(after))
         }
     } else {
         val colon = last_index_of(authority, ":")
         if colon >= 0 {
             host = substring(authority, 0, colon)
-            port_text = substring(authority, colon + 1, byte_len(authority))
+            port_text = substring(authority, colon + 1, len(authority))
         }
     }
     if host == "" {
@@ -476,7 +476,7 @@ fn no_proxy_matches(host: string) -> bool {
             return true
         }
         if byte_len(entry) > 0 {
-            val bare = if starts_with(entry, ".") { substring(entry, 1, byte_len(entry)) } else { entry }
+            val bare = if starts_with(entry, ".") { substring(entry, 1, len(entry)) } else { entry }
             if to_lower(host) == bare || ends_with(to_lower(host), concat(".", bare)) {
                 return true
             }
@@ -895,7 +895,7 @@ fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
             val wanted = to_lower(if starts_with(
                 val_text,
                 "."
-            ) { substring(val_text, 1, byte_len(val_text)) } else { val_text })
+            ) { substring(val_text, 1, len(val_text)) } else { val_text })
             if wanted != domain && !ends_with(domain, concat(".", wanted)) {
                 return Option<Cookie>.None
             }
@@ -975,7 +975,7 @@ fn cookie_matches(c: Cookie, u: Url, now: int) -> bool {
     if c.path == path || c.path == "/" {
         return true
     }
-    return starts_with(path, c.path) && (ends_with(c.path, "/") || is_char_at(path, byte_len(c.path), "/"))
+    return starts_with(path, c.path) && (ends_with(c.path, "/") || is_char_at(path, len(c.path), "/"))
 }
 
 // The `Cookie` header value for a request to `u` -- `a=1; b=2` -- from the jar's matching cookies (longer

@@ -34,4 +34,46 @@ static inline int ziman_utf8_decode_strict(const uint8_t *s, size_t len, size_t 
     return n;
 }
 
+/* ---- byte offsets <-> character indices -------------------------------------------------------
+ *
+ * The regex engine matches bytes and reports byte offsets; everything above it in Ziman counts
+ * characters (prelude.c's character-indexing block). These two convert at that boundary.
+ *
+ * Both are **lenient**: an invalid sequence counts as one character and advances one byte, where
+ * prelude.c's equivalents raise. That is deliberate -- a caller here is converting an offset the
+ * matcher already produced from text it already walked, and a unit conversion is the wrong place to
+ * re-litigate whether the text is valid UTF-8. The strict judgement belongs at the boundary where
+ * bytes become a string (`bytes_to_string`), which is where it is. */
+
+/* The character index at byte offset `bo`, which should be a character boundary. */
+static inline int64_t ziman_utf8_char_index(const uint8_t *s, size_t len, size_t bo) {
+    if (bo > len) bo = len;
+    int64_t ci = 0;
+    size_t pos = 0;
+    while (pos < bo) {
+        uint32_t cp;
+        int n = ziman_utf8_decode_strict(s, len, pos, &cp);
+        pos += n > 0 ? (size_t)n : 1;
+        ci++;
+    }
+    return ci;
+}
+
+/* The byte offset where character `ci` begins; a `ci` past the end answers `len`, so an exclusive
+ * bound converts without a special case. */
+static inline size_t ziman_utf8_byte_offset(const uint8_t *s, size_t len, int64_t ci) {
+    size_t pos = 0;
+    for (int64_t seen = 0; seen < ci && pos < len; seen++) {
+        uint32_t cp;
+        int n = ziman_utf8_decode_strict(s, len, pos, &cp);
+        pos += n > 0 ? (size_t)n : 1;
+    }
+    return pos;
+}
+
+/* How many characters are in `len` bytes. */
+static inline int64_t ziman_utf8_count(const uint8_t *s, size_t len) {
+    return ziman_utf8_char_index(s, len, len);
+}
+
 #endif

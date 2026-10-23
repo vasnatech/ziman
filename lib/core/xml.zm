@@ -391,7 +391,7 @@ struct PAttrs {
 fn line_of(s: string, p: int) -> int {
     var line = 1
     var i = 0
-    while i < p && i < byte_len(s) {
+    while i < p && i < len(s) {
         if is_char_at(s, i, "\n") {
             line = line + 1
         }
@@ -411,7 +411,7 @@ fn is_space_at(s: string, p: int) -> bool {
 
 fn skip_space(s: string, pos: int) -> int {
     var p = pos
-    while p < byte_len(s) && is_space_at(s, p) {
+    while p < len(s) && is_space_at(s, p) {
         p = p + 1
     }
     return p
@@ -421,7 +421,7 @@ fn skip_space(s: string, pos: int) -> int {
 // 0x80 and up is accepted so that a name written in UTF-8 goes through; this is more permissive
 // than the spec's code-point ranges, which would reject a handful of characters this lets by.
 fn is_name_start(s: string, p: int) -> bool {
-    if p >= byte_len(s) {
+    if p >= len(s) {
         return false
     }
     val c = char_at(s, p)
@@ -435,7 +435,7 @@ fn is_name_char(s: string, p: int) -> bool {
     if is_name_start(s, p) {
         return true
     }
-    if p >= byte_len(s) {
+    if p >= len(s) {
         return false
     }
     val c = char_at(s, p)
@@ -514,10 +514,10 @@ fn read_reference(s: string, pos: int, out: MutableString) -> Result<int, string
 }
 
 fn read_char_code(s: string, pos: int, body: string) -> Result<int, string> {
-    var digits = substring(body, 1, byte_len(body))
+    var digits = substring(body, 1, len(body))
     var base = 10
     if starts_with(digits, "x") || starts_with(digits, "X") {
-        digits = substring(digits, 1, byte_len(digits))
+        digits = substring(digits, 1, len(digits))
         base = 16
     }
     if digits == "" {
@@ -525,7 +525,7 @@ fn read_char_code(s: string, pos: int, body: string) -> Result<int, string> {
     }
     var value = 0
     var i = 0
-    while i < byte_len(digits) {
+    while i < len(digits) {
         val d = index_of(hex_digits, to_lower(char_at(digits, i)), 0)
         if d < 0 || d >= base {
             return err(fail(s, pos, format("'&{};' is not a character reference", body)))
@@ -553,7 +553,7 @@ fn read_char_code(s: string, pos: int, body: string) -> Result<int, string> {
 fn read_text(s: string, pos: int) -> Result<PStr, string> {
     val out = mutable_string_new()
     var p = pos
-    while p < byte_len(s) && !is_char_at(s, p, "<") {
+    while p < len(s) && !is_char_at(s, p, "<") {
         if is_char_at(s, p, "&") {
             p = try read_reference(s, p, out)
         } else {
@@ -561,7 +561,7 @@ fn read_text(s: string, pos: int) -> Result<PStr, string> {
             if illegal_char(code) {
                 return err(fail(s, p, "a control character XML cannot represent"))
             }
-            if code == 93 && starts_with(substring(s, p, byte_len(s)), "]]>") {
+            if code == 93 && starts_with(substring(s, p, len(s)), "]]>") {
                 return err(fail(s, p, "']]>' cannot appear in content; write '&gt;' for the '>'"))
             }
             append(out, char_at(s, p))
@@ -572,13 +572,13 @@ fn read_text(s: string, pos: int) -> Result<PStr, string> {
 }
 
 fn read_attr_value(s: string, pos: int) -> Result<PStr, string> {
-    if pos >= byte_len(s) || (!is_char_at(s, pos, "\"") && !is_char_at(s, pos, "'")) {
+    if pos >= len(s) || (!is_char_at(s, pos, "\"") && !is_char_at(s, pos, "'")) {
         return err(fail(s, pos, "an attribute value must be quoted"))
     }
     val quote = char_at(s, pos)
     val out = mutable_string_new()
     var p = pos + 1
-    while p < byte_len(s) {
+    while p < len(s) {
         if is_char_at(s, p, quote) {
             return ok(PStr { text: snapshot(out), next: p + 1 })
         }
@@ -623,7 +623,7 @@ fn resolve(s: string, at: int, qname: string, scope: Map<string, string>, is_att
         }
     }
     val prefix = substring(qname, 0, colon)
-    val local = substring(qname, colon + 1, byte_len(qname))
+    val local = substring(qname, colon + 1, len(qname))
     if local == "" || index_of(local, ":", 0) >= 0 {
         return err(fail(s, at, format("'{}' is not a valid name", qname)))
     }
@@ -668,7 +668,7 @@ fn extend_scope(scope: Map<string, string>, attrs: [RawAttr]) -> Map<string, str
         if a.qname == "xmlns" {
             set(out, "", a.value)
         } else if starts_with(a.qname, "xmlns:") {
-            set(out, substring(a.qname, 6, byte_len(a.qname)), a.value)
+            set(out, substring(a.qname, 6, len(a.qname)), a.value)
         }
     }
     return snapshot(out)
@@ -680,10 +680,10 @@ fn read_attributes(s: string, pos: int, limits: XmlLimits) -> Result<PAttrs, str
     while true {
         val before = p
         p = skip_space(s, p)
-        if p >= byte_len(s) {
+        if p >= len(s) {
             return err(fail(s, pos, "a tag that is never closed"))
         }
-        if is_char_at(s, p, ">") || starts_with(substring(s, p, byte_len(s)), "/>") {
+        if is_char_at(s, p, ">") || starts_with(substring(s, p, len(s)), "/>") {
             return ok(PAttrs { attrs: attrs, next: p })
         }
         if p == before {
@@ -747,7 +747,7 @@ fn read_pi(s: string, pos: int) -> Result<PNode, string> {
 
 // `<!...` is a comment, a CDATA section, or a DTD. The last is refused: see the module header.
 fn read_bang(s: string, pos: int) -> Result<PNode, string> {
-    val rest = substring(s, pos, byte_len(s))
+    val rest = substring(s, pos, len(s))
     if starts_with(rest, "<!--") {
         val c = try read_comment(s, pos)
         return ok(PNode { node: Node.Comment(c.text), next: c.next })
@@ -792,7 +792,7 @@ fn read_element(
     }
 
     var p = raw.next
-    if starts_with(substring(s, p, byte_len(s)), "/>") {
+    if starts_with(substring(s, p, len(s)), "/>") {
         return ok(PElem {
             elem: Element { name: elem_name, attributes: attributes, children: [] },
             next: p + 2
@@ -801,11 +801,11 @@ fn read_element(
     p = p + 1
     var kids: [Node] = []
     while true {
-        if p >= byte_len(s) {
+        if p >= len(s) {
             return err(fail(s, pos, format("<{}> is never closed", open.text)))
         }
         if is_char_at(s, p, "<") {
-            val rest = substring(s, p, byte_len(s))
+            val rest = substring(s, p, len(s))
             if starts_with(rest, "</") {
                 val close = try read_name(s, p + 2)
                 if close.text != open.text {
@@ -852,7 +852,7 @@ fn read_declaration(s: string) -> Result<Option<Declaration>, string> {
     if !starts_with(s, "<?xml") {
         return ok(Option<Declaration>.None)
     }
-    if byte_len(s) > 5 && is_name_char(s, 5) {
+    if len(s) > 5 && is_name_char(s, 5) {
         return ok(Option<Declaration>.None)
     }
     val end = index_of(s, "?>", 0)
@@ -908,8 +908,13 @@ fn has_bom(s: string) -> bool {
     if byte_len(s) < 3 {
         return false
     }
-    val b = to_bytes(substring(s, 0, 3))
-    return (b[0] as int) == 239 && (b[1] as int) == 187 && (b[2] as int) == 191
+    // The first *character*, whose bytes are then compared -- not the first three characters, which
+    // is what `substring(s, 0, 3)` meant once `substring` started counting them (2026-10-23) and
+    // which could read past the end of a short multi-byte document. A BOM is one character of three
+    // bytes, so one character is exactly the right amount to look at, and `byte_len >= 3` above
+    // guarantees there is one.
+    val b = to_bytes(substring(s, 0, 1))
+    return len(b) == 3 && (b[0] as int) == 239 && (b[1] as int) == 187 && (b[2] as int) == 191
 }
 
 // XML normalises every line ending to a single newline before anything else looks at the text,
@@ -947,7 +952,7 @@ pub fn parse_xml_with(text: string, limits: XmlLimits) -> Result<Document, strin
     }
     var s = normalise_newlines(text)
     if has_bom(s) {
-        s = substring(s, 3, byte_len(s))
+        s = substring(s, 1, len(s))  // one character, not its three bytes -- see has_bom
     }
     val decl = try read_declaration(s)
     var p = 0
@@ -960,13 +965,13 @@ pub fn parse_xml_with(text: string, limits: XmlLimits) -> Result<Document, strin
     var epilog: [Node] = []
     while true {
         p = skip_space(s, p)
-        if p >= byte_len(s) {
+        if p >= len(s) {
             break
         }
         if !is_char_at(s, p, "<") {
             return err(fail(s, p, "text is not allowed outside the root element"))
         }
-        val rest = substring(s, p, byte_len(s))
+        val rest = substring(s, p, len(s))
         if starts_with(rest, "<!") {
             val n = try read_bang(s, p)
             if CData(_) = n.node {
@@ -1029,7 +1034,7 @@ pub fn parse_xml_bytes_with(data: [byte], limits: XmlLimits) -> Result<Document,
 // always costs nothing and removes a case where correctness depends on what came before.
 fn escape_text(s: string, out: MutableString) -> Result<bool, string> {
     var i = 0
-    while i < byte_len(s) {
+    while i < len(s) {
         val c = char_at(s, i)
         val code = to_bytes(c)[0] as int
         if illegal_char(code) {
@@ -1058,7 +1063,7 @@ fn escape_text(s: string, out: MutableString) -> Result<bool, string> {
 // would quietly change the value on the way back in.
 fn escape_attr(s: string, out: MutableString) -> Result<bool, string> {
     var i = 0
-    while i < byte_len(s) {
+    while i < len(s) {
         val c = char_at(s, i)
         val code = to_bytes(c)[0] as int
         if illegal_char(code) {
@@ -1097,7 +1102,7 @@ fn valid_name(n: string) -> bool {
         return false
     }
     var i = 1
-    while i < byte_len(n) {
+    while i < len(n) {
         if !is_name_char(n, i) {
             return false
         }

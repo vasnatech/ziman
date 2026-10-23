@@ -40,14 +40,42 @@ Value value_function(FunctionDecl *fn) {
     return value_closure(fn, NULL, 0);
 }
 
-Value value_string_view(const char *ptr, size_t len, int term) {
+/* Eight bytes at a time: a high bit anywhere in the word fails the whole word, so the common case
+ * -- long runs of ASCII -- costs one test per eight bytes rather than per byte. Unaligned by
+ * design, via memcpy rather than a cast, because a string view can start at any byte of its
+ * parent's buffer; the compiler turns that memcpy into the one load it is. */
+int ziman_str_is_ascii(const char *ptr, size_t len) {
+    const unsigned char *s = (const unsigned char *)ptr;
+    size_t i = 0;
+    while (i + 8 <= len) {
+        uint64_t w;
+        memcpy(&w, s + i, 8);
+        if (w & 0x8080808080808080ULL) return 0;
+        i += 8;
+    }
+    for (; i < len; i++) {
+        if (s[i] & 0x80u) return 0;
+    }
+    return 1;
+}
+
+Value value_string_flags(const char *ptr, size_t len, uint32_t flags) {
     if (len > 0xffffffffu) ziman_error("runtime", 0, 0, "string too long (limit is 4 GiB)");
     Value v;
     v.type = type_scalar_ref(TY_STRING);
     v.as.str.ptr = ptr;
     v.as.str.len = (uint32_t)len;
-    v.as.str.term = term ? 1 : 0;
+    v.as.str.flags = flags;
     return v;
+}
+
+/* The funnel: this is where a string that nobody has classified yet gets classified, which is why
+ * the ASCII scan lives here and not in the five prelude functions that read the bit. One scan per
+ * string built, against one walk per character indexed -- the trade the whole design rests on. */
+Value value_string_view(const char *ptr, size_t len, int term) {
+    uint32_t flags = term ? ZSTR_TERM : 0u;
+    if (ziman_str_is_ascii(ptr, len)) flags |= ZSTR_ASCII;
+    return value_string_flags(ptr, len, flags);
 }
 
 Value value_string(char *s) { return value_string_view(s, strlen(s), 1); }
@@ -75,7 +103,7 @@ long value_str_find(const char *hay, size_t hay_len, const char *needle, size_t 
 }
 
 const char *value_cstr(Value v) {
-    if (v.as.str.term) return v.as.str.ptr;
+    if (v.as.str.flags & ZSTR_TERM) return v.as.str.ptr;
     char *buf = zalloc_atomic((size_t)v.as.str.len + 1);
     memcpy(buf, v.as.str.ptr, v.as.str.len);
     buf[v.as.str.len] = '\0';

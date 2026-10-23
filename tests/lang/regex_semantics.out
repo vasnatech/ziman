@@ -19,8 +19,8 @@ x{2,3} on 'xxxxx' -> [0..3) []
 x{2,3}? on 'xxxxx' -> [0..2) []
 x{2} on 'x' -> no match
 colou?r on 'my color' -> [3..8) []
-é+ on 'caféé!' -> [3..7) []
-. on 'é' -> [0..2) []
+é+ on 'caféé!' -> [3..5) []
+. on 'é' -> [0..1) []
 a.c on 'a
 c' -> no match
 (?s)a.c on 'a

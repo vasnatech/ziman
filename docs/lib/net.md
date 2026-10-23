@@ -17,7 +17,7 @@ owns it: closing one another thread is blocked reading wakes that
 read with an error, but the descriptor number is then free for the OS
 to reuse.
 
-Data is `[byte]` (see `number` for big-endian ints and `string_to_bytes` / `bytes_to_string`),
+Data is `[byte]` (see `number` for big-endian ints, and `to_bytes` / `bytes_to_string`),
 plus `read_text`/`write_text` for text protocols like HTTP. A clean
 close by the peer is `Err(Closed)`, never an empty array, so an EOF
 can't be silently forgotten -- the one place it is legitimate (a body

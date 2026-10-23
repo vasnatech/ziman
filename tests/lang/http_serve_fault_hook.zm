@@ -75,7 +75,7 @@ fn ask(port: int, raw: string) -> string {
 fn show(label: string, raw: string) {
     val cut = index_of(raw, "\r\n\r\n", 0)
     val head = if cut < 0 { raw } else { substring(raw, 0, cut) }
-    val body = if cut < 0 { "" } else { substring(raw, cut + 4, byte_len(raw)) }
+    val body = if cut < 0 { "" } else { substring(raw, cut + 4, len(raw)) }
     val lines = split(head, "\r\n")
     var hsts = "-"
     for line in lines {

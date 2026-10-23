@@ -11,6 +11,7 @@
 
 #include "handles.h"
 #include "regex.h"
+#include "utf8.h"
 #include "value.h"
 #include "xalloc.h"
 
@@ -156,27 +157,72 @@ static Value int_array(int *vals, int n) {
     return v;
 }
 
+/* **The unit boundary.** The engine matches bytes and fills `caps` with byte offsets; every
+ * consumer above -- `Match.start`/`end`, and the `substring` calls in regex.zm that cut the matched
+ * text out -- counts characters since 2026-10-23. Converting here, at the one place offsets leave
+ * C, is what lets regex.zm stay written in the same unit as the rest of the library: it needs no
+ * byte-slicing of its own, and a `Match` composes with `substring` and `len` like any other index.
+ *
+ * ASCII text returns immediately, which is both the common case and exact: with no high bit set a
+ * byte offset already *is* a character index. Otherwise one forward walk converts the whole array,
+ * the cursor restarting only when an offset steps backwards -- which happens for a group that
+ * starts before the previous group ended, not between matches, so the usual cost is one pass over
+ * the subject rather than one per offset. A negative entry is a group that did not participate and
+ * is left alone; regex.zm tests for it. */
+static void caps_to_char_indices(const char *text, size_t len, int *caps, int n) {
+    if (ziman_str_is_ascii(text, len)) return;
+    const uint8_t *s = (const uint8_t *)text;
+    size_t pos = 0;
+    int64_t ci = 0;
+    for (int i = 0; i < n; i++) {
+        if (caps[i] < 0) continue;
+        size_t target = (size_t)caps[i];
+        if (target < pos) {
+            pos = 0;
+            ci = 0;
+        }
+        while (pos < target && pos < len) {
+            uint32_t cp;
+            int adv = ziman_utf8_decode_strict(s, len, pos, &cp);
+            pos += adv > 0 ? (size_t)adv : 1;
+            ci++;
+        }
+        caps[i] = (int)ci;
+    }
+}
+
 /* search_raw(handle, text, from) -> [int]: the capture offsets of the first match at or after `from` (see regex_search), or [] for none. */
 static Value native_regex_search_raw(Value *args, int argc, int line, int col) {
     (void)argc;
     RegexHandle *h = handle_of(args[0], line, col);
     size_t len = args[1].as.str.len;
+    const char *text = args[1].as.str.ptr;
+    /* `from` is a character index, like every other index the library passes around; the engine
+     * wants a byte offset. Both the bound it is checked against and the conversion are free on
+     * ASCII text, where the two units coincide. */
+    int ascii = ziman_str_is_ascii(text, len);
+    int64_t nchars = ascii ? (int64_t)len : ziman_utf8_count((const uint8_t *)text, len);
     int64_t from = args[2].as.i;
-    if (from < 0 || (size_t)from > len) {
-        ziman_error("runtime", line, col, "regex: start offset %lld is out of range for a text of length %zu", (long long)from, len);
+    if (from < 0 || from > nchars) {
+        ziman_error("runtime", line, col, "regex: start offset %lld is out of range for a text of length %lld characters", (long long)from, (long long)nchars);
     }
+    size_t bfrom = ascii ? (size_t)from : ziman_utf8_byte_offset((const uint8_t *)text, len, from);
     int n = 2 * (regex_group_count(h->re) + 1);
     int *caps = ziman_xmalloc((size_t)n * sizeof(int));
     Value result;
-    int found = regex_search(h->re, args[1].as.str.ptr, len, (size_t)from, caps);
+    int found = regex_search(h->re, text, len, bfrom, caps);
     /* Neither negative return means "no match", and they mean different things: -1 is a failed
      * allocation inside the matcher, whose size regex_compile has already bounded, so it is a real
      * out-of-memory; -2 is the work ceiling, which a pattern reaches by being expensive per input
      * byte rather than by being large (regex.c's MATCH_WORK_FLOOR, docs/reviews/tasks.md A28). */
     if (found == -2) ziman_error("runtime", line, col, "regex: this pattern needs too much work to match a subject of %zu bytes", len);
     if (found < 0) ziman_error("runtime", line, col, "regex: out of memory while matching");
-    if (found) result = int_array(caps, n);
-    else result = int_array(caps, 0);
+    if (found) {
+        caps_to_char_indices(text, len, caps, n);
+        result = int_array(caps, n);
+    } else {
+        result = int_array(caps, 0);
+    }
     free(caps);
     return result;
 }
@@ -214,6 +260,7 @@ static Value native_regex_search_all_raw(Value *args, int argc, int line, int co
         }
         from = end;
     }
+    caps_to_char_indices(text, len, all, count);
     Value result = int_array(all, count);
     free(caps);
     free(all);

@@ -40,8 +40,8 @@ fn main() {
     print(len(sb))
     print(byte_len(sb))
 
-    // byte_len is what bounds the byte-indexed functions
-    print(substring(accent, 0, byte_len(accent)))
+    // and the read family counts the same unit, so len bounds them
+    print(substring(accent, 0, len(accent)))
     print(index_of(accent, "o", 0))
     print(last_index_of(accent, "l"))
 

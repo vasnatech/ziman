@@ -87,10 +87,10 @@ fn describe(label: string, raw: string) {
     var allow = "-"
     for line in lines {
         if starts_with(to_lower(line), "content-length:") {
-            length = trim(substring(line, 15, byte_len(line)))
+            length = trim(substring(line, 15, len(line)))
         }
         if starts_with(to_lower(line), "allow:") {
-            allow = trim(substring(line, 6, byte_len(line)))
+            allow = trim(substring(line, 6, len(line)))
         }
     }
     printf("{}: {} | Content-Length: {} | body bytes: {} | Allow: {}\n", label, lines[0], length, body_len, allow)

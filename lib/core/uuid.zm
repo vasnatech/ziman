@@ -79,8 +79,8 @@ pub fn uuid_to_string(u: Uuid) -> string {
 // The UUID written in the 8-4-4-4-12 dashed form (upper or lower case). An Err for any other
 // length, misplaced dashes, or a non-hex character; the message names the text.
 pub fn uuid_from_string(s: string) -> Result<Uuid, string> {
-    if byte_len(s) != uuid_text_length {
-        return err(format("invalid UUID '{}': expected 36 characters, found {}", s, byte_len(s)))
+    if len(s) != uuid_text_length {
+        return err(format("invalid UUID '{}': expected 36 characters, found {}", s, len(s)))
     }
     for pos in uuid_dash_positions {
         if substring(s, pos, pos + 1) != "-" {

@@ -854,7 +854,7 @@ fn is_digit_char(c: string) -> bool {
 fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, DbError> {
     val out = mutable_string_new()
     val ordered = mutable_array_new<SqlValue>()
-    val n = byte_len(sql)
+    val n = len(sql)
     var i = 0
     while i < n {
         if is_char_at(sql, i, "'") || is_char_at(sql, i, "\"") || is_char_at(sql, i, "`") {

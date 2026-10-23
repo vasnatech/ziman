@@ -190,12 +190,24 @@ static Value native_parse_decimal(Value *args, int argc, int line, int col) {
 #define SPTR(v) ((v).as.str.ptr)
 #define SLEN(v) ((size_t)(v).as.str.len)
 
+#define SASCII(v) (((v).as.str.flags & ZSTR_ASCII) != 0)
+
 /* A slice of `parent` (which must be a string value): `len` bytes starting
  * `start` bytes in. No copy -- the result points into the parent's buffer,
- * and is NUL-terminated only if it runs to the end of a terminated parent. */
+ * and is NUL-terminated only if it runs to the end of a terminated parent.
+ *
+ * ZSTR_ASCII is inherited when the parent has it, because a slice of text with
+ * no high bit set has no high bit set either. That inheritance is what keeps
+ * `chars`, `split` and `lines` linear overall: they produce one view per piece,
+ * and a rescan per view would make walking a string quadratic again by the back
+ * door. A slice of non-ASCII text is scanned, but only over its own bytes --
+ * for `char_at` that is one character, and summed over a whole split it is one
+ * pass across the parent. */
 static Value string_slice(Value parent, size_t start, size_t len) {
-    int term = parent.as.str.term && start + len == SLEN(parent);
-    return value_string_view(SPTR(parent) + start, len, term);
+    uint32_t flags = 0;
+    if ((parent.as.str.flags & ZSTR_TERM) && start + len == SLEN(parent)) flags |= ZSTR_TERM;
+    if (SASCII(parent) || ziman_str_is_ascii(SPTR(parent) + start, len)) flags |= ZSTR_ASCII;
+    return value_string_flags(SPTR(parent) + start, len, flags);
 }
 
 /* Takes the array directly because `concat`'s arm assembles the pieces itself rather than letting
@@ -220,51 +232,221 @@ Value ziman_concat_strings(const ArrayObj *pieces) {
     return value_string_view(buf, total, 1);
 }
 
+/* The code points in `n` bytes of UTF-8, which is what `len` answers for text as of 2026-10-23.
+ *
+ * It was `char_count`'s whole body until then, `len` being the byte count. The two swapped places:
+ * `len` is the character question now and `byte_len` is the byte one, so this is reached by `len`
+ * and `char_count` is gone. `who` names the caller in the error, since both reach it.
+ *
+ * O(n) where the byte length is a field read -- that is the cost of the change, taken knowingly:
+ * `len` on text is a scan now. Invalid UTF-8 is a runtime error naming the byte offset, reachable
+ * only by chaining a byte-level cut into this, since `bytes_to_string` rejects it at the boundary. */
+static int64_t utf8_code_points(const uint8_t *s, size_t len, const char *who, int line, int col) {
+    size_t pos = 0;
+    int64_t count = 0;
+    while (pos < len) {
+        uint32_t cp;
+        int n = ziman_utf8_decode_strict(s, len, pos, &cp);
+        if (n == 0) {
+            ziman_error("runtime", line, col, "%s: string is not valid UTF-8 (invalid sequence at byte %zu)", who, pos);
+        }
+        pos += (size_t)n;
+        count++;
+    }
+    return count;
+}
+
+/* ---- character indexing ------------------------------------------------------------------
+ *
+ * **The whole read family counts characters as of 2026-10-23**: `substring`, `char_at`,
+ * `is_char_at`, `index_of` and `last_index_of` take and answer code-point indices, where they took
+ * and answered byte offsets before. `len` had already moved; these had not, which left
+ * `substring(s, 0, index_of(s, ",", 0))` -- the core parsing idiom, 102 call sites -- pairing a
+ * character count against a byte offset.
+ *
+ * Moving them together is what keeps that composition correct: both ends are characters now, so
+ * the idiom needs no change at all. What stays in bytes is named for it -- `byte_len`, `to_bytes`,
+ * and a MutableString's `set`, which writes one byte and says so.
+ *
+ * **Each of these is two implementations, picked by ZSTR_ASCII.** When the string has no byte with
+ * its high bit set, a character index *is* a byte index, so each function below is exactly the
+ * arithmetic it was when these took byte offsets -- O(1), no walk, no second pass. The scanning
+ * code is the fallback for text that actually has multi-byte characters.
+ *
+ * That split is not an optimisation bolted on afterwards; it is what makes the unit affordable. A
+ * character offset without it is a walk from the start of the string, which turns every one of the
+ * library's ~86 index-scanning loops quadratic -- measured at 128 ms for a 16,000-character scan,
+ * and a timeout on yaml's 100,000-character nesting case, whose input is pure ASCII.
+ *
+ * **The cost that remains**: non-ASCII text still walks, so random access into it is O(n) and a
+ * scanner over it is quadratic. Accepted knowingly. The known remedy -- a per-thread one-entry
+ * cursor memo, which would need no space in a Value -- is deferred until a benchmark asks for it.
+ * `byte_len` stays for the loops that genuinely want storage positions. */
+
+/* The byte offset where character `ci` begins. `ci == <char count>` answers the end of the string,
+ * which is what an exclusive bound needs; past that is a runtime error naming the unit. */
+static size_t utf8_byte_of_char(const uint8_t *s, size_t len, int64_t ci, const char *who, int line, int col) {
+    if (ci < 0) {
+        ziman_error("runtime", line, col, "%s: character index must not be negative (got %lld)", who, (long long)ci);
+    }
+    size_t pos = 0;
+    int64_t seen = 0;
+    while (seen < ci) {
+        if (pos >= len) {
+            ziman_error("runtime", line, col, "%s: character index %lld is past the end (%lld characters)", who,
+                        (long long)ci, (long long)seen);
+        }
+        uint32_t cp;
+        int n = ziman_utf8_decode_strict(s, len, pos, &cp);
+        if (n == 0) {
+            ziman_error("runtime", line, col, "%s: string is not valid UTF-8 (invalid sequence at byte %zu)", who, pos);
+        }
+        pos += (size_t)n;
+        seen++;
+    }
+    return pos;
+}
+
+/* The character index of a byte offset, which must be a character boundary -- every caller here
+ * passes one back from a search, which can only match at a boundary for valid UTF-8. */
+static int64_t utf8_char_of_byte(const uint8_t *s, size_t len, size_t bo, const char *who, int line, int col) {
+    size_t pos = 0;
+    int64_t ci = 0;
+    while (pos < bo) {
+        uint32_t cp;
+        int n = ziman_utf8_decode_strict(s, len, pos, &cp);
+        if (n == 0) {
+            ziman_error("runtime", line, col, "%s: string is not valid UTF-8 (invalid sequence at byte %zu)", who, pos);
+        }
+        pos += (size_t)n;
+        ci++;
+    }
+    return ci;
+}
+
+/* How many bytes the character at `bo` occupies. */
+static int utf8_char_bytes(const uint8_t *s, size_t len, size_t bo, const char *who, int line, int col) {
+    uint32_t cp;
+    int n = ziman_utf8_decode_strict(s, len, bo, &cp);
+    if (n == 0) {
+        ziman_error("runtime", line, col, "%s: string is not valid UTF-8 (invalid sequence at byte %zu)", who, bo);
+    }
+    return n;
+}
+
 static Value native_substring(Value *args, int argc, int line, int col) {
     (void)argc;
-    int64_t len = (int64_t)SLEN(args[0]);
+    const uint8_t *s = (const uint8_t *)SPTR(args[0]);
+    size_t blen = SLEN(args[0]);
     int64_t st = args[1].as.i, en = args[2].as.i;
-    if (st < 0 || en > len || st > en) {
-        ziman_error("runtime", line, col, "substring index out of bounds (start=%lld, end=%lld, length=%lld)",
-                    (long long)st, (long long)en, (long long)len);
+    if (SASCII(args[0])) {
+        if (st < 0 || en > (int64_t)blen || st > en) {
+            ziman_error("runtime", line, col,
+                        "substring index out of bounds (start=%lld, end=%lld, length=%lld characters)",
+                        (long long)st, (long long)en, (long long)blen);
+        }
+        return string_slice(args[0], (size_t)st, (size_t)(en - st));
     }
-    return string_slice(args[0], (size_t)st, (size_t)(en - st));
+    int64_t chars = utf8_code_points(s, blen, "substring", line, col);
+    if (st < 0 || en > chars || st > en) {
+        ziman_error("runtime", line, col,
+                    "substring index out of bounds (start=%lld, end=%lld, length=%lld characters)",
+                    (long long)st, (long long)en, (long long)chars);
+    }
+    size_t bst = utf8_byte_of_char(s, blen, st, "substring", line, col);
+    size_t ben = utf8_byte_of_char(s, blen, en, "substring", line, col);
+    return string_slice(args[0], bst, ben - bst);
 }
 
 static Value native_char_at(Value *args, int argc, int line, int col) {
     (void)argc;
-    int64_t len = (int64_t)SLEN(args[0]), i = args[1].as.i;
-    if (i < 0 || i >= len) {
-        ziman_error("runtime", line, col, "char_at index out of bounds (index=%lld, length=%lld)", (long long)i, (long long)len);
+    const uint8_t *s = (const uint8_t *)SPTR(args[0]);
+    size_t blen = SLEN(args[0]);
+    int64_t i = args[1].as.i;
+    if (SASCII(args[0])) {
+        if (i < 0 || i >= (int64_t)blen) {
+            ziman_error("runtime", line, col, "char_at index out of bounds (index=%lld, length=%lld characters)",
+                        (long long)i, (long long)blen);
+        }
+        return string_slice(args[0], (size_t)i, 1);
     }
-    return string_slice(args[0], (size_t)i, 1);
+    int64_t chars = utf8_code_points(s, blen, "char_at", line, col);
+    if (i < 0 || i >= chars) {
+        ziman_error("runtime", line, col, "char_at index out of bounds (index=%lld, length=%lld characters)",
+                    (long long)i, (long long)chars);
+    }
+    size_t bo = utf8_byte_of_char(s, blen, i, "char_at", line, col);
+    return string_slice(args[0], bo, (size_t)utf8_char_bytes(s, blen, bo, "char_at", line, col));
 }
 
 static Value native_index_of(Value *args, int argc, int line, int col) {
     (void)argc;
-    int64_t len = (int64_t)SLEN(args[0]), from = args[2].as.i;
-    if (from < 0 || from > len) {
-        ziman_error("runtime", line, col, "index_of start out of bounds (from=%lld, length=%lld)", (long long)from, (long long)len);
+    const uint8_t *s = (const uint8_t *)SPTR(args[0]);
+    size_t blen = SLEN(args[0]);
+    int64_t from = args[2].as.i;
+    if (SASCII(args[0])) {
+        if (from < 0 || from > (int64_t)blen) {
+            ziman_error("runtime", line, col, "index_of start out of bounds (from=%lld, length=%lld characters)",
+                        (long long)from, (long long)blen);
+        }
+        /* The byte offset value_str_find answers *is* the character index here, so unlike the
+         * walking path below this needs no conversion pass over the match. */
+        return value_int(value_str_find(SPTR(args[0]), blen, SPTR(args[1]), SLEN(args[1]), (size_t)from));
     }
-    return value_int(value_str_find(SPTR(args[0]), SLEN(args[0]), SPTR(args[1]), SLEN(args[1]), (size_t)from));
+    int64_t chars = utf8_code_points(s, blen, "index_of", line, col);
+    if (from < 0 || from > chars) {
+        ziman_error("runtime", line, col, "index_of start out of bounds (from=%lld, length=%lld characters)",
+                    (long long)from, (long long)chars);
+    }
+    size_t bfrom = utf8_byte_of_char(s, blen, from, "index_of", line, col);
+    int64_t at = value_str_find(SPTR(args[0]), blen, SPTR(args[1]), SLEN(args[1]), bfrom);
+    if (at < 0) return value_int(-1);
+    return value_int(utf8_char_of_byte(s, blen, (size_t)at, "index_of", line, col));
 }
 
 static Value native_last_index_of(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
+    (void)argc;
     size_t ls = SLEN(args[0]), ln = SLEN(args[1]);
     if (ln > ls) return value_int(-1);
     for (size_t i = ls - ln + 1; i-- > 0; ) {
-        if (memcmp(SPTR(args[0]) + i, SPTR(args[1]), ln) == 0) return value_int((int64_t)i);
+        if (memcmp(SPTR(args[0]) + i, SPTR(args[1]), ln) == 0) {
+            if (SASCII(args[0])) return value_int((int64_t)i);
+            return value_int(utf8_char_of_byte((const uint8_t *)SPTR(args[0]), ls, i, "last_index_of", line, col));
+        }
     }
     return value_int(-1);
 }
 
 static Value native_is_char_at(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
-    int64_t len = (int64_t)SLEN(args[0]), i = args[1].as.i;
+    (void)argc;
+    /* No error path at all, which is the contract: out of range is false, and so is invalid UTF-8
+       rather than the runtime error its siblings raise. That is what lets it replace a guarded
+       `substring` without a bounds check in front of it. */
+    (void)line;
+    (void)col;
+    const uint8_t *s = (const uint8_t *)SPTR(args[0]);
+    size_t blen = SLEN(args[0]);
+    int64_t i = args[1].as.i;
     size_t lc = SLEN(args[2]);
-    if (i < 0 || i > len || (size_t)(len - i) < lc) return value_bool(0);
-    return value_bool(memcmp(SPTR(args[0]) + i, SPTR(args[2]), lc) == 0);
+    /* False, never an error, for an index out of range -- the property that lets this replace a
+     * guarded `substring`. Kept across the move to character indices, so the walk has to stop at
+     * the end rather than raise there. */
+    if (i < 0) return value_bool(0);
+    if (SASCII(args[0])) {
+        if (i > (int64_t)blen || blen - (size_t)i < lc) return value_bool(0);
+        return value_bool(memcmp((const char *)s + i, SPTR(args[2]), lc) == 0);
+    }
+    size_t pos = 0;
+    int64_t seen = 0;
+    while (seen < i && pos < blen) {
+        uint32_t cp;
+        int n = ziman_utf8_decode_strict(s, blen, pos, &cp);
+        if (n == 0) return value_bool(0);
+        pos += (size_t)n;
+        seen++;
+    }
+    if (seen < i || blen - pos < lc) return value_bool(0);
+    return value_bool(memcmp((const char *)s + pos, SPTR(args[2]), lc) == 0);
 }
 
 static Value native_equals_ignore_case(Value *args, int argc, int line, int col) {
@@ -550,6 +732,12 @@ typedef struct {
     size_t length;
     size_t capacity;
     double grow_factor;
+    /* The ZSTR_ASCII of an immutable string, kept here because a builder has no Value to carry it
+     * in: no byte in `data` has its high bit set, so a character index is a byte index. Maintained
+     * by the five writers (from/new/append/append_byte/set) and reset by clear, never recomputed on
+     * read -- which is what makes `len(sb)` a field read and the four readers below O(1) on ASCII
+     * text, exactly as their immutable twins are. */
+    int ascii;
 } MutableStringBuf;
 
 static int64_t mutable_string_table_register(MutableStringBuf *buf) {
@@ -636,6 +824,10 @@ Value ziman_mutable_string_from(Value source, int source_is_handle) {
     buf->length = 0;
     buf->grow_factor = 2.0;
     buf->data = zalloc_atomic(buf->capacity);
+    /* Inherited from a builder source, scanned from a string one -- the copy is byte for byte
+     * either way, so the answer is the source's. */
+    buf->ascii = source_is_handle ? mutable_string_table_get(mutable_string_handle_of(source))->ascii
+                                  : ziman_str_is_ascii(src, len);
     if (len > 0) {
         memcpy(buf->data, src, len);
         buf->length = len;
@@ -668,6 +860,7 @@ static Value native_mutable_string_new(Value *args, int argc, int line, int col)
     buf->capacity = (size_t)capacity;
     buf->length = 0;
     buf->grow_factor = grow_factor;
+    buf->ascii = 1; /* vacuously, and it stays true until something non-ASCII is appended */
     buf->data = buf->capacity > 0 ? zalloc_atomic(buf->capacity) : NULL;
 
     int64_t handle = mutable_string_table_register(buf);
@@ -690,6 +883,9 @@ static Value native_mutable_string_append(Value *args, int argc, int line, int c
         mutable_string_ensure_capacity(buf, len);
         memcpy(buf->data + buf->length, s, len);
         buf->length += len;
+        /* One-way: once a builder holds a multi-byte character it holds one until `clear`. The
+         * piece's own bit is reused when it has one, so appending strings never rescans them. */
+        if (buf->ascii && !(piece.as.str.flags & ZSTR_ASCII)) buf->ascii = 0;
     }
     return value_int(0); /* void return -- the caller never uses this */
 }
@@ -707,51 +903,107 @@ static Value native_mutable_string_append_byte(Value *args, int argc, int line, 
         mutable_string_ensure_capacity(buf, (size_t)bytes->count);
         memcpy(buf->data + buf->length, bytes->bytes, (size_t)bytes->count);
         buf->length += (size_t)bytes->count;
+        /* A high bit here may not even be valid UTF-8 -- this is the one route by which a builder
+         * can hold text that is not (nothing else accepts raw bytes). Clearing the flag is right
+         * either way: it only ever claims "every byte is below 0x80", which is a fact about bytes
+         * and needs no opinion about whether they decode. */
+        if (buf->ascii && !ziman_str_is_ascii((const char *)bytes->bytes, (size_t)bytes->count)) buf->ascii = 0;
         return value_bool(1);
     }
     for (int i = 0; i < bytes->count; i++) {
         if (array_get(bytes, i).as.by == 0) return value_bool(0);
     }
     mutable_string_ensure_capacity(buf, (size_t)bytes->count);
-    for (int i = 0; i < bytes->count; i++) buf->data[buf->length++] = (char)(unsigned char)array_get(bytes, i).as.by;
+    for (int i = 0; i < bytes->count; i++) {
+        unsigned char b = (unsigned char)array_get(bytes, i).as.by;
+        if (b >= 0x80u) buf->ascii = 0; /* same reasoning as the packed branch above */
+        buf->data[buf->length++] = (char)b;
+    }
     return value_bool(1);
 }
 
 /* Reading and writing one byte of the buffer, and searching it -- the four a MutableString was
  * missing, so that a string being built can be inspected without `snapshot`, a full copy per call.
  *
- * Byte-indexed, like every string operation in the language: `len` is bytes, `char_at(s, i)` is
- * "the one-byte string at i", and `char_count` is the separate explicit helper. That is what makes
- * these cheap and unambiguous rather than needing a UTF-8 decision -- the language settled it for
- * immutable strings long ago. */
+ * **Character-indexed since 2026-10-23**, where all four took byte offsets before. They had to
+ * move: `len(sb)` had already become a character count, so `char_at(sb, len(sb) - 1)` was pairing
+ * one unit against the other, and `char_at(sb, 1) == char_at(s, 1)` could be false for the same
+ * text in the two worlds. A builder is the mutable twin of a string, and a twin that counts
+ * differently is not one.
+ *
+ * Each takes the buffer's own ZSTR_ASCII equivalent (`buf->ascii`) as its fast path, so the common
+ * case is the byte arithmetic it always was -- see the character-indexing block above `substring`
+ * for why that split is what makes the unit affordable at all. */
 static Value native_mutable_string_get(Value *args, int argc, int line, int col) {
     (void)argc;
     MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
     int64_t i = args[1].as.i;
-    if (i < 0 || (size_t)i >= buf->length) {
-        ziman_error("runtime", line, col, "get index %lld out of bounds (MutableString length %lld)", (long long)i,
-                    (long long)buf->length);
+    if (buf->ascii) {
+        if (i < 0 || (size_t)i >= buf->length) {
+            ziman_error("runtime", line, col, "char_at index %lld out of bounds (MutableString length %lld characters)",
+                        (long long)i, (long long)buf->length);
+        }
+        return value_string_copy(&buf->data[i], 1);
     }
-    return value_string_copy(&buf->data[i], 1);
+    const uint8_t *d = (const uint8_t *)buf->data;
+    int64_t chars = utf8_code_points(d, buf->length, "char_at", line, col);
+    if (i < 0 || i >= chars) {
+        ziman_error("runtime", line, col, "char_at index %lld out of bounds (MutableString length %lld characters)",
+                    (long long)i, (long long)chars);
+    }
+    size_t bo = utf8_byte_of_char(d, buf->length, i, "char_at", line, col);
+    return value_string_copy(&buf->data[bo], (size_t)utf8_char_bytes(d, buf->length, bo, "char_at", line, col));
 }
 
-/* Replaces one byte, mirroring the immutable `set(arr, i, x)`: one element in, one element out. A
- * `value` of any other length is refused rather than splicing, because splicing would change the
- * length and `set` nowhere else in the language does that. */
+/* Replaces one **character**, mirroring the immutable `set(arr, i, x)`: one element in, one element
+ * out. A `value` that is not exactly one character is refused, because `set` nowhere else in the
+ * language changes a container's length.
+ *
+ * It does move bytes, though, which it did not when it replaced a byte: one character in UTF-8 is
+ * one to four bytes, so writing 'e' over 'é' shortens the buffer and 'é' over 'e' lengthens it.
+ * That is a splice of the *bytes* and not of the characters -- the character count is what `len`
+ * answers and what `set` leaves alone, so "one element in, one element out" stays true in the unit
+ * the function now speaks. Refusing unequal byte lengths instead would make `set` usable on ASCII
+ * and not on anything else, which is the kind of quiet asymmetry this whole change is removing. */
 static Value native_mutable_string_set(Value *args, int argc, int line, int col) {
     (void)argc;
     MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
     int64_t i = args[1].as.i;
-    if (i < 0 || (size_t)i >= buf->length) {
-        ziman_error("runtime", line, col, "set index %lld out of bounds (MutableString length %lld)", (long long)i,
-                    (long long)buf->length);
-    }
-    if (args[2].as.str.len != 1) {
+    const uint8_t *d = (const uint8_t *)buf->data;
+    size_t vlen = args[2].as.str.len;
+    /* Exactly one character of replacement, checked before the index so the message is about the
+     * value when both are wrong. An ASCII value is one character iff it is one byte. */
+    int64_t vchars = (args[2].as.str.flags & ZSTR_ASCII)
+                         ? (int64_t)vlen
+                         : utf8_code_points((const uint8_t *)args[2].as.str.ptr, vlen, "set", line, col);
+    if (vchars != 1) {
         ziman_error("runtime", line, col,
-                    "mutable_string_set replaces exactly one byte, and was given %lld (append or rebuild to change the length)",
-                    (long long)args[2].as.str.len);
+                    "set replaces exactly one character, and was given %lld (append or rebuild to change the length)",
+                    (long long)vchars);
     }
-    buf->data[i] = args[2].as.str.ptr[0];
+    size_t bo, old_bytes;
+    if (buf->ascii) {
+        if (i < 0 || (size_t)i >= buf->length) {
+            ziman_error("runtime", line, col, "set index %lld out of bounds (MutableString length %lld characters)",
+                        (long long)i, (long long)buf->length);
+        }
+        bo = (size_t)i;
+        old_bytes = 1;
+    } else {
+        int64_t chars = utf8_code_points(d, buf->length, "set", line, col);
+        if (i < 0 || i >= chars) {
+            ziman_error("runtime", line, col, "set index %lld out of bounds (MutableString length %lld characters)",
+                        (long long)i, (long long)chars);
+        }
+        bo = utf8_byte_of_char(d, buf->length, i, "set", line, col);
+        old_bytes = (size_t)utf8_char_bytes(d, buf->length, bo, "set", line, col);
+    }
+    if (vlen > old_bytes) mutable_string_ensure_capacity(buf, vlen - old_bytes);
+    size_t tail = buf->length - bo - old_bytes;
+    if (vlen != old_bytes) memmove(buf->data + bo + vlen, buf->data + bo + old_bytes, tail);
+    memcpy(buf->data + bo, args[2].as.str.ptr, vlen);
+    buf->length = buf->length - old_bytes + vlen;
+    if (buf->ascii && !(args[2].as.str.flags & ZSTR_ASCII)) buf->ascii = 0;
     return value_int(0); /* void return -- the caller never uses this */
 }
 
@@ -762,11 +1014,23 @@ static Value native_mutable_string_index_of(Value *args, int argc, int line, int
     (void)argc;
     MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
     int64_t from = args[2].as.i;
-    if (from < 0 || (size_t)from > buf->length) {
-        ziman_error("runtime", line, col, "index_of 'from' %lld is outside 0..%lld (the MutableString's length)",
-                    (long long)from, (long long)buf->length);
+    if (buf->ascii) {
+        if (from < 0 || (size_t)from > buf->length) {
+            ziman_error("runtime", line, col, "index_of 'from' %lld is outside 0..%lld (the MutableString's length in characters)",
+                        (long long)from, (long long)buf->length);
+        }
+        return value_int(value_str_find(buf->data, buf->length, args[1].as.str.ptr, args[1].as.str.len, (size_t)from));
     }
-    return value_int(value_str_find(buf->data, buf->length, args[1].as.str.ptr, args[1].as.str.len, (size_t)from));
+    const uint8_t *d = (const uint8_t *)buf->data;
+    int64_t chars = utf8_code_points(d, buf->length, "index_of", line, col);
+    if (from < 0 || from > chars) {
+        ziman_error("runtime", line, col, "index_of 'from' %lld is outside 0..%lld (the MutableString's length in characters)",
+                    (long long)from, (long long)chars);
+    }
+    size_t bfrom = utf8_byte_of_char(d, buf->length, from, "index_of", line, col);
+    long at = value_str_find(buf->data, buf->length, args[1].as.str.ptr, args[1].as.str.len, bfrom);
+    if (at < 0) return value_int(-1);
+    return value_int(utf8_char_of_byte(d, buf->length, (size_t)at, "index_of", line, col));
 }
 
 /* The last occurrence: searched forward, keeping the most recent hit, since value_str_find only
@@ -774,11 +1038,15 @@ static Value native_mutable_string_index_of(Value *args, int argc, int line, int
  * string puts it. */
 static Value native_mutable_string_last_index_of(Value *args, int argc, int line, int col) {
     (void)argc;
-    (void)line;
-    (void)col;
     MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
+    const uint8_t *d = (const uint8_t *)buf->data;
     size_t needle_len = args[1].as.str.len;
-    if (needle_len == 0) return value_int((int64_t)buf->length);
+    if (needle_len == 0) {
+        /* An empty needle is found at the length, which is where `last_index_of` on a string puts
+         * it -- in characters now, so the two worlds still agree on the answer. */
+        if (buf->ascii) return value_int((int64_t)buf->length);
+        return value_int(utf8_code_points(d, buf->length, "last_index_of", line, col));
+    }
     int64_t best = -1;
     size_t from = 0;
     while (from + needle_len <= buf->length) {
@@ -787,7 +1055,8 @@ static Value native_mutable_string_last_index_of(Value *args, int argc, int line
         best = (int64_t)at;
         from = (size_t)at + 1;
     }
-    return value_int(best);
+    if (best < 0 || buf->ascii) return value_int(best);
+    return value_int(utf8_char_of_byte(d, buf->length, (size_t)best, "last_index_of", line, col));
 }
 
 static Value native_mutable_string_to_string(Value *args, int argc, int line, int col) {
@@ -1199,30 +1468,6 @@ static Value native_chars(Value *args, int argc, int line, int col) {
 /* The number of code points in `s` -- `char_count("héllo")` is 5, where `len("héllo")` (bytes)
  * is 6. Cheaper than `len(chars(s))` when only the count is wanted: no array, no per-character
  * string views. Same UTF-8 validity requirement and error as `chars`. */
-/* The code points in `n` bytes of UTF-8, which is what `len` answers for text as of 2026-10-23.
- *
- * It was `char_count`'s whole body until then, `len` being the byte count. The two swapped places:
- * `len` is the character question now and `byte_len` is the byte one, so this is reached by `len`
- * and `char_count` is gone. `who` names the caller in the error, since both reach it.
- *
- * O(n) where the byte length is a field read -- that is the cost of the change, taken knowingly:
- * `len` on text is a scan now. Invalid UTF-8 is a runtime error naming the byte offset, reachable
- * only by chaining a byte-level cut into this, since `bytes_to_string` rejects it at the boundary. */
-static int64_t utf8_code_points(const uint8_t *s, size_t len, const char *who, int line, int col) {
-    size_t pos = 0;
-    int64_t count = 0;
-    while (pos < len) {
-        uint32_t cp;
-        int n = ziman_utf8_decode_strict(s, len, pos, &cp);
-        if (n == 0) {
-            ziman_error("runtime", line, col, "%s: string is not valid UTF-8 (invalid sequence at byte %zu)", who, pos);
-        }
-        pos += (size_t)n;
-        count++;
-    }
-    return count;
-}
-
 /* `byte_len` over text in either world: the storage size, which `len` answered until 2026-10-23.
  *
  * Registered bare, as `len` is, because one implementation serves both members -- a `string` keeps
@@ -1237,11 +1482,12 @@ static Value native_byte_len(Value *args, int argc, int line, int col) {
     return value_int(ziman_builder_length(v, ziman_mutable_kind(v.type)));
 }
 
-/* `s`, shortened to at most `max_chars` code points -- the safe way to truncate user-facing
- * text for display, unlike `substring`, which counts bytes and can cut a multi-byte character
- * in half. Stops at the earlier of `max_chars` code points or the end of `s`; `max_chars >=
- * char_count(s)` returns `s` itself, unchanged. Same UTF-8 validity requirement and error as
- * `chars`. */
+/* `s`, shortened to at most `max_chars` code points -- the safe way to truncate user-facing text
+ * for display, where `substring` raises on a `max_chars` past the end instead of clamping. (It also
+ * cut multi-byte characters in half until 2026-10-23; counting characters is what both do now, so
+ * clamping is the whole of the difference.) Stops at the earlier of `max_chars` code points or the
+ * end of `s`; `max_chars >= len(s)` returns `s` itself, unchanged. Same UTF-8 validity requirement
+ * and error as `chars`. */
 static Value native_truncate(Value *args, int argc, int line, int col) {
     (void)argc;
     int64_t max_chars = args[1].as.i;
@@ -2052,6 +2298,10 @@ Value ziman_len(Value *args, int argc, int line, int col) {
      * unchanged: an element count is an element count, and this is the one member where "how many"
      * had two defensible answers. */
     if (v.type->kind == TY_STRING) {
+        /* The byte count *is* the character count with no high bit anywhere, so the common case is
+         * the field read it always was. Without this the loop condition `i < len(s)` would rescan
+         * the whole string per iteration -- the second of the two quadratic factors. */
+        if (v.as.str.flags & ZSTR_ASCII) return value_int((int64_t)v.as.str.len);
         return value_int(utf8_code_points((const uint8_t *)v.as.str.ptr, v.as.str.len, "len", line, col));
     }
     if (v.type->kind == TY_MAP || v.type->kind == TY_SET) return value_int(v.as.map->count);
@@ -2067,9 +2317,11 @@ Value ziman_len(Value *args, int argc, int line, int col) {
     if (v.type->kind == TY_STRUCT) {
         MutableKind kind = ziman_mutable_kind(v.type);
         if (kind == MUTABLE_CELL) return value_int(1);
-        /* A MutableString follows its immutable twin: code points, not the buffer's size. */
+        /* A MutableString follows its immutable twin: code points, not the buffer's size -- and
+         * the same fast path, from the flag the buffer maintains for want of a Value to hold it. */
         if (kind == MUTABLE_STRING) {
             MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(v));
+            if (buf->ascii) return value_int((int64_t)buf->length);
             return value_int(utf8_code_points((const uint8_t *)buf->data, buf->length, "len", line, col));
         }
         return value_int(ziman_builder_length(v, kind));
@@ -2501,7 +2753,9 @@ void ziman_builder_clear(Value v) {
         return;
     }
     if (name != NULL && strcmp(name, "MutableString") == 0) {
-        mutable_string_table_get(mutable_string_handle_of(v))->length = 0;
+        MutableStringBuf *sbuf = mutable_string_table_get(mutable_string_handle_of(v));
+        sbuf->length = 0;
+        sbuf->ascii = 1; /* empty again, so the fast path is available again */
         return;
     }
     maptable_clear(&mutable_map_get_buf(v)->t);

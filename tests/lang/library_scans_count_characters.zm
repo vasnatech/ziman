@@ -1,0 +1,55 @@
+// **Non-ASCII input through the library's own scanners.** When the read family moved to character
+// indices (2026-10-23), every place that had taken a `byte_len` as the bound of a character-indexed
+// scan became a unit mismatch -- and because a byte count is never smaller than a character count,
+// each one fails only on text with a multi-byte character in it. The whole suite is ASCII, so the
+// build and the tests both stayed green over about thirty of them.
+//
+// Each case below went through one of those sites. They are not hypothetical: `mime.parse` passed a
+// byte length to a character `substring` and raised; `toml`'s date sniff cleared a 10-*byte* guard
+// and then read character 7 of a 6-character string; `properties`' "did you mean" distance sized
+// its first row in bytes and read its last cell by byte index, running off the end of every later
+// row; `zoneoffset_from_string` accepted a 6-byte, 3-character offset; `uuid`'s error counted bytes
+// while its own words said characters.
+use mime
+use toml
+use properties
+use time
+use uuid
+use yaml
+fn main() {
+    // mime: a non-ASCII parameter value made head_end exceed the character length
+    switch mime.parse("text/plain; title=\"café\"") {
+        Ok(m) { printf("mime ok: {}/{} params={}\n", m.type, m.subtype, m.params) }
+        Err(e) { printf("mime ERR {}\n", e) }
+    }
+    // toml: a 10-byte, 6-character value reaching char_at(t, 7) past the end
+    switch toml.parse_toml("k = \"ääääää\"\n") {
+        Ok(v) { printf("toml ok: {}\n", v) }
+        Err(e) { printf("toml ERR {}\n", e) }
+    }
+    // properties: the "did you mean" edit distance, whose last row cell was read by byte index
+    switch properties.parse("ängström=1\n", "t") {
+        Ok(p) {
+            switch properties.check_unknown(p, "ängstrom") {
+                Ok(_) { print("props: no complaint") }
+                Err(e) { printf("props: {}\n", e) }
+            }
+        }
+        Err(e) { printf("props ERR {}\n", e) }
+    }
+    // time: a 6-byte, 3-character zone offset that used to pass the length check
+    switch time.zoneoffset_from_string("+ää") {
+        Ok(z) { printf("zone unexpectedly ok: {}\n", z) }
+        Err(e) { print("zone correctly rejected") }
+    }
+    // uuid: the message says characters, so the count must be characters
+    switch uuid.uuid_from_string("ääääääääääääääääää") {
+        Ok(u) { print("uuid unexpectedly ok") }
+        Err(e) { printf("uuid: {}\n", e) }
+    }
+    // yaml: a block scalar whose body lines hold non-ASCII
+    switch yaml.parse_yaml("t: |\n  héllo\n  wörld\n") {
+        Ok(v) { printf("yaml ok: {}\n", v) }
+        Err(e) { printf("yaml ERR {}\n", e) }
+    }
+}

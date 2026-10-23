@@ -40,12 +40,9 @@ static Value gc_string(Arena *a, const char *s) {
     size_t len = strlen(s);
     char *buf = gc_alloc(a, GC_ATOMIC, len + 1);
     memcpy(buf, s, len + 1);
-    Value v;
-    v.type = type_scalar_ref(TY_STRING);
-    v.as.str.ptr = buf;
-    v.as.str.len = (uint32_t)len;
-    v.as.str.term = 1;
-    return v;
+    /* The real constructor, so this helper holds no copy of the string Value's layout -- it gained
+     * a flags word in 2026-10-23's character-indexing change. */
+    return value_string_view(buf, len, 1);
 }
 
 static Value gc_array_of_ints(Arena *a, const int64_t *items, int count) {

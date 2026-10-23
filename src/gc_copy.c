@@ -84,8 +84,11 @@ static void dedup_put(GcDedup *d, const void *key, void *val) {
 static Value gc_copy_into(Arena *dest, GcDedup *dedup, Value v);
 
 /* Always a fresh copy of exactly `len` bytes from wherever `ptr` currently points -- never
- * deduplicated; see gc_copy.h's header comment on why a string can be an interior pointer. */
-static Value gc_copy_string(Arena *dest, const char *ptr, size_t len) {
+ * deduplicated; see gc_copy.h's header comment on why a string can be an interior pointer.
+ *
+ * `src_flags` is the source view's, and ZSTR_ASCII carries over because this is a byte-for-byte
+ * copy: inherited rather than rescanned, so a copy is not a second O(n) pass over the text. */
+static Value gc_copy_string(Arena *dest, const char *ptr, size_t len, uint32_t src_flags) {
     char *buf = gc_alloc(dest, GC_ATOMIC, len + 1);
     memcpy(buf, ptr, len);
     buf[len] = '\0';
@@ -93,7 +96,7 @@ static Value gc_copy_string(Arena *dest, const char *ptr, size_t len) {
     v.type = type_scalar_ref(TY_STRING);
     v.as.str.ptr = buf;
     v.as.str.len = (uint32_t)len;
-    v.as.str.term = 1;
+    v.as.str.flags = ZSTR_TERM | (src_flags & ZSTR_ASCII);
     return v;
 }
 
@@ -260,7 +263,7 @@ static Value gc_copy_closure(Arena *dest, GcDedup *dedup, ClosureObj *clo, const
 static Value gc_copy_into(Arena *dest, GcDedup *dedup, Value v) {
     switch (v.type->kind) {
         case TY_STRING:
-            return gc_copy_string(dest, v.as.str.ptr, v.as.str.len);
+            return gc_copy_string(dest, v.as.str.ptr, v.as.str.len, v.as.str.flags);
         case TY_BIGINT:
             return gc_copy_bigint(dest, dedup, v.as.bi);
         case TY_DECIMAL:

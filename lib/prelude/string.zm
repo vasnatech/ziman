@@ -1,9 +1,19 @@
 // string.zm -- text and its builder `MutableString`, plus `join`.
 //
-// Indexes and lengths of strings are in bytes, not characters: the text is UTF-8, and `char_at`,
-// `substring` and `index_of` work on byte positions, so cutting inside a multi-byte character gives
-// text that is not valid UTF-8. `to_upper`, `to_lower` and `equals_ignore_case` change only the
-// ASCII letters A-Z.
+// Indexes and lengths of strings are in **characters** -- code points. The text is stored as UTF-8,
+// but `len`, `substring`, `char_at`, `index_of`, `last_index_of` and `is_char_at` all count and cut
+// characters, so none of them can split one in half and the whole family composes:
+// `substring(s, 0, index_of(s, ",", 0))` means what it reads as, whatever the text is.
+// `byte_len` and `to_bytes` are the storage questions, for the places that genuinely want bytes --
+// a wire-format length prefix, a `Content-Length`, a percent-encoder.
+//
+// **The unit moved on 2026-10-23**, `len` first and the read family after it. Indexing UTF-8 by
+// character would make every scanner quadratic, so a string Value carries a known-ASCII bit
+// (ZSTR_ASCII, src/value.h) and each of these functions is two implementations: with no high byte
+// anywhere a character index *is* a byte index and the code is the arithmetic it always was. Text
+// with real multi-byte characters takes the walk. See docs/DESIGN.md's entry for the measurements.
+//
+// `to_upper`, `to_lower` and `equals_ignore_case` change only the ASCII letters A-Z.
 //
 // Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
 // loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
@@ -91,15 +101,18 @@
 // sequence is a string.
 pub native fn to_bytes(s: string) -> [byte]
 
-// The bytes of `s` from `start` up to, not including, `end` (`0 <= start <= end <= len(s)`, a
-// runtime error otherwise).
 // **Its length in characters** -- code points, not bytes: `len("héllo")` is 5 where the text is 6
 // bytes long. `byte_len` is the byte question.
 //
 // **The two swapped places on 2026-10-23**, and `char_count` was deleted because `len` is now what
 // it answered. What the change costs, taken knowingly:
 //
-//   * **O(n) where it was O(1).** A byte length is a field read; counting code points is a scan.
+//   * **O(n) where it was O(1), but only off the ASCII path.** A byte length is a field read and
+//     counting code points is a scan, so this was O(n) flat at first -- which made every scanner
+//     in the library quadratic, since `while i < len(s)` rescans per iteration. A string Value now
+//     carries a known-ASCII bit (ZSTR_ASCII, src/value.h) and this is a field read again whenever
+//     it is set, which is every input that regressed. Text with real multi-byte characters still
+//     scans.
 //   * **104 call sites had been pairing `len` with a byte position** -- `substring(s, 0, len(s))`,
 //     `index_of(s, n, len(s))` -- and every one of them stayed an `int`, so nothing would have
 //     failed to compile. They were found by deleting these two declarations and letting the
@@ -110,7 +123,7 @@ pub native fn to_bytes(s: string) -> [byte]
 // What it buys is that the obvious reading is the right one. The old `len` was the silent-wrongness
 // direction -- "length" meaning bytes surprises a reader exactly when the text stops being ASCII,
 // which is the case nobody tests -- and the new one is the obvious-slowness direction, which a
-// profile finds.
+// profile finds. The profile did find it, immediately and in the worst place: see the ASCII bit.
 //
 // `len`'s other seven members are unchanged and are in array.zm, map.zm, set.zm and mutable.zm; an
 // element count was never ambiguous. `--api builtins` prints all nine as one block, and array.zm's
@@ -118,18 +131,23 @@ pub native fn to_bytes(s: string) -> [byte]
 pub native fn len(s: string) -> int
 
 // The same of a builder, following its immutable twin: code points, not the buffer's size. Its own
-// index functions (`char_at`, `set`, `index_of`) stay byte-indexed, so `byte_len(sb)` is what
-// bounds them -- `len(sb)` does not.
+// index functions (`char_at`, `set`, `index_of`, `last_index_of`) count characters too, so `len(sb)`
+// is what bounds them -- they were byte-indexed for the few hours between `len` moving and them
+// following, which is exactly long enough for `char_at(sb, i) == char_at(s, i)` to be false for the
+// same text.
 pub native fn len(s: MutableString) -> int
 
 // **Its length in bytes** -- the storage size, which `len` answered until 2026-10-23. Both members
 // share one C function registered under the bare name, as `len`'s nine do: a `string` keeps its
 // length beside its pointer and a `MutableString` keeps it in the handle's table.
 //
-// This is the one to pair with every byte-indexed function in this file -- `char_at`, `substring`,
-// `index_of`, `last_index_of`, `is_char_at`, and a MutableString's `set` -- because those take byte
-// offsets and `len` no longer counts in the same unit. `byte_len(s) == len(to_bytes(s))`, which is
-// the identity `len` used to satisfy.
+// **Not the one to bound an index with** -- that is `len`, and every index function in this file
+// counts characters. This is for the places that genuinely mean storage: a length prefix on a wire
+// (`lib/db/pg.zm`'s SASL frames), a `Content-Length`, base64's padding modulus, a byte budget on a
+// document. Using it as a scan bound is the mistake the 2026-10-23 sweep found about thirty of, and
+// it is invisible on ASCII input because the two counts agree there.
+//
+// `byte_len(s) == len(to_bytes(s))`, which is the identity `len` used to satisfy.
 pub native fn byte_len(s: string) -> int
 
 pub native fn byte_len(s: MutableString) -> int
@@ -139,15 +157,16 @@ pub native fn byte_len(s: MutableString) -> int
 pub native fn contains(s: string, needle: string) -> bool
 pub native fn contains(s: MutableString, needle: string) -> bool
 
-// **The bytes of `s` from `start` up to but not including `end`** (`0 <= start <= end <=
-// byte_len(s)`, a runtime error otherwise). `substring(s, i, i)` is the empty string, and
-// `substring(s, 0, byte_len(s))` is `s`.
+// **The characters of `s` from `start` up to but not including `end`** (`0 <= start <= end <=
+// len(s)`, a runtime error otherwise). `substring(s, i, i)` is the empty string, and
+// `substring(s, 0, len(s))` is `s`.
 //
-// **Byte offsets, so it can cut a character in half**: `substring("héllo", 0, 2)` ends mid-`é` and
-// answers a string that is not valid UTF-8. That is the one way to manufacture one without going
-// through `bytes_to_string`, which rejects it -- and the reason the code-point functions can fail
-// on a value that already exists. Pair it with `byte_len`, never `len`, and reach for
-// `truncate(s, n)` when the limit is in characters.
+// **Character indices, so it cannot cut a character in half**: `substring("héllo", 0, 2)` is `hé`,
+// where it ended mid-`é` and answered invalid UTF-8 until 2026-10-23. That closed the one route to
+// an invalid string that did not go through `bytes_to_string` -- `append_byte` is the only one
+// left, and it takes raw bytes on purpose. Pair it with `len`, and note that `truncate(s, n)` is
+// still the better call when the point is to fit a display width, since it clamps instead of
+// raising.
 pub native fn substring(s: string, start: int, end: int) -> string
 
 // The pieces of `s` between each `sep`, empty pieces included: `split("a,b,,c", ",")` is
@@ -214,9 +233,10 @@ pub native fn is_empty(s: string) -> bool
 // Whether `s` is empty or only blanks (whatever `trim` removes): `trim(s) == ""`, without making the trimmed string.
 pub native fn is_blank(s: string) -> bool
 
-// The one-byte string at position `i` (`0 <= i < byte_len(s)`, a runtime error otherwise), so
-// `char_at(s, i) == "x"` replaces `substring(s, i, i + 1) == "x"`. It is a byte, not a character,
-// and `i` is a byte offset -- pair it with `byte_len`, not `len`.
+// **The one-character string at position `i`** (`0 <= i < len(s)`, a runtime error otherwise), so
+// `char_at(s, i) == "x"` replaces `substring(s, i, i + 1) == "x"`. A whole character, however many
+// bytes it takes: `char_at("héllo", 1)` is `é`, where it was that character's first byte alone
+// until 2026-10-23.
 pub native fn char_at(s: string, i: int) -> string
 
 // The same of a builder, read in place: what lets a string being built be inspected without
@@ -231,7 +251,7 @@ pub native fn char_at(s: string, i: int) -> string
 // `mutable_string_char_at` now, and the rename cost two lines of C rather than none.
 pub native fn char_at(s: MutableString, i: int) -> string
 
-// The byte position of the last `needle` in `s`, or -1. An empty `needle` is found at `len(s)`.
+// The character position of the last `needle` in `s`, or -1. An empty `needle` is found at `len(s)`.
 pub native fn last_index_of(s: string, needle: string) -> int
 
 // The same of a builder: no `from`, because the immutable member above has none either.
@@ -242,31 +262,33 @@ pub native fn last_index_of(s: string, needle: string) -> int
 // members sit together, which is the rule that block predates.
 pub native fn last_index_of(s: MutableString, needle: string) -> int
 
-// True when `c` appears in `s` starting at position `i`. False, never an error, when `i` is out
+// True when `c` appears in `s` starting at character `i`. False, never an error, when `i` is out
 // of range or `c` does not fit, so `is_char_at(s, p, "x")` replaces the guarded
 // `p < len(s) && char_at(s, p) == "x"`. `c` is normally one character but any text works.
+//
+// It is also the one of the family that answers false rather than raising on text that is not valid
+// UTF-8, which is what lets it stand in front of an unguarded `substring`.
 pub native fn is_char_at(s: string, i: int, c: string) -> bool
 
 //
-// Everything above (`len`, `substring`, `char_at`, `index_of`, ...) counts and cuts bytes, not
-// characters -- fast, and exactly right for ASCII, but `len("héllo")` is 6 and a `substring` can
-// split a multi-byte character in half, producing text that is no longer valid UTF-8. These
-// three functions are the code-point-aware alternative for text a person will actually read:
-// slower (each one walks the string decoding UTF-8), used only where that's what's wanted. See
-// docs/DESIGN.md's UTF-8 correctness entry for why both worlds stay, on purpose, rather than one
-// replacing the other.
+// Everything above counts characters too, as of 2026-10-23 -- these three are no longer the
+// code-point-aware alternative to a byte-oriented family, because there is no byte-oriented family
+// left. What they still are is the *shape*-changing three: `chars` hands back every character at
+// once where `char_at` hands back one, `truncate` clamps where `substring` raises, and `reverse`
+// turns the whole string around. See docs/DESIGN.md's UTF-8 entry for the measurements that made
+// the unit affordable.
 
 // `s` split into its individual code points, each its own one-character string:
 // `chars("héllo")` is `[h, é, l, l, o]`, not six one-byte pieces. A runtime error naming the
-// byte offset if `s` is not valid UTF-8 (only reachable by chaining a byte-level function like
-// `substring` into this one -- `bytes_to_string` already rejects invalid UTF-8 at the boundary
-// where it would otherwise enter a program).
+// byte offset if `s` is not valid UTF-8 -- reachable only through `append_byte`, which takes raw
+// bytes by design so that text can be assembled from a decoder, since `bytes_to_string` rejects
+// invalid UTF-8 at the boundary and `substring` stopped being able to manufacture it on
+// 2026-10-23.
 pub native fn chars(s: string) -> [string]
 
-// `s` shortened to at most `max_chars` code points, without ever cutting one in half -- the safe
-// way to truncate text for display (`substring` counts bytes and can produce invalid UTF-8).
-// `max_chars >= len(s)` returns `s` unchanged; `max_chars` must not be negative. Same
-// UTF-8 requirement as `chars`.
+// `s` shortened to at most `max_chars` characters -- the safe way to cut text for display, because
+// `max_chars >= len(s)` returns `s` unchanged where `substring(s, 0, max_chars)` would raise.
+// `max_chars` must not be negative. Same UTF-8 requirement as `chars`.
 // **`truncate_chars` until 2026-10-23.** The `_chars` said which unit the limit is in, back when
 // `len` counted bytes and the distinction had to be in the name. `len` counts characters now, so
 // characters are what the prelude means by a length unless it says `byte_len`, and the suffix was
@@ -279,7 +301,7 @@ pub native fn truncate(s: string, max_chars: int) -> string
 // `to_lower(a)` and `to_lower(b)`.
 pub native fn equals_ignore_case(a: string, b: string) -> bool
 
-// The byte position of the first `needle` in `s` at or after `from` (`0 <= from <= len(s)`, a
+// The character position of the first `needle` in `s` at or after `from` (`0 <= from <= len(s)`, a
 // runtime error otherwise), or -1. An empty `needle` is found at `from`. The `[byte]` half of the
 // set is in array.zm, which carries why the two share the name and what it cost to arrange.
 pub native fn index_of(s: string, needle: string, from: int) -> int
@@ -329,7 +351,7 @@ pub fn split_once(s: string, separator: string) -> Option<[string]> {
     if at < 0 {
         return Option<[string]>.None
     }
-    return Option<[string]>.Some([substring(s, 0, at), substring(s, at + byte_len(separator), byte_len(s))])
+    return Option<[string]>.Some([substring(s, 0, at), substring(s, at + len(separator), len(s))])
 }
 
 // **A MutableString holding what `s` holds** -- `mutable`'s text member, the fourth of the four
@@ -404,15 +426,22 @@ pub native fn append(s: MutableString, pieces: variadic string)
 #[at_least_one]
 pub native fn append_byte(s: MutableString, pieces: variadic byte) -> bool
 
-// Writing one byte of the buffer: what lets a string being built be changed in place.
+// Writing one character of the buffer: what lets a string being built be changed in place.
 //
 // **Reading one used to be here too, and searching before that.** `mutable_string_get` became
 // `char_at`'s builder member on 2026-10-23 and went up to join its twin, as
 // `mutable_string_index_of` and `mutable_string_last_index_of` did the day before. A set's members
 // sit together, so what is left here is what this world alone has: a write.
-// Replaces one byte: one element in, one element out. A `value` of any other length is a runtime
-// error rather than a splice, because splicing would change the length and `set` nowhere else in
-// the language does that.
+// Replaces one character: one element in, one element out. A `value` that is not exactly one
+// character is a runtime error, because changing the length is not what `set` does anywhere in the
+// language.
+//
+// **It does move bytes**, which it did not when it replaced one byte (until 2026-10-23). One
+// character of UTF-8 is one to four of them, so writing `e` over `é` shortens the buffer and `é`
+// over `e` lengthens it. That is a splice of the storage, not of the characters -- the character
+// count is what `len` answers and what this leaves alone, so "one element in, one element out"
+// holds in the unit the function speaks. Refusing unequal byte lengths instead would have left
+// `set` working on ASCII and failing on everything else.
 //
 // **`mutable_string_set` until 2026-10-22.** Its own comment had said it was "mirroring the
 // immutable `set(arr, i, x)`" while keeping a prefix that said argument one is a MutableString --
@@ -452,7 +481,7 @@ pub fn lines(s: string) -> [string] {
     }
     var out: [string] = []
     for piece in split(s, "\n") {
-        out = push(out, if ends_with(piece, "\r") { substring(piece, 0, byte_len(piece) - 1) } else { piece })
+        out = push(out, if ends_with(piece, "\r") { substring(piece, 0, len(piece) - 1) } else { piece })
     }
     // Only a *trailing* newline produces that last empty piece; a blank line in the middle is a
     // real empty line and stays.

@@ -186,7 +186,7 @@ fn leftover_token(sql: string) -> Option<string> {
 }
 
 fn is_token_name(s: string) -> bool {
-    for i in 0..byte_len(s) {
+    for i in 0..len(s) {
         val c = substring(s, i, i + 1)
         val ok_char = (c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c == "_"
         if !ok_char {
@@ -226,21 +226,21 @@ fn is_tag_char(c: string) -> bool {
 // two quotes in a row: the first closes and the second opens again), or the end of `sql` when it never closes.
 fn quote_end(sql: string, start: int, quote: string) -> int {
     val close = index_of(sql, quote, start + 1)
-    return if close < 0 { byte_len(sql) } else { close + 1 }
+    return if close < 0 { len(sql) } else { close + 1 }
 }
 
 // The index after the end of the dollar-quoted body that starts at `start`, where `tag` (`$$`, `$body$`) opened it, or
 // the end of `sql` when it never closes.
 fn dollar_end(sql: string, start: int, tag: string) -> int {
-    val close = index_of(sql, tag, start + byte_len(tag))
-    return if close < 0 { byte_len(sql) } else { close + byte_len(tag) }
+    val close = index_of(sql, tag, start + len(tag))
+    return if close < 0 { len(sql) } else { close + len(tag) }
 }
 
 // The statements of `sql`, without their `;`, comments or surrounding blanks; blank ones are dropped.
 pub fn split_statements(sql: string) -> [string] {
     val out = mutable_array_new<string>()
     var current = mutable_string_new()
-    val n = byte_len(sql)
+    val n = len(sql)
     var i = 0
     while i < n {
         val c = char_at(sql, i)
@@ -292,7 +292,7 @@ pub fn split_statements(sql: string) -> [string] {
 // `V001__create_users.sql` as a migration, reading the file at `path`.
 fn read_migration(dir: string, file: string) -> Result<Migration, DbError> {
     val separator = index_of(file, "__", 0)
-    if !starts_with(file, "V") || separator < 2 || separator + 2 >= byte_len(file) - 4 {
+    if !starts_with(file, "V") || separator < 2 || separator + 2 >= len(file) - 4 {
         return err(problem(format("{} is not named V<version>__<name>.sql", file)))
     }
     val version = switch parse_int(substring(file, 1, separator)) {
@@ -308,7 +308,7 @@ fn read_migration(dir: string, file: string) -> Result<Migration, DbError> {
     }
     return Migration {
         version: version,
-        name: substring(file, separator + 2, byte_len(file) - 4),
+        name: substring(file, separator + 2, len(file) - 4),
         file: file,
         sql: text,
         checksum: checksum(text)

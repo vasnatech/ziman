@@ -126,11 +126,11 @@ struct Parsed<T> {
 }
 
 fn at_end(text: string, pos: int) -> bool {
-    return pos >= byte_len(text)
+    return pos >= len(text)
 }
 
 fn is_digit_at(text: string, pos: int) -> bool {
-    return pos < byte_len(text) && char_at(text, pos) >= "0" && char_at(text, pos) <= "9"
+    return pos < len(text) && char_at(text, pos) >= "0" && char_at(text, pos) <= "9"
 }
 
 fn bad_rule(text: string, why: string) -> string {
@@ -147,7 +147,7 @@ fn parse_name(text: string, pos: int) -> Result<Parsed<string>, string> {
         return ok(Parsed<string> { value: substring(text, pos + 1, close), next: close + 1 })
     }
     var p = pos
-    while p < byte_len(text) && ((char_at(text, p) >= "A" && char_at(text, p) <= "Z") || (char_at(
+    while p < len(text) && ((char_at(text, p) >= "A" && char_at(text, p) <= "Z") || (char_at(
         text,
         p
     ) >= "a" && char_at(text, p) <= "z")) {
@@ -466,7 +466,7 @@ fn valid_zone_name(name: string) -> bool {
     if byte_len(name) == 0 || byte_len(name) > 64 || starts_with(name, "/") || contains(name, "..") {
         return false
     }
-    for i in 0..byte_len(name) {
+    for i in 0..len(name) {
         val c = char_at(name, i)
         val ok_char = (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c == "_" || c == "+" || c == "-" || c == "/"
         if !ok_char {

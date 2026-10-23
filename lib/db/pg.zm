@@ -203,7 +203,7 @@ fn parse_url(url: string) -> Result<PgUrl, DbError> {
 fn scram_attr(message: string, key: string) -> Option<string> {
     for part in split(message, ",") {
         if starts_with(part, concat(key, "=")) {
-            return Option<string>.Some(substring(part, byte_len(key) + 1, byte_len(part)))
+            return Option<string>.Some(substring(part, len(key) + 1, len(part)))
         }
     }
     return Option<string>.None
@@ -419,7 +419,7 @@ fn decode_value(oid: int, raw: [byte]) -> Result<SqlValue, DbError> {
         }
         val out = mutable_array_new<byte>()
         var i = 2
-        while i + 2 <= byte_len(hex) {
+        while i + 2 <= len(hex) {
             val b = byte_from_hex(substring(hex, i, i + 2))
             if !is_ok(b) {
                 return err(DbError.Sql("bad bytea hex digits"))

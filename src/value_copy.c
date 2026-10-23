@@ -15,7 +15,9 @@
  * `SpawnArgs` the new thread is started with -- for exactly the reason `arena_enum_copy`'s
  * payload-less branch already relied on before any of the rest of this did. */
 
-static Value crossing_string_copy(const char *ptr, size_t len) {
+/* `src_flags` is the sending view's; ZSTR_ASCII survives the crossing because the bytes do,
+ * byte for byte. Same reasoning as gc_copy_string: inherit, never rescan. */
+static Value crossing_string_copy(const char *ptr, size_t len, uint32_t src_flags) {
     char *buf = ziman_xmalloc(len + 1);
     memcpy(buf, ptr, len);
     buf[len] = '\0';
@@ -23,7 +25,7 @@ static Value crossing_string_copy(const char *ptr, size_t len) {
     v.type = type_scalar_ref(TY_STRING);
     v.as.str.ptr = buf;
     v.as.str.len = (uint32_t)len;
-    v.as.str.term = 1;
+    v.as.str.flags = ZSTR_TERM | (src_flags & ZSTR_ASCII);
     return v;
 }
 
@@ -154,7 +156,7 @@ static Value value_deep_copy_crossing(Value v) {
     ZIMAN_STACK_CHECK();
     switch (v.type->kind) {
         case TY_STRING:
-            return crossing_string_copy(v.as.str.ptr, v.as.str.len);
+            return crossing_string_copy(v.as.str.ptr, v.as.str.len, v.as.str.flags);
         case TY_BIGINT:
             return crossing_bigint(*v.as.bi);
         case TY_DECIMAL:

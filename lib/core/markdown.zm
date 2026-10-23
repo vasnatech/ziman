@@ -222,7 +222,7 @@ val line_start_punctuation = "#>-+=|"
 // worth paying for readable output.
 fn escape_inline_text(s: string, out: MutableString) {
     var i = 0
-    while i < byte_len(s) {
+    while i < len(s) {
         val c = char_at(s, i)
         if c == "\\" || c == "`" || c == "*" || c == "_" || c == "[" || c == "]" || c == "<" {
             append(out, "\\", c)
@@ -245,11 +245,11 @@ fn escape_block_leader(s: string) -> string {
     }
     // `1.` or `1)` at the start of a line begins an ordered list
     var i = 0
-    while i < byte_len(s) && compare(char_at(s, i), "0") >= 0 && compare(char_at(s, i), "9") <= 0 {
+    while i < len(s) && compare(char_at(s, i), "0") >= 0 && compare(char_at(s, i), "9") <= 0 {
         i = i + 1
     }
-    if i > 0 && i < byte_len(s) && (is_char_at(s, i, ".") || is_char_at(s, i, ")")) {
-        return concat(substring(s, 0, i), "\\", substring(s, i, byte_len(s)))
+    if i > 0 && i < len(s) && (is_char_at(s, i, ".") || is_char_at(s, i, ")")) {
+        return concat(substring(s, 0, i), "\\", substring(s, i, len(s)))
     }
     return s
 }
@@ -259,7 +259,7 @@ fn longest_backtick_run(s: string) -> int {
     var best = 0
     var run = 0
     var i = 0
-    while i < byte_len(s) {
+    while i < len(s) {
         if is_char_at(s, i, "`") {
             run = run + 1
             if run > best {
@@ -362,7 +362,7 @@ fn escape_destination(d: string) -> string {
 // not do at all, and the reason one pipe in a patient's note shifts every column after it.
 fn escape_table_text(s: string, out: MutableString) -> Result<bool, string> {
     var i = 0
-    while i < byte_len(s) {
+    while i < len(s) {
         val c = char_at(s, i)
         if c == "\n" || c == "\r" {
             // Checked here rather than only on a SoftBreak node, because free text carrying a
@@ -586,7 +586,7 @@ val max_nesting = 64
 
 fn indent_of(line: string) -> int {
     var n = 0
-    while n < byte_len(line) && is_char_at(line, n, " ") {
+    while n < len(line) && is_char_at(line, n, " ") {
         n = n + 1
     }
     return n
@@ -597,26 +597,26 @@ fn without_indent(line: string, n: int) -> string {
     if drop > indent_of(line) {
         drop = indent_of(line)
     }
-    return substring(line, drop, byte_len(line))
+    return substring(line, drop, len(line))
 }
 
 // `### text` -> level 3. None when the line is not an ATX heading.
 fn atx_heading(line: string) -> Option<Heading> {
     val t = trim(line)
     var level = 0
-    while level < byte_len(t) && is_char_at(t, level, "#") {
+    while level < len(t) && is_char_at(t, level, "#") {
         level = level + 1
     }
     if level == 0 || level > 6 {
         return Option<Heading>.None
     }
-    if level < byte_len(t) && !is_char_at(t, level, " ") {
+    if level < len(t) && !is_char_at(t, level, " ") {
         return Option<Heading>.None
     }
-    var text = trim(substring(t, level, byte_len(t)))
+    var text = trim(substring(t, level, len(t)))
     // a closing run of hashes is decoration, not content
     while ends_with(text, "#") {
-        text = trim(substring(text, 0, byte_len(text) - 1))
+        text = trim(substring(text, 0, len(text) - 1))
     }
     return Option<Heading>.Some(Heading { level: level, content: parse_inlines(text) })
 }
@@ -629,10 +629,10 @@ fn fence_open(line: string) -> Option<[string]> {
         return Option<[string]>.None
     }
     var n = 0
-    while n < byte_len(t) && is_char_at(t, n, c) {
+    while n < len(t) && is_char_at(t, n, c) {
         n = n + 1
     }
-    val info = trim(substring(t, n, byte_len(t)))
+    val info = trim(substring(t, n, len(t)))
     // A backtick fence's info string may not itself contain a backtick, or there would be no
     // telling a fence from a paragraph that opens with a long code span -- `` ```a ` b``` ``
     // is the latter, and reading it as a fence swallows the rest of the document.
@@ -644,7 +644,7 @@ fn fence_open(line: string) -> Option<[string]> {
 
 fn is_thematic_break(line: string) -> bool {
     val t = replace(trim(line), " ", "")
-    if byte_len(t) < 3 {
+    if len(t) < 3 {
         return false
     }
     val c = char_at(t, 0)
@@ -652,7 +652,7 @@ fn is_thematic_break(line: string) -> bool {
         return false
     }
     var i = 0
-    while i < byte_len(t) {
+    while i < len(t) {
         if !is_char_at(t, i, c) {
             return false
         }
@@ -677,20 +677,20 @@ fn bullet_marker(line: string) -> int {
 fn ordered_marker(line: string) -> [int] {
     val t = without_indent(line, indent_of(line))
     var i = 0
-    while i < byte_len(t) && compare(char_at(t, i), "0") >= 0 && compare(char_at(t, i), "9") <= 0 {
+    while i < len(t) && compare(char_at(t, i), "0") >= 0 && compare(char_at(t, i), "9") <= 0 {
         i = i + 1
     }
     if i == 0 || i > 9 {
         return [0, 0]
     }
-    if i >= byte_len(t) || (!is_char_at(t, i, ".") && !is_char_at(t, i, ")")) {
+    if i >= len(t) || (!is_char_at(t, i, ".") && !is_char_at(t, i, ")")) {
         return [0, 0]
     }
-    if i + 1 < byte_len(t) && !is_char_at(t, i + 1, " ") {
+    if i + 1 < len(t) && !is_char_at(t, i + 1, " ") {
         return [0, 0]
     }
     val n = unwrap(parse_int(substring(t, 0, i)))
-    return [if i + 1 < byte_len(t) { i + 2 } else { i + 1 }, n]
+    return [if i + 1 < len(t) { i + 2 } else { i + 1 }, n]
 }
 
 // The `| --- | :--: |` row under a table's header, as one alignment per column. None when the
@@ -702,10 +702,10 @@ fn delimiter_row(line: string) -> Option<[Align]> {
     }
     var body = t
     if starts_with(body, "|") {
-        body = substring(body, 1, byte_len(body))
+        body = substring(body, 1, len(body))
     }
     if ends_with(body, "|") {
-        body = substring(body, 0, byte_len(body) - 1)
+        body = substring(body, 0, len(body) - 1)
     }
     if trim(body) == "" {
         return Option<[Align]>.None
@@ -720,16 +720,16 @@ fn delimiter_row(line: string) -> Option<[Align]> {
         val right = ends_with(cell, ":")
         var dashes = cell
         if left {
-            dashes = substring(dashes, 1, byte_len(dashes))
+            dashes = substring(dashes, 1, len(dashes))
         }
         if right && byte_len(dashes) > 0 {
-            dashes = substring(dashes, 0, byte_len(dashes) - 1)
+            dashes = substring(dashes, 0, len(dashes) - 1)
         }
         if byte_len(dashes) == 0 {
             return Option<[Align]>.None
         }
         var i = 0
-        while i < byte_len(dashes) {
+        while i < len(dashes) {
             if !is_char_at(dashes, i, "-") {
                 return Option<[Align]>.None
             }
@@ -753,16 +753,16 @@ fn table_cells(line: string) -> [string] {
     val t = trim(line)
     var body = t
     if starts_with(body, "|") {
-        body = substring(body, 1, byte_len(body))
+        body = substring(body, 1, len(body))
     }
     if ends_with(body, "|") && !ends_with(body, "\\|") {
-        body = substring(body, 0, byte_len(body) - 1)
+        body = substring(body, 0, len(body) - 1)
     }
     var out: [string] = []
     val cell = mutable_string_new()
     var i = 0
-    while i < byte_len(body) {
-        if is_char_at(body, i, "\\") && i + 1 < byte_len(body) && is_char_at(body, i + 1, "|") {
+    while i < len(body) {
+        if is_char_at(body, i, "\\") && i + 1 < len(body) && is_char_at(body, i + 1, "|") {
             append(cell, "|")
             i = i + 2
         } else if is_char_at(body, i, "|") {
@@ -792,7 +792,7 @@ fn flush_text(out: MutableArray<Inline>, text: MutableString) {
 // The index just past a run of `c` starting at `i`.
 fn run_end(s: string, i: int, c: string) -> int {
     var n = i
-    while n < byte_len(s) && is_char_at(s, n, c) {
+    while n < len(s) && is_char_at(s, n, c) {
         n = n + 1
     }
     return n
@@ -801,7 +801,7 @@ fn run_end(s: string, i: int, c: string) -> int {
 // The first run of exactly `n` backticks at or after `from`, or -1.
 fn closing_backticks(s: string, from: int, n: int) -> int {
     var i = from
-    while i < byte_len(s) {
+    while i < len(s) {
         if is_char_at(s, i, "`") {
             val end = run_end(s, i, "`")
             if end - i == n {
@@ -819,7 +819,7 @@ fn closing_backticks(s: string, from: int, n: int) -> int {
 fn closing_bracket(s: string, open: int) -> int {
     var depth = 0
     var i = open
-    while i < byte_len(s) {
+    while i < len(s) {
         if is_char_at(s, i, "\\") {
             i = i + 2
         } else if is_char_at(s, i, "[") {
@@ -841,7 +841,7 @@ fn closing_bracket(s: string, open: int) -> int {
 fn closing_paren(s: string, open: int) -> int {
     var depth = 0
     var i = open
-    while i < byte_len(s) {
+    while i < len(s) {
         if is_char_at(s, i, "\\") {
             i = i + 2
         } else if is_char_at(s, i, "(") {
@@ -866,20 +866,20 @@ fn split_destination(raw: string) -> [string] {
     if starts_with(t, "<") {
         val close = index_of(t, ">", 1)
         if close > 0 {
-            return [substring(t, 1, close), trim(substring(t, close + 1, byte_len(t)))]
+            return [substring(t, 1, close), trim(substring(t, close + 1, len(t)))]
         }
     }
     val space = index_of(t, " ", 0)
     if space < 0 {
         return [t, ""]
     }
-    return [substring(t, 0, space), trim(substring(t, space + 1, byte_len(t)))]
+    return [substring(t, 0, space), trim(substring(t, space + 1, len(t)))]
 }
 
 fn unquote_title(raw: string) -> Option<string> {
     val t = trim(raw)
-    if byte_len(t) >= 2 && (starts_with(t, "\"") && ends_with(t, "\"")) {
-        return Option<string>.Some(replace(substring(t, 1, byte_len(t) - 1), "\\\"", "\""))
+    if len(t) >= 2 && (starts_with(t, "\"") && ends_with(t, "\"")) {
+        return Option<string>.Some(replace(substring(t, 1, len(t) - 1), "\\\"", "\""))
     }
     return Option<string>.None
 }
@@ -889,7 +889,7 @@ fn unquote_title(raw: string) -> Option<string> {
 // otherwise end at the backticked star.
 fn closing_delimiter(s: string, from: int, c: string, n: int) -> int {
     var i = from
-    while i < byte_len(s) {
+    while i < len(s) {
         if is_char_at(s, i, "\\") {
             i = i + 2
         } else if is_char_at(s, i, "`") {
@@ -915,9 +915,9 @@ fn parse_inlines(s: string) -> [Inline] {
     val out = mutable_array_new<Inline>()
     val text = mutable_string_new()
     var i = 0
-    while i < byte_len(s) {
+    while i < len(s) {
         val c = char_at(s, i)
-        if c == "\\" && i + 1 < byte_len(s) && index_of(escapable, char_at(s, i + 1), 0) >= 0 {
+        if c == "\\" && i + 1 < len(s) && index_of(escapable, char_at(s, i + 1), 0) >= 0 {
             append(text, char_at(s, i + 1))
             i = i + 2
         } else if c == "`" {
@@ -930,7 +930,7 @@ fn parse_inlines(s: string) -> [Inline] {
                 flush_text(out, text)
                 var body = substring(s, end, close)
                 if starts_with(body, " ") && ends_with(body, " ") && trim(body) != "" {
-                    body = substring(body, 1, byte_len(body) - 1)
+                    body = substring(body, 1, len(body) - 1)
                 }
                 push(out, Inline.Code(body))
                 i = run_end(s, close, "`")
@@ -989,7 +989,7 @@ fn parse_inlines(s: string) -> [Inline] {
 }
 
 fn trim_end_spaces(s: string) -> string {
-    var n = byte_len(s)
+    var n = len(s)
     while n > 0 && is_char_at(s, n - 1, " ") {
         n = n - 1
     }
@@ -1005,7 +1005,7 @@ fn unsupported(all: [string], i: int) -> string {
     if indent_of(line) >= 4 {
         return "an indented code block (four spaces); use a fenced one (```) instead"
     }
-    if starts_with(t, "<") && byte_len(t) > 1 {
+    if starts_with(t, "<") && len(t) > 1 {
         val c = char_at(t, 1)
         if (compare(c, "a") >= 0 && compare(c, "z") <= 0) ||
             (compare(c, "A") >= 0 && compare(c, "Z") <= 0) || c == "/" || c == "!" {
@@ -1019,10 +1019,10 @@ fn unsupported(all: [string], i: int) -> string {
         }
     }
     val next = trim(if i + 1 < len(all) { all[i + 1] } else { "" })
-    if t != "" && byte_len(next) > 0 && !starts_with(t, "#") && !starts_with(t, ">") {
+    if t != "" && len(next) > 0 && !starts_with(t, "#") && !starts_with(t, ">") {
         var all_equals = true
         var k = 0
-        while k < byte_len(next) {
+        while k < len(next) {
             if !is_char_at(next, k, "=") {
                 all_equals = false
             }
@@ -1067,9 +1067,9 @@ fn quote_body(all: [string], from: int) -> [string] {
         if !starts_with(t, ">") {
             return out
         }
-        var rest = substring(t, 1, byte_len(t))
+        var rest = substring(t, 1, len(t))
         if starts_with(rest, " ") {
-            rest = substring(rest, 1, byte_len(rest))
+            rest = substring(rest, 1, len(rest))
         }
         out = push(out, rest)
         i = i + 1
@@ -1107,7 +1107,7 @@ fn read_fenced(all: [string], from: int, fence: [string]) -> BlockScan {
             t,
             0,
             marker
-        ) >= width && trim(substring(t, run_end(t, 0, marker), byte_len(t))) == "" {
+        ) >= width && trim(substring(t, run_end(t, 0, marker), len(t))) == "" {
             return BlockScan {
                 block: Block.CodeBlock(CodeBlock { info: info, text: snapshot(body) }),
                 next: i + 1
@@ -1205,7 +1205,7 @@ struct ItemScan {
 // A blank line inside the item is kept, so a two-paragraph item stays two paragraphs.
 fn read_item(all: [string], from: int, marker_width: int, depth: int, strict: bool) -> Result<ItemScan, string> {
     val indent = indent_of(all[from]) + marker_width
-    var body: [string] = [substring(trim_start(all[from]), marker_width, byte_len(trim_start(all[from])))]
+    var body: [string] = [substring(trim_start(all[from]), marker_width, len(trim_start(all[from])))]
     var i = from + 1
     var trailing_blank = false
     while i < len(all) {

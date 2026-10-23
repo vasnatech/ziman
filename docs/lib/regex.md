@@ -13,7 +13,10 @@ regex.replace_all(re, text, "$2: $1")
 A Perl-flavoured syntax, without backreferences or lookaround -- which is what
 lets every match run in time proportional to (text length x pattern size), so
 a pattern that comes from outside can never make a program hang. Text and
-patterns are UTF-8; every offset is a *byte* offset, like `substring`.
+patterns are UTF-8; every offset is a *character* index, like `substring` and
+`len`, so a match composes with the rest of the library without conversion.
+The engine itself matches bytes -- the offsets are converted where they leave
+C (src/native_regex.c's caps_to_char_indices), not here.
 
 Supported: literals, `.`, `[a-z]` `[^...]` classes (with `\d \w \s`, POSIX
 `[:alpha:]` and `\p{...}` inside), `\d \D \w \W \s \S` (ASCII), `\p{L}` /
@@ -78,8 +81,12 @@ pub struct Match {
 }
 ```
 
-One match: where it is (byte offsets, `end` exclusive), its text, and the
+One match: where it is (character indices, `end` exclusive), its text, and the
 capture groups 1..n in order (`None` for a group that did not take part).
+
+`start` and `end` count characters, not bytes, so `substring(text, m.start,
+m.end)` is `m.text` and `m.end - m.start` is how many characters matched. They
+answered byte offsets before 2026-10-23.
 
 ### `compile`
 
@@ -118,7 +125,7 @@ True if the pattern matches anywhere in `text`.
 pub fn find_from(re: Regex, text: string, from: int) -> Option<Match>
 ```
 
-The first match at or after byte offset `from` (0 <= from <= len(text)).
+The first match at or after character `from` (0 <= from <= len(text)).
 
 ### `find`
 

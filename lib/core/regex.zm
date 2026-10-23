@@ -8,7 +8,10 @@
 // A Perl-flavoured syntax, without backreferences or lookaround -- which is what
 // lets every match run in time proportional to (text length x pattern size), so
 // a pattern that comes from outside can never make a program hang. Text and
-// patterns are UTF-8; every offset is a *byte* offset, like `substring`.
+// patterns are UTF-8; every offset is a *character* index, like `substring` and
+// `len`, so a match composes with the rest of the library without conversion.
+// The engine itself matches bytes -- the offsets are converted where they leave
+// C (src/native_regex.c's caps_to_char_indices), not here.
 //
 // Supported: literals, `.`, `[a-z]` `[^...]` classes (with `\d \w \s`, POSIX
 // `[:alpha:]` and `\p{...}` inside), `\d \D \w \W \s \S` (ASCII), `\p{L}` /
@@ -39,8 +42,12 @@ pub struct Regex {
     names: [string]
 }
 
-// One match: where it is (byte offsets, `end` exclusive), its text, and the
+// One match: where it is (character indices, `end` exclusive), its text, and the
 // capture groups 1..n in order (`None` for a group that did not take part).
+//
+// `start` and `end` count characters, not bytes, so `substring(text, m.start,
+// m.end)` is `m.text` and `m.end - m.start` is how many characters matched. They
+// answered byte offsets before 2026-10-23.
 pub struct Match {
     start: int
     end: int
@@ -99,7 +106,7 @@ pub fn is_match(re: Regex, text: string) -> bool {
     return len(search_raw(re.handle, text, 0)) > 0
 }
 
-// The first match at or after byte offset `from` (0 <= from <= len(text)).
+// The first match at or after character `from` (0 <= from <= len(text)).
 pub fn find_from(re: Regex, text: string, from: int) -> Option<Match> {
     val caps = search_raw(re.handle, text, from)
     if len(caps) == 0 {
@@ -171,11 +178,11 @@ fn expand(replacement: string, m: Match) -> string {
     }
     val out = mutable_string_new()
     var i = 0
-    while i < byte_len(replacement) {
+    while i < len(replacement) {
         val dollar = index_of(replacement, "$", i)
         if dollar < 0 {
-            append(out, substring(replacement, i, byte_len(replacement)))
-            i = byte_len(replacement)
+            append(out, substring(replacement, i, len(replacement)))
+            i = len(replacement)
         } else {
             append(out, substring(replacement, i, dollar))
             i = dollar + 1
@@ -198,12 +205,12 @@ fn expand(replacement: string, m: Match) -> string {
                 }
             } else {
                 var j = i
-                while j < byte_len(replacement) && is_digit_char(char_at(replacement, j)) {
+                while j < len(replacement) && is_digit_char(char_at(replacement, j)) {
                     j = j + 1
                 }
                 if j == i {
                     var k = i
-                    while k < byte_len(replacement) && is_name_char(char_at(replacement, k)) {
+                    while k < len(replacement) && is_name_char(char_at(replacement, k)) {
                         k = k + 1
                     }
                     if k == i {
@@ -240,7 +247,7 @@ fn replace_matches(re: Regex, text: string, replacement: string, first_only: boo
         last = m.end
         i = if first_only { len(matches) } else { i + 1 }
     }
-    append(out, substring(text, last, byte_len(text)))
+    append(out, substring(text, last, len(text)))
     return snapshot(out)
 }
 
@@ -264,14 +271,14 @@ pub fn split(re: Regex, text: string) -> [string] {
             last = m.end
         }
     }
-    push(out, substring(text, last, byte_len(text)))
+    push(out, substring(text, last, len(text)))
     return snapshot(out)
 }
 
 // `text` with every regex metacharacter escaped, so it matches itself.
 pub fn escape(text: string) -> string {
     val out = mutable_string_new()
-    for i in 0..byte_len(text) {
+    for i in 0..len(text) {
         val c = char_at(text, i)
         if contains("\\.^$|?*+()[]{}", c) {
             append(out, "\\")

@@ -1,0 +1,8 @@
+mime ok: text/plain params={title: café}
+toml ok: JObject({k: JString(ääääää)})
+props: unknown property 'ängström' (t:1) -- did you mean 'ängstrom'?
+zone correctly rejected
+uuid: invalid UUID 'ääääääääääääääääää': expected 36 characters, found 18
+yaml ok: JObject({t: JString(héllo
+wörld
+)})

@@ -257,10 +257,10 @@ pub fn real_text(x: float) -> string {
     var s = format("{:.5}", x)
     if contains(s, ".") {
         while ends_with(s, "0") {
-            s = substring(s, 0, byte_len(s) - 1)
+            s = substring(s, 0, len(s) - 1)
         }
         if ends_with(s, ".") {
-            s = substring(s, 0, byte_len(s) - 1)
+            s = substring(s, 0, len(s) - 1)
         }
     }
     if s == "-0" {

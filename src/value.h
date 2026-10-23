@@ -57,6 +57,23 @@ typedef struct ArrayObj {
     ArrayStore *store; /* spare room shared with the arrays pushed from this one, or NULL (a literal, a slice, a builder's result: no room, push copies) */
 } ArrayObj;
 
+/* `Value.as.str.flags` -- the two facts a string view carries besides its bytes. Both live in one
+ * uint32_t because the string member is already 16 bytes, the size of `Value`'s whole union, so
+ * these bits are free where a fourth field would push `Value` from 24 bytes to 32 and give back the
+ * 80 -> 24 reduction the type comment below describes. 30 bits are still spare.
+ *
+ * A *character count* deliberately does not live here: it does not fit in a flag, and the point of
+ * ZSTR_ASCII is that when it is set the count is `len` anyway. */
+#define ZSTR_TERM  1u /* ptr[len] is a NUL, so the bytes can go to a C API uncopied -- value_cstr */
+#define ZSTR_ASCII 2u /* no byte has its high bit set */
+
+/* Whether every byte at `ptr` is below 0x80. Set once per string at the three places that build
+ * one, never recomputed per call, because when it holds a character index *is* a byte index: that
+ * is what keeps substring/char_at/index_of O(1) and the library's ~86 index-scanning loops linear
+ * on ASCII text, instead of walking from the start of the string per position. Non-ASCII text
+ * takes the walk (see the character-indexing block in prelude.c). */
+int ziman_str_is_ascii(const char *ptr, size_t len);
+
 typedef enum { PK_NONE = 0, PK_BYTE, PK_BOOL, PK_INT, PK_FLOAT } PackKind;
 
 /* A struct's backing storage. Same immutable-once-built invariant and the
@@ -104,13 +121,12 @@ struct Value {
         int by; /* 0-255, unsigned -- embedded, not heap, same reasoning
                   * as `b`: no union growth, since `i`/`f`/every pointer
                   * member here are already 8 bytes. */
-        /* A string is a view: `len` bytes at `ptr`, immutable. It may be a
+        /* A string is a view: `len` *bytes* at `ptr`, immutable. It may be a
          * whole buffer or a slice of one (substring/trim/split share their
-         * parent's bytes instead of copying). `term` says ptr[len] is a NUL,
-         * which is what a native needs to hand the bytes to a C API without
-         * copying -- see value_cstr. 16 bytes, so a Value grows from 72 to
-         * 80; a string is limited to 4 GiB. */
-        struct { const char *ptr; uint32_t len; uint32_t term; } str;
+         * parent's bytes instead of copying). `flags` is the ZSTR_* bit set
+         * above. 16 bytes, the size of this whole union, so recording the two
+         * facts there costs nothing; a string is limited to 4 GiB. */
+        struct { const char *ptr; uint32_t len; uint32_t flags; } str;
         BigNum *bi; /* heap; kept as a pointer (not embedded) so this union
                      * -- and every Value in the interpreter, not just
                      * bigint ones -- stays the same size as it was before
@@ -238,8 +254,14 @@ Value value_function(FunctionDecl *fn);
  * `ncaptured` parameters on each call. `captured` is taken over. */
 Value value_closure(FunctionDecl *fn, Value *captured, int ncaptured);
 /* A view of `len` bytes at `ptr` -- no copy. `term` is 1 only if ptr[len] is
- * a NUL. */
+ * a NUL. ZSTR_ASCII is decided here by scanning the bytes, so a caller that
+ * already knows the answer (a slice of an ASCII parent inherits it) should
+ * use value_string_flags and skip the scan. */
 Value value_string_view(const char *ptr, size_t len, int term);
+/* The same view with `flags` taken as given rather than scanned for. The
+ * caller owns the claim: ZSTR_ASCII here is believed, and every character
+ * index in the prelude is a byte index when it is set. */
+Value value_string_flags(const char *ptr, size_t len, uint32_t flags);
 /* A fresh, NUL-terminated copy of `len` bytes at `ptr`. */
 Value value_string_copy(const char *ptr, size_t len);
 /* The string's bytes as a NUL-terminated C string: the view itself when it

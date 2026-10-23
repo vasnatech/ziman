@@ -55,9 +55,9 @@ pub fn transparent() -> Color {
 pub fn hex(text: string) -> Result<Color, string> {
     var body = trim(text)
     if starts_with(body, "#") {
-        body = substring(body, 1, byte_len(body))
+        body = substring(body, 1, len(body))
     }
-    val n = byte_len(body)
+    val n = len(body)
     if n != 3 && n != 6 && n != 8 {
         return err(concat("paint.hex: expected 3, 6 or 8 hex digits, got '", text, "'"))
     }

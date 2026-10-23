@@ -1,0 +1,9 @@
+hello len=5 byte_len=5
+héllo len=5 byte_len=6
+hellü len=5 byte_len=6
+日😀語 len=3 byte_len=10
+axc len=3 byte_len=3
+true
+true
+true
+true

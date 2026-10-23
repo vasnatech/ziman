@@ -130,12 +130,12 @@ pub fn bigint_from_hex(s: string) -> Result<bigint, string> {
         negative = true
         start = 1
     }
-    if start >= byte_len(s) {
+    if start >= len(s) {
         return err(format("invalid bigint hex '{}': no digits", s))
     }
     var result: bigint = 0n
     var i = start
-    while i < byte_len(s) {
+    while i < len(s) {
         val dv = hex_digit_value(char_at(s, i))
         if Err(e) = dv {
             return err(e)
@@ -211,9 +211,9 @@ fn insert_thousands(int_part: string, sep: string) -> string {
     var digits = int_part
     if starts_with(digits, "-") {
         sign = "-"
-        digits = substring(digits, 1, byte_len(digits))
+        digits = substring(digits, 1, len(digits))
     }
-    val n = byte_len(digits)
+    val n = len(digits)
     if n <= 3 {
         return concat(sign, digits)
     }
@@ -231,12 +231,12 @@ fn insert_thousands(int_part: string, sep: string) -> string {
 }
 
 fn adjust_decimal_places(frac: string, places: int) -> string {
-    if byte_len(frac) >= places {
+    if len(frac) >= places {
         return substring(frac, 0, places)
     }
     val out = mutable_string_new()
     append(out, frac)
-    var i = byte_len(frac)
+    var i = len(frac)
     while i < places {
         append(out, "0")
         i = i + 1

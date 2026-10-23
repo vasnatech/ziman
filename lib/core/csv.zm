@@ -60,17 +60,17 @@ fn parse_rows(text: string, sep: string, typed: bool) -> Result<[Row], string> {
     val body = if starts_with(
         text,
         byte_order_mark
-    ) { substring(text, byte_len(byte_order_mark), byte_len(text)) } else { text }
+    ) { substring(text, len(byte_order_mark), len(text)) } else { text }
     val flat = try scan_cells(body, sep, typed)
     val rows = mutable_array_new<Row>()
     var cells = mutable_array_new<Cell>()
     for item in flat {
         if compare(char_at(item, 0), " ") < 0 {
-            val line = unwrap(parse_int(substring(item, 1, byte_len(item))))
+            val line = unwrap(parse_int(substring(item, 1, len(item))))
             push(rows, Row { line: line, cells: snapshot(cells) })
             cells = mutable_array_new<Cell>()
         } else {
-            push(cells, Cell { text: substring(item, 1, byte_len(item)), tag: substring(item, 0, 1) })
+            push(cells, Cell { text: substring(item, 1, len(item)), tag: substring(item, 0, 1) })
         }
     }
     return ok(snapshot(rows))
@@ -86,13 +86,13 @@ fn looks_int(s: string) -> bool {
     if is_char_at(s, 0, "-") {
         i = 1
     }
-    if i >= byte_len(s) {
+    if i >= len(s) {
         return false
     }
-    if char_at(s, i) == "0" && byte_len(s) > i + 1 {
+    if char_at(s, i) == "0" && len(s) > i + 1 {
         return false
     }
-    while i < byte_len(s) {
+    while i < len(s) {
         if !is_digit_char(char_at(s, i)) {
             return false
         }
@@ -107,16 +107,16 @@ fn looks_float(s: string) -> bool {
     if is_char_at(s, 0, "-") {
         i = 1
     }
-    if i >= byte_len(s) || !is_digit_char(char_at(s, i)) {
+    if i >= len(s) || !is_digit_char(char_at(s, i)) {
         return false
     }
-    if char_at(s, i) == "0" && byte_len(s) > i + 1 && is_digit_char(char_at(s, i + 1)) {
+    if char_at(s, i) == "0" && len(s) > i + 1 && is_digit_char(char_at(s, i + 1)) {
         return false
     }
     var seen_dot = false
     var seen_exp = false
     var seen_digit = false
-    while i < byte_len(s) {
+    while i < len(s) {
         val c = char_at(s, i)
         if is_digit_char(c) {
             seen_digit = true
@@ -360,19 +360,19 @@ fn record_error(start_line: int, message: string) -> string {
         return format("line {}: {}", start_line, message)
     }
     val prefix = Option.unwrap_Some(parts)[0]
-    val relative = parse_int(substring(prefix, 5, byte_len(prefix)))
+    val relative = parse_int(substring(prefix, 5, len(prefix)))
     val line = if is_ok(relative) { start_line + unwrap(relative) - 1 } else { start_line }
     var detail = Option.unwrap_Some(parts)[1]
     val marker = "(opened on line "
     val at = index_of(detail, marker, 0)
     if at >= 0 {
         val close = index_of(detail, ")", at)
-        val opened = parse_int(substring(detail, at + byte_len(marker), close))
+        val opened = parse_int(substring(detail, at + len(marker), close))
         if close >= 0 && is_ok(opened) {
             detail = concat(
                 substring(detail, 0, at),
                 format("(opened on line {})", start_line + unwrap(opened) - 1),
-                substring(detail, close + 1, byte_len(detail))
+                substring(detail, close + 1, len(detail))
             )
         }
     }
@@ -506,7 +506,7 @@ fn needs_quotes(s: string, sep: string) -> bool {
     if byte_len(s) == 0 {
         return false
     }
-    if is_char_at(s, 0, " ") || is_char_at(s, byte_len(s) - 1, " ") {
+    if is_char_at(s, 0, " ") || is_char_at(s, len(s) - 1, " ") {
         return true
     }
     return contains(s, sep) || contains(s, "\"") || contains(s, "\n") || contains(s, "\r")

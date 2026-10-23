@@ -1,0 +1,40 @@
+// `set` on a MutableString replaces one **character** with one character, which since 2026-10-23
+// means it moves bytes: one character of UTF-8 is one to four of them, so writing `e` over `é`
+// shortens the buffer and `é` over `e` lengthens it. The character count -- what `len` answers --
+// is what `set` leaves alone, so "one element in, one element out" stays true in the unit the
+// function speaks. It replaced one byte before, which made it usable on ASCII and not on anything
+// else.
+fn main() {
+    // shrinking: a two-byte character out, a one-byte character in
+    val a = mutable("héllo")
+    set(a, 1, "e")
+    printf("{} len={} byte_len={}\n", snapshot(a), len(a), byte_len(a))
+
+    // growing: the reverse
+    val b = mutable("hello")
+    set(b, 1, "é")
+    printf("{} len={} byte_len={}\n", snapshot(b), len(b), byte_len(b))
+
+    // at the last position, where there is no tail to move
+    val c = mutable("hello")
+    set(c, 4, "ü")
+    printf("{} len={} byte_len={}\n", snapshot(c), len(c), byte_len(c))
+
+    // three bytes out, four in, in the middle of multi-byte text
+    val d = mutable("日本語")
+    set(d, 1, "😀")
+    printf("{} len={} byte_len={}\n", snapshot(d), len(d), byte_len(d))
+
+    // and the ASCII-only path, where a character is a byte and nothing moves
+    val e = mutable("abc")
+    set(e, 1, "x")
+    printf("{} len={} byte_len={}\n", snapshot(e), len(e), byte_len(e))
+
+    // the builder agrees with its immutable twin on every index
+    val s = "héllo wörld"
+    val sb = mutable(s)
+    print(char_at(sb, 1) == char_at(s, 1))
+    print(index_of(sb, "ö", 0) == index_of(s, "ö", 0))
+    print(last_index_of(sb, "l") == last_index_of(s, "l"))
+    print(len(sb) == len(s))
+}

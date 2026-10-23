@@ -170,10 +170,10 @@ fn hex_of(n: int) -> string {
 }
 
 fn all_hex(s: string, want_len: int) -> bool {
-    if byte_len(s) != want_len {
+    if len(s) != want_len {
         return false
     }
-    for i in 0..byte_len(s) {
+    for i in 0..len(s) {
         val c = char_at(s, i)
         // Lowercase only: the spec says a receiver must treat an upper-case field as invalid
         // rather than lower-casing it, because the header is compared as bytes elsewhere.
@@ -185,7 +185,7 @@ fn all_hex(s: string, want_len: int) -> bool {
 }
 
 fn all_zeros(s: string) -> bool {
-    for i in 0..byte_len(s) {
+    for i in 0..len(s) {
         if char_at(s, i) != "0" {
             return false
         }

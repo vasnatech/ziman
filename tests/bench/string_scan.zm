@@ -1,0 +1,85 @@
+// **The two regimes of character indexing, measured apart.**
+//
+// Text counts characters as of 2026-10-23 (docs/DESIGN.md's entry). Indexing UTF-8 by character
+// means a walk from the start of the string, so the shape of every scanner in the library --
+// `while i < len(s) { char_at(s, i) ... }` -- is quadratic twice over: once for the walk per
+// position, once because `len` rescans per iteration. A string Value carries a known-ASCII bit
+// (ZSTR_ASCII, src/value.h) and both functions take a fast path when it is set, which puts the
+// ASCII case back to the arithmetic it was.
+//
+// This measures the two paths separately, because the whole risk in that design is that they
+// quietly merge: if the ASCII fast path is ever lost, nothing fails and no test goes red -- the
+// library just gets slower in proportion to its input, which is how the regression arrived in the
+// first place (yaml's 100,000-character case stopped finishing).
+//
+// Run it directly: `./ziman tests/bench/string_scan.zm`. It prints a table and ends with a verdict,
+// exiting 1 if the ASCII path has stopped being linear, so it is usable from a script.
+use clock
+use math
+use os
+
+fn scan(s: string) -> int {
+    var n = 0
+    var i = 0
+    while i < len(s) {
+        if char_at(s, i) == "x" {
+            n = n + 1
+        }
+        i = i + 1
+    }
+    return n
+}
+
+fn repeat_text(unit_text: string, times: int) -> string {
+    val b = mutable_string_new()
+    var i = 0
+    while i < times {
+        append(b, unit_text)
+        i = i + 1
+    }
+    return snapshot(b)
+}
+
+// Milliseconds to scan `size` characters of text built by repeating `unit_text` (4 characters).
+fn time_scan(unit_text: string, size: int) -> int {
+    val text = repeat_text(unit_text, size / 4)
+    val started = clock.monotonic_millis()
+    val found = scan(text)
+    val elapsed = clock.monotonic_millis() - started
+    if found != size / 4 {
+        printf("  WRONG: counted {} of an expected {}\n", found, size / 4)
+    }
+    return elapsed
+}
+
+fn main() {
+    val sizes = [8000, 16000, 32000, 64000]
+
+    print("ASCII (the fast path -- a character index is a byte index)")
+    val ascii_times = mutable_array_new<int>()
+    for size in sizes {
+        val ms = time_scan("abcx", size)
+        push(ascii_times, ms)
+        printf("  {} chars: {} ms\n", size, ms)
+    }
+
+    print("non-ASCII (the walking path, quadratic by design -- see DESIGN.md)")
+    for size in [4000, 8000, 16000] {
+        printf("  {} chars: {} ms\n", size, time_scan("äbcx", size))
+    }
+
+    // Linear means the last size costs about (last / first) times the first, not its square. The
+    // bound is deliberately loose -- these are wall-clock milliseconds on a shared machine, and the
+    // failure being guarded against is a return to quadratic, which at an 8x span is 64x rather
+    // than 8x. A floor of 1 ms keeps a fast machine's 0 ms from dividing by zero.
+    val first = math.max(ascii_times[0], 1)
+    val last = math.max(ascii_times[len(ascii_times) - 1], 1)
+    val span = sizes[len(sizes) - 1] / sizes[0]
+    val growth = last / first
+    printf("\nASCII growth over {}x the input: {}x\n", span, growth)
+    if growth > span * 4 {
+        printf("FAIL: {}x is not linear -- the ASCII fast path looks lost\n", growth)
+        os.exit(1)
+    }
+    print("ok   the ASCII path is linear")
+}

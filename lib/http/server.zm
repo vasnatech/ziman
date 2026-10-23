@@ -913,8 +913,8 @@ struct Pattern {
 // matched as.
 fn segments_of(path: string) -> [string] {
     var p = path
-    if byte_len(p) > 1 && ends_with(p, "/") {
-        p = substring(p, 0, byte_len(p) - 1)
+    if len(p) > 1 && ends_with(p, "/") {
+        p = substring(p, 0, len(p) - 1)
     }
     return split(p, "/")
 }
@@ -923,8 +923,8 @@ fn compile_pattern(pattern: string) -> Pattern {
     val parts = mutable_array_new<string>()
     val is_param = mutable_array_new<bool>()
     for segment in segments_of(pattern) {
-        if byte_len(segment) >= 3 && starts_with(segment, "{") && ends_with(segment, "}") {
-            push(parts, substring(segment, 1, byte_len(segment) - 1))
+        if len(segment) >= 3 && starts_with(segment, "{") && ends_with(segment, "}") {
+            push(parts, substring(segment, 1, len(segment) - 1))
             push(is_param, true)
         } else {
             push(parts, segment)
@@ -1108,7 +1108,7 @@ pub fn multipart_boundary(req: Request) -> Option<string> {
 // one is an escaped quote. Names are matched without regard to case. `None` when the parameter is absent --
 // including RFC 2231's `filename*=`, which is a different name, and whose encoding this does not decode.
 fn disposition_param(line: string, key: string) -> Option<string> {
-    val n = byte_len(line)
+    val n = len(line)
     var i = 0
     while i < n {
         if char_at(line, i) != ";" {
@@ -1158,7 +1158,7 @@ fn part_header(block: string, name: string) -> string {
     for line in split(block, "\r\n") {
         val colon = index_of(line, ":", 0)
         if colon > 0 && equals_ignore_case(trim(substring(line, 0, colon)), name) {
-            return trim(substring(line, colon + 1, byte_len(line)))
+            return trim(substring(line, colon + 1, len(line)))
         }
     }
     return ""

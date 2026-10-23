@@ -155,7 +155,7 @@ fn is_token(s: string) -> bool {
     if byte_len(s) == 0 {
         return false
     }
-    for i in 0..byte_len(s) {
+    for i in 0..len(s) {
         if !is_token_char(char_at(s, i)) {
             return false
         }
@@ -173,9 +173,9 @@ fn read_value(text: string, pos: int) -> Result<[string], string> {
     if is_char_at(text, pos, "\"") {
         val out = mutable_string_new()
         var p = pos + 1
-        while p < byte_len(text) {
+        while p < len(text) {
             val c = char_at(text, p)
-            if c == "\\" && p + 1 < byte_len(text) {
+            if c == "\\" && p + 1 < len(text) {
                 append(out, char_at(text, p + 1))
                 p = p + 2
             } else if c == "\"" {
@@ -188,7 +188,7 @@ fn read_value(text: string, pos: int) -> Result<[string], string> {
         return err(bad(text, "a quoted parameter value is never closed"))
     }
     var p = pos
-    while p < byte_len(text) && !is_char_at(text, p, ";") {
+    while p < len(text) && !is_char_at(text, p, ";") {
         p = p + 1
     }
     return ok([trim(substring(text, pos, p)), str(p)])
@@ -200,7 +200,7 @@ pub fn parse(text: string) -> Result<MediaType, string> {
     val s = trim(text)
     val slash = index_of(s, "/", 0)
     val semi = index_of(s, ";", 0)
-    val head_end = if semi < 0 { byte_len(s) } else { semi }
+    val head_end = if semi < 0 { len(s) } else { semi }
     if slash < 0 || slash > head_end {
         return err(bad(text, "there is no '/' between the type and the subtype"))
     }
@@ -214,14 +214,14 @@ pub fn parse(text: string) -> Result<MediaType, string> {
     }
     val params = mutable_map_new<string, string>()
     var pos = head_end
-    while pos < byte_len(s) {
+    while pos < len(s) {
         // s[pos] is ';'
         var p = pos + 1
         while is_char_at(s, p, " ") || is_char_at(s, p, "\t") {
             p = p + 1
         }
-        if p >= byte_len(s) {
-            pos = byte_len(s)
+        if p >= len(s) {
+            pos = len(s)
         } else {
             val eq = index_of(s, "=", p)
             val next_semi = index_of(s, ";", p)
@@ -287,7 +287,7 @@ pub fn suffix(m: MediaType) -> Option<string> {
     if at < 0 {
         return Option<string>.None
     }
-    return Option<string>.Some(substring(m.subtype, at + 1, byte_len(m.subtype)))
+    return Option<string>.Some(substring(m.subtype, at + 1, len(m.subtype)))
 }
 
 // True for `application/json` and any `+json` type.
@@ -324,7 +324,7 @@ pub fn matches(pattern: MediaType, candidate: MediaType) -> bool {
 pub fn of_extension(extension: string) -> Option<MediaType> {
     var e = to_lower(extension)
     if starts_with(e, ".") {
-        e = substring(e, 1, byte_len(e))
+        e = substring(e, 1, len(e))
     }
     if Some(k) = get(extension_types, e) {
         return Option<MediaType>.Some(unwrap(parse(k)))
@@ -335,10 +335,10 @@ pub fn of_extension(extension: string) -> Option<MediaType> {
 // The media type of the file at `path`, by its extension: `of_path("/srv/report.csv")` is `text/csv`.
 pub fn of_path(path: string) -> Option<MediaType> {
     val slash = last_index_of(path, "/")
-    val name = substring(path, slash + 1, byte_len(path))
+    val name = substring(path, slash + 1, len(path))
     val dot = last_index_of(name, ".")
     if dot <= 0 {
         return Option<MediaType>.None
     }
-    return of_extension(substring(name, dot + 1, byte_len(name)))
+    return of_extension(substring(name, dot + 1, len(name)))
 }

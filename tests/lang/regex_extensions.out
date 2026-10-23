@@ -15,7 +15,7 @@ C1D2_
 wörld
 2
 12
-Some(regex::Match { start: 2, end: 8, text: ٣٤٥, groups: [], names: [] })
+Some(regex::Match { start: 2, end: 5, text: ٣٤٥, groups: [], names: [] })
 a1é
 δ
 日本語

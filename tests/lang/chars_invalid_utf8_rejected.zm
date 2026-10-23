@@ -1,5 +1,13 @@
+// `chars` refuses text that is not valid UTF-8, naming the byte where the bad sequence starts.
+//
+// **Reaching such a string takes `append_byte` now.** `substring` was the route until 2026-10-23 --
+// it counted bytes, so `substring("héllo", 0, 2)` kept the lead byte of `é` and dropped its
+// continuation. The read family counts characters since, and cannot cut a character in half at all,
+// which leaves raw bytes as the only way in: `append_byte` takes them by design, so that text can
+// be assembled from a decoder, and `snapshot` does not re-validate what it copies.
 fn main() {
-    val s = "héllo"
-    val cut = substring(s, 0, 2)   // a byte-level function, still allowed to split é in half
-    print(chars(cut))
+    val b = mutable_string_new()
+    append(b, "h")
+    append_byte(b, 195b) // a lone lead byte -- the `é` of "héllo" without its continuation
+    print(chars(snapshot(b)))
 }
