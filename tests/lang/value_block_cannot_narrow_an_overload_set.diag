@@ -1,0 +1,9 @@
+# A .diag rather than a .err because **position is the assertion**. This fixture makes the same
+# call twice -- once with the value block bound to a `val` first, once inline -- and the claim is
+# that the *second* one is refused and the first is not. A .err substring says a message appeared
+# somewhere in stderr and nothing about where, so it would pass just as happily if the bound-to-a-`val`
+# escape above it were the thing that broke, which is the F50/F53 trap run_tests.sh's own header records.
+#
+# One line, so the escape compiles: if binding to a typed `val` had stopped working there would be
+# a second diagnostic on the `print(show(n))` above it, and `...` is deliberately absent so an extra one fails this.
+type 54:11 'show' is ambiguous here -- more than one declaration accepts these arguments, and argument 1 carries no type of its own to choose between them

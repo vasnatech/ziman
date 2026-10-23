@@ -472,7 +472,15 @@ builtin would resolve to a native registration. `abs` has none -- it is dispatch
 *id* (`B_abs`), and `interpreter.c` consults `call_fn` **before** the id, so recording the
 resolved declaration there would send the call into `call_function` with nothing to run. The
 resolver therefore does not record a `builtin fn` on `call_fn`: **types come from the
-declarations, dispatch stays on the id.** That makes every remaining conversion a type-checking
+declarations, dispatch stays on the id.**
+
+> **The other half landed on 2026-10-22**, and `abs` is the name that shows both steps whole: its
+> four declarations became `native fn`, so the id, its branch and `call_abs` are gone and dispatch
+> is a registration like any other. One registration under the bare name serves all four, as
+> `len`'s nine do -- a scalar parameter has no world prefix for the symbol fallback to build
+> `int_abs` from, and there would be nothing to gain if it did. So the sentence above describes a
+> *stage*, not a resting place: a converted builtin keeps its id only until someone writes the
+> shim. That makes every remaining conversion a type-checking
 change only, cheaper than §11 supposed, and it means the declarations do not need natives behind
 them.
 
@@ -506,6 +514,13 @@ not the only one. Counting the error messages in each arm sorts them better:
 | `snapshot`, `mutable_map_set_all` | 4 | |
 | `remove` | 6 | |
 | `contains` | 12 | |
+
+**Three of those five were not, and the axis missed why.** F191 found `str` unconvertible the next
+day and `set` unconvertible for a different reason; `unwrap` is a *rewrite* into an enum access
+rather than a type rule. Counting messages sorts the arms that can go by *message quality*, and
+says nothing about whether the call can be **resolved** — which is the constraint F191 added and
+the one that actually binds. `len` and `abs` did convert; the other three are each blocked by
+something this table cannot see.
 
 An arm with more than one is not stating a type rule; it is **answering differently depending on
 what you passed**. `clear` tells a `Mutable` *"it is always initialised, and emptying it would

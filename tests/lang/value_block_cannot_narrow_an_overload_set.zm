@@ -1,0 +1,58 @@
+// **A value block carries no type of its own, so it cannot choose between a set's declarations.**
+// This is the constraint F191 found, kept here as a language fact rather than as a fact about one
+// builtin -- and re-measured on 2026-10-22, when `abs` was converted and `str` was asked for
+// again. Still live.
+//
+// F191's sentence is the general form: *an overload set resolves from arguments that describe
+// themselves, and a function whose job is to accept anything receives exactly the expressions that
+// do not.* `abs` takes numbers, which always describe themselves, and converted cleanly. `str`
+// takes expressions -- `str(switch cut.fits { ... })` is real code in graphics_layout.zm -- so six
+// `str` declarations make that call ambiguous, which is why `str` keeps its arm and its builtin id.
+//
+// **The escape is in the message**, and that matters: an ambiguity the language cannot resolve has
+// to be sayable some other way, or the feature has made something unsayable (the design's §5).
+// Binding the block to a `val` first gives it a type, and so does a type argument on a generic
+// callee. The three declarations below are a user-level set, not the prelude's -- the rule is
+// about the resolver, not about `str`.
+//
+// **Not the same thing as variadic_lone_value_block_rejected**, which is the neighbouring fixture
+// and the easy one to mistake this for. There the *arms* carry no type -- bare `Some`/`None`, which
+// take their type from context -- so inference fails and the message is about inferring `Some`.
+// Here the arms are `1` and `2`, as typed as an expression gets, and the call is still refused:
+// a value block takes its type *from* its context rather than handing one to it, so there is
+// nothing for the resolver to compare against the three declarations even when every arm is an
+// `int`. Typed arms are not the same as a typed block, and that is why converting `str` is blocked
+// by the resolver rather than by inference.
+enum Fit {
+    Yes
+    No
+}
+
+fn show(x: int) -> string {
+    return concat("int ", str(x))
+}
+
+fn show(x: float) -> string {
+    return "float"
+}
+
+fn show(x: bool) -> string {
+    return "bool"
+}
+
+fn main() {
+    val f = Fit.Yes
+
+    // the escape: the block is bound first, so it has a type by the time `show` is resolved
+    val n = switch f {
+        Yes { 1 }
+        No { 2 }
+    }
+    print(show(n))
+
+    // and the call that cannot be resolved
+    print(show(switch f {
+        Yes { 1 }
+        No { 2 }
+    }))
+}
