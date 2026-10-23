@@ -57,7 +57,10 @@ fn check_delimiter(sep: string) -> Result<string, string> {
 // The table as rows of cells, from the scanner's flat form.
 fn parse_rows(text: string, sep: string, typed: bool) -> Result<[Row], string> {
     try check_delimiter(sep)
-    val body = if starts_with(text, byte_order_mark) { substring(text, byte_len(byte_order_mark), byte_len(text)) } else { text }
+    val body = if starts_with(
+        text,
+        byte_order_mark
+    ) { substring(text, byte_len(byte_order_mark), byte_len(text)) } else { text }
     val flat = try scan_cells(body, sep, typed)
     val rows = mutable_array_new<Row>()
     var cells = mutable_array_new<Cell>()

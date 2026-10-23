@@ -587,7 +587,10 @@ fn split_key(content: string, no: int) -> Result<Option<KeyRes>, string> {
             if starts_with(key, "&") || starts_with(key, "*") || starts_with(key, "!") {
                 return err(fail(no, "anchors, aliases and tags are not supported"))
             }
-            return ok(Option<KeyRes>.Some(KeyRes { key: key, rest: trim(substring(content, i + 1, byte_len(content))) }))
+            return ok(Option<KeyRes>.Some(KeyRes {
+                key: key,
+                rest: trim(substring(content, i + 1, byte_len(content)))
+            }))
         }
         i = i + 1
     }

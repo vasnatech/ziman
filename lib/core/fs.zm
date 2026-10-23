@@ -358,7 +358,11 @@ pub fn path_join(pieces: variadic string) -> string {
             right
         }
         // An empty `right` leaves the separator as the last character, which is itself a "/".
-        ends_with_slash = if byte_len(appended) == 0 { !first } else { is_char_at(appended, byte_len(appended) - 1, "/") }
+        ends_with_slash = if byte_len(appended) == 0 { !first } else { is_char_at(
+            appended,
+            byte_len(appended) - 1,
+            "/"
+        ) }
     }
     return snapshot(out)
 }
