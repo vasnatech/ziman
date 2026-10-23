@@ -1671,6 +1671,7 @@ static const struct { const char *name; const char *reason; } BUILTIN_NO_SIGNATU
     {"$mutable_array_lit", "not callable: the checker emits it for 'mutable' over an array literal"},
     {"$mutable_map_from", "not callable: the checker emits it for 'mutable' over a Map"},
     {"$mutable_set_from", "not callable: the checker emits it for 'mutable' over a Set"},
+    {"$mutable_string_from", "not callable: the checker emits it for 'mutable' over a string"},
     {"$map_lit", "not callable: the parser emits it for a map literal"},
     {"$set_lit", "not callable: the parser emits it for a set literal"},
     {"$is_variant", "not callable: the parser emits it for 'if V(x) = e'"},
