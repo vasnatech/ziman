@@ -2790,6 +2790,130 @@ static Value native_map_remove_all(Value *args, int argc, int line, int col) {
  * F191 named `abs` among the names that *can* convert -- "`len`, `abs`, `slice`, `swap`, `to_set`
  * take collections and numbers, which always describe themselves" -- against `str`, which cannot
  * for the reason recorded above its declarations. This is that sentence acted on. */
+/* ---- the four set operations, and `add` over an immutable Set --------------------------
+ *
+ * **Thirteen declarations, nine symbols, and no type rule in C at all.** These were
+ * `builtin fn` with ids until 2026-10-22 and, unusually, had no type-checking arm even then:
+ * F196 gave them their bare names and the resolver had been checking them against their
+ * declarations ever since, with the id doing nothing but dispatch. So this conversion is the
+ * second half of a change already made -- the same shape `abs` was in after F188 -- and nothing
+ * a caller sees moves, because there was no hand-written message to lose. `union(s, "x")` was
+ * refused by the resolver before and after.
+ *
+ * **The branch they replace asked what world it was in; these do not have to.** One name
+ * resolved to one id, so the old code tested `args[0].type->kind == TY_STRUCT` to find a builder
+ * and fell through to the immutable walk otherwise. The symbol fallback reads parameter one, so
+ * `Set` lands on `set_union` and `MutableSet` on `mutable_set_union` before any of this runs.
+ * What stays is the *second* operand's test: each builder member accepts either world there, two
+ * declarations to one symbol, the pattern `mutable_map_merge` and `mutable_array_concat` already
+ * use.
+ *
+ * A Set is a MapObj whose values are placeholders, which is why every walk here stores
+ * `value_int(0)` and reads keys only. No `native_gc_unsafe_enter`: these call no closure, so
+ * there is no gap between two allocations for a collection to land in -- see `native_map_filter`,
+ * which does guard, and `native_map_merge`, which does not and is this same shape. */
+static Value native_set_union(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MapObj *m = args[0].as.map;
+    Value *keys;
+    mapobj_entries(args[1].as.map, &keys, NULL);
+    for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_set(m, keys[i], value_int(0));
+    return value_map(args[0].type, m);
+}
+
+/* `intersect` and `difference` are one walk and one bit: keep an element when the other set's
+ * answer matches what we are looking for. */
+static Value set_keep_matching(Value *args, int keep_present) {
+    Value *keys;
+    Value ignored; /* mapobj_get always writes through this; see ziman_mutable_set_combine. */
+    MapObj *out = mapobj_empty();
+    mapobj_entries(args[0].as.map, &keys, NULL);
+    for (int i = 0; i < args[0].as.map->count; i++) {
+        if (mapobj_get(args[1].as.map, keys[i], &ignored) == keep_present) out = mapobj_set(out, keys[i], value_int(0));
+    }
+    return value_map(args[0].type, out);
+}
+
+static Value native_set_intersect(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return set_keep_matching(args, 1);
+}
+
+static Value native_set_difference(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return set_keep_matching(args, 0);
+}
+
+static Value native_set_is_subset(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Value *keys;
+    Value ignored;
+    int subset = 1;
+    mapobj_entries(args[0].as.map, &keys, NULL);
+    for (int i = 0; i < args[0].as.map->count && subset; i++) subset = mapobj_get(args[1].as.map, keys[i], &ignored);
+    return value_bool(subset);
+}
+
+/* The three builder members, each over either world in parameter two. `op` is the same 0/1/2 the
+ * removed branch computed from the id. They answer nothing -- the write is the point -- so
+ * `value_int(0)` is the void stand-in every in-place native returns. */
+static Value native_mutable_set_union(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    ziman_mutable_set_combine(args[0], args[1], args[1].type->kind == TY_STRUCT, 0);
+    return value_int(0);
+}
+
+static Value native_mutable_set_intersect(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    ziman_mutable_set_combine(args[0], args[1], args[1].type->kind == TY_STRUCT, 1);
+    return value_int(0);
+}
+
+static Value native_mutable_set_difference(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    ziman_mutable_set_combine(args[0], args[1], args[1].type->kind == TY_STRUCT, 2);
+    return value_int(0);
+}
+
+static Value native_mutable_set_is_subset(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    return value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type->kind == TY_STRUCT));
+}
+
+/* `add` over an immutable Set: the set with the given elements in it.
+ *
+ * **`args[1]` is one array however the call was written**, which is the piece that got simpler.
+ * The branch this replaces read `e->as.call.variadic_tail_is_array_spread` off the expression
+ * node to tell `add(s, a, b)` from `add(s, items)` -- a builtin receives raw arguments, so it had
+ * to ask the checker which shape arrived. `collapse_variadic_args` runs before a native is
+ * entered, so both shapes are already one array here and the question does not exist. The same
+ * simplification `min`/`max` got on the same day. */
+static Value native_set_add(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    MapObj *m = args[0].as.map;
+    const ArrayObj *items = args[1].as.arr;
+    for (int i = 0; i < items->count; i++) m = mapobj_set(m, array_get(items, i), value_int(0));
+    return value_map(args[0].type, m);
+}
+
 /* `remove_keys` over an immutable Map: the map without any key the given Set holds. A separate
  * name rather than a `remove_all` member because the overload could not exist -- see the
  * declaration in lib/prelude/map.zm for the refusal and why it is not a bug in the rule. */
@@ -2981,6 +3105,15 @@ void prelude_register(void) {
     native_register("len", ziman_len);
     native_register("contains", ziman_contains);
     native_register("set_items", ziman_set_items);
+    native_register("set_union", native_set_union);
+    native_register("set_intersect", native_set_intersect);
+    native_register("set_difference", native_set_difference);
+    native_register("set_is_subset", native_set_is_subset);
+    native_register("mutable_set_union", native_mutable_set_union);
+    native_register("mutable_set_intersect", native_mutable_set_intersect);
+    native_register("mutable_set_difference", native_mutable_set_difference);
+    native_register("mutable_set_is_subset", native_mutable_set_is_subset);
+    native_register("set_add", native_set_add);
     native_register("string_concat", ziman_string_concat);
     native_register("array_concat", ziman_array_concat);
     native_register("mutable_array_concat", ziman_mutable_array_concat);

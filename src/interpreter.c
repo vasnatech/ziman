@@ -1185,11 +1185,6 @@ typedef enum {
     B_mutable_map_from,
     B_mutable_set_from,
     B_set,
-    B_set_union,
-    B_set_intersect,
-    B_set_difference,
-    B_set_is_subset,
-    B_set_insert_all,
     B_map_lit,
     B_set_lit,
     B_ok,
@@ -1224,11 +1219,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"$mutable_map_from", B_mutable_map_from},
     {"$mutable_set_from", B_mutable_set_from},
     {"set", B_set},
-    {"union", B_set_union},
-    {"intersect", B_set_intersect},
-    {"difference", B_set_difference},
-    {"is_subset", B_set_is_subset},
-    {"add", B_set_insert_all},
     {"$map_lit", B_map_lit},
     {"$set_lit", B_set_lit},
     {"ok", B_ok},
@@ -1387,18 +1377,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 fwrite(text.as.str.ptr, 1, text.as.str.len, stdout);
                 fflush(stdout);
                 result = value_int(0);
-            /* One name, two worlds, one id. F196 gave the four set operations their bare names
-             * (`union`, `intersect`, `difference`, `is_subset`), and a name resolves to a single
-             * builtin id -- so the immutable ids arrive here too, and a **builder first
-             * argument** takes the in-place path. This branch sits before the immutable ones on
-             * purpose: everything that is not a handle falls through to them. */
-            } else if ((bid == B_set_union || bid == B_set_intersect || bid == B_set_difference)
-                       && args[0].type->kind == TY_STRUCT) {
-                int op = bid == B_set_union ? 0 : bid == B_set_intersect ? 1 : 2;
-                ziman_mutable_set_combine(args[0], args[1], args[1].type->kind == TY_STRUCT, op);
-                result = value_int(0);
-            } else if (bid == B_set_is_subset && args[0].type->kind == TY_STRUCT) {
-                result = value_bool(ziman_mutable_set_is_subset(args[0], args[1], args[1].type->kind == TY_STRUCT));
             } else if (bid == B_mutable_array_lit) {
                 result = ziman_mutable_array_lit(args, argc);
                 result.type = &e->resolved_type;
@@ -1409,45 +1387,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                        bid == B_mutable_set_from) {
                 result = ziman_mutable_map_from(args[0], bid == B_mutable_set_from);
                 result.type = &e->resolved_type;
-            } else if (bid == B_set_union) {
-                /* `union` over two immutable Sets: every entry of the second onto the first.
-                 * `merge` shared this branch until 2026-10-22, when the Map members became
-                 * natives -- the two questions are the same walk, which is why one id served
-                 * both, and `map_merge` in prelude.c is now that walk written once for a map. */
-                MapObj *m = args[0].as.map;
-                Value *keys;
-                mapobj_entries(args[1].as.map, &keys, NULL);
-                for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_set(m, keys[i], value_int(0));
-                result = value_map(args[0].type, m);
-            } else if (bid == B_set_intersect || bid == B_set_difference) {
-                int keep_present = bid == B_set_intersect;
-                Value *keys;
-                Value ignored;
-                MapObj *m = mapobj_empty();
-                mapobj_entries(args[0].as.map, &keys, NULL);
-                for (int i = 0; i < args[0].as.map->count; i++) {
-                    if (mapobj_get(args[1].as.map, keys[i], &ignored) == keep_present) m = mapobj_set(m, keys[i], value_int(0));
-                }
-                result = value_map(args[0].type, m);
-            } else if (bid == B_set_is_subset) {
-                Value *keys;
-                Value ignored;
-                int subset = 1;
-                mapobj_entries(args[0].as.map, &keys, NULL);
-                for (int i = 0; i < args[0].as.map->count && subset; i++) subset = mapobj_get(args[1].as.map, keys[i], &ignored);
-                result = value_bool(subset);
-                        } else if (bid == B_set_insert_all) {
-                /* `add` on a Set, variadic since F199 and subsuming what `insert(s, x)` and
-                 * `set_insert_all(s, items)` were separately. Same spread/written-out split as
-                 * `remove_all`: a builtin gets the raw `args`, so the checker's own
-                 * `variadic_tail_is_array_spread` says which shape arrived. */
-                MapObj *m = args[0].as.map;
-                if (e->as.call.variadic_tail_is_array_spread) {
-                    for (int i = 0; i < args[1].as.arr->count; i++) m = mapobj_set(m, array_get(args[1].as.arr, i), value_int(0));
-                } else {
-                    for (int i = 1; i < argc; i++) m = mapobj_set(m, args[i], value_int(0));
-                }
-                result = value_map(args[0].type, m);
             } else if (bid == B_map_lit || bid == B_set_lit) {
                 int is_map = bid == B_map_lit;
                 MapObj *m = mapobj_empty();

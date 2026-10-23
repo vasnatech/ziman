@@ -2499,7 +2499,7 @@ members are in array.zm with `flat_map`, and its Map member in map.zm.
 ### `add`
 
 ```
-pub builtin fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
+pub native fn add<T: Eq + Hash>(s: Set<T>, items: variadic T) -> Set<T>
 ```
 
 Adds each of `items`, answering whether any of them was new. The singular `mutable_set_add` is
@@ -2510,6 +2510,13 @@ or several is never ambiguous when only the `_all` form takes many.
 `add(s, x)` on its own is "make sure x is in here", and that is the ordinary call. Without the
 attribute the dropped-result gate reads a non-void prelude overload as pure and refuses it, as
 it did from F199 until F212.
+
+**The immutable member is a `native fn` since 2026-10-22, and one question disappeared with the
+conversion.** Its branch read `variadic_tail_is_array_spread` off the expression node to tell
+`add(s, a, b)` from `add(s, items)`, because a builtin receives raw arguments and had to ask the
+checker which shape arrived. `collapse_variadic_args` runs before a native is entered, so both
+shapes are one array by then and the native never asks -- the same simplification `min`/`max`
+and the set operations below got the same day.
 
 **A new `Set` with every one of `items` added**, the immutable half: an element already present
 changes nothing and keeps its position. It answers the set rather than "was anything new",
@@ -2587,46 +2594,46 @@ pub native fn items<T: Eq + Hash>(s: Set<T>) -> [T]
 ### `union`
 
 ```
-pub builtin fn union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+pub native fn union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 ```
 
 **Every element of either**, `s` first and `other`'s new elements after, each in the order it
 was first seen.
 
 ```
-pub builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+pub native fn union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 ```
 
 The same written into `s`, answering nothing. Two declarations for one question: `other` is a
 `Set` here and a `MutableSet` below, and a parameter cannot be both.
 
 ```
-pub builtin fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+pub native fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 ```
 
 ### `intersect`
 
 ```
-pub builtin fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+pub native fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 ```
 
 **Only the elements in both**, in `s`'s order. O(len(s)) lookups against `other`, which is why
 the smaller set reads better as `s`.
 
 ```
-pub builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+pub native fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 ```
 
 The same written into `s`, answering nothing.
 
 ```
-pub builtin fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+pub native fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 ```
 
 ### `difference`
 
 ```
-pub builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+pub native fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 ```
 
 **`s` without anything `other` holds**, in `s`'s order. Not symmetric: `difference(a, b)` and
@@ -2634,19 +2641,19 @@ pub builtin fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 argument `other` rather than giving them matching names.
 
 ```
-pub builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+pub native fn difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
 ```
 
 The same written into `s`, answering nothing.
 
 ```
-pub builtin fn difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+pub native fn difference<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
 ```
 
 ### `is_subset`
 
 ```
-pub builtin fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
+pub native fn is_subset<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> bool
 ```
 
 **Whether every element of `s` is in `other`.** True of an empty `s` against anything, which is
@@ -2655,11 +2662,11 @@ answers a value in both worlds -- there is nothing to write -- so its two in-pla
 differ from the immutable one only in what `s` is, not in what the call means.
 
 ```
-pub builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
+pub native fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>) -> bool
 ```
 
 ```
-pub builtin fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
+pub native fn is_subset<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>) -> bool
 ```
 
 ### `snapshot`

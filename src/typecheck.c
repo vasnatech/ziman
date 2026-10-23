@@ -1489,7 +1489,6 @@ static const char *const PURE_BUILTINS[] = {
     "set", "mutable",
     "str", "format", "hash", "compare", "error_message",
     "is_ok",
-    "union", "intersect", "difference", "is_subset", "add",
     "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from",
     NULL};
 
@@ -1585,7 +1584,7 @@ static int is_pure_builtin_name(const char *name) {
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "hash", "compare", "error_message",
     "set", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
-    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "union", "intersect", "difference", "is_subset", "add", "mutable", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
+    "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "mutable", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
 };
 
 /* The names a dispatched builtin may still be called with named arguments despite appearing in
@@ -1606,10 +1605,16 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * first, the exception is listed: a name here is dispatched *and* declaration-checked. It grows
  * by one each time an arm is deleted, which is exactly when the restriction stops applying. A
  * name with no declaration at all (`format`, `printf`, the parser's `$` names) can never appear
- * here -- there is nothing to canonicalize against. */
+ * here -- there is nothing to canonicalize against.
+ *
+ * **It also shrinks, which the sentence above missed.** A name listed here is in an in-between
+ * state -- no arm, but still dispatched by id -- and converting it to a `native fn` ends that
+ * state: it stops being dispatched at all and leaves both tables together. `union`, `intersect`,
+ * `difference`, `is_subset` and `add` went that way on 2026-10-22 and took five of this table's
+ * six entries with them. `set` is the one left, and it is here because its arm is still there. */
 static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
     "set",
-    "union", "intersect", "difference", "is_subset", "add", NULL,
+    NULL,
 };
 
 static int builtin_refuses_named_args(const char *name) {
