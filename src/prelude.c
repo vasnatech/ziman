@@ -3233,7 +3233,14 @@ void prelude_register(void) {
     native_register("substring", native_substring);
     native_register("split", native_split);
     native_register("string_index_of", native_index_of);
-    native_register("last_index_of", native_last_index_of);
+    /* `string_last_index_of`, not the bare name, since 2026-10-22: `last_index_of` gained a
+     * `MutableString` member, and a bare registration is found by `native_lookup(fn->name)`
+     * before the world-prefix fallback is ever consulted -- so every member of the set would
+     * have run this string implementation, reading a handle as text and answering -1. The
+     * same prefix `string_index_of` has carried since F213, whose own comment is the warning
+     * this walked into: "every other string native is still registered under its bare name
+     * and so never reaches this fallback at all". */
+    native_register("string_last_index_of", native_last_index_of);
     native_register("is_char_at", native_is_char_at);
     native_register("equals_ignore_case", native_equals_ignore_case);
     native_register("char_at", native_char_at);

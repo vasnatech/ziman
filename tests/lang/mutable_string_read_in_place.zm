@@ -12,13 +12,13 @@ fn main() {
     append(sb, "hello world")
     print(mutable_string_get(sb, 0))
     print(mutable_string_get(sb, 4))
-    print(mutable_string_index_of(sb, "o", 0))
-    print(mutable_string_last_index_of(sb, "o"))
-    print(mutable_string_index_of(sb, "world", 0))
-    print(mutable_string_index_of(sb, "zzz", 0))
-    print(mutable_string_index_of(sb, "", 0))
-    print(mutable_string_last_index_of(sb, ""))
-    mutable_string_set(sb, 0, "H")
+    print(index_of(sb, "o", 0))
+    print(last_index_of(sb, "o"))
+    print(index_of(sb, "world", 0))
+    print(index_of(sb, "zzz", 0))
+    print(index_of(sb, "", 0))
+    print(last_index_of(sb, ""))
+    set(sb, 0, "H")
     print(snapshot(sb))
     print(len(sb))
     // agreement with the immutable helpers on the snapshot
@@ -29,6 +29,6 @@ fn main() {
     // overlapping needle: last occurrence of "aa" in "aaaa" is at 2
     val a = mutable_string_new()
     append(a, "aaaa")
-    print(mutable_string_last_index_of(a, "aa"))
+    print(last_index_of(a, "aa"))
     print(last_index_of(snapshot(a), "aa"))
 }

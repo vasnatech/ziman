@@ -1795,6 +1795,12 @@ static const char *renamed_builder_fn(const char *name) {
                    {"setb_to_set", "snapshot"},
                    {"mutable_string_append", "append"},
                    {"mutable_string_append_byte", "append_byte"},
+                   /* The three left behind by F205's pass over the same world, dropped 2026-10-22.
+                    * Each one's own comment had already said it mirrored an immutable twin, which
+                    * is an argument for sharing that twin's name. */
+                   {"mutable_string_set", "set"},
+                   {"mutable_string_index_of", "index_of"},
+                   {"mutable_string_last_index_of", "last_index_of"},
                    {"bytes_concat", "concat"},
                    {"bytes_index_of", "index_of"},
                    {"mutable_map_set_all", "merge"},
@@ -3917,13 +3923,18 @@ static Type check_call(Module *module, Env *env, Expr *e) {
              * a MutableMap, a Map (since the Map member became a declaration), and a `Mutable<T>`
              * cell, whose `set` was `mutable_set` until 2026-10-22. */
             if (strcmp(coll_type.struct_name, "MutableMap") == 0 ||
-                strcmp(coll_type.struct_name, "Mutable") == 0) {
+                strcmp(coll_type.struct_name, "Mutable") == 0 ||
+                /* `mutable_string_set` became `set` on 2026-10-22, the same prefix drop `append`
+                 * had in F205. A MutableString writes one byte at an index, which is a `set` in
+                 * every sense this arm refuses nothing about. */
+                strcmp(coll_type.struct_name, "MutableString") == 0) {
                 goto ordinary_call;
             }
         }
         if (coll_type.kind != TY_ARRAY) {
             ziman_error("type", coll_arg->line, coll_arg->col,
-                        "argument 1 of 'set' expects an array, a Map, a MutableMap or a Mutable cell, found %s",
+                        "argument 1 of 'set' expects an array, a Map, a MutableMap, a MutableString or a "
+                        "Mutable cell, found %s",
                         type_name(coll_type));
         }
 
@@ -6365,7 +6376,7 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
             if (base_type.kind == TY_STRUCT && base_type.struct_name != NULL &&
                 strcmp(base_type.struct_name, "MutableString") == 0) {
                 ziman_error("type", base->line, base->col,
-                            "a MutableString is not written with '[...]' -- write 'mutable_string_set(s, i, piece)'");
+                            "a MutableString is not written with '[...]' -- write 'set(s, i, piece)'");
             }
             ziman_error("type", base->line, base->col, "cannot assign into %s with '[...]' (not an array)",
                         type_name(base_type));

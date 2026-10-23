@@ -4,5 +4,5 @@
 fn main() {
     val sb = mutable_string_new()
     append(sb, "abc")
-    mutable_string_set(sb, 0, "ab")
+    set(sb, 0, "ab")
 }

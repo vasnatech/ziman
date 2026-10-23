@@ -3741,9 +3741,9 @@ MutableString                                      #[thread_bound]
   append(s, pieces: variadic string)
   append_byte(s, bytes: variadic byte)
   mutable_string_get(s, index) -> string            the one-byte string, as char_at
-  mutable_string_set(s, index, value)
-  mutable_string_index_of(s, needle) -> int
-  mutable_string_last_index_of(s, needle) -> int
+  mutable_string_set(s, index, value)               (now `set`; 2026-10-22)
+  mutable_string_index_of(s, needle) -> int         (now `index_of`; 2026-10-22)
+  mutable_string_last_index_of(s, needle) -> int    (now `last_index_of`; 2026-10-22)
   len(s)   contains(s, sub)   clear(s)   snapshot(s) -> string
 ```
 

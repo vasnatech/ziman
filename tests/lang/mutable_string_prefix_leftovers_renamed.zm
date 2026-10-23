@@ -1,0 +1,49 @@
+// `mutable_string_set`, `mutable_string_index_of` and `mutable_string_last_index_of` became `set`,
+// `index_of` and `last_index_of` on 2026-10-22. All three old names point home.
+//
+// They were the leftovers of F205's pass over the same world: `append` and `mutable_string_append`
+// / `append_byte` dropped their prefix then, and these three did not. Each one's own comment had
+// already argued the pairing -- `index_of` took a `from` "because the immutable
+// `index_of(s, needle, from)` does -- mirroring the twin matters more than saving an argument",
+// which is an argument for sharing the twin's *name* rather than for matching its shape under a
+// different one.
+//
+// **Two of the three were free and the third was not, which the symbol table did not show.** The
+// fallback derives `mutable_string_<name>` from a `MutableString` first argument, so all three C
+// registrations were already the right ones. But a *bare* registration is found by
+// `native_lookup(fn->name)` before the fallback is ever consulted -- and `last_index_of` was
+// registered bare, so after the rename every member of the set ran the `string` implementation,
+// reading a handle as text and answering -1. `index_of` was immune because F213 had already given
+// its string member the `string_` prefix, and that entry's own comment is the warning: "every
+// other string native is still registered under its bare name and so never reaches this fallback
+// at all." `last_index_of`'s registration is `string_last_index_of` now.
+//
+// `set` additionally cost one line in the `set` arm -- the last arm-handled name in the prelude --
+// which refused every shape it did not recognise and had to be taught to decline a MutableString
+// to the resolver instead.
+fn main() {
+    val sb = mutable_string_new()
+    append(sb, "hello world")
+    set(sb, 0, "H")
+    print(snapshot(sb))
+
+    // the builder members, each answering what its immutable twin answers
+    print(index_of(sb, "o", 0))
+    print(index_of(sb, "o", 5))
+    print(last_index_of(sb, "o"))
+    print(index_of(sb, "zz", 0))
+    print(last_index_of(sb, "zz"))
+
+    // the immutable twins, unchanged and now sharing the names
+    val s = snapshot(sb)
+    print(index_of(s, "o", 0))
+    print(last_index_of(s, "o"))
+
+    // the other members of each set, which the renames must not have disturbed
+    print(index_of(string_to_bytes("abc"), string_to_bytes("b"), 0))
+    print(set(Map<string, int> { "a": 1 }, "b", 2))
+    print(set([1, 2, 3], 1, 99))
+    val cell = mutable(5)
+    set(cell, 7)
+    print(get(cell))
+}

@@ -3203,34 +3203,53 @@ inspected without `snapshot`, which copies all of it per call. Byte-indexed, lik
 operation in the language -- `len` is bytes and `char_at(s, i)` is the one-byte string at `i`, so
 there is no UTF-8 question left to settle here.
 
-### `mutable_string_set`
+### `set`
 
 ```
-pub native fn mutable_string_set(s: MutableString, index: int, value: string)
+pub native fn set(s: MutableString, index: int, value: string)
 ```
 
-Replaces one byte, mirroring the immutable `set(arr, i, x)`: one element in, one element out. A
-`value` of any other length is a runtime error rather than a splice, because splicing would
-change the length and `set` nowhere else in the language does that.
+Replaces one byte: one element in, one element out. A `value` of any other length is a runtime
+error rather than a splice, because splicing would change the length and `set` nowhere else in
+the language does that.
 
-### `mutable_string_index_of`
+**`mutable_string_set` until 2026-10-22.** Its own comment had said it was "mirroring the
+immutable `set(arr, i, x)`" while keeping a prefix that said argument one is a MutableString --
+which argument one says. `append` and `append_byte` dropped theirs in F205 and these were the
+leftovers of that pass.
+
+The symbol is unchanged: the fallback derives `mutable_string_set` from `set` on a MutableString,
+so the C registration is exactly what it was. What the rename did cost is one line in the `set`
+arm, the last arm-handled name in the prelude: it refused every shape it did not recognise, so a
+MutableString had to be added to the list it declines to the resolver instead.
+
+### `index_of`
 
 ```
-pub native fn mutable_string_index_of(s: MutableString, needle: string, from: int) -> int
+pub native fn index_of(s: MutableString, needle: string, from: int) -> int
 ```
 
 The byte index of the first `needle` at or after `from` (`0 <= from <= len(sb)`, a runtime error
-otherwise), or -1. An empty `needle` is found at `from`. Takes a `from` because the immutable
-`index_of(s, needle, from)` does -- mirroring the twin matters more than saving an argument.
+otherwise), or -1. An empty `needle` is found at `from`.
 
-### `mutable_string_last_index_of`
+**`mutable_string_index_of` until 2026-10-22**, and the rename is what its own comment had been
+asking for: it took a `from` "because the immutable `index_of(s, needle, from)` does -- mirroring
+the twin matters more than saving an argument", which is an argument for sharing the twin's name
+rather than for matching its shape under a different one. Three members now -- `[byte]`,
+`string`, `MutableString` -- and the symbol is unchanged, the fallback deriving
+`mutable_string_index_of` from `index_of` on a MutableString.
+
+### `last_index_of`
 
 ```
-pub native fn mutable_string_last_index_of(s: MutableString, needle: string) -> int
+pub native fn last_index_of(s: MutableString, needle: string) -> int
 ```
 
 The byte index of the last `needle`, or -1; an empty `needle` is found at `len(sb)`. No `from`,
-because `last_index_of(s, needle)` has none either.
+because the immutable member has none either.
+
+**`mutable_string_last_index_of` until 2026-10-22**, the third of the prefix leftovers, and the
+same free rename: the symbol the fallback derives is the one already registered.
 
 ### `snapshot`
 
