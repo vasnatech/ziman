@@ -293,7 +293,7 @@ Negative, zero or positive; only the sign is meaningful.
 ### `min`
 
 ```
-pub builtin fn min<T: Ord>(values: variadic T) -> T
+pub native fn min<T: Ord>(values: variadic T) -> T
 ```
 
 Two or more arguments, or exactly one array as the whole list -- the ordinary variadic
@@ -302,7 +302,7 @@ convention, which is why "several values" and "an array of values" need no secon
 ### `max`
 
 ```
-pub builtin fn max<T: Ord>(values: variadic T) -> T
+pub native fn max<T: Ord>(values: variadic T) -> T
 ```
 
 ## `array.zm`

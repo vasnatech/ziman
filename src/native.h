@@ -22,6 +22,11 @@ NativeFn native_lookup(const char *qualified_name);
  * result of `fn(args...)`. Valid once a program is running. Implemented by the interpreter. */
 Value native_call_closure(Value fn, Value *args, int argc, int line, int col);
 
+/* Negative, zero or positive, as `compare` answers it -- including a struct's or enum's own
+ * `<type>_compare`, which is why this exists rather than each native comparing Values itself.
+ * Valid once a program is running. Implemented by the interpreter. */
+int native_value_compare(Value a, Value b, int line, int col);
+
 /* Suspends Phase 3 collection on this thread for the enclosing region (docs/MEMORY.md, "one heap
  * per thread"; the counter and the reasoning are in interpreter.c beside `t_gc_unsafe_depth`).
  * Reentrant (a depth counter), per-thread, and it must be left exactly as many times as it is

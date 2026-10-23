@@ -911,37 +911,6 @@ static Value value_error_message(Module *module, Value e, int line, int col) {
     return call_function(module, fn, args, 1, 0, line, col);
 }
 
-/* `min`/`max`: variadic and `Ord`-bounded, not just the four numeric scalars this used to be
- * limited to. One linear scan calling `value_compare` per candidate -- already the native,
- * direct-C-comparison path for int/float/bigint/decimal/byte/string (see its own TY_INT/.../
- * TY_STRING cases above), so this needs no separate fast path for those the way `sort` gives
- * a packed array its own native routine: a single comparison per element is not where sorting's
- * O(n log n) cost lives. Falls back to a struct/enum's own `<type>_compare` exactly as `compare`
- * and `sort` already do. `argc == 1 && args[0]` an array is the same "trailing array is the
- * whole list" convention a declared `T...` parameter gives a caller. */
-static Value value_min_max(Module *module, Value *args, int argc, int want_min, int line, int col) {
-    Value best;
-    int n;
-    if (argc == 1 && args[0].type->kind == TY_ARRAY) {
-        ArrayObj *arr = args[0].as.arr;
-        n = arr->count;
-        if (n == 0) ziman_error("runtime", line, col, "'%s' of an empty array", want_min ? "min" : "max");
-        best = array_get(arr, 0);
-        for (int i = 1; i < n; i++) {
-            Value item = array_get(arr, i);
-            int c = value_compare(module, item, best, line, col);
-            if (want_min ? c < 0 : c > 0) best = item;
-        }
-        return best;
-    }
-    best = args[0];
-    for (int i = 1; i < argc; i++) {
-        int c = value_compare(module, args[i], best, line, col);
-        if (want_min ? c < 0 : c > 0) best = args[i];
-    }
-    return best;
-}
-
 /* push/insert/set never mutate their `arr` argument -- they always build a
  * brand new ArrayObj and return a Value wrapping it, per docs/DESIGN.md's
  * value-semantics decision for arrays. Sharing `old->items[k]` Values by
@@ -1233,8 +1202,6 @@ typedef enum {
     B_hash,
     B_compare,
     B_error_message,
-    B_min,
-    B_max,
     B_channel_new,
     B_send,
     B_try_send,
@@ -1274,8 +1241,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"hash", B_hash},
     {"compare", B_compare},
     {"error_message", B_error_message},
-    {"min", B_min},
-    {"max", B_max},
     {"channel_new", B_channel_new},
     {"send", B_send},
     {"try_send", B_try_send},
@@ -1512,10 +1477,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                 result = value_int(value_compare(module, args[0], args[1], e->line, e->col));
             } else if (bid == B_error_message) {
                 result = value_error_message(module, args[0], e->line, e->col);
-            } else if (bid == B_min) {
-                result = value_min_max(module, args, argc, 1, e->line, e->col);
-            } else if (bid == B_max) {
-                result = value_min_max(module, args, argc, 0, e->line, e->col);
             } else if (bid == B_channel_new) {
                 int limit = 0;
                 if (argc > 0) {
@@ -2440,6 +2401,16 @@ static Module *g_program = NULL;
  * sites, ...) -- guarded the same way and for the same reason as call_closure_value just above:
  * `args` belongs to the calling native's own parameters or a temp buffer it's still building, with
  * no Env of its own to root it in for as long as this call is on the stack. */
+/* `compare`'s answer, for a native. `value_compare` needs a Module to reach a struct/enum's own
+ * `<type>_compare` function, and a native is handed only its arguments -- the same gap
+ * `native_call_closure` below fills for calling a Ziman function, and filled the same way, from
+ * the running program. Exported when `min`/`max` stopped being dispatched builtins (2026-10-22):
+ * their whole content is one comparison per candidate, and the comparison is the part that has to
+ * see the program. */
+int native_value_compare(Value a, Value b, int line, int col) {
+    return value_compare(g_program, a, b, line, col);
+}
+
 Value native_call_closure(Value fn, Value *args, int argc, int line, int col) {
     ClosureObj *clo = fn.as.clo;
     gc_unsafe_enter();

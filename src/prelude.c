@@ -2786,6 +2786,44 @@ static Value native_map_remove_all(Value *args, int argc, int line, int col) {
  * F191 named `abs` among the names that *can* convert -- "`len`, `abs`, `slice`, `swap`, `to_set`
  * take collections and numbers, which always describe themselves" -- against `str`, which cannot
  * for the reason recorded above its declarations. This is that sentence acted on. */
+/* `min`/`max`: variadic and `Ord`-bounded, not just the four numeric scalars these were once
+ * limited to -- see docs/DESIGN.md's "Variadic, Ord-bounded min/max" entry. One linear scan
+ * calling `compare` per candidate, which for int/float/bigint/decimal/byte/string is already a
+ * direct C comparison, so this needs no separate fast path for them the way `sort` gives a packed
+ * array its own routine: a single comparison per element is not where sorting's O(n log n) cost
+ * lives. A struct's or enum's own `<type>_compare` is reached exactly as `compare` and `sort`
+ * reach it, through native_value_compare.
+ *
+ * **`args[0]` is one array whichever way the call was written**, because `collapse_variadic_args`
+ * runs before a native is entered -- so the "two or more values, or one array as the whole list"
+ * convention is handled before this sees anything, where the dispatched builtin this replaced had
+ * to test `argc == 1 && args[0]` an array itself. That test was also the one piece of the old arm
+ * that could not be right for every `T`: `Ord` admits `[int]`, so `min` of two arrays and `min` of
+ * one array to spread looked identical to it. The collapse distinguishes them from the
+ * declaration, which is the thing a declaration knows and an arm does not. */
+static Value native_min_max(Value *args, int want_min, int line, int col) {
+    const ArrayObj *values = args[0].as.arr;
+    const char *name = want_min ? "min" : "max";
+    if (values->count == 0) ziman_error("runtime", line, col, "'%s' of an empty array", name);
+    Value best = array_get(values, 0);
+    for (int i = 1; i < values->count; i++) {
+        Value item = array_get(values, i);
+        int c = native_value_compare(item, best, line, col);
+        if (want_min ? c < 0 : c > 0) best = item;
+    }
+    return best;
+}
+
+static Value ziman_min(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return native_min_max(args, 1, line, col);
+}
+
+static Value ziman_max(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return native_min_max(args, 0, line, col);
+}
+
 Value ziman_abs(Value *args, int argc, int line, int col) {
     (void)argc;
     Value x = args[0];
@@ -2983,6 +3021,8 @@ void prelude_register(void) {
     native_register("map_remove_all", native_map_remove_all);
     native_register("map_remove_keys", native_map_remove_keys);
     native_register("abs", ziman_abs);
+    native_register("min", ziman_min);
+    native_register("max", ziman_max);
     native_register("array_remove", native_array_remove);
     native_register("map_remove", native_map_remove);
     native_register("set_remove", native_set_remove);

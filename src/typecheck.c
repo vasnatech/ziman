@@ -1487,7 +1487,7 @@ static void warn_brace_interpolation(Env *env, Expr *e) {
  * listed at all until that attribute existed (F208). */
 static const char *const PURE_BUILTINS[] = {
     "set", "mutable",
-    "str", "format", "min", "max", "hash", "compare", "error_message",
+    "str", "format", "hash", "compare", "error_message",
     "is_ok",
     "union", "intersect", "difference", "is_subset", "add",
     "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from",
@@ -1583,7 +1583,7 @@ static int is_pure_builtin_name(const char *name) {
  * `tools/check_builtins.py` is what noticed the entry had been left behind. Every later
  * conversion removes its two entries the same way -- the name appears once per world. */
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
-    "print", "printf", "str", "format", "hash", "compare", "error_message", "min", "max",
+    "print", "printf", "str", "format", "hash", "compare", "error_message",
     "set", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
     "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "union", "intersect", "difference", "is_subset", "add", "mutable", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", NULL,
 };
@@ -3793,39 +3793,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
                         "(NetError/DbError/JwtError and the like already have one), found %s", type_name(arg_type));
         }
         return type_scalar(TY_STRING);
-    }
-
-    if (strcmp(name, "min") == 0 || strcmp(name, "max") == 0) {
-        /* Variadic, `Ord`-bounded (the same rule `compare`/`sort` already use), not just the
-         * four numeric scalars this used to be limited to -- see docs/DESIGN.md's "Variadic,
-         * Ord-bounded min/max" entry. Two call shapes, the same convention a declared `T...`
-         * parameter already gives a caller: two or more individually-listed arguments, or
-         * exactly one already-built array as the whole list. */
-        if (e->as.call.args.count == 0) {
-            ziman_error("type", e->line, e->col, "'%s' needs at least 1 argument", name);
-        }
-        Expr *first_arg = e->as.call.args.items[0];
-        Type first_type = check_expr(module, env, first_arg);
-        Type elem_type = first_type;
-        if (e->as.call.args.count == 1 && first_type.kind == TY_ARRAY) {
-            elem_type = *first_type.elem;
-        } else {
-            for (int i = 1; i < e->as.call.args.count; i++) {
-                Expr *arg = e->as.call.args.items[i];
-                Type arg_type = check_expr(module, env, arg);
-                if (!type_equals(arg_type, first_type)) {
-                    ziman_error("type", arg->line, arg->col, "'%s' expects every argument to be the same type, found %s and %s",
-                                name, type_name(first_type), type_name(arg_type));
-                }
-            }
-        }
-        if (!type_supports_ordering(module, elem_type)) {
-            ziman_error("type", first_arg->line, first_arg->col,
-                        "'%s' expects int, float, bigint, decimal, byte, string, an array/Option/Result of those, a struct/enum with a "
-                        "'<type>_compare' function ('#[derive(Ord)]' writes one), or a type parameter bounded by 'Ord', found %s",
-                        name, type_name(elem_type));
-        }
-        return elem_type;
     }
 
     /* `push`, `insert` and `set` shared one arm until F206, which split it three ways; F207 then

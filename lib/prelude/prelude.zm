@@ -176,7 +176,7 @@ pub builtin fn compare<T: Ord>(a: T, b: T) -> int
 // Two or more arguments, or exactly one array as the whole list -- the ordinary variadic
 // convention, which is why "several values" and "an array of values" need no second declaration.
 #[at_least_one]
-pub builtin fn min<T: Ord>(values: variadic T) -> T
+pub native fn min<T: Ord>(values: variadic T) -> T
 
 #[at_least_one]
-pub builtin fn max<T: Ord>(values: variadic T) -> T
+pub native fn max<T: Ord>(values: variadic T) -> T

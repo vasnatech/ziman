@@ -1,3 +1,8 @@
+// `#[at_least_one]` on `min`'s declaration, which is part of its *arity* rather than a check in
+// front of it -- `ovl_min_arity` reads the attribute, so the set is distinguishable with it. The
+// message came from the arm until 2026-10-22 and now comes from the attribute, which is why it
+// names the parameter and the escape (an array spreads, and may be empty at the type level even
+// though this one would then fail at run time -- min_max_empty_array_rejected is that case).
 fn main() {
     print(min())
 }

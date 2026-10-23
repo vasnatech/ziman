@@ -1,3 +1,9 @@
+// Mixed argument types, refused -- and **the refusal moved** when `min` became a `native fn` on
+// 2026-10-22. The arm said "expects every argument to be the same type, found int and float",
+// which it worked out by comparing argument two against argument one. The resolver says which
+// argument fixed `T` instead, because `min<T: Ord>(values: variadic T)` is where "the same type"
+// was written down all along: one type parameter, so the second argument has nothing to disagree
+// with except what the first already bound.
 fn main() {
     print(min(3, 3.5))
 }
