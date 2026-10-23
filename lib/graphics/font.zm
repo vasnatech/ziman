@@ -137,7 +137,7 @@ pub fn advance(f: FontRef, text: string, size: float) -> Result<float, string> {
     switch f {
         Standard(s) {
             if is_courier(s) {
-                return ok((char_count(text) as float) * 0.6 * size)
+                return ok((len(text) as float) * 0.6 * size)
             }
             return err(concat(
                 "font.advance: ",

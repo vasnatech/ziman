@@ -197,7 +197,7 @@ fn main() {
     for i in 0..ops {
         val j = i % size
         val k = keys[j]
-        acc = acc + len(k)
+        acc = acc + byte_len(k)
     }
     val sbase = clock.monotonic_millis() - t
     printf("  (loop overhead {} ns/op, subtracted from the value-returning rows)\n", sbase / 5)
@@ -206,7 +206,7 @@ fn main() {
     for i in 0..ops {
         val j = i % size
         val k = keys[j]
-        acc = acc + len(k)
+        acc = acc + byte_len(k)
         if j >= 0 {
             acc = acc + 1
         }
@@ -218,7 +218,7 @@ fn main() {
     for i in 0..ops {
         val j = i % size
         val k = keys[j]
-        acc = acc + len(k) + get_or(sm, k, 0)
+        acc = acc + byte_len(k) + get_or(sm, k, 0)
     }
     report("Map         get_or     ", clock.monotonic_millis() - t, sbase)
 
@@ -226,7 +226,7 @@ fn main() {
     for i in 0..ops {
         val j = i % size
         val k = keys[j]
-        acc = acc + len(k)
+        acc = acc + byte_len(k)
         if contains(sm, k) {
             acc = acc + 1
         }
@@ -237,7 +237,7 @@ fn main() {
     for i in 0..ops {
         val j = i % size
         val k = keys[j]
-        acc = acc + len(k) + get_or(smb, k, 0)
+        acc = acc + byte_len(k) + get_or(smb, k, 0)
     }
     report("MutableMap  get_or         ", clock.monotonic_millis() - t, sbase)
 
@@ -245,7 +245,7 @@ fn main() {
     for i in 0..ops {
         val j = i % size
         val k = keys[j]
-        acc = acc + len(k)
+        acc = acc + byte_len(k)
         set<string, int>(smb, k, j)
     }
     report("MutableMap  set            ", clock.monotonic_millis() - t, sbase)

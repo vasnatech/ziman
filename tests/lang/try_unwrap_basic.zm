@@ -34,7 +34,7 @@ fn maybe_name(present: bool) -> Option<string> {
 
 fn name_length(present: bool) -> Option<int> {
     val name = try maybe_name(present)
-    return len(name)
+    return byte_len(name)
 }
 
 // A bare `expr?` statement -- propagates on failure, discards the

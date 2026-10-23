@@ -25,7 +25,7 @@ fn main() {
     // map: results merge
     val parity = map<int, int>(Set<int> { 1, 2, 3, 4, 5 }, fn(n) { n % 2 })
     print(parity)
-    print(map<string, int>(Set<string> { "a", "bb", "cc" }, fn(s) { len(s) }))
+    print(map<string, int>(Set<string> { "a", "bb", "cc" }, fn(s) { byte_len(s) }))
     print(len(map<int, int>(Set<int> {}, fn(n) { n })))
 
     // frequencies and index_by

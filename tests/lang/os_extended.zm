@@ -2,7 +2,7 @@ use os
 
 fn main() {
     print(os.args())
-    print(len(unwrap(os.cwd())) > 0)
+    print(byte_len(unwrap(os.cwd())) > 0)
     print(os.pid() > 0)
     print(os.set_env("ZIMAN_TEST_VAR", "hello"))
     print(os.getenv("ZIMAN_TEST_VAR"))

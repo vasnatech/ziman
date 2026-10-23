@@ -17,7 +17,7 @@ fn add(acc: int, n: int) -> int {
 }
 
 fn longer(acc: string, s: string) -> string {
-    if len(s) > len(acc) {
+    if byte_len(s) > byte_len(acc) {
         return s
     }
     return acc

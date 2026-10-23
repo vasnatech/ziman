@@ -1,0 +1,1 @@
+'char_count' is now 'len': on text, 'len' counts characters -- the byte count it used to answer is 'byte_len'

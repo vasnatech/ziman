@@ -126,11 +126,11 @@ struct Parsed<T> {
 }
 
 fn at_end(text: string, pos: int) -> bool {
-    return pos >= len(text)
+    return pos >= byte_len(text)
 }
 
 fn is_digit_at(text: string, pos: int) -> bool {
-    return pos < len(text) && char_at(text, pos) >= "0" && char_at(text, pos) <= "9"
+    return pos < byte_len(text) && char_at(text, pos) >= "0" && char_at(text, pos) <= "9"
 }
 
 fn bad_rule(text: string, why: string) -> string {
@@ -147,7 +147,7 @@ fn parse_name(text: string, pos: int) -> Result<Parsed<string>, string> {
         return ok(Parsed<string> { value: substring(text, pos + 1, close), next: close + 1 })
     }
     var p = pos
-    while p < len(text) && ((char_at(text, p) >= "A" && char_at(text, p) <= "Z") || (char_at(
+    while p < byte_len(text) && ((char_at(text, p) >= "A" && char_at(text, p) <= "Z") || (char_at(
         text,
         p
     ) >= "a" && char_at(text, p) <= "z")) {
@@ -431,7 +431,7 @@ pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string> {
         end = end + 1
     }
     val text = unwrap(bytes_to_string(slice(data, second.next + 1, end)))
-    if len(text) == 0 {
+    if byte_len(text) == 0 {
         return ok(second.rules)
     }
     val rule = try parse_posix_rule(text)
@@ -449,7 +449,7 @@ pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string> {
 // The directory holding the zone files, or an Err when there is none.
 fn zone_dir() -> Result<string, string> {
     val configured = os.getenv("TZDIR")
-    if Some(dir) = configured && len(dir) > 0 {
+    if Some(dir) = configured && byte_len(dir) > 0 {
         return ok(dir)
     }
     for dir in default_dirs {
@@ -463,10 +463,10 @@ fn zone_dir() -> Result<string, string> {
 // True for a name that is safe to turn into a file path: letters, digits and `_ + - /`, no `..`, and
 // no leading slash.
 fn valid_zone_name(name: string) -> bool {
-    if len(name) == 0 || len(name) > 64 || starts_with(name, "/") || contains(name, "..") {
+    if byte_len(name) == 0 || byte_len(name) > 64 || starts_with(name, "/") || contains(name, "..") {
         return false
     }
-    for i in 0..len(name) {
+    for i in 0..byte_len(name) {
         val c = char_at(name, i)
         val ok_char = (c >= "A" && c <= "Z") || (c >= "a" && c <= "z") || (c >= "0" && c <= "9") || c == "_" || c == "+" || c == "-" || c == "/"
         if !ok_char {

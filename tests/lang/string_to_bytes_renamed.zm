@@ -30,6 +30,6 @@ fn main() {
 
     // a non-ASCII string is its UTF-8 bytes, which is where the byte length differs
     print(len(to_bytes("é")))
+    print(byte_len("é"))
     print(len("é"))
-    print(char_count("é"))
 }

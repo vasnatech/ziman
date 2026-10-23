@@ -8,5 +8,5 @@ fn main() {
     val type = 3
     print(10 / 2)
     print(type)
-    print(len("abc"))
+    print(byte_len("abc"))
 }

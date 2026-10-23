@@ -4,7 +4,7 @@
 fn leaf(n: int) -> int {
     defer send_noop(n)
     val text = format("{}-{}-{}", n, n * 2, n * 3)
-    return len(text)
+    return byte_len(text)
 }
 
 fn send_noop(n: int) {
@@ -20,7 +20,7 @@ fn work(id: int, rounds: int, out: Channel<int>) {
             push(pieces, format("piece {} {} {}", id, i, j))
         }
         val joined = join(separator: ",", pieces: snapshot(pieces))
-        total = total + len(joined) + leaf(i)
+        total = total + byte_len(joined) + leaf(i)
     }
 }
 

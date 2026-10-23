@@ -1161,22 +1161,42 @@ static Value native_chars(Value *args, int argc, int line, int col) {
 /* The number of code points in `s` -- `char_count("héllo")` is 5, where `len("héllo")` (bytes)
  * is 6. Cheaper than `len(chars(s))` when only the count is wanted: no array, no per-character
  * string views. Same UTF-8 validity requirement and error as `chars`. */
-static Value native_char_count(Value *args, int argc, int line, int col) {
-    (void)argc;
-    const uint8_t *s = (const uint8_t *)SPTR(args[0]);
-    size_t len = SLEN(args[0]);
+/* The code points in `n` bytes of UTF-8, which is what `len` answers for text as of 2026-10-23.
+ *
+ * It was `char_count`'s whole body until then, `len` being the byte count. The two swapped places:
+ * `len` is the character question now and `byte_len` is the byte one, so this is reached by `len`
+ * and `char_count` is gone. `who` names the caller in the error, since both reach it.
+ *
+ * O(n) where the byte length is a field read -- that is the cost of the change, taken knowingly:
+ * `len` on text is a scan now. Invalid UTF-8 is a runtime error naming the byte offset, reachable
+ * only by chaining a byte-level cut into this, since `bytes_to_string` rejects it at the boundary. */
+static int64_t utf8_code_points(const uint8_t *s, size_t len, const char *who, int line, int col) {
     size_t pos = 0;
     int64_t count = 0;
     while (pos < len) {
         uint32_t cp;
         int n = ziman_utf8_decode_strict(s, len, pos, &cp);
         if (n == 0) {
-            ziman_error("runtime", line, col, "char_count: string is not valid UTF-8 (invalid sequence at byte %zu)", pos);
+            ziman_error("runtime", line, col, "%s: string is not valid UTF-8 (invalid sequence at byte %zu)", who, pos);
         }
         pos += (size_t)n;
         count++;
     }
-    return value_int(count);
+    return count;
+}
+
+/* `byte_len` over text in either world: the storage size, which `len` answered until 2026-10-23.
+ *
+ * Registered bare, as `len` is, because one implementation serves both members -- a `string` keeps
+ * its length beside its pointer and a `MutableString` keeps it in the handle's table. The symbol
+ * fallback is never consulted for either name. */
+static Value native_byte_len(Value *args, int argc, int line, int col) {
+    (void)argc;
+    (void)line;
+    (void)col;
+    Value v = args[0];
+    if (v.type->kind == TY_STRING) return value_int((int64_t)v.as.str.len);
+    return value_int(ziman_builder_length(v, ziman_mutable_kind(v.type)));
 }
 
 /* `s`, shortened to at most `max_chars` code points -- the safe way to truncate user-facing
@@ -1989,7 +2009,13 @@ Value ziman_len(Value *args, int argc, int line, int col) {
     (void)line;
     (void)col;
     Value v = args[0];
-    if (v.type->kind == TY_STRING) return value_int((int64_t)v.as.str.len);
+    /* **Text answers its code-point count since 2026-10-23**, where it answered bytes before and
+     * `char_count` answered this. `byte_len` is the byte question now. The other seven members are
+     * unchanged: an element count is an element count, and this is the one member where "how many"
+     * had two defensible answers. */
+    if (v.type->kind == TY_STRING) {
+        return value_int(utf8_code_points((const uint8_t *)v.as.str.ptr, v.as.str.len, "len", line, col));
+    }
     if (v.type->kind == TY_MAP || v.type->kind == TY_SET) return value_int(v.as.map->count);
     /* One of the four builders, or a cell: a struct over a thread-bound handle, so the length
      * lives in the handle's table rather than in the struct.
@@ -2003,6 +2029,11 @@ Value ziman_len(Value *args, int argc, int line, int col) {
     if (v.type->kind == TY_STRUCT) {
         MutableKind kind = ziman_mutable_kind(v.type);
         if (kind == MUTABLE_CELL) return value_int(1);
+        /* A MutableString follows its immutable twin: code points, not the buffer's size. */
+        if (kind == MUTABLE_STRING) {
+            MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(v));
+            return value_int(utf8_code_points((const uint8_t *)buf->data, buf->length, "len", line, col));
+        }
         return value_int(ziman_builder_length(v, kind));
     }
     return value_int(v.as.arr->count);
@@ -3270,7 +3301,7 @@ void prelude_register(void) {
     native_register("string_to_bytes", native_string_to_bytes);
     native_register("bytes_to_string", native_bytes_to_string);
     native_register("chars", native_chars);
-    native_register("char_count", native_char_count);
+    native_register("byte_len", native_byte_len);
     native_register("truncate_chars", native_truncate_chars);
     native_register("mutable_string_get", native_mutable_string_get);
     native_register("mutable_string_set", native_mutable_string_set);

@@ -19,7 +19,7 @@ use os
 fn main() {
     print(Option.is_None(os.getenv("ZIMAN_SURELY_NOT_SET")))
     print(os.pid() > 0)
-    print(len(unwrap(os.cwd())) > 0)
+    print(byte_len(unwrap(os.cwd())) > 0)
     print(len(os.args()))
     print(os.shutdown_requested())
 }

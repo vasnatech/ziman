@@ -1,0 +1,57 @@
+// **`len` on text counts code points as of 2026-10-23**, where it counted bytes and `char_count`
+// counted characters. They swapped; `byte_len` took the byte question and `char_count` is gone.
+//
+// The trade, stated so it is not rediscovered: `len` on text is **O(n)** now, a UTF-8 scan, where a
+// byte length is a field read. What it buys is that the casual reading is the right one. The old
+// `len` was the silent-wrongness direction -- "length" meaning bytes surprises a reader exactly
+// when the text stops being ASCII, which is the case nobody writes a test for -- and the new one is
+// the obvious-slowness direction, which a profile finds.
+//
+// **`len(to_bytes(s)) == len(s)` no longer holds**; `byte_len(s)` is what equals it.
+//
+// `byte_len` is the one to pair with every byte-indexed function -- `char_at`, `substring`,
+// `index_of`, `last_index_of`, `is_char_at`, and a MutableString's `set` -- since those take byte
+// offsets. 482 call sites in lib/ and tests/ and 92 in the sample backend moved to it, and not one
+// changed behaviour: code written against byte semantics means bytes. They were found by deleting
+// these declarations from a throwaway interpreter and compiling everything, because a `len` on text
+// stays an `int` under either meaning -- nothing fails to build, and ASCII fixtures agree either
+// way, so neither the compiler nor the suite would have said a word.
+//
+// The other seven members are untouched: an element count was never ambiguous.
+fn main() {
+    val ascii = "abc"
+    val accent = "héllo"
+    val cjk = "日本"
+    val emoji = "🙂"
+
+    // characters, then bytes
+    printf("{} {} {}\n", ascii, len(ascii), byte_len(ascii))
+    printf("{} {} {}\n", accent, len(accent), byte_len(accent))
+    printf("{} {} {}\n", cjk, len(cjk), byte_len(cjk))
+    printf("{} {} {}\n", emoji, len(emoji), byte_len(emoji))
+
+    // the identity that moved
+    print(byte_len(accent) == len(to_bytes(accent)))
+    print(len(accent) == len(chars(accent)))
+
+    // a builder follows its immutable twin
+    val sb = mutable_string_new()
+    append(sb, "héllo")
+    print(len(sb))
+    print(byte_len(sb))
+
+    // byte_len is what bounds the byte-indexed functions
+    print(substring(accent, 0, byte_len(accent)))
+    print(index_of(accent, "o", 0))
+    print(last_index_of(accent, "l"))
+
+    // and the other seven members are unchanged
+    print(len([1, 2, 3]))
+    print(len(Map<string, int> { "a": 1, "b": 2 }))
+    print(len(to_set([1, 2, 3])))
+    print(len(mutable(9)))
+
+    // empty text, both ways
+    print(len(""))
+    print(byte_len(""))
+}

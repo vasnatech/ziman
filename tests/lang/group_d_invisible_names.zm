@@ -38,5 +38,5 @@ fn main() {
     print(concat([65b], [66b]))
     print(split_once("a=b", "="))
     print(sort_with([3, 1, 2], inverse<int>(fn(a: int, b: int) -> int { return compare(a, b) })))
-    print(map_err<int, string, int>(err("bad"), fn(e: string) -> int { return len(e) }))
+    print(map_err<int, string, int>(err("bad"), fn(e: string) -> int { return byte_len(e) }))
 }

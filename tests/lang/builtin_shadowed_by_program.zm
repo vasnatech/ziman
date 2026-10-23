@@ -14,7 +14,7 @@
 // same module list, so without that scoping a program declaring `len` made every `len(...)` inside
 // lib/prelude.zm resolve to it and the prelude stopped type-checking.
 fn count(label: string) -> int {
-    return len(label) * 10
+    return byte_len(label) * 10
 }
 
 fn sum(a: int, b: int) -> int {

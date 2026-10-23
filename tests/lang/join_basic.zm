@@ -28,6 +28,6 @@ fn main() {
         big = push(big, str(i))
         i = i + 1
     }
-    print(len(join(pieces: big)))
-    print(len(join(prefix: "[", suffix: "]", separator: ",", pieces: big)))
+    print(byte_len(join(pieces: big)))
+    print(byte_len(join(prefix: "[", suffix: "]", separator: ",", pieces: big)))
 }

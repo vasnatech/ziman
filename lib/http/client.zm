@@ -109,11 +109,11 @@ pub fn parse_url(url: string) -> Result<Url, string> {
     var secure = false
     var rest = ""
     if starts_with(url, "http://") {
-        rest = substring(url, 7, len(url))
+        rest = substring(url, 7, byte_len(url))
     } else {
         if starts_with(url, "https://") {
             secure = true
-            rest = substring(url, 8, len(url))
+            rest = substring(url, 8, byte_len(url))
         } else {
             return err("only http:// and https:// URLs are supported")
         }
@@ -129,7 +129,7 @@ pub fn parse_url(url: string) -> Result<Url, string> {
     }
     if cut >= 0 {
         authority = substring(no_fragment, 0, cut)
-        target = substring(no_fragment, cut, len(no_fragment))
+        target = substring(no_fragment, cut, byte_len(no_fragment))
         if !starts_with(target, "/") {
             target = concat("/", target)
         }
@@ -138,7 +138,7 @@ pub fn parse_url(url: string) -> Result<Url, string> {
     val at = last_index_of(authority, "@")
     if at >= 0 {
         userinfo = substring(authority, 0, at)
-        authority = substring(authority, at + 1, len(authority))
+        authority = substring(authority, at + 1, byte_len(authority))
     }
     if authority == "" {
         return err("missing host")
@@ -155,18 +155,18 @@ pub fn parse_url(url: string) -> Result<Url, string> {
             return err("unterminated [ in host")
         }
         host = substring(authority, 1, close)
-        val after = substring(authority, close + 1, len(authority))
+        val after = substring(authority, close + 1, byte_len(authority))
         if after != "" {
             if !starts_with(after, ":") {
                 return err("unexpected text after ] in host")
             }
-            port_text = substring(after, 1, len(after))
+            port_text = substring(after, 1, byte_len(after))
         }
     } else {
         val colon = last_index_of(authority, ":")
         if colon >= 0 {
             host = substring(authority, 0, colon)
-            port_text = substring(authority, colon + 1, len(authority))
+            port_text = substring(authority, colon + 1, byte_len(authority))
         }
     }
     if host == "" {
@@ -449,11 +449,11 @@ fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientErro
         val upper = os.getenv(if u.secure { "HTTPS_PROXY" } else { "HTTP_PROXY" })
         val lower = os.getenv(if u.secure { "https_proxy" } else { "http_proxy" })
         text = get_or(upper, get_or(lower, ""))
-        if len(text) > 0 && no_proxy_matches(u.host) {
+        if byte_len(text) > 0 && no_proxy_matches(u.host) {
             text = ""
         }
     }
-    if len(text) == 0 {
+    if byte_len(text) == 0 {
         return ok(Option<Url>.None)
     }
     val parsed = parse_url(if contains(text, "://") { text } else { concat("http://", text) })
@@ -475,8 +475,8 @@ fn no_proxy_matches(host: string) -> bool {
         if entry == "*" {
             return true
         }
-        if len(entry) > 0 {
-            val bare = if starts_with(entry, ".") { substring(entry, 1, len(entry)) } else { entry }
+        if byte_len(entry) > 0 {
+            val bare = if starts_with(entry, ".") { substring(entry, 1, byte_len(entry)) } else { entry }
             if to_lower(host) == bare || ends_with(to_lower(host), concat(".", bare)) {
                 return true
             }
@@ -537,7 +537,7 @@ fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: 
             "CONNECT {} HTTP/1.1\r\nHost: {}\r\n{}\r\n",
             target,
             target,
-            if len(p.userinfo) > 0 { format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)) } else { "" }
+            if byte_len(p.userinfo) > 0 { format("Proxy-Authorization: {}\r\n", basic_auth(p.userinfo)) } else { "" }
         )
         val sent = lift<int>(net.write_text(sock, request))
         if Err(e) = sent {
@@ -640,7 +640,7 @@ fn write_request(
             if want_compression { "Accept-Encoding: gzip, deflate\r\n" } else { "Accept-Encoding: identity\r\n" }
         )
     }
-    if !has_auth && len(u.userinfo) > 0 {
+    if !has_auth && byte_len(u.userinfo) > 0 {
         push(out, format("Authorization: {}\r\n", basic_auth(u.userinfo)))
     }
     if via_http_proxy {
@@ -827,7 +827,7 @@ fn parse_http_date(text: string) -> int {
     val parts = split(replace(trim(text), "-", " "), " ")
     val fields = mutable_array_new<string>()
     for p in parts {
-        if len(p) > 0 {
+        if byte_len(p) > 0 {
             push(fields, p)
         }
     }
@@ -871,7 +871,7 @@ fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
         Some(nv) { nv }
         None { return Option<Cookie>.None }
     }
-    if len(name_value[0]) == 0 {
+    if byte_len(name_value[0]) == 0 {
         return Option<Cookie>.None
     }
     var domain = to_lower(u.host)
@@ -891,11 +891,11 @@ fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
             Some(pair) { trim(pair[1]) }
             None { "" }
         }
-        if key == "domain" && len(val_text) > 0 {
+        if key == "domain" && byte_len(val_text) > 0 {
             val wanted = to_lower(if starts_with(
                 val_text,
                 "."
-            ) { substring(val_text, 1, len(val_text)) } else { val_text })
+            ) { substring(val_text, 1, byte_len(val_text)) } else { val_text })
             if wanted != domain && !ends_with(domain, concat(".", wanted)) {
                 return Option<Cookie>.None
             }
@@ -975,7 +975,7 @@ fn cookie_matches(c: Cookie, u: Url, now: int) -> bool {
     if c.path == path || c.path == "/" {
         return true
     }
-    return starts_with(path, c.path) && (ends_with(c.path, "/") || is_char_at(path, len(c.path), "/"))
+    return starts_with(path, c.path) && (ends_with(c.path, "/") || is_char_at(path, byte_len(c.path), "/"))
 }
 
 // The `Cookie` header value for a request to `u` -- `a=1; b=2` -- from the jar's matching cookies (longer
@@ -1002,7 +1002,7 @@ pub fn jar_header(jar: CookieJar, u: Url) -> Option<string> {
 
 // Stable order: longer paths first.
 fn sort_matches(cookies: [Cookie]) -> [Cookie] {
-    return sort_by_desc(cookies, fn(c: Cookie) -> int { return len(c.path) })
+    return sort_by_desc(cookies, fn(c: Cookie) -> int { return byte_len(c.path) })
 }
 
 // ------------------------------------------------------------ requests
@@ -1074,7 +1074,7 @@ fn run(
                 }
             }
             hs = snapshot(kept)
-        } else if len(next_url.userinfo) == 0 {
+        } else if byte_len(next_url.userinfo) == 0 {
             // Credentials given in the URL (`https://user:pass@host/`) survive a same-host
             // redirect, which is what the header rule above already does for an `Authorization`
             // header the caller passed in. They used not to: `resolve_location` rebuilds the URL

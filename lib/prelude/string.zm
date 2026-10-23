@@ -93,12 +93,46 @@ pub native fn to_bytes(s: string) -> [byte]
 
 // The bytes of `s` from `start` up to, not including, `end` (`0 <= start <= end <= len(s)`, a
 // runtime error otherwise).
-// **Its length in bytes**, not characters -- `char_count` is the character question. `len`'s other
-// seven members are in array.zm, map.zm, set.zm and mutable.zm; `--api builtins` prints all nine
-// as one block, and array.zm's members carry the account of why nine declarations share one C
-// function.
+// **Its length in characters** -- code points, not bytes: `len("héllo")` is 5 where the text is 6
+// bytes long. `byte_len` is the byte question.
+//
+// **The two swapped places on 2026-10-23**, and `char_count` was deleted because `len` is now what
+// it answered. What the change costs, taken knowingly:
+//
+//   * **O(n) where it was O(1).** A byte length is a field read; counting code points is a scan.
+//   * **104 call sites had been pairing `len` with a byte position** -- `substring(s, 0, len(s))`,
+//     `index_of(s, n, len(s))` -- and every one of them stayed an `int`, so nothing would have
+//     failed to compile. They were found by deleting these two declarations and letting the
+//     compiler name every call that passes text to `len`, which is the only way to enumerate them;
+//     a test suite would not, because `chars == bytes` for ASCII and most fixtures are ASCII.
+//   * **`len(to_bytes(s)) == len(s)` no longer holds.** It is `byte_len(s)` that equals it now.
+//
+// What it buys is that the obvious reading is the right one. The old `len` was the silent-wrongness
+// direction -- "length" meaning bytes surprises a reader exactly when the text stops being ASCII,
+// which is the case nobody tests -- and the new one is the obvious-slowness direction, which a
+// profile finds.
+//
+// `len`'s other seven members are unchanged and are in array.zm, map.zm, set.zm and mutable.zm; an
+// element count was never ambiguous. `--api builtins` prints all nine as one block, and array.zm's
+// members carry the account of why nine declarations share one C function.
 pub native fn len(s: string) -> int
+
+// The same of a builder, following its immutable twin: code points, not the buffer's size. Its own
+// index functions (`char_at`, `set`, `index_of`) stay byte-indexed, so `byte_len(sb)` is what
+// bounds them -- `len(sb)` does not.
 pub native fn len(s: MutableString) -> int
+
+// **Its length in bytes** -- the storage size, which `len` answered until 2026-10-23. Both members
+// share one C function registered under the bare name, as `len`'s nine do: a `string` keeps its
+// length beside its pointer and a `MutableString` keeps it in the handle's table.
+//
+// This is the one to pair with every byte-indexed function in this file -- `char_at`, `substring`,
+// `index_of`, `last_index_of`, `is_char_at`, and a MutableString's `set` -- because those take byte
+// offsets and `len` no longer counts in the same unit. `byte_len(s) == len(to_bytes(s))`, which is
+// the identity `len` used to satisfy.
+pub native fn byte_len(s: string) -> int
+
+pub native fn byte_len(s: MutableString) -> int
 
 // **Whether `needle` appears in it** -- the form the shared question takes for text, where an
 // array is asked about an element and a map about a key.
@@ -197,13 +231,9 @@ pub native fn is_char_at(s: string, i: int, c: string) -> bool
 // where it would otherwise enter a program).
 pub native fn chars(s: string) -> [string]
 
-// The number of code points in `s`: `char_count("héllo")` is 5, where `len("héllo")` (bytes) is
-// 6. Cheaper than `len(chars(s))` when only the count is wanted. Same UTF-8 requirement as `chars`.
-pub native fn char_count(s: string) -> int
-
 // `s` shortened to at most `max_chars` code points, without ever cutting one in half -- the safe
 // way to truncate text for display (`substring` counts bytes and can produce invalid UTF-8).
-// `max_chars >= char_count(s)` returns `s` unchanged; `max_chars` must not be negative. Same
+// `max_chars >= len(s)` returns `s` unchanged; `max_chars` must not be negative. Same
 // UTF-8 requirement as `chars`.
 pub native fn truncate_chars(s: string, max_chars: int) -> string
 
@@ -262,7 +292,7 @@ pub fn split_once(s: string, separator: string) -> Option<[string]> {
     if at < 0 {
         return Option<[string]>.None
     }
-    return Option<[string]>.Some([substring(s, 0, at), substring(s, at + len(separator), len(s))])
+    return Option<[string]>.Some([substring(s, 0, at), substring(s, at + byte_len(separator), byte_len(s))])
 }
 
 // A mutable buffer for assembling a string piece by piece. Adding to a string with `concat` in
@@ -350,12 +380,12 @@ pub native fn clear(s: MutableString)
 // A final newline is a terminator, not a separator -- "a\nb\n" and "a\nb" both have two lines --
 // which is how every line-oriented tool reads a text file. An empty string has no lines.
 pub fn lines(s: string) -> [string] {
-    if len(s) == 0 {
+    if byte_len(s) == 0 {
         return []
     }
     var out: [string] = []
     for piece in split(s, "\n") {
-        out = push(out, if ends_with(piece, "\r") { substring(piece, 0, len(piece) - 1) } else { piece })
+        out = push(out, if ends_with(piece, "\r") { substring(piece, 0, byte_len(piece) - 1) } else { piece })
     }
     // Only a *trailing* newline produces that last empty piece; a blank line in the middle is a
     // real empty line and stays.

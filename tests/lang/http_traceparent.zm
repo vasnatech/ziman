@@ -46,7 +46,7 @@ fn main() {
     print(carried.trace_id)
     val restarted = http.traceparent_of(request_with([http.Header { name: "traceparent", value: "nonsense" }]))
     print(restarted.trace_id != carried.trace_id)
-    print(len(http.traceparent_of(request_with([])).trace_id))
+    print(byte_len(http.traceparent_of(request_with([])).trace_id))
 
     // What a service sends onward: the same trace, a new span, the sampling decision inherited.
     val onward = http.traceparent_header_for(carried)

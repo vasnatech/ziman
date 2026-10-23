@@ -235,7 +235,7 @@ pub fn open_session_with_timeouts(sock: Socket, timeout_ms: int, head_timeout_ms
 // ------------------------------------------------------------- reading
 
 fn parse_header_line(line: string) -> Result<Header, HttpError> {
-    if len(line) == 0 || starts_with(line, " ") || starts_with(line, "\t") {
+    if byte_len(line) == 0 || starts_with(line, " ") || starts_with(line, "\t") {
         return err(HttpError.BadRequest("malformed header line"))
     }
     if Some(parts) = split_once(line, ":") {
@@ -307,7 +307,7 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: i
         val size_text = trim(split(size_line, ";")[0])
         val n = switch int_from_hex(size_text) {
             Ok(v) {
-                if v < 0 || len(size_text) > 8 {
+                if v < 0 || byte_len(size_text) > 8 {
                     return err(HttpError.BadRequest(format("invalid chunk size '{}'", size_line)))
                 }
                 v
@@ -913,8 +913,8 @@ struct Pattern {
 // matched as.
 fn segments_of(path: string) -> [string] {
     var p = path
-    if len(p) > 1 && ends_with(p, "/") {
-        p = substring(p, 0, len(p) - 1)
+    if byte_len(p) > 1 && ends_with(p, "/") {
+        p = substring(p, 0, byte_len(p) - 1)
     }
     return split(p, "/")
 }
@@ -923,8 +923,8 @@ fn compile_pattern(pattern: string) -> Pattern {
     val parts = mutable_array_new<string>()
     val is_param = mutable_array_new<bool>()
     for segment in segments_of(pattern) {
-        if len(segment) >= 3 && starts_with(segment, "{") && ends_with(segment, "}") {
-            push(parts, substring(segment, 1, len(segment) - 1))
+        if byte_len(segment) >= 3 && starts_with(segment, "{") && ends_with(segment, "}") {
+            push(parts, substring(segment, 1, byte_len(segment) - 1))
             push(is_param, true)
         } else {
             push(parts, segment)
@@ -1094,7 +1094,7 @@ pub fn multipart_boundary(req: Request) -> Option<string> {
         // value it leaves alone, which it must, since a boundary is matched byte for byte.
         if media.type == "multipart" && media.subtype == "form-data" {
             if Some(b) = mime.param(media, "boundary") {
-                if len(b) > 0 {
+                if byte_len(b) > 0 {
                     return Option<string>.Some(b)
                 }
             }
@@ -1108,7 +1108,7 @@ pub fn multipart_boundary(req: Request) -> Option<string> {
 // one is an escaped quote. Names are matched without regard to case. `None` when the parameter is absent --
 // including RFC 2231's `filename*=`, which is a different name, and whose encoding this does not decode.
 fn disposition_param(line: string, key: string) -> Option<string> {
-    val n = len(line)
+    val n = byte_len(line)
     var i = 0
     while i < n {
         if char_at(line, i) != ";" {
@@ -1158,7 +1158,7 @@ fn part_header(block: string, name: string) -> string {
     for line in split(block, "\r\n") {
         val colon = index_of(line, ":", 0)
         if colon > 0 && equals_ignore_case(trim(substring(line, 0, colon)), name) {
-            return trim(substring(line, colon + 1, len(line)))
+            return trim(substring(line, colon + 1, byte_len(line)))
         }
     }
     return ""
@@ -1183,7 +1183,7 @@ fn part_of(chunk: [byte]) -> Result<Part, HttpError> {
     return ok(Part {
         name: name,
         filename: disposition_param(disposition, "filename"),
-        content_type: if len(declared) > 0 { Option<string>.Some(declared) } else { Option<string>.None },
+        content_type: if byte_len(declared) > 0 { Option<string>.Some(declared) } else { Option<string>.None },
         body: slice(chunk, blank + 4, len(chunk))
     })
 }
@@ -2459,7 +2459,7 @@ fn fail_connection(sock: Socket, message: string) {
     val body = "{\"status\":500,\"message\":\"An unexpected error occurred\"}"
     val head = format(
         "HTTP/1.1 500 Internal Server Error\r\nContent-Type: application/json\r\nX-Content-Type-Options: nosniff\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-        len(body)
+        byte_len(body)
     )
     val _ = net.write_text(sock, concat(head, body))
 }

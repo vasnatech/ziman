@@ -1,10 +1,10 @@
 fn encode(text: string) -> string {
     val sb = mutable_string_new()
     var i = 0
-    while i < len(text) {
+    while i < byte_len(text) {
         val ch = char_at(text, i)
         var run = 1
-        while i + run < len(text) && char_at(text, i + run) == ch {
+        while i + run < byte_len(text) && char_at(text, i + run) == ch {
             run = run + 1
         }
         append(sb, ch, str(run))
@@ -16,11 +16,11 @@ fn encode(text: string) -> string {
 fn decode(text: string) -> string {
     val sb = mutable_string_new()
     var i = 0
-    while i < len(text) {
+    while i < byte_len(text) {
         val ch = char_at(text, i)
         var j = i + 1
         val digits = mutable_string_new()
-        while j < len(text) && char_at(text, j) >= "0" && char_at(text, j) <= "9" {
+        while j < byte_len(text) && char_at(text, j) >= "0" && char_at(text, j) <= "9" {
             append(digits, char_at(text, j))
             j = j + 1
         }

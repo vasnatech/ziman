@@ -19,7 +19,7 @@ fn main() {
     var field_chars = 0
     for r in unwrap(csv.records(path)) {
         rows = rows + 1
-        field_chars = field_chars + len(json.json_to_string(unwrap(r)))
+        field_chars = field_chars + byte_len(json.json_to_string(unwrap(r)))
     }
     print(format("rows={} field_chars={}", rows, field_chars))
     val _ = fs.remove(path)

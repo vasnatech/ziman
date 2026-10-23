@@ -2,7 +2,7 @@ fn main() {
     for i in 1..6 {
         val sb = mutable_string_new()
         append(sb, str(i))
-        while len(sb) < 2 {
+        while byte_len(sb) < 2 {
             append(sb, " ")
         }
         append(sb, " | ", str(i * i * i))

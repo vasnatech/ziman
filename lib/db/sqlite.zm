@@ -68,7 +68,7 @@ fn encode_params(params: [SqlValue]) -> [string] {
 
 fn decode_cell(cell: string) -> Result<SqlValue, DbError> {
     val tag = substring(cell, 0, 1)
-    val payload = substring(cell, 1, len(cell))
+    val payload = substring(cell, 1, byte_len(cell))
     if tag == "N" {
         return SqlValue.Null
     }
@@ -91,7 +91,7 @@ fn decode_cell(cell: string) -> Result<SqlValue, DbError> {
     }
     if tag == "B" {
         val bytes = mutable_array_new<byte>()
-        for i in 0..len(payload) / 2 {
+        for i in 0..byte_len(payload) / 2 {
             val b = byte_from_hex(substring(payload, 2 * i, 2 * i + 2))
             if Err(_) = b {
                 return err(DbError.Sql(concat("bad hex from driver: ", payload)))

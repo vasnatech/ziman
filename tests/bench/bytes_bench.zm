@@ -21,7 +21,7 @@ fn main() {
     print(len(part))
     print(part == slice<byte>(c, 1000, 1500000))
     val back = unwrap(bytes_to_string(part))
-    print(len(back))
+    print(byte_len(back))
     var i = 0
     var acc = 0
     while i < len(part) {

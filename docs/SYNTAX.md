@@ -2870,11 +2870,24 @@ a type error.
   undefined. Noted plainly because it is the one deletion here that removed a capability rather
   than a second spelling of one — `map_from_arrays` had a map literal and `bytes_concat` had
   `concat`.
-- `len(arr) -> int` / `len(s: string) -> int` — element count, or byte length. Also answers for a
-  `Map`, a `Set`, and any of the four builders (`MutableArray`, `MutableString`, `MutableMap`,
-  `MutableSet`), and for a `Mutable<T>` cell, whose length is always 1. So asking a collection its
-  size never needs a per-type name or a conversion. It answers for a *handle*, not for a struct
-  that holds one, which has no length of its own.
+- `len(arr) -> int` / `len(s: string) -> int` — element count, or **character count**: on text
+  `len` counts code points, so `len("héllo")` is 5. Also answers for a `Map`, a `Set`, and any of
+  the four builders (`MutableArray`, `MutableString`, `MutableMap`, `MutableSet`), and for a
+  `Mutable<T>` cell, whose length is always 1. So asking a collection its size never needs a
+  per-type name or a conversion. It answers for a *handle*, not for a struct that holds one, which
+  has no length of its own.
+- `byte_len(s: string) -> int` — the byte count, for either string world. **This is the one to pair
+  with every byte-indexed function** (`char_at`, `substring`, `index_of`, `last_index_of`,
+  `is_char_at`, and a `MutableString`'s `set`), because those take byte offsets and `len` no longer
+  counts in the same unit. `byte_len(s) == len(to_bytes(s))`.
+- **`len` on text counted bytes until 2026-10-23, and `char_count` counted characters**; they
+  swapped, `byte_len` took the byte question and `char_count` was deleted. The old `len` was the
+  silent-wrongness direction — "length" meaning bytes surprises a reader exactly when the text stops
+  being ASCII, which is the case nobody tests — and the new one is the obvious-slowness direction,
+  since counting code points is O(n) where a byte length is a field read. 482 call sites in this
+  library and 92 in the sample backend moved to `byte_len`; none of them changed behaviour, because
+  code written against byte semantics means bytes. They were found by deleting the declarations and
+  compiling, not by searching, since a `len` on text stays an `int` either way.
 - `mutable_new(v) -> Mutable<T>` / `get(c) -> T` / `set(c, v)` / `update(c, f: fn(T) -> T) -> T`
   — one cell holding one value: the root the four mutable collections specialise, and what lets a
   new mutable shape be written in Ziman instead of added to the language (a ring buffer is a struct
@@ -2942,15 +2955,17 @@ a type error.
 - `replace(s, old, new) -> string` — swaps every non-overlapping `old` (must not be empty).
 - `equals_ignore_case(a, b) -> bool` — ASCII case-insensitive equality, allocating nothing
   (unlike `to_lower(a) == to_lower(b)`). None of the functions above build intermediate strings.
-- **Strings are bytes, with code points opt-in.** The functions above count/cut bytes, not
-  characters (`len("héllo")` is 6; `substring` can split a multi-byte character). Three
-  functions give the code-point-aware alternative (slower -- they decode UTF-8 -- and a runtime
-  error naming the byte offset on invalid UTF-8, reachable only by chaining a byte-level
-  function into one, since `bytes_to_string` already rejects invalid UTF-8 at the one real
-  boundary): `chars(s) -> [string]` (split into code points: `chars("héllo")` is `[h,é,l,l,o]`),
-  `char_count(s) -> int` (cheaper than `len(chars(s))`), `truncate_chars(s, max_chars) ->
-  string` (shortened without cutting a code point in half; `max_chars >= char_count(s)` returns
-  `s` unchanged, negative is a runtime error).
+- **Strings are bytes, and the *counting* is code points.** Storage and indexing are bytes --
+  `byte_len("héllo")` is 6, `char_at` and `substring` take byte offsets and `substring` can split a
+  multi-byte character -- while `len` and the functions beside it decode UTF-8: `len("héllo")` is
+  5. The split is deliberate: the question a reader asks casually ("how long is this?") gets the
+  answer they expect, and the byte offsets are there under a name that says so. The decoding ones
+  are slower, and a runtime error naming the byte offset on invalid UTF-8, reachable only by
+  chaining a byte-level cut into one, since `bytes_to_string` already rejects invalid UTF-8 at the
+  one real boundary: `len(s) -> int` (code points), `chars(s) -> [string]` (split into them:
+  `chars("héllo")` is `[h,é,l,l,o]`, and `len(s)` is cheaper than `len(chars(s))`),
+  `truncate_chars(s, max_chars) -> string` (shortened without cutting a code point in half;
+  `max_chars >= len(s)` returns `s` unchanged, negative is a runtime error).
 - `trim(s) -> string` — leading/trailing whitespace removed.
 - `lines(text) -> [string]` — the lines, without their terminators. Not the same as
   `split(text, "\n")`: a `\r` is removed from each line of CRLF text, and a final newline

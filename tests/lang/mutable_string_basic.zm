@@ -4,11 +4,11 @@ fn main() {
     // all, is ambiguous between "positional zero-arg" and "named,
     // everything omitted" -- treated as the latter).
     val sb = mutable_string_new()
-    print(len(sb))
+    print(byte_len(sb))
     append(sb, "Hello")
     append(sb, ", ", "world", "!")
     print(snapshot(sb))
-    print(len(sb))
+    print(byte_len(sb))
 
     // Custom capacity/grow_factor, named, forcing many reallocations.
     val sb2 = mutable_string_new(capacity: 4, grow_factor: 1.5)
@@ -17,8 +17,8 @@ fn main() {
         append(sb2, "x")
         i = i + 1
     }
-    print(len(sb2))
-    print(len(snapshot(sb2)))
+    print(byte_len(sb2))
+    print(byte_len(snapshot(sb2)))
 
     // Fully positional, both args given explicitly.
     val sb3 = mutable_string_new(10, 3.0)

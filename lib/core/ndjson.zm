@@ -20,7 +20,7 @@ pub fn parse_ndjson(text: string) -> Result<[Json], string> {
     for raw in split(text, "\n") {
         line_no = line_no + 1
         val line = trim(raw)
-        if len(line) == 0 {
+        if byte_len(line) == 0 {
             continue
         }
         val parsed = parse_json(line)

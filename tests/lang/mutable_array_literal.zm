@@ -21,7 +21,7 @@ fn main() {
 
     // elements are ordinary expressions, evaluated left to right
     val n = 5
-    print(snapshot(mutable([n, n + 1, len("abc")])))
+    print(snapshot(mutable([n, n + 1, byte_len("abc")])))
     print(snapshot(mutable([[1, 2], [3]])))
 
     // past ARGS_INLINE (4): one heap staging instead of three allocations

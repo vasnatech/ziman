@@ -158,10 +158,10 @@ pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string> {
     val root = pdfobj.add(w, Obj.Dict(snapshot(catalog)))
 
     val info = mutable_array_new<Entry>()
-    if len(o.title) > 0 {
+    if byte_len(o.title) > 0 {
         push(info, entry("Title", Obj.Str(o.title)))
     }
-    if len(o.author) > 0 {
+    if byte_len(o.author) > 0 {
         push(info, entry("Author", Obj.Str(o.author)))
     }
     push(info, entry("Producer", Obj.Str("Ziman lib/graphics")))

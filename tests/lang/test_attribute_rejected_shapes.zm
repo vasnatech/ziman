@@ -19,5 +19,5 @@ val wrong_type_cases = [1, 2, 3]
 
 #[test(cases: wrong_type_cases)]
 fn test_wrong_case_type(x: string) {
-    test.assert(len(x) > 0)
+    test.assert(byte_len(x) > 0)
 }

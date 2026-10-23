@@ -59,7 +59,7 @@ fn main() {
     print(zoneoffset_to_string(zoneid_offset_at(z, instant_of(0, 0))))
 
     val now = instant_now()
-    print(len(instant_to_string(now)) > 0)
+    print(byte_len(instant_to_string(now)) > 0)
 
     val bad = zoneoffset_of_hours_minutes(-5, 30)
     print(is_ok(bad))

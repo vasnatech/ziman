@@ -20,7 +20,7 @@ fn main() {
     print(enc)
     print(unwrap(bytes_to_string(unwrap(otp.base32_decode(enc)))) == "12345678901234567890")
     print(otp.base32_encode(to_bytes("foobar")))
-    print(len(otp.generate_secret()))
+    print(byte_len(otp.generate_secret()))
     print(otp.hotp(key, 0, 8))
     print(otp.provisioning_uri("Health Record", "ada+x@example.com", "JBSWY3DPEHPK3PXP"))
 }

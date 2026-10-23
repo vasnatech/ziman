@@ -70,7 +70,7 @@ fn exchange(port: int, request: string) -> string {
             return acc
         }
         val text = unwrap(chunk)
-        if len(text) == 0 {
+        if byte_len(text) == 0 {
             return acc
         }
         acc = concat(acc, text)
@@ -81,16 +81,16 @@ fn exchange(port: int, request: string) -> string {
 fn describe(label: string, raw: string) {
     val cut = index_of(raw, "\r\n\r\n", 0)
     val head = if cut < 0 { raw } else { substring(raw, 0, cut) }
-    val body_len = if cut < 0 { 0 } else { len(raw) - cut - 4 }
+    val body_len = if cut < 0 { 0 } else { byte_len(raw) - cut - 4 }
     val lines = split(head, "\r\n")
     var length = "-"
     var allow = "-"
     for line in lines {
         if starts_with(to_lower(line), "content-length:") {
-            length = trim(substring(line, 15, len(line)))
+            length = trim(substring(line, 15, byte_len(line)))
         }
         if starts_with(to_lower(line), "allow:") {
-            allow = trim(substring(line, 6, len(line)))
+            allow = trim(substring(line, 6, byte_len(line)))
         }
     }
     printf("{}: {} | Content-Length: {} | body bytes: {} | Allow: {}\n", label, lines[0], length, body_len, allow)

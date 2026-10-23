@@ -82,7 +82,7 @@ fn resolve(props: Properties, value: string, source: string, seen: [string]) -> 
     while !done {
         val start = index_of(value, "${", p)
         if start < 0 {
-            append(sb, substring(value, p, len(value)))
+            append(sb, substring(value, p, byte_len(value)))
             done = true
         } else {
             val end = index_of(value, "}", start + 2)
@@ -104,7 +104,7 @@ fn resolve(props: Properties, value: string, source: string, seen: [string]) -> 
             } else if Some(v) = env {
                 append(sb, v)
             } else if colon >= 0 {
-                append(sb, substring(inner, colon + 1, len(inner)))
+                append(sb, substring(inner, colon + 1, byte_len(inner)))
             } else {
                 return err(format(
                     "{}: placeholder '{}' is neither a property nor an environment variable and has no default",
@@ -134,7 +134,7 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
     for i in 0..len(lines) {
         val line = trim(lines[i])
         val where = format("{}:{}", source, i + 1)
-        if len(line) == 0 || starts_with(line, "#") {
+        if byte_len(line) == 0 || starts_with(line, "#") {
             continue
         }
         val eq = index_of(line, "=", 0)
@@ -142,7 +142,7 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
             return err(format("{}: expected key=value or a # comment, got '{}'", where, line))
         }
         val key = trim(substring(line, 0, eq))
-        if len(key) == 0 {
+        if byte_len(key) == 0 {
             return err(format("{}: empty key", where))
         }
         if to_lower(key) != key {
@@ -155,7 +155,7 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
         if contains(key, " ") || contains(key, "\t") {
             return err(format("{}: key '{}' contains whitespace", where, key))
         }
-        push(found, Entry { key: key, value: trim(substring(line, eq + 1, len(line))), source: where })
+        push(found, Entry { key: key, value: trim(substring(line, eq + 1, byte_len(line))), source: where })
     }
     val entries = snapshot(found)
     val first_seen = mutable_map_new<string, string>()
@@ -228,7 +228,7 @@ pub fn load(name: string) -> Result<Properties, string> {
             }
         }
     }
-    if len(profile) == 0 {
+    if byte_len(profile) == 0 {
         return resolve_all(base)
     }
     val profile_file = format("{}-{}.properties", name, profile)
@@ -310,29 +310,29 @@ pub fn get_bool(props: Properties, key: string) -> Result<bool, string> {
 
 // "server" + "port" -> "server.port"; an empty prefix leaves the name alone.
 pub fn key(prefix: string, name: string) -> string {
-    return if len(prefix) == 0 { name } else { format("{}.{}", prefix, name) }
+    return if byte_len(prefix) == 0 { name } else { format("{}.{}", prefix, name) }
 }
 
 // The edit distance between two strings (single-character inserts, deletes and substitutions),
 // for "did you mean" hints.
 fn distance(a: string, b: string) -> int {
     val first_row = mutable_array_new<int>()
-    for j in 0..len(b) + 1 {
+    for j in 0..byte_len(b) + 1 {
         push(first_row, j)
     }
     var prev = snapshot(first_row)
-    for i in 0..len(a) {
+    for i in 0..byte_len(a) {
         val row = mutable_array_new<int>()
         push(row, i + 1)
         var left = i + 1
-        for j in 0..len(b) {
+        for j in 0..byte_len(b) {
             val cost = if is_char_at(a, i, char_at(b, j)) { 0 } else { 1 }
             left = math.min(math.min(left + 1, prev[j + 1] + 1), prev[j] + cost)
             push(row, left)
         }
         prev = snapshot(row)
     }
-    return prev[len(b)]
+    return prev[byte_len(b)]
 }
 
 fn suggestion(key: string, known: [string]) -> string {
@@ -345,7 +345,7 @@ fn suggestion(key: string, known: [string]) -> string {
             best_distance = d
         }
     }
-    return if len(best) == 0 { "" } else { format(" -- did you mean '{}'?", best) }
+    return if byte_len(best) == 0 { "" } else { format(" -- did you mean '{}'?", best) }
 }
 
 // Fails on a key in the files that isn't in `known` (`profile.active` is
@@ -375,7 +375,7 @@ fn mask_value(value: string) -> string {
         if at >= 0 {
             val colon = index_of(substring(v, 0, at), ":", scheme + 3)
             if colon >= 0 {
-                v = concat(substring(v, 0, colon + 1), "****", substring(v, at, len(v)))
+                v = concat(substring(v, 0, colon + 1), "****", substring(v, at, byte_len(v)))
             }
         }
     }
@@ -384,9 +384,9 @@ fn mask_value(value: string) -> string {
         val start = pw + 9
         var end = index_of(v, "&", start)
         if end < 0 {
-            end = len(v)
+            end = byte_len(v)
         }
-        v = concat(substring(v, 0, start), "****", substring(v, end, len(v)))
+        v = concat(substring(v, 0, start), "****", substring(v, end, byte_len(v)))
     }
     return v
 }
@@ -395,7 +395,7 @@ fn mask_value(value: string) -> string {
 // with secrets masked. Meant to be printed at startup.
 pub fn report(props: Properties, keys: variadic string) -> string {
     val sb = mutable_string_new()
-    if len(props.profile) == 0 {
+    if byte_len(props.profile) == 0 {
         append(sb, "active profile: (none)\n")
     } else {
         append(sb, format("active profile: {}\n", props.profile))

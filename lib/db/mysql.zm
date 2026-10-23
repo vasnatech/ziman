@@ -671,7 +671,7 @@ fn decode_text_row(body: [byte], columns: [Column]) -> Result<[SqlValue], DbErro
 
 fn pad(n: int, width: int) -> string {
     var s = str(n)
-    while len(s) < width {
+    while byte_len(s) < width {
         s = concat("0", s)
     }
     return s
@@ -854,7 +854,7 @@ fn is_digit_char(c: string) -> bool {
 fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, DbError> {
     val out = mutable_string_new()
     val ordered = mutable_array_new<SqlValue>()
-    val n = len(sql)
+    val n = byte_len(sql)
     var i = 0
     while i < n {
         if is_char_at(sql, i, "'") || is_char_at(sql, i, "\"") || is_char_at(sql, i, "`") {

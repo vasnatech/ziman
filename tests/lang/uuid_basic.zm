@@ -10,7 +10,7 @@ fn main() {
     // random bytes happened to be -- length, dash positions, version
     // nibble always '4', variant nibble always one of 8/9/a/b.
     val s = uuid_to_string(a)
-    print(len(s))
+    print(byte_len(s))
     print(substring(s, 8, 9))
     print(substring(s, 13, 14))
     print(substring(s, 14, 15))

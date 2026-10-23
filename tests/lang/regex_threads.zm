@@ -14,7 +14,7 @@ fn main() {
     spawn worker(re, "c333", out)
     var total = 0
     for i in 0..3 {
-        total = total + len(receive(out))
+        total = total + byte_len(receive(out))
     }
     print(total)
 }

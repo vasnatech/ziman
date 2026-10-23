@@ -2,9 +2,9 @@ use os
 
 fn main() {
     print(os.cpu_count() >= 1)
-    print(len(os.hostname()) > 0)
+    print(byte_len(os.hostname()) > 0)
     print(os.os_name() == "linux" || os.os_name() == "macos")
-    print(len(os.os_arch()) > 0)
+    print(byte_len(os.os_arch()) > 0)
     val load = unwrap(os.load_average())
     print(len(load))
     print(unwrap(os.uptime_seconds()) > 0)

@@ -2911,13 +2911,57 @@ pub native fn len(s: string) -> int
 
 The bytes of `s` from `start` up to, not including, `end` (`0 <= start <= end <= len(s)`, a
 runtime error otherwise).
-**Its length in bytes**, not characters -- `char_count` is the character question. `len`'s other
-seven members are in array.zm, map.zm, set.zm and mutable.zm; `--api builtins` prints all nine
-as one block, and array.zm's members carry the account of why nine declarations share one C
-function.
+**Its length in characters** -- code points, not bytes: `len("héllo")` is 5 where the text is 6
+bytes long. `byte_len` is the byte question.
+
+**The two swapped places on 2026-10-23**, and `char_count` was deleted because `len` is now what
+it answered. What the change costs, taken knowingly:
+
+
+```
+* **O(n) where it was O(1).** A byte length is a field read; counting code points is a scan.
+* **104 call sites had been pairing `len` with a byte position** -- `substring(s, 0, len(s))`,
+  `index_of(s, n, len(s))` -- and every one of them stayed an `int`, so nothing would have
+  failed to compile. They were found by deleting these two declarations and letting the
+  compiler name every call that passes text to `len`, which is the only way to enumerate them;
+  a test suite would not, because `chars == bytes` for ASCII and most fixtures are ASCII.
+* **`len(to_bytes(s)) == len(s)` no longer holds.** It is `byte_len(s)` that equals it now.
+```
+
+What it buys is that the obvious reading is the right one. The old `len` was the silent-wrongness
+direction -- "length" meaning bytes surprises a reader exactly when the text stops being ASCII,
+which is the case nobody tests -- and the new one is the obvious-slowness direction, which a
+profile finds.
+
+`len`'s other seven members are unchanged and are in array.zm, map.zm, set.zm and mutable.zm; an
+element count was never ambiguous. `--api builtins` prints all nine as one block, and array.zm's
+members carry the account of why nine declarations share one C function.
 
 ```
 pub native fn len(s: MutableString) -> int
+```
+
+The same of a builder, following its immutable twin: code points, not the buffer's size. Its own
+index functions (`char_at`, `set`, `index_of`) stay byte-indexed, so `byte_len(sb)` is what
+bounds them -- `len(sb)` does not.
+
+### `byte_len`
+
+```
+pub native fn byte_len(s: string) -> int
+```
+
+**Its length in bytes** -- the storage size, which `len` answered until 2026-10-23. Both members
+share one C function registered under the bare name, as `len`'s nine do: a `string` keeps its
+length beside its pointer and a `MutableString` keeps it in the handle's table.
+
+This is the one to pair with every byte-indexed function in this file -- `char_at`, `substring`,
+`index_of`, `last_index_of`, `is_char_at`, and a MutableString's `set` -- because those take byte
+offsets and `len` no longer counts in the same unit. `byte_len(s) == len(to_bytes(s))`, which is
+the identity `len` used to satisfy.
+
+```
+pub native fn byte_len(s: MutableString) -> int
 ```
 
 ### `contains`
@@ -3066,15 +3110,6 @@ byte offset if `s` is not valid UTF-8 (only reachable by chaining a byte-level f
 `substring` into this one -- `bytes_to_string` already rejects invalid UTF-8 at the boundary
 where it would otherwise enter a program).
 
-### `char_count`
-
-```
-pub native fn char_count(s: string) -> int
-```
-
-The number of code points in `s`: `char_count("héllo")` is 5, where `len("héllo")` (bytes) is
-6. Cheaper than `len(chars(s))` when only the count is wanted. Same UTF-8 requirement as `chars`.
-
 ### `truncate_chars`
 
 ```
@@ -3083,7 +3118,7 @@ pub native fn truncate_chars(s: string, max_chars: int) -> string
 
 `s` shortened to at most `max_chars` code points, without ever cutting one in half -- the safe
 way to truncate text for display (`substring` counts bytes and can produce invalid UTF-8).
-`max_chars >= char_count(s)` returns `s` unchanged; `max_chars` must not be negative. Same
+`max_chars >= len(s)` returns `s` unchanged; `max_chars` must not be negative. Same
 UTF-8 requirement as `chars`.
 
 ### `equals_ignore_case`

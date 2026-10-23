@@ -619,14 +619,14 @@ pub fn connect_tls_with_options(host: string, port: int, options: TlsClientOptio
 // connection instead of answering with a surprise.
 pub fn negotiated_protocol(s: Socket) -> Option<string> {
     return switch negotiated_protocol_raw(s.handle) {
-        Ok(name) { if len(name) > 0 { Option<string>.Some(name) } else { Option<string>.None } }
+        Ok(name) { if byte_len(name) > 0 { Option<string>.Some(name) } else { Option<string>.None } }
         Err(_) { Option<string>.None }
     }
 }
 
 pub fn peer_certificate_subject(s: Socket) -> Option<string> {
     return switch peer_certificate_raw(s.handle) {
-        Ok(subject) { if len(subject) > 0 { Option<string>.Some(subject) } else { Option<string>.None } }
+        Ok(subject) { if byte_len(subject) > 0 { Option<string>.Some(subject) } else { Option<string>.None } }
         Err(_) { Option<string>.None }
     }
 }

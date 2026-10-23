@@ -40,5 +40,5 @@ fn main() {
 
     val sb = mutable_string_new()
     append(sb, no_strings)
-    print(len(sb))
+    print(byte_len(sb))
 }

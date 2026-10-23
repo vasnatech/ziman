@@ -73,7 +73,7 @@ fn ask(port: int, raw: string) -> string {
             return acc
         }
         val text = unwrap(chunk)
-        if len(text) == 0 {
+        if byte_len(text) == 0 {
             return acc
         }
         acc = concat(acc, text)

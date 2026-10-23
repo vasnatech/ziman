@@ -93,7 +93,7 @@ pub fn dialect(conn: Connection) -> string {
 // no TLS yet -- a `sslmode=require` URL is refused, not downgraded).
 pub fn open(url: string) -> Result<Connection, DbError> {
     if starts_with(url, "sqlite:") {
-        return Connection.Sqlite(try sqlite.open(substring(url, 7, len(url))))
+        return Connection.Sqlite(try sqlite.open(substring(url, 7, byte_len(url))))
     }
     if starts_with(url, "postgres://") || starts_with(url, "postgresql://") {
         return Connection.Postgres(try pg.connect(url))

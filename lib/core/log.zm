@@ -227,10 +227,10 @@ fn json_line(l: Logger, level: Level, message: string) -> string {
     // which is what every JSON log schema uses.
     append(out, "\"level\":", json_to_string(Json.JString(to_lower(trim(level_name(level))))))
     val component = trim(l.prefix)
-    if len(component) > 0 {
+    if byte_len(component) > 0 {
         append(out, ",\"prefix\":", json_to_string(Json.JString(component)))
     }
-    if len(l.request_id) > 0 {
+    if byte_len(l.request_id) > 0 {
         append(out, ",\"request_id\":", json_to_string(Json.JString(l.request_id)))
     }
     append(out, ",\"message\":", json_to_string(Json.JString(message)), "}\n")

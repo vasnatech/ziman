@@ -7,7 +7,7 @@ fn main() {
     print(append_byte(sb, 0b))
     print(append_byte(sb, 105b))
     print(snapshot(sb))
-    print(len(sb))
+    print(byte_len(sb))
 
     // a multi-byte UTF-8 character assembled from two raw bytes
     val u = mutable_string_new()

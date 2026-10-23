@@ -103,7 +103,7 @@ fn padded(text: string) -> string {
     // (or the gate) to work it out.
     val out = mutable_string_new()
     append(out, text)
-    while len(out) % 4 != 0 {
+    while byte_len(out) % 4 != 0 {
         append(out, "=")
     }
     return snapshot(out)

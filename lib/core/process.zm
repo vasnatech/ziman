@@ -156,7 +156,7 @@ pub fn output(
     vars: Option<[EnvVar]> = None,
     cwd: Option<string> = None
 ) -> Result<string, string> {
-    val path = concat("/tmp/ziman_process_", str(os.pid()), "_", str(len(program)), ".out")
+    val path = concat("/tmp/ziman_process_", str(os.pid()), "_", str(byte_len(program)), ".out")
     val code = try run(program, args, vars, Some(path), Some(path), cwd)
     val text = switch fs.read_text(path) {
         Ok(t) { t }

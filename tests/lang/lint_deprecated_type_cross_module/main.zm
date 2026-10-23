@@ -16,7 +16,7 @@ fn main() {
 }
 
 fn legacy_len(l: oldlib.Legacy) -> int {
-    return len(l.note)
+    return byte_len(l.note)
 }
 
 fn flag(s: oldlib.OldStatus) -> int {

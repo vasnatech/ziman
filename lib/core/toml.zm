@@ -50,7 +50,7 @@ struct PPath {
 fn line_of(s: string, p: int) -> int {
     var line = 1
     var i = 0
-    while i < p && i < len(s) {
+    while i < p && i < byte_len(s) {
         if is_char_at(s, i, "\n") {
             line = line + 1
         }
@@ -64,15 +64,15 @@ fn fail(s: string, p: int, message: string) -> string {
 }
 
 fn is_digit_c(c: string) -> bool {
-    return len(c) == 1 && index_of("0123456789", c, 0) >= 0
+    return byte_len(c) == 1 && index_of("0123456789", c, 0) >= 0
 }
 
 fn is_bare_key_char(c: string) -> bool {
-    return len(c) == 1 && index_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", c, 0) >= 0
+    return byte_len(c) == 1 && index_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", c, 0) >= 0
 }
 
 fn hex_value(c: string) -> int {
-    if len(c) != 1 {
+    if byte_len(c) != 1 {
         return -1
     }
     return index_of(hex_chars, to_lower(c), 0)
@@ -104,7 +104,7 @@ fn append_utf8(out: MutableString, cp: int) {
 // Spaces and tabs.
 fn skip_blank(s: string, pos: int) -> int {
     var p = pos
-    while p < len(s) && (is_char_at(s, p, " ") || is_char_at(s, p, "\t")) {
+    while p < byte_len(s) && (is_char_at(s, p, " ") || is_char_at(s, p, "\t")) {
         p = p + 1
     }
     return p
@@ -116,7 +116,7 @@ fn skip_comment(s: string, pos: int) -> int {
         return pos
     }
     var p = pos
-    while p < len(s) && !is_char_at(s, p, "\n") {
+    while p < byte_len(s) && !is_char_at(s, p, "\n") {
         p = p + 1
     }
     return p
@@ -125,7 +125,7 @@ fn skip_comment(s: string, pos: int) -> int {
 // Blank space, newlines and comments -- between array elements and between statements.
 fn skip_all(s: string, pos: int) -> int {
     var p = pos
-    while p < len(s) {
+    while p < byte_len(s) {
         val c = char_at(s, p)
         if c == " " || c == "\t" || c == "\n" || c == "\r" {
             p = p + 1
@@ -140,7 +140,7 @@ fn skip_all(s: string, pos: int) -> int {
 
 // Reads `n` hex digits at `pos` (after a `\u` / `\U`).
 fn read_hex(s: string, pos: int, n: int) -> int {
-    if pos + n > len(s) {
+    if pos + n > byte_len(s) {
         return -1
     }
     var v = 0
@@ -166,11 +166,11 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
         }
     }
     val out = mutable_string_new()
-    while p < len(s) {
+    while p < byte_len(s) {
         val c = char_at(s, p)
         if multi && c == "\"" && is_char_at(s, p + 1, "\"") && is_char_at(s, p + 2, "\"") {
             var end = p + 3
-            while end < len(s) && end < p + 5 && is_char_at(s, end, "\"") {
+            while end < byte_len(s) && end < p + 5 && is_char_at(s, end, "\"") {
                 append(out, "\"")
                 end = end + 1
             }
@@ -183,7 +183,7 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
             return err(fail(s, p, "a basic string cannot span lines (use \"\"\" for that)"))
         }
         if c == "\\" {
-            if p + 1 >= len(s) {
+            if p + 1 >= byte_len(s) {
                 return err(fail(s, p, "unterminated escape"))
             }
             val e = char_at(s, p + 1)
@@ -213,7 +213,7 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
             } else if multi && (e == "\n" || e == "\r" || e == " " || e == "\t") {
                 // a line-ending backslash: drop it, the newline and all following whitespace
                 var q = p + 1
-                while q < len(s) && (is_char_at(s, q, " ") || is_char_at(s, q, "\t") || is_char_at(
+                while q < byte_len(s) && (is_char_at(s, q, " ") || is_char_at(s, q, "\t") || is_char_at(
                     s,
                     q,
                     "\r"
@@ -246,7 +246,7 @@ fn parse_literal(s: string, pos: int) -> Result<PStr, string> {
         }
     }
     val start = p
-    while p < len(s) {
+    while p < byte_len(s) {
         if multi && is_char_at(s, p, "'") && is_char_at(s, p + 1, "'") && is_char_at(s, p + 2, "'") {
             return ok(PStr { text: substring(s, start, p), next: p + 3 })
         }
@@ -270,7 +270,7 @@ fn parse_key_part(s: string, pos: int) -> Result<PStr, string> {
         return parse_literal(s, pos)
     }
     var p = pos
-    while p < len(s) && is_bare_key_char(char_at(s, p)) {
+    while p < byte_len(s) && is_bare_key_char(char_at(s, p)) {
         p = p + 1
     }
     if p == pos {
@@ -308,15 +308,15 @@ fn looks_datetime(t: string) -> bool {
     if contains(t, ":") {
         return true
     }
-    return len(t) >= 10 && char_at(t, 4) == "-" && char_at(t, 7) == "-" && is_digit_c(char_at(t, 0))
+    return byte_len(t) >= 10 && char_at(t, 4) == "-" && char_at(t, 7) == "-" && is_digit_c(char_at(t, 0))
 }
 
 fn parse_radix(t: string, digits: string, base: int) -> Result<Json, string> {
-    if len(t) == 0 {
+    if byte_len(t) == 0 {
         return err("empty number")
     }
     var n = 0
-    for i in 0..len(t) {
+    for i in 0..byte_len(t) {
         val d = index_of(digits, to_lower(char_at(t, i)), 0)
         if d < 0 {
             return err(format("invalid digit '{}'", char_at(t, i)))
@@ -332,22 +332,22 @@ fn number_token(tok: string) -> Result<Json, string> {
     }
     val t = replace(tok, "_", "")
     if starts_with(t, "0x") {
-        return parse_radix(substring(t, 2, len(t)), hex_chars, 16)
+        return parse_radix(substring(t, 2, byte_len(t)), hex_chars, 16)
     }
     if starts_with(t, "0o") {
-        return parse_radix(substring(t, 2, len(t)), "01234567", 8)
+        return parse_radix(substring(t, 2, byte_len(t)), "01234567", 8)
     }
     if starts_with(t, "0b") {
-        return parse_radix(substring(t, 2, len(t)), "01", 2)
+        return parse_radix(substring(t, 2, byte_len(t)), "01", 2)
     }
-    val bare = if starts_with(t, "+") || starts_with(t, "-") { substring(t, 1, len(t)) } else { t }
+    val bare = if starts_with(t, "+") || starts_with(t, "-") { substring(t, 1, byte_len(t)) } else { t }
     if bare == "inf" || bare == "nan" {
         return err("inf and nan are not supported")
     }
-    if len(bare) == 0 || !is_digit_c(char_at(bare, 0)) {
+    if byte_len(bare) == 0 || !is_digit_c(char_at(bare, 0)) {
         return err(format("invalid value '{}'", tok))
     }
-    val signed = if starts_with(t, "+") { substring(t, 1, len(t)) } else { t }
+    val signed = if starts_with(t, "+") { substring(t, 1, byte_len(t)) } else { t }
     if contains(bare, ".") || contains(bare, "e") || contains(bare, "E") {
         val f = parse_float(signed)
         if !is_ok(f) {
@@ -355,7 +355,7 @@ fn number_token(tok: string) -> Result<Json, string> {
         }
         return ok(float_to_json(unwrap(f)))
     }
-    if len(bare) > 1 && char_at(bare, 0) == "0" {
+    if byte_len(bare) > 1 && char_at(bare, 0) == "0" {
         return err(format("leading zeros are not allowed in '{}'", tok))
     }
     val n = parse_int(signed)
@@ -367,7 +367,7 @@ fn number_token(tok: string) -> Result<Json, string> {
 
 fn parse_scalar_token(s: string, pos: int) -> Result<Parsed, string> {
     var p = pos
-    while p < len(s) && !contains(" \t\n\r,]}#", char_at(s, p)) {
+    while p < byte_len(s) && !contains(" \t\n\r,]}#", char_at(s, p)) {
         p = p + 1
     }
     if p == pos {
@@ -381,9 +381,9 @@ fn parse_scalar_token(s: string, pos: int) -> Result<Parsed, string> {
         return ok(Parsed { value: Json.JBool(false), next: p })
     }
     // a date and a time separated by a space form one value
-    if len(tok) == 10 && is_char_at(s, p, " ") && p + 1 < len(s) && is_digit_c(char_at(s, p + 1)) {
+    if byte_len(tok) == 10 && is_char_at(s, p, " ") && p + 1 < byte_len(s) && is_digit_c(char_at(s, p + 1)) {
         var q = p + 1
-        while q < len(s) && !contains(" \t\n\r,]}#", char_at(s, q)) {
+        while q < byte_len(s) && !contains(" \t\n\r,]}#", char_at(s, q)) {
             q = q + 1
         }
         tok = substring(s, pos, q)
@@ -400,7 +400,7 @@ fn parse_array_value(s: string, pos: int) -> Result<Parsed, string> {
     val items = mutable_array_new<Json>()
     var p = skip_all(s, pos + 1)
     while true {
-        if p >= len(s) {
+        if p >= byte_len(s) {
             return err(fail(s, pos, "unterminated array"))
         }
         if is_char_at(s, p, "]") {
@@ -449,7 +449,7 @@ fn parse_inline_table(s: string, pos: int) -> Result<Parsed, string> {
 }
 
 fn parse_value(s: string, pos: int) -> Result<Parsed, string> {
-    if pos >= len(s) {
+    if pos >= byte_len(s) {
         return err("unexpected end of input, expected a value")
     }
     val c = char_at(s, pos)
@@ -553,7 +553,7 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
 // After a statement: optional blanks and comment, then a newline or the end.
 fn expect_line_end(s: string, pos: int) -> Result<int, string> {
     var p = skip_comment(s, skip_blank(s, pos))
-    if p >= len(s) {
+    if p >= byte_len(s) {
         return ok(p)
     }
     if is_char_at(s, p, "\r") {
@@ -596,7 +596,7 @@ pub fn parse_toml(text: string) -> Result<Json, string> {
     var pending_pos = 0
     var defined = Set<string> {}
     var p = skip_all(text, 0)
-    while p < len(text) {
+    while p < byte_len(text) {
         if is_char_at(text, p, "[") {
             val is_array = is_char_at(text, p + 1, "[")
             val header = try parse_key_path(text, p + (if is_array { 2 } else { 1 }))
@@ -653,7 +653,7 @@ fn quote_basic(s: string) -> string {
     val out = mutable_string_new()
     append(out, "\"")
     var i = 0
-    while i < len(s) {
+    while i < byte_len(s) {
         val c = char_at(s, i)
         if c == "\"" {
             append(out, "\\\"")
@@ -683,10 +683,10 @@ fn quote_basic(s: string) -> string {
 }
 
 fn key_text(k: string) -> string {
-    if len(k) == 0 {
+    if byte_len(k) == 0 {
         return "\"\""
     }
-    for i in 0..len(k) {
+    for i in 0..byte_len(k) {
         if !is_bare_key_char(char_at(k, i)) {
             return quote_basic(k)
         }
@@ -804,5 +804,5 @@ pub fn toml_to_string(j: Json) -> Result<string, string> {
     val out = mutable_string_new()
     try write_table(out, j, [])
     val text = snapshot(out)
-    return ok(if starts_with(text, "\n") { substring(text, 1, len(text)) } else { text })
+    return ok(if starts_with(text, "\n") { substring(text, 1, byte_len(text)) } else { text })
 }

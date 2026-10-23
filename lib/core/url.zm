@@ -24,10 +24,10 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
     val out = mutable_string_new()
     var run = 0
     var i = 0
-    while i < len(s) {
+    while i < byte_len(s) {
         if is_char_at(s, i, "%") {
             append(out, substring(s, run, i))
-            if i + 3 > len(s) {
+            if i + 3 > byte_len(s) {
                 return err("truncated %-escape")
             }
             val b = byte_from_hex(substring(s, i + 1, i + 3))
@@ -47,7 +47,7 @@ pub fn percent_decode(s: string, plus_is_space: bool) -> Result<string, string> 
             i = i + 1
         }
     }
-    append(out, substring(s, run, len(s)))
+    append(out, substring(s, run, byte_len(s)))
     return ok(snapshot(out))
 }
 

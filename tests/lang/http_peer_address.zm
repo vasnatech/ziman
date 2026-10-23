@@ -67,7 +67,7 @@ fn main() {
         if !is_ok(chunk) {
             break
         }
-        if len(unwrap(chunk)) == 0 {
+        if byte_len(unwrap(chunk)) == 0 {
             break
         }
         acc = concat(acc, unwrap(chunk))

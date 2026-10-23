@@ -38,7 +38,7 @@ fn lines_drawn(b: layout.Block, width: float, d: layout.Document) -> [string] {
         switch op {
             Text(run) {
                 if run.at.y != last_y {
-                    if len(current) > 0 {
+                    if byte_len(current) > 0 {
                         push(out, snapshot(current))
                     }
                     current = mutable_string_new()
@@ -54,7 +54,7 @@ fn lines_drawn(b: layout.Block, width: float, d: layout.Document) -> [string] {
             Nested(_) { unit }
         }
     }
-    if len(current) > 0 {
+    if byte_len(current) > 0 {
         push(out, snapshot(current))
     }
     return snapshot(out)

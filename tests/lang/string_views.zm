@@ -6,7 +6,7 @@ fn main() {
     val b = substring(s, 6, 11)
     print(a)
     print(b)
-    print(len(a) + len(b))
+    print(byte_len(a) + byte_len(b))
     print(a == "hello")
     print(b == "world")
     print(hash(a) == hash("hello"))
@@ -29,7 +29,7 @@ fn main() {
     print(len(parts))
     print(join(separator: "-", pieces: parts))
     print(trim("   padded   ") == "padded")
-    print(len(trim("   padded   ")))
+    print(byte_len(trim("   padded   ")))
     print(replace(substring("xxabcxx", 2, 5), "b", "B"))
     print(index_of(substring("xxabcxx", 2, 5), "c", 0))
     print(starts_with(substring("xxabcxx", 2, 5), "ab"))
@@ -44,6 +44,6 @@ fn main() {
     // char_at is a one-byte slice
     val c = char_at("xyz", 2)
     print(c == "z")
-    print(len(c))
+    print(byte_len(c))
     print(is_char_at("xyz", 1, "y"))
 }

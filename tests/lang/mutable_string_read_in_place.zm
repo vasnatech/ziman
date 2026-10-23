@@ -20,7 +20,7 @@ fn main() {
     print(last_index_of(sb, ""))
     set(sb, 0, "H")
     print(snapshot(sb))
-    print(len(sb))
+    print(byte_len(sb))
     // agreement with the immutable helpers on the snapshot
     val s = snapshot(sb)
     print(index_of(s, "o", 0))

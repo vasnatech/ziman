@@ -35,7 +35,7 @@ fn main() {
 
     // string escapes both ways
     val s = unwrap(json.parse_json("\"h\\u00e9llo \\ud83d\\ude00 \\/ \\b\""))
-    print(len(Json.unwrap_JString(s)))
+    print(byte_len(Json.unwrap_JString(s)))
     print(json.json_to_string(unwrap(json.parse_json("\"a\\tb\\u0001\\u001f\""))))
     print(is_ok(json.parse_json("\"\\ud83d\"")))
     print(is_ok(json.parse_json("\"\\u0000\"")))

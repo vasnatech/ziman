@@ -10,7 +10,7 @@ use fs
 
 fn describe(path: string) -> string {
     return switch fs.read_text(path) {
-        Ok(text) { concat("read ", str(len(text))) }
+        Ok(text) { concat("read ", str(byte_len(text))) }
         Err(e) {
             switch e {
                 NotFound(m) { "NotFound" }

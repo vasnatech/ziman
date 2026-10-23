@@ -16,16 +16,16 @@ fn main() {
         }
         val m = snapshot(mb)
         if Some(v) = get<int, string>(m, 42) {
-            checksum = checksum + len(v)
+            checksum = checksum + byte_len(v)
         }
         val parts = mutable_array_new<string>()
         for i in 0..8000 {
             push(parts, substring(concat("slice-me-", str(i)), 2, 7))
         }
         val items = snapshot(parts)
-        checksum = checksum + len(items[7999])
+        checksum = checksum + byte_len(items[7999])
         val window = slice<string>(items, 1000, 1200)
-        checksum = checksum + len(window[0])
+        checksum = checksum + byte_len(window[0])
     }
     print(concat("checksum=", str(checksum)))
 }

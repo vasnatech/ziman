@@ -1,0 +1,14 @@
+// `char_count` was deleted on 2026-10-23: `len` on text answers its question now. The old name
+// says so, and says where the *byte* count went too -- a reader reaching for `char_count` wants
+// `len`, but a reader who had been relying on the old byte-counting `len` wants `byte_len`, and
+// that one gets no message at all because it still compiles. Which is exactly why the swap had to
+// be swept with the compiler rather than announced.
+//
+// It is the only entry in `swapped_meaning_fn`, the fourth and narrowest of typecheck.c's tables
+// for a name that is gone. The others: a lost prefix (`renamed_builder_fn`), a plural a variadic
+// absorbed (`absorbed_by_variadic_fn`), a name describing its argument where a conversion is named
+// for its result (`renamed_for_result_fn`). This one is none of those -- nothing was renamed,
+// merged or deleted in spirit; two names traded what they answer.
+fn main() {
+    print(char_count("héllo"))
+}

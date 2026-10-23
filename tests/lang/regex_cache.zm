@@ -6,7 +6,7 @@ fn main() {
     for i in 0..3000 {
         val re = unwrap(regex.compile("([a-z]+)([0-9]+)"))
         val m = regex.find(re, "xx abc123 yy")
-        total = total + len(Option.unwrap_Some(m).text)
+        total = total + byte_len(Option.unwrap_Some(m).text)
     }
     print(total)
     print(is_ok(regex.compile("(")))

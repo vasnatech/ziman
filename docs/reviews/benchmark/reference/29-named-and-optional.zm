@@ -1,11 +1,11 @@
 fn label(text: string, width: Option<int>) -> string {
     val target = switch width {
         Some(w) { w }
-        None { len(text) }
+        None { byte_len(text) }
     }
     val sb = mutable_string_new()
     append(sb, text)
-    while len(sb) < target {
+    while byte_len(sb) < target {
         append(sb, ".")
     }
     return snapshot(sb)

@@ -7,14 +7,14 @@ fn main() {
         ORDER BY id
         """
     print(sql)
-    print(len(sql))
+    print(byte_len(sql))
     val tight = """
     a
     b\tc \"""quoted\"""  """
     print(tight)
     val empty = """
     """
-    print(len(empty))
+    print(byte_len(empty))
     print(format("[{}]", """
       x
         y"""))

@@ -34,7 +34,7 @@ fn join_all(parts: [string]) -> int {
     var n = 0
     for p in parts {
         val so_far = snapshot(out)
-        n = n + len(so_far)
+        n = n + byte_len(so_far)
         append(out, p)
     }
     return n

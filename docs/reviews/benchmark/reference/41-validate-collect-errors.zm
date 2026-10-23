@@ -6,7 +6,7 @@ struct Registration {
 
 fn problems_of(r: Registration) -> [string] {
     val found = mutable_array_new<string>()
-    if len(r.name) == 0 {
+    if byte_len(r.name) == 0 {
         push(found, "name must not be empty")
     }
     if r.age < 18 || r.age > 120 {

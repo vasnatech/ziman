@@ -98,7 +98,7 @@ fn read_response(s: net.Socket, expect_body: bool) -> string {
     var body = join(separator: "\r\n\r\n", pieces: [parts[1]])
     val lines = split(to_lower(head), "content-length: ")
     val want = unwrap(parse_int(trim(split(lines[1], "\r\n")[0])))
-    while len(body) < want {
+    while byte_len(body) < want {
         body = concat(body, unwrap(net.read_text(s, 4096)))
     }
     return concat(concat(head, "\r\n\r\n"), body)
@@ -191,7 +191,7 @@ fn main() {
     r = read_response(s, false)
     print(first_line(r))
     print(contains(r, "Content-Length: 2"))
-    print(len(split(r, "\r\n\r\n")[1]))
+    print(byte_len(split(r, "\r\n\r\n")[1]))
 
     // Connection: close on HTTP/1.1 -> answered, then the server hangs up
     put(s, "GET /health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")

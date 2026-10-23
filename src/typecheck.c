@@ -1876,6 +1876,32 @@ static const char *absorbed_by_variadic_fn(const char *name) {
  * keys or values and so is not a `to_` conversion of anything, and `snapshot(b)`, which answers
  * the type a builder is building rather than a different type. The retired `ab_to_array` points at
  * `snapshot`, not at `to_array`, and that is correct: it was a builder's own conversion. */
+/* The fourth and narrowest kind: **two names swapped what they answer**, so the old name is not
+ * renamed, absorbed or deleted -- its question is simply another name's now. It needs its own
+ * sentence because the answer has two halves: where the question went, *and* where the old answer
+ * went, since a reader typing the old name may have wanted either.
+ *
+ * `char_count` is the only entry. `len` on text counted bytes and `char_count` counted characters
+ * until 2026-10-23, when `len` became the character question and `byte_len` took the byte one. A
+ * reader reaching for `char_count` wants `len`; a reader who had been relying on `len` wants
+ * `byte_len`, and that one gets no message at all because it still compiles -- which is why the
+ * change had to be swept with the compiler rather than announced. */
+static int swapped_meaning_fn(const char *name, const char **now, const char **old_answer) {
+    static const struct {
+        const char *was;
+        const char *now;
+        const char *old_answer;
+    } SWAPPED[] = {{"char_count", "len", "byte_len"}, {NULL, NULL, NULL}};
+    for (size_t k = 0; SWAPPED[k].was != NULL; k++) {
+        if (strcmp(name, SWAPPED[k].was) == 0) {
+            *now = SWAPPED[k].now;
+            *old_answer = SWAPPED[k].old_answer;
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static const char *renamed_for_result_fn(const char *name) {
     static const struct {
         const char *was;
@@ -4318,6 +4344,14 @@ ordinary_call:;
              * notation and the reason it is not a function any more. */
             ziman_error("type", e->line, e->col, "'%s' is gone -- write '%s' instead: %s", name, as_syntax,
                         as_syntax_why);
+        }
+        const char *swapped_now = NULL;
+        const char *swapped_old = NULL;
+        if (swapped_meaning_fn(name, &swapped_now, &swapped_old)) {
+            ziman_error("type", e->line, e->col,
+                        "'%s' is now '%s': on text, '%s' counts characters -- the byte count it "
+                        "used to answer is '%s'",
+                        name, swapped_now, swapped_now, swapped_old);
         }
         const char *for_result_fn = renamed_for_result_fn(name);
         if (for_result_fn != NULL) {

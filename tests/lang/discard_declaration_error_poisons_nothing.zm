@@ -7,7 +7,7 @@
 // a poisoned binding's errors are suppressed, so `takes(keep)` passing an int where a string goes
 // was silently swallowed. That is the half with no crash to notice it.
 fn takes(s: string) -> int {
-    return len(s)
+    return byte_len(s)
 }
 
 fn main() {

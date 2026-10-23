@@ -176,7 +176,7 @@ pub fn cron(expr: string) -> Result<Schedule, string> {
 fn split_fields(expr: string) -> [string] {
     val out = mutable_array_new<string>()
     for part in split(expr, " ") {
-        if len(trim(part)) > 0 {
+        if byte_len(trim(part)) > 0 {
             push(out, trim(part))
         }
     }
@@ -208,7 +208,7 @@ fn parse_field(field: string, min: int, max: int, names: [string], label: string
     }
     for part in split(field, ",") {
         val piece = trim(part)
-        if len(piece) == 0 {
+        if byte_len(piece) == 0 {
             return err(concat("schedule.cron found an empty entry in the ", label, " field"))
         }
         // `*/n` and `a-b/n`: the step applies to whatever precedes the slash.
@@ -274,7 +274,7 @@ fn field_number(text: string, min: int, max: int, names: [string], label: string
     val upper = to_upper(text)
     var idx = 0
     while idx < len(names) {
-        if len(names[idx]) > 0 && names[idx] == upper {
+        if byte_len(names[idx]) > 0 && names[idx] == upper {
             return ok(idx)
         }
         idx = idx + 1

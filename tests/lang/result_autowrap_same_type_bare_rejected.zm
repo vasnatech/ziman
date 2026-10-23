@@ -1,5 +1,5 @@
 fn load(path: string) -> Result<string, string> {
-    if len(path) == 0 {
+    if byte_len(path) == 0 {
         return "path must not be empty"
     }
     return ok(path)

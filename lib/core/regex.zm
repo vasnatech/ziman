@@ -171,11 +171,11 @@ fn expand(replacement: string, m: Match) -> string {
     }
     val out = mutable_string_new()
     var i = 0
-    while i < len(replacement) {
+    while i < byte_len(replacement) {
         val dollar = index_of(replacement, "$", i)
         if dollar < 0 {
-            append(out, substring(replacement, i, len(replacement)))
-            i = len(replacement)
+            append(out, substring(replacement, i, byte_len(replacement)))
+            i = byte_len(replacement)
         } else {
             append(out, substring(replacement, i, dollar))
             i = dollar + 1
@@ -198,12 +198,12 @@ fn expand(replacement: string, m: Match) -> string {
                 }
             } else {
                 var j = i
-                while j < len(replacement) && is_digit_char(char_at(replacement, j)) {
+                while j < byte_len(replacement) && is_digit_char(char_at(replacement, j)) {
                     j = j + 1
                 }
                 if j == i {
                     var k = i
-                    while k < len(replacement) && is_name_char(char_at(replacement, k)) {
+                    while k < byte_len(replacement) && is_name_char(char_at(replacement, k)) {
                         k = k + 1
                     }
                     if k == i {
@@ -240,7 +240,7 @@ fn replace_matches(re: Regex, text: string, replacement: string, first_only: boo
         last = m.end
         i = if first_only { len(matches) } else { i + 1 }
     }
-    append(out, substring(text, last, len(text)))
+    append(out, substring(text, last, byte_len(text)))
     return snapshot(out)
 }
 
@@ -264,14 +264,14 @@ pub fn split(re: Regex, text: string) -> [string] {
             last = m.end
         }
     }
-    push(out, substring(text, last, len(text)))
+    push(out, substring(text, last, byte_len(text)))
     return snapshot(out)
 }
 
 // `text` with every regex metacharacter escaped, so it matches itself.
 pub fn escape(text: string) -> string {
     val out = mutable_string_new()
-    for i in 0..len(text) {
+    for i in 0..byte_len(text) {
         val c = char_at(text, i)
         if contains("\\.^$|?*+()[]{}", c) {
             append(out, "\\")

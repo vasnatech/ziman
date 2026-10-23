@@ -56,7 +56,7 @@ fn cache(requests: Channel<Request>) {
                 running = false
                 // The log proves the state is the *same* state across every request, not a fresh
                 // one per message: it has one character per Get/Put the actor ever served.
-                print(format("log: {} ({} chars)", snapshot(log), len(log)))
+                print(format("log: {} ({} chars)", snapshot(log), byte_len(log)))
                 send(r.reply, Some(get(hits)))
             }
         }

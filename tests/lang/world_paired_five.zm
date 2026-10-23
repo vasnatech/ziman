@@ -30,7 +30,7 @@ fn main() {
 
     // `inverse` turns a comparator round, which is to `sort_with` what `sort_desc` is to `sort`.
     // It composes, and knows nothing about arrays, so it serves both worlds.
-    val by_len = fn(p: string, q: string) -> int { len(p) - len(q) }
+    val by_len = fn(p: string, q: string) -> int { byte_len(p) - byte_len(q) }
     val words = ["bb", "a", "ccc"]
     print(sort_with(words, by_len))
     print(sort_with(words, inverse(by_len)))

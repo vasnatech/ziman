@@ -50,9 +50,9 @@ fn main() {
     print(map<int, float>([1, 2, 3], fn(x) { x as float / 2.0 }))
     print(map<int, bool>([1, 2, 3], fn(x) { x > 1 }))
     print(map<int, string>([1, 2], fn(x) { concat("n", str(x)) }))
-    print(map<string, int>(["a", "bcd"], fn(s) { len(s) }))
+    print(map<string, int>(["a", "bcd"], fn(s) { byte_len(s) }))
     print(filter([0.5, 1.5, 2.5], fn(x) { x > 1.0 }))
-    print(filter(["a", "bb", "c"], fn(s) { len(s) == 1 }))
+    print(filter(["a", "bb", "c"], fn(s) { byte_len(s) == 1 }))
     print(filter([1, 2, 3], fn(x) { x > 9 }))
     print(reverse(["a", "b", "c"]))
     print(reverse([1b, 2b, 3b]))
@@ -76,8 +76,8 @@ fn main() {
     // `array_order_of` is the prelude's one non-`pub` declaration and a fixture is program code --
     // so what it proved is proved through its only consumers instead: the two `sort_by` calls
     // below are ties in both directions, and stability is the property that would break first.
-    print(sort_by<string, int>(["ccc", "a", "dd", "b"], fn(s: string) -> int { return len(s) }))
-    print(sort_by_desc<string, int>(["ccc", "a", "dd", "b"], fn(s: string) -> int { return len(s) }))
+    print(sort_by<string, int>(["ccc", "a", "dd", "b"], fn(s: string) -> int { return byte_len(s) }))
+    print(sort_by_desc<string, int>(["ccc", "a", "dd", "b"], fn(s: string) -> int { return byte_len(s) }))
     var big: [int] = []
     for i in 0..300 {
         big = push(big, (i * 7919) % 101)

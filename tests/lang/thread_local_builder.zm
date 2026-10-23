@@ -25,7 +25,7 @@ fn main() {
     // What a thread keeps in its slot survives a lot of allocation (and so collections).
     var junk = 0
     for i in 0..200000 {
-        junk = junk + len(str(i))
+        junk = junk + byte_len(str(i))
     }
     set(thread.get(cache), "later", 3)
     print(len(thread.get(cache)))

@@ -68,18 +68,18 @@ fn fail(no: int, message: string) -> string {
 }
 
 fn is_digit_c(c: string) -> bool {
-    return len(c) == 1 && index_of("0123456789", c, 0) >= 0
+    return byte_len(c) == 1 && index_of("0123456789", c, 0) >= 0
 }
 
 fn hex_value(c: string) -> int {
-    if len(c) != 1 {
+    if byte_len(c) != 1 {
         return -1
     }
     return index_of(hex_chars, to_lower(c), 0)
 }
 
 fn read_hex(s: string, pos: int, n: int) -> int {
-    if pos + n > len(s) {
+    if pos + n > byte_len(s) {
         return -1
     }
     var v = 0
@@ -128,15 +128,15 @@ fn tokenize(text: string) -> Result<[Line], string> {
         no = no + 1
         val raw = if is_char_at(
             raw_line,
-            len(raw_line) - 1,
+            byte_len(raw_line) - 1,
             "\r"
-        ) { substring(raw_line, 0, len(raw_line) - 1) } else { raw_line }
+        ) { substring(raw_line, 0, byte_len(raw_line) - 1) } else { raw_line }
         var indent = 0
         while is_char_at(raw, indent, " ") {
             indent = indent + 1
         }
-        var body = substring(raw, indent, len(raw))
-        if is_char_at(body, 0, "\t") && len(trim(body)) > 0 {
+        var body = substring(raw, indent, byte_len(raw))
+        if is_char_at(body, 0, "\t") && byte_len(trim(body)) > 0 {
             return err(fail(no, "tabs are not allowed for indentation"))
         }
         val base = indent
@@ -150,7 +150,7 @@ fn tokenize(text: string) -> Result<[Line], string> {
                 skip = skip + 1
             }
             cur = cur + skip
-            body = substring(body, skip, len(body))
+            body = substring(body, skip, byte_len(body))
         }
         push(
             out,
@@ -165,7 +165,7 @@ fn strip_comment(body: string) -> string {
     var in_single = false
     var in_double = false
     var i = 0
-    while i < len(body) {
+    while i < byte_len(body) {
         val c = char_at(body, i)
         if in_double {
             if c == "\\" {
@@ -196,7 +196,7 @@ fn content_of(ln: Line) -> string {
 // The first line at or after `i` that is neither blank nor a comment.
 fn next_sig(lines: [Line], i: int) -> int {
     var j = i
-    while j < len(lines) && len(content_of(lines[j])) == 0 {
+    while j < len(lines) && byte_len(content_of(lines[j])) == 0 {
         j = j + 1
     }
     return j
@@ -209,13 +209,13 @@ fn looks_int(s: string) -> bool {
     if is_char_at(s, 0, "-") || is_char_at(s, 0, "+") {
         i = 1
     }
-    if i >= len(s) {
+    if i >= byte_len(s) {
         return false
     }
-    if char_at(s, i) == "0" && len(s) > i + 1 {
+    if char_at(s, i) == "0" && byte_len(s) > i + 1 {
         return false
     }
-    while i < len(s) {
+    while i < byte_len(s) {
         if !is_digit_c(char_at(s, i)) {
             return false
         }
@@ -229,16 +229,16 @@ fn looks_float(s: string) -> bool {
     if is_char_at(s, 0, "-") || is_char_at(s, 0, "+") {
         i = 1
     }
-    if i >= len(s) {
+    if i >= byte_len(s) {
         return false
     }
-    if char_at(s, i) == "0" && len(s) > i + 1 && is_digit_c(char_at(s, i + 1)) {
+    if char_at(s, i) == "0" && byte_len(s) > i + 1 && is_digit_c(char_at(s, i + 1)) {
         return false
     }
     var seen_dot = false
     var seen_exp = false
     var digits = 0
-    while i < len(s) {
+    while i < byte_len(s) {
         val c = char_at(s, i)
         if is_digit_c(c) {
             digits = digits + 1
@@ -249,7 +249,7 @@ fn looks_float(s: string) -> bool {
             if is_char_at(s, i + 1, "+") || is_char_at(s, i + 1, "-") {
                 i = i + 1
             }
-            if i + 1 >= len(s) {
+            if i + 1 >= byte_len(s) {
                 return false
             }
         } else {
@@ -262,7 +262,7 @@ fn looks_float(s: string) -> bool {
 
 fn parse_radix(t: string, digits: string, base: int) -> Json {
     var n = 0
-    for i in 0..len(t) {
+    for i in 0..byte_len(t) {
         val d = index_of(digits, to_lower(char_at(t, i)), 0)
         if d < 0 {
             return Json.JString(t)
@@ -274,7 +274,7 @@ fn parse_radix(t: string, digits: string, base: int) -> Json {
 
 // A plain (unquoted) scalar, typed by the YAML 1.2 core schema.
 fn plain_scalar(t: string, no: int) -> Result<Json, string> {
-    if len(t) == 0 || t == "~" || t == "null" || t == "Null" || t == "NULL" {
+    if byte_len(t) == 0 || t == "~" || t == "null" || t == "Null" || t == "NULL" {
         return ok(Json.JNull)
     }
     if t == "true" || t == "True" || t == "TRUE" {
@@ -293,20 +293,20 @@ fn plain_scalar(t: string, no: int) -> Result<Json, string> {
     if t == ".inf" || t == "-.inf" || t == "+.inf" || t == ".nan" || t == ".NaN" || t == ".Inf" {
         return err(fail(no, ".inf and .nan are not supported"))
     }
-    if starts_with(t, "0x") && len(t) > 2 {
-        return ok(parse_radix(substring(t, 2, len(t)), hex_chars, 16))
+    if starts_with(t, "0x") && byte_len(t) > 2 {
+        return ok(parse_radix(substring(t, 2, byte_len(t)), hex_chars, 16))
     }
-    if starts_with(t, "0o") && len(t) > 2 {
-        return ok(parse_radix(substring(t, 2, len(t)), "01234567", 8))
+    if starts_with(t, "0o") && byte_len(t) > 2 {
+        return ok(parse_radix(substring(t, 2, byte_len(t)), "01234567", 8))
     }
     if looks_int(t) {
-        val n = parse_int(if is_char_at(t, 0, "+") { substring(t, 1, len(t)) } else { t })
+        val n = parse_int(if is_char_at(t, 0, "+") { substring(t, 1, byte_len(t)) } else { t })
         if is_ok(n) {
             return ok(int_to_json(unwrap(n)))
         }
     }
     if looks_float(t) {
-        val f = parse_float(if is_char_at(t, 0, "+") { substring(t, 1, len(t)) } else { t })
+        val f = parse_float(if is_char_at(t, 0, "+") { substring(t, 1, byte_len(t)) } else { t })
         if is_ok(f) {
             return ok(float_to_json(unwrap(f)))
         }
@@ -318,7 +318,7 @@ fn plain_scalar(t: string, no: int) -> Result<Json, string> {
 fn read_double(s: string, pos: int, no: int) -> Result<Scalar, string> {
     val out = mutable_string_new()
     var p = pos + 1
-    while p < len(s) {
+    while p < byte_len(s) {
         val c = char_at(s, p)
         if c == "\"" {
             return ok(Scalar { value: Json.JString(snapshot(out)), next: p + 1 })
@@ -361,7 +361,7 @@ fn read_double(s: string, pos: int, no: int) -> Result<Scalar, string> {
 fn read_single(s: string, pos: int, no: int) -> Result<Scalar, string> {
     val out = mutable_string_new()
     var p = pos + 1
-    while p < len(s) {
+    while p < byte_len(s) {
         val c = char_at(s, p)
         if c == "'" {
             if is_char_at(s, p + 1, "'") {
@@ -382,7 +382,7 @@ fn read_single(s: string, pos: int, no: int) -> Result<Scalar, string> {
 
 fn skip_sp(s: string, pos: int) -> int {
     var p = pos
-    while p < len(s) && (is_char_at(s, p, " ") || is_char_at(s, p, "\t")) {
+    while p < byte_len(s) && (is_char_at(s, p, " ") || is_char_at(s, p, "\t")) {
         p = p + 1
     }
     return p
@@ -397,12 +397,12 @@ fn flow_scalar(s: string, pos: int, is_key: bool, no: int) -> Result<Scalar, str
         return read_single(s, pos, no)
     }
     var p = pos
-    while p < len(s) {
+    while p < byte_len(s) {
         val c = char_at(s, p)
         if c == "," || c == "]" || c == "}" {
             break
         }
-        if is_key && c == ":" && (p + 1 >= len(s) || contains(" ,]}", char_at(s, p + 1))) {
+        if is_key && c == ":" && (p + 1 >= byte_len(s) || contains(" ,]}", char_at(s, p + 1))) {
             break
         }
         p = p + 1
@@ -422,7 +422,7 @@ fn flow_node(s: string, pos: int, no: int, depth: int) -> Result<Scalar, string>
         return err(format("line {}: flow collections nested deeper than {}", no, max_flow_depth))
     }
     val p = skip_sp(s, pos)
-    if p >= len(s) {
+    if p >= byte_len(s) {
         return err(fail(no, "unexpected end of a flow collection"))
     }
     if is_char_at(s, p, "[") {
@@ -438,7 +438,7 @@ fn flow_seq(s: string, pos: int, no: int, depth: int) -> Result<Scalar, string> 
     val items = mutable_array_new<Json>()
     var p = skip_sp(s, pos + 1)
     while true {
-        if p >= len(s) {
+        if p >= byte_len(s) {
             return err(fail(no, "unterminated '['"))
         }
         if is_char_at(s, p, "]") {
@@ -463,7 +463,7 @@ fn flow_map(s: string, pos: int, no: int, depth: int) -> Result<Scalar, string> 
     val fields = mutable_map_new<string, Json>()
     var p = skip_sp(s, pos + 1)
     while true {
-        if p >= len(s) {
+        if p >= byte_len(s) {
             return err(fail(no, "unterminated '{'"))
         }
         if is_char_at(s, p, "}") {
@@ -505,7 +505,7 @@ fn flow_depth(s: string) -> int {
     var in_single = false
     var in_double = false
     var i = 0
-    while i < len(s) {
+    while i < byte_len(s) {
         val c = char_at(s, i)
         if in_double {
             if c == "\\" {
@@ -534,7 +534,7 @@ fn flow_depth(s: string) -> int {
 fn quote_open(s: string, quote: string) -> bool {
     // true when the scalar starting with `quote` has no closing quote yet
     var i = 1
-    while i < len(s) {
+    while i < byte_len(s) {
         val c = char_at(s, i)
         if quote == "\"" && c == "\\" {
             i = i + 2
@@ -556,30 +556,30 @@ fn quote_open(s: string, quote: string) -> bool {
 
 // `key: rest` (rest may be empty) -- None when the text is not a mapping entry.
 fn split_key(content: string, no: int) -> Result<Option<KeyRes>, string> {
-    if len(content) == 0 {
+    if byte_len(content) == 0 {
         return ok(Option<KeyRes>.None)
     }
     val first = char_at(content, 0)
     if first == "[" || first == "{" || first == "|" || first == ">" {
         return ok(Option<KeyRes>.None)
     }
-    if first == "?" && (len(content) == 1 || is_char_at(content, 1, " ")) {
+    if first == "?" && (byte_len(content) == 1 || is_char_at(content, 1, " ")) {
         return err(fail(no, "complex keys ('? ') are not supported"))
     }
     if first == "\"" || first == "'" {
         val quoted = if first == "\"" { try read_double(content, 0, no) } else { try read_single(content, 0, no) }
         val after = skip_sp(content, quoted.next)
-        if is_char_at(content, after, ":") && (after + 1 >= len(content) || is_char_at(content, after + 1, " ")) {
+        if is_char_at(content, after, ":") && (after + 1 >= byte_len(content) || is_char_at(content, after + 1, " ")) {
             return ok(Option<KeyRes>.Some(KeyRes {
                 key: Json.unwrap_JString(quoted.value),
-                rest: trim(substring(content, after + 1, len(content)))
+                rest: trim(substring(content, after + 1, byte_len(content)))
             }))
         }
         return ok(Option<KeyRes>.None)
     }
     var i = 0
-    while i < len(content) {
-        if char_at(content, i) == ":" && (i + 1 >= len(content) || is_char_at(content, i + 1, " ")) {
+    while i < byte_len(content) {
+        if char_at(content, i) == ":" && (i + 1 >= byte_len(content) || is_char_at(content, i + 1, " ")) {
             val key = trim(substring(content, 0, i))
             if key == "<<" {
                 return err(fail(no, "the '<<' merge key is not supported"))
@@ -587,7 +587,7 @@ fn split_key(content: string, no: int) -> Result<Option<KeyRes>, string> {
             if starts_with(key, "&") || starts_with(key, "*") || starts_with(key, "!") {
                 return err(fail(no, "anchors, aliases and tags are not supported"))
             }
-            return ok(Option<KeyRes>.Some(KeyRes { key: key, rest: trim(substring(content, i + 1, len(content))) }))
+            return ok(Option<KeyRes>.Some(KeyRes { key: key, rest: trim(substring(content, i + 1, byte_len(content))) }))
         }
         i = i + 1
     }
@@ -598,7 +598,7 @@ fn split_key(content: string, no: int) -> Result<Option<KeyRes>, string> {
 fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<NodeRes, string> {
     val no = lines[j].no
     var chomp = "clip"
-    for k in 1..len(header) {
+    for k in 1..byte_len(header) {
         val c = char_at(header, k)
         if c == "-" {
             chomp = "strip"
@@ -619,7 +619,7 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
             i = i + 1
             continue
         }
-        val blank = len(trim(ln.raw)) == 0
+        val blank = byte_len(trim(ln.raw)) == 0
         if !blank && ln.indent <= base {
             break
         }
@@ -631,14 +631,14 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
         }
         push(
             body_lines,
-            if blank { (if indent >= 0 && len(ln.raw) > indent { substring(
+            if blank { (if indent >= 0 && byte_len(ln.raw) > indent { substring(
                 ln.raw,
                 indent,
-                len(ln.raw)
+                byte_len(ln.raw)
             ) } else { "" }) } else { substring(
                 ln.raw,
                 indent,
-                len(ln.raw)
+                byte_len(ln.raw)
             ) }
         )
         i = i + 1
@@ -649,7 +649,7 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
     val all = snapshot(body_lines)
     // trailing blank lines belong to the chomping, not the text
     var count = len(all)
-    while count > 0 && len(all[count - 1]) == 0 {
+    while count > 0 && byte_len(all[count - 1]) == 0 {
         count = count - 1
     }
     val out = mutable_string_new()
@@ -658,9 +658,9 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
         if k > 0 {
             if literal {
                 append(out, "\n")
-            } else if len(all[k]) == 0 {
+            } else if byte_len(all[k]) == 0 {
                 append(out, "\n")
-            } else if len(all[k - 1]) == 0 {
+            } else if byte_len(all[k - 1]) == 0 {
                 // a blank line already produced its own newline
             } else {
                 append(out, " ")
@@ -699,7 +699,7 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
             next = next + 1
         }
         val node = try flow_node(text, 0, no, 0)
-        if skip_sp(text, node.next) < len(text) {
+        if skip_sp(text, node.next) < byte_len(text) {
             return err(fail(no, "unexpected text after a flow collection"))
         }
         return ok(NodeRes { value: node.value, next: next })
@@ -710,7 +710,7 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
             next = next + 1
         }
         val node = if first == "\"" { try read_double(text, 0, no) } else { try read_single(text, 0, no) }
-        if skip_sp(text, node.next) < len(text) {
+        if skip_sp(text, node.next) < byte_len(text) {
             return err(fail(no, "unexpected text after a quoted scalar"))
         }
         return ok(NodeRes { value: node.value, next: next })
@@ -725,7 +725,7 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
     // redesign of the scanner rather than a rewrite of the loop (D22, F133).
     val plain = mutable_string_new()
     append(plain, text)
-    while next < len(lines) && len(content_of(lines[next])) > 0 && lines[next].indent > parent_indent {
+    while next < len(lines) && byte_len(content_of(lines[next])) > 0 && lines[next].indent > parent_indent {
         append(plain, " ")
         append(plain, content_of(lines[next]))
         next = next + 1
@@ -774,7 +774,7 @@ fn parse_seq(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
             j = item.next
         }
     }
-    if j < len(lines) && lines[j].indent > ind && len(content_of(lines[j])) > 0 {
+    if j < len(lines) && lines[j].indent > ind && byte_len(content_of(lines[j])) > 0 {
         return err(fail(lines[j].no, "unexpected indentation"))
     }
     return ok(NodeRes { value: Json.JArray(snapshot(items)), next: j })
@@ -805,7 +805,7 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
         }
         var value = Json.JNull
         var after = j + 1
-        if len(entry.rest) == 0 {
+        if byte_len(entry.rest) == 0 {
             val nxt = next_sig(lines, j + 1)
             if nxt < len(lines) && lines[nxt].indent > ind {
                 val node = try parse_node(lines, j + 1, ind + 1)
@@ -875,7 +875,7 @@ fn quote_double(s: string) -> string {
     val out = mutable_string_new()
     append(out, "\"")
     var i = 0
-    while i < len(s) {
+    while i < byte_len(s) {
         val c = char_at(s, i)
         if c == "\"" {
             append(out, "\\\"")
@@ -906,16 +906,16 @@ fn quote_double(s: string) -> string {
 
 // A string as YAML text: plain when it reads back as the same string, else double-quoted.
 fn string_text(s: string) -> string {
-    if len(s) == 0 {
+    if byte_len(s) == 0 {
         return "\"\""
     }
     val parsed = plain_scalar(s, 0)
     if !is_ok(parsed) || !Json.is_JString(unwrap(parsed)) || Json.unwrap_JString(unwrap(parsed)) != s {
         return quote_double(s)
     }
-    if is_char_at(s, 0, " ") || is_char_at(s, len(s) - 1, " ") || is_char_at(s, 0, "\t") || is_char_at(
+    if is_char_at(s, 0, " ") || is_char_at(s, byte_len(s) - 1, " ") || is_char_at(s, 0, "\t") || is_char_at(
         s,
-        len(s) - 1,
+        byte_len(s) - 1,
         "\t"
     ) {
         return quote_double(s)
@@ -923,10 +923,10 @@ fn string_text(s: string) -> string {
     if contains("-?:,[]{}#&*!|>'\"%@`", char_at(s, 0)) {
         return quote_double(s)
     }
-    if contains(s, ": ") || contains(s, " #") || is_char_at(s, len(s) - 1, ":") {
+    if contains(s, ": ") || contains(s, " #") || is_char_at(s, byte_len(s) - 1, ":") {
         return quote_double(s)
     }
-    for i in 0..len(s) {
+    for i in 0..byte_len(s) {
         if compare(char_at(s, i), " ") < 0 {
             return quote_double(s)
         }
@@ -1001,7 +1001,7 @@ fn pad_of(n: int) -> string {
 fn write_map(out: MutableString, obj: Json, indent: int, first_prefix: string) {
     var first = true
     for key, value in Json.unwrap_JObject(obj) {
-        append(out, if first && len(first_prefix) > 0 { first_prefix } else { pad_of(indent) })
+        append(out, if first && byte_len(first_prefix) > 0 { first_prefix } else { pad_of(indent) })
         first = false
         if is_container(value) && !is_empty_container(value) {
             append(out, key_text(key), ":\n")

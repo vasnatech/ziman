@@ -14,7 +14,7 @@ fn main() {
     val sb = mutable_string_new()
     append(sb, "hello")
     clear(sb)
-    print(len(sb))
+    print(byte_len(sb))
     append(sb, "new")
     print(snapshot(sb))
 

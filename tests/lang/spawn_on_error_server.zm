@@ -24,7 +24,7 @@ fn ask(port: int, path: string) -> string {
     var more = true
     while more {
         val chunk = net.read_text(sock, 4096)
-        if is_ok(chunk) && len(unwrap(chunk)) > 0 {
+        if is_ok(chunk) && byte_len(unwrap(chunk)) > 0 {
             append(out, unwrap(chunk))
         } else {
             more = false

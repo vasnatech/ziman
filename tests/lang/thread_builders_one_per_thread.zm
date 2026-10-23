@@ -15,7 +15,7 @@ fn main() {
     }
     var total = 0
     for _ in 0..4 {
-        total = total + len(receive(out))
+        total = total + byte_len(receive(out))
     }
     print(total)
     val sb = mutable_string_new()

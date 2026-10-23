@@ -1,7 +1,7 @@
 fn is_palindrome(text: string) -> bool {
     val cleaned = to_lower(replace(text, " ", ""))
     var i = 0
-    var j = len(cleaned) - 1
+    var j = byte_len(cleaned) - 1
     while i < j {
         if char_at(cleaned, i) != char_at(cleaned, j) {
             return false
