@@ -1,0 +1,67 @@
+// `union` and `intersect` taking any number of sets, 2026-10-22, in `merge`'s shape: the immutable
+// member has no distinguished receiver, so `union(a, b, c)` and `union(sets)` are the same call and
+// folding a list needs no loop at the call site. Both are symmetric, which is what makes a receiver
+// pointless for them -- `difference` keeps one because it is not.
+//
+// **The two in-place members stay distinguishable only because of `#[at_least_one]`.** They differ
+// in the *element type* of their variadic tail, `Set` against `MutableSet`, and nothing else; with
+// a zero-length tail allowed, `union(s)` would match both with no argument to choose between them.
+// The attribute is part of the arity and so part of distinguishability, which is the load-bearing
+// use of it rather than a decorative one.
+//
+// **A tail comes from one world.** `union(target, aSet, aMutableSet)` is a type error naming
+// argument 3, because a parameter cannot be both -- the wall `concat` and `merge` document.
+//
+// **`union` of none is the empty set; `intersect` of none is a runtime error.** The asymmetry is
+// the mathematics: union's identity is the empty set and exists, intersection's is the universal
+// set and does not. `concat()` succeeds for the same reason `union` does, and `min`/`max` of an
+// empty array raise for the same reason `intersect` does. `#[at_least_one]` rules out a call with
+// no argument at all; an empty array *spread* is one argument and reaches the function, which is
+// exactly the hole that segfaulted `merge` on the same day.
+fn main() {
+    val a = to_set([1, 2, 3])
+    val b = to_set([3, 4])
+    val c = to_set([3, 9])
+
+    // one, two, three, and a spread list -- all the same name
+    print(to_array(union(a)))
+    print(to_array(union(a, b)))
+    print(to_array(union(a, b, c)))
+    print(to_array(union([a, b, c])))
+
+    print(to_array(intersect(a)))
+    print(to_array(intersect(a, b, c)))
+    print(to_array(intersect([a, b, c])))
+
+    // union of nothing is the empty set
+    val no_sets: [Set<int>] = []
+    print(len(union(no_sets)))
+
+    // in-place, with Set operands and then with MutableSet operands
+    val m1 = mutable_set_new<int>()
+    add(m1, 1, 2, 3)
+    union(m1, b, c)
+    intersect(m1, to_set([2, 3, 9]))
+    print(to_array(m1))
+
+    val ob = mutable_set_new<int>()
+    add(ob, 3, 4)
+    val oc = mutable_set_new<int>()
+    add(oc, 3, 9)
+    val m2 = mutable_set_new<int>()
+    add(m2, 1, 2, 3)
+    union(m2, ob, oc)
+    print(to_array(m2))
+
+    val m3 = mutable_set_new<int>()
+    add(m3, 1, 2, 3)
+    intersect(m3, ob, oc)
+    print(to_array(m3))
+
+    // an empty operand tail is a no-op, which is what naming only the receiver means
+    val m4 = mutable_set_new<int>()
+    add(m4, 7)
+    union(m4, no_sets)
+    intersect(m4, no_sets)
+    print(to_array(m4))
+}

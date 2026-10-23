@@ -7,6 +7,11 @@
 //
 // The immutable halves take only a Set as their operand, where the builder halves take either.
 // That asymmetry predates this pairing and is left alone rather than quietly widened.
+//
+// **`union` and `intersect` went variadic on 2026-10-22** and their coverage moved to
+// `union_and_intersect_variadic`; the calls below still read as two-operand because a variadic
+// accepts exactly two as well, which is the whole reason the merge cost no call site anything.
+// `difference` and `is_subset` are unchanged -- one is not symmetric, the other is a predicate.
 fn main() {
     val a = Set<int> { 1, 2 }
     val b = Set<int> { 2, 3 }

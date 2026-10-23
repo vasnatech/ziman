@@ -2737,40 +2737,61 @@ pub native fn to_mutable_array<T: Eq + Hash>(s: MutableSet<T>) -> MutableArray<T
 ### `union`
 
 ```
-pub native fn union<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+pub native fn union<T: Eq + Hash>(sets: variadic Set<T>) -> Set<T>
 ```
 
-**Every element of either**, `s` first and `other`'s new elements after, each in the order it
-was first seen.
+**Every element of every set given**, each in the order it was first seen.
+
+**Variadic since 2026-10-22**, in `merge`'s shape rather than a receiver with one operand:
+`union(a, b, c)` and `union(sets)` are the same call, so folding a list of sets needs no loop at
+the call site. Symmetric, which is why the immutable member has no distinguished receiver at all
+-- `difference` below keeps one because it is not symmetric.
+
+**`union` of none is the empty set.** An empty array spread is one argument, so
+`#[at_least_one]` does not rule it out, and a variadic with an identity reads perfectly well
+empty -- the same rule that makes `concat()` the empty string. `intersect` is the contrast.
 
 ```
-pub native fn union<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+pub native fn union<T: Eq + Hash>(s: MutableSet<T>, others: variadic Set<T>)
 ```
 
-The same written into `s`, answering nothing. Two declarations for one question: `other` is a
-`Set` here and a `MutableSet` below, and a parameter cannot be both.
+The same written into `s`, answering nothing, with any number of operands. Two declarations for
+one question: the tail is `Set`s here and `MutableSet`s below, and a parameter cannot be both --
+the wall `concat` and `merge` document. `#[at_least_one]` is load-bearing on this pair rather
+than decorative: it is part of the arity, and without it `union(s)` would match both with
+nothing to choose between them.
 
 ```
-pub native fn union<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+pub native fn union<T: Eq + Hash>(s: MutableSet<T>, others: variadic MutableSet<T>)
 ```
 
 ### `intersect`
 
 ```
-pub native fn intersect<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
+pub native fn intersect<T: Eq + Hash>(sets: variadic Set<T>) -> Set<T>
 ```
 
-**Only the elements in both**, in `s`'s order. O(len(s)) lookups against `other`, which is why
-the smaller set reads better as `s`.
+**Only the elements in every set given**, in the first one's order. Variadic since 2026-10-22,
+beside `union` and for the same reason: an intersection of three sets is one question, and
+writing it as nested pairs says less.
+
+Folded left, so each later set only removes and the work falls to the smallest set seen so far.
+Order the arguments smallest-first when it is known and cheap to know; the answer is the same
+either way.
+
+**`intersect` of none is a runtime error, where `union` of none is the empty set.** That
+asymmetry is the mathematics: union's identity is the empty set and exists, intersection's is the
+universal set and does not. `min`/`max` of an empty array raise for the same reason, and
+`concat()` succeeds because its identity is the empty string.
 
 ```
-pub native fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)
+pub native fn intersect<T: Eq + Hash>(s: MutableSet<T>, others: variadic Set<T>)
 ```
 
-The same written into `s`, answering nothing.
+The same written into `s`, answering nothing, with any number of operands.
 
 ```
-pub native fn intersect<T: Eq + Hash>(s: MutableSet<T>, other: MutableSet<T>)
+pub native fn intersect<T: Eq + Hash>(s: MutableSet<T>, others: variadic MutableSet<T>)
 ```
 
 ### `difference`
@@ -2782,6 +2803,12 @@ pub native fn difference<T: Eq + Hash>(s: Set<T>, other: Set<T>) -> Set<T>
 **`s` without anything `other` holds**, in `s`'s order. Not symmetric: `difference(a, b)` and
 `difference(b, a)` are different questions, which is why the receiver is named `s` and the
 argument `other` rather than giving them matching names.
+
+**Still two-operand where `union` and `intersect` went variadic on 2026-10-22**, and the reason
+is that asymmetry. A variadic `difference` would have to mean "`s` without anything in any of the
+rest", which is a useful fold and a different question from the one the name answers now; it was
+not asked for and is not assumed. `is_subset` below is left alone for a related reason: it is a
+predicate rather than a fold, so "a subset of all of these" is a second question too.
 
 ```
 pub native fn difference<T: Eq + Hash>(s: MutableSet<T>, other: Set<T>)

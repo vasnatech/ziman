@@ -2888,42 +2888,77 @@ static Value native_mutable_map_merge(Value *args, int argc, int line, int col) 
  * `value_int(0)` and reads keys only. No `native_gc_unsafe_enter`: these call no closure, so
  * there is no gap between two allocations for a collection to land in -- see `native_map_filter`,
  * which does guard, and `native_map_merge`, which does not and is this same shape. */
+/* `union` over any number of immutable Sets, variadic since 2026-10-22 as `merge` already was:
+ * `args[0]` is one array of sets however the call was written, so `union(a, b, c)` and
+ * `union(sets)` are the same call and folding a list needs no loop at the call site.
+ *
+ * **Empty answers the empty set**, the rule the language states for a variadic with an identity --
+ * `concat()` is "" -- and a case to handle rather than assume away: `#[at_least_one]` stops
+ * `union()` at compile time, but an empty array spread is one argument, which is the hole that
+ * crashed `merge`. `intersect` below has no identity and raises instead. */
 static Value native_set_union(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    MapObj *m = args[0].as.map;
-    Value *keys;
-    mapobj_entries(args[1].as.map, &keys, NULL);
-    for (int i = 0; i < args[1].as.map->count; i++) m = mapobj_set(m, keys[i], value_int(0));
-    return value_map(args[0].type, m);
+    const ArrayObj *sets = args[0].as.arr;
+    if (sets->count == 0) return value_map(type_scalar_ref(TY_VOID), mapobj_empty());
+    Value first = array_get(sets, 0);
+    MapObj *m = first.as.map;
+    for (int i = 1; i < sets->count; i++) {
+        Value next = array_get(sets, i);
+        Value *keys;
+        mapobj_entries(next.as.map, &keys, NULL);
+        for (int j = 0; j < next.as.map->count; j++) m = mapobj_set(m, keys[j], value_int(0));
+    }
+    return value_map(first.type, m);
 }
 
 /* `intersect` and `difference` are one walk and one bit: keep an element when the other set's
  * answer matches what we are looking for. */
-static Value set_keep_matching(Value *args, int keep_present) {
+/* One step of `intersect`/`difference`: the elements of `acc` present in (or absent from) `other`.
+ * `difference` is a two-operand declaration and uses this once; `intersect` is variadic and folds
+ * it. */
+static MapObj *set_keep_step(MapObj *acc, MapObj *other, int keep_present) {
     Value *keys;
     Value ignored; /* mapobj_get always writes through this; see ziman_mutable_set_combine. */
     MapObj *out = mapobj_empty();
-    mapobj_entries(args[0].as.map, &keys, NULL);
-    for (int i = 0; i < args[0].as.map->count; i++) {
-        if (mapobj_get(args[1].as.map, keys[i], &ignored) == keep_present) out = mapobj_set(out, keys[i], value_int(0));
+    mapobj_entries(acc, &keys, NULL);
+    for (int i = 0; i < acc->count; i++) {
+        if (mapobj_get(other, keys[i], &ignored) == keep_present) out = mapobj_set(out, keys[i], value_int(0));
     }
-    return value_map(args[0].type, out);
+    return out;
 }
 
+/* `intersect` over any number of immutable Sets, variadic since 2026-10-22.
+ *
+ * **Empty raises where `union` answers the empty set**, and the asymmetry is the mathematics rather
+ * than an oversight: union's identity is the empty set, which exists, and intersection's is the
+ * universal set, which does not. `min`/`max` raise for the same reason.
+ *
+ * Folds left, so each later set only removes from the accumulator -- the work falls to the smallest
+ * set seen so far rather than staying at the first's size. */
 static Value native_set_intersect(Value *args, int argc, int line, int col) {
     (void)argc;
-    (void)line;
-    (void)col;
-    return set_keep_matching(args, 1);
+    const ArrayObj *sets = args[0].as.arr;
+    if (sets->count == 0) {
+        ziman_error("runtime", line, col,
+                    "'intersect' of no sets -- there is no universal set to answer with, unlike "
+                    "'union' of none, which is the empty set");
+    }
+    Value first = array_get(sets, 0);
+    MapObj *acc = first.as.map;
+    for (int i = 1; i < sets->count; i++) acc = set_keep_step(acc, array_get(sets, i).as.map, 1);
+    return value_map(first.type, acc);
 }
 
+/* `difference` stays two-operand: it is not symmetric -- `difference(a, b)` and `difference(b, a)`
+ * are different questions -- so a variadic form would have to mean "a without anything in any of
+ * the rest", a fold worth having but a different request than the one made. */
 static Value native_set_difference(Value *args, int argc, int line, int col) {
     (void)argc;
     (void)line;
     (void)col;
-    return set_keep_matching(args, 0);
+    return value_map(args[0].type, set_keep_step(args[0].as.map, args[1].as.map, 0));
 }
 
 static Value native_set_is_subset(Value *args, int argc, int line, int col) {
@@ -2945,7 +2980,14 @@ static Value native_mutable_set_union(Value *args, int argc, int line, int col) 
     (void)argc;
     (void)line;
     (void)col;
-    ziman_mutable_set_combine(args[0], args[1], args[1].type->kind == TY_STRUCT, 0);
+    /* Variadic on parameter two since 2026-10-22: one operand or many, each told apart from the
+     * other world by its own runtime kind, the shape `mutable_map_merge` already had. An empty
+     * tail is a no-op, which is what naming only the receiver already means. */
+    const ArrayObj *others = args[1].as.arr;
+    for (int i = 0; i < others->count; i++) {
+        Value next = array_get(others, i);
+        ziman_mutable_set_combine(args[0], next, next.type->kind == TY_STRUCT, 0);
+    }
     return value_int(0);
 }
 
@@ -2953,7 +2995,14 @@ static Value native_mutable_set_intersect(Value *args, int argc, int line, int c
     (void)argc;
     (void)line;
     (void)col;
-    ziman_mutable_set_combine(args[0], args[1], args[1].type->kind == TY_STRUCT, 1);
+    /* Variadic on parameter two since 2026-10-22: one operand or many, each told apart from the
+     * other world by its own runtime kind, the shape `mutable_map_merge` already had. An empty
+     * tail is a no-op, which is what naming only the receiver already means. */
+    const ArrayObj *others = args[1].as.arr;
+    for (int i = 0; i < others->count; i++) {
+        Value next = array_get(others, i);
+        ziman_mutable_set_combine(args[0], next, next.type->kind == TY_STRUCT, 1);
+    }
     return value_int(0);
 }
 

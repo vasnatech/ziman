@@ -407,6 +407,19 @@ for x in seen { ... }                    // a set has one binder
   each has three declarations, and **argument two** chooses between two of them, because a
   `MutableSet`'s operand may come from either world. The immutable halves still take only a
   `Set` as their operand, an asymmetry that predates the pairing and was left alone.
+- **`union` and `intersect` are variadic as of 2026-10-22**, in `merge`'s shape: the immutable
+  member has no distinguished receiver at all (`union(a, b, c)` and `union(sets)` are the same
+  call, so folding a list needs no loop), and each in-place member takes any number of operands.
+  Both are symmetric, which is what makes a receiver pointless for them. The operands of one call
+  must come from **one** world — a tail is `Set`s or `MutableSet`s, since a parameter cannot be
+  both — so mixing them in a single call is a type error naming the argument.
+  **`union` of none is the empty set and `intersect` of none is a runtime error**, which is the
+  mathematics rather than an inconsistency: union's identity is the empty set and exists,
+  intersection's is the universal set and does not. (`#[at_least_one]` rules out `union()` with no
+  argument at all; an empty array *spread* is one argument and still reaches the function.)
+  `difference` stays two-operand because it is not symmetric, and `is_subset` because it is a
+  predicate rather than a fold — a variadic form of either would answer a second question, not the
+  same one over more arguments.
 - **`get(m, k)`, `get_or(m, k, d)` and `to_array(s)` take either world too**, items 3 and 4
   of the same pass: a `Map` or a `MutableMap` for the first two, a `Set` or a `MutableSet`
   for `to_array`. `map_get`, `map_get_or`, `set_items`, `mutable_map_get`, `mutable_map_get_or`

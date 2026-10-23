@@ -1,0 +1,13 @@
+// `intersect` of an empty spread is a runtime error where `union` of one answers the empty set.
+// The asymmetry is the mathematics and not an inconsistency: union's identity is the empty set,
+// which exists, and intersection's is the universal set, which does not. `min`/`max` of an empty
+// array raise for the same reason; `concat()` succeeds for the same reason `union` does.
+//
+// It is a *runtime* error rather than a compile error because `#[at_least_one]` cannot see this:
+// an empty array spread is one argument, which SYNTAX.md documents as the deliberate way to spread
+// a list that may be empty. That gap is what segfaulted `merge` the same day, found by checking
+// this very case.
+fn main() {
+    val none: [Set<int>] = []
+    print(len(intersect(none)))
+}
