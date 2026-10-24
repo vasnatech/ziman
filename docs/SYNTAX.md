@@ -2326,13 +2326,30 @@ makes an empty one, no jar means nothing remembered); `post_form(url, Map)`/`for
 
 ## Files (`fs`)
 
-`fs.read_text`/`write_text`/`append_text`/`exists`/`is_dir`/`size`/`remove` (file or empty
-directory)/`make_dir`/`rename`/`list_dir` (sorted). `fs.lines(path)` reads a file lazily line by
+`fs.read_text`/`write_text`/`write_text_atomic`/`append_text` and their `_bytes` twins;
+`exists`/`is_dir`/`is_file`/`size`/`modified_seconds`/`list_dir` (sorted); `make_dir` (one level)
+/`make_dirs` (like `mkdir -p`)/`rename`/`copy_file`; `remove` (a file or an *empty* directory) and
+`remove_all` (a path and everything under it). `fs.lines(path)` reads a file lazily line by
 line as an `Iter` (memory for one line, any file size); `fs.chunks(path, size)` the same for
 byte blocks (`Iter<Result<[byte], string>>`); `fs.walk(dir)` finds files under a directory depth
 first, sorted, without listing them all first (`Iter<Result<string, string>>`; directories not
-listed, a symlink to one not followed). Everything fallible returns `Result<_, string>` with
-the OS message.
+listed, a symlink to one not followed).
+
+- **Everything fallible returns `Result<_, FsError>`** — an enum of `NotFound`, `Denied`,
+  `IsDirectory`, `NotDirectory`, `Exists` and `Other`, each carrying the OS's own message, so the
+  three cases a program branches on are variants rather than substrings of `strerror`.
+  `fs.fs_error_message(e)` is the text; the name keeps its prefix because `error_message`
+  dispatches to `<type>_message` by name.
+- **`remove_all` unlinks a symbolic link, it does not follow one.** It is implemented against
+  `lstat` for that reason: `is_dir` calls `stat`, which follows a link, so the obvious Ziman
+  implementation would descend a link pointing out of the tree and delete the target's contents.
+  It is `Ok(unit)` for a path that is not there, which is what makes it usable as an unguarded
+  cleanup; a failure stops and names the path that failed, there being no useful "mostly deleted"
+  answer.
+- **`fs.temp_dir()`** is `$TMPDIR` (without a trailing slash) or `/tmp` — a directory, not a
+  unique path inside one, so combine it with something of your own via `path_join`.
+- **`fs.path_join(pieces...)`/`file_name`/`parent_dir`/`extension`** are the path helpers, all
+  pure string work with no filesystem access.
 
 `fs.resolve(name) -> Option<string>` finds `name` by searching `ZIMAN_RESOURCE_PATH` (a
 colon-separated list, first match wins, like `PATH`/a Java classpath). Unset, it returns

@@ -332,6 +332,8 @@ pub fn resolve(name: string) -> Option<string>
 
 pub fn remove(path: string) -> Result<unit, FsError>
 
+pub fn remove_all(path: string) -> Result<unit, FsError>
+
 pub fn make_dir(path: string) -> Result<unit, FsError>
 
 pub fn make_dirs(path: string) -> Result<unit, FsError>
@@ -339,6 +341,8 @@ pub fn make_dirs(path: string) -> Result<unit, FsError>
 pub fn rename(from: string, to: string) -> Result<unit, FsError>
 
 pub fn copy_file(from: string, to: string) -> Result<int, FsError>
+
+pub fn temp_dir() -> string
 
 pub fn path_join(pieces: variadic string) -> string
 

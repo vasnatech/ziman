@@ -190,6 +190,7 @@ them against the code.
 - [`bits` stops naming the type, and a BitSet becomes a set (2026-10-24)](#bits-stops-naming-the-type-and-a-bitset-becomes-a-set-2026-10-24)
 - [`csv` stops stuttering, and `_with` becomes an argument (2026-10-24)](#csv-stops-stuttering-and-_with-becomes-an-argument-2026-10-24)
 - [Five character classes, and why they are ASCII (2026-10-24)](#five-character-classes-and-why-they-are-ascii-2026-10-24)
+- [`fs` loses a hundred lines of ceremony, and gains the two functions it was missing (2026-10-24)](#fs-loses-a-hundred-lines-of-ceremony-and-gains-the-two-functions-it-was-missing-2026-10-24)
 
 <!-- end index -->
 
@@ -8108,3 +8109,29 @@ Being ASCII buys something beyond agreeing with the callers. **No UTF-8 decoding
 Both worlds carry a prefixed C registration -- `string_is_alpha` and `mutable_string_is_alpha`, never a bare `is_alpha` -- because `native_lookup(fn->name)` is consulted before the world-prefix fallback, so a bare name would be found first and run the `string` implementation on a builder's handle. `char_at` and `last_index_of` both fell into that, a day apart, and it is the third time the same trap has been worth writing down.
 
 Verified: `make check` green, 1,178 fixtures on both builds. `tests/lang/string_character_classes.zm` covers both worlds, the empty case for each, `٤٢` and `héllo` as the ASCII boundary, and a lone 0xFF built with `append_byte` -- the only route by which invalid UTF-8 can still reach a string.
+
+## `fs` loses a hundred lines of ceremony, and gains the two functions it was missing (2026-10-24)
+
+`fs.zm` needed no rename -- its names are already short verbs, and the one prefix it carries, `fs_error_message`, is required by `error_message`'s `<type>_message` lookup. What it had instead was repetition and two gaps, both of which the tree itself pointed at.
+
+**Eighteen public functions were the same six lines.** Each native answers `Result<T, string>` carrying the `"category|message"` shape, and each public form converts that to `Result<T, FsError>`:
+
+    pub fn remove(path: string) -> Result<unit, FsError> {
+        val r = remove_raw(path)
+        if Err(e) = r { return err(fs_error_from_raw(e)) }
+        return ok(unwrap(r))
+    }
+
+written out eighteen times, differing only in which `_raw` it called -- about a hundred lines saying one thing. One generic `lift<T>(r: Result<T, string>) -> Result<T, FsError>` says it instead, and every public function became a one-line call. The `T` is what made it possible rather than clever: `unit`, `int`, `string`, `[byte]`, `[string]` and three distinct `Iter` shapes all pass through unchanged. 402 lines to 343, with no call site anywhere affected, because none of this was ever visible outside the file.
+
+**`remove_all` was hand-rolled in the fixtures, which is how a missing function announces itself.** `make_dirs` exists (`mkdir -p`) and had no counterpart, so `tests/lang/fs_extended.zm` deleted its tree with six `fs.remove` calls in dependency order and `fs_basic.zm` with three. Both are one call now.
+
+**It is written in C, and the reason is `lstat`.** The obvious Ziman implementation is `is_dir(p)` then recurse over `list_dir(p)`, and for a *destructive* operation it is wrong in a way worth stating plainly: `is_dir` calls `stat`, which follows symbolic links, so a link inside the tree pointing at a directory outside it would be descended into and its target's contents deleted. `lstat` answers about the link itself, so a link is unlinked and never followed -- the same care `walk` already takes. `tests/lang/fs_remove_all.zm` builds exactly that shape, with a file in the outside directory that must survive, and it does.
+
+Two smaller decisions in it. Missing is **not** an error: a `remove_all` of a path that is not there has already achieved what it was asked, which is what makes it usable as the unguarded cleanup the fixtures want. And a failure **stops** and names the path that failed rather than carrying on, because there is no useful "mostly deleted" answer to hand back.
+
+**`temp_dir()` replaces a hardcoded `/tmp`** that `process.output` was building paths under. That is wrong twice: a system may put the writable temporary directory elsewhere and say so through `TMPDIR`, and a sandbox may make `/tmp` unwritable. It answers a directory rather than a unique path inside one, since the uniqueness ingredient (`os.pid()`) belongs to the caller.
+
+**What was deliberately not done: `write_text`/`write_bytes` were left alone.** They could be one `write` told apart by the argument's type, which is the rule the rest of this week's renames moved under. The reads cannot -- `read_text` and `read_bytes` differ only in return type -- so collapsing the writes would leave `fs.read_text` beside `fs.write`, and the asymmetry between a pair that reads and writes the same thing is worse than the prefix. A rule that would break a symmetry is the wrong rule to apply there.
+
+Found while verifying: `process.run`'s parameters carry default values (`vars: Option<[EnvVar]> = None`), and a default **still** does not make a parameter positionally omittable -- `process.run("ln", args)` is rejected for want of six arguments. Only an all-named call may omit one. That is the same constraint `csv` ran into earlier the same day, now confirmed to hold for defaults as well as for bare `Option`s.

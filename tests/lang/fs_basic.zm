@@ -1,10 +1,8 @@
 use fs
 
 fn main() {
-    val d = "/tmp/ziman_fixture_fs_basic"
-    val _ = fs.remove(format("{}/b.txt", d))
-    val _ = fs.remove(format("{}/a.txt", d))
-    val _ = fs.remove(d)
+    val d = fs.path_join(fs.temp_dir(), "ziman_fixture_fs_basic")
+    val _ = fs.remove_all(d)
     print(fs.exists(d))
     print(fs.make_dir(d))
     print(fs.is_dir(d))

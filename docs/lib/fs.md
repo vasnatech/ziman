@@ -238,6 +238,12 @@ directory follow the same convention as anything else that calls this directly.
 pub fn remove(path: string) -> Result<unit, FsError>
 ```
 
+### `remove_all`
+
+```
+pub fn remove_all(path: string) -> Result<unit, FsError>
+```
+
 ### `make_dir`
 
 ```
@@ -261,6 +267,21 @@ pub fn rename(from: string, to: string) -> Result<unit, FsError>
 ```
 pub fn copy_file(from: string, to: string) -> Result<int, FsError>
 ```
+
+### `temp_dir`
+
+```
+pub fn temp_dir() -> string
+```
+
+**The directory for temporary files**: `$TMPDIR` without its trailing slash, or `/tmp`.
+
+Hardcoding `/tmp` was what `process.zm` did, and it is wrong twice over -- a system may put the
+writable temporary directory elsewhere and say so through `TMPDIR`, and a sandbox may make
+`/tmp` unwritable. Reading the variable costs nothing and is what every other runtime does.
+
+This answers a directory, not a unique path inside one: combine it with something of your own
+(`os.pid()` is the usual ingredient) via `path_join`.
 
 ## Paths
 

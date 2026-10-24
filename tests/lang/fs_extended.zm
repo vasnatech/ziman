@@ -1,13 +1,10 @@
 use fs
 
 fn main() {
-    val d = "/tmp/ziman_fixture_fs_extended"
-    val _ = fs.remove(fs.path_join(d, "a", "b", "f.bin"))
-    val _ = fs.remove(fs.path_join(d, "a", "b"))
-    val _ = fs.remove(fs.path_join(d, "a"))
-    val _ = fs.remove(fs.path_join(d, "copy.bin"))
-    val _ = fs.remove(fs.path_join(d, "atomic.txt"))
-    val _ = fs.remove(d)
+    val d = fs.path_join(fs.temp_dir(), "ziman_fixture_fs_extended")
+    // One call where this was six `fs.remove`s in dependency order, which is what `remove_all`
+    // was added for -- and it is `Ok(unit)` when nothing is there, so it needs no guard.
+    val _ = fs.remove_all(d)
     print(fs.make_dirs(fs.path_join(d, "a", "b")))
     print(fs.make_dirs(fs.path_join(d, "a", "b")))
     print(fs.is_dir(fs.path_join(d, "a", "b")))

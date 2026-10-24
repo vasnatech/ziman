@@ -56,6 +56,19 @@ fn fs_error_from_raw(raw: string) -> FsError {
     return FsError.Other(message)
 }
 
+// **Every public function in this file is one of these.** A native answers `Result<T, string>`
+// carrying the "category|message" shape above; the public form answers `Result<T, FsError>`. That
+// conversion was written out eighteen times -- six identical lines each, differing only in which
+// `_raw` they called -- which is a hundred lines saying one thing. One generic says it instead,
+// and the `T` is why it could: `unit`, `int`, `string`, `[byte]`, `[string]` and three `Iter`
+// shapes all go through unchanged.
+fn lift<T>(r: Result<T, string>) -> Result<T, FsError> {
+    if Err(e) = r {
+        return err(fs_error_from_raw(e))
+    }
+    return ok(unwrap(r))
+}
+
 // The message to show a human. Every variant already carries the OS's own wording, so this adds nothing
 // but passes it through uniformly -- the counterpart of `net_error_message`.
 pub fn fs_error_message(e: FsError) -> string {
@@ -75,11 +88,7 @@ pub fn fs_error_message(e: FsError) -> string {
 native fn read_text_raw(path: string) -> Result<string, string>
 
 pub fn read_text(path: string) -> Result<string, FsError> {
-    val r = read_text_raw(path)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(read_text_raw(path))
 }
 
 // The lines of a file, read lazily as a `for` loop asks for them, so a file of any size uses memory
@@ -91,11 +100,7 @@ pub fn read_text(path: string) -> Result<string, FsError> {
 native fn lines_raw(path: string) -> Result<Iter<Result<string, string>>, string>
 
 pub fn lines(path: string) -> Result<Iter<Result<string, string>>, FsError> {
-    val r = lines_raw(path)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(lines_raw(path))
 }
 
 // The bytes of a file in blocks of `size` (1 to 1073741824), read lazily as a `for` loop asks for them, so
@@ -106,11 +111,7 @@ pub fn lines(path: string) -> Result<Iter<Result<string, string>>, FsError> {
 native fn chunks_raw(path: string, size: int) -> Result<Iter<Result<[byte], string>>, string>
 
 pub fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], string>>, FsError> {
-    val r = chunks_raw(path, size)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(chunks_raw(path, size))
 }
 
 // The files under a directory, found lazily and depth first, each directory's entries in sorted order:
@@ -123,11 +124,7 @@ pub fn chunks(path: string, size: int) -> Result<Iter<Result<[byte], string>>, F
 native fn walk_raw(dir: string) -> Result<Iter<Result<string, string>>, string>
 
 pub fn walk(dir: string) -> Result<Iter<Result<string, string>>, FsError> {
-    val r = walk_raw(dir)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(walk_raw(dir))
 }
 
 // Replaces the file's contents with `text`, creating the file. `Ok(bytes written)`. Not
@@ -135,22 +132,14 @@ pub fn walk(dir: string) -> Result<Iter<Result<string, string>>, FsError> {
 native fn write_text_raw(path: string, text: string) -> Result<int, string>
 
 pub fn write_text(path: string, text: string) -> Result<int, FsError> {
-    val r = write_text_raw(path, text)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(write_text_raw(path, text))
 }
 
 // Adds `text` to the end of the file, creating it. `Ok(bytes written)`.
 native fn append_text_raw(path: string, text: string) -> Result<int, string>
 
 pub fn append_text(path: string, text: string) -> Result<int, FsError> {
-    val r = append_text_raw(path, text)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(append_text_raw(path, text))
 }
 
 // Replaces the file's contents so that a reader, or a crash, sees either the old contents or
@@ -159,11 +148,7 @@ pub fn append_text(path: string, text: string) -> Result<int, FsError> {
 native fn write_text_atomic_raw(path: string, text: string) -> Result<int, string>
 
 pub fn write_text_atomic(path: string, text: string) -> Result<int, FsError> {
-    val r = write_text_atomic_raw(path, text)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(write_text_atomic_raw(path, text))
 }
 
 // ---------------------------------------------------------------- binary files
@@ -172,33 +157,21 @@ pub fn write_text_atomic(path: string, text: string) -> Result<int, FsError> {
 native fn read_bytes_raw(path: string) -> Result<[byte], string>
 
 pub fn read_bytes(path: string) -> Result<[byte], FsError> {
-    val r = read_bytes_raw(path)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(read_bytes_raw(path))
 }
 
 // Replaces the file's contents with `data`, creating the file. `Ok(bytes written)`.
 native fn write_bytes_raw(path: string, data: [byte]) -> Result<int, string>
 
 pub fn write_bytes(path: string, data: [byte]) -> Result<int, FsError> {
-    val r = write_bytes_raw(path, data)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(write_bytes_raw(path, data))
 }
 
 // Adds `data` to the end of the file, creating it. `Ok(bytes written)`.
 native fn append_bytes_raw(path: string, data: [byte]) -> Result<int, string>
 
 pub fn append_bytes(path: string, data: [byte]) -> Result<int, FsError> {
-    val r = append_bytes_raw(path, data)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(append_bytes_raw(path, data))
 }
 
 // ---------------------------------------------------------------- inspecting
@@ -216,22 +189,14 @@ pub native fn is_file(path: string) -> bool
 native fn size_raw(path: string) -> Result<int, string>
 
 pub fn size(path: string) -> Result<int, FsError> {
-    val r = size_raw(path)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(size_raw(path))
 }
 
 // The time the file was last modified, in seconds since the Unix epoch.
 native fn modified_seconds_raw(path: string) -> Result<int, string>
 
 pub fn modified_seconds(path: string) -> Result<int, FsError> {
-    val r = modified_seconds_raw(path)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(modified_seconds_raw(path))
 }
 
 // The names in a directory, sorted (no "." or ".."). Names only, not paths: join them with
@@ -239,11 +204,7 @@ pub fn modified_seconds(path: string) -> Result<int, FsError> {
 native fn list_dir_raw(path: string) -> Result<[string], string>
 
 pub fn list_dir(path: string) -> Result<[string], FsError> {
-    val r = list_dir_raw(path)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(list_dir_raw(path))
 }
 
 // `name` (a file or a directory), found by searching `ZIMAN_RESOURCE_PATH` -- a colon-separated list of
@@ -276,22 +237,31 @@ pub fn resolve(name: string) -> Option<string> {
 native fn remove_raw(path: string) -> Result<unit, string>
 
 pub fn remove(path: string) -> Result<unit, FsError> {
-    val r = remove_raw(path)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(remove_raw(path))
+}
+
+// **Deletes a path and everything under it**, children before parents, and answers `Ok(unit)` for
+// a path that is not there -- so it is the idempotent cleanup `remove` is not. The counterpart
+// `make_dirs` had none of.
+//
+// **A symbolic link is unlinked, never followed.** It is implemented in C against `lstat` rather
+// than in Ziman against `is_dir` for exactly that reason: `is_dir` calls `stat`, which follows a
+// link, so a link inside the tree pointing at a directory outside it would have had its target's
+// contents deleted. `walk` takes the same care.
+//
+// A failure stops and names the path that failed rather than carrying on, there being no useful
+// "mostly deleted" answer to give.
+native fn remove_all_raw(path: string) -> Result<unit, string>
+
+pub fn remove_all(path: string) -> Result<unit, FsError> {
+    return lift(remove_all_raw(path))
 }
 
 // Creates one directory; its parent must exist and it must not already exist.
 native fn make_dir_raw(path: string) -> Result<unit, string>
 
 pub fn make_dir(path: string) -> Result<unit, FsError> {
-    val r = make_dir_raw(path)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(make_dir_raw(path))
 }
 
 // Creates a directory and any missing parents (like `mkdir -p`); `Ok(unit)` if it already
@@ -299,33 +269,41 @@ pub fn make_dir(path: string) -> Result<unit, FsError> {
 native fn make_dirs_raw(path: string) -> Result<unit, string>
 
 pub fn make_dirs(path: string) -> Result<unit, FsError> {
-    val r = make_dirs_raw(path)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(make_dirs_raw(path))
 }
 
 // Moves or renames `from` to `to`, replacing `to` if it is a file.
 native fn rename_raw(from: string, to: string) -> Result<unit, string>
 
 pub fn rename(from: string, to: string) -> Result<unit, FsError> {
-    val r = rename_raw(from, to)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
-    }
-    return ok(unwrap(r))
+    return lift(rename_raw(from, to))
 }
 
 // Copies a file's contents (not its permissions) to `to`, replacing it. `Ok(bytes copied)`.
 native fn copy_file_raw(from: string, to: string) -> Result<int, string>
 
 pub fn copy_file(from: string, to: string) -> Result<int, FsError> {
-    val r = copy_file_raw(from, to)
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
+    return lift(copy_file_raw(from, to))
+}
+
+// **The directory for temporary files**: `$TMPDIR` without its trailing slash, or `/tmp`.
+//
+// Hardcoding `/tmp` was what `process.zm` did, and it is wrong twice over -- a system may put the
+// writable temporary directory elsewhere and say so through `TMPDIR`, and a sandbox may make
+// `/tmp` unwritable. Reading the variable costs nothing and is what every other runtime does.
+//
+// This answers a directory, not a unique path inside one: combine it with something of your own
+// (`os.pid()` is the usual ingredient) via `path_join`.
+pub fn temp_dir() -> string {
+    val asked = get_or(os.getenv("TMPDIR"), "")
+    if is_empty(asked) {
+        return "/tmp"
     }
-    return ok(unwrap(r))
+    // A trailing slash would make `path_join` produce `//`, which works but reads as a mistake.
+    if byte_len(asked) > 1 && ends_with(asked, "/") {
+        return substring(asked, 0, len(asked) - 1)
+    }
+    return asked
 }
 
 // ---------------------------------------------------------------- paths

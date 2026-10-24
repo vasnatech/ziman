@@ -156,7 +156,12 @@ pub fn output(
     vars: Option<[EnvVar]> = None,
     cwd: Option<string> = None
 ) -> Result<string, string> {
-    val path = concat("/tmp/ziman_process_", str(os.pid()), "_", str(byte_len(program)), ".out")
+    // `fs.temp_dir()` rather than a hardcoded "/tmp": a system may put the writable temporary
+    // directory elsewhere and say so through TMPDIR, and a sandbox may make /tmp unwritable.
+    val path = fs.path_join(
+        fs.temp_dir(),
+        concat("ziman_process_", str(os.pid()), "_", str(byte_len(program)), ".out")
+    )
     val code = try run(program, args, vars, Some(path), Some(path), cwd)
     val text = switch fs.read_text(path) {
         Ok(t) { t }

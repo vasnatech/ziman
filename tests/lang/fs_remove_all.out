@@ -1,0 +1,17 @@
+Ok(unit)
+Ok(4)
+Ok(3)
+Ok(3)
+Ok(unit)
+Ok(4)
+deep file before: true
+Ok(unit)
+tree gone: true
+outside directory survived: true
+its file survived: true
+Ok(unit)
+Ok(unit)
+single file gone: true
+Ok(unit)
+temp_dir is a directory: true
+no trailing slash: true

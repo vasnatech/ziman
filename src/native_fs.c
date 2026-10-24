@@ -100,6 +100,65 @@ static Value native_fs_remove(Value *args, int argc, int line, int col) {
     return fs_ok_unit();
 }
 
+/* Recursive delete, the counterpart `make_dirs` had none of.
+ *
+ * **In C, and specifically for `lstat`.** The obvious Ziman implementation is `is_dir(p)` then
+ * recurse over `list_dir(p)`, and it is wrong in a way that matters for a destructive operation:
+ * `is_dir` calls `stat`, which *follows* symbolic links, so a link inside the tree pointing at a
+ * directory outside it would be descended into and its contents deleted. `lstat` answers about
+ * the link itself, so a link is unlinked and never followed -- the same care `walk` already
+ * takes (and for the same reason, a cycle cannot loop).
+ *
+ * Depth-first, children before parents, because `rmdir` needs an empty directory. A failure stops
+ * and reports the path that failed rather than carrying on: a partial delete the caller does not
+ * know about is worse than a reported one, and there is no sensible "mostly deleted" answer.
+ *
+ * Missing is not an error -- `remove_all` of a path that is not there has already achieved what
+ * it was asked for, which is what makes it usable as the idempotent cleanup the fixtures want. */
+static int remove_tree(const char *path, const char **failed_at) {
+    struct stat st;
+    if (lstat(path, &st) != 0) {
+        if (errno == ENOENT) return 0; /* already gone */
+        *failed_at = path;
+        return -1;
+    }
+    if (!S_ISDIR(st.st_mode)) {
+        if (unlink(path) != 0) { *failed_at = path; return -1; }
+        return 0;
+    }
+    DIR *d = opendir(path);
+    if (d == NULL) { *failed_at = path; return -1; }
+    struct dirent *e;
+    int rc = 0;
+    while (rc == 0 && (e = readdir(d)) != NULL) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        size_t n = strlen(path) + 1 + strlen(e->d_name) + 1;
+        char *child = ziman_xmalloc(n);
+        snprintf(child, n, "%s/%s", path, e->d_name);
+        const char *child_failed = NULL;
+        rc = remove_tree(child, &child_failed);
+        /* The failing path is reported by the top-level caller, which owns a stable buffer for
+         * it; this frame's `child` is about to go, so only the fact of failure travels up. */
+        (void)child_failed;
+        free(child);
+    }
+    closedir(d);
+    if (rc != 0) { *failed_at = path; return -1; }
+    if (rmdir(path) != 0) { *failed_at = path; return -1; }
+    return 0;
+}
+
+static Value native_fs_remove_all(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    const char *path = value_cstr(args[0]);
+    const char *failed_at = NULL;
+    errno = 0;
+    if (remove_tree(path, &failed_at) != 0) {
+        return fs_err(type_scalar(TY_UNIT), "cannot remove", failed_at != NULL ? failed_at : path);
+    }
+    return fs_ok_unit();
+}
+
 static Value native_fs_make_dir(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     const char *path = value_cstr(args[0]);
@@ -552,6 +611,7 @@ void native_fs_register(void) {
     native_register("fs::is_dir", native_fs_is_dir);
     native_register("fs::size_raw", native_fs_size);
     native_register("fs::remove_raw", native_fs_remove);
+    native_register("fs::remove_all_raw", native_fs_remove_all);
     native_register("fs::make_dir_raw", native_fs_make_dir);
     native_register("fs::rename_raw", native_fs_rename);
     native_register("fs::list_dir_raw", native_fs_list_dir);

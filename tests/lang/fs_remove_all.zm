@@ -1,0 +1,53 @@
+// `fs.remove_all` and `fs.temp_dir`.
+//
+// `remove_all` is the counterpart `make_dirs` had none of: before it, deleting a tree meant one
+// `fs.remove` per entry in dependency order, which `fs_extended.zm` did in six lines and now does
+// in one. It is `Ok(unit)` for a path that is not there, so it needs no guard -- which is what
+// makes it usable as the cleanup at the top of a fixture.
+//
+// **The symlink case is the one worth a test.** `remove_all` is implemented in C against `lstat`
+// rather than in Ziman against `is_dir`, because `is_dir` calls `stat`, which follows a link: the
+// obvious implementation would descend a link pointing out of the tree and delete the target's
+// contents. The link below points at a directory outside the tree, and the file in it must
+// survive. (If `ln` is unavailable the link is simply never made, and the assertion still holds --
+// so this fixture reports the same either way and only ever gets stricter where `ln` exists.)
+use fs
+use os
+use process
+
+fn main() {
+    val base = fs.path_join(fs.temp_dir(), "ziman_fixture_fs_remove_all")
+    val outside = fs.path_join(fs.temp_dir(), "ziman_fixture_fs_remove_all_outside")
+    val _ = fs.remove_all(base)
+    val _ = fs.remove_all(outside)
+
+    // a tree two deep, with files at both levels
+    print(fs.make_dirs(fs.path_join(base, "a", "b")))
+    print(fs.write_text(fs.path_join(base, "a", "b", "deep.txt"), "deep"))
+    print(fs.write_text(fs.path_join(base, "a", "mid.txt"), "mid"))
+    print(fs.write_text(fs.path_join(base, "top.txt"), "top"))
+
+    // a directory outside the tree, with something in it to lose
+    print(fs.make_dirs(outside))
+    print(fs.write_text(fs.path_join(outside, "keep.txt"), "keep"))
+    val _ = process.run(program: "ln", args: ["-s", outside, fs.path_join(base, "a", "link")])
+
+    print(concat("deep file before: ", str(fs.exists(fs.path_join(base, "a", "b", "deep.txt")))))
+    print(fs.remove_all(base))
+    print(concat("tree gone: ", str(!fs.exists(base))))
+
+    // the whole point: the link was unlinked, its target was not followed
+    print(concat("outside directory survived: ", str(fs.is_dir(outside))))
+    print(concat("its file survived: ", str(fs.exists(fs.path_join(outside, "keep.txt")))))
+
+    // idempotent, and a plain file works too
+    print(fs.remove_all(base))
+    val single = fs.path_join(outside, "keep.txt")
+    print(fs.remove_all(single))
+    print(concat("single file gone: ", str(!fs.exists(single))))
+    print(fs.remove_all(outside))
+
+    // temp_dir is a directory that exists, with no trailing slash
+    print(concat("temp_dir is a directory: ", str(fs.is_dir(fs.temp_dir()))))
+    print(concat("no trailing slash: ", str(!ends_with(fs.temp_dir(), "/"))))
+}
