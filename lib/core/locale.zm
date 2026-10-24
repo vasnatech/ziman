@@ -43,6 +43,10 @@ native fn set_default_raw(handle: int)
 
 native fn default_raw() -> int
 
+native fn month_name_raw(handle: int, index: int, full: bool) -> string
+
+native fn day_name_raw(handle: int, index: int, full: bool) -> string
+
 // `Locale` itself is declared in lib/prelude/locale.zm, not here, and that part's header says why:
 // `to_upper(s, locale)` is an overload of a prelude function, so the prelude has to be able to name
 // the type, and the prelude cannot reference a core module. What lives here is everything that
@@ -165,4 +169,23 @@ pub fn use_system() -> Locale {
     val l = system()
     set_default(l)
     return l
+}
+
+// The locale's name for month `month` (1-12): the full name for `full`, the abbreviation otherwise.
+// `Ocak`/`Oca` under `tr_TR`, `Januar`/`Jan` under `de_DE`, `1月` under `ja_JP`.
+//
+// **Not a fixed width.** Month names differ in length within a locale and between locales, which is
+// why `DateTimeFormat.width` is -1 for any pattern that renders one.
+//
+// Some abbreviated names arrive padded for column alignment -- glibc's `ja_JP` set is " 1月" -- and
+// are trimmed, which is this library altering the host's data and so is said rather than left to be
+// noticed in output.
+pub fn month_name(l: Locale, month: int, full: bool) -> string {
+    return month_name_raw(l.handle, month - 1, full)
+}
+
+// The locale's name for a day of the week, `day` being 0 for Sunday through 6 for Saturday -- POSIX
+// numbers them that way (`DAY_1` is Sunday) and so does this, rather than rotating twice.
+pub fn day_name(l: Locale, day: int, full: bool) -> string {
+    return day_name_raw(l.handle, day, full)
 }

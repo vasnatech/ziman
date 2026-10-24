@@ -113,3 +113,28 @@ pub fn use_system() -> Locale
 
 Adopts the host's locale as the process default, which is the one line that lets a machine's
 configuration reach a program's output. Answers what it set, so a caller can log it.
+
+### `month_name`
+
+```
+pub fn month_name(l: Locale, month: int, full: bool) -> string
+```
+
+The locale's name for month `month` (1-12): the full name for `full`, the abbreviation otherwise.
+`Ocak`/`Oca` under `tr_TR`, `Januar`/`Jan` under `de_DE`, `1月` under `ja_JP`.
+
+**Not a fixed width.** Month names differ in length within a locale and between locales, which is
+why `DateTimeFormat.width` is -1 for any pattern that renders one.
+
+Some abbreviated names arrive padded for column alignment -- glibc's `ja_JP` set is " 1月" -- and
+are trimmed, which is this library altering the host's data and so is said rather than left to be
+noticed in output.
+
+### `day_name`
+
+```
+pub fn day_name(l: Locale, day: int, full: bool) -> string
+```
+
+The locale's name for a day of the week, `day` being 0 for Sunday through 6 for Saturday -- POSIX
+numbers them that way (`DAY_1` is Sunday) and so does this, rather than rotating twice.

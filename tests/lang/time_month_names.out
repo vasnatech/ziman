@@ -1,16 +1,16 @@
 -- every month, short and long --
-dd MMM yyyy -> 15 Jan 2026 (width 11, round trip true)
-dd MMM yyyy -> 15 Feb 2026 (width 11, round trip true)
-dd MMM yyyy -> 15 Mar 2026 (width 11, round trip true)
-dd MMM yyyy -> 15 Apr 2026 (width 11, round trip true)
-dd MMM yyyy -> 15 May 2026 (width 11, round trip true)
-dd MMM yyyy -> 15 Jun 2026 (width 11, round trip true)
-dd MMM yyyy -> 15 Jul 2026 (width 11, round trip true)
-dd MMM yyyy -> 15 Aug 2026 (width 11, round trip true)
-dd MMM yyyy -> 15 Sep 2026 (width 11, round trip true)
-dd MMM yyyy -> 15 Oct 2026 (width 11, round trip true)
-dd MMM yyyy -> 15 Nov 2026 (width 11, round trip true)
-dd MMM yyyy -> 15 Dec 2026 (width 11, round trip true)
+dd MMM yyyy -> 15 Jan 2026 (width -1, round trip true)
+dd MMM yyyy -> 15 Feb 2026 (width -1, round trip true)
+dd MMM yyyy -> 15 Mar 2026 (width -1, round trip true)
+dd MMM yyyy -> 15 Apr 2026 (width -1, round trip true)
+dd MMM yyyy -> 15 May 2026 (width -1, round trip true)
+dd MMM yyyy -> 15 Jun 2026 (width -1, round trip true)
+dd MMM yyyy -> 15 Jul 2026 (width -1, round trip true)
+dd MMM yyyy -> 15 Aug 2026 (width -1, round trip true)
+dd MMM yyyy -> 15 Sep 2026 (width -1, round trip true)
+dd MMM yyyy -> 15 Oct 2026 (width -1, round trip true)
+dd MMM yyyy -> 15 Nov 2026 (width -1, round trip true)
+dd MMM yyyy -> 15 Dec 2026 (width -1, round trip true)
 dd MMMM yyyy -> 15 January 2026 (width -1, round trip true)
 dd MMMM yyyy -> 15 February 2026 (width -1, round trip true)
 dd MMMM yyyy -> 15 March 2026 (width -1, round trip true)
@@ -25,10 +25,10 @@ dd MMMM yyyy -> 15 November 2026 (width -1, round trip true)
 dd MMMM yyyy -> 15 December 2026 (width -1, round trip true)
 -- the run-length dispatch --
   MM -> [10] width=2
-  MMM -> [Oct] width=3
+  MMM -> [Oct] width=-1
   MMMM -> [October] width=-1
   MMMMM -> [OctoberM] width=-1
-  MMM MMM -> [Oct Oct] width=7
+  MMM MMM -> [Oct Oct] width=-1
   yyyy-MM-dd -> [2026-10-23] width=10
 -- parsing: case, longest-first, and refusal --
   [15 Oct 2026] -> 2026-10-15

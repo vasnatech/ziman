@@ -490,6 +490,10 @@ pub fn set_default(l: Locale)
 
 pub fn use_system() -> Locale
 
+pub fn month_name(l: Locale, month: int, full: bool) -> string
+
+pub fn day_name(l: Locale, day: int, full: bool) -> string
+
 ```
 
 ## `log`
@@ -2390,7 +2394,11 @@ pub fn localdate_compare(a: LocalDate, b: LocalDate) -> int
 
 pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat) -> string
 
+pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat, l: Locale) -> string
+
 pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string>
+
+pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDate, string>
 
 pub fn localdate_from_string(s: string) -> Result<LocalDate, string>
 
@@ -2419,7 +2427,11 @@ pub fn localtime_compare(a: LocalTime, b: LocalTime) -> int
 
 pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat) -> string
 
+pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat, l: Locale) -> string
+
 pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string>
+
+pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalTime, string>
 
 pub fn localtime_from_string(s: string) -> Result<LocalTime, string>
 
@@ -2473,7 +2485,11 @@ pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration
 
 pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string
 
+pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat, l: Locale) -> string
+
 pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string>
+
+pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDateTime, string>
 
 pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string>
 
@@ -2547,7 +2563,11 @@ pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant
 
 pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string
 
+pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat, l: Locale) -> string
+
 pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, string>
+
+pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Instant, string>
 
 pub fn instant_from_string(s: string) -> Result<Instant, string>
 

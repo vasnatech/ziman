@@ -17,8 +17,9 @@
 // `_to_string` / `_from_string` (`2026-09-24`, `13:05:09.5`, `PT1.5S`, `+05:30`). The calendar
 // types and `Instant` also take a `DateTimeFormat`, a pattern compiled once by
 // `datetime_format_of` and reused: `yyyy MM dd HH mm ss` and `SSSSSSSSS` (nanoseconds), plus
-// `MMM`/`MMMM` for the month as a name (`Oct`/`October`, English only), anything else copied
-// through as literal text. Every token but `MMMM` renders a fixed number of characters. Every type has `_to_json` / `_from_json`
+// `MMM`/`MMMM` and `EEE`/`EEEE` for the month and day as names, taken from the host's locale data,
+// anything else copied through as literal text. A compiled pattern carries no locale; the locale
+// goes to the call that renders (`localdate_format(d, fmt, l)`), or is `locale.default()`. Every type has `_to_json` / `_from_json`
 // and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]` handle a field of these
 // types (an ISO string, and a TEXT column).
 //
@@ -27,13 +28,12 @@
 // instant and `instant_to_localdatetime_in` / `localdatetime_to_instant_in` convert with daylight
 // saving applied.
 //
-// Limits: years are 0 or later (no BCE). **Month names arrived on 2026-10-23 as `MMM`/`MMMM`, in
-// English only**; weekday names and any notion of locale did not. So a Turkish or Japanese
-// application can render `MMMM` but will get "October", which is worse than useless for a reader --
-// the names are two arrays in this file (`month_short_names`, `month_long_names`) precisely so that
-// the seam is obvious when a locale design arrives. ROADMAP.md's "Locale support" entry carries
-// what that needs; its item 5 named the hole as "a missing pattern letter for
-// `datetime_format_of`", which is now half right.
+// Limits: years are 0 or later (no BCE). Month and day names (`MMM`, `MMMM`, `EEE`, `EEEE`) come
+// from the host's locale data as of 2026-10-23, so they are as good as the operating system's and
+// no better -- see lib/core/locale.zm for what that does and does not answer. What is still absent
+// is era, quarter and week-of-year fields, a localised *ordering* of the fields themselves (this
+// renders the pattern it is given, so a caller writes `dd MMMM yyyy` or `MMMM dd, yyyy` as the
+// language wants), and anything 12-hour (`hh`/`a`).
 
 // Implementation notes. Modeled on java.time, scoped down in two deliberate ways:
 //
@@ -150,33 +150,41 @@ fn pad_left(n: int, width: int) -> string {
 //
 //   yyyy       4-digit zero-padded year
 //   MM         2-digit zero-padded month (01-12)
-//   MMM        3-letter month name (Jan, Feb, ... Dec)
-//   MMMM       full month name (January, February, ... December)
+//   MMM        abbreviated month name (Oca, Jan, 1月)
+//   MMMM       full month name (Ocak, January, 1月)
+//   EEE        abbreviated day name (Cum, Fri, 金)
+//   EEEE       full day name (Cuma, Friday, 金曜日)
 //   dd         2-digit zero-padded day
 //   HH         2-digit zero-padded hour (0-23)
 //   mm         2-digit zero-padded minute
 //   ss         2-digit zero-padded second
 //   SSSSSSSSS  9-digit zero-padded nanosecond-of-second
 //
-// **The `M` run lengths are checked longest-first**, so `MMMM` is one
-// token and not `MM` twice; that ordering is load-bearing in
+// **The `M` and `E` run lengths are checked longest-first**, so `MMMM`
+// is one token and not `MM` twice; that ordering is load-bearing in
 // datetime_format_of and has a fixture.
 //
-// **Month names are English, and that is a stated limit rather than a
-// design.** They live in `month_short_names` / `month_long_names`
-// below, which is the one place a locale would have to reach -- see
-// docs/ROADMAP.md's Locale entry. Formatting emits exactly those
-// spellings; parsing accepts any case, since a reader handed
-// "12 OCT 2026" means October.
+// **The names come from the operating system's locale data**, so one
+// pattern renders in any language: `EEEE, dd MMMM yyyy` is
+// `Friday, 23 October 2026` under `en_US` and `Cuma, 23 Ekim 2026`
+// under `tr_TR`. A compiled `DateTimeFormat` carries no locale -- that
+// is the point of compiling it -- so the locale arrives at the call
+// that produces or reads a string: `localdate_format(d, fmt, l)`, or
+// the form without it, which uses `locale.default()`. Parsing accepts
+// any case, folded under the same locale, since a reader handed
+// "12 EKIM 2026" means Ekim.
 //
-// **Every token but `MMMM` renders exactly as many characters as it
-// occupies in the pattern.** That used to hold for all of them and
-// `DateTimeFormat.width` was how instant_parse_pattern found where a
-// calendar part ended and a zone-offset suffix began. `MMMM` breaks it
-// -- "May" is three characters and "September" nine -- so that split
-// now comes from how far the parse actually got
-// (`ParsedFields.consumed`) rather than from a precomputed width, and
-// `width` is -1 for a pattern containing `MMMM`.
+// **A parsed day name is checked against the date**, not stepped over:
+// this library refuses 31 February, so accepting `Pazar, 23 Ekim 2026`
+// for a Friday would be the looser of two inconsistent answers.
+//
+// **No name token has a fixed rendered width**, and a `width` of -1 is
+// how `DateTimeFormat` says so. Every token used to render exactly as
+// many characters as it occupied in the pattern, and
+// `instant_parse_pattern` relied on that to find where a calendar part
+// ended and a zone-offset suffix began; it takes that from how far the
+// parse got (`ParsedFields.consumed`) instead, which is what made
+// variable-width names affordable at all.
 //
 // Anything else in a pattern is a literal, copied through character by
 // character, with no escaping mechanism -- none of the separators any
@@ -187,31 +195,38 @@ fn pad_left(n: int, width: int) -> string {
 // too, rather than erroring -- a narrow, documented scope cut, not a
 // trap that's been guarded against.
 
-// The month names `MMM` and `MMMM` render, indexed by month - 1.
+// **The names come from the operating system's locale data**, two hardcoded English arrays having
+// stood here between 2026-10-23's two increments. `locale.month_name` and `locale.day_name` read
+// them, so `MMMM` renders `Ocak` under `tr_TR`, `Januar` under `de_DE` and `1月` under `ja_JP`.
 //
-// **English only.** A localised date formatter needs these per locale, plus day names, plus an
-// ordering convention; none of that is designed yet (docs/ROADMAP.md, "Locale support"). Keeping
-// them here, as two plain arrays, is what makes the seam obvious when it is: these two definitions
-// and `month_number_of` are the whole of what a locale would replace.
-val month_short_names: [string] = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-]
-val month_long_names: [string] = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December"
-]
+// What this costs is that **no name token has a fixed rendered width**: names differ in length
+// within a locale and between locales, so `DateTimeFormat.width` is -1 for any pattern holding one.
+// `instant_parse_pattern` stopped depending on `width` when `MMMM` arrived, which is what made that
+// affordable.
 
-// The 1-12 month a name at `pos` spells, and the position after it, or `Err`. Matched without
-// regard to case, longest candidate first so "June" is not read as "Jun" with a stray "e" left
-// over -- the same longest-first rule the pattern letters follow.
-fn month_number_of(s: string, pos: int, names: [string]) -> Result<[int], string> {
+// The day of the week of a date, 0 for Sunday through 6 for Saturday -- POSIX's own numbering, which
+// is what `locale.day_name` takes.
+//
+// 1970-01-01, epoch day 0, was a Thursday, so it is index 4; the second modulo is there because
+// `%` follows the sign of its left operand and epoch days before 1970 are negative.
+fn day_of_week_of(year: int, month: int, day: int) -> int {
+    return ((epoch_day_of(year, month, day) + 4) % 7 + 7) % 7
+}
+
+// The 1-12 month whose name under `l` sits at `pos`, and the position after it, or `Err`.
+//
+// Longest candidate first, so "June" is not read as "Jun" with a stray "e" left over -- the same
+// rule the pattern letters follow. **Folded under `l`, not under the invariant locale**: matching a
+// Turkish name is a Turkish question, and `İ`/`ı` fold the Turkish way or `"İSTANBUL"` would not
+// match `"İstanbul"`.
+fn month_number_of(s: string, pos: int, l: Locale, full: bool) -> Result<[int], string> {
     var best = -1
     var best_len = 0
-    for i in 0..len(names) {
-        val name = names[i]
+    for i in 1..13 {
+        val name = locale.month_name(l, i, full)
         val n = len(name)
-        if pos + n <= len(s) && n > best_len && equals_ignore_case(substring(s, pos, pos + n), name, invariant) {
-            best = i + 1
+        if pos + n <= len(s) && n > best_len && equals_ignore_case(substring(s, pos, pos + n), name, l) {
+            best = i
             best_len = n
         }
     }
@@ -219,6 +234,29 @@ fn month_number_of(s: string, pos: int, names: [string]) -> Result<[int], string
         return err(format("expected a month name at position {}", pos))
     }
     return ok([best, pos + best_len])
+}
+
+// The day name at `pos`: which day it spells (0 = Sunday) and how many characters it took.
+//
+// A weekday is redundant with the date beside it, so it would be easy to step over and forget. It
+// is **checked against the date instead**, in `parse_fields_prefix` once the date is known: this
+// library refuses 31 February, so accepting `Sunday, 23 October 2026` for a Friday would be the
+// looser of two inconsistent answers. Longest-first and folded under `l`, like month names.
+fn day_name_at(s: string, pos: int, l: Locale, full: bool) -> Result<[int], string> {
+    var best = -1
+    var best_len = 0
+    for d in 0..7 {
+        val name = locale.day_name(l, d, full)
+        val n = len(name)
+        if pos + n <= len(s) && n > best_len && equals_ignore_case(substring(s, pos, pos + n), name, l) {
+            best = d
+            best_len = n
+        }
+    }
+    if best < 0 {
+        return err(format("expected a day name at position {}", pos))
+    }
+    return ok([best, best_len])
 }
 fn matches_token(pattern: string, i: int, token: string) -> bool {
     return is_char_at(pattern, i, token)
@@ -235,6 +273,10 @@ enum DateTimePart {
     // whose rendered width is not fixed.
     MonthName
     MonthFullName
+    // `EEE` and `EEEE`: the day of the week as a name. Redundant with the date beside it, which is
+    // why parsing checks one and then discards it.
+    DayName
+    DayFullName
     Day
     Hour
     Minute
@@ -264,10 +306,14 @@ fn datetime_part_width(part: DateTimePart) -> int {
     return switch part {
         Year { 4 }
         Month { 2 }
-        MonthName { 3 }
-        // Not a fixed width: "May" is 3 characters and "September" is 9. -1 propagates through the
-        // total in datetime_format_of, so `DateTimeFormat.width` is -1 for any pattern holding one.
+        // **No name token has a fixed width.** `MMM` looked like 3 while the names were English and
+        // hardcoded; they come from the locale now, where `ja_JP` abbreviates January as `1月` (2)
+        // and `ar_SA` as `يناير` (5). -1 propagates through the total in `datetime_format_of`, so
+        // `DateTimeFormat.width` is -1 for any pattern holding a name.
+        MonthName { -1 }
         MonthFullName { -1 }
+        DayName { -1 }
+        DayFullName { -1 }
         Day { 2 }
         Hour { 2 }
         Minute { 2 }
@@ -329,6 +375,20 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
             }
             push(parts, DateTimePart.Month)
             i = i + 2
+        } else if matches_token(pattern, i, "EEEE") {
+            if literal_buf != "" {
+                push(parts, DateTimePart.Literal(literal_buf))
+                literal_buf = ""
+            }
+            push(parts, DateTimePart.DayFullName)
+            i = i + 4
+        } else if matches_token(pattern, i, "EEE") {
+            if literal_buf != "" {
+                push(parts, DateTimePart.Literal(literal_buf))
+                literal_buf = ""
+            }
+            push(parts, DateTimePart.DayName)
+            i = i + 3
         } else if matches_token(pattern, i, "dd") {
             if literal_buf != "" {
                 push(parts, DateTimePart.Literal(literal_buf))
@@ -402,6 +462,9 @@ fn format_year(year: int) -> string {
     return concat("-", pad_left(0 - year, 4))
 }
 
+// `l` is where the names come from. A `DateTimeFormat` carries no locale -- a compiled pattern is
+// locale-free on purpose, so one pattern renders in any language -- so the locale arrives here, at
+// the call that produces a string.
 fn format_fields(
     year: int,
     month: int,
@@ -410,15 +473,18 @@ fn format_fields(
     minute: int,
     second: int,
     nano: int,
-    fmt: DateTimeFormat
+    fmt: DateTimeFormat,
+    l: Locale
 ) -> string {
     val out = mutable_string_new()
     for part in fmt.parts {
         append(out, switch part {
             Year { format_year(year) }
             Month { pad_left(month, 2) }
-            MonthName { month_short_names[month - 1] }
-            MonthFullName { month_long_names[month - 1] }
+            MonthName { locale.month_name(l, month, false) }
+            MonthFullName { locale.month_name(l, month, true) }
+            DayName { locale.day_name(l, day_of_week_of(year, month, day), false) }
+            DayFullName { locale.day_name(l, day_of_week_of(year, month, day), true) }
             Day { pad_left(day, 2) }
             Hour { pad_left(hour, 2) }
             Minute { pad_left(minute, 2) }
@@ -478,7 +544,7 @@ fn parse_year(s: string, start: int) -> Result<[int], string> {
 
 // `s` read with `fmt` from the start, stopping wherever the pattern runs out -- trailing content is
 // the caller's business. `parse_fields` below is this plus "and nothing after it".
-fn parse_fields_prefix(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> {
+fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<ParsedFields, string> {
     var year = 0
     var month = 0
     var day = 0
@@ -486,6 +552,8 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, s
     var minute = 0
     var second = 0
     var nano = 0
+    // -1 when the pattern has no name token; otherwise the day the name spelled, checked below.
+    var weekday = -1
     var si = 0
     for part in fmt.parts {
         switch part {
@@ -506,7 +574,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, s
                 si = si + 2
             }
             MonthName {
-                val r = switch month_number_of(s, si, month_short_names) {
+                val r = switch month_number_of(s, si, l, false) {
                     Ok(v) { v }
                     Err(e) { return err(format("invalid month name in '{}': {}", s, e)) }
                 }
@@ -514,12 +582,32 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, s
                 si = r[1]
             }
             MonthFullName {
-                val r = switch month_number_of(s, si, month_long_names) {
+                val r = switch month_number_of(s, si, l, true) {
                     Ok(v) { v }
                     Err(e) { return err(format("invalid month name in '{}': {}", s, e)) }
                 }
                 month = r[0]
                 si = r[1]
+            }
+            // A weekday is checked and then thrown away: it is redundant with the date beside it,
+            // and `1 January 2026` says which day it was whatever name precedes it. What the parse
+            // needs is how many characters to step over -- and that a wrong name is still an error,
+            // so a pattern round-trips rather than silently accepting anything here.
+            DayName {
+                val r = switch day_name_at(s, si, l, false) {
+                    Ok(v) { v }
+                    Err(e) { return err(format("invalid day name in '{}': {}", s, e)) }
+                }
+                weekday = r[0]
+                si = si + r[1]
+            }
+            DayFullName {
+                val r = switch day_name_at(s, si, l, true) {
+                    Ok(v) { v }
+                    Err(e) { return err(format("invalid day name in '{}': {}", s, e)) }
+                }
+                weekday = r[0]
+                si = si + r[1]
             }
             Day {
                 val r = switch parse_fixed_width_int(s, si, 2) {
@@ -573,6 +661,19 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, s
             }
         }
     }
+    // The weekday against the date, now that the date is known. Skipped when no real date was
+    // parsed -- a time-only pattern leaves these zero, and `epoch_day_of(0, 0, 0)` is not a date.
+    if weekday >= 0 && month >= 1 && day >= 1 {
+        val actual = day_of_week_of(year, month, day)
+        if actual != weekday {
+            return err(format(
+                "'{}' says {} but that date is a {}",
+                s,
+                locale.day_name(l, weekday, true),
+                locale.day_name(l, actual, true)
+            ))
+        }
+    }
     return ok(ParsedFields {
         year: year,
         month: month,
@@ -587,8 +688,8 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, s
 
 // The whole of `s`, read with `fmt`. Every dated-value parser wants this; only
 // instant_parse_pattern wants a prefix.
-fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> {
-    val f = try parse_fields_prefix(s, fmt)
+fn parse_fields(s: string, fmt: DateTimeFormat, l: Locale) -> Result<ParsedFields, string> {
+    val f = try parse_fields_prefix(s, fmt, l)
     if f.consumed != len(s) {
         return err(format("'{}' has trailing content after position {}", s, f.consumed))
     }
@@ -734,13 +835,27 @@ pub fn localdate_compare(a: LocalDate, b: LocalDate) -> int {
 // `d` rendered with a compiled pattern from `datetime_format_of`. Fields the date lacks (hour,
 // minute, second, nanosecond) print as zeros.
 pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat) -> string {
-    return format_fields(d.year, d.month, d.day, 0, 0, 0, 0, fmt)
+    return format_fields(d.year, d.month, d.day, 0, 0, 0, 0, fmt, locale.default())
+}
+
+// The same, with the names drawn from `l`.//
+// **The compiled pattern carries no locale and the call does.** A `DateTimeFormat` is locale-free on
+// purpose -- one pattern renders in any language -- so a form taking a `Locale` sits beside the one
+// that uses `locale.default()`. Only a pattern with a name token (`MMM`, `MMMM`, `EEE`, `EEEE`)
+// reads the locale at all; `yyyy-MM-dd` renders identically under every one.
+pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat, l: Locale) -> string {
+    return format_fields(d.year, d.month, d.day, 0, 0, 0, 0, fmt, l)
 }
 
 // Reads `s` with a compiled pattern; an Err says which part did not match, or that the resulting
 // date does not exist (31 February).
 pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string> {
-    val fields_r = parse_fields(s, fmt)
+    return localdate_parse_pattern(s, fmt, locale.default())
+}
+
+// The same, reading any name token under `l`.
+pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDate, string> {
+    val fields_r = parse_fields(s, fmt, l)
     if Err(e) = fields_r {
         return err(e)
     }
@@ -840,13 +955,24 @@ pub fn localtime_compare(a: LocalTime, b: LocalTime) -> int {
 // `t` rendered with a compiled pattern from `datetime_format_of`. Year, month and day print as
 // zeros.
 pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat) -> string {
-    return format_fields(0, 0, 0, t.hour, t.minute, t.second, t.nano, fmt)
+    return format_fields(0, 0, 0, t.hour, t.minute, t.second, t.nano, fmt, locale.default())
+}
+
+// The same under `l`. A time has no month or weekday, so a name token in the pattern renders from
+// the zeros the date fields hold -- which is what it did before a locale existed too.
+pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat, l: Locale) -> string {
+    return format_fields(0, 0, 0, t.hour, t.minute, t.second, t.nano, fmt, l)
 }
 
 // Reads `s` with a compiled pattern; an Err says which part did not match or which field is out of
 // range.
 pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string> {
-    val fields_r = parse_fields(s, fmt)
+    return localtime_parse_pattern(s, fmt, locale.default())
+}
+
+// The same, reading any name token under `l`.
+pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalTime, string> {
+    val fields_r = parse_fields(s, fmt, l)
     if Err(e) = fields_r {
         return err(e)
     }
@@ -1101,6 +1227,11 @@ pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration {
 
 // `dt` rendered with a compiled pattern from `datetime_format_of`.
 pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string {
+    return localdatetime_format(dt, fmt, locale.default())
+}
+
+// The same, with the names drawn from `l`.
+pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat, l: Locale) -> string {
     return format_fields(
         dt.date.year,
         dt.date.month,
@@ -1109,14 +1240,20 @@ pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string {
         dt.time.minute,
         dt.time.second,
         dt.time.nano,
-        fmt
+        fmt,
+        l
     )
 }
 
 // Reads `s` with a compiled pattern; an Err says which part did not match or which field is out of
 // range.
 pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string> {
-    val fields_r = parse_fields(s, fmt)
+    return localdatetime_parse_pattern(s, fmt, locale.default())
+}
+
+// The same, reading any name token under `l`.
+pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDateTime, string> {
+    val fields_r = parse_fields(s, fmt, l)
     if Err(e) = fields_r {
         return err(e)
     }
@@ -1414,8 +1551,14 @@ pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant {
 // as explicit parameters instead of hardcoding
 // iso_datetime_format/zoneoffset_utc().
 pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string {
+    return instant_format(i, offset, fmt, locale.default())
+}
+
+// The same, with the names drawn from `l`. The zone-offset suffix is digits and signs, so it reads
+// the same under every locale.
+pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat, l: Locale) -> string {
     val dt = instant_to_localdatetime(i, offset)
-    return concat(localdatetime_format(dt, fmt), zoneoffset_to_string(offset))
+    return concat(localdatetime_format(dt, fmt, l), zoneoffset_to_string(offset))
 }
 
 // `fmt` covers only the calendar part; the zone-offset suffix is
@@ -1433,7 +1576,12 @@ pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> st
 // and works for a variable one, and it is why nothing here needs
 // `fmt.width` -- which is -1 for such a pattern anyway.
 pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, string> {
-    val f = try parse_fields_prefix(s, fmt)
+    return instant_parse_pattern(s, fmt, locale.default())
+}
+
+// The same, reading any name token under `l`.
+pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Instant, string> {
+    val f = try parse_fields_prefix(s, fmt, l)
     val date = try localdate_of(f.year, f.month, f.day)
     val time = try localtime_of(f.hour, f.minute, f.second, f.nano)
     val offset = try zoneoffset_from_string(substring(s, f.consumed, len(s)))

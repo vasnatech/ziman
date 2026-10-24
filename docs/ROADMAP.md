@@ -2762,14 +2762,17 @@ from source.
   weekday support". `datetime_format_of` takes a pattern, so the hole is shaped like a pattern
   letter that does not exist rather than a missing module.
 
-  > **(Half closed on 2026-10-23.)** `MMM` and `MMMM` exist now and render `Oct` / `October`,
-  > **in English only** -- so this item's shape held, and filling the pattern letters turned out to
-  > be the easy half. What is left is the whole of the hard half: the names themselves. They are two
-  > arrays in `lib/time/time.zm` (`month_short_names`, `month_long_names`) plus `month_number_of`,
-  > which is the entire surface a locale would have to reach for dates, and it is deliberately that
-  > small so the seam is visible. Weekday names still do not exist at all. A Turkish or Japanese
-  > application can write `MMMM` today and will get "October" -- worse than a missing feature,
-  > because it looks like it worked.
+  > **(Half closed on 2026-10-23, then closed the same day.)** `MMM`/`MMMM` landed first in English
+  > only, which is what this item's shape predicted -- filling the pattern letters was the easy
+  > half. Then `EEE`/`EEEE` joined them and all four read the host's locale data through
+  > `locale.month_name` / `locale.day_name`, so `EEEE, dd MMMM yyyy` renders
+  > `Cuma, 23 Ekim 2026` under `tr_TR` and `金曜日, 23 10月 2026` under `ja_JP`. A compiled pattern
+  > stays locale-free and the locale goes to the call that renders.
+  >
+  > **What this item did not cover and is still absent:** era, quarter and week-of-year fields,
+  > 12-hour time (`hh`/`a`), and a localised *ordering* of the fields -- the formatter renders the
+  > pattern it is given, so a caller still writes `dd MMMM yyyy` or `MMMM dd, yyyy` themselves.
+  > That last one is the part a real CLDR-backed formatter would answer and POSIX cannot.
 
   **6. No message catalogue, and `format_dynamic` -- the function F44 kept as the landing site for
   one -- was deleted on 2026-10-22** as unused. That is the one piece this entry makes *more*

@@ -1,0 +1,43 @@
+-- one pattern, six languages --
+  C Friday, 23 October 2026
+  en Friday, 23 October 2026
+  tr Cuma, 23 Ekim 2026
+  de Freitag, 23 Oktober 2026
+  ja 金曜日, 23 10月 2026
+  sv fredag, 23 oktober 2026
+-- abbreviated --
+  en Fri 23 Oct 2026
+  tr Cum 23 Eki 2026
+  de Fr 23 Okt 2026
+  ja 金 23 10月 2026
+  sv fre 23 okt 2026
+-- round trips, each in its own language --
+  en round trip true
+  tr round trip true
+  de round trip true
+  sv round trip true
+-- case folds under the pattern's locale --
+  [23 Ekim 2026] -> 2026-10-23
+  [23 EKİM 2026] -> 2026-10-23
+  [23 ekim 2026] -> 2026-10-23
+  [23 EKIM 2026] -> ERR invalid month name in '23 EKIM 2026': expected a month name at position 3
+-- a day name is checked against the date --
+  [Cuma, 23 Ekim 2026] -> 2026-10-23
+  [Pazar, 23 Ekim 2026] -> ERR 'Pazar, 23 Ekim 2026' says Pazar but that date is a Cuma
+  [Hiçbir, 23 Ekim 2026] -> ERR invalid day name in 'Hiçbir, 23 Ekim 2026': expected a day name at position 0
+-- the run-length dispatch --
+  EEE -> [Fri] width=-1
+  EEEE -> [Friday] width=-1
+  EEEEE -> [FridayE] width=-1
+  MMM -> [Oct] width=-1
+  MMMM -> [October] width=-1
+  EEE EEE -> [Fri Fri] width=-1
+-- width: real without a name, -1 with one --
+  yyyy-MM-dd         10
+  EEEE, dd MMMM yyyy -1
+-- the default governs the form without a locale --
+  default=root Friday, 23 October 2026
+  default=tr   Cuma, 23 Ekim 2026
+-- an instant, whose calendar part has no precomputed width --
+  en [Thursday 24 September 2026 14:00:00+02:00] round trip true
+  tr [Perşembe 24 Eylül 2026 14:00:00+02:00] round trip true

@@ -1444,16 +1444,20 @@ calendar breakdown.
 
 **`DateTimeFormat`** is compiled once (`datetime_format_of(pattern: string) ->
 DateTimeFormat` scans it into an array of field/literal parts) and reused across many
-`_format`/`_parse_pattern` calls. The pattern language is small, one run length per letter
-except `M`, where three spell the month three ways: `yyyy` (4-digit year),
-`MM`/`dd`/`HH`/`mm`/`ss` (2-digit, `HH` is 0-23), `SSSSSSSSS` (9-digit nanosecond), `MMM`
-(3-letter month name) and `MMMM` (full month name). The `M` lengths are matched longest-first,
-so `MMMM` is one token rather than `MM` twice. **Month names are English only** and parsing
-accepts any case; weekday names and locale support do not exist (ROADMAP.md, "Locale support").
-Anything else is a literal, copied through verbatim -- no escaping; an unrecognized run length
-of a token letter (three `S`s) is just folded into the surrounding literal rather than erroring.
-Every token but `MMMM` renders exactly as many characters as it occupies in the pattern, and
-`DateTimeFormat.width` is -1 for a pattern containing one.
+`_format`/`_parse_pattern` calls. The pattern language is small: `yyyy` (4-digit year),
+`MM`/`dd`/`HH`/`mm`/`ss` (2-digit, `HH` is 0-23), `SSSSSSSSS` (9-digit nanosecond), `MMM`/`MMMM`
+(abbreviated and full month name) and `EEE`/`EEEE` (abbreviated and full day name). The `M` and
+`E` run lengths are matched longest-first, so `MMMM` is one token rather than `MM` twice.
+**The names come from the operating system's locale data**, so one pattern renders in any
+language -- `EEEE, dd MMMM yyyy` is `Friday, 23 October 2026` under `en_US` and
+`Cuma, 23 Ekim 2026` under `tr_TR`. A compiled `DateTimeFormat` carries no locale; the locale
+goes to the call that renders or reads (`localdate_format(d, fmt, l)`), and the form without it
+uses `locale.default()`. Parsing folds case under the same locale, and a parsed day name is
+checked against the date rather than stepped over. Anything else is a literal, copied through
+verbatim -- no escaping; an unrecognized run length of a token letter (three `S`s) is just
+folded into the surrounding literal rather than erroring. **No name token has a fixed rendered
+width** (`ja_JP` abbreviates January as `1月`, `ar_SA` as `يناير`), and `DateTimeFormat.width`
+is -1 for any pattern holding one.
 
 ```ziman
 use time.LocalDate

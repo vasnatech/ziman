@@ -22,8 +22,9 @@ with `_add_*`; compare with `_compare`. Every type reads and writes its ISO-8601
 `_to_string` / `_from_string` (`2026-09-24`, `13:05:09.5`, `PT1.5S`, `+05:30`). The calendar
 types and `Instant` also take a `DateTimeFormat`, a pattern compiled once by
 `datetime_format_of` and reused: `yyyy MM dd HH mm ss` and `SSSSSSSSS` (nanoseconds), plus
-`MMM`/`MMMM` for the month as a name (`Oct`/`October`, English only), anything else copied
-through as literal text. Every token but `MMMM` renders a fixed number of characters. Every type has `_to_json` / `_from_json`
+`MMM`/`MMMM` and `EEE`/`EEEE` for the month and day as names, taken from the host's locale data,
+anything else copied through as literal text. A compiled pattern carries no locale; the locale
+goes to the call that renders (`localdate_format(d, fmt, l)`), or is `locale.default()`. Every type has `_to_json` / `_from_json`
 and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]` handle a field of these
 types (an ISO string, and a TEXT column).
 
@@ -32,13 +33,12 @@ they need the operating system's tzdata package; `zoneid_offset_at` gives the of
 instant and `instant_to_localdatetime_in` / `localdatetime_to_instant_in` convert with daylight
 saving applied.
 
-Limits: years are 0 or later (no BCE). **Month names arrived on 2026-10-23 as `MMM`/`MMMM`, in
-English only**; weekday names and any notion of locale did not. So a Turkish or Japanese
-application can render `MMMM` but will get "October", which is worse than useless for a reader --
-the names are two arrays in this file (`month_short_names`, `month_long_names`) precisely so that
-the seam is obvious when a locale design arrives. ROADMAP.md's "Locale support" entry carries
-what that needs; its item 5 named the hole as "a missing pattern letter for
-`datetime_format_of`", which is now half right.
+Limits: years are 0 or later (no BCE). Month and day names (`MMM`, `MMMM`, `EEE`, `EEEE`) come
+from the host's locale data as of 2026-10-23, so they are as good as the operating system's and
+no better -- see lib/core/locale.zm for what that does and does not answer. What is still absent
+is era, quarter and week-of-year fields, a localised *ordering* of the fields themselves (this
+renders the pattern it is given, so a caller writes `dd MMMM yyyy` or `MMMM dd, yyyy` as the
+language wants), and anything 12-hour (`hh`/`a`).
 
 `use time` -- or `use time.Name` to bring one item in bare.
 
@@ -274,6 +274,16 @@ pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat) -> string
 `d` rendered with a compiled pattern from `datetime_format_of`. Fields the date lacks (hour,
 minute, second, nanosecond) print as zeros.
 
+```
+pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat, l: Locale) -> string
+```
+
+The same, with the names drawn from `l`.//
+**The compiled pattern carries no locale and the call does.** A `DateTimeFormat` is locale-free on
+purpose -- one pattern renders in any language -- so a form taking a `Locale` sits beside the one
+that uses `locale.default()`. Only a pattern with a name token (`MMM`, `MMMM`, `EEE`, `EEEE`)
+reads the locale at all; `yyyy-MM-dd` renders identically under every one.
+
 ### `localdate_parse_pattern`
 
 ```
@@ -282,6 +292,12 @@ pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDa
 
 Reads `s` with a compiled pattern; an Err says which part did not match, or that the resulting
 date does not exist (31 February).
+
+```
+pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDate, string>
+```
+
+The same, reading any name token under `l`.
 
 ### `localdate_from_string`
 
@@ -381,6 +397,13 @@ pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat) -> string
 `t` rendered with a compiled pattern from `datetime_format_of`. Year, month and day print as
 zeros.
 
+```
+pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat, l: Locale) -> string
+```
+
+The same under `l`. A time has no month or weekday, so a name token in the pattern renders from
+the zeros the date fields hold -- which is what it did before a locale existed too.
+
 ### `localtime_parse_pattern`
 
 ```
@@ -389,6 +412,12 @@ pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTi
 
 Reads `s` with a compiled pattern; an Err says which part did not match or which field is out of
 range.
+
+```
+pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalTime, string>
+```
+
+The same, reading any name token under `l`.
 
 ### `localtime_from_string`
 
@@ -610,6 +639,12 @@ pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string
 
 `dt` rendered with a compiled pattern from `datetime_format_of`.
 
+```
+pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat, l: Locale) -> string
+```
+
+The same, with the names drawn from `l`.
+
 ### `localdatetime_parse_pattern`
 
 ```
@@ -618,6 +653,12 @@ pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Loc
 
 Reads `s` with a compiled pattern; an Err says which part did not match or which field is out of
 range.
+
+```
+pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDateTime, string>
+```
+
+The same, reading any name token under `l`.
 
 ### `localdatetime_from_string`
 
@@ -906,6 +947,13 @@ instant_to_string below already uses, just with `fmt` and `offset`
 as explicit parameters instead of hardcoding
 iso_datetime_format/zoneoffset_utc().
 
+```
+pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat, l: Locale) -> string
+```
+
+The same, with the names drawn from `l`. The zone-offset suffix is digits and signs, so it reads
+the same under every locale.
+
 ### `instant_parse_pattern`
 
 ```
@@ -926,6 +974,12 @@ the calendar part is parsed from the start and whatever it did not
 consume is the offset. That reads the same for a fixed-width pattern
 and works for a variable one, and it is why nothing here needs
 `fmt.width` -- which is -1 for such a pattern anyway.
+
+```
+pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Instant, string>
+```
+
+The same, reading any name token under `l`.
 
 ### `instant_from_string`
 

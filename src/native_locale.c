@@ -316,7 +316,55 @@ int ziman_locale_equals_fold(Value a, Value b, const Value *loc, int line, int c
     return px == nx && py == ny;
 }
 
+/* ---- month and day names ---------------------------------------------------------------------
+ *
+ * `nl_langinfo_l(MON_1 + i, L)` and friends, which is where a localised date formatter's names come
+ * from: `Ocak`, `Januar`, `1月`, `يناير`, measured across six locales on 2026-10-23.
+ *
+ * **Trimmed, deliberately.** glibc pads some abbreviated month names for column alignment -- the
+ * `ja_JP` set is " 1月", " 2月" with a leading space, which suits `ls -l` and not a formatted date.
+ * Trimming is this module altering the host's data, which is why it is said here rather than
+ * discovered in output.
+ *
+ * The pointer `nl_langinfo_l` answers belongs to the locale, so the bytes are copied into a string
+ * of our own; the codeset was verified UTF-8 when the locale was opened, which is what makes that
+ * copy a well-formed Ziman string. */
+static Value langinfo_string(locale_t L, nl_item item) {
+    const char *raw = nl_langinfo_l(item, L);
+    if (raw == NULL) return value_string(ziman_xstrdup(""));
+    size_t a = 0, b = strlen(raw);
+    while (a < b && (raw[a] == ' ' || raw[a] == '\t')) a++;
+    while (b > a && (raw[b - 1] == ' ' || raw[b - 1] == '\t')) b--;
+    char *out = ziman_xmalloc(b - a + 1);
+    memcpy(out, raw + a, b - a);
+    out[b - a] = '\0';
+    return value_string(out);
+}
+
+/* `month_name_raw(handle, index, full)`: `index` is 0-11, `full` picks MON over ABMON. */
+static Value native_locale_month_name_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    LocaleHandle *h = handle_of(args[0], line, col);
+    int64_t i = args[1].as.i;
+    if (i < 0 || i > 11) ziman_error("runtime", line, col, "locale: month index %lld is not 0-11", (long long)i);
+    nl_item base = args[2].as.b ? MON_1 : ABMON_1;
+    return langinfo_string(h->loc, base + (int)i);
+}
+
+/* `day_name_raw(handle, index, full)`: `index` is 0-6 with 0 = Sunday, which is POSIX's own order
+ * (DAY_1 is Sunday), so the caller does no rotation. */
+static Value native_locale_day_name_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    LocaleHandle *h = handle_of(args[0], line, col);
+    int64_t i = args[1].as.i;
+    if (i < 0 || i > 6) ziman_error("runtime", line, col, "locale: day index %lld is not 0-6", (long long)i);
+    nl_item base = args[2].as.b ? DAY_1 : ABDAY_1;
+    return langinfo_string(h->loc, base + (int)i);
+}
+
 void native_locale_register(void) {
+    native_register("locale::month_name_raw", native_locale_month_name_raw);
+    native_register("locale::day_name_raw", native_locale_day_name_raw);
     native_register("locale::open_raw", native_locale_open_raw);
     native_register("locale::root_raw", native_locale_root_raw);
     native_register("locale::name_raw", native_locale_name_raw);

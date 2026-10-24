@@ -66,9 +66,20 @@ EXPORT = re.compile(
 
 
 def current_modules(root):
-    """name -> set of exported member names, for every module under lib/."""
+    """name -> set of exported member names, for every module under lib/.
+
+    lib/prelude/ is skipped: a prelude part is not a module, nothing may `use` one, and a reference
+    like `locale.default` can only mean the core module. Keying by basename otherwise lets a part
+    *clobber* a module of the same name -- `lib/prelude/locale.zm` sorts after `lib/core/locale.zm`
+    and overwrote its exports, so every documented `locale.x` was reported missing. The Makefile
+    already anticipated this collision for embedding ("so that lib/prelude/map.zm cannot collide
+    with a future core module named map") and gave the parts their own macro prefix; this tool had
+    no equivalent until 2026-10-23.
+    """
     out = {}
     for path in sorted(root.glob("lib/**/*.zm")):
+        if path.parent.name == "prelude":
+            continue
         text = path.read_text(errors="replace")
         names = {a or b for a, b in EXPORT.findall(text)}
         out[path.stem] = names
