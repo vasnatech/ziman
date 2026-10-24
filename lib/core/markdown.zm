@@ -12,8 +12,8 @@
 // understand is not an error, it is a paragraph. So a partial Markdown reader does not fail on
 // what it is missing, it quietly returns something wrong, and the caller cannot tell.
 //
-// `parse_markdown` reads the subset listed below and treats anything else as text, which is
-// what Markdown itself prescribes. `parse_markdown_strict` reads the same subset but returns an
+// `parse` reads the subset listed below and treats anything else as text, which is
+// what Markdown itself prescribes. `parse_strict` reads the same subset but returns an
 // Err when it sees a construct it knows it does not handle -- an indented code block, a setext
 // heading, a link reference definition, a raw HTML block. That is the one that belongs in a
 // pipeline, because it is the one that can tell you it was given something it would misread.
@@ -162,7 +162,7 @@ pub fn image(alt: string, destination: string) -> Inline {
 // -- a ragged table is a bug in the caller, and writing it out would corrupt every row after it.
 pub fn text_table(headers: [string], alignments: [Align], rows: [[string]]) -> Result<Block, string> {
     if len(alignments) != 0 && len(alignments) != len(headers) {
-        return err(format(
+        return err(prelude.format(
             "the table has {} columns but {} alignments",
             len(headers),
             len(alignments)
@@ -184,7 +184,7 @@ pub fn text_table(headers: [string], alignments: [Align], rows: [[string]]) -> R
     var n = 0
     for row in rows {
         if len(row) != len(headers) {
-            return err(format(
+            return err(prelude.format(
                 "row {} has {} cells but the table has {} columns",
                 n,
                 len(row),
@@ -485,7 +485,7 @@ fn write_list(l: List, out: MutableString) -> Result<bool, string> {
             append(out, "\n")
         }
         first = false
-        val marker = if l.ordered { format("{}. ", n) } else { "- " }
+        val marker = if l.ordered { prelude.format("{}. ", n) } else { "- " }
         val body = mutable_string_new()
         val _ = try write_blocks(item.blocks, body, l.tight)
         append(out, prefix_lines(snapshot(body), marker, repeat_char(" ", len(marker))))
@@ -499,7 +499,7 @@ fn write_table(t: Table, out: MutableString) -> Result<bool, string> {
         return err("a table must have at least one column")
     }
     if len(t.alignments) != len(t.headers) {
-        return err(format(
+        return err(prelude.format(
             "the table has {} columns but {} alignments",
             len(t.headers),
             len(t.alignments)
@@ -514,14 +514,14 @@ fn write_table(t: Table, out: MutableString) -> Result<bool, string> {
     var n = 0
     for row in t.rows {
         if len(row) != len(t.headers) {
-            return err(format(
+            return err(prelude.format(
                 "row {} has {} cells but the table has {} columns",
                 n,
                 len(row),
                 len(t.headers)
             ))
         }
-        val _ = try write_row(row, out, format("row {}", n))
+        val _ = try write_row(row, out, prelude.format("row {}", n))
         n = n + 1
     }
     return ok(true)
@@ -532,7 +532,7 @@ fn write_row(cells: [[Inline]], out: MutableString, where_: string) -> Result<bo
     for cell in cells {
         val text = inline_to_text(cell, true)
         if Err(e) = text {
-            return err(format("{}: {}", where_, e))
+            return err(prelude.format("{}: {}", where_, e))
         }
         append(out, " ", unwrap(text), " |")
     }
@@ -550,20 +550,20 @@ fn write_row(cells: [[Inline]], out: MutableString, where_: string) -> Result<bo
 //
 // An Err for the one thing Markdown cannot express: a line break inside a table cell, which GFM
 // has no syntax for. The message names the row. `flatten_cell` is the usual answer.
-pub fn markdown_to_string(doc: Document) -> Result<string, string> {
+pub fn format(doc: Document) -> Result<string, string> {
     val out = mutable_string_new()
     val _ = try write_blocks(doc.blocks, out, false)
     return ok(snapshot(out))
 }
 
-// `markdown_to_string` as UTF-8 bytes: an HTTP body, or what `fs.write_bytes` takes.
-pub fn markdown_to_bytes(doc: Document) -> Result<[byte], string> {
-    val s = try markdown_to_string(doc)
-    return ok(to_bytes(s))
+// `format` as UTF-8 bytes: an HTTP body, or what `fs.write_bytes` takes.
+pub fn to_bytes(doc: Document) -> Result<[byte], string> {
+    val s = try format(doc)
+    return ok(prelude.to_bytes(s))
 }
 
 // One block as Markdown text, for embedding in a document built some other way.
-pub fn block_to_string(block: Block) -> Result<string, string> {
+pub fn format(block: Block) -> Result<string, string> {
     val out = mutable_string_new()
     val _ = try write_block(block, out)
     return ok(snapshot(out))
@@ -571,7 +571,7 @@ pub fn block_to_string(block: Block) -> Result<string, string> {
 
 // Text made safe to put in a table cell: every line break becomes a space, since GFM has no
 // way to write one. Call it on free text -- a note, a comment -- before building a row, rather
-// than letting `markdown_to_string` refuse the document. The pipes do not need handling here;
+// than letting `format` refuse the document. The pipes do not need handling here;
 // the writer escapes those wherever they appear.
 pub fn flatten_cell(text: string) -> string {
     return trim(replace(replace(replace(text, "\r\n", " "), "\n", " "), "\r", " "))
@@ -639,7 +639,7 @@ fn fence_open(line: string) -> Option<[string]> {
     if c == "`" && index_of(info, "`", 0) >= 0 {
         return Option<[string]>.None
     }
-    return Option<[string]>.Some([c, format("{}", n), info])
+    return Option<[string]>.Some([c, prelude.format("{}", n), info])
 }
 
 fn is_thematic_break(line: string) -> bool {
@@ -1312,7 +1312,7 @@ fn parse_blocks(all: [string], depth: int, strict: bool) -> Result<[Block], stri
             if strict {
                 val bad = unsupported(all, i)
                 if bad != "" {
-                    return err(format("line {}: {}", i + 1, bad))
+                    return err(prelude.format("line {}: {}", i + 1, bad))
                 }
             }
             if is_thematic_break(line) {
@@ -1348,24 +1348,24 @@ fn parse_blocks(all: [string], depth: int, strict: bool) -> Result<[Block], stri
 
 // Reads a Markdown document. Never fails on content: anything outside the subset in the module
 // header is read as text, which is what Markdown prescribes -- and which is exactly why
-// `parse_markdown_strict` exists.
-pub fn parse_markdown(text: string) -> Result<Document, string> {
+// `parse_strict` exists.
+pub fn parse(text: string) -> Result<Document, string> {
     return ok(Document { blocks: try parse_blocks(lines(text), 0, false) })
 }
 
-// `parse_markdown`, but an Err naming the line when the document uses a construct this reader
+// `parse`, but an Err naming the line when the document uses a construct this reader
 // knows it does not handle: an indented code block, a setext heading, a link reference
 // definition, a raw HTML block. Use this one when something downstream depends on the document
 // having been understood, because the lenient reader cannot tell you that it was not.
-pub fn parse_markdown_strict(text: string) -> Result<Document, string> {
+pub fn parse_strict(text: string) -> Result<Document, string> {
     return ok(Document { blocks: try parse_blocks(lines(text), 0, true) })
 }
 
-// `parse_markdown` over the bytes of a document. The bytes must be UTF-8.
-pub fn parse_markdown_bytes(data: [byte]) -> Result<Document, string> {
+// `parse` over the bytes of a document. The bytes must be UTF-8.
+pub fn parse(data: [byte]) -> Result<Document, string> {
     return switch bytes_to_string(data) {
-        Ok(s) { parse_markdown(s) }
-        Err(e) { err(format("the document is not valid UTF-8: {}", e)) }
+        Ok(s) { parse(s) }
+        Err(e) { err(prelude.format("the document is not valid UTF-8: {}", e)) }
     }
 }
 

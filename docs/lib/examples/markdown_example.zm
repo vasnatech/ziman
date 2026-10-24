@@ -16,15 +16,15 @@ fn main() {
         markdown.text_list(false, ["bring inhaler", "book review"]),
         markdown.paragraph("# not a heading, because it is text")
     ])
-    print(unwrap(markdown.markdown_to_string(doc)))
+    print(unwrap(markdown.format(doc)))
 
     // Reading. The subset is in the module header; anything outside it is text, as Markdown says.
-    val read = unwrap(markdown.parse_markdown("# Title\n\nA *word* and a [link](http://x.test).\n"))
+    val read = unwrap(markdown.parse("# Title\n\nA *word* and a [link](http://x.test).\n"))
     print(format("blocks: {}", len(read.blocks)))
     print(markdown.text_of(read))
 
     // Markdown has no syntax errors, so only the strict reader can say it was given something
     // it would have misread.
-    print(is_ok(markdown.parse_markdown("Title\n=====\n")))
-    print(unwrap_err(markdown.parse_markdown_strict("Title\n=====\n")))
+    print(is_ok(markdown.parse("Title\n=====\n")))
+    print(unwrap_err(markdown.parse_strict("Title\n=====\n")))
 }

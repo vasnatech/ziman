@@ -7,19 +7,19 @@
 //
 // The strict-mode cases exist because Markdown has no syntax errors. Every other format here
 // can refuse what it does not handle; a Markdown reader given an indented code block or a
-// setext heading just returns something else, and the caller cannot tell. `parse_markdown`
-// does what Markdown says; `parse_markdown_strict` is the one that can say "I would have
+// setext heading just returns something else, and the caller cannot tell. `markdown.parse`
+// does what Markdown says; `markdown.parse_strict` is the one that can say "I would have
 // misread this", and the tests below are what hold that line.
 
 use markdown
 use test
 
 fn parse(s: string) -> markdown.Document {
-    return test.assert_ok(markdown.parse_markdown(s))
+    return test.assert_ok(markdown.parse(s))
 }
 
 fn write(doc: markdown.Document) -> string {
-    return test.assert_ok(markdown.markdown_to_string(doc))
+    return test.assert_ok(markdown.format(doc))
 }
 
 fn round_trip(s: string) -> string {
@@ -100,7 +100,7 @@ fn a_line_break_in_a_table_cell_is_refused_and_flatten_cell_is_the_answer() {
     // the text itself, not only on a break node: free text out of a database arrives as one
     // string with a newline in it.
     val bad = test.assert_ok(markdown.text_table(["Notes"], [], [["line one\nline two"]]))
-    val e = test.assert_err(markdown.markdown_to_string(markdown.document([bad])))
+    val e = test.assert_err(markdown.format(markdown.document([bad])))
     test.assert(contains(e, "line break"))
     test.assert(contains(e, "row 0"))
 
@@ -248,8 +248,8 @@ fn a_backslash_escape_is_honoured_on_the_way_in() {
 #[test]
 fn strict_refuses_an_indented_code_block() {
     val src = "text\n\n    indented code\n"
-    test.assert_ok(markdown.parse_markdown(src))
-    val e = test.assert_err(markdown.parse_markdown_strict(src))
+    test.assert_ok(markdown.parse(src))
+    val e = test.assert_err(markdown.parse_strict(src))
     test.assert(contains(e, "indented code block"))
     test.assert(contains(e, "line 3"))
 }
@@ -257,22 +257,22 @@ fn strict_refuses_an_indented_code_block() {
 #[test]
 fn strict_refuses_a_setext_heading() {
     val src = "Title\n=====\n"
-    test.assert_ok(markdown.parse_markdown(src))
-    test.assert(contains(test.assert_err(markdown.parse_markdown_strict(src)), "setext"))
+    test.assert_ok(markdown.parse(src))
+    test.assert(contains(test.assert_err(markdown.parse_strict(src)), "setext"))
 }
 
 #[test]
 fn strict_refuses_a_link_reference_definition() {
     val src = "[label]: http://x.test\n"
-    test.assert_ok(markdown.parse_markdown(src))
-    test.assert(contains(test.assert_err(markdown.parse_markdown_strict(src)), "link reference"))
+    test.assert_ok(markdown.parse(src))
+    test.assert(contains(test.assert_err(markdown.parse_strict(src)), "link reference"))
 }
 
 #[test]
 fn strict_refuses_a_raw_html_block() {
     val src = "<div>\nhello\n</div>\n"
-    test.assert_ok(markdown.parse_markdown(src))
-    test.assert(contains(test.assert_err(markdown.parse_markdown_strict(src)), "HTML"))
+    test.assert_ok(markdown.parse(src))
+    test.assert(contains(test.assert_err(markdown.parse_strict(src)), "HTML"))
 }
 
 #[test]
@@ -287,7 +287,7 @@ fn strict_accepts_everything_in_the_supported_subset() {
         "```ziman\ncode\n```\n\n",
         "---\n"
     )
-    test.assert_ok(markdown.parse_markdown_strict(src))
+    test.assert_ok(markdown.parse_strict(src))
 }
 
 // ------------------------------------------------------------------ round trips
@@ -320,7 +320,7 @@ fn an_empty_document_is_empty() {
 
 #[test]
 fn bytes_in() {
-    val doc = test.assert_ok(markdown.parse_markdown_bytes(to_bytes("# héllo\n")))
+    val doc = test.assert_ok(markdown.parse(to_bytes("# héllo\n")))
     test.assert_eq("héllo\n", markdown.text_of(doc))
-    test.assert(contains(test.assert_ok(markdown.markdown_to_bytes(doc)), 35 as byte))
+    test.assert(contains(test.assert_ok(markdown.to_bytes(doc)), 35 as byte))
 }

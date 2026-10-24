@@ -461,8 +461,8 @@ against)**
   count.*
   *Markdown followed as `markdown`, and it is the one format module whose reader cannot report
   what it does not understand: Markdown has no syntax errors, so an unsupported construct is a
-  paragraph rather than a failure. `parse_markdown` does what Markdown prescribes and
-  `parse_markdown_strict` returns an Err naming the line, which is the only way a caller learns
+  paragraph rather than a failure. `markdown.parse` does what Markdown prescribes and
+  `markdown.parse_strict` returns an Err naming the line, which is the only way a caller learns
   it was handed something that would be misread. The writer is the part that earns its keep --
   escaping chosen per position, so nothing a caller puts in a string can change the structure of
   the output.* Still open: MessagePack/CBOR (binary; bytes have no `Json` form), YAML

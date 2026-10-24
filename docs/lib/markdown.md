@@ -17,8 +17,8 @@ format here. `xml` can refuse a DOCTYPE, `toml` can refuse `inf`, `yaml` can ref
 understand is not an error, it is a paragraph. So a partial Markdown reader does not fail on
 what it is missing, it quietly returns something wrong, and the caller cannot tell.
 
-`parse_markdown` reads the subset listed below and treats anything else as text, which is
-what Markdown itself prescribes. `parse_markdown_strict` reads the same subset but returns an
+`parse` reads the subset listed below and treats anything else as text, which is
+what Markdown itself prescribes. `parse_strict` reads the same subset but returns an
 Err when it sees a construct it knows it does not handle -- an indented code block, a setext
 heading, a link reference definition, a raw HTML block. That is the one that belongs in a
 pipeline, because it is the one that can tell you it was given something it would misread.
@@ -62,17 +62,17 @@ fn main() {
         markdown.text_list(false, ["bring inhaler", "book review"]),
         markdown.paragraph("# not a heading, because it is text")
     ])
-    print(unwrap(markdown.markdown_to_string(doc)))
+    print(unwrap(markdown.format(doc)))
 
     // Reading. The subset is in the module header; anything outside it is text, as Markdown says.
-    val read = unwrap(markdown.parse_markdown("# Title\n\nA *word* and a [link](http://x.test).\n"))
+    val read = unwrap(markdown.parse("# Title\n\nA *word* and a [link](http://x.test).\n"))
     print(format("blocks: {}", len(read.blocks)))
     print(markdown.text_of(read))
 
     // Markdown has no syntax errors, so only the strict reader can say it was given something
     // it would have misread.
-    print(is_ok(markdown.parse_markdown("Title\n=====\n")))
-    print(unwrap_err(markdown.parse_markdown_strict("Title\n=====\n")))
+    print(is_ok(markdown.parse("Title\n=====\n")))
+    print(unwrap_err(markdown.parse_strict("Title\n=====\n")))
 }
 ```
 
@@ -280,10 +280,10 @@ A bullet or ordered list whose items are each one paragraph of plain text.
 
 ## Writing
 
-### `markdown_to_string`
+### `format`
 
 ```
-pub fn markdown_to_string(doc: Document) -> Result<string, string>
+pub fn format(doc: Document) -> Result<string, string>
 ```
 
 `doc` as Markdown text, with a trailing newline. Blocks are separated by a blank line.
@@ -297,18 +297,18 @@ structure of the output.
 An Err for the one thing Markdown cannot express: a line break inside a table cell, which GFM
 has no syntax for. The message names the row. `flatten_cell` is the usual answer.
 
-### `markdown_to_bytes`
+### `to_bytes`
 
 ```
-pub fn markdown_to_bytes(doc: Document) -> Result<[byte], string>
+pub fn to_bytes(doc: Document) -> Result<[byte], string>
 ```
 
-`markdown_to_string` as UTF-8 bytes: an HTTP body, or what `fs.write_bytes` takes.
+`format` as UTF-8 bytes: an HTTP body, or what `fs.write_bytes` takes.
 
-### `block_to_string`
+### `format`
 
 ```
-pub fn block_to_string(block: Block) -> Result<string, string>
+pub fn format(block: Block) -> Result<string, string>
 ```
 
 One block as Markdown text, for embedding in a document built some other way.
@@ -321,39 +321,39 @@ pub fn flatten_cell(text: string) -> string
 
 Text made safe to put in a table cell: every line break becomes a space, since GFM has no
 way to write one. Call it on free text -- a note, a comment -- before building a row, rather
-than letting `markdown_to_string` refuse the document. The pipes do not need handling here;
+than letting `format` refuse the document. The pipes do not need handling here;
 the writer escapes those wherever they appear.
 
 ## Reading
 
-### `parse_markdown`
+### `parse`
 
 ```
-pub fn parse_markdown(text: string) -> Result<Document, string>
+pub fn parse(text: string) -> Result<Document, string>
 ```
 
 Reads a Markdown document. Never fails on content: anything outside the subset in the module
 header is read as text, which is what Markdown prescribes -- and which is exactly why
-`parse_markdown_strict` exists.
+`parse_strict` exists.
 
-### `parse_markdown_strict`
+### `parse_strict`
 
 ```
-pub fn parse_markdown_strict(text: string) -> Result<Document, string>
+pub fn parse_strict(text: string) -> Result<Document, string>
 ```
 
-`parse_markdown`, but an Err naming the line when the document uses a construct this reader
+`parse`, but an Err naming the line when the document uses a construct this reader
 knows it does not handle: an indented code block, a setext heading, a link reference
 definition, a raw HTML block. Use this one when something downstream depends on the document
 having been understood, because the lenient reader cannot tell you that it was not.
 
-### `parse_markdown_bytes`
+### `parse`
 
 ```
-pub fn parse_markdown_bytes(data: [byte]) -> Result<Document, string>
+pub fn parse(data: [byte]) -> Result<Document, string>
 ```
 
-`parse_markdown` over the bytes of a document. The bytes must be UTF-8.
+`parse` over the bytes of a document. The bytes must be UTF-8.
 
 ### `text_of`
 

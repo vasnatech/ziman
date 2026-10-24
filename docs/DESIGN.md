@@ -194,6 +194,7 @@ them against the code.
 - [`json` stops stuttering, and derive learns to call it qualified (2026-10-24)](#json-stops-stuttering-and-derive-learns-to-call-it-qualified-2026-10-24)
 - [`jwt`: one `sign`, one dead function gone, and algorithm pinning (2026-10-24)](#jwt-one-sign-one-dead-function-gone-and-algorithm-pinning-2026-10-24)
 - [`log`: the `Level` family loses its prefix, and `format` stops padding (2026-10-24)](#log-the-level-family-loses-its-prefix-and-format-stops-padding-2026-10-24)
+- [`markdown` drops the stutter, and the whole module was already qualified (2026-10-24)](#markdown-drops-the-stutter-and-the-whole-module-was-already-qualified-2026-10-24)
 
 <!-- end index -->
 
@@ -8190,3 +8191,13 @@ So `format(level)` answers the bare name now and a private `padded_name` does th
 `padded_name` needs no general pad helper and does not pretend to be one: `Level` is a closed enum of four whose longest name is five characters, so one comparison does it. A `pad_right` in the prelude would be the wrong answer to this, and there is no second caller asking for one.
 
 Nothing else here wanted changing. `with_prefix` and `with_request_id` have identical signatures (`Logger`, `string`) and so could not be one overload set even if that read better, which it would not -- the names say which field. And the four level helpers (`debug`/`info`/`warn`/`error`) are the convenience surface over `write`, not variants to collapse.
+
+## `markdown` drops the stutter, and the whole module was already qualified (2026-10-24)
+
+`markdown.markdown_to_string(doc)` said markdown twice and `markdown.parse_markdown(text)` said it twice. Six names become four: `format` over a `Document` and a `Block` (two declarations, told apart by the argument -- `block_to_string` was the second), `to_bytes`, and `parse`/`parse_strict` with `parse` taking a `string` or a `[byte]` where the `_bytes` suffix used to say it.
+
+**The thing worth recording is how cheap it was, and why.** Every one of the nineteen call sites in both repositories was already written `markdown.X(...)`, with **zero** per-name imports -- so none of the shadowing analysis `json` needed applied here. `format` and `to_bytes` are prelude names, and because nothing bare-imports them from this module, nothing in either repository could lose the prelude's own. The only file that needed `prelude.` was `markdown.zm` itself, for its own ten interpolating `format` calls and one `to_bytes`.
+
+That is the pattern across the five modules renamed today: the cost of taking a short name is paid entirely by files that *bare-import* it, and the modules that were always called qualified cost nothing at all. It is also an argument for the qualified style as the default, which `bits` and `json` both now say outright in their own documentation.
+
+Nothing else in the module wanted changing. `text_table` and `text_list` keep their prefix, which is not the type but the *input*: they build a `Block` from plain `string`s where the richer builders take `[Inline]`, and `table(headers, alignments, rows)` would hide that distinction rather than shorten it.

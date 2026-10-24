@@ -661,19 +661,19 @@ pub fn text_table(headers: [string], alignments: [Align], rows: [[string]]) -> R
 
 pub fn text_list(ordered: bool, items: [string]) -> Block
 
-pub fn markdown_to_string(doc: Document) -> Result<string, string>
+pub fn format(doc: Document) -> Result<string, string>
 
-pub fn markdown_to_bytes(doc: Document) -> Result<[byte], string>
+pub fn to_bytes(doc: Document) -> Result<[byte], string>
 
-pub fn block_to_string(block: Block) -> Result<string, string>
+pub fn format(block: Block) -> Result<string, string>
 
 pub fn flatten_cell(text: string) -> string
 
-pub fn parse_markdown(text: string) -> Result<Document, string>
+pub fn parse(text: string) -> Result<Document, string>
 
-pub fn parse_markdown_strict(text: string) -> Result<Document, string>
+pub fn parse_strict(text: string) -> Result<Document, string>
 
-pub fn parse_markdown_bytes(data: [byte]) -> Result<Document, string>
+pub fn parse(data: [byte]) -> Result<Document, string>
 
 pub fn text_of(doc: Document) -> string
 
