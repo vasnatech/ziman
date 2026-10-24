@@ -1,7 +1,7 @@
 use json
 
 // A derived Json struct with bigint and decimal fields writes them exactly (a decimal keeps its scale), and reads them
-// back exactly from a document parsed with parse_json_exact; the default parse reads a decimal's fraction as a float.
+// back exactly from a document parsed with parse_exact; the default parse reads a decimal's fraction as a float.
 
 #[derive(Json)]
 struct Reading {
@@ -13,25 +13,25 @@ struct Reading {
 
 fn main() {
     val r = Reading { id: 123456789012345678901234567890n, dose: 19.90d, count: 3, ratio: 0.25 }
-    val text = json.json_to_string(reading_to_json(r))
+    val text = json.format(reading_to_json(r))
     print(text)
 
-    val back = unwrap(reading_from_json(unwrap(json.parse_json_exact(text))))
+    val back = unwrap(reading_from_json(unwrap(json.parse_exact(text))))
     print(back.id == r.id)
     print(back.dose)
     print(back.count)
     print(back.ratio)
 
-    val plain = unwrap(reading_from_json(unwrap(json.parse_json(text))))
+    val plain = unwrap(reading_from_json(unwrap(json.parse(text))))
     print(plain.id == r.id)
     print(plain.dose)
 
-    val lax = json.parse_json_exact("{\"id\": 5, \"dose\": 2.50, \"count\": 4.0, \"ratio\": 1}")
+    val lax = json.parse_exact("{\"id\": 5, \"dose\": 2.50, \"count\": 4.0, \"ratio\": 1}")
     val r2 = unwrap(reading_from_json(unwrap(lax)))
     print(r2.id)
     print(r2.dose)
     print(r2.count)
     print(r2.ratio)
 
-    print(reading_from_json(unwrap(json.parse_json("{\"id\": 1.5, \"dose\": 1, \"count\": 1, \"ratio\": 1}"))))
+    print(reading_from_json(unwrap(json.parse("{\"id\": 1.5, \"dose\": 1, \"count\": 1, \"ratio\": 1}"))))
 }

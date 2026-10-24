@@ -298,7 +298,7 @@ fn a_control_character_is_refused_on_the_way_in() {
 
 #[test]
 fn a_control_character_is_refused_on_the_way_out() {
-    // The asymmetry with `json_to_string`, which is infallible: JSON can write `\u0000` and XML
+    // The asymmetry with `json.format`, which is infallible: JSON can write `\u0000` and XML
     // has nothing at all to write, so the only honest answer is to refuse.
     val bad = xml.document(xml.text_element("note", concat("before", str_of_byte(7), "after")))
     val e = test.assert_err(xml.xml_to_string(bad))

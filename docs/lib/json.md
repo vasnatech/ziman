@@ -6,13 +6,13 @@ reading and building trees.
 `Json` is a recursive enum: `JArray([Json])` and
 `JObject(Map<string, Json>)`. An object is a built-in `Map`, so a field lookup is
 near-O(1) (not a scan), a duplicate key has one defined meaning (the last one
-wins; `parse_json_strict` rejects it instead), and iteration -- and so
-`json_to_string` -- keeps the order keys first appeared in the document.
+wins; `parse_strict` rejects it instead), and iteration -- and so
+`format` -- keeps the order keys first appeared in the document.
 
 Numbers: `JNumber(Number)`, where a `Number` says how the number was written and so what it can
 be read back as exactly: `Int(int)` for an integer that fits in 64 bits, `Bigint(bigint)` for a
 larger one (never a float that has lost its low digits), `Float(float)` for a fraction or an
-exponent, and `Decimal(decimal)`, which `parse_json_exact` produces for a fraction or an exponent
+exponent, and `Decimal(decimal)`, which `parse_exact` produces for a fraction or an exponent
 (every digit and the scale kept: `19.90` is `19.90`) and `decimal_to_json` builds. The `*_from_json`
 functions decide what is lossless: `int_from_json` accepts any `Number` that is a whole number in
 int's range, `bigint_from_json` any whole number, `decimal_from_json` and `float_from_json` any
@@ -30,7 +30,7 @@ as structural whitespace between tokens, so a CRLF body parses.
 (see docs/SYNTAX.md "Arrays"), and `[Json]`'s element is an enum. A known limitation.
 
 This is the general engine; a schema-specific parser for one request shape is
-expected to be built on top of it (see `json_object_get`, `json_get_path` and the
+expected to be built on top of it (see `get`, `get_path` and the
 `json_require_*` helpers below, or `#[derive(Json)]`), not inside this module.
 
 `use json` -- or `use json.Name` to bring one item in bare.
@@ -44,7 +44,7 @@ use json.int_to_json
 
 // Parse text into a tree, read from it, build a new tree and print it.
 fn main() {
-    val doc = unwrap(json.parse_json("""
+    val doc = unwrap(json.parse("""
         {
           "name": "Ada",
           "langs": ["en", "fr"],
@@ -52,24 +52,24 @@ fn main() {
         }
         """))
 
-    print(unwrap(json.json_require_string_field(doc, "name")))
-    print(unwrap(json.json_require_int_field(doc, "age")))
+    print(unwrap(json.require_string(doc, "name")))
+    print(unwrap(json.require_int(doc, "age")))
 
     // A missing field is a value you can test, not a crash.
-    print(Option.is_None(json.json_object_get(doc, "email")))
-    print(is_ok(json.json_require_string_field(doc, "email")))
+    print(Option.is_None(json.get(doc, "email")))
+    print(is_ok(json.require_string(doc, "email")))
 
     // A path into nested values.
-    val first = json.json_get_path(doc, "langs")
+    val first = json.get_path(doc, "langs")
     print(Option.is_Some(first))
 
     // Build a tree and write it out, compact or indented.
     val out = Json.JObject(Map<string, Json> { "ok": Json.JBool(true), "count": int_to_json(2) })
-    print(json.json_to_string(out))
-    print(json.json_to_pretty_string(out, 2))
+    print(json.format(out))
+    print(json.format(out, 2))
 
     // Bad input is an Err carrying where it went wrong.
-    print(is_ok(json.parse_json("{\"a\": ")))
+    print(is_ok(json.parse("{\"a\": ")))
 }
 ```
 
@@ -121,10 +121,10 @@ Json>`).
 
 ## Parsing
 
-### `parse_json`
+### `parse`
 
 ```
-pub fn parse_json(s: string) -> Result<Json, string>
+pub fn parse(s: string) -> Result<Json, string>
 ```
 
 Parses one JSON document. A repeated key in an object is allowed: the last one wins, keeping
@@ -132,65 +132,63 @@ the position of the first. Errors say what was expected and the byte position
 (`expected ',' or ']' at position 12`); nesting deeper than 512 levels is an error. The whole
 input must be one value: `trailing content at position N` otherwise.
 
-### `parse_json_strict`
+### `parse_strict`
 
 ```
-pub fn parse_json_strict(s: string) -> Result<Json, string>
+pub fn parse_strict(s: string) -> Result<Json, string>
 ```
 
-parse_json, but a repeated key in any object is an error -- for input where a duplicate
+parse, but a repeated key in any object is an error -- for input where a duplicate
 means something is wrong (a signed or audited document, a config file).
 
-### `parse_json_bytes`
+### `parse`
 
 ```
-pub fn parse_json_bytes(data: [byte]) -> Result<Json, string>
+pub fn parse(data: [byte]) -> Result<Json, string>
 ```
 
-`parse_json` over the bytes of a document, with no string made first: what a file read with `fs.read_bytes` or a body read
+`parse` over the bytes of a document, with no string made first: what a file read with `fs.read_bytes` or a body read
 off a socket is. The same rules and the same errors (the position is a byte offset).
 
-### `parse_json_bytes_strict`
+### `parse_strict`
 
 ```
-pub fn parse_json_bytes_strict(data: [byte]) -> Result<Json, string>
+pub fn parse_strict(data: [byte]) -> Result<Json, string>
 ```
 
-`parse_json_strict` over bytes.
+`parse_strict` over bytes.
 
-### `parse_json_exact`
+### `parse_exact`
 
 ```
-pub fn parse_json_exact(s: string) -> Result<Json, string>
+pub fn parse_exact(s: string) -> Result<Json, string>
 ```
 
-`parse_json`, but a number with a fraction or an exponent is a `Number.Decimal` with every digit and its scale kept, not a
+`parse`, but a number with a fraction or an exponent is a `Number.Decimal` with every digit and its scale kept, not a
 `Number.Float` (`0.1234567890123456789` and `19.90` survive, and `decimal_from_json` reads them exactly). What to parse
 money, doses and lab values with; an integer is still `Int` or, past 64 bits, `Bigint`. At most 1000 digits per number, and
 an exponent of at most 100000 in size.
 
-### `parse_json_bytes_exact`
-
 ```
-pub fn parse_json_bytes_exact(data: [byte]) -> Result<Json, string>
+pub fn parse_exact(data: [byte]) -> Result<Json, string>
 ```
 
-`parse_json_exact` over the bytes of a document.
+`parse_exact` over the bytes of a document.
 
 ## Writing
 
-### `json_to_bytes`
+### `to_bytes`
 
 ```
-pub fn json_to_bytes(j: Json) -> [byte]
+pub fn to_bytes(j: Json) -> [byte]
 ```
 
 `j` as compact JSON text, as bytes: the body of an HTTP message, or what `fs.write_bytes` takes.
 
-### `json_to_string`
+### `format`
 
 ```
-pub fn json_to_string(j: Json) -> string
+pub fn format(j: Json) -> string
 ```
 
 `j` as compact JSON text (no spaces), objects in key insertion order. A float is written
@@ -209,10 +207,10 @@ and so always parses elsewhere.
 
 ## Reading a tree
 
-### `json_object_get`
+### `get`
 
 ```
-pub fn json_object_get(j: Json, key: string) -> Option<Json>
+pub fn get(j: Json, key: string) -> Option<Json>
 ```
 
 The core convenience lookup provided beyond parse/serialize -- looking
@@ -220,23 +218,23 @@ up a field by key is common enough (every schema-specific parser
 built on this module needs it at least once per field) to be worth
 including, without turning this into a general "Json query language."
 
-### `json_get_path`
+### `get_path`
 
 ```
-pub fn json_get_path(j: Json, path: variadic string) -> Option<Json>
+pub fn get_path(j: Json, path: variadic string) -> Option<Json>
 ```
 
 Follows `path` down from `j`: each segment is an object key, or -- when the current
 value is an array -- a decimal index. None if any step is missing or of the wrong
-kind: `json_get_path(j, "items", "0", "name")`.
+kind: `get_path(j, "items", "0", "name")`.
 
-### `json_require_field`
+### `require`
 
 ```
-pub fn json_require_field(j: Json, key: string) -> Result<Json, string>
+pub fn require(j: Json, key: string) -> Result<Json, string>
 ```
 
-json_object_get, treating a missing field as an error instead of
+get, treating a missing field as an error instead of
 None -- pulled out of two near-identical copies that grew
 independently in health-record-backend-ziman's own request/response
 mapping layers before moving here. The common case for a *required*
@@ -244,73 +242,100 @@ field in a request/response shape, where "not present" is always a
 failure worth a clear message, not an Option every caller has to
 unwrap into one anyway.
 
-### `json_require_string_field`
+### `require_string`
 
 ```
-pub fn json_require_string_field(j: Json, key: string) -> Result<string, string>
+pub fn require_string(j: Json, key: string) -> Result<string, string>
 ```
 
-json_require_field, further requiring the value be a JSON string --
+require, further requiring the value be a JSON string --
 the single most common required-field shape (an id, a name, a
 status), so a request/response mapping layer doesn't have to spell
 out the is_JString check every time.
 
-### `json_require_int_field`
+### `require_int`
 
 ```
-pub fn json_require_int_field(j: Json, key: string) -> Result<int, string>
+pub fn require_int(j: Json, key: string) -> Result<int, string>
 ```
 
 The integer in field `key` of object `j`; an Err naming the field when `j` is not an object,
 lacks it, or it is not an integer.
 
-### `json_require_float_field`
+### `require_float`
 
 ```
-pub fn json_require_float_field(j: Json, key: string) -> Result<float, string>
+pub fn require_float(j: Json, key: string) -> Result<float, string>
 ```
 
 The number in field `key` of object `j` (an integer is widened); an Err naming the field when it
 is missing or not a number.
 
-### `json_require_bool_field`
+### `require_bigint`
 
 ```
-pub fn json_require_bool_field(j: Json, key: string) -> Result<bool, string>
+pub fn require_bigint(j: Json, key: string) -> Result<bigint, string>
+```
+
+The whole number in field `key` of object `j`, of any size; an Err naming the field when it is
+missing or is not a whole number. It reads an `Int`, a `Bigint`, and a `Float` or `Decimal` that
+happens to be whole -- the same breadth as `bigint_from_json`, so a field written `3`, `3.0` or
+`30000000000000000000` all read.
+
+### `require_decimal`
+
+```
+pub fn require_decimal(j: Json, key: string) -> Result<decimal, string>
+```
+
+The exact number in field `key` of object `j`; an Err naming the field when it is missing or not
+a finite number.
+
+**This is the one to require for money.** `require_float` answers the nearest binary float, and
+shortest-round-trip display hides that: `19.99` prints back as `19.99`, and even `19.99 + 19.99`
+prints `39.98`, because the nearest double to 39.98 happens to be that sum. `0.1 + 0.2` is where
+it shows -- `0.30000000000000004` through floats, `0.3` through decimals. This reader takes an
+`Int`, `Bigint` or `Decimal` exactly and a `Float` as its shortest text, so the digits written
+are the digits that come back and the arithmetic is the arithmetic that was meant.
+
+### `require_bool`
+
+```
+pub fn require_bool(j: Json, key: string) -> Result<bool, string>
 ```
 
 The boolean in field `key` of object `j`; an Err naming the field when it is missing or not a
 boolean.
 
-### `json_to_map`
+### `to_map`
 
 ```
-pub fn json_to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<Map<string, V>, string>
+pub fn to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<Map<string, V>, string>
 ```
 
-An object as a Map, each value decoded by `decode`: `json_to_map(j, int_from_json)` -- `V` comes
+An object as a Map, each value decoded by `decode`: `to_map(j, int_from_json)` -- `V` comes
 from `decode`'s own return type, so writing it is optional.
 
-### `json_from_map`
+### `from_map`
 
 ```
-pub fn json_from_map<V>(m: Map<string, V>, encode: fn(V) -> Json) -> Json
+pub fn from_map<V>(m: Map<string, V>, encode: fn(V) -> Json) -> Json
 ```
 
 The other direction: a Map as a JSON object, each value encoded by `encode`.
 
-### `json_to_string_map`
+### `to_string_map`
 
 ```
-pub fn json_to_string_map(j: Json) -> Result<Map<string, string>, string>
+pub fn to_string_map(j: Json) -> Result<Map<string, string>, string>
 ```
 
 A JSON object of strings as a Map<string, string>.
 
-### `json_to_pretty_string`
+### `format`
 
 ```
-pub fn json_to_pretty_string(j: Json, indent: int) -> string
+pub fn format(j: Json, indent: int) -> string
 ```
 
 Indented output: `indent` spaces per level, one array element or object field per
@@ -354,10 +379,10 @@ Converter functions for the scalar types. A generic #[derive(Json)] type takes
 one converter per type parameter (`page_to_json<int>(page, int_to_json)`), and
 a builtin type has no function of its own to pass -- these are those.
 
-### `json_number`
+### `number_of`
 
 ```
-pub fn json_number(j: Json) -> Option<Number>
+pub fn number_of(j: Json) -> Option<Number>
 ```
 
 The `Number` in `j`, or None if `j` is not a JSON number.

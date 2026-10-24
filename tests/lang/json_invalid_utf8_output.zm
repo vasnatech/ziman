@@ -1,6 +1,6 @@
 // JSON is defined over Unicode text, so a document containing a byte that is not valid UTF-8 is not
 // JSON. Before this was fixed the encoder copied such bytes through, producing a document Python's
-// `json` refused to decode while this module's own `parse_json` accepted it: every test written in
+// `json` refused to decode while this module's own `parse` accepted it: every test written in
 // Ziman passed and the client failed. The encoder substitutes U+FFFD, so what leaves is always
 // valid UTF-8.
 //
@@ -25,22 +25,22 @@ fn raw(bytes: [byte]) -> string {
 
 fn main() {
     // valid text of every width passes through untouched
-    print(json.json_to_string(json.Json.JString("café 日本語")))
+    print(json.format(json.Json.JString("café 日本語")))
 
     // control characters are still escaped, not replaced
-    print(json.json_to_string(json.Json.JString("a\tb\nc")))
+    print(json.format(json.Json.JString("a\tb\nc")))
 
     // a three-byte character (日 is E6 97 A5) truncated at each point, then whole
-    print(json.json_to_string(json.Json.JString(raw([230b]))))
-    print(json.json_to_string(json.Json.JString(raw([230b, 151b]))))
-    print(json.json_to_string(json.Json.JString(raw([230b, 151b, 165b]))))
+    print(json.format(json.Json.JString(raw([230b]))))
+    print(json.format(json.Json.JString(raw([230b, 151b]))))
+    print(json.format(json.Json.JString(raw([230b, 151b, 165b]))))
 
     // a four-byte character (😀 is F0 9F 98 80), truncated then whole
-    print(json.json_to_string(json.Json.JString(raw([240b, 159b]))))
-    print(json.json_to_string(json.Json.JString(raw([240b, 159b, 152b, 128b]))))
+    print(json.format(json.Json.JString(raw([240b, 159b]))))
+    print(json.format(json.Json.JString(raw([240b, 159b, 152b, 128b]))))
 
     // and through a derived encoder, which is how it reaches a real client
-    print(json.json_to_string(note_to_json(Note { text: raw([99b, 97b, 102b, 195b]) })))
+    print(json.format(note_to_json(Note { text: raw([99b, 97b, 102b, 195b]) })))
 
     // bytes_to_string, by contrast, refuses invalid input outright rather than substituting
     switch bytes_to_string([99b, 195b]) {

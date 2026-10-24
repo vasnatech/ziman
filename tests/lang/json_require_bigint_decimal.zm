@@ -1,0 +1,40 @@
+// `require_bigint` and `require_decimal`, the two the `require_*` family was missing: a required
+// field could be read as an `int`, a `float`, a `string` or a `bool`, but a whole number too large
+// for an `int` and an exact decimal both had to go through `require` and then
+// `bigint_from_json`/`decimal_from_json` by hand.
+//
+// Each reads exactly what its `_from_json` reader accepts, so `3`, `3.0` and a twenty-digit
+// integer are all whole numbers, and the error names the field rather than the value.
+use json
+use json.parse
+use json.require_bigint
+use json.require_decimal
+use json.require_float
+use json.require_int
+
+fn main() {
+    val j = unwrap(
+        parse("{\"big\": 30000000000000000000, \"whole\": 3.0, \"money\": 19.99, \"a\": 0.1, \"b\": 0.2, \"txt\": \"x\"}")
+    )
+
+    // past int's range, which is why bigint is a separate reader
+    print(unwrap(require_bigint(j, "big")))
+    print(is_ok(require_int(j, "big")))
+
+    // a float that happens to be whole reads as one
+    print(unwrap(require_bigint(j, "whole")))
+
+    // the money case: read exactly, where a float is read as the nearest binary value
+    print(unwrap(require_decimal(j, "money")))
+
+    // **Where the two actually diverge.** `19.99 + 19.99` is *not* a demonstration: the nearest
+    // double to 39.98 is also the sum of the two nearest doubles to 19.99, so both print 39.98 and
+    // shortest-round-trip display hides the difference. `0.1 + 0.2` is the case where it shows.
+    print(unwrap(require_float(j, "a")) + unwrap(require_float(j, "b")))
+    print(unwrap(require_decimal(j, "a")) + unwrap(require_decimal(j, "b")))
+
+    // errors name the field, not the value
+    print(unwrap_err(require_bigint(j, "money")))
+    print(unwrap_err(require_decimal(j, "txt")))
+    print(unwrap_err(require_bigint(j, "absent")))
+}

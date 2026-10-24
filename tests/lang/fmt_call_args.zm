@@ -1,8 +1,11 @@
 fn f() {
     switch v {
         EmptyField(field) {
-            error(status: 400, message: "validation failed",
-                fields: Map<string, string> { field: "must not be blank" })
+            error(
+                status: 400,
+                message: "validation failed",
+                fields: Map<string, string> { field: "must not be blank" }
+            )
         }
     }
     return iter_from<T>(fn() -> X {
@@ -12,14 +15,19 @@ fn f() {
 }
 
 fn g() {
-    return err(ServiceError.Validation(invalid_field("expectedIntervalHours",
-        "must be greater than 0")))
+    return err(ServiceError.Validation(invalid_field(
+        "expectedIntervalHours",
+        "must be greater than 0"
+    )))
 }
 
 pub fn to_json(e: ApiError) -> Json {
     if len(e.fields) > 0 {
-        return Json.JObject(Map<string, Json> { "timestamp": Json.JString(timestamp()),
-            "status": Json.JInt(e.status), "errors": json_from_map<string>(e.fields, string_to_json) })
+        return Json.JObject(Map<string, Json> {
+            "timestamp": Json.JString(timestamp()),
+            "status": Json.JInt(e.status),
+            "errors": from_map<string>(e.fields, string_to_json)
+        })
     }
     val p = Point { x: 1, y: 2 }
     for i, x in items {

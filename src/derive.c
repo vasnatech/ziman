@@ -639,7 +639,7 @@ static char *generate_struct_from_json(StructDecl *sd) {
             char *found = fmt_str("field_%s_found", f->name);
             char *raw = fmt_str("field_%s_raw", f->name);
             char *inner = fmt_str("field_%s_inner", f->name);
-            cb_appendf(&cb, "    val %s = json_object_get(j, \"%s\")\n", found, camel);
+            cb_appendf(&cb, "    val %s = json.get(j, \"%s\")\n", found, camel);
             cb_appendf(&cb, "    var %s = Option<%s>.None\n", dst, elem_type_name);
             cb_appendf(&cb, "    if Option.is_Some(%s) {\n", found);
             cb_appendf(&cb, "    val %s = Option.unwrap_Some(%s)\n", raw, found);
@@ -650,7 +650,7 @@ static char *generate_struct_from_json(StructDecl *sd) {
             cb_appendf(&cb, "    }\n");
         } else {
             char *raw = fmt_str("field_%s_raw", f->name);
-            cb_appendf(&cb, "    val %s = try json_require_field(j, \"%s\")\n", raw, camel);
+            cb_appendf(&cb, "    val %s = try json.require(j, \"%s\")\n", raw, camel);
             emit_from_json(f->type, raw, dst, &cb, &tmp, f->line, f->col, camel);
         }
         field_vars[i] = dst;
@@ -697,7 +697,7 @@ static char *generate_struct_from_json(StructDecl *sd) {
             char *elem_type_name = type_name(elem);
             char *found = fmt_str("field_%s_found", f->name);
             char *inner = fmt_str("field_%s_inner", f->name);
-            cb_appendf(&cb, "    val %s = json_object_get(j, \"%s\")\n", found, camel);
+            cb_appendf(&cb, "    val %s = json.get(j, \"%s\")\n", found, camel);
             cb_appendf(&cb, "    var %s = Option<%s>.None\n", dst, elem_type_name);
             cb_appendf(&cb, "    if Option.is_Some(%s) {\n", found);
             cb_appendf(&cb, "    val %s = Option.unwrap_Some(%s)\n", raw, found);
@@ -707,7 +707,7 @@ static char *generate_struct_from_json(StructDecl *sd) {
             cb_appendf(&cb, "    }\n");
             cb_appendf(&cb, "    }\n");
         } else {
-            cb_appendf(&cb, "    val %s = try json_require_field(j, \"%s\")\n", raw, camel);
+            cb_appendf(&cb, "    val %s = try json.require(j, \"%s\")\n", raw, camel);
             emit_from_json(f->type, raw, dst, &cb, &tmp, f->line, f->col, NULL);
         }
         cb_appendf(&cb, "    return ok(%s)\n", dst);
@@ -782,7 +782,7 @@ static char *generate_enum_from_json(EnumDecl *ed) {
     cb_appendf(&cb, "pub fn %s_from_json%s(j: Json%s) -> Result<%s, string> {\n", fn_name, type_param_decl_text(&ed->type_params, ""),
                converter_params_text(&ed->type_params, 0), decl_type_text(ed->name, &ed->type_params));
     cb_appendf(&cb, "    if !Json.is_JObject(j) { return err(\"expected a JSON object for %s\") }\n", ed->name);
-    cb_appendf(&cb, "    val __derive_tag = try json_require_string_field(j, \"type\")\n");
+    cb_appendf(&cb, "    val __derive_tag = try json.require_string(j, \"type\")\n");
 
     int tmp = 0;
     int n = ed->variants.count;
@@ -794,7 +794,7 @@ static char *generate_enum_from_json(EnumDecl *ed) {
             if (ed->type_params.count > 0) cb_appendf(&cb, "        return %s.%s\n", decl_type_text(ed->name, &ed->type_params), variant->name);
             else cb_appendf(&cb, "        return %s.%s\n", ed->name, variant->name);
         } else {
-            cb_appendf(&cb, "        val __derive_payload_raw = try json_require_field(j, \"value\")\n");
+            cb_appendf(&cb, "        val __derive_payload_raw = try json.require(j, \"value\")\n");
             char *dst = fmt_str("payload_%d", i);
             emit_from_json(variant->payload_type, "__derive_payload_raw", dst, &cb, &tmp, variant->line, variant->col, NULL);
             cb_appendf(&cb, "        return %s.%s(%s)\n", decl_type_text(ed->name, &ed->type_params), variant->name, dst);
@@ -1228,10 +1228,21 @@ static void import_field_converters(Module *module, const char *suffix, Type t, 
 
 static void import_for_derive(Module *module, const char *target, int line, int col) {
     if (strcmp(target, "Json") == 0) {
-        static const char *const names[] = {"Json", "json_object_get", "json_require_field", "json_require_string_field",
+        /* The scalar converters keep their `<type>_to_json` names -- that is the derive naming
+         * convention, looked up by name, and `string_from_json` could not become `to_string`
+         * without changing it for every derived type (see the 2026-10-24 time entry). They are
+         * imported by name as before.
+         *
+         * The three tree helpers lost their prefix with the rest of `json`'s vocabulary, and
+         * `get`, `require` and `require_string` are names the prelude also has. They are reached
+         * **qualified** for that reason: a per-name import replaces the bare name for the whole
+         * file, so `use json.get` in a file that derives would have shadowed the prelude's `get`
+         * there -- silently, and without the author asking for it. A module import cannot. */
+        static const char *const names[] = {"Json",
                                             "int_to_json", "int_from_json", "float_to_json", "float_from_json", "bigint_to_json", "bigint_from_json", "decimal_to_json", "decimal_from_json",
                                             "bool_to_json", "bool_from_json", "string_to_json", "string_from_json"};
         for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) ensure_named_import(module, "json", names[i], line, col);
+        ensure_module_import(module, "json", line, col);
     } else if (strcmp(target, "Row") == 0) {
         static const char *const names[] = {"SqlValue", "DbError", "Row", "row_get", "sql_as_text", "sql_as_int", "sql_as_bool", "sql_as_float", "sql_as_decimal"};
         for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) ensure_named_import(module, "db", names[i], line, col);

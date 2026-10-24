@@ -22,7 +22,7 @@ fn deep(depth: int) -> Json {
 }
 
 fn writes(done: Channel<string>) {
-    val _ = json.json_to_string(deep(200000))
+    val _ = json.format(deep(200000))
     send(done, "write: no guard fired")
 }
 
@@ -47,5 +47,5 @@ fn main() {
     }
     print(receive(done))
     // Shallow values are untouched.
-    print(format("shallow still writes: {}", json.json_to_string(deep(3))))
+    print(format("shallow still writes: {}", json.format(deep(3))))
 }

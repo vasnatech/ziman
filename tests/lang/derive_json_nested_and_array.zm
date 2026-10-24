@@ -1,7 +1,6 @@
+use json
 use json.Json
-use json.json_to_string
-use json.json_require_field
-use json.json_object_get
+use json.require
 
 #[derive(Json)]
 pub struct Address {
@@ -19,7 +18,7 @@ pub struct Person {
 fn main() {
     val a = Address { city: "Vancouver", zip: "V6B" }
     val p = Person { name: "Ada", address: a, tags: ["x", "y", "z"] }
-    print(json_to_string(person_to_json(p)))
+    print(json.format(person_to_json(p)))
 
     val back = unwrap(person_from_json(person_to_json(p)))
     print(back.name)

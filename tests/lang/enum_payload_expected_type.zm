@@ -32,8 +32,8 @@ fn main() {
     printf("struct literal field: {} item(s)\n", len(h.items))
 
     // The case the roadmap named: an empty array literal straight into a variant.
-    printf("empty array payload: {}\n", json.json_to_string(json.Json.JArray([])))
-    printf("nested empty array: {}\n", json.json_to_string(json.Json.JArray([json.Json.JArray([])])))
+    printf("empty array payload: {}\n", json.format(json.Json.JArray([])))
+    printf("nested empty array: {}\n", json.format(json.Json.JArray([json.Json.JArray([])])))
     printf("user enum, empty payload: {}\n", switch Rows.Some_([]) {
         Empty { "empty variant" }
         Some_(rows) { concat(str(len(rows)), " row(s)") }

@@ -1567,15 +1567,14 @@ overlapping work.
 The `json` core module (`use json.Name`) is a parser/serializer, pure Ziman.
 
 ```ziman
+use json
 use json.Json
-use json.json_object_get
-use json.json_to_string
-use json.parse_json
+use json.parse
 
 fn main() {
-    val j = unwrap(parse_json("{\"name\": \"Ada\", \"age\": 210}"))
-    print(json_to_string(j))                 // {"name":"Ada","age":210}
-    val name = json_object_get(j, "name")     // Option<Json>, not Result -- unwrap_Some, not unwrap
+    val j = unwrap(parse("{\"name\": \"Ada\", \"age\": 210}"))
+    print(json.format(j))                    // {"name":"Ada","age":210}
+    val name = json.get(j, "name")            // Option<Json>, not Result -- unwrap_Some, not unwrap
     print(Json.unwrap_JString(Option.unwrap_Some(name)))  // Ada
 }
 ```
@@ -1583,34 +1582,40 @@ fn main() {
 - **`Json`** is a recursive enum: `JNull`, `JBool(bool)`, `JNumber(Number)`, `JString(string)`,
   `JArray([Json])`, `JObject(Map<string, Json>)`.
 - **Objects are Maps** — near-O(1) lookup, insertion-order iteration (a repeated key keeps its
-  first position with the last value; `parse_json_strict` errors on one instead).
-  `parse_json_bytes`/`_bytes_strict` are the same over `[byte]`, no string made first. Build one
+  first position with the last value; `parse_strict` errors on one instead).
+  `parse`/`_bytes_strict` are the same over `[byte]`, no string made first. Build one
   with `Json.JObject(Map<string, Json> { "k": v })`.
 - **Numbers.** `JNumber` holds a `json.Number` (`enum Number { Int(int) Float(float)
   Bigint(bigint) Decimal(decimal) }`) recording how it was written. A 64-bit-fitting integer
   parses to `Int`; a larger one to `Bigint` with exact digits (never a float that's lost low
-  digits); a fraction/exponent to `Float`. `parse_json_exact`/`_bytes_exact` read a
+  digits); a fraction/exponent to `Float`. `parse_exact`/`_bytes_exact` read a
   fraction/exponent as `Decimal` instead, keeping every digit and the scale exactly;
-  `decimal_to_json`/`json_to_string` round-trip it, and a `Bigint` writes as its digits. Readers
+  `decimal_to_json`/`json.format` round-trip it, and a `Bigint` writes as its digits. Readers
   decide losslessness: `int_from_json` (any in-range whole number), `bigint_from_json` (any
   whole number), `decimal_from_json`/`float_from_json` (any number, rounding a bigint/decimal
-  like a cast would); `#[derive(Json)]` may have `bigint`/`decimal` fields. `json_number(j)` is
+  like a cast would); `#[derive(Json)]` may have `bigint`/`decimal` fields. `number_of(j)` is
   the `Number` of a `JNumber`, or `None`; `switch` on it (no nested patterns) to branch on kind.
   Grammar is JSON's (`01`, `+1`, `.5`, `5.`, a dangling exponent are errors); an integer or exact
   decimal caps at 1000 digits (exponent at 100000).
-- **`parse_json(s) -> Result<Json, string>`** — native, errors give the byte position, nesting
+- **`parse(s) -> Result<Json, string>`** — native, errors give the byte position, nesting
   past 512 levels errors. All JSON escapes read (`\" \\ \/ \b \f \n \r \t`, `\uXXXX` with
   surrogate pairs, decoded to UTF-8); `\u0000` errors (a string can't hold a 0 byte).
-- **`json_to_string(j) -> string`** — native, compact, shortest-round-trip floats, NaN/infinity
-  as `null`, control chars as `\b \f \u00XX`. `json_to_pretty_string(j, indent)` indents.
-- **Lookups**: `json_object_get(j, key) -> Option<Json>`, `json_get_path(j, ["items", "0",
-  "name"]) -> Option<Json>` (array segment = decimal index), `json_require_field`/
+- **`json.format(j) -> string`** — native, compact, shortest-round-trip floats, NaN/infinity
+  as `null`, control chars as `\b \f \u00XX`. `json.format(j, indent)` indents.
+- **Lookups**: `json.get(j, key) -> Option<Json>`, `get_path(j, ["items", "0",
+  "name"]) -> Option<Json>` (array segment = decimal index), `require`/
   `_string_field`/`_int_field`/`_float_field`/`_bool_field` (all `Result`, message names the field).
+- **Required fields**: `require(j, key) -> Result<Json, string>` and the typed readers
+  `require_string`/`require_int`/`require_bigint`/`require_decimal`/`require_float`/`require_bool`,
+  each an Err naming the field when it is missing or the wrong shape. Use `require_decimal` for
+  money: `require_float` answers the nearest binary float and shortest-round-trip display hides
+  it (`19.99 + 19.99` prints `39.98` either way; `0.1 + 0.2` is `0.30000000000000004` through
+  floats and `0.3` through decimals).
 - **Map helpers**: `json_to_map<V>(j, decode)`/`json_from_map<V>(m, encode)` convert an object
-  to/from `Map<string, V>`; `json_to_string_map(j)` is the `Map<string, string>` case.
+  to/from `Map<string, V>`; `to_string_map(j)` is the `Map<string, string>` case.
 - **No `==`/`!=` on `Json`** — array equality needs a scalar element type, and `Json` isn't one.
 - **A general parsing engine, not a schema-specific request parser** — decoding into one
-  known struct is application code built on `parse_json` + `json_object_get` + validation.
+  known struct is application code built on `json.parse` + `json.get` + validation.
 
 ## Media types (`mime`)
 
@@ -1858,15 +1863,15 @@ is not caught, which is why the check reads the character after the prefix. The 
 hold: a thread-bound type need not be named `Mutable*`, or `Iter` would have to be renamed.
 
 ```ziman
+use json
 use json.Json
-use json.json_to_string
 
 #[derive(Json)]
 pub struct Point { x: int  label: Option<string> }
 
 fn main() {
     val p = Point { x: 42, label: Option<string>.Some("hi") }
-    print(json_to_string(point_to_json(p)))          // {"x":42,"label":"hi"}
+    print(json.format(point_to_json(p)))             // {"x":42,"label":"hi"}
     print(unwrap(point_from_json(point_to_json(p))).x)  // 42
 }
 ```
@@ -1897,8 +1902,8 @@ fn main() {
   "<Variant>", "value": ...}` (payload, following the same per-field priority). `Option<T>` keeps
   its own `null`/unwrapped handling even as a variant's payload type, never tagged this way.
 - **A derive imports what its generated code calls**, only where the module doesn't already bind
-  the name: `#[derive(Json)]` brings `json.Json`/`json_object_get`/`json_require_field`/
-  `json_require_string_field`; `#[derive(Row)]` brings `db.SqlValue`/`DbError`/`Row`/`row_get`/
+  the name: `#[derive(Json)]` brings `json.Json`/`get`/`require`/
+  `require_string`; `#[derive(Row)]` brings `db.SqlValue`/`DbError`/`Row`/`row_get`/
   `sql_as_*`; `#[derive(Properties)]` imports `properties`. It can't supply a field type's own
   conversion, except `Uuid` and every `time` type get theirs imported automatically; any other
   field type's conversion must already be imported, or the error says to derive or write it.
@@ -2908,9 +2913,9 @@ rather than undefined behavior or a crash:
 | Recursion / call depth | machine- and config-dependent (see "Stack depth" above) | every call and nested expression |
 | `int`/`bigint` arithmetic overflow | traps, never silently wraps or saturates (`+`/`-`/`*`/`/`, `math.abs(MIN)`) | the interpreter |
 | An `int` literal past `int`'s range | a compile-time error, not silent saturation | the parser |
-| `bigint`/exact-`decimal` digit count (`parse_json_exact`, literals) | 1,000 digits | `json`'s number parser |
+| `bigint`/exact-`decimal` digit count (`parse_exact`, literals) | 1,000 digits | `json`'s number parser |
 | A parsed number's exponent size | 100,000 | `json`'s number parser |
-| `parse_json` nesting depth | 512 levels | `json` |
+| `parse` nesting depth | 512 levels | `json` |
 | A regex repetition count | 1,000 | `regex`, when it compiles |
 | A compiled regex | 20,000 instructions, and 64 MB of capture buffers (~1,170 capture groups) | `regex`, when it compiles |
 | The work one regex match may do | 256M capture-vector copies plus 100,000 per subject byte (a real pattern uses 7-34 per byte) | `regex`, while matching |

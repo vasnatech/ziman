@@ -1,28 +1,27 @@
-use json.parse_json
-use json.json_to_string
+use json
 use json.Json
-use json.json_object_get
+use json.parse
 
 fn main() {
-    val r = parse_json("{\"name\": \"Ada\", \"age\": 210, \"tags\": [\"math\", \"programmer\"], \"active\": true, \"note\": null}")
+    val r = parse("{\"name\": \"Ada\", \"age\": 210, \"tags\": [\"math\", \"programmer\"], \"active\": true, \"note\": null}")
     print(is_ok(r))
     val j = unwrap(r)
-    print(json_to_string(j))
+    print(json.format(j))
 
-    val name = json_object_get(j, "name")
+    val name = json.get(j, "name")
     print(Option.is_Some(name))
     print(Json.unwrap_JString(get_or<Json>(name, Json.JNull)))
 
-    val missing = json_object_get(j, "nope")
+    val missing = json.get(j, "nope")
     print(Option.is_Some(missing))
 
-    val roundtrip = parse_json(json_to_string(j))
+    val roundtrip = parse(json.format(j))
     print(is_ok(roundtrip))
-    print(json_to_string(unwrap(roundtrip)) == json_to_string(j))
+    print(json.format(unwrap(roundtrip)) == json.format(j))
 
-    val nested = unwrap(parse_json("[1, 2.5, -3, [true, false, null], {\"a\": 1}]"))
-    print(json_to_string(nested))
+    val nested = unwrap(parse("[1, 2.5, -3, [true, false, null], {\"a\": 1}]"))
+    print(json.format(nested))
 
-    val esc = unwrap(parse_json("\"line1\\nline2\\ttab\\\"quote\\\"\""))
-    print(json_to_string(esc))
+    val esc = unwrap(parse("\"line1\\nline2\\ttab\\\"quote\\\"\""))
+    print(json.format(esc))
 }

@@ -11,7 +11,7 @@ fn show(path: string, typed: bool) {
     }
     for record in unwrap(opened) {
         if is_ok(record) {
-            print(json.json_to_string(unwrap(record)))
+            print(json.format(unwrap(record)))
         } else {
             print(unwrap_err(record))
         }
@@ -36,7 +36,7 @@ fn main() {
     for record in unwrap(csv.records(path)) {
         streamed = push(streamed, unwrap(record))
     }
-    print(json.json_to_string(whole) == json.json_to_string(json.Json.JArray(streamed)))
+    print(json.format(whole) == json.format(json.Json.JArray(streamed)))
 
     // errors name the line the record started on, and the iteration carries on
     unwrap(fs.write_text(path, "a,b\n1,2\n3\n4,5\n\"6,7\n"))
@@ -56,7 +56,7 @@ fn main() {
     // another delimiter, and typed cells
     unwrap(fs.write_text(path, "a;b\n1;x\n2;\n"))
     for record in unwrap(csv.records_typed(path, ";")) {
-        print(json.json_to_string(unwrap(record)))
+        print(json.format(unwrap(record)))
     }
     print(unwrap_err(csv.records(path, "ab")))
 

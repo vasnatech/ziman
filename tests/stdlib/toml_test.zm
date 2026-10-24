@@ -18,7 +18,7 @@ fn parse(text: string) -> json.Json {
 }
 
 fn as_json(text: string) -> string {
-    return json.json_to_string(parse(text))
+    return json.format(parse(text))
 }
 
 #[test]
@@ -148,7 +148,7 @@ fn time_parse(entries: int) -> int {
     val parsed = test.assert_ok(toml.parse_toml(text))
     val elapsed = clock.monotonic_millis() - t0
     var found = 0
-    if JArray(items) = unwrap(json.json_object_get(parsed, "entry")) {
+    if JArray(items) = unwrap(json.get(parsed, "entry")) {
         found = len(items)
     }
     test.assert_eq(entries, found)

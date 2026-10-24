@@ -9,11 +9,11 @@ fn main() {
         Ada,36
         Grace,45
         """))
-    print(json.json_to_string(table))
+    print(json.format(table))
 
     // Typed parsing reads 36 as a number; writing it back gives the same text.
     val typed = unwrap(csv.parse_typed("name,age\nAda,36\n"))
-    print(json.json_to_string(typed))
+    print(json.format(typed))
     print(trim(unwrap(csv.format(typed))))
 
     // A big file is read one record at a time.
@@ -21,7 +21,7 @@ fn main() {
     unwrap(fs.write_text(path, "name,note\nAda,\"likes maths\"\nGrace,\"two\nlines\"\n"))
     val records = unwrap(csv.records(path))
     for record in records {
-        print(json.json_to_string(unwrap(record)))
+        print(json.format(unwrap(record)))
     }
     unwrap(fs.remove(path))
 }

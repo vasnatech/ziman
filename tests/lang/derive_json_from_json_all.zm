@@ -20,7 +20,7 @@ struct Patient {
 
 fn main() {
     val bad = "{\"name\": 5, \"age\": \"x\", \"email\": true, \"scores\": [1, \"two\"]}"
-    val j = unwrap(json.parse_json(bad))
+    val j = unwrap(json.parse(bad))
 
     print("one:")
     switch patient_from_json(j) {
@@ -41,20 +41,20 @@ fn main() {
 
     // a good document decodes the same either way, and an absent Option stays None
     val good = "{\"name\": \"Ada\", \"age\": 36, \"email\": \"a@b.c\", \"scores\": [1, 2, 3]}"
-    val k = unwrap(json.parse_json(good))
+    val k = unwrap(json.parse(good))
     val one = unwrap(patient_from_json(k))
     val every = unwrap(patient_from_json_all(k))
     printf("agree: {} {} {}\n", one.name == every.name, one.age == every.age, len(one.scores) == len(every.scores))
     printf("absent Option: {}\n", is_Some(every.nickname))
 
     // a missing required field is reported like any other problem
-    switch patient_from_json_all(unwrap(json.parse_json("{\"name\": \"Ada\"}"))) {
+    switch patient_from_json_all(unwrap(json.parse("{\"name\": \"Ada\"}"))) {
         Ok(p) { print("unexpectedly decoded") }
         Err(problems) { printf("missing fields: {}\n", len(problems)) }
     }
 
     // not an object at all
-    switch patient_from_json_all(unwrap(json.parse_json("[1]"))) {
+    switch patient_from_json_all(unwrap(json.parse("[1]"))) {
         Ok(p) { print("unexpectedly decoded") }
         Err(problems) { print(problems[0]) }
     }

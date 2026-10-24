@@ -28,7 +28,7 @@ not DTD. Nothing here reads a file or opens a socket.
 
 The other limits are in `XmlLimits` and apply to every parse: input size, nesting depth and
 attribute count. A byte cap alone would not be enough -- 100 KB of `<a>` is fifty thousand
-levels deep -- so depth is counted separately, at the same 512 `parse_json` already uses.
+levels deep -- so depth is counted separately, at the same 512 `parse` already uses.
 
 Also absent, and not planned: XSD or any other validation, XPath (`find` below is child-name
 steps, nothing more), and XML 1.1.
@@ -224,7 +224,7 @@ There is deliberately no `allow_doctype`: see the module header.
 pub fn xml_limits() -> XmlLimits
 ```
 
-16 MiB, 512 levels, 256 attributes per element. The depth matches `parse_json`'s, so the two
+16 MiB, 512 levels, 256 attributes per element. The depth matches `parse`'s, so the two
 readers behave the same way on input built to exhaust a stack.
 
 ## Building
@@ -469,7 +469,7 @@ pub fn xml_to_string(doc: Document) -> Result<string, string>
 `doc` as XML text on one line, with a declaration and a trailing newline. A document that came
 from `parse_xml` writes back as the same tree -- reading the output gives an equal `Document`.
 
-Unlike `json_to_string` this can fail, because XML genuinely cannot carry some strings: a name
+Unlike `json.format` this can fail, because XML genuinely cannot carry some strings: a name
 that is not a legal XML name, a comment containing `--`, a CDATA section containing `]]>`, and
 above all text holding a C0 control character, for which XML 1.0 has no escape at all. JSON
 writes that last one as `\u0000`; XML has nothing to write, so refusing is the only honest

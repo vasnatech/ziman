@@ -1,7 +1,7 @@
 use inner
+use json
 use json.Json
-use json.json_to_string
-use json.json_require_field
+use json.require
 
 // A struct field type from another module -- both a plain reference
 // (thing) and an array of it (things, the case that needs
@@ -21,7 +21,7 @@ fn main() {
         things: [inner.Inner { x: 2 }, inner.Inner { x: 3 }]
     }
     val j = outer_to_json(o)
-    print(json_to_string(j))
+    print(json.format(j))
     val back = unwrap(outer_from_json(j))
     print(back.status)
     print(back.thing.x)

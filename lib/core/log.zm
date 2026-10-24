@@ -16,8 +16,8 @@
 // does it, or nothing does).
 use clock.now_iso
 use fs
+use json
 use json.Json
-use json.json_to_string
 use locale
 use number.byte_to_hex
 use os
@@ -219,28 +219,28 @@ fn rotate_if_full(path: string, max_bytes: int, keep: int) {
 //
 // The escaping goes through `json` and not through `single_line`. `single_line` writes a control
 // byte as `\xNN`, which is not valid JSON, and a hand-rolled escaper here would reproduce the bug
-// A8 fixed: invalid UTF-8 flowing into a document other parsers reject. `json_to_string` on a
+// A8 fixed: invalid UTF-8 flowing into a document other parsers reject. `json.format` on a
 // `JString` quotes, escapes, and substitutes U+FFFD for an invalid sequence -- so a log line
 // carrying bytes from a user is still a document something else can read.
 fn json_line(l: Logger, level: Level, message: string) -> string {
     val out = mutable_string_new()
     append(out, "{")
     if l.timestamps {
-        append(out, "\"time\":", json_to_string(Json.JString(now_iso())), ",")
+        append(out, "\"time\":", json.format(Json.JString(now_iso())), ",")
     }
     // `level_name` pads to five characters so the text format's columns line up ("INFO "), and the
     // prefix carries its own trailing space for the same reason -- both are presentation, and both
     // would arrive in a log index as part of the value. Trimmed here, and the level lowercased,
     // which is what every JSON log schema uses.
-    append(out, "\"level\":", json_to_string(Json.JString(to_lower(trim(level_name(level)), invariant))))
+    append(out, "\"level\":", json.format(Json.JString(to_lower(trim(level_name(level)), invariant))))
     val component = trim(l.prefix)
     if byte_len(component) > 0 {
-        append(out, ",\"prefix\":", json_to_string(Json.JString(component)))
+        append(out, ",\"prefix\":", json.format(Json.JString(component)))
     }
     if byte_len(l.request_id) > 0 {
-        append(out, ",\"request_id\":", json_to_string(Json.JString(l.request_id)))
+        append(out, ",\"request_id\":", json.format(Json.JString(l.request_id)))
     }
-    append(out, ",\"message\":", json_to_string(Json.JString(message)), "}\n")
+    append(out, ",\"message\":", json.format(Json.JString(message)), "}\n")
     return snapshot(out)
 }
 

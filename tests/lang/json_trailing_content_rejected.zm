@@ -1,5 +1,5 @@
-use json.parse_json
+use json.parse
 
 fn main() {
-    print(unwrap(parse_json("123 456")))
+    print(unwrap(parse("123 456")))
 }

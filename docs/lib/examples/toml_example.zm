@@ -18,9 +18,9 @@ fn main() {
         name = "report"
         """))
 
-    val server = unwrap(json.json_require_field(config, "server"))
-    print(unwrap(json.json_require_int_field(server, "port")))
-    print(json.json_to_string(unwrap(json.json_require_field(config, "job"))))
+    val server = unwrap(json.require(config, "server"))
+    print(unwrap(json.require_int(server, "port")))
+    print(json.format(unwrap(json.require(config, "job"))))
 
     // An error says where the text went wrong.
     print(is_ok(toml.parse_toml("port = ")))

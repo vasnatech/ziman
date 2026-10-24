@@ -98,9 +98,9 @@ use http.status_too_many_requests
 use http.status_unauthorized
 use http.status_unprocessable_entity
 use http.status_unsupported_media_type
+use json
 use json.Json
-use json.json_to_bytes
-use json.parse_json_bytes
+use json.parse
 use locale
 use metrics
 use mime
@@ -1376,7 +1376,7 @@ pub fn encoder<O>(media: mime.MediaType, encode: fn(O) -> [byte]) -> Encoder<O> 
 pub fn json_decoder<I>(from_json: fn(Json) -> Result<I, string>) -> Decoder<I> {
     val read = from_json
     return decoder<I>(mime.application_json(), fn(data: [byte]) -> Result<I, string> {
-        return switch parse_json_bytes(data) {
+        return switch parse(data) {
             // Distinguished on purpose: a body that is not JSON at all and a body that is JSON but
             // not this model are different mistakes by the caller, and only the first is worth
             // naming the parser's own message for.
@@ -1389,7 +1389,7 @@ pub fn json_decoder<I>(from_json: fn(Json) -> Result<I, string>) -> Decoder<I> {
 pub fn json_encoder<O>(to_json: fn(O) -> Json) -> Encoder<O> {
     val write = to_json
     return encoder<O>(mime.application_json(), fn(value: O) -> [byte] {
-        return json_to_bytes(write(value))
+        return json.to_bytes(write(value))
     })
 }
 
@@ -1398,7 +1398,7 @@ pub fn json_encoder<O>(to_json: fn(O) -> Json) -> Encoder<O> {
 pub fn json_list_encoder<O>(to_json: fn(O) -> Json) -> Encoder<[O]> {
     val write = to_json
     return encoder<[O]>(mime.application_json(), fn(items: [O]) -> [byte] {
-        return json_to_bytes(Json.JArray(map(items, write)))
+        return json.to_bytes(Json.JArray(map(items, write)))
     })
 }
 

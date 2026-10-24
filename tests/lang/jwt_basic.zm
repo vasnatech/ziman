@@ -1,14 +1,13 @@
-use random.random_bytes
 use crypto
+use json
 use json.Json
-use json.json_object_get
-use json.json_to_string
-use jwt
 use json.int_to_json
+use jwt
+use random.random_bytes
 
 fn show(r: Result<Json, jwt.JwtError>) {
     switch r {
-        Ok(claims) { print(format("ok {}", json_to_string(claims))) }
+        Ok(claims) { print(format("ok {}", json.format(claims))) }
         Err(e) { print(jwt.jwt_error_message(e)) }
     }
 }
@@ -24,7 +23,10 @@ fn main() {
     // the wrong key, a changed payload, a changed signature
     show(jwt.verify_at(rfc, to_bytes("another key entirely"), 1300819379, 0))
     val parts = split(rfc, ".")
-    val forged = join(separator: ".", pieces: [parts[0], crypto.base64url_encode(to_bytes("{\"iss\":\"mallory\"}")), parts[2]])
+    val forged = join(
+        separator: ".",
+        pieces: [parts[0], crypto.base64url_encode(to_bytes("{\"iss\":\"mallory\"}")), parts[2]]
+    )
     show(jwt.verify_at(forged, key, 1300819379, 0))
     show(jwt.verify_at(join(separator: ".", pieces: [parts[0], parts[1], "AAAA"]), key, 1300819379, 0))
 
@@ -33,11 +35,14 @@ fn main() {
     val long_key = random_bytes(64)
     val mid_key = random_bytes(48)
     for k in [key, mid_key, long_key] {
-        val token = unwrap(jwt.sign(jwt.with_claim(jwt.claims("ada@example.com", 3600), "role", Json.JString("admin")), k))
+        val token = unwrap(jwt.sign(
+            jwt.with_claim(jwt.claims("ada@example.com", 3600), "role", Json.JString("admin")),
+            k
+        ))
         val header = unwrap(crypto.base64url_decode(split(token, ".")[0]))
         print(unwrap(bytes_to_string(header)))
         switch jwt.verify(token, k) {
-            Ok(c) { print(format("{} {}", unwrap_Some(jwt.subject(c)), json_to_string(unwrap_Some(json_object_get(c, "role"))))) }
+            Ok(c) { print(format("{} {}", unwrap_Some(jwt.subject(c)), json.format(unwrap_Some(json.get(c, "role"))))) }
             Err(e) { print(jwt.jwt_error_message(e)) }
         }
     }
@@ -47,7 +52,11 @@ fn main() {
     print(unwrap_err(jwt.sign(Json.JString("x"), key)))
 
     // expiry and not-before, checked at a chosen time
-    val timed = Json.JObject(Map<string, Json> { "sub": Json.JString("t"), "nbf": int_to_json(1000), "exp": int_to_json(2000) })
+    val timed = Json.JObject(Map<string, Json> {
+        "sub": Json.JString("t"),
+        "nbf": int_to_json(1000),
+        "exp": int_to_json(2000)
+    })
     val token = unwrap(jwt.sign(timed, key))
     show(jwt.verify_at(token, key, 999, 0))
     show(jwt.verify_at(token, key, 999, 5))

@@ -11,80 +11,80 @@ use test
 #[test]
 fn strings_reject_raw_control_characters() {
     // A44. The escaped forms are fine; the raw bytes are not.
-    test.assert_ok(json.parse_json("\"a\\nb\""))
-    test.assert_err(json.parse_json(concat("\"a", "\n", "b\"")))
-    test.assert_err(json.parse_json(concat("\"a", "\t", "b\"")))
-    test.assert_err(json.parse_json(concat("\"a", "\r", "b\"")))
+    test.assert_ok(json.parse("\"a\\nb\""))
+    test.assert_err(json.parse(concat("\"a", "\n", "b\"")))
+    test.assert_err(json.parse(concat("\"a", "\t", "b\"")))
+    test.assert_err(json.parse(concat("\"a", "\r", "b\"")))
 }
 
 #[test]
 fn escapes_round_trip() {
-    val parsed = test.assert_ok(json.parse_json("\"tab\\there\\nand a quote \\\" and a slash \\\\\""))
-    val back = json.json_to_string(parsed)
-    val again = test.assert_ok(json.parse_json(back))
-    test.assert_eq(json.json_to_string(parsed), json.json_to_string(again))
+    val parsed = test.assert_ok(json.parse("\"tab\\there\\nand a quote \\\" and a slash \\\\\""))
+    val back = json.format(parsed)
+    val again = test.assert_ok(json.parse(back))
+    test.assert_eq(json.format(parsed), json.format(again))
     // a control character in a value must come back out escaped, never raw
     test.assert(contains(back, "\\n"))
 }
 
 #[test]
 fn unicode_escapes_decode() {
-    val j = test.assert_ok(json.parse_json("\"\\u0041\\u00e9\""))
+    val j = test.assert_ok(json.parse("\"\\u0041\\u00e9\""))
     test.assert_eq("Aé", test.assert_ok(json.string_from_json(j)))
 }
 
 #[test]
 fn malformed_documents_are_rejected() {
-    test.assert_err(json.parse_json(""))
-    test.assert_err(json.parse_json("{"))
-    test.assert_err(json.parse_json("{\"a\":}"))
-    test.assert_err(json.parse_json("[1,]"))
-    test.assert_err(json.parse_json("{'a':1}"))
-    test.assert_err(json.parse_json("nul"))
+    test.assert_err(json.parse(""))
+    test.assert_err(json.parse("{"))
+    test.assert_err(json.parse("{\"a\":}"))
+    test.assert_err(json.parse("[1,]"))
+    test.assert_err(json.parse("{'a':1}"))
+    test.assert_err(json.parse("nul"))
 }
 
 #[test]
 fn object_access_distinguishes_missing_from_null() {
-    val j = test.assert_ok(json.parse_json("{\"present\": 1, \"nulled\": null}"))
-    test.assert_some(json.json_object_get(j, "present"))
+    val j = test.assert_ok(json.parse("{\"present\": 1, \"nulled\": null}"))
+    test.assert_some(json.get(j, "present"))
     // a null member is present -- `None` would make a caller unable to tell the two apart
-    test.assert_some(json.json_object_get(j, "nulled"))
-    test.assert_none(json.json_object_get(j, "absent"))
-    test.assert_err(json.json_require_field(j, "absent"))
+    test.assert_some(json.get(j, "nulled"))
+    test.assert_none(json.get(j, "absent"))
+    test.assert_err(json.require(j, "absent"))
 }
 
 #[test]
 fn require_field_checks_the_type_not_just_the_key() {
-    val j = test.assert_ok(json.parse_json("{\"n\": 7, \"s\": \"x\", \"b\": true}"))
-    test.assert_eq(7, test.assert_ok(json.json_require_int_field(j, "n")))
-    test.assert_eq("x", test.assert_ok(json.json_require_string_field(j, "s")))
-    test.assert(test.assert_ok(json.json_require_bool_field(j, "b")))
+    val j = test.assert_ok(json.parse("{\"n\": 7, \"s\": \"x\", \"b\": true}"))
+    test.assert_eq(7, test.assert_ok(json.require_int(j, "n")))
+    test.assert_eq("x", test.assert_ok(json.require_string(j, "s")))
+    test.assert(test.assert_ok(json.require_bool(j, "b")))
     // right key, wrong type
-    test.assert_err(json.json_require_int_field(j, "s"))
-    test.assert_err(json.json_require_string_field(j, "n"))
+    test.assert_err(json.require_int(j, "s"))
+    test.assert_err(json.require_string(j, "n"))
 }
 
 #[test]
 fn get_path_walks_nested_objects() {
-    val j = test.assert_ok(json.parse_json("{\"a\": {\"b\": {\"c\": 3}}}"))
-    val found = test.assert_some(json.json_get_path(j, "a", "b", "c"))
+    val j = test.assert_ok(json.parse("{\"a\": {\"b\": {\"c\": 3}}}"))
+    val found = test.assert_some(json.get_path(j, "a", "b", "c"))
     test.assert_eq(3, test.assert_ok(json.int_from_json(found)))
-    test.assert_none(json.json_get_path(j, "a", "x", "c"))
+    test.assert_none(json.get_path(j, "a", "x", "c"))
 }
 
 #[test]
 fn numbers_keep_their_kind() {
-    val j = test.assert_ok(json.parse_json("{\"i\": 3, \"f\": 3.5}"))
-    test.assert_eq(3, test.assert_ok(json.json_require_int_field(j, "i")))
-    test.assert_eq(3.5, test.assert_ok(json.json_require_float_field(j, "f")))
+    val j = test.assert_ok(json.parse("{\"i\": 3, \"f\": 3.5}"))
+    test.assert_eq(3, test.assert_ok(json.require_int(j, "i")))
+    test.assert_eq(3.5, test.assert_ok(json.require_float(j, "f")))
     // an integer-valued float is not an int to `require_int` by accident of text
-    test.assert_eq(3.0, test.assert_ok(json.json_require_float_field(j, "i")))
+    test.assert_eq(3.0, test.assert_ok(json.require_float(j, "i")))
 }
 
 #[test]
 fn to_string_is_stable_enough_to_compare() {
-    val a = test.assert_ok(json.parse_json("{\"x\":1,\"y\":[true,null,\"s\"]}"))
-    val once = json.json_to_string(a)
-    val twice = json.json_to_string(test.assert_ok(json.parse_json(once)))
+    val a = test.assert_ok(json.parse("{\"x\":1,\"y\":[true,null,\"s\"]}"))
+    val once = json.format(a)
+    val twice = json.format(test.assert_ok(json.parse(once)))
     test.assert_eq(once, twice)
 }

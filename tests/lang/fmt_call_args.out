@@ -26,7 +26,7 @@ pub fn to_json(e: ApiError) -> Json {
         return Json.JObject(Map<string, Json> {
             "timestamp": Json.JString(timestamp()),
             "status": Json.JInt(e.status),
-            "errors": json_from_map<string>(e.fields, string_to_json)
+            "errors": from_map<string>(e.fields, string_to_json)
         })
     }
     val p = Point { x: 1, y: 2 }

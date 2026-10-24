@@ -1,10 +1,10 @@
 // ndjson.zm -- newline-delimited JSON: one JSON value per line, written on top of `json`.
 // The format of the FHIR bulk-data files and of most log pipelines.
 
+use json
 use json.Json
 use json.Number
-use json.json_to_string
-use json.parse_json
+use json.parse
 
 // `sample`/`number_sample`'s own values never matter (callers always pass `Json.JNull`/
 // `Number.Int(0)`) -- only their runtime type descriptors do, which is how the native side
@@ -23,7 +23,7 @@ pub fn parse_ndjson(text: string) -> Result<[Json], string> {
         if byte_len(line) == 0 {
             continue
         }
-        val parsed = parse_json(line)
+        val parsed = parse(line)
         if Err(e) = parsed {
             return err(format("line {}: {}", line_no, e))
         }
@@ -46,7 +46,7 @@ pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string> {
 pub fn ndjson_to_string(items: [Json]) -> string {
     val out = mutable_string_new()
     for item in items {
-        append(out, json_to_string(item), "\n")
+        append(out, json.format(item), "\n")
     }
     return snapshot(out)
 }

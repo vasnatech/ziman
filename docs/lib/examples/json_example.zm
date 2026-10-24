@@ -4,7 +4,7 @@ use json.int_to_json
 
 // Parse text into a tree, read from it, build a new tree and print it.
 fn main() {
-    val doc = unwrap(json.parse_json("""
+    val doc = unwrap(json.parse("""
         {
           "name": "Ada",
           "langs": ["en", "fr"],
@@ -12,22 +12,22 @@ fn main() {
         }
         """))
 
-    print(unwrap(json.json_require_string_field(doc, "name")))
-    print(unwrap(json.json_require_int_field(doc, "age")))
+    print(unwrap(json.require_string(doc, "name")))
+    print(unwrap(json.require_int(doc, "age")))
 
     // A missing field is a value you can test, not a crash.
-    print(Option.is_None(json.json_object_get(doc, "email")))
-    print(is_ok(json.json_require_string_field(doc, "email")))
+    print(Option.is_None(json.get(doc, "email")))
+    print(is_ok(json.require_string(doc, "email")))
 
     // A path into nested values.
-    val first = json.json_get_path(doc, "langs")
+    val first = json.get_path(doc, "langs")
     print(Option.is_Some(first))
 
     // Build a tree and write it out, compact or indented.
     val out = Json.JObject(Map<string, Json> { "ok": Json.JBool(true), "count": int_to_json(2) })
-    print(json.json_to_string(out))
-    print(json.json_to_pretty_string(out, 2))
+    print(json.format(out))
+    print(json.format(out, 2))
 
     // Bad input is an Err carrying where it went wrong.
-    print(is_ok(json.parse_json("{\"a\": ")))
+    print(is_ok(json.parse("{\"a\": ")))
 }

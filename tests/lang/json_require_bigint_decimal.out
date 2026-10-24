@@ -1,0 +1,9 @@
+30000000000000000000
+false
+3
+19.99
+0.30000000000000004
+0.3
+field 'money' must be a whole number
+field 'txt' must be a number
+missing field 'absent'

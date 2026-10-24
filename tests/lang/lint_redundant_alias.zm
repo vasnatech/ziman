@@ -2,16 +2,16 @@
 // last segment, and a per-name import already binds the imported name. There were 15 of these in the
 // reference backend when the rule was added. A genuine rename is left alone, which is the half of this
 // that matters -- a lint that fired on `use math as m` would be noise.
-use clock
 use bits as bits
-use json.parse_json as parse_json
+use clock
+use json.parse as parse
 use math as m
 use time.LocalDate as LocalDate
 
 fn main() {
     print(str(m.sqrt(4.0)))
     print(str(bits.bitset_to_int(bits.bitset_new())))
-    print(str(is_ok(parse_json("1"))))
+    print(str(is_ok(parse("1"))))
     print(str(clock.monotonic_millis() >= 0))
     val d = LocalDate { year: 2026, month: 10, day: 7 }
     print(str(d.year))

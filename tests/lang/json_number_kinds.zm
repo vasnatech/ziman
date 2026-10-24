@@ -2,8 +2,8 @@ use json
 use json.Json
 use json.Number
 
-// How parse_json reads a number: an Int that fits 64 bits, a Bigint past that (exact, never a float that has lost its low
-// digits), a Float for a fraction or an exponent -- and, for parse_json_exact, a Decimal that keeps every digit and the scale.
+// How parse reads a number: an Int that fits 64 bits, a Bigint past that (exact, never a float that has lost its low
+// digits), a Float for a fraction or an exponent -- and, for parse_exact, a Decimal that keeps every digit and the scale.
 
 fn kind(j: Json) -> string {
     val n = Json.unwrap_JNumber(j)
@@ -16,7 +16,7 @@ fn kind(j: Json) -> string {
 }
 
 fn show(text: string) {
-    val r = json.parse_json(text)
+    val r = json.parse(text)
     if is_ok(r) {
         print(format("{} -> {}", text, kind(unwrap(r))))
     } else {
@@ -25,9 +25,9 @@ fn show(text: string) {
 }
 
 fn show_exact(text: string) {
-    val r = json.parse_json_exact(text)
+    val r = json.parse_exact(text)
     if is_ok(r) {
-        print(format("{} -> {} -> {}", text, kind(unwrap(r)), json.json_to_string(unwrap(r))))
+        print(format("{} -> {} -> {}", text, kind(unwrap(r)), json.format(unwrap(r))))
     } else {
         print(format("{} -> error: {}", text, unwrap_err(r)))
     }
@@ -73,10 +73,10 @@ fn main() {
     show("0e0")
 
     // what a big integer writes back as: its digits, not a float
-    print(json.json_to_string(unwrap(json.parse_json("[12345678901234567890, 1.5, 3]"))))
+    print(json.format(unwrap(json.parse("[12345678901234567890, 1.5, 3]"))))
 
     // the readers decide what is lossless
-    val big = unwrap(json.parse_json("12345678901234567890"))
+    val big = unwrap(json.parse("12345678901234567890"))
     print(json.int_from_json(big))
     print(json.bigint_from_json(big))
     // 12345678901234567000.0, the nearest float to 12345678901234567890. This expectation used to
@@ -85,10 +85,10 @@ fn main() {
     // was pinning the defect, so the suite protected it; corrected with A9 on 2026-10-06.
     print(json.float_from_json(big))
     print(json.decimal_from_json(big))
-    val whole = unwrap(json.parse_json("3.0"))
+    val whole = unwrap(json.parse("3.0"))
     print(json.int_from_json(whole))
     print(json.bigint_from_json(whole))
-    val frac = unwrap(json.parse_json("3.5"))
+    val frac = unwrap(json.parse("3.5"))
     print(json.int_from_json(frac))
     print(json.bigint_from_json(frac))
     print(json.decimal_from_json(frac))
@@ -97,10 +97,10 @@ fn main() {
     print(json.int_from_json(json.string_to_json("5")))
 
     // a huge integer is refused, not turned into work: 1000 digits is the limit
-    print(is_ok(json.parse_json(digits(1000))))
-    print(unwrap_err(json.parse_json(digits(1001))))
+    print(is_ok(json.parse(digits(1000))))
+    print(unwrap_err(json.parse(digits(1001))))
 
-    // parse_json_exact: a fraction or exponent is a Decimal with every digit and its scale
+    // parse_exact: a fraction or exponent is a Decimal with every digit and its scale
     show_exact("19.90")
     show_exact("0.1234567890123456789012345")
     show_exact("1.5e3")
@@ -113,19 +113,19 @@ fn main() {
     show_exact("01")
     show_exact("1e100000")
     show_exact("1e100001")
-    print(is_ok(json.parse_json_exact(concat("0.", digits(999)))))
-    print(unwrap_err(json.parse_json_exact(concat("0.", digits(1000)))))
-    print(json.decimal_from_json(unwrap(json.parse_json_exact("19.90"))))
-    print(json.float_from_json(unwrap(json.parse_json_exact("19.90"))))
-    print(json.int_from_json(unwrap(json.parse_json_exact("3.00"))))
-    print(json.int_from_json(unwrap(json.parse_json_exact("3.5"))))
-    print(json.bigint_from_json(unwrap(json.parse_json_exact("300e1"))))
+    print(is_ok(json.parse_exact(concat("0.", digits(999)))))
+    print(unwrap_err(json.parse_exact(concat("0.", digits(1000)))))
+    print(json.decimal_from_json(unwrap(json.parse_exact("19.90"))))
+    print(json.float_from_json(unwrap(json.parse_exact("19.90"))))
+    print(json.int_from_json(unwrap(json.parse_exact("3.00"))))
+    print(json.int_from_json(unwrap(json.parse_exact("3.5"))))
+    print(json.bigint_from_json(unwrap(json.parse_exact("300e1"))))
 
     // writing: a decimal keeps its scale, the default parse would have lost it
-    print(json.json_to_string(json.decimal_to_json(19.90d)))
-    print(json.json_to_string(json.decimal_to_json(0.5d)))
-    print(json.json_to_string(json.decimal_to_json(-3d)))
-    print(json.json_to_string(json.decimal_to_json(1.000000000000000000001d)))
-    print(json.json_to_string(json.bigint_to_json(-123456789012345678901234567890n)))
-    print(json.json_to_string(unwrap(json.parse_json("19.90"))))
+    print(json.format(json.decimal_to_json(19.90d)))
+    print(json.format(json.decimal_to_json(0.5d)))
+    print(json.format(json.decimal_to_json(-3d)))
+    print(json.format(json.decimal_to_json(1.000000000000000000001d)))
+    print(json.format(json.bigint_to_json(-123456789012345678901234567890n)))
+    print(json.format(unwrap(json.parse("19.90"))))
 }

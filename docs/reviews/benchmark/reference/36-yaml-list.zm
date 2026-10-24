@@ -3,7 +3,7 @@ use yaml
 
 fn main() {
     val doc = unwrap(yaml.parse_yaml("names:\n  - Ada\n  - Alan\n  - Grace\n"))
-    val names = unwrap(json.json_require_field(doc, "names"))
+    val names = unwrap(json.require(doc, "names"))
     switch names {
         JArray(items) {
             for item in items {

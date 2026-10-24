@@ -1,8 +1,8 @@
+use json
 use json.Json
-use json.json_to_string
-use json.json_require_field
-use json.json_to_json
 use json.json_from_json
+use json.json_to_json
+use json.require
 
 // A struct field declared plain `Json` composes with #[derive(Json)]
 // via the new json_to_json/json_from_json identity wrappers -- the
@@ -18,7 +18,7 @@ pub struct Envelope {
 fn main() {
     val e = Envelope { status: 200, payload: Json.JString("hello") }
     val j = envelope_to_json(e)
-    print(json_to_string(j))
+    print(json.format(j))
 
     val back = unwrap(envelope_from_json(j))
     print(back.status)
@@ -27,5 +27,5 @@ fn main() {
     // The payload can be any Json shape at all, including an object --
     // it round-trips opaquely, exactly as written.
     val e2 = Envelope { status: 400, payload: Json.JObject(Map<string, Json> { "type": Json.JString("Bad") }) }
-    print(json_to_string(envelope_to_json(e2)))
+    print(json.format(envelope_to_json(e2)))
 }

@@ -8,13 +8,17 @@ struct Bag {
 }
 
 fn main() {
-    val b = Bag { tags: Set<string> { "x", "y" }, scores: Map<string, int> { "a": 1, "b": 2 }, byId: Map<int, [string]> { 7: ["p", "q"] } }
-    val text = json.json_to_string(bag_to_json(b))
+    val b = Bag {
+        tags: Set<string> { "x", "y" },
+        scores: Map<string, int> { "a": 1, "b": 2 },
+        byId: Map<int, [string]> { 7: ["p", "q"] }
+    }
+    val text = json.format(bag_to_json(b))
     print(text)
-    val back = unwrap(bag_from_json(unwrap(json.parse_json(text))))
+    val back = unwrap(bag_from_json(unwrap(json.parse(text))))
     print(back == b)
     print(back)
-    print(is_ok(bag_from_json(unwrap(json.parse_json("{\"tags\":[1],\"scores\":{},\"byId\":{}}")))))
-    print(is_ok(bag_from_json(unwrap(json.parse_json("{\"tags\":[],\"scores\":{},\"byId\":{\"zz\":[]}}")))))
-    print(is_ok(bag_from_json(unwrap(json.parse_json("{\"tags\":[\"a\",\"a\"],\"scores\":{\"k\":5},\"byId\":{\"3\":[]}}")))))
+    print(is_ok(bag_from_json(unwrap(json.parse("{\"tags\":[1],\"scores\":{},\"byId\":{}}")))))
+    print(is_ok(bag_from_json(unwrap(json.parse("{\"tags\":[],\"scores\":{},\"byId\":{\"zz\":[]}}")))))
+    print(is_ok(bag_from_json(unwrap(json.parse("{\"tags\":[\"a\",\"a\"],\"scores\":{\"k\":5},\"byId\":{\"3\":[]}}")))))
 }

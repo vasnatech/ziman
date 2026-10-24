@@ -8,7 +8,7 @@ fn total(path: string) -> Result<int, string> {
     var sum = 0
     for record in records {
         val value = try record
-        sum = sum + unwrap(json.json_require_int_field(value, "n"))
+        sum = sum + unwrap(json.require_int(value, "n"))
     }
     return sum
 }
@@ -19,7 +19,7 @@ fn main() {
 
     // every value in order, blank lines skipped, CRLF and a last line without a newline handled
     for record in unwrap(ndjson.records(path)) {
-        print(json.json_to_string(unwrap(record)))
+        print(json.format(unwrap(record)))
     }
     print(unwrap(total(path)))
 
@@ -27,7 +27,7 @@ fn main() {
     unwrap(fs.write_text(path, "{\"n\": 1}\nnot json\n{\"n\": 2}\n{\"n\": \n{\"n\": 3}\n"))
     for record in unwrap(ndjson.records(path)) {
         if is_ok(record) {
-            print(json.json_to_string(unwrap(record)))
+            print(json.format(unwrap(record)))
         } else {
             print(unwrap_err(record))
         }

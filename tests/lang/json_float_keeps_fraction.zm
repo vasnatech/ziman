@@ -23,7 +23,7 @@ fn kind(j: json.Json) -> string {
 }
 
 fn show(f: float) {
-    printf("print={} json={}\n", f, json.json_to_string(json.float_to_json(f)))
+    printf("print={} json={}\n", f, json.format(json.float_to_json(f)))
 }
 
 fn main() {
@@ -37,18 +37,18 @@ fn main() {
     show(1.5e-7)
 
     // an int, a bigint and a decimal are untouched: only Float gained the fraction
-    print(json.json_to_string(json.int_to_json(7)))
-    print(json.json_to_string(json.bigint_to_json(99999999999999999999n)))
-    print(json.json_to_string(json.decimal_to_json(19.90d)))
+    print(json.format(json.int_to_json(7)))
+    print(json.format(json.bigint_to_json(99999999999999999999n)))
+    print(json.format(json.decimal_to_json(19.90d)))
 
     // and the round trip keeps the kind it started with
-    val ftext = json.json_to_string(json.float_to_json(1.0))
-    switch json.parse_json(ftext) {
+    val ftext = json.format(json.float_to_json(1.0))
+    switch json.parse(ftext) {
         Ok(back) { printf("1.0 -> {} -> {}\n", ftext, kind(back)) }
         Err(e) { printf("Err {}\n", e) }
     }
-    val itext = json.json_to_string(json.int_to_json(1))
-    switch json.parse_json(itext) {
+    val itext = json.format(json.int_to_json(1))
+    switch json.parse(itext) {
         Ok(back) { printf("1 -> {} -> {}\n", itext, kind(back)) }
         Err(e) { printf("Err {}\n", e) }
     }

@@ -1,7 +1,7 @@
+use json
 use json.Json
-use json.json_to_string
-use json.json_require_field
-use json.json_require_string_field
+use json.require
+use json.require_string
 
 #[derive(Json)]
 pub enum Shape {
@@ -14,9 +14,9 @@ fn main() {
     val c = Shape.Circle(2.5)
     val sq = Shape.Square(3.0)
     val pt = Shape.Point
-    print(json_to_string(shape_to_json(c)))
-    print(json_to_string(shape_to_json(sq)))
-    print(json_to_string(shape_to_json(pt)))
+    print(json.format(shape_to_json(c)))
+    print(json.format(shape_to_json(sq)))
+    print(json.format(shape_to_json(pt)))
 
     print(Shape.is_Circle(unwrap(shape_from_json(shape_to_json(c)))))
     print(Shape.is_Point(unwrap(shape_from_json(shape_to_json(pt)))))

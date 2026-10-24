@@ -1,7 +1,6 @@
+use json
 use json.Json
-use json.json_to_string
-use json.json_require_field
-use json.json_object_get
+use json.require
 
 #[derive(Json)]
 pub struct Point {
@@ -11,10 +10,10 @@ pub struct Point {
 
 fn main() {
     val p = Point { x: 42, label: Option<string>.Some("hi") }
-    print(json_to_string(point_to_json(p)))
+    print(json.format(point_to_json(p)))
 
     val p2 = Point { x: 7, label: Option<string>.None }
-    print(json_to_string(point_to_json(p2)))
+    print(json.format(point_to_json(p2)))
 
     val back = point_from_json(point_to_json(p))
     val q = unwrap(back)

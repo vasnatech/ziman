@@ -33,7 +33,7 @@ fn total(items: [Item]) -> int {
 }
 
 fn summarize(text: string) -> Result<string, string> {
-    val parsed = try json.parse_json(text)
+    val parsed = try json.parse(text)
     val item = try item_from_json(parsed)
     return ok(format("{} x{}", item.name, item.qty))
 }

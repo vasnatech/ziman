@@ -1,5 +1,5 @@
-use json.json_to_string
-use json.parse_json
+use json
+use json.parse
 use time.Instant
 use time.LocalDate
 use time.instant_of
@@ -27,9 +27,9 @@ pub enum Event {
 fn main() {
     val id = unwrap(uuid_from_string("6f0c3b1e-1d5a-4c58-9f2a-3a1b2c3d4e5f"))
     val v = Visit { id: id, day: Option<LocalDate>.Some(unwrap(localdate_of(2026, 9, 25))), at: instant_of(0, 0) }
-    print(json_to_string(visit_to_json(v)))
-    val back = unwrap(visit_from_json(unwrap(parse_json(json_to_string(visit_to_json(v))))))
+    print(json.format(visit_to_json(v)))
+    val back = unwrap(visit_from_json(unwrap(parse(json.format(visit_to_json(v))))))
     print(uuid_to_string(back.id))
     print(len(visit_to_params(v)))
-    print(json_to_string(event_to_json(Event.Booked(unwrap(localdate_of(2026, 1, 2))))))
+    print(json.format(event_to_json(Event.Booked(unwrap(localdate_of(2026, 1, 2))))))
 }

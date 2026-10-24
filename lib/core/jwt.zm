@@ -23,13 +23,12 @@
 
 use clock
 use crypto
+use json
 use json.Json
 use json.int_to_json
-use json.json_number
-use json.json_object_get
-use json.json_require_string_field
-use json.json_to_string
-use json.parse_json
+use json.number_of
+use json.parse
+use json.require_string
 use number.bytes_to_hex
 
 // Why a token was rejected.
@@ -123,8 +122,8 @@ pub fn sign_with(claims: Json, key: [byte], algorithm: string) -> Result<string,
     })
     val signing_input = format(
         "{}.{}",
-        crypto.base64url_encode(to_bytes(json_to_string(header))),
-        crypto.base64url_encode(to_bytes(json_to_string(claims)))
+        crypto.base64url_encode(to_bytes(json.format(header))),
+        crypto.base64url_encode(to_bytes(json.format(claims)))
     )
     if Some(signature) = mac(algorithm, key, to_bytes(signing_input)) {
         return ok(format("{}.{}", signing_input, crypto.base64url_encode(signature)))
@@ -141,7 +140,7 @@ fn decode_part(part: string, what: string) -> Result<Json, JwtError> {
     if Err(reason) = text {
         return JwtError.Malformed(format("{} is not text ({})", what, reason))
     }
-    val tree = parse_json(unwrap(text))
+    val tree = parse(unwrap(text))
     if Err(reason) = tree {
         return JwtError.Malformed(format("{} is not JSON ({})", what, reason))
     }
@@ -151,8 +150,8 @@ fn decode_part(part: string, what: string) -> Result<Json, JwtError> {
 // The numeric claim `name` in seconds: None when it is not there, an Err when it is there and is not a number (so a
 // token cannot pass as open-ended by saying `"exp": "never"`).
 fn seconds_claim(payload: Json, name: string) -> Result<Option<int>, JwtError> {
-    if Some(value) = json_object_get(payload, name) {
-        if Some(number) = json_number(value) {
+    if Some(value) = json.get(payload, name) {
+        if Some(number) = number_of(value) {
             switch number {
                 Int(n) { return Option<int>.Some(n) }
                 Float(f) { return Option<int>.Some(f as int) }
@@ -222,7 +221,7 @@ fn check(
         return JwtError.Malformed("a token has three parts separated by dots")
     }
     val header = try decode_part(parts[0], "the header")
-    val algorithm = json_require_string_field(header, "alg")
+    val algorithm = require_string(header, "alg")
     if Err(_) = algorithm {
         return JwtError.Malformed("the header has no 'alg'")
     }
@@ -256,7 +255,7 @@ fn check(
         }
     }
     if Some(wanted) = issuer {
-        if Some(found) = json_object_get(payload, "iss") {
+        if Some(found) = json.get(payload, "iss") {
             val actual = switch issuer_of(found) {
                 Some(a) { a }
                 None { return JwtError.WrongIssuer }
@@ -269,7 +268,7 @@ fn check(
         }
     }
     if Some(wanted) = audience {
-        if Some(found) = json_object_get(payload, "aud") {
+        if Some(found) = json.get(payload, "aud") {
             var listed = false
             for name in audiences_of(found) {
                 if name == wanted {
@@ -311,7 +310,7 @@ fn audiences_of(value: Json) -> [string] {
 
 // The `sub` claim, when it is a string.
 pub fn subject(claims: Json) -> Option<string> {
-    if Some(value) = json_object_get(claims, "sub") {
+    if Some(value) = json.get(claims, "sub") {
         if JString(text) = value {
             return Option<string>.Some(text)
         }
@@ -321,7 +320,7 @@ pub fn subject(claims: Json) -> Option<string> {
 
 // The `iss` claim, when it is a string.
 pub fn issuer(claims: Json) -> Option<string> {
-    if Some(value) = json_object_get(claims, "iss") {
+    if Some(value) = json.get(claims, "iss") {
         return issuer_of(value)
     }
     return Option<string>.None
@@ -330,7 +329,7 @@ pub fn issuer(claims: Json) -> Option<string> {
 // The audiences the `aud` claim names, in order: `["web"]` for `"aud": "web"`, the strings of an array, and `[]` when there is
 // no `aud` (or it is neither).
 pub fn audience(claims: Json) -> [string] {
-    if Some(value) = json_object_get(claims, "aud") {
+    if Some(value) = json.get(claims, "aud") {
         return audiences_of(value)
     }
     val none: [string] = []

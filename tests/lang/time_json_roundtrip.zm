@@ -1,5 +1,5 @@
+use json
 use json.Json
-use json.json_to_string
 use time.parse_localdate
 use time.to_json
 use time.to_localdate
@@ -7,7 +7,7 @@ use time.to_localdate
 fn main() {
     val d = unwrap(parse_localdate("2020-01-15"))
     val j = to_json(d)
-    print(json_to_string(j))
+    print(json.format(j))
     print(unwrap(to_localdate(j)) == d)
     print(is_ok(to_localdate(Json.JBool(true))))
 }

@@ -1,5 +1,5 @@
+use json
 use json.Json
-use json.json_to_string
 
 #[derive(Json)]
 pub struct Point {
@@ -36,31 +36,31 @@ pub struct Wrapper<T> {
 fn main() {
     val page = Page<int> { items: [1, 2, 3], total: 3 }
     val j = page_to_json<int>(page, int_to_json)
-    print(json_to_string(j))
+    print(json.format(j))
     val back = unwrap(page_from_json<int>(j, int_from_json))
     print(len(back.items))
     print(back.total)
 
     val pts = Page<Point> { items: [Point { x: 1, y: 2 }], total: 1 }
-    print(json_to_string(page_to_json<Point>(pts, point_to_json)))
+    print(json.format(page_to_json<Point>(pts, point_to_json)))
 
     val t = Tagged<string, float> { key: "k", value: 1.5, note: Option<float>.Some(2.5) }
     val tj = tagged_to_json<string, float>(t, string_to_json, float_to_json)
-    print(json_to_string(tj))
+    print(json.format(tj))
     val tb = unwrap(tagged_from_json<string, float>(tj, string_from_json, float_from_json))
     print(tb.key)
     print(Option.is_Some(tb.note))
 
     val e = Either<int, string>.Right("x")
     val ej = either_to_json<int, string>(e, int_to_json, string_to_json)
-    print(json_to_string(ej))
+    print(json.format(ej))
     print(Either.is_Right(unwrap(either_from_json<int, string>(ej, int_from_json, string_from_json))))
     val nj = either_to_json<int, string>(Either<int, string>.Neither, int_to_json, string_to_json)
     print(Either.is_Neither(unwrap(either_from_json<int, string>(nj, int_from_json, string_from_json))))
 
     val w = Wrapper<bool> { inner: Page<bool> { items: [true], total: 1 }, pts: pts }
     val wj = wrapper_to_json<bool>(w, bool_to_json)
-    print(json_to_string(wj))
+    print(json.format(wj))
     val wb = unwrap(wrapper_from_json<bool>(wj, bool_from_json))
     print(wb.inner.items[0])
     print(wb.pts.items[0].y)

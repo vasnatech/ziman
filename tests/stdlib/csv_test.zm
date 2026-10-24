@@ -79,16 +79,16 @@ fn a_custom_delimiter_is_honoured() {
 #[test]
 fn parse_csv_uses_the_first_row_as_field_names() {
     val j = test.assert_ok(csv.parse("name,age\nAda,36"))
-    val first = test.assert_some(json.json_get_path(j, "0"))
-    test.assert_eq("Ada", test.assert_ok(json.json_require_string_field(first, "name")))
+    val first = test.assert_some(json.get_path(j, "0"))
+    test.assert_eq("Ada", test.assert_ok(json.require_string(first, "name")))
     // untyped: every value is a string
-    test.assert_eq("36", test.assert_ok(json.json_require_string_field(first, "age")))
+    test.assert_eq("36", test.assert_ok(json.require_string(first, "age")))
 }
 
 #[test]
 fn parse_csv_typed_reads_numbers_as_numbers() {
     val j = test.assert_ok(csv.parse_typed("name,age\nAda,36"))
-    val first = test.assert_some(json.json_get_path(j, "0"))
-    test.assert_eq(36, test.assert_ok(json.json_require_int_field(first, "age")))
-    test.assert_eq("Ada", test.assert_ok(json.json_require_string_field(first, "name")))
+    val first = test.assert_some(json.get_path(j, "0"))
+    test.assert_eq(36, test.assert_ok(json.require_int(first, "age")))
+    test.assert_eq("Ada", test.assert_ok(json.require_string(first, "name")))
 }

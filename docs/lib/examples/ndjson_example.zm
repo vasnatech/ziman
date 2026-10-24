@@ -10,7 +10,7 @@ fn main() {
         {"id": 2, "ok": false}
         """))
     print(len(items))
-    print(json.json_to_string(items[1]))
+    print(json.format(items[1]))
     print(trim(ndjson.ndjson_to_string(items)))
     print(is_ok(ndjson.parse_ndjson("{\"id\": 1}\nnot json")))
 
@@ -20,7 +20,7 @@ fn main() {
     var ok_records = 0
     val records = unwrap(ndjson.records(path))
     for record in records {
-        if unwrap(json.json_require_bool_field(unwrap(record), "ok")) {
+        if unwrap(json.require_bool(unwrap(record), "ok")) {
             ok_records = ok_records + 1
         }
     }

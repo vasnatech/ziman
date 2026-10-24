@@ -14,28 +14,28 @@ fn depth(n: int) -> string {
 
 fn main() {
     // floats are written with the shortest text that reads back exactly
-    print(json.json_to_string(json.float_to_json(0.1234567)))
-    print(json.json_to_string(json.float_to_json(1234567.5)))
-    print(json.json_to_string(json.float_to_json(0.1 + 0.2)))
-    print(json.json_to_string(json.float_to_json(100000000000000000000.0)))
-    print(json.json_to_string(json.float_to_json(-0.000001)))
-    print(json.json_to_string(json.float_to_json(unwrap(parse_float("nan")))))
-    print(json.json_to_string(json.int_to_json(-9223372036854775807)))
-    val back = unwrap(json.parse_json("[0.30000000000000004, 1234567.5, 1e-7]"))
-    print(json.json_to_string(back))
+    print(json.format(json.float_to_json(0.1234567)))
+    print(json.format(json.float_to_json(1234567.5)))
+    print(json.format(json.float_to_json(0.1 + 0.2)))
+    print(json.format(json.float_to_json(100000000000000000000.0)))
+    print(json.format(json.float_to_json(-0.000001)))
+    print(json.format(json.float_to_json(unwrap(parse_float("nan")))))
+    print(json.format(json.int_to_json(-9223372036854775807)))
+    val back = unwrap(json.parse("[0.30000000000000004, 1234567.5, 1e-7]"))
+    print(json.format(back))
 
     // control characters and non-ASCII in strings
-    print(json.json_to_string(unwrap(json.parse_json("\"tab\\t nl\\n bell\\u0007 \\u00e9 \\ud83d\\ude00\""))))
+    print(json.format(unwrap(json.parse("\"tab\\t nl\\n bell\\u0007 \\u00e9 \\ud83d\\ude00\""))))
 
     // nesting is limited, not a crash
-    print(is_ok(json.parse_json(depth(500))))
-    print(unwrap_err(json.parse_json(depth(600))))
+    print(is_ok(json.parse(depth(500))))
+    print(unwrap_err(json.parse(depth(600))))
 
     // every error message
     for text in ["", "  ", "{", "{\"a\"", "{\"a\":", "{\"a\":1", "{\"a\" 1}", "{1:2}", "[1 2]", "[1,", "[", "tru",
         "nul", "-", "1.", "1e", "\"abc", "\"a\\", "\"a\\q\"", "\"\\u12\"", "\"\\ud800\"", "\"\\udc00\"", "1 2", "@"] {
-            print(unwrap_err(json.parse_json(text)))
-        }
+        print(unwrap_err(json.parse(text)))
+    }
 
     // a big document round-trips
     val sb = mutable_string_new()
@@ -48,7 +48,7 @@ fn main() {
     }
     append(sb, "]")
     val text = snapshot(sb)
-    val parsed = unwrap(json.parse_json(text))
-    print(json.json_to_string(parsed) == text)
+    val parsed = unwrap(json.parse(text))
+    print(json.format(parsed) == text)
     print(len(Json.unwrap_JArray(parsed)))
 }

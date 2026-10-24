@@ -4,17 +4,17 @@ use json.Number
 
 fn main() {
     // objects are Maps: order of first appearance is kept, a repeated key keeps its slot, last value wins
-    val j = unwrap(json.parse_json("{\"b\": 1, \"a\": 2, \"b\": 3}"))
-    print(json.json_to_string(j))
+    val j = unwrap(json.parse("{\"b\": 1, \"a\": 2, \"b\": 3}"))
+    print(json.format(j))
     print(len(Json.unwrap_JObject(j)))
-    print(json.json_object_get(j, "b"))
-    print(json.json_object_get(j, "zz"))
-    print(unwrap_err(json.parse_json_strict("{\"k\": 1, \"k\": 2}")))
-    print(is_ok(json.parse_json_strict("{\"k\": {\"k\": 2}}")))
+    print(json.get(j, "b"))
+    print(json.get(j, "zz"))
+    print(unwrap_err(json.parse_strict("{\"k\": 1, \"k\": 2}")))
+    print(is_ok(json.parse_strict("{\"k\": {\"k\": 2}}")))
 
     // an integer is exact, past 64 bits as a bigint; a fraction or an exponent is a float
-    val n = unwrap(json.parse_json("[9007199254740993, -5, 1.5, 2e2, 99999999999999999999]"))
-    print(json.json_to_string(n))
+    val n = unwrap(json.parse("[9007199254740993, -5, 1.5, 2e2, 99999999999999999999]"))
+    print(json.format(n))
     val items = Json.unwrap_JArray(n)
     print(Number.is_Int(Json.unwrap_JNumber(items[0])))
     print(Number.is_Float(Json.unwrap_JNumber(items[2])))
@@ -24,30 +24,30 @@ fn main() {
     print(json.float_from_json(items[1]))
 
     // paths into objects and arrays
-    val doc = unwrap(json.parse_json("{\"items\": [{\"name\": \"a\"}, {\"name\": \"b\"}], \"n\": 3}"))
-    print(json.json_get_path(doc, "items", "1", "name"))
-    print(json.json_get_path(doc, "items", "2"))
-    print(json.json_get_path(doc, "n", "x"))
-    print(json.json_get_path(doc))
-    print(json.json_require_int_field(doc, "n"))
-    print(unwrap_err(json.json_require_bool_field(doc, "n")))
-    print(unwrap_err(json.json_require_float_field(doc, "nope")))
+    val doc = unwrap(json.parse("{\"items\": [{\"name\": \"a\"}, {\"name\": \"b\"}], \"n\": 3}"))
+    print(json.get_path(doc, "items", "1", "name"))
+    print(json.get_path(doc, "items", "2"))
+    print(json.get_path(doc, "n", "x"))
+    print(json.get_path(doc))
+    print(json.require_int(doc, "n"))
+    print(unwrap_err(json.require_bool(doc, "n")))
+    print(unwrap_err(json.require_float(doc, "nope")))
 
     // string escapes both ways
-    val s = unwrap(json.parse_json("\"h\\u00e9llo \\ud83d\\ude00 \\/ \\b\""))
+    val s = unwrap(json.parse("\"h\\u00e9llo \\ud83d\\ude00 \\/ \\b\""))
     print(byte_len(Json.unwrap_JString(s)))
-    print(json.json_to_string(unwrap(json.parse_json("\"a\\tb\\u0001\\u001f\""))))
-    print(is_ok(json.parse_json("\"\\ud83d\"")))
-    print(is_ok(json.parse_json("\"\\u0000\"")))
-    print(is_ok(json.parse_json("\"\\u12\"")))
+    print(json.format(unwrap(json.parse("\"a\\tb\\u0001\\u001f\""))))
+    print(is_ok(json.parse("\"\\ud83d\"")))
+    print(is_ok(json.parse("\"\\u0000\"")))
+    print(is_ok(json.parse("\"\\u12\"")))
 
     // Map <-> object helpers
-    val m = unwrap(json.json_to_map<int>(unwrap(json.parse_json("{\"x\": 1, \"y\": 2}")), json.int_from_json))
+    val m = unwrap(json.to_map<int>(unwrap(json.parse("{\"x\": 1, \"y\": 2}")), json.int_from_json))
     print(m)
-    print(json.json_to_string(json.json_from_map<int>(m, json.int_to_json)))
-    print(is_ok(json.json_to_map<int>(unwrap(json.parse_json("{\"x\": \"no\"}")), json.int_from_json)))
-    print(unwrap(json.json_to_string_map(unwrap(json.parse_json("{\"p\": \"q\"}")))))
+    print(json.format(json.from_map<int>(m, json.int_to_json)))
+    print(is_ok(json.to_map<int>(unwrap(json.parse("{\"x\": \"no\"}")), json.int_from_json)))
+    print(unwrap(json.to_string_map(unwrap(json.parse("{\"p\": \"q\"}")))))
 
     // pretty printing
-    print(json.json_to_pretty_string(unwrap(json.parse_json("{\"a\": [1, {}], \"b\": {\"c\": []}, \"d\": null}")), 2))
+    print(json.format(unwrap(json.parse("{\"a\": [1, {}], \"b\": {\"c\": []}, \"d\": null}")), 2))
 }

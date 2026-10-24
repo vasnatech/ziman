@@ -8,20 +8,21 @@
 // `"a"` -- so through an HTTP body a client stored one value and the API echoed back another.
 //
 // Built from bytes because the Ziman lexer will not carry a raw control byte in a literal, and
-// because `parse_json_bytes` is the entry an HTTP request body actually reaches.
+// because `parse` is the entry an HTTP request body actually reaches.
 use json
 
 fn doc(inner: byte) -> [byte] {
-    return [123 as byte, 34 as byte, 112 as byte, 34 as byte, 58 as byte, 34 as byte, 97 as byte, inner, 98 as byte, 34 as byte, 125 as byte]
+    return [123 as byte, 34 as byte, 112 as byte, 34 as byte, 58 as byte, 34 as byte, 97 as byte, inner, 98 as byte,
+        34 as byte, 125 as byte]
 }
 
 fn main() {
     for b in [0 as byte, 1 as byte, 9 as byte, 10 as byte, 13 as byte, 31 as byte] {
-        print(format("{} accepted={}", b, is_ok(json.parse_json_bytes(doc(b)))))
+        print(format("{} accepted={}", b, is_ok(json.parse(doc(b)))))
     }
     // 0x20 is the first byte that is allowed, and the escaped forms still work.
-    print(format("32 accepted={}", is_ok(json.parse_json_bytes(doc(32 as byte)))))
-    print(format("escaped tab accepted={}", is_ok(json.parse_json("{\"p\":\"a\\tb\"}"))))
-    print(switch json.parse_json_bytes(doc(0 as byte)) { Ok(_) { "accepted" } Err(m) { m } })
-    print(switch json.parse_json_bytes(doc(9 as byte)) { Ok(_) { "accepted" } Err(m) { m } })
+    print(format("32 accepted={}", is_ok(json.parse(doc(32 as byte)))))
+    print(format("escaped tab accepted={}", is_ok(json.parse("{\"p\":\"a\\tb\"}"))))
+    print(switch json.parse(doc(0 as byte)) { Ok(_) { "accepted" } Err(m) { m } })
+    print(switch json.parse(doc(9 as byte)) { Ok(_) { "accepted" } Err(m) { m } })
 }

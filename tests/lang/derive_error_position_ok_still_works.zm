@@ -1,7 +1,6 @@
+use json
 use json.Json
-use json.json_to_string
-use json.json_require_field
-use json.json_object_get
+use json.require
 
 #[derive(Json)]
 struct Point {
@@ -10,5 +9,5 @@ struct Point {
 }
 
 fn main() {
-    print(json_to_string(point_to_json(Point { x: 1, y: 2 })))
+    print(json.format(point_to_json(Point { x: 1, y: 2 })))
 }

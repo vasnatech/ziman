@@ -375,43 +375,47 @@ pub enum Json {
     JObject(Map<string, Json>)
 }
 
-pub fn parse_json(s: string) -> Result<Json, string>
+pub fn parse(s: string) -> Result<Json, string>
 
-pub fn parse_json_strict(s: string) -> Result<Json, string>
+pub fn parse_strict(s: string) -> Result<Json, string>
 
-pub fn parse_json_bytes(data: [byte]) -> Result<Json, string>
+pub fn parse(data: [byte]) -> Result<Json, string>
 
-pub fn parse_json_bytes_strict(data: [byte]) -> Result<Json, string>
+pub fn parse_strict(data: [byte]) -> Result<Json, string>
 
-pub fn parse_json_exact(s: string) -> Result<Json, string>
+pub fn parse_exact(s: string) -> Result<Json, string>
 
-pub fn parse_json_bytes_exact(data: [byte]) -> Result<Json, string>
+pub fn parse_exact(data: [byte]) -> Result<Json, string>
 
-pub fn json_to_bytes(j: Json) -> [byte]
+pub fn to_bytes(j: Json) -> [byte]
 
-pub fn json_to_string(j: Json) -> string
+pub fn format(j: Json) -> string
 
-pub fn json_object_get(j: Json, key: string) -> Option<Json>
+pub fn get(j: Json, key: string) -> Option<Json>
 
-pub fn json_get_path(j: Json, path: variadic string) -> Option<Json>
+pub fn get_path(j: Json, path: variadic string) -> Option<Json>
 
-pub fn json_require_field(j: Json, key: string) -> Result<Json, string>
+pub fn require(j: Json, key: string) -> Result<Json, string>
 
-pub fn json_require_string_field(j: Json, key: string) -> Result<string, string>
+pub fn require_string(j: Json, key: string) -> Result<string, string>
 
-pub fn json_require_int_field(j: Json, key: string) -> Result<int, string>
+pub fn require_int(j: Json, key: string) -> Result<int, string>
 
-pub fn json_require_float_field(j: Json, key: string) -> Result<float, string>
+pub fn require_float(j: Json, key: string) -> Result<float, string>
 
-pub fn json_require_bool_field(j: Json, key: string) -> Result<bool, string>
+pub fn require_bigint(j: Json, key: string) -> Result<bigint, string>
 
-pub fn json_to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<Map<string, V>, string>
+pub fn require_decimal(j: Json, key: string) -> Result<decimal, string>
 
-pub fn json_from_map<V>(m: Map<string, V>, encode: fn(V) -> Json) -> Json
+pub fn require_bool(j: Json, key: string) -> Result<bool, string>
 
-pub fn json_to_string_map(j: Json) -> Result<Map<string, string>, string>
+pub fn to_map<V>(j: Json, decode: fn(Json) -> Result<V, string>) -> Result<Map<string, V>, string>
 
-pub fn json_to_pretty_string(j: Json, indent: int) -> string
+pub fn from_map<V>(m: Map<string, V>, encode: fn(V) -> Json) -> Json
+
+pub fn to_string_map(j: Json) -> Result<Map<string, string>, string>
+
+pub fn format(j: Json, indent: int) -> string
 
 pub fn json_to_json(j: Json) -> Json
 
@@ -419,7 +423,7 @@ pub fn json_from_json(j: Json) -> Result<Json, string>
 
 pub fn int_to_json(n: int) -> Json
 
-pub fn json_number(j: Json) -> Option<Number>
+pub fn number_of(j: Json) -> Option<Number>
 
 pub fn int_from_json(j: Json) -> Result<int, string>
 
