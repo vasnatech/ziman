@@ -2788,10 +2788,17 @@ from source.
   **The shape to decide, not decided here.** Whether a `Locale` is an explicit argument
   (`to_upper(s, locale)`), an ambient value, or a module (`locale.to_upper`); whether the data is
   bundled (CLDR is tens of megabytes and this interpreter embeds its whole standard library as C
-  string constants) or read from the host (ICU, or the platform's own, which is a dependency this
-  project has otherwise avoided); and whether the first slice is just **case mapping plus month and
-  weekday names**, which covers most of what a backend actually renders, with collation and number
-  formatting deferred.
+  string constants) or read from the host (ICU, or the platform's own); and whether the first slice is just **case
+  mapping plus month and weekday names**, which covers most of what a backend actually renders, with
+  collation and number formatting deferred.
+
+  > **Correction (2026-10-23, same day):** this entry first said a host library would be "a
+  > dependency this project has otherwise avoided". That is false and was not checked before being
+  > written. `make/c.mk` links `-lsqlite3 -lssl -lcrypto -lcrypt -lz` unconditionally, so there are
+  > already four, none of them optional; ICU would be a fifth of a kind already accepted rather than
+  > a first of a new kind. On this machine it is present (icu-uc 77.1) with 31.9 MB of data in
+  > `libicudata`, which is the real figure to weigh -- against bundling, where the comparison is to
+  > the interpreter embedding its whole standard library as C string constants today.
 
   **Not started. The next step is a decision about data, not code**: bundled, host-provided, or a
   deliberately tiny table for a handful of languages. Everything above is reachable from either
