@@ -1,0 +1,95 @@
+// **XML's two input regimes, measured apart -- and the cliff between them.**
+//
+// Every parser function in `lib/core/xml.zm` threads a character position over the whole document.
+// `char_at` is O(1) only while the text is all-ASCII (ZSTR_ASCII, src/value.h); off that path it
+// walks from the start of the string, so threading a position over a document was quadratic *in
+// the document*. A profile of a CJK parse put 69% of it in `char_at`, `is_char_at` and `substring`.
+//
+// **What made this urgent is that the fast path is all-or-nothing.** A document is ASCII or it is
+// not; one character decides for the whole of it. So a 262 KB record with a single Japanese patient
+// name in it parsed in 82 *seconds* where the same record with an English name took 162 ms -- and
+// the gap grew with size, being quadratic. The document is decoded once into its characters and
+// indexed as an array now: 270 ms against 235 ms, which is the difference it should always have
+// been.
+//
+// The trade, recorded so it can be re-judged rather than rediscovered: building the character array
+// costs about 45% on a pure-ASCII document (262 KB: 162 -> 235 ms). That buys the removal of a
+// three-orders-of-magnitude cliff triggered by one character of ordinary text.
+//
+// Run it directly: `./ziman tests/bench/xml_scan.zm`. Both series must stay linear, and the two
+// must stay within a small factor of each other -- they diverging again is the regression this
+// exists to catch.
+use clock
+use math
+use os
+use xml
+
+fn build(entries: int, patient: string) -> string {
+    val b = mutable_string_new()
+    append(b, "<record>")
+    var i = 0
+    while i < entries {
+        append(b, "<entry id=\"", str(i), "\" kind=\"note\">content for entry number ", str(i), "</entry>")
+        i = i + 1
+    }
+    append(b, "<patient>", patient, "</patient></record>")
+    return snapshot(b)
+}
+
+fn parse_ms(text: string) -> int {
+    val started = clock.monotonic_millis()
+    switch xml.parse_xml(text) {
+        Ok(d) {}
+        Err(e) { printf("  PARSE FAILED: {}\n", e) }
+    }
+    return clock.monotonic_millis() - started
+}
+
+fn series(label: string, patient: string, counts: [int]) -> [int] {
+    val times = mutable_array_new<int>()
+    print(label)
+    for n in counts {
+        val text = build(n, patient)
+        val ms = parse_ms(text)
+        push(times, ms)
+        printf("  {} chars: {} ms\n", len(text), ms)
+    }
+    return snapshot(times)
+}
+
+fn growth_of(times: [int]) -> int {
+    return math.max(times[len(times) - 1], 1) / math.max(times[0], 1)
+}
+
+fn main() {
+    val counts = [1000, 2000, 4000, 8000]
+    // The two documents differ by one name. That is the whole experiment.
+    val ascii = series("pure ASCII (a character index is a byte index)", "John Smith", counts)
+    val wide = series(
+        "one non-ASCII name (the walking path; this was quadratic until 2026-10-23)",
+        "山田太郎",
+        counts
+    )
+    print("")
+    printf("8x the input cost {}x (ASCII) and {}x (one CJK name)\n", growth_of(ascii), growth_of(wide))
+    var bad = false
+    if growth_of(ascii) > 32 {
+        print("FAIL: the ASCII series is not linear")
+        bad = true
+    }
+    if growth_of(wide) > 32 {
+        print("FAIL: the non-ASCII series is not linear -- the decode-once path is gone")
+        bad = true
+    }
+    // The point of the change is that one character does not change the cost class.
+    val last_ascii = math.max(ascii[len(ascii) - 1], 1)
+    val last_wide = math.max(wide[len(wide) - 1], 1)
+    if last_wide > last_ascii * 4 {
+        printf("FAIL: one non-ASCII character costs {}x, not a small factor\n", last_wide / last_ascii)
+        bad = true
+    }
+    if bad {
+        os.exit(1)
+    }
+    print("ok   both regimes are linear and within a small factor")
+}

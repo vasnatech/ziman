@@ -1,0 +1,57 @@
+// XML over text that is not ASCII, which is where its parser had a cliff rather than a slope.
+//
+// Every parser function threaded `(s: string, pos: int)` and reached `pos` with `char_at`, which
+// walks from the start of the string unless the text is all-ASCII -- so threading a character
+// position over a whole document was quadratic in it. **The fast path is all-or-nothing**: one
+// character decides for the whole document, so a 262 KB record with a single Japanese patient name
+// parsed in 82 seconds where the same record with an English name took 162 ms. The document is
+// decoded once into its characters and indexed as an array now: 270 ms against 235 ms.
+// `tests/bench/xml_scan.zm` measures both regimes and that they stay within a small factor.
+//
+// What this file pins is the behaviour, which did not change at all -- it passes on the binary from
+// before the rewrite too.
+use xml
+
+fn t(label: string, text: string) {
+    switch xml.parse_xml(text) {
+        Ok(d) {
+            switch xml.xml_to_string(d) {
+                Ok(s) { printf("{} => [{}]\n", label, s) }
+                Err(e) { printf("{} => parsed, write ERR {}\n", label, e) }
+            }
+        }
+        Err(e) { printf("{} => ERR {}\n", label, e) }
+    }
+}
+
+fn main() {
+    // text of every width, and a document that is ASCII but for one name
+    t("text-tr", "<r>Ömer Şahin</r>")
+    t("text-cjk", "<r>山田太郎</r>")
+    t("text-emoji", "<r>a😀b</r>")
+    t("one-wide-name", "<record><entry id=\"1\">plain ascii content</entry><patient>山田太郎</patient></record>")
+
+    // names and attributes outside ASCII
+    t("name-nonascii", "<héllo/>")
+    t("name-cjk", "<日本>x</日本>")
+    t("attr-cjk", "<r a=\"東京都\"/>")
+    t("ns-nonascii", "<r xmlns:p=\"üri\"><p:ä/></r>")
+
+    // the constructs that search forward: comments, CDATA, PIs, entities
+    t("comment-cjk", "<r><!-- 日本 --></r>")
+    t("cdata-cjk", "<r><![CDATA[日本<語>]]></r>")
+    t("pi-cjk", "<?pi 日本?><r/>")
+    t("entity-then-wide", "<r>&amp;日本</r>")
+    t("charref-wide", "<r>&#x65E5;&#x672C;</r>")
+
+    // a declaration in front of non-ASCII content
+    t("decl-then-wide", "<?xml version=\"1.0\" encoding=\"UTF-8\"?><r>日本</r>")
+
+    // error positions must still name the right line through non-ASCII text
+    t("err-line-3", "<r>\n<a>日本</a>\n<b></c>\n</r>")
+    t("err-after-wide", "<r>山田太郎<a>")
+
+    // nesting, so read_element recurses over non-ASCII content
+    t("deep-cjk", "<r><a><b><c>日本語のテキスト</c></b></a></r>")
+    t("mixed-children", "<r><a>Ömer</a><b>山田</b><c>😀</c></r>")
+}

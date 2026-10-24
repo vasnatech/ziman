@@ -1,0 +1,51 @@
+text-tr => [<?xml version="1.0" encoding="UTF-8"?>
+<r>Ömer Şahin</r>
+]
+text-cjk => [<?xml version="1.0" encoding="UTF-8"?>
+<r>山田太郎</r>
+]
+text-emoji => [<?xml version="1.0" encoding="UTF-8"?>
+<r>a😀b</r>
+]
+one-wide-name => [<?xml version="1.0" encoding="UTF-8"?>
+<record><entry id="1">plain ascii content</entry><patient>山田太郎</patient></record>
+]
+name-nonascii => [<?xml version="1.0" encoding="UTF-8"?>
+<héllo/>
+]
+name-cjk => [<?xml version="1.0" encoding="UTF-8"?>
+<日本>x</日本>
+]
+attr-cjk => [<?xml version="1.0" encoding="UTF-8"?>
+<r a="東京都"/>
+]
+ns-nonascii => [<?xml version="1.0" encoding="UTF-8"?>
+<r xmlns:p="üri"><p:ä/></r>
+]
+comment-cjk => [<?xml version="1.0" encoding="UTF-8"?>
+<r><!-- 日本 --></r>
+]
+cdata-cjk => [<?xml version="1.0" encoding="UTF-8"?>
+<r><![CDATA[日本<語>]]></r>
+]
+pi-cjk => [<?xml version="1.0" encoding="UTF-8"?>
+<?pi 日本?>
+<r/>
+]
+entity-then-wide => [<?xml version="1.0" encoding="UTF-8"?>
+<r>&amp;日本</r>
+]
+charref-wide => [<?xml version="1.0" encoding="UTF-8"?>
+<r>日本</r>
+]
+decl-then-wide => [<?xml version="1.0" encoding="UTF-8"?>
+<r>日本</r>
+]
+err-line-3 => ERR line 3: </c> closes <b>
+err-after-wide => ERR line 1: <a> is never closed
+deep-cjk => [<?xml version="1.0" encoding="UTF-8"?>
+<r><a><b><c>日本語のテキスト</c></b></a></r>
+]
+mixed-children => [<?xml version="1.0" encoding="UTF-8"?>
+<r><a>Ömer</a><b>山田</b><c>😀</c></r>
+]
