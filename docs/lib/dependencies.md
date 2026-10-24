@@ -16,6 +16,7 @@ flowchart LR
         fs["fs"]
         json["json"]
         jwt["jwt"]
+        locale["locale"]
         log["log"]
         markdown["markdown"]
         math["math"]
@@ -197,7 +198,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread`, `xml` |
+| 0 | `bits`, `clock`, `compress`, `locale`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread`, `xml` |
 | 1 | `crypto`, `geom`, `json`, `markdown`, `os`, `pdfobj`, `url` |
 | 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `paint`, `shape`, `toml`, `yaml` |
 | 3 | `csv`, `image`, `log`, `mysql`, `pg`, `process`, `properties`, `scene`, `server`, `sqlite`, `stroker`, `truetype`, `uuid`, `zone` |
@@ -224,6 +225,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
+| `locale` | - | - |
 | `log` | `clock`, `fs`, `json`, `number`, `os` | - |
 | `markdown` | `math` | - |
 | `math` | - | `geom`, `markdown`, `properties`, `raster`, `shape`, `stroker` |

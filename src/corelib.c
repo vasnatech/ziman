@@ -13,6 +13,7 @@
 #include "metrics_source.h"
 #include "process_source.h"
 #include "regex_source.h"
+#include "locale_source.h"
 #include "client_source.h"
 #include "random_source.h"
 #include "uuid_source.h"
@@ -80,6 +81,7 @@ static const CoreModule CORE_MODULES[] = {
     {"metrics", METRICS_SOURCE},
     {"process", PROCESS_SOURCE},
     {"regex", REGEX_SOURCE},
+    {"locale", LOCALE_SOURCE},
     {"client", CLIENT_SOURCE},
     {"random", RANDOM_SOURCE},
     {"uuid", UUID_SOURCE},

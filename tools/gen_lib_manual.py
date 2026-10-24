@@ -24,7 +24,7 @@ GROUPS = [
     # as part of that family; `clock` stays under System with `random` and `uuid`, the other thin
     # wrappers over a native primitive.
     ("Time", "time", ["time", "zone", "schedule"]),
-    ("System", "core", ["fs", "os", "process", "thread", "log", "metrics", "random", "clock"]),
+    ("System", "core", ["fs", "os", "process", "thread", "log", "metrics", "random", "clock", "locale"]),
     ("Networking", "core", ["net", "url"]),
     ("HTTP", "http", ["http", "server", "client"]),
     ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql"]),

@@ -471,6 +471,32 @@ pub fn audience(claims: Json) -> [string]
 
 ```
 
+## `locale`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub struct Locale {
+    handle: int
+    name: string
+}
+
+pub fn of(asked: string) -> Locale
+
+pub fn name_of(l: Locale) -> string
+
+pub fn root() -> Locale
+
+pub fn system() -> Locale
+
+pub fn default() -> Locale
+
+pub fn set_default(l: Locale)
+
+pub fn use_system() -> Locale
+
+```
+
 ## `log`
 
 ```

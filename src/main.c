@@ -33,6 +33,7 @@
 #include "native_sqlite.h"
 #include "iter.h"
 #include "native_fs.h"
+#include "native_locale.h"
 #include "native_regex.h"
 #include "native_net.h"
 #include "native_os.h"
@@ -173,6 +174,7 @@ static int run_format(char **files, int n_files, int write, int check, int width
 static void register_all_natives(void) {
     native_fs_register();
     native_iter_register();
+    native_locale_register();
     native_regex_register();
     native_random_register();
     native_clock_register();

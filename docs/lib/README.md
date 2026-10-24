@@ -56,6 +56,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`metrics`](metrics.md) | Counters, gauges and histograms that the threads of a server share, and a render of them in the Prometheus text format for something to scrape. |
 | [`random`](random.md) | Randomness from the operating system. |
 | [`clock`](clock.md) | The system clock and sleeping, the two things Ziman cannot do in pure code. |
+| [`locale`](locale.md) | A `Locale`, and the process-wide default that locale-aware functions use when given none. |
 
 ## Networking
 

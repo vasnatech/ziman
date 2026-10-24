@@ -1,0 +1,67 @@
+// `locale.of` and what it resolves to.
+//
+// A `Locale` is the operating system's, opened by name. Four things here are easy to get wrong and
+// are each pinned:
+//
+//   * **A bare language has to be expanded.** POSIX has no bare-language locales -- `newlocale("tr")`
+//     answers NULL on glibc -- so `of("tr")` consults a language-to-territory table and opens
+//     `tr_TR`. `name_of` reports what was actually opened, because the expansion is a default and
+//     not a truth.
+//   * **The codeset is forced to UTF-8.** `newlocale("tr_TR")` succeeds with codeset ISO-8859-9,
+//     and its month names would then be Latin-5 bytes -- not valid UTF-8, so they would poison a
+//     Ziman string the moment anything counted its characters.
+//   * **A dash is BCP 47's separator, and also part of a codeset's name.** Converting every dash
+//     turned `tr_TR.UTF-8` into `tr_TR.UTF_8`, which glibc happens to accept because it normalises
+//     codeset names and a stricter libc would not.
+//   * **An unavailable locale resolves to root, not to an error and not to the host's locale.**
+//     `of` has no Err for a caller to ignore; `name_of` is how the miss is seen. Root rather than
+//     the runtime default or the system locale, so the same call answers the same way on every
+//     machine.
+use locale
+
+fn show(asked: string) {
+    val l = locale.of(asked)
+    printf("  {} -> {}\n", asked, locale.name_of(l))
+}
+
+fn main() {
+    print("-- bare language, BCP 47 dash, POSIX name, explicit codeset --")
+    for asked in ["tr", "tr-TR", "tr_TR", "tr_TR.UTF-8", "TR", "en", "en_US", "de", "ja", "sv", "C"] {
+        show(asked)
+    }
+
+    print("-- unavailable names resolve to root, visibly --")
+    for asked in ["xx", "xx_XX", "klingon", "", "   "] {
+        val l = locale.of(asked)
+        printf(
+            "  [{}] -> {} (is root: {})\n",
+            asked,
+            locale.name_of(l),
+            locale.name_of(l) == locale.name_of(locale.root())
+        )
+    }
+
+    print("-- root, and the default until something sets it --")
+    printf("  root            {}\n", locale.name_of(locale.root()))
+    printf("  default (unset) {}\n", locale.name_of(locale.default()))
+    print("-- the process default is settable and readable --")
+    locale.set_default(locale.of("tr"))
+    printf("  after set_default(tr)  {}\n", locale.name_of(locale.default()))
+    locale.set_default(locale.root())
+    printf("  after set_default(root) {}\n", locale.name_of(locale.default()))
+
+    print("-- a Locale survives collection pressure, being reached through an int --")
+    val held = locale.of("de")
+    var i = 0
+    while i < 20000 {
+        val junk = mutable_array_new<string>()
+        var k = 0
+        while k < 20 {
+            push(junk, concat("filler", str(k), str(i)))
+            k = k + 1
+        }
+        val _ = snapshot(junk)
+        i = i + 1
+    }
+    printf("  still {}\n", locale.name_of(held))
+}
