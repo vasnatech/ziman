@@ -13,7 +13,7 @@ fn cell(rows: [[string]], r: int, c: int) -> string {
 
 #[test]
 fn plain_rows_split_on_commas() {
-    val rows = test.assert_ok(csv.parse_csv_rows("a,b,c\n1,2,3"))
+    val rows = test.assert_ok(csv.parse_rows("a,b,c\n1,2,3"))
     test.assert_eq(2, len(rows))
     test.assert_eq(3, len(rows[0]))
     test.assert_eq("a", cell(rows, 0, 0))
@@ -22,14 +22,14 @@ fn plain_rows_split_on_commas() {
 
 #[test]
 fn quoted_fields_keep_their_commas() {
-    val rows = test.assert_ok(csv.parse_csv_rows("a,\"b,still b\",c"))
+    val rows = test.assert_ok(csv.parse_rows("a,\"b,still b\",c"))
     test.assert_eq(3, len(rows[0]))
     test.assert_eq("b,still b", cell(rows, 0, 1))
 }
 
 #[test]
 fn a_doubled_quote_is_one_quote() {
-    val rows = test.assert_ok(csv.parse_csv_rows("\"say \"\"hi\"\"\",next"))
+    val rows = test.assert_ok(csv.parse_rows("\"say \"\"hi\"\"\",next"))
     test.assert_eq("say \"hi\"", cell(rows, 0, 0))
     test.assert_eq("next", cell(rows, 0, 1))
 }
@@ -37,7 +37,7 @@ fn a_doubled_quote_is_one_quote() {
 #[test]
 fn a_quoted_field_may_span_lines() {
     // D22's shape: the newline is data, not a row break.
-    val rows = test.assert_ok(csv.parse_csv_rows("a,\"line one\nline two\",c\nx,y,z"))
+    val rows = test.assert_ok(csv.parse_rows("a,\"line one\nline two\",c\nx,y,z"))
     test.assert_eq(2, len(rows))
     test.assert_eq("line one\nline two", cell(rows, 0, 1))
     test.assert_eq("x", cell(rows, 1, 0))
@@ -45,7 +45,7 @@ fn a_quoted_field_may_span_lines() {
 
 #[test]
 fn crlf_line_endings_do_not_leak_into_the_last_field() {
-    val rows = test.assert_ok(csv.parse_csv_rows("a,b\r\n1,2\r\n"))
+    val rows = test.assert_ok(csv.parse_rows("a,b\r\n1,2\r\n"))
     test.assert_eq(2, len(rows))
     test.assert_eq("b", cell(rows, 0, 1))
     test.assert_eq("2", cell(rows, 1, 1))
@@ -53,32 +53,32 @@ fn crlf_line_endings_do_not_leak_into_the_last_field() {
 
 #[test]
 fn empty_fields_are_preserved_rather_than_dropped() {
-    val rows = test.assert_ok(csv.parse_csv_rows("a,,c"))
+    val rows = test.assert_ok(csv.parse_rows("a,,c"))
     test.assert_eq(3, len(rows[0]))
     test.assert_eq("", cell(rows, 0, 1))
-    val trailing = test.assert_ok(csv.parse_csv_rows("a,b,"))
+    val trailing = test.assert_ok(csv.parse_rows("a,b,"))
     test.assert_eq(3, len(trailing[0]))
     test.assert_eq("", cell(trailing, 0, 2))
 }
 
 #[test]
 fn an_unterminated_quote_is_an_error() {
-    test.assert_err(csv.parse_csv_rows("a,\"never closed\nb,c"))
+    test.assert_err(csv.parse_rows("a,\"never closed\nb,c"))
 }
 
 #[test]
 fn a_custom_delimiter_is_honoured() {
-    val rows = test.assert_ok(csv.parse_csv_rows_with("a;b;c", ";"))
+    val rows = test.assert_ok(csv.parse_rows("a;b;c", ";"))
     test.assert_eq(3, len(rows[0]))
     test.assert_eq("b", cell(rows, 0, 1))
     // and a comma is then ordinary data
-    val commas = test.assert_ok(csv.parse_csv_rows_with("a,still a;b", ";"))
+    val commas = test.assert_ok(csv.parse_rows("a,still a;b", ";"))
     test.assert_eq("a,still a", cell(commas, 0, 0))
 }
 
 #[test]
 fn parse_csv_uses_the_first_row_as_field_names() {
-    val j = test.assert_ok(csv.parse_csv("name,age\nAda,36"))
+    val j = test.assert_ok(csv.parse("name,age\nAda,36"))
     val first = test.assert_some(json.json_get_path(j, "0"))
     test.assert_eq("Ada", test.assert_ok(json.json_require_string_field(first, "name")))
     // untyped: every value is a string
@@ -87,7 +87,7 @@ fn parse_csv_uses_the_first_row_as_field_names() {
 
 #[test]
 fn parse_csv_typed_reads_numbers_as_numbers() {
-    val j = test.assert_ok(csv.parse_csv_typed("name,age\nAda,36"))
+    val j = test.assert_ok(csv.parse_typed("name,age\nAda,36"))
     val first = test.assert_some(json.json_get_path(j, "0"))
     test.assert_eq(36, test.assert_ok(json.json_require_int_field(first, "age")))
     test.assert_eq("Ada", test.assert_ok(json.json_require_string_field(first, "name")))

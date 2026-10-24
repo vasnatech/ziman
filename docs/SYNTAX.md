@@ -1645,20 +1645,24 @@ fn main() {
 | Module | Reads | Writes |
 | --- | --- | --- |
 | `ndjson` | `parse_ndjson(text) -> Result<[Json], string>` (one value per line, blank lines skipped); `records(path)` reads a file lazily as an `Iter` of `Result<Json, string>` for a `for` loop, one record in memory at a time | `ndjson_to_string([Json])` |
-| `csv` | `parse_csv` / `parse_csv_typed` -> a `Json` array of objects keyed by the header row; `parse_csv_rows` -> `[[string]]`; `_with(text, delimiter)` variants for TSV etc.; `records(path)` (and `records_typed`, `_with`) reads a file lazily as an `Iter` of `Result<Json, string>` for a `for` loop, a record at a time, quoted newlines included | `csv_to_string(Json)`, `csv_rows_to_string([[string]])` |
+| `csv` | `parse` / `parse_typed` -> a `Json` array of objects keyed by the header row; `parse_rows` -> `[[string]]`; `parse_columns` / `parse_columns_typed` for a headerless file; each also takes a delimiter as a second argument (`parse(text, "\t")`); `records(path)` (and `records_typed`) reads a file lazily as an `Iter` of `Result<Json, string>` for a `for` loop, a record at a time, quoted newlines included | `format(Json)`, `format([[string]])` |
 | `toml` | `parse_toml(text) -> Result<Json, string>` | `toml_to_string(Json) -> Result<string, string>` |
 | `yaml` | `parse_yaml(text) -> Result<Json, string>` | `yaml_to_string(Json) -> string` |
 
 - **Errors** are `Err(string)` with a `line N:` prefix (CSV: `row N`).
 - **CSV**: RFC 4180 quoting; LF/CRLF/lone-CR endings; blank lines skipped; a leading UTF-8 BOM
-  ignored. `parse_csv` keeps every cell a string; `parse_csv_typed` reads an unquoted cell as a
+  ignored. `parse` keeps every cell a string; `parse_typed` reads an unquoted cell as a
   number (`42`, `-1.5`, not `007`), boolean, or null (empty) -- a quoted cell stays a string.
-  `parse_csv_columns`/`_typed` take column names for a headerless file. `_with(text, delimiter)`
-  variants take a one-character delimiter (`"\t"` for TSV; invalid is `Err`). Errors name the
-  line a row started on (including an unclosed quote's own start). The writer unions the rows'
-  keys as columns (first-seen order), flattens an object one level into `a.b` columns, rejects
-  deeper nesting, and quotes a string that would otherwise read back typed (`parse_csv_typed
-  (csv_to_string(x))` round-trips); lines end in `\n`.
+  `parse_columns`/`_typed` take column names for a headerless file. **The delimiter is a second
+  argument, not a second name**: `parse(text, "\t")`, `format(rows, ";")` and so on, one
+  character and not a quote or a newline (invalid is `Err`). They are two declarations under one
+  name rather than one with an `Option<string>`, because Ziman omits an optional parameter only
+  in an all-named call -- which would make the common `parse(text)` into `parse(text: text)`.
+  `typed` goes the other way and stays a *name*, a bare `parse(text, true)` saying nothing.
+  Errors name the line a row started on (including an unclosed quote's own start). The writer
+  unions the rows' keys as columns (first-seen order), flattens an object one level into `a.b`
+  columns, rejects deeper nesting, and quotes a string that would otherwise read back typed
+  (`parse_typed(format(x))` round-trips); lines end in `\n`.
 - **TOML 1.0**: tables, arrays of tables, dotted/inline tables, all string forms, hex/octal/
   binary/`_` integers, floats, booleans, comments. Dates/times stay `JString` text; `inf`/`nan`
   rejected; a duplicate key/table errors. The writer omits `JNull` fields (no TOML null),

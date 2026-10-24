@@ -31,7 +31,7 @@ fn main() {
     show(path, false)
 
     // the same file read all at once gives the same rows
-    val whole = unwrap(csv.parse_csv(unwrap(fs.read_text(path))))
+    val whole = unwrap(csv.parse(unwrap(fs.read_text(path))))
     var streamed: [json.Json] = []
     for record in unwrap(csv.records(path)) {
         streamed = push(streamed, unwrap(record))
@@ -55,10 +55,10 @@ fn main() {
 
     // another delimiter, and typed cells
     unwrap(fs.write_text(path, "a;b\n1;x\n2;\n"))
-    for record in unwrap(csv.records_typed_with(path, ";")) {
+    for record in unwrap(csv.records_typed(path, ";")) {
         print(json.json_to_string(unwrap(record)))
     }
-    print(unwrap_err(csv.records_with(path, "ab")))
+    print(unwrap_err(csv.records(path, "ab")))
 
     // leaving early releases the file
     unwrap(fs.write_text(path, "a,b\n1,2\n3,4\n5,6\n"))

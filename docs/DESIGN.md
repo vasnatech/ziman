@@ -188,6 +188,7 @@ them against the code.
 - [`prelude.` reaches a name you have taken (2026-10-24)](#prelude-reaches-a-name-you-have-taken-2026-10-24)
 - [The time module's converters drop their prefixes, and derive learns the exception (2026-10-24)](#the-time-modules-converters-drop-their-prefixes-and-derive-learns-the-exception-2026-10-24)
 - [`bits` stops naming the type, and a BitSet becomes a set (2026-10-24)](#bits-stops-naming-the-type-and-a-bitset-becomes-a-set-2026-10-24)
+- [`csv` stops stuttering, and `_with` becomes an argument (2026-10-24)](#csv-stops-stuttering-and-_with-becomes-an-argument-2026-10-24)
 
 <!-- end index -->
 
@@ -8074,3 +8075,17 @@ Found and fixed while documenting this: SYNTAX.md's "Builtins" section still ope
 **The cost is real and lands on the caller.** Several of these names are the prelude's, and a per-name import *replaces* the bare name for the whole file rather than adding to the prelude's overload set: after `use bits.len`, `len("abc")` does not type-check. That is not new behaviour -- it is what `use` has always meant -- but short names make it reachable where `bitset_cardinality` never could. It is survivable because of the `prelude.` qualifier added earlier the same day: `prelude.len("abc")` reaches past the import, and the two pieces of work turned out to need each other. `use bits` with `bits.len(bs)` avoids the question entirely and is what most callers should write. `tests/lang/bits_bare_import_shadows_prelude.zm` pins both halves, including that `prelude.len(bs)` on a `BitSet` is an *error* rather than a fallback into the imported one -- the qualifier names one namespace, not "try both".
 
 Verified: `make check` green, 1,177 fixtures on both builds, and the `bits_byte`/`bits_int`/`bits_bigint` fixtures are what prove the symbol fallback dispatches to the right one of three implementations rather than to whichever `native_lookup` answered first.
+
+## `csv` stops stuttering, and `_with` becomes an argument (2026-10-24)
+
+`csv.parse_csv(text)` said csv twice and `csv.csv_to_string(rows)` said it three times. The 2026-10-05 developer-experience review had already written the item down -- "naming rules say qualified calls should be short verbs, but `csv.parse_csv`, `toml.parse_toml`, `yaml.parse_yaml`, `json.parse_json` stutter (verified: `csv.parse` does not exist)" -- and this closes it for `csv`. Sixteen public names become eight.
+
+**Half the names were a workaround for a language rule, and overloading is the better answer to it.** Every reader and writer had a `_with` twin that differed only in taking a delimiter, and the module's own header comment said exactly why: they were separate functions "because Ziman can only omit an optional parameter in a call that names its arguments". That reason is still true -- confirmed by trying it, since `f(a: string, b: Option<string>)` accepts `f(a: "x")` and rejects `f("x")` -- so an `Option<string>` delimiter would have turned the common `parse(text)` into `parse(text: text)`. What changed is that a name can now carry two declarations told apart by arity, so `parse(text)` and `parse(text, "\t")` are one name and the `_with` suffix is gone from eight functions.
+
+**`typed` went the other way, and the asymmetry is the point.** It is also an optional argument in principle, but `parse(text, true)` tells a reader nothing where `parse(text, "\t")` is self-evident, and an `Option<bool>` would cost the common call its positional form for the same reason. So the delimiter is an argument and the typing is a name: `parse` / `parse_typed`. A reader can see which of the two is which from the call alone, which is the test an optional parameter fails.
+
+**A gap closed by itself.** `parse_csv_columns` and `parse_csv_columns_typed` -- the headerless readers -- hardcoded the comma and had no `_with` twin, so a headerless TSV could not be read at all. Threading the delimiter through `table_with_columns` was two lines once the overload existed, and `tests/lang/csv_extended.zm` now covers it.
+
+**One thing stayed two declarations on purpose.** `format([[string]])` returns a plain `string` while `format([[string]], delimiter)` returns a `Result`, because the only thing that can fail in writing raw strings is an invalid delimiter -- and with no delimiter to validate there is nothing to report. Two declarations can differ in return type where one `Option` parameter could not, so the arity split is what keeps the no-delimiter call free of a `Result` nobody would ever check.
+
+A bug worth recording, because of *why* it survived the first build. Converting the writer to an `Option<string>` left its body passing `delimiter` -- now an `Option<string>` -- to three functions that take a `string`, and `ziman --check` on a fixture reported nothing: the fixture failed at module resolution, on a name the rename had removed, and resolution runs **before** any body is type-checked. A clean compile of a file that names a function that no longer exists proves nothing about that function's own module. Rebuilding the interpreter and running a program that actually called it was what found it.

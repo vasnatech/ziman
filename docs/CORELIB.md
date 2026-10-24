@@ -244,37 +244,41 @@ pub native fn base64url_decode(s: string) -> Result<[byte], string>
 RFC 4180 CSV as a `Json` array of objects keyed by the header row (typed or string cells; TSV via the `_with` variants); a table writer that flattens one level.
 
 ```
-pub fn parse_csv_rows(text: string) -> Result<[[string]], string>
+pub fn parse_rows(text: string) -> Result<[[string]], string>
 
-pub fn parse_csv_rows_with(text: string, delimiter: string) -> Result<[[string]], string>
+pub fn parse_rows(text: string, delimiter: string) -> Result<[[string]], string>
 
-pub fn parse_csv(text: string) -> Result<Json, string>
+pub fn parse(text: string) -> Result<Json, string>
 
-pub fn parse_csv_with(text: string, delimiter: string) -> Result<Json, string>
+pub fn parse(text: string, delimiter: string) -> Result<Json, string>
 
-pub fn parse_csv_typed(text: string) -> Result<Json, string>
+pub fn parse_typed(text: string) -> Result<Json, string>
 
-pub fn parse_csv_typed_with(text: string, delimiter: string) -> Result<Json, string>
+pub fn parse_typed(text: string, delimiter: string) -> Result<Json, string>
 
-pub fn parse_csv_columns(text: string, columns: variadic string) -> Result<Json, string>
+pub fn parse_columns(text: string, columns: [string]) -> Result<Json, string>
 
-pub fn parse_csv_columns_typed(text: string, columns: variadic string) -> Result<Json, string>
+pub fn parse_columns(text: string, columns: [string], delimiter: string) -> Result<Json, string>
+
+pub fn parse_columns_typed(text: string, columns: [string]) -> Result<Json, string>
+
+pub fn parse_columns_typed(text: string, columns: [string], delimiter: string) -> Result<Json, string>
 
 pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string>
 
-pub fn records_with(path: string, delimiter: string) -> Result<Iter<Result<Json, string>>, string>
+pub fn records(path: string, delimiter: string) -> Result<Iter<Result<Json, string>>, string>
 
 pub fn records_typed(path: string) -> Result<Iter<Result<Json, string>>, string>
 
-pub fn records_typed_with(path: string, delimiter: string) -> Result<Iter<Result<Json, string>>, string>
+pub fn records_typed(path: string, delimiter: string) -> Result<Iter<Result<Json, string>>, string>
 
-pub fn csv_rows_to_string(rows: [[string]]) -> string
+pub fn format(rows: [[string]]) -> string
 
-pub fn csv_rows_to_string_with(rows: [[string]], delimiter: string) -> Result<string, string>
+pub fn format(rows: [[string]], delimiter: string) -> Result<string, string>
 
-pub fn csv_to_string(rows: Json) -> Result<string, string>
+pub fn format(rows: Json) -> Result<string, string>
 
-pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, string>
+pub fn format(rows: Json, sep: string) -> Result<string, string>
 
 ```
 

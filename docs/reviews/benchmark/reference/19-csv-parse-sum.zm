@@ -2,7 +2,7 @@ use csv
 
 fn main() {
     val text = "name,age\nAda,36\nAlan,41\nGrace,45\n"
-    val rows = unwrap(csv.parse_csv_rows(text))
+    val rows = unwrap(csv.parse_rows(text))
     var total = 0
     var count = 0
     var i = 1

@@ -3,16 +3,24 @@
 // `_from_json` and encodes back. Splitting the text into cells is a native scanner
 // (`scan_cells`); the rest is Ziman.
 //
-// Every function that takes text and returns a table comes in two forms: the plain one uses
-// the comma, and the `_with` form takes a one-character delimiter (`"\t"` for TSV). They are
-// separate functions because Ziman can only omit an optional parameter in a call that names
-// its arguments. A delimiter that is not exactly one character, or is a quote or a newline,
-// is an `Err`.
+// **The delimiter is an argument, not a name.** Every reader and writer here has a one-argument
+// form that uses the comma and a two-argument form taking a one-character delimiter (`"\t"` for
+// TSV) -- two declarations under one name, told apart by arity. They cannot be one declaration
+// with an `Option<string>`: Ziman omits an optional parameter only in a call that names *every*
+// argument, so `parse(text)` would have to be written `parse(text: text)`. A delimiter that is
+// not exactly one character, or is a quote or a newline, is an `Err`.
 //
-// Cells are text. A reader returns them as strings (`parse_csv`), or infers a type for the
-// cells that look like one (`parse_csv_typed`); see each function. The writer quotes exactly
-// the strings that would otherwise read back as something else, so `parse_csv_typed` of what
-// `csv_to_string` wrote gives the same table.
+// **`typed` is a name, not an argument**, for the mirror-image reason: `parse(text, true)` tells
+// a reader nothing, and an `Option<bool>` would cost the common call its positional form. So the
+// typing reader is `parse_typed`.
+//
+// Cells are text. A reader returns them as strings (`parse`), or infers a type for the cells that
+// look like one (`parse_typed`); see each function. The writer quotes exactly the strings that
+// would otherwise read back as something else, so `parse_typed` of what `format` wrote gives the
+// same table.
+//
+// Nothing here carries the module's own name: a caller writes `csv.parse(text)` and
+// `csv.format(rows)`, where `csv.parse_csv` and `csv.csv_to_string` stuttered.
 
 use fs
 use json.Json
@@ -49,13 +57,13 @@ native fn scan_cells(text: string, sep: string, typed: bool) -> Result<[string],
 
 fn check_delimiter(sep: string) -> Result<string, string> {
     if byte_len(sep) != 1 || sep == "\"" || sep == "\n" || sep == "\r" {
-        return err(format("invalid delimiter '{}': it must be one character and not a quote or a newline", sep))
+        return err(prelude.format("invalid delimiter '{}': it must be one character and not a quote or a newline", sep))
     }
     return ok(sep)
 }
 
 // The table as rows of cells, from the scanner's flat form.
-fn parse_rows(text: string, sep: string, typed: bool) -> Result<[Row], string> {
+fn rows_of(text: string, sep: string, typed: bool) -> Result<[Row], string> {
     try check_delimiter(sep)
     val body = if starts_with(
         text,
@@ -166,7 +174,7 @@ fn rows_to_objects(rows: [Row], header: [string], from: int, typed: bool) -> Res
     val seen = mutable_set_new<string>()
     for h in header {
         if contains(seen, h) {
-            return err(format("duplicate column name '{}'", h))
+            return err(prelude.format("duplicate column name '{}'", h))
         }
         add(seen, h)
     }
@@ -174,7 +182,12 @@ fn rows_to_objects(rows: [Row], header: [string], from: int, typed: bool) -> Res
     for i in from..len(rows) {
         val row = rows[i]
         if len(row.cells) != len(header) {
-            return err(format("line {}: {} cells, but there are {} columns", row.line, len(row.cells), len(header)))
+            return err(prelude.format(
+                "line {}: {} cells, but there are {} columns",
+                row.line,
+                len(row.cells),
+                len(header)
+            ))
         }
         val obj = mutable_map_new<string, Json>()
         for j in 0..len(header) {
@@ -195,7 +208,7 @@ fn header_of(rows: [Row]) -> [string] {
 }
 
 fn table_of(text: string, sep: string, typed: bool) -> Result<Json, string> {
-    val rows = try parse_rows(text, sep, typed)
+    val rows = try rows_of(text, sep, typed)
     if len(rows) == 0 {
         val no_rows: [Json] = []
         return ok(Json.JArray(no_rows))
@@ -203,20 +216,21 @@ fn table_of(text: string, sep: string, typed: bool) -> Result<Json, string> {
     return rows_to_objects(rows, header_of(rows), 1, typed)
 }
 
-fn table_with_columns(text: string, columns: [string], typed: bool) -> Result<Json, string> {
-    return rows_to_objects(try parse_rows(text, ",", typed), columns, 0, typed)
+fn table_with_columns(text: string, columns: [string], sep: string, typed: bool) -> Result<Json, string> {
+    return rows_to_objects(try rows_of(text, sep, typed), columns, 0, typed)
 }
 
 // The raw table as strings, header row included: `[["name", "age"], ["Ada", "36"]]`. Quotes
 // are removed and doubled quotes collapsed; nothing else is interpreted. Blank lines are
 // skipped and a leading byte order mark is ignored.
-pub fn parse_csv_rows(text: string) -> Result<[[string]], string> {
-    return parse_csv_rows_with(text, ",")
+//
+pub fn parse_rows(text: string) -> Result<[[string]], string> {
+    return parse_rows(text, ",")
 }
 
-// parse_csv_rows with another one-character delimiter, e.g. "\t" for TSV.
-pub fn parse_csv_rows_with(text: string, delimiter: string) -> Result<[[string]], string> {
-    val rows = try parse_rows(text, delimiter, false)
+// The same with another one-character delimiter, `"\t"` for TSV.
+pub fn parse_rows(text: string, delimiter: string) -> Result<[[string]], string> {
+    val rows = try rows_of(text, delimiter, false)
     val out = mutable_array_new<[string]>()
     for row in rows {
         val cells = mutable_array_new<string>()
@@ -232,37 +246,54 @@ pub fn parse_csv_rows_with(text: string, delimiter: string) -> Result<[[string]]
 // them, so `#[derive(Json)]` types with `string` fields decode straight from it. An Err for a
 // duplicate column name, or for a row whose cell count differs from the header's (the message
 // names the line). An empty file is an empty array.
-pub fn parse_csv(text: string) -> Result<Json, string> {
+//
+pub fn parse(text: string) -> Result<Json, string> {
     return table_of(text, ",", false)
 }
 
-// parse_csv with another one-character delimiter.
-pub fn parse_csv_with(text: string, delimiter: string) -> Result<Json, string> {
+// The same with another one-character delimiter.
+pub fn parse(text: string, delimiter: string) -> Result<Json, string> {
     return table_of(text, delimiter, false)
 }
 
-// parse_csv, but an *unquoted* cell becomes a number (`42` an int, `-1.5` or `2e3` a float; not
+// `parse`, but an *unquoted* cell becomes a number (`42` an int, `-1.5` or `2e3` a float; not
 // `007`, `+1` or `1_000`, which stay strings), `true` / `false` a boolean, and an empty cell
 // null. A quoted cell is always a string. This is what lets `#[derive(Json)]` types with `int`,
 // `float`, `bool` and `Option` fields decode from a row.
-pub fn parse_csv_typed(text: string) -> Result<Json, string> {
+//
+// **A name of its own rather than `parse(text, typed: true)`**, which the argument list cannot
+// say: a bare `parse(text, true)` tells a reader nothing, and an `Option<bool>` parameter would
+// make the common `parse(text)` have to be written `parse(text: text)` -- an `Option` parameter
+// is omittable only in an all-named call.
+pub fn parse_typed(text: string) -> Result<Json, string> {
     return table_of(text, ",", true)
 }
 
-// parse_csv_typed with another one-character delimiter.
-pub fn parse_csv_typed_with(text: string, delimiter: string) -> Result<Json, string> {
+// `parse_typed` with another one-character delimiter.
+pub fn parse_typed(text: string, delimiter: string) -> Result<Json, string> {
     return table_of(text, delimiter, true)
 }
 
 // For a file with no header row: every row is data, and `columns` names the cells. Each row
 // must have `len(columns)` cells.
-pub fn parse_csv_columns(text: string, columns: variadic string) -> Result<Json, string> {
-    return table_with_columns(text, columns, false)
+pub fn parse_columns(text: string, columns: [string]) -> Result<Json, string> {
+    return table_with_columns(text, columns, ",", false)
 }
 
-// parse_csv_columns with the cell typing of `parse_csv_typed`.
-pub fn parse_csv_columns_typed(text: string, columns: variadic string) -> Result<Json, string> {
-    return table_with_columns(text, columns, true)
+// `parse_columns` with another one-character delimiter. There was no way to say this before:
+// the headerless readers took the comma and nothing else.
+pub fn parse_columns(text: string, columns: [string], delimiter: string) -> Result<Json, string> {
+    return table_with_columns(text, columns, delimiter, false)
+}
+
+// `parse_columns` with the cell typing of `parse_typed`.
+pub fn parse_columns_typed(text: string, columns: [string]) -> Result<Json, string> {
+    return table_with_columns(text, columns, ",", true)
+}
+
+// `parse_columns_typed` with another one-character delimiter.
+pub fn parse_columns_typed(text: string, columns: [string], delimiter: string) -> Result<Json, string> {
+    return table_with_columns(text, columns, delimiter, true)
 }
 
 // ---------------------------------------------------------------- reading a file lazily
@@ -275,7 +306,7 @@ struct RecordText {
 }
 
 fn record_text_error(line: int, message: string) -> Result<RecordText, string> {
-    return err(format("line {}: {}", line, message))
+    return err(prelude.format("line {}: {}", line, message))
 }
 
 // How many `"` characters a line holds. A record is complete when its total is even: a quoted cell
@@ -288,7 +319,7 @@ fn quote_count(line: string) -> int {
 // it can give one (a stray quote in the middle of a cell looks the same to a line count), else that a
 // quoted cell is never closed.
 fn unclosed_record(text: string, start_line: int, sep: string) -> Result<RecordText, string> {
-    return switch parse_rows(text, sep, false) {
+    return switch rows_of(text, sep, false) {
         Ok(_) { record_text_error(start_line, "a quoted cell is never closed") }
         Err(e) { err(record_error(start_line, e)) }
     }
@@ -357,7 +388,7 @@ fn read_record(
 fn record_error(start_line: int, message: string) -> string {
     val parts = split_once(message, ": ")
     if !starts_with(message, "line ") || Option.is_None(parts) {
-        return format("line {}: {}", start_line, message)
+        return prelude.format("line {}: {}", start_line, message)
     }
     val prefix = Option.unwrap_Some(parts)[0]
     val relative = parse_int(substring(prefix, 5, len(prefix)))
@@ -371,20 +402,20 @@ fn record_error(start_line: int, message: string) -> string {
         if close >= 0 && is_ok(opened) {
             detail = concat(
                 substring(detail, 0, at),
-                format("(opened on line {})", start_line + unwrap(opened) - 1),
+                prelude.format("(opened on line {})", start_line + unwrap(opened) - 1),
                 substring(detail, close + 1, len(detail))
             )
         }
     }
-    return format("line {}: {}", line, detail)
+    return prelude.format("line {}: {}", line, detail)
 }
 
 // One record's text as a row with its real line number.
 fn row_of_record(record: RecordText, sep: string, typed: bool) -> Result<Row, string> {
-    return switch parse_rows(record.text, sep, typed) {
+    return switch rows_of(record.text, sep, typed) {
         Ok(rows) {
             if len(rows) == 0 {
-                err(format("line {}: empty record", record.line))
+                err(prelude.format("line {}: empty record", record.line))
             } else {
                 Row { line: record.line, cells: rows[0].cells }
             }
@@ -470,7 +501,7 @@ fn open_records(path: string, sep: string, typed: bool) -> Result<Iter<Result<Js
 // A CSV file read lazily, one record at a time as a `for` loop asks for them, so a file of any size uses
 // memory for one record: `val records = try csv.records(path)` then `for record in records { val row =
 // try record ... }`. The first record names the columns and every later one is a JSON object of strings keyed
-// by them, as in `parse_csv`. Each item is a `Result<Json, string>`: an object, or an Err for a record
+// by them, as in `parse`. Each item is a `Result<Json, string>`: an object, or an Err for a record
 // with the wrong number of cells, a stray quote, a quote never closed, a line with a NUL byte or a read
 // error; each message names the line the record started on, and the iteration carries on after all but a
 // read error or an unclosed quote. The Err on the call is the file failing to open, an invalid header
@@ -480,18 +511,18 @@ pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string> {
     return open_records(path, ",", false)
 }
 
-// records with another one-character delimiter.
-pub fn records_with(path: string, delimiter: string) -> Result<Iter<Result<Json, string>>, string> {
+// `records` with another one-character delimiter.
+pub fn records(path: string, delimiter: string) -> Result<Iter<Result<Json, string>>, string> {
     return open_records(path, delimiter, false)
 }
 
-// records with the cell typing of `parse_csv_typed`: unquoted numbers, booleans and empty cells.
+// `records` with the cell typing of `parse_typed`: unquoted numbers, booleans and empty cells.
 pub fn records_typed(path: string) -> Result<Iter<Result<Json, string>>, string> {
     return open_records(path, ",", true)
 }
 
-// records_typed with another one-character delimiter.
-pub fn records_typed_with(path: string, delimiter: string) -> Result<Iter<Result<Json, string>>, string> {
+// `records_typed` with another one-character delimiter.
+pub fn records_typed(path: string, delimiter: string) -> Result<Iter<Result<Json, string>>, string> {
     return open_records(path, delimiter, true)
 }
 
@@ -530,7 +561,13 @@ fn write_row(out: MutableString, cells: [string], sep: string) {
 
 // A table of raw strings as text, one row per line, quoting where a cell needs it. Nothing
 // is inferred: an empty string is written as an empty cell.
-pub fn csv_rows_to_string(rows: [[string]]) -> string {
+//
+// **This is the one member of `format` that is not a `Result`**, and the arity is why: a comma
+// is a known-good delimiter and raw strings need no conversion, so with nothing to validate
+// there is nothing to fail. The form below takes a delimiter, which can be invalid, so it
+// answers a `Result` -- a difference in return type that only two separate declarations can
+// state, and `Option` could not.
+pub fn format(rows: [[string]]) -> string {
     val out = mutable_string_new()
     for row in rows {
         write_row(out, row, ",")
@@ -538,8 +575,8 @@ pub fn csv_rows_to_string(rows: [[string]]) -> string {
     return snapshot(out)
 }
 
-// csv_rows_to_string with another one-character delimiter. An Err for an invalid delimiter.
-pub fn csv_rows_to_string_with(rows: [[string]], delimiter: string) -> Result<string, string> {
+// The same with another one-character delimiter. An Err for an invalid delimiter.
+pub fn format(rows: [[string]], delimiter: string) -> Result<string, string> {
     try check_delimiter(delimiter)
     val out = mutable_string_new()
     for row in rows {
@@ -562,11 +599,11 @@ fn cell_text(v: Json, key: string, sep: string) -> Result<string, string> {
                 ok(if needs_quotes(s, sep) { quote_cell(s) } else { s })
             }
         }
-        JArray(_) { err(format(
+        JArray(_) { err(prelude.format(
             "field '{}' is nested more than one level deep (or an array); CSV cannot hold it",
             key
         )) }
-        JObject(_) { err(format(
+        JObject(_) { err(prelude.format(
             "field '{}' is nested more than one level deep (or an array); CSV cannot hold it",
             key
         )) }
@@ -595,13 +632,13 @@ fn flatten_row(row: Json, sep: string) -> Result<Map<string, string>, string> {
 // order, then one line per object; a key a row lacks is an empty cell. An object value is
 // flattened one level into dotted columns (`address.city`); an array, or an object nested
 // deeper, is an Err (CSV cannot hold it), as is a row that is not an object.
-pub fn csv_to_string(rows: Json) -> Result<string, string> {
-    return csv_to_string_with(rows, ",")
+pub fn format(rows: Json) -> Result<string, string> {
+    return format(rows, ",")
 }
 
-// csv_to_string with another one-character delimiter.
-pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, string> {
-    try check_delimiter(delimiter)
+// The same with another one-character delimiter.
+pub fn format(rows: Json, sep: string) -> Result<string, string> {
+    try check_delimiter(sep)
     if !Json.is_JArray(rows) {
         return err("expected an array of objects")
     }
@@ -610,9 +647,9 @@ pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, strin
     var i = 0
     for row in Json.unwrap_JArray(rows) {
         if !Json.is_JObject(row) {
-            return err(format("row {} is not an object", i))
+            return err(prelude.format("row {} is not an object", i))
         }
-        val cells = try flatten_row(row, delimiter)
+        val cells = try flatten_row(row, sep)
         for name in keys(cells) {
             add(columns, name)
         }
@@ -621,12 +658,12 @@ pub fn csv_to_string_with(rows: Json, delimiter: string) -> Result<string, strin
     }
     val names = to_array(snapshot(columns))
     val out = mutable_string_new()
-    write_row(out, names, delimiter)
+    write_row(out, names, sep)
     for cells in snapshot(flat) {
         var first = true
         for name in names {
             if !first {
-                append(out, delimiter)
+                append(out, sep)
             }
             first = false
             append(out, get_or(get(cells, name), ""))
