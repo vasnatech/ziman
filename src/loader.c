@@ -1337,7 +1337,22 @@ static void resolve_expr_refs(Expr *e, CrossRefCtx *ctx) {
                  * as it was before this became possible. */
                 char *q, *rest;
                 split_qualified(e->as.call.callee, &q, &rest);
-                if (find_use(ctx->mod, q) == NULL) {
+                if (strcmp(q, "prelude") == 0 && find_use(ctx->mod, q) == NULL) {
+                    /* `prelude.format(...)` -- the one qualifier that names no module. It reaches
+                     * the implicit namespace past a declaration of the author's own that has taken
+                     * the bare name, which is otherwise unreachable: `self_qualify_module` has
+                     * already rewritten this module's own `format` to `<path>::format`, and it
+                     * skipped this node precisely because the callee was dotted, so dropping the
+                     * qualifier here leaves a bare name that cannot match it. The flag is what
+                     * stops the *entry* module's shadow from matching, there being no path prefix
+                     * to tell the two apart there.
+                     *
+                     * `find_use` is still consulted first, so a module a program really did import
+                     * under the name `prelude` keeps working and keeps winning. */
+                    e->as.call.callee = rest;
+                    e->as.call.prelude_qualified = 1;
+                    rest = NULL; /* now owned by the node */
+                } else if (find_use(ctx->mod, q) == NULL) {
                     e->as.call.unresolved_qualifier = 1;
                 } else {
                     e->as.call.callee = resolve_function_ref(ctx, e->as.call.callee, e->line, e->col);

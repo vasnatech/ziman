@@ -1,0 +1,1 @@
+'prelude.helper' -- the prelude has no 'helper', though this file does (drop the 'prelude.' to call it). 'prelude.' reaches the functions that need no 'use' ('ziman --api builtins' lists them), and is only needed where a declaration of your own has taken the name

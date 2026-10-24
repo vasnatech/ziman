@@ -2382,6 +2382,12 @@ static void overload_resolve(Module *module, Env *env, Expr *e, const char *name
     for (int i = 0; i < module->functions.count; i++) {
         FunctionDecl *f = module->functions.items[i];
         if (strcmp(f->name, name) != 0) continue;
+        /* `prelude.name(...)` asked for the implicit namespace, so a declaration of the author's
+         * own under that name is not a candidate -- a bundled one is the one whose `source_file`
+         * is NULL (ast.h's `prelude_qualified`). Filtering here rather than at the call site is
+         * what makes `prelude.len(my_struct)` an error instead of quietly reaching the program's
+         * own `len`, which is the whole point of writing the qualifier. */
+        if (e->as.call.prelude_qualified && f->source_file != NULL) continue;
         if (r->live_count >= OVL_MAX_CANDIDATES) { r->outcome = OVL_UNSUPPORTED; return; }
         r->live[r->live_count++] = f;
     }
@@ -2643,7 +2649,10 @@ static FunctionDecl *overload_pick(Module *module, Env *env, Expr *e, const char
     OverloadResolution all;
     memset(&all, 0, sizeof all);
     for (int i = 0; i < module->functions.count && all.live_count < OVL_MAX_CANDIDATES; i++) {
-        if (strcmp(module->functions.items[i]->name, name) == 0) all.live[all.live_count++] = module->functions.items[i];
+        FunctionDecl *f = module->functions.items[i];
+        if (strcmp(f->name, name) != 0) continue;
+        if (e->as.call.prelude_qualified && f->source_file != NULL) continue; /* as in overload_resolve */
+        all.live[all.live_count++] = f;
     }
     overload_report_candidates(&all, list, sizeof list);
     /* The set's own advice, if a member carries it -- see FunctionDecl.when_unmatched. Any one
@@ -3556,8 +3565,32 @@ static FunctionDecl *shadowing_fn(const char *name) {
     return NULL;
 }
 
+/* The names `prelude.name(...)` may reach: the interpreter-dispatched builtins, and the prelude's
+ * own declarations.
+ *
+ * A bundled module's declaration is renamed to `<path>::name`, so a bare name that `find_function`
+ * answers with a `source_file` of NULL came from the prelude -- and because a shadowed name's first
+ * declaration is the prelude's, that holds even where the program has taken the name. Anything else
+ * is rejected here rather than left to produce "call to undefined function 'format'", which drops
+ * the `prelude.` the author wrote and sends them looking for the wrong thing. */
+static void verify_prelude_qualified(Module *module, const Expr *e, const char *name) {
+    if (!e->as.call.prelude_qualified) return;
+    for (int i = 0; BUILTINS_NO_NAMED_ARGS[i] != NULL; i++) {
+        if (strcmp(name, BUILTINS_NO_NAMED_ARGS[i]) == 0) return;
+    }
+    FunctionDecl *fn = find_function(module, name);
+    if (fn != NULL && fn->source_file == NULL && strstr(fn->name, "::") == NULL) return;
+    ziman_error("type", e->line, e->col,
+                "'prelude.%s' -- the prelude has no '%s'%s. 'prelude.' reaches the functions that "
+                "need no 'use' ('ziman --api builtins' lists them), and is only needed where a "
+                "declaration of your own has taken the name",
+                name, name,
+                fn != NULL ? ", though this file does (drop the 'prelude.' to call it)" : "");
+}
+
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
+    verify_prelude_qualified(module, e, name);
 
     /* A call the checker has already rewritten onto one of its own `$` names is finished: the
      * `mutable` arm replaces the callee, replaces the arguments with the literal's elements, and
@@ -3583,7 +3616,12 @@ static Type check_call(Module *module, Env *env, Expr *e) {
         && e->resolved_type.kind != TY_VOID) {
         return e->resolved_type;
     }
-    FunctionDecl *shadow_fn = shadowing_fn(name);
+    /* `prelude.name(...)` asked for the implicit namespace outright, so the program's shadow is
+     * exactly what it does not want. `verify_prelude_qualified` has already rejected a name that
+     * is not implicit, so what is left resolves to the builtin arms below or, through
+     * `find_function`, to the prelude's own declaration -- which is the *first* one under a
+     * shadowed name, which is why nothing else is needed here. */
+    FunctionDecl *shadow_fn = e->as.call.prelude_qualified ? NULL : shadowing_fn(name);
 
     /* `a.f(args)` where `a` is not a module this file imported. The loader left it alone and marked it
      * (ast.h's `unresolved_qualifier`) because only this pass knows whether `a` is a local. Two outcomes:

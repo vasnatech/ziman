@@ -53,6 +53,13 @@ FILE_EXTENSIONS = {
     "out", "args", "err", "env", "properties", "lock", "log", "o", "d", "a", "so",
 }
 
+# `prelude.` is a qualifier with no module behind it: it names the implicit namespace -- the
+# prelude's declarations and the interpreter-dispatched builtins -- for a file that has taken the
+# bare name for a declaration of its own. There is no `lib/prelude.zm` to look it up in, and
+# `lib/prelude/` is skipped here anyway (see the docstring below), so every `prelude.X` span would
+# otherwise be reported as a reference to a removed module. Documented in SYNTAX.md's "Modules".
+IMPLICIT_QUALIFIER = "prelude"
+
 SPAN = re.compile(r"`([^`\n]+)`")
 QUAL = re.compile(r"^([a-z][a-z0-9_]*)\.([a-z_][a-z0-9_]*)")
 USE = re.compile(r"^\s*use\s+([a-z][a-z0-9_/]*)")
@@ -143,6 +150,8 @@ def main():
                 if (rel, span.strip()) in ALLOW:
                     continue
                 if member in FILE_EXTENSIONS and span.strip() == f"{mod}.{member}":
+                    continue
+                if mod == IMPLICIT_QUALIFIER:
                     continue
                 if retired and mod in retired:
                     problems.append(

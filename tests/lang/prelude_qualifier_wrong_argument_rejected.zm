@@ -1,0 +1,14 @@
+// The filter has teeth: `prelude.len` resolves against the prelude's nine `len` declarations only,
+// so a `Box` -- which this file's own `len` does accept -- matches none of them. Without the filter
+// the call reached the program's `len` and the qualifier silently meant nothing.
+struct Box {
+    items: [int]
+}
+
+fn len(b: Box) -> int {
+    return 1
+}
+
+fn main() {
+    print(prelude.len(Box { items: [1] }))
+}

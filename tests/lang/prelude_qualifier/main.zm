@@ -1,0 +1,40 @@
+// **`prelude.name(...)` reaches the implicit namespace past a declaration of your own.**
+//
+// A program may shadow a builtin (see `builtin_shadowed_by_program`), and a module may declare a
+// name the prelude has; in both cases the bare name resolves to the author's own, and until this
+// qualifier existed the shadowed one could not be called at all. `prelude.` is the escape, and it
+// is *only* an escape: it reaches the prelude's declarations and the interpreter-dispatched
+// builtins, never a function of the program's own, which is what `prelude_qualifier_own_name_rejected`
+// pins.
+use fmt.Thing
+use fmt.describe
+
+struct Box {
+    items: [int]
+}
+
+// Shadows the prelude's `len`, which has nine declarations of its own.
+fn len(b: Box) -> int {
+    return prelude.len(b.items) * 100
+}
+
+// Shadows the interpolating builtin, which carries no declaration at all.
+fn format(b: Box) -> string {
+    return prelude.format("Box of {}", prelude.len(b.items))
+}
+
+fn main() {
+    val b = Box { items: [1, 2, 3] }
+
+    // the program's own, from a bare call
+    print(len(b))
+    print(format(b))
+
+    // the prelude's, past both shadows
+    print(prelude.len(b.items))
+    print(prelude.len("héllo"))
+    print(prelude.format("{} and {:.2}", "two", 1.5))
+
+    // and the same escape from inside a module that took the name for its own type
+    print(describe(Thing { n: 7 }))
+}

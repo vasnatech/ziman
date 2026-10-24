@@ -340,7 +340,14 @@ struct Expr {
                   * first, so a message about `mutable([1, 2])` says `mutable` rather than
                   * `$mutable_array_lit`, which does not even lex as an identifier. NULL when
                   * nothing was rewritten, which is every ordinary call. */
-                 const char *rewritten_from; } call;
+                 const char *rewritten_from;
+                 /* `prelude.name(...)`: the author asked for the implicit namespace -- the prelude's
+                  * declarations and the interpreter-dispatched builtins -- explicitly, because a
+                  * declaration of their own has taken the bare name. The loader strips the qualifier
+                  * and sets this; `check_call` then ignores both the program's shadow and (the name
+                  * being bare rather than `<path>::name`) the module's own declaration, and rejects
+                  * anything that is not in fact implicit. See docs/DESIGN.md's `prelude.` entry. */
+                 int prelude_qualified; } call;
         struct { Expr *operand; Type target_type; } cast;
         struct { ExprList elements; } array_lit;
         struct { Expr *array; Expr *index; } index;

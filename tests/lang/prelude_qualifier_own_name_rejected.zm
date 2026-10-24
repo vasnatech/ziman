@@ -1,0 +1,10 @@
+// `prelude.` reaches the implicit namespace and nothing else. A name this file declares and the
+// prelude does not is a mistake worth naming outright: resolving it would make the qualifier mean
+// "look here too", and the point of writing it is to say "not here".
+fn helper(x: int) -> int {
+    return x + 1
+}
+
+fn main() {
+    print(prelude.helper(1))
+}

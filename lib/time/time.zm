@@ -12,16 +12,29 @@
 //   ZoneOffset      a fixed offset from UTC, such as `+05:30`
 //   ZoneId          an IANA time zone such as `Europe/Paris`, with its daylight saving rules
 //
-// Build a value with its `_of` function, which checks the fields and returns a `Result`; add to it
-// with `_add_*`; compare with `_compare`. Every type reads and writes its ISO-8601 form with
-// `_to_string` / `_from_string` (`2026-09-24`, `13:05:09.5`, `PT1.5S`, `+05:30`). The calendar
+// Build a value with its `<type>_of` function, which checks the fields and returns a `Result`; add
+// to it with `add_*`; compare with `<type>_compare`. Every type reads and writes its ISO-8601 form
+// with `format` and its own `parse*` (`2026-09-24`, `13:05:09.5`, `PT1.5S`, `+05:30`). The calendar
 // types and `Instant` also take a `DateTimeFormat`, a pattern compiled once by
 // `datetime_format_of` and reused: `yyyy MM dd HH mm ss` and `SSSSSSSSS` (nanoseconds), plus
 // `MMM`/`MMMM` and `EEE`/`EEEE` for the month and day as names, taken from the host's locale data,
 // anything else copied through as literal text. A compiled pattern carries no locale; the locale
-// goes to the call that renders (`format(d, fmt, l)`), or is `locale.default()`. Every type has `_to_json` / `_from_json`
-// and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]` handle a field of these
-// types (an ISO string, and a TEXT column).
+// goes to the call that renders (`format(d, fmt, l)`), or is `locale.default()`. Every type has
+// `_to_json` / `_from_json` and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]`
+// handle a field of these types (an ISO string, and a TEXT column).
+//
+// **A name here carries its type only where the arguments cannot say it.** `format`, `add`,
+// `subtract`, `negate`, `diff` and the `add_*` family are one overload set each, resolved on the
+// argument; `<type>_of` and `<type>_compare` keep the prefix because they differ only in return
+// type or are looked up by name (`Ord`, `#[derive]`); and the parse family needs one name per type
+// -- `parse_localdate`, `parse_time`, `parse_datetime`, `parse_duration`, `parse_offset`,
+// `parse_zone`, `parse_instant` -- because `parse(s, fmt)` is a single signature four of them want.
+//
+// **Messages in here are `prelude.format`, not `format`.** This module's own `format` has taken the
+// bare name, so the interpolating builtin is reached through the `prelude.` qualifier (see
+// docs/SYNTAX.md's "Modules"). A plain `concat` is left where there is no message to template --
+// `pad_left`'s per-digit append, the pattern scanner's `literal_buf`, and the two places that join
+// already-computed strings with no literal text between them.
 //
 // Named zones (`zoneid_of("Europe/Paris")`) come from the system's IANA zone files (see `zone`), so
 // they need the operating system's tzdata package; `zoneid_offset_at` gives the offset at an
@@ -236,7 +249,7 @@ fn month_number_of(s: string, pos: int, l: Locale, full: bool) -> Result<[int], 
         }
     }
     if best < 0 {
-        return err(concat("expected a month name at position ", str(pos)))
+        return err(prelude.format("expected a month name at position {}", pos))
     }
     return ok([best, pos + best_len])
 }
@@ -259,7 +272,7 @@ fn day_name_at(s: string, pos: int, l: Locale, full: bool) -> Result<[int], stri
         }
     }
     if best < 0 {
-        return err(concat("expected a day name at position ", str(pos)))
+        return err(prelude.format("expected a day name at position {}", pos))
     }
     return ok([best, best_len])
 }
@@ -462,9 +475,9 @@ fn format_year(year: int) -> string {
         return pad_left(year, 4)
     }
     if year > 0 {
-        return concat("+", pad_left(year, 4))
+        return prelude.format("+{}", pad_left(year, 4))
     }
-    return concat("-", pad_left(0 - year, 4))
+    return prelude.format("-{}", pad_left(0 - year, 4))
 }
 
 // `l` is where the names come from. A `DateTimeFormat` carries no locale -- a compiled pattern is
@@ -517,7 +530,7 @@ struct ParsedFields {
 
 fn parse_fixed_width_int(s: string, start: int, width: int) -> Result<int, string> {
     if start + width > len(s) {
-        return err(concat("'", s, "' is too short (expected ", str(width), " more character(s))"))
+        return err(prelude.format("'{}' is too short (expected {} more character(s))", s, width))
     }
     return parse_int(substring(s, start, start + width))
 }
@@ -538,7 +551,7 @@ fn parse_year(s: string, start: int) -> Result<[int], string> {
     }
     val digits = end - start - 1
     if digits < 4 || digits > 9 {
-        return err(concat("a signed year needs 4 to 9 digits, found ", str(digits)))
+        return err(prelude.format("a signed year needs 4 to 9 digits, found {}", digits))
     }
     val magnitude = parse_int(substring(s, start + 1, end))
     if Err(e) = magnitude {
@@ -565,7 +578,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
             Year {
                 val r = switch parse_year(s, si) {
                     Ok(v) { v }
-                    Err(e) { return err(concat("invalid year in '", s, "': ", e)) }
+                    Err(e) { return err(prelude.format("invalid year in '{}': {}", s, e)) }
                 }
                 year = r[0]
                 si = r[1]
@@ -573,7 +586,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
             Month {
                 val r = switch parse_fixed_width_int(s, si, 2) {
                     Ok(v) { v }
-                    Err(e) { return err(concat("invalid month in '", s, "': ", e)) }
+                    Err(e) { return err(prelude.format("invalid month in '{}': {}", s, e)) }
                 }
                 month = r
                 si = si + 2
@@ -581,7 +594,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
             MonthName {
                 val r = switch month_number_of(s, si, l, false) {
                     Ok(v) { v }
-                    Err(e) { return err(concat("invalid month name in '", s, "': ", e)) }
+                    Err(e) { return err(prelude.format("invalid month name in '{}': {}", s, e)) }
                 }
                 month = r[0]
                 si = r[1]
@@ -589,7 +602,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
             MonthFullName {
                 val r = switch month_number_of(s, si, l, true) {
                     Ok(v) { v }
-                    Err(e) { return err(concat("invalid month name in '", s, "': ", e)) }
+                    Err(e) { return err(prelude.format("invalid month name in '{}': {}", s, e)) }
                 }
                 month = r[0]
                 si = r[1]
@@ -601,7 +614,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
             DayName {
                 val r = switch day_name_at(s, si, l, false) {
                     Ok(v) { v }
-                    Err(e) { return err(concat("invalid day name in '", s, "': ", e)) }
+                    Err(e) { return err(prelude.format("invalid day name in '{}': {}", s, e)) }
                 }
                 weekday = r[0]
                 si = si + r[1]
@@ -609,7 +622,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
             DayFullName {
                 val r = switch day_name_at(s, si, l, true) {
                     Ok(v) { v }
-                    Err(e) { return err(concat("invalid day name in '", s, "': ", e)) }
+                    Err(e) { return err(prelude.format("invalid day name in '{}': {}", s, e)) }
                 }
                 weekday = r[0]
                 si = si + r[1]
@@ -617,7 +630,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
             Day {
                 val r = switch parse_fixed_width_int(s, si, 2) {
                     Ok(v) { v }
-                    Err(e) { return err(concat("invalid day in '", s, "': ", e)) }
+                    Err(e) { return err(prelude.format("invalid day in '{}': {}", s, e)) }
                 }
                 day = r
                 si = si + 2
@@ -625,7 +638,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
             Hour {
                 val r = switch parse_fixed_width_int(s, si, 2) {
                     Ok(v) { v }
-                    Err(e) { return err(concat("invalid hour in '", s, "': ", e)) }
+                    Err(e) { return err(prelude.format("invalid hour in '{}': {}", s, e)) }
                 }
                 hour = r
                 si = si + 2
@@ -633,7 +646,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
             Minute {
                 val r = switch parse_fixed_width_int(s, si, 2) {
                     Ok(v) { v }
-                    Err(e) { return err(concat("invalid minute in '", s, "': ", e)) }
+                    Err(e) { return err(prelude.format("invalid minute in '{}': {}", s, e)) }
                 }
                 minute = r
                 si = si + 2
@@ -641,7 +654,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
             Second {
                 val r = switch parse_fixed_width_int(s, si, 2) {
                     Ok(v) { v }
-                    Err(e) { return err(concat("invalid second in '", s, "': ", e)) }
+                    Err(e) { return err(prelude.format("invalid second in '{}': {}", s, e)) }
                 }
                 second = r
                 si = si + 2
@@ -649,7 +662,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
             Nano {
                 val r = switch parse_fixed_width_int(s, si, 9) {
                     Ok(v) { v }
-                    Err(e) { return err(concat("invalid nanosecond fraction in '", s, "': ", e)) }
+                    Err(e) { return err(prelude.format("invalid nanosecond fraction in '{}': {}", s, e)) }
                 }
                 nano = r
                 si = si + 9
@@ -660,7 +673,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
                 // until 2026-10-23, which desynchronised the scan on any non-ASCII separator.
                 val llen = len(lit)
                 if !is_char_at(s, si, lit) {
-                    return err(concat("'", s, "' does not match expected literal '", lit, "' at position ", str(si)))
+                    return err(prelude.format("'{}' does not match expected literal '{}' at position {}", s, lit, si))
                 }
                 si = si + llen
             }
@@ -671,12 +684,10 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
     if weekday >= 0 && month >= 1 && day >= 1 {
         val actual = day_of_week_of(year, month, day)
         if actual != weekday {
-            return err(concat(
-                "'",
+            return err(prelude.format(
+                "'{}' says {} but that date is a {}",
                 s,
-                "' says ",
                 locale.day_name(l, weekday, true),
-                " but that date is a ",
                 locale.day_name(l, actual, true)
             ))
         }
@@ -698,7 +709,7 @@ fn parse_fields_prefix(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Pars
 fn parse_fields(s: string, fmt: DateTimeFormat, l: Locale) -> Result<ParsedFields, string> {
     val f = try parse_fields_prefix(s, fmt, l)
     if f.consumed != len(s) {
-        return err(concat("'", s, "' has trailing content after position ", str(f.consumed)))
+        return err(prelude.format("'{}' has trailing content after position {}", s, f.consumed))
     }
     return ok(f)
 }
@@ -772,21 +783,11 @@ pub struct LocalDate {
 // against that month's length, leap years included).
 pub fn localdate_of(year: int, month: int, day: int) -> Result<LocalDate, string> {
     if month < 1 || month > 12 {
-        return err(concat("invalid month: ", str(month), " (must be 1-12)"))
+        return err(prelude.format("invalid month: {} (must be 1-12)", month))
     }
     val max_day = days_in_month(year, month)
     if day < 1 || day > max_day {
-        return err(concat(
-            "invalid day: ",
-            str(day),
-            " (month ",
-            str(month),
-            " of ",
-            str(year),
-            " has ",
-            str(max_day),
-            " days)"
-        ))
+        return err(prelude.format("invalid day: {} (month {} of {} has {} days)", day, month, year, max_day))
     }
     return ok(LocalDate { year: year, month: month, day: day })
 }
@@ -897,16 +898,16 @@ pub struct LocalTime {
 // The time `hour`:`minute`:`second`.`nano`, or an Err naming the field that is out of range.
 pub fn localtime_of(hour: int, minute: int, second: int, nano: int) -> Result<LocalTime, string> {
     if hour < 0 || hour > 23 {
-        return err(concat("invalid hour: ", str(hour), " (must be 0-23)"))
+        return err(prelude.format("invalid hour: {} (must be 0-23)", hour))
     }
     if minute < 0 || minute > 59 {
-        return err(concat("invalid minute: ", str(minute), " (must be 0-59)"))
+        return err(prelude.format("invalid minute: {} (must be 0-59)", minute))
     }
     if second < 0 || second > 59 {
-        return err(concat("invalid second: ", str(second), " (must be 0-59)"))
+        return err(prelude.format("invalid second: {} (must be 0-59)", second))
     }
     if nano < 0 || nano > max_nano {
-        return err(concat("invalid nano: ", str(nano), " (must be 0-999999999)"))
+        return err(prelude.format("invalid nano: {} (must be 0-999999999)", nano))
     }
     return ok(LocalTime { hour: hour, minute: minute, second: second, nano: nano })
 }
@@ -1003,7 +1004,7 @@ fn widen_fraction(s: string) -> Result<string, string> {
     }
     val digits = end - dot - 1
     if digits < 1 || digits > 9 {
-        return err(concat("'", s, "': the fraction of a second needs 1 to 9 digits, found ", str(digits)))
+        return err(prelude.format("'{}': the fraction of a second needs 1 to 9 digits, found {}", s, digits))
     }
     val zeros = substring("000000000", 0, 9 - digits)
     return ok(concat(substring(s, 0, end), zeros, substring(s, end, len(s))))
@@ -1103,16 +1104,16 @@ pub fn duration_compare(a: Duration, b: Duration) -> int {
 pub fn format(d: Duration) -> string {
     if d.seconds >= 0 {
         if d.nanos == 0 {
-            return concat("PT", str(d.seconds), "S")
+            return prelude.format("PT{}S", d.seconds)
         }
-        return concat("PT", str(d.seconds), ".", pad_left(d.nanos, 9), "S")
+        return prelude.format("PT{}.{}S", d.seconds, pad_left(d.nanos, 9))
     }
     if d.nanos == 0 {
-        return concat("PT-", str(-d.seconds), "S")
+        return prelude.format("PT-{}S", -d.seconds)
     }
     val mag_seconds = -d.seconds - 1
     val mag_nanos = nanos_per_second - d.nanos
-    return concat("PT-", str(mag_seconds), ".", pad_left(mag_nanos, 9), "S")
+    return prelude.format("PT-{}.{}S", mag_seconds, pad_left(mag_nanos, 9))
 }
 
 // The exact inverse of format, including its negative-
@@ -1123,7 +1124,7 @@ pub fn format(d: Duration) -> string {
 // worked example (-0.5s prints "PT-0.500000000S") before trusting it.
 pub fn parse_duration(s: string) -> Result<Duration, string> {
     if len(s) < 3 || !starts_with(s, "PT") || !ends_with(s, "S") {
-        return err(concat("invalid duration '", s, "': expected PT<seconds>[.<nanos>]S"))
+        return err(prelude.format("invalid duration '{}': expected PT<seconds>[.<nanos>]S", s))
     }
     val body = substring(s, 2, len(s) - 1)
     var negative = false
@@ -1135,7 +1136,7 @@ pub fn parse_duration(s: string) -> Result<Duration, string> {
     val parts = split(rest, ".")
     val mag_seconds_r = parse_int(parts[0])
     if !is_ok(mag_seconds_r) {
-        return err(concat("invalid duration '", s, "': bad seconds"))
+        return err(prelude.format("invalid duration '{}': bad seconds", s))
     }
     val mag_seconds = unwrap(mag_seconds_r)
     if len(parts) == 1 {
@@ -1145,15 +1146,15 @@ pub fn parse_duration(s: string) -> Result<Duration, string> {
         return ok(normalize(mag_seconds, 0))
     }
     if len(parts) != 2 {
-        return err(concat("invalid duration '", s, "'"))
+        return err(prelude.format("invalid duration '{}'", s))
     }
     val digits = parts[1]
     if len(digits) < 1 || len(digits) > 9 || starts_with(digits, "-") || starts_with(digits, "+") {
-        return err(concat("invalid duration '", s, "': the fraction must be 1 to 9 digits"))
+        return err(prelude.format("invalid duration '{}': the fraction must be 1 to 9 digits", s))
     }
     val mag_nanos_r = parse_int(digits)
     if !is_ok(mag_nanos_r) {
-        return err(concat("invalid duration '", s, "': bad nanos"))
+        return err(prelude.format("invalid duration '{}': bad nanos", s))
     }
     var mag_nanos = unwrap(mag_nanos_r)
     for _ in len(digits)..9 {
@@ -1313,7 +1314,7 @@ pub fn zoneoffset_utc() -> ZoneOffset {
 // The offset of `total_seconds` from UTC, or an Err beyond 18 hours (64800 seconds) either way.
 pub fn zoneoffset_of_seconds(total_seconds: int) -> Result<ZoneOffset, string> {
     if total_seconds < -max_offset_seconds || total_seconds > max_offset_seconds {
-        return err(concat("zone offset out of range: ", str(total_seconds), " seconds (must be -64800 to 64800)"))
+        return err(prelude.format("zone offset out of range: {} seconds (must be -64800 to 64800)", total_seconds))
     }
     return ok(ZoneOffset { total_seconds: total_seconds })
 }
@@ -1344,7 +1345,12 @@ pub fn format(z: ZoneOffset) -> string {
         sign = "-"
         total = -total
     }
-    return concat(sign, pad_left(total / seconds_per_hour, 2), ":", pad_left((total % seconds_per_hour) / 60, 2))
+    return prelude.format(
+        "{}{}:{}",
+        sign,
+        pad_left(total / seconds_per_hour, 2),
+        pad_left((total % seconds_per_hour) / 60, 2)
+    )
 }
 
 // The exact inverse of format: "Z" for UTC, otherwise
@@ -1355,19 +1361,19 @@ pub fn parse_offset(s: string) -> Result<ZoneOffset, string> {
         return ok(zoneoffset_utc())
     }
     if len(s) != 6 {
-        return err(concat("invalid zone offset '", s, "': expected 'Z' or '+HH:MM'/'-HH:MM'"))
+        return err(prelude.format("invalid zone offset '{}': expected 'Z' or '+HH:MM'/'-HH:MM'", s))
     }
     val sign_char = substring(s, 0, 1)
     if sign_char != "+" && sign_char != "-" {
-        return err(concat("invalid zone offset '", s, "': expected 'Z' or '+HH:MM'/'-HH:MM'"))
+        return err(prelude.format("invalid zone offset '{}': expected 'Z' or '+HH:MM'/'-HH:MM'", s))
     }
     if substring(s, 3, 4) != ":" {
-        return err(concat("invalid zone offset '", s, "': expected 'Z' or '+HH:MM'/'-HH:MM'"))
+        return err(prelude.format("invalid zone offset '{}': expected 'Z' or '+HH:MM'/'-HH:MM'", s))
     }
     val hours_r = parse_int(substring(s, 1, 3))
     val minutes_r = parse_int(substring(s, 4, 6))
     if !is_ok(hours_r) || !is_ok(minutes_r) {
-        return err(concat("invalid zone offset '", s, "': expected 'Z' or '+HH:MM'/'-HH:MM'"))
+        return err(prelude.format("invalid zone offset '{}': expected 'Z' or '+HH:MM'/'-HH:MM'", s))
     }
     var hours = unwrap(hours_r)
     var minutes = unwrap(minutes_r)
@@ -1376,10 +1382,10 @@ pub fn parse_offset(s: string) -> Result<ZoneOffset, string> {
     // `format` as `+06:39`. A timestamp was then stored at a different instant from
     // the one the client wrote, with nothing reporting it (D19).
     if minutes > 59 {
-        return err(concat("invalid zone offset '", s, "': minutes must be 00-59"))
+        return err(prelude.format("invalid zone offset '{}': minutes must be 00-59", s))
     }
     if hours > 18 {
-        return err(concat("invalid zone offset '", s, "': hours must be 00-18"))
+        return err(prelude.format("invalid zone offset '{}': hours must be 00-18", s))
     }
     if sign_char == "-" {
         hours = -hours

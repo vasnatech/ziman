@@ -1,0 +1,17 @@
+// The case this feature exists for. A module that declares `format` for its own type takes the name
+// for every call *inside itself*: `self_qualify_module` rewrites this file's own `format` to
+// `fmt::format`, and a bare `format(...)` here matches it before any builtin is considered. The
+// interpolating builtin was then unreachable from this file, which is why `lib/time/time.zm` had
+// to rewrite 42 of its own error messages as `concat` when it gained a `format` overload set.
+pub struct Thing {
+    n: int
+}
+
+pub fn format(t: Thing) -> string {
+    return concat("Thing(", str(t.n), ")")
+}
+
+pub fn describe(t: Thing) -> string {
+    // both names in one call: the builtin, reached past this file's own, and this file's own.
+    return prelude.format("{} has n={}", format(t), t.n)
+}

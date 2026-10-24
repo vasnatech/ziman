@@ -17,16 +17,29 @@ ZoneOffset      a fixed offset from UTC, such as `+05:30`
 ZoneId          an IANA time zone such as `Europe/Paris`, with its daylight saving rules
 ```
 
-Build a value with its `_of` function, which checks the fields and returns a `Result`; add to it
-with `_add_*`; compare with `_compare`. Every type reads and writes its ISO-8601 form with
-`_to_string` / `_from_string` (`2026-09-24`, `13:05:09.5`, `PT1.5S`, `+05:30`). The calendar
+Build a value with its `<type>_of` function, which checks the fields and returns a `Result`; add
+to it with `add_*`; compare with `<type>_compare`. Every type reads and writes its ISO-8601 form
+with `format` and its own `parse*` (`2026-09-24`, `13:05:09.5`, `PT1.5S`, `+05:30`). The calendar
 types and `Instant` also take a `DateTimeFormat`, a pattern compiled once by
 `datetime_format_of` and reused: `yyyy MM dd HH mm ss` and `SSSSSSSSS` (nanoseconds), plus
 `MMM`/`MMMM` and `EEE`/`EEEE` for the month and day as names, taken from the host's locale data,
 anything else copied through as literal text. A compiled pattern carries no locale; the locale
-goes to the call that renders (`format(d, fmt, l)`), or is `locale.default()`. Every type has `_to_json` / `_from_json`
-and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]` handle a field of these
-types (an ISO string, and a TEXT column).
+goes to the call that renders (`format(d, fmt, l)`), or is `locale.default()`. Every type has
+`_to_json` / `_from_json` and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]`
+handle a field of these types (an ISO string, and a TEXT column).
+
+**A name here carries its type only where the arguments cannot say it.** `format`, `add`,
+`subtract`, `negate`, `diff` and the `add_*` family are one overload set each, resolved on the
+argument; `<type>_of` and `<type>_compare` keep the prefix because they differ only in return
+type or are looked up by name (`Ord`, `#[derive]`); and the parse family needs one name per type
+-- `parse_localdate`, `parse_time`, `parse_datetime`, `parse_duration`, `parse_offset`,
+`parse_zone`, `parse_instant` -- because `parse(s, fmt)` is a single signature four of them want.
+
+**Messages in here are `prelude.format`, not `format`.** This module's own `format` has taken the
+bare name, so the interpolating builtin is reached through the `prelude.` qualifier (see
+docs/SYNTAX.md's "Modules"). A plain `concat` is left where there is no message to template --
+`pad_left`'s per-digit append, the pattern scanner's `literal_buf`, and the two places that join
+already-computed strings with no literal text between them.
 
 Named zones (`zoneid_of("Europe/Paris")`) come from the system's IANA zone files (see `zone`), so
 they need the operating system's tzdata package; `zoneid_offset_at` gives the offset at an

@@ -871,6 +871,15 @@ fn main() {
   one. The shadow is invisible to the library: the prelude's own calls always reach the builtin, so
   shadowing `len` cannot break `lib/prelude/`. A `use`d module could always do this; the main
   file could not until 2026-10-18, which was an asymmetry rather than a rule.
+- **`prelude.name(...)` reaches the shadowed one.** `prelude` is the one qualifier that names no
+  module: it resolves against the prelude's declarations and the builtins only, so a file that has
+  taken `format` or `len` for its own type can still call the original — `prelude.format("{} of {}",
+  a, b)` beside its own `format(t: Thing)`. It is strictly an escape, and it reaches *nothing* of
+  yours: `prelude.helper(...)` for a `helper` you declared is a compile error rather than a call,
+  and `prelude.len(my_struct)` resolves against the prelude's nine `len` declarations only. A
+  module you actually imported under the name `prelude` still wins. The same applies inside a
+  bundled module, which is where the need showed up: `lib/time/time.zm` declaring a `format`
+  overload set made the interpolating builtin unreachable from its own file.
 - **Only real functions accept named calls** — the small set of core builtins the compiler
   special-cases by name (`print`, `len`, `push`, `hash`, ...) have one fixed unlabeled signature.
 - **A variadic parameter's named value is still one expression** — the single-trailing-argument
@@ -1256,6 +1265,12 @@ fn main() {
   silently resolves to an import.** No wildcard import form; a per-name import always names
   the one thing it binds, so a file's `use` lines account for every bare name its body could
   have come from.
+- **`prelude.` is the one qualifier with no `use` and no module behind it.** It names the implicit
+  namespace — the prelude's declarations and the builtins — for the one case where a bare name
+  cannot: a file that declares `format` or `len` itself has taken that name for every call in it,
+  and `prelude.format(...)` is how the original is still reached. It resolves against the implicit
+  namespace *only*, so `prelude.X` for an `X` of your own is a compile error, and a module you
+  imported under the name `prelude` keeps the name.
 - **Three levels of visibility, ascending: private (no modifier), `internal`, `pub`.** Private
   is callable/constructible only within its own module (cross-module reference is a compile
   error naming both the declaration and module) — so names only need to be unique *within*
@@ -2865,8 +2880,10 @@ document a module's own limits in full; see "JSON" and "HTTP" elsewhere in this 
 
 ## Builtins
 
-Builtin names are reserved — redefining any of them as a user function is
-a type error.
+These need no `use` — they are the prelude's declarations plus the handful the interpreter
+dispatches by name. **A file may declare a name a builtin has**, and a bare call then reaches its
+own (see "A program's own function shadows a builtin" under named arguments); `prelude.name(...)`
+reaches the builtin past it, and is the only way to.
 
 - `print(x)` — one argument of any non-void type, writes its display form plus a newline to
   stdout. A `float` displays as the shortest decimal text that reads back exactly, always with
