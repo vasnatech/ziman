@@ -8,7 +8,7 @@ use uuid.Uuid
 use uuid.uuid_from_string
 use uuid.uuid_to_string
 
-// No `use time.instant_to_sql`, `use uuid.uuid_from_json` and so on: the derives import the converters of the
+// No `use time.to_sql`, `use uuid.uuid_from_json` and so on: the derives import the converters of the
 // standard types themselves.
 #[derive(Json)]
 #[derive(Row)]

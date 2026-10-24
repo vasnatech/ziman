@@ -45,19 +45,19 @@ fn main() {
     print(offset("Europe/London", time.instant_of(-4000000000, 0)))
 
     // wall-clock conversion both ways
-    print(time.format(time.instant_to_localdatetime_in(jul, ny)))
+    print(time.format(time.to_localdatetime(jul, ny)))
     val d = unwrap(time.localdate_of(2026, 3, 8))
     val gap = time.localdatetime_of(d, unwrap(time.localtime_of(2, 30, 0, 0)))
-    print(time.format(time.localdatetime_to_instant_in(gap, ny)))
+    print(time.format(time.to_instant(gap, ny)))
     val e = unwrap(time.localdate_of(2026, 11, 1))
     val dup = time.localdatetime_of(e, unwrap(time.localtime_of(1, 30, 0, 0)))
-    print(time.format(time.localdatetime_to_instant_in(dup, ny)))
+    print(time.format(time.to_instant(dup, ny)))
     val plain = time.localdatetime_of(unwrap(time.localdate_of(2026, 7, 15)), unwrap(time.localtime_of(9, 0, 0, 0)))
-    print(time.format(time.localdatetime_to_instant_in(plain, unwrap(time.zoneid_of("Asia/Kolkata")))))
+    print(time.format(time.to_instant(plain, unwrap(time.zoneid_of("Asia/Kolkata")))))
 
     // names: JSON and SQL forms, equality, and errors
     print(time.format(ny))
-    print(unwrap(time.zone_id_from_json(time.zone_id_to_json(ny))) == ny)
+    print(unwrap(time.to_zoneid(time.to_json(ny))) == ny)
     print(unwrap(time.zoneid_of("America/New_York")) == ny)
     print(unwrap_err(time.zoneid_of("America/Nowhere")))
     print(unwrap_err(time.zoneid_of("../etc/passwd")))

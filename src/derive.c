@@ -186,6 +186,42 @@ static int is_option_type_here(Type t) {
     return name != NULL && strcmp(name, "Option") == 0 && t.type_args.count == 1;
 }
 
+/* The bundled types whose converters are spelled short: `to_json(d)` / `to_localdate(j)` rather
+ * than `local_date_to_json` / `local_date_from_json`. Answers the type's flat spelling (the one
+ * `lib/time/time.zm` already uses for `localdate_of` and `localdate_compare`) or NULL for every
+ * other type, which keeps derive's own `<snake>_to_json` convention.
+ *
+ * **Why only these seven, and why the `to` direction can be one name while the `from` direction
+ * cannot.** `to_json` is told apart by its argument, so the seven are one overload set. Their
+ * inverses all take a `Json`, so they cannot be -- each needs a name of its own, which is what the
+ * flat type name supplies. Extending the short form to *derived* types is what this cannot do:
+ * every `#[derive(Json)]` type would join one `to_json` set, and `OVL_MAX_CANDIDATES` is 32
+ * against 100 derive(Json) sites in the reference backend alone, so the resolver would hand back
+ * `find_function`'s first declaration instead of resolving. The short names are vocabulary for a
+ * fixed, small set of library types; `<snake>_to_json` stays the rule for everything generated.
+ *
+ * The cost, stated: a module that declares its own `to_json` binds the name, `ensure_named_import`
+ * leaves it alone (deliberately -- see its comment), and a derived field of a time type then
+ * resolves to that function and reports a type error naming it. `local_date_to_json` could not
+ * collide that way. Judged worth it for the call sites; `Uuid` keeps `uuid_to_json` because its
+ * name has nothing to shorten. */
+static const char *standard_flat_type_name(const char *type_name) {
+    const char *dot = strrchr(type_name, '.');
+    const char *bare = dot != NULL ? dot + 1 : type_name;
+    const char *colons = strstr(bare, "::");
+    if (colons != NULL) bare = colons + 2;
+    static const struct { const char *type; const char *flat; } FLAT[] = {
+        {"Instant", "instant"},         {"LocalDate", "localdate"},
+        {"LocalTime", "localtime"},     {"LocalDateTime", "localdatetime"},
+        {"Duration", "duration"},       {"ZoneOffset", "zoneoffset"},
+        {"ZoneId", "zoneid"},
+    };
+    for (size_t i = 0; i < sizeof FLAT / sizeof FLAT[0]; i++) {
+        if (strcmp(bare, FLAT[i].type) == 0) return FLAT[i].flat;
+    }
+    return NULL;
+}
+
 static void emit_to_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col);
 static void emit_from_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col, const char *field_ctx);
 
@@ -405,6 +441,8 @@ static void emit_to_json(Type t, const char *src_expr, const char *dst_var, Code
                         convs = fmt_str("%s, %s", convs, converter_for_type_arg(t.type_args.items[i], 1, line, col));
                     }
                     cb_appendf(cb, "    val %s = %s_to_json%s(%s%s)\n", dst_var, fn, type_args_text(t), src_expr, convs);
+                } else if (standard_flat_type_name(name) != NULL) {
+                    cb_appendf(cb, "    val %s = to_json(%s)\n", dst_var, src_expr);
                 } else {
                     cb_appendf(cb, "    val %s = %s_to_json(%s)\n", dst_var, fn, src_expr);
                 }
@@ -530,6 +568,8 @@ static void emit_from_json(Type t, const char *src_expr, const char *dst_var, Co
                         convs = fmt_str("%s, %s", convs, converter_for_type_arg(t.type_args.items[i], 0, line, col));
                     }
                     emit_try_call(cb, tmp, dst_var, fmt_str("%s_from_json%s(%s%s)", fn, type_args_text(t), src_expr, convs), field_ctx);
+                } else if (standard_flat_type_name(name) != NULL) {
+                    emit_try_call(cb, tmp, dst_var, fmt_str("to_%s(%s)", standard_flat_type_name(name), src_expr), field_ctx);
                 } else {
                     emit_try_call(cb, tmp, dst_var, fmt_str("%s_from_json(%s)", fn, src_expr), field_ctx);
                 }
@@ -814,7 +854,11 @@ static void emit_to_sql(Type t, const char *src_expr, const char *dst_var, CodeB
             } else {
                 const char *name = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
                 char *fn = pascal_to_snake(name);
-                cb_appendf(cb, "    val %s = %s_to_sql(%s)\n", dst_var, fn, src_expr);
+                if (standard_flat_type_name(name) != NULL) {
+                    cb_appendf(cb, "    val %s = to_sql(%s)\n", dst_var, src_expr);
+                } else {
+                    cb_appendf(cb, "    val %s = %s_to_sql(%s)\n", dst_var, fn, src_expr);
+                }
                 return;
             }
         default:
@@ -854,7 +898,11 @@ static void emit_from_sql(Type t, const char *src_expr, const char *dst_var, Cod
             } else {
                 const char *name = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
                 char *fn = pascal_to_snake(name);
-                cb_appendf(cb, "    val %s = try %s_from_sql(%s)\n", dst_var, fn, src_expr);
+                if (standard_flat_type_name(name) != NULL) {
+                    cb_appendf(cb, "    val %s = try to_%s(%s)\n", dst_var, standard_flat_type_name(name), src_expr);
+                } else {
+                    cb_appendf(cb, "    val %s = try %s_from_sql(%s)\n", dst_var, fn, src_expr);
+                }
                 return;
             }
         default:
@@ -1163,8 +1211,12 @@ static void import_field_converters(Module *module, const char *suffix, Type t, 
         const char *bare = dot != NULL ? dot + 1 : full;
         for (size_t i = 0; i < sizeof STANDARD_TYPES / sizeof STANDARD_TYPES[0]; i++) {
             if (strcmp(bare, STANDARD_TYPES[i].type) != 0) continue;
-            char *to = fmt_str("%s_to_%s", STANDARD_TYPES[i].stem, suffix);
-            char *from = fmt_str("%s_from_%s", STANDARD_TYPES[i].stem, suffix);
+            /* The names must be exactly the ones the emitters write -- see `standard_flat_type_name`
+             * for which types are spelled short and why. Getting these two out of step leaves a
+             * generated call with no import, reported against the deriving declaration. */
+            const char *flat = standard_flat_type_name(bare);
+            char *to = flat != NULL ? fmt_str("to_%s", suffix) : fmt_str("%s_to_%s", STANDARD_TYPES[i].stem, suffix);
+            char *from = flat != NULL ? fmt_str("to_%s", flat) : fmt_str("%s_from_%s", STANDARD_TYPES[i].stem, suffix);
             ensure_named_import(module, STANDARD_TYPES[i].module, to, line, col);
             ensure_named_import(module, STANDARD_TYPES[i].module, from, line, col);
         }

@@ -1398,7 +1398,9 @@ name), each with a rule the bundled modules follow and new ones should too:
    such a name bare (`use server.response` collides with an application name).
 2. **Imported bare, or found by naming convention: carry the noun** — self-describing and
    unique across modules (`byte_from_hex`, `net_error_message`, and everything `#[derive]`
-   dispatches on: `<snake_type>_to_json`/`_compare`/`_to_sql`).
+   dispatches on: `<snake_type>_to_json`/`_compare`/`_to_sql`). The seven `time` types are the
+   one exception, and it is a measured one -- see "the seven `time` types spell their converters
+   short" under `#[derive(Json)]`.
 3. **A module defining types names operations after the type** (`uuid_new`,
    `add_days`) — the type is the noun, so rule 2 applies and the name is safe bare
    or qualified. Generic combinators on built-in types (`map`/`filter`/`sort`)
@@ -1529,9 +1531,9 @@ fn main() {
   besides `random`); `localdatetime_now(offset)`/`localdate_now(offset)`/
   `localtime_now(offset)` read the current wall-clock time on a clock in `offset`.
   `instant_of(s, n)` (normalizing), `add`/`subtract` (with a `Duration`), `diff(a, b) ->
-  Duration`, `instant_compare`, `instant_to_localdatetime(i, offset: ZoneOffset) ->
-  LocalDateTime` / `localdatetime_to_instant(dt, offset)` (the only place `ZoneOffset` does
-  something -- shifting a UTC instant to/from wall-clock time), `format` (UTC ISO-8601 via
+  Duration`, `instant_compare`, `to_localdatetime(i, offset: ZoneOffset) -> LocalDateTime` /
+  `to_instant(dt, offset)` (the only place `ZoneOffset` does something -- shifting a UTC instant
+  to/from wall-clock time), `format` (UTC ISO-8601 via
   `zoneoffset_utc()`) and its inverse `parse_instant` (accepts `"Z"` or a real offset
   suffix), and `format(i, offset, fmt)`/`parse_instant(s, fmt)` (offset handled separately
   from the pattern).
@@ -1544,8 +1546,9 @@ fn main() {
   files (`$TZDIR`, else `/usr/share/zoneinfo`); `zoneid_of(name)` is an `Err` for an unknown
   name or no zone database, `zoneid_utc()`/`"UTC"` never need the files.
   `zoneid_offset_at(z, instant)` is the offset in force then, with `zoneid_is_dst_at`/
-  `zoneid_abbreviation_at` (`EST`/`EDT`). `instant_to_localdatetime_in(i, z)`/
-  `localdatetime_to_instant_in(dt, z)` apply daylight saving: an ambiguous wall-clock time
+  `zoneid_abbreviation_at` (`EST`/`EDT`). `to_localdatetime(i, z: ZoneId)`/
+  `to_instant(dt, z: ZoneId)` -- the same two names as the `ZoneOffset` forms, told apart by the
+  second argument -- apply daylight saving: an ambiguous wall-clock time
   (clocks going back) is the earlier instant, a nonexistent one (clocks going forward) is
   moved forward by the gap's length; a zone file's trailing rule string covers dates past
   its last listed transition. `format`/`parse_zone` are the bare zone name; two
@@ -1873,7 +1876,8 @@ fn main() {
   struct contributes one message (its own first), since it is decoded by its single-error function, and an
   enum gets no companion: its decode either matches a variant or does not, so there is nothing to collect.
 - **Per-field conversion, in priority order**: (1) the field type's own `_to_json`/`_from_json`
-  (hand-written or derived); (2) a `_to_string`/`_from_string` pair (every `time`/`uuid` type has
+  (hand-written or derived -- the seven `time` types spell theirs `to_json`/`to_<type>`, see the
+  import bullet below); (2) a `_to_string`/`_from_string` pair (every `time`/`uuid` type has
   one, wrapped thin -- really tier 1 one step removed); (3) a plain scalar, or `decimal` (written
   as the nearest float, read from its shortest text -- `#[derive(Row)]` stores it as TEXT,
   keeping scale, instead); (4) `Option<U>`/`[U]`, recursing into `U`. Anything else (`bigint`,
@@ -1892,9 +1896,17 @@ fn main() {
   the name: `#[derive(Json)]` brings `json.Json`/`json_object_get`/`json_require_field`/
   `json_require_string_field`; `#[derive(Row)]` brings `db.SqlValue`/`DbError`/`Row`/`row_get`/
   `sql_as_*`; `#[derive(Properties)]` imports `properties`. It can't supply a field type's own
-  conversion, except `Uuid` and every `time` type get their `_to_json`/`_from_json` (or
-  `_to_sql`/`_from_sql`) imported automatically; any other field type's conversion must already
-  be imported, or the error says to derive or write it. Imported names are visible module-wide.
+  conversion, except `Uuid` and every `time` type get theirs imported automatically; any other
+  field type's conversion must already be imported, or the error says to derive or write it.
+  Imported names are visible module-wide.
+- **The seven `time` types spell their converters short**: `to_json(d)`/`to_sql(d)` one way, and
+  `to_localdate(j)`/`to_localtime`/`to_localdatetime`/`to_duration`/`to_zoneoffset`/`to_zoneid`/
+  `to_instant` the other, each taking either a `Json` or a `SqlValue`. `to_json` and `to_sql` are
+  told apart by their argument, so the seven share one name each; their inverses all take a `Json`
+  or a `SqlValue`, so each needs the type in its name. **This is not extended to derived types** --
+  every `#[derive(Json)]` type would join one `to_json` overload set, and the resolver caps a set at
+  32 candidates, so `<snake_case>_to_json` stays the rule for everything generated. `Uuid` keeps
+  `uuid_to_json`, its name having nothing to shorten.
 
 ## Testing
 
@@ -2034,7 +2046,7 @@ fn main() {
   `<name>_to_params(v) -> [SqlValue]` (field declaration order, matching a hand-written
   `INSERT`'s column order; field names map directly, already `snake_case`). `int`/`float`/
   `bool`/`string` map directly; a struct/enum field dispatches to `<name>_to_sql`/`_from_sql`
-  (provided for `Uuid` and every `time` type); `Option<U>` is NULL-or-value. An enum, generic
+  (provided for `Uuid`; a `time` type's pair is the short `to_sql`/`to_<type>`); `Option<U>` is NULL-or-value. An enum, generic
   struct, array field, or `bigint`/`decimal`/`byte` field is a compile error. The derive imports
   what its generated code calls; a field type of your own needs its conversion imported by the
   deriving module.

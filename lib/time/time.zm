@@ -20,7 +20,7 @@
 // `MMM`/`MMMM` and `EEE`/`EEEE` for the month and day as names, taken from the host's locale data,
 // anything else copied through as literal text. A compiled pattern carries no locale; the locale
 // goes to the call that renders (`format(d, fmt, l)`), or is `locale.default()`. Every type has
-// `_to_json` / `_from_json` and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]`
+// `to_json` / `to_<type>` and `to_sql` / `to_<type>`, so `#[derive(Json)]` and `#[derive(Row)]`
 // handle a field of these types (an ISO string, and a TEXT column).
 //
 // **A name here carries its type only where the arguments cannot say it.** `format`, `add`,
@@ -38,7 +38,7 @@
 //
 // Named zones (`zoneid_of("Europe/Paris")`) come from the system's IANA zone files (see `zone`), so
 // they need the operating system's tzdata package; `zoneid_offset_at` gives the offset at an
-// instant and `instant_to_localdatetime_in` / `localdatetime_to_instant_in` convert with daylight
+// instant and `to_localdatetime` / `to_instant` convert with daylight
 // saving applied.
 //
 // Limits: years are 0 or later (no BCE). Month and day names (`MMM`, `MMMM`, `EEE`, `EEEE`) come
@@ -1168,7 +1168,7 @@ pub fn parse_duration(s: string) -> Result<Duration, string> {
 }
 
 // A date and a time of day with no zone: the wall-clock reading on a calendar. Pair it with a
-// `ZoneOffset` (`localdatetime_to_instant`) to place it on the timeline.
+// `ZoneOffset` (`to_instant`) to place it on the timeline.
 pub struct LocalDateTime {
     date: LocalDate
     time: LocalTime
@@ -1497,7 +1497,7 @@ pub fn instant_compare(a: Instant, b: Instant) -> int {
 }
 
 // The wall-clock date and time of `i` under `offset`.
-pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime {
+pub fn to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime {
     val shifted = i.seconds + offset.total_seconds
     var epoch_day = shifted / seconds_per_day
     var sec_of_day = shifted % seconds_per_day
@@ -1512,16 +1512,16 @@ pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime
 }
 
 // The instant at which a clock in `offset` reads `dt`.
-pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant {
+pub fn to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant {
     val epoch_day = to_epoch_day(dt.date)
     val sec_of_day = dt.time.hour * seconds_per_hour + dt.time.minute * 60 + dt.time.second
     val total_seconds = epoch_day * seconds_per_day + sec_of_day - offset.total_seconds
     return instant_of(total_seconds, dt.time.nano)
 }
 
-// The current date and time on a clock in `offset`: `instant_to_localdatetime(instant_now(), offset)`.
+// The current date and time on a clock in `offset`: `to_localdatetime(instant_now(), offset)`.
 pub fn localdatetime_now(offset: ZoneOffset) -> LocalDateTime {
-    return instant_to_localdatetime(instant_now(), offset)
+    return to_localdatetime(instant_now(), offset)
 }
 
 // Today's date on a clock in `offset`.
@@ -1535,16 +1535,16 @@ pub fn localtime_now(offset: ZoneOffset) -> LocalTime {
 }
 
 // The wall-clock date and time in zone `z` at the instant `i`, daylight saving applied.
-pub fn instant_to_localdatetime_in(i: Instant, z: ZoneId) -> LocalDateTime {
-    return instant_to_localdatetime(i, zoneid_offset_at(z, i))
+pub fn to_localdatetime(i: Instant, z: ZoneId) -> LocalDateTime {
+    return to_localdatetime(i, zoneid_offset_at(z, i))
 }
 
 // The instant at which a clock in zone `z` reads `dt`. Two readings need a rule. When the clocks
 // go back, `dt` happens twice and the earlier instant is returned. When the clocks go forward,
 // `dt` never happens (02:30 on the night the hour 02:00 to 03:00 is skipped) and the result is
 // `dt` moved forward by the length of the gap (03:30), as `java.time` does.
-pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant {
-    val as_utc = localdatetime_to_instant(dt, zoneoffset_utc())
+pub fn to_instant(dt: LocalDateTime, z: ZoneId) -> Instant {
+    val as_utc = to_instant(dt, zoneoffset_utc())
     val before = zoneid_offset_at(z, add(as_utc, duration_of_seconds(-seconds_per_day, 0)))
     val after = zoneid_offset_at(z, add(as_utc, duration_of_seconds(seconds_per_day, 0)))
     var best = Option<Instant>.None
@@ -1563,7 +1563,7 @@ pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant {
 }
 
 // Formats `i` as wall-clock time under `offset` (via
-// instant_to_localdatetime), using `fmt` for the calendar part, then
+// to_localdatetime), using `fmt` for the calendar part, then
 // always appends the offset's own string form -- the same shape
 // format below already uses, just with `fmt` and `offset`
 // as explicit parameters instead of hardcoding
@@ -1575,7 +1575,7 @@ pub fn format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string {
 // The same, with the names drawn from `l`. The zone-offset suffix is digits and signs, so it reads
 // the same under every locale.
 pub fn format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat, l: Locale) -> string {
-    val dt = instant_to_localdatetime(i, offset)
+    val dt = to_localdatetime(i, offset)
     return concat(format(dt, fmt, l), format(offset))
 }
 
@@ -1603,7 +1603,7 @@ pub fn parse_instant(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Instan
     val date = try localdate_of(f.year, f.month, f.day)
     val time = try localtime_of(f.hour, f.minute, f.second, f.nano)
     val offset = try parse_offset(substring(s, f.consumed, len(s)))
-    return ok(localdatetime_to_instant(LocalDateTime { date: date, time: time }, offset))
+    return ok(to_instant(LocalDateTime { date: date, time: time }, offset))
 }
 
 // Accepts either offset shape parse_offset does ("Z" or a real
@@ -1629,18 +1629,24 @@ pub fn format(i: Instant) -> string {
     }
 }
 
-// Thin wrappers over each type's own _to_string/_from_string pair,
-// named to match #[derive(Json)]'s own <type>_to_json/<type>_from_json
-// naming convention (src/derive.c's pascal_to_snake -- "local_date",
-// not this file's own older "localdate" shortcut) -- so a struct field
-// of one of these types resolves here automatically. See
-// docs/DESIGN.md's "Attributes and derive" entry.
-pub fn local_date_to_json(d: LocalDate) -> Json {
+// Thin wrappers over each type's own `format`/`parse*` pair, so a struct field of one of these
+// types resolves here automatically under `#[derive(Json)]`.
+//
+// **These seven are the one exception to derive's own naming convention**, which is
+// `<snake_type>_to_json` (src/derive.c's `pascal_to_snake`: `local_date_to_json`). `to_json` is
+// told apart by its argument, so the seven share one name; their inverses all take a `Json`, so
+// each needs the type in its own -- `to_localdate`, `to_localtime`, and so on, in this file's flat
+// spelling rather than derive's underscored one. `src/derive.c`'s `standard_flat_type_name` is
+// what emits these names instead of the generated convention, and it lists exactly these seven
+// types. It is deliberately *not* extended to derived types: every `#[derive(Json)]` type would
+// then join one `to_json` overload set, and `OVL_MAX_CANDIDATES` is 32 against 100 derive(Json)
+// sites in the reference backend. See docs/DESIGN.md's "Attributes and derive" entry.
+pub fn to_json(d: LocalDate) -> Json {
     return Json.JString(format(d))
 }
 
 // A `LocalDate` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
-pub fn local_date_from_json(j: Json) -> Result<LocalDate, string> {
+pub fn to_localdate(j: Json) -> Result<LocalDate, string> {
     if JString(s) = j {
         return parse_localdate(s)
     }
@@ -1648,12 +1654,12 @@ pub fn local_date_from_json(j: Json) -> Result<LocalDate, string> {
 }
 
 // `LocalTime` as a JSON string in its ISO form.
-pub fn local_time_to_json(t: LocalTime) -> Json {
+pub fn to_json(t: LocalTime) -> Json {
     return Json.JString(format(t))
 }
 
 // A `LocalTime` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
-pub fn local_time_from_json(j: Json) -> Result<LocalTime, string> {
+pub fn to_localtime(j: Json) -> Result<LocalTime, string> {
     if JString(s) = j {
         return parse_time(s)
     }
@@ -1661,12 +1667,12 @@ pub fn local_time_from_json(j: Json) -> Result<LocalTime, string> {
 }
 
 // `Duration` as a JSON string in its ISO form.
-pub fn duration_to_json(d: Duration) -> Json {
+pub fn to_json(d: Duration) -> Json {
     return Json.JString(format(d))
 }
 
 // A `Duration` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
-pub fn duration_from_json(j: Json) -> Result<Duration, string> {
+pub fn to_duration(j: Json) -> Result<Duration, string> {
     if JString(s) = j {
         return parse_duration(s)
     }
@@ -1674,12 +1680,12 @@ pub fn duration_from_json(j: Json) -> Result<Duration, string> {
 }
 
 // `LocalDateTime` as a JSON string in its ISO form.
-pub fn local_date_time_to_json(dt: LocalDateTime) -> Json {
+pub fn to_json(dt: LocalDateTime) -> Json {
     return Json.JString(format(dt))
 }
 
 // A `LocalDateTime` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
-pub fn local_date_time_from_json(j: Json) -> Result<LocalDateTime, string> {
+pub fn to_localdatetime(j: Json) -> Result<LocalDateTime, string> {
     if JString(s) = j {
         return parse_datetime(s)
     }
@@ -1687,12 +1693,12 @@ pub fn local_date_time_from_json(j: Json) -> Result<LocalDateTime, string> {
 }
 
 // `ZoneOffset` as a JSON string in its ISO form.
-pub fn zone_offset_to_json(z: ZoneOffset) -> Json {
+pub fn to_json(z: ZoneOffset) -> Json {
     return Json.JString(format(z))
 }
 
 // A `ZoneOffset` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
-pub fn zone_offset_from_json(j: Json) -> Result<ZoneOffset, string> {
+pub fn to_zoneoffset(j: Json) -> Result<ZoneOffset, string> {
     if JString(s) = j {
         return parse_offset(s)
     }
@@ -1700,12 +1706,12 @@ pub fn zone_offset_from_json(j: Json) -> Result<ZoneOffset, string> {
 }
 
 // `ZoneId` as a JSON string in its ISO form.
-pub fn zone_id_to_json(z: ZoneId) -> Json {
+pub fn to_json(z: ZoneId) -> Json {
     return Json.JString(format(z))
 }
 
 // A `ZoneId` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
-pub fn zone_id_from_json(j: Json) -> Result<ZoneId, string> {
+pub fn to_zoneid(j: Json) -> Result<ZoneId, string> {
     if JString(s) = j {
         return parse_zone(s)
     }
@@ -1713,12 +1719,12 @@ pub fn zone_id_from_json(j: Json) -> Result<ZoneId, string> {
 }
 
 // `Instant` as a JSON string in its ISO form.
-pub fn instant_to_json(i: Instant) -> Json {
+pub fn to_json(i: Instant) -> Json {
     return Json.JString(format(i))
 }
 
 // A `Instant` from a JSON string in its ISO form; an Err for any other JSON value or a malformed string.
-pub fn instant_from_json(j: Json) -> Result<Instant, string> {
+pub fn to_instant(j: Json) -> Result<Instant, string> {
     if JString(s) = j {
         return parse_instant(s)
     }
@@ -1726,80 +1732,82 @@ pub fn instant_from_json(j: Json) -> Result<Instant, string> {
 }
 
 // SQL mapping, for #[derive(Row)] (see src/derive.c): every type here
-// is a TEXT column in its own ISO _to_string form, the same way it
-// already travels in JSON. (A native database timestamp type would be
+// is a TEXT column in its own ISO `format` form, the same way it
+// already travels in JSON. Named short for the same reason the JSON
+// pair above is -- `to_sql` resolves on its argument, the readers take
+// a `SqlValue` and so carry the type in their names. (A native database timestamp type would be
 // nicer to query against, but SQLite has none, and the two dialects
 // disagree on the rest -- text is the one representation both handle.)
 
 // `LocalDate` as a SQL text value in its ISO form.
-pub fn local_date_to_sql(v: LocalDate) -> SqlValue {
+pub fn to_sql(v: LocalDate) -> SqlValue {
     return SqlValue.Text(format(v))
 }
 
 // A `LocalDate` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
-pub fn local_date_from_sql(v: SqlValue) -> Result<LocalDate, DbError> {
+pub fn to_localdate(v: SqlValue) -> Result<LocalDate, DbError> {
     return sql_lift<LocalDate>(parse_localdate(try sql_as_text(v)), "LocalDate")
 }
 
 // `LocalTime` as a SQL text value in its ISO form.
-pub fn local_time_to_sql(v: LocalTime) -> SqlValue {
+pub fn to_sql(v: LocalTime) -> SqlValue {
     return SqlValue.Text(format(v))
 }
 
 // A `LocalTime` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
-pub fn local_time_from_sql(v: SqlValue) -> Result<LocalTime, DbError> {
+pub fn to_localtime(v: SqlValue) -> Result<LocalTime, DbError> {
     return sql_lift<LocalTime>(parse_time(try sql_as_text(v)), "LocalTime")
 }
 
 // `Duration` as a SQL text value in its ISO form.
-pub fn duration_to_sql(v: Duration) -> SqlValue {
+pub fn to_sql(v: Duration) -> SqlValue {
     return SqlValue.Text(format(v))
 }
 
 // A `Duration` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
-pub fn duration_from_sql(v: SqlValue) -> Result<Duration, DbError> {
+pub fn to_duration(v: SqlValue) -> Result<Duration, DbError> {
     return sql_lift<Duration>(parse_duration(try sql_as_text(v)), "Duration")
 }
 
 // `LocalDateTime` as a SQL text value in its ISO form.
-pub fn local_date_time_to_sql(v: LocalDateTime) -> SqlValue {
+pub fn to_sql(v: LocalDateTime) -> SqlValue {
     return SqlValue.Text(format(v))
 }
 
 // A `LocalDateTime` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
-pub fn local_date_time_from_sql(v: SqlValue) -> Result<LocalDateTime, DbError> {
+pub fn to_localdatetime(v: SqlValue) -> Result<LocalDateTime, DbError> {
     return sql_lift<LocalDateTime>(parse_datetime(try sql_as_text(v)), "LocalDateTime")
 }
 
 // `ZoneOffset` as a SQL text value in its ISO form.
-pub fn zone_offset_to_sql(v: ZoneOffset) -> SqlValue {
+pub fn to_sql(v: ZoneOffset) -> SqlValue {
     return SqlValue.Text(format(v))
 }
 
 // A `ZoneOffset` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
-pub fn zone_offset_from_sql(v: SqlValue) -> Result<ZoneOffset, DbError> {
+pub fn to_zoneoffset(v: SqlValue) -> Result<ZoneOffset, DbError> {
     return sql_lift<ZoneOffset>(parse_offset(try sql_as_text(v)), "ZoneOffset")
 }
 
 // `ZoneId` as a SQL text value in its ISO form.
-pub fn zone_id_to_sql(v: ZoneId) -> SqlValue {
+pub fn to_sql(v: ZoneId) -> SqlValue {
     return SqlValue.Text(format(v))
 }
 
 // A `ZoneId` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
-pub fn zone_id_from_sql(v: SqlValue) -> Result<ZoneId, DbError> {
+pub fn to_zoneid(v: SqlValue) -> Result<ZoneId, DbError> {
     return sql_lift<ZoneId>(parse_zone(try sql_as_text(v)), "ZoneId")
 }
 
 // `Instant` as a SQL text value in its ISO form, always with the nine-digit fraction (`2026-09-24T13:05:09.000000000Z`), which `format` leaves off for a
 // whole second. A column of text is sorted as text, and `Z` sorts after `.`, so with the short form a whole second would sort after a fraction of the same
-// second (`...:09Z` after `...:09.5Z`); every value the same width sorts in time order. `instant_from_sql` (and `parse_instant`) read either form, so a
+// second (`...:09Z` after `...:09.5Z`); every value the same width sorts in time order. `to_instant` (and `parse_instant`) read either form, so a
 // column that already holds short values still reads back; `ORDER BY` on one that mixes the two is only right once the old values are rewritten.
-pub fn instant_to_sql(v: Instant) -> SqlValue {
+pub fn to_sql(v: Instant) -> SqlValue {
     return SqlValue.Text(format(v, zoneoffset_utc(), iso_datetime_nanos_format))
 }
 
 // A `Instant` from a SQL text column in its ISO form; a DbError for NULL, a non-text value or a malformed string.
-pub fn instant_from_sql(v: SqlValue) -> Result<Instant, DbError> {
+pub fn to_instant(v: SqlValue) -> Result<Instant, DbError> {
     return sql_lift<Instant>(parse_instant(try sql_as_text(v)), "Instant")
 }

@@ -2553,9 +2553,9 @@ pub fn diff(a: Instant, b: Instant) -> Duration
 
 pub fn instant_compare(a: Instant, b: Instant) -> int
 
-pub fn instant_to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime
+pub fn to_localdatetime(i: Instant, offset: ZoneOffset) -> LocalDateTime
 
-pub fn localdatetime_to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant
+pub fn to_instant(dt: LocalDateTime, offset: ZoneOffset) -> Instant
 
 pub fn localdatetime_now(offset: ZoneOffset) -> LocalDateTime
 
@@ -2563,9 +2563,9 @@ pub fn localdate_now(offset: ZoneOffset) -> LocalDate
 
 pub fn localtime_now(offset: ZoneOffset) -> LocalTime
 
-pub fn instant_to_localdatetime_in(i: Instant, z: ZoneId) -> LocalDateTime
+pub fn to_localdatetime(i: Instant, z: ZoneId) -> LocalDateTime
 
-pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant
+pub fn to_instant(dt: LocalDateTime, z: ZoneId) -> Instant
 
 pub fn format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string
 
@@ -2579,61 +2579,61 @@ pub fn parse_instant(s: string) -> Result<Instant, string>
 
 pub fn format(i: Instant) -> string
 
-pub fn local_date_to_json(d: LocalDate) -> Json
+pub fn to_json(d: LocalDate) -> Json
 
-pub fn local_date_from_json(j: Json) -> Result<LocalDate, string>
+pub fn to_localdate(j: Json) -> Result<LocalDate, string>
 
-pub fn local_time_to_json(t: LocalTime) -> Json
+pub fn to_json(t: LocalTime) -> Json
 
-pub fn local_time_from_json(j: Json) -> Result<LocalTime, string>
+pub fn to_localtime(j: Json) -> Result<LocalTime, string>
 
-pub fn duration_to_json(d: Duration) -> Json
+pub fn to_json(d: Duration) -> Json
 
-pub fn duration_from_json(j: Json) -> Result<Duration, string>
+pub fn to_duration(j: Json) -> Result<Duration, string>
 
-pub fn local_date_time_to_json(dt: LocalDateTime) -> Json
+pub fn to_json(dt: LocalDateTime) -> Json
 
-pub fn local_date_time_from_json(j: Json) -> Result<LocalDateTime, string>
+pub fn to_localdatetime(j: Json) -> Result<LocalDateTime, string>
 
-pub fn zone_offset_to_json(z: ZoneOffset) -> Json
+pub fn to_json(z: ZoneOffset) -> Json
 
-pub fn zone_offset_from_json(j: Json) -> Result<ZoneOffset, string>
+pub fn to_zoneoffset(j: Json) -> Result<ZoneOffset, string>
 
-pub fn zone_id_to_json(z: ZoneId) -> Json
+pub fn to_json(z: ZoneId) -> Json
 
-pub fn zone_id_from_json(j: Json) -> Result<ZoneId, string>
+pub fn to_zoneid(j: Json) -> Result<ZoneId, string>
 
-pub fn instant_to_json(i: Instant) -> Json
+pub fn to_json(i: Instant) -> Json
 
-pub fn instant_from_json(j: Json) -> Result<Instant, string>
+pub fn to_instant(j: Json) -> Result<Instant, string>
 
-pub fn local_date_to_sql(v: LocalDate) -> SqlValue
+pub fn to_sql(v: LocalDate) -> SqlValue
 
-pub fn local_date_from_sql(v: SqlValue) -> Result<LocalDate, DbError>
+pub fn to_localdate(v: SqlValue) -> Result<LocalDate, DbError>
 
-pub fn local_time_to_sql(v: LocalTime) -> SqlValue
+pub fn to_sql(v: LocalTime) -> SqlValue
 
-pub fn local_time_from_sql(v: SqlValue) -> Result<LocalTime, DbError>
+pub fn to_localtime(v: SqlValue) -> Result<LocalTime, DbError>
 
-pub fn duration_to_sql(v: Duration) -> SqlValue
+pub fn to_sql(v: Duration) -> SqlValue
 
-pub fn duration_from_sql(v: SqlValue) -> Result<Duration, DbError>
+pub fn to_duration(v: SqlValue) -> Result<Duration, DbError>
 
-pub fn local_date_time_to_sql(v: LocalDateTime) -> SqlValue
+pub fn to_sql(v: LocalDateTime) -> SqlValue
 
-pub fn local_date_time_from_sql(v: SqlValue) -> Result<LocalDateTime, DbError>
+pub fn to_localdatetime(v: SqlValue) -> Result<LocalDateTime, DbError>
 
-pub fn zone_offset_to_sql(v: ZoneOffset) -> SqlValue
+pub fn to_sql(v: ZoneOffset) -> SqlValue
 
-pub fn zone_offset_from_sql(v: SqlValue) -> Result<ZoneOffset, DbError>
+pub fn to_zoneoffset(v: SqlValue) -> Result<ZoneOffset, DbError>
 
-pub fn zone_id_to_sql(v: ZoneId) -> SqlValue
+pub fn to_sql(v: ZoneId) -> SqlValue
 
-pub fn zone_id_from_sql(v: SqlValue) -> Result<ZoneId, DbError>
+pub fn to_zoneid(v: SqlValue) -> Result<ZoneId, DbError>
 
-pub fn instant_to_sql(v: Instant) -> SqlValue
+pub fn to_sql(v: Instant) -> SqlValue
 
-pub fn instant_from_sql(v: SqlValue) -> Result<Instant, DbError>
+pub fn to_instant(v: SqlValue) -> Result<Instant, DbError>
 
 ```
 

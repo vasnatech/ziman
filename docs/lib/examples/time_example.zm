@@ -12,7 +12,7 @@ fn main() {
     print(time.format(time.add_minutes(dt, 45)))  // carries into the next day
 
     // An instant is a point on the timeline; an offset says how a clock reads it.
-    val at = time.localdatetime_to_instant(dt, unwrap(time.zoneoffset_of_hours_minutes(5, 30)))
+    val at = time.to_instant(dt, unwrap(time.zoneoffset_of_hours_minutes(5, 30)))
     print(time.format(at))
     print(time.format(time.add(at, time.duration_of_seconds(90, 0))))
 

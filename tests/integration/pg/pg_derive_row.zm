@@ -11,12 +11,11 @@ use db.sql_as_text
 use fs
 use time.Instant
 use time.LocalDate
-use time.instant_from_sql
 use time.instant_now
-use time.instant_to_sql
-use time.local_date_from_sql
-use time.local_date_to_sql
 use time.parse_localdate
+use time.to_instant
+use time.to_localdate
+use time.to_sql
 use uuid.Uuid
 use uuid.uuid_from_sql
 use uuid.uuid_new

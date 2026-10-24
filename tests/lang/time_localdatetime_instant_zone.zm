@@ -1,23 +1,23 @@
 use time
-use time.localdate_of
-use time.localtime_of
-use time.localdatetime_of
-use time.add_hours
 use time.add_days
+use time.add_hours
 use time.add_months
-use time.localdatetime_compare
 use time.diff
-use time.zoneoffset_utc
-use time.zoneoffset_of_hours_minutes
-use time.zoneoffset_compare
-use time.instant_of
-use time.instant_now
-use time.instant_compare
-use time.localdatetime_to_instant
-use time.instant_to_localdatetime
 use time.duration_of_seconds
-use time.zoneid_utc
+use time.instant_compare
+use time.instant_now
+use time.instant_of
+use time.localdate_of
+use time.localdatetime_compare
+use time.localdatetime_of
+use time.localtime_of
+use time.to_instant
+use time.to_localdatetime
 use time.zoneid_offset_at
+use time.zoneid_utc
+use time.zoneoffset_compare
+use time.zoneoffset_of_hours_minutes
+use time.zoneoffset_utc
 
 fn main() {
     val dt = localdatetime_of(unwrap(localdate_of(2024, 12, 31)), unwrap(localtime_of(23, 30, 0, 0)))
@@ -37,9 +37,9 @@ fn main() {
     print(time.format(off2))
     print(zoneoffset_compare(off, off2))
 
-    val i = localdatetime_to_instant(dt, zoneoffset_utc())
+    val i = to_instant(dt, zoneoffset_utc())
     print(time.format(i))
-    val back = instant_to_localdatetime(i, zoneoffset_utc())
+    val back = to_localdatetime(i, zoneoffset_utc())
     print(time.format(back))
     print(localdatetime_compare(dt, back))
 

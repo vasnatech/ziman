@@ -10,12 +10,11 @@ use db.sql_as_int
 use db.sql_as_text
 use time.Instant
 use time.LocalDate
-use time.instant_from_sql
 use time.instant_now
-use time.instant_to_sql
-use time.local_date_from_sql
-use time.local_date_to_sql
 use time.parse_localdate
+use time.to_instant
+use time.to_localdate
+use time.to_sql
 use uuid.Uuid
 use uuid.uuid_from_sql
 use uuid.uuid_new
@@ -35,14 +34,30 @@ pub struct Person {
 
 fn main() {
     val conn = unwrap(datasource.open("sqlite::memory:"))
-    unwrap(datasource.execute(conn,
-        "CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT NOT NULL, nickname TEXT, born TEXT NOT NULL, age_hint INTEGER, active INTEGER NOT NULL, score REAL NOT NULL, created_at TEXT NOT NULL)"))
-    val p1 = Person { id: uuid_new(), name: "Ada", nickname: Option<string>.Some("A"),
-        born: unwrap(parse_localdate("1815-12-10")), age_hint: Option<int>.None, active: true, score: 0.1,
-        created_at: instant_now() }
-    val p2 = Person { id: uuid_new(), name: "Bob", nickname: Option<string>.None,
-        born: unwrap(parse_localdate("1990-01-01")), age_hint: Option<int>.Some(30), active: false, score: 2.5,
-        created_at: instant_now() }
+    unwrap(datasource.execute(
+        conn,
+        "CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT NOT NULL, nickname TEXT, born TEXT NOT NULL, age_hint INTEGER, active INTEGER NOT NULL, score REAL NOT NULL, created_at TEXT NOT NULL)"
+    ))
+    val p1 = Person {
+        id: uuid_new(),
+        name: "Ada",
+        nickname: Option<string>.Some("A"),
+        born: unwrap(parse_localdate("1815-12-10")),
+        age_hint: Option<int>.None,
+        active: true,
+        score: 0.1,
+        created_at: instant_now()
+    }
+    val p2 = Person {
+        id: uuid_new(),
+        name: "Bob",
+        nickname: Option<string>.None,
+        born: unwrap(parse_localdate("1990-01-01")),
+        age_hint: Option<int>.Some(30),
+        active: false,
+        score: 2.5,
+        created_at: instant_now()
+    }
     val ins = "INSERT INTO people (id, name, nickname, born, age_hint, active, score, created_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"
     unwrap(datasource.execute(conn, ins, person_to_params(p1)))
     unwrap(datasource.execute(conn, ins, person_to_params(p2)))

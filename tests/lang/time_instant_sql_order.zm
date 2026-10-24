@@ -1,7 +1,7 @@
 use db.SqlValue
 use time
 
-// `instant_to_sql` always writes the nine-digit fraction, so text order (what a TEXT column sorts by) is time order; the short form of
+// `to_sql` always writes the nine-digit fraction, so text order (what a TEXT column sorts by) is time order; the short form of
 // `format` would put a whole second after a fraction of the same second, because `Z` sorts after `.`.
 
 fn text_of(v: SqlValue) -> string {
@@ -26,21 +26,21 @@ fn main() {
     val before = at(1599999999, 999999999)
     print(time.format(whole))
     print(time.format(half))
-    print(text_of(time.instant_to_sql(whole)))
-    print(text_of(time.instant_to_sql(half)))
-    print(text_of(time.instant_to_sql(tiny)))
+    print(text_of(time.to_sql(whole)))
+    print(text_of(time.to_sql(half)))
+    print(text_of(time.to_sql(tiny)))
     val texts = [
-        text_of(time.instant_to_sql(half)),
-        text_of(time.instant_to_sql(whole)),
-        text_of(time.instant_to_sql(before)),
-        text_of(time.instant_to_sql(tiny))
+        text_of(time.to_sql(half)),
+        text_of(time.to_sql(whole)),
+        text_of(time.to_sql(before)),
+        text_of(time.to_sql(tiny))
     ]
     for t in sort(texts) {
         print(t)
     }
-    print(is_ok(time.instant_from_sql(time.instant_to_sql(half))))
-    val short = time.instant_from_sql(SqlValue.Text("2020-09-13T12:26:40Z"))
-    val long = time.instant_from_sql(SqlValue.Text("2020-09-13T12:26:40.000000000Z"))
+    print(is_ok(time.to_instant(time.to_sql(half))))
+    val short = time.to_instant(SqlValue.Text("2020-09-13T12:26:40Z"))
+    val long = time.to_instant(SqlValue.Text("2020-09-13T12:26:40.000000000Z"))
     print(unwrap(short) == unwrap(long))
     print(unwrap(short) == whole)
 }
