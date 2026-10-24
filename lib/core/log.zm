@@ -110,7 +110,7 @@ pub fn with_request_id(l: Logger, id: string) -> Logger {
 }
 
 // 0 for Debug up to 3 for Error: the order of severity.
-pub fn level_rank(level: Level) -> int {
+pub fn rank(level: Level) -> int {
     return switch level {
         Debug { 0 }
         Info { 1 }
@@ -119,8 +119,25 @@ pub fn level_rank(level: Level) -> int {
     }
 }
 
-// The level as it appears in a log line, padded to five characters ("INFO ").
-pub fn level_name(level: Level) -> string {
+// The level's name: "DEBUG", "INFO", "WARN" or "ERROR".
+//
+// **Unpadded, as of 2026-10-24.** It used to answer "INFO " -- padded to five characters so the
+// text format's columns line up -- which made a presentation detail part of the value every other
+// caller got. `json_line` had to `trim` it back off before putting it in a log index, and anyone
+// writing their own format inherited a stray space they had to know about. The padding lives in
+// the text formatter now, where the columns are.
+pub fn format(level: Level) -> string {
+    return switch level {
+        Debug { "DEBUG" }
+        Info { "INFO" }
+        Warn { "WARN" }
+        Error { "ERROR" }
+    }
+}
+
+// The name padded to the width of the longest one, for the text format's columns. `Level` is a
+// closed enum of four, and the longest name is five characters, so this needs no general pad.
+fn padded_name(level: Level) -> string {
     return switch level {
         Debug { "DEBUG" }
         Info { "INFO " }
@@ -131,18 +148,18 @@ pub fn level_name(level: Level) -> string {
 
 // "debug", "info", "warn"/"warning" or "error" (any case), for a level read
 // from configuration.
-pub fn level_parse(text: string) -> Result<Level, string> {
+pub fn parse_level(text: string) -> Result<Level, string> {
     val t = to_lower(trim(text), invariant)
     if t == "debug" { return ok(Level.Debug) }
     if t == "info" { return ok(Level.Info) }
     if t == "warn" || t == "warning" { return ok(Level.Warn) }
     if t == "error" { return ok(Level.Error) }
-    return err(format("unknown log level '{}' (use debug, info, warn or error)", text))
+    return err(prelude.format("unknown log level '{}' (use debug, info, warn or error)", text))
 }
 
 // True if a message at `level` would be written by `l`.
 pub fn enabled(l: Logger, level: Level) -> bool {
-    return level_rank(level) >= level_rank(l.level)
+    return rank(level) >= rank(l.level)
 }
 
 // `message` with every control byte written out, so text that came from a user (an email address in a failed
@@ -181,16 +198,16 @@ fn shift_files(path: string, keep: int) {
         val _ = fs.remove(path)
         return
     }
-    val _ = fs.remove(format("{}.{}", path, keep))
+    val _ = fs.remove(prelude.format("{}.{}", path, keep))
     var n = keep - 1
     while n >= 1 {
-        val from = format("{}.{}", path, n)
+        val from = prelude.format("{}.{}", path, n)
         if fs.exists(from) {
-            val _ = fs.rename(from, format("{}.{}", path, n + 1))
+            val _ = fs.rename(from, prelude.format("{}.{}", path, n + 1))
         }
         n = n - 1
     }
-    val _ = fs.rename(path, format("{}.1", path))
+    val _ = fs.rename(path, prelude.format("{}.1", path))
 }
 
 // Rotates `path` if it has reached `max_bytes`. The size is checked again once the lock is held, since another thread may have rotated it in the meantime.
@@ -228,11 +245,11 @@ fn json_line(l: Logger, level: Level, message: string) -> string {
     if l.timestamps {
         append(out, "\"time\":", json.format(Json.JString(now_iso())), ",")
     }
-    // `level_name` pads to five characters so the text format's columns line up ("INFO "), and the
-    // prefix carries its own trailing space for the same reason -- both are presentation, and both
-    // would arrive in a log index as part of the value. Trimmed here, and the level lowercased,
-    // which is what every JSON log schema uses.
-    append(out, "\"level\":", json.format(Json.JString(to_lower(trim(level_name(level)), invariant))))
+    // The prefix carries a trailing space so the text format's columns line up, which is
+    // presentation and would arrive in a log index as part of the value; it is trimmed below.
+    // `format(level)` needs no such undoing any more -- it answers the bare name, and the text
+    // format pads it where the columns are.
+    append(out, "\"level\":", json.format(Json.JString(to_lower(format(level), invariant))))
     val component = trim(l.prefix)
     if byte_len(component) > 0 {
         append(out, ",\"prefix\":", json.format(Json.JString(component)))
@@ -254,9 +271,9 @@ pub fn write(l: Logger, level: Level, message: string) {
     }
     var line = ""
     if l.timestamps {
-        line = format("{} ", now_iso())
+        line = prelude.format("{} ", now_iso())
     }
-    line = format("{}{} {}{}\n", line, level_name(level), l.prefix, single_line(message))
+    line = prelude.format("{}{} {}{}\n", line, padded_name(level), l.prefix, single_line(message))
     write_line(l, line)
 }
 

@@ -5,7 +5,7 @@
 //
 // The cases that matter are the escaping ones: a quote and a newline inside a message must come out
 // as a valid JSON document, which is why this goes through `json` rather than `single_line` (that
-// writes a control byte as \xNN -- not valid JSON). And the padding `level_name` adds for the text
+// writes a control byte as \xNN -- not valid JSON). And the padding `log.format` adds for the text
 // format's columns must not leak into a machine-read field.
 use fs
 use log

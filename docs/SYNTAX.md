@@ -2369,7 +2369,9 @@ No global logger (no mutable globals): build one with `log.logger(level: Level.I
 timestamps: ..., prefix: ...)` and pass it around. `log.debug/info/warn/error(logger, message)`
 write `<timestamp> LEVEL prefix message` to stderr, or append to `file` (falling back to
 stderr); below the logger's level is dropped. `with_prefix` makes a per-component logger,
-`level_parse("warn")` reads a level from configuration.
+`log.parse_level("warn")` reads a level from configuration; `log.format(level)` is its name
+("DEBUG"/"INFO"/"WARN"/"ERROR", unpadded -- the text format pads its own columns) and
+`log.rank(level)` its order.
 
 `log.logger(..., json: true)` writes one JSON object per line instead -- `{"time":...,"level":
 "info","prefix":...,"request_id":...,"message":...}` -- for a log something else reads. The level is

@@ -12,5 +12,5 @@ fn main() {
     print(trim(unwrap(fs.read_text(path))))
     unwrap(fs.remove(path))
     print(log.enabled(logger, Level.Debug))
-    print(unwrap(log.level_parse("warn")) == Level.Warn)
+    print(unwrap(log.parse_level("warn")) == Level.Warn)
 }

@@ -555,11 +555,11 @@ pub fn with_prefix(l: Logger, prefix: string) -> Logger
 
 pub fn with_request_id(l: Logger, id: string) -> Logger
 
-pub fn level_rank(level: Level) -> int
+pub fn rank(level: Level) -> int
 
-pub fn level_name(level: Level) -> string
+pub fn format(level: Level) -> string
 
-pub fn level_parse(text: string) -> Result<Level, string>
+pub fn parse_level(text: string) -> Result<Level, string>
 
 pub fn enabled(l: Logger, level: Level) -> bool
 

@@ -39,7 +39,7 @@ fn main() {
     print(trim(unwrap(fs.read_text(path))))
     unwrap(fs.remove(path))
     print(log.enabled(logger, Level.Debug))
-    print(unwrap(log.level_parse("warn")) == Level.Warn)
+    print(unwrap(log.parse_level("warn")) == Level.Warn)
 }
 ```
 
@@ -133,26 +133,32 @@ pub fn with_request_id(l: Logger, id: string) -> Logger
 The same logger stamping `id` on every line it writes -- set once where a request begins, so the
 handler's own logging needs no extra argument. An empty `id` clears it again.
 
-### `level_rank`
+### `rank`
 
 ```
-pub fn level_rank(level: Level) -> int
+pub fn rank(level: Level) -> int
 ```
 
 0 for Debug up to 3 for Error: the order of severity.
 
-### `level_name`
+### `format`
 
 ```
-pub fn level_name(level: Level) -> string
+pub fn format(level: Level) -> string
 ```
 
-The level as it appears in a log line, padded to five characters ("INFO ").
+The level's name: "DEBUG", "INFO", "WARN" or "ERROR".
 
-### `level_parse`
+**Unpadded, as of 2026-10-24.** It used to answer "INFO " -- padded to five characters so the
+text format's columns line up -- which made a presentation detail part of the value every other
+caller got. `json_line` had to `trim` it back off before putting it in a log index, and anyone
+writing their own format inherited a stray space they had to know about. The padding lives in
+the text formatter now, where the columns are.
+
+### `parse_level`
 
 ```
-pub fn level_parse(text: string) -> Result<Level, string>
+pub fn parse_level(text: string) -> Result<Level, string>
 ```
 
 "debug", "info", "warn"/"warning" or "error" (any case), for a level read

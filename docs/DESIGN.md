@@ -193,6 +193,7 @@ them against the code.
 - [`fs` loses a hundred lines of ceremony, and gains the two functions it was missing (2026-10-24)](#fs-loses-a-hundred-lines-of-ceremony-and-gains-the-two-functions-it-was-missing-2026-10-24)
 - [`json` stops stuttering, and derive learns to call it qualified (2026-10-24)](#json-stops-stuttering-and-derive-learns-to-call-it-qualified-2026-10-24)
 - [`jwt`: one `sign`, one dead function gone, and algorithm pinning (2026-10-24)](#jwt-one-sign-one-dead-function-gone-and-algorithm-pinning-2026-10-24)
+- [`log`: the `Level` family loses its prefix, and `format` stops padding (2026-10-24)](#log-the-level-family-loses-its-prefix-and-format-stops-padding-2026-10-24)
 
 <!-- end index -->
 
@@ -8175,3 +8176,17 @@ What this is not is a vulnerability being closed, and the entry says so because 
 A pin cannot be used to weaken a check either, which the fixture pins: pinning HS256 against an HS512 token is refused, because the comparison is against what the header claims rather than a floor.
 
 **Found in the sample backend, and fixed there.** `verified_claims` called `verify_claims` *positionally*, with three explicit `None`s for the checks it did not want -- which says nothing about what is being left out and broke the moment an eighth parameter arrived. It names its two arguments now, which is what the all-named form is for and what would have survived the change untouched. A positional call into a function whose tail is all `Option` is a latent break, not a style preference.
+
+## `log`: the `Level` family loses its prefix, and `format` stops padding (2026-10-24)
+
+`log.zm` is another module whose names were already right -- `log.info`, `log.logger`, `log.enabled`, `log.with_prefix` -- with one family left over and one wart inside it.
+
+**`level_rank`, `level_name` and `level_parse` named the type in two of the three cases where the argument already does.** `rank(level)` and `format(level)` take a `Level`, so they go bare; `parse_level(text)` takes a `string` and keeps the type in its name, which is the same split that gave `time` its `parse_localdate` and `csv` its `parse`. Four call sites outside the module, all of them `level_parse`.
+
+**The wart is the more interesting half: `level_name(Level.Info)` answered `"INFO "`.** The padding is five characters so the text format's columns line up, and it was added deliberately -- `tasks.md`'s F41 records noticing it, and notes that `json_line` therefore has to `trim` it back off before the level reaches a log index. That is the whole argument against it: a presentation detail in the value, which one caller wanted and every other caller had to undo. Anyone writing their own format inherited a stray space they could only find by printing it.
+
+So `format(level)` answers the bare name now and a private `padded_name` does the column work, called from the one place that has columns. `json_line` lost its `trim`, and the text lines are byte-identical -- `log_basic.out` and `log_json_lines.out` gained assertions and changed nothing else, which is what makes this a refactor rather than a behaviour change.
+
+`padded_name` needs no general pad helper and does not pretend to be one: `Level` is a closed enum of four whose longest name is five characters, so one comparison does it. A `pad_right` in the prelude would be the wrong answer to this, and there is no second caller asking for one.
+
+Nothing else here wanted changing. `with_prefix` and `with_request_id` have identical signatures (`Logger`, `string`) and so could not be one overload set even if that read better, which it would not -- the names say which field. And the four level helpers (`debug`/`info`/`warn`/`error`) are the convenience surface over `write`, not variants to collapse.

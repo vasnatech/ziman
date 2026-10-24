@@ -13,9 +13,21 @@ fn main() {
     print(unwrap(fs.read_text(path)))
     print(log.enabled(l, Level.Debug))
     print(log.enabled(l, Level.Error))
-    print(log.level_parse("WARNING"))
-    print(log.level_parse(" Debug "))
-    print(log.level_parse("loud"))
+    print(log.parse_level("WARNING"))
+    print(log.parse_level(" Debug "))
+    print(log.parse_level("loud"))
+
+    // **`log.format` answers the bare name**, unpadded. It used to pad to five ("INFO ") so the
+    // text format's columns line up, which put a presentation detail in the value every other
+    // caller got -- `json_line` trimmed it back off, and anyone writing their own format inherited
+    // a space they had to know about. The padding is in the text formatter now, and the lines
+    // printed above are byte-identical to before.
+    print(concat("[", log.format(Level.Debug), "]"))
+    print(concat("[", log.format(Level.Info), "]"))
+    print(concat("[", log.format(Level.Warn), "]"))
+    print(concat("[", log.format(Level.Error), "]"))
+    print(log.rank(Level.Debug) < log.rank(Level.Error))
+
     val _ = fs.remove(path)
 }
 
