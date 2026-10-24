@@ -47,11 +47,11 @@ struct PPath {
     next: int
 }
 
-fn line_of(s: string, p: int) -> int {
+fn line_of(cs: [string], p: int) -> int {
     var line = 1
     var i = 0
-    while i < p && i < len(s) {
-        if is_char_at(s, i, "\n") {
+    while i < p && i < len(cs) {
+        if at_is(cs, i, "\n") {
             line = line + 1
         }
         i = i + 1
@@ -59,8 +59,20 @@ fn line_of(s: string, p: int) -> int {
     return line
 }
 
-fn fail(s: string, p: int, message: string) -> string {
-    return format("line {}: {}", line_of(s, p), message)
+fn fail(cs: [string], p: int, message: string) -> string {
+    return format("line {}: {}", line_of(cs, p), message)
+}
+
+// `cs[p]` with the bounds check `is_char_at(s, p, c)` carried: false rather than an error when `p`
+// is past the end, which every scanner below relies on to look one character ahead.
+fn at_is(cs: [string], p: int, c: string) -> bool {
+    return p >= 0 && p < len(cs) && cs[p] == c
+}
+
+// The text of characters `a` up to `b`, which is what `substring(s, a, b)` answered. `concat` over
+// one array argument spreads, so this is a single allocation of the final size.
+fn text_of(cs: [string], a: int, b: int) -> string {
+    return concat(slice<string>(cs, a, b))
 }
 
 fn is_digit_c(c: string) -> bool {
@@ -102,35 +114,37 @@ fn append_utf8(out: MutableString, cp: int) {
 }
 
 // Spaces and tabs.
-fn skip_blank(s: string, pos: int) -> int {
+fn skip_blank(cs: [string], pos: int) -> int {
     var p = pos
-    while p < len(s) && (is_char_at(s, p, " ") || is_char_at(s, p, "\t")) {
+    while p < len(cs) && (at_is(cs, p, " ") || at_is(cs, p, "\t")) {
         p = p + 1
     }
     return p
 }
 
 // Everything up to the end of the line (a `#` comment), not consuming the newline.
-fn skip_comment(s: string, pos: int) -> int {
-    if !is_char_at(s, pos, "#") {
+
+fn skip_comment(cs: [string], pos: int) -> int {
+    if !at_is(cs, pos, "#") {
         return pos
     }
     var p = pos
-    while p < len(s) && !is_char_at(s, p, "\n") {
+    while p < len(cs) && !at_is(cs, p, "\n") {
         p = p + 1
     }
     return p
 }
 
 // Blank space, newlines and comments -- between array elements and between statements.
-fn skip_all(s: string, pos: int) -> int {
+
+fn skip_all(cs: [string], pos: int) -> int {
     var p = pos
-    while p < len(s) {
-        val c = char_at(s, p)
+    while p < len(cs) {
+        val c = cs[p]
         if c == " " || c == "\t" || c == "\n" || c == "\r" {
             p = p + 1
         } else if c == "#" {
-            p = skip_comment(s, p)
+            p = skip_comment(cs, p)
         } else {
             return p
         }
@@ -139,13 +153,14 @@ fn skip_all(s: string, pos: int) -> int {
 }
 
 // Reads `n` hex digits at `pos` (after a `\u` / `\U`).
-fn read_hex(s: string, pos: int, n: int) -> int {
-    if pos + n > len(s) {
+
+fn read_hex(cs: [string], pos: int, n: int) -> int {
+    if pos + n > len(cs) {
         return -1
     }
     var v = 0
     for i in 0..n {
-        val d = hex_value(char_at(s, pos + i))
+        val d = hex_value(cs[pos + i])
         if d < 0 {
             return -1
         }
@@ -155,22 +170,23 @@ fn read_hex(s: string, pos: int, n: int) -> int {
 }
 
 // A basic (`"..."`) or multi-line basic (`"""..."""`) string whose opening quote is at `pos`.
-fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
-    val multi = is_char_at(s, pos, "\"") && is_char_at(s, pos + 1, "\"") && is_char_at(s, pos + 2, "\"")
+
+fn parse_basic(cs: [string], pos: int) -> Result<PStr, string> {
+    val multi = at_is(cs, pos, "\"") && at_is(cs, pos + 1, "\"") && at_is(cs, pos + 2, "\"")
     var p = if multi { pos + 3 } else { pos + 1 }
     if multi {
-        if is_char_at(s, p, "\r") && is_char_at(s, p + 1, "\n") {
+        if at_is(cs, p, "\r") && at_is(cs, p + 1, "\n") {
             p = p + 2
-        } else if is_char_at(s, p, "\n") {
+        } else if at_is(cs, p, "\n") {
             p = p + 1
         }
     }
     val out = mutable_string_new()
-    while p < len(s) {
-        val c = char_at(s, p)
-        if multi && c == "\"" && is_char_at(s, p + 1, "\"") && is_char_at(s, p + 2, "\"") {
+    while p < len(cs) {
+        val c = cs[p]
+        if multi && c == "\"" && at_is(cs, p + 1, "\"") && at_is(cs, p + 2, "\"") {
             var end = p + 3
-            while end < len(s) && end < p + 5 && is_char_at(s, end, "\"") {
+            while end < len(cs) && end < p + 5 && at_is(cs, end, "\"") {
                 append(out, "\"")
                 end = end + 1
             }
@@ -180,13 +196,13 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
             return ok(PStr { text: snapshot(out), next: p + 1 })
         }
         if !multi && (c == "\n" || c == "\r") {
-            return err(fail(s, p, "a basic string cannot span lines (use \"\"\" for that)"))
+            return err(fail(cs, p, "a basic string cannot span lines (use \"\"\" for that)"))
         }
         if c == "\\" {
-            if p + 1 >= len(s) {
-                return err(fail(s, p, "unterminated escape"))
+            if p + 1 >= len(cs) {
+                return err(fail(cs, p, "unterminated escape"))
             }
-            val e = char_at(s, p + 1)
+            val e = cs[p + 1]
             if e == "n" {
                 append(out, "\n")
             } else if e == "t" {
@@ -203,9 +219,9 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
                 append(out, "\\")
             } else if e == "u" || e == "U" {
                 val digits = if e == "u" { 4 } else { 8 }
-                val cp = read_hex(s, p + 2, digits)
+                val cp = read_hex(cs, p + 2, digits)
                 if cp <= 0 || cp > max_code_point || (cp >= surrogate_start && cp <= surrogate_end) {
-                    return err(fail(s, p, "invalid unicode escape"))
+                    return err(fail(cs, p, "invalid unicode escape"))
                 }
                 append_utf8(out, cp)
                 p = p + 2 + digits
@@ -213,17 +229,17 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
             } else if multi && (e == "\n" || e == "\r" || e == " " || e == "\t") {
                 // a line-ending backslash: drop it, the newline and all following whitespace
                 var q = p + 1
-                while q < len(s) && (is_char_at(s, q, " ") || is_char_at(s, q, "\t") || is_char_at(
-                    s,
+                while q < len(cs) && (at_is(cs, q, " ") || at_is(cs, q, "\t") || at_is(cs, q, "\r") || at_is(
+                    cs,
                     q,
-                    "\r"
-                ) || is_char_at(s, q, "\n")) {
+                    "\n"
+                )) {
                     q = q + 1
                 }
                 p = q
                 continue
             } else {
-                return err(fail(s, p, format("unsupported escape '\\{}'", e)))
+                return err(fail(cs, p, format("unsupported escape '\\{}'", e)))
             }
             p = p + 2
         } else {
@@ -231,64 +247,67 @@ fn parse_basic(s: string, pos: int) -> Result<PStr, string> {
             p = p + 1
         }
     }
-    return err(fail(s, pos, "unterminated string"))
+    return err(fail(cs, pos, "unterminated string"))
 }
 
 // A literal (`'...'`) or multi-line literal (`'''...'''`) string: no escapes at all.
-fn parse_literal(s: string, pos: int) -> Result<PStr, string> {
-    val multi = is_char_at(s, pos, "'") && is_char_at(s, pos + 1, "'") && is_char_at(s, pos + 2, "'")
+
+fn parse_literal(cs: [string], pos: int) -> Result<PStr, string> {
+    val multi = at_is(cs, pos, "'") && at_is(cs, pos + 1, "'") && at_is(cs, pos + 2, "'")
     var p = if multi { pos + 3 } else { pos + 1 }
     if multi {
-        if is_char_at(s, p, "\r") && is_char_at(s, p + 1, "\n") {
+        if at_is(cs, p, "\r") && at_is(cs, p + 1, "\n") {
             p = p + 2
-        } else if is_char_at(s, p, "\n") {
+        } else if at_is(cs, p, "\n") {
             p = p + 1
         }
     }
     val start = p
-    while p < len(s) {
-        if multi && is_char_at(s, p, "'") && is_char_at(s, p + 1, "'") && is_char_at(s, p + 2, "'") {
-            return ok(PStr { text: substring(s, start, p), next: p + 3 })
+    while p < len(cs) {
+        if multi && at_is(cs, p, "'") && at_is(cs, p + 1, "'") && at_is(cs, p + 2, "'") {
+            return ok(PStr { text: text_of(cs, start, p), next: p + 3 })
         }
-        if !multi && is_char_at(s, p, "'") {
-            return ok(PStr { text: substring(s, start, p), next: p + 1 })
+        if !multi && at_is(cs, p, "'") {
+            return ok(PStr { text: text_of(cs, start, p), next: p + 1 })
         }
-        if !multi && (is_char_at(s, p, "\n") || is_char_at(s, p, "\r")) {
-            return err(fail(s, p, "a literal string cannot span lines (use ''' for that)"))
+        if !multi && (at_is(cs, p, "\n") || at_is(cs, p, "\r")) {
+            return err(fail(cs, p, "a literal string cannot span lines (use ''' for that)"))
         }
         p = p + 1
     }
-    return err(fail(s, pos, "unterminated string"))
+    return err(fail(cs, pos, "unterminated string"))
 }
 
 // One key segment: bare, "basic" or 'literal'.
-fn parse_key_part(s: string, pos: int) -> Result<PStr, string> {
-    if is_char_at(s, pos, "\"") {
-        return parse_basic(s, pos)
+
+fn parse_key_part(cs: [string], pos: int) -> Result<PStr, string> {
+    if at_is(cs, pos, "\"") {
+        return parse_basic(cs, pos)
     }
-    if is_char_at(s, pos, "'") {
-        return parse_literal(s, pos)
+    if at_is(cs, pos, "'") {
+        return parse_literal(cs, pos)
     }
     var p = pos
-    while p < len(s) && is_bare_key_char(char_at(s, p)) {
+    while p < len(cs) && is_bare_key_char(cs[p]) {
         p = p + 1
     }
     if p == pos {
-        return err(fail(s, pos, "expected a key"))
+        return err(fail(cs, pos, "expected a key"))
     }
-    return ok(PStr { text: substring(s, pos, p), next: p })
+    return ok(PStr { text: text_of(cs, pos, p), next: p })
 }
 
 // `a.b."c d"` -- dotted key, whitespace allowed around the dots.
-fn parse_key_path(s: string, pos: int) -> Result<PPath, string> {
+
+fn parse_key_path(cs: [string], pos: int) -> Result<PPath, string> {
     val parts = mutable_array_new<string>()
-    var p = skip_blank(s, pos)
+    var p = skip_blank(cs, pos)
     while true {
-        val part = try parse_key_part(s, p)
+        val part = try parse_key_part(cs, p)
         push(parts, part.text)
-        p = skip_blank(s, part.next)
-        if is_char_at(s, p, ".") {
-            p = skip_blank(s, p + 1)
+        p = skip_blank(cs, part.next)
+        if at_is(cs, p, ".") {
+            p = skip_blank(cs, p + 1)
         } else {
             return ok(PPath { path: snapshot(parts), next: p })
         }
@@ -365,15 +384,15 @@ fn number_token(tok: string) -> Result<Json, string> {
     return ok(int_to_json(unwrap(n)))
 }
 
-fn parse_scalar_token(s: string, pos: int) -> Result<Parsed, string> {
+fn parse_scalar_token(cs: [string], pos: int) -> Result<Parsed, string> {
     var p = pos
-    while p < len(s) && !contains(" \t\n\r,]}#", char_at(s, p)) {
+    while p < len(cs) && !contains(" \t\n\r,]}#", cs[p]) {
         p = p + 1
     }
     if p == pos {
-        return err(fail(s, pos, "expected a value"))
+        return err(fail(cs, pos, "expected a value"))
     }
-    var tok = substring(s, pos, p)
+    var tok = text_of(cs, pos, p)
     if tok == "true" {
         return ok(Parsed { value: Json.JBool(true), next: p })
     }
@@ -381,93 +400,93 @@ fn parse_scalar_token(s: string, pos: int) -> Result<Parsed, string> {
         return ok(Parsed { value: Json.JBool(false), next: p })
     }
     // a date and a time separated by a space form one value
-    if len(tok) == 10 && is_char_at(s, p, " ") && p + 1 < len(s) && is_digit_c(char_at(s, p + 1)) {
+    if len(tok) == 10 && at_is(cs, p, " ") && p + 1 < len(cs) && is_digit_c(cs[p + 1]) {
         var q = p + 1
-        while q < len(s) && !contains(" \t\n\r,]}#", char_at(s, q)) {
+        while q < len(cs) && !contains(" \t\n\r,]}#", cs[q]) {
             q = q + 1
         }
-        tok = substring(s, pos, q)
+        tok = text_of(cs, pos, q)
         p = q
     }
     val n = number_token(tok)
     if Err(e) = n {
-        return err(fail(s, pos, e))
+        return err(fail(cs, pos, e))
     }
     return ok(Parsed { value: unwrap(n), next: p })
 }
 
-fn parse_array_value(s: string, pos: int) -> Result<Parsed, string> {
+fn parse_array_value(cs: [string], pos: int) -> Result<Parsed, string> {
     val items = mutable_array_new<Json>()
-    var p = skip_all(s, pos + 1)
+    var p = skip_all(cs, pos + 1)
     while true {
-        if p >= len(s) {
-            return err(fail(s, pos, "unterminated array"))
+        if p >= len(cs) {
+            return err(fail(cs, pos, "unterminated array"))
         }
-        if is_char_at(s, p, "]") {
+        if at_is(cs, p, "]") {
             return ok(Parsed { value: Json.JArray(snapshot(items)), next: p + 1 })
         }
-        val item = try parse_value(s, p)
+        val item = try parse_value(cs, p)
         push(items, item.value)
-        p = skip_all(s, item.next)
-        if is_char_at(s, p, ",") {
-            p = skip_all(s, p + 1)
-        } else if !is_char_at(s, p, "]") {
-            return err(fail(s, p, "expected ',' or ']' in an array"))
+        p = skip_all(cs, item.next)
+        if at_is(cs, p, ",") {
+            p = skip_all(cs, p + 1)
+        } else if !at_is(cs, p, "]") {
+            return err(fail(cs, p, "expected ',' or ']' in an array"))
         }
     }
     return err("unreachable")
 }
 
-fn parse_inline_table(s: string, pos: int) -> Result<Parsed, string> {
+fn parse_inline_table(cs: [string], pos: int) -> Result<Parsed, string> {
     var table = Json.JObject(Map<string, Json> {})
-    var p = skip_blank(s, pos + 1)
-    if is_char_at(s, p, "}") {
+    var p = skip_blank(cs, pos + 1)
+    if at_is(cs, p, "}") {
         return ok(Parsed { value: table, next: p + 1 })
     }
     while true {
-        val key = try parse_key_path(s, p)
-        p = skip_blank(s, key.next)
-        if !is_char_at(s, p, "=") {
-            return err(fail(s, p, "expected '=' after a key"))
+        val key = try parse_key_path(cs, p)
+        p = skip_blank(cs, key.next)
+        if !at_is(cs, p, "=") {
+            return err(fail(cs, p, "expected '=' after a key"))
         }
-        val value = try parse_value(s, skip_blank(s, p + 1))
+        val value = try parse_value(cs, skip_blank(cs, p + 1))
         val updated = descend(table, key.path, 0, 0, value.value)
         if Err(e) = updated {
-            return err(fail(s, p, e))
+            return err(fail(cs, p, e))
         }
         table = unwrap(updated)
-        p = skip_blank(s, value.next)
-        if is_char_at(s, p, ",") {
-            p = skip_blank(s, p + 1)
-        } else if is_char_at(s, p, "}") {
+        p = skip_blank(cs, value.next)
+        if at_is(cs, p, ",") {
+            p = skip_blank(cs, p + 1)
+        } else if at_is(cs, p, "}") {
             return ok(Parsed { value: table, next: p + 1 })
         } else {
-            return err(fail(s, p, "expected ',' or '}' in an inline table"))
+            return err(fail(cs, p, "expected ',' or '}' in an inline table"))
         }
     }
     return err("unreachable")
 }
 
-fn parse_value(s: string, pos: int) -> Result<Parsed, string> {
-    if pos >= len(s) {
+fn parse_value(cs: [string], pos: int) -> Result<Parsed, string> {
+    if pos >= len(cs) {
         return err("unexpected end of input, expected a value")
     }
-    val c = char_at(s, pos)
+    val c = cs[pos]
     if c == "\"" {
-        val str_result = try parse_basic(s, pos)
+        val str_result = try parse_basic(cs, pos)
         return ok(Parsed { value: Json.JString(str_result.text), next: str_result.next })
     }
     if c == "'" {
-        val str_result = try parse_literal(s, pos)
+        val str_result = try parse_literal(cs, pos)
         return ok(Parsed { value: Json.JString(str_result.text), next: str_result.next })
     }
     if c == "[" {
-        return parse_array_value(s, pos)
+        return parse_array_value(cs, pos)
     }
     if c == "{" {
-        return parse_inline_table(s, pos)
+        return parse_inline_table(cs, pos)
     }
-    return parse_scalar_token(s, pos)
+    return parse_scalar_token(cs, pos)
 }
 
 // Every field of `incoming` added to `target`, in order, refusing a key `target` already has.
@@ -551,18 +570,18 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
 }
 
 // After a statement: optional blanks and comment, then a newline or the end.
-fn expect_line_end(s: string, pos: int) -> Result<int, string> {
-    var p = skip_comment(s, skip_blank(s, pos))
-    if p >= len(s) {
+fn expect_line_end(cs: [string], pos: int) -> Result<int, string> {
+    var p = skip_comment(cs, skip_blank(cs, pos))
+    if p >= len(cs) {
         return ok(p)
     }
-    if is_char_at(s, p, "\r") {
+    if at_is(cs, p, "\r") {
         p = p + 1
     }
-    if is_char_at(s, p, "\n") {
+    if at_is(cs, p, "\n") {
         return ok(p + 1)
     }
-    return err(fail(s, p, "expected the end of the line"))
+    return err(fail(cs, p, "expected the end of the line"))
 }
 
 // Writes the table that has been accumulating into the tree. `op` 0 is the keys that come
@@ -583,6 +602,14 @@ fn flush_table(root: Json, pending: Json, path: [string], op: int) -> Result<Jso
 // `line N: ...` for a syntax error, a duplicate key, a table defined twice, a table redefined as a
 // value (or the reverse), or an unsupported value (`inf`, `nan`).
 pub fn parse_toml(text: string) -> Result<Json, string> {
+    // **Decoded once into its characters, and indexed as an array from here on.** Every function
+    // below took `(s: string, pos: int)` and reached position `pos` with `char_at`, which walks from
+    // the start of the string on text that is not all-ASCII -- so a parser threading a character
+    // position over a whole document was quadratic in it. Measured: 62 KB of CJK TOML took 13.7 s,
+    // and a profile put 60% of that in `char_at`/`is_char_at`. Indexing a decoded array is O(1) per
+    // access and costs one pass plus one view per character up front; ASCII input is unaffected,
+    // since there `char_at` was already O(1) and this measures the same.
+    val cs = chars(text)
     var root = Json.JObject(Map<string, Json> {})
     // The table being filled. A key goes in here, not into `root`: the whole table is written
     // into the tree once, when the next header arrives or the document ends. Walking from the
@@ -595,54 +622,54 @@ pub fn parse_toml(text: string) -> Result<Json, string> {
     // at the header that caused it rather than at whatever came next.
     var pending_pos = 0
     var defined = Set<string> {}
-    var p = skip_all(text, 0)
-    while p < len(text) {
-        if is_char_at(text, p, "[") {
-            val is_array = is_char_at(text, p + 1, "[")
-            val header = try parse_key_path(text, p + (if is_array { 2 } else { 1 }))
-            var q = skip_blank(text, header.next)
-            if !is_char_at(text, q, "]") || (is_array && !is_char_at(text, q + 1, "]")) {
-                return err(fail(text, q, "expected ']' to close the table header"))
+    var p = skip_all(cs, 0)
+    while p < len(cs) {
+        if at_is(cs, p, "[") {
+            val is_array = at_is(cs, p + 1, "[")
+            val header = try parse_key_path(cs, p + (if is_array { 2 } else { 1 }))
+            var q = skip_blank(cs, header.next)
+            if !at_is(cs, q, "]") || (is_array && !at_is(cs, q + 1, "]")) {
+                return err(fail(cs, q, "expected ']' to close the table header"))
             }
             q = q + (if is_array { 2 } else { 1 })
             val joined = join(separator: ".", pieces: header.path)
             if !is_array {
                 if contains(defined, joined) {
-                    return err(fail(text, p, format("table [{}] is defined more than once", joined)))
+                    return err(fail(cs, p, format("table [{}] is defined more than once", joined)))
                 }
                 defined = add(defined, joined)
             }
             val flushed = flush_table(root, pending, pending_path, pending_op)
             if Err(e) = flushed {
-                return err(fail(text, pending_pos, e))
+                return err(fail(cs, pending_pos, e))
             }
             root = unwrap(flushed)
             pending = Json.JObject(Map<string, Json> {})
             pending_path = header.path
             pending_op = if is_array { 2 } else { 1 }
             pending_pos = p
-            val after_header = try expect_line_end(text, q)
+            val after_header = try expect_line_end(cs, q)
             p = after_header
         } else {
-            val key = try parse_key_path(text, p)
-            val q = skip_blank(text, key.next)
-            if !is_char_at(text, q, "=") {
-                return err(fail(text, q, "expected '=' after a key"))
+            val key = try parse_key_path(cs, p)
+            val q = skip_blank(cs, key.next)
+            if !at_is(cs, q, "=") {
+                return err(fail(cs, q, "expected '=' after a key"))
             }
-            val value = try parse_value(text, skip_blank(text, q + 1))
+            val value = try parse_value(cs, skip_blank(cs, q + 1))
             val updated = descend(pending, key.path, 0, 0, value.value)
             if Err(e) = updated {
-                return err(fail(text, p, e))
+                return err(fail(cs, p, e))
             }
             pending = unwrap(updated)
-            val after_value = try expect_line_end(text, value.next)
+            val after_value = try expect_line_end(cs, value.next)
             p = after_value
         }
-        p = skip_all(text, p)
+        p = skip_all(cs, p)
     }
     val flushed = flush_table(root, pending, pending_path, pending_op)
     if Err(e) = flushed {
-        return err(fail(text, pending_pos, e))
+        return err(fail(cs, pending_pos, e))
     }
     return ok(unwrap(flushed))
 }

@@ -1,0 +1,19 @@
+tr-value => JObject({ad: JString(Ömer Şahin)})
+cjk-value => JObject({ad: JString(山田太郎)})
+emoji-value => JObject({ad: JString(a😀b)})
+literal-value => JObject({ad: JString(Ömer 日本)})
+multiline-value => JObject({ad: JString(Ömer
+日本
+)})
+bare-ascii-only => ERR line 1: expected a key
+cjk-bare-rejected => ERR line 1: expected a key
+quoted-key => JObject({şehir: JString(İstanbul)})
+literal-key => JObject({名前: JString(山田)})
+quoted-table => JObject({şehir: JObject({a: JNumber(Int(1))})})
+table-array => JObject({kayit: JArray([JObject({ad: JString(山田), sehir: JString(東京)}), JObject({ad: JString(Ömer), sehir: JString(İstanbul)})])})
+inline => JObject({k: JObject({ad: JString(山田), sehir: JString(東京)})})
+array => JObject({k: JArray([JString(Ömer), JString(山田), JString(a😀b)])})
+comment => JObject({ad: JNumber(Int(1))})
+escape => JObject({ad: JString(Öé😀)})
+err-line-3 => ERR line 3: expected a value
+err-after-cjk => ERR line 3: expected '=' after a key

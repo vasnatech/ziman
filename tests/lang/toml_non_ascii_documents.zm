@@ -1,0 +1,49 @@
+// TOML over text that is not ASCII, which is where its parser had both a correctness question and a
+// performance cliff.
+//
+// **Bare keys are ASCII-only by the TOML spec** (`A-Za-z0-9_-`), so `şehir = 1` is genuinely invalid
+// and the quoted form is how you write it. That is checked here because it looks like a bug and is
+// not -- the error messages below are the specified behaviour, not a gap.
+//
+// **The cliff was real.** Every parser function threaded `(s: string, pos: int)` and reached `pos`
+// with `char_at`, which walks from the start of the string unless the text is all-ASCII -- so a
+// parser threading a character position over a whole document was quadratic in it. 62 KB of CJK
+// TOML took 13.7 s. The document is decoded once into its characters now and indexed as an array:
+// the same input takes 61 ms. `tests/bench/toml_scan.zm` measures the scaling.
+use toml
+
+fn t(label: string, text: string) {
+    switch toml.parse_toml(text) {
+        Ok(v) { printf("{} => {}\n", label, v) }
+        Err(e) { printf("{} => ERR {}\n", label, e) }
+    }
+}
+
+fn main() {
+    // values of every width
+    t("tr-value", "ad = \"Ömer Şahin\"\n")
+    t("cjk-value", "ad = \"山田太郎\"\n")
+    t("emoji-value", "ad = \"a😀b\"\n")
+    t("literal-value", "ad = 'Ömer 日本'\n")
+    t("multiline-value", "ad = \"\"\"\nÖmer\n日本\n\"\"\"\n")
+
+    // keys: bare is ASCII-only per the spec, quoted and literal are not
+    t("bare-ascii-only", "şehir = 1\n")
+    t("cjk-bare-rejected", "名前 = 1\n")
+    t("quoted-key", "\"şehir\" = \"İstanbul\"\n")
+    t("literal-key", "'名前' = \"山田\"\n")
+    t("quoted-table", "[\"şehir\"]\na = 1\n")
+
+    // a document with structure, so table headers and arrays of tables are exercised
+    t("table-array", "[[kayit]]\nad = \"山田\"\nsehir = \"東京\"\n\n[[kayit]]\nad = \"Ömer\"\nsehir = \"İstanbul\"\n")
+    t("inline", "k = {ad = \"山田\", sehir = \"東京\"}\n")
+    t("array", "k = [\"Ömer\", \"山田\", \"a😀b\"]\n")
+
+    // comments and escapes are positions too
+    t("comment", "# ş日😀 yorum\nad = 1\n")
+    t("escape", "ad = \"Ö\\u00e9\\U0001F600\"\n")
+
+    // and the error positions must still name the right line through non-ASCII text
+    t("err-line-3", "a = \"日本\"\nb = \"語\"\nc = \n")
+    t("err-after-cjk", "[[t]]\nad = \"山田太郎\"\nbad line here\n")
+}

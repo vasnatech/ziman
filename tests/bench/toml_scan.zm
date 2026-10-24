@@ -1,0 +1,87 @@
+// **TOML's two input regimes, measured apart.**
+//
+// Every parser function in `lib/core/toml.zm` threads a character position over the whole document.
+// `char_at` is O(1) only while the text is all-ASCII (ZSTR_ASCII, src/value.h); off that path it
+// walks from the start of the string, so threading a position over a document was quadratic *in the
+// document*. Measured before the fix: 62 KB of CJK TOML took 13.7 s, with 60% of a profile in
+// `char_at` and `is_char_at`.
+//
+// The document is decoded once into its characters and indexed as an array now, which is O(1) per
+// access in both regimes. The trade this records, so it can be re-judged rather than rediscovered:
+// one array of character views is built up front, which costs nothing at the sizes a config file
+// actually has (a 2 KB config measured the same either way, ~355 us) and about 37% on an unusually
+// large *ASCII* document (486 KB: 345 -> 471 ms). The cliff it removes is three orders of magnitude.
+//
+// Run it directly: `./ziman tests/bench/toml_scan.zm`. Both series must stay linear; a return to
+// quadratic is the regression this exists to catch.
+use clock
+use math
+use os
+use toml
+
+fn doc(unit_text: string, times: int) -> string {
+    val b = mutable_string_new()
+    var i = 0
+    while i < times {
+        append(b, unit_text)
+        i = i + 1
+    }
+    return snapshot(b)
+}
+
+fn parse_ms(text: string) -> int {
+    val started = clock.monotonic_millis()
+    switch toml.parse_toml(text) {
+        Ok(v) {}
+        Err(e) { printf("  PARSE FAILED: {}\n", e) }
+    }
+    return clock.monotonic_millis() - started
+}
+
+fn series(label: string, unit_text: string, counts: [int]) -> [int] {
+    val times = mutable_array_new<int>()
+    print(label)
+    for n in counts {
+        val text = doc(unit_text, n)
+        val ms = parse_ms(text)
+        push(times, ms)
+        printf("  {} chars, {} bytes: {} ms\n", len(text), byte_len(text), ms)
+    }
+    return snapshot(times)
+}
+
+// Linear means the last size costs about (last / first) times the first, not its square. The bound
+// is loose on purpose: these are wall-clock milliseconds, and the failure guarded against is a
+// return to quadratic, which over an 8x span is 64x rather than 8x.
+fn check_linear(label: string, times: [int], span: int) -> bool {
+    val first = math.max(times[0], 1)
+    val last = math.max(times[len(times) - 1], 1)
+    val growth = last / first
+    printf("{}: {}x the input cost {}x the time\n", label, span, growth)
+    if growth > span * 4 {
+        printf("FAIL: {} is not linear\n", label)
+        return false
+    }
+    return true
+}
+
+fn main() {
+    val counts = [800, 1600, 3200, 6400]
+    val ascii = series(
+        "ASCII (the fast path: a character index is a byte index)",
+        "[[record]]\nname = \"Alice Smith\"\ncity = \"Springfield\"\nage = 42\n",
+        counts
+    )
+    val wide = series(
+        "non-ASCII (decoded once, then indexed; this was quadratic until 2026-10-23)",
+        "[[kayit]]\nad = \"山田太郎\"\nsehir = \"東京都渋谷区\"\nyas = 42\n",
+        counts
+    )
+    print("")
+    val ok_ascii = check_linear("ASCII", ascii, 8)
+    val ok_wide = check_linear("non-ASCII", wide, 8)
+    if !ok_ascii || !ok_wide {
+        os.exit(1)
+    }
+    print("ok   both regimes are linear")
+}
