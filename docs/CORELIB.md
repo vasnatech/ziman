@@ -732,13 +732,19 @@ pub native fn ceil_float(x: float) -> float
 
 pub native fn round_float(x: float) -> float
 
-pub native fn decimal_round(d: decimal, scale: int) -> decimal
+pub native fn floor(d: decimal) -> bigint
 
-pub native fn decimal_floor(d: decimal, scale: int) -> decimal
+pub native fn ceil(d: decimal) -> bigint
 
-pub native fn decimal_ceil(d: decimal, scale: int) -> decimal
+pub native fn round(d: decimal) -> bigint
 
-pub native fn decimal_pow(base: decimal, exponent: int) -> decimal
+pub native fn round(d: decimal, scale: int) -> decimal
+
+pub native fn floor(d: decimal, scale: int) -> decimal
+
+pub native fn ceil(d: decimal, scale: int) -> decimal
+
+pub native fn pow(base: decimal, exponent: int) -> decimal
 
 pub fn is_nan(x: float) -> bool
 

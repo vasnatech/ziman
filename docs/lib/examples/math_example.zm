@@ -14,7 +14,7 @@ fn main() {
     print(math.ceil_float(1.2))
 
     // decimal rounds to a scale, exactly, and raises to a whole-number power exactly.
-    print(math.decimal_round(1.235d, 2))
-    print(math.decimal_floor(-1.21d, 1))
-    print(math.decimal_pow(1.5d, 2))
+    print(math.round(1.235d, 2))
+    print(math.floor(-1.21d, 1))
+    print(math.pow(1.5d, 2))
 }

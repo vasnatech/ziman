@@ -1,5 +1,5 @@
 use math
 
 fn main() {
-    print(math.decimal_pow(2d, -1))
+    print(math.pow(2d, -1))
 }

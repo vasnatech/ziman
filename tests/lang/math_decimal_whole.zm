@@ -1,0 +1,46 @@
+// **`floor`/`ceil`/`round` of a `decimal` answer a `bigint`**, where the `float` members answer an
+// `int`. A `decimal` is arbitrary-precision, so its whole part can exceed 2^63 and an `int` would
+// have to overflow or lie; a `float` cannot hold a whole number that large to begin with, which is
+// why its members can answer an `int` honestly.
+//
+// Each name is one overload set of three -- `(float)`, `(decimal)`, `(decimal, int)` -- told apart
+// by the argument, which is also what let `decimal_round`/`_floor`/`_ceil`/`_pow` drop the prefix.
+// The `_float` trio cannot join them: `floor(x: float) -> int` and `floor_float(x: float) -> float`
+// take the identical argument and differ only in what they answer, and overload resolution does
+// not look at return types.
+use math
+
+fn main() {
+    // float members: unchanged
+    print(math.floor(-1.5))
+    print(math.ceil(-1.5))
+    print(math.round(2.5))
+    print(math.round(-2.5))
+
+    // decimal members: a bigint, with the same rounding rules
+    print(math.floor(1.9d))
+    print(math.floor(-1.5d))
+    print(math.ceil(1.1d))
+    print(math.ceil(-1.9d))
+    print(math.round(2.5d))
+    print(math.round(-2.5d))
+    print(math.round(2.4d))
+
+    // exactly on a whole number, each direction
+    print(math.floor(7d))
+    print(math.ceil(7d))
+    print(math.round(7d))
+
+    // past int's range, which is the reason for bigint
+    print(math.floor(99999999999999999999.9d))
+    print(math.ceil(-99999999999999999999.9d))
+
+    // the scale forms still answer a decimal, chosen by the second argument
+    print(math.round(1.235d, 2))
+    print(math.floor(1.29d, 1))
+    print(math.ceil(1.21d, 1))
+    print(math.pow(1.5d, 2))
+
+    // and the float `pow` is still there, told apart by its arguments
+    print(math.pow(2.0, 10.0))
+}

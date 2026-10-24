@@ -5,6 +5,6 @@ fn main() {
     print(2d / 3d)
     print(-2d / 3d)
     print(10.5d % 3d)
-    print(math.decimal_round(1.2345d, 2))
-    print(math.decimal_round(1.2365d, 2))
+    print(math.round(1.2345d, 2))
+    print(math.round(1.2365d, 2))
 }

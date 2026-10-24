@@ -233,15 +233,17 @@ fn main() {
     val total = 19.99d + (19.99d * 0.0825d)
     print(total)             // 21.639175 -- exact, no binary rounding drift
     print(10d / 3d)          // 3 -- rounds half-up to the operands' own scale
-    print(math.decimal_round(1.2345d, 2))  // 1.23 (`use math`)
+    print(math.round(1.2345d, 2))  // 1.23 (`use math`)
 }
 ```
 
 **`decimal`**: literal needs `d` (`19.99d`, `20d`; bare digits always mean `float`/`int`).
 All of `float`'s operators/builtins work, plus `parse_decimal` and
-`math.decimal_round(d, scale)` (a separate name rather than a `round` overload: the two would
-take the same argument types and differ only in what they return, which no argument list can
-tell apart — see "Overloading"). `+`/`-` align scale first and are always exact; `*`
+`math.round(d, scale)` — a member of `round`'s overload set, not a separate name: it takes a
+`decimal` where the `float` member takes a `float`, which is exactly what resolution reads.
+(This section claimed the opposite until 2026-10-24, saying the two "differ only in what they
+return"; that is true of `round`/`round_float`, both of which take a `float`, and was transplanted
+onto a pair it does not describe.) `+`/`-` align scale first and are always exact; `*`
 needs no alignment and is exact; `/` doesn't always terminate, so it rounds
 half-up-away-from-zero to `max(a.scale, b.scale)` (`10d / 3d` is `3`, `-2d / 3d` is `-1`);
 `%` is an exact remainder, no rounding. Division/modulo by zero is a runtime error.
@@ -2559,7 +2561,7 @@ fn main() {
   `0`-vs-`#` distinction, no `%`, no `E`, no `;`-separated subpatterns, no literal prefix/suffix
   text, no custom grouping sizes.
 - **Forcing fewer decimal places truncates, never rounds** (rounding is `math.round`/
-  `decimal_round`'s job). **Scientific notation passes through unchanged** -- `float`'s `str()`
+  `math.round`'s job). **Scientific notation passes through unchanged** -- `float`'s `str()`
   switches to it past 6 significant digits, where grouping/place-forcing has no sensible
   meaning, so `format_number` checks for `"e"`/`"E"` first rather than mangling it.
 - **Hex covers the three integral types**: `byte_to_hex`/`_from_hex`, `int_to_hex`/`_from_hex`,
@@ -2601,11 +2603,13 @@ fn main() {
   moved here (with the `decimal_*` functions below) from bare prelude builtins -- `floor(x)`
   alone is now undefined; write `math.floor(x)`.
 - **No decimal equivalent for the irrational ones** (`sqrt`/`exp`/`log`/`sin`/`cos`/`tan`) --
-  cast through `float` and round with `decimal_round`. `math.decimal_round`/`_floor`/`_ceil`
-  (to a given scale: nearest-away-from-zero, toward -inf, toward +inf) and
-  `math.decimal_pow(base, exponent)` (non-negative integer power) *are* exact. A negative
+  cast through `float` and round with `math.round`. `math.round`/`floor`/`ceil` of a `decimal`
+  *are* exact: with a second argument they round to that scale (nearest-away-from-zero, toward
+  -inf, toward +inf) and answer a `decimal`; with none they answer the whole number as a
+  **`bigint`**, since a decimal's whole part can exceed 2^63 where a float's cannot.
+  `math.pow(base: decimal, exponent: int)` is an exact non-negative integer power. A negative
   `exponent` is a runtime error naming `numerator / decimal_pow(base, -exponent)` instead --
-  there's no scale to pick for that division on `decimal_pow`'s own.
+  there's no scale to pick for that division on `math.pow`'s own.
 
 ## The `bits` module
 
@@ -3129,7 +3133,7 @@ reaches the builtin past it, and is the only way to.
   convention), at least one value required (`math.min()` is a compile error, an empty array a
   runtime one), every argument the same `T` with no implicit mixing. The prelude is the names a
   program gets without asking, and arithmetic beyond the operators is not among them.
-- Rounding (`floor`/`ceil`/`round`, `decimal_round`/`_floor`/`_ceil`) and `decimal_pow` are in
+- Rounding (`floor`/`ceil`/`round`, `math.round`/`_floor`/`_ceil`) and `math.pow` are in
   the `math` module too, and always were.
 - `push(arr: [T], values: variadic T) -> [T]` — new array with the values appended;
   `arr = push(arr, x)` in a loop is amortised O(1) (the result keeps spare room the *newest*

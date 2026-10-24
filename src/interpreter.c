@@ -474,6 +474,14 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
                 else if (p0.kind == TY_BYTE) prefix = "byte_";
                 else if (p0.kind == TY_INT) prefix = "int_";
                 else if (p0.kind == TY_BIGINT) prefix = "bigint_";
+                /* `math` completed the scalar set (2026-10-24): `floor` is a `float` operation
+                 * answering an `int` and a `decimal` operation answering a `bigint`, which is two
+                 * implementations under one name. **Parameter one is all this reads**, so two
+                 * members of the same first type -- `floor(d)` and `floor(d, scale)` -- land on
+                 * the same symbol and that one C function dispatches on `argc`, the way
+                 * `to_upper`'s two arities already do. */
+                else if (p0.kind == TY_FLOAT) prefix = "float_";
+                else if (p0.kind == TY_DECIMAL) prefix = "decimal_";
                 /* F213: `index_of` is the first set whose members are a `string` and an `[T]`, so
                  * the string world needed a prefix of its own. Every other string native is still
                  * registered under its bare name and so never reaches this fallback at all. */

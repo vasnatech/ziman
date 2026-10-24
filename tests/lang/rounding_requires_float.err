@@ -1,1 +1,1 @@
-argument 1 of 'math::floor' expects float, found int
+no declaration of 'math::floor' accepts its argument 1

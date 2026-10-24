@@ -222,7 +222,7 @@ does, and `abs` and `len` now resolve from their own declarations rather
 than a hand-written arm -- they stay core because moving them buys
 nothing, not because they cannot move). Everything else that has exactly one
 fixed signature — `parse_int`, `parse_float`, `parse_bigint`,
-`parse_decimal`, `floor`, `ceil`, `round`, `decimal_round`, `concat`,
+`parse_decimal`, `floor`, `ceil`, `round`, `math.round`, `concat`,
 `substring`, `split`, `trim`, `to_upper`, `to_lower`, `join` — instead
 lives in an auto-imported "prelude" module (`lib/prelude/`), each
 an ordinary `native fn` using the same mechanism the `fs` module uses to

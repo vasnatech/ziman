@@ -172,18 +172,33 @@ static Value native_math_round(Value *args, int argc, int line, int col) {
     return value_int((int64_t)round(args[0].as.f));
 }
 
+/* ---- the decimal roundings, two arities each -------------------------------------------------
+ *
+ * One symbol per operation serves both `floor(d)` and `floor(d, scale)`, because the declaration-
+ * to-symbol fallback reads parameter one's type and both members are a `decimal` -- the same
+ * single-registration shape `to_upper`'s two arities use (src/prelude.c).
+ *
+ * **The one-argument form answers a `bigint`, not an `int`.** A `decimal` is arbitrary-precision,
+ * so its whole part can exceed 2^63 and an `int` would have to either overflow or lie; the `float`
+ * members answer an `int` because a `float` cannot hold a whole number that large to begin with.
+ * It is computed as the scale-0 rounding followed by an exact conversion: at scale 0 there is
+ * nothing left for `decimal_to_bignum_trunc` to truncate, so the floor/ceil/half-away choice is
+ * made by the decimal rounding and not quietly re-made by the conversion. */
 static Value native_math_decimal_round(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
+    (void)line; (void)col;
+    if (argc == 1) return value_bigint(decimal_to_bignum_trunc(decimal_round(*args[0].as.dec, 0)));
     return value_decimal(decimal_round(*args[0].as.dec, (int)args[1].as.i));
 }
 
 static Value native_math_decimal_floor(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
+    (void)line; (void)col;
+    if (argc == 1) return value_bigint(decimal_to_bignum_trunc(decimal_floor(*args[0].as.dec, 0)));
     return value_decimal(decimal_floor(*args[0].as.dec, (int)args[1].as.i));
 }
 
 static Value native_math_decimal_ceil(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
+    (void)line; (void)col;
+    if (argc == 1) return value_bigint(decimal_to_bignum_trunc(decimal_ceil(*args[0].as.dec, 0)));
     return value_decimal(decimal_ceil(*args[0].as.dec, (int)args[1].as.i));
 }
 
@@ -205,7 +220,13 @@ void native_math_register(void) {
     native_register("math::min", native_math_min);
     native_register("math::max", native_math_max);
     native_register("math::sqrt", native_math_sqrt);
-    native_register("math::pow", native_math_pow);
+    /* **No bare `math::pow`/`floor`/`ceil`/`round`.** Each of those names now has a `float`
+     * member and a `decimal` one, and `native_lookup(fn->name)` is consulted before the
+     * world-prefix fallback -- so a bare registration would be found first and run the float
+     * implementation on a decimal. The same trap `char_at` and `last_index_of` fell into.
+     * `abs`/`min`/`max` keep theirs: one C function serves all their members by inspecting the
+     * value, so there is nothing for the fallback to tell apart. */
+    native_register("math::float_pow", native_math_pow);
     native_register("math::exp", native_math_exp);
     native_register("math::log", native_math_log);
     native_register("math::sin", native_math_sin);
@@ -218,9 +239,9 @@ void native_math_register(void) {
     native_register("math::floor_float", native_math_floor_float);
     native_register("math::ceil_float", native_math_ceil_float);
     native_register("math::round_float", native_math_round_float);
-    native_register("math::floor", native_math_floor);
-    native_register("math::ceil", native_math_ceil);
-    native_register("math::round", native_math_round);
+    native_register("math::float_floor", native_math_floor);
+    native_register("math::float_ceil", native_math_ceil);
+    native_register("math::float_round", native_math_round);
     native_register("math::decimal_round", native_math_decimal_round);
     native_register("math::decimal_floor", native_math_decimal_floor);
     native_register("math::decimal_ceil", native_math_decimal_ceil);

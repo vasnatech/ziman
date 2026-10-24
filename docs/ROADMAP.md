@@ -1755,7 +1755,7 @@ from source.
     `use` required and never qualified, the one deliberate exception to
     "every cross-module reference is qualified." `parse_int`/
     `parse_float`/`parse_bigint`/`parse_decimal`/`floor`/`ceil`/`round`/
-    `decimal_round`/`concat`/`substring`/`split`/`trim`/`to_upper`/
+    `math.round`/`concat`/`substring`/`split`/`trim`/`to_upper`/
     `to_lower` moved there — every one of them has exactly one fixed
     signature, so `typecheck.c`/`interpreter.c` needed zero new dispatch
     code for them; the *existing*, fully generic native-fn machinery
@@ -2017,10 +2017,10 @@ from source.
   trailing-zero scale differences (`1.0d == 1.00d` is `true`,
   deliberately diverging from Java's well-known `BigDecimal.equals()`
   gotcha where scale participates in `equals()` but not `compareTo()`);
-  `decimal_round(d, scale)` is the `floor`/`ceil`/`round` equivalent (a
+  `math.round(d, scale)` is the `floor`/`ceil`/`round` equivalent (a
   separate name, not an overload — when this was written a native took
   exactly one signature per name; **since F184 it does not**, and
-  `round(x: float) -> int` against `decimal_round(d: decimal, scale:
+  `round(x: float) -> int` against `math.round(d: decimal, scale:
   int) -> decimal` differ in argument one, so merging them into one
   `round` set is now possible and simply has not been argued for. See
   "Relaxing the no-overloading rule"). A literal needs an explicit `d` suffix (`19.99d`,
@@ -3039,7 +3039,7 @@ from source.
 - **`format`/`str` follow-ups -- done (D2); one idea left.** `str`/`print`/`format` display a `float` as the
   shortest round-trip text; `format` has `{:.N}` precision (float and decimal) and `{{`/`}}` escapes;
   `format_dynamic(template, args)` is `format` for a runtime template; float exponent literals (`1e3`,
-  `1.5e-10`) lex; there is a `math` module and `decimal_pow`/`decimal_floor`/`decimal_ceil`. Not done, and not
+  `1.5e-10`) lex; there is a `math` module and `math.pow`/`math.floor`/`math.ceil`. Not done, and not
   needed yet: indexed placeholders (`{0}`, `{1}`) so a translation can reorder its arguments -- the case that
   would justify them is a message catalog whose languages put the pieces in different orders; `format_dynamic`
   would take them first.

@@ -195,6 +195,7 @@ them against the code.
 - [`jwt`: one `sign`, one dead function gone, and algorithm pinning (2026-10-24)](#jwt-one-sign-one-dead-function-gone-and-algorithm-pinning-2026-10-24)
 - [`log`: the `Level` family loses its prefix, and `format` stops padding (2026-10-24)](#log-the-level-family-loses-its-prefix-and-format-stops-padding-2026-10-24)
 - [`markdown` drops the stutter, and the whole module was already qualified (2026-10-24)](#markdown-drops-the-stutter-and-the-whole-module-was-already-qualified-2026-10-24)
+- [`math`: the decimal roundings join their float namesakes, and answer a `bigint` (2026-10-24)](#math-the-decimal-roundings-join-their-float-namesakes-and-answer-a-bigint-2026-10-24)
 
 <!-- end index -->
 
@@ -8201,3 +8202,19 @@ Nothing else here wanted changing. `with_prefix` and `with_request_id` have iden
 That is the pattern across the five modules renamed today: the cost of taking a short name is paid entirely by files that *bare-import* it, and the modules that were always called qualified cost nothing at all. It is also an argument for the qualified style as the default, which `bits` and `json` both now say outright in their own documentation.
 
 Nothing else in the module wanted changing. `text_table` and `text_list` keep their prefix, which is not the type but the *input*: they build a `Block` from plain `string`s where the richer builders take `[Inline]`, and `table(headers, alignments, rows)` would hide that distinction rather than shorten it.
+
+## `math`: the decimal roundings join their float namesakes, and answer a `bigint` (2026-10-24)
+
+`math.zm`'s names were already bare verbs -- `abs`, `sqrt`, `floor`, `round` -- with one family carrying a type it did not need to. `decimal_round(d, scale)` takes a `decimal` where `round(x)` takes a `float`, which is exactly what overload resolution reads, so `round`, `floor`, `ceil` and `pow` each became one set and the `decimal_` prefix went.
+
+**The file said this could not be done, and the reason it gave was wrong.** SYNTAX.md's decimal section had `decimal_round` as "a separate name rather than a `round` overload: the two would take the same argument types and differ only in what they return, which no argument list can tell apart". That sentence is true of `round` and `round_float` -- both take a `float` -- and had been transplanted onto a pair it does not describe. Checked by building it rather than by re-reading the claim: `round(2.5)` is `3`, `round(1.235d, 2)` is `1.24`, and `round(2, 3)` is a clear "argument 1 expects decimal, found int" rather than an ambiguity, because there is no implicit int-to-decimal conversion to make one.
+
+**`floor`/`ceil`/`round` of a `decimal` answer a `bigint`, not an `int`.** A `decimal` is arbitrary-precision, so its whole part can exceed 2^63 and an `int` would have to overflow or lie; `math.floor(99999999999999999999.9d)` is a case the fixture pins. The `float` members answer an `int` honestly because a `float` cannot hold a whole number that large to begin with. Computed as the scale-0 rounding followed by an exact conversion, so the floor/ceil/half-away choice is made by the decimal rounding and not quietly re-made by `decimal_to_bignum_trunc`.
+
+**What this cost in the interpreter, and the shape of it.** Each of those names now has two native implementations, and `native_lookup(fn->name)` runs before the world-prefix fallback -- so the bare `math::round` registration had to go, or it would have been found first and run the float code on a decimal. That is the third time this trap has come up (`char_at`, `last_index_of`, now here), and the fix is the same: register `math::float_round` and `math::decimal_round`, and let the fallback derive which from parameter one's type. The fallback gained `float_` and `decimal_` prefixes, completing the scalar set `bits` started this morning with `byte_`/`int_`/`bigint_`.
+
+The fallback reads **parameter one only**, which matters here: `floor(d)` and `floor(d, scale)` are both a `decimal` and so land on the same symbol. One C function dispatches on `argc`, the way `to_upper`'s two arities already do -- the alternative would be teaching the fallback about arity, for one caller.
+
+`abs`, `min` and `max` keep their bare registrations and need none of this: one C function serves all of `abs`'s four declarations by inspecting the value, so there is nothing for the fallback to tell apart.
+
+**`floor_float`/`ceil_float`/`round_float` keep their suffix, and the module now says why.** They take the identical `float` argument as the members above and differ only in answering a `float` rather than an `int`, which no argument list can state -- the same constraint that keeps `fs.read_text` and `fs.read_bytes` apart. It is worth having written down beside them, because the next reader will otherwise try exactly what I just did to the `decimal` family and find out the hard way.

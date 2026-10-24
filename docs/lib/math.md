@@ -33,9 +33,9 @@ fn main() {
     print(math.ceil_float(1.2))
 
     // decimal rounds to a scale, exactly, and raises to a whole-number power exactly.
-    print(math.decimal_round(1.235d, 2))
-    print(math.decimal_floor(-1.21d, 1))
-    print(math.decimal_pow(1.5d, 2))
+    print(math.round(1.235d, 2))
+    print(math.floor(-1.21d, 1))
+    print(math.pow(1.5d, 2))
 }
 ```
 
@@ -251,8 +251,14 @@ pub native fn round(x: float) -> int
 pub native fn floor_float(x: float) -> float
 ```
 
-The same three roundings, but the result stays a `float`: `floor` and friends convert to `int`,
-which loses magnitude past 2^63 and can't represent NaN or infinity.
+The same three roundings of a `float`, but the result stays a `float`: the members above convert
+to `int`, which loses magnitude past 2^63 and can't represent NaN or infinity.
+
+**These keep a suffix because nothing else can tell them apart.** `floor(x: float) -> int` and
+`floor_float(x: float) -> float` take the identical argument and differ only in what they
+answer, and overload resolution does not look at return types -- the same reason `fs` has
+`read_text` and `read_bytes` rather than one `read`. The `decimal` members below need no suffix
+because their *argument* says which they are.
 
 ### `ceil_float`
 
@@ -266,43 +272,66 @@ pub native fn ceil_float(x: float) -> float
 pub native fn round_float(x: float) -> float
 ```
 
-### `decimal_round`
+### `floor`
 
 ```
-pub native fn decimal_round(d: decimal, scale: int) -> decimal
+pub native fn floor(d: decimal) -> bigint
 ```
 
-`d` rounded to `scale` decimal places, halves away from zero: `decimal_round(1.235d, 2)` is 1.24.
+**The same three questions of a `decimal`, answering a `bigint`.** `floor(1.9d)` is `1n`,
+`floor(-1.5d)` is `-2n`, `round(2.5d)` is `3n`, `ceil(1.1d)` is `2n`.
 
-### `decimal_floor`
+A `bigint` rather than an `int` because a `decimal` is arbitrary-precision: its whole part can
+exceed 2^63, where an `int` would have to overflow or lie. The `float` members above answer an
+`int` because a `float` cannot hold a whole number that large to begin with.
 
-```
-pub native fn decimal_floor(d: decimal, scale: int) -> decimal
-```
-
-`d` rounded down to `scale` decimal places, toward negative infinity: `decimal_floor(1.29d, 1)`
-is 1.2, `decimal_floor(-1.21d, 1)` is -1.3.
-
-### `decimal_ceil`
+### `ceil`
 
 ```
-pub native fn decimal_ceil(d: decimal, scale: int) -> decimal
+pub native fn ceil(d: decimal) -> bigint
 ```
 
-`d` rounded up to `scale` decimal places, toward positive infinity: `decimal_ceil(1.21d, 1)`
-is 1.3, `decimal_ceil(-1.29d, 1)` is -1.2.
-
-### `decimal_pow`
+### `round`
 
 ```
-pub native fn decimal_pow(base: decimal, exponent: int) -> decimal
+pub native fn round(d: decimal) -> bigint
 ```
 
-`base` to a non-negative integer `exponent`, exact: `decimal_pow(1.5d, 2)` is 2.25. A runtime
+```
+pub native fn round(d: decimal, scale: int) -> decimal
+```
+
+`d` rounded to `scale` decimal places, halves away from zero: `round(1.235d, 2)` is 1.24.
+
+### `floor`
+
+```
+pub native fn floor(d: decimal, scale: int) -> decimal
+```
+
+`d` rounded down to `scale` decimal places, toward negative infinity: `floor(1.29d, 1)`
+is 1.2, `floor(-1.21d, 1)` is -1.3.
+
+### `ceil`
+
+```
+pub native fn ceil(d: decimal, scale: int) -> decimal
+```
+
+`d` rounded up to `scale` decimal places, toward positive infinity: `ceil(1.21d, 1)`
+is 1.3, `ceil(-1.29d, 1)` is -1.2.
+
+### `pow`
+
+```
+pub native fn pow(base: decimal, exponent: int) -> decimal
+```
+
+`base` to a non-negative integer `exponent`, exact: `pow(1.5d, 2)` is 2.25. A runtime
 error if `exponent` is negative -- there's no one right scale to round a negative power's
-division to (see docs/DESIGN.md); `numerator / decimal_pow(base, -exponent)` gets it,
+division to (see docs/DESIGN.md); `numerator / pow(base, -exponent)` gets it,
 `numerator`'s own scale picking `/`'s target the same way it does for any other division
-(e.g. `1.0000d / decimal_pow(2d, 3)` is `0.1250`; a bare `1d`, scale 0, would round to `0`).
+(e.g. `1.0000d / pow(2d, 3)` is `0.1250`; a bare `1d`, scale 0, would round to `0`).
 
 ### `is_nan`
 

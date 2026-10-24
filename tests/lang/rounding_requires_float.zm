@@ -1,3 +1,9 @@
+// An `int` is neither a `float` nor a `decimal`, and this language does not convert one to the
+// other behind your back -- so `math.floor(5)` is a compile error rather than a no-op returning 5.
+//
+// The message now lists all three declarations of `floor`, which it could not before `decimal`
+// members joined the set: it used to name `float` alone, and a reader who actually had a decimal
+// in hand learned nothing from it.
 use math
 
 fn main() {
