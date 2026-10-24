@@ -190,7 +190,7 @@ fn at_is(cs: [string], p: int, c: string) -> bool {
     return p >= 0 && p < len(cs) && cs[p] == c
 }
 
-fn text_of(cs: [string], a: int, b: int) -> string {
+fn span_text(cs: [string], a: int, b: int) -> string {
     return concat(slice<string>(cs, a, b))
 }
 
@@ -445,7 +445,7 @@ fn flow_scalar(cs: [string], pos: int, is_key: bool, no: int) -> Result<Scalar, 
         }
         p = p + 1
     }
-    val value = try plain_scalar(trim(text_of(cs, pos, p)), no)
+    val value = try plain_scalar(trim(span_text(cs, pos, p)), no)
     return ok(Scalar { value: value, next: p })
 }
 
@@ -512,7 +512,7 @@ fn flow_map(cs: [string], pos: int, no: int, depth: int) -> Result<Scalar, strin
         // unless it was quoted: `Json` only has string keys, and keeping the literal text for
         // an unquoted key (`0x1A: v`, `true: v`) avoids silently renormalizing it to a
         // different string (e.g. its decimal value, or its own canonical casing).
-        val key_text = if Json.is_JString(key.value) { Json.unwrap_JString(key.value) } else { trim(text_of(
+        val key_text = if Json.is_JString(key.value) { Json.unwrap_JString(key.value) } else { trim(span_text(
             cs,
             p,
             key.next

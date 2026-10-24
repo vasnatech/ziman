@@ -403,7 +403,7 @@ fn at_is(cs: [string], p: int, c: string) -> bool {
 
 // The text of characters `a` up to `b` -- what `substring(s, a, b)` answered. `concat` over one
 // array argument spreads, so it is a single allocation of the final size.
-fn text_of(cs: [string], a: int, b: int) -> string {
+fn span_text(cs: [string], a: int, b: int) -> string {
     return concat(slice<string>(cs, a, b))
 }
 
@@ -516,7 +516,7 @@ fn read_name(cs: [string], pos: int) -> Result<PStr, string> {
     while is_name_char(cs, p) {
         p = p + 1
     }
-    return ok(PStr { text: text_of(cs, pos, p), next: p })
+    return ok(PStr { text: span_text(cs, pos, p), next: p })
 }
 
 // A character XML cannot carry at all: a C0 control other than tab, newline or return. There is
@@ -579,7 +579,7 @@ fn read_reference(cs: [string], pos: int, out: MutableString) -> Result<int, str
     if end < 0 {
         return err(fail(cs, pos, "an entity reference with no ';'"))
     }
-    val body = text_of(cs, pos + 1, end)
+    val body = span_text(cs, pos + 1, end)
     if body == "lt" {
         append(out, "<")
     } else if body == "gt" {
@@ -803,7 +803,7 @@ fn read_comment(cs: [string], pos: int) -> Result<PStr, string> {
     if end < 0 {
         return err(fail(cs, pos, "a comment that is never closed"))
     }
-    val body = text_of(cs, pos + 4, end)
+    val body = span_text(cs, pos + 4, end)
     if index_of(body, "--", 0) >= 0 {
         return err(fail(cs, pos, "'--' cannot appear inside a comment"))
     }
@@ -815,7 +815,7 @@ fn read_cdata(cs: [string], pos: int) -> Result<PStr, string> {
     if end < 0 {
         return err(fail(cs, pos, "a CDATA section that is never closed"))
     }
-    return ok(PStr { text: text_of(cs, pos + 9, end), next: end + 3 })
+    return ok(PStr { text: span_text(cs, pos + 9, end), next: end + 3 })
 }
 
 fn read_pi(cs: [string], pos: int) -> Result<PNode, string> {
@@ -827,7 +827,7 @@ fn read_pi(cs: [string], pos: int) -> Result<PNode, string> {
     if end < 0 {
         return err(fail(cs, pos, "a processing instruction that is never closed"))
     }
-    val data = trim(text_of(cs, target.next, end))
+    val data = trim(span_text(cs, target.next, end))
     return ok(PNode {
         node: Node.ProcessingInstruction(Instruction { target: target.text, data: data }),
         next: end + 2
@@ -837,7 +837,7 @@ fn read_pi(cs: [string], pos: int) -> Result<PNode, string> {
 // `<!...` is a comment, a CDATA section, or a DTD. The last is refused: see the module header.
 
 fn read_bang(cs: [string], pos: int) -> Result<PNode, string> {
-    // Tested against the document in place. This built `text_of(cs, pos, len(cs))` first -- a copy
+    // Tested against the document in place. This built `span_text(cs, pos, len(cs))` first -- a copy
     // of the whole remaining document, per `<!`, to look at four characters. It was free before the
     // parser took characters, `substring` on a string being a view rather than a copy, and that is
     // what made the straight translation 26x slower on ASCII input than the string version.

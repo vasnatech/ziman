@@ -71,7 +71,7 @@ fn at_is(cs: [string], p: int, c: string) -> bool {
 
 // The text of characters `a` up to `b`, which is what `substring(s, a, b)` answered. `concat` over
 // one array argument spreads, so this is a single allocation of the final size.
-fn text_of(cs: [string], a: int, b: int) -> string {
+fn span_text(cs: [string], a: int, b: int) -> string {
     return concat(slice<string>(cs, a, b))
 }
 
@@ -265,10 +265,10 @@ fn parse_literal(cs: [string], pos: int) -> Result<PStr, string> {
     val start = p
     while p < len(cs) {
         if multi && at_is(cs, p, "'") && at_is(cs, p + 1, "'") && at_is(cs, p + 2, "'") {
-            return ok(PStr { text: text_of(cs, start, p), next: p + 3 })
+            return ok(PStr { text: span_text(cs, start, p), next: p + 3 })
         }
         if !multi && at_is(cs, p, "'") {
-            return ok(PStr { text: text_of(cs, start, p), next: p + 1 })
+            return ok(PStr { text: span_text(cs, start, p), next: p + 1 })
         }
         if !multi && (at_is(cs, p, "\n") || at_is(cs, p, "\r")) {
             return err(fail(cs, p, "a literal string cannot span lines (use ''' for that)"))
@@ -294,7 +294,7 @@ fn parse_key_part(cs: [string], pos: int) -> Result<PStr, string> {
     if p == pos {
         return err(fail(cs, pos, "expected a key"))
     }
-    return ok(PStr { text: text_of(cs, pos, p), next: p })
+    return ok(PStr { text: span_text(cs, pos, p), next: p })
 }
 
 // `a.b."c d"` -- dotted key, whitespace allowed around the dots.
@@ -392,7 +392,7 @@ fn parse_scalar_token(cs: [string], pos: int) -> Result<Parsed, string> {
     if p == pos {
         return err(fail(cs, pos, "expected a value"))
     }
-    var tok = text_of(cs, pos, p)
+    var tok = span_text(cs, pos, p)
     if tok == "true" {
         return ok(Parsed { value: Json.JBool(true), next: p })
     }
@@ -405,7 +405,7 @@ fn parse_scalar_token(cs: [string], pos: int) -> Result<Parsed, string> {
         while q < len(cs) && !contains(" \t\n\r,]}#", cs[q]) {
             q = q + 1
         }
-        tok = text_of(cs, pos, q)
+        tok = span_text(cs, pos, q)
         p = q
     }
     val n = number_token(tok)
