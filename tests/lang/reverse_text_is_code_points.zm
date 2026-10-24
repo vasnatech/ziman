@@ -1,0 +1,43 @@
+// `reverse` on text turns code points around, not bytes -- reversing the bytes of UTF-8 is the
+// classic way to corrupt it. It became a native on 2026-10-23, where it had been ordinary Ziman
+// folding `chars(s)` with `concat` in a loop: the quadratic string build, 54 ms for 16,000
+// characters. One allocation and one pass now, and ASCII text does not get decoded at all.
+//
+// What this pins beyond the obvious: that the *result* carries the right ZSTR_ASCII, which is not
+// visible in what it prints. The reversal of non-ASCII text is still non-ASCII (a reversal moves
+// bytes without changing them), so if the flag were set wrongly the fast paths in `index_of` and
+// `char_at` would answer byte offsets on it -- which is what the last three checks look for.
+fn main() {
+    // one character of each width, then mixtures
+    print(reverse("abc"))
+    print(reverse("äöü"))
+    print(reverse("日本語"))
+    print(reverse("a😀b😀c"))
+    print(reverse("héllo wörld 日本 😀"))
+
+    // the degenerate cases
+    printf("[{}][{}][{}]\n", reverse(""), reverse("x"), reverse("😀"))
+
+    // a reversal preserves both counts and round-trips
+    val m = "aä日😀b"
+    printf(
+        "len {} -> {}, byte_len {} -> {}, round trip {}\n",
+        len(m),
+        len(reverse(m)),
+        byte_len(m),
+        byte_len(reverse(m)),
+        reverse(reverse(m)) == m
+    )
+
+    // the result is text the rest of the family reads in characters, not a byte blob
+    val r = reverse("héllo")
+    printf("{} {} {}\n", char_at(r, 0), index_of(r, "é", 0), chars(r))
+    print(substring(r, 0, 3))
+
+    // the boundary that keeps invalid UTF-8 out in the first place; reaching `reverse` with it
+    // takes `append_byte`, and raises -- see reverse_invalid_utf8_rejected
+    switch bytes_to_string([104b, 195b]) {
+        Ok(v) { print("unexpectedly accepted") }
+        Err(e) { print("bytes_to_string refuses it at the boundary") }
+    }
+}

@@ -1,0 +1,10 @@
+// `reverse` walks code points, so it raises on text that is not valid UTF-8 -- the same judgement
+// `chars` makes, and the same one it inherited by being written in terms of `chars` before becoming
+// a native on 2026-10-23. `append_byte` is the only way to reach it with such a string, and it
+// takes raw bytes on purpose so text can be assembled from a decoder.
+fn main() {
+    val b = mutable_string_new()
+    append(b, "h")
+    append_byte(b, 195b)  // a lone lead byte, missing its continuation
+    print(reverse(snapshot(b)))
+}

@@ -1510,6 +1510,45 @@ static Value native_truncate(Value *args, int argc, int line, int col) {
     return string_slice(args[0], 0, pos);
 }
 
+/* `s` with its code points in the opposite order -- code points, not bytes, because reversing the
+ * bytes of UTF-8 is the classic way to corrupt it.
+ *
+ * **Was ordinary Ziman until it was measured.** It read `chars(s)` into an array and folded it with
+ * `concat` in a loop, which is the quadratic string build: each `concat` allocates a fresh buffer
+ * and copies everything accumulated so far, so reversing 16,000 characters took 54 ms and 8,000
+ * took 22. It also paid n+1 allocations for the `chars` array and its one-character views before
+ * the fold even started. This is one allocation of exactly the right size and one pass.
+ *
+ * The ASCII path does not decode at all: one byte per character means reversing the characters *is*
+ * reversing the bytes. Off it, each character's bytes are copied forward into a position measured
+ * from the end -- the whole trick of a UTF-8 reversal is that the sequence stays in order while its
+ * position moves. The result inherits ZSTR_ASCII either way, since a reversal changes no byte. */
+static Value native_reverse_string(Value *args, int argc, int line, int col) {
+    (void)argc;
+    const uint8_t *s = (const uint8_t *)SPTR(args[0]);
+    size_t n = SLEN(args[0]);
+    if (n == 0) return args[0]; /* its own reverse, and worth not allocating for */
+    char *buf = zalloc_atomic(n + 1);
+    buf[n] = '\0';
+    if (SASCII(args[0])) {
+        for (size_t i = 0; i < n; i++) buf[n - 1 - i] = (char)s[i];
+    } else {
+        size_t pos = 0, out = n;
+        while (pos < n) {
+            uint32_t cp;
+            int w = ziman_utf8_decode_strict(s, n, pos, &cp);
+            if (w == 0) {
+                ziman_error("runtime", line, col, "reverse: string is not valid UTF-8 (invalid sequence at byte %zu)",
+                            pos);
+            }
+            out -= (size_t)w;
+            memcpy(buf + out, s + pos, (size_t)w);
+            pos += (size_t)w;
+        }
+    }
+    return value_string_flags(buf, n, ZSTR_TERM | (args[0].as.str.flags & ZSTR_ASCII));
+}
+
 /* ---- sorting scalars natively (array_sort and friends) -------------------------------
  * A packed [int] / [float] / [byte], or an array of strings, is sorted by a stable merge
  * sort over positions, avoiding a per-comparison interpreter call. Anything else (a struct,
@@ -3600,6 +3639,11 @@ void prelude_register(void) {
     native_register("chars", native_chars);
     native_register("byte_len", native_byte_len);
     native_register("string_truncate", native_truncate);
+    /* `string_reverse`, which is what the fallback derives for `reverse` on a `string`. Safe to add
+     * because the array member is registered as `array_reverse` rather than bare -- a bare `reverse`
+     * would be found by native_lookup first and run the array implementation on text, which is the
+     * trap `char_at` and `last_index_of` both fell into. */
+    native_register("string_reverse", native_reverse_string);
     native_register("mutable_string_char_at", native_mutable_string_get);
     native_register("mutable_string_set", native_mutable_string_set);
     native_register("mutable_string_index_of", native_mutable_string_index_of);

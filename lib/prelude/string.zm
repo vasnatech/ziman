@@ -498,16 +498,13 @@ pub fn lines(s: string) -> [string] {
 // **`reverse_string` until 2026-10-23**, the last `_string` suffix in the prelude. It said which
 // type the argument is, which the argument says; `reverse`'s two array members are in array.zm and
 // this is the text one, filed here because a declaration lives in the file for its first
-// argument's type. Ordinary Ziman where those two are native, so the rename touched no C at all --
-// and `reverse` had no bare registration to shadow it, which is the question worth asking first
-// after `char_at` and `last_index_of` both did.
-pub fn reverse(s: string) -> string {
-    val cs = chars(s)
-    var out = ""
-    var i = len(cs)
-    while i > 0 {
-        i = i - 1
-        out = concat(out, cs[i])
-    }
-    return out
-}
+// argument's type.
+//
+// **Native since 2026-10-23, where the rename had left it ordinary Ziman.** The Ziman version read
+// `chars(s)` into an array and folded it with `concat` in a loop, which is the quadratic string
+// build -- every `concat` copies everything accumulated so far, so 16,000 characters cost 54 ms and
+// 8,000 cost 22. It is one allocation and one pass now, and reversing ASCII text does not decode
+// UTF-8 at all. The registration is `string_reverse`: safe to add only because the array member is
+// `array_reverse` rather than a bare `reverse`, which is the question worth asking first after
+// `char_at` and `last_index_of` both answered it the other way.
+pub native fn reverse(s: string) -> string

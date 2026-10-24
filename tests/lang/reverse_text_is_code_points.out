@@ -1,0 +1,10 @@
+cba
+üöä
+語本日
+c😀b😀a
+😀 本日 dlröw olléh
+[][x][😀]
+len 5 -> 5, byte_len 11 -> 11, round trip true
+o 3 [o, l, l, é, h]
+oll
+bytes_to_string refuses it at the boundary
