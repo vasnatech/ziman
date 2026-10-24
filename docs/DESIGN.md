@@ -192,6 +192,7 @@ them against the code.
 - [Five character classes, and why they are ASCII (2026-10-24)](#five-character-classes-and-why-they-are-ascii-2026-10-24)
 - [`fs` loses a hundred lines of ceremony, and gains the two functions it was missing (2026-10-24)](#fs-loses-a-hundred-lines-of-ceremony-and-gains-the-two-functions-it-was-missing-2026-10-24)
 - [`json` stops stuttering, and derive learns to call it qualified (2026-10-24)](#json-stops-stuttering-and-derive-learns-to-call-it-qualified-2026-10-24)
+- [`jwt`: one `sign`, one dead function gone, and algorithm pinning (2026-10-24)](#jwt-one-sign-one-dead-function-gone-and-algorithm-pinning-2026-10-24)
 
 <!-- end index -->
 
@@ -8154,3 +8155,23 @@ Found while verifying: `process.run`'s parameters carry default values (`vars: O
 Two corrections made while writing the `require_decimal` doc, both worth keeping. The obvious example of float imprecision, `19.99 + 19.99`, **is not one**: the nearest double to 39.98 is exactly the sum of the two nearest doubles to 19.99, so both paths print `39.98` and shortest-round-trip display hides the difference entirely. `0.1 + 0.2` is where it shows -- `0.30000000000000004` through floats, `0.3` through decimals -- and the fixture says so rather than asserting a difference that is not there. The first draft of the comment claimed `require_float` of `19.99` "is not 19.99", which a reader could disprove in one line.
 
 A mechanical lesson from the sweep itself, which cost a full suite run. Rewriting `json.<old>` to `json.<new>` with a word-boundary regex **also rewrites the `use json.<old>` line**, so the pass that decides how the body should be spelled saw no import, left every bare call alone, and produced 56 failures in files whose imports were already renamed. Handle the `use` lines first, then the body. A second miss followed from the opposite direction: a bare-call pattern anchored on `name(` skips `name<T>(`, so four generic call sites survived to be caught by the North Star build rather than the suite.
+
+## `jwt`: one `sign`, one dead function gone, and algorithm pinning (2026-10-24)
+
+`jwt.zm` needed almost nothing renamed -- `jwt.sign`, `jwt.verify`, `jwt.claims`, `jwt.subject` are already short verbs, and its one prefix, `jwt_error_message`, is required by `error_message`'s `<type>_message` lookup. Three things were worth doing, and one thing deliberately not.
+
+**`sign_with` became a third argument to `sign`**, told apart by arity. The suffix was saying what the argument already says, and an algorithm is a `string` where nothing else in that call is: `sign(claims, key, "HS512")` needs no name to be read, which is the test `csv`'s `typed` flag failed and this passes.
+
+**`verify_leeway` is gone, with zero callers anywhere in either repository.** It was `verify_claims(leeway_seconds:)` under another name. Measured before deleting rather than assumed.
+
+**The verify family was *not* collapsed further, and the reason is a language constraint worth recording.** The tempting shape is one `verify` covering `verify(token, key)` and the all-named `verify_claims(token:, key:, issuer:, ...)`. It cannot exist: **overloading a name disables `Option` omission**, because the resolver filters candidates by argument *count* before any Option rule applies. A two-member set of `v(token, key)` and `v(token, key, leeway: Option<int>, now: Option<int>, strict: Option<bool>)` rejects `v(token: "b", key: 2, leeway: 30)` with "no declaration of 'v' takes 3 argument(s)". So a function that relies on omitting optional parameters must be the *only* declaration of its name, which is exactly why `verify_claims` keeps one. That is the third Option finding in a day: `csv` found omission needs an all-named call, `fs` found a default value does not change that, and this finds overloading removes it entirely.
+
+Nor was `verify_at` folded into `verify` by arity, which *would* have worked. `verify(token, key, 30)` cannot be read -- is 30 a leeway or a Unix time? -- where `verify_at(token, key, now, leeway)` says. The same judgement as `parse`/`parse_typed`: an argument carries a name when the value alone does not identify it.
+
+**Algorithm pinning, added as an opt-in and described honestly.** `check` reads `alg` from the token's own header and verifies under it. `verify_claims` now takes `algorithm`, compared against the header *before* the MAC is computed, so a deployment signing HS512 can refuse a valid HS256 token over the same key.
+
+What this is not is a vulnerability being closed, and the entry says so because the opposite claim would be easy and wrong. The attack that makes a trusted `alg` header dangerous needs a **mix** of symmetric and asymmetric algorithms -- presenting an RS256 public key as an HS256 secret. This module's whole algorithm set is HS256, HS384 and HS512, so switching `alg` buys an attacker nothing: every one of them still needs the key to produce a matching MAC. Audited alongside it and found already correct: the signature comparison goes through `crypto.bytes_equal`, which is constant-time by contract, `alg: none` falls out as `UnsupportedAlgorithm` because `mac` has no such arm, and the payload is decoded only *after* the signature verifies.
+
+A pin cannot be used to weaken a check either, which the fixture pins: pinning HS256 against an HS512 token is refused, because the comparison is against what the header claims rather than a floor.
+
+**Found in the sample backend, and fixed there.** `verified_claims` called `verify_claims` *positionally*, with three explicit `None`s for the checks it did not want -- which says nothing about what is being left out and broke the moment an eighth parameter arrived. It names its two arguments now, which is what the all-named form is for and what would have survived the change untouched. A positional call into a function whose tail is all `Option` is a latent break, not a style preference.

@@ -47,8 +47,8 @@ fn main() {
         }
     }
     // an algorithm can be chosen, but only the three HMAC ones
-    print(is_ok(jwt.sign_with(jwt.claims("a", 60), key, "HS512")))
-    print(unwrap_err(jwt.sign_with(jwt.claims("a", 60), key, "none")))
+    print(is_ok(jwt.sign(jwt.claims("a", 60), key, "HS512")))
+    print(unwrap_err(jwt.sign(jwt.claims("a", 60), key, "none")))
     print(unwrap_err(jwt.sign(Json.JString("x"), key)))
 
     // expiry and not-before, checked at a chosen time

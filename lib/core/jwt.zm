@@ -108,11 +108,15 @@ pub fn with_claim(claims: Json, name: string, value: Json) -> Json {
 // A token for `claims` (a JSON object), signed with `key` and the HMAC algorithm that matches its size
 // (`algorithm_for_key`). An Err for claims that are not an object.
 pub fn sign(claims: Json, key: [byte]) -> Result<string, string> {
-    return sign_with(claims, key, algorithm_for_key(key))
+    return sign(claims, key, algorithm_for_key(key))
 }
 
 // The same with `algorithm` chosen: HS256, HS384 or HS512, an Err for anything else.
-pub fn sign_with(claims: Json, key: [byte], algorithm: string) -> Result<string, string> {
+//
+// **`sign_with` until 2026-10-24.** The suffix was saying what the third argument already says,
+// and an algorithm is a `string` where nothing else here is -- unlike a bare `true` or a lone
+// `int`, a reader of `sign(claims, key, "HS512")` needs no name to tell them what it is.
+pub fn sign(claims: Json, key: [byte], algorithm: string) -> Result<string, string> {
     if !Json.is_JObject(claims) {
         return err("the claims of a token must be a JSON object")
     }
@@ -168,17 +172,21 @@ fn seconds_claim(payload: Json, name: string) -> Result<Option<int>, JwtError> {
 // and `nbf`, and gives back its claims. `verify` is this with the current time; this one exists so a token can be checked at a
 // chosen time. The token must have an `exp`.
 pub fn verify_at(token: string, key: [byte], now_seconds: int, leeway_seconds: int) -> Result<Json, JwtError> {
-    return check(token, key, now_seconds, leeway_seconds, true, Option<string>.None, Option<string>.None)
+    return check(
+        token,
+        key,
+        now_seconds,
+        leeway_seconds,
+        true,
+        Option<string>.None,
+        Option<string>.None,
+        Option<string>.None
+    )
 }
 
 // Checks `token` against `key` now and gives back its claims. The token must have an `exp` that is not past.
 pub fn verify(token: string, key: [byte]) -> Result<Json, JwtError> {
-    return check(token, key, now_seconds(), 0, true, Option<string>.None, Option<string>.None)
-}
-
-// The same, forgiving `leeway_seconds` of clock difference between the issuer and this machine on `exp` and `nbf`.
-pub fn verify_leeway(token: string, key: [byte], leeway_seconds: int) -> Result<Json, JwtError> {
-    return check(token, key, now_seconds(), leeway_seconds, true, Option<string>.None, Option<string>.None)
+    return check(token, key, now_seconds(), 0, true, Option<string>.None, Option<string>.None, Option<string>.None)
 }
 
 // `verify` with every check chosen, in a named call that leaves out what it does not need. `leeway_seconds` (default 0) is the
@@ -194,7 +202,8 @@ pub fn verify_claims(
     now: Option<int>,
     require_exp: Option<bool>,
     issuer: Option<string>,
-    audience: Option<string>
+    audience: Option<string>,
+    algorithm: Option<string>
 ) -> Result<Json, JwtError> {
     return check(
         token,
@@ -203,7 +212,8 @@ pub fn verify_claims(
         get_or(leeway_seconds, 0),
         get_or(require_exp, true),
         issuer,
-        audience
+        audience,
+        algorithm
     )
 }
 
@@ -214,7 +224,8 @@ fn check(
     leeway: int,
     require_exp: bool,
     issuer: Option<string>,
-    audience: Option<string>
+    audience: Option<string>,
+    expect_algorithm: Option<string>
 ) -> Result<Json, JwtError> {
     val parts = split(token, ".")
     if len(parts) != 3 {
@@ -224,6 +235,21 @@ fn check(
     val algorithm = require_string(header, "alg")
     if Err(_) = algorithm {
         return JwtError.Malformed("the header has no 'alg'")
+    }
+    // **Pinning, when the caller asked for it.** Checked before the MAC is computed, so a token
+    // naming an algorithm the caller did not ask for is refused rather than verified under it.
+    //
+    // Why it is opt-in and not the default: this module signs and verifies with HMAC only, and
+    // the attack that makes a trusted `alg` header dangerous needs a *mix* of symmetric and
+    // asymmetric algorithms -- presenting an RS256 public key as an HS256 secret. With HS256,
+    // HS384 and HS512 as the whole set, switching `alg` buys an attacker nothing: every one of
+    // them still needs the key to produce a matching MAC. What pinning does buy is that a
+    // deployment signing with HS512 stops accepting a valid HS256 token over the same key, which
+    // is worth having and is not a vulnerability being closed.
+    if Some(wanted_alg) = expect_algorithm {
+        if unwrap(algorithm) != wanted_alg {
+            return JwtError.UnsupportedAlgorithm(unwrap(algorithm))
+        }
     }
     val expected = switch mac(unwrap(algorithm), key, to_bytes(format("{}.{}", parts[0], parts[1]))) {
         Some(e) { e }

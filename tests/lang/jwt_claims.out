@@ -27,3 +27,8 @@ the signature does not match
 []
 Some(health-record)
 None
+true
+true
+true
+unsupported algorithm 'HS256'
+unsupported algorithm 'HS512'

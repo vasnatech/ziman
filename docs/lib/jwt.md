@@ -91,13 +91,15 @@ pub fn sign(claims: Json, key: [byte]) -> Result<string, string>
 A token for `claims` (a JSON object), signed with `key` and the HMAC algorithm that matches its size
 (`algorithm_for_key`). An Err for claims that are not an object.
 
-### `sign_with`
-
 ```
-pub fn sign_with(claims: Json, key: [byte], algorithm: string) -> Result<string, string>
+pub fn sign(claims: Json, key: [byte], algorithm: string) -> Result<string, string>
 ```
 
 The same with `algorithm` chosen: HS256, HS384 or HS512, an Err for anything else.
+
+**`sign_with` until 2026-10-24.** The suffix was saying what the third argument already says,
+and an algorithm is a `string` where nothing else here is -- unlike a bare `true` or a lone
+`int`, a reader of `sign(claims, key, "HS512")` needs no name to tell them what it is.
 
 ### `verify_at`
 
@@ -117,14 +119,6 @@ pub fn verify(token: string, key: [byte]) -> Result<Json, JwtError>
 
 Checks `token` against `key` now and gives back its claims. The token must have an `exp` that is not past.
 
-### `verify_leeway`
-
-```
-pub fn verify_leeway(token: string, key: [byte], leeway_seconds: int) -> Result<Json, JwtError>
-```
-
-The same, forgiving `leeway_seconds` of clock difference between the issuer and this machine on `exp` and `nbf`.
-
 ### `verify_claims`
 
 ```
@@ -135,7 +129,8 @@ pub fn verify_claims(
     now: Option<int>,
     require_exp: Option<bool>,
     issuer: Option<string>,
-    audience: Option<string>
+    audience: Option<string>,
+    algorithm: Option<string>
 ) -> Result<Json, JwtError>
 ```
 

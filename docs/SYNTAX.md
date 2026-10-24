@@ -2431,19 +2431,25 @@ switch jwt.verify(token, key) {
 ```
 
 - **`claims(subject, expires_in_seconds)`** gives `sub`/`iat`/`exp`; `with_claim` adds more.
-  `sign` picks the algorithm from key size (32/48/64 bytes -> HS256/384/512); `sign_with(claims,
-  key, "HS512")` chooses explicitly.
+  `sign` picks the algorithm from key size (32/48/64 bytes -> HS256/384/512); a third argument,
+  `sign(claims, key, "HS512")`, chooses explicitly -- one name, told apart by arity (it was
+  `sign_with` until 2026-10-24).
 - **`verify(token, key)`** returns claims or a `JwtError` (`Malformed`, `UnsupportedAlgorithm`,
   `BadSignature`, `Expired`, `NotYetValid`, `MissingClaim(name)`, `WrongIssuer`,
   `WrongAudience`). Refuses `alg: none` and non-HS algorithms, compares the signature
-  constant-time, checks `exp`/`nbf`; `verify_leeway`/`verify_at(token, key, now, leeway)`
-  forgive/choose a clock. **A token must have `exp`** (else `MissingClaim("exp")`); a
-  non-numeric `exp`/`nbf` (`"exp": "never"`) is `Malformed`, never "no expiry".
+  constant-time, checks `exp`/`nbf`; `verify_at(token, key, now, leeway)` chooses the clock.
+  **A token must have `exp`** (else `MissingClaim("exp")`); a non-numeric `exp`/`nbf`
+  (`"exp": "never"`) is `Malformed`, never "no expiry".
 - **`verify_claims`** is `verify` with every check named: `jwt.verify_claims(token:, key:,
   issuer:, audience:)`, plus `leeway_seconds` (0), `now` (current time), `require_exp` (true --
-  `false` only for an open-ended token). A given `issuer` must equal `iss`, a given `audience`
-  must equal or be one of `aud`; absence is `MissingClaim("iss"/"aud")` -- what stops a token
-  for one service being accepted by another sharing the key. `jwt.issuer`/`audience(claims)`
+  `false` only for an open-ended token) and `algorithm` (unpinned). A given `issuer` must equal
+  `iss`, a given `audience` must equal or be one of `aud`; absence is `MissingClaim("iss"/"aud")`
+  -- what stops a token for one service being accepted by another sharing the key. A given
+  `algorithm` must equal the header's `alg`, checked *before* the MAC is computed
+  (`UnsupportedAlgorithm` otherwise), so a deployment signing HS512 can refuse a valid HS256
+  token over the same key. **It is opt-in, and not a vulnerability being closed**: the attack
+  that makes a trusted `alg` header dangerous needs a mix of symmetric and asymmetric
+  algorithms, and with HS256/384/512 as the whole set, switching `alg` still needs the key. `jwt.issuer`/`audience(claims)`
   read them (audience always a list); `sub` is `jwt.subject`.
 - Tokens from other libraries verify and vice versa (checked against RFC 7515's example).
 

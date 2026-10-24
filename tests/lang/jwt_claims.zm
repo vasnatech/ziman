@@ -76,4 +76,23 @@ fn main() {
     print(jwt.audience(unwrap(jwt.verify_claims(token: live, key: key, now: now))))
     print(jwt.issuer(unwrap(jwt.verify_claims(token: issued, key: key, now: now))))
     print(jwt.issuer(unwrap(jwt.verify_claims(token: live, key: key, now: now))))
+
+    // **Algorithm pinning.** A deployment signing with HS512 need not accept a valid HS256 token
+    // over the same key. Opt-in rather than the default because this module is HMAC-only: the
+    // attack that makes a trusted `alg` header dangerous needs a mix of symmetric and asymmetric
+    // algorithms, and with HS256/384/512 as the whole set, switching `alg` still needs the key.
+    val k512 = to_bytes("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+    val t512 = unwrap(jwt.sign(jwt.claims("s", 60), k512))
+    val t256 = unwrap(jwt.sign(jwt.claims("s", 60), k512, "HS256"))
+
+    // unpinned: both verify, because both carry a MAC made with the key
+    print(is_ok(jwt.verify(t512, k512)))
+    print(is_ok(jwt.verify(t256, k512)))
+
+    // pinned to HS512: the HS256 token is refused, naming what it asked for
+    print(is_ok(jwt.verify_claims(token: t512, key: k512, algorithm: "HS512")))
+    print(jwt.jwt_error_message(unwrap_err(jwt.verify_claims(token: t256, key: k512, algorithm: "HS512"))))
+
+    // pinning cannot be used to force a weaker read: the MAC still has to match
+    print(jwt.jwt_error_message(unwrap_err(jwt.verify_claims(token: t512, key: k512, algorithm: "HS256"))))
 }

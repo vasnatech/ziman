@@ -475,13 +475,11 @@ pub fn with_claim(claims: Json, name: string, value: Json) -> Json
 
 pub fn sign(claims: Json, key: [byte]) -> Result<string, string>
 
-pub fn sign_with(claims: Json, key: [byte], algorithm: string) -> Result<string, string>
+pub fn sign(claims: Json, key: [byte], algorithm: string) -> Result<string, string>
 
 pub fn verify_at(token: string, key: [byte], now_seconds: int, leeway_seconds: int) -> Result<Json, JwtError>
 
 pub fn verify(token: string, key: [byte]) -> Result<Json, JwtError>
-
-pub fn verify_leeway(token: string, key: [byte], leeway_seconds: int) -> Result<Json, JwtError>
 
 pub fn verify_claims(
 
