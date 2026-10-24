@@ -89,7 +89,7 @@
     "builtin-types": {
       "comment": "the language's built-in generic types",
       "name": "support.type.builtin.ziman",
-      "match": "\\\\b(Channel|Guard|Iter|Map|MapEntry|Mutable|MutableArray|MutableMap|MutableSet|MutableString|Option|Result|Selected|Set)\\\\b"
+      "match": "\\\\b(Channel|Guard|Iter|Locale|Map|MapEntry|Mutable|MutableArray|MutableMap|MutableSet|MutableString|Option|Result|Selected|Set)\\\\b"
     },
     "builtin-functions": {
       "comment": "builtins available without a use; a call to one is highlighted as a builtin, not an ordinary function",

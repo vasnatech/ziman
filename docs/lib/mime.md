@@ -65,8 +65,6 @@ pub struct MediaType {
 }
 ```
 
-A media type: `type/subtype` and its parameters, in the order they were given.
-
 ## Well-known types
 
 ### `application_json`

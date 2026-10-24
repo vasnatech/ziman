@@ -11,6 +11,13 @@
 // as vectors in both backends. Adding a fifth means adding it to both, on purpose.
 use geom.Matrix
 use geom.Point
+use locale
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
 
 // Components are 0.0 to 1.0, not bytes, because PDF writes colour as decimals (`rg`, `RG`) and a
 // raster backend converts to bytes once at the end. Bytes in the middle would lose precision in a
@@ -80,7 +87,7 @@ pub fn hex(text: string) -> Result<Color, string> {
 
 fn nibble(body: string, at: int, whole: string) -> Result<float, string> {
     val digits = "0123456789abcdef"
-    val c = to_lower(substring(body, at, at + 1))
+    val c = to_lower(substring(body, at, at + 1), invariant)
     val i = index_of(digits, c, 0)
     if i < 0 {
         return err(concat("paint.hex: '", c, "' is not a hex digit, in '", whole, "'"))

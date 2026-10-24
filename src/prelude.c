@@ -24,6 +24,7 @@
 #include "gc_mark.h"
 #include "gc_thread_heap.h"
 #include "native.h"
+#include "native_locale.h"
 #include "value.h"
 
 /* Generated from lib/prelude/<part>.zm by the Makefile's own prelude rule --
@@ -36,6 +37,7 @@
 #include "prelude_channel_source.h"
 #include "prelude_iter_source.h"
 #include "prelude_map_source.h"
+#include "prelude_locale_source.h"
 #include "prelude_mutable_source.h"
 #include "prelude_option_source.h"
 #include "prelude_result_source.h"
@@ -71,6 +73,7 @@ static const struct {
     {"lib/prelude/channel.zm", PRELUDE_CHANNEL_SOURCE},
     {"lib/prelude/iter.zm", PRELUDE_ITER_SOURCE},
     {"lib/prelude/map.zm", PRELUDE_MAP_SOURCE},
+    {"lib/prelude/locale.zm", PRELUDE_LOCALE_SOURCE},
     {"lib/prelude/mutable.zm", PRELUDE_MUTABLE_SOURCE},
     {"lib/prelude/option.zm", PRELUDE_OPTION_SOURCE},
     {"lib/prelude/result.zm", PRELUDE_RESULT_SOURCE},
@@ -450,7 +453,10 @@ static Value native_is_char_at(Value *args, int argc, int line, int col) {
 }
 
 static Value native_equals_ignore_case(Value *args, int argc, int line, int col) {
-    (void)argc; (void)line; (void)col;
+    if (argc >= 3) return value_bool(ziman_locale_equals_fold(args[0], args[1], &args[2], line, col));
+    if (!ziman_locale_default_is_root()) {
+        return value_bool(ziman_locale_equals_fold(args[0], args[1], NULL, line, col));
+    }
     size_t n = SLEN(args[0]);
     if (n != SLEN(args[1])) return value_bool(0);
     const unsigned char *a = (const unsigned char *)SPTR(args[0]);
@@ -556,10 +562,23 @@ static Value native_is_blank(Value *args, int argc, int line, int col) {
     return value_bool(1);
 }
 
+/* ---- case mapping, two arities --------------------------------------------------------------
+ *
+ * One registration serves `to_upper(s)` and `to_upper(s, locale)`, the way `len`'s nine members
+ * share one function: the declarations are separate and the dispatch is on `argc`.
+ *
+ * **The one-argument form keeps the ASCII path whenever the default is root**, which it is until a
+ * program sets otherwise. That is not an optimisation so much as the thing that makes this change
+ * safe: root folding *is* ASCII folding, so a program that never touches the default sees byte-for-
+ * byte what it saw before -- including the ~50 places in lib/ that fold a header, a hex digit or an
+ * environment-variable name and must not depend on anyone's language.
+ *
+ * `toupper` below is ASCII because the C global locale is never changed: `src/native_locale.c`
+ * deliberately never calls `setlocale`, using `towupper_l` with an explicit locale instead. If that
+ * ever stopped being true these two loops would quietly start following it. */
 static Value native_to_upper(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
+    if (argc >= 2) return ziman_locale_case_map(args[0], &args[1], 1, line, col);
+    if (!ziman_locale_default_is_root()) return ziman_locale_case_map(args[0], NULL, 1, line, col);
     const char *str = SPTR(args[0]);
     size_t len = SLEN(args[0]);
     char *buf = zalloc_atomic(len + 1);
@@ -569,9 +588,8 @@ static Value native_to_upper(Value *args, int argc, int line, int col) {
 }
 
 static Value native_to_lower(Value *args, int argc, int line, int col) {
-    (void)argc;
-    (void)line;
-    (void)col;
+    if (argc >= 2) return ziman_locale_case_map(args[0], &args[1], 0, line, col);
+    if (!ziman_locale_default_is_root()) return ziman_locale_case_map(args[0], NULL, 0, line, col);
     const char *str = SPTR(args[0]);
     size_t len = SLEN(args[0]);
     char *buf = zalloc_atomic(len + 1);

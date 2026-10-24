@@ -14,8 +14,15 @@
 // `postgres://user:pw@host/db?a=b` respectively. Merging them would mean inventing a general URL type for
 // both to specialise, which is a design change rather than a de-duplication.
 
+use locale
 use number.byte_from_hex
 use number.byte_to_hex
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
 
 // Decodes `%XX` escapes in `s`. `plus_is_space` is for query strings, where `a+b` means `a b` -- in a path a
 // `+` is a literal plus. An Err for a truncated or malformed escape, or one that would put a NUL byte in a
@@ -64,7 +71,7 @@ pub fn percent_encode(s: string, plus_for_space: bool) -> string {
         } else if c == 32 && plus_for_space {
             append(out, "+")
         } else {
-            append(out, "%", to_upper(byte_to_hex(b)))
+            append(out, "%", to_upper(byte_to_hex(b), invariant))
         }
     }
     return snapshot(out)

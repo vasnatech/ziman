@@ -31,7 +31,14 @@ use json.Json
 use json.Number
 use json.float_to_json
 use json.int_to_json
+use locale
 use number.float_to_text
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
 
 // `indent` is where this line's own content starts (after any `- ` lifted off the front, per
 // `tokenize`'s own comment). `base` is the indentation of the original source line before any
@@ -78,7 +85,7 @@ fn hex_value(c: string) -> int {
     if byte_len(c) != 1 {
         return -1
     }
-    return index_of(hex_chars, to_lower(c), 0)
+    return index_of(hex_chars, to_lower(c, invariant), 0)
 }
 
 fn read_hex(cs: [string], pos: int, n: int) -> int {
@@ -300,7 +307,7 @@ fn looks_float(s: string) -> bool {
 fn parse_radix(t: string, digits: string, base: int) -> Json {
     var n = 0
     for i in 0..len(t) {
-        val d = index_of(digits, to_lower(char_at(t, i)), 0)
+        val d = index_of(digits, to_lower(char_at(t, i), invariant), 0)
         if d < 0 {
             return Json.JString(t)
         }

@@ -90,13 +90,11 @@ static int hex4(const char *s, size_t n, size_t pos) {
     return v;
 }
 
+/* The shared encoder in src/utf8.h, which this file's own copy became on 2026-10-23 -- the header
+ * already said why one decoder is shared rather than duplicated, and the same argument covers the
+ * other direction. */
 static size_t put_utf8(char *out, unsigned cp) {
-    if (cp < 0x80) { out[0] = (char)cp; return 1; }
-    if (cp < 0x800) { out[0] = (char)(0xC0 | (cp >> 6)); out[1] = (char)(0x80 | (cp & 0x3F)); return 2; }
-    if (cp < 0x10000) { out[0] = (char)(0xE0 | (cp >> 12)); out[1] = (char)(0x80 | ((cp >> 6) & 0x3F)); out[2] = (char)(0x80 | (cp & 0x3F)); return 3; }
-    out[0] = (char)(0xF0 | (cp >> 18)); out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
-    out[2] = (char)(0x80 | ((cp >> 6) & 0x3F)); out[3] = (char)(0x80 | (cp & 0x3F));
-    return 4;
+    return (size_t)ziman_utf8_encode((uint32_t)cp, out);
 }
 
 /* A string starting at the opening quote; returns a malloc'd NUL-terminated buffer (and its

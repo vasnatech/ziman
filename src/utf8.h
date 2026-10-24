@@ -34,6 +34,36 @@ static inline int ziman_utf8_decode_strict(const uint8_t *s, size_t len, size_t 
     return n;
 }
 
+/* The UTF-8 encoding of `cp`, written to `out` (4 bytes are always enough), answering how many
+ * bytes that took. The inverse of the decoder above, and here for the same stated reason: two
+ * encoders that could disagree about what a code point looks like is the bug this file exists to
+ * prevent. `native_json.c` had the only copy until 2026-10-23, when case mapping needed one too.
+ *
+ * `cp` must be a real code point -- the callers get theirs from this file's own decoder or from
+ * `towupper_l`, so none of them can produce a surrogate or anything past U+10FFFF. */
+static inline int ziman_utf8_encode(uint32_t cp, char *out) {
+    if (cp < 0x80) {
+        out[0] = (char)cp;
+        return 1;
+    }
+    if (cp < 0x800) {
+        out[0] = (char)(0xC0 | (cp >> 6));
+        out[1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    if (cp < 0x10000) {
+        out[0] = (char)(0xE0 | (cp >> 12));
+        out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    out[0] = (char)(0xF0 | (cp >> 18));
+    out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    out[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    out[3] = (char)(0x80 | (cp & 0x3F));
+    return 4;
+}
+
 /* ---- byte offsets <-> character indices -------------------------------------------------------
  *
  * The regex engine matches bytes and reports byte offsets; everything above it in Ziman counts

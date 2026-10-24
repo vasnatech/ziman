@@ -1629,6 +1629,27 @@ Releases what `it` holds (a file, say) now instead of when it is collected. A `f
 itself when it is left early; call it when you take items by hand and stop before the end. Harmless
 on one that is finished or already closed.
 
+## `locale.zm`
+
+### `Locale`
+
+```
+pub struct Locale {
+    handle: int
+    name: string
+}
+```
+
+A locale, held by handle, with the POSIX name it resolved to.
+
+`handle` is the address of the host locale the collector is keeping alive; holding a `Locale` is
+what keeps it open, and the finalizer closes it. `name` is cached here so reading it costs
+nothing -- and so that a caller can see which locale they actually got, an unavailable name
+having resolved to root.
+
+Built with `locale.of("tr_TR")`; never by writing the struct literally, since a made-up handle is
+refused by the table rather than dereferenced.
+
 ## `map.zm`
 
 ### `mutable_map_new`
@@ -3236,6 +3257,17 @@ True when `a` and `b` are equal when the ASCII letters A-Z are read as a-z (othe
 non-ASCII included, must match exactly). Builds no intermediate strings, unlike comparing
 `to_lower(a)` and `to_lower(b)`.
 
+```
+pub native fn equals_ignore_case(a: string, b: string, with_locale: Locale) -> bool
+```
+
+The same question under a locale, folding with the host's case mapping instead of ASCII's.
+
+**Pass `locale.root()` from protocol code**, not a language: Turkish folds `I` to `ı`, so an HTTP
+header, a hex digit, a FHIR code or an environment-variable name compared under a user's locale
+is a bug rather than a nicety. Root folding is ASCII folding, which is what every such comparison
+means.
+
 ### `index_of`
 
 ```
@@ -3291,6 +3323,18 @@ pub native fn to_upper(s: string) -> string
 
 `s` with the ASCII letters a-z made upper case; other bytes are unchanged.
 
+```
+pub native fn to_upper(s: string, with_locale: Locale) -> string
+```
+
+The same under a locale, which is where the mappings ASCII cannot express live: `to_upper("i",
+tr)` is `İ` and `to_lower("I", tr)` is `ı`.
+
+**Simple case mapping, not full.** One code point in, one out -- the POSIX interface underneath
+(`towupper_l`) is shaped that way -- so German `ß` does not become `SS`, `ﬁ` does not become
+`FI`, and the Greek final sigma is not contextual. lib/core/locale.zm's header says this once
+and docs/ROADMAP.md carries what it would take to fix.
+
 ### `to_lower`
 
 ```
@@ -3298,6 +3342,13 @@ pub native fn to_lower(s: string) -> string
 ```
 
 `s` with the ASCII letters A-Z made lower case; other bytes are unchanged.
+
+```
+pub native fn to_lower(s: string, with_locale: Locale) -> string
+```
+
+The same under a locale; see `to_upper`'s own overload for what simple case mapping does and does
+not cover.
 
 ### `join`
 

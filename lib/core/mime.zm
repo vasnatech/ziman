@@ -9,6 +9,14 @@
 // compare `essence` for the type and subtype alone.
 
 // A media type: `type/subtype` and its parameters, in the order they were given.
+use locale
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
+
 pub struct MediaType {
     type: string
     subtype: string
@@ -204,8 +212,8 @@ pub fn parse(text: string) -> Result<MediaType, string> {
     if slash < 0 || slash > head_end {
         return err(bad(text, "there is no '/' between the type and the subtype"))
     }
-    val type = to_lower(trim(substring(s, 0, slash)))
-    val subtype = to_lower(trim(substring(s, slash + 1, head_end)))
+    val type = to_lower(trim(substring(s, 0, slash)), invariant)
+    val subtype = to_lower(trim(substring(s, slash + 1, head_end)), invariant)
     if !is_token(type) || !is_token(subtype) {
         return err(bad(text, "the type and the subtype must each be a token"))
     }
@@ -228,7 +236,7 @@ pub fn parse(text: string) -> Result<MediaType, string> {
             if eq < 0 || (next_semi >= 0 && next_semi < eq) {
                 return err(bad(text, "a parameter has no '='"))
             }
-            val name = to_lower(trim(substring(s, p, eq)))
+            val name = to_lower(trim(substring(s, p, eq)), invariant)
             if !is_token(name) {
                 return err(bad(text, format("'{}' is not a valid parameter name", name)))
             }
@@ -278,7 +286,7 @@ pub fn charset(m: MediaType) -> Option<string> {
 
 // `m` with parameter `name` set to `value` (replacing any existing one); the name is lower-cased.
 pub fn with_param(m: MediaType, name: string, value: string) -> MediaType {
-    return MediaType { type: m.type, subtype: m.subtype, params: set(m.params, to_lower(name), value) }
+    return MediaType { type: m.type, subtype: m.subtype, params: set(m.params, to_lower(name, invariant), value) }
 }
 
 // The structured-syntax suffix of the subtype, if it has one: `json` for `application/vnd.api+json`.
@@ -322,7 +330,7 @@ pub fn matches(pattern: MediaType, candidate: MediaType) -> bool {
 // The media type for a file extension (`json`, `.PNG`; case and a leading dot do not matter), or None when the
 // extension is not one of the common ones this module knows.
 pub fn of_extension(extension: string) -> Option<MediaType> {
-    var e = to_lower(extension)
+    var e = to_lower(extension, invariant)
     if starts_with(e, ".") {
         e = substring(e, 1, len(e))
     }

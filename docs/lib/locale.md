@@ -40,22 +40,6 @@ only unwrap.
 
 `use locale` -- or `use locale.Name` to bring one item in bare.
 
-### `Locale`
-
-```
-pub struct Locale {
-    handle: int
-    name: string
-}
-```
-
-A locale, held by handle. Build one and keep it -- typically in a `val` beside the code that
-renders -- rather than per call: opening one asks the operating system to read its locale data.
-
-`name` is the POSIX name that was actually opened, which is not always the one asked for: a bare
-language expands to a territory, a codeset is forced to UTF-8, and an unavailable name falls back
-to root.
-
 ### `of`
 
 ```

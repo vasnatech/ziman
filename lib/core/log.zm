@@ -18,8 +18,15 @@ use clock.now_iso
 use fs
 use json.Json
 use json.json_to_string
+use locale
 use number.byte_to_hex
 use os
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
 
 // A message's severity, lowest first. A logger drops messages below its own level.
 pub enum Level {
@@ -125,7 +132,7 @@ pub fn level_name(level: Level) -> string {
 // "debug", "info", "warn"/"warning" or "error" (any case), for a level read
 // from configuration.
 pub fn level_parse(text: string) -> Result<Level, string> {
-    val t = to_lower(trim(text))
+    val t = to_lower(trim(text), invariant)
     if t == "debug" { return ok(Level.Debug) }
     if t == "info" { return ok(Level.Info) }
     if t == "warn" || t == "warning" { return ok(Level.Warn) }
@@ -225,7 +232,7 @@ fn json_line(l: Logger, level: Level, message: string) -> string {
     // prefix carries its own trailing space for the same reason -- both are presentation, and both
     // would arrive in a log index as part of the value. Trimmed here, and the level lowercased,
     // which is what every JSON log schema uses.
-    append(out, "\"level\":", json_to_string(Json.JString(to_lower(trim(level_name(level))))))
+    append(out, "\"level\":", json_to_string(Json.JString(to_lower(trim(level_name(level)), invariant))))
     val component = trim(l.prefix)
     if byte_len(component) > 0 {
         append(out, ",\"prefix\":", json_to_string(Json.JString(component)))

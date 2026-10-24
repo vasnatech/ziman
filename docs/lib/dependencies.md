@@ -61,6 +61,7 @@ flowchart LR
     client --> compress
     client --> crypto
     client --> http
+    client --> locale
     client --> mime
     client --> net
     client --> number
@@ -81,6 +82,7 @@ flowchart LR
     font --> truetype
     fs --> os
     geom --> math
+    http --> locale
     http --> mime
     http --> number
     http --> random
@@ -101,6 +103,7 @@ flowchart LR
     log --> clock
     log --> fs
     log --> json
+    log --> locale
     log --> number
     log --> os
     markdown --> math
@@ -111,6 +114,7 @@ flowchart LR
     migrate --> fs
     migrate --> os
     migrate --> time
+    mime --> locale
     mysql --> crypto
     mysql --> db
     mysql --> net
@@ -118,8 +122,10 @@ flowchart LR
     ndjson --> json
     os --> clock
     otp --> crypto
+    otp --> locale
     otp --> random
     paint --> geom
+    paint --> locale
     pdf --> font
     pdf --> geom
     pdf --> image
@@ -137,6 +143,7 @@ flowchart LR
     process --> fs
     process --> os
     properties --> fs
+    properties --> locale
     properties --> math
     properties --> os
     raster --> font
@@ -152,11 +159,13 @@ flowchart LR
     scene --> paint
     scene --> shape
     schedule --> clock
+    schedule --> locale
     schedule --> time
     server --> clock
     server --> compress
     server --> http
     server --> json
+    server --> locale
     server --> metrics
     server --> mime
     server --> net
@@ -173,18 +182,23 @@ flowchart LR
     time --> clock
     time --> db
     time --> json
+    time --> locale
     time --> zone
     toml --> json
+    toml --> locale
     toml --> number
     truetype --> geom
     truetype --> shape
+    url --> locale
     url --> number
     uuid --> clock
     uuid --> db
     uuid --> json
     uuid --> number
     uuid --> random
+    xml --> locale
     yaml --> json
+    yaml --> locale
     yaml --> number
     zone --> fs
     zone --> number
@@ -198,8 +212,8 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `locale`, `math`, `mime`, `net`, `number`, `random`, `regex`, `test`, `thread`, `xml` |
-| 1 | `crypto`, `geom`, `json`, `markdown`, `os`, `pdfobj`, `url` |
+| 0 | `bits`, `clock`, `compress`, `locale`, `math`, `net`, `number`, `random`, `regex`, `test`, `thread` |
+| 1 | `crypto`, `geom`, `json`, `markdown`, `mime`, `os`, `pdfobj`, `url`, `xml` |
 | 2 | `db`, `fs`, `http`, `jwt`, `metrics`, `ndjson`, `otp`, `paint`, `shape`, `toml`, `yaml` |
 | 3 | `csv`, `image`, `log`, `mysql`, `pg`, `process`, `properties`, `scene`, `server`, `sqlite`, `stroker`, `truetype`, `uuid`, `zone` |
 | 4 | `datasource`, `font`, `time` |
@@ -210,7 +224,7 @@ otherwise: everything on a layer depends only on lower layers.
 | Module | Uses | Used by |
 |---|---|---|
 | `bits` | - | `image` |
-| `client` | `clock`, `compress`, `crypto`, `http`, `mime`, `net`, `number`, `os`, `time` | - |
+| `client` | `clock`, `compress`, `crypto`, `http`, `locale`, `mime`, `net`, `number`, `os`, `time` | - |
 | `clock` | - | `client`, `datasource`, `jwt`, `log`, `os`, `schedule`, `server`, `time`, `uuid` |
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
 | `crypto` | `random` | `client`, `jwt`, `migrate`, `mysql`, `otp`, `pg` |
@@ -220,48 +234,48 @@ otherwise: everything on a layer depends only on lower layers.
 | `font` | `truetype` | `layout`, `pdf`, `raster` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `zone` |
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |
-| `http` | `mime`, `number`, `random`, `url` | `client`, `server` |
+| `http` | `locale`, `mime`, `number`, `random`, `url` | `client`, `server` |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
 | `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
-| `locale` | - | - |
-| `log` | `clock`, `fs`, `json`, `number`, `os` | - |
+| `locale` | - | `client`, `http`, `log`, `mime`, `otp`, `paint`, `properties`, `schedule`, `server`, `time`, `toml`, `url`, `xml`, `yaml` |
+| `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
 | `math` | - | `geom`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
 | `metrics` | `os` | `server` |
 | `migrate` | `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |
-| `mime` | - | `client`, `http`, `server` |
+| `mime` | `locale` | `client`, `http`, `server` |
 | `mysql` | `crypto`, `db`, `net`, `number` | `datasource` |
 | `ndjson` | `json` | - |
 | `net` | - | `client`, `db`, `mysql`, `pg`, `server` |
 | `number` | - | `client`, `csv`, `db`, `http`, `json`, `jwt`, `log`, `mysql`, `pg`, `server`, `sqlite`, `toml`, `url`, `uuid`, `yaml`, `zone` |
 | `os` | `clock` | `client`, `fs`, `log`, `metrics`, `migrate`, `process`, `properties`, `server`, `zone` |
-| `otp` | `crypto`, `random` | - |
-| `paint` | `geom` | `image`, `layout`, `pdf`, `raster`, `scene`, `stroker` |
+| `otp` | `crypto`, `locale`, `random` | - |
+| `paint` | `geom`, `locale` | `image`, `layout`, `pdf`, `raster`, `scene`, `stroker` |
 | `pdf` | `font`, `geom`, `image`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
 | `pdfobj` | `compress` | `pdf` |
 | `pg` | `crypto`, `db`, `net`, `number`, `random` | `datasource` |
 | `process` | `fs`, `os` | - |
-| `properties` | `fs`, `math`, `os` | - |
+| `properties` | `fs`, `locale`, `math`, `os` | - |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `uuid` |
 | `raster` | `font`, `geom`, `image`, `math`, `paint`, `scene`, `shape`, `stroker`, `truetype` | - |
 | `regex` | - | - |
 | `scene` | `geom`, `paint`, `shape` | `layout`, `pdf`, `raster` |
-| `schedule` | `clock`, `time` | - |
-| `server` | `clock`, `compress`, `http`, `json`, `metrics`, `mime`, `net`, `number`, `os` | - |
+| `schedule` | `clock`, `locale`, `time` | - |
+| `server` | `clock`, `compress`, `http`, `json`, `locale`, `metrics`, `mime`, `net`, `number`, `os` | - |
 | `shape` | `geom`, `math` | `layout`, `pdf`, `raster`, `scene`, `stroker`, `truetype` |
 | `sqlite` | `db`, `number` | `datasource` |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
 | `test` | - | - |
 | `thread` | - | - |
-| `time` | `clock`, `db`, `json`, `zone` | `client`, `migrate`, `schedule` |
-| `toml` | `json`, `number` | - |
+| `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `migrate`, `schedule` |
+| `toml` | `json`, `locale`, `number` | - |
 | `truetype` | `geom`, `shape` | `font`, `pdf`, `raster` |
-| `url` | `number` | `db`, `http` |
+| `url` | `locale`, `number` | `db`, `http` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | - |
-| `xml` | - | - |
-| `yaml` | `json`, `number` | - |
+| `xml` | `locale` | - |
+| `yaml` | `json`, `locale`, `number` | - |
 | `zone` | `fs`, `number`, `os` | `time` |
 
 ## Why some modules are separate

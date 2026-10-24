@@ -28,10 +28,17 @@
 // one fails startup and every lookup afterwards is a plain array scan.
 
 use fs
+use locale
 // For `math.min` in the edit-distance scan below; it was bare prelude vocabulary until
 // 2026-10-22.
 use math
 use os
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
 
 // One setting: its `key`, its `value`, and `source`, where it came from (a file, the environment,
 // an override) for messages that say why a value is what it is.
@@ -50,7 +57,7 @@ pub struct Properties {
 
 // server.idle-timeout-ms -> SERVER_IDLE_TIMEOUT_MS
 fn env_name(key: string) -> string {
-    return to_upper(replace(replace(key, ".", "_"), "-", "_"))
+    return to_upper(replace(replace(key, ".", "_"), "-", "_"), invariant)
 }
 
 fn find_file_entry(entries: [Entry], key: string) -> Option<Entry> {
@@ -145,7 +152,7 @@ fn parse_raw(text: string, source: string) -> Result<Properties, string> {
         if byte_len(key) == 0 {
             return err(format("{}: empty key", where))
         }
-        if to_lower(key) != key {
+        if to_lower(key, invariant) != key {
             return err(format(
                 "{}: key '{}' must be lowercase (use dotted kebab-case, e.g. server.idle-timeout-ms)",
                 where,
@@ -273,7 +280,7 @@ pub fn entry_float(e: Entry) -> Result<float, string> {
 
 // The entry's value as a bool: `true` or `false`, any case. An Err otherwise, naming the key and source.
 pub fn entry_bool(e: Entry) -> Result<bool, string> {
-    val v = to_lower(e.value)
+    val v = to_lower(e.value, invariant)
     if v == "true" {
         return ok(true)
     }

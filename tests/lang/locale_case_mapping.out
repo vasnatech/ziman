@@ -1,0 +1,28 @@
+-- the dotted and dotless i, which is the mapping that actually bites --
+  to_upper(i): root=I en=I tr=İ
+  to_lower(I): root=i en=i tr=ı
+  istanbul -> İSTANBUL (tr)
+  ISTANBUL -> ıstanbul (tr)
+-- mappings ASCII folding cannot reach --
+  to_upper(héllo wörld, en) = HÉLLO WÖRLD
+  to_upper(héllo wörld)     = HéLLO WöRLD  <- default is root, so ASCII only
+  to_lower(ÉCOLE, en)       = école
+  to_upper(ÄÖÜ, de)         = äöü
+-- the documented limit --
+  to_upper(straße, de) = STRAßE  <- SS needs full case mapping
+-- equals_ignore_case --
+  (héllo, HÉLLO)       = false  <- ASCII fold, no locale
+  (héllo, HÉLLO, en)   = true
+  (ID, id, root)       = true
+  (ID, id, tr)         = false  <- why a header match passes root
+  (straße, STRASSE, de) = false <- simple folding again
+-- the default governs the one-argument form, and root is immune --
+  to_lower(ID)             default=root = id
+  to_lower(ID)             default=tr   = ıd
+  to_lower(ID, root)       explicit     = id
+  equals_ignore_case(ID,id)             = false
+  equals_ignore_case(ID,id,root)        = true
+  to_lower(ID)             back to root = id
+-- a library parser is insulated from the default --
+  mime.parse(IMAGE/PNG) -> image/png params={name: x}
+  and under root        -> image/png params={name: x}

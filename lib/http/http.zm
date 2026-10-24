@@ -2,11 +2,18 @@
 // types, the method enum, status codes by name, header lookup and percent-encoding. `server`
 // builds on it to answer requests, `client` to make them.
 
+use locale
 use mime
 use number.byte_from_hex
 use number.byte_to_hex
 use random.random_bytes
 use url
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
 
 // True if `s` is a non-empty run of the characters RFC 7230 allows in a "token": letters, digits and
 // ``!#$%&'*+-.^_`|~``. What a header name or a method must be; a space, a colon, a control character
@@ -272,7 +279,7 @@ pub fn traceparent_header_for(p: TraceParent) -> Header {
 // The value of the first header called `name` (case-insensitive), or None.
 pub fn header_value(headers: [Header], name: string) -> Option<string> {
     for h in headers {
-        if equals_ignore_case(h.name, name) {
+        if equals_ignore_case(h.name, name, invariant) {
             return Some(h.value)
         }
     }

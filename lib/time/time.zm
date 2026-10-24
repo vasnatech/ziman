@@ -104,10 +104,17 @@ use db.SqlValue
 use db.sql_as_text
 use db.sql_lift
 use json.Json
+use locale
 use zone.ZoneRules
 use zone.load_rules
 use zone.no_rule
 use zone.type_at
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
 
 fn is_leap_year(year: int) -> bool {
     if year % 400 == 0 {
@@ -203,7 +210,7 @@ fn month_number_of(s: string, pos: int, names: [string]) -> Result<[int], string
     for i in 0..len(names) {
         val name = names[i]
         val n = len(name)
-        if pos + n <= len(s) && n > best_len && equals_ignore_case(substring(s, pos, pos + n), name) {
+        if pos + n <= len(s) && n > best_len && equals_ignore_case(substring(s, pos, pos + n), name, invariant) {
             best = i + 1
             best_len = n
         }

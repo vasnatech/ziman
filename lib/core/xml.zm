@@ -42,6 +42,13 @@
 // compare; `prefix` is only ever a hint to the writer.
 
 #![experimental]
+use locale
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
 
 // Everything XML 1.0 cannot represent at all: the C0 controls other than tab, newline and
 // carriage return. There is no escape for them -- `&#0;` is itself illegal -- so they are an
@@ -615,7 +622,7 @@ fn read_char_code(cs: [string], pos: int, body: string) -> Result<int, string> {
     var value = 0
     var i = 0
     while i < len(digits) {
-        val d = index_of(hex_digits, to_lower(char_at(digits, i)), 0)
+        val d = index_of(hex_digits, to_lower(char_at(digits, i), invariant), 0)
         if d < 0 || d >= base {
             return err(fail(cs, pos, format("'&{};' is not a character reference", body)))
         }
@@ -820,7 +827,7 @@ fn read_cdata(cs: [string], pos: int) -> Result<PStr, string> {
 
 fn read_pi(cs: [string], pos: int) -> Result<PNode, string> {
     val target = try read_name(cs, pos + 2)
-    if equals_ignore_case(target.text, "xml") {
+    if equals_ignore_case(target.text, "xml", invariant) {
         return err(fail(cs, pos, "'<?xml' is only allowed as the declaration on the first line"))
     }
     val end = find_from(cs, tok_pi_end, target.next)
@@ -986,7 +993,7 @@ fn read_declaration(cs: [string]) -> Result<Option<Declaration>, string> {
         return err(fail(cs, 0, format("XML {} is not supported; this reader is XML 1.0", version)))
     }
     if Some(enc) = encoding {
-        if !equals_ignore_case(enc, "utf-8") && !equals_ignore_case(enc, "utf8") {
+        if !equals_ignore_case(enc, "utf-8", invariant) && !equals_ignore_case(enc, "utf8", invariant) {
             return err(fail(cs, 0, format(
                 "encoding '{}' is not supported; this reader reads UTF-8, and guessing would misread the text",
                 enc
@@ -1269,7 +1276,7 @@ fn write_pi(pi: Instruction, out: MutableString) -> Result<bool, string> {
     if !valid_name(pi.target) {
         return err(format("'{}' is not a valid processing-instruction target", pi.target))
     }
-    if equals_ignore_case(pi.target, "xml") {
+    if equals_ignore_case(pi.target, "xml", invariant) {
         return err("'xml' is reserved as a processing-instruction target")
     }
     if index_of(pi.data, "?>", 0) >= 0 {

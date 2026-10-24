@@ -38,6 +38,7 @@ use http.Response
 use http.method_name
 use http.percent_decode
 use http.percent_encode
+use locale
 use mime
 use net
 use net.NetError
@@ -47,6 +48,12 @@ use number.int_from_hex
 use os
 use time.localdate_of
 use time.localdate_to_epoch_day
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
 
 // Why an exchange failed (any HTTP status, even 500, is a success).
 pub enum ClientError {
@@ -209,7 +216,7 @@ fn text_of(b: [byte]) -> Result<string, ClientError> {
 
 fn header_value(headers: [Header], name: string) -> Option<string> {
     for h in headers {
-        if equals_ignore_case(h.name, name) {
+        if equals_ignore_case(h.name, name, invariant) {
             return Option<string>.Some(h.value)
         }
     }
@@ -376,7 +383,7 @@ fn read_body(sock: Socket, head: Head, head_only: bool) -> Result<Body, ClientEr
     }
     val te = header_value(head.headers, "Transfer-Encoding")
     val cl = header_value(head.headers, "Content-Length")
-    if Some(te) = te && contains(to_lower(te), "chunked") {
+    if Some(te) = te && contains(to_lower(te, invariant), "chunked") {
         return read_chunked(sock, head.rest)
     }
     if Some(cl) = cl {
@@ -410,7 +417,7 @@ fn decode_body(status: int, headers: [Header], body: [byte]) -> Result<Response,
     if !Option.is_Some(enc) || len(body) == 0 {
         return ok(Response { status: status, headers: headers, body: body })
     }
-    val name = to_lower(trim(Option.unwrap_Some(enc)))
+    val name = to_lower(trim(Option.unwrap_Some(enc)), invariant)
     if name != "gzip" && name != "x-gzip" && name != "deflate" {
         return ok(Response { status: status, headers: headers, body: body })
     }
@@ -429,7 +436,7 @@ fn decode_body(status: int, headers: [Header], body: [byte]) -> Result<Response,
     }
     val kept = mutable_array_new<Header>()
     for h in headers {
-        val lname = to_lower(h.name)
+        val lname = to_lower(h.name, invariant)
         if lname != "content-encoding" && lname != "content-length" {
             push(kept, h)
         }
@@ -471,13 +478,13 @@ fn no_proxy_matches(host: string) -> bool {
     val upper = os.getenv("NO_PROXY")
     val list = get_or(upper, get_or(os.getenv("no_proxy"), ""))
     for raw in split(list, ",") {
-        val entry = to_lower(trim(raw))
+        val entry = to_lower(trim(raw), invariant)
         if entry == "*" {
             return true
         }
         if byte_len(entry) > 0 {
             val bare = if starts_with(entry, ".") { substring(entry, 1, len(entry)) } else { entry }
-            if to_lower(host) == bare || ends_with(to_lower(host), concat(".", bare)) {
+            if to_lower(host, invariant) == bare || ends_with(to_lower(host, invariant), concat(".", bare)) {
                 return true
             }
         }
@@ -608,7 +615,7 @@ fn write_request(
     var has_encoding = false
     var has_auth = false
     for h in headers {
-        val lname = to_lower(h.name)
+        val lname = to_lower(h.name, invariant)
         if lname == "user-agent" {
             has_ua = true
         }
@@ -683,7 +690,7 @@ fn exchange(
     val decoded = try decode_body(head.status, head.headers, payload.bytes)
     val connection = header_value(head.headers, "Connection")
     val server_closes = switch connection {
-        Some(c) { contains(to_lower(c), "close") }
+        Some(c) { contains(to_lower(c, invariant), "close") }
         None { false }
     }
     val http_1_1 = starts_with(head.status_line, "HTTP/1.1")
@@ -843,7 +850,7 @@ fn parse_http_date(text: string) -> int {
     }
     var month = 0
     for i in 0..12 {
-        if to_lower(substring(f[2], 0, 3)) == month_names[i] {
+        if to_lower(substring(f[2], 0, 3), invariant) == month_names[i] {
             month = i + 1
         }
     }
@@ -874,7 +881,7 @@ fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
     if byte_len(name_value[0]) == 0 {
         return Option<Cookie>.None
     }
-    var domain = to_lower(u.host)
+    var domain = to_lower(u.host, invariant)
     var host_only = true
     var path = default_path(u.target)
     var secure = false
@@ -886,7 +893,7 @@ fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
         val key = to_lower(switch kv {
             Some(pair) { pair[0] }
             None { attr }
-        })
+        }, invariant)
         val val_text = switch kv {
             Some(pair) { trim(pair[1]) }
             None { "" }
@@ -895,7 +902,7 @@ fn parse_set_cookie(value: string, u: Url, now: int) -> Option<Cookie> {
             val wanted = to_lower(if starts_with(
                 val_text,
                 "."
-            ) { substring(val_text, 1, len(val_text)) } else { val_text })
+            ) { substring(val_text, 1, len(val_text)) } else { val_text }, invariant)
             if wanted != domain && !ends_with(domain, concat(".", wanted)) {
                 return Option<Cookie>.None
             }
@@ -935,7 +942,7 @@ pub fn jar_store(jar: CookieJar, u: Url, headers: [Header]) -> CookieJar {
     val now = now_raw()[0]
     var current = jar.cookies
     for h in headers {
-        if equals_ignore_case(h.name, "Set-Cookie") {
+        if equals_ignore_case(h.name, "Set-Cookie", invariant) {
             if Some(c) = parse_set_cookie(h.value, u, now) {
                 val kept = mutable_array_new<Cookie>()
                 for old in current {
@@ -963,7 +970,7 @@ fn cookie_matches(c: Cookie, u: Url, now: int) -> bool {
     if c.secure && !u.secure {
         return false
     }
-    val host = to_lower(u.host)
+    val host = to_lower(u.host, invariant)
     val domain_ok = if c.host_only { host == c.domain } else { host == c.domain || ends_with(
         host,
         concat(".", c.domain)
@@ -1069,7 +1076,11 @@ fn run(
         if moved_away {
             val kept = mutable_array_new<Header>()
             for h in hs {
-                if !equals_ignore_case(h.name, "Authorization") && !equals_ignore_case(h.name, "Cookie") {
+                if !equals_ignore_case(h.name, "Authorization", invariant) && !equals_ignore_case(
+                    h.name,
+                    "Cookie",
+                    invariant
+                ) {
                     push(kept, h)
                 }
             }
@@ -1406,7 +1417,7 @@ pub fn stream(
     val status = head.status
     val no_body = method == HttpMethod.Head || status < 200 || status == status_no_content || status == status_not_modified
     var state = BodyState { buffer: head.rest, mode: 2, left: 0, after_chunk: false, finished: no_body }
-    if Some(te) = te && contains(to_lower(te), "chunked") {
+    if Some(te) = te && contains(to_lower(te, invariant), "chunked") {
         state = BodyState { buffer: head.rest, mode: 1, left: 0, after_chunk: false, finished: no_body }
     } else if Some(cl) = cl {
         val n = switch parse_int(trim(cl)) {

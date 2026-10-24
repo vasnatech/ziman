@@ -37,8 +37,15 @@
 // at all -- a real design question, not an oversight, and one worth settling only when something
 // asks for it. Every `@Scheduled` job in the reference backend is already `zone = "UTC"`.
 use clock
+use locale
 use time.LocalDate
 use time.localdate_from_epoch_day
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
 
 // How often a job runs. Two forms, because these are the two questions that have come up: "every
 // so often" and "once a day at a fixed time".
@@ -271,7 +278,7 @@ fn parse_field(field: string, min: int, max: int, names: [string], label: string
 }
 
 fn field_number(text: string, min: int, max: int, names: [string], label: string) -> Result<int, string> {
-    val upper = to_upper(text)
+    val upper = to_upper(text, invariant)
     var idx = 0
     while idx < len(names) {
         if byte_len(names[idx]) > 0 && names[idx] == upper {

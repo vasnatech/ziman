@@ -1,0 +1,72 @@
+// Locale-aware case mapping, and the reason protocol code must not use it.
+//
+// `to_upper`, `to_lower` and `equals_ignore_case` each gained a `Locale` overload; the one-argument
+// form uses the process default, which is `locale.root()` until a program sets otherwise.
+//
+// **Root folding is ASCII folding**, so a program that never touches the default sees exactly what
+// it saw before this existed -- which is what makes the change safe for the ~58 places in `lib/`
+// that fold an HTTP header name, a hex digit, a media type or an environment-variable key. Those
+// now name `locale.root()` explicitly, because Turkish folds `I` to `ı` and a wire format compared
+// under a user's language is a bug. Verified by forcing the default to Turkish and running the whole
+// suite: 1,169 of 1,170 unchanged, the one difference being this file's own sibling
+// `string_equals_ignore_case`, which asserts the ASCII behaviour the default is supposed to decide.
+//
+// **Simple case mapping, not full**: `towupper_l` maps one code point to one code point, so `ß`
+// does not become `SS`. That limit is the POSIX interface's, is stated in lib/core/locale.zm, and
+// is what ICU would buy.
+use locale
+use mime
+
+fn main() {
+    val tr = locale.of("tr")
+    val en = locale.of("en")
+    val de = locale.of("de")
+    val root = locale.root()
+
+    print("-- the dotted and dotless i, which is the mapping that actually bites --")
+    printf("  to_upper(i): root={} en={} tr={}\n", to_upper("i", root), to_upper("i", en), to_upper("i", tr))
+    printf("  to_lower(I): root={} en={} tr={}\n", to_lower("I", root), to_lower("I", en), to_lower("I", tr))
+    printf("  istanbul -> {} (tr)\n", to_upper("istanbul", tr))
+    printf("  ISTANBUL -> {} (tr)\n", to_lower("ISTANBUL", tr))
+
+    print("-- mappings ASCII folding cannot reach --")
+    printf("  to_upper(héllo wörld, en) = {}\n", to_upper("héllo wörld", en))
+    printf("  to_upper(héllo wörld)     = {}  <- default is root, so ASCII only\n", to_upper("héllo wörld"))
+    printf("  to_lower(ÉCOLE, en)       = {}\n", to_lower("ÉCOLE", en))
+    printf("  to_upper(ÄÖÜ, de)         = {}\n", to_lower("ÄÖÜ", de))
+
+    print("-- the documented limit --")
+    printf("  to_upper(straße, de) = {}  <- SS needs full case mapping\n", to_upper("straße", de))
+
+    print("-- equals_ignore_case --")
+    printf("  (héllo, HÉLLO)       = {}  <- ASCII fold, no locale\n", equals_ignore_case("héllo", "HÉLLO"))
+    printf("  (héllo, HÉLLO, en)   = {}\n", equals_ignore_case("héllo", "HÉLLO", en))
+    printf("  (ID, id, root)       = {}\n", equals_ignore_case("ID", "id", root))
+    printf("  (ID, id, tr)         = {}  <- why a header match passes root\n", equals_ignore_case("ID", "id", tr))
+    printf("  (straße, STRASSE, de) = {} <- simple folding again\n", equals_ignore_case("straße", "STRASSE", de))
+
+    print("-- the default governs the one-argument form, and root is immune --")
+    printf("  to_lower(ID)             default=root = {}\n", to_lower("ID"))
+    locale.set_default(tr)
+    printf("  to_lower(ID)             default=tr   = {}\n", to_lower("ID"))
+    printf("  to_lower(ID, root)       explicit     = {}\n", to_lower("ID", root))
+    printf("  equals_ignore_case(ID,id)             = {}\n", equals_ignore_case("ID", "id"))
+    printf("  equals_ignore_case(ID,id,root)        = {}\n", equals_ignore_case("ID", "id", root))
+    locale.set_default(root)
+    printf("  to_lower(ID)             back to root = {}\n", to_lower("ID"))
+
+    print("-- a library parser is insulated from the default --")
+    locale.set_default(tr)
+    // `mime.parse` lower-cases the type, the subtype and every parameter name. Under a Turkish
+    // default an un-swept `to_lower` would fold the `I` of `IMAGE` to `ı` and stop matching -- so
+    // this reading the same as it does under root is the sweep working.
+    switch mime.parse("IMAGE/PNG; NAME=\"x\"") {
+        Ok(m) { printf("  mime.parse(IMAGE/PNG) -> {}/{} params={}\n", m.type, m.subtype, m.params) }
+        Err(e) { printf("  BROKEN: {}\n", e) }
+    }
+    locale.set_default(root)
+    switch mime.parse("IMAGE/PNG; NAME=\"x\"") {
+        Ok(m) { printf("  and under root        -> {}/{} params={}\n", m.type, m.subtype, m.params) }
+        Err(e) { printf("  BROKEN: {}\n", e) }
+    }
+}

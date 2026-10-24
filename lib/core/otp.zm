@@ -9,7 +9,14 @@
 // Only the parameters every authenticator app supports: HMAC-SHA-1, six digits, a 30-second step.
 
 use crypto
+use locale
 use random
+
+// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
+// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
+// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
+// some of these sit in per-character loops and `locale.root()` is a call.
+val invariant: Locale = locale.root()
 
 // The secret of 20 random bytes (the size RFC 4226 recommends) as base32 text, 32 characters, the way it is shown to a user and stored.
 pub fn generate_secret() -> string {
@@ -54,7 +61,7 @@ pub fn base32_decode(text: string) -> Result<[byte], string> {
     var buffer = 0
     var bits = 0
     for i in 0..len(text) {
-        val c = to_upper(char_at(text, i))
+        val c = to_upper(char_at(text, i), invariant)
         if c == "=" || c == " " || c == "-" {
             continue
         }

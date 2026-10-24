@@ -6,6 +6,7 @@
 #include "native_locale.h"
 
 #include <langinfo.h>
+#include <wctype.h>
 #include <locale.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,6 +15,7 @@
 #include "error.h"
 #include "handles.h"
 #include "native.h"
+#include "utf8.h"
 #include "value.h"
 #include "xalloc.h"
 
@@ -185,6 +187,13 @@ static LocaleHandle *handle_of(Value v, int line, int col) {
     return h;
 }
 
+/* The same, from a Ziman `Locale` rather than from its bare handle: field 0 by position, as
+ * `mutable_string_handle_of` reads a builder's. The prelude's locale-aware overloads are handed the
+ * struct, the raw natives in this file are handed the int. */
+static LocaleHandle *handle_of_struct(Value v, int line, int col) {
+    return handle_of(v.as.st->fields[0], line, col);
+}
+
 /* `locale_name_raw(handle) -> string`: the name the open actually resolved to, which is how a
  * caller tells `locale.of("xx")` fell back to root without `of` having to answer a Result. */
 static Value native_locale_name_raw(Value *args, int argc, int line, int col) {
@@ -230,6 +239,81 @@ static Value native_locale_default_raw(Value *args, int argc, int line, int col)
     (void)col;
     LocaleHandle *h = __atomic_load_n(&g_default, __ATOMIC_ACQUIRE);
     return value_int((int64_t)(intptr_t)h);
+}
+
+/* ---- case mapping, for src/prelude.c ---------------------------------------------------------
+ *
+ * **One code point in, one code point out.** `towupper_l` and `towlower_l` take and answer a single
+ * wide character, so this is *simple* case mapping and not *full*: German `ß` stays `ß` where the
+ * language wants `SS`, the Greek final sigma is not contextual, and `ﬁ` does not become `FI`. That
+ * is a real limit of the POSIX interface rather than of this code, stated in locale.zm's header and
+ * in docs/ROADMAP.md, and the thing ICU would buy. What it *does* get right is the mapping that
+ * actually bites: `towupper_l('i')` is `İ` and `towlower_l('I')` is `ı` under `tr_TR`, measured.
+ *
+ * A code point that has no mapping comes back unchanged, which is `towupper_l`'s own contract, so
+ * every byte of the input is accounted for and the output is always well-formed UTF-8.
+ *
+ * Invalid UTF-8 is a runtime error naming the byte, the same judgement `chars` and `len` make --
+ * reachable only through `append_byte`, since that is the one route left to such a string. */
+static locale_t locale_for(const Value *loc, int line, int col) {
+    if (loc != NULL) return handle_of_struct(*loc, line, col)->loc;
+    LocaleHandle *h = __atomic_load_n(&g_default, __ATOMIC_ACQUIRE);
+    if (h != NULL) return h->loc;
+    return root_handle(line, col)->loc;
+}
+
+int ziman_locale_default_is_root(void) {
+    LocaleHandle *d = __atomic_load_n(&g_default, __ATOMIC_ACQUIRE);
+    if (d == NULL) return 1; /* unset means root */
+    return d == __atomic_load_n(&g_root, __ATOMIC_ACQUIRE);
+}
+
+Value ziman_locale_case_map(Value s, const Value *loc, int upper, int line, int col) {
+    locale_t L = locale_for(loc, line, col);
+    const uint8_t *in = (const uint8_t *)s.as.str.ptr;
+    size_t n = s.as.str.len;
+    /* A mapped code point can encode longer than the one it replaces (U+00DF is 2 bytes, U+1E9E is
+     * 3), so the buffer is sized for the worst case rather than for `n`: four bytes per input code
+     * point, and a code point is at least one byte. */
+    char *out = zalloc_atomic(n * 4 + 1);
+    size_t pos = 0, w = 0;
+    while (pos < n) {
+        uint32_t cp;
+        int adv = ziman_utf8_decode_strict(in, n, pos, &cp);
+        if (adv == 0) {
+            ziman_error("runtime", line, col, "%s: string is not valid UTF-8 (invalid sequence at byte %zu)",
+                        upper ? "to_upper" : "to_lower", pos);
+        }
+        wint_t mapped = upper ? towupper_l((wint_t)cp, L) : towlower_l((wint_t)cp, L);
+        w += (size_t)ziman_utf8_encode((uint32_t)mapped, out + w);
+        pos += (size_t)adv;
+    }
+    out[w] = '\0';
+    return value_string_view(out, w, 1);
+}
+
+int ziman_locale_equals_fold(Value a, Value b, const Value *loc, int line, int col) {
+    locale_t L = locale_for(loc, line, col);
+    const uint8_t *x = (const uint8_t *)a.as.str.ptr;
+    const uint8_t *y = (const uint8_t *)b.as.str.ptr;
+    size_t nx = a.as.str.len, ny = b.as.str.len;
+    size_t px = 0, py = 0;
+    /* Folded a code point at a time rather than by building two folded strings: equal-length is not
+     * a precondition here, because simple case mapping can change a string's byte length. */
+    while (px < nx && py < ny) {
+        uint32_t cx, cy;
+        int ax = ziman_utf8_decode_strict(x, nx, px, &cx);
+        int ay = ziman_utf8_decode_strict(y, ny, py, &cy);
+        if (ax == 0 || ay == 0) {
+            ziman_error("runtime", line, col,
+                        "equals_ignore_case: string is not valid UTF-8 (invalid sequence at byte %zu)",
+                        ax == 0 ? px : py);
+        }
+        if (towlower_l((wint_t)cx, L) != towlower_l((wint_t)cy, L)) return 0;
+        px += (size_t)ax;
+        py += (size_t)ay;
+    }
+    return px == nx && py == ny;
 }
 
 void native_locale_register(void) {
