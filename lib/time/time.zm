@@ -16,8 +16,9 @@
 // with `_add_*`; compare with `_compare`. Every type reads and writes its ISO-8601 form with
 // `_to_string` / `_from_string` (`2026-09-24`, `13:05:09.5`, `PT1.5S`, `+05:30`). The calendar
 // types and `Instant` also take a `DateTimeFormat`, a pattern compiled once by
-// `datetime_format_of` and reused: `yyyy MM dd HH mm ss` and `SSSSSSSSS` (nanoseconds), each fixed
-// width, anything else copied through as literal text. Every type has `_to_json` / `_from_json`
+// `datetime_format_of` and reused: `yyyy MM dd HH mm ss` and `SSSSSSSSS` (nanoseconds), plus
+// `MMM`/`MMMM` for the month as a name (`Oct`/`October`, English only), anything else copied
+// through as literal text. Every token but `MMMM` renders a fixed number of characters. Every type has `_to_json` / `_from_json`
 // and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]` handle a field of these
 // types (an ISO string, and a TEXT column).
 //
@@ -26,10 +27,13 @@
 // instant and `instant_to_localdatetime_in` / `localdatetime_to_instant_in` convert with daylight
 // saving applied.
 //
-// Limits: years are 0 or later (no BCE), and there is no locale, month name or weekday support.
-// That last one is tracked as of 2026-10-23 rather than merely noted: ROADMAP.md's "Locale support"
-// entry has it as item 5, where the hole is shaped like a missing pattern letter for
-// `datetime_format_of` rather than a missing module.
+// Limits: years are 0 or later (no BCE). **Month names arrived on 2026-10-23 as `MMM`/`MMMM`, in
+// English only**; weekday names and any notion of locale did not. So a Turkish or Japanese
+// application can render `MMMM` but will get "October", which is worse than useless for a reader --
+// the names are two arrays in this file (`month_short_names`, `month_long_names`) precisely so that
+// the seam is obvious when a locale design arrives. ROADMAP.md's "Locale support" entry carries
+// what that needs; its item 5 named the hole as "a missing pattern letter for
+// `datetime_format_of`", which is now half right.
 
 // Implementation notes. Modeled on java.time, scoped down in two deliberate ways:
 //
@@ -134,26 +138,40 @@ fn pad_left(n: int, width: int) -> string {
 }
 
 // The pattern language datetime_format_of compiles -- deliberately
-// small, fixed-width-only (no Java-style "letter count changes meaning"
-// -- M vs MM vs MMM vs MMMM mean four different things there; here
-// there's exactly one recognized run length per letter and nothing
-// else), and with no month/day names or locale-awareness at all:
+// small, with one recognized run length per letter except `M`, where
+// three spell the month three ways:
 //
 //   yyyy       4-digit zero-padded year
-//   MM         2-digit zero-padded month
+//   MM         2-digit zero-padded month (01-12)
+//   MMM        3-letter month name (Jan, Feb, ... Dec)
+//   MMMM       full month name (January, February, ... December)
 //   dd         2-digit zero-padded day
 //   HH         2-digit zero-padded hour (0-23)
 //   mm         2-digit zero-padded minute
 //   ss         2-digit zero-padded second
 //   SSSSSSSSS  9-digit zero-padded nanosecond-of-second
 //
-// Every token's pattern-string length equals its own rendered-output
-// length exactly (each is fixed-width in both directions) -- a
-// deliberate property, not a coincidence: `DateTimeFormat.width` below
-// (and instant_parse_pattern, which uses it) relies on this to know
-// exactly where the calendar part of an instant string ends and its
-// zone-offset suffix begins, with no separator to search for. Anything
-// else in a pattern is a literal, copied through character by
+// **The `M` run lengths are checked longest-first**, so `MMMM` is one
+// token and not `MM` twice; that ordering is load-bearing in
+// datetime_format_of and has a fixture.
+//
+// **Month names are English, and that is a stated limit rather than a
+// design.** They live in `month_short_names` / `month_long_names`
+// below, which is the one place a locale would have to reach -- see
+// docs/ROADMAP.md's Locale entry. Formatting emits exactly those
+// spellings; parsing accepts any case, since a reader handed
+// "12 OCT 2026" means October.
+//
+// **Every token but `MMMM` renders exactly as many characters as it
+// occupies in the pattern.** That used to hold for all of them and
+// `DateTimeFormat.width` was how instant_parse_pattern found where a
+// calendar part ended and a zone-offset suffix began. `MMMM` breaks it
+// -- "May" is three characters and "September" nine -- so that split
+// now comes from how far the parse actually got
+// (`ParsedFields.consumed`) rather than from a precomputed width, and
+// `width` is -1 for a pattern containing `MMMM`.
+//
+// Anything else in a pattern is a literal, copied through character by
 // character, with no escaping mechanism -- none of the separators any
 // pattern here actually needs ("-", ":", ".", "T") collide with a
 // token letter, so there's nothing to escape. A pattern with a
@@ -161,6 +179,40 @@ fn pad_left(n: int, width: int) -> string {
 // matches no token and is folded into the surrounding literal text
 // too, rather than erroring -- a narrow, documented scope cut, not a
 // trap that's been guarded against.
+
+// The month names `MMM` and `MMMM` render, indexed by month - 1.
+//
+// **English only.** A localised date formatter needs these per locale, plus day names, plus an
+// ordering convention; none of that is designed yet (docs/ROADMAP.md, "Locale support"). Keeping
+// them here, as two plain arrays, is what makes the seam obvious when it is: these two definitions
+// and `month_number_of` are the whole of what a locale would replace.
+val month_short_names: [string] = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+]
+val month_long_names: [string] = [
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December"
+]
+
+// The 1-12 month a name at `pos` spells, and the position after it, or `Err`. Matched without
+// regard to case, longest candidate first so "June" is not read as "Jun" with a stray "e" left
+// over -- the same longest-first rule the pattern letters follow.
+fn month_number_of(s: string, pos: int, names: [string]) -> Result<[int], string> {
+    var best = -1
+    var best_len = 0
+    for i in 0..len(names) {
+        val name = names[i]
+        val n = len(name)
+        if pos + n <= len(s) && n > best_len && equals_ignore_case(substring(s, pos, pos + n), name) {
+            best = i + 1
+            best_len = n
+        }
+    }
+    if best < 0 {
+        return err(format("expected a month name at position {}", pos))
+    }
+    return ok([best, pos + best_len])
+}
 fn matches_token(pattern: string, i: int, token: string) -> bool {
     return is_char_at(pattern, i, token)
 }
@@ -172,6 +224,10 @@ fn matches_token(pattern: string, i: int, token: string) -> bool {
 enum DateTimePart {
     Year
     Month
+    // `MMM` and `MMMM`: the month as a name rather than as digits. MonthFullName is the one part
+    // whose rendered width is not fixed.
+    MonthName
+    MonthFullName
     Day
     Hour
     Minute
@@ -201,14 +257,18 @@ fn datetime_part_width(part: DateTimePart) -> int {
     return switch part {
         Year { 4 }
         Month { 2 }
+        MonthName { 3 }
+        // Not a fixed width: "May" is 3 characters and "September" is 9. -1 propagates through the
+        // total in datetime_format_of, so `DateTimeFormat.width` is -1 for any pattern holding one.
+        MonthFullName { -1 }
         Day { 2 }
         Hour { 2 }
         Minute { 2 }
         Second { 2 }
         Nano { 9 }
-        // Characters, like every other arm here -- `fmt.width` feeds `substring(s, 0, fmt.width)`,
-        // which cuts characters. This counted bytes until 2026-10-23, which gave the pattern
-        // `yyyy年MM月dd日` a width of 17 where it renders 11 characters, and broke parsing with it.
+        // Characters, like every other arm here, because `width` is a count of rendered characters.
+        // This counted bytes until 2026-10-23, which gave the pattern `yyyy年MM月dd日` a width of 17
+        // where it renders 11, and broke parsing with it.
         Literal(s) { len(s) }
     }
 }
@@ -240,6 +300,21 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
             }
             push(parts, DateTimePart.Year)
             i = i + 4
+        } else if matches_token(pattern, i, "MMMM") {
+            // Longest first: checked before `MMM` and `MM`, or `MMMM` would read as `MM` twice.
+            if literal_buf != "" {
+                push(parts, DateTimePart.Literal(literal_buf))
+                literal_buf = ""
+            }
+            push(parts, DateTimePart.MonthFullName)
+            i = i + 4
+        } else if matches_token(pattern, i, "MMM") {
+            if literal_buf != "" {
+                push(parts, DateTimePart.Literal(literal_buf))
+                literal_buf = ""
+            }
+            push(parts, DateTimePart.MonthName)
+            i = i + 3
         } else if matches_token(pattern, i, "MM") {
             if literal_buf != "" {
                 push(parts, DateTimePart.Literal(literal_buf))
@@ -291,9 +366,14 @@ pub fn datetime_format_of(pattern: string) -> DateTimeFormat {
         push(parts, DateTimePart.Literal(literal_buf))
     }
     val parts_array = snapshot(parts)
+    // -1 for any part whose rendered width is not fixed (only MonthFullName), and it poisons the
+    // total rather than being summed into nonsense. Nothing inside this module reads `width` any
+    // more -- instant_parse_pattern used to, and now takes the end of the calendar part from how
+    // far the parse got instead.
     var width = 0
     for part in parts_array {
-        width = width + datetime_part_width(part)
+        val w = datetime_part_width(part)
+        width = if width < 0 || w < 0 { -1 } else { width + w }
     }
     return DateTimeFormat { parts: parts_array, width: width }
 }
@@ -330,6 +410,8 @@ fn format_fields(
         append(out, switch part {
             Year { format_year(year) }
             Month { pad_left(month, 2) }
+            MonthName { month_short_names[month - 1] }
+            MonthFullName { month_long_names[month - 1] }
             Day { pad_left(day, 2) }
             Hour { pad_left(hour, 2) }
             Minute { pad_left(minute, 2) }
@@ -349,6 +431,10 @@ struct ParsedFields {
     minute: int
     second: int
     nano: int
+    // The position after the last character the pattern consumed. `parse_fields` requires it to be
+    // the whole string; instant_parse_pattern does not, and uses it to find where the calendar part
+    // ends -- which `MMMM` made impossible to precompute.
+    consumed: int
 }
 
 fn parse_fixed_width_int(s: string, start: int, width: int) -> Result<int, string> {
@@ -383,7 +469,9 @@ fn parse_year(s: string, start: int) -> Result<[int], string> {
     return ok([if is_char_at(s, start, "-") { 0 - unwrap(magnitude) } else { unwrap(magnitude) }, end])
 }
 
-fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> {
+// `s` read with `fmt` from the start, stopping wherever the pattern runs out -- trailing content is
+// the caller's business. `parse_fields` below is this plus "and nothing after it".
+fn parse_fields_prefix(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> {
     var year = 0
     var month = 0
     var day = 0
@@ -409,6 +497,22 @@ fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> 
                 }
                 month = r
                 si = si + 2
+            }
+            MonthName {
+                val r = switch month_number_of(s, si, month_short_names) {
+                    Ok(v) { v }
+                    Err(e) { return err(format("invalid month name in '{}': {}", s, e)) }
+                }
+                month = r[0]
+                si = r[1]
+            }
+            MonthFullName {
+                val r = switch month_number_of(s, si, month_long_names) {
+                    Ok(v) { v }
+                    Err(e) { return err(format("invalid month name in '{}': {}", s, e)) }
+                }
+                month = r[0]
+                si = r[1]
             }
             Day {
                 val r = switch parse_fixed_width_int(s, si, 2) {
@@ -462,9 +566,6 @@ fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> 
             }
         }
     }
-    if si != len(s) {
-        return err(format("'{}' has trailing content after position {}", s, si))
-    }
     return ok(ParsedFields {
         year: year,
         month: month,
@@ -472,8 +573,19 @@ fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> 
         hour: hour,
         minute: minute,
         second: second,
-        nano: nano
+        nano: nano,
+        consumed: si
     })
+}
+
+// The whole of `s`, read with `fmt`. Every dated-value parser wants this; only
+// instant_parse_pattern wants a prefix.
+fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> {
+    val f = try parse_fields_prefix(s, fmt)
+    if f.consumed != len(s) {
+        return err(format("'{}' has trailing content after position {}", s, f.consumed))
+    }
+    return ok(f)
 }
 
 // The fixed shapes every existing `_to_string` produces, now also the
@@ -1303,25 +1415,22 @@ pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> st
 // always parsed separately (via zoneoffset_from_string) and used to convert
 // the parsed wall-clock time into an absolute Instant -- not something
 // a caller chooses per call, since the string's own suffix already
-// says what it is. Slicing at exactly `fmt.width` characters works
-// because every pattern token's width is fixed and known at compile
-// time (see the pattern-language comment above) -- no need to search
-// for where the calendar part ends, and no need to recompute it here.
+// says what it is.
+//
+// **Where the calendar part ends comes from the parse, not from a
+// width.** This sliced `s` at `fmt.width` first, which worked while
+// every token rendered exactly as many characters as it occupied in
+// the pattern. `MMMM` does not ("May" is three, "September" nine), so
+// the calendar part is parsed from the start and whatever it did not
+// consume is the offset. That reads the same for a fixed-width pattern
+// and works for a variable one, and it is why nothing here needs
+// `fmt.width` -- which is -1 for such a pattern anyway.
 pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, string> {
-    if len(s) < fmt.width {
-        return err(format("'{}' is too short to match the given format", s))
-    }
-    val datetime_part = substring(s, 0, fmt.width)
-    val offset_part = substring(s, fmt.width, len(s))
-    val dt_r = localdatetime_parse_pattern(datetime_part, fmt)
-    if Err(e) = dt_r {
-        return err(e)
-    }
-    val offset_r = zoneoffset_from_string(offset_part)
-    if Err(e) = offset_r {
-        return err(e)
-    }
-    return ok(localdatetime_to_instant(unwrap(dt_r), unwrap(offset_r)))
+    val f = try parse_fields_prefix(s, fmt)
+    val date = try localdate_of(f.year, f.month, f.day)
+    val time = try localtime_of(f.hour, f.minute, f.second, f.nano)
+    val offset = try zoneoffset_from_string(substring(s, f.consumed, len(s)))
+    return ok(localdatetime_to_instant(LocalDateTime { date: date, time: time }, offset))
 }
 
 // Accepts either offset shape zoneoffset_from_string does ("Z" or a real

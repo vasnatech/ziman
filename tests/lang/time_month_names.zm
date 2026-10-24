@@ -1,0 +1,75 @@
+// `MMM` and `MMMM`: the month as a name rather than as digits.
+//
+// Three things here are easy to get wrong and so are each pinned:
+//
+//   * **The `M` run lengths are matched longest-first.** `MMMM` must be one token, not `MM` twice,
+//     and `MMMMM` is `MMMM` followed by a literal `M` -- the documented behaviour for a run length
+//     no token claims.
+//   * **`MMMM` is the one token whose rendered width is not fixed** ("May" is 3, "September" is 9),
+//     which is why `DateTimeFormat.width` is -1 for a pattern holding one, and why
+//     `instant_parse_pattern` finds the end of the calendar part from how far the parse got rather
+//     than by slicing at a precomputed width.
+//   * **Parsing month names is longest-first too**, so "June" is not read as "Jun" with a stray
+//     "e" left over, and case-insensitive, because a reader handed "12 OCT 2026" means October.
+//
+// The names are English only. That is a stated limit, not a design -- see ROADMAP.md's "Locale
+// support" entry, which this half-closes.
+use time
+
+fn round_trip(pattern: string, month: int) {
+    val fmt = time.datetime_format_of(pattern)
+    val date = unwrap(time.localdate_of(2026, month, 15))
+    val text = time.localdate_format(date, fmt)
+    switch time.localdate_parse_pattern(text, fmt) {
+        Ok(back) { printf("{} -> {} (width {}, round trip {})\n", pattern, text, fmt.width, back == date) }
+        Err(e) { printf("{} -> {} ERR {}\n", pattern, text, e) }
+    }
+}
+
+fn parse_only(pattern: string, text: string) {
+    switch time.localdate_parse_pattern(text, time.datetime_format_of(pattern)) {
+        Ok(d) { printf("  [{}] -> {}\n", text, time.localdate_to_string(d)) }
+        Err(e) { printf("  [{}] -> ERR {}\n", text, e) }
+    }
+}
+
+fn main() {
+    print("-- every month, short and long --")
+    for m in 1..13 {
+        round_trip("dd MMM yyyy", m)
+    }
+    for m in 1..13 {
+        round_trip("dd MMMM yyyy", m)
+    }
+
+    print("-- the run-length dispatch --")
+    val widths = ["MM", "MMM", "MMMM", "MMMMM", "MMM MMM", "yyyy-MM-dd"]
+    for w in widths {
+        val f = time.datetime_format_of(w)
+        val d = unwrap(time.localdate_of(2026, 10, 23))
+        printf("  {} -> [{}] width={}\n", w, time.localdate_format(d, f), f.width)
+    }
+
+    print("-- parsing: case, longest-first, and refusal --")
+    for t in ["15 Oct 2026", "15 OCT 2026", "15 oct 2026", "15 Xyz 2026", "15 October 2026"] {
+        parse_only("dd MMM yyyy", t)
+    }
+    for t in ["June 15 2026", "July 15 2026", "May 15 2026", "September 15 2026", "Jun 15 2026"] {
+        parse_only("MMMM dd yyyy", t)
+    }
+
+    print("-- an instant, where the calendar part has no precomputed width --")
+    val i = unwrap(time.instant_from_string("2026-09-24T12:00:00Z"))
+    val off = unwrap(time.zoneoffset_of_hours_minutes(2, 0))
+    for pat in ["yyyy-MM-dd HH:mm:ss", "dd MMM yyyy HH:mm:ss", "dd MMMM yyyy HH:mm:ss"] {
+        val fmt = time.datetime_format_of(pat)
+        val text = time.instant_format(i, off, fmt)
+        switch time.instant_parse_pattern(text, fmt) {
+            Ok(back) { printf("  {} -> [{}] round trip {}\n", pat, text, back == i) }
+            Err(e) { printf("  {} -> [{}] ERR {}\n", pat, text, e) }
+        }
+    }
+
+    print("-- a month name beside a non-ASCII literal --")
+    round_trip("dd MMMM yyyy 年", 9)
+}

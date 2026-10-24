@@ -1,0 +1,49 @@
+-- every month, short and long --
+dd MMM yyyy -> 15 Jan 2026 (width 11, round trip true)
+dd MMM yyyy -> 15 Feb 2026 (width 11, round trip true)
+dd MMM yyyy -> 15 Mar 2026 (width 11, round trip true)
+dd MMM yyyy -> 15 Apr 2026 (width 11, round trip true)
+dd MMM yyyy -> 15 May 2026 (width 11, round trip true)
+dd MMM yyyy -> 15 Jun 2026 (width 11, round trip true)
+dd MMM yyyy -> 15 Jul 2026 (width 11, round trip true)
+dd MMM yyyy -> 15 Aug 2026 (width 11, round trip true)
+dd MMM yyyy -> 15 Sep 2026 (width 11, round trip true)
+dd MMM yyyy -> 15 Oct 2026 (width 11, round trip true)
+dd MMM yyyy -> 15 Nov 2026 (width 11, round trip true)
+dd MMM yyyy -> 15 Dec 2026 (width 11, round trip true)
+dd MMMM yyyy -> 15 January 2026 (width -1, round trip true)
+dd MMMM yyyy -> 15 February 2026 (width -1, round trip true)
+dd MMMM yyyy -> 15 March 2026 (width -1, round trip true)
+dd MMMM yyyy -> 15 April 2026 (width -1, round trip true)
+dd MMMM yyyy -> 15 May 2026 (width -1, round trip true)
+dd MMMM yyyy -> 15 June 2026 (width -1, round trip true)
+dd MMMM yyyy -> 15 July 2026 (width -1, round trip true)
+dd MMMM yyyy -> 15 August 2026 (width -1, round trip true)
+dd MMMM yyyy -> 15 September 2026 (width -1, round trip true)
+dd MMMM yyyy -> 15 October 2026 (width -1, round trip true)
+dd MMMM yyyy -> 15 November 2026 (width -1, round trip true)
+dd MMMM yyyy -> 15 December 2026 (width -1, round trip true)
+-- the run-length dispatch --
+  MM -> [10] width=2
+  MMM -> [Oct] width=3
+  MMMM -> [October] width=-1
+  MMMMM -> [OctoberM] width=-1
+  MMM MMM -> [Oct Oct] width=7
+  yyyy-MM-dd -> [2026-10-23] width=10
+-- parsing: case, longest-first, and refusal --
+  [15 Oct 2026] -> 2026-10-15
+  [15 OCT 2026] -> 2026-10-15
+  [15 oct 2026] -> 2026-10-15
+  [15 Xyz 2026] -> ERR invalid month name in '15 Xyz 2026': expected a month name at position 3
+  [15 October 2026] -> ERR '15 October 2026' does not match expected literal ' ' at position 6
+  [June 15 2026] -> 2026-06-15
+  [July 15 2026] -> 2026-07-15
+  [May 15 2026] -> 2026-05-15
+  [September 15 2026] -> 2026-09-15
+  [Jun 15 2026] -> ERR invalid month name in 'Jun 15 2026': expected a month name at position 0
+-- an instant, where the calendar part has no precomputed width --
+  yyyy-MM-dd HH:mm:ss -> [2026-09-24 14:00:00+02:00] round trip true
+  dd MMM yyyy HH:mm:ss -> [24 Sep 2026 14:00:00+02:00] round trip true
+  dd MMMM yyyy HH:mm:ss -> [24 September 2026 14:00:00+02:00] round trip true
+-- a month name beside a non-ASCII literal --
+dd MMMM yyyy 年 -> 15 September 2026 年 (width -1, round trip true)

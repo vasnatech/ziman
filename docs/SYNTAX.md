@@ -1444,12 +1444,16 @@ calendar breakdown.
 
 **`DateTimeFormat`** is compiled once (`datetime_format_of(pattern: string) ->
 DateTimeFormat` scans it into an array of field/literal parts) and reused across many
-`_format`/`_parse_pattern` calls. The pattern language is small and fixed-width, one run
-length per letter (unlike `java.time.DateTimeFormatter`, where `M`/`MM`/`MMM`/`MMMM` differ):
-`yyyy` (4-digit year), `MM`/`dd`/`HH`/`mm`/`ss` (2-digit, `HH` is 0-23), `SSSSSSSSS`
-(9-digit nanosecond). Anything else is a literal, copied through verbatim -- no escaping,
-no month/day names, no locale-awareness; an unrecognized run length of a token letter (three
-`S`s) is just folded into the surrounding literal rather than erroring.
+`_format`/`_parse_pattern` calls. The pattern language is small, one run length per letter
+except `M`, where three spell the month three ways: `yyyy` (4-digit year),
+`MM`/`dd`/`HH`/`mm`/`ss` (2-digit, `HH` is 0-23), `SSSSSSSSS` (9-digit nanosecond), `MMM`
+(3-letter month name) and `MMMM` (full month name). The `M` lengths are matched longest-first,
+so `MMMM` is one token rather than `MM` twice. **Month names are English only** and parsing
+accepts any case; weekday names and locale support do not exist (ROADMAP.md, "Locale support").
+Anything else is a literal, copied through verbatim -- no escaping; an unrecognized run length
+of a token letter (three `S`s) is just folded into the surrounding literal rather than erroring.
+Every token but `MMMM` renders exactly as many characters as it occupies in the pattern, and
+`DateTimeFormat.width` is -1 for a pattern containing one.
 
 ```ziman
 use time.LocalDate

@@ -109,9 +109,9 @@ own shape), and calendar math via Howard Hinnant's public-domain
 days-from-civil algorithm. Every type has a fixed ISO-8601 `_to_string`/
 `_parse` pair, and the three calendar-shaped types plus `Instant` also
 get a general `_format`/`_parse_pattern` pair taking a `DateTimeFormat`
-— a pattern (`yyyy`/`MM`/`dd`/`HH`/`mm`/`ss`/`SSSSSSSSS`, fixed-width
-only, no `java.time.DateTimeFormatter`-style "letter count changes
-meaning") *compiled once* by `datetime_format_of`, not re-scanned on
+— a pattern (`yyyy`/`MM`/`dd`/`HH`/`mm`/`ss`/`SSSSSSSSS`, plus
+`MMM`/`MMMM` for an English month name as of 2026-10-23; one run length
+per letter except `M`, matched longest-first) *compiled once* by `datetime_format_of`, not re-scanned on
 every call; the ISO pair is implemented on top of the general one via
 `pub val iso_*_format` presets, each compiled exactly once at program
 start and reused for the process's whole lifetime. None of the nine new scalar/struct types

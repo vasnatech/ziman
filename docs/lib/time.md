@@ -21,8 +21,9 @@ Build a value with its `_of` function, which checks the fields and returns a `Re
 with `_add_*`; compare with `_compare`. Every type reads and writes its ISO-8601 form with
 `_to_string` / `_from_string` (`2026-09-24`, `13:05:09.5`, `PT1.5S`, `+05:30`). The calendar
 types and `Instant` also take a `DateTimeFormat`, a pattern compiled once by
-`datetime_format_of` and reused: `yyyy MM dd HH mm ss` and `SSSSSSSSS` (nanoseconds), each fixed
-width, anything else copied through as literal text. Every type has `_to_json` / `_from_json`
+`datetime_format_of` and reused: `yyyy MM dd HH mm ss` and `SSSSSSSSS` (nanoseconds), plus
+`MMM`/`MMMM` for the month as a name (`Oct`/`October`, English only), anything else copied
+through as literal text. Every token but `MMMM` renders a fixed number of characters. Every type has `_to_json` / `_from_json`
 and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]` handle a field of these
 types (an ISO string, and a TEXT column).
 
@@ -31,10 +32,13 @@ they need the operating system's tzdata package; `zoneid_offset_at` gives the of
 instant and `instant_to_localdatetime_in` / `localdatetime_to_instant_in` convert with daylight
 saving applied.
 
-Limits: years are 0 or later (no BCE), and there is no locale, month name or weekday support.
-That last one is tracked as of 2026-10-23 rather than merely noted: ROADMAP.md's "Locale support"
-entry has it as item 5, where the hole is shaped like a missing pattern letter for
-`datetime_format_of` rather than a missing module.
+Limits: years are 0 or later (no BCE). **Month names arrived on 2026-10-23 as `MMM`/`MMMM`, in
+English only**; weekday names and any notion of locale did not. So a Turkish or Japanese
+application can render `MMMM` but will get "October", which is worse than useless for a reader --
+the names are two arrays in this file (`month_short_names`, `month_long_names`) precisely so that
+the seam is obvious when a locale design arrives. ROADMAP.md's "Locale support" entry carries
+what that needs; its item 5 named the hole as "a missing pattern letter for
+`datetime_format_of`", which is now half right.
 
 `use time` -- or `use time.Name` to bring one item in bare.
 
@@ -912,10 +916,16 @@ pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, 
 always parsed separately (via zoneoffset_from_string) and used to convert
 the parsed wall-clock time into an absolute Instant -- not something
 a caller chooses per call, since the string's own suffix already
-says what it is. Slicing at exactly `fmt.width` characters works
-because every pattern token's width is fixed and known at compile
-time (see the pattern-language comment above) -- no need to search
-for where the calendar part ends, and no need to recompute it here.
+says what it is.
+
+**Where the calendar part ends comes from the parse, not from a
+width.** This sliced `s` at `fmt.width` first, which worked while
+every token rendered exactly as many characters as it occupied in
+the pattern. `MMMM` does not ("May" is three, "September" nine), so
+the calendar part is parsed from the start and whatever it did not
+consume is the offset. That reads the same for a fixed-width pattern
+and works for a variable one, and it is why nothing here needs
+`fmt.width` -- which is -1 for such a pattern anyway.
 
 ### `instant_from_string`
 
