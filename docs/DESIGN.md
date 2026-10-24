@@ -8122,7 +8122,7 @@ Verified: `make check` green, 1,178 fixtures on both builds. `tests/lang/string_
         return ok(unwrap(r))
     }
 
-written out eighteen times, differing only in which `_raw` it called -- about a hundred lines saying one thing. One generic `lift<T>(r: Result<T, string>) -> Result<T, FsError>` says it instead, and every public function became a one-line call. The `T` is what made it possible rather than clever: `unit`, `int`, `string`, `[byte]`, `[string]` and three distinct `Iter` shapes all pass through unchanged. 402 lines to 343, with no call site anywhere affected, because none of this was ever visible outside the file.
+written out eighteen times, differing only in which `_raw` it called -- about a hundred lines saying one thing. One generic `lift<T>(r: Result<T, string>) -> Result<T, FsError>` says it instead -- as a `switch` over the two variants, so the `Ok` arm *names* its value rather than testing for `Err` and then re-extracting with an `unwrap` that cannot fail -- and every public function became a one-line call. The `T` is what made it possible rather than clever: `unit`, `int`, `string`, `[byte]`, `[string]` and three distinct `Iter` shapes all pass through unchanged. 402 lines to 343, with no call site anywhere affected, because none of this was ever visible outside the file.
 
 **`remove_all` was hand-rolled in the fixtures, which is how a missing function announces itself.** `make_dirs` exists (`mkdir -p`) and had no counterpart, so `tests/lang/fs_extended.zm` deleted its tree with six `fs.remove` calls in dependency order and `fs_basic.zm` with three. Both are one call now.
 

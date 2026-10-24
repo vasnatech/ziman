@@ -63,10 +63,10 @@ fn fs_error_from_raw(raw: string) -> FsError {
 // and the `T` is why it could: `unit`, `int`, `string`, `[byte]`, `[string]` and three `Iter`
 // shapes all go through unchanged.
 fn lift<T>(r: Result<T, string>) -> Result<T, FsError> {
-    if Err(e) = r {
-        return err(fs_error_from_raw(e))
+    return switch r {
+        Ok(v) { ok(v) }
+        Err(e) { err(fs_error_from_raw(e)) }
     }
-    return ok(unwrap(r))
 }
 
 // The message to show a human. Every variant already carries the OS's own wording, so this adds nothing

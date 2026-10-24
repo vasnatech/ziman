@@ -670,11 +670,10 @@ pub fn parse_toml(text: string) -> Result<Json, string> {
         }
         p = skip_all(cs, p)
     }
-    val flushed = flush_table(root, pending, pending_path, pending_op)
-    if Err(e) = flushed {
-        return err(fail(cs, pending_pos, e))
+    return switch flush_table(root, pending, pending_path, pending_op) {
+        Ok(v) { ok(v) }
+        Err(e) { err(fail(cs, pending_pos, e)) }
     }
-    return ok(unwrap(flushed))
 }
 
 // ------------------------------------------------------------------ writing
