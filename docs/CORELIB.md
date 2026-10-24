@@ -22,49 +22,49 @@ are. See docs/SYNTAX.md's "Modules" section for what it contains.
 ## `bits`
 
 ```
-pub native fn byte_and(a: byte, b: byte) -> byte
+pub native fn and(a: byte, b: byte) -> byte
 
-pub native fn byte_or(a: byte, b: byte) -> byte
+pub native fn or(a: byte, b: byte) -> byte
 
-pub native fn byte_xor(a: byte, b: byte) -> byte
+pub native fn xor(a: byte, b: byte) -> byte
 
-pub native fn byte_not(a: byte) -> byte
+pub native fn not(a: byte) -> byte
 
-pub native fn byte_shift_left(a: byte, n: int) -> byte
+pub native fn and(a: int, b: int) -> int
 
-pub native fn byte_shift_right(a: byte, n: int) -> byte
+pub native fn or(a: int, b: int) -> int
 
-pub native fn byte_popcount(a: byte) -> int
+pub native fn xor(a: int, b: int) -> int
 
-pub native fn int_and(a: int, b: int) -> int
+pub native fn not(a: int) -> int
 
-pub native fn int_or(a: int, b: int) -> int
+pub native fn and(a: bigint, b: bigint) -> bigint
 
-pub native fn int_xor(a: int, b: int) -> int
+pub native fn or(a: bigint, b: bigint) -> bigint
 
-pub native fn int_not(a: int) -> int
+pub native fn xor(a: bigint, b: bigint) -> bigint
 
-pub native fn int_shift_left(a: int, n: int) -> int
+pub native fn not(a: bigint) -> bigint
 
-pub native fn int_shift_right(a: int, n: int) -> int
+pub native fn shift_left(a: byte, n: int) -> byte
 
-pub native fn bigint_and(a: bigint, b: bigint) -> bigint
+pub native fn shift_right(a: byte, n: int) -> byte
 
-pub native fn bigint_or(a: bigint, b: bigint) -> bigint
+pub native fn shift_left(a: int, n: int) -> int
 
-pub native fn bigint_xor(a: bigint, b: bigint) -> bigint
+pub native fn shift_right(a: int, n: int) -> int
 
-pub native fn bigint_not(a: bigint) -> bigint
+pub native fn shift_left(a: bigint, n: int) -> bigint
 
-pub native fn bigint_shift_left(a: bigint, n: int) -> bigint
+pub native fn shift_right(a: bigint, n: int) -> bigint
 
-pub native fn bigint_shift_right(a: bigint, n: int) -> bigint
+pub native fn popcount(a: byte) -> int
 
-pub native fn int_popcount(a: int) -> int
+pub native fn popcount(a: int) -> int
 
-pub native fn bigint_popcount(a: bigint) -> int
+pub native fn popcount(a: bigint) -> int
 
-pub native fn bigint_bit_length(a: bigint) -> int
+pub native fn bit_length(a: bigint) -> int
 
 pub struct BitSet {
     bits: int
@@ -76,29 +76,35 @@ pub fn bitset_of_int(x: int) -> BitSet
 
 pub fn bitset_to_int(bs: BitSet) -> int
 
-pub fn bitset_set(bs: BitSet, i: int) -> BitSet
+pub fn set(bs: BitSet, i: int) -> BitSet
 
-pub fn bitset_clear(bs: BitSet, i: int) -> BitSet
+pub fn remove(bs: BitSet, i: int) -> BitSet
 
-pub fn bitset_flip(bs: BitSet, i: int) -> BitSet
+pub fn flip(bs: BitSet, i: int) -> BitSet
 
-pub fn bitset_get(bs: BitSet, i: int) -> bool
+pub fn get(bs: BitSet, i: int) -> bool
 
-pub fn bitset_and(a: BitSet, b: BitSet) -> BitSet
+pub fn intersect(sets: variadic BitSet) -> BitSet
 
-pub fn bitset_or(a: BitSet, b: BitSet) -> BitSet
+pub fn union(sets: variadic BitSet) -> BitSet
 
-pub fn bitset_xor(a: BitSet, b: BitSet) -> BitSet
+pub fn difference(a: BitSet, b: BitSet) -> BitSet
 
-pub fn bitset_and_not(a: BitSet, b: BitSet) -> BitSet
+pub fn is_subset(a: BitSet, b: BitSet) -> bool
 
-pub fn bitset_is_empty(bs: BitSet) -> bool
+pub fn xor(a: BitSet, b: BitSet) -> BitSet
 
-pub fn bitset_cardinality(bs: BitSet) -> int
+pub fn not(bs: BitSet) -> BitSet
 
-pub fn bitset_length(bs: BitSet) -> int
+pub fn is_empty(bs: BitSet) -> bool
 
-pub fn bitset_to_string(bs: BitSet) -> string
+pub fn len(bs: BitSet) -> int
+
+pub fn bit_length(bs: BitSet) -> int
+
+pub fn to_array(bs: BitSet) -> [int]
+
+pub fn format(bs: BitSet) -> string
 
 pub struct BigBitSet {
     bits: bigint
@@ -110,29 +116,33 @@ pub fn big_bitset_of_bigint(x: bigint) -> BigBitSet
 
 pub fn big_bitset_to_bigint(bs: BigBitSet) -> bigint
 
-pub fn big_bitset_set(bs: BigBitSet, i: int) -> BigBitSet
+pub fn set(bs: BigBitSet, i: int) -> BigBitSet
 
-pub fn big_bitset_clear(bs: BigBitSet, i: int) -> BigBitSet
+pub fn remove(bs: BigBitSet, i: int) -> BigBitSet
 
-pub fn big_bitset_flip(bs: BigBitSet, i: int) -> BigBitSet
+pub fn flip(bs: BigBitSet, i: int) -> BigBitSet
 
-pub fn big_bitset_get(bs: BigBitSet, i: int) -> bool
+pub fn get(bs: BigBitSet, i: int) -> bool
 
-pub fn big_bitset_and(a: BigBitSet, b: BigBitSet) -> BigBitSet
+pub fn intersect(sets: variadic BigBitSet) -> BigBitSet
 
-pub fn big_bitset_or(a: BigBitSet, b: BigBitSet) -> BigBitSet
+pub fn union(sets: variadic BigBitSet) -> BigBitSet
 
-pub fn big_bitset_xor(a: BigBitSet, b: BigBitSet) -> BigBitSet
+pub fn difference(a: BigBitSet, b: BigBitSet) -> BigBitSet
 
-pub fn big_bitset_and_not(a: BigBitSet, b: BigBitSet) -> BigBitSet
+pub fn is_subset(a: BigBitSet, b: BigBitSet) -> bool
 
-pub fn big_bitset_is_empty(bs: BigBitSet) -> bool
+pub fn xor(a: BigBitSet, b: BigBitSet) -> BigBitSet
 
-pub fn big_bitset_cardinality(bs: BigBitSet) -> int
+pub fn is_empty(bs: BigBitSet) -> bool
 
-pub fn big_bitset_length(bs: BigBitSet) -> int
+pub fn len(bs: BigBitSet) -> int
 
-pub fn big_bitset_to_string(bs: BigBitSet) -> string
+pub fn bit_length(bs: BigBitSet) -> int
+
+pub fn to_array(bs: BigBitSet) -> [int]
+
+pub fn format(bs: BigBitSet) -> string
 
 ```
 

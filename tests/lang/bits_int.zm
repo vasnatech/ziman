@@ -1,14 +1,14 @@
 use bits
 
 fn main() {
-    print(bits.int_and(12, 10))
-    print(bits.int_or(12, 10))
-    print(bits.int_xor(12, 10))
-    print(bits.int_not(0))
-    print(bits.int_not(-1))
-    print(bits.int_shift_left(1, 4))
-    print(bits.int_shift_left(1, 0))
-    print(bits.int_shift_right(8, 1))
-    print(bits.int_shift_right(-8, 1))
-    print(bits.int_shift_right(-3, 1))   // floors: -2, not -1 (-3 / 2)
+    print(bits.and(12, 10))
+    print(bits.or(12, 10))
+    print(bits.xor(12, 10))
+    print(bits.not(0))
+    print(bits.not(-1))
+    print(bits.shift_left(1, 4))
+    print(bits.shift_left(1, 0))
+    print(bits.shift_right(8, 1))
+    print(bits.shift_right(-8, 1))
+    print(bits.shift_right(-3, 1))  // floors: -2, not -1 (-3 / 2)
 }

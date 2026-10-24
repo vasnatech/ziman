@@ -4,9 +4,9 @@ fn main() {
     val read = 1
     val write = 2
     val execute = 4
-    val flags = bits.int_or(read, execute)
+    val flags = bits.or(read, execute)
     for pair in [["read", str(read)], ["write", str(write)], ["execute", str(execute)]] {
         val bit = unwrap(parse_int(pair[1]))
-        printf("{}: {}\n", pair[0], if bits.int_and(flags, bit) != 0 { "yes" } else { "no" })
+        printf("{}: {}\n", pair[0], if bits.and(flags, bit) != 0 { "yes" } else { "no" })
     }
 }

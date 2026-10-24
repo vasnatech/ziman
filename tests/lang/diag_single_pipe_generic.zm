@@ -1,5 +1,5 @@
 // F51: a bare '|' that is neither a type declaration nor a pipeline. The old message offered only
-// '||'; this one also names 'bits.int_or' -- the likeliest intent for a bare 'a | b' between ints,
+// '||'; this one also names 'bits.or' -- the likeliest intent for a bare 'a | b' between ints,
 // and a function that really exists -- plus enum, which was the measured habit, while still
 // answering the reader who did mean boolean or.
 fn main() {

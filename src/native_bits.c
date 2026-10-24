@@ -50,13 +50,13 @@ static Value native_byte_not(Value *args, int argc, int line, int col) {
 
 static Value native_byte_shift_left(Value *args, int argc, int line, int col) {
     (void)argc;
-    check_byte_shift_amount(args[1].as.i, "byte_shift_left", line, col);
+    check_byte_shift_amount(args[1].as.i, "shift_left", line, col);
     return value_byte((args[0].as.by << args[1].as.i) & 0xFF);
 }
 
 static Value native_byte_shift_right(Value *args, int argc, int line, int col) {
     (void)argc;
-    check_byte_shift_amount(args[1].as.i, "byte_shift_right", line, col);
+    check_byte_shift_amount(args[1].as.i, "shift_right", line, col);
     return value_byte(args[0].as.by >> args[1].as.i);
 }
 
@@ -103,13 +103,13 @@ static Value native_int_not(Value *args, int argc, int line, int col) {
  * (docs/reviews/tasks.md A21). */
 static Value native_int_shift_left(Value *args, int argc, int line, int col) {
     (void)argc;
-    check_shift_amount(args[1].as.i, "int_shift_left", line, col);
+    check_shift_amount(args[1].as.i, "shift_left", line, col);
     return value_int((int64_t)((uint64_t)args[0].as.i << args[1].as.i));
 }
 
 static Value native_int_shift_right(Value *args, int argc, int line, int col) {
     (void)argc;
-    check_shift_amount(args[1].as.i, "int_shift_right", line, col);
+    check_shift_amount(args[1].as.i, "shift_right", line, col);
     return value_int(args[0].as.i >> args[1].as.i);
 }
 
@@ -255,7 +255,7 @@ static Value native_bigint_not(Value *args, int argc, int line, int col) {
 
 static Value native_bigint_shift_left(Value *args, int argc, int line, int col) {
     (void)argc;
-    int n = check_bigint_shift_amount(args[1], "bigint_shift_left", line, col);
+    int n = check_bigint_shift_amount(args[1], "shift_left", line, col);
     return value_bigint(bignum_mul(*args[0].as.bi, bignum_pow2(n)));
 }
 
@@ -265,7 +265,7 @@ static Value native_bigint_shift_left(Value *args, int argc, int line, int col) 
  * describes for the native int case. */
 static Value native_bigint_shift_right(Value *args, int argc, int line, int col) {
     (void)argc;
-    int n = check_bigint_shift_amount(args[1], "bigint_shift_right", line, col);
+    int n = check_bigint_shift_amount(args[1], "shift_right", line, col);
     BigNum x = *args[0].as.bi;
     BigNum divisor = bignum_pow2(n);
     BigNum q, r;

@@ -5,174 +5,186 @@ scalar-backed sets they back, `BitSet` (an `int`, at most 64 members) and `BigBi
 `bigint`, unbounded). Ziman has no bitwise operators in its own syntax (`&`, `|`, `^`, `~`,
 `<<`, `>>` don't exist as tokens); this module is the only way to do bit manipulation.
 
-`byte` is unsigned, so its six functions are the simplest here: no sign to extend, shifts
-bounded to 0-7. `int`'s are direct native 64-bit two's-complement operations -- no surprises
-beyond the sign. `bigint`'s match Java's `BigInteger`/Python's `int` exactly: `and`/`or`/`xor`/
-`not` are defined against *infinite* two's complement, so a negative bigint conceptually has
-infinitely many leading 1-bits (`bigint_and(-1n, 5n)` is `5n`, the same as Java/Python give).
-`bigint_not(x)` is `-(x + 1)`, exactly Java's definition, needing no bit-level work at all.
-`shift_right` floors (rounds toward negative infinity) for `int`/`bigint`, unlike `/` which
-truncates toward zero: `int_shift_right(-3, 1)` is `-2`, not `-1` (`-3 / 2`); `byte_shift_right`
-is a logical shift (no sign to preserve), so floor vs. truncate doesn't apply to it.
+**Names carry no type.** `and(a, b)` is one overload set over all five types -- three scalars
+and both sets -- because the arguments say which is meant; so are `or`, `xor`, `not`,
+`shift_left`, `shift_right`, `popcount` and `bit_length`. The two sets additionally speak the
+prelude's own collection vocabulary, so a `BitSet` needs no API of its own to learn: `len`,
+`is_empty`, `remove`, `union`, `intersect`, `difference`, `is_subset`, `to_array` and `format`
+mean here exactly what they mean for a `Set<int>`, and `set`/`get`/`flip` are the bit-indexed
+accessors java.util.BitSet names the same way. Only the constructors keep a prefix
+(`bitset_new`, `bitset_of_int`, `bitset_to_int` and their `big_bitset_` twins), since nothing
+but the return type distinguishes them.
+
+**A caller picks one of two spellings**, and the short names are why it matters. `use bits` then
+`bits.len(bs)` leaves every prelude name alone. `use bits.len` binds the bare name to *this*
+`len` for the whole file, which is what per-name import means -- the prelude's `len` is then
+reached as `prelude.len(text)`, and the same goes for `set`, `get`, `format`, `remove`,
+`is_empty`, `union`, `intersect`, `difference`, `is_subset` and `to_array`.
+
+`byte` is unsigned, so its operations are the simplest here: no sign to extend, shifts bounded
+to 0-7. `int`'s are direct native 64-bit two's-complement operations -- no surprises beyond the
+sign. `bigint`'s match Java's `BigInteger`/Python's `int` exactly: `and`/`or`/`xor`/`not` are
+defined against *infinite* two's complement, so a negative bigint conceptually has infinitely
+many leading 1-bits (`and(-1n, 5n)` is `5n`, the same as Java/Python give). `not(x)` on a bigint
+is `-(x + 1)`, exactly Java's definition, needing no bit-level work at all. `shift_right` floors
+(rounds toward negative infinity) for `int`/`bigint`, unlike `/` which truncates toward zero:
+`shift_right(-3, 1)` is `-2`, not `-1` (`-3 / 2`); a `byte`'s is a logical shift (no sign to
+preserve), so floor vs. truncate doesn't apply to it.
 
 `use bits` -- or `use bits.Name` to bring one item in bare.
 
-### `byte_and`
+### `and`
 
 ```
-pub native fn byte_and(a: byte, b: byte) -> byte
+pub native fn and(a: byte, b: byte) -> byte
 ```
 
 Bitwise AND, OR, XOR and complement of bytes.
 
-### `byte_or`
+### `or`
 
 ```
-pub native fn byte_or(a: byte, b: byte) -> byte
+pub native fn or(a: byte, b: byte) -> byte
 ```
 
-### `byte_xor`
+### `xor`
 
 ```
-pub native fn byte_xor(a: byte, b: byte) -> byte
+pub native fn xor(a: byte, b: byte) -> byte
 ```
 
-### `byte_not`
+### `not`
 
 ```
-pub native fn byte_not(a: byte) -> byte
+pub native fn not(a: byte) -> byte
 ```
 
-### `byte_shift_left`
+### `and`
 
 ```
-pub native fn byte_shift_left(a: byte, n: int) -> byte
-```
-
-`n` must be 0 to 7 -- a byte is 8 bits wide.
-
-### `byte_shift_right`
-
-```
-pub native fn byte_shift_right(a: byte, n: int) -> byte
-```
-
-### `byte_popcount`
-
-```
-pub native fn byte_popcount(a: byte) -> int
-```
-
-The number of 1 bits in `a`.
-
-### `int_and`
-
-```
-pub native fn int_and(a: int, b: int) -> int
+pub native fn and(a: int, b: int) -> int
 ```
 
 Bitwise AND, OR, XOR and complement of ints (two's complement, 64-bit).
 
-### `int_or`
+### `or`
 
 ```
-pub native fn int_or(a: int, b: int) -> int
+pub native fn or(a: int, b: int) -> int
 ```
 
-### `int_xor`
+### `xor`
 
 ```
-pub native fn int_xor(a: int, b: int) -> int
+pub native fn xor(a: int, b: int) -> int
 ```
 
-### `int_not`
+### `not`
 
 ```
-pub native fn int_not(a: int) -> int
+pub native fn not(a: int) -> int
 ```
 
-### `int_shift_left`
+### `and`
 
 ```
-pub native fn int_shift_left(a: int, n: int) -> int
-```
-
-`n` must be 0 to 63; a shift amount outside that range is a runtime error rather than the
-undefined behavior C itself gives a native shift by the operand's own bit width or more.
-
-### `int_shift_right`
-
-```
-pub native fn int_shift_right(a: int, n: int) -> int
-```
-
-### `bigint_and`
-
-```
-pub native fn bigint_and(a: bigint, b: bigint) -> bigint
+pub native fn and(a: bigint, b: bigint) -> bigint
 ```
 
 Bitwise AND, OR, XOR and complement of bigints, against infinite two's complement (see the
 file comment above).
 
-### `bigint_or`
+### `or`
 
 ```
-pub native fn bigint_or(a: bigint, b: bigint) -> bigint
+pub native fn or(a: bigint, b: bigint) -> bigint
 ```
 
-### `bigint_xor`
+### `xor`
 
 ```
-pub native fn bigint_xor(a: bigint, b: bigint) -> bigint
+pub native fn xor(a: bigint, b: bigint) -> bigint
 ```
 
-### `bigint_not`
+### `not`
 
 ```
-pub native fn bigint_not(a: bigint) -> bigint
+pub native fn not(a: bigint) -> bigint
 ```
 
-### `bigint_shift_left`
+### `shift_left`
 
 ```
-pub native fn bigint_shift_left(a: bigint, n: int) -> bigint
+pub native fn shift_left(a: byte, n: int) -> byte
+```
+
+`n` must be 0 to 7 -- a byte is 8 bits wide.
+
+### `shift_right`
+
+```
+pub native fn shift_right(a: byte, n: int) -> byte
+```
+
+### `shift_left`
+
+```
+pub native fn shift_left(a: int, n: int) -> int
+```
+
+`n` must be 0 to 63; a shift amount outside that range is a runtime error rather than the
+undefined behavior C itself gives a native shift by the operand's own bit width or more.
+
+### `shift_right`
+
+```
+pub native fn shift_right(a: int, n: int) -> int
+```
+
+### `shift_left`
+
+```
+pub native fn shift_left(a: bigint, n: int) -> bigint
 ```
 
 `n` must not be negative; there is no upper bound of its own (an enormous `n` just produces
 an enormous result, the same "no artificial cap on ordinary arithmetic" rule any other bigint
 operation already follows).
 
-### `bigint_shift_right`
+### `shift_right`
 
 ```
-pub native fn bigint_shift_right(a: bigint, n: int) -> bigint
+pub native fn shift_right(a: bigint, n: int) -> bigint
 ```
 
-### `int_popcount`
+### `popcount`
 
 ```
-pub native fn int_popcount(a: int) -> int
+pub native fn popcount(a: byte) -> int
+```
+
+The number of 1 bits in `a`.
+
+```
+pub native fn popcount(a: int) -> int
 ```
 
 The number of 1 bits in `a`'s 64-bit two's-complement representation (a negative `a` is fine
-here, unlike `bigint_popcount` below -- a fixed width has no infinitely-many leading 1-bits
+here, unlike the `bigint` member below -- a fixed width has no infinitely-many leading 1-bits
 to worry about).
 
-### `bigint_popcount`
-
 ```
-pub native fn bigint_popcount(a: bigint) -> int
+pub native fn popcount(a: bigint) -> int
 ```
 
 Both are undefined (a runtime error) for a negative bigint -- infinite two's complement gives
 a negative number infinitely many 1-bits, so there is no finite popcount or bit length to
 return. `BigBitSet` below never produces one, since a set of indices is never negative.
 
-### `bigint_bit_length`
+### `bit_length`
 
 ```
-pub native fn bigint_bit_length(a: bigint) -> int
+pub native fn bit_length(a: bigint) -> int
 ```
 
 ## BitSet: a set of the integers 0..63, backed by one `int`
@@ -209,98 +221,125 @@ pub fn bitset_to_int(bs: BitSet) -> int
 
 `bs`'s membership as a raw bit pattern.
 
-### `bitset_set`
+### `set`
 
 ```
-pub fn bitset_set(bs: BitSet, i: int) -> BitSet
+pub fn set(bs: BitSet, i: int) -> BitSet
 ```
 
 `bs` with `i` added.
 
-### `bitset_clear`
+### `remove`
 
 ```
-pub fn bitset_clear(bs: BitSet, i: int) -> BitSet
+pub fn remove(bs: BitSet, i: int) -> BitSet
 ```
 
 `bs` with `i` removed.
 
-### `bitset_flip`
+### `flip`
 
 ```
-pub fn bitset_flip(bs: BitSet, i: int) -> BitSet
+pub fn flip(bs: BitSet, i: int) -> BitSet
 ```
 
 `bs` with `i`'s membership toggled.
 
-### `bitset_get`
+### `get`
 
 ```
-pub fn bitset_get(bs: BitSet, i: int) -> bool
+pub fn get(bs: BitSet, i: int) -> bool
 ```
 
 Whether `i` is a member of `bs`.
 
-### `bitset_and`
+### `intersect`
 
 ```
-pub fn bitset_and(a: BitSet, b: BitSet) -> BitSet
+pub fn intersect(sets: variadic BitSet) -> BitSet
 ```
 
-The intersection of `a` and `b`.
+The intersection of every argument -- `Set<T>`'s own `intersect`, over `BitSet`.
 
-### `bitset_or`
-
-```
-pub fn bitset_or(a: BitSet, b: BitSet) -> BitSet
-```
-
-The union of `a` and `b`.
-
-### `bitset_xor`
+### `union`
 
 ```
-pub fn bitset_xor(a: BitSet, b: BitSet) -> BitSet
+pub fn union(sets: variadic BitSet) -> BitSet
 ```
 
-The symmetric difference of `a` and `b` (members of exactly one).
+The union of every argument.
 
-### `bitset_and_not`
+### `difference`
 
 ```
-pub fn bitset_and_not(a: BitSet, b: BitSet) -> BitSet
+pub fn difference(a: BitSet, b: BitSet) -> BitSet
 ```
 
 `a` with every member of `b` removed.
 
-### `bitset_is_empty`
+### `is_subset`
 
 ```
-pub fn bitset_is_empty(bs: BitSet) -> bool
+pub fn is_subset(a: BitSet, b: BitSet) -> bool
+```
+
+Whether every member of `a` is also a member of `b`.
+
+### `xor`
+
+```
+pub fn xor(a: BitSet, b: BitSet) -> BitSet
+```
+
+The symmetric difference of `a` and `b` (members of exactly one). Keeps the bitwise name: a
+`Set<T>` has no symmetric-difference function to borrow one from.
+
+### `not`
+
+```
+pub fn not(bs: BitSet) -> BitSet
+```
+
+The complement of `bs` within 0..63.
+
+### `is_empty`
+
+```
+pub fn is_empty(bs: BitSet) -> bool
 ```
 
 Whether `bs` has no members.
 
-### `bitset_cardinality`
+### `len`
 
 ```
-pub fn bitset_cardinality(bs: BitSet) -> int
+pub fn len(bs: BitSet) -> int
 ```
 
 The number of members of `bs`.
 
-### `bitset_length`
+### `bit_length`
 
 ```
-pub fn bitset_length(bs: BitSet) -> int
+pub fn bit_length(bs: BitSet) -> int
 ```
 
-The highest member plus one, or 0 for an empty set -- java.util.BitSet's own `length()`.
+The highest member plus one, or 0 for an empty set -- java.util.BitSet's own `length()`, and
+the same question `bit_length` answers for a `bigint`.
 
-### `bitset_to_string`
+### `to_array`
 
 ```
-pub fn bitset_to_string(bs: BitSet) -> string
+pub fn to_array(bs: BitSet) -> [int]
+```
+
+`bs`'s members in ascending order -- `Set<T>`'s own `to_array`, except that this one is sorted,
+a bit index having a natural order where a hash set's iteration does not.
+
+### `format`
+
+```
+pub fn format(bs: BitSet) -> string
 ```
 
 "{0, 3, 5}" -- the indices in order, java.util.BitSet's own `toString()` shape.
@@ -339,103 +378,119 @@ pub fn big_bitset_to_bigint(bs: BigBitSet) -> bigint
 
 `bs`'s membership as a raw bit pattern.
 
-### `big_bitset_set`
+### `set`
 
 ```
-pub fn big_bitset_set(bs: BigBitSet, i: int) -> BigBitSet
+pub fn set(bs: BigBitSet, i: int) -> BigBitSet
 ```
 
 `bs` with `i` added.
 
-### `big_bitset_clear`
+### `remove`
 
 ```
-pub fn big_bitset_clear(bs: BigBitSet, i: int) -> BigBitSet
+pub fn remove(bs: BigBitSet, i: int) -> BigBitSet
 ```
 
 `bs` with `i` removed.
 
-### `big_bitset_flip`
+### `flip`
 
 ```
-pub fn big_bitset_flip(bs: BigBitSet, i: int) -> BigBitSet
+pub fn flip(bs: BigBitSet, i: int) -> BigBitSet
 ```
 
 `bs` with `i`'s membership toggled.
 
-### `big_bitset_get`
+### `get`
 
 ```
-pub fn big_bitset_get(bs: BigBitSet, i: int) -> bool
+pub fn get(bs: BigBitSet, i: int) -> bool
 ```
 
 Whether `i` is a member of `bs`.
 
-### `big_bitset_and`
+### `intersect`
 
 ```
-pub fn big_bitset_and(a: BigBitSet, b: BigBitSet) -> BigBitSet
+pub fn intersect(sets: variadic BigBitSet) -> BigBitSet
 ```
 
-The intersection of `a` and `b`.
+The intersection of every argument.
 
-### `big_bitset_or`
-
-```
-pub fn big_bitset_or(a: BigBitSet, b: BigBitSet) -> BigBitSet
-```
-
-The union of `a` and `b`.
-
-### `big_bitset_xor`
+### `union`
 
 ```
-pub fn big_bitset_xor(a: BigBitSet, b: BigBitSet) -> BigBitSet
+pub fn union(sets: variadic BigBitSet) -> BigBitSet
 ```
 
-The symmetric difference of `a` and `b` (members of exactly one).
+The union of every argument.
 
-### `big_bitset_and_not`
+### `difference`
 
 ```
-pub fn big_bitset_and_not(a: BigBitSet, b: BigBitSet) -> BigBitSet
+pub fn difference(a: BigBitSet, b: BigBitSet) -> BigBitSet
 ```
 
 `a` with every member of `b` removed.
 
-### `big_bitset_is_empty`
+### `is_subset`
 
 ```
-pub fn big_bitset_is_empty(bs: BigBitSet) -> bool
+pub fn is_subset(a: BigBitSet, b: BigBitSet) -> bool
+```
+
+Whether every member of `a` is also a member of `b`.
+
+### `xor`
+
+```
+pub fn xor(a: BigBitSet, b: BigBitSet) -> BigBitSet
+```
+
+The symmetric difference of `a` and `b` (members of exactly one).
+
+### `is_empty`
+
+```
+pub fn is_empty(bs: BigBitSet) -> bool
 ```
 
 Whether `bs` has no members.
 
-### `big_bitset_cardinality`
+### `len`
 
 ```
-pub fn big_bitset_cardinality(bs: BigBitSet) -> int
+pub fn len(bs: BigBitSet) -> int
 ```
 
 The number of members of `bs`.
 
-### `big_bitset_length`
+### `bit_length`
 
 ```
-pub fn big_bitset_length(bs: BigBitSet) -> int
+pub fn bit_length(bs: BigBitSet) -> int
 ```
 
-The highest member plus one, or 0 for an empty set -- same definition as `bitset_length`,
-but via `bigint_bit_length` (a loop with no fixed bound to stop at would be far slower for a
+The highest member plus one, or 0 for an empty set -- same definition as `BitSet`'s, but via the
+`bigint` member of `bit_length` (a loop with no fixed bound to stop at would be far slower for a
 set with a very large member) rather than a 64-iteration scan.
 
-### `big_bitset_to_string`
+### `to_array`
 
 ```
-pub fn big_bitset_to_string(bs: BigBitSet) -> string
+pub fn to_array(bs: BigBitSet) -> [int]
 ```
 
-"{0, 3, 5}" -- same shape as `bitset_to_string`. Scans by shifting a working copy right one
-bit at a time and testing the low bit, rather than calling `big_bitset_get(bs, i)` per index:
-that would recompute `1n << i` from scratch for every i, which for a high member is
-O(length log length) bignum multiplications instead of this loop's O(length) single-bit shifts.
+`bs`'s members in ascending order. Scans by shifting a working copy right one bit at a time and
+testing the low bit, rather than calling `get(bs, i)` per index: that would recompute `1n << i`
+from scratch for every i, which for a high member is O(length log length) bignum multiplications
+instead of this loop's O(length) single-bit shifts.
+
+### `format`
+
+```
+pub fn format(bs: BigBitSet) -> string
+```
+
+"{0, 3, 5}" -- same shape as `BitSet`'s.

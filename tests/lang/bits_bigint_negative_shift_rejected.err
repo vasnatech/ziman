@@ -1,1 +1,1 @@
-bigint_shift_left: shift amount -1 must not be negative
+shift_left: shift amount -1 must not be negative

@@ -2,26 +2,35 @@ use bits
 
 fn main() {
     var bs = bits.big_bitset_new()
-    bs = bits.big_bitset_set(bs, 0)
-    bs = bits.big_bitset_set(bs, 100)
-    bs = bits.big_bitset_set(bs, 1000)          // far past int's 64-bit range
-    print(bits.big_bitset_to_string(bs))         // {0, 100, 1000}
-    print(bits.big_bitset_cardinality(bs))       // 3
-    print(bits.big_bitset_length(bs))            // 1001
-    print(bits.big_bitset_get(bs, 100))          // true
-    print(bits.big_bitset_get(bs, 101))          // false
-    print(bits.big_bitset_is_empty(bs))          // false
-    print(bits.big_bitset_is_empty(bits.big_bitset_new())) // true
+    bs = bits.set(bs, 0)
+    bs = bits.set(bs, 100)
+    bs = bits.set(bs, 1000)                      // far past int's 64-bit range
+    print(bits.format(bs))                       // {0, 100, 1000}
+    print(bits.len(bs))                          // 3
+    print(bits.bit_length(bs))                   // 1001
+    print(bits.get(bs, 100))                     // true
+    print(bits.get(bs, 101))                     // false
+    print(bits.is_empty(bs))                     // false
+    print(bits.is_empty(bits.big_bitset_new()))  // true
 
-    bs = bits.big_bitset_clear(bs, 100)
-    print(bits.big_bitset_to_string(bs))         // {0, 1000}
+    bs = bits.remove(bs, 100)
+    print(bits.format(bs))  // {0, 1000}
 
-    val a = bits.big_bitset_set(bits.big_bitset_set(bits.big_bitset_new(), 1), 300)
-    val b = bits.big_bitset_set(bits.big_bitset_set(bits.big_bitset_new(), 300), 3)
-    print(bits.big_bitset_to_string(bits.big_bitset_and(a, b)))       // {300}
-    print(bits.big_bitset_to_string(bits.big_bitset_or(a, b)))        // {1, 3, 300}
-    print(bits.big_bitset_to_string(bits.big_bitset_xor(a, b)))       // {1, 3}
-    print(bits.big_bitset_to_string(bits.big_bitset_and_not(a, b)))   // {1}
+    val a = bits.set(bits.set(bits.big_bitset_new(), 1), 300)
+    val b = bits.set(bits.set(bits.big_bitset_new(), 300), 3)
+    print(bits.format(bits.intersect(a, b)))   // {300}
+    print(bits.format(bits.union(a, b)))       // {1, 3, 300}
+    print(bits.format(bits.xor(a, b)))         // {1, 3}
+    print(bits.format(bits.difference(a, b)))  // {1}
 
     print(bits.big_bitset_to_bigint(bits.big_bitset_of_bigint(42n)))  // 42
+
+    // The `Set<int>` members, and `union`/`intersect` variadic as the prelude's are.
+    val p = bits.set(bits.big_bitset_new(), 1)
+    val q = bits.set(bits.set(bits.big_bitset_new(), 1), 200)
+    print(bits.is_subset(p, q))                                                                  // true
+    print(bits.is_subset(q, p))                                                                  // false
+    print(join(separator: ",", pieces: map(bits.to_array(q), fn(i: int) -> string { str(i) })))  // 1,200
+    print(bits.format(bits.union(p, q)))                                                         // {1, 200}
+    print(bits.format(bits.intersect(p, q)))                                                     // {1}
 }

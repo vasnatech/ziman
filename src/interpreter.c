@@ -466,6 +466,14 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
                 Type p0 = fn->params.items[0].type;
                 const char *prefix = NULL;
                 if (p0.kind == TY_ARRAY) prefix = "array_";
+                /* The scalar worlds, added for `bits` (2026-10-24), which is the first module to
+                 * give one declared name three native implementations: `and` is a `byte`, an `int`
+                 * and a `bigint` operation. A scalar had no prefix until now because nothing
+                 * needed one -- prelude.c's own comment says so -- and these three are enough,
+                 * since `float`/`bool`/`string`/`decimal` have no overloaded native. */
+                else if (p0.kind == TY_BYTE) prefix = "byte_";
+                else if (p0.kind == TY_INT) prefix = "int_";
+                else if (p0.kind == TY_BIGINT) prefix = "bigint_";
                 /* F213: `index_of` is the first set whose members are a `string` and an `[T]`, so
                  * the string world needed a prefix of its own. Every other string native is still
                  * registered under its bare name and so never reaches this fallback at all. */
@@ -502,7 +510,21 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
                 }
                 if (prefix != NULL) {
                     char symbol[128];
-                    snprintf(symbol, sizeof symbol, "%s%s", prefix, fn->name);
+                    /* **The prefix goes on the bare name, inside the module's own namespace.** A
+                     * prelude declaration's `fn->name` is bare, so `array_` + `len` is the symbol
+                     * and this split is a no-op. A bundled module's is `<path>::<name>`
+                     * (`self_qualify_module`), and its registrations carry that same path --
+                     * `native_register("bits::byte_and", ...)` -- so the symbol wanted is
+                     * `bits::byte_and`, not `byte_bits::and`. `bits` is the first module to reach
+                     * this fallback at all: until one declared name had two native
+                     * implementations, every module native was found by its own spelling. */
+                    const char *sep = strstr(fn->name, "::");
+                    if (sep != NULL) {
+                        snprintf(symbol, sizeof symbol, "%.*s%s%s",
+                                 (int)(sep + 2 - fn->name), fn->name, prefix, sep + 2);
+                    } else {
+                        snprintf(symbol, sizeof symbol, "%s%s", prefix, fn->name);
+                    }
                     native = native_lookup(symbol);
                 }
             }

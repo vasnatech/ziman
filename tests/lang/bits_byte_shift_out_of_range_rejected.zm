@@ -1,5 +1,5 @@
 use bits
 
 fn main() {
-    print(bits.byte_shift_left(1b, 8))
+    print(bits.shift_left(1b, 8))
 }

@@ -2582,35 +2582,48 @@ Ziman has no bitwise operators in its own syntax -- this module is the only way 
 ```ziman
 use bits
 fn main() {
-    print(bits.int_and(12, 10))          // 8
-    print(bits.int_shift_right(-8, 1))   // -4, sign-extending
+    print(bits.and(12, 10))          // 8
+    print(bits.shift_right(-8, 1))   // -4, sign-extending
 
-    var bs = bits.bitset_set(bits.bitset_new(), 3)
-    bs = bits.bitset_set(bs, 5)
-    print(bits.bitset_to_string(bs))     // {3, 5}
+    var bs = bits.set(bits.bitset_new(), 3)
+    bs = bits.set(bs, 5)
+    print(bits.format(bs))           // {3, 5}
+    print(bits.len(bs))              // 2
 }
 ```
 
-- **Three scalar flavors, one convention**: `byte_*`/`int_*`/`bigint_*`, each with
-  `and`/`or`/`xor`/`not`/`shift_left`/`shift_right`/`popcount` (`bigint` also `bit_length`) --
-  the same type-suffixed pattern `int_to_hex` uses.
+- **One name per operation, over all five types**: `and`, `or`, `xor`, `not`, `shift_left`,
+  `shift_right`, `popcount` and `bit_length` are each a single overload set spanning `byte`,
+  `int`, `bigint` and both sets -- the argument says which is meant, so nothing carries a type
+  prefix. Only the constructors do (`bitset_new`, `bitset_of_int`/`_to_int` and the
+  `big_bitset_` twins), nothing but their return type telling them apart.
 - **`byte`** is unsigned (`shift_right` is logical); shift amount 0-7.
 - **`int`** is a direct native 64-bit two's-complement op; shift amount 0-63 (else runtime
   error, not C's undefined behavior); `shift_right` is arithmetic/sign-extending.
 - **`bigint`** matches Java's `BigInteger`/Python's `int` exactly: `and`/`or`/`xor`/`not` are
   defined against *infinite* two's complement, so a negative bigint has infinitely many leading
-  1-bits (`bigint_and(-1n, 5n)` is `5n`). Shift amount must be non-negative, no upper bound.
-  Both `int_shift_right` and `bigint_shift_right` floor (toward -infinity), unlike `/`'s
-  truncation: `int_shift_right(-3, 1)` is `-2`, not `-1`.
-- **`bigint_popcount`/`bit_length` are a runtime error for a negative bigint** (infinite 1-bits,
-  no finite answer); `BigBitSet` never produces one (a set of indices is never negative).
-- **`BitSet`**: a value type over one `int` -- `bitset_new()`, `bitset_of_int`/`_to_int`,
-  `set`/`clear`/`flip`/`get` (index 0-63, else runtime error), `and`/`or`/`xor`/`and_not`
-  (mirroring Java's `BitSet`), `is_empty`, `cardinality`, `length` (highest member + 1, 0 if
-  empty), `to_string` (`"{0, 3, 5}"`). No mutable builder -- the whole state is one scalar, so
+  1-bits (`bits.and(-1n, 5n)` is `5n`). Shift amount must be non-negative, no upper bound.
+  `shift_right` floors (toward -infinity) for both `int` and `bigint`, unlike `/`'s truncation:
+  `bits.shift_right(-3, 1)` is `-2`, not `-1`.
+- **`popcount`/`bit_length` on a bigint are a runtime error for a negative one** (infinite
+  1-bits, no finite answer); `BigBitSet` never produces one (a set of indices is never negative).
+- **`BitSet` speaks the prelude's own set vocabulary**, because it *is* a set of ints: `len`,
+  `is_empty`, `remove`, `union`/`intersect` (variadic, as the prelude's are), `difference`,
+  `is_subset`, `to_array` (ascending -- a bit index has a natural order a hash set's iteration
+  does not) and `format` (`"{0, 3, 5}"`) mean here what they mean for a `Set<int>`. The
+  bit-indexed accessors keep java.util.BitSet's own names: `set`/`get`/`flip`, index 0-63 or a
+  runtime error. `xor` has no `Set<T>` equivalent to borrow, so it keeps the bitwise name, and
+  `not` is the complement within 0..63. No mutable builder -- the whole state is one scalar, so
   there's no O(n)-copy cost to save; `var` plus these functions already do the job.
-- **`BigBitSet`** mirrors `BitSet` over a `bigint` -- unbounded (only a negative index rejected),
-  `length()` via `bigint_bit_length` in O(digits) rather than an unbounded scan.
+- **`BigBitSet` mirrors it over a `bigint`** -- unbounded (only a negative index rejected),
+  `bit_length` in O(digits) rather than an unbounded scan. It has **no `not`**: a `BitSet`'s
+  complement is taken within the 0..63 the type itself supplies, and an unbounded set's
+  complement is infinite, so `difference(a, b)` is the bounded question.
+- **A per-name import replaces the bare name, it does not extend the prelude's set.** `use
+  bits.len` makes `len(x)` this module's for the whole file, so `len("abc")` no longer
+  type-checks there and the prelude's is reached as `prelude.len("abc")`. `use bits` with
+  `bits.len(bs)` leaves every prelude name alone, and is what most callers should write
+  (`tests/lang/bits_bare_import_shadows_prelude.zm` pins both).
 
 ## Result
 

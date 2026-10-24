@@ -1,0 +1,35 @@
+// **`bits` names its functions after what they do, not after the type they do it to**, so several
+// of them -- `set`, `get`, `len`, `is_empty`, `remove`, `union`, `intersect`, `difference`,
+// `is_subset`, `to_array`, `format` -- are names the prelude also has. That is deliberate: a
+// `BitSet` is a set of ints, and it should answer the same questions a `Set<int>` does.
+//
+// The consequence is on the *caller*, and this pins it. A per-name import **replaces** the bare
+// name for the whole file rather than adding to the prelude's overload set, so `use bits.len`
+// means `len(x)` is `bits`'s `len` and nothing else -- `len("abc")` would not type-check. The
+// prelude's own is reached through the `prelude.` qualifier. Importing the module instead
+// (`use bits`, then `bits.len(bs)`) leaves every prelude name alone, which is what
+// `tests/lang/bitset.zm` does and what most callers should.
+use bits.BitSet
+use bits.bitset_new
+use bits.format
+use bits.len
+use bits.set
+
+fn main() {
+    var bs = bitset_new()
+    bs = set(bs, 2)
+    bs = set(bs, 7)
+
+    // the imported names, bare
+    print(format(bs))
+    print(len(bs))
+
+    // the prelude's own, past the import that took the name
+    print(prelude.len("héllo"))
+    print(prelude.len([1, 2, 3]))
+    print(prelude.format("still interpolating: {}", len(bs)))
+
+    // And the filter cuts both ways: `prelude.len` reaches the prelude's nine declarations only,
+    // so it cannot be handed a `BitSet` -- `prelude.len(bs)` is a compile error, not a fallback
+    // into the imported one. The qualifier means one namespace, not "try both".
+}

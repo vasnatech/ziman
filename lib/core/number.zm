@@ -11,7 +11,7 @@ use locale
 // `byte`, `int` and `float` are fixed-width, so each has a smallest and largest representable
 // value. `bigint` and `decimal` are arbitrary-precision -- there is no finite bound to give, so
 // they get no constants here (the same "no artificial cap on ordinary arithmetic" reasoning
-// `bigint_shift_left`'s own doc comment already states for its shift amount).
+// `shift_left`'s own doc comment already states for its shift amount).
 
 pub val byte_min = 0b
 pub val byte_max = 255b

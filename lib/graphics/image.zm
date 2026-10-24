@@ -3,9 +3,9 @@
 // The buffer and the codec live together because PNG's row filtering is defined in terms of the
 // buffer's layout, and splitting them would mean making that layout public just so the codec could
 // see it.
-use bits.int_and
-use bits.int_shift_right
-use bits.int_xor
+use bits.and
+use bits.shift_right
+use bits.xor
 use compress.deflate
 use compress.inflate
 use paint.Color
@@ -487,18 +487,18 @@ fn tag_at(data: [byte], at: int) -> Result<string, string> {
 pub fn crc32(data: [byte]) -> int {
     var crc = 4294967295
     for b in data {
-        crc = int_xor(crc, b as int)
+        crc = xor(crc, b as int)
         var k = 0
         while k < 8 {
-            if int_and(crc, 1) == 1 {
-                crc = int_xor(int_shift_right(crc, 1), 3988292384)
+            if and(crc, 1) == 1 {
+                crc = xor(shift_right(crc, 1), 3988292384)
             } else {
-                crc = int_shift_right(crc, 1)
+                crc = shift_right(crc, 1)
             }
             k = k + 1
         }
     }
-    return int_xor(crc, 4294967295)
+    return xor(crc, 4294967295)
 }
 
 // ---- JPEG, dimensions only

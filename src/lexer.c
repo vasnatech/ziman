@@ -582,7 +582,8 @@ TokenList lex(const char *source) {
                 }
                 ziman_error("lexical", line, col,
                             "unexpected character '|' -- Ziman has no single-'|' operator: '||' is boolean or, "
-                            "bitwise or is 'bits.int_or(a, b)' or 'bits.byte_or' after 'use bits', a variant type "
+                            "bitwise or is 'bits.or(a, b)' after 'use bits' (one name for byte, int and "
+                            "bigint), a variant type "
                             "is 'enum Name { A, B }', and there is no '|>' pipeline");
                 continue;
             default:

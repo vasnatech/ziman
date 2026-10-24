@@ -1,17 +1,17 @@
 use bits
 
 fn main() {
-    print(bits.byte_and(12b, 10b))
-    print(bits.byte_or(12b, 10b))
-    print(bits.byte_xor(12b, 10b))
-    print(bits.byte_not(0b))
-    print(bits.byte_not(255b))
-    print(bits.byte_shift_left(1b, 4))
-    print(bits.byte_shift_left(1b, 0))
-    print(bits.byte_shift_left(1b, 7))     // 128, does not overflow past the top bit
-    print(bits.byte_shift_right(255b, 4))
-    print(bits.byte_shift_right(128b, 7))  // logical, not arithmetic -- 1, no sign to extend
-    print(bits.byte_popcount(255b))
-    print(bits.byte_popcount(0b))
-    print(bits.byte_popcount(170b))        // 10101010
+    print(bits.and(12b, 10b))
+    print(bits.or(12b, 10b))
+    print(bits.xor(12b, 10b))
+    print(bits.not(0b))
+    print(bits.not(255b))
+    print(bits.shift_left(1b, 4))
+    print(bits.shift_left(1b, 0))
+    print(bits.shift_left(1b, 7))  // 128, does not overflow past the top bit
+    print(bits.shift_right(255b, 4))
+    print(bits.shift_right(128b, 7))  // logical, not arithmetic -- 1, no sign to extend
+    print(bits.popcount(255b))
+    print(bits.popcount(0b))
+    print(bits.popcount(170b))  // 10101010
 }

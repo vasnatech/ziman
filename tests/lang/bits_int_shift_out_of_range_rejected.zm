@@ -1,5 +1,5 @@
 use bits
 
 fn main() {
-    print(bits.int_shift_left(1, 64))
+    print(bits.shift_left(1, 64))
 }
