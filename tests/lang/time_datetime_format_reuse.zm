@@ -4,15 +4,14 @@
 // multi-character literal run, and a leading/trailing literal
 // (coalesced correctly around a field token), not just the single
 // happy-path pattern every other fixture already covers.
+use time
 use time.LocalDate
 use time.localdate_of
-use time.localdate_format
-use time.localdate_parse_pattern
+use time.parse_localdate
 use time.datetime_format_of
 use time.Instant
 use time.instant_of
-use time.instant_format
-use time.instant_parse_pattern
+use time.parse_instant
 use time.zoneoffset_of_hours_minutes
 
 fn main() {
@@ -20,19 +19,19 @@ fn main() {
     var i = 1
     while i <= 3 {
         val d = unwrap(localdate_of(2024, 1, i))
-        val formatted = localdate_format(d, fmt)
+        val formatted = time.format(d, fmt)
         print(formatted)
-        print(unwrap(localdate_parse_pattern(formatted, fmt)) == d)
+        print(unwrap(parse_localdate(formatted, fmt)) == d)
         i = i + 1
     }
 
     val bracket_fmt = datetime_format_of("[yyyy]")
-    print(localdate_format(unwrap(localdate_of(999, 1, 1)), bracket_fmt))
+    print(time.format(unwrap(localdate_of(999, 1, 1)), bracket_fmt))
 
     val space_fmt = datetime_format_of("yyyy-MM-dd HH:mm:ss")
     val plus2 = unwrap(zoneoffset_of_hours_minutes(2, 30))
     val instant = instant_of(0, 0)
-    val formatted = instant_format(instant, plus2, space_fmt)
+    val formatted = time.format(instant, plus2, space_fmt)
     print(formatted)
-    print(unwrap(instant_parse_pattern(formatted, space_fmt)) == instant)
+    print(unwrap(parse_instant(formatted, space_fmt)) == instant)
 }

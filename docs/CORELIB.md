@@ -2357,6 +2357,8 @@ pub fn cron_matches_at(spec: CronSpec, epoch_second: int) -> bool
 Seven `java.time`-shaped types (`LocalDate`, `LocalTime`, `LocalDateTime`, `Duration`, `Instant`, `ZoneOffset`, `ZoneId`), written in pure Ziman on top of `clock`. `ZoneId` reads the IANA zone files (see `tzdata`). Every type has a fixed ISO-8601 `_to_string`/`_parse` pair; `LocalDate`/`LocalTime`/`LocalDateTime`/`Instant` also get a general `_format`/`_parse_pattern` pair taking a `DateTimeFormat` -- a pattern compiled once by `datetime_format_of` (see the `iso_*_format` vals, each compiled exactly once at program start) rather than a raw pattern string re-scanned on every call.
 
 ```
+pub fn is_leap_year(year: int) -> bool
+
 pub struct DateTimeFormat {
     parts: [DateTimePart]
     width: int
@@ -2382,33 +2384,31 @@ pub struct LocalDate {
 
 pub fn localdate_of(year: int, month: int, day: int) -> Result<LocalDate, string>
 
-pub fn localdate_is_leap_year(year: int) -> bool
-
-pub fn localdate_to_epoch_day(d: LocalDate) -> int
+pub fn to_epoch_day(d: LocalDate) -> int
 
 pub fn localdate_from_epoch_day(epoch_day: int) -> LocalDate
 
-pub fn localdate_add_days(d: LocalDate, days: int) -> LocalDate
+pub fn add_days(d: LocalDate, days: int) -> LocalDate
 
-pub fn localdate_add_months(d: LocalDate, months: int) -> LocalDate
+pub fn add_months(d: LocalDate, months: int) -> LocalDate
 
-pub fn localdate_add_years(d: LocalDate, years: int) -> LocalDate
+pub fn add_years(d: LocalDate, years: int) -> LocalDate
 
-pub fn localdate_diff_days(a: LocalDate, b: LocalDate) -> int
+pub fn diff_days(a: LocalDate, b: LocalDate) -> int
 
 pub fn localdate_compare(a: LocalDate, b: LocalDate) -> int
 
-pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat) -> string
+pub fn format(d: LocalDate, fmt: DateTimeFormat) -> string
 
-pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat, l: Locale) -> string
+pub fn format(d: LocalDate, fmt: DateTimeFormat, l: Locale) -> string
 
-pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string>
+pub fn parse_localdate(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string>
 
-pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDate, string>
+pub fn parse_localdate(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDate, string>
 
-pub fn localdate_from_string(s: string) -> Result<LocalDate, string>
+pub fn parse_localdate(s: string) -> Result<LocalDate, string>
 
-pub fn localdate_to_string(d: LocalDate) -> string
+pub fn format(d: LocalDate) -> string
 
 pub struct LocalTime {
     hour: int
@@ -2419,29 +2419,29 @@ pub struct LocalTime {
 
 pub fn localtime_of(hour: int, minute: int, second: int, nano: int) -> Result<LocalTime, string>
 
-pub fn localtime_add_nanos(t: LocalTime, nanos: int) -> LocalTime
+pub fn add_nanos(t: LocalTime, nanos: int) -> LocalTime
 
-pub fn localtime_add_seconds(t: LocalTime, seconds: int) -> LocalTime
+pub fn add_seconds(t: LocalTime, seconds: int) -> LocalTime
 
-pub fn localtime_add_minutes(t: LocalTime, minutes: int) -> LocalTime
+pub fn add_minutes(t: LocalTime, minutes: int) -> LocalTime
 
-pub fn localtime_add_hours(t: LocalTime, hours: int) -> LocalTime
+pub fn add_hours(t: LocalTime, hours: int) -> LocalTime
 
-pub fn localtime_diff_nanos(a: LocalTime, b: LocalTime) -> int
+pub fn diff_nanos(a: LocalTime, b: LocalTime) -> int
 
 pub fn localtime_compare(a: LocalTime, b: LocalTime) -> int
 
-pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat) -> string
+pub fn format(t: LocalTime, fmt: DateTimeFormat) -> string
 
-pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat, l: Locale) -> string
+pub fn format(t: LocalTime, fmt: DateTimeFormat, l: Locale) -> string
 
-pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string>
+pub fn parse_time(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string>
 
-pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalTime, string>
+pub fn parse_time(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalTime, string>
 
-pub fn localtime_from_string(s: string) -> Result<LocalTime, string>
+pub fn parse_time(s: string) -> Result<LocalTime, string>
 
-pub fn localtime_to_string(t: LocalTime) -> string
+pub fn format(t: LocalTime) -> string
 
 pub struct Duration {
     seconds: int
@@ -2452,17 +2452,17 @@ pub fn duration_of_seconds(seconds: int, nanos: int) -> Duration
 
 pub fn duration_zero() -> Duration
 
-pub fn duration_add(a: Duration, b: Duration) -> Duration
+pub fn add(a: Duration, b: Duration) -> Duration
 
-pub fn duration_negate(d: Duration) -> Duration
+pub fn negate(d: Duration) -> Duration
 
-pub fn duration_subtract(a: Duration, b: Duration) -> Duration
+pub fn subtract(a: Duration, b: Duration) -> Duration
 
 pub fn duration_compare(a: Duration, b: Duration) -> int
 
-pub fn duration_to_string(d: Duration) -> string
+pub fn format(d: Duration) -> string
 
-pub fn duration_from_string(s: string) -> Result<Duration, string>
+pub fn parse_duration(s: string) -> Result<Duration, string>
 
 pub struct LocalDateTime {
     date: LocalDate
@@ -2471,35 +2471,35 @@ pub struct LocalDateTime {
 
 pub fn localdatetime_of(date: LocalDate, time: LocalTime) -> LocalDateTime
 
-pub fn localdatetime_add_nanos(dt: LocalDateTime, nanos: int) -> LocalDateTime
+pub fn add_nanos(dt: LocalDateTime, nanos: int) -> LocalDateTime
 
-pub fn localdatetime_add_seconds(dt: LocalDateTime, seconds: int) -> LocalDateTime
+pub fn add_seconds(dt: LocalDateTime, seconds: int) -> LocalDateTime
 
-pub fn localdatetime_add_minutes(dt: LocalDateTime, minutes: int) -> LocalDateTime
+pub fn add_minutes(dt: LocalDateTime, minutes: int) -> LocalDateTime
 
-pub fn localdatetime_add_hours(dt: LocalDateTime, hours: int) -> LocalDateTime
+pub fn add_hours(dt: LocalDateTime, hours: int) -> LocalDateTime
 
-pub fn localdatetime_add_days(dt: LocalDateTime, days: int) -> LocalDateTime
+pub fn add_days(dt: LocalDateTime, days: int) -> LocalDateTime
 
-pub fn localdatetime_add_months(dt: LocalDateTime, months: int) -> LocalDateTime
+pub fn add_months(dt: LocalDateTime, months: int) -> LocalDateTime
 
-pub fn localdatetime_add_years(dt: LocalDateTime, years: int) -> LocalDateTime
+pub fn add_years(dt: LocalDateTime, years: int) -> LocalDateTime
 
 pub fn localdatetime_compare(a: LocalDateTime, b: LocalDateTime) -> int
 
-pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration
+pub fn diff(a: LocalDateTime, b: LocalDateTime) -> Duration
 
-pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string
+pub fn format(dt: LocalDateTime, fmt: DateTimeFormat) -> string
 
-pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat, l: Locale) -> string
+pub fn format(dt: LocalDateTime, fmt: DateTimeFormat, l: Locale) -> string
 
-pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string>
+pub fn parse_datetime(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string>
 
-pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDateTime, string>
+pub fn parse_datetime(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDateTime, string>
 
-pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string>
+pub fn parse_datetime(s: string) -> Result<LocalDateTime, string>
 
-pub fn localdatetime_to_string(dt: LocalDateTime) -> string
+pub fn format(dt: LocalDateTime) -> string
 
 pub struct ZoneOffset {
     total_seconds: int
@@ -2513,9 +2513,9 @@ pub fn zoneoffset_of_hours_minutes(hours: int, minutes: int) -> Result<ZoneOffse
 
 pub fn zoneoffset_compare(a: ZoneOffset, b: ZoneOffset) -> int
 
-pub fn zoneoffset_to_string(z: ZoneOffset) -> string
+pub fn format(z: ZoneOffset) -> string
 
-pub fn zoneoffset_from_string(s: string) -> Result<ZoneOffset, string>
+pub fn parse_offset(s: string) -> Result<ZoneOffset, string>
 
 pub struct ZoneId {
     name: string
@@ -2532,9 +2532,9 @@ pub fn zoneid_is_dst_at(z: ZoneId, i: Instant) -> bool
 
 pub fn zoneid_abbreviation_at(z: ZoneId, i: Instant) -> string
 
-pub fn zoneid_to_string(z: ZoneId) -> string
+pub fn format(z: ZoneId) -> string
 
-pub fn zoneid_from_string(s: string) -> Result<ZoneId, string>
+pub fn parse_zone(s: string) -> Result<ZoneId, string>
 
 pub struct Instant {
     seconds: int
@@ -2545,11 +2545,11 @@ pub fn instant_of(seconds: int, nanos: int) -> Instant
 
 pub fn instant_now() -> Instant
 
-pub fn instant_add(i: Instant, d: Duration) -> Instant
+pub fn add(i: Instant, d: Duration) -> Instant
 
-pub fn instant_subtract(i: Instant, d: Duration) -> Instant
+pub fn subtract(i: Instant, d: Duration) -> Instant
 
-pub fn instant_diff(a: Instant, b: Instant) -> Duration
+pub fn diff(a: Instant, b: Instant) -> Duration
 
 pub fn instant_compare(a: Instant, b: Instant) -> int
 
@@ -2567,17 +2567,17 @@ pub fn instant_to_localdatetime_in(i: Instant, z: ZoneId) -> LocalDateTime
 
 pub fn localdatetime_to_instant_in(dt: LocalDateTime, z: ZoneId) -> Instant
 
-pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string
+pub fn format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string
 
-pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat, l: Locale) -> string
+pub fn format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat, l: Locale) -> string
 
-pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, string>
+pub fn parse_instant(s: string, fmt: DateTimeFormat) -> Result<Instant, string>
 
-pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Instant, string>
+pub fn parse_instant(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Instant, string>
 
-pub fn instant_from_string(s: string) -> Result<Instant, string>
+pub fn parse_instant(s: string) -> Result<Instant, string>
 
-pub fn instant_to_string(i: Instant) -> string
+pub fn format(i: Instant) -> string
 
 pub fn local_date_to_json(d: LocalDate) -> Json
 

@@ -1,12 +1,12 @@
 // `+05:99` used to parse as 5*3600 + 99*60 seconds, which is inside the +-18h total the range check
-// looks at, so it was accepted -- and came back out of `zoneoffset_to_string` as `+06:39`. A
+// looks at, so it was accepted -- and came back out of `format` as `+06:39`. A
 // timestamp was stored at a different instant from the one the client wrote, with nothing reporting
 // it. The minutes field is a field, not a count to be carried (D19).
 use time
 
 fn off(s: string) -> string {
-    return switch time.zoneoffset_from_string(s) {
-        Ok(o) { time.zoneoffset_to_string(o) }
+    return switch time.parse_offset(s) {
+        Ok(o) { time.format(o) }
         Err(e) { e }
     }
 }

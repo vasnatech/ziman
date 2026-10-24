@@ -22,5 +22,8 @@
 -- the process default is settable and readable --
   after set_default(tr)  tr_TR.UTF-8
   after set_default(root) C.UTF-8
+-- resolving a name does not depend on the current default --
+  IT under a tr default  it_IT.UTF-8
+  IT under root          it_IT.UTF-8
 -- a Locale survives collection pressure, being reached through an int --
   still de_DE.UTF-8

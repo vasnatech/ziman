@@ -1,23 +1,22 @@
+use time
 use time.duration_of_seconds
-use time.duration_to_string
-use time.duration_add
-use time.duration_negate
-use time.duration_subtract
+use time.negate
+use time.subtract
 use time.duration_compare
 use time.duration_zero
 
 fn main() {
     val d1 = duration_of_seconds(1, 500000000)
-    print(duration_to_string(d1))
+    print(time.format(d1))
     val d2 = duration_of_seconds(0, -500000000)
-    print(duration_to_string(d2))
-    print(duration_to_string(duration_negate(d1)))
-    print(duration_to_string(duration_add(d1, d2)))
-    print(duration_to_string(duration_subtract(d1, d2)))
+    print(time.format(d2))
+    print(time.format(negate(d1)))
+    print(time.format(time.add(d1, d2)))
+    print(time.format(subtract(d1, d2)))
     print(duration_compare(d1, d2))
     print(duration_compare(d2, d1))
     print(duration_compare(d1, d1))
-    print(duration_to_string(duration_of_seconds(-1, 0)))
-    print(duration_to_string(duration_zero()))
-    print(duration_to_string(duration_of_seconds(2, 1500000000)))
+    print(time.format(duration_of_seconds(-1, 0)))
+    print(time.format(duration_zero()))
+    print(time.format(duration_of_seconds(2, 1500000000)))
 }

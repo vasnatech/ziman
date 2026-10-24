@@ -25,18 +25,18 @@ fn main() {
 
     print("-- one pattern, six languages --")
     for tag in ["C", "en", "tr", "de", "ja", "sv"] {
-        printf("  {} {}\n", tag, time.localdate_format(d, full, locale.of(tag)))
+        printf("  {} {}\n", tag, time.format(d, full, locale.of(tag)))
     }
     print("-- abbreviated --")
     for tag in ["en", "tr", "de", "ja", "sv"] {
-        printf("  {} {}\n", tag, time.localdate_format(d, short, locale.of(tag)))
+        printf("  {} {}\n", tag, time.format(d, short, locale.of(tag)))
     }
 
     print("-- round trips, each in its own language --")
     for tag in ["en", "tr", "de", "sv"] {
         val l = locale.of(tag)
-        val text = time.localdate_format(d, full, l)
-        switch time.localdate_parse_pattern(text, full, l) {
+        val text = time.format(d, full, l)
+        switch time.parse_localdate(text, full, l) {
             Ok(back) { printf("  {} round trip {}\n", tag, back == d) }
             Err(e) { printf("  {} ERR {}\n", tag, e) }
         }
@@ -50,16 +50,16 @@ fn main() {
     print("-- case folds under the pattern's locale --")
     val tr = locale.of("tr")
     for text in ["23 Ekim 2026", "23 EKİM 2026", "23 ekim 2026", "23 EKIM 2026"] {
-        switch time.localdate_parse_pattern(text, time.datetime_format_of("dd MMMM yyyy"), tr) {
-            Ok(back) { printf("  [{}] -> {}\n", text, time.localdate_to_string(back)) }
+        switch time.parse_localdate(text, time.datetime_format_of("dd MMMM yyyy"), tr) {
+            Ok(back) { printf("  [{}] -> {}\n", text, time.format(back)) }
             Err(e) { printf("  [{}] -> ERR {}\n", text, e) }
         }
     }
 
     print("-- a day name is checked against the date --")
     for text in ["Cuma, 23 Ekim 2026", "Pazar, 23 Ekim 2026", "Hiçbir, 23 Ekim 2026"] {
-        switch time.localdate_parse_pattern(text, full, tr) {
-            Ok(back) { printf("  [{}] -> {}\n", text, time.localdate_to_string(back)) }
+        switch time.parse_localdate(text, full, tr) {
+            Ok(back) { printf("  [{}] -> {}\n", text, time.format(back)) }
             Err(e) { printf("  [{}] -> ERR {}\n", text, e) }
         }
     }
@@ -67,7 +67,7 @@ fn main() {
     print("-- the run-length dispatch --")
     for pat in ["EEE", "EEEE", "EEEEE", "MMM", "MMMM", "EEE EEE"] {
         val f = time.datetime_format_of(pat)
-        printf("  {} -> [{}] width={}\n", pat, time.localdate_format(d, f, locale.of("en")), f.width)
+        printf("  {} -> [{}] width={}\n", pat, time.format(d, f, locale.of("en")), f.width)
     }
 
     print("-- width: real without a name, -1 with one --")
@@ -75,19 +75,19 @@ fn main() {
     printf("  EEEE, dd MMMM yyyy {}\n", full.width)
 
     print("-- the default governs the form without a locale --")
-    printf("  default=root {}\n", time.localdate_format(d, full))
+    printf("  default=root {}\n", time.format(d, full))
     locale.set_default(tr)
-    printf("  default=tr   {}\n", time.localdate_format(d, full))
+    printf("  default=tr   {}\n", time.format(d, full))
     locale.set_default(locale.root())
 
     print("-- an instant, whose calendar part has no precomputed width --")
-    val i = unwrap(time.instant_from_string("2026-09-24T12:00:00Z"))
+    val i = unwrap(time.parse_instant("2026-09-24T12:00:00Z"))
     val off = unwrap(time.zoneoffset_of_hours_minutes(2, 0))
     val dtf = time.datetime_format_of("EEEE dd MMMM yyyy HH:mm:ss")
     for tag in ["en", "tr"] {
         val l = locale.of(tag)
-        val text = time.instant_format(i, off, dtf, l)
-        switch time.instant_parse_pattern(text, dtf, l) {
+        val text = time.format(i, off, dtf, l)
+        switch time.parse_instant(text, dtf, l) {
             Ok(back) { printf("  {} [{}] round trip {}\n", tag, text, back == i) }
             Err(e) { printf("  {} [{}] ERR {}\n", tag, text, e) }
         }

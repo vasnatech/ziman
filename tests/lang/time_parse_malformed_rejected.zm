@@ -1,5 +1,5 @@
-use time.localdate_from_string
+use time.parse_localdate
 
 fn main() {
-    print(unwrap(localdate_from_string("not-a-date")))
+    print(unwrap(parse_localdate("not-a-date")))
 }

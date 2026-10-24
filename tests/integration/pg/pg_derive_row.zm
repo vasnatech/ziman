@@ -16,7 +16,7 @@ use time.instant_now
 use time.instant_to_sql
 use time.local_date_from_sql
 use time.local_date_to_sql
-use time.localdate_from_string
+use time.parse_localdate
 use uuid.Uuid
 use uuid.uuid_from_sql
 use uuid.uuid_new
@@ -47,7 +47,7 @@ fn main() {
         id: uuid_new(),
         name: "Ada",
         nickname: Option<string>.Some("A"),
-        born: unwrap(localdate_from_string("1815-12-10")),
+        born: unwrap(parse_localdate("1815-12-10")),
         age_hint: Option<int>.None,
         active: true,
         score: 0.1,
@@ -57,7 +57,7 @@ fn main() {
         id: uuid_new(),
         name: "Bob",
         nickname: Option<string>.None,
-        born: unwrap(localdate_from_string("1990-01-01")),
+        born: unwrap(parse_localdate("1990-01-01")),
         age_hint: Option<int>.Some(30),
         active: false,
         score: 2.5,

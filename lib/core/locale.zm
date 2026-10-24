@@ -97,13 +97,12 @@ fn posix_name_of(asked: string) -> string {
     if contains(name, "_") || contains(name, ".") {
         return name
     }
-    // **This fold must not become locale-dependent.** `to_lower` is slated to take a `Locale` and
-    // to use the process default when given none, at which point resolving a locale would depend on
-    // whichever locale is already current -- and under a Turkish default `to_lower("TI")` is `tı`,
-    // so `of("TI")` would stop finding its language. When that overload lands this call takes
-    // `root()` explicitly. Recorded here because it is the one place in the module where the
-    // circularity is real rather than theoretical.
-    val lower = to_lower(name)
+    // **This fold must not be locale-dependent**, which is why it names `root()` rather than
+    // taking the one-argument `to_lower`. That form uses the process default, so resolving a locale
+    // would depend on whichever locale is already current -- and under a Turkish default
+    // `to_lower("TI")` is `tı`, so `of("TI")` would stop finding its language. The one place in
+    // this module where the circularity is real rather than theoretical.
+    val lower = to_lower(name, root())
     for row in language_territories {
         if row[0] == lower {
             return row[1]

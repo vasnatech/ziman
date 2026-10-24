@@ -50,6 +50,15 @@ fn main() {
     locale.set_default(locale.root())
     printf("  after set_default(root) {}\n", locale.name_of(locale.default()))
 
+    print("-- resolving a name does not depend on the current default --")
+    // `posix_name_of` folds the asked-for name to find its language. Under a Turkish default the
+    // one-argument `to_lower("IT")` is `ıt`, which matches no row, so this would answer root if
+    // that fold used the default instead of naming `root()` outright.
+    locale.set_default(locale.of("tr"))
+    printf("  IT under a tr default  {}\n", locale.name_of(locale.of("IT")))
+    locale.set_default(locale.root())
+    printf("  IT under root          {}\n", locale.name_of(locale.of("IT")))
+
     print("-- a Locale survives collection pressure, being reached through an int --")
     val held = locale.of("de")
     var i = 0

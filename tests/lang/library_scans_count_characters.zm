@@ -8,7 +8,7 @@
 // byte length to a character `substring` and raised; `toml`'s date sniff cleared a 10-*byte* guard
 // and then read character 7 of a 6-character string; `properties`' "did you mean" distance sized
 // its first row in bytes and read its last cell by byte index, running off the end of every later
-// row; `zoneoffset_from_string` accepted a 6-byte, 3-character offset; `uuid`'s error counted bytes
+// row; `parse_offset` accepted a 6-byte, 3-character offset; `uuid`'s error counted bytes
 // while its own words said characters.
 use mime
 use toml
@@ -38,7 +38,7 @@ fn main() {
         Err(e) { printf("props ERR {}\n", e) }
     }
     // time: a 6-byte, 3-character zone offset that used to pass the length check
-    switch time.zoneoffset_from_string("+ää") {
+    switch time.parse_offset("+ää") {
         Ok(z) { printf("zone unexpectedly ok: {}\n", z) }
         Err(e) { print("zone correctly rejected") }
     }

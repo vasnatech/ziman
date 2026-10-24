@@ -2,7 +2,7 @@ use db.SqlValue
 use time
 
 // `instant_to_sql` always writes the nine-digit fraction, so text order (what a TEXT column sorts by) is time order; the short form of
-// `instant_to_string` would put a whole second after a fraction of the same second, because `Z` sorts after `.`.
+// `format` would put a whole second after a fraction of the same second, because `Z` sorts after `.`.
 
 fn text_of(v: SqlValue) -> string {
     return switch v {
@@ -24,8 +24,8 @@ fn main() {
     val half = at(1600000000, 500000000)
     val tiny = at(1600000000, 1)
     val before = at(1599999999, 999999999)
-    print(time.instant_to_string(whole))
-    print(time.instant_to_string(half))
+    print(time.format(whole))
+    print(time.format(half))
     print(text_of(time.instant_to_sql(whole)))
     print(text_of(time.instant_to_sql(half)))
     print(text_of(time.instant_to_sql(tiny)))

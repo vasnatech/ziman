@@ -1,27 +1,27 @@
+use time
 use time.localtime_of
-use time.localtime_to_string
-use time.localtime_add_hours
-use time.localtime_add_minutes
-use time.localtime_add_seconds
-use time.localtime_add_nanos
-use time.localtime_diff_nanos
+use time.add_hours
+use time.add_minutes
+use time.add_seconds
+use time.add_nanos
+use time.diff_nanos
 use time.localtime_compare
 
 fn main() {
     val t = unwrap(localtime_of(23, 59, 59, 0))
-    print(localtime_to_string(t))
-    print(localtime_to_string(localtime_add_seconds(t, 1)))
-    print(localtime_to_string(localtime_add_hours(t, 1)))
-    print(localtime_to_string(localtime_add_minutes(t, 1)))
+    print(time.format(t))
+    print(time.format(add_seconds(t, 1)))
+    print(time.format(add_hours(t, 1)))
+    print(time.format(add_minutes(t, 1)))
 
     val t2 = unwrap(localtime_of(0, 0, 0, 500000000))
-    print(localtime_to_string(t2))
-    print(localtime_to_string(localtime_add_nanos(t2, 500000000)))
+    print(time.format(t2))
+    print(time.format(add_nanos(t2, 500000000)))
 
     val t3 = unwrap(localtime_of(1, 0, 0, 0))
-    print(localtime_to_string(localtime_add_hours(t3, -2)))
+    print(time.format(add_hours(t3, -2)))
 
-    print(localtime_diff_nanos(t3, unwrap(localtime_of(0, 0, 0, 0))))
+    print(diff_nanos(t3, unwrap(localtime_of(0, 0, 0, 0))))
     print(localtime_compare(t3, t2))
     print(localtime_compare(t2, t3))
 

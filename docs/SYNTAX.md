@@ -1385,7 +1385,7 @@ name), each with a rule the bundled modules follow and new ones should too:
    unique across modules (`byte_from_hex`, `net_error_message`, and everything `#[derive]`
    dispatches on: `<snake_type>_to_json`/`_compare`/`_to_sql`).
 3. **A module defining types names operations after the type** (`uuid_new`,
-   `localdate_add_days`) — the type is the noun, so rule 2 applies and the name is safe bare
+   `add_days`) — the type is the noun, so rule 2 applies and the name is safe bare
    or qualified. Generic combinators on built-in types (`map`/`filter`/`sort`)
    are rule 1.
 4. **Conversions are `<from>_to_<to>`/`<to>_from_<from>`**, parsing is `parse`/`<type>_parse`,
@@ -1435,23 +1435,32 @@ val n = switch parse_int(text) {
 The `time` core module (`use time.Name`) provides seven types, modeled on `java.time` but
 scoped down. Every type is `{ ...: int }`-shaped (`Instant`/`Duration` are `bigint`-free
 `{ seconds: int, nanos: int }`), never a packed number, and has a fixed ISO-8601-shaped
-`_to_string`/`_from_string` pair, each the other's exact inverse. `LocalDate`, `LocalTime`,
-`LocalDateTime` and `Instant` also get `_format(value, fmt: DateTimeFormat) -> string` /
-`_parse_pattern(s, fmt) -> Result<Value, string>`; the ISO pair is implemented in terms of
-these, via one of five `pub val iso_*_format` presets. `Duration`/`ZoneOffset`/`ZoneId`
-only get the ISO pair -- their shapes (`"PT...S"`, `"+HH:MM"`, a bare zone name) aren't a
-calendar breakdown.
+`format(value) -> string` / `parse*(s) -> Result<Value, string>` pair, each the other's exact
+inverse. `LocalDate`, `LocalTime`, `LocalDateTime` and `Instant` also take an explicit pattern:
+`format(value, fmt: DateTimeFormat) -> string` / `parse*(s, fmt) -> Result<Value, string>`; the
+ISO pair is implemented in terms of these, via one of five `pub val iso_*_format` presets.
+`Duration`/`ZoneOffset`/`ZoneId` only get the ISO pair -- their shapes (`"PT...S"`, `"+HH:MM"`, a
+bare zone name) aren't a calendar breakdown.
+
+**The names carry no type prefix.** `format` is one overload set across all seven types (plus the
+`DateTimeFormat` and `Locale` forms), and so are `add`/`subtract`/`negate`, `add_days`/`_months`/
+`_years`/`_hours`/`_minutes`/`_seconds`/`_nanos` and `diff`, resolved on the argument's type. Where
+two types would need the same signature the name says which, one per type: `parse_localdate`,
+`parse_time`, `parse_datetime`, `parse_duration`, `parse_offset`, `parse_zone` and
+`parse_instant`. Constructors keep their prefix, since a type is all that distinguishes them
+(`localdate_of`, `localtime_of`, `localdatetime_of`, `duration_of_seconds`, `instant_of`,
+`zoneoffset_of_seconds`, `zoneid_of`), and so does `<type>_compare`, which `Ord` looks up by name.
 
 **`DateTimeFormat`** is compiled once (`datetime_format_of(pattern: string) ->
 DateTimeFormat` scans it into an array of field/literal parts) and reused across many
-`_format`/`_parse_pattern` calls. The pattern language is small: `yyyy` (4-digit year),
+`format`/`parse*` calls. The pattern language is small: `yyyy` (4-digit year),
 `MM`/`dd`/`HH`/`mm`/`ss` (2-digit, `HH` is 0-23), `SSSSSSSSS` (9-digit nanosecond), `MMM`/`MMMM`
 (abbreviated and full month name) and `EEE`/`EEEE` (abbreviated and full day name). The `M` and
 `E` run lengths are matched longest-first, so `MMMM` is one token rather than `MM` twice.
 **The names come from the operating system's locale data**, so one pattern renders in any
 language -- `EEEE, dd MMMM yyyy` is `Friday, 23 October 2026` under `en_US` and
 `Cuma, 23 Ekim 2026` under `tr_TR`. A compiled `DateTimeFormat` carries no locale; the locale
-goes to the call that renders or reads (`localdate_format(d, fmt, l)`), and the form without it
+goes to the call that renders or reads (`format(d, fmt, l)`), and the form without it
 uses `locale.default()`. Parsing folds case under the same locale, and a parsed day name is
 checked against the date rather than stepped over. Anything else is a literal, copied through
 verbatim -- no escaping; an unrecognized run length of a token letter (three `S`s) is just
@@ -1461,59 +1470,61 @@ is -1 for any pattern holding one.
 
 ```ziman
 use time.LocalDate
-use time.localdate_add_months
+use time.add_months
+use time.format
 use time.localdate_of
-use time.localdate_to_string
 
 fn main() {
     val d = unwrap(localdate_of(2024, 1, 31))
-    print(localdate_to_string(localdate_add_months(d, 1))) // 2024-02-29
+    print(format(add_months(d, 1))) // 2024-02-29
 }
 ```
 
 - **`LocalDate { year, month, day: int }`** — a calendar date, no time, no zone.
   `localdate_of(y, m, d) -> Result<LocalDate, string>` validates `month` (1-12) and `day`
-  against that month's real length (leap years correct). `localdate_add_days`/`_months`/
-  `_years` (month/year forms clamp the day to the target month, like `java.time`'s
-  `plusMonths` -- `2024-01-31` plus a month is `2024-02-29`), `localdate_diff_days`,
-  `localdate_compare`, `localdate_to_epoch_day`/`_from_epoch_day` (days since 1970-01-01,
-  negative before it), `localdate_is_leap_year`, `localdate_to_string`
-  (`"YYYY-MM-DD"`)/`_from_string`, `localdate_format`/`_parse_pattern`.
+  against that month's real length (leap years correct). `add_days`/`_months`/
+  `add_years` (month/year forms clamp the day to the target month, like `java.time`'s
+  `plusMonths` -- `2024-01-31` plus a month is `2024-02-29`), `diff_days`,
+  `localdate_compare`, `to_epoch_day`/`localdate_from_epoch_day` (days since 1970-01-01,
+  negative before it), `is_leap_year(year: int)`, `format` (`"YYYY-MM-DD"`)/`parse_localdate`,
+  and `format`/`parse_localdate` with a `DateTimeFormat`.
 - **`LocalTime { hour, minute, second, nano: int }`** — a time of day, no date, no zone.
-  `localtime_of(...)` validates ranges (`nano` is 0-999999999). `localtime_add_hours`/
-  `_minutes`/`_seconds`/`_nanos` wrap at 24h and discard day overflow (use `LocalDateTime`
-  when that needs tracking), `localtime_diff_nanos`, `localtime_compare`,
-  `localtime_to_string` (`"HH:MM:SS"`, or with `.nnnnnnnnn` when `nano != 0`)/`_from_string`
-  (auto-detects which shape), `localtime_format`/`_parse_pattern`.
+  `localtime_of(...)` validates ranges (`nano` is 0-999999999). `add_hours`/
+  `add_minutes`/`add_seconds`/`add_nanos` wrap at 24h and discard day overflow (use
+  `LocalDateTime` when that needs tracking), `diff_nanos`, `localtime_compare`,
+  `format` (`"HH:MM:SS"`, or with `.nnnnnnnnn` when `nano != 0`)/`parse_time`
+  (auto-detects which shape), `format`/`parse_time` with a `DateTimeFormat`.
 - **`LocalDateTime { date: LocalDate, time: LocalTime }`** — the two combined, still no
-  zone. `localdatetime_of(date, time)`, `_add_hours`/`_minutes`/`_seconds`/`_nanos` (these
-  DO carry into the date on overflow, unlike `LocalTime`'s own), `_add_days`/`_months`/
-  `_years` (delegate to `LocalDate`, time untouched), `_compare`, `_diff(a, b) -> Duration`
-  (elapsed wall-clock time on one fixed calendar, not a real cross-zone computation),
-  `_to_string` (`"YYYY-MM-DDTHH:MM:SS"`)/`_from_string`, `_format`/`_parse_pattern`.
+  zone. `localdatetime_of(date, time)`, `add_hours`/`add_minutes`/`add_seconds`/`add_nanos`
+  (these DO carry into the date on overflow, unlike `LocalTime`'s own), `add_days`/
+  `add_months`/`add_years` (delegate to `LocalDate`, time untouched), `localdatetime_compare`,
+  `diff(a, b) -> Duration` (elapsed wall-clock time on one fixed calendar, not a real
+  cross-zone computation), `format` (`"YYYY-MM-DDTHH:MM:SS"`)/`parse_datetime`, and
+  `format`/`parse_datetime` with a `DateTimeFormat`.
 - **`Duration { seconds, nanos: int }`** — a length of time, not a point. `nanos` stays in
   `[0, 999999999]`; `seconds` alone carries the sign (`-0.5`s is `{-1, 500000000}`, not
   `{0, -500000000}`) -- which is also why plain `seconds` comparison is a correct total
   ordering, `nanos` only breaking ties. `duration_of_seconds(s, n)` normalizes rather than
-  rejects, `duration_zero()`, `_add`/`_subtract`/`_negate`, `_compare`, `_to_string`
+  rejects, `duration_zero()`, `add`/`subtract`/`negate`, `duration_compare`, `format`
   (`"PT{seconds}[.{nanos}]S"`; a negative duration prints its true magnitude with a leading
-  `-`, not a misleading field-by-field negative) and its exact inverse `_from_string`.
+  `-`, not a misleading field-by-field negative) and its exact inverse `parse_duration`.
 - **`Instant { seconds, nanos: int }`** — a point on the UTC timeline, same shape and
   invariant as `Duration` (not a packed `bigint` nanosecond count). `instant_now()` reads
   the real system clock (`clock` module's `clock_gettime`, Ziman's only non-determinism
   besides `random`); `localdatetime_now(offset)`/`localdate_now(offset)`/
   `localtime_now(offset)` read the current wall-clock time on a clock in `offset`.
-  `instant_of(s, n)` (normalizing), `_add`/`_subtract` (with a `Duration`), `_diff(a, b) ->
-  Duration`, `_compare`, `instant_to_localdatetime(i, offset: ZoneOffset) -> LocalDateTime`
-  / `localdatetime_to_instant(dt, offset)` (the only place `ZoneOffset` does something --
-  shifting a UTC instant to/from wall-clock time), `instant_to_string` (UTC ISO-8601 via
-  `zoneoffset_utc()`) and its inverse `_from_string` (accepts `"Z"` or a real offset
-  suffix), `instant_format`/`_parse_pattern` (offset handled separately from the pattern).
+  `instant_of(s, n)` (normalizing), `add`/`subtract` (with a `Duration`), `diff(a, b) ->
+  Duration`, `instant_compare`, `instant_to_localdatetime(i, offset: ZoneOffset) ->
+  LocalDateTime` / `localdatetime_to_instant(dt, offset)` (the only place `ZoneOffset` does
+  something -- shifting a UTC instant to/from wall-clock time), `format` (UTC ISO-8601 via
+  `zoneoffset_utc()`) and its inverse `parse_instant` (accepts `"Z"` or a real offset
+  suffix), and `format(i, offset, fmt)`/`parse_instant(s, fmt)` (offset handled separately
+  from the pattern).
 - **`ZoneOffset { total_seconds: int }`** — a fixed UTC offset (`+05:30`), not a named zone.
   `zoneoffset_utc()`, `zoneoffset_of_seconds(s) -> Result<ZoneOffset, string>` (validated to
   `±18:00`), `zoneoffset_of_hours_minutes(h, m)` (rejects mismatched signs -- `(-5, 30)` is
-  invalid, must be `(-5, -30)` or `(-5, 0)`), `_compare`, `_to_string` (`"Z"` for UTC,
-  `"+HH:MM"`/`"-HH:MM"` otherwise)/`_from_string`.
+  invalid, must be `(-5, -30)` or `(-5, 0)`), `zoneoffset_compare`, `format` (`"Z"` for UTC,
+  `"+HH:MM"`/`"-HH:MM"` otherwise)/`parse_offset`.
 - **`ZoneId`** — an IANA time zone (`"Europe/Paris"`) with its rules, read from the OS zone
   files (`$TZDIR`, else `/usr/share/zoneinfo`); `zoneid_of(name)` is an `Err` for an unknown
   name or no zone database, `zoneid_utc()`/`"UTC"` never need the files.
@@ -1522,10 +1533,10 @@ fn main() {
   `localdatetime_to_instant_in(dt, z)` apply daylight saving: an ambiguous wall-clock time
   (clocks going back) is the earlier instant, a nonexistent one (clocks going forward) is
   moved forward by the gap's length; a zone file's trailing rule string covers dates past
-  its last listed transition. `zoneid_to_string`/`_from_string` are the bare name; two
+  its last listed transition. `format`/`parse_zone` are the bare zone name; two
   `ZoneId`s of the same zone compare equal.
 - **No `<`/`>` on any of these seven types** -- use `compare`/`Ord` instead: each has a
-  `_compare(a, b) -> int` function, which is what makes it `Ord` (works in `sort`,
+  `<type>_compare(a, b) -> int` function, which is what makes it `Ord` (works in `sort`,
   as an `Ord`-bounded type argument). `==`/`!=` come free from structural equality on the
   plain `int`/struct fields. Calendar year is assumed non-negative throughout (no BCE).
 

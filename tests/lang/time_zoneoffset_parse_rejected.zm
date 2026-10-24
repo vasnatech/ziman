@@ -1,5 +1,5 @@
-use time.zoneoffset_from_string
+use time.parse_offset
 
 fn main() {
-    print(unwrap(zoneoffset_from_string("+05:00:00")))
+    print(unwrap(parse_offset("+05:00:00")))
 }

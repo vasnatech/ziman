@@ -7,10 +7,10 @@
 use clock
 use schedule
 use time.localdate_of
-use time.localdate_to_epoch_day
+use time.to_epoch_day
 
 fn at(y: int, mo: int, d: int, h: int, mi: int, se: int) -> int {
-    val day = localdate_to_epoch_day(unwrap(localdate_of(y, mo, d)))
+    val day = to_epoch_day(unwrap(localdate_of(y, mo, d)))
     return day * 86400 + h * 3600 + mi * 60 + se
 }
 

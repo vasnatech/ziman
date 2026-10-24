@@ -1,65 +1,59 @@
+use time
 use time.localdate_of
 use time.localtime_of
 use time.localdatetime_of
-use time.localdatetime_to_string
-use time.localdatetime_add_hours
-use time.localdatetime_add_days
-use time.localdatetime_add_months
+use time.add_hours
+use time.add_days
+use time.add_months
 use time.localdatetime_compare
-use time.localdatetime_diff
-use time.duration_to_string
+use time.diff
 use time.zoneoffset_utc
 use time.zoneoffset_of_hours_minutes
-use time.zoneoffset_to_string
 use time.zoneoffset_compare
 use time.instant_of
 use time.instant_now
-use time.instant_add
-use time.instant_diff
 use time.instant_compare
-use time.instant_to_string
 use time.localdatetime_to_instant
 use time.instant_to_localdatetime
 use time.duration_of_seconds
 use time.zoneid_utc
 use time.zoneid_offset_at
-use time.zoneid_to_string
 
 fn main() {
     val dt = localdatetime_of(unwrap(localdate_of(2024, 12, 31)), unwrap(localtime_of(23, 30, 0, 0)))
-    print(localdatetime_to_string(dt))
-    print(localdatetime_to_string(localdatetime_add_hours(dt, 1)))
-    print(localdatetime_to_string(localdatetime_add_days(dt, 1)))
-    print(localdatetime_to_string(localdatetime_add_months(dt, 2)))
+    print(time.format(dt))
+    print(time.format(add_hours(dt, 1)))
+    print(time.format(add_days(dt, 1)))
+    print(time.format(add_months(dt, 2)))
 
     val dt2 = localdatetime_of(unwrap(localdate_of(2025, 1, 1)), unwrap(localtime_of(0, 30, 0, 0)))
     print(localdatetime_compare(dt, dt2))
-    print(duration_to_string(localdatetime_diff(dt2, dt)))
+    print(time.format(diff(dt2, dt)))
 
-    print(zoneoffset_to_string(zoneoffset_utc()))
+    print(time.format(zoneoffset_utc()))
     val off = unwrap(zoneoffset_of_hours_minutes(-5, 0))
-    print(zoneoffset_to_string(off))
+    print(time.format(off))
     val off2 = unwrap(zoneoffset_of_hours_minutes(5, 30))
-    print(zoneoffset_to_string(off2))
+    print(time.format(off2))
     print(zoneoffset_compare(off, off2))
 
     val i = localdatetime_to_instant(dt, zoneoffset_utc())
-    print(instant_to_string(i))
+    print(time.format(i))
     val back = instant_to_localdatetime(i, zoneoffset_utc())
-    print(localdatetime_to_string(back))
+    print(time.format(back))
     print(localdatetime_compare(dt, back))
 
-    val i2 = instant_add(i, duration_of_seconds(3600, 0))
-    print(instant_to_string(i2))
-    print(duration_to_string(instant_diff(i2, i)))
+    val i2 = time.add(i, duration_of_seconds(3600, 0))
+    print(time.format(i2))
+    print(time.format(diff(i2, i)))
     print(instant_compare(i, i2))
 
     val z = zoneid_utc()
-    print(zoneid_to_string(z))
-    print(zoneoffset_to_string(zoneid_offset_at(z, instant_of(0, 0))))
+    print(time.format(z))
+    print(time.format(zoneid_offset_at(z, instant_of(0, 0))))
 
     val now = instant_now()
-    print(byte_len(instant_to_string(now)) > 0)
+    print(byte_len(time.format(now)) > 0)
 
     val bad = zoneoffset_of_hours_minutes(-5, 30)
     print(is_ok(bad))

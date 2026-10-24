@@ -24,7 +24,7 @@ types and `Instant` also take a `DateTimeFormat`, a pattern compiled once by
 `datetime_format_of` and reused: `yyyy MM dd HH mm ss` and `SSSSSSSSS` (nanoseconds), plus
 `MMM`/`MMMM` and `EEE`/`EEEE` for the month and day as names, taken from the host's locale data,
 anything else copied through as literal text. A compiled pattern carries no locale; the locale
-goes to the call that renders (`localdate_format(d, fmt, l)`), or is `locale.default()`. Every type has `_to_json` / `_from_json`
+goes to the call that renders (`format(d, fmt, l)`), or is `locale.default()`. Every type has `_to_json` / `_from_json`
 and `_to_sql` / `_from_sql`, so `#[derive(Json)]` and `#[derive(Row)]` handle a field of these
 types (an ISO string, and a TEXT column).
 
@@ -50,23 +50,23 @@ use time
 // Dates, times, durations and instants. Constructors check their fields and return a Result.
 fn main() {
     val d = unwrap(time.localdate_of(2026, 1, 31))
-    print(time.localdate_to_string(d))
-    print(time.localdate_to_string(time.localdate_add_months(d, 1)))  // clamped to the month's length
+    print(time.format(d))
+    print(time.format(time.add_months(d, 1)))  // clamped to the month's length
     print(is_ok(time.localdate_of(2026, 2, 30)))
-    print(time.localdate_diff_days(unwrap(time.localdate_of(2026, 12, 25)), d))
+    print(time.diff_days(unwrap(time.localdate_of(2026, 12, 25)), d))
 
     val dt = time.localdatetime_of(d, unwrap(time.localtime_of(23, 30, 0, 0)))
-    print(time.localdatetime_to_string(time.localdatetime_add_minutes(dt, 45)))  // carries into the next day
+    print(time.format(time.add_minutes(dt, 45)))  // carries into the next day
 
     // An instant is a point on the timeline; an offset says how a clock reads it.
     val at = time.localdatetime_to_instant(dt, unwrap(time.zoneoffset_of_hours_minutes(5, 30)))
-    print(time.instant_to_string(at))
-    print(time.instant_to_string(time.instant_add(at, time.duration_of_seconds(90, 0))))
+    print(time.format(at))
+    print(time.format(time.add(at, time.duration_of_seconds(90, 0))))
 
     // Any type reads back its own text form; a pattern is compiled once and reused.
-    print(time.duration_to_string(unwrap(time.duration_from_string("PT1.5S"))))
+    print(time.format(unwrap(time.parse_duration("PT1.5S"))))
     val fmt = time.datetime_format_of("dd/MM/yyyy HH:mm")
-    print(time.localdatetime_format(dt, fmt))
+    print(time.format(dt, fmt))
 }
 ```
 
@@ -83,6 +83,18 @@ false
 PT1.500000000S
 31/01/2026 23:30
 ```
+
+### `is_leap_year`
+
+```
+pub fn is_leap_year(year: int) -> bool
+```
+
+True when `year` is a leap year in the Gregorian calendar.
+
+It takes a *year*, not a `LocalDate` -- which the old name `localdate_is_leap_year` obscured, and
+dropping the prefix made obvious: the public function was a one-line wrapper over this private
+one with the identical signature, so the rename turned it into a duplicate. One definition now.
 
 ### `DateTimeFormat`
 
@@ -181,10 +193,10 @@ A calendar date with no time or zone: a proleptic Gregorian `year`, `month` (1-1
 Build one with `localdate_of`, which checks the fields.
 
 The year is **signed**, and negative years are a supported case rather than an accident: 44 BC is
-`-0044`, `localdate_add_days` walks back past year 1 into it (the fixture
+`-0044`, `add_days` walks back past year 1 into it (the fixture
 `time_year_range_roundtrip` pins `-0044-03-15` round-tripping and an 800,000-day subtraction
 landing on `-2190-09-05`), `format_year` writes a sign outside 0-9999, and
-`localdate_from_string` reads a signed year of 4 to 9 digits. This comment used to say "0 or
+`parse` reads a signed year of 4 to 9 digits. This comment used to say "0 or
 later", which is what led the 2026-10-14 review to report accepting BCE years as a bug (D19):
 the code was right and the sentence describing it was not.
 
@@ -197,18 +209,10 @@ pub fn localdate_of(year: int, month: int, day: int) -> Result<LocalDate, string
 The date `year`-`month`-`day`, or an Err naming the field that is out of range (the day is checked
 against that month's length, leap years included).
 
-### `localdate_is_leap_year`
+### `to_epoch_day`
 
 ```
-pub fn localdate_is_leap_year(year: int) -> bool
-```
-
-True when `year` is a leap year in the Gregorian calendar.
-
-### `localdate_to_epoch_day`
-
-```
-pub fn localdate_to_epoch_day(d: LocalDate) -> int
+pub fn to_epoch_day(d: LocalDate) -> int
 ```
 
 The number of days from 1970-01-01 to `d`; negative before it.
@@ -219,39 +223,39 @@ The number of days from 1970-01-01 to `d`; negative before it.
 pub fn localdate_from_epoch_day(epoch_day: int) -> LocalDate
 ```
 
-The date `epoch_day` days after 1970-01-01 (the inverse of `localdate_to_epoch_day`).
+The date `epoch_day` days after 1970-01-01 (the inverse of `to_epoch_day`).
 
-### `localdate_add_days`
+### `add_days`
 
 ```
-pub fn localdate_add_days(d: LocalDate, days: int) -> LocalDate
+pub fn add_days(d: LocalDate, days: int) -> LocalDate
 ```
 
 `d` moved by `days` (negative to go back), across month and year ends.
 
-### `localdate_add_months`
+### `add_months`
 
 ```
-pub fn localdate_add_months(d: LocalDate, months: int) -> LocalDate
+pub fn add_months(d: LocalDate, months: int) -> LocalDate
 ```
 
 Clamps the day to the target month's own length, same as
 java.time.LocalDate.plusMonths -- Jan 31 + 1 month is Feb 28 (or 29),
 never "Mar 3".
 
-### `localdate_add_years`
+### `add_years`
 
 ```
-pub fn localdate_add_years(d: LocalDate, years: int) -> LocalDate
+pub fn add_years(d: LocalDate, years: int) -> LocalDate
 ```
 
 `d` moved by `years` years; 29 February in a non-leap target year becomes the 28th, as in
-`localdate_add_months`.
+`add_months`.
 
-### `localdate_diff_days`
+### `diff_days`
 
 ```
-pub fn localdate_diff_days(a: LocalDate, b: LocalDate) -> int
+pub fn diff_days(a: LocalDate, b: LocalDate) -> int
 ```
 
 The whole days from `b` to `a`: positive when `a` is the later date.
@@ -265,17 +269,17 @@ pub fn localdate_compare(a: LocalDate, b: LocalDate) -> int
 Negative, zero or positive as `a` is before, the same as, or after `b`. This makes `LocalDate`
 `Ord`.
 
-### `localdate_format`
+### `format`
 
 ```
-pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat) -> string
+pub fn format(d: LocalDate, fmt: DateTimeFormat) -> string
 ```
 
 `d` rendered with a compiled pattern from `datetime_format_of`. Fields the date lacks (hour,
 minute, second, nanosecond) print as zeros.
 
 ```
-pub fn localdate_format(d: LocalDate, fmt: DateTimeFormat, l: Locale) -> string
+pub fn format(d: LocalDate, fmt: DateTimeFormat, l: Locale) -> string
 ```
 
 The same, with the names drawn from `l`.//
@@ -284,33 +288,31 @@ purpose -- one pattern renders in any language -- so a form taking a `Locale` si
 that uses `locale.default()`. Only a pattern with a name token (`MMM`, `MMMM`, `EEE`, `EEEE`)
 reads the locale at all; `yyyy-MM-dd` renders identically under every one.
 
-### `localdate_parse_pattern`
+### `parse_localdate`
 
 ```
-pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string>
+pub fn parse_localdate(s: string, fmt: DateTimeFormat) -> Result<LocalDate, string>
 ```
 
 Reads `s` with a compiled pattern; an Err says which part did not match, or that the resulting
 date does not exist (31 February).
 
 ```
-pub fn localdate_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDate, string>
+pub fn parse_localdate(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDate, string>
 ```
 
 The same, reading any name token under `l`.
 
-### `localdate_from_string`
-
 ```
-pub fn localdate_from_string(s: string) -> Result<LocalDate, string>
+pub fn parse_localdate(s: string) -> Result<LocalDate, string>
 ```
 
-Reads an ISO date, `2026-09-24`; an Err otherwise. The inverse of `localdate_to_string`.
+Reads an ISO date, `2026-09-24`; an Err otherwise. The inverse of `format`.
 
-### `localdate_to_string`
+### `format`
 
 ```
-pub fn localdate_to_string(d: LocalDate) -> string
+pub fn format(d: LocalDate) -> string
 ```
 
 `d` as an ISO date, `2026-09-24`.
@@ -337,43 +339,43 @@ pub fn localtime_of(hour: int, minute: int, second: int, nano: int) -> Result<Lo
 
 The time `hour`:`minute`:`second`.`nano`, or an Err naming the field that is out of range.
 
-### `localtime_add_nanos`
+### `add_nanos`
 
 ```
-pub fn localtime_add_nanos(t: LocalTime, nanos: int) -> LocalTime
+pub fn add_nanos(t: LocalTime, nanos: int) -> LocalTime
 ```
 
 `t` moved by `nanos` nanoseconds (negative to go back). Wraps at midnight and drops the day carry,
-like java.time.LocalTime.plusNanos; use `localdatetime_add_nanos` to keep it.
+like java.time.LocalTime.plusNanos; use `add_nanos` to keep it.
 
-### `localtime_add_seconds`
-
-```
-pub fn localtime_add_seconds(t: LocalTime, seconds: int) -> LocalTime
-```
-
-`t` moved by `seconds`, wrapping at midnight (see `localtime_add_nanos`).
-
-### `localtime_add_minutes`
+### `add_seconds`
 
 ```
-pub fn localtime_add_minutes(t: LocalTime, minutes: int) -> LocalTime
+pub fn add_seconds(t: LocalTime, seconds: int) -> LocalTime
+```
+
+`t` moved by `seconds`, wrapping at midnight (see `add_nanos`).
+
+### `add_minutes`
+
+```
+pub fn add_minutes(t: LocalTime, minutes: int) -> LocalTime
 ```
 
 `t` moved by `minutes`, wrapping at midnight.
 
-### `localtime_add_hours`
+### `add_hours`
 
 ```
-pub fn localtime_add_hours(t: LocalTime, hours: int) -> LocalTime
+pub fn add_hours(t: LocalTime, hours: int) -> LocalTime
 ```
 
 `t` moved by `hours`, wrapping at midnight.
 
-### `localtime_diff_nanos`
+### `diff_nanos`
 
 ```
-pub fn localtime_diff_nanos(a: LocalTime, b: LocalTime) -> int
+pub fn diff_nanos(a: LocalTime, b: LocalTime) -> int
 ```
 
 The nanoseconds from `b` to `a` within one day: positive when `a` is later. Both are read as
@@ -388,53 +390,51 @@ pub fn localtime_compare(a: LocalTime, b: LocalTime) -> int
 Negative, zero or positive as `a` is earlier than, the same as, or later than `b`. This makes
 `LocalTime` `Ord`.
 
-### `localtime_format`
+### `format`
 
 ```
-pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat) -> string
+pub fn format(t: LocalTime, fmt: DateTimeFormat) -> string
 ```
 
 `t` rendered with a compiled pattern from `datetime_format_of`. Year, month and day print as
 zeros.
 
 ```
-pub fn localtime_format(t: LocalTime, fmt: DateTimeFormat, l: Locale) -> string
+pub fn format(t: LocalTime, fmt: DateTimeFormat, l: Locale) -> string
 ```
 
 The same under `l`. A time has no month or weekday, so a name token in the pattern renders from
 the zeros the date fields hold -- which is what it did before a locale existed too.
 
-### `localtime_parse_pattern`
+### `parse_time`
 
 ```
-pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string>
+pub fn parse_time(s: string, fmt: DateTimeFormat) -> Result<LocalTime, string>
 ```
 
 Reads `s` with a compiled pattern; an Err says which part did not match or which field is out of
 range.
 
 ```
-pub fn localtime_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalTime, string>
+pub fn parse_time(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalTime, string>
 ```
 
 The same, reading any name token under `l`.
 
-### `localtime_from_string`
-
 ```
-pub fn localtime_from_string(s: string) -> Result<LocalTime, string>
+pub fn parse_time(s: string) -> Result<LocalTime, string>
 ```
 
 `to_string`'s own output only includes the fractional part when
-`nano != 0` (see localtime_to_string below), so parsing has to
+`nano != 0` (see format below), so parsing has to
 detect which of the two fixed shapes it's looking at the same way --
 checking for "." is safe here since neither shape ever contains one
 otherwise.
 
-### `localtime_to_string`
+### `format`
 
 ```
-pub fn localtime_to_string(t: LocalTime) -> string
+pub fn format(t: LocalTime) -> string
 ```
 
 `t` as ISO text, `13:05:09`, with `.nnnnnnnnn` after the seconds only when the nanoseconds are not
@@ -469,26 +469,26 @@ pub fn duration_zero() -> Duration
 
 The empty duration.
 
-### `duration_add`
+### `add`
 
 ```
-pub fn duration_add(a: Duration, b: Duration) -> Duration
+pub fn add(a: Duration, b: Duration) -> Duration
 ```
 
 The sum of two durations.
 
-### `duration_negate`
+### `negate`
 
 ```
-pub fn duration_negate(d: Duration) -> Duration
+pub fn negate(d: Duration) -> Duration
 ```
 
 `d` with its sign flipped.
 
-### `duration_subtract`
+### `subtract`
 
 ```
-pub fn duration_subtract(a: Duration, b: Duration) -> Duration
+pub fn subtract(a: Duration, b: Duration) -> Duration
 ```
 
 `a` minus `b`.
@@ -504,10 +504,10 @@ specifically because of the normalize invariant: nanos is always
 non-negative, so seconds alone is the correct primary ordering key
 and nanos only ever needs to break a tie.
 
-### `duration_to_string`
+### `format`
 
 ```
-pub fn duration_to_string(d: Duration) -> string
+pub fn format(d: Duration) -> string
 ```
 
 ISO-8601-shaped (PT<seconds>[.<nanos>]S), not full ISO-8601 duration
@@ -520,19 +520,19 @@ give), the same care java.time.Duration.toString() takes. No
 pattern-based `duration_format` -- a total elapsed-seconds count
 isn't a calendar field breakdown the way year/month/day/hour/
 minute/second are, so the pattern language above doesn't fit it;
-`duration_from_string` below is this function's exact inverse instead.
+`parse_duration` below is this function's exact inverse instead.
 
-### `duration_from_string`
+### `parse_duration`
 
 ```
-pub fn duration_from_string(s: string) -> Result<Duration, string>
+pub fn parse_duration(s: string) -> Result<Duration, string>
 ```
 
-The exact inverse of duration_to_string, including its negative-
+The exact inverse of format, including its negative-
 duration magnitude transform: a negative-with-fraction string stores
 `mag_seconds = -true_seconds - 1` and `mag_nanos = 1e9 - true_nanos`,
 so parsing has to invert that arithmetic rather than just negating
-the parsed seconds -- verified against duration_to_string's own
+the parsed seconds -- verified against format's own
 worked example (-0.5s prints "PT-0.500000000S") before trusting it.
 
 ### `LocalDateTime`
@@ -555,58 +555,58 @@ pub fn localdatetime_of(date: LocalDate, time: LocalTime) -> LocalDateTime
 
 The date-time made of `date` and `time`.
 
-### `localdatetime_add_nanos`
+### `add_nanos`
 
 ```
-pub fn localdatetime_add_nanos(dt: LocalDateTime, nanos: int) -> LocalDateTime
+pub fn add_nanos(dt: LocalDateTime, nanos: int) -> LocalDateTime
 ```
 
 `dt` moved by `nanos` nanoseconds (negative to go back), carrying into the date.
 
-### `localdatetime_add_seconds`
+### `add_seconds`
 
 ```
-pub fn localdatetime_add_seconds(dt: LocalDateTime, seconds: int) -> LocalDateTime
+pub fn add_seconds(dt: LocalDateTime, seconds: int) -> LocalDateTime
 ```
 
 `dt` moved by `seconds`, carrying into the date.
 
-### `localdatetime_add_minutes`
+### `add_minutes`
 
 ```
-pub fn localdatetime_add_minutes(dt: LocalDateTime, minutes: int) -> LocalDateTime
+pub fn add_minutes(dt: LocalDateTime, minutes: int) -> LocalDateTime
 ```
 
 `dt` moved by `minutes`, carrying into the date.
 
-### `localdatetime_add_hours`
+### `add_hours`
 
 ```
-pub fn localdatetime_add_hours(dt: LocalDateTime, hours: int) -> LocalDateTime
+pub fn add_hours(dt: LocalDateTime, hours: int) -> LocalDateTime
 ```
 
 `dt` moved by `hours`, carrying into the date.
 
-### `localdatetime_add_days`
+### `add_days`
 
 ```
-pub fn localdatetime_add_days(dt: LocalDateTime, days: int) -> LocalDateTime
+pub fn add_days(dt: LocalDateTime, days: int) -> LocalDateTime
 ```
 
 `dt` moved by `days`; the time of day is unchanged.
 
-### `localdatetime_add_months`
+### `add_months`
 
 ```
-pub fn localdatetime_add_months(dt: LocalDateTime, months: int) -> LocalDateTime
+pub fn add_months(dt: LocalDateTime, months: int) -> LocalDateTime
 ```
 
-`dt` moved by `months`; the day is clamped to the target month as in `localdate_add_months`.
+`dt` moved by `months`; the day is clamped to the target month as in `add_months`.
 
-### `localdatetime_add_years`
+### `add_years`
 
 ```
-pub fn localdatetime_add_years(dt: LocalDateTime, years: int) -> LocalDateTime
+pub fn add_years(dt: LocalDateTime, years: int) -> LocalDateTime
 ```
 
 `dt` moved by `years`; 29 February becomes the 28th in a non-leap target year.
@@ -620,10 +620,10 @@ pub fn localdatetime_compare(a: LocalDateTime, b: LocalDateTime) -> int
 Negative, zero or positive as `a` is before, the same as, or after `b`. This makes `LocalDateTime`
 `Ord`.
 
-### `localdatetime_diff`
+### `diff`
 
 ```
-pub fn localdatetime_diff(a: LocalDateTime, b: LocalDateTime) -> Duration
+pub fn diff(a: LocalDateTime, b: LocalDateTime) -> Duration
 ```
 
 Treats both sides as wall-clock time with no zone (exactly what
@@ -631,48 +631,46 @@ LocalDateTime means) -- well-defined without needing a ZoneOffset,
 since it's just "elapsed calendar time assuming a fixed calendar",
 not a real elapsed-wall-time-across-zones computation.
 
-### `localdatetime_format`
+### `format`
 
 ```
-pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat) -> string
+pub fn format(dt: LocalDateTime, fmt: DateTimeFormat) -> string
 ```
 
 `dt` rendered with a compiled pattern from `datetime_format_of`.
 
 ```
-pub fn localdatetime_format(dt: LocalDateTime, fmt: DateTimeFormat, l: Locale) -> string
+pub fn format(dt: LocalDateTime, fmt: DateTimeFormat, l: Locale) -> string
 ```
 
 The same, with the names drawn from `l`.
 
-### `localdatetime_parse_pattern`
+### `parse_datetime`
 
 ```
-pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string>
+pub fn parse_datetime(s: string, fmt: DateTimeFormat) -> Result<LocalDateTime, string>
 ```
 
 Reads `s` with a compiled pattern; an Err says which part did not match or which field is out of
 range.
 
 ```
-pub fn localdatetime_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDateTime, string>
+pub fn parse_datetime(s: string, fmt: DateTimeFormat, l: Locale) -> Result<LocalDateTime, string>
 ```
 
 The same, reading any name token under `l`.
 
-### `localdatetime_from_string`
-
 ```
-pub fn localdatetime_from_string(s: string) -> Result<LocalDateTime, string>
+pub fn parse_datetime(s: string) -> Result<LocalDateTime, string>
 ```
 
 Reads an ISO date-time, `2026-09-24T13:05:09` with an optional fraction of 1 to 9 digits; an Err
 otherwise.
 
-### `localdatetime_to_string`
+### `format`
 
 ```
-pub fn localdatetime_to_string(dt: LocalDateTime) -> string
+pub fn format(dt: LocalDateTime) -> string
 ```
 
 `dt` as ISO text, `2026-09-24T13:05:09`, with the fraction only when the nanoseconds are not zero.
@@ -722,23 +720,23 @@ pub fn zoneoffset_compare(a: ZoneOffset, b: ZoneOffset) -> int
 Negative, zero or positive as `a` lies west of, at the same place as, or east of `b`. This makes
 `ZoneOffset` `Ord`.
 
-### `zoneoffset_to_string`
+### `format`
 
 ```
-pub fn zoneoffset_to_string(z: ZoneOffset) -> string
+pub fn format(z: ZoneOffset) -> string
 ```
 
 `z` as `Z` for UTC, otherwise `+HH:MM` or `-HH:MM`.
 
-### `zoneoffset_from_string`
+### `parse_offset`
 
 ```
-pub fn zoneoffset_from_string(s: string) -> Result<ZoneOffset, string>
+pub fn parse_offset(s: string) -> Result<ZoneOffset, string>
 ```
 
-The exact inverse of zoneoffset_to_string: "Z" for UTC, otherwise
+The exact inverse of format: "Z" for UTC, otherwise
 exactly "+HH:MM"/"-HH:MM" (6 characters, no seconds component --
-zoneoffset_to_string never emits one either).
+format never emits one either).
 
 ### `ZoneId`
 
@@ -796,18 +794,18 @@ pub fn zoneid_abbreviation_at(z: ZoneId, i: Instant) -> string
 The abbreviation `z` uses at the instant `i`: `EST`, `EDT`, `CET`, or `+03` where the zone has
 no letters.
 
-### `zoneid_to_string`
+### `format`
 
 ```
-pub fn zoneid_to_string(z: ZoneId) -> string
+pub fn format(z: ZoneId) -> string
 ```
 
 The name of `z`.
 
-### `zoneid_from_string`
+### `parse_zone`
 
 ```
-pub fn zoneid_from_string(s: string) -> Result<ZoneId, string>
+pub fn parse_zone(s: string) -> Result<ZoneId, string>
 ```
 
 The zone called `s`; the same as `zoneid_of`, named for the `_from_string` convention.
@@ -842,26 +840,26 @@ pub fn instant_now() -> Instant
 The current time from the system clock. It is the wall clock and can jump when the system time is
 adjusted, so it is not for timing an interval.
 
-### `instant_add`
+### `add`
 
 ```
-pub fn instant_add(i: Instant, d: Duration) -> Instant
+pub fn add(i: Instant, d: Duration) -> Instant
 ```
 
 `i` moved later by `d` (earlier when `d` is negative).
 
-### `instant_subtract`
+### `subtract`
 
 ```
-pub fn instant_subtract(i: Instant, d: Duration) -> Instant
+pub fn subtract(i: Instant, d: Duration) -> Instant
 ```
 
 `i` moved earlier by `d`.
 
-### `instant_diff`
+### `diff`
 
 ```
-pub fn instant_diff(a: Instant, b: Instant) -> Duration
+pub fn diff(a: Instant, b: Instant) -> Duration
 ```
 
 The time from `b` to `a`: positive when `a` is the later instant.
@@ -934,34 +932,34 @@ go back, `dt` happens twice and the earlier instant is returned. When the clocks
 `dt` never happens (02:30 on the night the hour 02:00 to 03:00 is skipped) and the result is
 `dt` moved forward by the length of the gap (03:30), as `java.time` does.
 
-### `instant_format`
+### `format`
 
 ```
-pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string
+pub fn format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat) -> string
 ```
 
 Formats `i` as wall-clock time under `offset` (via
 instant_to_localdatetime), using `fmt` for the calendar part, then
 always appends the offset's own string form -- the same shape
-instant_to_string below already uses, just with `fmt` and `offset`
+format below already uses, just with `fmt` and `offset`
 as explicit parameters instead of hardcoding
 iso_datetime_format/zoneoffset_utc().
 
 ```
-pub fn instant_format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat, l: Locale) -> string
+pub fn format(i: Instant, offset: ZoneOffset, fmt: DateTimeFormat, l: Locale) -> string
 ```
 
 The same, with the names drawn from `l`. The zone-offset suffix is digits and signs, so it reads
 the same under every locale.
 
-### `instant_parse_pattern`
+### `parse_instant`
 
 ```
-pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat) -> Result<Instant, string>
+pub fn parse_instant(s: string, fmt: DateTimeFormat) -> Result<Instant, string>
 ```
 
 `fmt` covers only the calendar part; the zone-offset suffix is
-always parsed separately (via zoneoffset_from_string) and used to convert
+always parsed separately (via parse_offset) and used to convert
 the parsed wall-clock time into an absolute Instant -- not something
 a caller chooses per call, since the string's own suffix already
 says what it is.
@@ -976,28 +974,26 @@ and works for a variable one, and it is why nothing here needs
 `fmt.width` -- which is -1 for such a pattern anyway.
 
 ```
-pub fn instant_parse_pattern(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Instant, string>
+pub fn parse_instant(s: string, fmt: DateTimeFormat, l: Locale) -> Result<Instant, string>
 ```
 
 The same, reading any name token under `l`.
 
-### `instant_from_string`
-
 ```
-pub fn instant_from_string(s: string) -> Result<Instant, string>
+pub fn parse_instant(s: string) -> Result<Instant, string>
 ```
 
-Accepts either offset shape zoneoffset_from_string does ("Z" or a real
-"+HH:MM"/"-HH:MM"), not just the "Z" instant_to_string always
+Accepts either offset shape parse_offset does ("Z" or a real
+"+HH:MM"/"-HH:MM"), not just the "Z" format always
 produces -- a real external Instant/OffsetDateTime-shaped string
 (from an actual API, not just round-tripping this module's own
 output) may carry a genuine offset, and there's no extra cost to
 accepting it.
 
-### `instant_to_string`
+### `format`
 
 ```
-pub fn instant_to_string(i: Instant) -> string
+pub fn format(i: Instant) -> string
 ```
 
 `i` in UTC as `2026-09-24T13:05:09Z`, with a `.nnnnnnnnn` fraction when the nanoseconds are not
@@ -1222,9 +1218,9 @@ A `ZoneId` from a SQL text column in its ISO form; a DbError for NULL, a non-tex
 pub fn instant_to_sql(v: Instant) -> SqlValue
 ```
 
-`Instant` as a SQL text value in its ISO form, always with the nine-digit fraction (`2026-09-24T13:05:09.000000000Z`), which `instant_to_string` leaves off for a
+`Instant` as a SQL text value in its ISO form, always with the nine-digit fraction (`2026-09-24T13:05:09.000000000Z`), which `format` leaves off for a
 whole second. A column of text is sorted as text, and `Z` sorts after `.`, so with the short form a whole second would sort after a fraction of the same
-second (`...:09Z` after `...:09.5Z`); every value the same width sorts in time order. `instant_from_sql` (and `instant_from_string`) read either form, so a
+second (`...:09Z` after `...:09.5Z`); every value the same width sorts in time order. `instant_from_sql` (and `parse_instant`) read either form, so a
 column that already holds short values still reads back; `ORDER BY` on one that mixes the two is only right once the old values are rewritten.
 
 ### `instant_from_sql`

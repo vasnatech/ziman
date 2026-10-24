@@ -9,13 +9,13 @@ fn main() {
     val dt = time.localdatetime_now(utc)
     val after = time.instant_now()
     val at = time.localdatetime_to_instant(dt, utc)
-    print(time.instant_compare(at, time.instant_add(before, time.duration_of_seconds(-1, 0))) >= 0)
-    print(time.instant_compare(at, time.instant_add(after, time.duration_of_seconds(1, 0))) <= 0)
+    print(time.instant_compare(at, time.add(before, time.duration_of_seconds(-1, 0))) >= 0)
+    print(time.instant_compare(at, time.add(after, time.duration_of_seconds(1, 0))) <= 0)
 
     // a clock five hours ahead is the same instant
     val ahead = time.localdatetime_now(plus5)
     val ahead_at = time.localdatetime_to_instant(ahead, plus5)
-    val gap = time.instant_diff(ahead_at, at)
+    val gap = time.diff(ahead_at, at)
     print(gap.seconds >= -1 && gap.seconds <= 1)
 
     // the date and time helpers are the two halves of the same reading

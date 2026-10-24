@@ -1,14 +1,13 @@
-use time.instant_from_string
-use time.instant_to_string
-use time.localtime_from_string
-use time.localtime_to_string
+use time
+use time.parse_instant
+use time.parse_time
 
 fn main() {
     for s in ["2026-09-24T13:05:09Z", "2026-09-24T13:05:09.Z", "2026-09-24T13:05:09.5Z", "2026-09-24T13:05:09.000Z", "2026-09-24T13:05:09.123456Z", "2026-09-24T13:05:09.123456789Z", "2026-09-24T13:05:09.1234567891Z", "2026-09-24T13:05:09.123+02:00"] {
-        switch instant_from_string(s) {
-            Ok(i) { print(format("{} -> {}", s, instant_to_string(i))) }
+        switch parse_instant(s) {
+            Ok(i) { print(format("{} -> {}", s, time.format(i))) }
             Err(e) { print(format("{} ERR {}", s, e)) }
         }
     }
-    print(localtime_to_string(unwrap(localtime_from_string("13:05:09.25"))))
+    print(time.format(unwrap(parse_time("13:05:09.25"))))
 }

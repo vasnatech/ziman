@@ -423,7 +423,7 @@ fn apply_one(tx: Connection, m: Migration) -> Result<int, DbError> {
         SqlValue.Int(m.version),
         SqlValue.Text(m.name),
         SqlValue.Text(m.checksum),
-        SqlValue.Text(time.instant_to_string(time.instant_now()))
+        SqlValue.Text(time.format(time.instant_now()))
     )
 }
 

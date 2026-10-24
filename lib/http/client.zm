@@ -47,7 +47,7 @@ use net.net_error_message
 use number.int_from_hex
 use os
 use time.localdate_of
-use time.localdate_to_epoch_day
+use time.to_epoch_day
 
 // Case folding here is **protocol folding**, so it names the invariant locale rather than taking
 // whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
@@ -865,7 +865,7 @@ fn parse_http_date(text: string) -> int {
         year = if year < 70 { 2000 + year } else { 1900 + year }
     }
     if Ok(d) = localdate_of(year, month, unwrap(day)) {
-        return localdate_to_epoch_day(d) * 86400 + unwrap(hh) * 3600 + unwrap(mm) * 60 + unwrap(ss)
+        return to_epoch_day(d) * 86400 + unwrap(hh) * 3600 + unwrap(mm) * 60 + unwrap(ss)
     }
     return -1
 }

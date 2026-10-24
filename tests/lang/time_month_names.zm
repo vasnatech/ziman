@@ -9,7 +9,7 @@
 //     9), and `MMM` stopped looking like 3 the moment the names came from the host's locale rather
 //     than from an English array here -- `ja_JP` abbreviates January as `1月` and `ar_SA` as
 //     `يناير`. So `DateTimeFormat.width` is -1 for any pattern holding a name, and
-//     `instant_parse_pattern` finds the end of the calendar part from how far the parse got rather
+//     `parse_instant` finds the end of the calendar part from how far the parse got rather
 //     than by slicing at a precomputed width. (Names are English here only because this fixture
 //     does not name a locale, so it uses the default, which is `locale.root()`.)
 //   * **Parsing month names is longest-first too**, so "June" is not read as "Jun" with a stray
@@ -22,16 +22,16 @@ use time
 fn round_trip(pattern: string, month: int) {
     val fmt = time.datetime_format_of(pattern)
     val date = unwrap(time.localdate_of(2026, month, 15))
-    val text = time.localdate_format(date, fmt)
-    switch time.localdate_parse_pattern(text, fmt) {
+    val text = time.format(date, fmt)
+    switch time.parse_localdate(text, fmt) {
         Ok(back) { printf("{} -> {} (width {}, round trip {})\n", pattern, text, fmt.width, back == date) }
         Err(e) { printf("{} -> {} ERR {}\n", pattern, text, e) }
     }
 }
 
 fn parse_only(pattern: string, text: string) {
-    switch time.localdate_parse_pattern(text, time.datetime_format_of(pattern)) {
-        Ok(d) { printf("  [{}] -> {}\n", text, time.localdate_to_string(d)) }
+    switch time.parse_localdate(text, time.datetime_format_of(pattern)) {
+        Ok(d) { printf("  [{}] -> {}\n", text, time.format(d)) }
         Err(e) { printf("  [{}] -> ERR {}\n", text, e) }
     }
 }
@@ -50,7 +50,7 @@ fn main() {
     for w in widths {
         val f = time.datetime_format_of(w)
         val d = unwrap(time.localdate_of(2026, 10, 23))
-        printf("  {} -> [{}] width={}\n", w, time.localdate_format(d, f), f.width)
+        printf("  {} -> [{}] width={}\n", w, time.format(d, f), f.width)
     }
 
     print("-- parsing: case, longest-first, and refusal --")
@@ -62,12 +62,12 @@ fn main() {
     }
 
     print("-- an instant, where the calendar part has no precomputed width --")
-    val i = unwrap(time.instant_from_string("2026-09-24T12:00:00Z"))
+    val i = unwrap(time.parse_instant("2026-09-24T12:00:00Z"))
     val off = unwrap(time.zoneoffset_of_hours_minutes(2, 0))
     for pat in ["yyyy-MM-dd HH:mm:ss", "dd MMM yyyy HH:mm:ss", "dd MMMM yyyy HH:mm:ss"] {
         val fmt = time.datetime_format_of(pat)
-        val text = time.instant_format(i, off, fmt)
-        switch time.instant_parse_pattern(text, fmt) {
+        val text = time.format(i, off, fmt)
+        switch time.parse_instant(text, fmt) {
             Ok(back) { printf("  {} -> [{}] round trip {}\n", pat, text, back == i) }
             Err(e) { printf("  {} -> [{}] ERR {}\n", pat, text, e) }
         }
