@@ -27,6 +27,11 @@ int ziman_locale_default_is_root(void);
  * `towupper_l`/`towlower_l` for its mapping, and encoding the answer. `upper` picks the direction. */
 Value ziman_locale_case_map(Value s, const Value *loc, int upper, int line, int col);
 
+/* `a` and `b` in the locale's collation order: -1, 0 or 1. Used by `compare`'s three-argument form,
+ * which `src/interpreter.c` dispatches. Separate from `value_compare` on purpose -- a `Map`'s key
+ * order must not depend on a locale, so this cannot replace it. */
+int ziman_locale_collate(Value a, Value b, const Value *loc, int line, int col);
+
 /* `a` and `b` equal with case folded under the locale. Compares code point by code point rather
  * than building two folded strings. */
 int ziman_locale_equals_fold(Value a, Value b, const Value *loc, int line, int col);

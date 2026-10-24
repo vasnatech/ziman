@@ -494,6 +494,10 @@ pub fn month_name(l: Locale, month: int, full: bool) -> string
 
 pub fn day_name(l: Locale, day: int, full: bool) -> string
 
+pub fn decimal_separator(l: Locale) -> string
+
+pub fn thousands_separator(l: Locale) -> string
+
 ```
 
 ## `log`
@@ -1013,6 +1017,8 @@ pub struct NumberFormat {
     decimal_separator: string
     decimal_places: Option<int>
 }
+
+pub fn number_format_for(l: Locale) -> NumberFormat
 
 pub fn number_format_plain() -> NumberFormat
 

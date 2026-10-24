@@ -1,12 +1,5 @@
 # `number`
 
-Numbers as text and as bytes: formatting and parsing with separators, hex,
-shortest-text floats, and the fixed-width big-endian integers binary protocols use.
-
-Five parts below: limits, float text, hex, formatting and parsing with separators, and bytes.
-The hex, byte and float-text functions are native; the formatting engine and `bigint` hex are
-Ziman.
-
 `use number` -- or `use number.Name` to bring one item in bare.
 
 ## Example
@@ -210,6 +203,21 @@ pub struct NumberFormat {
 
 How a number is written: the character between groups of three integer digits ("" for none),
 the character before the decimals, and how many decimals to force (`None` keeps the value's own).
+
+### `number_format_for`
+
+```
+pub fn number_format_for(l: Locale) -> NumberFormat
+```
+
+The separators `l` writes numbers with, and the value's own decimals: `1.234,56` under `tr_TR`
+and `de_DE`, `1,234.56` under `en_US`, a space for grouping under `sv_SE`, and no grouping at all
+under `ar_SA` -- all read from the host's locale data, so they are as good as the operating
+system's.
+
+**`str(x)` is deliberately not locale-aware** and never will be: it is what a wire format, a SQL
+value and a PDF object number are written with, and `1234,56` in any of those is a bug. A locale
+reaches numbers here, where a caller has asked for a rendering a person will read.
 
 ### `number_format_plain`
 

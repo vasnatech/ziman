@@ -3908,8 +3908,34 @@ static Type check_call(Module *module, Env *env, Expr *e) {
     }
 
     if (strcmp(name, "compare") == 0) {
+        /* Two arguments is the generic order; three is `compare(a: string, b: string, l: Locale)`,
+         * the locale's collation order, which is a *different* order and not a refinement of this
+         * one -- see the declarations in lib/prelude/prelude.zm. Checked here rather than left to
+         * overload resolution because `compare` is a builtin: its arm runs before a set would be
+         * consulted, so a `native fn` declaration beside it is never reached. */
+        if (e->as.call.args.count == 3) {
+            Expr *a = e->as.call.args.items[0];
+            Expr *b = e->as.call.args.items[1];
+            Expr *l = e->as.call.args.items[2];
+            Type at = check_expr(module, env, a);
+            Type bt = check_expr(module, env, b);
+            Type lt = check_expr(module, env, l);
+            if (at.kind != TY_STRING || bt.kind != TY_STRING) {
+                ziman_error("type", a->line, a->col,
+                            "'compare' with a Locale orders two strings, found %s and %s",
+                            type_name(at), type_name(bt));
+            }
+            if (lt.kind != TY_STRUCT || lt.struct_name == NULL || strcmp(lt.struct_name, "Locale") != 0) {
+                ziman_error("type", l->line, l->col,
+                            "'compare's third argument is a Locale (from 'locale.of' or 'locale.root'), found %s",
+                            type_name(lt));
+            }
+            return type_scalar(TY_INT);
+        }
         if (e->as.call.args.count != 2) {
-            ziman_error("type", e->line, e->col, "'compare' takes exactly 2 arguments, found %d", e->as.call.args.count);
+            ziman_error("type", e->line, e->col,
+                        "'compare' takes 2 arguments, or 3 with a Locale to order two strings in its collation, found %d",
+                        e->as.call.args.count);
         }
         Expr *first = e->as.call.args.items[0];
         Expr *second = e->as.call.args.items[1];

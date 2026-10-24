@@ -47,6 +47,12 @@ native fn month_name_raw(handle: int, index: int, full: bool) -> string
 
 native fn day_name_raw(handle: int, index: int, full: bool) -> string
 
+native fn collate_raw(a: string, b: string, l: Locale) -> int
+
+native fn radix_raw(handle: int) -> string
+
+native fn thousep_raw(handle: int) -> string
+
 // `Locale` itself is declared in lib/prelude/prelude.zm, not here, and that part's comment says why:
 // `to_upper(s, locale)` is an overload of a prelude function, so the prelude has to be able to name
 // the type, and the prelude cannot reference a core module. What lives here is everything that
@@ -188,4 +194,19 @@ pub fn month_name(l: Locale, month: int, full: bool) -> string {
 // numbers them that way (`DAY_1` is Sunday) and so does this, rather than rotating twice.
 pub fn day_name(l: Locale, day: int, full: bool) -> string {
     return day_name_raw(l.handle, day, full)
+}
+
+// The locale's decimal point: `.` under `en_US`, `,` under `tr_TR` and `de_DE`.
+//
+// `number.number_format_for(l)` is the usual way to reach this; it is public because a caller
+// writing their own formatter needs the same two characters.
+pub fn decimal_separator(l: Locale) -> string {
+    return radix_raw(l.handle)
+}
+
+// The locale's digit-grouping separator: `,` under `en_US`, `.` under `tr_TR`, a space under
+// `sv_SE`, and **empty under `ar_SA`**, which groups with nothing. Empty is a real answer here and
+// not a failure.
+pub fn thousands_separator(l: Locale) -> string {
+    return thousep_raw(l.handle)
 }

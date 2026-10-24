@@ -138,3 +138,24 @@ pub fn day_name(l: Locale, day: int, full: bool) -> string
 
 The locale's name for a day of the week, `day` being 0 for Sunday through 6 for Saturday -- POSIX
 numbers them that way (`DAY_1` is Sunday) and so does this, rather than rotating twice.
+
+### `decimal_separator`
+
+```
+pub fn decimal_separator(l: Locale) -> string
+```
+
+The locale's decimal point: `.` under `en_US`, `,` under `tr_TR` and `de_DE`.
+
+`number.number_format_for(l)` is the usual way to reach this; it is public because a caller
+writing their own formatter needs the same two characters.
+
+### `thousands_separator`
+
+```
+pub fn thousands_separator(l: Locale) -> string
+```
+
+The locale's digit-grouping separator: `,` under `en_US`, `.` under `tr_TR`, a space under
+`sv_SE`, and **empty under `ar_SA`**, which groups with nothing. Empty is a real answer here and
+not a failure.

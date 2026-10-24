@@ -29,6 +29,7 @@
 #include "gc_thread_heap.h"
 #include "mapobj.h"
 #include "native.h"
+#include "native_locale.h"
 #include "value_copy.h"
 #include "value.h"
 #include "xalloc.h"
@@ -1426,7 +1427,10 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             } else if (bid == B_hash) {
                 result = call_hash(args[0]);
             } else if (bid == B_compare) {
-                result = value_int(value_compare(module, args[0], args[1], e->line, e->col));
+                /* Three arguments is the locale's collation order; two is the type's own. */
+                result = argc >= 3
+                             ? value_int(ziman_locale_collate(args[0], args[1], &args[2], e->line, e->col))
+                             : value_int(value_compare(module, args[0], args[1], e->line, e->col));
             } else if (bid == B_error_message) {
                 result = value_error_message(module, args[0], e->line, e->col);
             } else if (bid == B_channel_new) {

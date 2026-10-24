@@ -362,7 +362,50 @@ static Value native_locale_day_name_raw(Value *args, int argc, int line, int col
     return langinfo_string(h->loc, base + (int)i);
 }
 
+/* ---- collation and number separators ---------------------------------------------------------
+ *
+ * `strcoll_l`, which is real collation and not code points: measured on 2026-10-23, `de_DE` orders
+ * `ärger` beside `apple` and `sv_SE` puts it after `Zulu`. That difference is the whole reason a
+ * locale-aware order cannot replace the one `compare<T: Ord>` gives -- a `Map`'s key order must not
+ * depend on anyone's language -- so this is a separate comparator, reached as `compare(a, b, l)`
+ * and usable with `sort_with`.
+ *
+ * `strcoll_l` wants NUL-terminated strings, which `value_cstr` gives without copying when the view
+ * already is one. A Ziman string cannot hold a 0 byte (`append_byte` refuses one), so nothing is
+ * truncated by passing it as a C string. */
+int ziman_locale_collate(Value a, Value b, const Value *loc, int line, int col) {
+    locale_t L = locale_for(loc, line, col);
+    int c = strcoll_l(value_cstr(a), value_cstr(b), L);
+    /* Only the sign is meaningful, which is `compare`'s own contract, but normalising keeps a
+     * caller from depending on a magnitude libc never promised. */
+    return c < 0 ? -1 : (c > 0 ? 1 : 0);
+}
+
+static Value native_locale_collate_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return value_int(ziman_locale_collate(args[0], args[1], &args[2], line, col));
+}
+
+/* The decimal point and the digit-grouping separator. `nl_langinfo_l(RADIXCHAR|THOUSEP)` rather
+ * than `localeconv`, which has no `_l` form and reads thread state: these two take an explicit
+ * locale and so are thread-safe, which is the property this whole file is built on.
+ *
+ * A locale may group with nothing at all -- `ar_SA` answers an empty THOUSEP -- which is a real
+ * answer and not a failure. */
+static Value native_locale_radix_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return langinfo_string(handle_of(args[0], line, col)->loc, RADIXCHAR);
+}
+
+static Value native_locale_thousep_raw(Value *args, int argc, int line, int col) {
+    (void)argc;
+    return langinfo_string(handle_of(args[0], line, col)->loc, THOUSEP);
+}
+
 void native_locale_register(void) {
+    native_register("locale::collate_raw", native_locale_collate_raw);
+    native_register("locale::radix_raw", native_locale_radix_raw);
+    native_register("locale::thousep_raw", native_locale_thousep_raw);
     native_register("locale::month_name_raw", native_locale_month_name_raw);
     native_register("locale::day_name_raw", native_locale_day_name_raw);
     native_register("locale::open_raw", native_locale_open_raw);

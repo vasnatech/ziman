@@ -2735,15 +2735,31 @@ from source.
   locale-independent question and would have to grow a locale-dependent one beside it. Measured on
   2026-10-23 rather than assumed:
 
+  > **(Closed 2026-10-23.)** `to_upper(s, l)` / `to_lower(s, l)`, with the one-argument form using
+  > `locale.default()`. `towupper_l` gives *simple* case mapping, so `ß` still does not become `SS`
+  > -- one code point in, one out is the POSIX interface's shape. The Turkish dotted/dotless `i`,
+  > which is the mapping that actually bites, is correct.
+
   **1. Case mapping is ASCII-only, and silently so.** `to_upper("héllo straße İ")` is
   `HéLLO STRAßE İ` -- the `é` unchanged, the `ß` unchanged where German wants `SS`, the dotted
   capital `İ` unchanged where Turkish wants a dotless lowercase. `SYNTAX.md` says "ASCII only" and
   the implementation agrees; what is missing is any way to ask for more.
 
+  > **(Closed 2026-10-23.)** `equals_ignore_case(a, b, l)`. The trap this item named is gone:
+  > `equals_ignore_case("héllo", "HÉLLO", en)` is true. The ASCII form is unchanged and is what
+  > protocol code wants -- 58 sites in `lib/` now pass `locale.root()` to say so.
+
   **2. `equals_ignore_case` is ASCII-only too, which is the sharpest trap of the four.**
   `equals_ignore_case("hello", "HELLO")` is true and `equals_ignore_case("héllo", "HÉLLO")` is
   **false**. A caller testing user input against a constant gets the right answer for English and
   the wrong one for everything else, with no error and no hint.
+
+  > **(Closed 2026-10-23, and this item's own prediction held exactly.)** `compare(a, b, l)` over
+  > `strcoll_l`, a *separate* comparator reached with `sort_with` -- it could not replace
+  > `compare<T: Ord>`, for the reason given below. German sorts `ärger` beside `apple` and Swedish
+  > after `Zulu`, measured. `compare` is a builtin, so its arm in `src/typecheck.c` runs before an
+  > overload set would be consulted; the three-argument form is checked there and dispatched in
+  > `src/interpreter.c`.
 
   **3. String order is code points, which is nobody's collation.**
   `sort(["zebra", "ärger", "apple", "Zulu"])` is `[Zulu, apple, zebra, ärger]`: capitals before
@@ -2753,6 +2769,14 @@ from source.
   piece: `compare<T: Ord>` is a single total order used by `sort`, `Map` and `Set`, and a
   locale-aware order cannot replace it (a `Map`'s key order must not depend on a locale) -- it has
   to be a *separate* comparator passed to `sort_with`.
+
+  > **(Partly closed 2026-10-23.)** `number.number_format_for(l)` reads the host's decimal point
+  > and grouping separator, so `1234567.89` renders `1.234.567,89` under `tr_TR` and
+  > `1 234 567,89` under `sv_SE` (and ungrouped under `ar_SA`, which groups with nothing).
+  > **`str(x)` is deliberately not locale-aware and will not become so** -- it is what a wire
+  > format, a SQL value and a PDF object number are written with. What is still open is the parsing
+  > half: `parse_float` accepts neither `1234,56` nor `1,234.56`, which is right for a wire format
+  > and wrong for a form field, and a locale-aware `parse` has no home yet.
 
   **4. Numbers are the C locale.** `str(1234567.89)` is `1234567.89`: no grouping separator, and no
   way to ask for one. `parse_float` rejects both `1234,56` and `1,234.56`, which is correct for a

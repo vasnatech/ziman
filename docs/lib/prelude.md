@@ -314,6 +314,21 @@ pub builtin fn compare<T: Ord>(a: T, b: T) -> int
 
 Negative, zero or positive; only the sign is meaningful.
 
+```
+pub builtin fn compare(a: string, b: string, with_locale: Locale) -> int
+```
+
+Two strings in `with_locale`'s own collation order, which is **not** the order above.
+
+Code-point order is nobody's collation: `sort(["zebra", "ärger", "apple", "Zulu"])` answers
+`[Zulu, apple, zebra, ärger]`, capitals first because ASCII puts them there and `ärger` after
+`zebra` because U+00E4 exceeds U+007A. German orders `ärger` beside `apple`, Swedish after
+`Zulu`. So the current answer is not a default that suits one language, it is one that suits
+none -- and a locale-aware order **cannot replace** `compare` above, because a `Map`'s and a
+`Set`'s key order must not depend on what locale a program happens to have set. This is a
+separate comparator for that reason, and `sort_with(names, fn(a, b) { compare(a, b, l) })` is
+how a list of names gets sorted for a reader.
+
 ## `array.zm`
 
 ### `bytes_to_string`

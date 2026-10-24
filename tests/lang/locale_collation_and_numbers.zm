@@ -1,0 +1,51 @@
+// Collation and number separators from the host's locale: the last two rows of the Locale table.
+//
+// **A locale-aware order cannot replace `compare`.** `compare<T: Ord>` is one total order that
+// `sort`, `Map` and `Set` all use, and a map's key order must not depend on what locale a program
+// happens to have set. So `compare(a, b, l)` is a *separate* comparator -- same name because it
+// answers the same shape of question, three arguments because it is a different order -- and
+// `sort_with` is how a list of names gets sorted for a reader.
+//
+// Code-point order is nobody's collation: it puts capitals first because ASCII does, and `ärger`
+// after `zebra` because U+00E4 exceeds U+007A. German and Turkish sort `ä` with `a`; **Swedish
+// sorts it after `z`**, which is the difference that makes "pick a sensible default" impossible.
+//
+// **`str(x)` is deliberately never locale-aware.** It is what a wire format, a SQL value and a PDF
+// object number are written with, and `1234,56` in any of those is a bug. A locale reaches numbers
+// through `number.number_format_for(l)`, where a caller has asked for a rendering a person reads.
+use locale
+use number
+
+fn main() {
+    val words = ["zebra", "ärger", "apple", "Zulu", "Öl", "oak"]
+
+    print("-- code-point order, which suits no language --")
+    printf("  {}\n", sort(words))
+
+    print("-- the same words in real collations --")
+    for tag in ["en", "de", "sv", "tr"] {
+        val l = locale.of(tag)
+        printf("  {} {}\n", tag, sort_with(words, fn(a: string, b: string) -> int { return compare(a, b, l) }))
+    }
+
+    print("-- the sign directly, and that the generic order still differs --")
+    val sv = locale.of("sv")
+    val de = locale.of("de")
+    printf("  sv compare(ärger, zebra) = {}  (after z)\n", compare("ärger", "zebra", sv))
+    printf("  de compare(ärger, zebra) = {}  (with a)\n", compare("ärger", "zebra", de))
+    printf("  generic compare(ärger, zebra) = {}  (code points)\n", compare("ärger", "zebra"))
+    printf("  equal strings compare 0: {}\n", compare("apple", "apple", sv))
+
+    print("-- numbers, from the locale's own separators --")
+    for tag in ["en", "tr", "de", "sv", "ar", "C"] {
+        val l = locale.of(tag)
+        printf("  {} -> {}\n", tag, number.format_number("1234567.89", number.number_format_for(l)))
+    }
+    printf("  ar groups with nothing, which is a real answer: [{}]\n", locale.thousands_separator(locale.of("ar")))
+
+    print("-- str is not locale-aware, under any default --")
+    locale.set_default(locale.of("tr"))
+    printf("  default=tr: str(1234.56) = {}  str(7) = {}\n", str(1234.56), str(7))
+    printf("  and parse_float round-trips: {}\n", unwrap(parse_float(str(1234.56))) == 1234.56)
+    locale.set_default(locale.root())
+}

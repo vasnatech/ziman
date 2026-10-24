@@ -1,3 +1,4 @@
+use locale
 // number.zm -- numbers as text and as bytes: formatting and parsing with separators, hex,
 // shortest-text floats, and the fixed-width big-endian integers binary protocols use.
 //
@@ -183,6 +184,22 @@ pub struct NumberFormat {
     thousands_separator: string
     decimal_separator: string
     decimal_places: Option<int>
+}
+
+// The separators `l` writes numbers with, and the value's own decimals: `1.234,56` under `tr_TR`
+// and `de_DE`, `1,234.56` under `en_US`, a space for grouping under `sv_SE`, and no grouping at all
+// under `ar_SA` -- all read from the host's locale data, so they are as good as the operating
+// system's.
+//
+// **`str(x)` is deliberately not locale-aware** and never will be: it is what a wire format, a SQL
+// value and a PDF object number are written with, and `1234,56` in any of those is a bug. A locale
+// reaches numbers here, where a caller has asked for a rendering a person will read.
+pub fn number_format_for(l: Locale) -> NumberFormat {
+    return NumberFormat {
+        thousands_separator: locale.thousands_separator(l),
+        decimal_separator: locale.decimal_separator(l),
+        decimal_places: Option<int>.None
+    }
 }
 
 // No grouping, "." as the decimal separator, the value's own decimals: formats a number as `str` would.
