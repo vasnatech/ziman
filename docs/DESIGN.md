@@ -189,6 +189,7 @@ them against the code.
 - [The time module's converters drop their prefixes, and derive learns the exception (2026-10-24)](#the-time-modules-converters-drop-their-prefixes-and-derive-learns-the-exception-2026-10-24)
 - [`bits` stops naming the type, and a BitSet becomes a set (2026-10-24)](#bits-stops-naming-the-type-and-a-bitset-becomes-a-set-2026-10-24)
 - [`csv` stops stuttering, and `_with` becomes an argument (2026-10-24)](#csv-stops-stuttering-and-_with-becomes-an-argument-2026-10-24)
+- [Five character classes, and why they are ASCII (2026-10-24)](#five-character-classes-and-why-they-are-ascii-2026-10-24)
 
 <!-- end index -->
 
@@ -8089,3 +8090,21 @@ Verified: `make check` green, 1,177 fixtures on both builds, and the `bits_byte`
 **One thing stayed two declarations on purpose.** `format([[string]])` returns a plain `string` while `format([[string]], delimiter)` returns a `Result`, because the only thing that can fail in writing raw strings is an invalid delimiter -- and with no delimiter to validate there is nothing to report. Two declarations can differ in return type where one `Option` parameter could not, so the arity split is what keeps the no-delimiter call free of a `Result` nobody would ever check.
 
 A bug worth recording, because of *why* it survived the first build. Converting the writer to an `Option<string>` left its body passing `delimiter` -- now an `Option<string>` -- to three functions that take a `string`, and `ziman --check` on a fixture reported nothing: the fixture failed at module resolution, on a name the rename had removed, and resolution runs **before** any body is type-checked. A clean compile of a file that names a function that no longer exists proves nothing about that function's own module. Rebuilding the interpreter and running a program that actually called it was what found it.
+
+## Five character classes, and why they are ASCII (2026-10-24)
+
+`is_alpha`, `is_numeric`, `is_alpha_numeric`, `is_digit` and `is_char`, each over a `string` and a `MutableString`. They were asked for as additions; what made them worth having was already in the tree.
+
+**Six private helpers were the same function.** `csv.zm`, `toml.zm` and `yaml.zm` each held a verbatim `byte_len(c) == 1 && index_of("0123456789", c, 0) >= 0`; `regex.zm` had `c >= "0" && c <= "9"`; `mysql.zm` had `contains("0123456789", c)`; `zone.zm` had an indexed form. Three of the six were **subtly wrong and got away with it**: `regex`'s string comparison and `mysql`'s `contains` both answer *true* for `"12"`, and `mysql`'s answers true for `""` as well, correct only because no caller ever handed them two characters or none. Promoting the question to the prelude replaced all six and tightened three.
+
+**ASCII is the decision, and the duplicated helpers are the argument for it.** Every one of the six meant ASCII: they read CSV cells, TOML bare keys, YAML scalars, regex quantifier counts, MySQL version strings and zone offsets, where `٤٢` is not a number but a syntax error. A Unicode `is_digit` would have silently changed what all six asked. The Unicode questions already have a better answer in this codebase -- `regex`'s `\p{L}` and `\p{Nd}`, backed by the real general-category tables in `src/regex_unicode.h` -- so a character-property question with a table behind it goes there, and the parsing question stays here. The alternative was considered concretely: `UNI_L`/`UNI_N`/`UNI_Nd` were already present and would have made a Unicode implementation about as cheap to write.
+
+Being ASCII buys something beyond agreeing with the callers. **No UTF-8 decoding happens at all**: a byte of 0x80 or more is outside every class, so one byte scan answers each predicate whatever the encoding, which makes these the only members of the string family whose cost does not depend on the `ZSTR_ASCII` bit.
+
+**`is_char` is about length, not class** -- whether the text is exactly one character -- which is what makes it the guard the others pair with. A lead byte states its own sequence length, so it needs no decode and no validation, and text that is not valid UTF-8 is simply not one character. That matches `is_char_at`, the other member that answers false rather than raising on bad bytes.
+
+**Empty is false for all five**, which is a decision and not an oversight. "Every character is a digit" is vacuously true of no characters, and that is the mathematically tidy answer; it is also the one that would make `is_digit(c)` useless as the guard that is its entire purpose. `is_empty` is the question about emptiness.
+
+Both worlds carry a prefixed C registration -- `string_is_alpha` and `mutable_string_is_alpha`, never a bare `is_alpha` -- because `native_lookup(fn->name)` is consulted before the world-prefix fallback, so a bare name would be found first and run the `string` implementation on a builder's handle. `char_at` and `last_index_of` both fell into that, a day apart, and it is the third time the same trap has been worth writing down.
+
+Verified: `make check` green, 1,178 fixtures on both builds. `tests/lang/string_character_classes.zm` covers both worlds, the empty case for each, `٤٢` and `héllo` as the ASCII boundary, and a lone 0xFF built with `append_byte` -- the only route by which invalid UTF-8 can still reach a string.

@@ -1,0 +1,36 @@
+is_alpha abc: true
+is_alpha Ab: true
+is_alpha ab1: false
+is_alpha a b: false
+is_alpha héllo: false
+is_alpha empty: false
+is_numeric 42: true
+is_numeric 007: true
+is_numeric -7: false
+is_numeric 1.5: false
+is_numeric 2e3: false
+is_numeric ٤٢: false
+is_numeric empty: false
+is_alpha_numeric a1: true
+is_alpha_numeric Z9: true
+is_alpha_numeric a_1: false
+is_alpha_numeric empty: false
+is_digit 4: true
+is_digit 42: false
+is_digit a: false
+is_digit empty: false
+is_char a: true
+is_char é: true
+is_char 日: true
+is_char ab: false
+is_char empty: false
+digits of ab12: 12
+builder is_numeric: true
+builder is_alpha: false
+builder is_alpha_numeric: true
+builder is_char: false
+builder is_digit: false
+one-char builder is_char: true
+one-char builder is_alpha: false
+lone 0xFF is_char: false
+lone 0xFF is_alpha: false

@@ -3057,7 +3057,21 @@ reaches the builtin past it, and is the only way to.
   rather than bytes, so text outside ASCII comes back as text. **It was `reverse_string` until
   2026-10-23**, the last `_string` suffix in the prelude; `reverse` is one set of three now, this
   member plus an array and a builder in array.zm. `is_empty(s) -> bool` (`s == ""`);
-  `is_blank(s) -> bool` (empty or only whitespace). `to_upper`/`to_lower(s) -> string` — ASCII only.
+  `is_blank(s) -> bool` (empty or only whitespace). `to_upper`/`to_lower(s) -> string` — ASCII
+  folding under the invariant locale; `to_upper(s, l: Locale)` is the locale-aware form (see
+  "Locale"), and `equals_ignore_case` and `compare` take one the same way.
+- **The character classes**: `is_alpha(s)` / `is_numeric(s)` / `is_alpha_numeric(s) -> bool` —
+  whether **every** character of `s` is an ASCII letter, an ASCII digit `0`-`9`, or either. False
+  for `""`, deliberately: "every character is a digit" is vacuously true of none, and answering
+  that way would make the guard useless. `is_digit(s)` is the single-character form (one
+  character, and that character a digit) and `is_char(s)` asks only whether `s` is exactly one
+  character — `len(s) == 1`, answered without counting the rest, and false for text that is not
+  valid UTF-8. Each takes a `string` or a `MutableString` (read in place, no `snapshot`).
+  **ASCII by decision**: six private helpers across `lib/` each re-implemented the digit test and
+  all six meant ASCII, reading CSV cells, TOML keys and zone offsets where a non-ASCII digit is a
+  syntax error rather than a digit; the Unicode questions are `regex`'s `\p{L}` and `\p{Nd}`,
+  which have real general-category tables behind them. They ask nothing about sign, point or
+  exponent — `is_numeric("-7")` is false, that being `parse_int`'s question.
 - `parse_int`/`parse_float`/`parse_bigint`/`parse_decimal(s) -> Result<_, string>` — parses all
   of `s`; `Err` on leading/trailing junk (blanks, a leading `+`) or a non-parse. A number is an
   optional `-` and digits (a float also a point/exponent; `parse_float` reads `nan`/`inf`/`-inf`,

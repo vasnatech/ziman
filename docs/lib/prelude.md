@@ -3180,6 +3180,97 @@ pub native fn is_blank(s: string) -> bool
 
 Whether `s` is empty or only blanks (whatever `trim` removes): `trim(s) == ""`, without making the trimmed string.
 
+### `is_alpha`
+
+```
+pub native fn is_alpha(s: string) -> bool
+```
+
+**Whether every character of `s` is an ASCII letter**, and `s` has at least one.
+
+The five predicates here -- `is_alpha`, `is_numeric`, `is_alpha_numeric`, `is_digit` and
+`is_char` -- are **ASCII by decision, not by omission**. Six private helpers across `lib/` each
+spelled `byte_len(c) == 1 && index_of("0123456789", c, 0) >= 0` (in `csv`, `toml`, `yaml`,
+`regex`, `mysql` and `zone`), and every one of them meant ASCII: they read CSV cells, TOML keys
+and zone offsets, where a non-ASCII digit is a syntax error rather than a digit. A Unicode
+`is_digit` would have changed what all six asked. The Unicode question has a better answer
+already -- `regex`'s `\p{L}` and `\p{Nd}`, which read real general-category tables.
+
+Being ASCII is also why these cost one byte scan whatever the text: a byte of 0x80 or more is
+outside every class, so nothing has to be decoded. They are the only members of this family
+whose cost does not depend on the text being ASCII.
+
+```
+pub native fn is_alpha(s: MutableString) -> bool
+```
+
+The same of a builder, read in place without `snapshot`.
+
+### `is_numeric`
+
+```
+pub native fn is_numeric(s: string) -> bool
+```
+
+Whether every character of `s` is an ASCII digit `0`-`9`, and `s` has at least one. It asks
+nothing about sign, decimal point or exponent -- `is_numeric("-7")` and `is_numeric("1.5")` are
+both false, those being `parse_int`'s and `parse_float`'s question.
+
+```
+pub native fn is_numeric(s: MutableString) -> bool
+```
+
+The same of a builder.
+
+### `is_alpha_numeric`
+
+```
+pub native fn is_alpha_numeric(s: string) -> bool
+```
+
+Whether every character of `s` is an ASCII letter or digit, and `s` has at least one.
+
+```
+pub native fn is_alpha_numeric(s: MutableString) -> bool
+```
+
+The same of a builder.
+
+### `is_digit`
+
+```
+pub native fn is_digit(s: string) -> bool
+```
+
+**Whether `s` is a single ASCII digit** -- one character, and that character `0`-`9`. The
+scanner's guard: `is_digit(char_at(s, p))` is what the six duplicated helpers were each a
+hand-rolled copy of.
+
+```
+pub native fn is_digit(s: MutableString) -> bool
+```
+
+The same of a builder.
+
+### `is_char`
+
+```
+pub native fn is_char(s: string) -> bool
+```
+
+**Whether `s` is exactly one character** -- `len(s) == 1`, answered without counting the rest.
+
+It says nothing about which character, which is what makes it the guard the class predicates
+pair with. A lead byte states its own sequence length, so this needs no decoding and no
+validation: text that is not valid UTF-8 is not one character, which is the answer rather than
+an error -- the same choice `is_char_at` makes.
+
+```
+pub native fn is_char(s: MutableString) -> bool
+```
+
+The same of a builder.
+
 ### `char_at`
 
 ```

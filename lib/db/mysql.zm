@@ -846,10 +846,6 @@ fn to_result(rs: ResultSet, binary: bool) -> Result<QueryResult, DbError> {
 
 // ------------------------------------------------------------ parameters
 
-fn is_digit_char(c: string) -> bool {
-    return contains("0123456789", c)
-}
-
 // Ziman's `$N` -> MySQL's `?`, with the values reordered/repeated to match.
 fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, DbError> {
     val out = mutable_string_new()
@@ -892,9 +888,9 @@ fn rewrite_placeholders(sql: string, params: [SqlValue]) -> Result<Rewritten, Db
             val end = if close < 0 { n } else { close + 2 }
             append(out, substring(sql, i, end))
             i = end
-        } else if is_char_at(sql, i, "$") && i + 1 < n && is_digit_char(char_at(sql, i + 1)) {
+        } else if is_char_at(sql, i, "$") && i + 1 < n && is_digit(char_at(sql, i + 1)) {
             var j = i + 1
-            while j < n && is_digit_char(char_at(sql, j)) {
+            while j < n && is_digit(char_at(sql, j)) {
                 j = j + 1
             }
             val index = unwrap(parse_int(substring(sql, i + 1, j)))

@@ -166,7 +166,7 @@ fn named_text(m: Match, name: string) -> string {
 }
 
 fn is_name_char(c: string) -> bool {
-    return is_digit_char(c) || (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c == "_"
+    return is_digit(c) || (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c == "_"
 }
 
 // `replacement` with `$0` (whole match), `$1`..`$9`, `${12}` (any group number)
@@ -205,7 +205,7 @@ fn expand(replacement: string, m: Match) -> string {
                 }
             } else {
                 var j = i
-                while j < len(replacement) && is_digit_char(char_at(replacement, j)) {
+                while j < len(replacement) && is_digit(char_at(replacement, j)) {
                     j = j + 1
                 }
                 if j == i {
@@ -227,10 +227,6 @@ fn expand(replacement: string, m: Match) -> string {
         }
     }
     return snapshot(out)
-}
-
-fn is_digit_char(c: string) -> bool {
-    return c >= "0" && c <= "9"
 }
 
 fn replace_matches(re: Regex, text: string, replacement: string, first_only: bool) -> string {

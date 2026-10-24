@@ -1,0 +1,84 @@
+// `is_alpha`, `is_numeric`, `is_alpha_numeric`, `is_digit` and `is_char`, over both a `string` and
+// a `MutableString`.
+//
+// **They are ASCII by decision.** Six private helpers across `lib/` each re-implemented the digit
+// test, and every one of them meant ASCII -- they read CSV cells, TOML keys and zone offsets,
+// where a non-ASCII digit is a syntax error rather than a digit. The Unicode questions are
+// `regex`'s `\p{L}` and `\p{Nd}`, which have real general-category tables behind them. Three of
+// those six were also subtly loose: `regex`'s was `c >= "0" && c <= "9"` and `mysql`'s was
+// `contains("0123456789", c)`, and both answered *true* for `"12"` -- correct only because
+// nothing ever handed them two characters.
+
+fn show(label: string, v: bool) {
+    print(concat(label, ": ", str(v)))
+}
+
+fn main() {
+    show("is_alpha abc", is_alpha("abc"))
+    show("is_alpha Ab", is_alpha("Ab"))
+    show("is_alpha ab1", is_alpha("ab1"))
+    show("is_alpha a b", is_alpha("a b"))
+    // ASCII: an accented letter is not in the class, by design
+    show("is_alpha héllo", is_alpha("héllo"))
+    show("is_alpha empty", is_alpha(""))
+
+    show("is_numeric 42", is_numeric("42"))
+    show("is_numeric 007", is_numeric("007"))
+    // no sign, point or exponent -- that is parse_int / parse_float's question
+    show("is_numeric -7", is_numeric("-7"))
+    show("is_numeric 1.5", is_numeric("1.5"))
+    show("is_numeric 2e3", is_numeric("2e3"))
+    // Arabic-Indic digits are digits in Unicode, not in this class
+    show("is_numeric ٤٢", is_numeric("٤٢"))
+    show("is_numeric empty", is_numeric(""))
+
+    show("is_alpha_numeric a1", is_alpha_numeric("a1"))
+    show("is_alpha_numeric Z9", is_alpha_numeric("Z9"))
+    show("is_alpha_numeric a_1", is_alpha_numeric("a_1"))
+    show("is_alpha_numeric empty", is_alpha_numeric(""))
+
+    // one character, and that character a digit -- the guard the six helpers were copies of
+    show("is_digit 4", is_digit("4"))
+    show("is_digit 42", is_digit("42"))
+    show("is_digit a", is_digit("a"))
+    show("is_digit empty", is_digit(""))
+
+    // one character, whichever it is
+    show("is_char a", is_char("a"))
+    show("is_char é", is_char("é"))
+    show("is_char 日", is_char("日"))
+    show("is_char ab", is_char("ab"))
+    show("is_char empty", is_char(""))
+
+    // the scanner idiom these exist for
+    val text = "ab12"
+    val digits = mutable_array_new<string>()
+    var i = 0
+    while i < len(text) {
+        if is_digit(char_at(text, i)) {
+            push(digits, char_at(text, i))
+        }
+        i = i + 1
+    }
+    print(concat("digits of ", text, ": ", join(pieces: snapshot(digits))))
+
+    // the builder members read the buffer in place, no snapshot
+    val sb = mutable_string_new()
+    append(sb, "42")
+    show("builder is_numeric", is_numeric(sb))
+    show("builder is_alpha", is_alpha(sb))
+    show("builder is_alpha_numeric", is_alpha_numeric(sb))
+    show("builder is_char", is_char(sb))
+    show("builder is_digit", is_digit(sb))
+
+    val one = mutable_string_new()
+    append(one, "é")
+    show("one-char builder is_char", is_char(one))
+    show("one-char builder is_alpha", is_alpha(one))
+
+    // invalid UTF-8 reaches a string only through append_byte, and is not one character
+    val bad = mutable_string_new()
+    val _ = append_byte(bad, 255b)
+    show("lone 0xFF is_char", is_char(bad))
+    show("lone 0xFF is_alpha", is_alpha(bad))
+}

@@ -560,6 +560,86 @@ static Value native_is_blank(Value *args, int argc, int line, int col) {
     return value_bool(1);
 }
 
+/* ---- the ASCII character-class predicates -----------------------------------------------------
+ *
+ * `is_alpha`, `is_numeric`, `is_alpha_numeric`, `is_digit` and `is_char`, each over a `string` and
+ * a `MutableString`.
+ *
+ * **These are deliberately ASCII, and that is a decision rather than a shortcut.** Six private
+ * helpers across `lib/` -- in `csv`, `toml`, `yaml`, `regex`, `mysql` and `zone` -- each spelled
+ * the same `byte_len(c) == 1 && index_of("0123456789", c, 0) >= 0`, and all six meant ASCII: they
+ * are reading CSV cells, TOML keys and zone offsets, where a non-ASCII digit is not a digit but a
+ * syntax error. Promoting them with Unicode semantics would have changed what every one of them
+ * asked. The Unicode questions have an answer already, and a better one: the regex engine's
+ * `\p{L}` and `\p{Nd}` read the general-category tables in `src/regex_unicode.h`, which is where a
+ * character-property question with a table behind it belongs.
+ *
+ * Because the classes are ASCII, **no UTF-8 decoding is needed at all**: any byte >= 0x80 is
+ * outside every class, so one byte scan answers each predicate whatever the encoding. That makes
+ * these the only members of the string family whose cost does not depend on the ASCII bit.
+ *
+ * `is_char` is the exception, being about length rather than class: it asks whether the text is
+ * exactly one character. That is `len(s) == 1`, which for ASCII is one byte and otherwise is "the
+ * first character's own sequence is the whole string" -- no scan past the first byte either way.
+ *
+ * Empty is false for all five. A predicate over "every character" is vacuously true of no
+ * characters, which is `is_empty`'s question and a trap in this family: `is_digit("")` answering
+ * true would make `is_digit(c)` unusable as the guard every one of those six helpers used it as. */
+
+static int ascii_is_alpha(unsigned char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+}
+
+static int ascii_is_digit(unsigned char c) {
+    return c >= '0' && c <= '9';
+}
+
+/* Every byte in the class, and at least one byte. `kind` is 0 alpha, 1 digit, 2 either. */
+static int all_bytes_in_class(const char *s, size_t len, int kind) {
+    if (len == 0) return 0;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)s[i];
+        int ok = kind == 0 ? ascii_is_alpha(c) : kind == 1 ? ascii_is_digit(c) : (ascii_is_alpha(c) || ascii_is_digit(c));
+        if (!ok) return 0;
+    }
+    return 1;
+}
+
+/* Whether `len` bytes hold exactly one character. A lead byte's own length says how many bytes
+ * the first character takes, so this needs no decode and no validation: text that is not valid
+ * UTF-8 simply is not one character, which is the honest answer rather than an error. */
+static int is_one_character(const char *s, size_t len) {
+    if (len == 0) return 0;
+    unsigned char c = (unsigned char)s[0];
+    size_t want = c < 0x80 ? 1 : (c & 0xE0) == 0xC0 ? 2 : (c & 0xF0) == 0xE0 ? 3 : (c & 0xF8) == 0xF0 ? 4 : 0;
+    return want != 0 && want == len;
+}
+
+static Value native_string_is_alpha(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_bool(all_bytes_in_class(SPTR(args[0]), SLEN(args[0]), 0));
+}
+
+static Value native_string_is_numeric(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_bool(all_bytes_in_class(SPTR(args[0]), SLEN(args[0]), 1));
+}
+
+static Value native_string_is_alpha_numeric(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_bool(all_bytes_in_class(SPTR(args[0]), SLEN(args[0]), 2));
+}
+
+static Value native_string_is_digit(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_bool(SLEN(args[0]) == 1 && ascii_is_digit((unsigned char)SPTR(args[0])[0]));
+}
+
+static Value native_string_is_char(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_bool(is_one_character(SPTR(args[0]), SLEN(args[0])));
+}
+
 /* ---- case mapping, two arities --------------------------------------------------------------
  *
  * One registration serves `to_upper(s)` and `to_upper(s, locale)`, the way `len`'s nine members
@@ -1026,6 +1106,36 @@ static Value native_mutable_string_set(Value *args, int argc, int line, int col)
 /* Takes a `from` because the immutable `index_of(s, needle, from)` does, and validates it the same
  * way: mirroring the twin exactly matters more than saving an argument. `last_index_of` has no
  * `from` for the same reason -- its own twin does not. */
+static Value native_mutable_string_is_alpha(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
+    return value_bool(all_bytes_in_class(buf->data, buf->length, 0));
+}
+
+static Value native_mutable_string_is_numeric(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
+    return value_bool(all_bytes_in_class(buf->data, buf->length, 1));
+}
+
+static Value native_mutable_string_is_alpha_numeric(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
+    return value_bool(all_bytes_in_class(buf->data, buf->length, 2));
+}
+
+static Value native_mutable_string_is_digit(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
+    return value_bool(buf->length == 1 && ascii_is_digit((unsigned char)buf->data[0]));
+}
+
+static Value native_mutable_string_is_char(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
+    return value_bool(is_one_character(buf->data, buf->length));
+}
+
 static Value native_mutable_string_index_of(Value *args, int argc, int line, int col) {
     (void)argc;
     MutableStringBuf *buf = mutable_string_table_get(mutable_string_handle_of(args[0]));
@@ -3582,6 +3692,20 @@ void prelude_register(void) {
     native_register("trim", native_trim);
     native_register("is_empty", native_is_empty);
     native_register("is_blank", native_is_blank);
+    /* **Neither world gets a bare registration.** `native_lookup(fn->name)` is consulted before
+     * the world-prefix fallback, so a bare `is_alpha` would be found first and run the `string`
+     * implementation on a `MutableString` handle -- the trap `char_at` and `last_index_of` both
+     * fell into (see lib/prelude/string.zm's own note on it). */
+    native_register("string_is_alpha", native_string_is_alpha);
+    native_register("string_is_numeric", native_string_is_numeric);
+    native_register("string_is_alpha_numeric", native_string_is_alpha_numeric);
+    native_register("string_is_digit", native_string_is_digit);
+    native_register("string_is_char", native_string_is_char);
+    native_register("mutable_string_is_alpha", native_mutable_string_is_alpha);
+    native_register("mutable_string_is_numeric", native_mutable_string_is_numeric);
+    native_register("mutable_string_is_alpha_numeric", native_mutable_string_is_alpha_numeric);
+    native_register("mutable_string_is_digit", native_mutable_string_is_digit);
+    native_register("mutable_string_is_char", native_mutable_string_is_char);
     native_register("to_upper", native_to_upper);
     native_register("to_lower", native_to_lower);
     native_register("join", native_join);

@@ -77,10 +77,6 @@ fn fail(no: int, message: string) -> string {
     return format("line {}: {}", no, message)
 }
 
-fn is_digit_c(c: string) -> bool {
-    return byte_len(c) == 1 && index_of("0123456789", c, 0) >= 0
-}
-
 fn hex_value(c: string) -> int {
     if byte_len(c) != 1 {
         return -1
@@ -260,7 +256,7 @@ fn looks_int(s: string) -> bool {
         return false
     }
     while i < len(s) {
-        if !is_digit_c(char_at(s, i)) {
+        if !is_digit(char_at(s, i)) {
             return false
         }
         i = i + 1
@@ -276,7 +272,7 @@ fn looks_float(s: string) -> bool {
     if i >= len(s) {
         return false
     }
-    if char_at(s, i) == "0" && len(s) > i + 1 && is_digit_c(char_at(s, i + 1)) {
+    if char_at(s, i) == "0" && len(s) > i + 1 && is_digit(char_at(s, i + 1)) {
         return false
     }
     var seen_dot = false
@@ -284,7 +280,7 @@ fn looks_float(s: string) -> bool {
     var digits = 0
     while i < len(s) {
         val c = char_at(s, i)
-        if is_digit_c(c) {
+        if is_digit(c) {
             digits = digits + 1
         } else if c == "." && !seen_dot && !seen_exp {
             seen_dot = true

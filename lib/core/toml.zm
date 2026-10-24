@@ -82,10 +82,6 @@ fn span_text(cs: [string], a: int, b: int) -> string {
     return concat(slice<string>(cs, a, b))
 }
 
-fn is_digit_c(c: string) -> bool {
-    return byte_len(c) == 1 && index_of("0123456789", c, 0) >= 0
-}
-
 fn is_bare_key_char(c: string) -> bool {
     return byte_len(c) == 1 && index_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", c, 0) >= 0
 }
@@ -334,7 +330,7 @@ fn looks_datetime(t: string) -> bool {
     if contains(t, ":") {
         return true
     }
-    return len(t) >= 10 && char_at(t, 4) == "-" && char_at(t, 7) == "-" && is_digit_c(char_at(t, 0))
+    return len(t) >= 10 && char_at(t, 4) == "-" && char_at(t, 7) == "-" && is_digit(char_at(t, 0))
 }
 
 fn parse_radix(t: string, digits: string, base: int) -> Result<Json, string> {
@@ -370,7 +366,7 @@ fn number_token(tok: string) -> Result<Json, string> {
     if bare == "inf" || bare == "nan" {
         return err("inf and nan are not supported")
     }
-    if byte_len(bare) == 0 || !is_digit_c(char_at(bare, 0)) {
+    if byte_len(bare) == 0 || !is_digit(char_at(bare, 0)) {
         return err(format("invalid value '{}'", tok))
     }
     val signed = if starts_with(t, "+") { substring(t, 1, len(t)) } else { t }
@@ -407,7 +403,7 @@ fn parse_scalar_token(cs: [string], pos: int) -> Result<Parsed, string> {
         return ok(Parsed { value: Json.JBool(false), next: p })
     }
     // a date and a time separated by a space form one value
-    if len(tok) == 10 && at_is(cs, p, " ") && p + 1 < len(cs) && is_digit_c(cs[p + 1]) {
+    if len(tok) == 10 && at_is(cs, p, " ") && p + 1 < len(cs) && is_digit(cs[p + 1]) {
         var q = p + 1
         while q < len(cs) && !contains(" \t\n\r,]}#", cs[q]) {
             q = q + 1

@@ -129,8 +129,10 @@ fn at_end(text: string, pos: int) -> bool {
     return pos >= len(text)
 }
 
+// The bound is the reason this stays a function of its own: the class question is the prelude's
+// `is_digit` now, but a scanner needs "in range *and* a digit" in one test.
 fn is_digit_at(text: string, pos: int) -> bool {
-    return pos < len(text) && char_at(text, pos) >= "0" && char_at(text, pos) <= "9"
+    return pos < len(text) && is_digit(char_at(text, pos))
 }
 
 fn bad_rule(text: string, why: string) -> string {

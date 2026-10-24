@@ -84,10 +84,6 @@ fn rows_of(text: string, sep: string, typed: bool) -> Result<[Row], string> {
     return ok(snapshot(rows))
 }
 
-fn is_digit_char(c: string) -> bool {
-    return byte_len(c) == 1 && index_of("0123456789", c, 0) >= 0
-}
-
 // `42`, `-7`, `0`; not `007`, `+1`, `1_000`, `-`.
 fn looks_int(s: string) -> bool {
     var i = 0
@@ -101,7 +97,7 @@ fn looks_int(s: string) -> bool {
         return false
     }
     while i < len(s) {
-        if !is_digit_char(char_at(s, i)) {
+        if !is_digit(char_at(s, i)) {
             return false
         }
         i = i + 1
@@ -115,10 +111,10 @@ fn looks_float(s: string) -> bool {
     if is_char_at(s, 0, "-") {
         i = 1
     }
-    if i >= len(s) || !is_digit_char(char_at(s, i)) {
+    if i >= len(s) || !is_digit(char_at(s, i)) {
         return false
     }
-    if char_at(s, i) == "0" && len(s) > i + 1 && is_digit_char(char_at(s, i + 1)) {
+    if char_at(s, i) == "0" && len(s) > i + 1 && is_digit(char_at(s, i + 1)) {
         return false
     }
     var seen_dot = false
@@ -126,7 +122,7 @@ fn looks_float(s: string) -> bool {
     var seen_digit = false
     while i < len(s) {
         val c = char_at(s, i)
-        if is_digit_char(c) {
+        if is_digit(c) {
             seen_digit = true
         } else if c == "." && !seen_dot && !seen_exp && seen_digit {
             seen_dot = true
