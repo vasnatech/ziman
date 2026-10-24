@@ -47,7 +47,7 @@ native fn month_name_raw(handle: int, index: int, full: bool) -> string
 
 native fn day_name_raw(handle: int, index: int, full: bool) -> string
 
-// `Locale` itself is declared in lib/prelude/locale.zm, not here, and that part's header says why:
+// `Locale` itself is declared in lib/prelude/prelude.zm, not here, and that part's comment says why:
 // `to_upper(s, locale)` is an overload of a prelude function, so the prelude has to be able to name
 // the type, and the prelude cannot reference a core module. What lives here is everything that
 // *makes* or *inspects* one -- which is where the host's locale data is reached.

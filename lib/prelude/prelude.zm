@@ -127,6 +127,26 @@
 // `#include` out stops the build with `PRELUDE_<NAME>_SOURCE undeclared`, which is how the
 // miscount was found: by adding a part and hitting it.
 
+// A locale, held by handle, with the POSIX name it resolved to. Built with `locale.of("tr_TR")`
+// behind a `use locale`, and never by writing the struct literally -- a made-up handle is refused by
+// the table rather than dereferenced.
+//
+// **The type is here and its constructors are in a module**, which is forced rather than chosen.
+// `to_upper(s, locale)` is an overload of a prelude function, so the prelude has to be able to name
+// the type; and the prelude cannot reference a core module (a declaration mentioning
+// `locale.Locale` fails with "no module imported under the name 'locale'", which is the rule, not
+// an accident). Meanwhile a `Locale` is built from the operating system's locale data through a
+// native, which belongs with the rest of that machinery in lib/core/locale.zm.
+//
+// It sits in *this* part because it belongs to no collection, which is what this file is for: the
+// string functions take one, so do the date formatters in `time`, and so does `compare`. It had a
+// part of its own for a few hours on 2026-10-23, which meant two files named locale.zm and a reader
+// having to know which one held the type -- a wart with no compensating benefit.
+pub struct Locale {
+    handle: int
+    name: string
+}
+
 // The number in `s`, or an Err naming the text when it is not one or does not fit:
 // `parse_int("9223372036854775808")` is an Err. `parse_int` takes an optional leading `-` and decimal
 // digits only: no blanks around the number, no `+`, no `0x`, no `_` (`trim` first to allow blanks).

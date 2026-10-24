@@ -37,7 +37,6 @@
 #include "prelude_channel_source.h"
 #include "prelude_iter_source.h"
 #include "prelude_map_source.h"
-#include "prelude_locale_source.h"
 #include "prelude_mutable_source.h"
 #include "prelude_option_source.h"
 #include "prelude_result_source.h"
@@ -73,7 +72,6 @@ static const struct {
     {"lib/prelude/channel.zm", PRELUDE_CHANNEL_SOURCE},
     {"lib/prelude/iter.zm", PRELUDE_ITER_SOURCE},
     {"lib/prelude/map.zm", PRELUDE_MAP_SOURCE},
-    {"lib/prelude/locale.zm", PRELUDE_LOCALE_SOURCE},
     {"lib/prelude/mutable.zm", PRELUDE_MUTABLE_SOURCE},
     {"lib/prelude/option.zm", PRELUDE_OPTION_SOURCE},
     {"lib/prelude/result.zm", PRELUDE_RESULT_SOURCE},

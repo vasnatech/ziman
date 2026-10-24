@@ -180,6 +180,31 @@ bbb
 
 ## `prelude.zm`
 
+### `Locale`
+
+```
+pub struct Locale {
+    handle: int
+    name: string
+}
+```
+
+A locale, held by handle, with the POSIX name it resolved to. Built with `locale.of("tr_TR")`
+behind a `use locale`, and never by writing the struct literally -- a made-up handle is refused by
+the table rather than dereferenced.
+
+**The type is here and its constructors are in a module**, which is forced rather than chosen.
+`to_upper(s, locale)` is an overload of a prelude function, so the prelude has to be able to name
+the type; and the prelude cannot reference a core module (a declaration mentioning
+`locale.Locale` fails with "no module imported under the name 'locale'", which is the rule, not
+an accident). Meanwhile a `Locale` is built from the operating system's locale data through a
+native, which belongs with the rest of that machinery in lib/core/locale.zm.
+
+It sits in *this* part because it belongs to no collection, which is what this file is for: the
+string functions take one, so do the date formatters in `time`, and so does `compare`. It had a
+part of its own for a few hours on 2026-10-23, which meant two files named locale.zm and a reader
+having to know which one held the type -- a wart with no compensating benefit.
+
 ### `parse_int`
 
 ```
@@ -1628,27 +1653,6 @@ pub native fn iter_close<T>(it: Iter<T>)
 Releases what `it` holds (a file, say) now instead of when it is collected. A `for` loop does this
 itself when it is left early; call it when you take items by hand and stop before the end. Harmless
 on one that is finished or already closed.
-
-## `locale.zm`
-
-### `Locale`
-
-```
-pub struct Locale {
-    handle: int
-    name: string
-}
-```
-
-A locale, held by handle, with the POSIX name it resolved to.
-
-`handle` is the address of the host locale the collector is keeping alive; holding a `Locale` is
-what keeps it open, and the finalizer closes it. `name` is cached here so reading it costs
-nothing -- and so that a caller can see which locale they actually got, an unavailable name
-having resolved to root.
-
-Built with `locale.of("tr_TR")`; never by writing the struct literally, since a made-up handle is
-refused by the table rather than dereferenced.
 
 ## `map.zm`
 
