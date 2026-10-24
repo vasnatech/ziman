@@ -428,7 +428,9 @@ fn is_name_start(s: string, p: int) -> bool {
     if index_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz_:", c, 0) >= 0 {
         return true
     }
-    return (to_bytes(c)[0] as int) >= 128
+    // Any character outside ASCII is a name character, which is `byte_len(c) > 1` -- the same
+    // question the old `to_bytes(c)[0] >= 128` asked of the lead byte, without the allocation.
+    return byte_len(c) > 1
 }
 
 fn is_name_char(s: string, p: int) -> bool {
@@ -455,8 +457,31 @@ fn read_name(s: string, pos: int) -> Result<PStr, string> {
 
 // A character XML cannot carry at all: a C0 control other than tab, newline or return. There is
 // no escape for these, so they are refused on the way in rather than written back out broken.
-fn illegal_char(code: int) -> bool {
+// Whether a code point is one XML 1.0 cannot represent in any form: a control character other than
+// tab, newline or return. This is the form a numeric character reference needs -- `&#11;` hands
+// `read_reference` a real code point, not a character.
+fn illegal_code(code: int) -> bool {
     return code < 32 && code != 9 && code != 10 && code != 13
+}
+
+// The same question asked of a *character*, which is what every scanner and writer here has.
+// Equivalent to `illegal_code` by construction: each of those code points is one byte in UTF-8, so
+// "one byte and below space" is the same set, and a multi-byte character answers false without
+// being decoded.
+//
+// **This read `to_bytes(char_at(s, p))[0]` until 2026-10-23**, which allocated a one-element array
+// *per character scanned* -- four of its five call sites sit in a per-character loop -- and compared
+// a UTF-8 *lead byte* against the control range rather than a code point. That was right only by
+// coincidence, every multi-byte lead byte being at least 0xC2 and so well clear of 32. Nothing
+// depends on that coincidence now.
+fn illegal_char(c: string) -> bool {
+    return byte_len(c) == 1 && compare(c, " ") < 0 && c != "\t" && c != "\n" && c != "\r"
+}
+
+// The code point of a one-byte character, for the two messages that name the offending character by
+// number. Only ever reached once, on an error path, so its allocation costs nothing.
+fn char_code(c: string) -> int {
+    return to_bytes(c)[0] as int
 }
 
 fn append_code_point(out: MutableString, cp: int) {
@@ -539,7 +564,7 @@ fn read_char_code(s: string, pos: int, body: string) -> Result<int, string> {
     if value > max_code_point || (value >= surrogate_start && value <= surrogate_end) {
         return err(fail(s, pos, format("character reference '&{};' is not a character", body)))
     }
-    if illegal_char(value) {
+    if illegal_code(value) {
         return err(fail(s, pos, format(
             "character reference '&{};' is a control character XML cannot represent",
             body
@@ -557,11 +582,10 @@ fn read_text(s: string, pos: int) -> Result<PStr, string> {
         if is_char_at(s, p, "&") {
             p = try read_reference(s, p, out)
         } else {
-            val code = to_bytes(char_at(s, p))[0] as int
-            if illegal_char(code) {
+            if illegal_char(char_at(s, p)) {
                 return err(fail(s, p, "a control character XML cannot represent"))
             }
-            if code == 93 && starts_with(substring(s, p, len(s)), "]]>") {
+            if is_char_at(s, p, "]") && starts_with(substring(s, p, len(s)), "]]>") {
                 return err(fail(s, p, "']]>' cannot appear in content; write '&gt;' for the '>'"))
             }
             append(out, char_at(s, p))
@@ -588,8 +612,7 @@ fn read_attr_value(s: string, pos: int) -> Result<PStr, string> {
         if is_char_at(s, p, "&") {
             p = try read_reference(s, p, out)
         } else {
-            val code = to_bytes(char_at(s, p))[0] as int
-            if illegal_char(code) {
+            if illegal_char(char_at(s, p)) {
                 return err(fail(s, p, "a control character XML cannot represent"))
             }
             append(out, char_at(s, p))
@@ -1036,8 +1059,8 @@ fn escape_text(s: string, out: MutableString) -> Result<bool, string> {
     var i = 0
     while i < len(s) {
         val c = char_at(s, i)
-        val code = to_bytes(c)[0] as int
-        if illegal_char(code) {
+        if illegal_char(c) {
+            val code = char_code(c)
             return err(format(
                 "the text contains character {}, which XML 1.0 cannot represent in any form (there is no '&#{};')",
                 code,
@@ -1065,11 +1088,10 @@ fn escape_attr(s: string, out: MutableString) -> Result<bool, string> {
     var i = 0
     while i < len(s) {
         val c = char_at(s, i)
-        val code = to_bytes(c)[0] as int
-        if illegal_char(code) {
+        if illegal_char(c) {
             return err(format(
                 "an attribute value contains character {}, which XML 1.0 cannot represent",
-                code
+                char_code(c)
             ))
         }
         if c == "&" {

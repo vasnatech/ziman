@@ -1,0 +1,61 @@
+use xml
+fn raw(bytes: [byte]) -> string {
+    val b = mutable_string_new()
+    append_byte(b, bytes)
+    return snapshot(b)
+}
+fn doc_with(text: string) -> string {
+    return concat("<r>", text, "</r>")
+}
+fn parse_case(label: string, text: string) {
+    switch xml.parse_xml(text) {
+        Ok(d) { printf("{} => parsed\n", label) }
+        Err(e) { printf("{} => ERR {}\n", label, e) }
+    }
+}
+fn write_case(label: string, content: string) {
+    switch xml.element_to_string(xml.text_element("r", content)) {
+        Ok(s) { printf("{} => wrote [{}]\n", label, s) }
+        Err(x) { printf("{} => ERR {}\n", label, x) }
+    }
+}
+fn main() {
+    // every control byte 1..31 in content: all but tab(9)/LF(10)/CR(13) must be refused
+    var code = 1
+    while code < 32 {
+        val c = raw([code as byte])
+        val legal = code == 9 || code == 10 || code == 13
+        switch xml.parse_xml(doc_with(c)) {
+            Ok(d) { if !legal { printf("  LEAK: control {} was accepted in content\n", code) } }
+            Err(e) { if legal { printf("  WRONG: legal control {} was refused: {}\n", code, e) } }
+        }
+        // and in an attribute value
+        switch xml.parse_xml(concat("<r a=\"", c, "\"/>")) {
+            Ok(d) { if !legal { printf("  LEAK: control {} was accepted in an attribute\n", code) } }
+            Err(e) { if legal { printf("  WRONG: legal control {} refused in an attribute: {}\n", code, e) } }
+        }
+        code = code + 1
+    }
+    print("control-byte sweep done (1..31, content and attributes)")
+
+    // numeric character references to control characters must still be refused
+    parse_case("ref-11", doc_with("&#11;"))
+    parse_case("ref-9-tab", doc_with("&#9;"))
+    parse_case("ref-65-A", doc_with("&#65;"))
+    parse_case("ref-233-eacute", doc_with("&#233;"))
+
+    // non-ASCII content and names must be accepted, and not mistaken for control characters
+    parse_case("utf8-text", doc_with("héllo wörld 日本語 😀"))
+    parse_case("utf8-name", "<héllo>x</héllo>")
+    parse_case("utf8-attr", "<r a=\"ä😀\"/>")
+    parse_case("cjk-name", "<日本>語</日本>")
+
+    // the ]]> rule still fires, which shared the old lead-byte comparison
+    parse_case("cdata-end-raw", doc_with("a]]>b"))
+    parse_case("bracket-ok", doc_with("a]b]]c"))
+
+    // writing: legal text round-trips, a control character is refused by name
+    write_case("write-plain", "héllo & <wörld>")
+    write_case("write-tab", "a\tb")
+    write_case("write-control", raw([65 as byte, 11 as byte, 66 as byte]))
+}

@@ -1,0 +1,14 @@
+control-byte sweep done (1..31, content and attributes)
+ref-11 => ERR line 1: character reference '&#11;' is a control character XML cannot represent
+ref-9-tab => parsed
+ref-65-A => parsed
+ref-233-eacute => parsed
+utf8-text => parsed
+utf8-name => parsed
+utf8-attr => parsed
+cjk-name => parsed
+cdata-end-raw => ERR line 1: ']]>' cannot appear in content; write '&gt;' for the '>'
+bracket-ok => parsed
+write-plain => wrote [<r>héllo &amp; &lt;wörld&gt;</r>]
+write-tab => wrote [<r>a	b</r>]
+write-control => ERR the text contains character 11, which XML 1.0 cannot represent in any form (there is no '&#11;')
