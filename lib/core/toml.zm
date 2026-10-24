@@ -381,7 +381,7 @@ fn parse_scalar_token(s: string, pos: int) -> Result<Parsed, string> {
         return ok(Parsed { value: Json.JBool(false), next: p })
     }
     // a date and a time separated by a space form one value
-    if byte_len(tok) == 10 && is_char_at(s, p, " ") && p + 1 < len(s) && is_digit_c(char_at(s, p + 1)) {
+    if len(tok) == 10 && is_char_at(s, p, " ") && p + 1 < len(s) && is_digit_c(char_at(s, p + 1)) {
         var q = p + 1
         while q < len(s) && !contains(" \t\n\r,]}#", char_at(s, q)) {
             q = q + 1

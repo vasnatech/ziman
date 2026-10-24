@@ -168,19 +168,25 @@ pub fn render_pages(pages: [Scene], o: Options) -> Result<[byte], string> {
     return pdfobj.finish(w, root, snapshot(info))
 }
 
+// `a` kept as it stands, then whatever of `b` is not already present appended, in order.
+//
+// **A MutableSet carries the membership**, where this scanned `snapshot(out)` per candidate until
+// 2026-10-23 -- which copied the whole accumulated array *and then* searched it linearly, so it was
+// quadratic in allocations as well as in time. It is called once per page (`glyphs_used[gi] =
+// merged(...)`), so the list it rebuilds is the whole document's glyph set by the last page.
+//
+// `a` is appended without consulting the set, which keeps the old behaviour exactly: a duplicate
+// inside `a` survives, and only `b` is filtered. `add` answers whether the set changed, which is
+// the dedup test and the insert in one call.
 fn merged(a: [int], b: [int]) -> [int] {
     val out = mutable_array_new<int>()
+    val seen = mutable_set_new<int>()
     for v in a {
         push(out, v)
+        add(seen, v)
     }
     for v in b {
-        var seen = false
-        for existing in snapshot(out) {
-            if existing == v {
-                seen = true
-            }
-        }
-        if !seen {
+        if add(seen, v) {
             push(out, v)
         }
     }
@@ -702,20 +708,18 @@ fn glyph_bytes(ids: [int]) -> [byte] {
     return snapshot(out)
 }
 
+// The glyphs this font has been asked for, with `ids` added once each. Same shape and same reason
+// as `merged` above: the membership lives in a MutableSet rather than in a fresh `snapshot` of the
+// accumulated array per candidate.
 fn remember_glyphs(b: Built, font_index: int, ids: [int]) -> unit {
-    val existing = b.glyphs[font_index]
     val out = mutable_array_new<int>()
-    for g in existing {
+    val seen = mutable_set_new<int>()
+    for g in b.glyphs[font_index] {
         push(out, g)
+        add(seen, g)
     }
     for g in ids {
-        var seen = false
-        for already in snapshot(out) {
-            if already == g {
-                seen = true
-            }
-        }
-        if !seen {
+        if add(seen, g) {
             push(out, g)
         }
     }

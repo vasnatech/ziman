@@ -1,0 +1,54 @@
+// **Non-ASCII text through the library's parsers and formatters.** When the read family moved to
+// character indices (2026-10-23), a `byte_len` left anywhere as the bound of a character-indexed
+// scan became a unit mismatch that only shows on multi-byte input -- and the whole suite is ASCII,
+// so three modules shipped broken for non-ASCII while every test stayed green.
+//
+// Each case below was broken, not hypothetical:
+//
+//   * **yaml** rejected every flow collection and quoted scalar containing a non-ASCII character.
+//     `k: [héllo]` did not parse. `inline_value` compared `skip_sp`'s *character* result against
+//     `byte_len(text)`, so any multi-byte character made it look like there was trailing content.
+//     The first sweep missed it because the character indexing happens inside `skip_sp`, one call
+//     away from the `byte_len`.
+//   * **time** could not round-trip a date pattern whose separators are not ASCII -- `yyyy年MM月dd日`
+//     reported a width of 17 for 11 characters and then failed to parse what it had just written.
+//     Two sites: the `Literal` arm of `datetime_part_width`, and the literal step in `parse_fields`
+//     which advanced a character position by a byte length.
+use time
+use yaml
+
+fn yaml_case(label: string, text: string) {
+    switch yaml.parse_yaml(text) {
+        Ok(v) { printf("{} => {}\n", label, v) }
+        Err(e) { printf("{} => ERR {}\n", label, e) }
+    }
+}
+
+fn pattern_case(pattern: string) {
+    val d = unwrap(time.localdate_of(2026, 10, 23))
+    val fmt = time.datetime_format_of(pattern)
+    val text = time.localdate_format(d, fmt)
+    switch time.localdate_parse_pattern(text, fmt) {
+        Ok(back) { printf("{} width={} -> {} -> round trip {}\n", pattern, fmt.width, text, back == d) }
+        Err(e) { printf("{} width={} -> {} -> ERR {}\n", pattern, fmt.width, text, e) }
+    }
+}
+
+fn main() {
+    // yaml: flow collections and quoted scalars, on one line and folded over several
+    yaml_case("flow", "k: [héllo, wörld]\n")
+    yaml_case("flow-folded", "k: [héllo,\n  wörld]\n")
+    yaml_case("flow-cjk", "k: [日本, 語]\n")
+    yaml_case("double", "k: \"héllo wörld\"\n")
+    yaml_case("double-folded", "k: \"héllo\n  wörld\"\n")
+    yaml_case("single", "k: 'héllo 日本語'\n")
+    yaml_case("plain", "k: héllo\n  wörld\n")
+    // and a bracket inside a quoted string still must not count toward the flow depth
+    yaml_case("flow-brackets", "k: [\"ä]b\",\n  \"c[ü\"]\n")
+
+    // time: a literal separator of one, two and three bytes
+    pattern_case("yyyy-MM-dd")
+    pattern_case("yyyy·MM·dd")
+    pattern_case("yyyy年MM月dd日")
+    pattern_case("dd.MM.yyyy")
+}

@@ -197,7 +197,7 @@ pub fn parse_pattern(pattern: string) -> NumberFormat {
     val parts = split(pattern, ".")
     val has_grouping = contains(parts[0], ",")
     val thousands = if has_grouping { "," } else { "" }
-    val decimal_places = if len(parts) > 1 { Option<int>.Some(byte_len(parts[1])) } else { Option<int>.None }
+    val decimal_places = if len(parts) > 1 { Option<int>.Some(len(parts[1])) } else { Option<int>.None }
     return NumberFormat { thousands_separator: thousands, decimal_separator: ".", decimal_places: decimal_places }
 }
 

@@ -369,7 +369,7 @@ pub fn path_join(pieces: variadic string) -> string {
 
 // The last segment of a path: `file_name("a/b/c.txt")` is "c.txt". A trailing slash is ignored.
 pub fn file_name(path: string) -> string {
-    val trimmed = if byte_len(path) > 1 && is_char_at(path, len(path) - 1, "/") {
+    val trimmed = if len(path) > 1 && is_char_at(path, len(path) - 1, "/") {
         substring(path, 0, len(path) - 1)
     } else {
         path
@@ -381,7 +381,7 @@ pub fn file_name(path: string) -> string {
 // Everything before the last segment: `parent_dir("a/b/c.txt")` is "a/b"; "." for a bare name,
 // "/" for a top-level absolute path.
 pub fn parent_dir(path: string) -> string {
-    val trimmed = if byte_len(path) > 1 && is_char_at(path, len(path) - 1, "/") {
+    val trimmed = if len(path) > 1 && is_char_at(path, len(path) - 1, "/") {
         substring(path, 0, len(path) - 1)
     } else {
         path

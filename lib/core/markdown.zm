@@ -488,7 +488,7 @@ fn write_list(l: List, out: MutableString) -> Result<bool, string> {
         val marker = if l.ordered { format("{}. ", n) } else { "- " }
         val body = mutable_string_new()
         val _ = try write_blocks(item.blocks, body, l.tight)
-        append(out, prefix_lines(snapshot(body), marker, repeat_char(" ", byte_len(marker))))
+        append(out, prefix_lines(snapshot(body), marker, repeat_char(" ", len(marker))))
         n = n + 1
     }
     return ok(true)
@@ -664,7 +664,7 @@ fn is_thematic_break(line: string) -> bool {
 // `- `, `* ` or `+ ` -> the marker width. None when the line does not start a bullet item.
 fn bullet_marker(line: string) -> int {
     val t = without_indent(line, indent_of(line))
-    if byte_len(t) >= 2 && (starts_with(t, "- ") || starts_with(t, "* ") || starts_with(t, "+ ")) {
+    if len(t) >= 2 && (starts_with(t, "- ") || starts_with(t, "* ") || starts_with(t, "+ ")) {
         return 2
     }
     if t == "-" || t == "*" || t == "+" {

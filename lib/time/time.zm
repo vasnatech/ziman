@@ -127,7 +127,7 @@ fn days_in_month(year: int, month: int) -> int {
 
 fn pad_left(n: int, width: int) -> string {
     var s = str(n)
-    while byte_len(s) < width {
+    while len(s) < width {
         s = concat("0", s)
     }
     return s
@@ -206,7 +206,10 @@ fn datetime_part_width(part: DateTimePart) -> int {
         Minute { 2 }
         Second { 2 }
         Nano { 9 }
-        Literal(s) { byte_len(s) }
+        // Characters, like every other arm here -- `fmt.width` feeds `substring(s, 0, fmt.width)`,
+        // which cuts characters. This counted bytes until 2026-10-23, which gave the pattern
+        // `yyyy年MM月dd日` a width of 17 where it renders 11 characters, and broke parsing with it.
+        Literal(s) { len(s) }
     }
 }
 
@@ -448,7 +451,10 @@ fn parse_fields(s: string, fmt: DateTimeFormat) -> Result<ParsedFields, string> 
                 si = si + 9
             }
             Literal(lit) {
-                val llen = byte_len(lit)
+                // `si` is a character position -- `is_char_at` below reads one and the final check
+                // compares it against `len(s)` -- so the literal advances it by characters. Bytes
+                // until 2026-10-23, which desynchronised the scan on any non-ASCII separator.
+                val llen = len(lit)
                 if !is_char_at(s, si, lit) {
                     return err(format("'{}' does not match expected literal '{}' at position {}", s, lit, si))
                 }
@@ -885,7 +891,7 @@ pub fn duration_from_string(s: string) -> Result<Duration, string> {
         return err(format("invalid duration '{}'", s))
     }
     val digits = parts[1]
-    if byte_len(digits) < 1 || byte_len(digits) > 9 || starts_with(digits, "-") || starts_with(digits, "+") {
+    if len(digits) < 1 || len(digits) > 9 || starts_with(digits, "-") || starts_with(digits, "+") {
         return err(format("invalid duration '{}': the fraction must be 1 to 9 digits", s))
     }
     val mag_nanos_r = parse_int(digits)
@@ -893,7 +899,7 @@ pub fn duration_from_string(s: string) -> Result<Duration, string> {
         return err(format("invalid duration '{}': bad nanos", s))
     }
     var mag_nanos = unwrap(mag_nanos_r)
-    for _ in byte_len(digits)..9 {
+    for _ in len(digits)..9 {
         mag_nanos = mag_nanos * 10
     }
     return if negative {

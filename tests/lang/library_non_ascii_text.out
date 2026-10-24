@@ -1,0 +1,12 @@
+flow => JObject({k: JArray([JString(héllo), JString(wörld)])})
+flow-folded => JObject({k: JArray([JString(héllo), JString(wörld)])})
+flow-cjk => JObject({k: JArray([JString(日本), JString(語)])})
+double => JObject({k: JString(héllo wörld)})
+double-folded => JObject({k: JString(héllo wörld)})
+single => JObject({k: JString(héllo 日本語)})
+plain => JObject({k: JString(héllo wörld)})
+flow-brackets => JObject({k: JArray([JString(ä]b), JString(c[ü)])})
+yyyy-MM-dd width=10 -> 2026-10-23 -> round trip true
+yyyy·MM·dd width=10 -> 2026·10·23 -> round trip true
+yyyy年MM月dd日 width=11 -> 2026年10月23日 -> round trip true
+dd.MM.yyyy width=10 -> 23.10.2026 -> round trip true

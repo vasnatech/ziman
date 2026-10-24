@@ -307,7 +307,7 @@ fn read_chunked(sock: Socket, start: [byte], limit_ms: int, started: int, cap: i
         val size_text = trim(split(size_line, ";")[0])
         val n = switch int_from_hex(size_text) {
             Ok(v) {
-                if v < 0 || byte_len(size_text) > 8 {
+                if v < 0 || len(size_text) > 8 {
                     return err(HttpError.BadRequest(format("invalid chunk size '{}'", size_line)))
                 }
                 v

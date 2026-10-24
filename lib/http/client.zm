@@ -1002,7 +1002,7 @@ pub fn jar_header(jar: CookieJar, u: Url) -> Option<string> {
 
 // Stable order: longer paths first.
 fn sort_matches(cookies: [Cookie]) -> [Cookie] {
-    return sort_by_desc(cookies, fn(c: Cookie) -> int { return byte_len(c.path) })
+    return sort_by_desc(cookies, fn(c: Cookie) -> int { return len(c.path) })
 }
 
 // ------------------------------------------------------------ requests

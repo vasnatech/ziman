@@ -155,7 +155,7 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
         push(xref, to_bytes(concat(pad10(offsets[k]), " 00000 n \n")))
         k = k + 1
     }
-    push(parts, bytes_concat_all(snapshot(xref)))
+    push(parts, concat(snapshot(xref)))
 
     val trailer = mutable_array_new<Entry>()
     push(trailer, entry("Size", Obj.Int(count + 1)))
@@ -169,15 +169,12 @@ pub fn finish(w: PdfWriter, root: int, info: [Entry]) -> Result<[byte], string> 
         to_bytes(concat("\nstartxref\n", str(xref_at), "\n%%EOF\n"))
     )
     push(parts, tail)
-    return ok(bytes_concat_all(snapshot(parts)))
-}
-
-fn bytes_concat_all(parts: [[byte]]) -> [byte] {
-    var out = to_bytes("")
-    for p in parts {
-        out = concat(out, p)
-    }
-    return out
+    // `concat` over the parts, not a fold: one argument that is an array spreads, so this is one
+    // allocation of the final size and one pass. A hand-written `out = concat(out, p)` loop stood
+    // here until 2026-10-23 and was the quadratic string build in byte form -- it copied every
+    // part already placed, once per remaining part, so assembling a PDF cost time in the square of
+    // its own size.
+    return ok(concat(snapshot(parts)))
 }
 
 fn pad10(n: int) -> string {
@@ -211,7 +208,7 @@ fn obj_bytes(o: Obj) -> [byte] {
                 push(parts, obj_bytes(it))
             }
             push(parts, to_bytes("]"))
-            bytes_concat_all(snapshot(parts))
+            concat(snapshot(parts))
         }
         Dict(entries) { dict_bytes(entries) }
         Stream(s) {
@@ -242,7 +239,7 @@ fn dict_bytes(entries: [Entry]) -> [byte] {
         push(parts, obj_bytes(e.value))
     }
     push(parts, to_bytes(" >>"))
-    return bytes_concat_all(snapshot(parts))
+    return concat(snapshot(parts))
 }
 
 // Fixed-point, never scientific. A full float repr would write `0.30000000000000004` into a

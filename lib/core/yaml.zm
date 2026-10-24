@@ -500,16 +500,38 @@ fn flow_map(s: string, pos: int, no: int, depth: int) -> Result<Scalar, string> 
 }
 
 // Net open brackets in `s`, ignoring quoted text; and whether a quote is left open.
-fn flow_depth(s: string) -> int {
-    var depth = 0
-    var in_single = false
-    var in_double = false
+// **The flow scan's state, so a continuation line can be scanned on its own.** `flow_depth` read
+// the whole accumulated text on every round of `inline_value`'s gather loop, which together with
+// the `concat` in that loop made parsing a multi-line flow collection quadratic *twice over*: 1,600
+// lines of flow sequence (18 KB of YAML) took 2.2 s. `inline_value` recorded that as open and named
+// what it needed -- "the depth and quote state tracked incrementally" (D22, F133). This is it.
+//
+// `escaped` is the one piece of state the old loop did not have to name: it skipped the character
+// after a backslash with `i = i + 1`, which cannot survive the end of a line. As a flag it can.
+struct FlowState {
+    depth: int
+    in_single: bool
+    in_double: bool
+    escaped: bool
+}
+
+fn flow_begin() -> FlowState {
+    return FlowState { depth: 0, in_single: false, in_double: false, escaped: false }
+}
+
+fn flow_advance(st: FlowState, s: string) -> FlowState {
+    var depth = st.depth
+    var in_single = st.in_single
+    var in_double = st.in_double
+    var escaped = st.escaped
     var i = 0
     while i < len(s) {
         val c = char_at(s, i)
-        if in_double {
+        if escaped {
+            escaped = false
+        } else if in_double {
             if c == "\\" {
-                i = i + 1
+                escaped = true
             } else if c == "\"" {
                 in_double = false
             }
@@ -528,28 +550,61 @@ fn flow_depth(s: string) -> int {
         }
         i = i + 1
     }
-    return depth
+    return FlowState { depth: depth, in_single: in_single, in_double: in_double, escaped: escaped }
 }
 
-fn quote_open(s: string, quote: string) -> bool {
-    // true when the scalar starting with `quote` has no closing quote yet
-    var i = 1
-    while i < len(s) {
+// **Whether the quoted scalar opened on the first line is still open**, carried across lines for
+// the same reason FlowState is -- this read the whole accumulation per round too.
+//
+// `pending` is the old code's one-character lookahead turned into state: inside a single-quoted
+// scalar a `''` is a literal quote rather than the end. It is forced closed at the end of each
+// piece, which is exactly what the old scanner did -- it asked `is_char_at(s, i + 1, "'")` of a
+// position past the end of the text and got false. That stays right across lines because the gather
+// inserts a space between them, so a `'` ending one line is never adjacent to a `'` starting the
+// next one either way.
+struct QuoteState {
+    open: bool
+    escaped: bool
+    pending: bool
+}
+
+fn quote_begin() -> QuoteState {
+    return QuoteState { open: true, escaped: false, pending: false }
+}
+
+fn quote_advance(st: QuoteState, s: string, quote: string, from: int) -> QuoteState {
+    var open = st.open
+    var escaped = st.escaped
+    var pending = st.pending
+    var i = from
+    while open && i < len(s) {
         val c = char_at(s, i)
-        if quote == "\"" && c == "\\" {
-            i = i + 2
-            continue
-        }
-        if c == quote {
-            if quote == "'" && is_char_at(s, i + 1, "'") {
-                i = i + 2
+        if pending {
+            pending = false
+            if c == quote {
+                i = i + 1  // a doubled quote: a literal one, and the scalar is still open
                 continue
             }
-            return false
+            open = false  // the quote before this character ended the scalar
+            continue
+        }
+        if escaped {
+            escaped = false
+        } else if quote == "\"" && c == "\\" {
+            escaped = true
+        } else if c == quote {
+            if quote == "'" {
+                pending = true
+            } else {
+                open = false
+            }
         }
         i = i + 1
     }
-    return true
+    if pending {
+        open = false
+    }
+    return QuoteState { open: open, escaped: false, pending: false }
 }
 
 // ------------------------------------------------------------------ block structure
@@ -697,35 +752,50 @@ fn inline_value(lines: [Line], j: int, rest: string, parent_indent: int) -> Resu
     var next = j + 1
     val first = char_at(rest, 0)
     if first == "[" || first == "{" {
-        while flow_depth(text) > 0 && next < len(lines) {
-            text = concat(text, " ", content_of(lines[next]))
+        // Each line scanned once as it arrives and the pieces joined in one allocation, where this
+        // rescanned the whole accumulation per line and rebuilt it with `concat`. See FlowState.
+        val pieces = mutable_array_new<string>()
+        push(pieces, rest)
+        var st = flow_advance(flow_begin(), rest)
+        while st.depth > 0 && next < len(lines) {
+            val piece = concat(" ", content_of(lines[next]))
+            push(pieces, piece)
+            st = flow_advance(st, piece)
             next = next + 1
         }
+        text = concat(snapshot(pieces))
         val node = try flow_node(text, 0, no, 0)
-        if skip_sp(text, node.next) < byte_len(text) {
+        if skip_sp(text, node.next) < len(text) {
             return err(fail(no, "unexpected text after a flow collection"))
         }
         return ok(NodeRes { value: node.value, next: next })
     }
     if first == "\"" || first == "'" {
-        while quote_open(text, first) && next < len(lines) {
-            text = concat(text, " ", content_of(lines[next]))
+        // Same shape as the flow branch above. `from` is 1 on the first piece, to step over the
+        // opening quote, and 0 on every continuation.
+        val pieces = mutable_array_new<string>()
+        push(pieces, rest)
+        var qs = quote_advance(quote_begin(), rest, first, 1)
+        while qs.open && next < len(lines) {
+            val piece = concat(" ", content_of(lines[next]))
+            push(pieces, piece)
+            qs = quote_advance(qs, piece, first, 0)
             next = next + 1
         }
+        text = concat(snapshot(pieces))
         val node = if first == "\"" { try read_double(text, 0, no) } else { try read_single(text, 0, no) }
-        if skip_sp(text, node.next) < byte_len(text) {
+        if skip_sp(text, node.next) < len(text) {
             return err(fail(no, "unexpected text after a quoted scalar"))
         }
         return ok(NodeRes { value: node.value, next: next })
     }
     // plain: more-indented following lines continue it.
     //
-    // A builder here and not in the two loops above, and the difference is the predicate: this one
-    // reads only `lines[next]`, so the accumulation can stay in a builder and be snapshotted once.
-    // `flow_depth(text)` and `quote_open(text, first)` rescan the whole accumulation every round,
-    // so a builder would have to snapshot per round and cost exactly what the `concat` costs --
-    // making those linear needs the depth and quote state tracked incrementally, which is a
-    // redesign of the scanner rather than a rewrite of the loop (D22, F133).
+    // A builder here, an array of pieces in the two loops above; all three accumulate once and
+    // join once. The difference used to matter -- this predicate reads only `lines[next]` while
+    // those two reread the whole accumulation, so only this loop could avoid being quadratic. D22
+    // and F133 recorded that as open and named the fix as "the depth and quote state tracked
+    // incrementally"; FlowState and QuoteState are that, and all three loops are linear now.
     val plain = mutable_string_new()
     append(plain, text)
     while next < len(lines) && byte_len(content_of(lines[next])) > 0 && lines[next].indent > parent_indent {

@@ -567,10 +567,13 @@ for x in seen { ... }                    // a set has one binder
   being no way to clone a builder at all.
 - **`MutableString`** is the text one: `mutable_string_new`/`_append`/`_append_byte` build it, and
   `_get`/`_set`/`_index_of`/`_last_index_of` read and search it in place, so a string being built
-  can be inspected without `snapshot` copying all of it. Byte-indexed like every other string
-  operation, so `_get` answers the one-byte string at an index as `char_at` does, and `_set`
-  replaces exactly one byte -- a longer value is a runtime error rather than a splice, because
-  changing the length is what `_append` is for. `_index_of` takes a `from` and `_last_index_of` does
+  can be inspected without `snapshot` copying all of it. Character-indexed like every other string
+  operation, so `_get` answers the one-character string at an index as `char_at` does, and `_set`
+  replaces exactly one character -- two characters is a runtime error, because changing the length is
+  what `_append` is for. `_set` does move bytes, since one character of UTF-8 is one to four of them:
+  writing `e` over `é` shortens the buffer and `é` over `e` lengthens it, while the character count
+  `len` answers stays put. All four counted bytes until 2026-10-23, which made
+  `char_at(sb, i) == char_at(s, i)` false for the same text in the two worlds. `_index_of` takes a `from` and `_last_index_of` does
   not, mirroring their immutable twins exactly.
 - **Values, like arrays** -- `set`/`insert`/`remove` return a new collection, leaving the
   argument untouched. A persistent hash trie internally, so an update copies only a few nodes:
@@ -2198,7 +2201,8 @@ regex.replace_all(re, "bob@site.com", "$2: $1")             // "site: bob"
 `compile(pattern)` is `Err` with a message naming the problem's position; a `Regex` is
 immutable (compile once, share across threads). `is_match`, `find`, `find_from`, `find_all`,
 `group`, `group_named`, `replace`, `replace_all`, `split`, `escape` do the rest. A `Match` has
-`start`/`end` (byte offsets), `text`, `groups` (`[Option<string>]`, 1..n). Replacements expand
+`start`/`end` (character indices, so a match composes with `substring` and `len`; they were byte
+offsets until 2026-10-23), `text`, `groups` (`[Option<string>]`, 1..n). Replacements expand
 `$0`, `$1`-`$9`, `${12}`, `$$`.
 
 **Perl-flavoured, deliberately without backreferences or lookaround** -- matching runs in time
@@ -2881,10 +2885,11 @@ a type error.
   `Mutable<T>` cell, whose length is always 1. So asking a collection its size never needs a
   per-type name or a conversion. It answers for a *handle*, not for a struct that holds one, which
   has no length of its own.
-- `byte_len(s: string) -> int` — the byte count, for either string world. **This is the one to pair
-  with every byte-indexed function** (`char_at`, `substring`, `index_of`, `last_index_of`,
-  `is_char_at`, and a `MutableString`'s `set`), because those take byte offsets and `len` no longer
-  counts in the same unit. `byte_len(s) == len(to_bytes(s))`.
+- `byte_len(s: string) -> int` — the byte count, for either string world. **Not the one to bound an
+  index with** — that is `len`, because every index function counts characters. This is for the
+  places that genuinely mean storage: a length prefix on a wire, a `Content-Length`, base64's
+  padding modulus, a byte budget on a document. Using it as a scan bound is invisible on ASCII input
+  and wrong on everything else. `byte_len(s) == len(to_bytes(s))`.
 - **`len` on text counted bytes until 2026-10-23, and `char_count` counted characters**; they
   swapped, `byte_len` took the byte question and `char_count` was deleted. The old `len` was the
   silent-wrongness direction — "length" meaning bytes surprises a reader exactly when the text stops
@@ -2948,26 +2953,30 @@ a type error.
   arguments are always pieces or parts. It was `concat` plus `concat_arrays` plus
   `mutable_array_push_all` until 2026-10-18; being a builtin it takes no named arguments, so the
   old `concat(parts: arrays)` spelling is now the positional `concat(arrays)`.
-- `char_at(s, i) -> string` — the one-byte string at `i` (`0 <= i < len(s)`, else runtime error).
+- `char_at(s, i) -> string` — the one-*character* string at `i` (`0 <= i < len(s)`, else runtime
+  error), however many bytes that character takes: `char_at("héllo", 1)` is `é`.
 - `split_once(s, sep) -> Option<[string]>` — `Some([before, after])` at the *first* `sep`,
   `None` if absent -- for `key=value` text whose value may itself contain the separator.
-- `index_of(s, needle, from) -> int` — byte index of the first `needle` at/after `from`
+- `index_of(s, needle, from) -> int` — character index of the first `needle` at/after `from`
   (`0 <= from <= len(s)`, else runtime error), or `-1`; an empty `needle` matches at `from`.
-- `last_index_of(s, needle) -> int` — byte index of the last `needle` (`len(s)` if empty), or `-1`.
+- `last_index_of(s, needle) -> int` — character index of the last `needle` (`len(s)` if empty), or `-1`.
 - `starts_with(s, prefix) -> bool` / `ends_with(s, suffix) -> bool`.
 - `is_char_at(s, i, c) -> bool` — whether `c` appears at `i`; `false` (never an error) when `i`
   is out of range or `c` doesn't fit, replacing a guarded `p < len(s) && char_at(s, p) == "x"`.
 - `replace(s, old, new) -> string` — swaps every non-overlapping `old` (must not be empty).
 - `equals_ignore_case(a, b) -> bool` — ASCII case-insensitive equality, allocating nothing
   (unlike `to_lower(a) == to_lower(b)`). None of the functions above build intermediate strings.
-- **Strings are bytes, and the *counting* is code points.** Storage and indexing are bytes --
-  `byte_len("héllo")` is 6, `char_at` and `substring` take byte offsets and `substring` can split a
-  multi-byte character -- while `len` and the functions beside it decode UTF-8: `len("héllo")` is
-  5. The split is deliberate: the question a reader asks casually ("how long is this?") gets the
-  answer they expect, and the byte offsets are there under a name that says so. The decoding ones
-  are slower, and a runtime error naming the byte offset on invalid UTF-8, reachable only by
-  chaining a byte-level cut into one, since `bytes_to_string` already rejects invalid UTF-8 at the
-  one real boundary: `len(s) -> int` (code points), `chars(s) -> [string]` (split into them:
+- **Strings are stored as bytes and counted, indexed and cut in characters.** `len("héllo")` is 5,
+  `char_at(s, 1)` is a whole `é`, `substring` cannot split a character, and the two searches answer
+  character indices -- so `substring(s, 0, index_of(s, ",", 0))` means what it reads as. `byte_len`
+  and `to_bytes` are the storage questions, under names that say so.
+  **The unit moved on 2026-10-23**, and indexing UTF-8 by character would make every scanner
+  quadratic, so a string carries a known-ASCII bit (`ZSTR_ASCII`, `src/value.h`) and each of these
+  functions is two implementations: with no high byte anywhere a character index *is* a byte index
+  and the code is the arithmetic it always was. Text with real multi-byte characters takes the walk,
+  so random access into it is O(n) -- see `docs/DESIGN.md`. Invalid UTF-8 is a runtime error naming
+  the byte offset, reachable only through `append_byte`, since `bytes_to_string` rejects it at the
+  one real boundary and `substring` can no longer manufacture it: `len(s) -> int` (code points), `chars(s) -> [string]` (split into them:
   `chars("héllo")` is `[h,é,l,l,o]`, and `len(s)` is cheaper than `len(chars(s))`),
   `truncate(s, max_chars) -> string` (shortened without cutting a code point in half;
   `max_chars >= len(s)` returns `s` unchanged, negative is a runtime error). **It was

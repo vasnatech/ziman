@@ -671,7 +671,7 @@ fn decode_text_row(body: [byte], columns: [Column]) -> Result<[SqlValue], DbErro
 
 fn pad(n: int, width: int) -> string {
     var s = str(n)
-    while byte_len(s) < width {
+    while len(s) < width {
         s = concat("0", s)
     }
     return s
