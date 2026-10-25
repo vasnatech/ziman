@@ -12,8 +12,19 @@ that sidesteps every dialect difference in how SQLite and Postgres type those (S
 timestamp type at all).
 
 The URL parser reads `scheme://user[:password]@host[:port]/database[?k=v&...]`. User, password,
-database and query values are percent-decoded, so a password may contain `@`, `:` or `/` when written
-as %40, %3A, %2F (a literal `@` in the password also works: the LAST `@` separates userinfo from host).
+database and query names *and* values are percent-decoded, so a password may contain `@`, `:` or `/`
+when written as %40, %3A, %2F (a literal `@` in the password also works: the LAST `@` separates
+userinfo from host). With no database, the user's name stands in, as Postgres itself does.
+
+**A host may be a bracketed IPv6 literal**, `[::1]:5432`; the brackets keep the address's own colons
+out of the host/port split and are not part of the address, so `host` holds the bare `::1` -- which is
+what `net.connect` resolves (it answers "host not found" for the bracketed form).
+
+**A port must be in 1..65535, and a query parameter must have a `=`.** Both are refused here rather
+than carried into a driver: a port of `0` or `70000` reaches `net.connect` and comes back as a
+connection problem rather than a typo, and a parameter with no value is dropped in silence -- which
+matters because both drivers read `sslmode` from these and default it to `disable` when it is absent,
+so `?sslmode` instead of `?sslmode=require` would be an unencrypted connection with nothing said.
 
 `use db` -- or `use db.Name` to bring one item in bare.
 

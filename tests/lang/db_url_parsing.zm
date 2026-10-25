@@ -1,0 +1,84 @@
+// `db.parse_url`, which every driver reaches a server through. Four of the cases below were wrong
+// and the rest are the behaviour worth pinning beside them, because each fix tightens something
+// and the point is that it tightened only what it meant to.
+use db
+
+fn show(url: string) {
+    switch db.parse_url(url, ["postgres://", "postgresql://"], 5432) {
+        Ok(u) {
+            var text = format("user={} pass={} host={} port={} db={}", u.user, u.password, u.host, u.port, u.database)
+            for p in u.params {
+                text = concat(text, format(" [{}={}]", p.name, p.value))
+            }
+            print(text)
+        }
+        Err(e) { print(concat("ERR ", db.db_error_message(e))) }
+    }
+}
+
+fn main() {
+    print("-- the documented shapes --")
+    show("postgres://u:p@h:5433/d?a=1&b=2")
+    show("postgres://u:p@h/d")
+    show("postgres://u@h/d")
+    show("postgresql://u:p@h/d")
+    // with no database, the user's name stands in, as Postgres itself does
+    show("postgres://u:p@h")
+
+    print("-- credentials: the LAST '@' separates userinfo from host --")
+    show("postgres://u:p@ss@h/d")
+    show("postgres://u:p%40ss@h/d")
+    show("postgres://u:p%3Ass@h/d")
+    show("postgres://u:p:ss@h/d")
+    show("postgres://u:p%C3%A9@h/d")
+    show("postgres://u:p@h/a%2Fb")
+
+    // **A bracketed IPv6 literal.** Splitting at the first ':' made the host '[' and the port
+    // ':1]:5432', so every IPv6 URL was refused with a message about its port. The brackets keep
+    // the address's colons out of that split and are not part of the address: `net.connect` says
+    // "connection refused" for `::1` and "host not found" for `[::1]`, so the bare form is what
+    // the driver must be handed.
+    print("-- IPv6 hosts --")
+    show("postgres://u@[::1]:5432/d")
+    show("postgres://u@[::1]/d")
+    show("postgres://u@[2001:db8::8a2e:370:7334]:5433/d")
+    show("postgres://u:p@ss@[::1]:5432/d")
+    show("postgres://u@[::1/d")
+    show("postgres://u@[::1]x:5432/d")
+    show("postgres://u@[]/d")
+
+    // **A port outside 1..65535 is not a port.** 0, -1 and 70000 all parsed and were carried to
+    // `net.connect` to fail there, reporting a connection problem for what is a typo in a URL.
+    print("-- ports --")
+    show("postgres://u@h:1/d")
+    show("postgres://u@h:65535/d")
+    show("postgres://u@h:0/d")
+    show("postgres://u@h:-1/d")
+    show("postgres://u@h:70000/d")
+    show("postgres://u@h:abc/d")
+    show("postgres://u@h:/d")
+
+    // **A parameter with no '=' was dropped in silence, and the consequence was not silent**:
+    // both drivers default `sslmode` to "disable" when it is absent, so `?sslmode` -- a plain
+    // typo for `?sslmode=require` -- became an unencrypted connection with nothing said.
+    //
+    // **And the name is percent-decoded now too.** Only the value was, so `?a%2Db=1` made a
+    // parameter literally named `a%2Db`: asking for it as the URL spells it was the one way not
+    // to find it.
+    print("-- query parameters --")
+    show("postgres://u@h/d?sslmode")
+    show("postgres://u@h/d?a%2Db=x%20y")
+    show("postgres://u@h/d?a=")
+    show("postgres://u@h/d?a=1&a=2")
+    // the empty pieces a trailing '?', a trailing '&' and a '&&' leave behind are not parameters
+    show("postgres://u@h/d?")
+    show("postgres://u@h/d?a=1&")
+    show("postgres://u@h/d?a=1&&b=2")
+
+    print("-- rejections --")
+    show("mysql://u@h/d")
+    show("u@h/d")
+    show("POSTGRES://u@h/d")
+    show("postgres://h/d")
+    show("postgres://u@/d")
+}

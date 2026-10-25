@@ -1,0 +1,43 @@
+-- the documented shapes --
+user=u pass=p host=h port=5433 db=d [a=1] [b=2]
+user=u pass=p host=h port=5432 db=d
+user=u pass= host=h port=5432 db=d
+user=u pass=p host=h port=5432 db=d
+user=u pass=p host=h port=5432 db=u
+-- credentials: the LAST '@' separates userinfo from host --
+user=u pass=p@ss host=h port=5432 db=d
+user=u pass=p@ss host=h port=5432 db=d
+user=u pass=p:ss host=h port=5432 db=d
+user=u pass=p:ss host=h port=5432 db=d
+user=u pass=pé host=h port=5432 db=d
+user=u pass=p host=h port=5432 db=a/b
+-- IPv6 hosts --
+user=u pass= host=::1 port=5432 db=d
+user=u pass= host=::1 port=5432 db=d
+user=u pass= host=2001:db8::8a2e:370:7334 port=5433 db=d
+user=u pass=p@ss host=::1 port=5432 db=d
+ERR database connection error: no ']' closing the IPv6 host in database URL: [::1
+ERR database connection error: unexpected text after the IPv6 host in database URL: x:5432
+ERR database connection error: database URL has no host
+-- ports --
+user=u pass= host=h port=1 db=d
+user=u pass= host=h port=65535 db=d
+ERR database connection error: port 0 in database URL is not in 1..65535
+ERR database connection error: port -1 in database URL is not in 1..65535
+ERR database connection error: port 70000 in database URL is not in 1..65535
+ERR database connection error: bad port in database URL: abc
+ERR database connection error: bad port in database URL: 
+-- query parameters --
+ERR database connection error: database URL parameter has no '=': sslmode
+user=u pass= host=h port=5432 db=d [a-b=x y]
+user=u pass= host=h port=5432 db=d [a=]
+user=u pass= host=h port=5432 db=d [a=1] [a=2]
+user=u pass= host=h port=5432 db=d
+user=u pass= host=h port=5432 db=d [a=1]
+user=u pass= host=h port=5432 db=d [a=1] [b=2]
+-- rejections --
+ERR database connection error: unsupported database URL: mysql://u@h/d
+ERR database connection error: unsupported database URL: u@h/d
+ERR database connection error: unsupported database URL: POSTGRES://u@h/d
+ERR database connection error: database URL has no user name
+ERR database connection error: database URL has no host
