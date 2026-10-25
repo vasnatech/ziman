@@ -2563,8 +2563,12 @@ fn load_config() -> Result<ServerConfig, string> {
 - **Placeholders** (resolved once at load/parse, so a bad one fails startup): `${name}`/
   `${name:default}` resolve against properties, then the environment, then the default (which
   may contain `:`); unresolved or cyclic is an error.
-- **Getters**: `get_string/int/float/bool` (required); an optional key is `lookup(props, key)
-  -> Option<Entry>` plus `entry_int/float/bool/string`; errors name the key and source (`server.
+- **Getters**: `get_string/int/float/bool`, each over two shapes -- a `Properties` plus a required
+  key, or an `Entry` you already have from `lookup(props, key) -> Option<Entry>`, which is how an
+  optional key is read. One name per type, told apart by the arguments (they were `entry_*` and
+  `get_*` until 2026-10-24); the type suffix stays because all four take the same arguments and
+  differ only in what they answer, and `#[derive(Properties)]` builds the name from the field's
+  type. Errors name the key and source (`server.
   port: '80x' is not an integer (application.properties:3)`).
 - **`check_unknown(props, known_keys)`** fails on keys outside the list, suggesting the closest
   match; `profile.active` is always allowed.

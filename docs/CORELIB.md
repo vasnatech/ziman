@@ -1302,19 +1302,19 @@ pub fn parse(text: string, source: string) -> Result<Properties, string>
 
 pub fn load(name: string) -> Result<Properties, string>
 
-pub fn entry_string(e: Entry) -> Result<string, string>
-
-pub fn entry_int(e: Entry) -> Result<int, string>
-
-pub fn entry_float(e: Entry) -> Result<float, string>
-
-pub fn entry_bool(e: Entry) -> Result<bool, string>
+pub fn get_string(e: Entry) -> Result<string, string>
 
 pub fn get_string(props: Properties, key: string) -> Result<string, string>
 
+pub fn get_int(e: Entry) -> Result<int, string>
+
 pub fn get_int(props: Properties, key: string) -> Result<int, string>
 
+pub fn get_float(e: Entry) -> Result<float, string>
+
 pub fn get_float(props: Properties, key: string) -> Result<float, string>
+
+pub fn get_bool(e: Entry) -> Result<bool, string>
 
 pub fn get_bool(props: Properties, key: string) -> Result<bool, string>
 

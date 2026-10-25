@@ -999,7 +999,10 @@ static char *generate_struct_properties(StructDecl *sd) {
             cb_appendf(&cb, "    var field_%s = Option<%s>.None\n", f->name, g);
             cb_appendf(&cb, "    val found_%s = properties.lookup(props, properties.key(prefix, \"%s\"))\n", f->name, kebab);
             cb_appendf(&cb, "    if Option.is_Some(found_%s) {\n", f->name);
-            cb_appendf(&cb, "        val value_%s = try properties.entry_%s(Option.unwrap_Some(found_%s))\n", f->name, g, f->name);
+            /* **`get_%s`, not `entry_%s`** (2026-10-24): `properties` folded the two families
+             * into one name per type, told apart by whether an `Entry` or a `Properties` plus a
+             * key is given -- which is exactly what the two emit sites here already pass. */
+            cb_appendf(&cb, "        val value_%s = try properties.get_%s(Option.unwrap_Some(found_%s))\n", f->name, g, f->name);
             cb_appendf(&cb, "        field_%s = Option<%s>.Some(value_%s)\n    }\n", f->name, g, f->name);
         } else {
             const char *g = properties_getter_suffix(f->type, f->line, f->col);

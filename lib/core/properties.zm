@@ -256,30 +256,58 @@ fn require(props: Properties, key: string) -> Result<Entry, string> {
     }
 }
 
-// The entry's value as a string (always Ok; here so every `entry_*` has the same shape, which is
-// what `#[derive(Properties)]` relies on).
-pub fn entry_string(e: Entry) -> Result<string, string> {
+// **Typed readers, one name per type over two shapes.** Each takes either an `Entry` you already
+// have -- from `lookup`, which is how an optional key is read -- or a `Properties` and a required
+// key. The arguments say which, so the name need not: these were `entry_string` and `get_string`
+// until 2026-10-24, where `entry_` named the type of the argument it was given.
+//
+// The suffix stays and cannot go: all four take the same arguments and differ only in what they
+// answer, which no argument list can state -- `fs.read_text`/`read_bytes` and
+// `math.floor`/`floor_float` again. `#[derive(Properties)]` also builds these names by
+// concatenating the field's type, so the suffix is what makes the family addressable at all.
+
+// An entry's value as a string. Always Ok; here so every member has the same shape, which is what
+// `#[derive(Properties)]` relies on.
+pub fn get_string(e: Entry) -> Result<string, string> {
     return ok(e.value)
 }
 
-// The entry's value as an int. An Err naming the key, the text and where the value came from.
-pub fn entry_int(e: Entry) -> Result<int, string> {
+// The value of the required property `key` (environment variable first, then the files) as a
+// string. An Err if it is missing; the message names the key and the environment variable.
+pub fn get_string(props: Properties, key: string) -> Result<string, string> {
+    return get_string(try require(props, key))
+}
+
+// An entry's value as an int. An Err naming the key, the text and where the value came from.
+pub fn get_int(e: Entry) -> Result<int, string> {
     switch parse_int(e.value) {
         Ok(n) { return ok(n) }
-        Err(_) { return err(format("{}: '{}' is not an integer ({})", e.key, e.value, e.source)) }
+        Err(_) { return err(prelude.format("{}: '{}' is not an integer ({})", e.key, e.value, e.source)) }
     }
 }
 
-// The entry's value as a float. An Err naming the key, the text and where the value came from.
-pub fn entry_float(e: Entry) -> Result<float, string> {
+// The value of the required property `key` as an int. An Err if it is missing or not an integer;
+// the message names the key and where to set it.
+pub fn get_int(props: Properties, key: string) -> Result<int, string> {
+    return get_int(try require(props, key))
+}
+
+// An entry's value as a float. An Err naming the key, the text and where the value came from.
+pub fn get_float(e: Entry) -> Result<float, string> {
     switch parse_float(e.value) {
         Ok(n) { return ok(n) }
-        Err(_) { return err(format("{}: '{}' is not a number ({})", e.key, e.value, e.source)) }
+        Err(_) { return err(prelude.format("{}: '{}' is not a number ({})", e.key, e.value, e.source)) }
     }
 }
 
-// The entry's value as a bool: `true` or `false`, any case. An Err otherwise, naming the key and source.
-pub fn entry_bool(e: Entry) -> Result<bool, string> {
+// The required property `key` as a float; same lookup and errors as `get_int`.
+pub fn get_float(props: Properties, key: string) -> Result<float, string> {
+    return get_float(try require(props, key))
+}
+
+// An entry's value as a bool: `true` or `false`, any case. An Err otherwise, naming the key and
+// source.
+pub fn get_bool(e: Entry) -> Result<bool, string> {
     val v = to_lower(e.value, invariant)
     if v == "true" {
         return ok(true)
@@ -287,32 +315,12 @@ pub fn entry_bool(e: Entry) -> Result<bool, string> {
     if v == "false" {
         return ok(false)
     }
-    return err(format("{}: '{}' is not true or false ({})", e.key, e.value, e.source))
-}
-
-// Required typed getters. An optional key is `lookup` plus `entry_*`
-// (what #[derive(Properties)] generates for an Option<T> field).
-//
-// The value of the required property `key` (environment variable first, then the files) as a
-// string. An Err if it is missing; the message names the key and the environment variable.
-pub fn get_string(props: Properties, key: string) -> Result<string, string> {
-    return entry_string(try require(props, key))
-}
-
-// The value of the required property `key` (environment variable first, then the files) as an
-// int. An Err if it is missing or not an integer; the message names the key and where to set it.
-pub fn get_int(props: Properties, key: string) -> Result<int, string> {
-    return entry_int(try require(props, key))
-}
-
-// The required property `key` as a float; same lookup and errors as `get_int`.
-pub fn get_float(props: Properties, key: string) -> Result<float, string> {
-    return entry_float(try require(props, key))
+    return err(prelude.format("{}: '{}' is not true or false ({})", e.key, e.value, e.source))
 }
 
 // The required property `key` as a bool (`true` / `false`); same lookup and errors as `get_int`.
 pub fn get_bool(props: Properties, key: string) -> Result<bool, string> {
-    return entry_bool(try require(props, key))
+    return get_bool(try require(props, key))
 }
 
 // "server" + "port" -> "server.port"; an empty prefix leaves the name alone.

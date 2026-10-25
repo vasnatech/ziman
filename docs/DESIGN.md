@@ -209,6 +209,7 @@ them against the code.
 - [`process.output`'s temporary file was neither unique nor unpredictable (2026-10-24)](#processoutputs-temporary-file-was-neither-unique-nor-unpredictable-2026-10-24)
 - [`replace(s, Map<string, string>)`: one pass, longest match (2026-10-24)](#replaces-mapstring-string-one-pass-longest-match-2026-10-24)
 - [`keys` answers an array; the `Set` becomes `keys_set` (2026-10-24)](#keys-answers-an-array-the-set-becomes-keys_set-2026-10-24)
+- [`properties`: two families become one, and both were derive bridges (2026-10-24)](#properties-two-families-become-one-and-both-were-derive-bridges-2026-10-24)
 
 <!-- end index -->
 
@@ -8455,3 +8456,17 @@ And the array is the *cheap* one, which the old arrangement had backwards. Build
 **The C side is where this could have gone silently wrong.** Both members are natives, and the symbol the world-prefix fallback derives from `keys` on a `Map` is `map_keys` -- so swapping the declarations without swapping the registrations compiles, passes the whole suite, and answers a `Set` where an array is declared. `map_keys` points at the array implementation now and `map_keys_set` at the set one, with a comment saying why. That is the fifth time this week a native's declaration and its symbol could have come apart invisibly, and the first where *both* candidates were the right arity and type so nothing would have complained.
 
 Found on the way: `tests/lang/keys_array_both_worlds.zm` was named after the function and is `keys_both_worlds.zm`; a blanket rename also collapsed the two names into one inside SYNTAX.md's prose ("`keys(m)`, `keys(m)` and `values(m)`"), which is what a sweep does to a document that discusses both halves of a rename.
+
+## `properties`: two families become one, and both were derive bridges (2026-10-24)
+
+`properties.zm` had `entry_string`/`entry_int`/`entry_float`/`entry_bool` over an `Entry`, and `get_string`/`get_int`/`get_float`/`get_bool` over a `Properties` and a key. Eight names for four questions.
+
+**The `entry_*` four had zero hand-written callers anywhere in either repository**, which looked like dead code and was not: `#[derive(Properties)]` generates `properties.entry_<type>(...)` for an `Option<T>` field and `properties.get_<type>(props, key)` for a required one. Both families are compiler bridges, built by concatenating the field's type onto a prefix -- the same shape as `<type>_to_json` and `<type>_compare`. Checking that before deleting is the whole of the work here; "no callers" and "called by the compiler" look identical from a grep.
+
+**They are one name per type now**, because the `entry_` prefix named the type of the *argument*, which the argument already says: `get_int(e: Entry)` and `get_int(props: Properties, key: string)` differ in both arity and first-parameter type, so every call tells them apart. Derive's two emit sites now write the same name and differ only in what they pass, which is simpler there too.
+
+**The type suffix stays and could not go.** All four take identical arguments and differ only in what they answer -- the constraint that keeps `fs.read_text`/`read_bytes` and `math.floor`/`floor_float` apart, and the sixth time this week it has decided a name. It is also load-bearing for derive, which builds `get_%s` from the field's type: without the suffix the family would not be addressable by generated code at all.
+
+That is the distinction worth carrying away from this week's renames. A derive bridge is not exempt from being renamed -- `time`'s converters moved and `json`'s tree helpers moved -- but it *is* exempt from losing the part of its name the generator computes. `entry_` was a prefix a human chose; `_int` is a suffix the compiler writes.
+
+An honest note on the verification: `make check` reported `api-check` failing on "an enum variant carries its payload type: no 'Io(string)' in the output", and `Io(string)` was plainly in `--api net`'s output at line 69. Running `make api-check` alone passed 41 of 41, and so did the next full run. A stale binary against freshly edited `lib/` sources is the standing explanation for that shape here, and it is the reason the rule is to re-run rather than to reason about a single failure.

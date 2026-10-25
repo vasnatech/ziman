@@ -122,47 +122,18 @@ the base file; an active profile with no file is an Err), applies the profile's 
 base ones, and resolves every `${placeholder}`. The result is what `lookup` and the `get_*`
 functions read.
 
-### `entry_string`
-
-```
-pub fn entry_string(e: Entry) -> Result<string, string>
-```
-
-The entry's value as a string (always Ok; here so every `entry_*` has the same shape, which is
-what `#[derive(Properties)]` relies on).
-
-### `entry_int`
-
-```
-pub fn entry_int(e: Entry) -> Result<int, string>
-```
-
-The entry's value as an int. An Err naming the key, the text and where the value came from.
-
-### `entry_float`
-
-```
-pub fn entry_float(e: Entry) -> Result<float, string>
-```
-
-The entry's value as a float. An Err naming the key, the text and where the value came from.
-
-### `entry_bool`
-
-```
-pub fn entry_bool(e: Entry) -> Result<bool, string>
-```
-
-The entry's value as a bool: `true` or `false`, any case. An Err otherwise, naming the key and source.
-
 ### `get_string`
+
+```
+pub fn get_string(e: Entry) -> Result<string, string>
+```
+
+An entry's value as a string. Always Ok; here so every member has the same shape, which is what
+`#[derive(Properties)]` relies on.
 
 ```
 pub fn get_string(props: Properties, key: string) -> Result<string, string>
 ```
-
-Required typed getters. An optional key is `lookup` plus `entry_*`
-(what #[derive(Properties)] generates for an Option<T> field).
 
 The value of the required property `key` (environment variable first, then the files) as a
 string. An Err if it is missing; the message names the key and the environment variable.
@@ -170,13 +141,25 @@ string. An Err if it is missing; the message names the key and the environment v
 ### `get_int`
 
 ```
+pub fn get_int(e: Entry) -> Result<int, string>
+```
+
+An entry's value as an int. An Err naming the key, the text and where the value came from.
+
+```
 pub fn get_int(props: Properties, key: string) -> Result<int, string>
 ```
 
-The value of the required property `key` (environment variable first, then the files) as an
-int. An Err if it is missing or not an integer; the message names the key and where to set it.
+The value of the required property `key` as an int. An Err if it is missing or not an integer;
+the message names the key and where to set it.
 
 ### `get_float`
+
+```
+pub fn get_float(e: Entry) -> Result<float, string>
+```
+
+An entry's value as a float. An Err naming the key, the text and where the value came from.
 
 ```
 pub fn get_float(props: Properties, key: string) -> Result<float, string>
@@ -185,6 +168,13 @@ pub fn get_float(props: Properties, key: string) -> Result<float, string>
 The required property `key` as a float; same lookup and errors as `get_int`.
 
 ### `get_bool`
+
+```
+pub fn get_bool(e: Entry) -> Result<bool, string>
+```
+
+An entry's value as a bool: `true` or `false`, any case. An Err otherwise, naming the key and
+source.
 
 ```
 pub fn get_bool(props: Properties, key: string) -> Result<bool, string>
