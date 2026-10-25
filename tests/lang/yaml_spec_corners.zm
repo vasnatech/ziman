@@ -1,0 +1,65 @@
+// Four corners of YAML 1.2 that `yaml` got wrong, each beside the case that proves the fix did
+// not simply refuse more. All four were "misread rather than reported", which is the one thing
+// the module's header promises it does not do.
+use json
+use yaml
+
+fn show(src: string) {
+    switch yaml.parse(src) {
+        Ok(tree) { print(json.format(tree)) }
+        Err(why) { print(concat("ERR ", why)) }
+    }
+}
+
+fn main() {
+    // **Keep chomping counted the file's own last newline as a trailing empty line.** Example 8.4
+    // of the spec: `keep: |+` over `  text` is `"text\n"`, and this gave `"text\n\n"`. The cause
+    // was `split(text, "\n")` yielding a final empty element for text ending in a newline -- which
+    // is not a line -- so the miscount is fixed in the tokenizer rather than in the one place it
+    // showed. Example 8.5 is the two-break case below.
+    print("-- chomping, one trailing break (8.4) --")
+    show("a: |-\n  text\n")
+    show("a: |\n  text\n")
+    show("a: |+\n  text\n")
+    print("-- chomping, a trailing empty line (8.5) --")
+    show("a: |-\n  text\n\n")
+    show("a: |\n  text\n\n")
+    show("a: |+\n  text\n\n")
+
+    // **A folded scalar does not fold around a more-indented line**: "folding does not apply to
+    // line breaks surrounding text lines that contain leading white space." `>` used to give
+    // `one   deep two`, running three lines together with the indentation left in the middle,
+    // where `|` over the same body was already right. The two now agree, which is the point.
+    print("-- folding and more-indented lines --")
+    show("a: >\n  one\n    deep\n  two\n")
+    show("a: |\n  one\n    deep\n  two\n")
+    // and an ordinary folded block still folds, including across a blank line
+    show("a: >\n  one\n  two\n")
+    show("a: >\n  one\n\n  two\n")
+
+    // **`...` ends the document, so what follows it starts a second one.** The line was skipped
+    // and parsing carried on, so two documents merged into one mapping. `...` before a `---` was
+    // already caught by the `---` check, which is why this hid.
+    print("-- the document-end marker --")
+    show("a: 1\n...\nb: 2")
+    show("a: 1\n...")
+    show("...")
+
+    // **The `<<` merge key was refused in block style and read as data in flow style.** A merge
+    // silently becoming a key named `<<` is the shape of bug this module is built to avoid.
+    print("-- the merge key, both styles --")
+    show("a: {<<: {x: 1}}")
+    show("a:\n  <<: {x: 1}")
+    // a key that merely starts with '<' is not the merge key
+    show("a: {<x>: 1}")
+
+    // the line-ending cases the tokenizer change could have disturbed
+    print("-- line endings --")
+    show("a: 1")
+    show("a: 1\n")
+    show("a: 1\n\n")
+    show("a: 1\r\nb: 2\r\n")
+    show("\n\na: 1")
+    show("\n\n")
+    show("a: |\n  one")
+}

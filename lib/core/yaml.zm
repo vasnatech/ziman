@@ -130,7 +130,20 @@ fn append_utf8(out: MutableString, cp: int) {
 fn tokenize(text: string) -> Result<[Line], string> {
     val out = mutable_array_new<Line>()
     var no = 0
-    for raw_line in split(text, "\n") {
+    // **`split` on text ending in a newline yields a final empty element, and that element is not
+    // a line**: `"a\n"` is one line, not two. Nothing noticed until `|+`, where keep chomping
+    // counts the trailing empty lines and so counted the file's own last newline as one -- Example
+    // 8.4 of the spec wants `keep: |+` over `  text` to be `"text\n"` and this produced
+    // `"text\n\n"`. Dropping it here fixes the count at its source rather than compensating in the
+    // one place the miscount showed.
+    val raw_lines = split(text, "\n")
+    val count = if len(raw_lines) > 1 && raw_lines[len(raw_lines) - 1] == "" {
+        len(raw_lines) - 1
+    } else {
+        len(raw_lines)
+    }
+    for li in 0..count {
+        val raw_line = raw_lines[li]
         no = no + 1
         val raw = if is_char_at(
             raw_line,
@@ -520,6 +533,12 @@ fn flow_map(cs: [string], pos: int, no: int, depth: int) -> Result<Scalar, strin
             p,
             key.next
         )) }
+        // The same refusal the block path makes. Only that one had it, so `{<<: {x: 1}}` came
+        // back as a mapping with a literal `"<<"` key -- a merge silently read as data, which is
+        // the one outcome the header promises not to produce.
+        if key_text == "<<" {
+            return err(fail(no, "the '<<' merge key is not supported"))
+        }
         if contains(fields, key_text) {
             return err(fail(no, prelude.format("duplicate key '{}'", key_text)))
         }
@@ -698,6 +717,12 @@ fn split_key(content: string, no: int) -> Result<Option<KeyRes>, string> {
     return ok(Option<KeyRes>.None)
 }
 
+// Whether a block scalar's body line is "more indented" than the block: it still carries leading
+// white space after the block's own indentation was stripped. Folding is suspended around these.
+fn more_indented(line: string) -> bool {
+    return starts_with(line, " ") || starts_with(line, "\t")
+}
+
 // A block scalar (`|` literal, `>` folded): the more-indented lines after line `j`.
 fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<NodeRes, string> {
     val no = lines[j].no
@@ -766,6 +791,15 @@ fn block_scalar(lines: [Line], j: int, header: string, base: int) -> Result<Node
                 append(out, "\n")
             } else if byte_len(all[k - 1]) == 0 {
                 // a blank line already produced its own newline
+            } else if more_indented(all[k]) || more_indented(all[k - 1]) {
+                // **A folded scalar does not fold around a more-indented line**: "folding does not
+                // apply to line breaks surrounding text lines that contain leading white space."
+                // Without this, `>` over `one` / `  deep` / `two` gave `one   deep two`, running
+                // three lines together and leaving the indentation in the middle of the result --
+                // where `|` over the same body correctly gives `one\n  deep\ntwo`. The break on
+                // *both* sides of such a line is kept, which is why this looks at the previous line
+                // as well as this one.
+                append(out, "\n")
             } else {
                 append(out, " ")
             }
@@ -960,6 +994,7 @@ pub fn parse(text: string) -> Result<Json, string> {
     val all = try tokenize(text)
     val kept = mutable_array_new<Line>()
     var seen_start = false
+    var ended = false
     for ln in all {
         val c = content_of(ln)
         if !ln.cont && (c == "---" || starts_with(c, "--- ")) {
@@ -971,10 +1006,18 @@ pub fn parse(text: string) -> Result<Json, string> {
             }
             seen_start = true
         } else if !ln.cont && c == "..." {
-            // end of document marker
+            // **`...` ends the document, so anything after it starts a second one.** Skipping the
+            // line and carrying on merged the two: `a: 1` / `...` / `b: 2` came back as
+            // `{"a":1,"b":2}`, one mapping built from two documents, which is exactly the "misread
+            // rather than reported" this module exists to avoid. (`...` followed by `---` was
+            // already caught, by the `---` check above -- which is why this hid.)
+            ended = true
         } else if !ln.cont && starts_with(c, "%") && ln.indent == 0 {
             return err(fail(ln.no, "directives are not supported"))
         } else {
+            if ended {
+                return err(fail(ln.no, "multiple documents are not supported"))
+            }
             push(kept, ln)
         }
     }

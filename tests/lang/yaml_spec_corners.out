@@ -1,0 +1,29 @@
+-- chomping, one trailing break (8.4) --
+{"a":"text"}
+{"a":"text\n"}
+{"a":"text\n"}
+-- chomping, a trailing empty line (8.5) --
+{"a":"text"}
+{"a":"text\n"}
+{"a":"text\n\n"}
+-- folding and more-indented lines --
+{"a":"one\n  deep\ntwo\n"}
+{"a":"one\n  deep\ntwo\n"}
+{"a":"one two\n"}
+{"a":"one\ntwo\n"}
+-- the document-end marker --
+ERR line 3: multiple documents are not supported
+{"a":1}
+null
+-- the merge key, both styles --
+ERR line 1: the '<<' merge key is not supported
+ERR line 2: the '<<' merge key is not supported
+{"a":{"<x>":1}}
+-- line endings --
+{"a":1}
+{"a":1}
+{"a":1}
+{"a":1,"b":2}
+{"a":1}
+null
+{"a":"one\n"}
