@@ -1203,9 +1203,15 @@ pub fn hotp(key: [byte], counter: int, digits: int) -> string
 
 pub fn totp(key: [byte], unix_seconds: int) -> string
 
+pub fn totp(key: [byte], unix_seconds: int, digits: int) -> string
+
 pub fn totp_matching_step(key: [byte], code: string, unix_seconds: int, window: int) -> Option<int>
 
+pub fn totp_matching_step(
+
 pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int) -> bool
+
+pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int, digits: int) -> bool
 
 pub fn provisioning_uri(issuer: string, account: string, secret: string) -> string
 

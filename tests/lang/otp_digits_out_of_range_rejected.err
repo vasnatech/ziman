@@ -1,0 +1,1 @@
+hotp: digits must be 6 to 9, found 10 (dynamic truncation yields a 31-bit number, so a tenth digit could only ever be 0, 1 or 2)

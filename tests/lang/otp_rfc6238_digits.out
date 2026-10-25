@@ -1,0 +1,21 @@
+-- RFC 4226 Appendix D, 6-digit HOTP --
+c=0 755224 == 755224
+c=1 287082 == 287082
+c=4 338314 == 338314
+c=9 520489 == 520489
+-- RFC 6238 Appendix B, 8-digit TOTP (SHA-1) --
+T=59         94287082 == 94287082
+T=1111111109 07081804 == 07081804
+T=1111111111 14050471 == 14050471
+T=1234567890 89005924 == 89005924
+T=2000000000 69279037 == 69279037
+-- the 8-digit verifiers --
+true
+false
+Some(41152263)
+false
+-- the default stays six --
+287082
+true
+-- 9 is the honest maximum: a 31-bit number has no tenth digit --
+094287082

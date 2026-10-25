@@ -1,0 +1,10 @@
+// `digits` outside 6 to 9 is refused, where it used to be accepted and answer something misleading.
+// Dynamic truncation (RFC 4226 section 5.3) yields a 31-bit number, at most 2147483647, so a tenth
+// digit could only ever be 0, 1 or 2 -- a code that looks stronger than it is. `0` and a negative
+// both used to answer the single character "0", and `20` reached an integer overflow in the modulus
+// loop and reported that instead, naming nothing the caller wrote.
+use otp
+
+fn main() {
+    print(otp.hotp(to_bytes("12345678901234567890"), 1, 10))
+}

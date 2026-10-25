@@ -204,6 +204,7 @@ them against the code.
 - [`number`: one `format`, one `to_hex`, and the `bytes_` world the fallback was missing (2026-10-24)](#number-one-format-one-to_hex-and-the-bytes_-world-the-fallback-was-missing-2026-10-24)
 - [`number`'s patterns become real `DecimalFormat` patterns (2026-10-24)](#numbers-patterns-become-real-decimalformat-patterns-2026-10-24)
 - [`os`: three small things, and the fourth time a native's symbol came apart (2026-10-24)](#os-three-small-things-and-the-fourth-time-a-natives-symbol-came-apart-2026-10-24)
+- [`otp`: `digits` becomes real, and the verifiers learn to count (2026-10-24)](#otp-digits-becomes-real-and-the-verifiers-learn-to-count-2026-10-24)
 
 <!-- end index -->
 
@@ -8357,3 +8358,21 @@ Still unsupported, and still deliberately: `%`, `E`, `;`-separated negative subp
 What is new here is *why the fallback could not save it*. For `to_hex` and `bits`'s operators the fallback derived the right symbol from parameter one's type once the worlds existed. `name()` and `arch()` **take no arguments**, so there is no parameter to read and the fallback is skipped outright (`native == NULL && fn->params.count > 0`). A zero-argument native's registration has to carry its declared name exactly, and no amount of world-prefix machinery will cover it. That is now a comment beside those two registrations.
 
 Four instances, three distinct causes: a bare registration found before the fallback (`char_at`, `last_index_of`), a world the fallback did not have (`to_hex` on `[byte]`, `bits`'s scalars), and no parameter to derive from (here). The common thread is that **a `native fn`'s name and its symbol are two different things that only a run can prove agree** -- not the build, and not the suite unless a fixture happens to call that exact member.
+
+## `otp`: `digits` becomes real, and the verifiers learn to count (2026-10-24)
+
+`otp.zm`'s names needed nothing. `totp_valid` and `totp_matching_step` keep their `totp_` prefix for the reason `net`'s `connect_tls` keeps its: it names the *algorithm*, and a reader verifying a code needs to know whether it is time-based or counter-based before anything else. The implementation needed nothing either -- RFC 4226's and 6238's own vectors pass, the comparison goes through the constant-time `crypto.bytes_equal`, and `totp_matching_step` deliberately checks every step in the window *after* a match so the time taken cannot say which step matched. That last one is careful work and worth not disturbing.
+
+**What was wrong was `digits`.** The doc said "6 to 9" and nothing enforced it, so three things happened that should not:
+
+- `digits: 10` answered a ten-digit code. Dynamic truncation (RFC 4226 §5.3) yields a 31-bit number, at most 2147483647, so the tenth digit could only ever be 0, 1 or 2 -- a code that *looks* stronger than it is, which is the worst direction for this kind of mistake.
+- `digits: 0` and `digits: -1` both answered the single character `"0"`.
+- `digits: 20` reached an integer overflow in the modulus loop and reported *that*: "integer overflow in '*'" at a line inside `otp`, naming nothing the caller wrote.
+
+It is a runtime error naming the bound now, which is what `bits`'s shift amount and `decimal_pow`'s exponent already do for the same shape of mistake.
+
+**And the verifiers could not check an eight-digit code.** `totp` hardcoded six. `hotp(key, unix_seconds / 30, 8)` produced one by hand -- which is how the existing fixture tested the eight-digit path -- but `totp_valid` and `totp_matching_step` both went through the six-digit `totp`, so a deployment using eight digits (RFC 6238 permits it, and its own Appendix B test vectors *are* eight) could generate codes it had no way to verify. All three take an optional `digits` now, six when omitted.
+
+That gap is why the new fixture pins RFC 6238's vectors rather than a round trip: all five of them are eight digits, so before this change the suite could not have contained them in the form the spec states. The six-digit RFC 4226 vectors are in the same fixture as the thing that must not have moved.
+
+**A side effect worth keeping.** Making `totp_valid` an overload set switched on the dropped-result check for it, and caught SYNTAX.md's own example discarding the answer. A pure function whose entire purpose is to tell you whether a code is valid is exactly the one where throwing the result away should not compile; the documentation now says so, and demonstrates binding it.

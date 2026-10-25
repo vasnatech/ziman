@@ -1,0 +1,43 @@
+// **RFC 6238 Appendix B's own test vectors**, which are all *eight* digits -- and which this module
+// could not verify before 2026-10-24. `totp` hardcoded six, so an eight-digit code could be
+// produced by hand through `hotp(key, unix_seconds / 30, 8)` but neither `totp_valid` nor
+// `totp_matching_step` could check one: both went through the six-digit `totp`. All three take
+// `digits` now.
+//
+// RFC 4226 Appendix D's six-digit HOTP vectors are here too, as the thing that must not have moved.
+use otp
+
+fn check(label: string, got: string, want: string) {
+    print(concat(label, " ", got, if got == want { " == " } else { " != " }, want))
+}
+
+fn main() {
+    val key = to_bytes("12345678901234567890")
+
+    print("-- RFC 4226 Appendix D, 6-digit HOTP --")
+    check("c=0", otp.hotp(key, 0, 6), "755224")
+    check("c=1", otp.hotp(key, 1, 6), "287082")
+    check("c=4", otp.hotp(key, 4, 6), "338314")
+    check("c=9", otp.hotp(key, 9, 6), "520489")
+
+    print("-- RFC 6238 Appendix B, 8-digit TOTP (SHA-1) --")
+    check("T=59        ", otp.totp(key, 59, 8), "94287082")
+    check("T=1111111109", otp.totp(key, 1111111109, 8), "07081804")
+    check("T=1111111111", otp.totp(key, 1111111111, 8), "14050471")
+    check("T=1234567890", otp.totp(key, 1234567890, 8), "89005924")
+    check("T=2000000000", otp.totp(key, 2000000000, 8), "69279037")
+
+    print("-- the 8-digit verifiers --")
+    print(otp.totp_valid(key, "94287082", 59, 1, 8))
+    print(otp.totp_valid(key, "94287083", 59, 1, 8))
+    print(otp.totp_matching_step(key, "89005924", 1234567890, 1, 8))
+    // a 6-digit code is not an 8-digit one, whatever the key
+    print(otp.totp_valid(key, "287082", 59, 1, 8))
+
+    print("-- the default stays six --")
+    print(otp.totp(key, 59))
+    print(otp.totp_valid(key, otp.totp(key, 59), 59, 1))
+
+    print("-- 9 is the honest maximum: a 31-bit number has no tenth digit --")
+    print(otp.hotp(key, 1, 9))
+}

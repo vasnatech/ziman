@@ -100,8 +100,23 @@ fn counter_bytes(counter: int) -> [byte] {
     return snapshot(out)
 }
 
-// The HOTP value (RFC 4226) for `counter`, `digits` (6 to 9) long with leading zeros: HMAC-SHA-1, then the "dynamic truncation".
+// The HOTP value (RFC 4226) for `counter`, `digits` long with leading zeros: HMAC-SHA-1, then the
+// "dynamic truncation".
+//
+// **`digits` must be 6 to 9, and that is now enforced** rather than only documented. Dynamic
+// truncation yields a 31-bit number, at most 2147483647, so nine digits is the most that can carry
+// real entropy: a tenth could only ever be 0, 1 or 2, which makes `digits: 10` a code that looks
+// stronger than it is. Below six is weaker than the RFC allows at all, `0` and a negative both used
+// to answer the single character `"0"`, and `20` reached an integer overflow inside the modulus
+// loop and reported *that* -- a message about `*` on line 110, naming nothing the caller wrote.
 pub fn hotp(key: [byte], counter: int, digits: int) -> string {
+    if digits < 6 || digits > 9 {
+        val bad: Result<unit, string> = err(prelude.format(
+            "hotp: digits must be 6 to 9, found {} (dynamic truncation yields a 31-bit number, so a tenth digit could only ever be 0, 1 or 2)",
+            digits
+        ))
+        val _ = unwrap(bad)
+    }
     val mac = crypto.hmac_sha1(key, counter_bytes(counter))
     val offset = (mac[19] as int) % 16
     val number = ((mac[offset] as int) % 128) * 16777216 + (mac[offset + 1] as int) * 65536 + (mac[offset + 2] as int) * 256 + (mac[offset + 3] as int)
@@ -120,7 +135,15 @@ pub fn hotp(key: [byte], counter: int, digits: int) -> string {
 
 // The six-digit code an authenticator app shows at `unix_seconds` (30-second steps from the epoch).
 pub fn totp(key: [byte], unix_seconds: int) -> string {
-    return hotp(key, unix_seconds / 30, 6)
+    return totp(key, unix_seconds, 6)
+}
+
+// **The same with `digits` chosen**, 6 to 9. RFC 6238 allows more than six and its own test vectors
+// are eight, which this could not produce until 2026-10-24: `hotp(key, unix_seconds / 30, 8)` did
+// it by hand, but the *verifiers* below went through the six-digit `totp`, so an eight-digit code
+// could be generated and then not checked. All three take `digits` now.
+pub fn totp(key: [byte], unix_seconds: int, digits: int) -> string {
+    return hotp(key, unix_seconds / 30, digits)
 }
 
 // The 30-second step number `code` matches, at `unix_seconds` or within `window` steps of it either way (1
@@ -129,11 +152,22 @@ pub fn totp(key: [byte], unix_seconds: int) -> string {
 // same one). The comparison takes the same time whatever the code, and every step in the window is checked
 // even after a match, so the time taken does not say which step (or whether one) matched.
 pub fn totp_matching_step(key: [byte], code: string, unix_seconds: int, window: int) -> Option<int> {
+    return totp_matching_step(key, code, unix_seconds, window, 6)
+}
+
+// The same for a code of `digits` digits.
+pub fn totp_matching_step(
+    key: [byte],
+    code: string,
+    unix_seconds: int,
+    window: int,
+    digits: int
+) -> Option<int> {
     var found: Option<int> = None
     val typed = to_bytes(trim(code))
     for step in (0 - window)..(window + 1) {
         val at = unix_seconds + step * 30
-        val expected = to_bytes(totp(key, at))
+        val expected = to_bytes(totp(key, at, digits))
         if len(expected) == len(typed) && crypto.bytes_equal(expected, typed) {
             found = Option<int>.Some(at / 30)
         }
@@ -144,7 +178,12 @@ pub fn totp_matching_step(key: [byte], code: string, unix_seconds: int, window: 
 // Whether `code` is the code at `unix_seconds` or within `window` 30-second steps of it either way (1 allows for a clock a few seconds
 // off). The comparison takes the same time whatever the code.
 pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int) -> bool {
-    return is_Some(totp_matching_step(key, code, unix_seconds, window))
+    return is_Some(totp_matching_step(key, code, unix_seconds, window, 6))
+}
+
+// The same for a code of `digits` digits.
+pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int, digits: int) -> bool {
+    return is_Some(totp_matching_step(key, code, unix_seconds, window, digits))
 }
 
 // `text` percent-encoded for a URI component: letters, digits and `-_.~` stay, every other byte becomes `%XX`.

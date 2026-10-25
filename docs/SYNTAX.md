@@ -2468,12 +2468,24 @@ val typed_code = "492039"
 val now_seconds = 1760000000
 val secret = otp.generate_secret()                                   // base32, shown to the user once
 val key = unwrap(otp.base32_decode(secret))
-otp.totp_valid(key, typed_code, now_seconds, 1)                      // this step and one either side
+val ok = otp.totp_valid(key, typed_code, now_seconds, 1)             // this step and one either side
 ```
 
 `hotp(key, counter, digits)`/`totp(key, unix_seconds)` give the codes; `provisioning_uri("My
 App", email, secret)` builds an `otpauth://totp/...` URI for a QR code; `base32_encode`/`_decode`
-are public. Checks compare constant-time; tests use the RFC 4226/6238 vectors.
+are public. Checks compare constant-time, and every step in the window is checked even after a
+match so the time taken does not say which step matched; tests use the RFC 4226/6238 vectors.
+**Discarding a `totp_valid` answer is a compile error** -- it is a pure function with no other
+effect, and throwing away the one thing a verification tells you is the mistake worth catching.
+
+- **`digits` must be 6 to 9**, enforced rather than only documented. Dynamic truncation (RFC 4226
+  §5.3) yields a 31-bit number, at most 2147483647, so nine is the most that carries real entropy
+  -- a tenth digit could only ever be 0, 1 or 2, which makes a longer code look stronger than it
+  is. Out of range is a runtime error naming the bound.
+- **`totp`, `totp_valid` and `totp_matching_step` each take an optional `digits`** as a last
+  argument, six when omitted. RFC 6238's own test vectors are eight digits, and until 2026-10-24
+  this module could *generate* an eight-digit code (through `hotp` by hand) but not verify one,
+  both verifiers going through the six-digit `totp`.
 
 ## Configuration (`properties`, `os`)
 

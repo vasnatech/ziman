@@ -46,7 +46,15 @@ for any other character.
 pub fn hotp(key: [byte], counter: int, digits: int) -> string
 ```
 
-The HOTP value (RFC 4226) for `counter`, `digits` (6 to 9) long with leading zeros: HMAC-SHA-1, then the "dynamic truncation".
+The HOTP value (RFC 4226) for `counter`, `digits` long with leading zeros: HMAC-SHA-1, then the
+"dynamic truncation".
+
+**`digits` must be 6 to 9, and that is now enforced** rather than only documented. Dynamic
+truncation yields a 31-bit number, at most 2147483647, so nine digits is the most that can carry
+real entropy: a tenth could only ever be 0, 1 or 2, which makes `digits: 10` a code that looks
+stronger than it is. Below six is weaker than the RFC allows at all, `0` and a negative both used
+to answer the single character `"0"`, and `20` reached an integer overflow inside the modulus
+loop and reported *that* -- a message about `*` on line 110, naming nothing the caller wrote.
 
 ### `totp`
 
@@ -55,6 +63,15 @@ pub fn totp(key: [byte], unix_seconds: int) -> string
 ```
 
 The six-digit code an authenticator app shows at `unix_seconds` (30-second steps from the epoch).
+
+```
+pub fn totp(key: [byte], unix_seconds: int, digits: int) -> string
+```
+
+**The same with `digits` chosen**, 6 to 9. RFC 6238 allows more than six and its own test vectors
+are eight, which this could not produce until 2026-10-24: `hotp(key, unix_seconds / 30, 8)` did
+it by hand, but the *verifiers* below went through the six-digit `totp`, so an eight-digit code
+could be generated and then not checked. All three take `digits` now.
 
 ### `totp_matching_step`
 
@@ -68,6 +85,18 @@ replay of a step already spent (store the step a login accepted; refuse a future
 same one). The comparison takes the same time whatever the code, and every step in the window is checked
 even after a match, so the time taken does not say which step (or whether one) matched.
 
+```
+pub fn totp_matching_step(
+    key: [byte],
+    code: string,
+    unix_seconds: int,
+    window: int,
+    digits: int
+) -> Option<int>
+```
+
+The same for a code of `digits` digits.
+
 ### `totp_valid`
 
 ```
@@ -76,6 +105,12 @@ pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int) -> 
 
 Whether `code` is the code at `unix_seconds` or within `window` 30-second steps of it either way (1 allows for a clock a few seconds
 off). The comparison takes the same time whatever the code.
+
+```
+pub fn totp_valid(key: [byte], code: string, unix_seconds: int, window: int, digits: int) -> bool
+```
+
+The same for a code of `digits` digits.
 
 ### `provisioning_uri`
 
