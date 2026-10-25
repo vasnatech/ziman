@@ -3,8 +3,8 @@ use os
 fn main() {
     print(os.cpu_count() >= 1)
     print(byte_len(os.hostname()) > 0)
-    print(os.os_name() == "linux" || os.os_name() == "macos")
-    print(byte_len(os.os_arch()) > 0)
+    print(os.name() == "linux" || os.name() == "macos")
+    print(byte_len(os.arch()) > 0)
     val load = unwrap(os.load_average())
     print(len(load))
     print(unwrap(os.uptime_seconds()) > 0)
@@ -24,9 +24,9 @@ fn main() {
     }
     val b = unwrap(os.cpu_times())
     print(b.total >= a.total && b.busy >= a.busy)
-    val rate = os.cpu_usage_between(a, b)
+    val rate = os.cpu_usage(a, b)
     print(rate >= 0.0 && rate <= 1.0)
-    print(os.cpu_usage_between(a, a))
+    print(os.cpu_usage(a, a))
     val sampled = unwrap(os.cpu_usage(100))
     print(sampled >= 0.0 && sampled <= 1.0)
     print(unwrap(os.process_cpu_seconds()) > 0.0)

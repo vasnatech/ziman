@@ -420,8 +420,12 @@ void native_os_register(void) {
     native_register("os::memory_available", native_os_memory_available);
     native_register("os::memory_total", native_os_memory_total);
     native_register("os::load_average", native_os_load_average);
-    native_register("os::os_arch", native_os_os_arch);
-    native_register("os::os_name", native_os_os_name);
+    /* **`os::name`/`os::arch`, matching the declarations** (2026-10-24, was `os::os_name`).
+     * These take no arguments, so the world-prefix fallback cannot help: it derives a symbol from
+     * parameter one's type and there is no parameter. A zero-argument native's registration has to
+     * carry the declared name exactly. */
+    native_register("os::arch", native_os_os_arch);
+    native_register("os::name", native_os_os_name);
     native_register("os::hostname", native_os_hostname);
     native_register("os::cpu_count", native_os_cpu_count);
     native_register("os::collect_garbage", native_os_collect_garbage);

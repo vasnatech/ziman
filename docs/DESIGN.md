@@ -203,6 +203,7 @@ them against the code.
 - [`net`: the `_with` suffixes go, and three names are kept on purpose (2026-10-24)](#net-the-_with-suffixes-go-and-three-names-are-kept-on-purpose-2026-10-24)
 - [`number`: one `format`, one `to_hex`, and the `bytes_` world the fallback was missing (2026-10-24)](#number-one-format-one-to_hex-and-the-bytes_-world-the-fallback-was-missing-2026-10-24)
 - [`number`'s patterns become real `DecimalFormat` patterns (2026-10-24)](#numbers-patterns-become-real-decimalformat-patterns-2026-10-24)
+- [`os`: three small things, and the fourth time a native's symbol came apart (2026-10-24)](#os-three-small-things-and-the-fourth-time-a-natives-symbol-came-apart-2026-10-24)
 
 <!-- end index -->
 
@@ -8340,3 +8341,19 @@ Making it a `Result` rather than adding a checked sibling was the choice: two re
 The composition by hand still works and is pinned by a fixture, because the fields are assignable: `with unwrap(parse_pattern("#,###.00")) { thousands_separator: ".", decimal_separator: "," }`. What changed is that nobody has to.
 
 Still unsupported, and still deliberately: `%`, `E`, `;`-separated negative subpatterns, literal prefix and suffix text, and custom grouping sizes -- grouping is always by 3, and a `,`'s position in the pattern is not read. Truncation also remains truncation: `0.##` of `1.999` is `1.99`, because rounding is `math.round`'s job and doing it here would hide which of the two happened.
+
+## `os`: three small things, and the fourth time a native's symbol came apart (2026-10-24)
+
+`os.zm` is 176 lines of short verbs -- `pid`, `args`, `cwd`, `exit`, `hostname`, `cpu_count` -- with three exceptions.
+
+**`os.os_name()` and `os.os_arch()` stuttered**, and are `os.name()`/`os.arch()`.
+
+**`getenv` and `set_env` were an inconsistent pair**, which is the kind of thing that only shows up when you read them on one line. `getenv` is C's spelling; `set_env` is *not* C's (that is `setenv`), so the two agreed with neither convention -- one borrowed from C and the other did not, in the same two-function family. Both are snake_case now: `get_env`/`set_env`. Not folded into one name, obviously: a read and a write under one spelling would be a different kind of mistake.
+
+**`cpu_usage_between(before, after)` is a member of `cpu_usage`**, since two `CpuTimes` arguments already say "between two readings". Its two members answer different types -- a plain `float` here, a `Result<float, string>` for the sampling form -- and that is the same principled asymmetry `csv`'s `format` has: this one is arithmetic over readings the caller already holds and cannot fail, where sampling has to read the counters and can. A `Result` nobody could ever check would be worse than the difference.
+
+**The thing worth writing down is the native-symbol trap, now on its fourth appearance this week.** Renaming the declaration `os_name` to `name` left the registration at `os::os_name`, and `os.name()` failed at runtime with "no registered implementation" -- the declarations compiled and the suite passed, as always with this one.
+
+What is new here is *why the fallback could not save it*. For `to_hex` and `bits`'s operators the fallback derived the right symbol from parameter one's type once the worlds existed. `name()` and `arch()` **take no arguments**, so there is no parameter to read and the fallback is skipped outright (`native == NULL && fn->params.count > 0`). A zero-argument native's registration has to carry its declared name exactly, and no amount of world-prefix machinery will cover it. That is now a comment beside those two registrations.
+
+Four instances, three distinct causes: a bare registration found before the fallback (`char_at`, `last_index_of`), a world the fallback did not have (`to_hex` on `[byte]`, `bits`'s scalars), and no parameter to derive from (here). The common thread is that **a `native fn`'s name and its symbol are two different things that only a run can prove agree** -- not the build, and not the suite unless a fixture happens to call that exact member.

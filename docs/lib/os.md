@@ -17,7 +17,7 @@ made-up number). Sizes are in bytes.
 use os
 
 fn main() {
-    print(Option.is_None(os.getenv("ZIMAN_SURELY_NOT_SET")))
+    print(Option.is_None(os.get_env("ZIMAN_SURELY_NOT_SET")))
     print(os.pid() > 0)
     print(byte_len(unwrap(os.cwd())) > 0)
     print(len(os.args()))
@@ -37,15 +37,18 @@ false
 
 ## Environment
 
-### `getenv`
+### `get_env`
 
 ```
-pub fn getenv(name: string) -> Option<string>
+pub fn get_env(name: string) -> Option<string>
 ```
 
 The value of the environment variable `name`, or None if it isn't set. A variable that is
 set but empty is Some(""), which is not the same as unset. (The `properties` module uses this
 to let `SERVER_PORT` override `server.port`.)
+**`getenv` until 2026-10-24.** It sat beside `set_env`, so one of the two was wrong: `getenv`
+is C's spelling and `set_env` is not C's (`setenv` is), which left the pair agreeing with
+neither convention. Both are snake_case now.
 
 ### `set_env`
 
@@ -175,18 +178,18 @@ pub native fn hostname() -> string
 
 The machine's name.
 
-### `os_name`
+### `name`
 
 ```
-pub native fn os_name() -> string
+pub native fn name() -> string
 ```
 
 The operating system: `linux`, `macos`, ... (lower case).
 
-### `os_arch`
+### `arch`
 
 ```
-pub native fn os_arch() -> string
+pub native fn arch() -> string
 ```
 
 The processor architecture: `x86_64`, `aarch64`, ...
@@ -282,16 +285,21 @@ pub fn cpu_times() -> Result<CpuTimes, string>
 
 A reading of the CPU counters, to be compared with a later one by `cpu_usage_between`.
 
-### `cpu_usage_between`
+### `cpu_usage`
 
 ```
-pub fn cpu_usage_between(before: CpuTimes, after: CpuTimes) -> float
+pub fn cpu_usage(before: CpuTimes, after: CpuTimes) -> float
 ```
 
 The fraction of the CPU (0.0 to 1.0, over all CPUs together) that was busy between two readings `before` and `after`. 0.0 when no time passed
 between them.
+**Two readings rather than a sample**, told apart by the arguments -- `cpu_usage_between` until
+2026-10-24, where `_between` restated what two `CpuTimes` already say.
 
-### `cpu_usage`
+The two members answer different types, and for the reason `csv`'s `format` does: this one is
+arithmetic over readings the caller already has and cannot fail, where the sampling form below
+has to read the counters and can. A `Result` nobody could ever check would be worse than the
+asymmetry.
 
 ```
 pub fn cpu_usage(sample_millis: int) -> Result<float, string>

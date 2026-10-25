@@ -466,7 +466,7 @@ pub fn run(conn: Connection, dir: string) -> Result<int, DbError> {
         None { return err(problem(format(
             "'{}' is not in ZIMAN_RESOURCE_PATH ({})",
             dir,
-            unwrap(os.getenv("ZIMAN_RESOURCE_PATH"))
+            unwrap(os.get_env("ZIMAN_RESOURCE_PATH"))
         ))) }
     }
     return apply(conn, try load_for(resolved, datasource.dialect(conn)))

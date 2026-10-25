@@ -1119,7 +1119,7 @@ pub native fn f64_to_bytes(f: float) -> [byte]
 ## `os`
 
 ```
-pub fn getenv(name: string) -> Option<string>
+pub fn get_env(name: string) -> Option<string>
 
 pub native fn set_env(name: string, value: string) -> bool
 
@@ -1149,9 +1149,9 @@ pub native fn cpu_count() -> int
 
 pub native fn hostname() -> string
 
-pub native fn os_name() -> string
+pub native fn name() -> string
 
-pub native fn os_arch() -> string
+pub native fn arch() -> string
 
 pub native fn load_average() -> Result<[float], string>
 
@@ -1176,7 +1176,7 @@ pub struct CpuTimes {
 
 pub fn cpu_times() -> Result<CpuTimes, string>
 
-pub fn cpu_usage_between(before: CpuTimes, after: CpuTimes) -> float
+pub fn cpu_usage(before: CpuTimes, after: CpuTimes) -> float
 
 pub fn cpu_usage(sample_millis: int) -> Result<float, string>
 

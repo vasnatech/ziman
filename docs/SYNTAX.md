@@ -2477,7 +2477,7 @@ are public. Checks compare constant-time; tests use the RFC 4226/6238 vectors.
 
 ## Configuration (`properties`, `os`)
 
-`os.getenv(name) -> Option<string>` reads an environment variable (`Some("")` set-but-empty,
+`os.get_env(name) -> Option<string>` reads an environment variable (`Some("")` set-but-empty,
 `None` unset); `properties` builds Spring-Boot-style configuration on it.
 
 The rest of `os` is for ending cleanly: `os.exit(code)` flushes stdout/stderr then exits;

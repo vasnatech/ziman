@@ -450,7 +450,7 @@ pub fn parse_rules(data: [byte]) -> Result<ZoneRules, string> {
 
 // The directory holding the zone files, or an Err when there is none.
 fn zone_dir() -> Result<string, string> {
-    val configured = os.getenv("TZDIR")
+    val configured = os.get_env("TZDIR")
     if Some(dir) = configured && byte_len(dir) > 0 {
         return ok(dir)
     }

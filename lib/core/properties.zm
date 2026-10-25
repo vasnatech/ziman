@@ -73,7 +73,7 @@ fn find_file_entry(entries: [Entry], key: string) -> Option<Entry> {
 // else the file entry.
 pub fn lookup(props: Properties, key: string) -> Option<Entry> {
     val name = env_name(key)
-    val e = os.getenv(name)
+    val e = os.get_env(name)
     return switch e {
         Some(v) { Option<Entry>.Some(Entry { key: key, value: v, source: concat("env ", name) }) }
         None { find_file_entry(props.entries, key) }
@@ -104,7 +104,7 @@ fn resolve(props: Properties, value: string, source: string, seen: [string]) -> 
                 return err(format("{}: placeholder cycle through '{}'", source, name))
             }
             val referenced = find_file_entry(props.entries, name)
-            val env = os.getenv(name)
+            val env = os.get_env(name)
             if Some(r) = referenced {
                 val expanded = try resolve(props, r.value, r.source, push(seen, name))
                 append(sb, expanded)
@@ -195,7 +195,7 @@ fn read_source(file: string) -> Result<string, string> {
         None { return err(format(
             "'{}' is not in ZIMAN_RESOURCE_PATH ({})",
             file,
-            unwrap(os.getenv("ZIMAN_RESOURCE_PATH"))
+            unwrap(os.get_env("ZIMAN_RESOURCE_PATH"))
         )) }
     }
     return map_err(fs.read_text(resolved), fs.fs_error_message)
@@ -224,7 +224,7 @@ pub fn load(name: string) -> Result<Properties, string> {
     val base_file = concat(name, ".properties")
     val text = try read_source(base_file)
     val base = try parse_raw(text, base_file)
-    val from_env = os.getenv("PROFILE_ACTIVE")
+    val from_env = os.get_env("PROFILE_ACTIVE")
     val declared = find_file_entry(base.entries, "profile.active")
     val profile = switch from_env {
         Some(v) { trim(v) }

@@ -216,7 +216,7 @@ pub fn list_dir(path: string) -> Result<[string], FsError> {
 // resolve their own file/directory argument through this, so `application.properties` and a migrations
 // directory follow the same convention as anything else that calls this directly.
 pub fn resolve(name: string) -> Option<string> {
-    val search = os.getenv("ZIMAN_RESOURCE_PATH")
+    val search = os.get_env("ZIMAN_RESOURCE_PATH")
     return switch search {
         None { Some(name) }
         Some(s) {
@@ -295,7 +295,7 @@ pub fn copy_file(from: string, to: string) -> Result<int, FsError> {
 // This answers a directory, not a unique path inside one: combine it with something of your own
 // (`os.pid()` is the usual ingredient) via `path_join`.
 pub fn temp_dir() -> string {
-    val asked = get_or(os.getenv("TMPDIR"), "")
+    val asked = get_or(os.get_env("TMPDIR"), "")
     if is_empty(asked) {
         return "/tmp"
     }

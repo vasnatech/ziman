@@ -22,7 +22,7 @@ fn main() {
     print(is_ok(parse_int(substring("12abc", 0, 4))))
 
     // an environment lookup through a slice (the variable name is embedded)
-    print(Option.unwrap_Some(os.getenv(substring("aaZIMAN_SLICEbb", 2, 13))))
+    print(Option.unwrap_Some(os.get_env(substring("aaZIMAN_SLICEbb", 2, 13))))
 
     // split, trim, join, replace, index_of on slices
     val parts = split("a,b,,c", ",")

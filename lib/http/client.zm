@@ -453,8 +453,8 @@ fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientErro
     if Some(t) = explicit {
         text = t
     } else {
-        val upper = os.getenv(if u.secure { "HTTPS_PROXY" } else { "HTTP_PROXY" })
-        val lower = os.getenv(if u.secure { "https_proxy" } else { "http_proxy" })
+        val upper = os.get_env(if u.secure { "HTTPS_PROXY" } else { "HTTP_PROXY" })
+        val lower = os.get_env(if u.secure { "https_proxy" } else { "http_proxy" })
         text = get_or(upper, get_or(lower, ""))
         if byte_len(text) > 0 && no_proxy_matches(u.host) {
             text = ""
@@ -475,8 +475,8 @@ fn proxy_for(u: Url, explicit: Option<string>) -> Result<Option<Url>, ClientErro
 
 // True if `NO_PROXY` (a comma-separated list of hosts, `.suffixes` and `*`) covers `host`.
 fn no_proxy_matches(host: string) -> bool {
-    val upper = os.getenv("NO_PROXY")
-    val list = get_or(upper, get_or(os.getenv("no_proxy"), ""))
+    val upper = os.get_env("NO_PROXY")
+    val list = get_or(upper, get_or(os.get_env("no_proxy"), ""))
     for raw in split(list, ",") {
         val entry = to_lower(trim(raw), invariant)
         if entry == "*" {

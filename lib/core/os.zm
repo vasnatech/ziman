@@ -16,7 +16,10 @@ native fn cwd_raw() -> Result<string, string>
 // The value of the environment variable `name`, or None if it isn't set. A variable that is
 // set but empty is Some(""), which is not the same as unset. (The `properties` module uses this
 // to let `SERVER_PORT` override `server.port`.)
-pub fn getenv(name: string) -> Option<string> {
+// **`getenv` until 2026-10-24.** It sat beside `set_env`, so one of the two was wrong: `getenv`
+// is C's spelling and `set_env` is not C's (`setenv` is), which left the pair agreeing with
+// neither convention. Both are snake_case now.
+pub fn get_env(name: string) -> Option<string> {
     val r = getenv_raw(name)
     if !is_ok(r) {
         return Option<string>.None
@@ -93,10 +96,10 @@ pub native fn cpu_count() -> int
 pub native fn hostname() -> string
 
 // The operating system: `linux`, `macos`, ... (lower case).
-pub native fn os_name() -> string
+pub native fn name() -> string
 
 // The processor architecture: `x86_64`, `aarch64`, ...
-pub native fn os_arch() -> string
+pub native fn arch() -> string
 
 // The load averages over the last 1, 5 and 15 minutes: how many tasks were running or waiting for a CPU, on average.
 pub native fn load_average() -> Result<[float], string>
@@ -146,7 +149,14 @@ pub fn cpu_times() -> Result<CpuTimes, string> {
 
 // The fraction of the CPU (0.0 to 1.0, over all CPUs together) that was busy between two readings `before` and `after`. 0.0 when no time passed
 // between them.
-pub fn cpu_usage_between(before: CpuTimes, after: CpuTimes) -> float {
+// **Two readings rather than a sample**, told apart by the arguments -- `cpu_usage_between` until
+// 2026-10-24, where `_between` restated what two `CpuTimes` already say.
+//
+// The two members answer different types, and for the reason `csv`'s `format` does: this one is
+// arithmetic over readings the caller already has and cannot fail, where the sampling form below
+// has to read the counters and can. A `Result` nobody could ever check would be worse than the
+// asymmetry.
+pub fn cpu_usage(before: CpuTimes, after: CpuTimes) -> float {
     val total = after.total - before.total
     if total <= 0 {
         return 0.0
@@ -161,7 +171,7 @@ pub fn cpu_usage_between(before: CpuTimes, after: CpuTimes) -> float {
 pub fn cpu_usage(sample_millis: int) -> Result<float, string> {
     val before = try cpu_times()
     sleep_millis(sample_millis)
-    return cpu_usage_between(before, try cpu_times())
+    return cpu_usage(before, try cpu_times())
 }
 
 // The CPU time this process has used so far, in seconds, all its threads together.

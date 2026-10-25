@@ -1,14 +1,14 @@
 use os
 
 fn main() {
-    val set = os.getenv("ZIMAN_TEST_SET")
+    val set = os.get_env("ZIMAN_TEST_SET")
     print(Option.is_Some(set))
     print(Option.unwrap_Some(set))
     // set but empty is not the same as unset
-    val empty = os.getenv("ZIMAN_TEST_EMPTY")
+    val empty = os.get_env("ZIMAN_TEST_EMPTY")
     print(Option.is_Some(empty))
     print(Option.unwrap_Some(empty) == "")
-    print(Option.is_Some(os.getenv("ZIMAN_TEST_SURELY_NOT_SET")))
+    print(Option.is_Some(os.get_env("ZIMAN_TEST_SURELY_NOT_SET")))
     // a value with spaces and an equals sign survives intact
-    print(Option.unwrap_Some(os.getenv("ZIMAN_TEST_SPACES")))
+    print(Option.unwrap_Some(os.get_env("ZIMAN_TEST_SPACES")))
 }
