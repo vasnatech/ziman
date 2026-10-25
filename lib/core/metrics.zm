@@ -94,7 +94,10 @@ fn labels_key(labels: Map<string, string>) -> string {
     if len(labels) == 0 {
         return no_labels
     }
-    val names = sort(to_array(keys(labels)))
+    // `keys`, not `keys(labels)`: the latter builds a `Set<string>` only to walk
+    // straight back out of it, and this sits on the labelled-record path -- it runs once per
+    // `increment(name, labels)`, which is the call a server makes per request.
+    val names = sort(keys(labels))
     val parts = mutable_array_new<string>()
     for name in names {
         push(parts, concat(name, "=\"", escape(get_or(labels, name, "")), "\""))

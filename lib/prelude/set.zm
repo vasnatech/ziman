@@ -216,7 +216,7 @@ pub native fn to_array<T: Eq + Hash>(s: Set<T>) -> [T]
 // 1.1 ms after**, about 5.7x. Insertion order is preserved, checked at 2,000 elements against the
 // order they went in, which is past the point the table grows.
 //
-// It shares its tail with the immutable member and with `keys_array`: a MutableSet is a
+// It shares its tail with the immutable member and with `keys`: a MutableSet is a
 // MutableMapBuf where a Set is a MapObj, and that is the only difference between the three walks.
 //
 // **The pair reads immutable-first now.** It was the one set in this file ordered the other way

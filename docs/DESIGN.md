@@ -208,6 +208,7 @@ them against the code.
 - [A new module: `encoding`, and the two families inside base-N (2026-10-24)](#a-new-module-encoding-and-the-two-families-inside-base-n-2026-10-24)
 - [`process.output`'s temporary file was neither unique nor unpredictable (2026-10-24)](#processoutputs-temporary-file-was-neither-unique-nor-unpredictable-2026-10-24)
 - [`replace(s, Map<string, string>)`: one pass, longest match (2026-10-24)](#replaces-mapstring-string-one-pass-longest-match-2026-10-24)
+- [`keys` answers an array; the `Set` becomes `keys_set` (2026-10-24)](#keys-answers-an-array-the-set-becomes-keys_set-2026-10-24)
 
 <!-- end index -->
 
@@ -8436,3 +8437,21 @@ The other two are escapers. `metrics.escape` was three chained calls, correct on
 **A measurement worth keeping, prompted by a reader's question.** The implementation hoists the keys with `to_array(keys(pairs))`, and the obvious objection is that `for k in pairs` iterates a Map's keys directly and reads better. It does, and it is slower, because the inner loop runs once per *character* and Map iteration has per-loop setup an array walk does not: a 39-character value escaped 200,000 times costs 8779ms that way against 7940ms hoisted, and a 640,000-character document 717ms against 599ms. Building the array by hand with `push` is slower again at 8177ms -- `keys` and `to_array` are natives doing bulk work where a `push` per key is interpreted.
 
 So the hoist stays, with the numbers beside it. The actual defect was that the code gave no reason for it, which is why the question got asked; an optimisation with no comment is indistinguishable from a reflex.
+
+## `keys` answers an array; the `Set` becomes `keys_set` (2026-10-24)
+
+`keys(m)` answered a `Set<K>`, added on 2026-10-22 with the reasoning that a map's keys are unique by construction so the type that says so is the honest one. That reasoning is correct and was the wrong trade. The names are swapped: `keys(m) -> [K]`, `keys_set(m) -> Set<K>`.
+
+**Three reasons, in order of weight.**
+
+`keys` and `values` are *the* canonical pair, and they disagreed about their answer type -- `values` has always answered `[V]`. A reader who learns one learns the wrong thing about the other.
+
+Callers overwhelmingly want to walk the keys. Six places across these two repositories wrote `to_array(keys(m))`. Of the four that used the `Set` directly, **three were `len(keys(m))`** -- which is `len(m)` -- and the fourth a `contains(keys(m), x)` that a `Map` answers itself. So the `Set` form had, in practice, no callers at all; it is a real question, just a rare one.
+
+And the array is the *cheap* one, which the old arrangement had backwards. Building the `Set` hashes every key into a trie that is then walked straight back out into the array that was wanted: 156-183 ms per call against 16-18 ms on a 100,000-entry map.
+
+**The swap is almost entirely source-compatible, by a property worth noticing.** `len` and `contains` both answer for a `Set` and an array, so every `len(keys(m))` and `contains(keys(m), x)` kept working and kept meaning the same thing -- keys are unique either way, and `Set` iteration is insertion-ordered like the map's, so neither duplicates nor order change. The one shape that cannot survive is an explicit `==` against a `Set` literal, `keys(m) == Set<int> {}`, which is precisely the case where the caller meant a set. One fixture had it; it says `keys_set` there now.
+
+**The C side is where this could have gone silently wrong.** Both members are natives, and the symbol the world-prefix fallback derives from `keys` on a `Map` is `map_keys` -- so swapping the declarations without swapping the registrations compiles, passes the whole suite, and answers a `Set` where an array is declared. `map_keys` points at the array implementation now and `map_keys_set` at the set one, with a comment saying why. That is the fifth time this week a native's declaration and its symbol could have come apart invisibly, and the first where *both* candidates were the right arity and type so nothing would have complained.
+
+Found on the way: `tests/lang/keys_array_both_worlds.zm` was named after the function and is `keys_both_worlds.zm`; a blanket rename also collapsed the two names into one inside SYNTAX.md's prose ("`keys(m)`, `keys(m)` and `values(m)`"), which is what a sweep does to a document that discusses both halves of a rename.

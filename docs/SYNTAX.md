@@ -354,7 +354,7 @@ print(len(stock))                        // 2
 print(contains(stock, "apple"))          // true (a set: contains(seen, 3))
 print(get(stock, "apple"))               // Some(4); None if absent -- always an Option<V>
 seen = add(seen, 3)                      // a set adds with 'add'; 'insert' is positional only
-print(keys(stock))                       // {apple, fig}, a Set<string>
+print(keys(stock))                       // [apple, fig]; keys_set(stock) is {apple, fig}
 print(values(stock))                     // [4, 9]; to_array(s) is the array of a set
 for name, qty in stock { ... }           // key and value; `for name in stock` binds keys only
 for x in seen { ... }                    // a set has one binder
@@ -438,20 +438,28 @@ for x in seen { ... }                    // a set has one binder
   `to_mutable_set` go array-to-set over both array worlds, `to_array` and `to_mutable_array` come
   back over both set worlds. It is not `snapshot` — that answers the type a builder is *building*,
   where these answer a different type, which is why `to_array` takes no `MutableArray`.
-- **`keys(m)`, `keys_array(m)` and `values(m)` take a `Map` or a `MutableMap`**, the second row of
-  the Map/Set pairing pass. All answer immutable values from either world -- `keys` a `Set<K>`,
-  `keys_array` a `[K]`, `values` a `[V]` -- because a result like this is nearly always consumed by
-  a `for` or returned, so handing back a handle would allocate a thread-bound one for nothing.
+- **`keys(m)`, `keys_set(m)` and `values(m)` take a `Map` or a `MutableMap`**, the second row of
+  the Map/Set pairing pass. All answer immutable values from either world -- `keys` a `[K]`,
+  `keys_set` a `Set<K>`, `values` a `[V]` -- because a result like this is nearly always consumed
+  by a `for` or returned, so handing back a handle would allocate a thread-bound one for nothing.
   `map_keys`, `map_values`, `mutable_map_keys` and `mutable_map_values` no longer exist in any
   spelling.
-- **`keys_array` is a separate name because a return type cannot tell two declarations apart.**
-  Added 2026-10-22. `keys(m) -> Set<K>` and `keys(m) -> [K]` differ only in what they answer, and a
-  name may be shared only when every *call* can distinguish the members, so this is `math.floor`
-  and `math.floor_float` again: one question, two answer types, a suffix naming the answer because
-  the resolver cannot. It is **not** `to_array(m)`, which would claim to convert the map rather
-  than to answer one of the three different questions a map can be asked. It earns its place on
-  cost too: `to_array(keys(m))` builds an entire `Set<K>` to walk straight back out of, about 10x
-  this on a 100,000-entry map.
+- **`keys` answers an array and `keys_set` the `Set`** — swapped on 2026-10-24, having been the
+  other way round since 2026-10-22. Three reasons, in order of weight. `keys` and `values` are the
+  canonical pair and disagreed about their answer type. Callers overwhelmingly want to walk the
+  keys: six places wrote `to_array(keys(m))`, and of the four using the `Set` directly, three were
+  `len(keys(m))` (which is `len(m)`) and one a `contains` a `Map` answers itself. And the array is
+  the *cheap* one — building the `Set` hashes every key into a trie that is then walked straight
+  back out, about 10x on a 100,000-entry map.
+- **Two names because a return type cannot tell two declarations apart.** `keys(m) -> [K]` and
+  `keys(m) -> Set<K>` differ only in what they answer, and a name may be shared only when every
+  *call* can distinguish the members -- `math.floor`/`math.floor_float` and
+  `fs.read_text`/`read_bytes` again. Neither is `to_array(m)`, which would claim to convert the
+  map rather than answer one of the three different questions a map can be asked.
+- **What the swap broke, and what it did not.** `len` and `contains` answer for a `Set` and an
+  array alike, so almost every call site kept working untouched. The one shape that cannot is an
+  explicit `==` against a `Set` literal (`keys(m) == Set<int> {}`), which is exactly the case where
+  the caller meant a set -- `keys_set` there.
 - **`filter(c, keep)` takes any of the six collections**, which is the first row of the Map/Set
   pairing pass: an array or a `MutableArray` with `keep: fn(T) -> bool`, a `Map` or a
   `MutableMap` with `keep: fn(K, V) -> bool`, a `Set` or a `MutableSet` with `fn(T) -> bool`. The

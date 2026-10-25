@@ -1,7 +1,9 @@
 {x: 1, y: 2, z: 3}
 {x: 10, z: 3, y: 20}
-{x, z, y}
 [x, z, y]
+{x, z, y}
+true
+true
 true
 [10, 3, 20]
 x=10

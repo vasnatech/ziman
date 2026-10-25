@@ -1,12 +1,12 @@
 10
 99
 [10, 2, 3, 99]
-{a, b, c, zz}
+[a, b, c, zz]
 [11, 3, 4, 100]
-{a, b, c}
+[a, b, c]
 true
 false
-{a, c}
+[a, c]
 true
 false
 true

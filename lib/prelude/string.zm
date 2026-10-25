@@ -414,11 +414,16 @@ pub fn replace(s: string, pairs: Map<string, string>) -> string {
     // **Hoisted to an array, and measured rather than assumed.** `for k in pairs` iterates a
     // Map's keys directly and would read better, but the inner loop below runs once per
     // *character*, and Map iteration has per-loop setup an array walk does not: on a 39-character
-    // value escaped 200,000 times it costs 8779ms against 7940ms, and on a 640,000-character
+    // value escaped 200,000 times it costs 8779ms against 7734ms, and on a 640,000-character
     // document 717ms against 599ms. Building the array by hand with `push` is slower again
-    // (8177ms) -- `keys` and `to_array` are both natives doing bulk work where a `push` per key is
-    // interpreted. So the two allocations buy about 10% on the short inputs this is actually for.
-    val wanted = to_array(keys(pairs))
+    // (8177ms) -- a `push` per key is interpreted where this is one native call.
+    //
+    // `keys` rather than `keys(pairs)`, which was the first spelling here and was
+    // wrong: that builds an entire `Set<K>` to walk straight back out of (see `keys`'s own
+    // comment in map.zm, where it measures 10x on a large map). At the three or four keys this is
+    // called with the set is three hashes and the difference is only about 2.4% -- 7734ms against
+    // 7921ms -- but there is no reading under which building the set is the better one.
+    val wanted = keys(pairs)
     for k in wanted {
         if is_empty(k) {
             val bad: Result<unit, string> = err("replace: the text to replace must not be empty")

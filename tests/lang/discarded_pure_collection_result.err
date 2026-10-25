@@ -18,7 +18,7 @@ ziman: type error at 23:5 in tests/lang/discarded_pure_collection_result.zm: the
    |
 23 |     to_array(s)
    |     ^
-ziman: type error at 24:5 in tests/lang/discarded_pure_collection_result.zm: the Set<string> returned by 'keys' is discarded, and 'keys' has no other effect -- bind the result ('val x = keys(...)', or 'val _ = ...' to discard on purpose)
+ziman: type error at 24:5 in tests/lang/discarded_pure_collection_result.zm: the [string] returned by 'keys' is discarded, and 'keys' has no other effect -- bind the result ('val x = keys(...)', or 'val _ = ...' to discard on purpose)
    |
 24 |     keys(m)
    |     ^

@@ -27,7 +27,12 @@ fn main() {
     print(len(m))
     print(get(m, 4))
     print(get(m, 3))
-    print(keys(m) == Set<int> {})
+    // `keys` answers an array as of 2026-10-24, so an empty map's keys are `[]`; `keys_set` is
+    // the form that compares against a Set. This is the one shape the rename could not keep
+    // source-compatible -- `len` and `contains` answer for both types, but `==` does not.
+    val no_keys: [int] = []
+    print(keys(m) == no_keys)
+    print(keys_set(m) == Set<int> {})
     val sb = mutable_set_new<string>()
     add<string>(sb, "x")
     add<string>(sb, "y")

@@ -20,7 +20,7 @@ fn main() {
         set(groups, p.category, push(so_far, p.name))
     }
     val m = snapshot(groups)
-    for cat in sort<string>(to_array(keys(m))) {
+    for cat in sort<string>(keys(m)) {
         val names: [string] = switch get(m, cat) {
             Some(xs) { xs }
             None { [] }

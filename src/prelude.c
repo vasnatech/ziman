@@ -3735,7 +3735,12 @@ void prelude_register(void) {
     native_register("map_set", native_map_set);
     native_register("map_get", native_map_get);
     native_register("map_get_or", native_map_get_or);
-    native_register("map_keys", native_map_keys);
+    /* **Swapped on 2026-10-24**: `keys(m)` answers the array and `keys_set(m)` the Set, so the
+     * symbol the world-prefix fallback derives from `keys` on a `Map` has to be the array one.
+     * Getting this backwards compiles and passes the suite -- both are natives of the right
+     * arity -- and then answers a Set where an array was declared. */
+    native_register("map_keys", ziman_keys_as_array);
+    native_register("map_keys_set", native_map_keys);
     native_register("map_values", native_map_values);
     native_register("map_merge", native_map_merge);
     native_register("mutable_map_merge", native_mutable_map_merge);
@@ -3750,7 +3755,7 @@ void prelude_register(void) {
     native_register("len", ziman_len);
     native_register("contains", ziman_contains);
     native_register("set_to_array", ziman_keys_as_array);
-    native_register("map_keys_array", ziman_keys_as_array);
+
     native_register("mutable_set_to_array", native_mutable_set_to_array);
     native_register("set_to_mutable_array", native_set_to_mutable_array);
     native_register("mutable_set_to_mutable_array", native_mutable_set_to_mutable_array);

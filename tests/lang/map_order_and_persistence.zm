@@ -7,8 +7,11 @@ fn main() {
     print(base)
     print(changed)
     print(keys(changed))
-    print(to_array(keys(changed)))
+    print(keys_set(changed))
+    // `contains` answers for both, and a `Map` answers it directly -- all three agree
     print(contains(keys(changed), "z"))
+    print(contains(keys_set(changed), "z"))
+    print(contains(changed, "z"))
     print(values(changed))
     for k, v in changed {
         printf("{}={}\n", k, v)
