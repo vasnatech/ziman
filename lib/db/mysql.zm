@@ -280,19 +280,50 @@ fn send_packet(sock: Socket, seq: int, body: [byte]) -> Result<int, DbError> {
 }
 
 // One logical packet; a payload of exactly 16 MiB - 1 continues in the next.
+// One logical payload, which MySQL may split: a payload of 2^24-1 bytes or more goes out as
+// several packets, each of the maximum length, and the last one shorter -- so a reader keeps going
+// while a packet is exactly full.
+//
+// **The total is capped**, because the loop otherwise accepted any number of maximum-length
+// packets: measured at 49 MB of resident memory for one such packet and 213 MB for six, growing
+// linearly with nothing to stop it, and the content rejected only *after* all of it had been
+// assembled. A peer that streams full packets can make the client allocate until it dies.
+//
+// **The cap is 1 GB, and the first number tried was wrong.** `max_packet_size` in the login packet
+// looked like the answer -- the client telling the server its limit, so hold the server to it --
+// but that field is what the client will *send*, and MySQL does not apply it to result data.
+// Measured: `SELECT repeat('x', 20000000)` against a server with `max_allowed_packet=64M` reads
+// 20,000,000 characters back, and a 16 MB cap refused it. That is a legitimate row, so the cap
+// would have been a regression.
+//
+// 1 GB is where MySQL itself stops: `SET GLOBAL max_allowed_packet = 2147483648` is clamped to
+// 1073741824, so no server can be configured to send more than this. A tighter bound is a real
+// feature and belongs in configuration, next to a statement timeout, rather than hard-coded here
+// -- the job of this number is only to make an endless stream end.
+val max_assembled_bytes = 1073741824
+val packet_split_bytes = 16777215
+
 fn read_packet(sock: Socket) -> Result<Packet, DbError> {
     val parts = mutable_array_new<[byte]>()
     var seq = 0
     var more = true
+    var total = 0
     while more {
         val header = try db.lift_net<[byte]>(net.read_exact(sock, 4))
         val length = read_le(header, 0, 3)
         seq = header[3] as int
+        total = total + length
+        if total > max_assembled_bytes {
+            return err(DbError.Connection(format(
+                "the server is sending a payload past {} bytes, which is more than any MySQL server can be configured to send: the connection has lost sync, or the peer is not MySQL",
+                max_assembled_bytes
+            )))
+        }
         if length > 0 {
             val body = try db.lift_net<[byte]>(net.read_exact(sock, length))
             push(parts, body)
         }
-        more = length == 16777215
+        more = length == packet_split_bytes
     }
     return Packet { seq: seq, body: concat(snapshot(parts)) }
 }

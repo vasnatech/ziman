@@ -5,7 +5,7 @@
 # hermetic. Usage: `make test-mysql`.
 #
 # The container is named ziman-mysql-test-<pid>, listens only on
-# 127.0.0.1:55433, and is removed on exit -- it never touches any other MySQL.
+# 127.0.0.1:55434, and is removed on exit -- it never touches any other MySQL.
 # Users: `root` (caching_sha2_password, the 8.0 default), `sha2_user`
 # (caching_sha2_password) and `nat_user` (mysql_native_password), so both
 # authentication plugins and caching_sha2's TLS-only full exchange are
