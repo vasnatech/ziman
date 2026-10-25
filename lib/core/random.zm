@@ -8,4 +8,11 @@
 // `n` random bytes from the operating system's entropy pool, suitable for keys, tokens and
 // salts. `n` is 0 or more (a negative `n` is a runtime error); the call fails with a runtime
 // error if the entropy source cannot be read.
-pub native fn random_bytes(n: int) -> [byte]
+//
+// **`random_bytes` until 2026-10-24**, where `random.random_bytes(32)` said random twice. The
+// rename comes with its call style, because the two pull in opposite directions: the stutter is
+// bad qualified, but a *bare* `random_bytes(32)` was good -- it said what it answered without a
+// qualifier, where a bare `bytes(32)` says nothing at all. So this is reached as
+// `random.bytes(32)` and not imported by name, the same rule `json.format` and `metrics.add`
+// follow for a different reason.
+pub native fn bytes(n: int) -> [byte]

@@ -36,5 +36,5 @@ static Value native_random_bytes(Value *args, int argc, int line, int col) {
 }
 
 void native_random_register(void) {
-    native_register("random::random_bytes", native_random_bytes);
+    native_register("random::bytes", native_random_bytes);
 }

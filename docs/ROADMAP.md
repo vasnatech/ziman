@@ -2058,7 +2058,7 @@ from source.
 - ~~**`random`/`uuid` core modules — the actual motivating case for
   `byte`.**~~ Implemented (docs/SYNTAX.md "Modules", docs/DESIGN.md's
   "random/uuid" entry): two new bundled core modules. `random` is one
-  native function, `random_bytes(n: int) -> [byte]`, reading straight
+  native function, `random.bytes(n: int) -> [byte]`, reading straight
   from `/dev/urandom` — Ziman's first source of genuine
   non-determinism (`clock`, below, is the second). `uuid` is pure Ziman
   on top of it: a `Uuid` struct (`bytes: [byte]`), `uuid_new()`
@@ -2069,7 +2069,7 @@ from source.
   confirms `byte`'s int-cast-but-no-bitwise-ops design was actually
   sufficient for the one thing that needed bit-level control. Also
   confirms a core module can depend on another core module
-  (`uuid.zm`'s `use random.random_bytes`) with zero new loader logic,
+  (`uuid.zm`'s `use random.bytes`) with zero new loader logic,
   since the corelib fallback triggers on the `use` path string alone,
   never on where the *importing* module's own source came from.
   `Uuid` satisfies `Eq` — usable as a struct field

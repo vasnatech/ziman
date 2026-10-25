@@ -88,7 +88,7 @@ embedded into the `ziman` binary at build time, so `use fs`/
 `use json` work from any project with no local copy needed — a
 project-relative file of the same name still wins if one exists, but
 this is the fallback that means one usually doesn't have to. `random`
-is one native function, `random_bytes(n: int) -> [byte]`, reading real
+is one native function, `random.bytes(n: int) -> [byte]`, reading real
 OS entropy (`/dev/urandom`). `uuid` is pure Ziman on top of it: a
 `Uuid` struct, `uuid_new()` for an RFC 4122 v4 UUID, `uuid.format`
 for the canonical dashed-hex form and `uuid.parse` for its

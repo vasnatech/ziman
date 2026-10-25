@@ -6,7 +6,7 @@ use locale
 use mime
 use number.byte_from_hex
 use number.to_hex
-use random.random_bytes
+use random
 use url
 
 // Case folding here is **protocol folding**, so it names the invariant locale rather than taking
@@ -170,7 +170,7 @@ pub val traceparent_header_name = "traceparent"
 
 fn hex_of(n: int) -> string {
     val out = mutable_string_new()
-    for b in random_bytes(n) {
+    for b in random.bytes(n) {
         append(out, to_hex(b))
     }
     return snapshot(out)

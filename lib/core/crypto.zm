@@ -15,7 +15,7 @@
 // not base64) is a `Err(string)`.
 
 use encoding
-use random.random_bytes
+use random
 
 // ---------------------------------------------------------------- hashes
 
@@ -119,7 +119,7 @@ pub fn argon2id_hash(
     iterations: Option<int> = 2,
     parallelism: Option<int> = 1
 ) -> Result<string, string> {
-    val salt = random_bytes(argon2_salt_bytes)
+    val salt = random.bytes(argon2_salt_bytes)
     val m = unwrap_Some(memory_kib)
     val t = unwrap_Some(iterations)
     val p = unwrap_Some(parallelism)

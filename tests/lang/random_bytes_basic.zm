@@ -1,8 +1,8 @@
-use random.random_bytes
+use random
 
 fn main() {
-    val b = random_bytes(4)
+    val b = random.bytes(4)
     print(len(b))
-    val empty = random_bytes(0)
+    val empty = random.bytes(0)
     print(len(empty))
 }

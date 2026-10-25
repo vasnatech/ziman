@@ -4,7 +4,7 @@ use json
 use json.Json
 use json.int_to_json
 use jwt
-use random.random_bytes
+use random
 
 fn show(r: Result<Json, jwt.JwtError>) {
     switch r {
@@ -33,8 +33,8 @@ fn main() {
 
     // signing: the algorithm follows the key's size, and a token verifies with the key that signed it
     print(jwt.algorithm_for_key(to_bytes("0123456789012345678901234567890123456789")))
-    val long_key = random_bytes(64)
-    val mid_key = random_bytes(48)
+    val long_key = random.bytes(64)
+    val mid_key = random.bytes(48)
     for k in [key, mid_key, long_key] {
         val token = unwrap(jwt.sign(
             jwt.with_claim(jwt.claims("ada@example.com", 3600), "role", Json.JString("admin")),

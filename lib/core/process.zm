@@ -168,7 +168,7 @@ pub fn output(
     // temporary directory it could be pre-created as a symbolic link and the child's output would
     // truncate whatever it pointed at (CWE-377).
     //
-    // `random_bytes` reads the operating system's entropy pool, so pre-creating the path means
+    // `random.bytes` reads the operating system's entropy pool, so pre-creating the path means
     // guessing one of 2^64. The complete answer to the symlink half would be `O_EXCL` where the
     // file is opened, but that is in `start`, whose `out_path` is a caller's own and may
     // legitimately already exist -- it is not this function's private file to demand.
@@ -181,7 +181,7 @@ pub fn output(
             "ziman_process_",
             str(os.pid()),
             "_",
-            encoding.base16_encode(random.random_bytes(8)),
+            encoding.base16_encode(random.bytes(8)),
             ".out"
         )
     )

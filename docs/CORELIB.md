@@ -1331,7 +1331,7 @@ pub fn report(props: Properties, keys: variadic string) -> string
 One native function reading real OS entropy (`/dev/urandom`) -- Ziman's first source of genuine non-determinism.
 
 ```
-pub native fn random_bytes(n: int) -> [byte]
+pub native fn bytes(n: int) -> [byte]
 
 ```
 

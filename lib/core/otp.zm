@@ -14,7 +14,7 @@ use random
 
 // The secret of 20 random bytes (the size RFC 4226 recommends) as base32 text, 32 characters, the way it is shown to a user and stored.
 pub fn generate_secret() -> string {
-    return encoding.base32_encode(random.random_bytes(20))
+    return encoding.base32_encode(random.bytes(20))
 }
 
 // **base32 moved to `encoding`** (2026-10-24), which gathers base 2, 8, 16, 32 and 64 in one

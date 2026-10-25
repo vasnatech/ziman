@@ -83,7 +83,7 @@ use number.u16_from_bytes
 use number.u16_to_bytes
 use number.u32_from_bytes
 use number.u32_to_bytes
-use random.random_bytes
+use random
 
 // Protocol 3.0 startup: a 4-byte length (counting itself), a 4-byte version, then the
 // parameters -- 8 fixed bytes. An SSLRequest is that same 8-byte header with a magic
@@ -225,7 +225,7 @@ fn expect_auth(sock: Socket, code: int) -> Result<Message, DbError> {
 // ("n,,"), the username left empty in the client-first-message (the
 // server takes it from the startup packet).
 fn scram_sha256(sock: Socket, password: string) -> Result<int, DbError> {
-    val nonce = base64_encode(random_bytes(18))
+    val nonce = base64_encode(random.bytes(18))
     val client_first_bare = concat("n=,r=", nonce)
     val client_first = concat("n,,", client_first_bare)
     try send_message(

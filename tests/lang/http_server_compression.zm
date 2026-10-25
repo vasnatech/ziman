@@ -61,7 +61,7 @@ fn main() {
     // kept. Random rather than a pattern -- a first attempt used `(i * 7919) % 251`, which looks
     // unstructured and gzips to a seventh of its size, so it tested the opposite of what it claimed.
     // Only the decision is printed, never a size, since random input makes the gzipped length vary.
-    val noise = server.response(200, random.random_bytes(4096))
+    val noise = server.response(200, random.bytes(4096))
     val tried = server.compressed(accepting("gzip"), noise, 1024)
     var encoded = false
     for h in tried.headers {
