@@ -1,0 +1,56 @@
+// A Postgres message's length is four bytes off the wire, and `net.read_exact` allocates what it
+// is told to before reading anything. **Five bytes claiming 0xFFFFFFFF made the client sit waiting
+// for 4 GB that was never coming** -- measured at 40 seconds and still going, bounded by nothing
+// the driver owns. `db.reply_timeout_millis` does not cover it: that is a liveness backstop for a
+// dead serve thread, deliberately not a socket timeout, and its own comment says so.
+//
+// The length is checkable the instant it arrives, so it is checked. No legitimate message reaches
+// a gigabyte -- a Postgres value cannot, the varlena format stops it -- and libpq defends itself
+// the same way, having long distrusted large length words except for the few message types that
+// can legitimately be long, as a guard against lost message-boundary sync.
+//
+// This stands in for Postgres with eleven bytes, which is the point: it needs no container, so the
+// defence is covered by `make check` rather than only by `make test-pg`.
+use datasource
+use db
+use net
+
+// Accepts one connection, reads whatever startup packet arrives, and answers with a five-byte
+// header claiming `length` and nothing else.
+fn liar(l: net.Listener, length: [byte], done: Channel<string>) {
+    val client = unwrap(net.accept(l))
+    val _ = net.read(client, 4096)
+    val header = concat([82b], length)
+    val _ = net.write(client, header)
+    send(done, "the fake server answered")
+    // Held open on purpose: a driver that believes the length blocks here rather than seeing a
+    // close, which is what turned this into a hang instead of an error.
+    val _ = net.read(client, 1)
+    net.close(client)
+}
+
+fn attempt(length: [byte]) {
+    val l = unwrap(net.listen("127.0.0.1", 0))
+    val done: Channel<string> = channel_new()
+    spawn liar(l, length, done)
+    val url = format("postgres://u:p@127.0.0.1:{}/d", net.listener_port(l))
+    val result = datasource.open(url)
+    print(switch result {
+        Ok(_) { "opened, which it must not have" }
+        Err(e) { db.db_error_message(e) }
+    })
+    print(receive(done))
+    net.close(l)
+}
+
+fn main() {
+    // 0xFFFFFFFF: the 4 GB claim
+    attempt([255b, 255b, 255b, 255b])
+    // one byte past the cap
+    attempt([64b, 0b, 0b, 1b])
+    // below the four bytes the length counts for itself -- this used to reach `read_exact` as a
+    // negative count and come back as "count must not be negative", a complaint about an argument
+    // for what is a peer sending nonsense
+    attempt([0b, 0b, 0b, 0b])
+    attempt([0b, 0b, 0b, 3b])
+}

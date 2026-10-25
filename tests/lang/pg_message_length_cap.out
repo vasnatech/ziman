@@ -1,0 +1,8 @@
+database connection error: the server claims a 4294967295-byte message, which is not a Postgres message: the connection has lost sync or the peer is not Postgres
+the fake server answered
+database connection error: the server claims a 1073741825-byte message, which is not a Postgres message: the connection has lost sync or the peer is not Postgres
+the fake server answered
+database connection error: the server claims a 0-byte message, which is not a Postgres message: the connection has lost sync or the peer is not Postgres
+the fake server answered
+database connection error: the server claims a 3-byte message, which is not a Postgres message: the connection has lost sync or the peer is not Postgres
+the fake server answered

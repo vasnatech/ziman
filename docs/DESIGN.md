@@ -219,6 +219,7 @@ them against the code.
 - [`yaml`: four values read wrong, and a newline that was never a line (2026-10-25)](#yaml-four-values-read-wrong-and-a-newline-that-was-never-a-line-2026-10-25)
 - [`db`'s URL parser: an IPv6 host nobody could reach, and a parameter dropped in silence (2026-10-25)](#dbs-url-parser-an-ipv6-host-nobody-could-reach-and-a-parameter-dropped-in-silence-2026-10-25)
 - [`sqlite`: SQLite's TEXT is not a Ziman string (2026-10-25)](#sqlite-sqlites-text-is-not-a-ziman-string-2026-10-25)
+- [`pg`: a five-byte header that stopped the client, and a flag I had raised wrongly (2026-10-25)](#pg-a-five-byte-header-that-stopped-the-client-and-a-flag-i-had-raised-wrongly-2026-10-25)
 
 <!-- end index -->
 
@@ -8689,3 +8690,23 @@ Both are refused in the native now, where the bytes are still in hand, as an `E`
 * `pg` (`pg.zm:124`): `unwrap(bytes_to_string(..))`, which is the fatal shape `sqlite` just lost.
 
 Postgres validates text against the database encoding on the way in, so the server should never send a `text` field that is not valid UTF-8 -- `pg`'s exposure is far smaller than `sqlite`'s, where any column can hold anything. But an `unwrap` on bytes that arrived over a socket is a bet on the peer, and `text_of` is used for protocol parsing throughout that module, not only for column values. **Flagged rather than changed**: the pg and mysql suites need live servers and do not run in `make check`, so a fix there is one I could not have tested, and shipping an untested change to a driver's decode path to close a hole the server is supposed to prevent is the wrong trade. Which of the three answers all three drivers should give is a decision, not a bug fix.
+
+## `pg`: a five-byte header that stopped the client, and a flag I had raised wrongly (2026-10-25)
+
+This pass began by retracting something. The `sqlite` entry above flagged `pg.zm:124` -- `unwrap(bytes_to_string(..))` in `text_of` -- as the same fatal shape `sqlite` had just lost, an `unwrap` on bytes that arrived over a socket, used in twelve places including error field values, column names and column values. **It is safe, and `pg` makes it safe itself.** `startup_message` sends `client_encoding` as `UTF8`, so the server is obliged to convert on output and to fail rather than send anything else.
+
+That is a claim worth testing rather than reading, so it was tested: a `SQL_ASCII` database (which accepts arbitrary bytes, unlike a UTF8 one) holding a `text` value whose bytes are `ff41`, confirmed by `encode(convert_to(v,'SQL_ASCII'),'hex')`. Reading that row gives `database error: invalid byte sequence for encoding "UTF8": 0xff` -- **the server refusing, as a clean `DbError`**, and the client never sees the bytes. The guarantee is real and it is one line of the startup packet.
+
+**What was actually wrong was the length word.** A message is a one-byte kind, a four-byte length, and a body, and `net.read_exact` allocates what it is told before reading a byte. Five bytes claiming `0xFFFFFFFF` made the client wait for 4 GB that was never coming: **measured at 40 seconds and still going**, killed by the test's own timeout rather than by anything the driver owns. Peak RSS stayed at 25 MB, so the reservation never committed -- this is a hang, not an exhaustion.
+
+`db.reply_timeout_millis` does not cover it, and its own comment is why: it is a liveness backstop for a serve thread that died, "not a statement timeout", deliberately not a socket timeout. The right answer is not a timeout anyway, because the length is checkable the moment it arrives. No legitimate message reaches a gigabyte -- a Postgres value cannot, the varlena format stops it -- and libpq defends itself the same way, having "long distrusted large length words except for a small number of message types that are expected to be (potentially) long" as a guard against exactly this, lost message-boundary sync. 40 seconds became 0.02.
+
+**One cap, where libpq has two, and the reason is measurable.** libpq uses a small limit (10000 bytes) for message types that should never be long and the large one only for those that can be, which also catches a desync claiming a merely implausible size. Copying that blindly would have been wrong: a 4 MB text value read back correctly in this pass, and a DataRow carrying it is a legitimate message three orders of magnitude past the small cap. The shape being caught here is a peer that is not Postgres, or a stream that has lost its place entirely, and one cap catches both.
+
+A length *below* four -- the four bytes the word counts for itself -- used to reach `read_exact` as a negative count and come back as `read_exact: count must not be negative`: a complaint about an argument, for what is a peer sending nonsense. It is the same message as the oversized case now, because it is the same problem.
+
+**And a silent truncation in `bytea`.** The hex loop runs `while i + 2 <= len(hex)`, so an odd number of digits lost the last one without a word. Postgres does not send such a value, which is precisely why nobody would ever notice if something else did.
+
+**The difference from the `sqlite` pass is that this one could be verified, and that changed what shipped.** There I flagged `pg` and declined to touch it, because "the pg and mysql suites need live servers and do not run in `make check`". That was true of `make check` and false of this machine: `docker` and `podman` are both installed and the `postgres:17` image was already present, so `make test-pg` runs -- 11 tests, passing before the change and passing after, including TLS, SCRAM, pooling and cursors. On top of that: a 4 MB value, a `bytea` round trip of `[0, 1, 255, 97, 0]` byte-identical through a NUL, a unicode error message classified as a constraint violation, and four shapes of wrong peer (an HTTP response, 1 KB of every byte value, a silent accept, a bogus header) each answered with a `DbError` and a live program. **"I cannot test this" deserves one command's worth of checking before it becomes a reason not to fix something.**
+
+`tests/lang/pg_message_length_cap.zm` keeps the defence honest without a container: eleven bytes from a `net.listen` thread stand in for Postgres, so it runs in `make check` rather than only in `make test-pg`.

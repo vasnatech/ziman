@@ -137,9 +137,35 @@ fn send_message(sock: Socket, kind: string, body: [byte]) -> Result<int, DbError
     return db.lift_net<int>(net.write(sock, concat(to_bytes(kind), u32_to_bytes(len(body) + 4), body)))
 }
 
+// A message's length word is four bytes off the wire, and `read_exact` allocates what it is told
+// to before reading a byte. **Five bytes claiming 0xFFFFFFFF made the client sit waiting for 4 GB
+// that was never coming** -- measured at 40 seconds and still going, bounded by nothing the driver
+// owns. `db.reply_timeout_millis` does not cover it: that is a liveness backstop for a dead serve
+// thread, deliberately not a socket timeout, and its own comment says so.
+//
+// A cap is the answer rather than a timeout, because the length is checkable the moment it arrives.
+// No legitimate message reaches a gigabyte -- a Postgres value cannot, the varlena format stops it
+// -- and libpq defends itself the same way, having "long distrusted large length words except for a
+// small number of message types that are expected to be (potentially) long" as a guard against
+// exactly this, lost message-boundary sync.
+//
+// **One cap rather than libpq's two.** It uses a small limit (10000) for the message types that
+// should never be long and the large one only for those that can be, which also catches a desync
+// that claims a merely implausible size. That is a finer net than this needs; the shape being
+// caught here is a peer that is not Postgres, or a stream that has lost its place entirely.
+val max_message_bytes = 1073741824
+
 fn read_message(sock: Socket) -> Result<Message, DbError> {
     val header = try db.lift_net<[byte]>(net.read_exact(sock, 5))
     val length = u32_from_bytes(header, 1)
+    if length < 4 || length > max_message_bytes {
+        // Below 4 it used to reach `read_exact` as a negative count and come back as "count must
+        // not be negative" -- a message about an argument, for what is a peer sending nonsense.
+        return err(DbError.Connection(format(
+            "the server claims a {}-byte message, which is not a Postgres message: the connection has lost sync or the peer is not Postgres",
+            length
+        )))
+    }
     val body = try db.lift_net<[byte]>(net.read_exact(sock, length - 4))
     return Message { kind: text_of(header, 0, 1), body: body }
 }
@@ -417,6 +443,12 @@ fn decode_value(oid: int, raw: [byte]) -> Result<SqlValue, DbError> {
         val hex = text_of(raw, 0, len(raw))
         if !starts_with(hex, "\\x") {
             return err(DbError.Sql("bytea value is not in hex format"))
+        }
+        // An odd number of digits used to lose the last one in silence: the loop stops when fewer
+        // than two remain. Postgres does not send such a value, which is exactly why a silent
+        // truncation here would never be noticed if something else did.
+        if (len(hex) - 2) % 2 != 0 {
+            return err(DbError.Sql("bytea hex has an odd number of digits"))
         }
         val out = mutable_array_new<byte>()
         var i = 2
