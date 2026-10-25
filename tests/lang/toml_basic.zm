@@ -3,15 +3,15 @@ use toml
 
 fn main() {
     val text = "# config\ntitle = \"T\\u00e9st\"\nport = 8_080\nratio = 1.5e2\non = true\nhex = 0xff\nwhen = 1979-05-27T07:32:00Z\nlist = [1, 2,\n  3, # trailing\n]\nname.first = \"Ada\"\n'quoted key' = 'lit\\eral'\nml = \"\"\"\nline1\nline2 \\\n   joined\"\"\"\n\n[server]\nhost = \"h\"\nopts = { a = 1, b.c = [true] }\n\n[server.tls]\nenabled = false\n\n[[items]]\nid = 1\n\n[[items]]\nid = 2\n[items.sub]\nz = 3\n"
-    val j = unwrap(toml.parse_toml(text))
+    val j = unwrap(toml.parse(text))
     print(json.format(j, 2))
-    val back = unwrap(toml.toml_to_string(j))
+    val back = unwrap(toml.format(j))
     print(back)
-    print(unwrap(toml.toml_to_string(unwrap(toml.parse_toml(back)))) == back)
-    print(unwrap_err(toml.parse_toml("a = 1\na = 2\n")))
-    print(unwrap_err(toml.parse_toml("[t]\n[t]\n")))
-    print(unwrap_err(toml.parse_toml("a = \n")))
-    print(unwrap_err(toml.parse_toml("a = 007\n")))
-    print(unwrap_err(toml.parse_toml("x = [1, 2\n")))
-    print(unwrap_err(toml.parse_toml("a = 1 b = 2\n")))
+    print(unwrap(toml.format(unwrap(toml.parse(back)))) == back)
+    print(unwrap_err(toml.parse("a = 1\na = 2\n")))
+    print(unwrap_err(toml.parse("[t]\n[t]\n")))
+    print(unwrap_err(toml.parse("a = \n")))
+    print(unwrap_err(toml.parse("a = 007\n")))
+    print(unwrap_err(toml.parse("x = [1, 2\n")))
+    print(unwrap_err(toml.parse("a = 1 b = 2\n")))
 }

@@ -3,17 +3,17 @@ use yaml
 
 fn main() {
     val text = "# app\n---\nname: \"Ada L\"\nage: 36\nratio: 1.5\nzip: 01234\nok: true\nnone: ~\nempty:\ntags:\n  - a\n  - 'b c'\n  - [1, 2, {x: y}]\nusers:\n  - name: ann\n    roles: [admin, dev]\n  - name: bob\n    address:\n      city: X\n- \n"
-    val j = unwrap(yaml.parse_yaml("name: \"Ada L\"\nage: 36\nratio: 1.5\nzip: 01234\nok: true\nnone: ~\nempty:\ntags:\n  - a\n  - 'b c'\n  - [1, 2, {x: y}]\nusers:\n  - name: ann  # who\n    roles: [admin, dev]\n  - name: bob\n    address:\n      city: X\nsame:\n- p\n- q\nlit: |\n  line1\n    indented\n\n  line3\nfold: >-\n  a\n  b\n\n  c\nflow: {a: 1,\n  b: [x, y]}\nurl: http://x.y/z\nlong: some plain\n  text here\n"))
+    val j = unwrap(yaml.parse("name: \"Ada L\"\nage: 36\nratio: 1.5\nzip: 01234\nok: true\nnone: ~\nempty:\ntags:\n  - a\n  - 'b c'\n  - [1, 2, {x: y}]\nusers:\n  - name: ann  # who\n    roles: [admin, dev]\n  - name: bob\n    address:\n      city: X\nsame:\n- p\n- q\nlit: |\n  line1\n    indented\n\n  line3\nfold: >-\n  a\n  b\n\n  c\nflow: {a: 1,\n  b: [x, y]}\nurl: http://x.y/z\nlong: some plain\n  text here\n"))
     print(json.format(j, 2))
-    val y = yaml.yaml_to_string(j)
+    val y = yaml.format(j)
     print(y)
-    print(yaml.yaml_to_string(unwrap(yaml.parse_yaml(y))) == y)
-    print(unwrap_err(yaml.parse_yaml("a: 1\na: 2\n")))
-    print(unwrap_err(yaml.parse_yaml("a: &x 1\n")))
-    print(unwrap_err(yaml.parse_yaml("a:\n\tb: 1\n")))
-    print(unwrap_err(yaml.parse_yaml("a: 1\n---\nb: 2\n")))
-    print(unwrap_err(yaml.parse_yaml("a: [1, 2\n")))
-    print(json.format(unwrap(yaml.parse_yaml("- 1\n- - 2\n  - 3\n- k: v\n  w: 4\n"))))
-    print(json.format(unwrap(yaml.parse_yaml("just text"))))
-    print(json.format(unwrap(yaml.parse_yaml(""))))
+    print(yaml.format(unwrap(yaml.parse(y))) == y)
+    print(unwrap_err(yaml.parse("a: 1\na: 2\n")))
+    print(unwrap_err(yaml.parse("a: &x 1\n")))
+    print(unwrap_err(yaml.parse("a:\n\tb: 1\n")))
+    print(unwrap_err(yaml.parse("a: 1\n---\nb: 2\n")))
+    print(unwrap_err(yaml.parse("a: [1, 2\n")))
+    print(json.format(unwrap(yaml.parse("- 1\n- - 2\n  - 3\n- k: v\n  w: 4\n"))))
+    print(json.format(unwrap(yaml.parse("just text"))))
+    print(json.format(unwrap(yaml.parse(""))))
 }

@@ -1,6 +1,6 @@
 use uuid.Uuid
-use uuid.uuid_from_string as parse_id
-use uuid.uuid_to_string as show
+use uuid.format as show
+use uuid.parse as parse_id
 
 fn main() {
     val id: Uuid = unwrap(parse_id("00000000-0000-4000-8000-000000000007"))

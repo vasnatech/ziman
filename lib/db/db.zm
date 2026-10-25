@@ -148,7 +148,7 @@ pub fn sql_as_decimal(v: SqlValue) -> Result<decimal, DbError> {
 }
 
 // Lifts a domain type's own parse result (Result<T, string>, e.g.
-// uuid_from_string) into the DbError error type a from_sql needs.
+// uuid.parse) into the DbError error type a from_sql needs.
 pub fn sql_lift<T>(r: Result<T, string>, what: string) -> Result<T, DbError> {
     switch r {
         Ok(v) { return ok(v) }

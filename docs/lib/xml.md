@@ -41,7 +41,7 @@ attribute is in no namespace, which is what the spec says and what trips people 
 default `xmlns` applies to elements only.
 
 The writer does not consult `namespace`: it emits `prefix:local` when a prefix is set and
-`local` otherwise, and never invents a declaration. So a tree that came from `parse_xml`
+`local` otherwise, and never invents a declaration. So a tree that came from `parse`
 writes back unchanged, and a tree built by hand needs its `xmlns` written as an ordinary
 attribute, once, on the element that scopes it. `namespace` is what `==` and `find_ns`
 compare; `prefix` is only ever a hint to the writer.
@@ -56,7 +56,7 @@ use xml
 // XML is a tree of its own, not a Json tree: text and elements interleave, attributes are not
 // children, and a name is identified by its namespace rather than its prefix.
 fn main() {
-    val doc = unwrap(xml.parse_xml("""
+    val doc = unwrap(xml.parse("""
         <?xml version="1.0" encoding="UTF-8"?>
         <record xmlns="urn:hl7-org:v3">
           <patient><name>Ann Lee</name></patient>
@@ -92,14 +92,14 @@ fn main() {
         xml.opt_element("temperature", Option<string>.Some("38.1")),
         xml.opt_element("notes", missing)
     )))
-    print(trim(unwrap(xml.xml_to_string(built))))
+    print(trim(unwrap(xml.format(built))))
 
     // There is no DTD, so the shapes that make XML dangerous simply do not parse.
-    print(is_ok(xml.parse_xml("<!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><x>&e;</x>")))
+    print(is_ok(xml.parse("<!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><x>&e;</x>")))
 
     // The limits are a value you can tighten for input you do not control.
     val strict = xml.XmlLimits { max_bytes: 4096, max_depth: 8, max_attributes: 16 }
-    print(is_ok(xml.parse_xml_with("<a><b><c/></b></a>", strict)))
+    print(is_ok(xml.parse("<a><b><c/></b></a>", strict)))
 }
 ```
 
@@ -215,7 +215,7 @@ pub struct XmlLimits {
 }
 ```
 
-The reader's limits. `xml_limits()` has the defaults; pass your own to `parse_xml_with`.
+The reader's limits. `xml_limits()` has the defaults; pass your own to `parse`.
 There is deliberately no `allow_doctype`: see the module header.
 
 ### `xml_limits`
@@ -313,7 +313,7 @@ pub fn attribute(local: string, value: string) -> Attribute
 pub fn document(root: Element) -> Document
 ```
 
-A document with no declaration and nothing around the root. `xml_to_string` writes a
+A document with no declaration and nothing around the root. `format` writes a
 `<?xml version="1.0" encoding="UTF-8"?>` line for a document whose declaration is None, so
 the output is still a well-formed file.
 
@@ -417,10 +417,10 @@ The first element `find` reaches, or None.
 
 ## Reading
 
-### `parse_xml`
+### `parse`
 
 ```
-pub fn parse_xml(text: string) -> Result<Document, string>
+pub fn parse(text: string) -> Result<Document, string>
 ```
 
 Parses one XML document with the default limits (`xml_limits()`): at most 16 MiB, 512 levels
@@ -433,41 +433,35 @@ compare on it. Text that `&...;` references expand to is already expanded in `No
 only the five predefined entities and numeric character references exist, there being no DTD
 to define any others.
 
-### `parse_xml_with`
-
 ```
-pub fn parse_xml_with(text: string, limits: XmlLimits) -> Result<Document, string>
+pub fn parse(text: string, limits: XmlLimits) -> Result<Document, string>
 ```
 
-`parse_xml` with limits of your own. Tightening `max_bytes` is the usual reason -- a document
+`parse` with limits of your own. Tightening `max_bytes` is the usual reason -- a document
 arriving from somewhere you do not control has a size you are willing to spend memory on, and
 it is smaller than 16 MiB.
 
-### `parse_xml_bytes`
-
 ```
-pub fn parse_xml_bytes(data: [byte]) -> Result<Document, string>
+pub fn parse(data: [byte]) -> Result<Document, string>
 ```
 
-`parse_xml` over the bytes of a document -- what `fs.read_bytes` gives, or an HTTP body. The
+`parse` over the bytes of a document -- what `fs.read_bytes` gives, or an HTTP body. The
 bytes must be UTF-8; invalid UTF-8 is an Err rather than a tree with broken text in it.
 
-### `parse_xml_bytes_with`
-
 ```
-pub fn parse_xml_bytes_with(data: [byte], limits: XmlLimits) -> Result<Document, string>
+pub fn parse(data: [byte], limits: XmlLimits) -> Result<Document, string>
 ```
 
 ## Writing
 
-### `xml_to_string`
+### `format`
 
 ```
-pub fn xml_to_string(doc: Document) -> Result<string, string>
+pub fn format(doc: Document) -> Result<string, string>
 ```
 
 `doc` as XML text on one line, with a declaration and a trailing newline. A document that came
-from `parse_xml` writes back as the same tree -- reading the output gives an equal `Document`.
+from `parse` writes back as the same tree -- reading the output gives an equal `Document`.
 
 Unlike `json.format` this can fail, because XML genuinely cannot carry some strings: a name
 that is not a legal XML name, a comment containing `--`, a CDATA section containing `]]>`, and
@@ -476,20 +470,18 @@ writes that last one as `\u0000`; XML has nothing to write, so refusing is the o
 answer. The message says which rule the tree broke. (NUL specifically never gets this far: a
 Ziman `string` cannot hold one, because `bytes_to_string` refuses it at the boundary.)
 
-### `xml_to_string_pretty`
-
 ```
-pub fn xml_to_string_pretty(doc: Document, indent: string) -> Result<string, string>
+pub fn format(doc: Document, indent: string) -> Result<string, string>
 ```
 
-`xml_to_string` laid out over several lines, each level indented by `indent` (two spaces, a
+`format` laid out over several lines, each level indented by `indent` (two spaces, a
 tab -- whatever you pass). An element with any text in it stays on one line, because
 indentation inside mixed content would change the text itself.
 
 **This is not round-trip safe, and cannot be.** The indentation between elements is text like
 any other, and nothing in the document says whether it matters -- only a schema this reader
 does not have could say. So reading the pretty output back gives a tree with whitespace in it
-that the original did not have. Use `xml_to_string` when the bytes have to come back the
+that the original did not have. Use `format` when the bytes have to come back the
 same (a signature, a checksum, a stored document) and this one when a person reads the
 output.
 
@@ -499,12 +491,12 @@ output.
 pub fn xml_to_bytes(doc: Document) -> Result<[byte], string>
 ```
 
-`xml_to_string` as UTF-8 bytes: an HTTP body, or what `fs.write_bytes` takes.
+`format` as UTF-8 bytes: an HTTP body, or what `fs.write_bytes` takes.
 
-### `element_to_string`
+### `format`
 
 ```
-pub fn element_to_string(e: Element) -> Result<string, string>
+pub fn format(e: Element) -> Result<string, string>
 ```
 
 One element as XML text, with no declaration: a fragment to embed in a document being built

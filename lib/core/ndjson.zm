@@ -4,7 +4,6 @@
 use json
 use json.Json
 use json.Number
-use json.parse
 
 // `sample`/`number_sample`'s own values never matter (callers always pass `Json.JNull`/
 // `Number.Int(0)`) -- only their runtime type descriptors do, which is how the native side
@@ -14,7 +13,7 @@ native fn records_raw(path: string, sample: Json, number_sample: Number) -> Resu
 
 // Every non-blank line as a JSON value, in order. A line that is not valid JSON is an
 // error naming its (1-based) line number. A trailing CR (CRLF files) is ignored.
-pub fn parse_ndjson(text: string) -> Result<[Json], string> {
+pub fn parse(text: string) -> Result<[Json], string> {
     val items = mutable_array_new<Json>()
     var line_no = 0
     for raw in split(text, "\n") {
@@ -23,9 +22,9 @@ pub fn parse_ndjson(text: string) -> Result<[Json], string> {
         if byte_len(line) == 0 {
             continue
         }
-        val parsed = parse(line)
+        val parsed = json.parse(line)
         if Err(e) = parsed {
-            return err(format("line {}: {}", line_no, e))
+            return err(prelude.format("line {}: {}", line_no, e))
         }
         push(items, unwrap(parsed))
     }
@@ -43,7 +42,7 @@ pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string> {
 }
 
 // One compact JSON value per line, each line ended by "\n" (so the text ends with a newline).
-pub fn ndjson_to_string(items: [Json]) -> string {
+pub fn format(items: [Json]) -> string {
     val out = mutable_string_new()
     for item in items {
         append(out, json.format(item), "\n")

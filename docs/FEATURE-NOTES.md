@@ -90,8 +90,8 @@ project-relative file of the same name still wins if one exists, but
 this is the fallback that means one usually doesn't have to. `random`
 is one native function, `random_bytes(n: int) -> [byte]`, reading real
 OS entropy (`/dev/urandom`). `uuid` is pure Ziman on top of it: a
-`Uuid` struct, `uuid_new()` for an RFC 4122 v4 UUID, `uuid_to_string`
-for the canonical dashed-hex form and `uuid_from_string` for its
+`Uuid` struct, `uuid_new()` for an RFC 4122 v4 UUID, `uuid.format`
+for the canonical dashed-hex form and `uuid.parse` for its
 inverse (accepting either case, the form any real caller getting a
 UUID back as a string — a JSON field, a URL path segment — actually
 has to parse), version/variant bits set with plain
@@ -288,7 +288,7 @@ source — an enum, not a hardcoded primitive like `Result<T, E>` is —
 merged bare into every program the same way the entry file's own
 top-level names are. So does `MutableString` — a general fix for the
 O(N²)-allocation, O(N)-leaked-garbage pattern of building a string via
-repeated `concat` in a loop (`uuid_to_string` used to be exactly this,
+repeated `concat` in a loop (`uuid.format` used to be exactly this,
 and now isn't — see docs/DESIGN.md's "StringBuilder" entry, which the
 2026-10-13 rename supersedes in part). It's a plain, one-field struct
 (`MutableString { handle: int }`), not a new built-in type the way

@@ -13,7 +13,7 @@
 use toml
 
 fn t(label: string, text: string) {
-    switch toml.parse_toml(text) {
+    switch toml.parse(text) {
         Ok(v) { printf("{} => {}\n", label, v) }
         Err(e) { printf("{} => ERR {}\n", label, e) }
     }

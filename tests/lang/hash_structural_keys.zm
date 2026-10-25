@@ -17,9 +17,9 @@ struct Wrap {
 }
 
 fn main() {
-    val a = unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000001"))
-    val b = unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000002"))
-    val a2 = unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000001"))
+    val a = unwrap(uuid.parse("00000000-0000-4000-8000-000000000001"))
+    val b = unwrap(uuid.parse("00000000-0000-4000-8000-000000000002"))
+    val a2 = unwrap(uuid.parse("00000000-0000-4000-8000-000000000001"))
     print(hash(a) == hash(a2))
     print(hash(a) == hash(b))
 

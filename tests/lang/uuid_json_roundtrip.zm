@@ -1,16 +1,16 @@
 use json
 use json.Json
 use json.float_to_json
+use uuid
 use uuid.uuid_from_json
 use uuid.uuid_new
 use uuid.uuid_to_json
-use uuid.uuid_to_string
 
 fn main() {
     val u = uuid_new()
     val j = uuid_to_json(u)
     print(Json.is_JString(j))
-    print(json.format(j) == json.format(Json.JString(uuid_to_string(u))))
+    print(json.format(j) == json.format(Json.JString(uuid.format(u))))
     print(unwrap(uuid_from_json(j)) == u)
     print(is_ok(uuid_from_json(float_to_json(5.0))))
 }

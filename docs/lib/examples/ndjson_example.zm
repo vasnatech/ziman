@@ -5,18 +5,18 @@ use ndjson
 
 // One JSON value per line: a format for logs and streams.
 fn main() {
-    val items = unwrap(ndjson.parse_ndjson("""
+    val items = unwrap(ndjson.parse("""
         {"id": 1, "ok": true}
         {"id": 2, "ok": false}
         """))
     print(len(items))
     print(json.format(items[1]))
-    print(trim(ndjson.ndjson_to_string(items)))
-    print(is_ok(ndjson.parse_ndjson("{\"id\": 1}\nnot json")))
+    print(trim(ndjson.format(items)))
+    print(is_ok(ndjson.parse("{\"id\": 1}\nnot json")))
 
     // A large file is read one record at a time instead of all at once.
     val path = "/tmp/ziman_manual_ndjson_example.ndjson"
-    unwrap(fs.write_text(path, ndjson.ndjson_to_string(items)))
+    unwrap(fs.write_text(path, ndjson.format(items)))
     var ok_records = 0
     val records = unwrap(ndjson.records(path))
     for record in records {

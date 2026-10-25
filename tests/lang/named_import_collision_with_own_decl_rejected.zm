@@ -1,6 +1,6 @@
-use uuid.uuid_from_string
+use uuid.version
 
-fn uuid_from_string() {
+fn version() {
 }
 
 fn main() {

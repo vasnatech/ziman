@@ -2,7 +2,7 @@ use json
 use toml
 
 fn main() {
-    val cfg = unwrap(toml.parse_toml("host = \"localhost\"\nport = 8080\ndebug = true\n"))
+    val cfg = unwrap(toml.parse("host = \"localhost\"\nport = 8080\ndebug = true\n"))
     print(unwrap(json.require_string(cfg, "host")))
     print(unwrap(json.require_int(cfg, "port")))
     print(unwrap(json.require_bool(cfg, "debug")))

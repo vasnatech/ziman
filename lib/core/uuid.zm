@@ -70,7 +70,7 @@ pub fn uuid_nil() -> Uuid {
 }
 
 // The lowercase dashed text of `u`: `123e4567-e89b-42d3-a456-426614174000`.
-pub fn uuid_to_string(u: Uuid) -> string {
+pub fn format(u: Uuid) -> string {
     val hex = bytes_to_hex(u.bytes)
     return join(separator: "-", pieces: [substring(hex, 0, 8), substring(hex, 8, 12), substring(hex, 12, 16),
         substring(hex, 16, 20), substring(hex, 20, 32)])
@@ -78,37 +78,37 @@ pub fn uuid_to_string(u: Uuid) -> string {
 
 // The UUID written in the 8-4-4-4-12 dashed form (upper or lower case). An Err for any other
 // length, misplaced dashes, or a non-hex character; the message names the text.
-pub fn uuid_from_string(s: string) -> Result<Uuid, string> {
+pub fn parse(s: string) -> Result<Uuid, string> {
     if len(s) != uuid_text_length {
-        return err(format("invalid UUID '{}': expected 36 characters, found {}", s, len(s)))
+        return err(prelude.format("invalid UUID '{}': expected 36 characters, found {}", s, len(s)))
     }
     for pos in uuid_dash_positions {
         if substring(s, pos, pos + 1) != "-" {
-            return err(format("invalid UUID '{}': expected '-' at positions 8, 13, 18, 23", s))
+            return err(prelude.format("invalid UUID '{}': expected '-' at positions 8, 13, 18, 23", s))
         }
     }
     val bytes = bytes_from_hex(replace(s, "-", ""))
     if Err(e) = bytes {
-        return err(format("invalid UUID '{}': {}", s, e))
+        return err(prelude.format("invalid UUID '{}': {}", s, e))
     }
     return ok(Uuid { bytes: unwrap(bytes) })
 }
 
 // The UUID's version (4 for `uuid_new`, 7 for `uuid_new_v7`): the high nibble of byte 6.
-pub fn uuid_version(u: Uuid) -> int {
+pub fn version(u: Uuid) -> int {
     return (u.bytes[6] as int) / 16
 }
 
 // A `Uuid` as a JSON string of its canonical text. Named for `#[derive(Json)]`'s
 // `<type>_to_json` convention, so a `Uuid` field works in a derived struct.
 pub fn uuid_to_json(u: Uuid) -> Json {
-    return Json.JString(uuid_to_string(u))
+    return Json.JString(format(u))
 }
 
 // A `Uuid` from a JSON string. An Err if `j` is not a string or not a valid UUID.
 pub fn uuid_from_json(j: Json) -> Result<Uuid, string> {
     if JString(s) = j {
-        return uuid_from_string(s)
+        return parse(s)
     }
     return err("expected a JSON string for Uuid")
 }
@@ -116,12 +116,12 @@ pub fn uuid_from_json(j: Json) -> Result<Uuid, string> {
 // A `Uuid` as a TEXT value in the canonical dashed form, for `#[derive(Row)]` (SQLite has no
 // UUID type, and Postgres's `uuid` column reads and writes the same text).
 pub fn uuid_to_sql(u: Uuid) -> SqlValue {
-    return SqlValue.Text(uuid_to_string(u))
+    return SqlValue.Text(format(u))
 }
 
 // A `Uuid` from a TEXT value. An Err if the value is not text or not a valid UUID.
 pub fn uuid_from_sql(v: SqlValue) -> Result<Uuid, DbError> {
-    return sql_lift<Uuid>(uuid_from_string(try sql_as_text(v)), "Uuid")
+    return sql_lift<Uuid>(parse(try sql_as_text(v)), "Uuid")
 }
 
 // Byte-wise order (the order of the canonical text), negative, zero or positive; what makes

@@ -1,9 +1,8 @@
+use uuid
 use uuid.Uuid
-use uuid.uuid_from_string
-use uuid.uuid_to_string
 
 fn main() {
-    val id: Uuid = unwrap(uuid_from_string("00000000-0000-4000-8000-000000000001"))
-    print(uuid_to_string(id))
-    print(is_ok(uuid_from_string("not a uuid")))
+    val id: Uuid = unwrap(uuid.parse("00000000-0000-4000-8000-000000000001"))
+    print(uuid.format(id))
+    print(is_ok(uuid.parse("not a uuid")))
 }

@@ -899,11 +899,11 @@ pub fn of_path(path: string) -> Option<MediaType>
 Newline-delimited JSON (one value per line) on top of `json`.
 
 ```
-pub fn parse_ndjson(text: string) -> Result<[Json], string>
+pub fn parse(text: string) -> Result<[Json], string>
 
 pub fn records(path: string) -> Result<Iter<Result<Json, string>>, string>
 
-pub fn ndjson_to_string(items: [Json]) -> string
+pub fn format(items: [Json]) -> string
 
 ```
 
@@ -1392,9 +1392,9 @@ pub fn reset<T>(key: ThreadLocal<T>)
 **Experimental** (see docs/DESIGN.md "Experimental modules"). TOML 1.0 to and from a `Json` tree. Dates stay strings; `inf`/`nan` are rejected.
 
 ```
-pub fn parse_toml(text: string) -> Result<Json, string>
+pub fn parse(text: string) -> Result<Json, string>
 
-pub fn toml_to_string(j: Json) -> Result<string, string>
+pub fn format(j: Json) -> Result<string, string>
 
 ```
 
@@ -1422,11 +1422,11 @@ pub fn uuid_new_v7() -> Uuid
 
 pub fn uuid_nil() -> Uuid
 
-pub fn uuid_to_string(u: Uuid) -> string
+pub fn format(u: Uuid) -> string
 
-pub fn uuid_from_string(s: string) -> Result<Uuid, string>
+pub fn parse(s: string) -> Result<Uuid, string>
 
-pub fn uuid_version(u: Uuid) -> int
+pub fn version(u: Uuid) -> int
 
 pub fn uuid_to_json(u: Uuid) -> Json
 
@@ -1536,21 +1536,21 @@ pub fn find_ns(e: Element, uri: string, path: string) -> [Element]
 
 pub fn find_first(e: Element, path: string) -> Option<Element>
 
-pub fn parse_xml(text: string) -> Result<Document, string>
+pub fn parse(text: string) -> Result<Document, string>
 
-pub fn parse_xml_with(text: string, limits: XmlLimits) -> Result<Document, string>
+pub fn parse(text: string, limits: XmlLimits) -> Result<Document, string>
 
-pub fn parse_xml_bytes(data: [byte]) -> Result<Document, string>
+pub fn parse(data: [byte]) -> Result<Document, string>
 
-pub fn parse_xml_bytes_with(data: [byte], limits: XmlLimits) -> Result<Document, string>
+pub fn parse(data: [byte], limits: XmlLimits) -> Result<Document, string>
 
-pub fn xml_to_string(doc: Document) -> Result<string, string>
+pub fn format(doc: Document) -> Result<string, string>
 
-pub fn xml_to_string_pretty(doc: Document, indent: string) -> Result<string, string>
+pub fn format(doc: Document, indent: string) -> Result<string, string>
 
 pub fn xml_to_bytes(doc: Document) -> Result<[byte], string>
 
-pub fn element_to_string(e: Element) -> Result<string, string>
+pub fn format(e: Element) -> Result<string, string>
 
 ```
 
@@ -1559,9 +1559,9 @@ pub fn element_to_string(e: Element) -> Result<string, string>
 **Experimental** (see docs/DESIGN.md "Experimental modules"). A strict YAML 1.2 subset to and from a `Json` tree: block and flow collections, quoted/plain/block scalars. Anchors, tags, merge keys and multiple documents are errors.
 
 ```
-pub fn parse_yaml(text: string) -> Result<Json, string>
+pub fn parse(text: string) -> Result<Json, string>
 
-pub fn yaml_to_string(j: Json) -> string
+pub fn format(j: Json) -> string
 
 ```
 

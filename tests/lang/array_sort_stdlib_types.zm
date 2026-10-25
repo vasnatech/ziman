@@ -1,5 +1,5 @@
-use uuid
 use time
+use uuid
 
 fn main() {
     val d1 = unwrap(time.parse_localdate("2024-03-05"))
@@ -8,9 +8,9 @@ fn main() {
     for d in sort([d1, d2, d3]) {
         print(time.format(d))
     }
-    val a = unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000002"))
-    val b = unwrap(uuid.uuid_from_string("00000000-0000-4000-8000-000000000001"))
+    val a = unwrap(uuid.parse("00000000-0000-4000-8000-000000000002"))
+    val b = unwrap(uuid.parse("00000000-0000-4000-8000-000000000001"))
     for u in sort([a, b]) {
-        print(uuid.uuid_to_string(u))
+        print(uuid.format(u))
     }
 }

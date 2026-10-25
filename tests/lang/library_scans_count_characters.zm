@@ -11,9 +11,9 @@
 // row; `parse_offset` accepted a 6-byte, 3-character offset; `uuid`'s error counted bytes
 // while its own words said characters.
 use mime
-use toml
 use properties
 use time
+use toml
 use uuid
 use yaml
 fn main() {
@@ -23,7 +23,7 @@ fn main() {
         Err(e) { printf("mime ERR {}\n", e) }
     }
     // toml: a 10-byte, 6-character value reaching char_at(t, 7) past the end
-    switch toml.parse_toml("k = \"ääääää\"\n") {
+    switch toml.parse("k = \"ääääää\"\n") {
         Ok(v) { printf("toml ok: {}\n", v) }
         Err(e) { printf("toml ERR {}\n", e) }
     }
@@ -43,12 +43,12 @@ fn main() {
         Err(e) { print("zone correctly rejected") }
     }
     // uuid: the message says characters, so the count must be characters
-    switch uuid.uuid_from_string("ääääääääääääääääää") {
+    switch uuid.parse("ääääääääääääääääää") {
         Ok(u) { print("uuid unexpectedly ok") }
         Err(e) { printf("uuid: {}\n", e) }
     }
     // yaml: a block scalar whose body lines hold non-ASCII
-    switch yaml.parse_yaml("t: |\n  héllo\n  wörld\n") {
+    switch yaml.parse("t: |\n  héllo\n  wörld\n") {
         Ok(v) { printf("yaml ok: {}\n", v) }
         Err(e) { printf("yaml ERR {}\n", e) }
     }

@@ -2062,7 +2062,7 @@ from source.
   from `/dev/urandom` — Ziman's first source of genuine
   non-determinism (`clock`, below, is the second). `uuid` is pure Ziman
   on top of it: a `Uuid` struct (`bytes: [byte]`), `uuid_new()`
-  generating an RFC 4122 v4 UUID, `uuid_to_string` formatting the
+  generating an RFC 4122 v4 UUID, `uuid.format` formatting the
   canonical dashed-hex string. Sets the version/variant bits with pure
   integer arithmetic (`(b % 16) + 64`, `(b % 64) + 128`) instead of
   bitwise operators, which Ziman has none of (no `& | ^ << >>`) —

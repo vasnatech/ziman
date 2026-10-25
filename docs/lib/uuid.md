@@ -23,10 +23,10 @@ use uuid
 
 fn main() {
     val id = uuid.uuid_new()
-    print(byte_len(uuid.uuid_to_string(id)))
-    val again = unwrap(uuid.uuid_from_string(uuid.uuid_to_string(id)))
+    print(byte_len(uuid.format(id)))
+    val again = unwrap(uuid.parse(uuid.format(id)))
     print(id == again)
-    print(is_ok(uuid.uuid_from_string("not-a-uuid")))
+    print(is_ok(uuid.parse("not-a-uuid")))
 }
 ```
 
@@ -74,27 +74,27 @@ pub fn uuid_nil() -> Uuid
 
 The all-zero UUID, `00000000-0000-0000-0000-000000000000`: "no id".
 
-### `uuid_to_string`
+### `format`
 
 ```
-pub fn uuid_to_string(u: Uuid) -> string
+pub fn format(u: Uuid) -> string
 ```
 
 The lowercase dashed text of `u`: `123e4567-e89b-42d3-a456-426614174000`.
 
-### `uuid_from_string`
+### `parse`
 
 ```
-pub fn uuid_from_string(s: string) -> Result<Uuid, string>
+pub fn parse(s: string) -> Result<Uuid, string>
 ```
 
 The UUID written in the 8-4-4-4-12 dashed form (upper or lower case). An Err for any other
 length, misplaced dashes, or a non-hex character; the message names the text.
 
-### `uuid_version`
+### `version`
 
 ```
-pub fn uuid_version(u: Uuid) -> int
+pub fn version(u: Uuid) -> int
 ```
 
 The UUID's version (4 for `uuid_new`, 7 for `uuid_new_v7`): the high nibble of byte 6.

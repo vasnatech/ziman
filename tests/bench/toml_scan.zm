@@ -31,7 +31,7 @@ fn doc(unit_text: string, times: int) -> string {
 
 fn parse_ms(text: string) -> int {
     val started = clock.monotonic_millis()
-    switch toml.parse_toml(text) {
+    switch toml.parse(text) {
         Ok(v) {}
         Err(e) { printf("  PARSE FAILED: {}\n", e) }
     }

@@ -74,7 +74,7 @@ struct Scalar {
 }
 
 fn fail(no: int, message: string) -> string {
-    return format("line {}: {}", no, message)
+    return prelude.format("line {}: {}", no, message)
 }
 
 fn hex_value(c: string) -> int {
@@ -328,7 +328,7 @@ fn plain_scalar(t: string, no: int) -> Result<Json, string> {
         return err(fail(no, "anchors, aliases and tags are not supported"))
     }
     if first == "@" || first == "`" || first == "%" {
-        return err(fail(no, format("'{}' cannot start a plain scalar", first)))
+        return err(fail(no, prelude.format("'{}' cannot start a plain scalar", first)))
     }
     if t == ".inf" || t == "-.inf" || t == "+.inf" || t == ".nan" || t == ".NaN" || t == ".Inf" {
         return err(fail(no, ".inf and .nan are not supported"))
@@ -387,7 +387,7 @@ fn read_double(cs: [string], pos: int, no: int) -> Result<Scalar, string> {
                 p = p + 2 + digits
                 continue
             } else {
-                return err(fail(no, format("unsupported escape '\\{}'", e)))
+                return err(fail(no, prelude.format("unsupported escape '\\{}'", e)))
             }
             p = p + 2
         } else {
@@ -460,7 +460,7 @@ val max_flow_depth = 512
 
 fn flow_node(cs: [string], pos: int, no: int, depth: int) -> Result<Scalar, string> {
     if depth > max_flow_depth {
-        return err(format("line {}: flow collections nested deeper than {}", no, max_flow_depth))
+        return err(prelude.format("line {}: flow collections nested deeper than {}", no, max_flow_depth))
     }
     val p = skip_sp(cs, pos)
     if p >= len(cs) {
@@ -521,7 +521,7 @@ fn flow_map(cs: [string], pos: int, no: int, depth: int) -> Result<Scalar, strin
             key.next
         )) }
         if contains(fields, key_text) {
-            return err(fail(no, format("duplicate key '{}'", key_text)))
+            return err(fail(no, prelude.format("duplicate key '{}'", key_text)))
         }
         p = skip_sp(cs, key.next)
         var value = Json.JNull
@@ -922,7 +922,7 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
             None { return err(fail(ln.no, "expected 'key: value'")) }
         }
         if contains(fields, entry.key) {
-            return err(fail(ln.no, format("duplicate key '{}'", entry.key)))
+            return err(fail(ln.no, prelude.format("duplicate key '{}'", entry.key)))
         }
         var value = Json.JNull
         var after = j + 1
@@ -956,7 +956,7 @@ fn parse_map(lines: [Line], i: int, ind: int) -> Result<NodeRes, string> {
 // `JNull`. An Err carries `line N: ...` for a syntax error, a duplicate key, bad indentation, or
 // something unsupported (anchors, aliases, tags, the `<<` merge key, multiple documents, tab
 // indentation), so nothing is silently misread.
-pub fn parse_yaml(text: string) -> Result<Json, string> {
+pub fn parse(text: string) -> Result<Json, string> {
     val all = try tokenize(text)
     val kept = mutable_array_new<Line>()
     var seen_start = false
@@ -1162,7 +1162,7 @@ fn write_node(out: MutableString, j: Json, indent: int) {
 // as `{}` / `[]`. A string that would read back as another type (`"42"`, `"true"`, `""`, `"null"`)
 // or that needs it (a leading `-`, a `: ` inside) is double-quoted; floats are written with full
 // precision and keep a `.0`. Reading the output back gives the same tree.
-pub fn yaml_to_string(j: Json) -> string {
+pub fn format(j: Json) -> string {
     if is_container(j) && !is_empty_container(j) {
         val out = mutable_string_new()
         write_node(out, j, 0)

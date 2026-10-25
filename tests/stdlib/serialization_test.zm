@@ -19,14 +19,14 @@ fn repeat(s: string, n: int) -> string {
 
 #[test]
 fn yaml_reads_a_block_mapping() {
-    val j = test.assert_ok(yaml.parse_yaml("name: Ada\nage: 36\n"))
+    val j = test.assert_ok(yaml.parse("name: Ada\nage: 36\n"))
     test.assert_eq("Ada", test.assert_ok(json.require_string(j, "name")))
     test.assert_eq(36, test.assert_ok(json.require_int(j, "age")))
 }
 
 #[test]
 fn yaml_reads_nested_blocks_and_sequences() {
-    val j = test.assert_ok(yaml.parse_yaml("outer:\n  inner: 1\nlist:\n  - a\n  - b\n"))
+    val j = test.assert_ok(yaml.parse("outer:\n  inner: 1\nlist:\n  - a\n  - b\n"))
     val inner = test.assert_some(json.get_path(j, "outer", "inner"))
     test.assert_eq(1, test.assert_ok(json.int_from_json(inner)))
     val second = test.assert_some(json.get_path(j, "list", "1"))
@@ -36,28 +36,28 @@ fn yaml_reads_nested_blocks_and_sequences() {
 #[test]
 fn yaml_flow_collections_work_and_are_bounded() {
     // the ordinary case
-    val flat = test.assert_ok(yaml.parse_yaml("k: [1, 2, 3]"))
+    val flat = test.assert_ok(yaml.parse("k: [1, 2, 3]"))
     test.assert_some(json.get_path(flat, "k", "2"))
     // D19: nesting past the documented 512 is refused rather than recursing until the stack ends
     val deep = concat(concat("k: ", repeat("[", 2000)), repeat("]", 2000))
-    test.assert_err(yaml.parse_yaml(deep))
+    test.assert_err(yaml.parse(deep))
     // and a depth inside the cap is still accepted
     val shallow = concat(concat("k: ", repeat("[", 100)), repeat("]", 100))
-    test.assert_ok(yaml.parse_yaml(shallow))
+    test.assert_ok(yaml.parse(shallow))
 }
 
 #[test]
 fn yaml_block_scalars_handle_chomping() {
     // `|` keeps one trailing newline, `|-` strips it. D22 touched the keep form.
-    val keep = test.assert_ok(yaml.parse_yaml("text: |\n  one\n  two\n"))
+    val keep = test.assert_ok(yaml.parse("text: |\n  one\n  two\n"))
     test.assert_eq("one\ntwo\n", test.assert_ok(json.require_string(keep, "text")))
-    val strip = test.assert_ok(yaml.parse_yaml("text: |-\n  one\n  two\n"))
+    val strip = test.assert_ok(yaml.parse("text: |-\n  one\n  two\n"))
     test.assert_eq("one\ntwo", test.assert_ok(json.require_string(strip, "text")))
 }
 
 #[test]
 fn yaml_comments_and_blank_lines_are_ignored() {
-    val j = test.assert_ok(yaml.parse_yaml("# leading\n\nname: Ada   # trailing\n\n"))
+    val j = test.assert_ok(yaml.parse("# leading\n\nname: Ada   # trailing\n\n"))
     test.assert_eq("Ada", test.assert_ok(json.require_string(j, "name")))
 }
 
@@ -65,7 +65,7 @@ fn yaml_comments_and_blank_lines_are_ignored() {
 
 #[test]
 fn toml_reads_keys_and_tables() {
-    val j = test.assert_ok(toml.parse_toml("name = \"Ada\"\nage = 36\n\n[nested]\nflag = true\n"))
+    val j = test.assert_ok(toml.parse("name = \"Ada\"\nage = 36\n\n[nested]\nflag = true\n"))
     test.assert_eq("Ada", test.assert_ok(json.require_string(j, "name")))
     test.assert_eq(36, test.assert_ok(json.require_int(j, "age")))
     val flag = test.assert_some(json.get_path(j, "nested", "flag"))
@@ -74,23 +74,23 @@ fn toml_reads_keys_and_tables() {
 
 #[test]
 fn toml_reads_arrays() {
-    val j = test.assert_ok(toml.parse_toml("xs = [1, 2, 3]\n"))
+    val j = test.assert_ok(toml.parse("xs = [1, 2, 3]\n"))
     val third = test.assert_some(json.get_path(j, "xs", "2"))
     test.assert_eq(3, test.assert_ok(json.int_from_json(third)))
 }
 
 #[test]
 fn toml_rejects_malformed_input() {
-    test.assert_err(toml.parse_toml("name = \n"))
-    test.assert_err(toml.parse_toml("[unclosed\n"))
-    test.assert_err(toml.parse_toml("= 1\n"))
+    test.assert_err(toml.parse("name = \n"))
+    test.assert_err(toml.parse("[unclosed\n"))
+    test.assert_err(toml.parse("= 1\n"))
 }
 
 #[test]
 fn toml_round_trips_through_its_own_writer() {
-    val j = test.assert_ok(toml.parse_toml("name = \"Ada\"\nage = 36\n"))
-    val text = test.assert_ok(toml.toml_to_string(j))
-    val again = test.assert_ok(toml.parse_toml(text))
+    val j = test.assert_ok(toml.parse("name = \"Ada\"\nage = 36\n"))
+    val text = test.assert_ok(toml.format(j))
+    val again = test.assert_ok(toml.parse(text))
     test.assert_eq("Ada", test.assert_ok(json.require_string(again, "name")))
     test.assert_eq(36, test.assert_ok(json.require_int(again, "age")))
 }

@@ -16,7 +16,7 @@ fn nest(depth: int) -> string {
 }
 
 fn outcome(depth: int) -> string {
-    return switch yaml.parse_yaml(nest(depth)) {
+    return switch yaml.parse(nest(depth)) {
         Ok(_) { "parsed" }
         Err(e) { e }
     }
@@ -28,5 +28,5 @@ fn main() {
     print(format("depth 5000: {}", outcome(5000)))
     print(format("depth 100000: {}", outcome(100000)))
     // Ordinary nesting is untouched.
-    print(format("ordinary: {}", switch yaml.parse_yaml("a: {b: [1, 2, {c: 3}]}") { Ok(_) { "parsed" } Err(e) { e } }))
+    print(format("ordinary: {}", switch yaml.parse("a: {b: [1, 2, {c: 3}]}") { Ok(_) { "parsed" } Err(e) { e } }))
 }

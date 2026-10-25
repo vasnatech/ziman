@@ -75,7 +75,7 @@
 //
 // Formatting and parsing: every type has a fixed ISO-8601-shaped
 // `_to_string`/`_from_string` pair (no arguments beyond the value/string
-// itself -- named to match `uuid_to_string`/`uuid_from_string`, not the
+// itself -- named to match `uuid.format`/`uuid.parse`, not the
 // original `_parse`, once a proposed compile-time JSON-derive mechanism
 // wanted one canonical suffix across every corelib type to look for)
 // plus, for the three calendar-shaped types (`LocalDate`,

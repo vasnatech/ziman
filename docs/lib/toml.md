@@ -32,7 +32,7 @@ use toml
 
 // A TOML document becomes a Json tree, so the json helpers read it.
 fn main() {
-    val config = unwrap(toml.parse_toml("""
+    val config = unwrap(toml.parse("""
         title = "demo"
 
         [server]
@@ -51,8 +51,8 @@ fn main() {
     print(json.format(unwrap(json.require(config, "job"))))
 
     // An error says where the text went wrong.
-    print(is_ok(toml.parse_toml("port = ")))
-    print(trim(unwrap(toml.toml_to_string(server))))
+    print(is_ok(toml.parse("port = ")))
+    print(trim(unwrap(toml.format(server))))
 }
 ```
 
@@ -68,10 +68,10 @@ hosts = ["a.example", "b.example"]
 
 ## Reading
 
-### `parse_toml`
+### `parse`
 
 ```
-pub fn parse_toml(text: string) -> Result<Json, string>
+pub fn parse(text: string) -> Result<Json, string>
 ```
 
 Parses a TOML document into a `Json` object (tables and inline tables become objects, arrays
@@ -81,10 +81,10 @@ value (or the reverse), or an unsupported value (`inf`, `nan`).
 
 ## Writing
 
-### `toml_to_string`
+### `format`
 
 ```
-pub fn toml_to_string(j: Json) -> Result<string, string>
+pub fn format(j: Json) -> Result<string, string>
 ```
 
 Writes a `Json` object as TOML: scalars and arrays first as `key = value`, then sub-tables

@@ -15,18 +15,18 @@ use ndjson
 
 // One JSON value per line: a format for logs and streams.
 fn main() {
-    val items = unwrap(ndjson.parse_ndjson("""
+    val items = unwrap(ndjson.parse("""
         {"id": 1, "ok": true}
         {"id": 2, "ok": false}
         """))
     print(len(items))
     print(json.format(items[1]))
-    print(trim(ndjson.ndjson_to_string(items)))
-    print(is_ok(ndjson.parse_ndjson("{\"id\": 1}\nnot json")))
+    print(trim(ndjson.format(items)))
+    print(is_ok(ndjson.parse("{\"id\": 1}\nnot json")))
 
     // A large file is read one record at a time instead of all at once.
     val path = "/tmp/ziman_manual_ndjson_example.ndjson"
-    unwrap(fs.write_text(path, ndjson.ndjson_to_string(items)))
+    unwrap(fs.write_text(path, ndjson.format(items)))
     var ok_records = 0
     val records = unwrap(ndjson.records(path))
     for record in records {
@@ -50,10 +50,10 @@ false
 1
 ```
 
-### `parse_ndjson`
+### `parse`
 
 ```
-pub fn parse_ndjson(text: string) -> Result<[Json], string>
+pub fn parse(text: string) -> Result<[Json], string>
 ```
 
 Every non-blank line as a JSON value, in order. A line that is not valid JSON is an
@@ -72,10 +72,10 @@ lines are skipped, a line that is not valid JSON is an Err item naming its (1-ba
 (`line 3: unexpected character ...`) and the iteration carries on, and a read error is a last Err
 item. The Err on the call itself is the file failing to open. Leaving the loop early closes the file.
 
-### `ndjson_to_string`
+### `format`
 
 ```
-pub fn ndjson_to_string(items: [Json]) -> string
+pub fn format(items: [Json]) -> string
 ```
 
 One compact JSON value per line, each line ended by "\n" (so the text ends with a newline).

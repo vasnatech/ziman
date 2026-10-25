@@ -1643,18 +1643,18 @@ use toml
 struct Server { host: string  port: int  tags: [string]  limits: Map<string, int> }
 
 fn main() {
-    val tree = unwrap(toml.parse_toml("host = \"a\"\nport = 80\ntags = [\"x\"]\n[limits]\nrps = 10\n"))
-    val server = unwrap(server_from_json(tree))          // the same call for yaml.parse_yaml, csv rows, ...
-    print(unwrap(toml.toml_to_string(server_to_json(server))))
+    val tree = unwrap(toml.parse("host = \"a\"\nport = 80\ntags = [\"x\"]\n[limits]\nrps = 10\n"))
+    val server = unwrap(server_from_json(tree))          // the same call for yaml.parse, csv rows, ...
+    print(unwrap(toml.format(server_to_json(server))))
 }
 ```
 
 | Module | Reads | Writes |
 | --- | --- | --- |
-| `ndjson` | `parse_ndjson(text) -> Result<[Json], string>` (one value per line, blank lines skipped); `records(path)` reads a file lazily as an `Iter` of `Result<Json, string>` for a `for` loop, one record in memory at a time | `ndjson_to_string([Json])` |
+| `ndjson` | `ndjson.parse(text) -> Result<[Json], string>` (one value per line, blank lines skipped); `records(path)` reads a file lazily as an `Iter` of `Result<Json, string>` for a `for` loop, one record in memory at a time | `ndjson.format([Json])` |
 | `csv` | `parse` / `parse_typed` -> a `Json` array of objects keyed by the header row; `parse_rows` -> `[[string]]`; `parse_columns` / `parse_columns_typed` for a headerless file; each also takes a delimiter as a second argument (`parse(text, "\t")`); `records(path)` (and `records_typed`) reads a file lazily as an `Iter` of `Result<Json, string>` for a `for` loop, a record at a time, quoted newlines included | `format(Json)`, `format([[string]])` |
-| `toml` | `parse_toml(text) -> Result<Json, string>` | `toml_to_string(Json) -> Result<string, string>` |
-| `yaml` | `parse_yaml(text) -> Result<Json, string>` | `yaml_to_string(Json) -> string` |
+| `toml` | `toml.parse(text) -> Result<Json, string>` | `toml.format(Json) -> Result<string, string>` |
+| `yaml` | `yaml.parse(text) -> Result<Json, string>` | `yaml.format(Json) -> string` |
 
 - **Errors** are `Err(string)` with a `line N:` prefix (CSV: `row N`).
 - **CSV**: RFC 4180 quoting; LF/CRLF/lone-CR endings; blank lines skipped; a leading UTF-8 BOM

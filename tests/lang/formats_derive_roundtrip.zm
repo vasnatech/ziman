@@ -31,10 +31,10 @@ fn show(label: string, r: Result<Server, string>) {
 }
 
 fn main() {
-    val from_toml = toml.parse_toml("host = \"a.example\"\nport = 8080\ntls = true\ntags = [\"x\", \"y\"]\n[limits]\nrps = 10\nburst = 20\n")
+    val from_toml = toml.parse("host = \"a.example\"\nport = 8080\ntls = true\ntags = [\"x\", \"y\"]\n[limits]\nrps = 10\nburst = 20\n")
     show("toml", server_from_json(unwrap(from_toml)))
 
-    val from_yaml = yaml.parse_yaml("host: b.example\nport: 9090\ntls: false\ntags:\n  - z\nlimits:\n  rps: 5\nnote: hi\n")
+    val from_yaml = yaml.parse("host: b.example\nport: 9090\ntls: false\ntags:\n  - z\nlimits:\n  rps: 5\nnote: hi\n")
     show("yaml", server_from_json(unwrap(from_yaml)))
 
     val rows = unwrap(csv.parse_typed("host,port,tls\nc.example,1,true\nd.example,2,false\n"))
@@ -57,6 +57,6 @@ fn main() {
         limits: Map<string, int> { "k": 1 },
         note: Option<string>.None
     }
-    print(unwrap(toml.toml_to_string(server_to_json(s))))
-    print(yaml.yaml_to_string(server_to_json(s)))
+    print(unwrap(toml.format(server_to_json(s))))
+    print(yaml.format(server_to_json(s)))
 }

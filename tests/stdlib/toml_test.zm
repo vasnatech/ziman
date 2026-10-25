@@ -14,7 +14,7 @@ use test
 use toml
 
 fn parse(text: string) -> json.Json {
-    return test.assert_ok(toml.parse_toml(text))
+    return test.assert_ok(toml.parse(text))
 }
 
 fn as_json(text: string) -> string {
@@ -89,37 +89,37 @@ fn a_dotted_key_builds_a_table_inside_the_current_one() {
 
 #[test]
 fn the_same_table_twice_is_an_error() {
-    test.assert_err(toml.parse_toml("[t]\n[t]\n"))
-    test.assert_err(toml.parse_toml("[a.b]\nx = 1\n[a.b]\ny = 2\n"))
+    test.assert_err(toml.parse("[t]\n[t]\n"))
+    test.assert_err(toml.parse("[a.b]\nx = 1\n[a.b]\ny = 2\n"))
 }
 
 #[test]
 fn a_key_defined_twice_is_an_error_however_it_is_reached() {
-    test.assert_err(toml.parse_toml("a = 1\na = 2\n"))
-    test.assert_err(toml.parse_toml("[t]\na = 1\na = 2\n"))
-    test.assert_err(toml.parse_toml("[t]\na.b = 1\na.b = 2\n"))
+    test.assert_err(toml.parse("a = 1\na = 2\n"))
+    test.assert_err(toml.parse("[t]\na = 1\na = 2\n"))
+    test.assert_err(toml.parse("[t]\na.b = 1\na.b = 2\n"))
     // reached once as a dotted key at the root and once as a key inside the table
-    test.assert_err(toml.parse_toml("a.b = 1\n[a]\nb = 2\n"))
+    test.assert_err(toml.parse("a.b = 1\n[a]\nb = 2\n"))
 }
 
 #[test]
 fn a_table_cannot_overwrite_a_value() {
-    test.assert_err(toml.parse_toml("a = 1\n[a]\nx = 2\n"))
-    test.assert_err(toml.parse_toml("a = 1\n[a.b]\nx = 2\n"))
-    test.assert_err(toml.parse_toml("a = 1\n[[a]]\nx = 2\n"))
+    test.assert_err(toml.parse("a = 1\n[a]\nx = 2\n"))
+    test.assert_err(toml.parse("a = 1\n[a.b]\nx = 2\n"))
+    test.assert_err(toml.parse("a = 1\n[[a]]\nx = 2\n"))
 }
 
 #[test]
 fn a_table_and_an_array_of_tables_cannot_share_a_name() {
-    test.assert_err(toml.parse_toml("[a]\nx = 1\n[[a]]\ny = 2\n"))
-    test.assert_err(toml.parse_toml("[[a]]\nx = 1\n[a]\ny = 2\n"))
+    test.assert_err(toml.parse("[a]\nx = 1\n[[a]]\ny = 2\n"))
+    test.assert_err(toml.parse("[[a]]\nx = 1\n[a]\ny = 2\n"))
 }
 
 #[test]
 fn an_error_still_names_the_line_that_caused_it() {
     // The table is written into the tree when the *next* header arrives, so the position has to
     // be carried along with it; otherwise this would report line 4 instead of line 3.
-    val e = test.assert_err(toml.parse_toml("a = 1\n\n[a]\nx = 2\n\n[other]\ny = 3\n"))
+    val e = test.assert_err(toml.parse("a = 1\n\n[a]\nx = 2\n\n[other]\ny = 3\n"))
     test.assert(contains(e, "line 3"))
 }
 
@@ -145,7 +145,7 @@ fn time_parse(entries: int) -> int {
     }
     val text = snapshot(out)
     val t0 = clock.monotonic_millis()
-    val parsed = test.assert_ok(toml.parse_toml(text))
+    val parsed = test.assert_ok(toml.parse(text))
     val elapsed = clock.monotonic_millis() - t0
     var found = 0
     if JArray(items) = unwrap(json.get(parsed, "entry")) {

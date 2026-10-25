@@ -36,7 +36,7 @@
 // default `xmlns` applies to elements only.
 //
 // The writer does not consult `namespace`: it emits `prefix:local` when a prefix is set and
-// `local` otherwise, and never invents a declaration. So a tree that came from `parse_xml`
+// `local` otherwise, and never invents a declaration. So a tree that came from `parse`
 // writes back unchanged, and a tree built by hand needs its `xmlns` written as an ordinary
 // attribute, once, on the element that scopes it. `namespace` is what `==` and `find_ns`
 // compare; `prefix` is only ever a hint to the writer.
@@ -114,7 +114,7 @@ pub struct Document {
     epilog: [Node]
 }
 
-// The reader's limits. `xml_limits()` has the defaults; pass your own to `parse_xml_with`.
+// The reader's limits. `xml_limits()` has the defaults; pass your own to `parse`.
 // There is deliberately no `allow_doctype`: see the module header.
 pub struct XmlLimits {
     max_bytes: int
@@ -189,7 +189,7 @@ pub fn attribute(local: string, value: string) -> Attribute {
     return Attribute { name: name(local), value: value }
 }
 
-// A document with no declaration and nothing around the root. `xml_to_string` writes a
+// A document with no declaration and nothing around the root. `format` writes a
 // `<?xml version="1.0" encoding="UTF-8"?>` line for a document whose declaration is None, so
 // the output is still a well-formed file.
 pub fn document(root: Element) -> Document {
@@ -399,7 +399,7 @@ struct PAttrs {
 // `(s: string, pos: int)` and reached `pos` with `char_at`, which walks from the start of the
 // string unless the text is all-ASCII -- so threading a character position over a whole document
 // was quadratic *in the document*. Measured: 40 KB of CJK XML took 2.2 s, with 69% of a profile in
-// `char_at`, `is_char_at` and `substring`. `parse_xml_with` decodes once and these four helpers are
+// `char_at`, `is_char_at` and `substring`. `parse` decodes once and these four helpers are
 // what the string accessors were.
 
 // `cs[p]` carrying `is_char_at`'s bounds check: false rather than an error past the end, which
@@ -471,7 +471,7 @@ fn line_of(cs: [string], p: int) -> int {
 }
 
 fn fail(cs: [string], p: int, message: string) -> string {
-    return format("line {}: {}", line_of(cs, p), message)
+    return prelude.format("line {}: {}", line_of(cs, p), message)
 }
 
 fn is_space_at(cs: [string], p: int) -> bool {
@@ -601,7 +601,7 @@ fn read_reference(cs: [string], pos: int, out: MutableString) -> Result<int, str
         val cp = try read_char_code(cs, pos, body)
         append_code_point(out, cp)
     } else {
-        return err(fail(cs, pos, format(
+        return err(fail(cs, pos, prelude.format(
             "undefined entity '&{};' -- this parser has no DTD, so only &lt; &gt; &amp; &quot; &apos; and &#...; are defined",
             body
         )))
@@ -624,19 +624,19 @@ fn read_char_code(cs: [string], pos: int, body: string) -> Result<int, string> {
     while i < len(digits) {
         val d = index_of(hex_digits, to_lower(char_at(digits, i), invariant), 0)
         if d < 0 || d >= base {
-            return err(fail(cs, pos, format("'&{};' is not a character reference", body)))
+            return err(fail(cs, pos, prelude.format("'&{};' is not a character reference", body)))
         }
         value = value * base + d
         if value > max_code_point {
-            return err(fail(cs, pos, format("character reference '&{};' is out of range", body)))
+            return err(fail(cs, pos, prelude.format("character reference '&{};' is out of range", body)))
         }
         i = i + 1
     }
     if value > max_code_point || (value >= surrogate_start && value <= surrogate_end) {
-        return err(fail(cs, pos, format("character reference '&{};' is not a character", body)))
+        return err(fail(cs, pos, prelude.format("character reference '&{};' is not a character", body)))
     }
     if illegal_code(value) {
-        return err(fail(cs, pos, format(
+        return err(fail(cs, pos, prelude.format(
             "character reference '&{};' is a control character XML cannot represent",
             body
         )))
@@ -721,7 +721,7 @@ fn resolve(cs: [string], at: int, qname: string, scope: Map<string, string>, is_
     val prefix = substring(qname, 0, colon)
     val local = substring(qname, colon + 1, len(qname))
     if local == "" || index_of(local, ":", 0) >= 0 {
-        return err(fail(cs, at, format("'{}' is not a valid name", qname)))
+        return err(fail(cs, at, prelude.format("'{}' is not a valid name", qname)))
     }
     if prefix == "xml" {
         return ok(named(xml_ns, prefix, local))
@@ -731,7 +731,7 @@ fn resolve(cs: [string], at: int, qname: string, scope: Map<string, string>, is_
     }
     return switch get(scope, prefix) {
         Some(uri) { ok(named(uri, prefix, local)) }
-        None { err(fail(cs, at, format("undeclared namespace prefix '{}' in '{}'", prefix, qname))) }
+        None { err(fail(cs, at, prelude.format("undeclared namespace prefix '{}' in '{}'", prefix, qname))) }
     }
 }
 
@@ -789,14 +789,14 @@ fn read_attributes(cs: [string], pos: int, limits: XmlLimits) -> Result<PAttrs, 
         val n = try read_name(cs, p)
         p = skip_space(cs, n.next)
         if !at_is(cs, p, "=") {
-            return err(fail(cs, p, format("expected '=' after attribute '{}'", n.text)))
+            return err(fail(cs, p, prelude.format("expected '=' after attribute '{}'", n.text)))
         }
         p = skip_space(cs, p + 1)
         val v = try read_attr_value(cs, p)
         p = v.next
         attrs = push(attrs, RawAttr { qname: n.text, value: v.text, at: at })
         if len(attrs) > limits.max_attributes {
-            return err(fail(cs, at, format(
+            return err(fail(cs, at, prelude.format(
                 "more than {} attributes on one element",
                 limits.max_attributes
             )))
@@ -873,7 +873,7 @@ fn read_element(
     depth: int
 ) -> Result<PElem, string> {
     if depth > limits.max_depth {
-        return err(fail(cs, pos, format("nesting deeper than {} levels", limits.max_depth)))
+        return err(fail(cs, pos, prelude.format("nesting deeper than {} levels", limits.max_depth)))
     }
     val open = try read_name(cs, pos + 1)
     val raw = try read_attributes(cs, open.next, limits)
@@ -885,7 +885,7 @@ fn read_element(
         val an = try resolve(cs, a.at, a.qname, inner, true)
         for seen in attributes {
             if same_name(seen.name, an) {
-                return err(fail(cs, a.at, format("attribute '{}' appears twice", a.qname)))
+                return err(fail(cs, a.at, prelude.format("attribute '{}' appears twice", a.qname)))
             }
         }
         attributes = push(attributes, Attribute { name: an, value: a.value })
@@ -902,7 +902,7 @@ fn read_element(
     var kids: [Node] = []
     while true {
         if p >= len(cs) {
-            return err(fail(cs, pos, format("<{}> is never closed", open.text)))
+            return err(fail(cs, pos, prelude.format("<{}> is never closed", open.text)))
         }
         if at_is(cs, p, "<") {
             // In place, for the same reason as read_bang above: this copied the rest of the
@@ -910,7 +910,7 @@ fn read_element(
             if at_starts(cs, p, tok_close) {
                 val close = try read_name(cs, p + 2)
                 if close.text != open.text {
-                    return err(fail(cs, p, format(
+                    return err(fail(cs, p, prelude.format(
                         "</{}> closes <{}>",
                         close.text,
                         open.text
@@ -918,7 +918,7 @@ fn read_element(
                 }
                 val after = skip_space(cs, close.next)
                 if !at_is(cs, after, ">") {
-                    return err(fail(cs, after, format("expected '>' to end </{}>", close.text)))
+                    return err(fail(cs, after, prelude.format("expected '>' to end </{}>", close.text)))
                 }
                 return ok(PElem {
                     elem: Element { name: elem_name, attributes: attributes, children: kids },
@@ -946,7 +946,7 @@ fn read_element(
             p = t.next
         }
     }
-    return err(fail(cs, pos, format("<{}> is never closed", open.text)))
+    return err(fail(cs, pos, prelude.format("<{}> is never closed", open.text)))
 }
 
 val tok_decl_start: [string] = ["<", "?", "x", "m", "l"]
@@ -983,18 +983,18 @@ fn read_declaration(cs: [string]) -> Result<Option<Declaration>, string> {
                 return err(fail(cs, 0, "standalone must be 'yes' or 'no'"))
             }
         } else {
-            return err(fail(cs, 0, format("'{}' is not part of an XML declaration", a.qname)))
+            return err(fail(cs, 0, prelude.format("'{}' is not part of an XML declaration", a.qname)))
         }
     }
     if version == "" {
         return err(fail(cs, 0, "an XML declaration must state a version"))
     }
     if version != "1.0" {
-        return err(fail(cs, 0, format("XML {} is not supported; this reader is XML 1.0", version)))
+        return err(fail(cs, 0, prelude.format("XML {} is not supported; this reader is XML 1.0", version)))
     }
     if Some(enc) = encoding {
         if !equals_ignore_case(enc, "utf-8", invariant) && !equals_ignore_case(enc, "utf8", invariant) {
-            return err(fail(cs, 0, format(
+            return err(fail(cs, 0, prelude.format(
                 "encoding '{}' is not supported; this reader reads UTF-8, and guessing would misread the text",
                 enc
             )))
@@ -1040,16 +1040,16 @@ fn normalise_newlines(s: string) -> string {
 // compare on it. Text that `&...;` references expand to is already expanded in `Node.Text`;
 // only the five predefined entities and numeric character references exist, there being no DTD
 // to define any others.
-pub fn parse_xml(text: string) -> Result<Document, string> {
-    return parse_xml_with(text, xml_limits())
+pub fn parse(text: string) -> Result<Document, string> {
+    return parse(text, xml_limits())
 }
 
-// `parse_xml` with limits of your own. Tightening `max_bytes` is the usual reason -- a document
+// `parse` with limits of your own. Tightening `max_bytes` is the usual reason -- a document
 // arriving from somewhere you do not control has a size you are willing to spend memory on, and
 // it is smaller than 16 MiB.
-pub fn parse_xml_with(text: string, limits: XmlLimits) -> Result<Document, string> {
+pub fn parse(text: string, limits: XmlLimits) -> Result<Document, string> {
     if byte_len(text) > limits.max_bytes {
-        return err(format(
+        return err(prelude.format(
             "the document is {} bytes, over the {}-byte limit",
             byte_len(text),
             limits.max_bytes
@@ -1121,23 +1121,23 @@ pub fn parse_xml_with(text: string, limits: XmlLimits) -> Result<Document, strin
     }
 }
 
-// `parse_xml` over the bytes of a document -- what `fs.read_bytes` gives, or an HTTP body. The
+// `parse` over the bytes of a document -- what `fs.read_bytes` gives, or an HTTP body. The
 // bytes must be UTF-8; invalid UTF-8 is an Err rather than a tree with broken text in it.
-pub fn parse_xml_bytes(data: [byte]) -> Result<Document, string> {
-    return parse_xml_bytes_with(data, xml_limits())
+pub fn parse(data: [byte]) -> Result<Document, string> {
+    return parse(data, xml_limits())
 }
 
-pub fn parse_xml_bytes_with(data: [byte], limits: XmlLimits) -> Result<Document, string> {
+pub fn parse(data: [byte], limits: XmlLimits) -> Result<Document, string> {
     if len(data) > limits.max_bytes {
-        return err(format(
+        return err(prelude.format(
             "the document is {} bytes, over the {}-byte limit",
             len(data),
             limits.max_bytes
         ))
     }
     return switch bytes_to_string(data) {
-        Ok(s) { parse_xml_with(s, limits) }
-        Err(e) { err(format("the document is not valid UTF-8: {}", e)) }
+        Ok(s) { parse(s, limits) }
+        Err(e) { err(prelude.format("the document is not valid UTF-8: {}", e)) }
     }
 }
 
@@ -1152,7 +1152,7 @@ fn escape_text(s: string, out: MutableString) -> Result<bool, string> {
     for c in chars(s) {
         if illegal_char(c) {
             val code = char_code(c)
-            return err(format(
+            return err(prelude.format(
                 "the text contains character {}, which XML 1.0 cannot represent in any form (there is no '&#{};')",
                 code,
                 code
@@ -1177,7 +1177,7 @@ fn escape_text(s: string, out: MutableString) -> Result<bool, string> {
 fn escape_attr(s: string, out: MutableString) -> Result<bool, string> {
     for c in chars(s) {  // see escape_text
         if illegal_char(c) {
-            return err(format(
+            return err(prelude.format(
                 "an attribute value contains character {}, which XML 1.0 cannot represent",
                 char_code(c)
             ))
@@ -1230,11 +1230,11 @@ fn valid_name(n: string) -> bool {
 // is not consulted -- see the module header.
 fn write_name(n: Name, out: MutableString) -> Result<bool, string> {
     if !valid_name(n.local) {
-        return err(format("'{}' is not a valid XML name", n.local))
+        return err(prelude.format("'{}' is not a valid XML name", n.local))
     }
     if Some(p) = n.prefix {
         if !valid_name(p) {
-            return err(format("'{}' is not a valid namespace prefix", p))
+            return err(prelude.format("'{}' is not a valid namespace prefix", p))
         }
         append(out, p, ":")
     }
@@ -1274,7 +1274,7 @@ fn write_cdata(body: string, out: MutableString) -> Result<bool, string> {
 
 fn write_pi(pi: Instruction, out: MutableString) -> Result<bool, string> {
     if !valid_name(pi.target) {
-        return err(format("'{}' is not a valid processing-instruction target", pi.target))
+        return err(prelude.format("'{}' is not a valid processing-instruction target", pi.target))
     }
     if equals_ignore_case(pi.target, "xml", invariant) {
         return err("'xml' is reserved as a processing-instruction target")
@@ -1393,7 +1393,7 @@ fn write_document(doc: Document, indent: string) -> Result<string, string> {
 }
 
 // `doc` as XML text on one line, with a declaration and a trailing newline. A document that came
-// from `parse_xml` writes back as the same tree -- reading the output gives an equal `Document`.
+// from `parse` writes back as the same tree -- reading the output gives an equal `Document`.
 //
 // Unlike `json.format` this can fail, because XML genuinely cannot carry some strings: a name
 // that is not a legal XML name, a comment containing `--`, a CDATA section containing `]]>`, and
@@ -1401,33 +1401,33 @@ fn write_document(doc: Document, indent: string) -> Result<string, string> {
 // writes that last one as `\u0000`; XML has nothing to write, so refusing is the only honest
 // answer. The message says which rule the tree broke. (NUL specifically never gets this far: a
 // Ziman `string` cannot hold one, because `bytes_to_string` refuses it at the boundary.)
-pub fn xml_to_string(doc: Document) -> Result<string, string> {
+pub fn format(doc: Document) -> Result<string, string> {
     return write_document(doc, "")
 }
 
-// `xml_to_string` laid out over several lines, each level indented by `indent` (two spaces, a
+// `format` laid out over several lines, each level indented by `indent` (two spaces, a
 // tab -- whatever you pass). An element with any text in it stays on one line, because
 // indentation inside mixed content would change the text itself.
 //
 // **This is not round-trip safe, and cannot be.** The indentation between elements is text like
 // any other, and nothing in the document says whether it matters -- only a schema this reader
 // does not have could say. So reading the pretty output back gives a tree with whitespace in it
-// that the original did not have. Use `xml_to_string` when the bytes have to come back the
+// that the original did not have. Use `format` when the bytes have to come back the
 // same (a signature, a checksum, a stored document) and this one when a person reads the
 // output.
-pub fn xml_to_string_pretty(doc: Document, indent: string) -> Result<string, string> {
+pub fn format(doc: Document, indent: string) -> Result<string, string> {
     return write_document(doc, indent)
 }
 
-// `xml_to_string` as UTF-8 bytes: an HTTP body, or what `fs.write_bytes` takes.
+// `format` as UTF-8 bytes: an HTTP body, or what `fs.write_bytes` takes.
 pub fn xml_to_bytes(doc: Document) -> Result<[byte], string> {
-    val s = try xml_to_string(doc)
+    val s = try format(doc)
     return ok(to_bytes(s))
 }
 
 // One element as XML text, with no declaration: a fragment to embed in a document being built
 // some other way.
-pub fn element_to_string(e: Element) -> Result<string, string> {
+pub fn format(e: Element) -> Result<string, string> {
     val out = mutable_string_new()
     val _ = try write_element(e, out, "", 0)
     return ok(snapshot(out))

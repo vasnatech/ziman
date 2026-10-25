@@ -199,6 +199,7 @@ them against the code.
 - [`math` gains five: `is_finite`, `is_infinite`, `log2`, `log10`, `sign` (2026-10-24)](#math-gains-five-is_finite-is_infinite-log2-log10-sign-2026-10-24)
 - [`metrics`: fifteen names become five (2026-10-24)](#metrics-fifteen-names-become-five-2026-10-24)
 - [`mime` was already right, and `to_string` turns out to be library-wide (2026-10-24)](#mime-was-already-right-and-to_string-turns-out-to-be-library-wide-2026-10-24)
+- [The `to_string` residue, cleared in one pass across five modules (2026-10-24)](#the-to_string-residue-cleared-in-one-pass-across-five-modules-2026-10-24)
 
 <!-- end index -->
 
@@ -8259,3 +8260,28 @@ A process note on the mechanics. Moving `series_of` below the second `series` de
 - **Table against constructors.** The extension table is *ahead* of the seventeen well-known constructors, not behind: `wasm`, `js`, `css`, `tsv`, `md`, `webp`, `ico`, `woff2`, `mp3` and `mp4` all resolve through `of_extension` with no named function of their own. Adding ten more zero-argument functions is surface for its own sake; `of_extension("css")` already answers.
 
 **What the rename did turn up is bigger than `mime`.** `to_string` is a residue across six modules, not one: `uuid.uuid_to_string`, `toml.toml_to_string`, `ndjson.ndjson_to_string`, `yaml.yaml_to_string`, and `xml.xml_to_string` / `xml_to_string_pretty` / `element_to_string` -- which are three declarations that would collapse into one `format` set the way `markdown`'s `Document`/`Block` pair did. Four of the six also stutter (`toml.toml_to_string`). Recorded here rather than swept, because each is its own module's turn; `json.to_string_map` is *not* one of them, being "to a map of strings" rather than a display form, and neither is the prelude's `bytes_to_string`.
+
+## The `to_string` residue, cleared in one pass across five modules (2026-10-24)
+
+`mime`'s rename an hour earlier turned up that `to_string` was a library-wide spelling, not a one-module leftover. Five modules carried it, four of them stuttering as well, and the `parse_*` stutters sat beside them -- the same recorded review item `csv` and `json` closed earlier. So both directions moved together per module, because `toml.parse_toml` beside `toml.format` would be a worse state than either end of the change.
+
+| module | was | is |
+|---|---|---|
+| `toml` | `parse_toml`, `toml_to_string` | `parse`, `format` |
+| `yaml` | `parse_yaml`, `yaml_to_string` | `parse`, `format` |
+| `ndjson` | `parse_ndjson`, `ndjson_to_string` | `parse`, `format` |
+| `xml` | `parse_xml`, `_with`, `_bytes`, `_bytes_with`, `xml_to_string`, `_pretty`, `element_to_string` | `parse` (4), `format` (3) |
+| `uuid` | `uuid_to_string`, `uuid_from_string`, `uuid_version` | `format`, `parse`, `version` |
+
+**`xml`'s seven names became two overload sets**, which is the clearest case the whole week produced: `parse` over `(string)`, `(string, XmlLimits)`, `([byte])` and `([byte], XmlLimits)` -- where `_with` and `_bytes` were suffixes restating the arguments -- and `format` over `(Document)`, `(Document, string)` and `(Element)`.
+
+**`uuid` was the one that needed the shadowing analysis.** The other four are never bare-imported, so their short names cost nothing; `uuid_to_string` was bare-imported in 29 files and `uuid_from_string` in 7, and ten of those files also use the interpolating `format`. So `format` and `parse` are qualified-only for `uuid`, with the 59 call sites rewritten to `uuid.format(...)`/`uuid.parse(...)`. Its constructors keep their prefix (`uuid_new`, `uuid_new_v7`, `uuid_nil` -- nothing but the return type distinguishes them) and so do the compiler-bound `uuid_to_json`/`_from_json`/`_to_sql`/`_from_sql`/`_compare`. `uuid_version(u)` went bare, its argument saying the type.
+
+**Four mechanical failures, all from scripting what should have been read.** They are worth listing because each is a different edge of the same mistake:
+
+1. **A comment counted as a use.** `lib/db/db.zm` mentioned `uuid_from_string` only in a doc comment; the script rewrote it, concluded the module was used, and added `use uuid` -- which is a *cycle*, since `uuid` imports `db` for `SqlValue`. 77 fixtures failed on "circular 'use' involving module 'db'". The fix strips comments before asking whether a module is really used.
+2. **A module's own new name collided with an import it already had.** `ndjson.zm` bare-imported `json.parse` (from the json rename hours earlier) and now declares its own `parse`: "'parse' is imported here but also declared in this module". `json`'s is qualified there now.
+3. **Dedupe across a Markdown file is wrong.** The same `use` line legitimately repeats in independent code blocks, and a whole-file dedupe deleted `use json.Json`, `use math`, `use datasource` and `use net` from four examples. Hand-written docs get substitution only -- no `use`-line manipulation, no dedupe.
+4. **`docs/reviews/` is not uniformly historical.** Excluding it wholesale left `benchmark/reference/33-toml-config.zm` and `36-yaml-list.zm` on dead names, and those two are *compiled and run* by `benchmark-check` -- unlike `benchmark/runs/`, which is recorded output. The distinction had been got right for `bits` that morning and lost here.
+
+`json.to_string_map` is deliberately untouched: it converts to a `Map<string, string>` rather than producing a display form. So is the prelude's `bytes_to_string`.

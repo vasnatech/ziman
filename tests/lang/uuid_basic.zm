@@ -1,6 +1,6 @@
+use uuid
 use uuid.Uuid
 use uuid.uuid_new
-use uuid.uuid_to_string
 
 fn main() {
     val a = uuid_new()
@@ -9,7 +9,7 @@ fn main() {
     // Structural invariants of a v4 UUID string, true no matter what the
     // random bytes happened to be -- length, dash positions, version
     // nibble always '4', variant nibble always one of 8/9/a/b.
-    val s = uuid_to_string(a)
+    val s = uuid.format(a)
     print(byte_len(s))
     print(substring(s, 8, 9))
     print(substring(s, 13, 14))

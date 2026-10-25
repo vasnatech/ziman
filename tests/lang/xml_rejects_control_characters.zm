@@ -8,13 +8,13 @@ fn doc_with(text: string) -> string {
     return concat("<r>", text, "</r>")
 }
 fn parse_case(label: string, text: string) {
-    switch xml.parse_xml(text) {
+    switch xml.parse(text) {
         Ok(d) { printf("{} => parsed\n", label) }
         Err(e) { printf("{} => ERR {}\n", label, e) }
     }
 }
 fn write_case(label: string, content: string) {
-    switch xml.element_to_string(xml.text_element("r", content)) {
+    switch xml.format(xml.text_element("r", content)) {
         Ok(s) { printf("{} => wrote [{}]\n", label, s) }
         Err(x) { printf("{} => ERR {}\n", label, x) }
     }
@@ -25,12 +25,12 @@ fn main() {
     while code < 32 {
         val c = raw([code as byte])
         val legal = code == 9 || code == 10 || code == 13
-        switch xml.parse_xml(doc_with(c)) {
+        switch xml.parse(doc_with(c)) {
             Ok(d) { if !legal { printf("  LEAK: control {} was accepted in content\n", code) } }
             Err(e) { if legal { printf("  WRONG: legal control {} was refused: {}\n", code, e) } }
         }
         // and in an attribute value
-        switch xml.parse_xml(concat("<r a=\"", c, "\"/>")) {
+        switch xml.parse(concat("<r a=\"", c, "\"/>")) {
             Ok(d) { if !legal { printf("  LEAK: control {} was accepted in an attribute\n", code) } }
             Err(e) { if legal { printf("  WRONG: legal control {} refused in an attribute: {}\n", code, e) } }
         }

@@ -38,7 +38,7 @@ fn build(entries: int, patient: string) -> string {
 
 fn parse_ms(text: string) -> int {
     val started = clock.monotonic_millis()
-    switch xml.parse_xml(text) {
+    switch xml.parse(text) {
         Ok(d) {}
         Err(e) { printf("  PARSE FAILED: {}\n", e) }
     }

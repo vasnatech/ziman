@@ -67,7 +67,7 @@ fn line_of(cs: [string], p: int) -> int {
 }
 
 fn fail(cs: [string], p: int, message: string) -> string {
-    return format("line {}: {}", line_of(cs, p), message)
+    return prelude.format("line {}: {}", line_of(cs, p), message)
 }
 
 // `cs[p]` with the bounds check `is_char_at(s, p, c)` carried: false rather than an error when `p`
@@ -242,7 +242,7 @@ fn parse_basic(cs: [string], pos: int) -> Result<PStr, string> {
                 p = q
                 continue
             } else {
-                return err(fail(cs, p, format("unsupported escape '\\{}'", e)))
+                return err(fail(cs, p, prelude.format("unsupported escape '\\{}'", e)))
             }
             p = p + 2
         } else {
@@ -341,7 +341,7 @@ fn parse_radix(t: string, digits: string, base: int) -> Result<Json, string> {
     for i in 0..len(t) {
         val d = index_of(digits, to_lower(char_at(t, i), invariant), 0)
         if d < 0 {
-            return err(format("invalid digit '{}'", char_at(t, i)))
+            return err(prelude.format("invalid digit '{}'", char_at(t, i)))
         }
         n = n * base + d
     }
@@ -367,22 +367,22 @@ fn number_token(tok: string) -> Result<Json, string> {
         return err("inf and nan are not supported")
     }
     if byte_len(bare) == 0 || !is_digit(char_at(bare, 0)) {
-        return err(format("invalid value '{}'", tok))
+        return err(prelude.format("invalid value '{}'", tok))
     }
     val signed = if starts_with(t, "+") { substring(t, 1, len(t)) } else { t }
     if contains(bare, ".") || contains(bare, "e") || contains(bare, "E") {
         val f = parse_float(signed)
         if !is_ok(f) {
-            return err(format("invalid number '{}'", tok))
+            return err(prelude.format("invalid number '{}'", tok))
         }
         return ok(float_to_json(unwrap(f)))
     }
     if len(bare) > 1 && char_at(bare, 0) == "0" {
-        return err(format("leading zeros are not allowed in '{}'", tok))
+        return err(prelude.format("leading zeros are not allowed in '{}'", tok))
     }
     val n = parse_int(signed)
     if !is_ok(n) {
-        return err(format("invalid integer '{}'", tok))
+        return err(prelude.format("invalid integer '{}'", tok))
     }
     return ok(int_to_json(unwrap(n)))
 }
@@ -504,7 +504,7 @@ fn merge_into(target: Map<string, Json>, incoming: Map<string, Json>) -> Result<
     }
     for k, v in incoming {
         if Some(_) = get(out, k) {
-            return err(format("duplicate key '{}'", k))
+            return err(prelude.format("duplicate key '{}'", k))
         }
         set(out, k, v)
     }
@@ -529,7 +529,7 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
     if i + 1 == len(path) {
         if op == 0 {
             if Option.is_Some(existing) {
-                return err(format("duplicate key '{}'", name))
+                return err(prelude.format("duplicate key '{}'", name))
             }
             return ok(Json.JObject(set(fields, name, value)))
         }
@@ -539,7 +539,7 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
                     val merged = try merge_into(target, Json.unwrap_JObject(value))
                     return ok(Json.JObject(set(fields, name, Json.JObject(merged))))
                 }
-                return err(format("'{}' is already defined as a value, not a table", name))
+                return err(prelude.format("'{}' is already defined as a value, not a table", name))
             }
             return ok(Json.JObject(set(fields, name, value)))
         }
@@ -547,7 +547,7 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
             if JArray(items) = current {
                 return ok(Json.JObject(set(fields, name, Json.JArray(push(items, value)))))
             }
-            return err(format("'{}' is already defined and is not an array of tables", name))
+            return err(prelude.format("'{}' is already defined and is not an array of tables", name))
         }
         return ok(Json.JObject(set(fields, name, Json.JArray([value]))))
     }
@@ -558,7 +558,7 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
     if JArray(items) = child {
         val last = len(items) - 1
         if last < 0 || !Json.is_JObject(items[last]) {
-            return err(format("'{}' is not a table", name))
+            return err(prelude.format("'{}' is not a table", name))
         }
         return ok(Json.JObject(set(
             fields,
@@ -567,7 +567,7 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
         )))
     }
     if !Json.is_JObject(child) {
-        return err(format("'{}' is already defined as a value, not a table", name))
+        return err(prelude.format("'{}' is already defined as a value, not a table", name))
     }
     return ok(Json.JObject(set(fields, name, try descend(child, path, i + 1, op, value))))
 }
@@ -604,7 +604,7 @@ fn flush_table(root: Json, pending: Json, path: [string], op: int) -> Result<Jso
 // arrays, integers `JNumber(Int)`, floats `JNumber(Float)`, dates and times `JString`). An Err carries
 // `line N: ...` for a syntax error, a duplicate key, a table defined twice, a table redefined as a
 // value (or the reverse), or an unsupported value (`inf`, `nan`).
-pub fn parse_toml(text: string) -> Result<Json, string> {
+pub fn parse(text: string) -> Result<Json, string> {
     // **Decoded once into its characters, and indexed as an array from here on.** Every function
     // below took `(s: string, pos: int)` and reached position `pos` with `char_at`, which walks from
     // the start of the string on text that is not all-ASCII -- so a parser threading a character
@@ -638,7 +638,7 @@ pub fn parse_toml(text: string) -> Result<Json, string> {
             val joined = join(separator: ".", pieces: header.path)
             if !is_array {
                 if contains(defined, joined) {
-                    return err(fail(cs, p, format("table [{}] is defined more than once", joined)))
+                    return err(fail(cs, p, prelude.format("table [{}] is defined more than once", joined)))
                 }
                 defined = add(defined, joined)
             }
@@ -826,7 +826,7 @@ fn write_table(out: MutableString, table: Json, path: [string]) -> Result<int, s
 // (`[a.b]`), then arrays of objects (`[[name]]`). Floats are written with full precision and always
 // look like floats (`150.0`). An Err if `j` is not an object, or a null sits inside an array or an
 // inline table (TOML has no null; a null field of a table is simply left out).
-pub fn toml_to_string(j: Json) -> Result<string, string> {
+pub fn format(j: Json) -> Result<string, string> {
     if !Json.is_JObject(j) {
         return err("a TOML document must be an object")
     }

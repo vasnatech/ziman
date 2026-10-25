@@ -35,7 +35,7 @@ use yaml
 
 // A YAML document becomes a Json tree, the same as TOML or JSON, so one set of helpers reads all three.
 fn main() {
-    val doc = unwrap(yaml.parse_yaml("""
+    val doc = unwrap(yaml.parse("""
         name: demo
         ports:
           - 80
@@ -45,10 +45,10 @@ fn main() {
 
     print(unwrap(json.require_string(doc, "name")))
     print(json.format(doc))
-    print(trim(yaml.yaml_to_string(doc)))
+    print(trim(yaml.format(doc)))
 
     // Anchors, tags and multiple documents are errors, not silently misread.
-    print(is_ok(yaml.parse_yaml("a: &x 1\nb: *x")))
+    print(is_ok(yaml.parse("a: &x 1\nb: *x")))
 }
 ```
 
@@ -69,10 +69,10 @@ false
 
 ## Block structure
 
-### `parse_yaml`
+### `parse`
 
 ```
-pub fn parse_yaml(text: string) -> Result<Json, string>
+pub fn parse(text: string) -> Result<Json, string>
 ```
 
 Parses a YAML document (the subset described above) into a `Json` tree; an empty document is
@@ -82,10 +82,10 @@ indentation), so nothing is silently misread.
 
 ## Writing
 
-### `yaml_to_string`
+### `format`
 
 ```
-pub fn yaml_to_string(j: Json) -> string
+pub fn format(j: Json) -> string
 ```
 
 Writes `j` as block-style YAML: maps as `key: value`, sequences as `- item`, empty containers

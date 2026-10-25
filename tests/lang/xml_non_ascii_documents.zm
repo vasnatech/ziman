@@ -13,9 +13,9 @@
 use xml
 
 fn t(label: string, text: string) {
-    switch xml.parse_xml(text) {
+    switch xml.parse(text) {
         Ok(d) {
-            switch xml.xml_to_string(d) {
+            switch xml.format(d) {
                 Ok(s) { printf("{} => [{}]\n", label, s) }
                 Err(e) { printf("{} => parsed, write ERR {}\n", label, e) }
             }
