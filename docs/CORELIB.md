@@ -1057,14 +1057,30 @@ pub fn parse_byte(s: string) -> Result<byte, string>
 pub struct NumberFormat {
     thousands_separator: string
     decimal_separator: string
-    decimal_places: Option<int>
+    // **The fraction's shape, as `0` and `#` after the point state it.** `min_decimal_places` is
+    // how many places are always written (the `0`s); `max_decimal_places` is the most allowed (the
+    // `0`s plus the `#`s), and `None` means the value keeps its own. `.00` is min 2 / max 2 -- a
+    // fixed two places; `.##` is min 0 / max 2 -- up to two, trailing zeros dropped; `.0#` is
+    // min 1 / max 2. A pattern with no point at all is min 0 / max None.
+    //
+    // Until 2026-10-24 this was one `decimal_places: Option<int>`, which could only say "exactly
+    // N", so `#,##0.00` and `#,###.##` formatted identically -- the one piece of real
+    // `DecimalFormat` semantics that was missing rather than merely absent.
+    min_decimal_places: int
+    max_decimal_places: Option<int>
+    // The integer side's minimum width, zero-padded: the count of `0`s in the integer part, so
+    // `00000` writes 42 as `00042`. It only ever pads -- a value whose integer part is `0` keeps
+    // that digit whatever this says, since a number has to have one.
+    min_integer_digits: int
 }
 
 pub fn number_format_for(l: Locale) -> NumberFormat
 
 pub fn number_format_plain() -> NumberFormat
 
-pub fn parse_pattern(pattern: string) -> NumberFormat
+pub fn parse_pattern(pattern: string) -> Result<NumberFormat, string>
+
+pub fn parse_pattern(pattern: string, l: Locale) -> Result<NumberFormat, string>
 
 pub fn format(s: string, fmt: NumberFormat) -> string
 

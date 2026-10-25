@@ -2542,8 +2542,10 @@ use number
 use number.parse_pattern
 
 fn main() {
-    val fmt = parse_pattern("#,###.00")
+    val fmt = unwrap(parse_pattern("#,##0.00"))
     print(number.format(1234567, fmt))    // 1,234,567.00
+    print(number.format(1234567, unwrap(parse_pattern("#,###.##"))))  // 1,234,567
+    print(unwrap_err(parse_pattern("#.##0.00")))  // more than one decimal point
 }
 ```
 
@@ -2554,15 +2556,27 @@ fn main() {
   `format_int`/`_float`/... as of 2026-10-24: the argument says which type, so the name need not,
   and this section argued the opposite ("not an overload set per numeric type") only because
   overloading did not exist when it was written.
-- **`NumberFormat { thousands_separator: string, decimal_separator: string, decimal_places:
-  Option<int> }`** -- empty `thousands_separator` disables grouping, `decimal_places: None`
-  leaves the value's own digit count. `number_format_plain()` is the no-grouping, no-forced-
-  places default.
-- **`parse_pattern(pattern) -> NumberFormat`** builds one from a `"#,###.00"`-style pattern
-  (Java `DecimalFormat`/Excel-shaped, a small subset): a comma anywhere in the integer part
-  turns on group-by-3 grouping, the digit count after `.` forces that many decimal places. No
-  `0`-vs-`#` distinction, no `%`, no `E`, no `;`-separated subpatterns, no literal prefix/suffix
-  text, no custom grouping sizes.
+- **`NumberFormat { thousands_separator, decimal_separator: string, min_decimal_places: int,
+  max_decimal_places: Option<int>, min_integer_digits: int }`** -- empty `thousands_separator`
+  disables grouping; `max_decimal_places: None` leaves the value's own digit count;
+  `min_integer_digits` zero-pads the integer side (sign outside the padding, so `-42` under
+  `00000` is `-00042`). `number_format_plain()` is the no-grouping, no-forced-places default and
+  `number_format_for(locale)` takes a locale's separators.
+- **`parse_pattern(pattern) -> Result<NumberFormat, string>`** builds one from a
+  `DecimalFormat`-shaped pattern, and **`parse_pattern(pattern, locale)`** does the same with that
+  locale's separators -- the pattern gives the shape, the locale gives the symbols, which is
+  `DecimalFormat`'s own split between a pattern and its `DecimalFormatSymbols`. A comma anywhere
+  in the integer part turns on group-by-3 grouping.
+- **`0` and `#` mean different things**, as they do in Java: after the point a `0` is a mandatory
+  place and a `#` an optional one, so `#,##0.00` always writes two (`1,234,567.00`) while
+  `#,###.##` writes at most two and drops trailing zeros (`1,234,567.5`, and `1,234,567` for a
+  whole number). A `0` may not follow a `#` there. In the integer part the `0`s are a minimum
+  width: `00000` writes 42 as `00042`.
+- **A pattern that cannot be read is an `Err` naming the problem**, not a format that means
+  something else. `#.##0.00` -- a plausible thing to write, being what a European *rendering*
+  looks like -- is "more than one decimal point", and `"hello.xx"` names the `h`. Still
+  unsupported, deliberately: `%`, `E`, `;`-separated subpatterns, literal prefix/suffix text and
+  custom grouping sizes (always 3).
 - **Forcing fewer decimal places truncates, never rounds** (rounding is `math.round`'s job). **Scientific notation passes through unchanged** -- `float`'s `str()`
   switches to it past 6 significant digits, where grouping/place-forcing has no sensible
   meaning, so `number.format` checks for `"e"`/`"E"` first rather than mangling it.

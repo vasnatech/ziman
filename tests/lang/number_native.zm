@@ -16,7 +16,7 @@ fn main() {
     print(number.float_to_text(unwrap(parse_float("nan"))))
     print(number.float_to_text(unwrap(parse_float("1e300"))))
     print(number.float_to_text(-2.5))
-    print(number.format(1234567.891, number.parse_pattern("#,###.00")))
+    print(number.format(1234567.891, unwrap(number.parse_pattern("#,###.00"))))
     print(number.format(0.5, number.number_format_plain()))
     // hex
     print(number.to_hex(255))

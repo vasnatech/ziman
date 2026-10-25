@@ -11,3 +11,19 @@
 3.1400
 1.234.567,89
 1234567.89
+1,234,567.50
+1,234,567.5
+1,234,567.00
+1,234,567
+1,234,567.5
+00042
+-00042
+0
+1.234.567,50
+1234567,50
+invalid number pattern: more than one decimal point
+invalid number pattern: 'h' is not allowed in the integer part (use '#', '0' and ',')
+invalid number pattern: it is empty
+invalid number pattern: a decimal point with no '0' or '#' after it
+invalid number pattern: a '0' cannot follow a '#' after the decimal point -- a mandatory place cannot come after an optional one
+invalid number pattern: '%' is not allowed after the decimal point (use '0' and '#')

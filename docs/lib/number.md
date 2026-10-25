@@ -9,7 +9,7 @@ use number
 
 fn main() {
     // Formatting with a pattern: thousands separators and fixed decimals.
-    val fmt = number.parse_pattern("#,##0.00")
+    val fmt = unwrap(number.parse_pattern("#,##0.00"))
     print(number.format(1234567, fmt))
     print(number.format(3.14159, fmt))
 
@@ -197,7 +197,21 @@ text that is not an integer or is out of range.
 pub struct NumberFormat {
     thousands_separator: string
     decimal_separator: string
-    decimal_places: Option<int>
+    // **The fraction's shape, as `0` and `#` after the point state it.** `min_decimal_places` is
+    // how many places are always written (the `0`s); `max_decimal_places` is the most allowed (the
+    // `0`s plus the `#`s), and `None` means the value keeps its own. `.00` is min 2 / max 2 -- a
+    // fixed two places; `.##` is min 0 / max 2 -- up to two, trailing zeros dropped; `.0#` is
+    // min 1 / max 2. A pattern with no point at all is min 0 / max None.
+    //
+    // Until 2026-10-24 this was one `decimal_places: Option<int>`, which could only say "exactly
+    // N", so `#,##0.00` and `#,###.##` formatted identically -- the one piece of real
+    // `DecimalFormat` semantics that was missing rather than merely absent.
+    min_decimal_places: int
+    max_decimal_places: Option<int>
+    // The integer side's minimum width, zero-padded: the count of `0`s in the integer part, so
+    // `00000` writes 42 as `00042`. It only ever pads -- a value whose integer part is `0` keeps
+    // that digit whatever this says, since a number has to have one.
+    min_integer_digits: int
 }
 ```
 
@@ -230,12 +244,34 @@ No grouping, "." as the decimal separator, the value's own decimals: formats a n
 ### `parse_pattern`
 
 ```
-pub fn parse_pattern(pattern: string) -> NumberFormat
+pub fn parse_pattern(pattern: string) -> Result<NumberFormat, string>
 ```
 
-A format from a pattern such as "#,###.00": a comma anywhere in the integer part turns
-grouping on (groups of three), and the digit count after the dot forces that many decimal
-places. The decimal separator is always ".".
+**Builds a `NumberFormat` from a `DecimalFormat`-shaped pattern, or an Err naming what is wrong.**
+
+`#,##0.00` is two fixed places with grouping; `#,###.##` is up to two with trailing zeros
+dropped; `00000` is a zero-padded five-digit integer. The separators are `,` and `.`; for a
+locale's own, pass one (`parse_pattern(p, l)`) or set the two fields with `with`.
+
+**It answers a `Result` as of 2026-10-24**, and that is the point of the change. The older
+reader split on `.` and read the pieces positionally, so `#.##0.00` -- a plausible thing to
+write, being what a European *rendering* looks like -- silently produced no grouping and three
+decimal places, and `"hello.xx"` produced a format too. A pattern that cannot be read is now
+said so.
+
+What is still not supported, deliberately: `%`, `E`, a `;`-separated negative subpattern,
+literal prefix or suffix text, and custom grouping sizes (always 3).
+
+```
+pub fn parse_pattern(pattern: string, l: Locale) -> Result<NumberFormat, string>
+```
+
+**The pattern gives the shape, the locale gives the symbols** -- `DecimalFormat`'s own split
+between a pattern and its `DecimalFormatSymbols`. `parse_pattern("#,##0.00", locale.of("de"))`
+formats 1234567.5 as `1.234.567,50`.
+
+Without this the two could not be combined: a pattern baked in `,` and `.`, and
+`number_format_for` gave a locale's separators but no way to ask for a fixed number of places.
 
 ### `format`
 

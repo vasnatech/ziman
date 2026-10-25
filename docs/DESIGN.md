@@ -202,6 +202,7 @@ them against the code.
 - [The `to_string` residue, cleared in one pass across five modules (2026-10-24)](#the-to_string-residue-cleared-in-one-pass-across-five-modules-2026-10-24)
 - [`net`: the `_with` suffixes go, and three names are kept on purpose (2026-10-24)](#net-the-_with-suffixes-go-and-three-names-are-kept-on-purpose-2026-10-24)
 - [`number`: one `format`, one `to_hex`, and the `bytes_` world the fallback was missing (2026-10-24)](#number-one-format-one-to_hex-and-the-bytes_-world-the-fallback-was-missing-2026-10-24)
+- [`number`'s patterns become real `DecimalFormat` patterns (2026-10-24)](#numbers-patterns-become-real-decimalformat-patterns-2026-10-24)
 
 <!-- end index -->
 
@@ -8321,3 +8322,21 @@ Two families collapsed and two deliberately did not, and the interesting part is
 So the fallback now maps an array of `byte` to `bytes_` and every other array to `array_`, which is what this library calls that world everywhere else (`to_bytes`, `bytes_to_string`, `bytes_from_hex`, `bytes_equal`). That broke `index_of` on `[byte]` -- 25 fixtures, all through `http.client` -- because its registration was `array_index_of`, standing in for the `bytes_` world that had not existed. `index_of` has exactly three members (`[byte]`, `string`, `MutableString`) and no generic `[T]` one, so that symbol only ever served the byte member: it is `bytes_index_of` now, which is what the C function has always been called. Checked exhaustively rather than guessed -- the prelude has only two `[byte]`-first natives, and the other (`bytes_to_string`) is registered bare and never reaches the fallback at all.
 
 Found while fixing the docs: an earlier sweep today had left a spurious `use number` in SYNTAX.md's decimal example, above `use math` and so out of the order `--fmt` sorts imports into. The syntax checker caught it, which is the second time that check has paid for itself today.
+
+## `number`'s patterns become real `DecimalFormat` patterns (2026-10-24)
+
+Three changes, each closing a gap the previous entry had only described.
+
+**`0` and `#` now mean different things, which is the one piece of real `DecimalFormat` semantics that was missing rather than merely absent.** After the point a `0` is a mandatory place and a `#` an optional one, so `#,##0.00` always writes two and `#,###.##` writes at most two with trailing zeros dropped -- `1,234,567.50` against `1,234,567.5`, and for a whole number `1,234,567.00` against `1,234,567`, the point disappearing entirely as it does in Java. In the integer part the `0`s are a minimum width, so `00000` writes 42 as `00042` and -42 as `-00042`, the sign outside the padding. A `0` after a `#` in the fraction is rejected, Java's own rule: a mandatory place cannot follow an optional one.
+
+That needed the struct to grow. `decimal_places: Option<int>` could only say "exactly N", which is why the two patterns formatted identically; it is `min_decimal_places: int` plus `max_decimal_places: Option<int>` now, with `min_integer_digits: int` beside them. Each field says one thing, where an exact-or-nothing count said less than the pattern did.
+
+**`parse_pattern` answers a `Result`.** The old reader split the pattern on `.` and read the pieces by position, so `#.##0.00` -- a plausible thing to write, being what a European *rendering* looks like -- silently produced no grouping and three decimal places, and `"hello.xx"` produced a format too. Every malformed pattern now names its problem: "more than one decimal point", "'h' is not allowed in the integer part", "a decimal point with no '0' or '#' after it". A pattern is a literal at every existing call site, so each became `unwrap(parse_pattern(...))`, which is the honest spelling for a constant that can only fail through a bug.
+
+Making it a `Result` rather than adding a checked sibling was the choice: two readers of one pattern language, one of which quietly guesses, is the kind of pair DESIGN's second principle exists to prevent.
+
+**`parse_pattern(pattern, locale)` combines the two halves `DecimalFormat` keeps separate.** Before this, neither call could express "two places, German symbols": a pattern baked in `,` and `.`, and `number_format_for(locale)` gave a locale's separators but no way to force a place count. The pattern gives the shape and the locale gives the symbols, which is exactly `new DecimalFormat(pattern, symbolsFor(locale))`. `parse_pattern("#,##0.00", locale.of("de"))` formats 1234567.5 as `1.234.567,50`. Grouping stays off if the pattern never asked for it, so `parse_pattern("0.00", de)` is `1234567,50` -- the locale supplies a separator but does not turn grouping on.
+
+The composition by hand still works and is pinned by a fixture, because the fields are assignable: `with unwrap(parse_pattern("#,###.00")) { thousands_separator: ".", decimal_separator: "," }`. What changed is that nobody has to.
+
+Still unsupported, and still deliberately: `%`, `E`, `;`-separated negative subpatterns, literal prefix and suffix text, and custom grouping sizes -- grouping is always by 3, and a `,`'s position in the pattern is not read. Truncation also remains truncation: `0.##` of `1.999` is `1.99`, because rounding is `math.round`'s job and doing it here would hide which of the two happened.

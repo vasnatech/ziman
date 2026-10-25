@@ -197,7 +197,21 @@ pub fn parse_byte(s: string) -> Result<byte, string> {
 pub struct NumberFormat {
     thousands_separator: string
     decimal_separator: string
-    decimal_places: Option<int>
+    // **The fraction's shape, as `0` and `#` after the point state it.** `min_decimal_places` is
+    // how many places are always written (the `0`s); `max_decimal_places` is the most allowed (the
+    // `0`s plus the `#`s), and `None` means the value keeps its own. `.00` is min 2 / max 2 -- a
+    // fixed two places; `.##` is min 0 / max 2 -- up to two, trailing zeros dropped; `.0#` is
+    // min 1 / max 2. A pattern with no point at all is min 0 / max None.
+    //
+    // Until 2026-10-24 this was one `decimal_places: Option<int>`, which could only say "exactly
+    // N", so `#,##0.00` and `#,###.##` formatted identically -- the one piece of real
+    // `DecimalFormat` semantics that was missing rather than merely absent.
+    min_decimal_places: int
+    max_decimal_places: Option<int>
+    // The integer side's minimum width, zero-padded: the count of `0`s in the integer part, so
+    // `00000` writes 42 as `00042`. It only ever pads -- a value whose integer part is `0` keeps
+    // that digit whatever this says, since a number has to have one.
+    min_integer_digits: int
 }
 
 // The separators `l` writes numbers with, and the value's own decimals: `1.234,56` under `tr_TR`
@@ -212,24 +226,130 @@ pub fn number_format_for(l: Locale) -> NumberFormat {
     return NumberFormat {
         thousands_separator: locale.thousands_separator(l),
         decimal_separator: locale.decimal_separator(l),
-        decimal_places: Option<int>.None
+        min_decimal_places: 0,
+        max_decimal_places: Option<int>.None,
+        min_integer_digits: 1
     }
 }
 
 // No grouping, "." as the decimal separator, the value's own decimals: formats a number as `str` would.
 pub fn number_format_plain() -> NumberFormat {
-    return NumberFormat { thousands_separator: "", decimal_separator: ".", decimal_places: Option<int>.None }
+    return NumberFormat {
+        thousands_separator: "",
+        decimal_separator: ".",
+        min_decimal_places: 0,
+        max_decimal_places: Option<int>.None,
+        min_integer_digits: 1
+    }
 }
 
 // A format from a pattern such as "#,###.00": a comma anywhere in the integer part turns
 // grouping on (groups of three), and the digit count after the dot forces that many decimal
 // places. The decimal separator is always ".".
-pub fn parse_pattern(pattern: string) -> NumberFormat {
-    val parts = split(pattern, ".")
-    val has_grouping = contains(parts[0], ",")
-    val thousands = if has_grouping { "," } else { "" }
-    val decimal_places = if len(parts) > 1 { Option<int>.Some(len(parts[1])) } else { Option<int>.None }
-    return NumberFormat { thousands_separator: thousands, decimal_separator: ".", decimal_places: decimal_places }
+// Reads the integer side: `#`, `0` and `,` only. Answers the minimum digit count (the `0`s) and
+// whether any `,` turned grouping on. Group size is always 3 -- a `,`'s position is not read, which
+// is the one simplification kept from the older lenient reader.
+fn read_integer_part(part: string) -> Result<[int], string> {
+    var zeros = 0
+    var grouped = 0
+    var i = 0
+    while i < len(part) {
+        val c = char_at(part, i)
+        if c == "0" {
+            zeros = zeros + 1
+        } else if c == "," {
+            grouped = 1
+        } else if c != "#" {
+            return err(prelude.format(
+                "invalid number pattern: '{}' is not allowed in the integer part (use '#', '0' and ',')",
+                c
+            ))
+        }
+        i = i + 1
+    }
+    return ok([zeros, grouped])
+}
+
+// Reads the fraction side: `0`s then `#`s, which is `DecimalFormat`'s own rule -- a `0` after a `#`
+// would ask for a place that is mandatory while an earlier one is optional, which means nothing.
+fn read_fraction_part(part: string) -> Result<[int], string> {
+    var zeros = 0
+    var hashes = 0
+    var i = 0
+    while i < len(part) {
+        val c = char_at(part, i)
+        if c == "0" {
+            if hashes > 0 {
+                return err("invalid number pattern: a '0' cannot follow a '#' after the decimal point -- a mandatory place cannot come after an optional one")
+            }
+            zeros = zeros + 1
+        } else if c == "#" {
+            hashes = hashes + 1
+        } else {
+            return err(prelude.format(
+                "invalid number pattern: '{}' is not allowed after the decimal point (use '0' and '#')",
+                c
+            ))
+        }
+        i = i + 1
+    }
+    return ok([zeros, zeros + hashes])
+}
+
+// **Builds a `NumberFormat` from a `DecimalFormat`-shaped pattern, or an Err naming what is wrong.**
+//
+// `#,##0.00` is two fixed places with grouping; `#,###.##` is up to two with trailing zeros
+// dropped; `00000` is a zero-padded five-digit integer. The separators are `,` and `.`; for a
+// locale's own, pass one (`parse_pattern(p, l)`) or set the two fields with `with`.
+//
+// **It answers a `Result` as of 2026-10-24**, and that is the point of the change. The older
+// reader split on `.` and read the pieces positionally, so `#.##0.00` -- a plausible thing to
+// write, being what a European *rendering* looks like -- silently produced no grouping and three
+// decimal places, and `"hello.xx"` produced a format too. A pattern that cannot be read is now
+// said so.
+//
+// What is still not supported, deliberately: `%`, `E`, a `;`-separated negative subpattern,
+// literal prefix or suffix text, and custom grouping sizes (always 3).
+pub fn parse_pattern(pattern: string) -> Result<NumberFormat, string> {
+    if is_empty(pattern) {
+        return err("invalid number pattern: it is empty")
+    }
+    val point = index_of(pattern, ".", 0)
+    if point >= 0 && index_of(pattern, ".", point + 1) >= 0 {
+        return err("invalid number pattern: more than one decimal point")
+    }
+    val int_text = if point < 0 { pattern } else { substring(pattern, 0, point) }
+    val frac_text = if point < 0 { "" } else { substring(pattern, point + 1, len(pattern)) }
+    val int_shape = try read_integer_part(int_text)
+    val frac_shape = try read_fraction_part(frac_text)
+    if point >= 0 && is_empty(frac_text) {
+        return err("invalid number pattern: a decimal point with no '0' or '#' after it")
+    }
+    return ok(NumberFormat {
+        thousands_separator: if int_shape[1] == 1 { "," } else { "" },
+        decimal_separator: ".",
+        min_decimal_places: frac_shape[0],
+        max_decimal_places: if point < 0 { Option<int>.None } else { Option<int>.Some(frac_shape[1]) },
+        min_integer_digits: if int_shape[0] > 0 { int_shape[0] } else { 1 }
+    })
+}
+
+// **The pattern gives the shape, the locale gives the symbols** -- `DecimalFormat`'s own split
+// between a pattern and its `DecimalFormatSymbols`. `parse_pattern("#,##0.00", locale.of("de"))`
+// formats 1234567.5 as `1.234.567,50`.
+//
+// Without this the two could not be combined: a pattern baked in `,` and `.`, and
+// `number_format_for` gave a locale's separators but no way to ask for a fixed number of places.
+pub fn parse_pattern(pattern: string, l: Locale) -> Result<NumberFormat, string> {
+    val shape = try parse_pattern(pattern)
+    return ok(with shape {
+        thousands_separator: if is_empty(shape.thousands_separator) {
+            ""
+        } else {
+            locale.thousands_separator(l)
+        },
+        decimal_separator: locale.decimal_separator(l)
+    })
 }
 
 // Builds left to right into a MutableString: a separator goes before digit `i` exactly when the
@@ -261,17 +381,57 @@ fn insert_thousands(int_part: string, sep: string) -> string {
     return snapshot(out)
 }
 
-fn adjust_decimal_places(frac: string, places: int) -> string {
-    if len(frac) >= places {
-        return substring(frac, 0, places)
+// `frac` cut to at most `most` places and padded to at least `least`, with any trailing zero
+// between the two dropped. Truncates rather than rounds, which is `math.round`'s job -- stated
+// here because it is the one place the choice is visible.
+//
+//     "5"   least 2 most 2  -> "50"     (padded to the mandatory width)
+//     "999" least 0 most 2  -> "99"     (cut, no rounding)
+//     "50"  least 0 most 2  -> "5"      (optional trailing zero dropped)
+//     "50"  least 2 most 2  -> "50"     (mandatory, so kept)
+fn adjust_decimal_places(frac: string, least: int, most: int) -> string {
+    var cut = frac
+    if len(cut) > most {
+        cut = substring(cut, 0, most)
+    }
+    // drop trailing zeros that are not mandatory
+    var end = len(cut)
+    while end > least && is_char_at(cut, end - 1, "0") {
+        end = end - 1
+    }
+    cut = substring(cut, 0, end)
+    if len(cut) >= least {
+        return cut
     }
     val out = mutable_string_new()
-    append(out, frac)
-    var i = len(frac)
-    while i < places {
+    append(out, cut)
+    var i = len(cut)
+    while i < least {
         append(out, "0")
         i = i + 1
     }
+    return snapshot(out)
+}
+
+// `int_part` zero-padded to at least `least` digits, the sign kept in front of the padding.
+fn pad_integer_digits(int_part: string, least: int) -> string {
+    var sign = ""
+    var digits = int_part
+    if starts_with(digits, "-") {
+        sign = "-"
+        digits = substring(digits, 1, len(digits))
+    }
+    if len(digits) >= least {
+        return int_part
+    }
+    val out = mutable_string_new()
+    append(out, sign)
+    var i = len(digits)
+    while i < least {
+        append(out, "0")
+        i = i + 1
+    }
+    append(out, digits)
     return snapshot(out)
 }
 
@@ -288,10 +448,16 @@ pub fn format(s: string, fmt: NumberFormat) -> string {
     if len(parts) > 1 {
         frac_part = parts[1]
     }
-    if Some(places) = fmt.decimal_places {
-        frac_part = adjust_decimal_places(frac_part, places)
+    if Some(most) = fmt.max_decimal_places {
+        frac_part = adjust_decimal_places(frac_part, fmt.min_decimal_places, most)
+    } else if fmt.min_decimal_places > 0 {
+        // No maximum: the value keeps its own places, but the mandatory ones are still written.
+        frac_part = adjust_decimal_places(frac_part, fmt.min_decimal_places, len(frac_part))
     }
-    val grouped = insert_thousands(int_part, fmt.thousands_separator)
+    val grouped = insert_thousands(
+        pad_integer_digits(int_part, fmt.min_integer_digits),
+        fmt.thousands_separator
+    )
     return if frac_part == "" { grouped } else { concat(grouped, fmt.decimal_separator, frac_part) }
 }
 

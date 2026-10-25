@@ -1,10 +1,11 @@
+use locale
 use number
 use number.NumberFormat
 use number.number_format_plain
 use number.parse_pattern
 
 fn main() {
-    val fmt = parse_pattern("#,###.00")
+    val fmt = unwrap(parse_pattern("#,###.00"))
     print(number.format("1234567.891", fmt))
     print(number.format("-1234567.891", fmt))
     print(number.format("5", fmt))
@@ -18,14 +19,40 @@ fn main() {
 
     print(number.format("42", number_format_plain()))
 
-    val no_group = parse_pattern("0.0000")
+    val no_group = unwrap(parse_pattern("0.0000"))
     print(number.format("3.14", no_group))
 
-    val euro: NumberFormat = NumberFormat {
+    // Hand-built European separators with the pattern's own fraction shape. This is what
+    // `parse_pattern(pattern, locale)` now does in one call -- kept here because it also pins that
+    // the struct's fields stay assignable by hand.
+    val euro: NumberFormat = with unwrap(parse_pattern("#,###.00")) {
         thousands_separator: ".",
-        decimal_separator: ",",
-        decimal_places: parse_pattern("#,###.00").decimal_places
+        decimal_separator: ","
     }
     print(number.format("1234567.891", euro))
     print(number.parse("1.234.567,89", euro))
+
+    // `0` and `#` after the point now mean different things: mandatory and optional places.
+    print(number.format("1234567.5", unwrap(parse_pattern("#,##0.00"))))
+    print(number.format("1234567.5", unwrap(parse_pattern("#,###.##"))))
+    print(number.format("1234567", unwrap(parse_pattern("#,##0.00"))))
+    print(number.format("1234567", unwrap(parse_pattern("#,###.##"))))
+    print(number.format("1234567.5", unwrap(parse_pattern("#,##0.0#"))))
+
+    // `0`s in the integer part are a minimum width, zero-padded
+    print(number.format("42", unwrap(parse_pattern("00000"))))
+    print(number.format("-42", unwrap(parse_pattern("00000"))))
+    print(number.format("0", unwrap(parse_pattern("0"))))
+
+    // the pattern gives the shape, the locale gives the symbols
+    print(number.format("1234567.5", unwrap(parse_pattern("#,##0.00", locale.of("de")))))
+    print(number.format("1234567.5", unwrap(parse_pattern("0.00", locale.of("de")))))
+
+    // a pattern that cannot be read is an Err, where it used to be a format that meant something else
+    print(unwrap_err(parse_pattern("#.##0.00")))
+    print(unwrap_err(parse_pattern("hello.xx")))
+    print(unwrap_err(parse_pattern("")))
+    print(unwrap_err(parse_pattern("#,##0.")))
+    print(unwrap_err(parse_pattern("#,##0.#0")))
+    print(unwrap_err(parse_pattern("#,##0.00%")))
 }

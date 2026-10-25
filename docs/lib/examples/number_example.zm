@@ -2,7 +2,7 @@ use number
 
 fn main() {
     // Formatting with a pattern: thousands separators and fixed decimals.
-    val fmt = number.parse_pattern("#,##0.00")
+    val fmt = unwrap(number.parse_pattern("#,##0.00"))
     print(number.format(1234567, fmt))
     print(number.format(3.14159, fmt))
 
