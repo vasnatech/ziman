@@ -2444,10 +2444,40 @@ void interpret(Module *module) {
  * own tests/lang harness checks stdout byte-for-byte, and a duration
  * would make every fixture for this feature flaky) and returns 1 on
  * failure, 0 on pass. */
+/* A failure raised by the bundled `test` module's assertions, rewritten to name the line that
+ * asserted. The raw message's own location is test.zm's `unwrap` -- a file the reader never wrote,
+ * reported on every failing assertion, and the first thing they read -- while the frame stack
+ * still knows where the assertion was called from.
+ *
+ * NULL for anything else, which is the point of being this specific: an ordinary runtime error in
+ * a test (an index out of range, a `None` unwrapped) already carries the reader's own location and
+ * losing it would be strictly worse than the noise this removes. Both conditions must hold -- the
+ * innermost frames are the bundled test module's, and the message is `unwrap`'s on an Err, which
+ * is how `test.fail` raises -- so an error from anywhere else inside test.zm falls through
+ * unchanged rather than being reported at a line that did not raise it. */
+static char *assertion_failure(ThreadBoundary *b, FunctionDecl *fn) {
+    static const char raised_by[] = "unwrap called on an Err value: ";
+    const size_t skip = sizeof raised_by - 1;
+    if (b->raw == NULL || strncmp(b->raw, raised_by, skip) != 0) return NULL;
+    const char *file = NULL;
+    int line = 0, col = 0;
+    if (!ziman_core_entry_site("test", &file, &line, &col)) return NULL;
+    /* The file only when it is not the test's own -- the label already names that one, so printing
+     * it again on every failure would be the same kind of noise this is here to remove. */
+    int elsewhere = file != NULL && fn->source_file != NULL && strcmp(file, fn->source_file) != 0;
+    const char *body = b->raw + skip;
+    size_t room = strlen(body) + (elsewhere ? strlen(file) : 0) + 64;
+    char *text = ziman_xmalloc(room);
+    if (elsewhere) snprintf(text, room, "at %s:%d:%d: %s", file, line, col, body);
+    else snprintf(text, room, "at %d:%d: %s", line, col, body);
+    return text;
+}
+
 static int run_one_test(Module *module, FunctionDecl *fn, Value *args, int argc, const char *label) {
     ThreadBoundary boundary;
     ziman_thread_boundary_enter(&boundary);
     const char *fail_message = NULL;
+    char *rewritten = NULL;
     if (setjmp(boundary.jb) == 0) {
         Value result = call_function(module, fn, args, argc, 0, fn->line, fn->col);
         ziman_thread_boundary_leave();
@@ -2455,13 +2485,15 @@ static int run_one_test(Module *module, FunctionDecl *fn, Value *args, int argc,
             fail_message = value_display(result.as.res->value);
         }
     } else {
-        fail_message = boundary.message;
+        rewritten = assertion_failure(&boundary, fn);
+        fail_message = rewritten != NULL ? rewritten : boundary.message;
     }
     if (fail_message == NULL) {
         printf("PASS %s\n", label);
         return 0;
     }
     printf("FAIL %s  %s\n", label, fail_message);
+    free(rewritten);
     return 1;
 }
 

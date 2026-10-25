@@ -1,6 +1,6 @@
 PASS test_basic_fail.zm::test_passes
-FAIL test_basic_fail.zm::test_fails_assert_eq  runtime error at 18:13: unwrap called on an Err value: assertion failed: left != right
-  left:  5
-  right: 4
+FAIL test_basic_fail.zm::test_fails_assert_eq  at 10:5: assertion failed: expected != actual
+  expected: 5
+  actual:   4
 FAIL test_basic_fail.zm::test_fails_via_err  deliberate failure
 1 passed, 2 failed

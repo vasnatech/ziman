@@ -1963,12 +1963,24 @@ manufactured `Err` -- no new interpreter primitive needed:
 - `fail(message)` -- unconditional. `assert(cond)`/`assert_false(cond)`.
 - `assert_eq<T: Eq>(expected, actual)`/`assert_ne<T: Eq>(unexpected, actual)` -- structural
   equality, message shows both values.
+- `assert_near(expected, actual, tolerance)` -- for `float`, where `assert_eq(0.3, 0.1 + 0.2)`
+  fails and is right to. A NaN is not near anything, itself included; a negative tolerance is
+  rejected rather than silently never passing.
 - `assert_lt`/`assert_le`/`assert_gt`/`assert_ge`, each `<T: Ord>(actual, bound)`.
+- `assert_contains`/`assert_not_contains` over `(string, needle)`, `([T], T)`, `(Set<T>, T)` and
+  `(Map<K, V>, K)` -- the shapes the prelude's `contains` takes, showing both values. Prefer them
+  to `assert(contains(..))`, which can only say `assertion failed`.
 - `assert_some<T>(opt) -> T`/`assert_none<T>(opt)`; `assert_ok<T, E>(r) -> T`/`assert_err<T,
   E>(r) -> E` -- the `_some`/`_ok` forms return the unwrapped value for chaining.
 
 Failure messages use `format`'s `{}` (not `str`, which rejects a bare generic `T` -- see
 "Builtins"), so `assert_eq`'s only requirement is the `T: Eq` bound `==` already needs.
+
+**A failing assertion is reported at the line that asserted**, not at the `unwrap` inside
+test.zm that raised it: `ziman test` asks where the innermost run of bundled-`test` frames was
+entered from, and names that line (and its file, when the assertion is in a helper in another
+file). An ordinary runtime error inside a test -- an index out of range, a `None` unwrapped --
+keeps its own location, which is already the one the reader wants.
 
 ## Databases
 

@@ -1,0 +1,36 @@
+PASS test_assertions.zm::the_new_assertions_pass
+FAIL test_assertions.zm::through_a_helper  at 40:5: assertion failed: expected != actual
+  expected: 1
+  actual:   2
+FAIL test_assertions.zm::eq_names_expected_and_actual  at 50:5: assertion failed: expected != actual
+  expected: wanted
+  actual:   found
+FAIL test_assertions.zm::ne_names_unexpected_and_actual  at 55:5: assertion failed: unexpected == actual
+  unexpected: 5
+  actual:     5
+FAIL test_assertions.zm::ord_names_actual_and_bound  at 60:5: assertion failed: actual 9 is not less than bound 3
+FAIL test_assertions.zm::near_shows_how_far_apart  at 65:5: assertion failed: actual is not within 0.25 of expected
+  expected: 1.0
+  actual:   1.5
+  apart by: 0.5
+FAIL test_assertions.zm::near_rejects_a_nan  at 72:5: assertion failed: actual is not within 1000000.0 of expected
+  expected: nan
+  actual:   nan
+  apart by: nan
+FAIL test_assertions.zm::near_rejects_a_negative_tolerance  at 78:5: assert_near: the tolerance must not be negative, found -1.0
+FAIL test_assertions.zm::contains_shows_the_needle_and_the_text  at 83:5: assertion failed: the text does not contain the needle
+  needle: token
+  text:   a rendered body
+FAIL test_assertions.zm::contains_shows_the_array  at 88:5: assertion failed: the array does not contain the element
+  element: 9
+  array:   [1, 2, 3]
+FAIL test_assertions.zm::contains_shows_the_map  at 93:5: assertion failed: the map has no entry under the key
+  key: route
+  map: {dose: 2}
+FAIL test_assertions.zm::not_contains_shows_both  at 98:5: assertion failed: the text contains the needle it must not
+  needle: red b
+  text:   a rendered body
+FAIL test_assertions.zm::err_names_the_ok_it_found  at 104:13: assertion failed: expected Err, got Ok(7)
+FAIL test_assertions.zm::an_index_out_of_range  runtime error at 110:13: index 9 out of bounds (array length 3)
+FAIL test_assertions.zm::an_unwrapped_none  runtime error at 116:11: called 'Option.unwrap_Some' on a 'Option.None' value
+1 passed, 14 failed

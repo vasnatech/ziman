@@ -36,7 +36,7 @@ fn a_pipe_in_a_table_cell_cannot_break_the_table() {
         [["Salbutamol", "2 puffs | as needed"]]
     ))
     val out = write(markdown.document([t]))
-    test.assert(contains(out, "2 puffs \\| as needed"))
+    test.assert_contains(out, "2 puffs \\| as needed")
     // and it reads back as the text it was, pipe included, still in one cell
     val back = parse(out)
     test.assert_eq("Name Notes \nSalbutamol 2 puffs | as needed \n", markdown.text_of(back))
@@ -46,8 +46,8 @@ fn a_pipe_in_a_table_cell_cannot_break_the_table() {
 fn formatting_characters_in_text_stay_text() {
     val doc = markdown.document([markdown.paragraph("Take *2* tablets [see leaflet] a_b_c")])
     val out = write(doc)
-    test.assert(contains(out, "\\*2\\*"))
-    test.assert(contains(out, "\\[see leaflet\\]"))
+    test.assert_contains(out, "\\*2\\*")
+    test.assert_contains(out, "\\[see leaflet\\]")
     test.assert_eq("Take *2* tablets [see leaflet] a_b_c\n", markdown.text_of(parse(out)))
 }
 
@@ -71,7 +71,7 @@ fn a_code_span_is_fenced_longer_than_whatever_is_inside_it() {
         markdown.Inline.Code("a ` b ``  c")
     ])])
     val out = write(doc)
-    test.assert(contains(out, "```a ` b ``  c```"))
+    test.assert_contains(out, "```a ` b ``  c```")
     test.assert_eq("a ` b ``  c\n", markdown.text_of(parse(out)))
 }
 
@@ -89,7 +89,7 @@ fn a_link_destination_with_spaces_is_bracketed() {
         markdown.link("report", "http://x.test/a file(1).pdf")
     ])])
     val out = write(doc)
-    test.assert(contains(out, "<http://x.test/a file(1).pdf>"))
+    test.assert_contains(out, "<http://x.test/a file(1).pdf>")
 }
 
 // ------------------------------------------------------------------ what Markdown cannot do
@@ -101,15 +101,15 @@ fn a_line_break_in_a_table_cell_is_refused_and_flatten_cell_is_the_answer() {
     // string with a newline in it.
     val bad = test.assert_ok(markdown.text_table(["Notes"], [], [["line one\nline two"]]))
     val e = test.assert_err(markdown.format(markdown.document([bad])))
-    test.assert(contains(e, "line break"))
-    test.assert(contains(e, "row 0"))
+    test.assert_contains(e, "line break")
+    test.assert_contains(e, "row 0")
 
     val good = test.assert_ok(markdown.text_table(
         ["Notes"],
         [],
         [[markdown.flatten_cell("line one\nline two")]]
     ))
-    test.assert(contains(write(markdown.document([good])), "line one line two"))
+    test.assert_contains(write(markdown.document([good])), "line one line two")
 }
 
 #[test]
@@ -139,7 +139,7 @@ fn a_hard_break_survives_being_read_and_written() {
     // The two trailing spaces are the syntax, so trimming the line on the way in deletes it.
     val doc = parse("Line one  \nline two.\n")
     val out = write(doc)
-    test.assert(contains(out, "  \n"))
+    test.assert_contains(out, "  \n")
     test.assert_eq(out, round_trip(out))
 }
 
@@ -250,29 +250,29 @@ fn strict_refuses_an_indented_code_block() {
     val src = "text\n\n    indented code\n"
     test.assert_ok(markdown.parse(src))
     val e = test.assert_err(markdown.parse_strict(src))
-    test.assert(contains(e, "indented code block"))
-    test.assert(contains(e, "line 3"))
+    test.assert_contains(e, "indented code block")
+    test.assert_contains(e, "line 3")
 }
 
 #[test]
 fn strict_refuses_a_setext_heading() {
     val src = "Title\n=====\n"
     test.assert_ok(markdown.parse(src))
-    test.assert(contains(test.assert_err(markdown.parse_strict(src)), "setext"))
+    test.assert_contains(test.assert_err(markdown.parse_strict(src)), "setext")
 }
 
 #[test]
 fn strict_refuses_a_link_reference_definition() {
     val src = "[label]: http://x.test\n"
     test.assert_ok(markdown.parse(src))
-    test.assert(contains(test.assert_err(markdown.parse_strict(src)), "link reference"))
+    test.assert_contains(test.assert_err(markdown.parse_strict(src)), "link reference")
 }
 
 #[test]
 fn strict_refuses_a_raw_html_block() {
     val src = "<div>\nhello\n</div>\n"
     test.assert_ok(markdown.parse(src))
-    test.assert(contains(test.assert_err(markdown.parse_strict(src)), "HTML"))
+    test.assert_contains(test.assert_err(markdown.parse_strict(src)), "HTML")
 }
 
 #[test]
@@ -322,5 +322,5 @@ fn an_empty_document_is_empty() {
 fn bytes_in() {
     val doc = test.assert_ok(markdown.parse(to_bytes("# héllo\n")))
     test.assert_eq("héllo\n", markdown.text_of(doc))
-    test.assert(contains(test.assert_ok(markdown.to_bytes(doc)), 35 as byte))
+    test.assert_contains(test.assert_ok(markdown.to_bytes(doc)), 35 as byte)
 }

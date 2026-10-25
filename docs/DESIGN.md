@@ -211,6 +211,7 @@ them against the code.
 - [`keys` answers an array; the `Set` becomes `keys_set` (2026-10-24)](#keys-answers-an-array-the-set-becomes-keys_set-2026-10-24)
 - [`properties`: two families become one, and both were derive bridges (2026-10-24)](#properties-two-families-become-one-and-both-were-derive-bridges-2026-10-24)
 - [`random`: ten functions over one native, and the bias I overstated (2026-10-24)](#random-ten-functions-over-one-native-and-the-bias-i-overstated-2026-10-24)
+- [`test`: a failing assertion names the line that asserted (2026-10-24)](#test-a-failing-assertion-names-the-line-that-asserted-2026-10-24)
 
 <!-- end index -->
 
@@ -8496,3 +8497,37 @@ Rejection sampling removes the dependence on that ratio, and that is the real ar
 **The three text generators and the three prelude predicates are deliberately the same three questions**, so `is_alpha(alpha(n))`, `is_numeric(numeric(n))` and `is_alpha_numeric(alpha_numeric(n))` are true by construction. That is also what the fixture asserts, because **a randomised function can only be pinned by its properties**: `tests/lang/random_derived.zm` checks bounds coverage over 4000 draws, that `below(n)` never reaches `n`, that `fraction` stays in `[0, 1)`, that `choice` always answers from the pool, that `shuffle` sorts back to its input, and the three predicate agreements -- never a specific value.
 
 Two smaller notes. `out[i] = out[j]` is the way to write into a `MutableArray`; `set(out, i, v)` is not a function and the error says so. And an indented bullet list in a module's header comment comes out of `tools/gen_lib_manual.py` as a fenced code block -- the generator turns any indented run following a blank line into one, which is right for examples and wrong for prose, so doc bullets start at column 0.
+
+## `test`: a failing assertion names the line that asserted (2026-10-24)
+
+Every failing assertion in this repository reported the same line, in a file nobody wrote:
+
+```
+FAIL t.zm::eq_labels  runtime error at 18:13: unwrap called on an Err value: assertion failed: left != right
+```
+
+18:13 is `lib/core/test.zm`'s own `unwrap`, inside `fail`. It is the first thing a reader sees when a test fails, it is identical for all 1190 tests here and the backend's suite on top, and it names neither the test nor the assertion. **The information was never missing** -- the stack trace has it, and a plain `ziman` run prints it (`at inner (tr.zm:8:5)`). `ziman test` was throwing it away: `run_one_test` reported `boundary.message` and nothing else.
+
+It now reports the line that asserted:
+
+```
+FAIL t.zm::eq_labels  at 9:5: assertion failed: expected != actual
+  expected: wanted
+  actual:   found
+```
+
+**Three small pieces, and the design is in which of them knows about `test`.** `ThreadBoundary` gained `raw`, the message without its `runtime error at L:C` prefix -- a caller that reports a failure somewhere other than at that location needs the message apart from it, and that is a general want, not a test-module one. `error.c` gained `ziman_core_entry_site(module, ...)`, which walks down from the innermost frame while the frames belong to a *bundled* module of that name and answers the outermost one's call site -- the line the reader's own code called in at, whose file is the file of the frame below it. Only `interpreter.c`'s `run_one_test` passes `"test"`, so error.c still knows nothing about assertions.
+
+A bundled module's functions are the ones with no `source_file`, so `file == NULL` together with a `module::` name prefix is exact: a reader's own `test.zm` declares a source file and can never be mistaken for this one. The frames are still standing after the longjmp, which is not an assumption -- `thread_failed` already relies on it to print a trace.
+
+**The rewrite is deliberately narrow, and that is the point.** Both conditions must hold -- the innermost frames are the bundled test module's, *and* the message is `unwrap`'s on an `Err`, which is how `fail` raises. An ordinary runtime error inside a test keeps its own location untouched, because that location is already the reader's and losing it would be strictly worse than the noise being removed. The fixture pins both halves: `an_index_out_of_range` and `an_unwrapped_none` still report `runtime error at <their own line>`. An error raised anywhere else inside test.zm falls through unchanged rather than being attributed to a line that did not raise it.
+
+Checked by hand because a fixture is one file: when the assertion is in a helper in *another* file, the message names that file and the line in it.
+
+**The messages contradicted their own parameters.** `assert_eq`'s are `expected` and `actual`; it printed `left` and `right`, so nothing told the reader which was which. They are `expected:`/`actual:` now (`unexpected:`/`actual:` for `assert_ne`), and `assert_lt`/`le`/`gt`/`ge` say `actual {} is not less than bound {}` rather than leaving the roles to be guessed. No call site changed.
+
+**`assert(contains(..))` was the most common assertion in the two repositories -- 109 of them -- and the one that printed the least.** On failure it says `assertion failed` and stops: no haystack, no needle, in exactly the case where the reader is asking which of a 5 KB rendered body's lines is missing. `assert_contains`/`assert_not_contains` cover the shapes the prelude's `contains` takes -- `(string, needle)`, `([T], T)`, `(Set<T>, T)`, `(Map<K, V>, K)` -- and all 109 sites moved. The haystack is shown **in full, not clipped**: a clip hides the thing being looked for whenever the near-miss is past the cut, and `assert_eq` already shows whole values.
+
+`assert_near(expected, actual, tolerance)` is the float answer, because `assert_eq(0.3, 0.1 + 0.2)` fails with `0.30000000000000004` and is right to. Two details worth having checked rather than assumed: a NaN fails however wide the tolerance, *including against itself*, which is the wanted answer since no comparison with a NaN is true -- and a NaN does not come from arithmetic here, because `0.0 / 0.0` is a runtime error in Ziman, not a NaN (`math.sqrt` of a negative and `parse_float("nan")` are where one comes from). A negative tolerance could never pass, so it fails saying that rather than looking like a failed comparison.
+
+One repeat of a known trap, caught in seconds this time: `test` is a *bundled* module, so `--api test` kept listing the old function set until `make ziman` re-embedded the source. Editing a core module's `.zm` and testing without rebuilding tests the binary's copy.

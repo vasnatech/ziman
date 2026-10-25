@@ -1,6 +1,6 @@
 PASS test_cases_val.zm::test_add_case[0]
 PASS test_cases_val.zm::test_add_case[1]
-FAIL test_cases_val.zm::test_add_case[2]  runtime error at 18:13: unwrap called on an Err value: assertion failed: left != right
-  left:  999
-  right: 4
+FAIL test_cases_val.zm::test_add_case[2]  at 17:5: assertion failed: expected != actual
+  expected: 999
+  actual:   4
 2 passed, 1 failed

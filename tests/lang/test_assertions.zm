@@ -1,0 +1,117 @@
+// `test`'s assertions: the three families added on 2026-10-24 (`assert_near`, `assert_contains`,
+// `assert_not_contains`), the messages the older ones print, and -- the reason most of this is
+// here -- **the line each failure names**.
+//
+// A failing assertion used to be reported at `test.zm`'s own `unwrap`, the same line for every
+// failure in every test, in a file the reader never wrote. The runner asks error.c where the
+// innermost run of bundled-`test` frames was entered from instead, so the line is the one that
+// asserted: directly below, and through a helper, where the line named is the one inside the
+// helper -- that is where the assertion is. When the helper lives in another file the file is
+// named with it (checked by hand rather than here, since a fixture is one file).
+//
+// **An ordinary runtime error in a test keeps its own location**, which is the other half of
+// being specific: `an_index_out_of_range` and `an_unwrapped_none` still report `runtime error at
+// <their own line>`, because that location is already the reader's and losing it would be worse
+// than the noise the rewrite removes.
+use math
+use test
+
+fn a_map() -> Map<string, int> {
+    val m = mutable_map_new<string, int>()
+    set(m, "dose", 2)
+    return snapshot(m)
+}
+
+#[test]
+fn the_new_assertions_pass() {
+    test.assert_near(0.3, 0.1 + 0.2, 0.000001)
+    test.assert_near(1.0, 1.0, 0.0)
+    test.assert_contains("a rendered body", "red b")
+    test.assert_contains([1, 2, 3], 2)
+    test.assert_contains(to_set([1, 2]), 1)
+    test.assert_contains(a_map(), "dose")
+    test.assert_not_contains("a rendered body", "token")
+    test.assert_not_contains([1, 2, 3], 9)
+    test.assert_not_contains(to_set([1, 2]), 9)
+    test.assert_not_contains(a_map(), "route")
+}
+
+fn helper(x: int) {
+    test.assert_eq(1, x)
+}
+
+#[test]
+fn through_a_helper() {
+    helper(2)
+}
+
+#[test]
+fn eq_names_expected_and_actual() {
+    test.assert_eq("wanted", "found")
+}
+
+#[test]
+fn ne_names_unexpected_and_actual() {
+    test.assert_ne(5, 5)
+}
+
+#[test]
+fn ord_names_actual_and_bound() {
+    test.assert_lt(9, 3)
+}
+
+#[test]
+fn near_shows_how_far_apart() {
+    test.assert_near(1.0, 1.5, 0.25)
+}
+
+// A NaN is not near anything, itself included, however wide the tolerance.
+#[test]
+fn near_rejects_a_nan() {
+    val n = math.sqrt(0.0 - 1.0)
+    test.assert_near(n, n, 1000000.0)
+}
+
+// A tolerance that could never pass says so, rather than looking like a failed comparison.
+#[test]
+fn near_rejects_a_negative_tolerance() {
+    test.assert_near(1.0, 1.0, 0.0 - 1.0)
+}
+
+#[test]
+fn contains_shows_the_needle_and_the_text() {
+    test.assert_contains("a rendered body", "token")
+}
+
+#[test]
+fn contains_shows_the_array() {
+    test.assert_contains([1, 2, 3], 9)
+}
+
+#[test]
+fn contains_shows_the_map() {
+    test.assert_contains(a_map(), "route")
+}
+
+#[test]
+fn not_contains_shows_both() {
+    test.assert_not_contains("a rendered body", "red b")
+}
+
+#[test]
+fn err_names_the_ok_it_found() {
+    val r: Result<int, string> = ok(7)
+    val _ = test.assert_err(r)
+}
+
+#[test]
+fn an_index_out_of_range() {
+    val xs = [1, 2, 3]
+    print(xs[9])
+}
+
+#[test]
+fn an_unwrapped_none() {
+    val none: Option<int> = None
+    print(unwrap(none))
+}

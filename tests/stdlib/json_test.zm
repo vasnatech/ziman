@@ -24,7 +24,7 @@ fn escapes_round_trip() {
     val again = test.assert_ok(json.parse(back))
     test.assert_eq(json.format(parsed), json.format(again))
     // a control character in a value must come back out escaped, never raw
-    test.assert(contains(back, "\\n"))
+    test.assert_contains(back, "\\n")
 }
 
 #[test]

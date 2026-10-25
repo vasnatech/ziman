@@ -254,6 +254,37 @@ const char *ziman_frame_top_name(void) {
     return t_frames[n - 1].name;
 }
 
+/* Where a run of innermost frames belonging to the bundled core module `module` was *entered*
+ * from -- the line in the reader's own code, which is what a failing `test.assert_eq` wants to
+ * name rather than the `unwrap` inside test.zm that raised it. Walks down from the top while the
+ * frames are that module's, and answers the outermost one's call site, whose file is the file of
+ * the frame below it (a frame records the file its own function was declared in, and the line it
+ * was called from).
+ *
+ * A bundled module's functions are the ones with no `source_file`, so `file == NULL` together with
+ * the `module::` name prefix is exact: a reader's own `test.zm` declares a source file and is
+ * therefore never mistaken for this one.
+ *
+ * Answers 0 when the innermost frame is not that module's, which is every ordinary runtime error
+ * -- its location is already the reader's own and must be left exactly as it is. Safe to call
+ * after a longjmp to a ThreadBoundary: the frames are left standing, which is what `thread_failed`
+ * already relies on to print a trace. */
+int ziman_core_entry_site(const char *module, const char **out_file, int *out_line, int *out_col) {
+    size_t n = strlen(module);
+    int outermost = -1;
+    for (int i = t_frame_count - 1; i >= 0; i--) {
+        ZimanFrame *f = &t_frames[i];
+        if (f->file != NULL || f->name == NULL) break;
+        if (strncmp(f->name, module, n) != 0 || f->name[n] != ':' || f->name[n + 1] != ':') break;
+        outermost = i;
+    }
+    if (outermost < 0) return 0;
+    *out_line = t_frames[outermost].call_line;
+    *out_col = t_frames[outermost].call_col;
+    *out_file = outermost > 0 ? t_frames[outermost - 1].file : NULL;
+    return 1;
+}
+
 void ziman_pop_frame(void) {
     if (t_frame_count > 0) t_frame_count--;
 }
@@ -411,6 +442,7 @@ char *ziman_trace_string(void) { return build_trace(); }
 
 void ziman_thread_boundary_enter(ThreadBoundary *b) {
     b->message = NULL;
+    b->raw = NULL;
     t_boundary = b;
     t_frame_count = 0;
 }
@@ -434,8 +466,8 @@ _Noreturn void ziman_error(const char *phase, int line, int col, const char *fmt
         size_t room = strlen(message) + (has_file ? strlen(g_error_file) : 0) + 96;
         char *text = ziman_xmalloc(room);
         snprintf(text, room, "runtime error at %d:%d%s%s: %s", line, col, has_file ? " in " : "", has_file ? g_error_file : "", message);
-        free(message);
         b->message = text;
+        b->raw = message;   /* the same text without the location; freed by neither, like `text` */
         longjmp(b->jb, 1);
     }
     if (g_sink != NULL) {

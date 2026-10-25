@@ -24,6 +24,11 @@ _Noreturn void ziman_error(const char *phase, int line, int col, const char *fmt
 typedef struct ThreadBoundary {
     jmp_buf jb;
     char *message;
+    /* `message` without its "runtime error at L:C" prefix. A caller that means to report the
+     * failure somewhere other than at that location needs the message apart from it -- `ziman
+     * test` does, because an assertion raised inside the bundled test module carries test.zm's
+     * own line and the reader wants the line that asserted. NULL until a runtime error arrives. */
+    char *raw;
 } ThreadBoundary;
 void ziman_thread_boundary_enter(ThreadBoundary *b);
 void ziman_thread_boundary_leave(void);
@@ -106,6 +111,7 @@ int ziman_frame_count(void);
 /* The innermost Ziman function name on this thread, NULL when none -- signal-handler safe, see
  * error.c. Used by --profile's sampler (src/profile.c). */
 const char *ziman_frame_top_name(void);
+int ziman_core_entry_site(const char *module, const char **out_file, int *out_line, int *out_col);
 void *ziman_frame_env_at(int i);
 
 /* The current thread's call chain as text, innermost first, one indented "at f

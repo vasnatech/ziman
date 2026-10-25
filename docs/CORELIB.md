@@ -1410,6 +1410,8 @@ pub fn assert_eq<T: Eq>(expected: T, actual: T)
 
 pub fn assert_ne<T: Eq>(unexpected: T, actual: T)
 
+pub fn assert_near(expected: float, actual: float, tolerance: float)
+
 pub fn assert_lt<T: Ord>(actual: T, bound: T)
 
 pub fn assert_le<T: Ord>(actual: T, bound: T)
@@ -1417,6 +1419,22 @@ pub fn assert_le<T: Ord>(actual: T, bound: T)
 pub fn assert_gt<T: Ord>(actual: T, bound: T)
 
 pub fn assert_ge<T: Ord>(actual: T, bound: T)
+
+pub fn assert_contains(haystack: string, needle: string)
+
+pub fn assert_contains<T: Eq>(items: [T], x: T)
+
+pub fn assert_contains<T: Eq + Hash>(items: Set<T>, x: T)
+
+pub fn assert_contains<K: Eq + Hash, V>(m: Map<K, V>, key: K)
+
+pub fn assert_not_contains(haystack: string, needle: string)
+
+pub fn assert_not_contains<T: Eq>(items: [T], x: T)
+
+pub fn assert_not_contains<T: Eq + Hash>(items: Set<T>, x: T)
+
+pub fn assert_not_contains<K: Eq + Hash, V>(m: Map<K, V>, key: K)
 
 pub fn assert_some<T>(opt: Option<T>) -> T
 

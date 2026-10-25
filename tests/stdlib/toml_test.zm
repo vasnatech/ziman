@@ -120,7 +120,7 @@ fn an_error_still_names_the_line_that_caused_it() {
     // The table is written into the tree when the *next* header arrives, so the position has to
     // be carried along with it; otherwise this would report line 4 instead of line 3.
     val e = test.assert_err(toml.parse("a = 1\n\n[a]\nx = 2\n\n[other]\ny = 3\n"))
-    test.assert(contains(e, "line 3"))
+    test.assert_contains(e, "line 3")
 }
 
 // ------------------------------------------------------------------ the reason for the rewrite
