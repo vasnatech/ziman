@@ -1622,7 +1622,7 @@ fn main() {
 ## Media types (`mime`)
 
 `mime` names a kind of content: `mime.parse("text/html; charset=utf-8")` reads a media type (a `MediaType`
-with `type`, `subtype` and `params`, all names lower-cased, an Err for a malformed one), `mime.to_string`
+with `type`, `subtype` and `params`, all names lower-cased, an Err for a malformed one), `mime.format`
 writes it back (quoting a parameter value that is not a token), `mime.essence` is `type/subtype` alone,
 `mime.charset` and `mime.param` read parameters, and `mime.with_param` sets one. `mime.matches(pattern,
 candidate)` compares with wildcards and ignores parameters (`*/*`, `text/*`); `mime.is_json` is true for

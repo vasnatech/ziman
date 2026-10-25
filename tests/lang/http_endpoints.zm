@@ -353,7 +353,7 @@ fn main() {
             http.method_name(c.method),
             c.path,
             r.status,
-            if Option.is_Some(kind) { mime.to_string(Option.unwrap_Some(kind)) } else { "-" },
+            if Option.is_Some(kind) { mime.format(Option.unwrap_Some(kind)) } else { "-" },
             replace(shown(r.body), "\n", "|"),
             if Option.is_Some(allow) { format(" Allow={}", Option.unwrap_Some(allow)) } else { "" }
         ))

@@ -172,7 +172,7 @@ fn is_token(s: string) -> bool {
 }
 
 fn bad(text: string, why: string) -> string {
-    return format("invalid media type '{}': {}", text, why)
+    return prelude.format("invalid media type '{}': {}", text, why)
 }
 
 // A parameter's value at `pos`: a token up to `;`, or a quoted string with `\` escapes. Returns the value and
@@ -238,7 +238,7 @@ pub fn parse(text: string) -> Result<MediaType, string> {
             }
             val name = to_lower(trim(substring(s, p, eq)), invariant)
             if !is_token(name) {
-                return err(bad(text, format("'{}' is not a valid parameter name", name)))
+                return err(bad(text, prelude.format("'{}' is not a valid parameter name", name)))
             }
             val read = try read_value(s, eq + 1)
             if !contains(params, name) {
@@ -265,7 +265,7 @@ fn quote_if_needed(value: string) -> string {
 }
 
 // The text form: `text/html; charset=utf-8`. A parameter value that is not a token is written quoted.
-pub fn to_string(m: MediaType) -> string {
+pub fn format(m: MediaType) -> string {
     val out = mutable_string_new()
     append(out, essence(m))
     for name, value in m.params {

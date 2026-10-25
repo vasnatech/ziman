@@ -5,7 +5,7 @@ fn main() {
     val m = unwrap(mime.parse("Text/HTML; Charset=UTF-8"))
     print(mime.essence(m))
     print(mime.charset(m))
-    print(mime.to_string(mime.with_param(m, "charset", "iso-8859-1")))
+    print(mime.format(mime.with_param(m, "charset", "iso-8859-1")))
 
     // A malformed type is an Err that says what is wrong.
     print(unwrap_err(mime.parse("json")))

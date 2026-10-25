@@ -872,7 +872,7 @@ pub fn parse(text: string) -> Result<MediaType, string>
 
 pub fn essence(m: MediaType) -> string
 
-pub fn to_string(m: MediaType) -> string
+pub fn format(m: MediaType) -> string
 
 pub fn param(m: MediaType, name: string) -> Option<string>
 

@@ -22,7 +22,7 @@ fn main() {
     val m = unwrap(mime.parse("Text/HTML; Charset=UTF-8"))
     print(mime.essence(m))
     print(mime.charset(m))
-    print(mime.to_string(mime.with_param(m, "charset", "iso-8859-1")))
+    print(mime.format(mime.with_param(m, "charset", "iso-8859-1")))
 
     // A malformed type is an Err that says what is wrong.
     print(unwrap_err(mime.parse("json")))
@@ -224,10 +224,10 @@ pub fn essence(m: MediaType) -> string
 
 `type/subtype` alone, without parameters: `application/json`.
 
-### `to_string`
+### `format`
 
 ```
-pub fn to_string(m: MediaType) -> string
+pub fn format(m: MediaType) -> string
 ```
 
 The text form: `text/html; charset=utf-8`. A parameter value that is not a token is written quoted.

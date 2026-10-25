@@ -151,7 +151,7 @@ fn mime_is_json_follows_the_suffix_not_only_the_essence() {
 #[test]
 fn mime_with_param_round_trips_through_text() {
     val m = mime.with_param(mime.text_plain(), "charset", "utf-8")
-    val back = test.assert_ok(mime.parse(mime.to_string(m)))
+    val back = test.assert_ok(mime.parse(mime.format(m)))
     test.assert_eq("text/plain", mime.essence(back))
     test.assert_eq("utf-8", test.assert_some(mime.charset(back)))
 }

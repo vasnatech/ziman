@@ -198,6 +198,7 @@ them against the code.
 - [`math`: the decimal roundings join their float namesakes, and answer a `bigint` (2026-10-24)](#math-the-decimal-roundings-join-their-float-namesakes-and-answer-a-bigint-2026-10-24)
 - [`math` gains five: `is_finite`, `is_infinite`, `log2`, `log10`, `sign` (2026-10-24)](#math-gains-five-is_finite-is_infinite-log2-log10-sign-2026-10-24)
 - [`metrics`: fifteen names become five (2026-10-24)](#metrics-fifteen-names-become-five-2026-10-24)
+- [`mime` was already right, and `to_string` turns out to be library-wide (2026-10-24)](#mime-was-already-right-and-to_string-turns-out-to-be-library-wide-2026-10-24)
 
 <!-- end index -->
 
@@ -8246,3 +8247,15 @@ Every recording operation came in three forms, and the suffixes only restated th
 **`series_of` kept its own name, and this is the one judgement in the change.** Its argument types *would* tell it apart from `series(name, labels: Map)` -- a `string` second argument against a `Map` one -- so overloading it was available and I did not take it. It accepts a pre-built label key and its own doc says getting that key wrong "splits a series rather than failing": a silent wrong answer, not an error. As a third `series` overload the unsafe path becomes reachable by typo; as a separate name it is reachable only on purpose. Same rule as `csv`'s `parse_typed` and `jwt`'s `verify_at`: a name carries what an argument cannot, and here what it carries is which of two paths you are accepting responsibility for.
 
 A process note on the mechanics. Moving `series_of` below the second `series` declaration -- so the set's two members sit together -- was done with a script that searched for the next `}\n`, and that matched the brace closing `Series { handle: ... }` on the `return` line, nesting a `pub fn` inside a function body. 29 fixtures failed, the parse error pointed at the right line, and the fix was to stop scripting a two-line move. Worth recording because the first instinct on a 29-failure diff is to look for something subtle.
+
+## `mime` was already right, and `to_string` turns out to be library-wide (2026-10-24)
+
+`mime.zm` needed one rename: `to_string(m)` became `format(m)`, joining the spelling `time`, `csv`, `json`, `bits`, `markdown` and `log` all moved to earlier today. Ten call sites, every one qualified.
+
+**The rest of the module was checked and left alone, which is the finding worth recording.** Three things were looked for and not found:
+
+- **Bare media-type literals.** 35 occurrences of `"application/json"`-shaped strings exist in `lib/` and the backend, but 29 of them are inside `mime.zm`'s own extension table and 5 of the remaining 6 are in *test* files asserting an exact header value -- where a literal is the right thing, since the test exists to pin the string. The sixth is a comment. So nothing is reaching around this module.
+- **Content negotiation.** `matches(pattern, candidate)` has no quality-value sibling, and an `Accept:` parser would be the obvious addition -- except that nothing negotiates: `client.zm` sends `Accept: */*` and the server never reads one. `Accept-Encoding` *is* parsed in `server.zm`, but its entries are encodings rather than media types, so `mime` is not their home.
+- **Table against constructors.** The extension table is *ahead* of the seventeen well-known constructors, not behind: `wasm`, `js`, `css`, `tsv`, `md`, `webp`, `ico`, `woff2`, `mp3` and `mp4` all resolve through `of_extension` with no named function of their own. Adding ten more zero-argument functions is surface for its own sake; `of_extension("css")` already answers.
+
+**What the rename did turn up is bigger than `mime`.** `to_string` is a residue across six modules, not one: `uuid.uuid_to_string`, `toml.toml_to_string`, `ndjson.ndjson_to_string`, `yaml.yaml_to_string`, and `xml.xml_to_string` / `xml_to_string_pretty` / `element_to_string` -- which are three declarations that would collapse into one `format` set the way `markdown`'s `Document`/`Block` pair did. Four of the six also stutter (`toml.toml_to_string`). Recorded here rather than swept, because each is its own module's turn; `json.to_string_map` is *not* one of them, being "to a map of strings" rather than a display form, and neither is the prelude's `bytes_to_string`.

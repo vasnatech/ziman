@@ -1,6 +1,6 @@
+use http
 use http.status_not_acceptable
 use http.status_unsupported_media_type
-use http
 use mime
 use server
 
@@ -9,7 +9,7 @@ fn h(name: string, value: string) -> http.Header {
 }
 
 fn show(m: Option<mime.MediaType>) -> string {
-    return if Option.is_Some(m) { mime.to_string(Option.unwrap_Some(m)) } else { "none" }
+    return if Option.is_Some(m) { mime.format(Option.unwrap_Some(m)) } else { "none" }
 }
 
 fn main() {

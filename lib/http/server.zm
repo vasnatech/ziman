@@ -613,7 +613,7 @@ pub fn with_header(r: Response, name: string, value: string) -> Response {
 
 // A response with `status` and `body`, `Content-Type` set to `media` (parameters such as a charset included).
 pub fn media_response(status: int, body: [byte], media: mime.MediaType) -> Response {
-    return with_header(response(status, body), "Content-Type", mime.to_string(media))
+    return with_header(response(status, body), "Content-Type", mime.format(media))
 }
 
 // A response with `status` and `body`, `Content-Type: application/json`.

@@ -3,7 +3,7 @@ use mime
 fn show(text: string) {
     val r = mime.parse(text)
     if is_ok(r) {
-        print(mime.to_string(unwrap(r)))
+        print(mime.format(unwrap(r)))
     } else {
         print(unwrap_err(r))
     }
@@ -44,8 +44,8 @@ fn main() {
     print(mime.param(m, "missing"))
     print(mime.is_text(m))
     print(mime.is_json(m))
-    print(mime.to_string(mime.with_param(m, "Charset", "iso-8859-1")))
-    print(mime.to_string(mime.with_param(mime.text_plain(), "format", "flowed; x")))
+    print(mime.format(mime.with_param(m, "Charset", "iso-8859-1")))
+    print(mime.format(mime.with_param(mime.text_plain(), "format", "flowed; x")))
 
     // suffixes and json
     val api = unwrap(mime.parse("application/vnd.api+json"))
