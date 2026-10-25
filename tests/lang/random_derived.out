@@ -1,0 +1,24 @@
+-- bounds --
+between(3,9) covers exactly 3..9: true
+between(5,5): 5
+a negative range: -10
+below(4) never reaches 4: true
+below(1) is always 0: true
+-- fraction and boolean --
+fraction in [0, 1): true
+boolean gives both: true
+-- choice --
+empty is None, not an error: true
+always from the pool: true
+a single element: 7
+-- shuffle --
+always a permutation: true
+one element: true
+no elements: true
+-- text, and the predicates it satisfies --
+is_alpha(alpha(40)): true
+is_numeric(numeric(40)): true
+is_alpha_numeric(alpha_numeric(40)): true
+lengths: 7 0
+a one-character alphabet is deterministic: xxxxxx
+non-ASCII alphabet: 5

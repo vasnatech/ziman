@@ -1333,6 +1333,26 @@ One native function reading real OS entropy (`/dev/urandom`) -- Ziman's first so
 ```
 pub native fn bytes(n: int) -> [byte]
 
+pub fn below(n: int) -> int
+
+pub fn between(low: int, high: int) -> int
+
+pub fn fraction() -> float
+
+pub fn boolean() -> bool
+
+pub fn choice<T>(items: [T]) -> Option<T>
+
+pub fn shuffle<T>(items: [T]) -> [T]
+
+pub fn text(n: int, alphabet: string) -> string
+
+pub fn alpha(n: int) -> string
+
+pub fn numeric(n: int) -> string
+
+pub fn alpha_numeric(n: int) -> string
+
 ```
 
 ## `regex`

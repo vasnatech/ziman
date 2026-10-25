@@ -210,6 +210,7 @@ them against the code.
 - [`replace(s, Map<string, string>)`: one pass, longest match (2026-10-24)](#replaces-mapstring-string-one-pass-longest-match-2026-10-24)
 - [`keys` answers an array; the `Set` becomes `keys_set` (2026-10-24)](#keys-answers-an-array-the-set-becomes-keys_set-2026-10-24)
 - [`properties`: two families become one, and both were derive bridges (2026-10-24)](#properties-two-families-become-one-and-both-were-derive-bridges-2026-10-24)
+- [`random`: ten functions over one native, and the bias I overstated (2026-10-24)](#random-ten-functions-over-one-native-and-the-bias-i-overstated-2026-10-24)
 
 <!-- end index -->
 
@@ -8470,3 +8471,28 @@ Found on the way: `tests/lang/keys_array_both_worlds.zm` was named after the fun
 That is the distinction worth carrying away from this week's renames. A derive bridge is not exempt from being renamed -- `time`'s converters moved and `json`'s tree helpers moved -- but it *is* exempt from losing the part of its name the generator computes. `entry_` was a prefix a human chose; `_int` is a suffix the compiler writes.
 
 An honest note on the verification: `make check` reported `api-check` failing on "an enum variant carries its payload type: no 'Io(string)' in the output", and `Io(string)` was plainly in `--api net`'s output at line 69. Running `make api-check` alone passed 41 of 41, and so did the next full run. A stale binary against freshly edited `lib/` sources is the standing explanation for that shape here, and it is the reason the rule is to re-run rather than to reason about a single failure.
+
+## `random`: ten functions over one native, and the bias I overstated (2026-10-24)
+
+`random.zm` had exactly one function, `random_bytes`, which said random twice when qualified. It is `random.bytes` now, qualified-only and deliberately not importable by name -- the stutter is bad as `random.random_bytes(32)`, but a *bare* `random_bytes(32)` was good, where a bare `bytes(32)` says nothing at all. Same rule as `json.format` and `metrics.add`, for a different reason.
+
+Everything added is ordinary Ziman over that one native: `below`, `between`, `fraction`, `boolean`, `choice`, `shuffle`, `text`, `alpha`, `numeric`, `alpha_numeric`.
+
+**`int`, `float`, `bool` and `string` are type keywords, so they cannot be function names.** `below`/`between`/`fraction`/`boolean`/`text` are not stylistic choices. `pub fn int(low: int, high: int)` *declares* and type-checks perfectly well; then every call site is a syntax error, because `random.int(3, 9)` cannot parse -- the parser sees a type where a name must be. Four declarations compiled and four families of call sites failed, which is how it was found. Worth knowing in general: a declaration compiling is no evidence the name is usable.
+
+**Why these exist at all.** The hand-rolled form is `x % n` over random bytes, and it favours the low residues unless `n` divides the draw's range exactly. `bounded_at` rejects the uneven tail -- everything at or above the largest multiple of `span` that fits in 2^56 -- which makes what remains exactly uniform. Seven bytes per draw, because 2^56 is the widest draw from which a rejection limit can be computed without overflowing an `int`. The tail is at most `span - 1` values out of 2^56, so a rejection is rare enough that answering it with a fresh draw costs nothing measurable.
+
+**I overstated the bias, and the measurement is the interesting part.** I said the reference backend had three copies of the pattern, "one of them choosing MFA backup codes", and left the impression all three were wrong. The amount of bias depends entirely on how wide the draw is against the span, so:
+
+* `mfa.zm` drew **4** bytes and took `% 100000000`. 2^32 mod 10^8 is 94967296, so 95% of the eight-digit backup codes were 2.4% more likely than the other 5%. Real, measurable, and in the value that stands in for a second factor.
+* `testdata.zm` drew **6** bytes and took `% 3`. 2^48 mod 3 is 1 -- a bias of about 4e-15. Correct, but *by accident* of the draw being sixteen orders of magnitude wider than the span, not by anything the code does.
+
+Rejection sampling removes the dependence on that ratio, and that is the real argument for it: the hand-rolled form is not wrong, it is *conditionally* right, and the condition is invisible at the call site. `mfa.zm` is `random.numeric(8)` now, which also drops its zero-padding loop -- eight digits is what `numeric` answers, not something a caller formats afterwards.
+
+**A `bytes` call is three syscalls** (`fopen`/`fread`/`fclose` on /dev/urandom), so `shuffle` and `text` buy `draw_width * n` bytes in one draw and index into it, rather than calling per value. A rejected draw inside the loop falls back to its own small call.
+
+`choice` answers `Option<T>` rather than erroring on an empty array: an empty array is an ordinary input a caller can hold without having made a mistake, the reading `get` and `lookup` already take. `shuffle` is Fisher-Yates walking down, swapping each position with one at or before it; both naive alternatives are biased and worth naming -- sorting by a random key gives a distribution that depends on the sort's tie handling, and swapping against the *whole* array over-represents some orderings by a factor that grows with the length.
+
+**The three text generators and the three prelude predicates are deliberately the same three questions**, so `is_alpha(alpha(n))`, `is_numeric(numeric(n))` and `is_alpha_numeric(alpha_numeric(n))` are true by construction. That is also what the fixture asserts, because **a randomised function can only be pinned by its properties**: `tests/lang/random_derived.zm` checks bounds coverage over 4000 draws, that `below(n)` never reaches `n`, that `fraction` stays in `[0, 1)`, that `choice` always answers from the pool, that `shuffle` sorts back to its input, and the three predicate agreements -- never a specific value.
+
+Two smaller notes. `out[i] = out[j]` is the way to write into a `MutableArray`; `set(out, i, v)` is not a function and the error says so. And an indented bullet list in a module's header comment comes out of `tools/gen_lib_manual.py` as a fenced code block -- the generator turns any indented run following a blank line into one, which is right for examples and wrong for prose, so doc bullets start at column 0.

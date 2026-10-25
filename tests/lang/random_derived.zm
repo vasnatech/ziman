@@ -1,0 +1,95 @@
+// `random.below`/`between`/`fraction`/`boolean`/`choice`/`shuffle`/`text`/`alpha`/`numeric`/
+// `alpha_numeric`, all ordinary Ziman over the one native `random.bytes`.
+//
+// **A randomised function can only be pinned by its properties**, so that is what this asserts:
+// bounds, permutation, length, and -- the nice one -- that each text generator produces exactly
+// what the matching prelude predicate accepts. `is_alpha(alpha(n))` is true by construction, which
+// is why the three generators and the three predicates are deliberately the same three questions.
+//
+// **Not `int`, `float`, `bool` or `string`**: all four are type keywords, so `random.int(3, 9)`
+// does not parse. The declarations compiled and every call site was a syntax error, which is how
+// that was found -- hence `between`, `fraction`, `boolean` and `text`.
+use random
+
+fn main() {
+    print("-- bounds --")
+    var lo = 99
+    var hi = 0 - 99
+    for _ in 0..4000 {
+        val v = random.between(3, 9)
+        if v < lo {
+            lo = v
+        }
+        if v > hi {
+            hi = v
+        }
+    }
+    print(concat("between(3,9) covers exactly 3..9: ", str(lo == 3 && hi == 9)))
+    print(concat("between(5,5): ", str(random.between(5, 5))))
+    print(concat("a negative range: ", str(random.between(0 - 10, 0 - 10))))
+
+    var bmax = 0
+    for _ in 0..4000 {
+        val v = random.below(4)
+        if v > bmax {
+            bmax = v
+        }
+    }
+    print(concat("below(4) never reaches 4: ", str(bmax == 3)))
+    print(concat("below(1) is always 0: ", str(random.below(1) == 0)))
+
+    print("-- fraction and boolean --")
+    var fmin = 2.0
+    var fmax = 0.0 - 1.0
+    for _ in 0..4000 {
+        val f = random.fraction()
+        if f < fmin {
+            fmin = f
+        }
+        if f > fmax {
+            fmax = f
+        }
+    }
+    print(concat("fraction in [0, 1): ", str(fmin >= 0.0 && fmax < 1.0)))
+    var trues = 0
+    for _ in 0..2000 {
+        if random.boolean() {
+            trues = trues + 1
+        }
+    }
+    print(concat("boolean gives both: ", str(trues > 800 && trues < 1200)))
+
+    print("-- choice --")
+    val none: [int] = []
+    print(concat("empty is None, not an error: ", str(is_None(random.choice(none)))))
+    val pool = [10, 20, 30]
+    var inside = true
+    for _ in 0..500 {
+        if !contains(pool, unwrap(random.choice(pool))) {
+            inside = false
+        }
+    }
+    print(concat("always from the pool: ", str(inside)))
+    print(concat("a single element: ", str(unwrap(random.choice([7])))))
+
+    print("-- shuffle --")
+    val src = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    var always_permutation = true
+    for _ in 0..200 {
+        if sort(random.shuffle(src)) != src {
+            always_permutation = false
+        }
+    }
+    print(concat("always a permutation: ", str(always_permutation)))
+    print(concat("one element: ", str(random.shuffle([7]) == [7])))
+    print(concat("no elements: ", str(random.shuffle(none) == none)))
+
+    print("-- text, and the predicates it satisfies --")
+    print(concat("is_alpha(alpha(40)): ", str(is_alpha(random.alpha(40)))))
+    print(concat("is_numeric(numeric(40)): ", str(is_numeric(random.numeric(40)))))
+    print(concat("is_alpha_numeric(alpha_numeric(40)): ", str(is_alpha_numeric(random.alpha_numeric(40)))))
+    print(concat("lengths: ", str(prelude.len(random.alpha(7))), " ", str(prelude.len(random.numeric(0)))))
+    print(concat("a one-character alphabet is deterministic: ", random.text(6, "x")))
+    // the alphabet is read in characters, so a non-ASCII one gives n characters
+    print(concat("non-ASCII alphabet: ", str(prelude.len(random.text(5, "éö")))))
+}
