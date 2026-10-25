@@ -1970,6 +1970,22 @@ manufactured `Err` -- no new interpreter primitive needed:
 - `assert_contains`/`assert_not_contains` over `(string, needle)`, `([T], T)`, `(Set<T>, T)` and
   `(Map<K, V>, K)` -- the shapes the prelude's `contains` takes, showing both values. Prefer them
   to `assert(contains(..))`, which can only say `assertion failed`.
+- `assert_len(expected, items)`, `assert_empty`/`assert_not_empty` -- the same four shapes,
+  showing the collection rather than only its length. The prelude's `is_empty` is `string`-only,
+  so for a collection these are the only short spelling.
+- `assert_all_match`/`assert_any_match`/`assert_none_match`, each `<T>([T], fn(T) -> bool)` -- as
+  far as the `all`/`any`/`none` builtins reach. The `all` and `none` forms name the first element
+  that breaks the rule and its index, which the builtins cannot.
+- `assert_entry<K: Eq + Hash, V: Eq>(m, key, value)` -- tells a missing key from a different
+  value, where `assert_eq(value, unwrap(get(m, key)))` dies inside `unwrap` on the first.
+- `assert_starts_with`/`assert_ends_with`; `assert_blank`/`assert_not_blank` ("blank" being
+  `trim` leaving nothing); `assert_matches`/`assert_not_matches(s, pattern)`, which **search**
+  like `regex.is_match` rather than requiring the whole string as Java's `String.matches` does --
+  anchor with `^...$` for that. A pattern that will not compile fails with the compiler's message.
+
+These four shapes are the immutable ones. A test holding a `MutableArray`/`MutableMap`/
+`MutableSet`/`MutableString` passes it through `snapshot` first; the type error names the shapes
+that are accepted, so the fix is visible where it happens.
 - `assert_some<T>(opt) -> T`/`assert_none<T>(opt)`; `assert_ok<T, E>(r) -> T`/`assert_err<T,
   E>(r) -> E` -- the `_some`/`_ok` forms return the unwrapped value for chaining.
 

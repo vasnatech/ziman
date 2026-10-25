@@ -19,6 +19,8 @@
 // satisfy here -- `assert_eq`'s `T: Eq` is the only requirement, exactly the bound `==`/`!=`
 // already need.
 
+use regex
+
 // Fails the current test with `message`, unconditionally.
 pub fn fail(message: string) {
     val failure: Result<unit, string> = err(message)
@@ -210,6 +212,266 @@ pub fn assert_not_contains<K: Eq + Hash, V>(m: Map<K, V>, key: K) {
             "assertion failed: the map has an entry under the key it must not\n  key: {}\n  map: {}",
             key,
             m
+        ))
+    }
+}
+
+// ---------------------------------------------------------------- size
+
+// Fails unless `items` holds exactly `expected` characters, **showing the value** -- which is why
+// this exists beside `assert_eq(expected, len(items))`, written 57 times across the two
+// repositories and reporting `expected: 3 / actual: 5` without ever showing which five. Same
+// defect as `assert(contains(..))` above, in the same place: the number tells the reader that
+// something is wrong and nothing about what.
+pub fn assert_len(expected: int, items: string) {
+    if prelude.len(items) != expected {
+        fail(format(
+            "assertion failed: the text is not {} characters long\n  length: {}\n  text:   {}",
+            expected,
+            prelude.len(items),
+            items
+        ))
+    }
+}
+
+// Fails unless `items` holds exactly `expected` elements, showing them.
+pub fn assert_len<T>(expected: int, items: [T]) {
+    if prelude.len(items) != expected {
+        fail(format(
+            "assertion failed: the array does not hold {} elements\n  length: {}\n  array:  {}",
+            expected,
+            prelude.len(items),
+            items
+        ))
+    }
+}
+
+// Fails unless `items` holds exactly `expected` elements, showing them.
+pub fn assert_len<T: Eq + Hash>(expected: int, items: Set<T>) {
+    if prelude.len(items) != expected {
+        fail(format(
+            "assertion failed: the set does not hold {} elements\n  length: {}\n  set:    {}",
+            expected,
+            prelude.len(items),
+            items
+        ))
+    }
+}
+
+// Fails unless `m` holds exactly `expected` entries, showing them.
+pub fn assert_len<K: Eq + Hash, V>(expected: int, m: Map<K, V>) {
+    if prelude.len(m) != expected {
+        fail(format(
+            "assertion failed: the map does not hold {} entries\n  length: {}\n  map:    {}",
+            expected,
+            prelude.len(m),
+            m
+        ))
+    }
+}
+
+// Fails unless `items` is empty. `assert_len(0, items)` says the same thing; this says it the way
+// the reader thinks it, and 15 of those 57 call sites were asking exactly this.
+//
+// The prelude's `is_empty` is `string`-only, so for a collection there was no spelling of this
+// question shorter than comparing `len` to zero.
+pub fn assert_empty(items: string) {
+    if !is_empty(items) {
+        fail(format("assertion failed: the text is not empty\n  text: {}", items))
+    }
+}
+
+// Fails unless `items` is empty.
+pub fn assert_empty<T>(items: [T]) {
+    if prelude.len(items) != 0 {
+        fail(format("assertion failed: the array is not empty\n  array: {}", items))
+    }
+}
+
+// Fails unless `items` is empty.
+pub fn assert_empty<T: Eq + Hash>(items: Set<T>) {
+    if prelude.len(items) != 0 {
+        fail(format("assertion failed: the set is not empty\n  set: {}", items))
+    }
+}
+
+// Fails unless `m` is empty.
+pub fn assert_empty<K: Eq + Hash, V>(m: Map<K, V>) {
+    if prelude.len(m) != 0 {
+        fail(format("assertion failed: the map is not empty\n  map: {}", m))
+    }
+}
+
+// Fails if `items` is empty.
+pub fn assert_not_empty(items: string) {
+    if is_empty(items) {
+        fail("assertion failed: the text is empty")
+    }
+}
+
+// Fails if `items` is empty.
+pub fn assert_not_empty<T>(items: [T]) {
+    if prelude.len(items) == 0 {
+        fail("assertion failed: the array is empty")
+    }
+}
+
+// Fails if `items` is empty.
+pub fn assert_not_empty<T: Eq + Hash>(items: Set<T>) {
+    if prelude.len(items) == 0 {
+        fail("assertion failed: the set is empty")
+    }
+}
+
+// Fails if `m` is empty.
+pub fn assert_not_empty<K: Eq + Hash, V>(m: Map<K, V>) {
+    if prelude.len(m) == 0 {
+        fail("assertion failed: the map is empty")
+    }
+}
+
+// ---------------------------------------------------------------- every element
+
+// Fails unless `test` holds for every element of `items`, **naming the first one it does not hold
+// for** -- which is the whole value over `assert(all(items, test))`, since the builtin can only
+// answer true or false and the reader is left to find the offender.
+//
+// `[T]` only, because that is as far as the `all`/`any`/`none` builtins reach (those and a
+// `MutableArray`); a `Set` or `Map` is `to_array`/`entries` away.
+pub fn assert_all_match<T>(items: [T], test: fn(T) -> bool) {
+    for i in 0..prelude.len(items) {
+        if !test(items[i]) {
+            fail(format(
+                "assertion failed: not every element satisfies the test\n  at index: {}\n  element:  {}\n  array:    {}",
+                i,
+                items[i],
+                items
+            ))
+        }
+    }
+}
+
+// Fails unless `test` holds for at least one element of `items`. There is no offending element to
+// name here -- the failure *is* that no element qualified -- so it shows the array.
+pub fn assert_any_match<T>(items: [T], test: fn(T) -> bool) {
+    if !any(items, test) {
+        fail(format("assertion failed: no element satisfies the test\n  array: {}", items))
+    }
+}
+
+// Fails if `test` holds for any element of `items`, naming the first one it holds for.
+pub fn assert_none_match<T>(items: [T], test: fn(T) -> bool) {
+    for i in 0..prelude.len(items) {
+        if test(items[i]) {
+            fail(format(
+                "assertion failed: an element satisfies the test, and none must\n  at index: {}\n  element:  {}\n  array:    {}",
+                i,
+                items[i],
+                items
+            ))
+        }
+    }
+}
+
+// ---------------------------------------------------------------- map entries
+
+// Fails unless `m` holds `value` under `key`, **saying which of the two ways it failed**: no entry
+// at all, or an entry holding something else. `assert_eq(value, unwrap(get(m, key)))` cannot --
+// it fails inside `unwrap` when the key is missing, before the assertion is reached, and when the
+// value differs it shows neither the key nor the map.
+pub fn assert_entry<K: Eq + Hash, V: Eq>(m: Map<K, V>, key: K, value: V) {
+    if !contains(m, key) {
+        fail(format(
+            "assertion failed: the map has no entry under the key\n  key: {}\n  map: {}",
+            key,
+            m
+        ))
+    }
+    val found = unwrap_Some(get(m, key))
+    if found != value {
+        fail(format(
+            "assertion failed: the map holds another value under the key\n  key:      {}\n  expected: {}\n  actual:   {}",
+            key,
+            value,
+            found
+        ))
+    }
+}
+
+// ---------------------------------------------------------------- text shape
+
+// Fails unless `s` starts with `prefix`, showing both.
+pub fn assert_starts_with(s: string, prefix: string) {
+    if !starts_with(s, prefix) {
+        fail(format(
+            "assertion failed: the text does not start with the prefix\n  prefix: {}\n  text:   {}",
+            prefix,
+            s
+        ))
+    }
+}
+
+// Fails unless `s` ends with `suffix`, showing both.
+pub fn assert_ends_with(s: string, suffix: string) {
+    if !ends_with(s, suffix) {
+        fail(format(
+            "assertion failed: the text does not end with the suffix\n  suffix: {}\n  text:   {}",
+            suffix,
+            s
+        ))
+    }
+}
+
+// Fails unless `s` is empty or nothing but whitespace. "Blank" is `trim(s)` being empty, which is
+// the definition `trim` already carries rather than a second one invented here.
+pub fn assert_blank(s: string) {
+    if !is_empty(trim(s)) {
+        fail(format("assertion failed: the text is not blank\n  text: {}", s))
+    }
+}
+
+// Fails if `s` is empty or nothing but whitespace.
+pub fn assert_not_blank(s: string) {
+    if is_empty(trim(s)) {
+        fail(format(
+            "assertion failed: the text is blank\n  length: {}",
+            prelude.len(s)
+        ))
+    }
+}
+
+// **Fails unless `pattern` matches somewhere in `s`** -- the question `regex.is_match` asks, which
+// is *not* the one AssertJ's `matches` or Java's `String.matches` asks: those require the pattern
+// to cover the whole string. A whole-string match here is `^...$`, and the anchors work.
+//
+// A pattern that does not compile fails the test with the compiler's own message (`missing closing
+// parenthesis at position 3`), not with "did not match": a malformed pattern is a mistake in the
+// test, and reporting it as a mismatch would send the reader looking at the wrong thing.
+pub fn assert_matches(s: string, pattern: string) {
+    val compiled = regex.compile(pattern)
+    if Err(why) = compiled {
+        fail(format("assert_matches: the pattern does not compile: {}\n  pattern: {}", why, pattern))
+    }
+    if !regex.is_match(unwrap(compiled), s) {
+        fail(format(
+            "assertion failed: the pattern matches nowhere in the text\n  pattern: {}\n  text:    {}",
+            pattern,
+            s
+        ))
+    }
+}
+
+// Fails if `pattern` matches anywhere in `s`.
+pub fn assert_not_matches(s: string, pattern: string) {
+    val compiled = regex.compile(pattern)
+    if Err(why) = compiled {
+        fail(format("assert_not_matches: the pattern does not compile: {}\n  pattern: {}", why, pattern))
+    }
+    if regex.is_match(unwrap(compiled), s) {
+        fail(format(
+            "assertion failed: the pattern matches in the text, and must not\n  pattern: {}\n  text:    {}",
+            pattern,
+            s
         ))
     }
 }

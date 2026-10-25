@@ -33,4 +33,38 @@ FAIL test_assertions.zm::not_contains_shows_both  at 98:5: assertion failed: the
 FAIL test_assertions.zm::err_names_the_ok_it_found  at 104:13: assertion failed: expected Err, got Ok(7)
 FAIL test_assertions.zm::an_index_out_of_range  runtime error at 110:13: index 9 out of bounds (array length 3)
 FAIL test_assertions.zm::an_unwrapped_none  runtime error at 116:11: called 'Option.unwrap_Some' on a 'Option.None' value
-1 passed, 14 failed
+PASS test_assertions.zm::the_size_and_shape_assertions_pass
+FAIL test_assertions.zm::len_shows_the_array_not_just_the_count  at 146:5: assertion failed: the array does not hold 2 elements
+  length: 3
+  array:  [1, 2, 3]
+FAIL test_assertions.zm::empty_shows_what_was_in_it  at 151:5: assertion failed: the map is not empty
+  map: {dose: 2}
+FAIL test_assertions.zm::not_empty_has_nothing_to_show  at 157:5: assertion failed: the array is empty
+FAIL test_assertions.zm::all_match_names_the_first_offender  at 164:5: assertion failed: not every element satisfies the test
+  at index: 2
+  element:  5
+  array:    [2, 4, 5, 6]
+FAIL test_assertions.zm::any_match_shows_the_array  at 169:5: assertion failed: no element satisfies the test
+  array: [1, 2]
+FAIL test_assertions.zm::none_match_names_the_first_offender  at 174:5: assertion failed: an element satisfies the test, and none must
+  at index: 2
+  element:  4
+  array:    [1, 3, 4]
+FAIL test_assertions.zm::entry_distinguishes_a_missing_key  at 181:5: assertion failed: the map has no entry under the key
+  key: route
+  map: {dose: 2}
+FAIL test_assertions.zm::entry_distinguishes_a_different_value  at 186:5: assertion failed: the map holds another value under the key
+  key:      dose
+  expected: 9
+  actual:   2
+FAIL test_assertions.zm::starts_with_shows_both  at 191:5: assertion failed: the text does not start with the prefix
+  prefix: xyz
+  text:   abcdef
+FAIL test_assertions.zm::blank_is_trim_being_empty  at 196:5: assertion failed: the text is blank
+  length: 4
+FAIL test_assertions.zm::matches_is_a_search_not_a_whole_string_match  at 201:5: assertion failed: the pattern matches nowhere in the text
+  pattern: b+
+  text:    aaa
+FAIL test_assertions.zm::a_malformed_pattern_says_so  at 208:5: assert_matches: the pattern does not compile: missing closing parenthesis at position 3
+  pattern: a((
+2 passed, 26 failed

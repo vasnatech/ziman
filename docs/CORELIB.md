@@ -1436,6 +1436,50 @@ pub fn assert_not_contains<T: Eq + Hash>(items: Set<T>, x: T)
 
 pub fn assert_not_contains<K: Eq + Hash, V>(m: Map<K, V>, key: K)
 
+pub fn assert_len(expected: int, items: string)
+
+pub fn assert_len<T>(expected: int, items: [T])
+
+pub fn assert_len<T: Eq + Hash>(expected: int, items: Set<T>)
+
+pub fn assert_len<K: Eq + Hash, V>(expected: int, m: Map<K, V>)
+
+pub fn assert_empty(items: string)
+
+pub fn assert_empty<T>(items: [T])
+
+pub fn assert_empty<T: Eq + Hash>(items: Set<T>)
+
+pub fn assert_empty<K: Eq + Hash, V>(m: Map<K, V>)
+
+pub fn assert_not_empty(items: string)
+
+pub fn assert_not_empty<T>(items: [T])
+
+pub fn assert_not_empty<T: Eq + Hash>(items: Set<T>)
+
+pub fn assert_not_empty<K: Eq + Hash, V>(m: Map<K, V>)
+
+pub fn assert_all_match<T>(items: [T], test: fn(T) -> bool)
+
+pub fn assert_any_match<T>(items: [T], test: fn(T) -> bool)
+
+pub fn assert_none_match<T>(items: [T], test: fn(T) -> bool)
+
+pub fn assert_entry<K: Eq + Hash, V: Eq>(m: Map<K, V>, key: K, value: V)
+
+pub fn assert_starts_with(s: string, prefix: string)
+
+pub fn assert_ends_with(s: string, suffix: string)
+
+pub fn assert_blank(s: string)
+
+pub fn assert_not_blank(s: string)
+
+pub fn assert_matches(s: string, pattern: string)
+
+pub fn assert_not_matches(s: string, pattern: string)
+
 pub fn assert_some<T>(opt: Option<T>) -> T
 
 pub fn assert_none<T>(opt: Option<T>)

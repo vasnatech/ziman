@@ -176,6 +176,196 @@ pub fn assert_not_contains<K: Eq + Hash, V>(m: Map<K, V>, key: K)
 
 Fails if `m` has an entry under `key`.
 
+## Size
+
+### `assert_len`
+
+```
+pub fn assert_len(expected: int, items: string)
+```
+
+Fails unless `items` holds exactly `expected` characters, **showing the value** -- which is why
+this exists beside `assert_eq(expected, len(items))`, written 57 times across the two
+repositories and reporting `expected: 3 / actual: 5` without ever showing which five. Same
+defect as `assert(contains(..))` above, in the same place: the number tells the reader that
+something is wrong and nothing about what.
+
+```
+pub fn assert_len<T>(expected: int, items: [T])
+```
+
+Fails unless `items` holds exactly `expected` elements, showing them.
+
+```
+pub fn assert_len<T: Eq + Hash>(expected: int, items: Set<T>)
+```
+
+Fails unless `items` holds exactly `expected` elements, showing them.
+
+```
+pub fn assert_len<K: Eq + Hash, V>(expected: int, m: Map<K, V>)
+```
+
+Fails unless `m` holds exactly `expected` entries, showing them.
+
+### `assert_empty`
+
+```
+pub fn assert_empty(items: string)
+```
+
+Fails unless `items` is empty. `assert_len(0, items)` says the same thing; this says it the way
+the reader thinks it, and 15 of those 57 call sites were asking exactly this.
+
+The prelude's `is_empty` is `string`-only, so for a collection there was no spelling of this
+question shorter than comparing `len` to zero.
+
+```
+pub fn assert_empty<T>(items: [T])
+```
+
+Fails unless `items` is empty.
+
+```
+pub fn assert_empty<T: Eq + Hash>(items: Set<T>)
+```
+
+Fails unless `items` is empty.
+
+```
+pub fn assert_empty<K: Eq + Hash, V>(m: Map<K, V>)
+```
+
+Fails unless `m` is empty.
+
+### `assert_not_empty`
+
+```
+pub fn assert_not_empty(items: string)
+```
+
+Fails if `items` is empty.
+
+```
+pub fn assert_not_empty<T>(items: [T])
+```
+
+Fails if `items` is empty.
+
+```
+pub fn assert_not_empty<T: Eq + Hash>(items: Set<T>)
+```
+
+Fails if `items` is empty.
+
+```
+pub fn assert_not_empty<K: Eq + Hash, V>(m: Map<K, V>)
+```
+
+Fails if `m` is empty.
+
+## Every element
+
+### `assert_all_match`
+
+```
+pub fn assert_all_match<T>(items: [T], test: fn(T) -> bool)
+```
+
+Fails unless `test` holds for every element of `items`, **naming the first one it does not hold
+for** -- which is the whole value over `assert(all(items, test))`, since the builtin can only
+answer true or false and the reader is left to find the offender.
+
+`[T]` only, because that is as far as the `all`/`any`/`none` builtins reach (those and a
+`MutableArray`); a `Set` or `Map` is `to_array`/`entries` away.
+
+### `assert_any_match`
+
+```
+pub fn assert_any_match<T>(items: [T], test: fn(T) -> bool)
+```
+
+Fails unless `test` holds for at least one element of `items`. There is no offending element to
+name here -- the failure *is* that no element qualified -- so it shows the array.
+
+### `assert_none_match`
+
+```
+pub fn assert_none_match<T>(items: [T], test: fn(T) -> bool)
+```
+
+Fails if `test` holds for any element of `items`, naming the first one it holds for.
+
+## Map entries
+
+### `assert_entry`
+
+```
+pub fn assert_entry<K: Eq + Hash, V: Eq>(m: Map<K, V>, key: K, value: V)
+```
+
+Fails unless `m` holds `value` under `key`, **saying which of the two ways it failed**: no entry
+at all, or an entry holding something else. `assert_eq(value, unwrap(get(m, key)))` cannot --
+it fails inside `unwrap` when the key is missing, before the assertion is reached, and when the
+value differs it shows neither the key nor the map.
+
+## Text shape
+
+### `assert_starts_with`
+
+```
+pub fn assert_starts_with(s: string, prefix: string)
+```
+
+Fails unless `s` starts with `prefix`, showing both.
+
+### `assert_ends_with`
+
+```
+pub fn assert_ends_with(s: string, suffix: string)
+```
+
+Fails unless `s` ends with `suffix`, showing both.
+
+### `assert_blank`
+
+```
+pub fn assert_blank(s: string)
+```
+
+Fails unless `s` is empty or nothing but whitespace. "Blank" is `trim(s)` being empty, which is
+the definition `trim` already carries rather than a second one invented here.
+
+### `assert_not_blank`
+
+```
+pub fn assert_not_blank(s: string)
+```
+
+Fails if `s` is empty or nothing but whitespace.
+
+### `assert_matches`
+
+```
+pub fn assert_matches(s: string, pattern: string)
+```
+
+**Fails unless `pattern` matches somewhere in `s`** -- the question `regex.is_match` asks, which
+is *not* the one AssertJ's `matches` or Java's `String.matches` asks: those require the pattern
+to cover the whole string. A whole-string match here is `^...$`, and the anchors work.
+
+A pattern that does not compile fails the test with the compiler's own message (`missing closing
+parenthesis at position 3`), not with "did not match": a malformed pattern is a mistake in the
+test, and reporting it as a mismatch would send the reader looking at the wrong thing.
+
+### `assert_not_matches`
+
+```
+pub fn assert_not_matches(s: string, pattern: string)
+```
+
+Fails if `pattern` matches anywhere in `s`.
+
 ### `assert_some`
 
 ```

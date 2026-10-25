@@ -124,7 +124,7 @@ fn a_ragged_table_is_refused_when_it_is_built() {
 #[test]
 fn headings_paragraphs_and_breaks() {
     val doc = parse("# One\n\ntext\n\n### Three ###\n\n---\n")
-    test.assert_eq(4, len(doc.blocks))
+    test.assert_len(4, doc.blocks)
     if Heading(h) = doc.blocks[0] {
         test.assert_eq(1, h.level)
     }
@@ -147,8 +147,8 @@ fn a_hard_break_survives_being_read_and_written() {
 fn a_table_reads_with_its_alignments() {
     val doc = parse("| A | B | C |\n| :--- | ---: | :---: |\n| 1 | 2 | 3 |\n")
     if Table(t) = doc.blocks[0] {
-        test.assert_eq(3, len(t.alignments))
-        test.assert_eq(1, len(t.rows))
+        test.assert_len(3, t.alignments)
+        test.assert_len(1, t.rows)
         test.assert(t.alignments[0] == markdown.Align.AlignLeft)
         test.assert(t.alignments[1] == markdown.Align.AlignRight)
         test.assert(t.alignments[2] == markdown.Align.AlignCenter)
@@ -172,7 +172,7 @@ fn lists_read_nested_and_keep_their_numbering() {
     val doc = parse("- one\n- two\n  - nested\n")
     if List(l) = doc.blocks[0] {
         test.assert_false(l.ordered)
-        test.assert_eq(2, len(l.items))
+        test.assert_len(2, l.items)
     } else {
         test.fail("expected a list")
     }
@@ -218,7 +218,7 @@ fn an_unclosed_fence_runs_to_the_end_rather_than_failing() {
 fn block_quotes_nest() {
     val doc = parse("> outer\n>\n> > inner\n")
     if BlockQuote(inner) = doc.blocks[0] {
-        test.assert_eq(2, len(inner))
+        test.assert_len(2, inner)
     } else {
         test.fail("expected a block quote")
     }
@@ -313,8 +313,8 @@ fn a_document_written_then_read_then_written_is_unchanged() {
 
 #[test]
 fn an_empty_document_is_empty() {
-    test.assert_eq(0, len(parse("").blocks))
-    test.assert_eq(0, len(parse("\n\n   \n").blocks))
+    test.assert_empty(parse("").blocks)
+    test.assert_empty(parse("\n\n   \n").blocks)
     test.assert_eq("", write(markdown.document([])))
 }
 

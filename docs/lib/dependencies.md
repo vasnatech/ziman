@@ -190,6 +190,7 @@ flowchart LR
     stroker --> math
     stroker --> paint
     stroker --> shape
+    test --> regex
     time --> clock
     time --> db
     time --> json
@@ -223,8 +224,8 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `locale`, `math`, `net`, `random`, `regex`, `test`, `thread` |
-| 1 | `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `xml` |
+| 0 | `bits`, `clock`, `compress`, `locale`, `math`, `net`, `random`, `regex`, `thread` |
+| 1 | `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `xml` |
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `toml`, `truetype`, `yaml`, `zone` |
 | 4 | `font`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sqlite`, `time`, `uuid` |
@@ -273,14 +274,14 @@ otherwise: everything on a layer depends only on lower layers.
 | `properties` | `fs`, `locale`, `math`, `os` | - |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `process`, `uuid` |
 | `raster` | `font`, `geom`, `image`, `math`, `paint`, `scene`, `shape`, `stroker`, `truetype` | - |
-| `regex` | - | - |
+| `regex` | - | `test` |
 | `scene` | `geom`, `paint`, `shape` | `layout`, `pdf`, `raster` |
 | `schedule` | `clock`, `locale`, `time` | - |
 | `server` | `clock`, `compress`, `http`, `json`, `locale`, `metrics`, `mime`, `net`, `number`, `os` | - |
 | `shape` | `geom`, `math` | `layout`, `pdf`, `raster`, `scene`, `stroker`, `truetype` |
 | `sqlite` | `db`, `number` | `datasource` |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
-| `test` | - | - |
+| `test` | `regex` | - |
 | `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `migrate`, `schedule` |
 | `toml` | `json`, `locale`, `number` | - |

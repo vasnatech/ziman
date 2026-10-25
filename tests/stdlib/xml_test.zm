@@ -34,7 +34,7 @@ fn with_declaration(s: string) -> string {
 fn a_simple_document_parses() {
     val doc = parse("<note><to>Ann</to><from>Ben</from></note>")
     test.assert_eq("note", doc.root.name.local)
-    test.assert_eq(2, len(xml.children(doc.root)))
+    test.assert_len(2, xml.children(doc.root))
     test.assert_eq("Ann", xml.text_of(test.assert_some(xml.child(doc.root, "to"))))
 }
 
@@ -43,7 +43,7 @@ fn mixed_content_keeps_its_order() {
     // The reason this module does not parse into a `Json` tree: text and elements interleave,
     // and the order between them is the content.
     val doc = parse("<p>Take <b>2</b> tablets <i>daily</i>.</p>")
-    test.assert_eq(5, len(doc.root.children))
+    test.assert_len(5, doc.root.children)
     test.assert_eq("Take 2 tablets daily.", xml.text_of(doc.root))
     val text = "<p>Take <b>2</b> tablets <i>daily</i>.</p>"
     test.assert_eq(with_declaration(text), round_trip(text))
@@ -52,10 +52,10 @@ fn mixed_content_keeps_its_order() {
 #[test]
 fn attributes_keep_their_order_and_are_not_children() {
     val doc = parse("<dose value=\"2\" unit=\"tablet\"/>")
-    test.assert_eq(2, len(doc.root.attributes))
+    test.assert_len(2, doc.root.attributes)
     test.assert_eq("value", doc.root.attributes[0].name.local)
     test.assert_eq("unit", doc.root.attributes[1].name.local)
-    test.assert_eq(0, len(doc.root.children))
+    test.assert_empty(doc.root.children)
     test.assert_eq("2", test.assert_some(xml.attr(doc.root, "value")))
     test.assert_eq("mg", xml.attr_or(doc.root, "missing", "mg"))
 }
@@ -227,7 +227,7 @@ fn find_walks_child_steps() {
         "<section><entry id=\"3\"/></section></component></record>"
     ))
     val entries = xml.find(doc.root, "component/section/entry")
-    test.assert_eq(3, len(entries))
+    test.assert_len(3, entries)
     test.assert_eq("1", test.assert_some(xml.attr(entries[0], "id")))
     test.assert_eq("3", test.assert_some(xml.attr(entries[2], "id")))
     test.assert_eq(
@@ -239,24 +239,24 @@ fn find_walks_child_steps() {
 #[test]
 fn find_ignores_namespaces_but_find_ns_does_not() {
     val doc = parse("<root xmlns=\"urn:a\"><kid/><other xmlns=\"urn:b\"><kid/></other></root>")
-    test.assert_eq(1, len(xml.find(doc.root, "kid")))
-    test.assert_eq(1, len(xml.find_ns(doc.root, "urn:a", "kid")))
-    test.assert_eq(0, len(xml.find_ns(doc.root, "urn:b", "kid")))
-    test.assert_eq(1, len(xml.find_ns(doc.root, "urn:b", "other/kid")))
+    test.assert_len(1, xml.find(doc.root, "kid"))
+    test.assert_len(1, xml.find_ns(doc.root, "urn:a", "kid"))
+    test.assert_empty(xml.find_ns(doc.root, "urn:b", "kid"))
+    test.assert_len(1, xml.find_ns(doc.root, "urn:b", "other/kid"))
 }
 
 #[test]
 fn a_star_step_matches_any_element() {
     val doc = parse("<r><a><x/></a><b><x/></b></r>")
-    test.assert_eq(2, len(xml.find(doc.root, "*/x")))
+    test.assert_len(2, xml.find(doc.root, "*/x"))
 }
 
 #[test]
 fn a_path_that_matches_nothing_is_empty_rather_than_an_error() {
     val doc = parse("<r><a/></r>")
-    test.assert_eq(0, len(xml.find(doc.root, "nope/at/all")))
+    test.assert_empty(xml.find(doc.root, "nope/at/all"))
     test.assert_none(xml.find_first(doc.root, "nope"))
-    test.assert_eq(1, len(xml.find(doc.root, "")))
+    test.assert_len(1, xml.find(doc.root, ""))
 }
 
 // ------------------------------------------------------------------ CDATA, comments, PIs

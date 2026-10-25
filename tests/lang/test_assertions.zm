@@ -115,3 +115,95 @@ fn an_unwrapped_none() {
     val none: Option<int> = None
     print(unwrap(none))
 }
+
+#[test]
+fn the_size_and_shape_assertions_pass() {
+    test.assert_len(5, "hello")
+    test.assert_len(3, [1, 2, 3])
+    test.assert_len(2, to_set([1, 2]))
+    test.assert_len(1, a_map())
+    test.assert_empty("")
+    val no_ints: [int] = []
+    test.assert_empty(no_ints)
+    test.assert_not_empty("x")
+    test.assert_not_empty([1])
+    test.assert_all_match([2, 4, 6], fn(x: int) -> bool { return x % 2 == 0 })
+    test.assert_any_match([1, 2, 3], fn(x: int) -> bool { return x > 2 })
+    test.assert_none_match([1, 3], fn(x: int) -> bool { return x % 2 == 0 })
+    test.assert_entry(a_map(), "dose", 2)
+    test.assert_starts_with("abcdef", "abc")
+    test.assert_ends_with("abcdef", "def")
+    test.assert_blank("   ")
+    test.assert_not_blank(" x ")
+    test.assert_matches("aabbcc", "b+")
+    // anchored both ends, which is what AssertJ's `matches` means and this one does not
+    test.assert_matches("aaa", "^a+$")
+    test.assert_not_matches("aaab", "^a+$")
+}
+
+#[test]
+fn len_shows_the_array_not_just_the_count() {
+    test.assert_len(2, [1, 2, 3])
+}
+
+#[test]
+fn empty_shows_what_was_in_it() {
+    test.assert_empty(a_map())
+}
+
+#[test]
+fn not_empty_has_nothing_to_show() {
+    val no_ints: [int] = []
+    test.assert_not_empty(no_ints)
+}
+
+// The point of these three over `assert(all(items, test))`: the builtin answers true or false and
+// leaves the reader to find the offender, so these name it and its index.
+#[test]
+fn all_match_names_the_first_offender() {
+    test.assert_all_match([2, 4, 5, 6], fn(x: int) -> bool { return x % 2 == 0 })
+}
+
+#[test]
+fn any_match_shows_the_array() {
+    test.assert_any_match([1, 2], fn(x: int) -> bool { return x > 9 })
+}
+
+#[test]
+fn none_match_names_the_first_offender() {
+    test.assert_none_match([1, 3, 4], fn(x: int) -> bool { return x % 2 == 0 })
+}
+
+// `assert_entry` tells the two failures apart, which `assert_eq(v, unwrap(get(m, k)))` cannot: it
+// dies inside `unwrap` on the missing key, before the assertion is reached.
+#[test]
+fn entry_distinguishes_a_missing_key() {
+    test.assert_entry(a_map(), "route", 1)
+}
+
+#[test]
+fn entry_distinguishes_a_different_value() {
+    test.assert_entry(a_map(), "dose", 9)
+}
+
+#[test]
+fn starts_with_shows_both() {
+    test.assert_starts_with("abcdef", "xyz")
+}
+
+#[test]
+fn blank_is_trim_being_empty() {
+    test.assert_not_blank("  \t ")
+}
+
+#[test]
+fn matches_is_a_search_not_a_whole_string_match() {
+    test.assert_matches("aaa", "b+")
+}
+
+// A pattern that does not compile is a mistake in the test, so it is reported as one rather than
+// as a mismatch.
+#[test]
+fn a_malformed_pattern_says_so() {
+    test.assert_matches("aaa", "a((")
+}
