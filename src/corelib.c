@@ -41,6 +41,7 @@
 #include "jwt_source.h"
 #include "migrate_source.h"
 #include "otp_source.h"
+#include "encoding_source.h"
 #include "test_source.h"
 #include "geom_source.h"
 #include "shape_source.h"
@@ -109,6 +110,7 @@ static const CoreModule CORE_MODULES[] = {
     {"jwt", JWT_SOURCE},
     {"migrate", MIGRATE_SOURCE},
     {"otp", OTP_SOURCE},
+    {"encoding", ENCODING_SOURCE},
     {"test", TEST_SOURCE},
     {"geom", GEOM_SOURCE},
     {"shape", SHAPE_SOURCE},

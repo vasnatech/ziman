@@ -1,7 +1,8 @@
 use crypto
+use encoding
 
 fn main() {
-    val encoded = crypto.base64_encode(to_bytes("ziman benchmark"))
+    val encoded = encoding.base64_encode(to_bytes("ziman benchmark"))
     print(encoded)
-    print(unwrap(bytes_to_string(unwrap(crypto.base64_decode(encoded)))))
+    print(unwrap(bytes_to_string(unwrap(encoding.base64_decode(encoded)))))
 }

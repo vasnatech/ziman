@@ -22,6 +22,7 @@ not base64) is a `Err(string)`.
 
 ```
 use crypto
+use encoding
 use number.to_hex
 
 fn main() {
@@ -32,9 +33,9 @@ fn main() {
     // Compare secrets in constant time, not with ==.
     print(crypto.bytes_equal(crypto.sha256(data), crypto.sha256(data)))
 
-    print(crypto.base64_encode(data))
-    print(unwrap(bytes_to_string(unwrap(crypto.base64_decode("YWJj")))))
-    print(is_ok(crypto.base64_decode("***")))
+    print(encoding.base64_encode(data))
+    print(unwrap(bytes_to_string(unwrap(encoding.base64_decode("YWJj")))))
+    print(is_ok(encoding.base64_decode("***")))
 
     // A password hash: many iterations, a salt, a fixed output length.
     val key = crypto.pbkdf2_hmac_sha256(to_bytes("secret"), to_bytes("salt"), 1000, 16)
@@ -273,37 +274,28 @@ True when both arrays hold the same bytes. For arrays of the same length it take
 time whatever the contents, so it is safe for comparing a MAC or a token an attacker is
 guessing; `==` is not (it stops at the first difference).
 
-## Base64
+## Base64, moved to `encoding`
 
 ### `base64_encode`
 
 ```
-pub native fn base64_encode(data: [byte]) -> string
+pub fn base64_encode(data: [byte]) -> string
 ```
-
-Standard base64 (RFC 4648) with `=` padding.
 
 ### `base64_decode`
 
 ```
-pub native fn base64_decode(s: string) -> Result<[byte], string>
+pub fn base64_decode(s: string) -> Result<[byte], string>
 ```
-
-The bytes of standard base64 text. Strict: the length must be a multiple of 4, only the
-alphabet plus trailing `=` padding is accepted, no whitespace. An Err otherwise.
 
 ### `base64url_encode`
 
 ```
-pub native fn base64url_encode(data: [byte]) -> string
+pub fn base64url_encode(data: [byte]) -> string
 ```
-
-URL- and filename-safe base64 (`-` and `_`), without padding: what JWTs and URLs use.
 
 ### `base64url_decode`
 
 ```
-pub native fn base64url_decode(s: string) -> Result<[byte], string>
+pub fn base64url_decode(s: string) -> Result<[byte], string>
 ```
-
-The bytes of base64url text, with no padding (a `=` is an Err).

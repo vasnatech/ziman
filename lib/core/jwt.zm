@@ -23,6 +23,7 @@
 
 use clock
 use crypto
+use encoding
 use json
 use json.Json
 use json.int_to_json
@@ -126,17 +127,17 @@ pub fn sign(claims: Json, key: [byte], algorithm: string) -> Result<string, stri
     })
     val signing_input = format(
         "{}.{}",
-        crypto.base64url_encode(to_bytes(json.format(header))),
-        crypto.base64url_encode(to_bytes(json.format(claims)))
+        encoding.base64url_encode(to_bytes(json.format(header))),
+        encoding.base64url_encode(to_bytes(json.format(claims)))
     )
     if Some(signature) = mac(algorithm, key, to_bytes(signing_input)) {
-        return ok(format("{}.{}", signing_input, crypto.base64url_encode(signature)))
+        return ok(format("{}.{}", signing_input, encoding.base64url_encode(signature)))
     }
     return err(format("unsupported algorithm '{}': use HS256, HS384 or HS512", algorithm))
 }
 
 fn decode_part(part: string, what: string) -> Result<Json, JwtError> {
-    val raw = crypto.base64url_decode(part)
+    val raw = encoding.base64url_decode(part)
     if Err(reason) = raw {
         return JwtError.Malformed(format("{} is not base64url ({})", what, reason))
     }
@@ -255,7 +256,7 @@ fn check(
         Some(e) { e }
         None { return JwtError.UnsupportedAlgorithm(unwrap(algorithm)) }
     }
-    val given = crypto.base64url_decode(parts[2])
+    val given = encoding.base64url_decode(parts[2])
     if Err(reason) = given {
         return JwtError.Malformed(format("the signature is not base64url ({})", reason))
     }

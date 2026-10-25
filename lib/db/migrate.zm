@@ -46,6 +46,7 @@ use db.SqlValue
 use db.row_get
 use db.sql_as_int
 use db.sql_as_text
+use encoding
 use fs
 use os
 use time
@@ -70,7 +71,7 @@ fn problem(message: string) -> DbError {
 // The checksum of a migration's text: SHA-256, base64, over the text with its line endings normalised, so a file
 // checked out with CRLF on another machine has the same checksum.
 pub fn checksum(sql: string) -> string {
-    return crypto.base64_encode(crypto.sha256(to_bytes(replace(sql, "\r", ""))))
+    return encoding.base64_encode(crypto.sha256(to_bytes(replace(sql, "\r", ""))))
 }
 
 // A migration made from its parts, with its checksum worked out: for migrations that are written in the program

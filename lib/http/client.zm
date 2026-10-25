@@ -31,7 +31,8 @@
 use clock.now_raw
 use compress.decompress
 use compress.inflate_raw
-use crypto.base64_encode
+use encoding
+use encoding.base64_encode
 use http.Header
 use http.HttpMethod
 use http.Response

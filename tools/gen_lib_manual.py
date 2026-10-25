@@ -18,7 +18,8 @@ OUT = os.path.join(ROOT, "docs", "lib")
 
 GROUPS = [
     ("Data and formats", "core", ["json", "ndjson", "csv", "toml", "yaml", "xml", "markdown", "properties",
-                                   "number", "math", "bits", "uuid", "regex", "compress", "crypto", "jwt", "otp", "mime"]),
+                                   "number", "math", "bits", "encoding", "uuid", "regex", "compress", "crypto", "jwt", "otp",
+                                   "mime"]),
     # The group's directory is where the source is read from, so a module listed here lives in
     # lib/<dir>/. `schedule` sits under Time because it is built on `time` and `clock` and reads
     # as part of that family; `clock` stays under System with `random` and `uuid`, the other thin

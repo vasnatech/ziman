@@ -28,6 +28,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`number`](number.md) | . |
 | [`math`](math.md) | Floating-point math beyond the four basic operators, the rounding functions. |
 | [`bits`](bits.md) | Bitwise and/or/xor/not/shift on `byte`, `int` and `bigint`, and the two scalar-backed sets they back, `BitSet`. |
+| [`encoding`](encoding.md) | Base 2, 8, 16, 32 and 64 over `[byte]`, one door per base, each an `_encode` answering text and a `_decode` answering `Result<[byte], string>`. |
 | [`uuid`](uuid.md) | UUIDs (RFC 4122): random version 4, time-ordered version 7, and the canonical text form. |
 | [`regex`](regex.md) | Regular expressions: a native engine that runs in time linear in the text (no backreferences), with patterns compiled once and cached. |
 | [`compress`](compress.md) | Gzip and zlib (deflate) compression, on zlib. |

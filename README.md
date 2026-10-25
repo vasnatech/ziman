@@ -94,7 +94,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | `fs`, `os`, `clock`, `random` | files, environment and process, time source, entropy |
 | `schedule` | periodic background work in a long-running process: an interval, a daily UTC time or a six-field cron pattern, each due job run on its own thread so one failure cannot stop the rest |
 | `time` | `java.time`-shaped dates, times, durations, instants |
-| `uuid`, `number`, `crypto` | UUIDs, number formatting/parsing and binary encodings, SHA-256/HMAC/PBKDF2/base64 |
+| `uuid`, `number`, `encoding`, `crypto` | UUIDs, number formatting/parsing, base 2/8/16/32/64 over bytes, SHA-256/HMAC/PBKDF2 |
 | `json`, `ndjson`, `csv`, `toml`\*, `yaml`\* | JSON, and the other formats as converters to and from the same `Json` tree |
 | `xml`\* | XML 1.0 as a document tree of its own, not a `Json` tree, because text and elements interleave and attributes are not children; a reader with size, depth and attribute limits and no DTD at all, a writer, and a child-step path finder |
 | `markdown`\* | Markdown as a document tree: a reader over a declared subset, a writer that escapes for the position each piece sits in, and a strict mode that refuses what it would otherwise misread -- Markdown having no syntax errors of its own |

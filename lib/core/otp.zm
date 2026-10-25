@@ -9,80 +9,29 @@
 // Only the parameters every authenticator app supports: HMAC-SHA-1, six digits, a 30-second step.
 
 use crypto
-use locale
+use encoding
 use random
-
-// Case folding here is **protocol folding**, so it names the invariant locale rather than taking
-// whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
-// media type or an identifier compared under a user's language is a bug. Hoisted to a `val` because
-// some of these sit in per-character loops and `locale.root()` is a call.
-val invariant: Locale = locale.root()
 
 // The secret of 20 random bytes (the size RFC 4226 recommends) as base32 text, 32 characters, the way it is shown to a user and stored.
 pub fn generate_secret() -> string {
-    return base32_encode(random.random_bytes(20))
+    return encoding.base32_encode(random.random_bytes(20))
 }
 
-val base32_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+// **base32 moved to `encoding`** (2026-10-24), which gathers base 2, 8, 16, 32 and 64 in one
+// place. These two stay as delegates so no caller breaks, and are deprecated so `--lint` says
+// where the vocabulary went; `generate_secret` above goes straight to `encoding`.
+//
+// It lived here because a TOTP secret is base32 and nothing else needed it, which was true and is
+// no longer a reason to keep the only base32 in the authenticator module.
 
-// `data` as base32 (RFC 4648) without `=` padding.
+#[deprecated("use encoding.base32_encode")]
 pub fn base32_encode(data: [byte]) -> string {
-    val out = mutable_string_new()
-    var buffer = 0
-    var bits = 0
-    for b in data {
-        buffer = buffer * 256 + (b as int)
-        bits = bits + 8
-        while bits >= 5 {
-            var divisor = 1
-            for _ in 0..(bits - 5) {
-                divisor = divisor * 2
-            }
-            val index = buffer / divisor
-            append(out, char_at(base32_alphabet, index))
-            buffer = buffer - index * divisor
-            bits = bits - 5
-        }
-    }
-    if bits > 0 {
-        var shift = 1
-        for _ in 0..(5 - bits) {
-            shift = shift * 2
-        }
-        append(out, char_at(base32_alphabet, buffer * shift))
-    }
-    return snapshot(out)
+    return encoding.base32_encode(data)
 }
 
-// base32 text as bytes: upper or lower case, with or without `=` padding, spaces and dashes ignored (as people write a secret down). An Err
-// for any other character.
+#[deprecated("use encoding.base32_decode")]
 pub fn base32_decode(text: string) -> Result<[byte], string> {
-    val out = mutable_array_new<byte>()
-    var buffer = 0
-    var bits = 0
-    for i in 0..len(text) {
-        val c = to_upper(char_at(text, i), invariant)
-        if c == "=" || c == " " || c == "-" {
-            continue
-        }
-        val index = index_of(base32_alphabet, c, 0)
-        if index < 0 {
-            return err(format("not base32: '{}' at {}", c, i))
-        }
-        buffer = buffer * 32 + index
-        bits = bits + 5
-        if bits >= 8 {
-            var divisor = 1
-            for _ in 0..(bits - 8) {
-                divisor = divisor * 2
-            }
-            val value = buffer / divisor
-            push(out, value as byte)
-            buffer = buffer - value * divisor
-            bits = bits - 8
-        }
-    }
-    return snapshot(out)
+    return encoding.base32_decode(text)
 }
 
 // The counter as the 8 big-endian bytes HOTP signs.

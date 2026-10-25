@@ -14,6 +14,7 @@
 // is a runtime error, like any other misuse; malformed *data* (`base64_decode` of text that is
 // not base64) is a `Err(string)`.
 
+use encoding
 use random.random_bytes
 
 // ---------------------------------------------------------------- hashes
@@ -225,17 +226,30 @@ pub native fn bytes_xor(a: [byte], b: [byte]) -> [byte]
 // guessing; `==` is not (it stops at the first difference).
 pub native fn bytes_equal(a: [byte], b: [byte]) -> bool
 
-// ---------------------------------------------------------------- base64
+// ---------------------------------------------------------------- base64, moved to `encoding`
+//
+// **These four live in `encoding` now** (2026-10-24), which gathers base 2, 8, 16, 32 and 64 in
+// one place rather than leaving them across three modules -- base64 here, base32 in `otp`, hex in
+// `number`. They stay as delegates so no caller breaks, and carry `#[deprecated]` so `--lint`
+// says where the vocabulary went. The C is still registered from `native_crypto.c`, beside the
+// other OpenSSL work; only the declaration moved.
 
-// Standard base64 (RFC 4648) with `=` padding.
-pub native fn base64_encode(data: [byte]) -> string
+#[deprecated("use encoding.base64_encode")]
+pub fn base64_encode(data: [byte]) -> string {
+    return encoding.base64_encode(data)
+}
 
-// The bytes of standard base64 text. Strict: the length must be a multiple of 4, only the
-// alphabet plus trailing `=` padding is accepted, no whitespace. An Err otherwise.
-pub native fn base64_decode(s: string) -> Result<[byte], string>
+#[deprecated("use encoding.base64_decode")]
+pub fn base64_decode(s: string) -> Result<[byte], string> {
+    return encoding.base64_decode(s)
+}
 
-// URL- and filename-safe base64 (`-` and `_`), without padding: what JWTs and URLs use.
-pub native fn base64url_encode(data: [byte]) -> string
+#[deprecated("use encoding.base64url_encode")]
+pub fn base64url_encode(data: [byte]) -> string {
+    return encoding.base64url_encode(data)
+}
 
-// The bytes of base64url text, with no padding (a `=` is an Err).
-pub native fn base64url_decode(s: string) -> Result<[byte], string>
+#[deprecated("use encoding.base64url_decode")]
+pub fn base64url_decode(s: string) -> Result<[byte], string> {
+    return encoding.base64url_decode(s)
+}

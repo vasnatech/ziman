@@ -29,16 +29,11 @@ The secret of 20 random bytes (the size RFC 4226 recommends) as base32 text, 32 
 pub fn base32_encode(data: [byte]) -> string
 ```
 
-`data` as base32 (RFC 4648) without `=` padding.
-
 ### `base32_decode`
 
 ```
 pub fn base32_decode(text: string) -> Result<[byte], string>
 ```
-
-base32 text as bytes: upper or lower case, with or without `=` padding, spaces and dashes ignored (as people write a secret down). An Err
-for any other character.
 
 ### `hotp`
 

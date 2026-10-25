@@ -1,0 +1,72 @@
+// `encoding`: base 2, 8, 16, 32 and 64 over `[byte]`, gathered from the three modules that used to
+// hold them separately -- base64 in `crypto`, base32 in `otp`, hex in `number`.
+//
+// **The five fall into two families**, which is the thing this fixture is really pinning. `base2`,
+// `base8` and `base16` are *fixed width per byte* (8, 3 and 2 digits, each byte rendered alone), so
+// the text length is always the byte count times the width and any digit-boundary cut still
+// decodes. `base32` and `base64` are *RFC 4648 bit packing*, taking 5 or 6 bits across byte
+// boundaries, so neither holds.
+use encoding
+
+fn roundtrip(label: string, text: string, decoded: Result<[byte], string>, want: [byte]) {
+    val ok = is_ok(decoded) && unwrap(decoded) == want
+    print(concat(label, " ", text, if ok { "  round-trips" } else { "  FAILED" }))
+}
+
+fn main() {
+    val data = [1b, 8b, 255b]
+
+    print("-- fixed width per byte --")
+    roundtrip("base2 ", encoding.base2_encode(data), encoding.base2_decode(encoding.base2_encode(data)), data)
+    roundtrip("base8 ", encoding.base8_encode(data), encoding.base8_decode(encoding.base8_encode(data)), data)
+    roundtrip("base16", encoding.base16_encode(data), encoding.base16_decode(encoding.base16_encode(data)), data)
+
+    print("-- RFC 4648 bit packing --")
+    roundtrip("base32", encoding.base32_encode(data), encoding.base32_decode(encoding.base32_encode(data)), data)
+    roundtrip("base64", encoding.base64_encode(data), encoding.base64_decode(encoding.base64_encode(data)), data)
+    roundtrip(
+        "b64url",
+        encoding.base64url_encode(data),
+        encoding.base64url_decode(encoding.base64url_encode(data)),
+        data
+    )
+
+    print("-- the empty input --")
+    val none: [byte] = []
+    print(concat(
+        "[",
+        encoding.base2_encode(none),
+        encoding.base8_encode(none),
+        encoding.base16_encode(none),
+        encoding.base32_encode(none),
+        encoding.base64_encode(none),
+        "]"
+    ))
+    print(prelude.len(unwrap(encoding.base2_decode(""))))
+
+    print("-- every byte value survives base2/base8/base16 --")
+    val all = mutable_array_new<byte>()
+    for i in 0..256 {
+        push(all, i as byte)
+    }
+    val every = snapshot(all)
+    print(unwrap(encoding.base2_decode(encoding.base2_encode(every))) == every)
+    print(unwrap(encoding.base8_decode(encoding.base8_encode(every))) == every)
+    print(unwrap(encoding.base16_decode(encoding.base16_encode(every))) == every)
+    print(unwrap(encoding.base32_decode(encoding.base32_encode(every))) == every)
+    print(unwrap(encoding.base64_decode(encoding.base64_encode(every))) == every)
+
+    print("-- base64url differs from base64 exactly where the RFC says --")
+    print(encoding.base64_encode([251b, 255b]))
+    print(encoding.base64url_encode([251b, 255b]))
+
+    print("-- rejections --")
+    print(unwrap_err(encoding.base2_decode("0000000")))
+    print(unwrap_err(encoding.base2_decode("00000002")))
+    print(unwrap_err(encoding.base8_decode("00")))
+    print(unwrap_err(encoding.base8_decode("008")))
+    // three octal digits hold nine bits where a byte has eight, so 400 and up name no byte
+    print(unwrap_err(encoding.base8_decode("400")))
+    print(unwrap_err(encoding.base16_decode("0g")))
+    print(unwrap_err(encoding.base32_decode("A!")))
+}

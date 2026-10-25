@@ -1,0 +1,201 @@
+// encoding.zm -- base 2, 8, 16, 32 and 64 over `[byte]`, one door per base, each an `_encode`
+// answering text and a `_decode` answering `Result<[byte], string>`.
+//
+// **The five bases fall into two families, and the split is the thing to understand here.**
+//
+// `base2`, `base8` and `base16` are **fixed width per byte**: 8, 3 and 2 digits, each byte rendered
+// independently. There is no bit packing, no padding and no alignment question -- the text length is
+// always the byte count times the width, and decoding needs the length to be an exact multiple of
+// it. `base8` is the odd one of the three in that three octal digits hold nine bits where a byte has
+// eight, so the values 400 to 777 cannot occur and `base8_decode` rejects them; there is no RFC for
+// base 8 of a byte stream, and per-byte is the reading that makes it a sibling of the other two
+// rather than a third packing scheme.
+//
+// `base32` and `base64` are **RFC 4648 bit packing**: five or six bits per character taken across
+// byte boundaries, so the text length is not a simple multiple and the last character carries
+// leftover bits. These are the two the RFC actually defines, and they are the two that interoperate
+// with anything else.
+//
+// What that means in practice: a `base16` or `base2` string can be cut anywhere on a digit boundary
+// and still decode; a `base32` or `base64` one cannot.
+//
+// `base64url` is base64 over the URL-safe alphabet (`-` and `_` for `+` and `/`), which is what JWT
+// and anything else that puts bytes in a URL uses.
+use locale
+use number
+
+val invariant: Locale = locale.root()
+
+// ---------------------------------------------------------------- fixed width per byte
+
+val binary_digits = "01"
+val octal_digits = "01234567"
+
+// One byte as `width` digits of `alphabet`, most significant first, zero-padded.
+fn per_byte_encode(data: [byte], alphabet: string, width: int, radix: int) -> string {
+    val out = mutable_string_new()
+    for b in data {
+        var rest = b as int
+        // build the digits most-significant-first by dividing down from the top place
+        var place = 1
+        for _ in 0..(width - 1) {
+            place = place * radix
+        }
+        for _ in 0..width {
+            val digit = rest / place
+            append(out, char_at(alphabet, digit))
+            rest = rest - digit * place
+            place = place / radix
+        }
+    }
+    return snapshot(out)
+}
+
+fn per_byte_decode(text: string, alphabet: string, width: int, radix: int, what: string) -> Result<[byte], string> {
+    if prelude.len(text) % width != 0 {
+        return err(prelude.format(
+            "not {}: the text is {} characters, which is not a multiple of {}",
+            what,
+            prelude.len(text),
+            width
+        ))
+    }
+    val out = mutable_array_new<byte>()
+    var i = 0
+    while i < prelude.len(text) {
+        var value = 0
+        var j = 0
+        while j < width {
+            val c = char_at(text, i + j)
+            val digit = index_of(alphabet, c, 0)
+            if digit < 0 {
+                return err(prelude.format("not {}: '{}' at {}", what, c, i + j))
+            }
+            value = value * radix + digit
+            j = j + 1
+        }
+        if value > 255 {
+            return err(prelude.format(
+                "not {}: the group at {} is {}, which is more than a byte holds",
+                what,
+                i,
+                value
+            ))
+        }
+        push(out, value as byte)
+        i = i + width
+    }
+    return ok(snapshot(out))
+}
+
+// Each byte as eight binary digits, most significant first: `[1b, 255b]` is `"0000000111111111"`.
+pub fn base2_encode(data: [byte]) -> string {
+    return per_byte_encode(data, binary_digits, 8, 2)
+}
+
+// Binary digits back to bytes. An Err for a length that is not a multiple of 8, or any character
+// other than `0` and `1`.
+pub fn base2_decode(text: string) -> Result<[byte], string> {
+    return per_byte_decode(text, binary_digits, 8, 2, "base2")
+}
+
+// Each byte as three octal digits: `[8b, 255b]` is `"010377"`.
+pub fn base8_encode(data: [byte]) -> string {
+    return per_byte_encode(data, octal_digits, 3, 8)
+}
+
+// Octal digits back to bytes. An Err for a length that is not a multiple of 3, a character outside
+// `0`-`7`, or a group above `377` -- three octal digits hold nine bits where a byte has eight, so
+// `400` and up name no byte.
+pub fn base8_decode(text: string) -> Result<[byte], string> {
+    return per_byte_decode(text, octal_digits, 3, 8, "base8")
+}
+
+// Each byte as two lower-case hex digits: `[1b, 255b]` is `"01ff"`. The same bytes
+// `number.to_hex` gives -- this is the base-N door to it, and `number`'s also does an `int`,
+// a `bigint` and a single `byte`, which a byte-stream encoder has no business doing.
+pub fn base16_encode(data: [byte]) -> string {
+    return number.to_hex(data)
+}
+
+// Hex digits back to bytes, upper or lower case. An Err for an odd length or a non-hex character.
+pub fn base16_decode(text: string) -> Result<[byte], string> {
+    return number.bytes_from_hex(text)
+}
+
+// ---------------------------------------------------------------- RFC 4648 bit packing
+
+val base32_alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+
+// `data` as base32 (RFC 4648) without `=` padding.
+pub fn base32_encode(data: [byte]) -> string {
+    val out = mutable_string_new()
+    var buffer = 0
+    var bits = 0
+    for b in data {
+        buffer = buffer * 256 + (b as int)
+        bits = bits + 8
+        while bits >= 5 {
+            var divisor = 1
+            for _ in 0..(bits - 5) {
+                divisor = divisor * 2
+            }
+            val index = buffer / divisor
+            append(out, char_at(base32_alphabet, index))
+            buffer = buffer - index * divisor
+            bits = bits - 5
+        }
+    }
+    if bits > 0 {
+        var shift = 1
+        for _ in 0..(5 - bits) {
+            shift = shift * 2
+        }
+        append(out, char_at(base32_alphabet, buffer * shift))
+    }
+    return snapshot(out)
+}
+
+// base32 text as bytes: upper or lower case, with or without `=` padding, spaces and dashes
+// ignored (as people write a secret down). An Err for any other character.
+pub fn base32_decode(text: string) -> Result<[byte], string> {
+    val out = mutable_array_new<byte>()
+    var buffer = 0
+    var bits = 0
+    for i in 0..prelude.len(text) {
+        val c = to_upper(char_at(text, i), invariant)
+        if c == "=" || c == " " || c == "-" {
+            continue
+        }
+        val index = index_of(base32_alphabet, c, 0)
+        if index < 0 {
+            return err(prelude.format("not base32: '{}' at {}", c, i))
+        }
+        buffer = buffer * 32 + index
+        bits = bits + 5
+        if bits >= 8 {
+            var divisor = 1
+            for _ in 0..(bits - 8) {
+                divisor = divisor * 2
+            }
+            val value = buffer / divisor
+            push(out, value as byte)
+            buffer = buffer - value * divisor
+            bits = bits - 8
+        }
+    }
+    return ok(snapshot(out))
+}
+
+// `data` as base64 (RFC 4648) with `=` padding.
+pub native fn base64_encode(data: [byte]) -> string
+
+// base64 text as bytes. An Err for a character outside the alphabet or a malformed length.
+pub native fn base64_decode(s: string) -> Result<[byte], string>
+
+// `data` as base64url (RFC 4648 section 5): `-` and `_` in place of `+` and `/`, no padding. What
+// JWT and anything else putting bytes in a URL uses.
+pub native fn base64url_encode(data: [byte]) -> string
+
+// base64url text as bytes.
+pub native fn base64url_decode(s: string) -> Result<[byte], string>

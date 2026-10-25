@@ -1,0 +1,28 @@
+-- fixed width per byte --
+base2  000000010000100011111111  round-trips
+base8  001010377  round-trips
+base16 0108ff  round-trips
+-- RFC 4648 bit packing --
+base32 AEEP6  round-trips
+base64 AQj/  round-trips
+b64url AQj_  round-trips
+-- the empty input --
+[]
+0
+-- every byte value survives base2/base8/base16 --
+true
+true
+true
+true
+true
+-- base64url differs from base64 exactly where the RFC says --
++/8=
+-_8
+-- rejections --
+not base2: the text is 7 characters, which is not a multiple of 8
+not base2: '2' at 7
+not base8: the text is 2 characters, which is not a multiple of 3
+not base8: '8' at 2
+not base8: the group at 0 is 256, which is more than a byte holds
+invalid hex: bad digit
+not base32: '!' at 1

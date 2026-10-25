@@ -1,4 +1,5 @@
 use crypto
+use encoding
 use json
 use json.Json
 use json.int_to_json
@@ -14,7 +15,7 @@ fn show(r: Result<Json, jwt.JwtError>) {
 
 fn main() {
     // RFC 7515, appendix A.1: the HS256 example token and its key
-    val key = unwrap(crypto.base64url_decode("AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow"))
+    val key = unwrap(encoding.base64url_decode("AyM1SysPpbyDfgZld3umj1qzKObwVMkoqQ-EstJQLr_T-1qS0gZH75aKtMN3Yj0iPS4hcgUuTwjAzZr1Z9CAow"))
     val rfc = "eyJ0eXAiOiJKV1QiLA0KICJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJqb2UiLA0KICJleHAiOjEzMDA4MTkzODAsDQogImh0dHA6Ly9leGFtcGxlLmNvbS9pc19yb290Ijp0cnVlfQ.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
     show(jwt.verify_at(rfc, key, 1300819379, 0))
     // exp is 1300819380: a second later it has expired, unless a leeway forgives it
@@ -25,7 +26,7 @@ fn main() {
     val parts = split(rfc, ".")
     val forged = join(
         separator: ".",
-        pieces: [parts[0], crypto.base64url_encode(to_bytes("{\"iss\":\"mallory\"}")), parts[2]]
+        pieces: [parts[0], encoding.base64url_encode(to_bytes("{\"iss\":\"mallory\"}")), parts[2]]
     )
     show(jwt.verify_at(forged, key, 1300819379, 0))
     show(jwt.verify_at(join(separator: ".", pieces: [parts[0], parts[1], "AAAA"]), key, 1300819379, 0))
@@ -39,7 +40,7 @@ fn main() {
             jwt.with_claim(jwt.claims("ada@example.com", 3600), "role", Json.JString("admin")),
             k
         ))
-        val header = unwrap(crypto.base64url_decode(split(token, ".")[0]))
+        val header = unwrap(encoding.base64url_decode(split(token, ".")[0]))
         print(unwrap(bytes_to_string(header)))
         switch jwt.verify(token, k) {
             Ok(c) { print(format("{} {}", unwrap_Some(jwt.subject(c)), json.format(unwrap_Some(json.get(c, "role"))))) }
@@ -71,9 +72,9 @@ fn main() {
     show(jwt.verify_at("a.b", key, 0, 0))
     show(jwt.verify_at("!!!.b.c", key, 0, 0))
     // `alg: none` and algorithms that need a public key are refused
-    val none_header = crypto.base64url_encode(to_bytes("{\"alg\":\"none\"}"))
-    val body = crypto.base64url_encode(to_bytes("{\"sub\":\"admin\"}"))
+    val none_header = encoding.base64url_encode(to_bytes("{\"alg\":\"none\"}"))
+    val body = encoding.base64url_encode(to_bytes("{\"sub\":\"admin\"}"))
     show(jwt.verify_at(format("{}.{}.", none_header, body), key, 0, 0))
-    val rs_header = crypto.base64url_encode(to_bytes("{\"alg\":\"RS256\"}"))
+    val rs_header = encoding.base64url_encode(to_bytes("{\"alg\":\"RS256\"}"))
     show(jwt.verify_at(format("{}.{}.AAAA", rs_header, body), key, 0, 0))
 }

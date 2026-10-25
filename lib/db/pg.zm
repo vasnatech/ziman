@@ -55,8 +55,6 @@
 
 #![experimental]
 
-use crypto.base64_decode
-use crypto.base64_encode
 use crypto.bytes_xor
 use crypto.hmac_sha256
 use crypto.pbkdf2_hmac_sha256
@@ -74,6 +72,9 @@ use db.RunRequest
 use db.SqlValue
 use db.open_rows
 use db.run_request
+use encoding
+use encoding.base64_decode
+use encoding.base64_encode
 use net
 use net.Socket
 use number.byte_from_hex

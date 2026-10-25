@@ -229,13 +229,13 @@ pub native fn bytes_xor(a: [byte], b: [byte]) -> [byte]
 
 pub native fn bytes_equal(a: [byte], b: [byte]) -> bool
 
-pub native fn base64_encode(data: [byte]) -> string
+pub fn base64_encode(data: [byte]) -> string
 
-pub native fn base64_decode(s: string) -> Result<[byte], string>
+pub fn base64_decode(s: string) -> Result<[byte], string>
 
-pub native fn base64url_encode(data: [byte]) -> string
+pub fn base64url_encode(data: [byte]) -> string
 
-pub native fn base64url_decode(s: string) -> Result<[byte], string>
+pub fn base64url_decode(s: string) -> Result<[byte], string>
 
 ```
 
@@ -279,6 +279,35 @@ pub fn format(rows: [[string]], delimiter: string) -> Result<string, string>
 pub fn format(rows: Json) -> Result<string, string>
 
 pub fn format(rows: Json, sep: string) -> Result<string, string>
+
+```
+
+## `encoding`
+
+```
+pub fn base2_encode(data: [byte]) -> string
+
+pub fn base2_decode(text: string) -> Result<[byte], string>
+
+pub fn base8_encode(data: [byte]) -> string
+
+pub fn base8_decode(text: string) -> Result<[byte], string>
+
+pub fn base16_encode(data: [byte]) -> string
+
+pub fn base16_decode(text: string) -> Result<[byte], string>
+
+pub fn base32_encode(data: [byte]) -> string
+
+pub fn base32_decode(text: string) -> Result<[byte], string>
+
+pub native fn base64_encode(data: [byte]) -> string
+
+pub native fn base64_decode(s: string) -> Result<[byte], string>
+
+pub native fn base64url_encode(data: [byte]) -> string
+
+pub native fn base64url_decode(s: string) -> Result<[byte], string>
 
 ```
 

@@ -1,4 +1,5 @@
 use crypto
+use encoding
 use number
 
 fn b(s: string) -> [byte] {
@@ -20,14 +21,14 @@ fn main() {
     print(hex(crypto.pbkdf2_hmac_sha256(b("passwd"), b("salt"), 1, 64)))
     print(hex(crypto.pbkdf2_hmac_sha256(b("password"), b("salt"), 4096, 32)))
     print(hex(crypto.pbkdf2_hmac_sha256(b("pencil"), b("W22ZaJ0SNY7soEsUEjb6gQ=="), 4096, 32)))
-    print(crypto.base64_encode(b("")))
-    print(crypto.base64_encode(b("f")))
-    print(crypto.base64_encode(b("fo")))
-    print(crypto.base64_encode(b("foo")))
-    print(crypto.base64_encode(b("foobar")))
-    print(unwrap(bytes_to_string(unwrap(crypto.base64_decode("Zm9vYmE=")))))
-    print(unwrap(bytes_to_string(unwrap(crypto.base64_decode("Zg==")))))
-    print(is_ok(crypto.base64_decode("Zm9")))
-    print(is_ok(crypto.base64_decode("Zm9v!A==")))
+    print(encoding.base64_encode(b("")))
+    print(encoding.base64_encode(b("f")))
+    print(encoding.base64_encode(b("fo")))
+    print(encoding.base64_encode(b("foo")))
+    print(encoding.base64_encode(b("foobar")))
+    print(unwrap(bytes_to_string(unwrap(encoding.base64_decode("Zm9vYmE=")))))
+    print(unwrap(bytes_to_string(unwrap(encoding.base64_decode("Zg==")))))
+    print(is_ok(encoding.base64_decode("Zm9")))
+    print(is_ok(encoding.base64_decode("Zm9v!A==")))
     print(hex(crypto.bytes_xor([1b, 2b, 255b], [3b, 2b, 15b])))
 }

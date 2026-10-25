@@ -1,4 +1,5 @@
 use crypto
+use encoding
 use otp
 
 fn main() {
@@ -16,10 +17,10 @@ fn main() {
     print(otp.totp_matching_step(key, "287082", 70, 1))
     print(otp.totp_matching_step(key, "287082", 100, 1))
     print(otp.totp_matching_step(key, "287082", 200, 1))
-    val enc = otp.base32_encode(key)
+    val enc = encoding.base32_encode(key)
     print(enc)
-    print(unwrap(bytes_to_string(unwrap(otp.base32_decode(enc)))) == "12345678901234567890")
-    print(otp.base32_encode(to_bytes("foobar")))
+    print(unwrap(bytes_to_string(unwrap(encoding.base32_decode(enc)))) == "12345678901234567890")
+    print(encoding.base32_encode(to_bytes("foobar")))
     print(byte_len(otp.generate_secret()))
     print(otp.hotp(key, 0, 8))
     print(otp.provisioning_uri("Health Record", "ada+x@example.com", "JBSWY3DPEHPK3PXP"))

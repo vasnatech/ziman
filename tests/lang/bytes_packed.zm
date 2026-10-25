@@ -1,4 +1,5 @@
 use crypto
+use encoding
 
 fn tail_bytes(n: int) -> [byte] {
     val ab = mutable_array_new<byte>()
@@ -62,7 +63,7 @@ fn main() {
     print(len(ab))
 
     // crypto works on packed input and produces a comparable result
-    print(crypto.base64_encode(to_bytes("abc")))
+    print(encoding.base64_encode(to_bytes("abc")))
     print(len(crypto.sha256(to_bytes("abc"))))
     print(crypto.bytes_xor([1b, 2b], [3b, 3b]))
 

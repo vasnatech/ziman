@@ -456,8 +456,12 @@ void native_crypto_register(void) {
     native_register("crypto::aes_gcm_decrypt", native_aes_gcm_decrypt);
     native_register("crypto::bytes_xor", native_bytes_xor);
     native_register("crypto::bytes_equal", native_bytes_equal);
-    native_register("crypto::base64_encode", native_base64_encode);
-    native_register("crypto::base64_decode", native_base64_decode);
-    native_register("crypto::base64url_encode", native_base64url_encode);
-    native_register("crypto::base64url_decode", native_base64url_decode);
+    /* **Registered under `encoding`, not `crypto`** (2026-10-24). The declarations moved to
+     * `lib/core/encoding.zm`, which gathers base 2/8/16/32/64 in one place; `crypto`'s four are
+     * `#[deprecated]` delegates now, so the C stays here beside the other OpenSSL work while the
+     * vocabulary lives with its siblings. */
+    native_register("encoding::base64_encode", native_base64_encode);
+    native_register("encoding::base64_decode", native_base64_decode);
+    native_register("encoding::base64url_encode", native_base64url_encode);
+    native_register("encoding::base64url_decode", native_base64url_decode);
 }

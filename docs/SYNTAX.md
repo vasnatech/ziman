@@ -2457,6 +2457,29 @@ switch jwt.verify(token, key) {
   read them (audience always a list); `sub` is `jwt.subject`.
 - Tokens from other libraries verify and vice versa (checked against RFC 7515's example).
 
+### Base-N encodings (`encoding`)
+
+One `<base>_encode(data: [byte]) -> string` and `<base>_decode(text) -> Result<[byte], string>`
+per base -- `encoding.base2_encode`, `base8_`, `base16_`, `base32_`, `base64_` and `base64url_`. Added 2026-10-24, gathering what had been spread
+across three modules: base64 in `crypto`, base32 in `otp`, hex in `number`. The old names are
+`#[deprecated]` delegates, so nothing breaks and `--lint` says where each went.
+
+- **The five split into two families, and it matters when you cut a string.** `base2`, `base8` and
+  `base16` are **fixed width per byte** -- 8, 3 and 2 digits, each byte rendered on its own -- so
+  the text length is always the byte count times the width, and a cut on any digit boundary still
+  decodes. `base32` and `base64` are **RFC 4648 bit packing**, 5 or 6 bits taken across byte
+  boundaries, so neither holds and the last character carries leftover bits.
+- **`base8` is the one with no RFC**, and the per-byte reading is a choice: three octal digits hold
+  nine bits where a byte has eight, so `400` to `777` name no byte and `base8_decode` rejects them.
+  Per-byte makes it a sibling of `base2`/`base16` rather than a third packing scheme.
+- **`base16_encode` is `number.to_hex`** for `[byte]`, which is why both exist: `number`'s also
+  takes an `int`, a `bigint` and a single `byte`, which a byte-stream encoder has no business doing.
+  One implementation, two doors with different jobs.
+- **`base64url`** is RFC 4648 §5: `-` and `_` for `+` and `/`, no padding -- what JWT uses.
+  `base64_encode([251b, 255b])` is `+/8=` where `base64url_encode` is `-_8`.
+- Every one of the 256 byte values round-trips through all five, pinned by
+  `tests/lang/encoding_bases.zm`.
+
 ### One-time passwords (`otp`)
 
 `otp` makes/checks TOTP codes (RFC 6238: HMAC-SHA-1, 30-second steps), pure Ziman on `crypto`.
