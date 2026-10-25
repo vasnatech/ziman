@@ -107,6 +107,11 @@ fn main() {
 }
 
 fn split_statements_demo() -> string {
-    val parts = migrate.split_statements("a; 'x;y' ; -- c;d\n b /* e;f */ ; $$ g;h $$; \"i;j\"; k")
+    // `split_statements` answers a Result since 2026-10-25: an unterminated string, identifier,
+    // comment or dollar body is an error rather than something that runs to the end of the text.
+    // This input closes everything it opens, so the unwrap is the point being made.
+    val parts = unwrap(migrate.split_statements(
+        "a; 'x;y' ; -- c;d\n b /* e;f */ ; $$ g;h $$; \"i;j\"; `m;n`; k"
+    ))
     return join(separator: " | ", pieces: parts)
 }

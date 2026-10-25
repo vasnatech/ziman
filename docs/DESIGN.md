@@ -221,6 +221,7 @@ them against the code.
 - [`sqlite`: SQLite's TEXT is not a Ziman string (2026-10-25)](#sqlite-sqlites-text-is-not-a-ziman-string-2026-10-25)
 - [`pg`: a five-byte header that stopped the client, and a flag I had raised wrongly (2026-10-25)](#pg-a-five-byte-header-that-stopped-the-client-and-a-flag-i-had-raised-wrongly-2026-10-25)
 - [`mysql`: an endless stream of full packets, and a cap I got wrong first (2026-10-25)](#mysql-an-endless-stream-of-full-packets-and-a-cap-i-got-wrong-first-2026-10-25)
+- [`migrate`: one missing `*/` applied half a migration and called it done (2026-10-25)](#migrate-one-missing-applied-half-a-migration-and-called-it-done-2026-10-25)
 
 <!-- end index -->
 
@@ -8725,3 +8726,29 @@ MySQL splits a payload of 2^24-1 bytes or more across several packets, each of t
 **A retraction, smaller than the last one.** The `sqlite` entry described `mysql.zm`'s `text_or_bytes` -- falling back to `SqlValue.Bytes(raw)` when the bytes are not valid UTF-8 -- as changing a column's type "without saying why", listing it as one of three drivers answering one question three ways. That was unfair to it. `is_binary_column` decides first and decides properly, on the column's charset (63, which MySQL reports for binary columns) together with the BIT and GEOMETRY types, so a BLOB is `Bytes` because the server *said* it was binary. `text_or_bytes` only runs for a column that claimed a text charset while carrying bytes that are not text, which is the server breaking its own contract after the driver asked for `utf8mb4` in the login packet. Falling back losslessly there is a reasonable answer, and the three drivers are not as inconsistent as that entry made them sound.
 
 While there: `tests/run_mysql_tests.sh` said its container listens on 55433 in the comment and bound 55434 in the code. 55433 is a port this session had just used for a probe container, which is exactly the collision the comment exists to prevent.
+
+## `migrate`: one missing `*/` applied half a migration and called it done (2026-10-25)
+
+`migrate.zm` is one of the better-reasoned modules in the library and most of what it claims, it does. Versions order numerically, so `V10` follows `V2` rather than preceding it. `check_sequence` refuses a gap and a repeat with precise messages (`version 1 is used by both V1__also_one.sql and V1__one.sql`). A `.sql` file that does not fit the name is an error rather than a skip. Version 0 is refused, a missing directory is refused, an empty one applies nothing. The checksum is 44 characters of base64 SHA-256 and changes on a single added space. All the pending migrations and their `schema_migrations` rows go in one transaction.
+
+The statement splitter is the intricate part and it was nearly right: a `;` is protected inside `'strings'`, `"identifiers"`, `--` and `/* */` comments, `$$` and `$tagged$` bodies, and -- the detail that shows someone thought about it -- a doubled `''` needs no special case, because the run ends at the first of the pair and the second opens another, so the text between stays quoted either way.
+
+**Two things it got wrong, one of them badly.**
+
+**An unterminated construct ran to the end of the text.** `quote_end` and `dollar_end` answered `len(sql)` when they found no closer, and the `/*` branch set `i = n`. For a string or a dollar body that is survivable: the unterminated text reaches the server, which refuses it. For a comment it is not, because a comment's content is *discarded*:
+
+```
+CREATE TABLE kept (x int);
+/* a note that forgets to close
+CREATE TABLE lost (y int);
+```
+
+applied one statement, never created `lost`, and **reported success** -- then wrote a `schema_migrations` row holding a checksum of the whole file. Nothing would ever flag it, the migration would never run again, and a developer who closed the comment would be met with a checksum mismatch instead of a fix: the repair path is blocked by the module's own integrity check. For a header that promises "a typo cannot silently skip a migration", a half-applied migration recorded as done is the worst available outcome, and one missing `*/` was enough.
+
+It is an error now, naming the line the construct opened on, which is why `split_statements` answers a `Result`. That is a breaking change to a `pub` function with three call sites outside the module, all updated; the alternative -- a separate validating function -- would have left the trap in place for anyone who called the obvious one. The fixture ends by proving the consequence rather than only the message: the migration is refused before anything is applied, so not even `kept` lands.
+
+**MySQL's identifier quotes were not identifier quotes.** The header has always said a `;` inside an identifier does not end a statement, and `"a;b"` was honoured while `` `a;b` `` was split in two -- in a module with a `migrations/mysql/` directory that asks the connection for its dialect. Backticks join the quote set, doubling included.
+
+**Left as a known difference, written down rather than discovered.** Block comments do not nest here, which is SQLite's and MySQL's reading; PostgreSQL's nest. A nested comment is therefore mis-split rather than silently truncated -- the text after the inner `*/` goes to the server, which refuses it -- so the failure is loud, and making it dialect-dependent would mean threading a dialect into a function that is otherwise pure text.
+
+A note on the test that found the second bug: declaring a local `fn split(label, sql)` in the fixture collided with the prelude's `split(s, separator)` and the ambiguity was reported *inside `lib/prelude/string.zm`*, at its own use of `split`. That is the cost the `test` entry above describes for short names -- "a module that declares its own `to_json` binds the name" -- showing up from the other direction, and it is worth knowing that the error surfaces in the prelude rather than at the declaration that caused it.

@@ -1849,7 +1849,7 @@ pub val type_tokens = [
 
 pub fn substitute(sql: string, dialect: string, file: string) -> Result<string, DbError>
 
-pub fn split_statements(sql: string) -> [string]
+pub fn split_statements(sql: string) -> Result<[string], DbError>
 
 pub fn load(dir: string) -> Result<[Migration], DbError>
 

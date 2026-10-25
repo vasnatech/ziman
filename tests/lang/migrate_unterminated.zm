@@ -1,0 +1,71 @@
+// What `split_statements` does with SQL that opens something and never closes it.
+//
+// **It used to run to the end of the text and stop.** For a quoted string or a dollar body that is
+// survivable -- the server sees the unterminated text and refuses it -- but for a comment it meant
+// *silently discarding the rest of the file*:
+//
+//     CREATE TABLE kept (x int);
+//     /* a note that forgets to close
+//     CREATE TABLE lost (y int);
+//
+// applied one statement, never created `lost`, and reported success. Then it recorded a row in
+// `schema_migrations` holding a checksum of the *whole* file, so nothing would ever flag it, the
+// migration would never run again, and a developer who closed the comment would be met with a
+// checksum mismatch rather than a fix. For a module whose header promises "a typo cannot silently
+// skip a migration", that is the worst thing it could do, and it took one missing `*/`.
+//
+// Each is an error now, naming the line it opened on, and `split_statements` answers a `Result` to
+// say so. The end of the file proves the consequence: the migration is refused before anything is
+// applied, so not even the first statement lands.
+use datasource
+use db
+use migrate
+
+fn show_split(label: string, sql: string) {
+    print(switch migrate.split_statements(sql) {
+        Ok(parts) { format(
+            "{}: {} statement(s) -> {}",
+            label,
+            prelude.len(parts),
+            join(separator: " | ", pieces: parts)
+        ) }
+        Err(e) { format("{}: {}", label, db.db_error_message(e)) }
+    })
+}
+
+fn main() {
+    show_split("unterminated string", "SELECT 'oops;")
+    show_split("unterminated identifier", "CREATE TABLE \"oops;")
+    show_split("unterminated backtick", "CREATE TABLE `oops;")
+    show_split("unterminated comment", "SELECT 1;\n/* oops;\nSELECT 2;")
+    show_split("unterminated dollar body", "SELECT 1;\n$$ oops;")
+    show_split("unterminated tagged body", "SELECT $body$ oops;")
+
+    // the closed neighbours, including MySQL's backticks, which were not honoured before
+    show_split("closed string", "INSERT INTO t VALUES ('a;b');")
+    show_split("doubled quote", "INSERT INTO t VALUES ('it''s; here');")
+    show_split("closed identifier", "CREATE TABLE \"a;b\" (x int);")
+    show_split("closed backtick", "CREATE TABLE `a;b` (x int);")
+    show_split("doubled backtick", "CREATE TABLE `a``b;c` (x int);")
+    show_split("closed comment", "SELECT 1; /* a; b */ SELECT 2;")
+    show_split("closed dollar body", "CREATE FUNCTION f() AS $$ a; b $$;")
+
+    // a line comment needs no terminator: the end of the file ends it
+    show_split("line comment at the end", "SELECT 1; -- trailing")
+
+    // and the end-to-end consequence: nothing is applied, not even the first statement
+    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val dir = "tests/lang/migrate_unterminated_data"
+    print(switch migrate.run(conn, dir) {
+        Ok(n) { format("applied {}", n) }
+        Err(e) { db.db_error_message(e) }
+    })
+    print(switch datasource.query(conn, "SELECT count(*) AS n FROM sqlite_master WHERE type='table' AND name='kept'") {
+        Ok(rows) { format(
+            "the first statement's table exists: {}",
+            unwrap(db.sql_as_int(unwrap(db.row_get(rows[0], "n")))) == 1
+        ) }
+        Err(e) { db.db_error_message(e) }
+    })
+    datasource.close(conn)
+}

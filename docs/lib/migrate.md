@@ -4,8 +4,14 @@ Versioned schema migrations: a directory of plain `.sql` files, applied in order
 
 A migration is a file named `V<version>__<name>.sql` (`V001__create_users.sql`): the version is a whole number, the
 name says what it does, and the versions of a directory run 1, 2, 3, ... with no gap and no repeat. The file holds
-ordinary SQL, one or more statements separated by `;` (a `;` inside a quoted string, an identifier, a `--` or
-`/* */` comment or a `$$ ... $$` body does not end one). Files in the directory that do not end in `.sql` are
+ordinary SQL, one or more statements separated by `;` (a `;` inside a quoted string, a `"quoted"` or `` `quoted` ``
+identifier, a `--` or `/* */` comment or a `$$ ... $$` body does not end one). **Anything that opens and never
+closes is an error**, naming the line it opened on: an unterminated `/*` used to swallow the rest of the file and
+let the half-applied migration be recorded as done.
+
+Block comments do not nest, which is SQLite's and MySQL's reading; PostgreSQL's do. A nested one is therefore
+mis-split rather than silently truncated -- the text after the inner `*/` is handed to the server, which refuses
+it -- so the failure is loud, but it is a known difference rather than a feature. Files in the directory that do not end in `.sql` are
 ignored; a `.sql` file that does not fit the name is an error, so a typo cannot silently skip a migration.
 
 
@@ -146,10 +152,36 @@ token, or a known one on an engine this file has no spelling for -- naming `file
 ### `split_statements`
 
 ```
-pub fn split_statements(sql: string) -> [string]
+pub fn split_statements(sql: string) -> Result<[string], DbError>
 ```
 
 The statements of `sql`, without their `;`, comments or surrounding blanks; blank ones are dropped.
+
+**An unterminated string, identifier, comment or dollar body is an error**, and that is the whole
+reason this answers a `Result`. Each of them used to run to the end of the text and stop there,
+which for a comment meant *silently discarding the rest of the file*:
+
+
+```
+CREATE TABLE kept (x int);
+/* a note that forgets to close
+CREATE TABLE lost (y int);
+```
+
+applied one statement, never created `lost`, and reported success -- then recorded a row in
+`schema_migrations` holding a checksum of the *whole* file, so nothing would ever flag it, the
+migration would never run again, and a developer who closed the comment would be met with a
+checksum mismatch instead of a fix. For a module whose stated purpose includes "a typo cannot
+silently skip a migration", a half-applied migration recorded as done is the worst thing it
+could do, and it took one missing `*/`.
+
+**Backticks count as identifier quotes** here too. The header has always said a `;` inside an
+identifier does not end a statement, and `"a;b"` was honoured while MySQL's `` `a;b` `` was not
+-- in a module that has a `migrations/mysql/` directory and asks the connection for its dialect.
+
+A doubled quote inside a quoted run (`'it''s'`, `` `a``b` ``) needs no special case: the run ends
+at the first of the pair and the second immediately opens another, so the text between them stays
+quoted either way.
 
 ## Reading a directory
 

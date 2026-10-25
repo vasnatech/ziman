@@ -1,0 +1,16 @@
+unterminated string: database error: migration: a quoted string that opens on line 1 never closes
+unterminated identifier: database error: migration: a quoted identifier that opens on line 1 never closes
+unterminated backtick: database error: migration: a quoted identifier that opens on line 1 never closes
+unterminated comment: database error: migration: a /* comment that opens on line 2 never closes, so the rest of the file would be discarded
+unterminated dollar body: database error: migration: a $$ body that opens on line 2 never closes
+unterminated tagged body: database error: migration: a $body$ body that opens on line 1 never closes
+closed string: 1 statement(s) -> INSERT INTO t VALUES ('a;b')
+doubled quote: 1 statement(s) -> INSERT INTO t VALUES ('it''s; here')
+closed identifier: 1 statement(s) -> CREATE TABLE "a;b" (x int)
+closed backtick: 1 statement(s) -> CREATE TABLE `a;b` (x int)
+doubled backtick: 1 statement(s) -> CREATE TABLE `a``b;c` (x int)
+closed comment: 2 statement(s) -> SELECT 1 | SELECT 2
+closed dollar body: 1 statement(s) -> CREATE FUNCTION f() AS $$ a; b $$
+line comment at the end: 1 statement(s) -> SELECT 1
+database error: migration: a /* comment that opens on line 2 never closes, so the rest of the file would be discarded
+the first statement's table exists: false

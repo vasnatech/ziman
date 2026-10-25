@@ -2,8 +2,14 @@
 //
 // A migration is a file named `V<version>__<name>.sql` (`V001__create_users.sql`): the version is a whole number, the
 // name says what it does, and the versions of a directory run 1, 2, 3, ... with no gap and no repeat. The file holds
-// ordinary SQL, one or more statements separated by `;` (a `;` inside a quoted string, an identifier, a `--` or
-// `/* */` comment or a `$$ ... $$` body does not end one). Files in the directory that do not end in `.sql` are
+// ordinary SQL, one or more statements separated by `;` (a `;` inside a quoted string, a `"quoted"` or `` `quoted` ``
+// identifier, a `--` or `/* */` comment or a `$$ ... $$` body does not end one). **Anything that opens and never
+// closes is an error**, naming the line it opened on: an unterminated `/*` used to swallow the rest of the file and
+// let the half-applied migration be recorded as done.
+//
+// Block comments do not nest, which is SQLite's and MySQL's reading; PostgreSQL's do. A nested one is therefore
+// mis-split rather than silently truncated -- the text after the inner `*/` is handed to the server, which refuses
+// it -- so the failure is loud, but it is a known difference rather than a feature. Files in the directory that do not end in `.sql` are
 // ignored; a `.sql` file that does not fit the name is an error, so a typo cannot silently skip a migration.
 //
 //     val applied = try migrate.run(conn, "migrations")
@@ -227,26 +233,68 @@ fn is_tag_char(c: string) -> bool {
 // two quotes in a row: the first closes and the second opens again), or the end of `sql` when it never closes.
 fn quote_end(sql: string, start: int, quote: string) -> int {
     val close = index_of(sql, quote, start + 1)
-    return if close < 0 { len(sql) } else { close + 1 }
+    return if close < 0 { 0 - 1 } else { close + 1 }
+}
+
+// The 1-based line `at` falls on, for a message about something that never closed. Only ever
+// reached on an error path, so walking the text costs nothing that matters.
+fn line_at(sql: string, at: int) -> int {
+    var line = 1
+    for i in 0..at {
+        if char_at(sql, i) == "\n" {
+            line = line + 1
+        }
+    }
+    return line
 }
 
 // The index after the end of the dollar-quoted body that starts at `start`, where `tag` (`$$`, `$body$`) opened it, or
 // the end of `sql` when it never closes.
 fn dollar_end(sql: string, start: int, tag: string) -> int {
     val close = index_of(sql, tag, start + len(tag))
-    return if close < 0 { len(sql) } else { close + len(tag) }
+    return if close < 0 { 0 - 1 } else { close + len(tag) }
 }
 
 // The statements of `sql`, without their `;`, comments or surrounding blanks; blank ones are dropped.
-pub fn split_statements(sql: string) -> [string] {
+//
+// **An unterminated string, identifier, comment or dollar body is an error**, and that is the whole
+// reason this answers a `Result`. Each of them used to run to the end of the text and stop there,
+// which for a comment meant *silently discarding the rest of the file*:
+//
+//     CREATE TABLE kept (x int);
+//     /* a note that forgets to close
+//     CREATE TABLE lost (y int);
+//
+// applied one statement, never created `lost`, and reported success -- then recorded a row in
+// `schema_migrations` holding a checksum of the *whole* file, so nothing would ever flag it, the
+// migration would never run again, and a developer who closed the comment would be met with a
+// checksum mismatch instead of a fix. For a module whose stated purpose includes "a typo cannot
+// silently skip a migration", a half-applied migration recorded as done is the worst thing it
+// could do, and it took one missing `*/`.
+//
+// **Backticks count as identifier quotes** here too. The header has always said a `;` inside an
+// identifier does not end a statement, and `"a;b"` was honoured while MySQL's `` `a;b` `` was not
+// -- in a module that has a `migrations/mysql/` directory and asks the connection for its dialect.
+//
+// A doubled quote inside a quoted run (`'it''s'`, `` `a``b` ``) needs no special case: the run ends
+// at the first of the pair and the second immediately opens another, so the text between them stays
+// quoted either way.
+pub fn split_statements(sql: string) -> Result<[string], DbError> {
     val out = mutable_array_new<string>()
     var current = mutable_string_new()
     val n = len(sql)
     var i = 0
     while i < n {
         val c = char_at(sql, i)
-        if c == "'" || c == "\"" {
+        if c == "'" || c == "\"" || c == "`" {
             val end = quote_end(sql, i, c)
+            if end < 0 {
+                return err(problem(format(
+                    "a {} that opens on line {} never closes",
+                    if c == "'" { "quoted string" } else { "quoted identifier" },
+                    line_at(sql, i)
+                )))
+            }
             append(current, substring(sql, i, end))
             i = end
         } else if c == "-" && is_char_at(sql, i + 1, "-") {
@@ -254,7 +302,13 @@ pub fn split_statements(sql: string) -> [string] {
             i = if end < 0 { n } else { end }
         } else if c == "/" && is_char_at(sql, i + 1, "*") {
             val end = index_of(sql, "*/", i + 2)
-            i = if end < 0 { n } else { end + 2 }
+            if end < 0 {
+                return err(problem(format(
+                    "a /* comment that opens on line {} never closes, so the rest of the file would be discarded",
+                    line_at(sql, i)
+                )))
+            }
+            i = end + 2
         } else if c == "$" {
             var j = i + 1
             while j < n && is_tag_char(char_at(sql, j)) {
@@ -263,6 +317,13 @@ pub fn split_statements(sql: string) -> [string] {
             if j < n && is_char_at(sql, j, "$") {
                 val tag = substring(sql, i, j + 1)
                 val end = dollar_end(sql, i, tag)
+                if end < 0 {
+                    return err(problem(format(
+                        "a {} body that opens on line {} never closes",
+                        tag,
+                        line_at(sql, i)
+                    )))
+                }
                 append(current, substring(sql, i, end))
                 i = end
             } else {
@@ -285,7 +346,7 @@ pub fn split_statements(sql: string) -> [string] {
     if !is_empty(last) {
         push(out, last)
     }
-    return snapshot(out)
+    return ok(snapshot(out))
 }
 
 // ---------------------------------------------------------------- reading a directory
@@ -415,7 +476,7 @@ fn check_applied(tx: Connection, migrations: [Migration]) -> Result<int, DbError
 }
 
 fn apply_one(tx: Connection, m: Migration) -> Result<int, DbError> {
-    for statement in split_statements(m.sql) {
+    for statement in try split_statements(m.sql) {
         try datasource.execute(tx, statement)
     }
     return datasource.execute(
