@@ -2,7 +2,7 @@ use crypto
 use number
 
 fn h(s: string) -> string {
-    return number.bytes_to_hex(crypto.sha256(to_bytes(s)))
+    return number.to_hex(crypto.sha256(to_bytes(s)))
 }
 
 fn main() {

@@ -10,13 +10,13 @@ use number
 fn main() {
     // Formatting with a pattern: thousands separators and fixed decimals.
     val fmt = number.parse_pattern("#,##0.00")
-    print(number.format_int(1234567, fmt))
-    print(number.format_float(3.14159, fmt))
+    print(number.format(1234567, fmt))
+    print(number.format(3.14159, fmt))
 
     // Hex, both ways, and shortest-text floats.
-    print(number.int_to_hex(255))
+    print(number.to_hex(255))
     print(unwrap(number.int_from_hex("ff")))
-    print(number.bytes_to_hex([1b, 171b, 255b]))
+    print(number.to_hex([1b, 171b, 255b]))
     print(number.float_to_text(0.1))
 
     // Fixed-width big-endian integers, as binary protocols use them.
@@ -110,13 +110,13 @@ or a person to read back (the `json`, `toml`, `yaml` and `csv` writers do).
 
 ## Hex
 
-### `byte_to_hex`
+### `to_hex`
 
 ```
-pub native fn byte_to_hex(b: byte) -> string
+pub native fn to_hex(b: byte) -> string
 ```
 
-Two lowercase hex digits: `byte_to_hex(255b)` is "ff".
+Two lowercase hex digits: `to_hex(255b)` is "ff".
 
 ### `byte_from_hex`
 
@@ -126,10 +126,10 @@ pub native fn byte_from_hex(s: string) -> Result<byte, string>
 
 The byte written as exactly two hex digits. An Err for any other length or a non-hex character.
 
-### `int_to_hex`
+### `to_hex`
 
 ```
-pub native fn int_to_hex(x: int) -> string
+pub native fn to_hex(x: int) -> string
 ```
 
 Lowercase hex of `x` with no leading zeros ("0" for zero); a negative `x` is its 16-digit
@@ -145,14 +145,14 @@ The int written in 1 to 16 hex digits, read as a 64-bit two's complement value:
 `int_from_hex("ffffffffffffffff")` is -1. An Err for an empty string, more than 16 digits, or a
 non-hex character.
 
-### `bytes_to_hex`
+### `to_hex`
 
 ```
-pub native fn bytes_to_hex(data: [byte]) -> string
+pub native fn to_hex(data: [byte]) -> string
 ```
 
-Lowercase hex text of a byte array, two digits per byte: `bytes_to_hex([1b, 255b])` is
-"01ff". The array counterpart of `byte_to_hex`.
+Lowercase hex text of a byte array, two digits per byte: `to_hex([1b, 255b])` is
+"01ff". The array counterpart of `to_hex`.
 
 ### `bytes_from_hex`
 
@@ -163,13 +163,13 @@ pub native fn bytes_from_hex(s: string) -> Result<[byte], string>
 The bytes of hex text (upper or lower case, an even number of digits). An Err on an odd length
 or a character that is not a hex digit.
 
-### `bigint_to_hex`
+### `to_hex`
 
 ```
-pub fn bigint_to_hex(n: bigint) -> string
+pub fn to_hex(n: bigint) -> string
 ```
 
-Lowercase hex of `n`, sign-prefixed for a negative one: `bigint_to_hex(-255n)` is "-ff".
+Lowercase hex of `n`, sign-prefixed for a negative one: `to_hex(-255n)` is "-ff".
 
 ### `bigint_from_hex`
 
@@ -237,62 +237,54 @@ A format from a pattern such as "#,###.00": a comma anywhere in the integer part
 grouping on (groups of three), and the digit count after the dot forces that many decimal
 places. The decimal separator is always ".".
 
-### `format_number`
+### `format`
 
 ```
-pub fn format_number(s: string, fmt: NumberFormat) -> string
+pub fn format(s: string, fmt: NumberFormat) -> string
 ```
 
-`s`, the plain text of a number, written according to `fmt`: `format_number("1234567.5",
+`s`, the plain text of a number, written according to `fmt`: `format("1234567.5",
 parse_pattern("#,###.00"))` is "1,234,567.50". Text containing an exponent (`1e-7`) is returned
 unchanged, since grouping and fixed decimals have no sensible meaning for it.
 
-### `parse_number`
+### `parse`
 
 ```
-pub fn parse_number(s: string, fmt: NumberFormat) -> string
+pub fn parse(s: string, fmt: NumberFormat) -> string
 ```
 
-The inverse of `format_number`: strips the thousands separator and turns the decimal separator
+The inverse of `format`: strips the thousands separator and turns the decimal separator
 back into ".", giving text `parse_int`, `parse_float`, `parse_bigint`, `parse_decimal` or
 `parse_byte` accepts. It only normalizes: malformed input is the parser's job to reject.
 
-### `format_int`
+### `format`
 
 ```
-pub fn format_int(x: int, fmt: NumberFormat) -> string
+pub fn format(x: int, fmt: NumberFormat) -> string
 ```
 
 `x` written according to `fmt`.
 
-### `format_float`
-
 ```
-pub fn format_float(x: float, fmt: NumberFormat) -> string
+pub fn format(x: float, fmt: NumberFormat) -> string
 ```
 
 `x` written according to `fmt`, with the float's full precision (`float_to_text`, not `str`).
 
-### `format_bigint`
-
 ```
-pub fn format_bigint(x: bigint, fmt: NumberFormat) -> string
+pub fn format(x: bigint, fmt: NumberFormat) -> string
 ```
 
 `x` written according to `fmt`.
 
-### `format_decimal`
-
 ```
-pub fn format_decimal(x: decimal, fmt: NumberFormat) -> string
+pub fn format(x: decimal, fmt: NumberFormat) -> string
 ```
 
 `x` written according to `fmt`.
 
-### `format_byte`
-
 ```
-pub fn format_byte(x: byte, fmt: NumberFormat) -> string
+pub fn format(x: byte, fmt: NumberFormat) -> string
 ```
 
 `x` written according to `fmt`.

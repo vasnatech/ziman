@@ -110,8 +110,8 @@ use net.NetError
 use net.Socket
 use net.net_error_message
 use number.byte_from_hex
-use number.byte_to_hex
 use number.int_from_hex
+use number.to_hex
 use os
 
 // Case folding here is **protocol folding**, so it names the invariant locale rather than taking
@@ -647,7 +647,7 @@ fn json_quoted(text: string) -> string {
         } else if b == 12b {
             append(out, "\\f")
         } else if (b as int) < 32 {
-            append(out, "\\u00", byte_to_hex(b))
+            append(out, "\\u00", to_hex(b))
         } else {
             append_byte(out, b)
         }

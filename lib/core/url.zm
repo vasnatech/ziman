@@ -16,7 +16,7 @@
 
 use locale
 use number.byte_from_hex
-use number.byte_to_hex
+use number.to_hex
 
 // Case folding here is **protocol folding**, so it names the invariant locale rather than taking
 // whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
@@ -71,7 +71,7 @@ pub fn percent_encode(s: string, plus_for_space: bool) -> string {
         } else if c == 32 && plus_for_space {
             append(out, "+")
         } else {
-            append(out, "%", to_upper(byte_to_hex(b), invariant))
+            append(out, "%", to_upper(to_hex(b), invariant))
         }
     }
     return snapshot(out)

@@ -2410,7 +2410,7 @@ OpenSSL's libcrypto (already linked for TLS) and, for bcrypt, libxcrypt; `[byte]
   (constant-time -- use for MACs/tokens, not `==`).
 - **base64**: `base64_encode`/`base64_decode` (standard, padded, strict);
   `base64url_encode`/`base64url_decode` (URL-safe, unpadded -- JWTs). Hex is in `number`
-  (`bytes_to_hex`/`bytes_from_hex`).
+  (`number.to_hex`/`bytes_from_hex`).
 - **Errors**: a wrong argument (mismatched lengths, an out-of-range iteration count) is a
   runtime error; malformed data (`base64_decode`, `bytes_from_hex`) is `Err(string)`.
 - Not a general crypto library -- no ciphers, no public-key operations.
@@ -2538,19 +2538,22 @@ The `number` core module is shared formatting/parsing across `int`/`float`/`bigi
 `byte`, pure Ziman on top of each type's own `str()`.
 
 ```ziman
-use number.format_int
+use number
 use number.parse_pattern
 
 fn main() {
     val fmt = parse_pattern("#,###.00")
-    print(format_int(1234567, fmt))    // 1,234,567.00
+    print(number.format(1234567, fmt))    // 1,234,567.00
 }
 ```
 
-- **One engine, not five** (one function, not an overload set per numeric type). `format_number(s, fmt) ->
-  string`/`parse_number(s, fmt) -> string` operate on the *string* each type already produces
-  via `str()`/expects via `parse_int`; `format_int`/`_float`/`_bigint`/`_decimal`/`_byte` are
-  thin wrappers over `format_number`.
+- **One engine, six entry points.** `number.format(s, fmt) -> string`/`number.parse(s, fmt) ->
+  string` operate on the *string* each type already produces via `str()`/expects via `parse_int`,
+  and that string member is the whole implementation; the `int`/`float`/`bigint`/`decimal`/`byte`
+  members are thin wrappers over it. They are **members of `format`** rather than
+  `format_int`/`_float`/... as of 2026-10-24: the argument says which type, so the name need not,
+  and this section argued the opposite ("not an overload set per numeric type") only because
+  overloading did not exist when it was written.
 - **`NumberFormat { thousands_separator: string, decimal_separator: string, decimal_places:
   Option<int> }`** -- empty `thousands_separator` disables grouping, `decimal_places: None`
   leaves the value's own digit count. `number_format_plain()` is the no-grouping, no-forced-
@@ -2560,12 +2563,14 @@ fn main() {
   turns on group-by-3 grouping, the digit count after `.` forces that many decimal places. No
   `0`-vs-`#` distinction, no `%`, no `E`, no `;`-separated subpatterns, no literal prefix/suffix
   text, no custom grouping sizes.
-- **Forcing fewer decimal places truncates, never rounds** (rounding is `math.round`/
-  `math.round`'s job). **Scientific notation passes through unchanged** -- `float`'s `str()`
+- **Forcing fewer decimal places truncates, never rounds** (rounding is `math.round`'s job). **Scientific notation passes through unchanged** -- `float`'s `str()`
   switches to it past 6 significant digits, where grouping/place-forcing has no sensible
-  meaning, so `format_number` checks for `"e"`/`"E"` first rather than mangling it.
-- **Hex covers the three integral types**: `byte_to_hex`/`_from_hex`, `int_to_hex`/`_from_hex`,
-  `bigint_to_hex`/`_from_hex` (not `float`/`decimal`, no natural hex for a non-whole value).
+  meaning, so `number.format` checks for `"e"`/`"E"` first rather than mangling it.
+- **Hex covers the three integral types plus `[byte]`**: one `number.to_hex` over `byte`, `int`,
+  `bigint` and `[byte]`, told apart by the argument. Its readers cannot share a name -- all four
+  take a `string` and differ only in what they answer -- so each keeps its type:
+  `byte_from_hex`, `int_from_hex`, `bigint_from_hex`, `bytes_from_hex`. (Not `float`/`decimal`:
+  no natural hex for a non-whole value.)
   `byte` is trivial (2 unsigned digits). `int` uses fixed-width two's complement like C's
   `printf("%x")` (`-1` is `"ffffffffffffffff"`, via `bigint` arithmetic since the unsigned
   64-bit equivalent doesn't fit a signed `int64`). `bigint` has no fixed width, so it uses

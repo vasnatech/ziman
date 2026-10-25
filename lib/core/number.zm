@@ -35,6 +35,13 @@ pub val float_max = 1.7976931348623157e+308
 pub val float_min_positive = 5e-324
 
 // ---------------------------------------------------------------- float text
+//
+// **Not a `format` member**, although `format(x: float)` would resolve beside `format(x, fmt)` by
+// arity. `format` renders *for a reader*: grouping separators, a decimal mark, a fixed number of
+// places, all taken from a `NumberFormat`. This renders for a *machine* -- the shortest text that
+// reads back as exactly the same float, with no locale and no grouping anywhere in it. Giving them
+// one name would invite `number.format(x)` to be read as "format with the defaults", which is the
+// one thing it is not.
 
 // The shortest text that reads back as exactly `x`: `0.1`, `1234567.891`, `150`, `1e-7`,
 // `1.5e+300`. Plain notation for magnitudes from 1e-7 up to (not including) 1e21, scientific
@@ -45,30 +52,37 @@ pub native fn float_to_text(x: float) -> string
 
 // ---------------------------------------------------------------- hex
 //
+// **`to_hex` is one name over four types; the readers are four names.** The writers are told apart
+// by what they take -- a `byte`, an `int`, a `[byte]`, a `bigint` -- so they share a name. Their
+// inverses all take a `string` and differ only in what they answer, which no argument list can
+// state, so each carries its type: `byte_from_hex`, `int_from_hex`, `bytes_from_hex`,
+// `bigint_from_hex`. The same asymmetry as `time`'s `format`/`parse_localdate` and `json`'s
+// `to_json`/`to_int`, and the reason is the same every time.
+//
 // `byte`, `int` and `bigint` have hex text; `float` and `decimal` have no natural hex form. A
 // negative `int` is written as its 64-bit two's complement (`-1` is "ffffffffffffffff"), the
 // convention of C's `%x` and Java's `Long.toHexString`; a `bigint`, which has no fixed width,
 // is written sign-prefixed ("-ff"), like Java's `BigInteger.toString(16)`. Text read back
 // accepts upper and lower case.
 
-// Two lowercase hex digits: `byte_to_hex(255b)` is "ff".
-pub native fn byte_to_hex(b: byte) -> string
+// Two lowercase hex digits: `to_hex(255b)` is "ff".
+pub native fn to_hex(b: byte) -> string
 
 // The byte written as exactly two hex digits. An Err for any other length or a non-hex character.
 pub native fn byte_from_hex(s: string) -> Result<byte, string>
 
 // Lowercase hex of `x` with no leading zeros ("0" for zero); a negative `x` is its 16-digit
 // two's complement.
-pub native fn int_to_hex(x: int) -> string
+pub native fn to_hex(x: int) -> string
 
 // The int written in 1 to 16 hex digits, read as a 64-bit two's complement value:
 // `int_from_hex("ffffffffffffffff")` is -1. An Err for an empty string, more than 16 digits, or a
 // non-hex character.
 pub native fn int_from_hex(s: string) -> Result<int, string>
 
-// Lowercase hex text of a byte array, two digits per byte: `bytes_to_hex([1b, 255b])` is
-// "01ff". The array counterpart of `byte_to_hex`.
-pub native fn bytes_to_hex(data: [byte]) -> string
+// Lowercase hex text of a byte array, two digits per byte: `to_hex([1b, 255b])` is
+// "01ff". The array counterpart of `to_hex`.
+pub native fn to_hex(data: [byte]) -> string
 
 // The bytes of hex text (upper or lower case, an even number of digits). An Err on an odd length
 // or a character that is not a hex digit.
@@ -88,7 +102,7 @@ fn hex_digit_value(c: string) -> Result<int, string> {
             return ok(i + 10)
         }
     }
-    return err(format("invalid hex digit '{}'", c))
+    return err(prelude.format("invalid hex digit '{}'", c))
 }
 
 // Assumes n >= 0; the caller handles the sign. Digits are collected least-significant first and
@@ -114,8 +128,8 @@ fn bigint_magnitude_to_hex(n: bigint) -> string {
     return snapshot(out)
 }
 
-// Lowercase hex of `n`, sign-prefixed for a negative one: `bigint_to_hex(-255n)` is "-ff".
-pub fn bigint_to_hex(n: bigint) -> string {
+// Lowercase hex of `n`, sign-prefixed for a negative one: `to_hex(-255n)` is "-ff".
+pub fn to_hex(n: bigint) -> string {
     return if n < 0n { concat("-", bigint_magnitude_to_hex(-n)) } else { bigint_magnitude_to_hex(n) }
 }
 
@@ -132,7 +146,7 @@ pub fn bigint_from_hex(s: string) -> Result<bigint, string> {
         start = 1
     }
     if start >= len(s) {
-        return err(format("invalid bigint hex '{}': no digits", s))
+        return err(prelude.format("invalid bigint hex '{}': no digits", s))
     }
     var result: bigint = 0n
     var i = start
@@ -152,11 +166,11 @@ pub fn bigint_from_hex(s: string) -> Result<bigint, string> {
 pub fn parse_byte(s: string) -> Result<byte, string> {
     val r = parse_int(s)
     if !is_ok(r) {
-        return err(format("cannot parse '{}' as byte", s))
+        return err(prelude.format("cannot parse '{}' as byte", s))
     }
     val v = unwrap(r)
     if v < 0 || v > 255 {
-        return err(format("cannot parse '{}' as byte: out of range (must be 0-255)", s))
+        return err(prelude.format("cannot parse '{}' as byte: out of range (must be 0-255)", s))
     }
     return ok(v as byte)
 }
@@ -164,9 +178,9 @@ pub fn parse_byte(s: string) -> Result<byte, string> {
 // ---------------------------------------------------------------- formatting and parsing
 //
 // One engine, not five: every numeric type already has a canonical text (`str(x)`), so
-// `format_number` and `parse_number` work on *strings*, and `format_int`, `format_float`,
-// `format_bigint`, `format_decimal` and `format_byte` are one-line wrappers that supply the
-// text. (When this was written Ziman had no overloading, so one `format(x, ...)` across the five
+// `format` and `parse` work on *strings*, and `format`, `format`,
+// `format`, `format` and `format` are one-line wrappers that supply the
+// text. (When this was written Ziman had no overloading, so one `prelude.format(x, ...)` across the five
 // types could not exist. Since F184 it could -- the five differ in argument one -- but the engine
 // above is the reason there are five thin wrappers, not the missing feature, so they stay.)
 //
@@ -261,10 +275,10 @@ fn adjust_decimal_places(frac: string, places: int) -> string {
     return snapshot(out)
 }
 
-// `s`, the plain text of a number, written according to `fmt`: `format_number("1234567.5",
+// `s`, the plain text of a number, written according to `fmt`: `format("1234567.5",
 // parse_pattern("#,###.00"))` is "1,234,567.50". Text containing an exponent (`1e-7`) is returned
 // unchanged, since grouping and fixed decimals have no sensible meaning for it.
-pub fn format_number(s: string, fmt: NumberFormat) -> string {
+pub fn format(s: string, fmt: NumberFormat) -> string {
     if contains(s, "e") || contains(s, "E") {
         return s
     }
@@ -281,10 +295,10 @@ pub fn format_number(s: string, fmt: NumberFormat) -> string {
     return if frac_part == "" { grouped } else { concat(grouped, fmt.decimal_separator, frac_part) }
 }
 
-// The inverse of `format_number`: strips the thousands separator and turns the decimal separator
+// The inverse of `format`: strips the thousands separator and turns the decimal separator
 // back into ".", giving text `parse_int`, `parse_float`, `parse_bigint`, `parse_decimal` or
 // `parse_byte` accepts. It only normalizes: malformed input is the parser's job to reject.
-pub fn parse_number(s: string, fmt: NumberFormat) -> string {
+pub fn parse(s: string, fmt: NumberFormat) -> string {
     var out = s
     if fmt.thousands_separator != "" {
         out = replace(out, fmt.thousands_separator, "")
@@ -299,28 +313,28 @@ pub fn parse_number(s: string, fmt: NumberFormat) -> string {
 }
 
 // `x` written according to `fmt`.
-pub fn format_int(x: int, fmt: NumberFormat) -> string {
-    return format_number(str(x), fmt)
+pub fn format(x: int, fmt: NumberFormat) -> string {
+    return format(str(x), fmt)
 }
 
 // `x` written according to `fmt`, with the float's full precision (`float_to_text`, not `str`).
-pub fn format_float(x: float, fmt: NumberFormat) -> string {
-    return format_number(float_to_text(x), fmt)
+pub fn format(x: float, fmt: NumberFormat) -> string {
+    return format(float_to_text(x), fmt)
 }
 
 // `x` written according to `fmt`.
-pub fn format_bigint(x: bigint, fmt: NumberFormat) -> string {
-    return format_number(str(x), fmt)
+pub fn format(x: bigint, fmt: NumberFormat) -> string {
+    return format(str(x), fmt)
 }
 
 // `x` written according to `fmt`.
-pub fn format_decimal(x: decimal, fmt: NumberFormat) -> string {
-    return format_number(str(x), fmt)
+pub fn format(x: decimal, fmt: NumberFormat) -> string {
+    return format(str(x), fmt)
 }
 
 // `x` written according to `fmt`.
-pub fn format_byte(x: byte, fmt: NumberFormat) -> string {
-    return format_number(str(x), fmt)
+pub fn format(x: byte, fmt: NumberFormat) -> string {
+    return format(str(x), fmt)
 }
 
 // ---------------------------------------------------------------- bytes

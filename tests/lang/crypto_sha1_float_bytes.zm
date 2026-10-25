@@ -2,9 +2,9 @@ use crypto
 use number
 
 fn main() {
-    print(number.bytes_to_hex(crypto.sha1(to_bytes(""))))
-    print(number.bytes_to_hex(crypto.sha1(to_bytes("abc"))))
-    print(number.bytes_to_hex(crypto.sha1(to_bytes("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"))))
+    print(number.to_hex(crypto.sha1(to_bytes(""))))
+    print(number.to_hex(crypto.sha1(to_bytes("abc"))))
+    print(number.to_hex(crypto.sha1(to_bytes("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"))))
     // 1.5 as a little-endian double / float
     print(number.f64_from_bytes([0b, 0b, 0b, 0b, 0b, 0b, 248b, 63b], 0))
     print(number.f32_from_bytes([0b, 0b, 192b, 63b], 0))

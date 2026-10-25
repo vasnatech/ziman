@@ -39,7 +39,7 @@ fn main() {
     print("-- numbers, from the locale's own separators --")
     for tag in ["en", "tr", "de", "sv", "ar", "C"] {
         val l = locale.of(tag)
-        printf("  {} -> {}\n", tag, number.format_number("1234567.89", number.number_format_for(l)))
+        printf("  {} -> {}\n", tag, number.format("1234567.89", number.number_format_for(l)))
     }
     printf("  ar groups with nothing, which is a real answer: [{}]\n", locale.thousands_separator(locale.of("ar")))
 

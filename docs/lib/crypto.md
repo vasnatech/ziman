@@ -3,7 +3,7 @@
 Hashes, message authentication, key derivation, password hashing, one authenticated
 cipher and base64, on OpenSSL's libcrypto (already linked for TLS) and, for bcrypt, libxcrypt. The
 primitives are native. Byte data is `[byte]`; a digest or key is returned as `[byte]` (use
-`number.bytes_to_hex` for hex text).
+`number.to_hex` for hex text).
 
 The module is deliberately small: one cipher, no public-key operations. It exists so the
 database drivers can authenticate (SCRAM-SHA-256 for Postgres, the SHA-1 / SHA-256 login
@@ -22,12 +22,12 @@ not base64) is a `Err(string)`.
 
 ```
 use crypto
-use number.bytes_to_hex
+use number.to_hex
 
 fn main() {
     val data = to_bytes("abc")
-    print(bytes_to_hex(crypto.sha256(data)))
-    print(bytes_to_hex(crypto.hmac_sha256(to_bytes("key"), data)))
+    print(to_hex(crypto.sha256(data)))
+    print(to_hex(crypto.hmac_sha256(to_bytes("key"), data)))
 
     // Compare secrets in constant time, not with ==.
     print(crypto.bytes_equal(crypto.sha256(data), crypto.sha256(data)))

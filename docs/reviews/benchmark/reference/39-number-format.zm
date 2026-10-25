@@ -1,5 +1,5 @@
 use number
 
 fn main() {
-    print(number.format_number(str(1234567), number.parse_pattern("#,##0")))
+    print(number.format(str(1234567), number.parse_pattern("#,##0")))
 }

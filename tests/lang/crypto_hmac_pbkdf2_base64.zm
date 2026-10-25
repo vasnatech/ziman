@@ -6,15 +6,17 @@ fn b(s: string) -> [byte] {
 }
 
 fn hex(x: [byte]) -> string {
-    return number.bytes_to_hex(x)
+    return number.to_hex(x)
 }
 
 fn main() {
     print(hex(crypto.hmac_sha256(b("Jefe"), b("what do ya want for nothing?"))))
     print(hex(crypto.hmac_sha256(b("key"), b("The quick brown fox jumps over the lazy dog"))))
     // key longer than the 64-byte block gets hashed first
-    print(hex(crypto.hmac_sha256(b("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
-        b("Test Using Larger Than Block-Size Key - Hash Key First"))))
+    print(hex(crypto.hmac_sha256(
+        b("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+        b("Test Using Larger Than Block-Size Key - Hash Key First")
+    )))
     print(hex(crypto.pbkdf2_hmac_sha256(b("passwd"), b("salt"), 1, 64)))
     print(hex(crypto.pbkdf2_hmac_sha256(b("password"), b("salt"), 4096, 32)))
     print(hex(crypto.pbkdf2_hmac_sha256(b("pencil"), b("W22ZaJ0SNY7soEsUEjb6gQ=="), 4096, 32)))

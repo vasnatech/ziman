@@ -201,6 +201,7 @@ them against the code.
 - [`mime` was already right, and `to_string` turns out to be library-wide (2026-10-24)](#mime-was-already-right-and-to_string-turns-out-to-be-library-wide-2026-10-24)
 - [The `to_string` residue, cleared in one pass across five modules (2026-10-24)](#the-to_string-residue-cleared-in-one-pass-across-five-modules-2026-10-24)
 - [`net`: the `_with` suffixes go, and three names are kept on purpose (2026-10-24)](#net-the-_with-suffixes-go-and-three-names-are-kept-on-purpose-2026-10-24)
+- [`number`: one `format`, one `to_hex`, and the `bytes_` world the fallback was missing (2026-10-24)](#number-one-format-one-to_hex-and-the-bytes_-world-the-fallback-was-missing-2026-10-24)
 
 <!-- end index -->
 
@@ -3338,7 +3339,7 @@ a signature cannot state, and both were answerable from the function's own doc c
 `46-fold-average` answered **wrongly** because it chose `number.float_to_text` off its signature and
 could not know that a whole-number float prints as `18` -- the comment above that function gives
 `150` as an example -- and `15-sha256-hex` was right only because it *distrusted*
-`number.bytes_to_hex`'s unstated output format and hand-rolled hex at a cost of 14 extra compiles,
+`number.to_hex`'s unstated output format and hand-rolled hex at a cost of 14 extra compiles,
 when that function's comment states the format exactly. The information existed, in the library, and
 `--api` hid it.
 
@@ -8304,3 +8305,19 @@ A process note on the mechanics. Moving `series_of` below the second `series` de
 The `Option` in `start_tls_with(s, host, verify, ca_file: Option<string>)` needed checking before the fold, since **overloading a name disables `Option` omission** (the `jwt` finding). Every one of its eight call sites passes all four arguments explicitly, so nothing depended on omitting it.
 
 Verified including the TLS integration suites, which carry 21 of the edits and are the only place the handshake paths run: `tls_alpn`, `tls_behavior`, `tls_client_certificate`, `tls_close_while_reading`, `tls_server`, `tls_verify` and `httpclient_tls` all pass.
+
+## `number`: one `format`, one `to_hex`, and the `bytes_` world the fallback was missing (2026-10-24)
+
+Two families collapsed and two deliberately did not, and the interesting part is in the interpreter.
+
+**`format_int`/`_float`/`_bigint`/`_decimal`/`_byte`/`format_number` became one `format`** of six members, and `parse_number` became `parse`. Each takes its type plus a `NumberFormat`, so the argument says which. SYNTAX.md had argued against exactly this -- "**One engine, not five** (one function, not an overload set per numeric type)" -- and the argument was sound when written, because overloading did not exist then. It still reads as one engine: the `string` member *is* the implementation and the five typed ones are thin wrappers over it; what changed is that they share its name.
+
+**`byte_to_hex`/`int_to_hex`/`bytes_to_hex`/`bigint_to_hex` became one `to_hex`** of four. Their readers could not follow: all four take a `string` and differ only in what they answer, so `byte_from_hex`, `int_from_hex`, `bytes_from_hex` and `bigint_from_hex` each keep their type. That asymmetry has now appeared in `time` (`format`/`parse_localdate`), `json` (`to_json`/`to_int`), `fs` (`read_text`/`read_bytes`), `math` (`floor`/`floor_float`), `net` (`read`/`read_text`) and here -- six modules, one rule, and it is worth stating as the rule rather than as six coincidences: **a writer can share a name because its argument names the type; a reader cannot, because its argument is always the serialised form.**
+
+**`float_to_text` was kept out of `format`**, although `format(x: float)` would have resolved beside `format(x, fmt)` by arity. `format` renders *for a reader* -- grouping, decimal mark, fixed places, all from a `NumberFormat`. `float_to_text` renders for a *machine*: the shortest text that reads back as exactly the same float, no locale anywhere in it. One name would invite `number.format(x)` to be read as "format with the defaults", which is precisely what it is not. (It is also not `str(x)`, which keeps six significant digits.) The byte-packing family -- `u16_to_bytes`, `u32_to_bytes`, the six `*_from_bytes` -- keeps every name for the plainer reason that width and signedness are not in the argument list at all.
+
+**The interpreter needed a `bytes_` world, and finding out why took a runtime error.** `to_hex`'s four declarations are all named `number::to_hex`, so the symbol fallback derives one per parameter type -- and for `[byte]` it derived `number::array_to_hex` against a registration of `number::bytes_to_hex`. The declarations compiled, the suite passed, and `number.to_hex([1b, 2b])` failed at runtime with "no registered implementation": the third time this week that a native's *declaration* and its *symbol* came apart invisibly, and the second where only running it found out.
+
+So the fallback now maps an array of `byte` to `bytes_` and every other array to `array_`, which is what this library calls that world everywhere else (`to_bytes`, `bytes_to_string`, `bytes_from_hex`, `bytes_equal`). That broke `index_of` on `[byte]` -- 25 fixtures, all through `http.client` -- because its registration was `array_index_of`, standing in for the `bytes_` world that had not existed. `index_of` has exactly three members (`[byte]`, `string`, `MutableString`) and no generic `[T]` one, so that symbol only ever served the byte member: it is `bytes_index_of` now, which is what the C function has always been called. Checked exhaustively rather than guessed -- the prelude has only two `[byte]`-first natives, and the other (`bytes_to_string`) is registered bare and never reaches the fallback at all.
+
+Found while fixing the docs: an earlier sweep today had left a spurious `use number` in SYNTAX.md's decimal example, above `use math` and so out of the order `--fmt` sorts imports into. The syntax checker caught it, which is the second time that check has paid for itself today.

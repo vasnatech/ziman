@@ -7,14 +7,20 @@ fn main() {
         push<byte>(parts, to_bytes("aaaaaaaaaa"))
     }
     val big = snapshot(parts)
-    print(number.bytes_to_hex(crypto.sha512(to_bytes("abc"))))
-    print(number.bytes_to_hex(crypto.sha512(to_bytes(""))))
-    print(number.bytes_to_hex(crypto.hmac_sha512(to_bytes("key"),
-        to_bytes("The quick brown fox jumps over the lazy dog"))))
-    print(number.bytes_to_hex(crypto.pbkdf2_hmac_sha512(to_bytes("password"), to_bytes("salt"), 2, 40)))
-    print(number.bytes_to_hex(crypto.pbkdf2_hmac_sha256(to_bytes("password"), to_bytes("salt"), 4096,
-        20)))
-    print(number.bytes_to_hex(crypto.sha256(big)))
+    print(number.to_hex(crypto.sha512(to_bytes("abc"))))
+    print(number.to_hex(crypto.sha512(to_bytes(""))))
+    print(number.to_hex(crypto.hmac_sha512(
+        to_bytes("key"),
+        to_bytes("The quick brown fox jumps over the lazy dog")
+    )))
+    print(number.to_hex(crypto.pbkdf2_hmac_sha512(to_bytes("password"), to_bytes("salt"), 2, 40)))
+    print(number.to_hex(crypto.pbkdf2_hmac_sha256(
+        to_bytes("password"),
+        to_bytes("salt"),
+        4096,
+        20
+    )))
+    print(number.to_hex(crypto.sha256(big)))
     print(crypto.base64url_encode([251b, 255b, 254b]))
     print(crypto.base64url_encode(to_bytes("ab")))
     print(crypto.base64_encode([251b, 255b, 254b]))
@@ -34,7 +40,7 @@ fn main() {
     print(crypto.bytes_equal([1b, 2b], [1b, 2b, 3b]))
     print(crypto.bytes_equal([], []))
     // hex text of byte arrays
-    print(number.bytes_to_hex([0b, 1b, 171b, 255b]))
+    print(number.to_hex([0b, 1b, 171b, 255b]))
     print(number.bytes_from_hex("0001abFF"))
     print(unwrap_err(number.bytes_from_hex("abc")))
     print(unwrap_err(number.bytes_from_hex("zz")))

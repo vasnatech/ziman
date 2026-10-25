@@ -465,7 +465,16 @@ static Value call_function(Module *module, FunctionDecl *fn, Value *raw_args, in
             if (native == NULL && fn->params.count > 0) {
                 Type p0 = fn->params.items[0].type;
                 const char *prefix = NULL;
-                if (p0.kind == TY_ARRAY) prefix = "array_";
+                /* **An array of bytes is its own world.** `number`'s `to_hex` has a `[byte]`
+                 * member beside its `byte`, `int` and `bigint` ones (2026-10-24), and the symbol
+                 * it wants is `bytes_to_hex` -- which is what this library calls that world
+                 * everywhere else: `to_bytes`, `bytes_to_string`, `bytes_from_hex`,
+                 * `bytes_equal`. Deriving `array_to_hex` would have been a symbol nobody
+                 * registers, which is exactly what happened before this branch existed. The
+                 * generic array natives are unaffected: their element is a type parameter, not
+                 * `byte`, so they still derive `array_`. */
+                if (p0.kind == TY_ARRAY && p0.elem != NULL && p0.elem->kind == TY_BYTE) prefix = "bytes_";
+                else if (p0.kind == TY_ARRAY) prefix = "array_";
                 /* The scalar worlds, added for `bits` (2026-10-24), which is the first module to
                  * give one declared name three native implementations: `and` is a `byte`, an `int`
                  * and a `bigint` operation. A scalar had no prefix until now because nothing

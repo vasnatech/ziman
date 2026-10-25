@@ -1,23 +1,21 @@
-use number.byte_to_hex
-use number.byte_from_hex
-use number.int_to_hex
-use number.int_from_hex
-use number.bigint_to_hex
 use number.bigint_from_hex
+use number.byte_from_hex
+use number.int_from_hex
+use number.to_hex
 
 fn main() {
-    print(byte_to_hex(0b))
-    print(byte_to_hex(255b))
-    print(byte_to_hex(171b))
+    print(to_hex(0b))
+    print(to_hex(255b))
+    print(to_hex(171b))
     print(unwrap(byte_from_hex("ab")))
     print(is_ok(byte_from_hex("zz")))
     print(is_ok(byte_from_hex("a")))
 
-    print(int_to_hex(0))
-    print(int_to_hex(255))
-    print(int_to_hex(-1))
-    print(int_to_hex(9223372036854775807))
-    print(int_to_hex(-9223372036854775807 - 1))
+    print(to_hex(0))
+    print(to_hex(255))
+    print(to_hex(-1))
+    print(to_hex(9223372036854775807))
+    print(to_hex(-9223372036854775807 - 1))
     print(unwrap(int_from_hex("ff")))
     print(unwrap(int_from_hex("ffffffffffffffff")))
     print(unwrap(int_from_hex("7fffffffffffffff")))
@@ -25,10 +23,10 @@ fn main() {
     print(is_ok(int_from_hex("")))
     print(is_ok(int_from_hex("ffffffffffffffff0")))
 
-    print(bigint_to_hex(0n))
-    print(bigint_to_hex(255n))
-    print(bigint_to_hex(-255n))
-    print(bigint_to_hex(340282366920938463463374607431768211456n))
+    print(to_hex(0n))
+    print(to_hex(255n))
+    print(to_hex(-255n))
+    print(to_hex(340282366920938463463374607431768211456n))
     print(unwrap(bigint_from_hex("ff")))
     print(unwrap(bigint_from_hex("-ff")))
     print(is_ok(bigint_from_hex("-")))

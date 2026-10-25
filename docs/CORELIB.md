@@ -1036,19 +1036,19 @@ pub val float_min_positive = 5e-324
 
 pub native fn float_to_text(x: float) -> string
 
-pub native fn byte_to_hex(b: byte) -> string
+pub native fn to_hex(b: byte) -> string
 
 pub native fn byte_from_hex(s: string) -> Result<byte, string>
 
-pub native fn int_to_hex(x: int) -> string
+pub native fn to_hex(x: int) -> string
 
 pub native fn int_from_hex(s: string) -> Result<int, string>
 
-pub native fn bytes_to_hex(data: [byte]) -> string
+pub native fn to_hex(data: [byte]) -> string
 
 pub native fn bytes_from_hex(s: string) -> Result<[byte], string>
 
-pub fn bigint_to_hex(n: bigint) -> string
+pub fn to_hex(n: bigint) -> string
 
 pub fn bigint_from_hex(s: string) -> Result<bigint, string>
 
@@ -1066,19 +1066,19 @@ pub fn number_format_plain() -> NumberFormat
 
 pub fn parse_pattern(pattern: string) -> NumberFormat
 
-pub fn format_number(s: string, fmt: NumberFormat) -> string
+pub fn format(s: string, fmt: NumberFormat) -> string
 
-pub fn parse_number(s: string, fmt: NumberFormat) -> string
+pub fn parse(s: string, fmt: NumberFormat) -> string
 
-pub fn format_int(x: int, fmt: NumberFormat) -> string
+pub fn format(x: int, fmt: NumberFormat) -> string
 
-pub fn format_float(x: float, fmt: NumberFormat) -> string
+pub fn format(x: float, fmt: NumberFormat) -> string
 
-pub fn format_bigint(x: bigint, fmt: NumberFormat) -> string
+pub fn format(x: bigint, fmt: NumberFormat) -> string
 
-pub fn format_decimal(x: decimal, fmt: NumberFormat) -> string
+pub fn format(x: decimal, fmt: NumberFormat) -> string
 
-pub fn format_byte(x: byte, fmt: NumberFormat) -> string
+pub fn format(x: byte, fmt: NumberFormat) -> string
 
 pub native fn u16_to_bytes(n: int) -> [byte]
 

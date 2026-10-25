@@ -3,13 +3,13 @@ use number
 fn main() {
     // Formatting with a pattern: thousands separators and fixed decimals.
     val fmt = number.parse_pattern("#,##0.00")
-    print(number.format_int(1234567, fmt))
-    print(number.format_float(3.14159, fmt))
+    print(number.format(1234567, fmt))
+    print(number.format(3.14159, fmt))
 
     // Hex, both ways, and shortest-text floats.
-    print(number.int_to_hex(255))
+    print(number.to_hex(255))
     print(unwrap(number.int_from_hex("ff")))
-    print(number.bytes_to_hex([1b, 171b, 255b]))
+    print(number.to_hex([1b, 171b, 255b]))
     print(number.float_to_text(0.1))
 
     // Fixed-width big-endian integers, as binary protocols use them.

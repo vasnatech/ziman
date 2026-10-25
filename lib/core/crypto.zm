@@ -1,7 +1,7 @@
 // crypto.zm -- hashes, message authentication, key derivation, password hashing, one authenticated
 // cipher and base64, on OpenSSL's libcrypto (already linked for TLS) and, for bcrypt, libxcrypt. The
 // primitives are native. Byte data is `[byte]`; a digest or key is returned as `[byte]` (use
-// `number.bytes_to_hex` for hex text).
+// `number.to_hex` for hex text).
 //
 // The module is deliberately small: one cipher, no public-key operations. It exists so the
 // database drivers can authenticate (SCRAM-SHA-256 for Postgres, the SHA-1 / SHA-256 login

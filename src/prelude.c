@@ -3724,7 +3724,12 @@ void prelude_register(void) {
     native_register("mutable_set_add", native_mutable_set_add);
     native_register("mutable_set_remove", native_mutable_map_remove);
     native_register("guard_new", native_guard_new);
-    native_register("array_index_of", native_bytes_index_of);
+    /* **`bytes_index_of`, not `array_index_of`** (2026-10-24). `index_of`'s three members are a
+     * `[byte]`, a `string` and a `MutableString` -- there is no generic `[T]` member -- so this
+     * symbol only ever served the byte one, and `array_` was standing in for a `bytes_` world the
+     * fallback did not have. It has one now (`number`'s `to_hex` needed it), so the symbol can say
+     * what the C function has always been called. */
+    native_register("bytes_index_of", native_bytes_index_of);
     native_register("array_map", native_array_map);
     native_register("array_filter", native_array_filter);
     native_register("map_set", native_map_set);

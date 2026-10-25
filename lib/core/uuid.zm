@@ -19,7 +19,7 @@ use db.sql_as_text
 use db.sql_lift
 use json.Json
 use number.bytes_from_hex
-use number.bytes_to_hex
+use number.to_hex
 use random.random_bytes
 
 val uuid_byte_count = 16
@@ -71,7 +71,7 @@ pub fn uuid_nil() -> Uuid {
 
 // The lowercase dashed text of `u`: `123e4567-e89b-42d3-a456-426614174000`.
 pub fn format(u: Uuid) -> string {
-    val hex = bytes_to_hex(u.bytes)
+    val hex = to_hex(u.bytes)
     return join(separator: "-", pieces: [substring(hex, 0, 8), substring(hex, 8, 12), substring(hex, 12, 16),
         substring(hex, 16, 20), substring(hex, 20, 32)])
 }

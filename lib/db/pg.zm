@@ -77,7 +77,7 @@ use db.run_request
 use net
 use net.Socket
 use number.byte_from_hex
-use number.bytes_to_hex
+use number.to_hex
 use number.u16_from_bytes
 use number.u16_to_bytes
 use number.u32_from_bytes
@@ -533,7 +533,7 @@ fn encode_param(v: SqlValue) -> [byte] {
         Float(f) { float_to_text(f) }
         Text(s) { s }
         Bool(b) { if b { "1" } else { "0" } }
-        Bytes(b) { concat("\\x", bytes_to_hex(b)) }
+        Bytes(b) { concat("\\x", to_hex(b)) }
     }
     val payload = to_bytes(text)
     return concat(u32_to_bytes(len(payload)), payload)

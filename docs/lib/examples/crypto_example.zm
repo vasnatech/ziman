@@ -1,10 +1,10 @@
 use crypto
-use number.bytes_to_hex
+use number.to_hex
 
 fn main() {
     val data = to_bytes("abc")
-    print(bytes_to_hex(crypto.sha256(data)))
-    print(bytes_to_hex(crypto.hmac_sha256(to_bytes("key"), data)))
+    print(to_hex(crypto.sha256(data)))
+    print(to_hex(crypto.hmac_sha256(to_bytes("key"), data)))
 
     // Compare secrets in constant time, not with ==.
     print(crypto.bytes_equal(crypto.sha256(data), crypto.sha256(data)))

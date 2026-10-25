@@ -5,7 +5,7 @@
 use locale
 use mime
 use number.byte_from_hex
-use number.byte_to_hex
+use number.to_hex
 use random.random_bytes
 use url
 
@@ -171,7 +171,7 @@ pub val traceparent_header_name = "traceparent"
 fn hex_of(n: int) -> string {
     val out = mutable_string_new()
     for b in random_bytes(n) {
-        append(out, byte_to_hex(b))
+        append(out, to_hex(b))
     }
     return snapshot(out)
 }

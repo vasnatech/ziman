@@ -29,7 +29,7 @@ use json.int_to_json
 use json.number_of
 use json.parse
 use json.require_string
-use number.bytes_to_hex
+use number.to_hex
 
 // Why a token was rejected.
 pub enum JwtError {

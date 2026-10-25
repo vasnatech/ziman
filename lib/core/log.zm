@@ -19,7 +19,7 @@ use fs
 use json
 use json.Json
 use locale
-use number.byte_to_hex
+use number.to_hex
 use os
 
 // Case folding here is **protocol folding**, so it names the invariant locale rather than taking
@@ -183,7 +183,7 @@ fn single_line(message: string) -> string {
         } else if c == 9 {
             append(out, "\\t")
         } else if c < 32 || c == 127 {
-            append(out, "\\x", byte_to_hex(b))
+            append(out, "\\x", to_hex(b))
         } else {
             append_byte(out, b)
         }
