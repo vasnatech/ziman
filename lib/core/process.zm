@@ -9,8 +9,10 @@
 // a pipe nobody drains fills up and blocks the child, so a server logging to one deadlocks after a
 // few kilobytes, and "read it after waiting" is itself the deadlock. A file has no such limit, and
 // is still there to read with `fs.read_text` after the child is gone, which is when a test wants it.
+use encoding
 use fs
 use os
+use random
 
 // A running (or finished) child. Hold it, wait for it, signal it; the handle stops being valid once
 // `wait` or `release` has reaped the child, and using it after that is a runtime error rather than a
@@ -156,13 +158,41 @@ pub fn output(
     vars: Option<[EnvVar]> = None,
     cwd: Option<string> = None
 ) -> Result<string, string> {
+    // **The name carries 64 bits of entropy, and both halves of that matter.**
+    //
+    // It was `ziman_process_<pid>_<byte_len(program)>.out`, which is neither unique nor
+    // unpredictable. Not unique: two concurrent calls whose *program names are the same length*
+    // share the path, so `output("/bin/echo", ...)` and `output("/bin/true", ...)` -- both nine
+    // characters -- would write the same file and read each other's transcript. And not
+    // unpredictable: a path determined by a pid and a name length can be guessed, so in a shared
+    // temporary directory it could be pre-created as a symbolic link and the child's output would
+    // truncate whatever it pointed at (CWE-377).
+    //
+    // `random_bytes` reads the operating system's entropy pool, so pre-creating the path means
+    // guessing one of 2^64. The complete answer to the symlink half would be `O_EXCL` where the
+    // file is opened, but that is in `start`, whose `out_path` is a caller's own and may
+    // legitimately already exist -- it is not this function's private file to demand.
+    //
     // `fs.temp_dir()` rather than a hardcoded "/tmp": a system may put the writable temporary
     // directory elsewhere and say so through TMPDIR, and a sandbox may make /tmp unwritable.
     val path = fs.path_join(
         fs.temp_dir(),
-        concat("ziman_process_", str(os.pid()), "_", str(byte_len(program)), ".out")
+        concat(
+            "ziman_process_",
+            str(os.pid()),
+            "_",
+            encoding.base16_encode(random.random_bytes(8)),
+            ".out"
+        )
     )
-    val code = try run(program, args, vars, Some(path), Some(path), cwd)
+    // **Not `try run(...)`.** An early return there left the file behind, which is a leaked
+    // temporary per failed call -- the one path out of this function that did not clean up.
+    val started = run(program, args, vars, Some(path), Some(path), cwd)
+    if Err(e) = started {
+        val _ = fs.remove(path)
+        return err(e)
+    }
+    val code = unwrap(started)
     val text = switch fs.read_text(path) {
         Ok(t) { t }
         Err(e) { val _ = fs.remove(path) return err(fs.fs_error_message(e)) }

@@ -149,8 +149,10 @@ flowchart LR
     pg --> net
     pg --> number
     pg --> random
+    process --> encoding
     process --> fs
     process --> os
+    process --> random
     properties --> fs
     properties --> locale
     properties --> math
@@ -241,7 +243,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db`, `mysql`, `pg`, `sqlite` | `migrate` |
 | `db` | `net`, `number`, `url` | `datasource`, `migrate`, `mysql`, `pg`, `sqlite`, `time`, `uuid` |
-| `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg` |
+| `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `font` | `truetype` | `layout`, `pdf`, `raster` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `zone` |
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |
@@ -267,9 +269,9 @@ otherwise: everything on a layer depends only on lower layers.
 | `pdf` | `font`, `geom`, `image`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
 | `pdfobj` | `compress` | `pdf` |
 | `pg` | `crypto`, `db`, `encoding`, `net`, `number`, `random` | `datasource` |
-| `process` | `fs`, `os` | - |
+| `process` | `encoding`, `fs`, `os`, `random` | - |
 | `properties` | `fs`, `locale`, `math`, `os` | - |
-| `random` | - | `crypto`, `http`, `otp`, `pg`, `uuid` |
+| `random` | - | `crypto`, `http`, `otp`, `pg`, `process`, `uuid` |
 | `raster` | `font`, `geom`, `image`, `math`, `paint`, `scene`, `shape`, `stroker`, `truetype` | - |
 | `regex` | - | - |
 | `scene` | `geom`, `paint`, `shape` | `layout`, `pdf`, `raster` |

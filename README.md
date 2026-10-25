@@ -91,7 +91,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 
 | Module | What it is |
 | --- | --- |
-| `fs`, `os`, `clock`, `random` | files, environment and process, time source, entropy |
+| `fs`, `os`, `process`, `clock`, `random` | files, environment and this process, starting and signalling child processes, time source, entropy |
 | `schedule` | periodic background work in a long-running process: an interval, a daily UTC time or a six-field cron pattern, each due job run on its own thread so one failure cannot stop the rest |
 | `time` | `java.time`-shaped dates, times, durations, instants |
 | `uuid`, `number`, `encoding`, `crypto` | UUIDs, number formatting/parsing, base 2/8/16/32/64 over bytes, SHA-256/HMAC/PBKDF2 |

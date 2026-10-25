@@ -1,0 +1,45 @@
+// `process.output` captures a child's streams through a temporary file, and this pins the two
+// properties that file has to have.
+//
+// **Unique per call.** The name was `ziman_process_<pid>_<byte_len(program)>.out`, so two
+// concurrent calls whose program names are the *same length* shared it -- `/bin/echo` and
+// `/bin/true` are both nine characters, and each would have read the other's transcript. It carries
+// 64 bits from the OS entropy pool now.
+//
+// **Unpredictable**, for the same reason: a path determined by a pid and a name length can be
+// guessed, so in a shared temporary directory it could be pre-created as a symbolic link and the
+// child's output would truncate whatever it pointed at (CWE-377).
+//
+// **And removed on every path out.** `try run(...)` used to return early on a failed start, which
+// left the file behind -- one leaked temporary per failed call.
+use fs
+use process
+
+// Temporary files this module would leave behind, by the only name shape it ever writes.
+fn leaked() -> int {
+    var n = 0
+    for entry in unwrap(fs.list_dir(fs.temp_dir())) {
+        if starts_with(entry, "ziman_process_") {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+fn main() {
+    val before = leaked()
+
+    print(trim(unwrap(process.output(program: "/bin/echo", args: ["captured"]))))
+
+    // two nine-character program names in a row: no cross-talk between their files
+    print(trim(unwrap(process.output(program: "/bin/echo", args: ["first"]))))
+    print(trim(unwrap(process.output(program: "/bin/echo", args: ["second"]))))
+
+    // a non-zero exit brings its transcript back as the Err
+    print(unwrap_err(process.output(program: "/bin/false", args: [])))
+
+    // a program that cannot start: the Err propagates and nothing is left behind
+    print(is_ok(process.output(program: "/nonexistent/zzz", args: [])))
+
+    print(concat("no temporary left behind: ", str(leaked() == before)))
+}
