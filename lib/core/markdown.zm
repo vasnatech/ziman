@@ -352,7 +352,8 @@ fn write_inline(items: [Inline], out: MutableString, in_table: bool) -> Result<b
 // written in angle brackets, and a `>` inside that is escaped.
 fn escape_destination(d: string) -> string {
     if index_of(d, " ", 0) >= 0 || index_of(d, "(", 0) >= 0 || index_of(d, ")", 0) >= 0 {
-        return concat("<", replace(replace(d, "\\", "\\\\"), ">", "\\>"), ">")
+        // Simultaneous: a `\` this pass writes is never re-escaped.
+        return concat("<", replace(d, Map<string, string> { "\\": "\\\\", ">": "\\>" }), ">")
     }
     return d
 }
@@ -574,7 +575,9 @@ pub fn format(block: Block) -> Result<string, string> {
 // than letting `format` refuse the document. The pipes do not need handling here;
 // the writer escapes those wherever they appear.
 pub fn flatten_cell(text: string) -> string {
-    return trim(replace(replace(replace(text, "\r\n", " "), "\n", " "), "\r", " "))
+    // One pass with longest match, so the order the line endings appear in is no longer load
+    // bearing: chained, this worked only because `\r\n` came first.
+    return trim(replace(text, Map<string, string> { "\r\n": " ", "\n": " ", "\r": " " }))
 }
 
 // ------------------------------------------------------------------ reading

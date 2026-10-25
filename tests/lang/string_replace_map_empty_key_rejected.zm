@@ -1,0 +1,5 @@
+// An empty key would match at every position and advance nothing, so it is a runtime error -- the
+// same answer the three-argument `replace` gives for an empty `old`.
+fn main() {
+    print(replace("abc", Map<string, string> { "": "X" }))
+}

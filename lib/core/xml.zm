@@ -1028,7 +1028,8 @@ fn normalise_newlines(s: string) -> string {
     if index_of(s, "\r", 0) < 0 {
         return s
     }
-    return replace(replace(s, "\r\n", "\n"), "\r", "\n")
+    // Longest match first, so `\r\n` cannot be seen as two separate endings whatever the order.
+    return replace(s, Map<string, string> { "\r\n": "\n", "\r": "\n" })
 }
 
 // Parses one XML document with the default limits (`xml_limits()`): at most 16 MiB, 512 levels

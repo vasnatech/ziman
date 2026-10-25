@@ -3425,6 +3425,33 @@ pub native fn replace(s: string, old: string, new: string) -> string
 
 `s` with every non-overlapping `old` replaced by `new`. `old` must not be empty.
 
+```
+pub fn replace(s: string, pairs: Map<string, string>) -> string
+```
+
+**Every key of `pairs` replaced by its value in one pass**, longest match first, and a
+replacement is never rescanned.
+
+That single sentence is the whole reason this exists, because a *sequential* version would be
+three lines any caller can already write -- and those three lines are where the bugs are. Four
+places in `lib/` chained `replace` calls and encoded a constraint in the order:
+
+
+```
+replace(replace(replace(text, "\r\n", " "), "\n", " "), "\r", " ")   // markdown
+replace(replace(s, "\r\n", "\n"), "\r", "\n")                        // xml
+```
+
+Both work only because `\r\n` is handled *first*; swap two lines and a CRLF becomes two
+spaces. And `escape` in `metrics` is three chained calls that work only because the backslash is
+done first -- reverse it and `"` becomes `\\"`, escaping the escape. One pass with longest match
+makes the order irrelevant in the first case and the re-escape impossible in the second, so the
+constraint stops being something a reader has to notice.
+
+`Map { "a": "b", "b": "c" }` leaves `"a"` as `"b"`, not `"c"`: the replacement is output, not
+re-examined. An empty key is a runtime error, as it is for the three-argument form -- it would
+match everywhere and advance nothing. An empty `pairs` answers `s`.
+
 ### `to_upper`
 
 ```

@@ -3127,6 +3127,14 @@ reaches the builtin past it, and is the only way to.
 - `is_char_at(s, i, c) -> bool` — whether `c` appears at `i`; `false` (never an error) when `i`
   is out of range or `c` doesn't fit, replacing a guarded `p < len(s) && char_at(s, p) == "x"`.
 - `replace(s, old, new) -> string` — swaps every non-overlapping `old` (must not be empty).
+- `replace(s, pairs: Map<string, string>) -> string` — **every key replaced by its value in one
+  pass**, longest match first, and a replacement is never rescanned. That is the point: a
+  sequential version is three lines a caller can already write, and those three lines are where the
+  bugs are. `replace(text, Map { "\r\n": " ", "\n": " ", "\r": " " })` cannot turn a CRLF into two
+  spaces whichever order the map is written in, where the chained form was correct only because
+  `\r\n` came first; and `replace(v, Map { "\\": "\\\\", "\"": "\\\"" })` cannot escape an escape it
+  just wrote. `Map { "a": "b", "b": "c" }` leaves `"a"` as `"b"`. An empty key is a runtime error,
+  as for the three-argument form; an empty map answers `s`.
 - `equals_ignore_case(a, b) -> bool` — ASCII case-insensitive equality, allocating nothing
   (unlike `to_lower(a) == to_lower(b)`). None of the functions above build intermediate strings.
 - **Strings are stored as bytes and counted, indexed and cut in characters.** `len("héllo")` is 5,

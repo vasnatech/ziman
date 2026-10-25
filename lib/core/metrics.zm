@@ -84,9 +84,9 @@ pub fn histogram(name: string, help: string, buckets: [float]) -> bool {
 // A label value goes inside double quotes in the rendered line, so the three characters that
 // would end it or the line are escaped, exactly as the text format requires.
 fn escape(value: string) -> string {
-    var out = replace(value, "\\", "\\\\")
-    out = replace(out, "\"", "\\\"")
-    return replace(out, "\n", "\\n")
+    // Simultaneous, so the backslash cannot escape an escape this pass put there -- chained, this
+    // was correct only because the backslash was done first.
+    return replace(value, Map<string, string> { "\\": "\\\\", "\"": "\\\"", "\n": "\\n" })
 }
 
 // `k="v",k2="v2"` with the names sorted, so the order they were written in never splits a series.

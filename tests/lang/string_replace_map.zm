@@ -1,0 +1,41 @@
+// `replace(s, Map<string, string>)`: every key replaced by its value **in one pass**, longest match
+// first, and a replacement is never rescanned.
+//
+// That is the whole reason it exists. A *sequential* version is three lines any caller can write --
+// and those three lines are where the bugs were. Four places in `lib/` chained `replace` calls and
+// put a constraint in the order:
+//
+//     replace(replace(replace(text, "\r\n", " "), "\n", " "), "\r", " ")   // markdown
+//     replace(replace(s, "\r\n", "\n"), "\r", "\n")                        // xml
+//
+// Both were correct only because `\r\n` came first; swap two lines and a CRLF became two spaces.
+// `metrics.escape` chained three and was correct only because the backslash came first -- reversed,
+// `"` became `\\"`, escaping the escape. All four use this now.
+
+fn main() {
+    // **Order-independent**: longest match first, so the same map written either way agrees.
+    print(replace("a\r\nb\nc\rd", Map<string, string> { "\r\n": "|", "\n": "|", "\r": "|" }))
+    print(replace("a\r\nb\nc\rd", Map<string, string> { "\r": "|", "\n": "|", "\r\n": "|" }))
+
+    // **A replacement is output, not re-examined**: "a" becomes "b" and stops there.
+    print(replace("a", Map<string, string> { "a": "b", "b": "c" }))
+
+    // which is what makes simultaneous escaping safe -- each character escaped exactly once
+    print(replace("a\\b\"c", Map<string, string> { "\\": "\\\\", "\"": "\\\"" }))
+
+    // longest wins among overlapping keys
+    print(replace("abc", Map<string, string> { "a": "1", "ab": "2", "abc": "3" }))
+    print(replace("abcabc", Map<string, string> { "abc": "X", "a": "y" }))
+
+    // nothing to do
+    print(replace("xyz", Map<string, string> { "q": "Q" }))
+    print(concat("[", replace("xyz", Map<string, string> {}), "]"))
+    print(concat("[", replace("", Map<string, string> { "a": "b" }), "]"))
+
+    // keys and values outside ASCII, and a key longer than its value and vice versa
+    print(replace("héllo wörld", Map<string, string> { "é": "e", "ö": "o" }))
+    print(replace("ab", Map<string, string> { "a": "longer", "b": "" }))
+
+    // the three-argument form is untouched
+    print(replace("aaa", "a", "b"))
+}

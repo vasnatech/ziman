@@ -207,6 +207,7 @@ them against the code.
 - [`otp`: `digits` becomes real, and the verifiers learn to count (2026-10-24)](#otp-digits-becomes-real-and-the-verifiers-learn-to-count-2026-10-24)
 - [A new module: `encoding`, and the two families inside base-N (2026-10-24)](#a-new-module-encoding-and-the-two-families-inside-base-n-2026-10-24)
 - [`process.output`'s temporary file was neither unique nor unpredictable (2026-10-24)](#processoutputs-temporary-file-was-neither-unique-nor-unpredictable-2026-10-24)
+- [`replace(s, Map<string, string>)`: one pass, longest match (2026-10-24)](#replaces-mapstring-string-one-pass-longest-match-2026-10-24)
 
 <!-- end index -->
 
@@ -8416,3 +8417,22 @@ The name now carries eight bytes from `random.random_bytes`, which reads the ope
 **What would be the complete answer, and why it is not available here.** The symlink half is properly closed by opening the file with `O_EXCL`, which fails if the path already exists. That open happens inside `start`, whose `out_path` is a *caller's* path and may legitimately exist already -- a program redirecting into its own log file is the normal use. Demanding `O_EXCL` there would break that, and `output`'s private file has no way to ask for different flags than `start` gives every caller. Randomness is the proportionate fix; the limitation is recorded beside it rather than left for someone to discover.
 
 **And a leak on the error path.** `try run(...)` returned early when the child could not be started, which left the file behind -- one leaked temporary per failed call, and the single route out of this function that did not clean up. It binds the result, removes the file, then propagates. `tests/lang/process_output_temp_file.zm` counts `ziman_process_*` entries in the temporary directory before and after a failing call, so the leak cannot come back silently; it cannot assert the *name* (it is random now, which is the point) so it asserts the properties instead.
+
+## `replace(s, Map<string, string>)`: one pass, longest match (2026-10-24)
+
+A second `replace`, taking a map of what to replace with what. The whole of the design is in one sentence -- **every key replaced by its value in a single pass, longest match first, and a replacement is never rescanned** -- because a *sequential* version would be three lines any caller can already write, and those three lines are exactly where the bugs were.
+
+Four places in `lib/` chained `replace` calls and encoded a constraint in the order:
+
+    replace(replace(replace(text, "\r\n", " "), "\n", " "), "\r", " ")   // markdown.flatten_cell
+    replace(replace(s, "\r\n", "\n"), "\r", "\n")                        // xml, normalising endings
+
+Both are correct **only because `\r\n` comes first**. Swap two lines and a CRLF becomes two spaces. With longest match the order cannot matter, which is the difference between code that works and code that works for a reason.
+
+The other two are escapers. `metrics.escape` was three chained calls, correct only because the backslash was done first -- reverse it and `"` becomes `\\"`, the escape escaping the escape it just wrote. `markdown` had the same shape for `\` and `>`. In one pass a replacement is output rather than re-examined, so that bug is not expressible. All four use the map form now, and the suite passed unchanged, which is what makes them conversions rather than rewrites.
+
+`Map { "a": "b", "b": "c" }` leaves `"a"` as `"b"`. An empty key is a runtime error, matching what the three-argument form already does for an empty `old` -- it would match at every position and advance nothing.
+
+**A measurement worth keeping, prompted by a reader's question.** The implementation hoists the keys with `to_array(keys(pairs))`, and the obvious objection is that `for k in pairs` iterates a Map's keys directly and reads better. It does, and it is slower, because the inner loop runs once per *character* and Map iteration has per-loop setup an array walk does not: a 39-character value escaped 200,000 times costs 8779ms that way against 7940ms hoisted, and a 640,000-character document 717ms against 599ms. Building the array by hand with `push` is slower again at 8177ms -- `keys` and `to_array` are natives doing bulk work where a `push` per key is interpreted.
+
+So the hoist stays, with the numbers beside it. The actual defect was that the code gave no reason for it, which is why the question got asked; an optimisation with no comment is indistinguishable from a reflex.
