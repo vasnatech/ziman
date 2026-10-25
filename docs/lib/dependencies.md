@@ -199,6 +199,7 @@ flowchart LR
     toml --> json
     toml --> locale
     toml --> number
+    toml --> time
     truetype --> geom
     truetype --> shape
     url --> locale
@@ -227,9 +228,9 @@ otherwise: everything on a layer depends only on lower layers.
 | 0 | `bits`, `clock`, `compress`, `locale`, `math`, `net`, `random`, `regex`, `thread` |
 | 1 | `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `xml` |
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
-| 3 | `crypto`, `csv`, `db`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `toml`, `truetype`, `yaml`, `zone` |
+| 3 | `crypto`, `csv`, `db`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
 | 4 | `font`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sqlite`, `time`, `uuid` |
-| 5 | `client`, `datasource`, `layout`, `pdf`, `raster`, `schedule` |
+| 5 | `client`, `datasource`, `layout`, `pdf`, `raster`, `schedule`, `toml` |
 | 6 | `migrate` |
 
 ## Each module
@@ -283,8 +284,8 @@ otherwise: everything on a layer depends only on lower layers.
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
 | `test` | `regex` | - |
 | `thread` | - | - |
-| `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `migrate`, `schedule` |
-| `toml` | `json`, `locale`, `number` | - |
+| `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `migrate`, `schedule`, `toml` |
+| `toml` | `json`, `locale`, `number`, `time` | - |
 | `truetype` | `geom`, `shape` | `font`, `pdf`, `raster` |
 | `url` | `locale`, `number` | `db`, `http` |
 | `uuid` | `clock`, `db`, `json`, `number`, `random` | - |

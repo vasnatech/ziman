@@ -123,6 +123,148 @@ fn an_error_still_names_the_line_that_caused_it() {
     test.assert_contains(e, "line 3")
 }
 
+// ------------------------------------------------------------------ what the spec refuses
+
+// Each group below is an input TOML 1.0 forbids and this parser used to accept. They are grouped
+// the way the spec groups them, and each group has its legal neighbour beside it -- which is the
+// part worth having, since every one of these checks could be made to pass by refusing too much.
+
+// "Attempting to append to a statically defined array, even if that array is empty, must produce
+// an error at parse time."
+#[test]
+fn an_array_of_values_is_not_an_array_of_tables() {
+    test.assert_err(toml.parse("a = [1]\n[[a]]\n"))
+    test.assert_err(toml.parse("a = []\n[[a]]\n"))
+    test.assert_err(toml.parse("[t]\na = [1]\n[[t.a]]\n"))
+    // it used to append, and the tree it built was a number beside a table
+    test.assert_contains(test.assert_err(toml.parse("a = [1]\n[[a]]\n")), "cannot append")
+}
+
+// "Inline tables are fully self-contained ... Keys and sub-tables cannot be added outside the
+// braces."
+#[test]
+fn an_inline_table_is_sealed() {
+    test.assert_err(toml.parse("a = { b = 1 }\n[a]\nc = 2\n"))
+    test.assert_err(toml.parse("a = { b = 1 }\n[a.c]\nd = 2\n"))
+    test.assert_err(toml.parse("a = { b = 1 }\n[[a.c]]\nd = 2\n"))
+    test.assert_err(toml.parse("a = { b = 1 }\na.c = 2\n"))
+    test.assert_err(toml.parse("a = {}\n[a]\n"))
+    test.assert_err(toml.parse("[t]\na = { x = 1 }\na.y = 2\n"))
+    test.assert_err(toml.parse("a = { b = { c = 1 } }\na.b.d = 2\n"))
+}
+
+// A fresh element of an array of tables is a fresh table, so the seal from the element before it
+// must not carry over. This is the case that makes the tracking need a scope rather than a flag.
+#[test]
+fn a_new_array_element_starts_clean() {
+    test.assert_eq(
+        "{\"p\":[{\"a\":{\"x\":1}},{\"a\":{\"y\":2}}]}",
+        as_json("[[p]]\na = { x = 1 }\n[[p]]\na.y = 2\n")
+    )
+    test.assert_eq(
+        "{\"p\":[{\"a\":[1]},{\"a\":[2]}]}",
+        as_json("[[p]]\na = [1]\n[[p]]\na = [2]\n")
+    )
+    // and a table whose name merely starts with the same letters is untouched
+    test.assert_eq("{\"pq\":{\"x\":1},\"p\":[{\"n\":1}]}", as_json("pq = { x = 1 }\n[[p]]\nn = 1\n"))
+}
+
+// "Since tables cannot be defined more than once, redefining such tables using a [table] header
+// is not allowed" -- the spec's own worked example, whose three verdicts are the whole rule: the
+// exact tables a dotted key defined are sealed, and anything deeper is still free.
+#[test]
+fn a_dotted_keys_table_cannot_become_a_header() {
+    val base = "[fruit]\napple.color = \"red\"\napple.taste.sweet = true\n"
+    test.assert_err(toml.parse(concat(base, "[fruit.apple]\n")))
+    test.assert_err(toml.parse(concat(base, "[fruit.apple.taste]\n")))
+    test.assert_err(toml.parse(concat(base, "[[fruit.apple]]\n")))
+    test.assert_ok(toml.parse(concat(base, "[fruit.apple.texture]\nsmooth = true\n")))
+    // while a table the parser created from a *header* path may be declared afterwards
+    test.assert_ok(toml.parse("[x.y.z.w]\na = 1\n[x]\nb = 2\n"))
+}
+
+// "Each underscore must be surrounded by at least one digit on each side." Checked before the
+// underscores are stripped, since stripping them is what makes all three of these parse.
+#[test]
+fn an_underscore_needs_digits_on_both_sides() {
+    test.assert_err(toml.parse("a = 1__0\n"))
+    test.assert_err(toml.parse("a = 10_\n"))
+    test.assert_err(toml.parse("a = _10\n"))
+    test.assert_err(toml.parse("a = 0x_1\n"))
+    test.assert_eq("{\"a\":10}", as_json("a = 1_0\n"))
+    // a hex digit counts as a digit, so the alphabet has to be the token's own
+    test.assert_eq("{\"a\":31}", as_json("a = 0x1_f\n"))
+}
+
+// TOML's float grammar wants a digit on both sides of the point and in the exponent, where
+// `parse_float` reads `1.` as 1.0 and `1.e5` as 100000.0.
+#[test]
+fn a_float_needs_digits_around_its_point() {
+    test.assert_err(toml.parse("a = 1.\n"))
+    test.assert_err(toml.parse("a = 1.e5\n"))
+    test.assert_err(toml.parse("a = .5\n"))
+    test.assert_err(toml.parse("a = 1e\n"))
+    test.assert_err(toml.parse("a = 01.5\n"))
+    test.assert_eq("{\"a\":1.5}", as_json("a = 1.5\n"))
+    test.assert_eq("{\"a\":100000.0}", as_json("a = 1e5\n"))
+    test.assert_eq("{\"a\":0.5}", as_json("a = 0.5\n"))
+}
+
+// `looks_datetime` matches a shape, and a shape can hold a date that does not exist.
+#[test]
+fn a_date_or_time_must_be_a_real_one() {
+    test.assert_err(toml.parse("d = 1979-02-30\n"))
+    test.assert_err(toml.parse("d = 2023-02-29\n"))
+    test.assert_err(toml.parse("d = 1979-13-27\n"))
+    test.assert_err(toml.parse("d = 1979-00-27\n"))
+    test.assert_err(toml.parse("d = 1979-05-00\n"))
+    test.assert_err(toml.parse("t = 25:00:00\n"))
+    test.assert_err(toml.parse("t = 23:60:00\n"))
+    test.assert_err(toml.parse("t = 23:59:61\n"))
+    test.assert_err(toml.parse("d = 1979-05-27T07:32:00+99:00\n"))
+    // seconds are not optional in TOML 1.0
+    test.assert_err(toml.parse("t = 07:32\n"))
+}
+
+#[test]
+fn the_dates_that_do_exist_still_parse() {
+    test.assert_eq("{\"d\":\"2024-02-29\"}", as_json("d = 2024-02-29\n"))
+    test.assert_eq("{\"d\":\"1979-05-27T07:32:00Z\"}", as_json("d = 1979-05-27T07:32:00Z\n"))
+    test.assert_eq("{\"d\":\"1979-05-27 07:32:00\"}", as_json("d = 1979-05-27 07:32:00\n"))
+    test.assert_eq("{\"t\":\"00:32:00.999999\"}", as_json("t = 00:32:00.999999\n"))
+    test.assert_eq(
+        "{\"d\":\"1979-05-27T00:32:00.999999-07:00\"}",
+        as_json("d = 1979-05-27T00:32:00.999999-07:00\n")
+    )
+    // **A leap second is allowed**: RFC 3339's `time-second` is "00-58, 00-59, 00-60 based on leap
+    // second rules" and toml.io says nothing, so a document may hold one -- even though
+    // `time.parse_time` refuses it, which is why the clock half is checked here and not delegated.
+    test.assert_eq("{\"t\":\"23:59:60\"}", as_json("t = 23:59:60\n"))
+}
+
+// "Any Unicode character may be used except ... the control characters other than tab (U+0000 to
+// U+0008, U+000A to U+001F, U+007F)."
+#[test]
+fn a_raw_control_character_cannot_sit_in_a_string() {
+    val bell = concat("a = \"x", control(7), "y\"")
+    test.assert_contains(test.assert_err(toml.parse(bell)), "U+0007")
+    test.assert_err(toml.parse(concat("a = 'x", control(7), "y'")))
+    test.assert_err(toml.parse(concat("a = \"\"\"x", control(7), "y\"\"\"")))
+    test.assert_contains(test.assert_err(toml.parse(concat("a = \"x", control(127), "y\""))), "U+007F")
+    // tab is the exception, in both kinds of string, and the escape is always fine
+    test.assert_eq("{\"a\":\"x\\ty\"}", as_json("a = \"x\ty\""))
+    test.assert_eq("{\"a\":\"x\\ty\"}", as_json("a = 'x\ty'"))
+    test.assert_eq("{\"a\":\"x\\u0007y\"}", as_json("a = \"x\\u0007y\""))
+    // and a newline is still the thing a multi-line string is for
+    test.assert_eq("{\"a\":\"x\\ny\"}", as_json("a = \"\"\"x\ny\"\"\""))
+}
+
+fn control(b: int) -> string {
+    val out = mutable_string_new()
+    append_byte(out, b as byte)
+    return snapshot(out)
+}
+
 // ------------------------------------------------------------------ the reason for the rewrite
 
 #[test]

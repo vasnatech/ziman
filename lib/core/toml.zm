@@ -8,8 +8,21 @@
 // Reads tables (`[a.b]`), arrays of tables (`[[a]]`), dotted keys, inline tables, arrays
 // (any nesting, multi-line, trailing commas), basic / literal / multi-line strings with all
 // escapes, integers (decimal, `0x` `0o` `0b`, `_` separators), floats, booleans and comments.
-// Date and time values are kept as `JString` text (Json has no date type). `inf` and `nan`
-// are rejected. Defining the same key or table twice is an error.
+//
+// **Refuses what the spec refuses, which took a pass of its own.** Appending to a statically
+// defined array, adding a key or a header to a sealed inline table, redefining a dotted key's
+// table with a header, an underscore not between two digits, a float with no digit on one side
+// of its point or in its exponent, a date or time whose components are out of range (`1979-02-30`,
+// `25:00:00`, `+99:00`) or a time with no seconds, and a raw control character in any string.
+// A leap second (`23:59:60`) is *allowed*, because RFC 3339 allows one and toml.io is silent.
+//
+// **Two deliberate deviations, both from the `Json` representation.** Date and time values are
+// kept as `JString` text, since Json has no date type -- so a document that goes through `parse`
+// and back through `format` comes out with its dates quoted, as strings, and only the *tree*
+// round-trips. And `inf`/`nan` are refused (as is any float that overflows to one, such as
+// `1e400`), because no Json number can hold them.
+//
+// Defining the same key or table twice is an error.
 //
 // Writes a `Json` object: scalars and arrays first as `key = value`, then sub-tables, then
 // arrays of tables (`[[name]]`). TOML has no null, so a `JNull` field is left out; a null
@@ -30,6 +43,7 @@ use json.float_to_json
 use json.int_to_json
 use locale
 use number.float_to_text
+use time.is_leap_year
 
 // Case folding here is **protocol folding**, so it names the invariant locale rather than taking
 // whatever a program set as its default: Turkish folds `I` to `ı`, and a header name, a hex digit, a
@@ -84,6 +98,46 @@ fn span_text(cs: [string], a: int, b: int) -> string {
 
 fn is_bare_key_char(c: string) -> bool {
     return byte_len(c) == 1 && index_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-", c, 0) >= 0
+}
+
+// A one-character string holding U+007F, built once: the only forbidden control character that
+// does not sort below a space, so the test below needs it as a value to compare against.
+val delete_char = one_byte_char(127)
+
+fn one_byte_char(b: int) -> string {
+    val out = mutable_string_new()
+    append_byte(out, b as byte)
+    return snapshot(out)
+}
+
+// True when `c` is a control character TOML forbids unescaped in a string: U+0000-U+0008,
+// U+000A-U+001F and U+007F -- everything below a space except tab, plus delete. A newline and a
+// carriage return fall in that range and are exempted by the callers, which allow them inside a
+// multi-line string and reject them in a single-line one with a message about the delimiter.
+//
+// **Written as a comparison rather than as a byte test**, which is what `quote_basic` below
+// already does. The byte form (`to_bytes(c)[0] < 32`) allocates a byte array *per character of
+// every string in the document*, and this runs in `parse_basic`'s inner loop: with it, a 203 KB
+// document spent 23% of its time in the collector. String order here is byte order, and every
+// multi-byte character begins at 0xC2 or above, so nothing outside ASCII can sort below a space.
+fn is_control(c: string) -> bool {
+    return (compare(c, " ") < 0 && c != "\t") || c == delete_char
+}
+
+// `U+00XX` for a control character, the two-nibble form `quote_basic` already writes escapes in.
+// Every character `is_control` answers true for is below U+0080, so two digits always suffice.
+fn control_name(c: string) -> string {
+    val code = to_bytes(c)[0] as int
+    // Upper case, which is how a code point is written (`U+007F`), while `hex_chars` is lower for
+    // the `\u00e9` escapes `quote_basic` emits.
+    return to_upper(
+        concat(
+            "U+00",
+            substring(hex_chars, code / 16, code / 16 + 1),
+            substring(hex_chars, code % 16, code % 16 + 1)
+        ),
+        invariant
+    )
 }
 
 fn hex_value(c: string) -> int {
@@ -246,6 +300,13 @@ fn parse_basic(cs: [string], pos: int) -> Result<PStr, string> {
             }
             p = p + 2
         } else {
+            if is_control(c) && c != "\n" && c != "\r" {
+                return err(fail(
+                    cs,
+                    p,
+                    prelude.format("a control character ({}) must be escaped in a string", control_name(c))
+                ))
+            }
             append(out, c)
             p = p + 1
         }
@@ -275,6 +336,18 @@ fn parse_literal(cs: [string], pos: int) -> Result<PStr, string> {
         }
         if !multi && (at_is(cs, p, "\n") || at_is(cs, p, "\r")) {
             return err(fail(cs, p, "a literal string cannot span lines (use ''' for that)"))
+        }
+        if is_control(cs[p]) && cs[p] != "\n" && cs[p] != "\r" {
+            // A literal string has no escapes, so there is nothing to suggest: the character
+            // cannot appear in one at all, and a basic string is where it belongs.
+            return err(fail(
+                cs,
+                p,
+                prelude.format(
+                    "a control character ({}) cannot appear in a literal string",
+                    control_name(cs[p])
+                )
+            ))
         }
         p = p + 1
     }
@@ -333,6 +406,137 @@ fn looks_datetime(t: string) -> bool {
     return len(t) >= 10 && char_at(t, 4) == "-" && char_at(t, 7) == "-" && is_digit(char_at(t, 0))
 }
 
+// The two digits of `t` at `at` as a number, or an error: `looks_datetime` matched a *shape*, and
+// a shape can hold `1979-13-27`.
+fn two_digits(t: string, at: int, what: string) -> Result<int, string> {
+    if at + 2 > len(t) || !is_digit(char_at(t, at)) || !is_digit(char_at(t, at + 1)) {
+        return err(prelude.format("a {} needs two digits", what))
+    }
+    return unwrap(parse_int(substring(t, at, at + 2)))
+}
+
+fn in_range(v: int, low: int, high: int, what: string) -> Result<unit, string> {
+    if v < low || v > high {
+        return err(prelude.format("invalid {}: {} (must be {}-{})", what, v, low, high))
+    }
+    return unit
+}
+
+// `HH:MM:SS` with an optional `.fraction`, and nothing else.
+//
+// **Seconds are not optional in TOML 1.0**: every example in the spec carries them, and RFC 3339's
+// `partial-time` requires them. (TOML 1.1 is expected to relax this, which is a reason to keep the
+// error message about the shape rather than about the version.)
+//
+// **Second 60 is allowed, and this is the one place TOML and `time` disagree.** RFC 3339 defines
+// `time-second` as "00-58, 00-59, 00-60 based on leap second rules", and toml.io is silent, so a
+// leap second is a value a TOML document may hold -- while `time.parse_time` refuses it ("invalid
+// second: 60 (must be 0-59)"). That is why the clock half is three range checks here instead of
+// one delegation, and the date half, where the real calendar lives, is delegated below.
+fn check_clock(t: string) -> Result<unit, string> {
+    if len(t) < 8 || char_at(t, 2) != ":" || char_at(t, 5) != ":" {
+        return err(prelude.format("'{}' is not a time of day (HH:MM:SS)", t))
+    }
+    try in_range(try two_digits(t, 0, "hour"), 0, 23, "hour")
+    try in_range(try two_digits(t, 3, "minute"), 0, 59, "minute")
+    try in_range(try two_digits(t, 6, "second"), 0, 60, "second")
+    if len(t) == 8 {
+        return unit
+    }
+    if char_at(t, 8) != "." || len(t) == 9 {
+        return err(prelude.format("'{}' has trailing characters after the seconds", t))
+    }
+    for i in 9..len(t) {
+        if !is_digit(char_at(t, i)) {
+            return err(prelude.format("'{}' has a non-digit in the fractional seconds", t))
+        }
+    }
+    return unit
+}
+
+// `Z`, `z`, or `+HH:MM`/`-HH:MM`.
+fn check_offset(t: string) -> Result<unit, string> {
+    if len(t) != 5 || char_at(t, 2) != ":" {
+        return err(prelude.format("'{}' is not a UTC offset (+HH:MM)", t))
+    }
+    try in_range(try two_digits(t, 0, "offset hour"), 0, 23, "offset hour")
+    try in_range(try two_digits(t, 3, "offset minute"), 0, 59, "offset minute")
+    return unit
+}
+
+val month_lengths = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+
+// The days in `month` of `year`, **with the leap-year rule left to `time.is_leap_year`**. That
+// rule (divisible by 4, except centuries, except every fourth century) is the one piece of real
+// calendar knowledge here and the one worth not writing twice; a table of twelve month lengths is
+// not knowledge, it is a table.
+//
+// `time.parse_localdate` would answer the whole question and was how this was first written, but
+// it is a format-driven parse: measured at 18 microseconds per date, which a document of 2000 of
+// them felt as a 34% slower parse. One `is_leap_year` call and a table index cost nothing.
+fn days_in_month(year: int, month: int) -> int {
+    if month == 2 && is_leap_year(year) {
+        return 29
+    }
+    return month_lengths[month - 1]
+}
+
+// `YYYY-MM-DD`, with every component in range.
+fn check_date(t: string) -> Result<unit, string> {
+    if char_at(t, 7) != "-" {
+        return err(prelude.format("'{}' is not a date (YYYY-MM-DD)", t))
+    }
+    val year = try two_digits(t, 0, "year") * 100 + try two_digits(t, 2, "year")
+    val month = try two_digits(t, 5, "month")
+    try in_range(month, 1, 12, "month")
+    val day = try two_digits(t, 8, "day")
+    if day < 1 || day > days_in_month(year, month) {
+        return err(prelude.format(
+            "invalid day: {} (month {} of {} has {} days)",
+            day,
+            month,
+            year,
+            days_in_month(year, month)
+        ))
+    }
+    return unit
+}
+
+// The components of a value `looks_datetime` matched the shape of. A date that does not exist
+// (`1979-02-30`, `2023-02-29`), an hour of 25 or an offset of `+99:00` all scan and are all
+// errors: TOML's date-time is RFC 3339's, which puts every component in a range.
+fn check_datetime(t: string) -> Result<unit, string> {
+    var rest = t
+    if len(t) >= 10 && char_at(t, 4) == "-" {
+        val date = substring(t, 0, 10)
+        if Err(why) = check_date(date) {
+            return err(prelude.format("invalid date '{}': {}", date, why))
+        }
+        rest = substring(t, 10, len(t))
+        if is_empty(rest) {
+            return unit
+        }
+        val sep = char_at(rest, 0)
+        if sep != "T" && sep != "t" && sep != " " {
+            return err(prelude.format("'{}' needs a 'T' or a space between the date and the time", t))
+        }
+        rest = substring(rest, 1, len(rest))
+    }
+    if ends_with(rest, "Z") || ends_with(rest, "z") {
+        return check_clock(substring(rest, 0, len(rest) - 1))
+    }
+    // A time of day holds no sign, so the first `+` or `-` in what is left starts the offset.
+    var at = index_of(rest, "+", 0)
+    if at < 0 {
+        at = index_of(rest, "-", 0)
+    }
+    if at < 0 {
+        return check_clock(rest)
+    }
+    try check_clock(substring(rest, 0, at))
+    return check_offset(substring(rest, at + 1, len(rest)))
+}
+
 fn parse_radix(t: string, digits: string, base: int) -> Result<Json, string> {
     if byte_len(t) == 0 {
         return err("empty number")
@@ -348,20 +552,99 @@ fn parse_radix(t: string, digits: string, base: int) -> Result<Json, string> {
     return ok(int_to_json(n))
 }
 
+// **Each underscore must sit between two digits** ("Each underscore must be surrounded by at
+// least one digit on each side"), so `0x1_f` is a number and `0x_1`, `1__0` and `10_` are not.
+// `digits` is the token's own alphabet, which is why a hex `f` counts as a digit here.
+//
+// Checked *before* the underscores are stripped, because stripping them is exactly what destroys
+// the evidence: `replace(tok, "_", "")` turns all three of those into something that parses.
+fn check_underscores(t: string, digits: string) -> Result<unit, string> {
+    for i in 0..len(t) {
+        if char_at(t, i) == "_" {
+            val lone = i == 0 || i + 1 >= len(t)
+            if lone || index_of(digits, to_lower(char_at(t, i - 1), invariant), 0) < 0 || index_of(
+                digits,
+                to_lower(char_at(t, i + 1), invariant),
+                0
+            ) < 0 {
+                return err(prelude.format("each underscore in '{}' needs a digit on both sides", t))
+            }
+        }
+    }
+    return unit
+}
+
+// TOML's float grammar, which `parse_float` is laxer than: it reads `1.` as 1.0 and `1.e5` as
+// 100000.0, where TOML requires a digit on both sides of the decimal point and in the exponent.
+// The no-leading-zeros rule applies to a float's integer part too, so `01.5` is not a float.
+//
+// `t` has already had its underscores removed, so this is the grammar over bare digits.
+fn check_float_shape(t: string) -> Result<unit, string> {
+    var i = 0
+    if i < len(t) && (char_at(t, i) == "+" || char_at(t, i) == "-") {
+        i = i + 1
+    }
+    val whole = i
+    while i < len(t) && is_digit(char_at(t, i)) {
+        i = i + 1
+    }
+    if i == whole {
+        return err(prelude.format("'{}' needs a digit before the decimal point", t))
+    }
+    if i - whole > 1 && char_at(t, whole) == "0" {
+        return err(prelude.format("leading zeros are not allowed in '{}'", t))
+    }
+    if i < len(t) && char_at(t, i) == "." {
+        i = i + 1
+        val frac = i
+        while i < len(t) && is_digit(char_at(t, i)) {
+            i = i + 1
+        }
+        if i == frac {
+            return err(prelude.format("'{}' needs a digit after the decimal point", t))
+        }
+    }
+    if i < len(t) && (char_at(t, i) == "e" || char_at(t, i) == "E") {
+        i = i + 1
+        if i < len(t) && (char_at(t, i) == "+" || char_at(t, i) == "-") {
+            i = i + 1
+        }
+        val exp = i
+        while i < len(t) && is_digit(char_at(t, i)) {
+            i = i + 1
+        }
+        if i == exp {
+            return err(prelude.format("'{}' needs a digit in the exponent", t))
+        }
+    }
+    if i != len(t) {
+        return err(prelude.format("invalid number '{}'", t))
+    }
+    return unit
+}
+
 fn number_token(tok: string) -> Result<Json, string> {
     if looks_datetime(tok) {
+        try check_datetime(tok)
         return ok(Json.JString(tok))
     }
-    val t = replace(tok, "_", "")
-    if starts_with(t, "0x") {
+    if starts_with(tok, "0x") {
+        try check_underscores(tok, hex_chars)
+        val t = replace(tok, "_", "")
         return parse_radix(substring(t, 2, len(t)), hex_chars, 16)
     }
-    if starts_with(t, "0o") {
+    if starts_with(tok, "0o") {
+        try check_underscores(tok, "01234567")
+        val t = replace(tok, "_", "")
         return parse_radix(substring(t, 2, len(t)), "01234567", 8)
     }
-    if starts_with(t, "0b") {
+    if starts_with(tok, "0b") {
+        try check_underscores(tok, "01")
+        val t = replace(tok, "_", "")
         return parse_radix(substring(t, 2, len(t)), "01", 2)
     }
+    try check_underscores(tok, "0123456789")
+    val t = replace(tok, "_", "")
     val bare = if starts_with(t, "+") || starts_with(t, "-") { substring(t, 1, len(t)) } else { t }
     if bare == "inf" || bare == "nan" {
         return err("inf and nan are not supported")
@@ -371,6 +654,7 @@ fn number_token(tok: string) -> Result<Json, string> {
     }
     val signed = if starts_with(t, "+") { substring(t, 1, len(t)) } else { t }
     if contains(bare, ".") || contains(bare, "e") || contains(bare, "E") {
+        try check_float_shape(t)
         val f = parse_float(signed)
         if !is_ok(f) {
             return err(prelude.format("invalid number '{}'", tok))
@@ -572,6 +856,33 @@ fn descend(node: Json, path: [string], i: int, op: int, value: Json) -> Result<J
     return ok(Json.JObject(set(fields, name, try descend(child, path, i + 1, op, value))))
 }
 
+// Every prefix of `path`, as dotted text, outermost first and including the whole:
+// `["a", "b"]` gives `["a", "a.b"]`. These are the tables a header reaches through and then
+// declares, and a sealed inline table among them is an error.
+fn prefixes_of(path: [string]) -> [string] {
+    val out = mutable_array_new<string>()
+    for k in 1..len(path) + 1 {
+        push(out, join(separator: ".", pieces: slice(path, 0, k)))
+    }
+    return snapshot(out)
+}
+
+// Drops every path recorded *under* `prefix`, which a new `[[prefix]]` element makes stale: the
+// element is a fresh table, so `a` having been an inline table in the previous element says
+// nothing about this one. Without this, the second element of
+// `[[p]] / a = { x = 1 } / [[p]] / a.y = 2` would be refused, and it is legal TOML.
+//
+// The prefix keeps its dot, so `[[p]]` forgets `p.a` and leaves `pq.a` alone.
+fn forget_under(paths: Set<string>, prefix: string) -> Set<string> {
+    // Nothing recorded, nothing to forget. Worth the line: a document of N `[[entry]]` tables
+    // calls this 3N times, and `filter` builds a fresh `Set` every time it is called.
+    if len(paths) == 0 {
+        return paths
+    }
+    val under = concat(prefix, ".")
+    return filter(paths, fn(path: string) -> bool { return !starts_with(path, under) })
+}
+
 // After a statement: optional blanks and comment, then a newline or the end.
 fn expect_line_end(cs: [string], pos: int) -> Result<int, string> {
     var p = skip_comment(cs, skip_blank(cs, pos))
@@ -603,7 +914,15 @@ fn flush_table(root: Json, pending: Json, path: [string], op: int) -> Result<Jso
 // Parses a TOML document into a `Json` object (tables and inline tables become objects, arrays
 // arrays, integers `JNumber(Int)`, floats `JNumber(Float)`, dates and times `JString`). An Err carries
 // `line N: ...` for a syntax error, a duplicate key, a table defined twice, a table redefined as a
-// value (or the reverse), or an unsupported value (`inf`, `nan`).
+// value (or the reverse), a value whose components are out of range, or an unsupported value
+// (`inf`, `nan`).
+//
+// **Validating costs about a fifth of the parse**, measured: a 203 KB document went from 130 ms to
+// 162 ms with no dates in it, and from 194 ms to 237 ms with 2000 of them. Most of that is not the
+// dates (about 5 microseconds each) but the control-character test, which every character of every
+// string must pass -- `parse_basic` went from 5.9% to 7.7% of the profile and `is_control` is 3.3%
+// of it. There is no cheaper way to know that a string holds no raw control character than to look
+// at each one.
 pub fn parse(text: string) -> Result<Json, string> {
     // **Decoded once into its characters, and indexed as an array from here on.** Every function
     // below took `(s: string, pos: int)` and reached position `pos` with `char_at`, which walks from
@@ -625,6 +944,23 @@ pub fn parse(text: string) -> Result<Json, string> {
     // at the header that caused it rather than at whatever came next.
     var pending_pos = 0
     var defined = Set<string> {}
+    // **How a container was made, which the tree cannot say.** A `Json` object is a table whether
+    // it came from `[a]` or from `a = { .. }`, and a `Json` array is an array of tables whether it
+    // came from `[[a]]` or from `a = [1]` -- but TOML treats the two origins very differently:
+    // "Attempting to append to a statically defined array, even if that array is empty, must
+    // produce an error at parse time", and "Keys and sub-tables cannot be added outside the
+    // braces" of an inline table. Both rules need the origin, so these two sets remember it as
+    // dotted paths beside the tree.
+    var inline_tables = Set<string> {}
+    var static_arrays = Set<string> {}
+    // Tables a *dotted key* defined, which a header may not then redefine: "Since tables cannot be
+    // defined more than once, redefining such tables using a [table] header is not allowed". Only
+    // the exact tables, not everything under them -- the spec's own example makes
+    // `[fruit.apple.texture]` legal after `apple.color` and `apple.taste.sweet` while
+    // `[fruit.apple]` and `[fruit.apple.taste]` are not. That is also why this is a separate set
+    // from `defined`: a table created implicitly by a *header* path may be declared later
+    // (`[x.y.z.w]` then `[x]` is explicitly fine), and one created by a dotted key may not.
+    var dotted_tables = Set<string> {}
     var p = skip_all(cs, 0)
     while p < len(cs) {
         if at_is(cs, p, "[") {
@@ -636,11 +972,42 @@ pub fn parse(text: string) -> Result<Json, string> {
             }
             q = q + (if is_array { 2 } else { 1 })
             val joined = join(separator: ".", pieces: header.path)
+            for reached in prefixes_of(header.path) {
+                if contains(inline_tables, reached) {
+                    return err(fail(
+                        cs,
+                        p,
+                        prelude.format(
+                            "'{}' is an inline table, which is sealed: a header cannot add to it",
+                            reached
+                        )
+                    ))
+                }
+            }
+            if contains(dotted_tables, joined) {
+                return err(fail(
+                    cs,
+                    p,
+                    prelude.format("'{}' was already defined by a dotted key, so it cannot be a header", joined)
+                ))
+            }
+            if is_array && contains(static_arrays, joined) {
+                return err(fail(
+                    cs,
+                    p,
+                    prelude.format("'{}' is already an array of values, so [[{}]] cannot append to it", joined, joined)
+                ))
+            }
             if !is_array {
                 if contains(defined, joined) {
                     return err(fail(cs, p, prelude.format("table [{}] is defined more than once", joined)))
                 }
                 defined = add(defined, joined)
+            }
+            if is_array {
+                inline_tables = forget_under(inline_tables, joined)
+                static_arrays = forget_under(static_arrays, joined)
+                dotted_tables = forget_under(dotted_tables, joined)
             }
             val flushed = flush_table(root, pending, pending_path, pending_op)
             if Err(e) = flushed {
@@ -659,12 +1026,47 @@ pub fn parse(text: string) -> Result<Json, string> {
             if !at_is(cs, q, "=") {
                 return err(fail(cs, q, "expected '=' after a key"))
             }
+            // **Only the tables a dotted key reaches through need checking, and a plain
+            // `key = value` needs nothing.** The tables *enclosing* this key came from a header,
+            // and a header whose path reaches through an inline table was refused above -- so an
+            // enclosing table can never be a sealed one. Checking them anyway cost a string join
+            // per key per level of nesting, which on a 203 KB document was most of a 30% parse
+            // slowdown; the keys that pay now are the dotted ones, which are the only ones that
+            // can be wrong.
+            if len(key.path) > 1 {
+                val full = concat(pending_path, key.path)
+                for k in len(pending_path) + 1..len(full) {
+                    val reached = join(separator: ".", pieces: slice(full, 0, k))
+                    if contains(inline_tables, reached) {
+                        return err(fail(
+                            cs,
+                            p,
+                            prelude.format(
+                                "'{}' is an inline table, which is sealed: a key cannot be added to it",
+                                reached
+                            )
+                        ))
+                    }
+                    dotted_tables = add(dotted_tables, reached)
+                }
+            }
             val value = try parse_value(cs, skip_blank(cs, q + 1))
             val updated = descend(pending, key.path, 0, 0, value.value)
             if Err(e) = updated {
                 return err(fail(cs, p, e))
             }
             pending = unwrap(updated)
+            // Only a table or an array value has an origin worth remembering, and only its own
+            // path -- not the paths inside it, since anything reaching into a nested inline table
+            // has this one as a prefix and is caught by the check above.
+            if Json.is_JObject(value.value) || Json.is_JArray(value.value) {
+                val full_key = join(separator: ".", pieces: concat(pending_path, key.path))
+                if Json.is_JObject(value.value) {
+                    inline_tables = add(inline_tables, full_key)
+                } else {
+                    static_arrays = add(static_arrays, full_key)
+                }
+            }
             val after_value = try expect_line_end(cs, value.next)
             p = after_value
         }
