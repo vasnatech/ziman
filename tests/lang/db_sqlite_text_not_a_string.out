@@ -1,0 +1,10 @@
+text
+1
+610062
+database error: a TEXT value holding a NUL byte cannot become a string -- read the column as CAST(col AS BLOB)
+[97, 0, 98]
+database error: a TEXT value that is not valid UTF-8 (invalid sequence at byte 0) cannot become a string -- read the column as CAST(col AS BLOB)
+database error: a TEXT value that is not valid UTF-8 (invalid sequence at byte 0) cannot become a string -- read the column as CAST(col AS BLOB)
+text byte_len=11
+héllo 😀
+true

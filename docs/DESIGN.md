@@ -218,6 +218,7 @@ them against the code.
 - [`xml`: six namespace MUST NOTs, and a comment the writer refused but the reader did not (2026-10-25)](#xml-six-namespace-must-nots-and-a-comment-the-writer-refused-but-the-reader-did-not-2026-10-25)
 - [`yaml`: four values read wrong, and a newline that was never a line (2026-10-25)](#yaml-four-values-read-wrong-and-a-newline-that-was-never-a-line-2026-10-25)
 - [`db`'s URL parser: an IPv6 host nobody could reach, and a parameter dropped in silence (2026-10-25)](#dbs-url-parser-an-ipv6-host-nobody-could-reach-and-a-parameter-dropped-in-silence-2026-10-25)
+- [`sqlite`: SQLite's TEXT is not a Ziman string (2026-10-25)](#sqlite-sqlites-text-is-not-a-ziman-string-2026-10-25)
 
 <!-- end index -->
 
@@ -8669,3 +8670,22 @@ Verification worth naming: beyond the four corners, a round-trip pass puts twent
 The readers around it needed nothing. Their cross-dialect coercions are deliberate and documented -- `sql_as_bool` takes an `Int` of 0 or 1 because SQLite has no boolean, `sql_as_float` takes an `Int`, `sql_as_decimal` takes `Text` because that is how a decimal crosses the driver boundary -- and the asymmetry that `sql_as_int` does *not* take a `Float` is right: widening is safe, narrowing is a choice the caller should make.
 
 Checked before tightening anything: every database URL in both repositories and all the test harnesses, 39 of them. None uses a bare `?flag`, a port outside the range, or a bracketed host, and the four URL messages the pg and mysql integration suites pin (`unsupported sslmode`, `has no user name`, `bad port in database URL: notaport`) are all ones this does not touch -- those suites need live servers and do not run in `make check`, so that was worth reading rather than assuming. `mysql://root:secret@127.0.0.1:1/zimandb` is why the range starts at 1 rather than at 1024.
+
+## `sqlite`: SQLite's TEXT is not a Ziman string (2026-10-25)
+
+The driver's careful parts are genuinely careful. Floats cross as `%.17g` in *both* directions -- `sqlite::float_to_text` exists precisely because Ziman's `str(float)` is six significant digits and would quietly round a value on its way to a column -- and the round trip is exact for 0.1, `0.30000000000000004`, 1e308, 5e-324 and pi, checked value by value. Integers survive to the `int64` edges. Error classification is right where it matters: a UNIQUE or NOT NULL violation is `Constraint`, a missing column or table or a syntax error is `Sql`, a database that will not open is `Connection`, and a parameter-count mismatch is caught rather than passed to SQLite. Blobs are hex-encoded, so bytes with NULs in them travel fine.
+
+**What was wrong sat in the one place the type system cannot help: the bytes SQLite calls text.** SQLite is typeless and stores whatever it is given. `'a' || char(0) || 'b'` really is three bytes -- its own `hex()` says `610062`, while its own `length()` says 1, stopping at the NUL -- and `CAST(x'ff' AS TEXT)` really is an 0xff. A Ziman string is valid UTF-8 and holds no NUL, so neither value can become one. The driver handed them over anyway, and failed differently each time:
+
+* **The NUL truncated the value in silence.** `prefixed` memcpy's every byte and `value_string` then measures the result with `strlen`, so `a\0b` arrived as `a` with nothing said. Silent data loss, in a driver, with the database itself able to prove the bytes were there.
+* **The invalid UTF-8 killed the program.** It reached `decode_cell`'s `substring`, which raised `string is not valid UTF-8 (invalid sequence at byte 1)` as a **fatal runtime error from inside the driver** -- not a `DbError`, so nothing could catch it. A `SELECT` over a table holding one such row took the process down.
+
+Both are refused in the native now, where the bytes are still in hand, as an `E` cell that `decode_cell` turns into an ordinary `DbError`. **The message names the remedy rather than the rule**: `CAST(col AS BLOB)` reads the column losslessly, and the fixture proves it -- the same value comes back as `[97, 0, 98]`, every byte intact. A reader who hits this wants their data, not a lecture about UTF-8.
+
+**Three drivers, three different answers to the same question**, which is the finding worth carrying past this module:
+
+* `sqlite`, now: refuse with a `DbError` that names the remedy.
+* `mysql` (`mysql.zm:629`): fall back to `SqlValue.Bytes(raw)` when `bytes_to_string` fails. Lossless and never fatal, but it changes the column's type without saying why, so a caller matching on `SqlValue` silently takes a different branch.
+* `pg` (`pg.zm:124`): `unwrap(bytes_to_string(..))`, which is the fatal shape `sqlite` just lost.
+
+Postgres validates text against the database encoding on the way in, so the server should never send a `text` field that is not valid UTF-8 -- `pg`'s exposure is far smaller than `sqlite`'s, where any column can hold anything. But an `unwrap` on bytes that arrived over a socket is a bet on the peer, and `text_of` is used for protocol parsing throughout that module, not only for column values. **Flagged rather than changed**: the pg and mysql suites need live servers and do not run in `make check`, so a fix there is one I could not have tested, and shipping an untested change to a driver's decode path to close a hole the server is supposed to prevent is the wrong trade. Which of the three answers all three drivers should give is a decision, not a bug fix.

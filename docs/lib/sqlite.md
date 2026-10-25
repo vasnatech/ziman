@@ -9,7 +9,17 @@ through `datasource.open("sqlite:...")`; `pg` is the Postgres counterpart.
 
 The natives only ever exchange primitives (ints, strings, arrays of
 *tagged strings* -- one tag character then a payload: N null,
-I<int>, F<float>, T<text>, B<hex>, b0/b1 bool).
+I<int>, F<float>, T<text>, B<hex>, b0/b1 bool, E<message> a cell the driver will not hand over).
+
+**`F` carries `%.17g` in both directions**, which is what makes a float survive the round trip
+exactly -- Ziman's own `str(float)` is six significant digits and would quietly round a value on
+its way to a column.
+
+**`E` exists because SQLite's TEXT is not a Ziman string.** SQLite stores whatever bytes it is
+given and still calls them text, so a TEXT value may hold a NUL byte or bytes that are not valid
+UTF-8; a Ziman string may hold neither. Those are refused in the native, where the bytes are
+still in hand, and arrive here as an ordinary `DbError` naming `CAST(col AS BLOB)` as the
+lossless way to read such a column.
 
 `use sqlite` -- or `use sqlite.Name` to bring one item in bare.
 

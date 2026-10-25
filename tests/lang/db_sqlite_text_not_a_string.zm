@@ -1,0 +1,83 @@
+// SQLite's TEXT is not a Ziman string. SQLite stores whatever bytes it is given and will call
+// them text: `'a' || char(0) || 'b'` really is three bytes (its own `hex()` says 610062, while
+// its own `length()` says 1, stopping at the NUL), and `CAST(x'ff' AS TEXT)` really is an 0xff.
+// A Ziman string is valid UTF-8 and holds no NUL, so neither can cross.
+//
+// Handing them over anyway failed in two different ways, neither of them catchable:
+//
+//   the NUL **silently truncated** the value -- the native copies every byte and `value_string`
+//   then measures with strlen, so `a\0b` arrived as `a` and nothing said so;
+//
+//   the bad UTF-8 reached `decode_cell`'s `substring` and raised a **fatal runtime error from
+//   inside the driver**, taking down any program that selected the row.
+//
+// Both are refused at the boundary now, while the bytes are still in hand, as an ordinary
+// `DbError` naming the remedy -- `CAST(col AS BLOB)`, which is lossless.
+use db
+use db.row_get
+use db.sql_as_text
+use sqlite
+
+fn text_at(conn: sqlite.Connection, sql: string) -> string {
+    return switch sqlite.query(conn, sql) {
+        Ok(rows) {
+            switch row_get(rows[0], "v") {
+                Ok(v) { switch sql_as_text(v) {
+                    Ok(t) { format("text byte_len={}", byte_len(t)) }
+                    Err(e) { db.db_error_message(e) }
+                } }
+                Err(e) { db.db_error_message(e) }
+            }
+        }
+        Err(e) { db.db_error_message(e) }
+    }
+}
+
+fn main() {
+    val conn = unwrap(sqlite.open(":memory:"))
+    val _ = unwrap(sqlite.execute(conn, "CREATE TABLE t (v ANY)"))
+
+    // what SQLite itself says it stored, so none of this rests on how the driver decodes
+    val _ = unwrap(sqlite.execute(conn, "INSERT INTO t VALUES ('a' || char(0) || 'b')"))
+    val own = unwrap(sqlite.query(conn, "SELECT typeof(v) AS ty, length(v) AS n, hex(v) AS h FROM t"))
+    print(unwrap(sql_as_text(unwrap(row_get(own[0], "ty")))))
+    print(unwrap(db.sql_as_int(unwrap(row_get(own[0], "n")))))
+    print(unwrap(sql_as_text(unwrap(row_get(own[0], "h")))))
+
+    print(text_at(conn, "SELECT v FROM t"))
+    // and the remedy keeps every byte
+    switch unwrap(row_get(unwrap(sqlite.query(conn, "SELECT CAST(v AS BLOB) AS v FROM t"))[0], "v")) {
+        Bytes(bs) { print(map(bs, fn(b: byte) -> int { return b as int })) }
+        Null { print("null") }
+        Int(_) { print("int") }
+        Float(_) { print("float") }
+        Text(_) { print("text") }
+        Bool(_) { print("bool") }
+    }
+
+    val _ = unwrap(sqlite.execute(conn, "DELETE FROM t"))
+    val _ = unwrap(sqlite.execute(conn, "INSERT INTO t VALUES (CAST(x'ff' AS TEXT))"))
+    print(text_at(conn, "SELECT v FROM t"))
+    // the cursor path reports it per row rather than crashing mid-iteration
+    for r in unwrap(sqlite.rows(conn, "SELECT v FROM t")) {
+        print(switch r {
+            Ok(_) { "a row" }
+            Err(e) { db.db_error_message(e) }
+        })
+    }
+
+    // ordinary text, including astral-plane characters, is untouched
+    val _ = unwrap(sqlite.execute(conn, "DELETE FROM t"))
+    val _ = unwrap(sqlite.execute(conn, "INSERT INTO t VALUES ('héllo 😀')"))
+    print(text_at(conn, "SELECT v FROM t"))
+    print(unwrap(sql_as_text(unwrap(row_get(unwrap(sqlite.query(conn, "SELECT v FROM t"))[0], "v")))))
+
+    // and the values that always worked still do, exactly: %.17g both ways
+    val _ = unwrap(sqlite.execute(conn, "DELETE FROM t"))
+    val _ = unwrap(sqlite.execute(conn, "INSERT INTO t VALUES (?)", db.SqlValue.Float(0.30000000000000004)))
+    print(unwrap(db.sql_as_float(unwrap(row_get(
+        unwrap(sqlite.query(conn, "SELECT v FROM t"))[0],
+        "v"
+    )))) == 0.30000000000000004)
+    sqlite.close(conn)
+}

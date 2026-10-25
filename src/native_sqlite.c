@@ -13,6 +13,7 @@
 #include "error.h"
 #include "handles.h"
 #include "native.h"
+#include "utf8.h"
 #include "xalloc.h"
 
 /* The SQLite driver behind lib/db/sqlite.zm. Everything crossing the native
@@ -327,8 +328,40 @@ static char *encode_cell(sqlite3_stmt *stmt, int i) {
             return prefixed('F', buf, strlen(buf));
         }
         case SQLITE_TEXT: {
+            /* A Ziman string is valid UTF-8 and holds no NUL byte; SQLite's TEXT is neither
+             * guaranteed. It stores whatever bytes it was given -- `'a' || char(0) || 'b'` really
+             * is three bytes (its own hex() says 610062) and `CAST(x'ff' AS TEXT)` really is an
+             * 0xff -- so the two have to be refused here, while the bytes are still in hand.
+             *
+             * Handing them over instead went wrong in two different ways, neither of them an
+             * error a caller could catch: the NUL silently truncated the value, because
+             * `prefixed` copies every byte and `value_string` then measures with strlen, so
+             * everything past the NUL simply vanished; and the bad UTF-8 reached `decode_cell`'s
+             * `substring` and raised a *fatal runtime error* from inside the driver, taking down
+             * any program that selected the row.
+             *
+             * `CAST(col AS BLOB)` is the lossless way to read such a column, and the message says
+             * so, because a reader who hits this needs the value and not a lecture. */
             const unsigned char *t = sqlite3_column_text(stmt, i);
-            return prefixed('T', (const char *)t, (size_t)sqlite3_column_bytes(stmt, i));
+            size_t n = (size_t)sqlite3_column_bytes(stmt, i);
+            if (memchr(t, 0, n) != NULL) {
+                return prefixed('E', "a TEXT value holding a NUL byte cannot become a string -- read the column as CAST(col AS BLOB)",
+                                strlen("a TEXT value holding a NUL byte cannot become a string -- read the column as CAST(col AS BLOB)"));
+            }
+            size_t pos = 0;
+            while (pos < n) {
+                uint32_t cp;
+                int adv = ziman_utf8_decode_strict(t, n, pos, &cp);
+                if (adv == 0) {
+                    char msg[160];
+                    snprintf(msg, sizeof msg,
+                             "a TEXT value that is not valid UTF-8 (invalid sequence at byte %zu) cannot become a string -- read the column as CAST(col AS BLOB)",
+                             pos);
+                    return prefixed('E', msg, strlen(msg));
+                }
+                pos += (size_t)adv;
+            }
+            return prefixed('T', (const char *)t, n);
         }
         case SQLITE_BLOB: {
             const unsigned char *b = sqlite3_column_blob(stmt, i);
