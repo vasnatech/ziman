@@ -197,6 +197,7 @@ them against the code.
 - [`markdown` drops the stutter, and the whole module was already qualified (2026-10-24)](#markdown-drops-the-stutter-and-the-whole-module-was-already-qualified-2026-10-24)
 - [`math`: the decimal roundings join their float namesakes, and answer a `bigint` (2026-10-24)](#math-the-decimal-roundings-join-their-float-namesakes-and-answer-a-bigint-2026-10-24)
 - [`math` gains five: `is_finite`, `is_infinite`, `log2`, `log10`, `sign` (2026-10-24)](#math-gains-five-is_finite-is_infinite-log2-log10-sign-2026-10-24)
+- [`metrics`: fifteen names become five (2026-10-24)](#metrics-fifteen-names-become-five-2026-10-24)
 
 <!-- end index -->
 
@@ -8233,3 +8234,15 @@ Chosen from a longer list by asking what the tree already hand-rolls, which has 
 **NaN is a runtime error from `sign`, and that is the decision in it.** The answer has to be an `int`, and every candidate is a lie: `0` would make `sign(nan)` agree with `sign(0.0)`, and -1 or 1 would claim an ordering NaN does not have. Java returns NaN from `signum` because its return type can hold one; an `int` cannot, so the honest options are an error or a `Result`, and an error that names `is_nan(x)` is the cheaper of the two for a function nobody wants to unwrap. Both infinities have a perfectly good sign and get it.
 
 **What was left out, and why.** `clamp` is `min(max(x, lo), hi)` and the one nested `min`/`max` in the tree is an edit-distance recurrence, not a clamp. `gcd`/`lcm`, `cbrt`, the hyperbolics and `to_radians`/`to_degrees` have no caller anywhere -- including in `lib/graphics`, which was the place to look for the trigonometric ones and does not want them. `hypot` and `trunc` are the two with a real argument behind them (overflow-free magnitude; the fourth rounding mode, with `decimal_to_bignum_trunc` already in C) and are the obvious next pair if anything asks. Float limits are already `number.float_min`/`float_max`/`float_min_positive`, so they are placed, just not here.
+
+## `metrics`: fifteen names become five (2026-10-24)
+
+Every recording operation came in three forms, and the suffixes only restated the argument list. `increment(name)`, `increment_with(name, labels)` and `increment_at(series)` differ in exactly what their arguments already say -- a `Map` third argument is self-evidently a label set, a `Series` first argument self-evidently a resolved one -- so the five operations (`increment`, `add`, `set`, `gauge_add`, `observe`) are five overload sets of three, and ten names are gone. `plain_series(name)` folded into `series` the same way, by arity.
+
+**All 43 call sites were already qualified, with zero per-name imports**, which is what made this safe to do at all: `add` and `set` are both names the prelude has -- `set` is even an interpreter-dispatched builtin -- and a bare `use metrics.add` would have cost that file the prelude's `add` on a `Set`. Nothing imports them that way, so nothing had to change. The same observation as `markdown` an hour earlier, and the third module today where the qualified call style made a rename free.
+
+**Six of the eighteen functions had no caller anywhere**: `add_with`, `set_with`, `observe_with`, `gauge_add_with`, `plain_series` and `set`. Folding them into overloads keeps the capability while removing the name, which is the right answer for a metrics library -- labelled recording is real API that a program will want even if this tree's two programs do not. Deleting them would have been the wrong read of "no caller".
+
+**`series_of` kept its own name, and this is the one judgement in the change.** Its argument types *would* tell it apart from `series(name, labels: Map)` -- a `string` second argument against a `Map` one -- so overloading it was available and I did not take it. It accepts a pre-built label key and its own doc says getting that key wrong "splits a series rather than failing": a silent wrong answer, not an error. As a third `series` overload the unsafe path becomes reachable by typo; as a separate name it is reachable only on purpose. Same rule as `csv`'s `parse_typed` and `jwt`'s `verify_at`: a name carries what an argument cannot, and here what it carries is which of two paths you are accepting responsibility for.
+
+A process note on the mechanics. Moving `series_of` below the second `series` declaration -- so the set's two members sit together -- was done with a script that searched for the next `}\n`, and that matched the brace closing `Series { handle: ... }` on the `return` line, nesting a `pub fn` inside a function body. 29 fixtures failed, the parse error pointed at the right line, and the fix was to stop scripting a two-line move. Worth recording because the first instinct on a 29-failure diff is to look for something subtle.

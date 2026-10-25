@@ -102,9 +102,26 @@ fn labels_key(labels: Map<string, string>) -> string {
     return join(separator: ",", pieces: snapshot(parts))
 }
 
+// **Each of the five operations is one name over three forms**, told apart by the arguments: a
+// metric name, a metric name plus a label `Map`, or a resolved `Series`. They were fifteen names
+// -- `increment`, `increment_with`, `increment_at` and so on -- where the `_with` and `_at`
+// suffixes only ever restated what the argument list already says. A `Map` third argument is
+// self-evidently a label set, and a `Series` first argument self-evidently a resolved one, so
+// nothing is lost by dropping them (2026-10-24).
+
 // Adds 1 to a counter with no labels.
 pub fn increment(name: string) {
     add_raw(name, no_labels, 1.0)
+}
+
+// The same with labels.
+pub fn increment(name: string, labels: Map<string, string>) {
+    add_raw(name, labels_key(labels), 1.0)
+}
+
+// The same to a resolved series: no strings, no sorting, no lookup by name.
+pub fn increment(s: Series) {
+    add_at_raw(s.handle, 1.0)
 }
 
 // Adds `delta` to a counter with no labels.
@@ -112,9 +129,29 @@ pub fn add(name: string, delta: float) {
     add_raw(name, no_labels, delta)
 }
 
+// The same with labels.
+pub fn add(name: string, delta: float, labels: Map<string, string>) {
+    add_raw(name, labels_key(labels), delta)
+}
+
+// The same to a resolved series.
+pub fn add(s: Series, delta: float) {
+    add_at_raw(s.handle, delta)
+}
+
 // Sets a gauge with no labels.
 pub fn set(name: string, value: float) {
     set_raw(name, no_labels, value)
+}
+
+// The same with labels.
+pub fn set(name: string, value: float, labels: Map<string, string>) {
+    set_raw(name, labels_key(labels), value)
+}
+
+// The same to a resolved series.
+pub fn set(s: Series, value: float) {
+    set_at_raw(s.handle, value)
 }
 
 // Moves a gauge by `delta`, which `add` deliberately will not do: `add` is for counters, and a
@@ -124,8 +161,14 @@ pub fn gauge_add(name: string, delta: float) {
     gauge_add_raw(name, no_labels, delta)
 }
 
-pub fn gauge_add_with(name: string, delta: float, labels: Map<string, string>) {
+// The same with labels.
+pub fn gauge_add(name: string, delta: float, labels: Map<string, string>) {
     gauge_add_raw(name, labels_key(labels), delta)
+}
+
+// The same to a resolved series.
+pub fn gauge_add(s: Series, delta: float) {
+    gauge_add_at_raw(s.handle, delta)
 }
 
 // Records one observation in a histogram with no labels.
@@ -133,21 +176,14 @@ pub fn observe(name: string, value: float) {
     observe_raw(name, no_labels, value)
 }
 
-// The same four, with labels.
-pub fn increment_with(name: string, labels: Map<string, string>) {
-    add_raw(name, labels_key(labels), 1.0)
-}
-
-pub fn add_with(name: string, delta: float, labels: Map<string, string>) {
-    add_raw(name, labels_key(labels), delta)
-}
-
-pub fn set_with(name: string, value: float, labels: Map<string, string>) {
-    set_raw(name, labels_key(labels), value)
-}
-
-pub fn observe_with(name: string, value: float, labels: Map<string, string>) {
+// The same with labels.
+pub fn observe(name: string, value: float, labels: Map<string, string>) {
     observe_raw(name, labels_key(labels), value)
+}
+
+// The same to a resolved series.
+pub fn observe(s: Series, value: float) {
+    observe_at_raw(s.handle, value)
 }
 
 // One metric's one label set, resolved once so that recording to it costs nothing but the update.
@@ -173,6 +209,16 @@ pub fn series(name: string, labels: Map<string, string>) -> Series {
 }
 
 // The unlabelled series of a metric, resolved the same way.
+pub fn series(name: string) -> Series {
+    return Series { handle: series_raw(name, no_labels) }
+}
+
+// **A name of its own rather than a third `series` overload**, although the argument types would
+// tell them apart. `series(name, labels: Map)` sorts and escapes; this one trusts a key the caller
+// built, and getting that key wrong *splits a series* rather than failing -- so the unsafe form is
+// opt-in by name, where a `string` second argument beside a `Map` one would make it opt-in by
+// typo. Same reasoning as `csv`'s `parse_typed`: a name carries what an argument cannot.
+//
 // A series whose label key is already built, for a caller that knows its labels are safe and in
 // order and does not want `labels_key`'s sorting and escaping on a hot path. The key is the
 // rendered label list exactly as it appears between the braces: `k="v",k2="v2"`, names in
@@ -180,31 +226,6 @@ pub fn series(name: string, labels: Map<string, string>) -> Series {
 // series rather than failing, which is why the sorted, escaped `series` is what to reach for first.
 pub fn series_of(key_name: string, key: string) -> Series {
     return Series { handle: series_raw(key_name, key) }
-}
-
-pub fn plain_series(name: string) -> Series {
-    return Series { handle: series_raw(name, no_labels) }
-}
-
-// Adds 1 to a resolved counter.
-pub fn increment_at(s: Series) {
-    add_at_raw(s.handle, 1.0)
-}
-
-pub fn add_at(s: Series, delta: float) {
-    add_at_raw(s.handle, delta)
-}
-
-pub fn set_at(s: Series, value: float) {
-    set_at_raw(s.handle, value)
-}
-
-pub fn observe_at(s: Series, value: float) {
-    observe_at_raw(s.handle, value)
-}
-
-pub fn gauge_add_at(s: Series, delta: float) {
-    gauge_add_at_raw(s.handle, delta)
 }
 
 // Every declared metric in the Prometheus text format, ending in a newline. Serve this as the

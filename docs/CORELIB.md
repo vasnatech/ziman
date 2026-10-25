@@ -777,23 +777,33 @@ pub fn histogram(name: string, help: string, buckets: [float]) -> bool
 
 pub fn increment(name: string)
 
+pub fn increment(name: string, labels: Map<string, string>)
+
+pub fn increment(s: Series)
+
 pub fn add(name: string, delta: float)
+
+pub fn add(name: string, delta: float, labels: Map<string, string>)
+
+pub fn add(s: Series, delta: float)
 
 pub fn set(name: string, value: float)
 
+pub fn set(name: string, value: float, labels: Map<string, string>)
+
+pub fn set(s: Series, value: float)
+
 pub fn gauge_add(name: string, delta: float)
 
-pub fn gauge_add_with(name: string, delta: float, labels: Map<string, string>)
+pub fn gauge_add(name: string, delta: float, labels: Map<string, string>)
+
+pub fn gauge_add(s: Series, delta: float)
 
 pub fn observe(name: string, value: float)
 
-pub fn increment_with(name: string, labels: Map<string, string>)
+pub fn observe(name: string, value: float, labels: Map<string, string>)
 
-pub fn add_with(name: string, delta: float, labels: Map<string, string>)
-
-pub fn set_with(name: string, value: float, labels: Map<string, string>)
-
-pub fn observe_with(name: string, value: float, labels: Map<string, string>)
+pub fn observe(s: Series, value: float)
 
 pub struct Series {
     handle: int
@@ -801,19 +811,9 @@ pub struct Series {
 
 pub fn series(name: string, labels: Map<string, string>) -> Series
 
+pub fn series(name: string) -> Series
+
 pub fn series_of(key_name: string, key: string) -> Series
-
-pub fn plain_series(name: string) -> Series
-
-pub fn increment_at(s: Series)
-
-pub fn add_at(s: Series, delta: float)
-
-pub fn set_at(s: Series, value: float)
-
-pub fn observe_at(s: Series, value: float)
-
-pub fn gauge_add_at(s: Series, delta: float)
 
 pub fn render() -> string
 

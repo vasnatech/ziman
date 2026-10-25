@@ -2010,8 +2010,8 @@ fn connection_closed(meter: bool) {
 }
 
 fn record_request(method: HttpMethod, route: string, status: int, millis: int) {
-    metrics.increment_at(metrics.series_of(key_name: requests_metric, key: request_key(method, route, status)))
-    metrics.observe_at(
+    metrics.increment(metrics.series_of(key_name: requests_metric, key: request_key(method, route, status)))
+    metrics.observe(
         metrics.series_of(key_name: latency_metric, key: latency_key(method, route)),
         (millis as float) / 1000.0
     )

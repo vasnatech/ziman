@@ -70,6 +70,18 @@ pub fn increment(name: string)
 
 Adds 1 to a counter with no labels.
 
+```
+pub fn increment(name: string, labels: Map<string, string>)
+```
+
+The same with labels.
+
+```
+pub fn increment(s: Series)
+```
+
+The same to a resolved series: no strings, no sorting, no lookup by name.
+
 ### `add`
 
 ```
@@ -78,6 +90,18 @@ pub fn add(name: string, delta: float)
 
 Adds `delta` to a counter with no labels.
 
+```
+pub fn add(name: string, delta: float, labels: Map<string, string>)
+```
+
+The same with labels.
+
+```
+pub fn add(s: Series, delta: float)
+```
+
+The same to a resolved series.
+
 ### `set`
 
 ```
@@ -85,6 +109,18 @@ pub fn set(name: string, value: float)
 ```
 
 Sets a gauge with no labels.
+
+```
+pub fn set(name: string, value: float, labels: Map<string, string>)
+```
+
+The same with labels.
+
+```
+pub fn set(s: Series, value: float)
+```
+
+The same to a resolved series.
 
 ### `gauge_add`
 
@@ -96,11 +132,17 @@ Moves a gauge by `delta`, which `add` deliberately will not do: `add` is for cou
 counter and a gauge are different promises. Two threads moving the same gauge at once each see the
 other's change, which is what an open-connections count needs.
 
-### `gauge_add_with`
+```
+pub fn gauge_add(name: string, delta: float, labels: Map<string, string>)
+```
+
+The same with labels.
 
 ```
-pub fn gauge_add_with(name: string, delta: float, labels: Map<string, string>)
+pub fn gauge_add(s: Series, delta: float)
 ```
+
+The same to a resolved series.
 
 ### `observe`
 
@@ -110,31 +152,17 @@ pub fn observe(name: string, value: float)
 
 Records one observation in a histogram with no labels.
 
-### `increment_with`
-
 ```
-pub fn increment_with(name: string, labels: Map<string, string>)
+pub fn observe(name: string, value: float, labels: Map<string, string>)
 ```
 
-The same four, with labels.
-
-### `add_with`
+The same with labels.
 
 ```
-pub fn add_with(name: string, delta: float, labels: Map<string, string>)
+pub fn observe(s: Series, value: float)
 ```
 
-### `set_with`
-
-```
-pub fn set_with(name: string, value: float, labels: Map<string, string>)
-```
-
-### `observe_with`
-
-```
-pub fn observe_with(name: string, value: float, labels: Map<string, string>)
-```
+The same to a resolved series.
 
 ### `Series`
 
@@ -168,56 +196,29 @@ is another reason it is only for tests.
 pub fn series(name: string, labels: Map<string, string>) -> Series
 ```
 
+```
+pub fn series(name: string) -> Series
+```
+
+The unlabelled series of a metric, resolved the same way.
+
 ### `series_of`
 
 ```
 pub fn series_of(key_name: string, key: string) -> Series
 ```
 
-The unlabelled series of a metric, resolved the same way.
+**A name of its own rather than a third `series` overload**, although the argument types would
+tell them apart. `series(name, labels: Map)` sorts and escapes; this one trusts a key the caller
+built, and getting that key wrong *splits a series* rather than failing -- so the unsafe form is
+opt-in by name, where a `string` second argument beside a `Map` one would make it opt-in by
+typo. Same reasoning as `csv`'s `parse_typed`: a name carries what an argument cannot.
+
 A series whose label key is already built, for a caller that knows its labels are safe and in
 order and does not want `labels_key`'s sorting and escaping on a hot path. The key is the
 rendered label list exactly as it appears between the braces: `k="v",k2="v2"`, names in
 increasing order, each value with `\`, `"` and newline escaped. Getting that wrong splits a
 series rather than failing, which is why the sorted, escaped `series` is what to reach for first.
-
-### `plain_series`
-
-```
-pub fn plain_series(name: string) -> Series
-```
-
-### `increment_at`
-
-```
-pub fn increment_at(s: Series)
-```
-
-Adds 1 to a resolved counter.
-
-### `add_at`
-
-```
-pub fn add_at(s: Series, delta: float)
-```
-
-### `set_at`
-
-```
-pub fn set_at(s: Series, value: float)
-```
-
-### `observe_at`
-
-```
-pub fn observe_at(s: Series, value: float)
-```
-
-### `gauge_add_at`
-
-```
-pub fn gauge_add_at(s: Series, delta: float)
-```
 
 ### `render`
 
