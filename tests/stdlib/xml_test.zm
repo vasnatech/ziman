@@ -518,6 +518,102 @@ fn windows_line_endings_normalise() {
     test.assert_eq("one\ntwo\nthree", xml.text_of(doc.root))
 }
 
+// ------------------------------------------------------------------ the reserved namespace names
+
+// "Namespaces in XML" fences off two prefixes and two namespace names with six separate MUST
+// NOTs, and this parser enforced none of them: all six documents below parsed. A tree where
+// `xmlns` is itself a namespace prefix, or where `xml:lang` has been rebound to something that
+// is not the language namespace, is one nobody can mean.
+#[test]
+fn the_xmlns_prefix_cannot_be_declared() {
+    test.assert_contains(
+        test.assert_err(xml.parse("<a xmlns:xmlns=\"urn:x\"/>")),
+        "must not be declared"
+    )
+    // and an *element* may not carry it either ("Element names MUST NOT have the prefix xmlns")
+    test.assert_err(xml.parse("<xmlns:a xmlns:xmlns=\"urn:x\"/>"))
+    // while an element simply *named* xmlns is unremarkable: only the prefix is reserved
+    test.assert_ok(xml.parse("<xmlns/>"))
+}
+
+#[test]
+fn the_declaration_namespace_cannot_be_declared() {
+    // "Other prefixes MUST NOT be bound to this namespace name, and it MUST NOT be declared as
+    // the default namespace."
+    test.assert_err(xml.parse("<a xmlns=\"http://www.w3.org/2000/xmlns/\"/>"))
+    test.assert_err(xml.parse("<a xmlns:p=\"http://www.w3.org/2000/xmlns/\"/>"))
+}
+
+#[test]
+fn the_xml_prefix_stays_where_it_belongs() {
+    // "MUST NOT be bound to any other namespace name"
+    test.assert_err(xml.parse("<a xmlns:xml=\"urn:wrong\"/>"))
+    // the same sentence for its namespace name: no other prefix, and not as the default
+    test.assert_err(xml.parse("<a xmlns:p=\"http://www.w3.org/XML/1998/namespace\"/>"))
+    test.assert_err(xml.parse("<a xmlns=\"http://www.w3.org/XML/1998/namespace\"/>"))
+    // but it MAY be declared, to exactly that name -- and needs no declaration at all
+    test.assert_ok(xml.parse("<a xmlns:xml=\"http://www.w3.org/XML/1998/namespace\"/>"))
+    val doc = parse("<a xml:lang=\"en\"/>")
+    test.assert_eq("en", test.assert_some(xml.attr_ns(doc.root, "http://www.w3.org/XML/1998/namespace", "lang")))
+}
+
+// A prefixed declaration's "attribute value MUST NOT be empty", while a default one "MAY be
+// empty" -- so the two cases cannot share a check. Undeclaring a prefix is a Namespaces 1.1
+// feature and this reader is 1.0.
+#[test]
+fn only_the_default_namespace_may_be_undeclared() {
+    test.assert_err(xml.parse("<a xmlns:p=\"urn:x\"><b xmlns:p=\"\"/></a>"))
+    val doc = parse("<a xmlns=\"urn:x\"><b xmlns=\"\"/></a>")
+    val inner = test.assert_some(xml.child(doc.root, "b"))
+    test.assert_none(inner.name.namespace)
+    test.assert_eq("urn:x", test.assert_some(doc.root.name.namespace))
+}
+
+// "no element have two attributes with the same expanded name" -- which was caught, but the
+// message named `q:id` as appearing twice when it appears once. The collision is between two
+// differently *written* names, and that is the thing a reader cannot see for themselves.
+#[test]
+fn two_prefixes_one_namespace_is_one_attribute_twice() {
+    val e = test.assert_err(xml.parse("<a xmlns:p=\"urn:x\" xmlns:q=\"urn:x\" p:id=\"1\" q:id=\"2\"/>"))
+    test.assert_contains(e, "'p:id' and 'q:id'")
+    test.assert_contains(e, "namespace 'urn:x'")
+    // the same local name in two different namespaces is two attributes, and fine
+    test.assert_ok(xml.parse("<a xmlns:p=\"urn:x\" xmlns:q=\"urn:y\" p:id=\"1\" q:id=\"2\"/>"))
+    // and a plain repeat still reports as a plain repeat
+    test.assert_contains(test.assert_err(xml.parse("<a id=\"1\" id=\"2\"/>")), "'id' appears twice")
+}
+
+// `Comment ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'`, so the content cannot end with
+// a dash. **The writer already refused this and the reader did not**, so `<!-- a --->` parsed into
+// a tree that could not be written back -- which is the one thing a reader must never produce.
+#[test]
+fn a_comment_cannot_end_with_a_dash() {
+    test.assert_err(xml.parse("<a><!-- a ---></a>"))
+    test.assert_err(xml.parse("<a><!-- a -- b --></a>"))
+    // the legal neighbours: a dash anywhere else, and an empty comment
+    test.assert_contains(round_trip("<a><!-- -a- --></a>"), "<a><!-- -a- --></a>")
+    test.assert_ok(xml.parse("<a><!----></a>"))
+}
+
+// Everything that parses must write back, which is the invariant the comment bug broke. Nothing
+// here asserts a particular text -- only that the writer accepts what the reader produced.
+#[test]
+fn whatever_parses_can_be_written() {
+    val documents = [
+        "<a/>", "<a>x</a>", "<p>Take <b>2</b> tablets</p>", "<a><![CDATA[<raw> & ]]></a>",
+        "<a><!-- note --><?pi data?></a>", "<a xmlns=\"urn:x\"><b/></a>",
+        "<p:a xmlns:p=\"urn:x\"><p:b c=\"1\"/></p:a>", "<a id=\"x&#10;y\"/>",
+        "<a>&lt;&gt;&amp;&quot;&apos;</a>", "<a>&#65;&#x41;</a>", "<a xml:lang=\"en\"/>",
+        "<!-- top --><a/>", "<?xml version=\"1.0\" standalone=\"yes\"?><a/>"
+    ]
+    for text in documents {
+        val doc = test.assert_ok(xml.parse(text))
+        val written = test.assert_ok(xml.format(doc))
+        // and the written form reads back to a tree that writes the same text
+        test.assert_eq(written, test.assert_ok(xml.format(test.assert_ok(xml.parse(written)))))
+    }
+}
+
 fn str_of_byte(b: int) -> string {
     val arr: [byte] = [b as byte]
     return unwrap(bytes_to_string(arr))

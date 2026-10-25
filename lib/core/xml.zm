@@ -727,6 +727,11 @@ fn resolve(cs: [string], at: int, qname: string, scope: Map<string, string>, is_
         return ok(named(xml_ns, prefix, local))
     }
     if prefix == "xmlns" {
+        // "Element names MUST NOT have the prefix xmlns." An *attribute* so prefixed is a
+        // declaration, and belongs to that namespace by definition.
+        if !is_attr {
+            return err(fail(cs, at, prelude.format("an element name must not have the prefix 'xmlns': '{}'", qname)))
+        }
         return ok(named(xmlns_ns, prefix, local))
     }
     return switch get(scope, prefix) {
@@ -741,6 +746,74 @@ fn named(uri: string, prefix: string, local: string) -> Name {
         local: local,
         prefix: Option<string>.Some(prefix)
     }
+}
+
+// The reserved prefixes and namespace names, which "Namespaces in XML" fences off with six
+// separate MUST NOTs. A parser that skips them reads documents nobody can mean -- a tree where
+// `xmlns` is itself a namespace prefix, or where `xml:lang` means something other than language.
+//
+// * the prefix `xmlns` "MUST NOT be declared";
+// * of `http://www.w3.org/2000/xmlns/`: "Other prefixes MUST NOT be bound to this namespace name,
+//   and it MUST NOT be declared as the default namespace";
+// * the prefix `xml` "MAY, but need not, be declared, and MUST NOT be bound to any other
+//   namespace name", and its namespace name carries the same sentence as the one above -- no
+//   other prefix may be bound to it, and it may not be the default;
+// * for a *prefixed* declaration "the attribute value MUST NOT be empty". Only a default
+//   declaration "MAY be empty", which is how `xmlns=""` puts an element back in no namespace --
+//   so the two cases cannot share one check. (Namespaces 1.1 lets a prefix be undeclared that
+//   way; this reader is 1.0, as the header says.)
+fn check_declarations(cs: [string], attrs: [RawAttr]) -> Result<unit, string> {
+    for a in attrs {
+        val is_default = a.qname == "xmlns"
+        if !is_default && !starts_with(a.qname, "xmlns:") {
+            continue
+        }
+        val prefix = if is_default { "" } else { substring(a.qname, 6, len(a.qname)) }
+        if prefix == "xmlns" {
+            return err(fail(cs, a.at, "the prefix 'xmlns' must not be declared: it is what declares the others"))
+        }
+        if !is_default && a.value == "" {
+            return err(fail(
+                cs,
+                a.at,
+                prelude.format(
+                    "a declaration of the prefix '{}' must not be empty; only the default 'xmlns' may be",
+                    prefix
+                )
+            ))
+        }
+        if prefix == "xml" {
+            if a.value != xml_ns {
+                return err(fail(
+                    cs,
+                    a.at,
+                    prelude.format(
+                        "the prefix 'xml' is bound to '{}' by definition and must not be bound elsewhere",
+                        xml_ns
+                    )
+                ))
+            }
+            continue
+        }
+        if a.value == xml_ns {
+            return err(fail(
+                cs,
+                a.at,
+                prelude.format(
+                    "'{}' belongs to the 'xml' prefix; no other prefix and no default may be bound to it",
+                    xml_ns
+                )
+            ))
+        }
+        if a.value == xmlns_ns {
+            return err(fail(
+                cs,
+                a.at,
+                prelude.format("'{}' is the namespace of declarations themselves and must not be declared", xmlns_ns)
+            ))
+        }
+    }
+    return unit
 }
 
 // The `xmlns` declarations among `attrs`, layered over the scope they were found in. Maps are
@@ -814,6 +887,15 @@ fn read_comment(cs: [string], pos: int) -> Result<PStr, string> {
     if index_of(body, "--", 0) >= 0 {
         return err(fail(cs, pos, "'--' cannot appear inside a comment"))
     }
+    // `Comment ::= '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'`, so the content cannot end
+    // with a `-` either -- `<!-- a --->` has the content ` a -` and is not well-formed.
+    //
+    // **The writer already refused this and the reader did not**, which is how it was found: the
+    // document parsed and then could not be written back, and a tree that cannot be serialised is
+    // the one thing a reader must never produce.
+    if ends_with(body, "-") {
+        return err(fail(cs, pos, "a comment's content cannot end with '-' (write '- -->' or drop the dash)"))
+    }
     return ok(PStr { text: body, next: end + 3 })
 }
 
@@ -877,6 +959,7 @@ fn read_element(
     }
     val open = try read_name(cs, pos + 1)
     val raw = try read_attributes(cs, open.next, limits)
+    try check_declarations(cs, raw.attrs)
     val inner = extend_scope(scope, raw.attrs)
 
     val elem_name = try resolve(cs, pos, open.text, inner, false)
@@ -885,7 +968,35 @@ fn read_element(
         val an = try resolve(cs, a.at, a.qname, inner, true)
         for seen in attributes {
             if same_name(seen.name, an) {
-                return err(fail(cs, a.at, prelude.format("attribute '{}' appears twice", a.qname)))
+                // The written names can differ while the *expanded* names match -- `p:id` and
+                // `q:id` with both prefixes bound to one URI are one attribute twice, which is
+                // the rule ("no element have two attributes with the same expanded name") and is
+                // not obvious from the document. Saying only "'q:id' appears twice" named an
+                // attribute that appears once.
+                val written = switch seen.name.prefix {
+                    Some(px) { concat(px, ":", seen.name.local) }
+                    None { seen.name.local }
+                }
+                if written == a.qname {
+                    return err(fail(cs, a.at, prelude.format("attribute '{}' appears twice", a.qname)))
+                }
+                // `{}` on the `Option` itself would print `Some(urn:x)`, which is Ziman showing
+                // through a message about XML.
+                val where_in = switch an.namespace {
+                    Some(uri) { prelude.format("namespace '{}'", uri) }
+                    None { "no namespace" }
+                }
+                return err(fail(
+                    cs,
+                    a.at,
+                    prelude.format(
+                        "attributes '{}' and '{}' are the same name: both are '{}' in {}",
+                        written,
+                        a.qname,
+                        an.local,
+                        where_in
+                    )
+                ))
             }
         }
         attributes = push(attributes, Attribute { name: an, value: a.value })
