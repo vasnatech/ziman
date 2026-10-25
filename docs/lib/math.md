@@ -104,6 +104,30 @@ pub native fn abs(x: bigint) -> bigint
 pub native fn abs(x: decimal) -> decimal
 ```
 
+### `sign`
+
+```
+pub native fn sign(x: int) -> int
+```
+
+-1 for a negative, 1 for a positive, 0 for zero -- for all four numeric types.
+
+**NaN is a runtime error**, not 0: the answer is an `int` and every candidate would be a lie,
+since 0 would make `sign(nan)` agree with `sign(0.0)` and +/-1 would claim an ordering NaN does
+not have. Ask `is_nan(x)` first. Both infinities have a sign and get it.
+
+```
+pub native fn sign(x: float) -> int
+```
+
+```
+pub native fn sign(x: bigint) -> int
+```
+
+```
+pub native fn sign(x: decimal) -> int
+```
+
 ### `min`
 
 ```
@@ -168,6 +192,25 @@ pub native fn log(x: float) -> float
 ```
 
 The natural (base-`e`) logarithm of `x`, or NaN if `x` is zero or negative.
+
+### `log2`
+
+```
+pub native fn log2(x: float) -> float
+```
+
+Base 2 and base 10 logarithms. Same domain behaviour as `log`.
+
+**Not `log(x) / log(2.0)`**, which is what you would write without them and is measurably less
+accurate: these are exact for an exact power of their base where the division is not, so
+`log10(1000.0)` is 3.0 while `log(1000.0) / log(10.0)` is 2.9999999999999996 -- and `floor` of
+that is 2, which is how a digit-counting loop ends up off by one.
+
+### `log10`
+
+```
+pub native fn log10(x: float) -> float
+```
 
 ### `sin`
 
@@ -342,3 +385,25 @@ pub fn is_nan(x: float) -> bool
 True for NaN ("not a number": the result of `sqrt(-1.0)`, `log(-1.0)`, `parse_float("nan")`,
 ...), which is the only float that does not equal itself -- the IEEE-754 definition, used
 here directly.
+
+### `is_infinite`
+
+```
+pub fn is_infinite(x: float) -> bool
+```
+
+True for `+inf` and `-inf`, false for NaN and for every ordinary number.
+
+`x - x` is the test: it is `0.0` for any finite `x` and NaN for an infinity, so the subtraction
+separates them -- and NaN has to be excluded first, because `nan - nan` is NaN too. Written out
+here because `json.zm` was spelling `f != f || f - f != 0.0` inline, twice, and nobody should
+have to decode that at a call site.
+
+### `is_finite`
+
+```
+pub fn is_finite(x: float) -> bool
+```
+
+True for every float that is an ordinary number: neither NaN nor an infinity. The question
+`is_nan` and `is_infinite` are usually both being asked to answer.

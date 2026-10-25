@@ -1,0 +1,64 @@
+// `is_finite`, `is_infinite`, `log2`, `log10` and `sign`.
+//
+// `is_finite`/`is_infinite` join `is_nan`, which was the only one of the three that existed --
+// `json.zm` spelled the other two inline as `f != f || f - f != 0.0`, twice, and asks
+// `math.is_finite` now. `x - x` is the test that separates them: `0.0` for any finite `x`, NaN for
+// an infinity, and NaN for NaN -- which is why NaN has to be excluded first.
+use math
+
+fn main() {
+    val inf = unwrap(parse_float("inf"))
+    val ninf = unwrap(parse_float("-inf"))
+    val nan = unwrap(parse_float("nan"))
+
+    print(concat(
+        "finite   ",
+        str(math.is_finite(1.5)),
+        str(math.is_finite(0.0)),
+        str(math.is_finite(inf)),
+        str(math.is_finite(ninf)),
+        str(math.is_finite(nan))
+    ))
+    print(concat(
+        "infinite ",
+        str(math.is_infinite(1.5)),
+        str(math.is_infinite(0.0)),
+        str(math.is_infinite(inf)),
+        str(math.is_infinite(ninf)),
+        str(math.is_infinite(nan))
+    ))
+    print(concat(
+        "nan      ",
+        str(math.is_nan(1.5)),
+        str(math.is_nan(0.0)),
+        str(math.is_nan(inf)),
+        str(math.is_nan(ninf)),
+        str(math.is_nan(nan))
+    ))
+
+    // **Why log2/log10 exist rather than a division.** They are exact for an exact power of the
+    // base; `log(x) / log(10.0)` is not, and `floor` of the difference is how a digit-counting
+    // loop ends up off by one.
+    print(math.log2(8.0))
+    print(math.log10(1000.0))
+    print(math.log(1000.0) / math.log(10.0))
+    print(math.floor(math.log10(1000.0)))
+    print(math.floor(math.log(1000.0) / math.log(10.0)))
+
+    // same domain behaviour as `log`: values, not errors
+    print(math.log10(0.0))
+    print(math.log2(-1.0))
+
+    // `sign` over all four numeric types, answering an int
+    print(concat("int     ", str(math.sign(-7)), " ", str(math.sign(0)), " ", str(math.sign(7))))
+    print(concat("float   ", str(math.sign(-1.5)), " ", str(math.sign(0.0)), " ", str(math.sign(1.5))))
+    print(concat("bigint  ", str(math.sign(-5n)), " ", str(math.sign(0n)), " ", str(math.sign(5n))))
+    print(concat("decimal ", str(math.sign(-0.01d)), " ", str(math.sign(0d)), " ", str(math.sign(0.01d))))
+
+    // an infinity has a sign; a very large decimal keeps its own
+    print(concat("inf     ", str(math.sign(ninf)), " ", str(math.sign(inf))))
+    print(math.sign(-99999999999999999999.5d))
+
+    // -0.0 is zero, not negative
+    print(math.sign(0.0 - 0.0))
+}

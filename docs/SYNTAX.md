@@ -2597,6 +2597,16 @@ fn main() {
   like C/Java/JS). `compare<T: Ord>` already gives NaN a total order, so check it with
   `math.is_nan(x)` (`x != x`) rather than unwrapping. Unlike `1.0 / 0.0`, which is a runtime
   error in Ziman (not infinity) -- `math` never produces a value your own arithmetic couldn't.
+- **`math.is_finite(x)`/`is_infinite(x)`** join `is_nan`: finite means neither NaN nor an
+  infinity. `x - x` is what separates them (`0.0` for any finite `x`, NaN for an infinity, NaN
+  for NaN -- so NaN is excluded first), which is worth having a name for rather than inline.
+- **`math.log2(x)`/`log10(x)`**, which are *not* `log(x) / log(2.0)`: they are exact for an
+  exact power of their base where the division is not, so `log10(1000.0)` is `3.0` while
+  `log(1000.0) / log(10.0)` is `2.9999999999999996` -- and `floor` of the two differs by one,
+  which is how a digit-counting loop goes wrong.
+- **`math.sign(x) -> int`** is -1/0/1 for `int`, `float`, `bigint` and `decimal`. An infinity has
+  a sign; **NaN is a runtime error**, because the answer is an `int` and every candidate lies (0
+  would agree with `sign(0.0)`, +/-1 would claim an ordering NaN lacks) -- ask `is_nan` first.
 - **`math.floor`/`ceil`/`round`** round a `float` to an `int` (ties away from zero: `round(2.5)`
   is 3, `round(-2.5)` is -3); **`floor_float`/`ceil_float`/`round_float`** apply the same rules
   but keep the result a `float` (for a magnitude past `int`'s range, or NaN/infinity). These
@@ -2608,7 +2618,7 @@ fn main() {
   -inf, toward +inf) and answer a `decimal`; with none they answer the whole number as a
   **`bigint`**, since a decimal's whole part can exceed 2^63 where a float's cannot.
   `math.pow(base: decimal, exponent: int)` is an exact non-negative integer power. A negative
-  `exponent` is a runtime error naming `numerator / decimal_pow(base, -exponent)` instead --
+  `exponent` is a runtime error naming `numerator / math.pow(base, -exponent)` instead --
   there's no scale to pick for that division on `math.pow`'s own.
 
 ## The `bits` module

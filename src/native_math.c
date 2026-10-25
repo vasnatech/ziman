@@ -101,6 +101,44 @@ static Value native_math_log(Value *args, int argc, int line, int col) {
     return value_float(log(args[0].as.f));
 }
 
+/* Base 2 and base 10 logarithms, which are *not* `log(x) / log(2.0)`.
+ *
+ * That form is what a caller writes without these, and it is measurably less accurate: libm's
+ * `log2`/`log10` are exact for an exact power of their base, where the division is not --
+ * `log(1000.0) / log(10.0)` is 2.9999999999999996 on this machine, so `floor` of it is 2 and a
+ * digit-counting loop built on it is off by one. Domain behaviour matches `log`: a negative is
+ * NaN and zero is -infinity, reported as values rather than errors (see the module header). */
+static Value native_math_log2(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_float(log2(args[0].as.f));
+}
+
+static Value native_math_log10(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return value_float(log10(args[0].as.f));
+}
+
+/* -1, 0 or 1, for all four numeric types -- one symbol serving four declarations by inspecting the
+ * value, exactly as `abs` does, so it needs no per-type symbol from the fallback.
+ *
+ * **NaN is a runtime error rather than 0.** The answer has to be an `int`, and every candidate is
+ * a lie: 0 would make `sign(nan) == sign(0.0)`, and -1 or 1 would claim an ordering NaN does not
+ * have. `is_nan(x)` is the question to ask first, and the message says so. Both infinities have a
+ * perfectly good sign and get it. */
+static Value native_math_sign(Value *args, int argc, int line, int col) {
+    (void)argc;
+    Value x = args[0];
+    if (x.type->kind == TY_INT) return value_int(x.as.i < 0 ? -1 : (x.as.i > 0 ? 1 : 0));
+    if (x.type->kind == TY_BIGINT) return value_int(x.as.bi->sign);
+    if (x.type->kind == TY_DECIMAL) return value_int(x.as.dec->unscaled.sign);
+    if (x.as.f != x.as.f) {
+        ziman_error("runtime", line, col,
+                    "sign: NaN has no sign (it is not less than, equal to or greater than zero) -- "
+                    "test with 'math.is_nan(x)' first");
+    }
+    return value_int(x.as.f < 0.0 ? -1 : (x.as.f > 0.0 ? 1 : 0));
+}
+
 static Value native_math_sin(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     return value_float(sin(args[0].as.f));
@@ -229,6 +267,9 @@ void native_math_register(void) {
     native_register("math::float_pow", native_math_pow);
     native_register("math::exp", native_math_exp);
     native_register("math::log", native_math_log);
+    native_register("math::log2", native_math_log2);
+    native_register("math::log10", native_math_log10);
+    native_register("math::sign", native_math_sign);
     native_register("math::sin", native_math_sin);
     native_register("math::cos", native_math_cos);
     native_register("math::tan", native_math_tan);

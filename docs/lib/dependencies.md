@@ -90,6 +90,7 @@ flowchart LR
     image --> bits
     image --> compress
     image --> paint
+    json --> math
     json --> number
     jwt --> clock
     jwt --> crypto
@@ -238,13 +239,13 @@ otherwise: everything on a layer depends only on lower layers.
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |
 | `http` | `locale`, `mime`, `number`, `random`, `url` | `client`, `server` |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
-| `json` | `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
+| `json` | `math`, `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
 | `locale` | - | `client`, `http`, `log`, `mime`, `number`, `otp`, `paint`, `properties`, `schedule`, `server`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
-| `math` | - | `geom`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
+| `math` | - | `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
 | `metrics` | `os` | `server` |
 | `migrate` | `crypto`, `datasource`, `db`, `fs`, `os`, `time` | - |
 | `mime` | `locale` | `client`, `http`, `server` |

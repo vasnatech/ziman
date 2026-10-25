@@ -1,0 +1,17 @@
+finite   truetruefalsefalsefalse
+infinite falsefalsetruetruefalse
+nan      falsefalsefalsefalsetrue
+3.0
+3.0
+2.9999999999999996
+3
+2
+-inf
+nan
+int     -1 0 1
+float   -1 0 1
+bigint  -1 0 1
+decimal -1 0 1
+inf     -1 1
+-1
+0

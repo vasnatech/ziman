@@ -31,6 +31,7 @@
 // expected to be built on top of it (see `get`, `get_path` and the
 // `json_require_*` helpers below, or `#[derive(Json)]`), not inside this module.
 
+use math
 use number.float_to_text
 
 // A JSON number, by how it was written or built: an `Int` that fits 64 bits, a `Bigint` that does not, a
@@ -431,7 +432,7 @@ pub fn bigint_from_json(j: Json) -> Result<bigint, string> {
         switch n {
             Int(i) { return ok(i as bigint) }
             Float(f) {
-                if f != f || f - f != 0.0 || ((f as bigint) as float) != f {
+                if !math.is_finite(f) || ((f as bigint) as float) != f {
                     return err("expected an integer")
                 }
                 return ok(f as bigint)
@@ -479,7 +480,7 @@ pub fn decimal_from_json(j: Json) -> Result<decimal, string> {
         switch n {
             Int(i) { return ok(i as decimal) }
             Float(f) {
-                if f != f || f - f != 0.0 {
+                if !math.is_finite(f) {
                     return err("expected a finite number")
                 }
                 val shortest = parse_decimal(float_to_text(f))

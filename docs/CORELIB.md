@@ -694,6 +694,14 @@ pub native fn abs(x: bigint) -> bigint
 
 pub native fn abs(x: decimal) -> decimal
 
+pub native fn sign(x: int) -> int
+
+pub native fn sign(x: float) -> int
+
+pub native fn sign(x: bigint) -> int
+
+pub native fn sign(x: decimal) -> int
+
 pub native fn min<T: Ord>(values: variadic T) -> T
 
 pub native fn max<T: Ord>(values: variadic T) -> T
@@ -705,6 +713,10 @@ pub native fn pow(base: float, exponent: float) -> float
 pub native fn exp(x: float) -> float
 
 pub native fn log(x: float) -> float
+
+pub native fn log2(x: float) -> float
+
+pub native fn log10(x: float) -> float
 
 pub native fn sin(x: float) -> float
 
@@ -747,6 +759,10 @@ pub native fn ceil(d: decimal, scale: int) -> decimal
 pub native fn pow(base: decimal, exponent: int) -> decimal
 
 pub fn is_nan(x: float) -> bool
+
+pub fn is_infinite(x: float) -> bool
+
+pub fn is_finite(x: float) -> bool
 
 ```
 

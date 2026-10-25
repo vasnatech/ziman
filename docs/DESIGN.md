@@ -196,6 +196,7 @@ them against the code.
 - [`log`: the `Level` family loses its prefix, and `format` stops padding (2026-10-24)](#log-the-level-family-loses-its-prefix-and-format-stops-padding-2026-10-24)
 - [`markdown` drops the stutter, and the whole module was already qualified (2026-10-24)](#markdown-drops-the-stutter-and-the-whole-module-was-already-qualified-2026-10-24)
 - [`math`: the decimal roundings join their float namesakes, and answer a `bigint` (2026-10-24)](#math-the-decimal-roundings-join-their-float-namesakes-and-answer-a-bigint-2026-10-24)
+- [`math` gains five: `is_finite`, `is_infinite`, `log2`, `log10`, `sign` (2026-10-24)](#math-gains-five-is_finite-is_infinite-log2-log10-sign-2026-10-24)
 
 <!-- end index -->
 
@@ -8218,3 +8219,17 @@ The fallback reads **parameter one only**, which matters here: `floor(d)` and `f
 `abs`, `min` and `max` keep their bare registrations and need none of this: one C function serves all of `abs`'s four declarations by inspecting the value, so there is nothing for the fallback to tell apart.
 
 **`floor_float`/`ceil_float`/`round_float` keep their suffix, and the module now says why.** They take the identical `float` argument as the members above and differ only in answering a `float` rather than an `int`, which no argument list can state -- the same constraint that keeps `fs.read_text` and `fs.read_bytes` apart. It is worth having written down beside them, because the next reader will otherwise try exactly what I just did to the `decimal` family and find out the hard way.
+
+## `math` gains five: `is_finite`, `is_infinite`, `log2`, `log10`, `sign` (2026-10-24)
+
+Chosen from a longer list by asking what the tree already hand-rolls, which has been the reliable signal: a promoted helper gets checked against its existing callers, and a function with no caller gets no such check.
+
+**`is_finite` and `is_infinite` were already being written inline.** `json.zm` spelled `f != f || f - f != 0.0` in both `bigint_from_json` and `decimal_from_json`, and `pdfobj.zm`'s `real_text` guards `x != x` with a comment noting that the backends refuse non-finite geometry elsewhere. `is_nan` was public and these two were not, which is an odd place to stop: the three are one question asked three ways. Both are pure Ziman over `x - x`, which is `0.0` for any finite `x` and NaN for an infinity -- and NaN for NaN, which is why NaN is excluded first and why the expression deserves a name rather than a repeat appearance. `json.zm` asks `math.is_finite` now, which also gave `json` its first dependency on `math`; no cycle, `math` imports nothing.
+
+**`log2` and `log10` are a correctness argument, not a convenience one.** Without them a caller writes `log(x) / log(2.0)`, and that is measurably worse: libm's versions are exact for an exact power of their base where the division is not. `log10(1000.0)` is `3.0`; `log(1000.0) / log(10.0)` is `2.9999999999999996`; and `floor` of the two is **3 and 2**, which is exactly how a digit-counting loop ends up off by one. The fixture prints all four numbers rather than asserting the claim, because the claim is the reason the functions exist.
+
+**`sign` answers an `int` for all four numeric types**, one C function inspecting the value as `abs` already does, so it needs no per-type symbol. A `BigNum` carries its own `sign` field and a `Decimal` is a `BigNum` plus a scale, so both are a field read rather than a comparison.
+
+**NaN is a runtime error from `sign`, and that is the decision in it.** The answer has to be an `int`, and every candidate is a lie: `0` would make `sign(nan)` agree with `sign(0.0)`, and -1 or 1 would claim an ordering NaN does not have. Java returns NaN from `signum` because its return type can hold one; an `int` cannot, so the honest options are an error or a `Result`, and an error that names `is_nan(x)` is the cheaper of the two for a function nobody wants to unwrap. Both infinities have a perfectly good sign and get it.
+
+**What was left out, and why.** `clamp` is `min(max(x, lo), hi)` and the one nested `min`/`max` in the tree is an edit-distance recurrence, not a clamp. `gcd`/`lcm`, `cbrt`, the hyperbolics and `to_radians`/`to_degrees` have no caller anywhere -- including in `lib/graphics`, which was the place to look for the trigonometric ones and does not want them. `hypot` and `trunc` are the two with a real argument behind them (overflow-free magnitude; the fourth rounding mode, with `decimal_to_bignum_trunc` already in C) and are the obvious next pair if anything asks. Float limits are already `number.float_min`/`float_max`/`float_min_positive`, so they are placed, just not here.

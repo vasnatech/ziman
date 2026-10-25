@@ -1,0 +1,1 @@
+sign: NaN has no sign (it is not less than, equal to or greater than zero) -- test with 'math.is_nan(x)' first

@@ -1,0 +1,8 @@
+// `sign` of NaN is a runtime error rather than 0. The answer has to be an `int`, and every
+// candidate is a lie: 0 would make `sign(nan)` agree with `sign(0.0)`, and -1 or 1 would claim an
+// ordering NaN does not have. The message names the question to ask first.
+use math
+
+fn main() {
+    print(math.sign(unwrap(parse_float("nan"))))
+}
