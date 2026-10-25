@@ -214,6 +214,7 @@ them against the code.
 - [`test`: a failing assertion names the line that asserted (2026-10-24)](#test-a-failing-assertion-names-the-line-that-asserted-2026-10-24)
 - [`test`, continued: what AssertJ was asked for, and the number I got wrong (2026-10-24)](#test-continued-what-assertj-was-asked-for-and-the-number-i-got-wrong-2026-10-24)
 - [`toml` accepted 30 of 31 documents the spec forbids (2026-10-25)](#toml-accepted-30-of-31-documents-the-spec-forbids-2026-10-25)
+- [`uuid`: the rename that should not happen, and a v7 that was not ordered (2026-10-25)](#uuid-the-rename-that-should-not-happen-and-a-v7-that-was-not-ordered-2026-10-25)
 
 <!-- end index -->
 
@@ -8581,3 +8582,31 @@ This is also test.zm's **first dependency**: `use regex`, where every other asse
 **Two measurement mistakes worth recording, because both would have produced a wrong conclusion.** The first draft of `is_control` read `to_bytes(c)[0]`, which allocates a byte array *per character of every string*; it put 23% of the run in the collector and cost most of an initial 30% slowdown. Written as `compare(c, " ") < 0` -- which `quote_basic` next door already did -- it allocates nothing, and string order is byte order so no multi-byte character can sort below a space. The second: I first attributed the remaining cost to date validation by comparing a document of bare dates against one of quoted dates. Those are not the same measurement -- a quoted date goes through `parse_basic` and a bare one through the number scanner -- and the honest comparison is one binary against the other on the *same* file. Single-run timings on this machine vary by 20%, which is wide enough to support whichever story one is looking for; best-of-7 in-process, alternating the two binaries, is what settled it.
 
 Left as it was: the module stays `#![experimental]`, and dates remain `JString`. That second one deserves saying out loud rather than only in a parenthesis, so the header now does: a document that goes through `parse` and back through `format` comes out with its dates **quoted, as strings**. Only the tree round-trips, not the document.
+
+## `uuid`: the rename that should not happen, and a v7 that was not ordered (2026-10-25)
+
+`uuid.zm` looked like the next `random.random_bytes`. It has `uuid_new`, `uuid_new_v7` and `uuid_nil`, which qualified read `uuid.uuid_new()` -- the same stutter, in the same shape, one module over. **The call sites said no, by 303 to 6.**
+
+The module is used through *by-name imports*: `use uuid.uuid_new` then `uuid_new()`, `use uuid.uuid_to_sql` then `uuid_to_sql(patient_id)`. 303 bare call sites against 6 qualified ones. A bare `new()` or `to_sql(id)` says nothing about what it answers, so the prefix is the whole content of the name there.
+
+**It is the same rule as `random.bytes`, giving the opposite answer, and that is the thing worth keeping.** The question is not "does the name repeat the module" but "does the *call site* say what the function answers". `random_bytes(32)` read well bare and `bytes(32)` says nothing, so that one became `random.bytes` and qualified-only. `uuid_new()` reads well bare and `new()` says nothing, so this one keeps its prefix. Two opposite conclusions from one rule, and the way to tell them apart is to count how the code actually calls them rather than to look at the declaration.
+
+The module already holds both spellings, consistently, and the counts prove it was deliberate: `format`, `parse` and `version` are bare and reached as `uuid.format(u)` (71, 26 and 3 qualified calls), while the two by-name imports of them are *aliased* -- `use uuid.parse as parse_id`, `use uuid.format as show` -- because a bare `parse` collides with json's and toml's. So the new functions follow the split: `uuid_of` and `uuid_max` take the prefix, `is_nil` and `timestamp_millis` do not.
+
+`uuid_to_json` and friends were never candidates: derive.c's `standard_flat_type_name` already records why (`Uuid` keeps `uuid_to_json` "because its name has nothing to shorten"), since the type name *is* the module name.
+
+**The real bug: version 7 was not time-ordered.** Its whole purpose is that UUIDs made later sort after earlier ones, which is why it makes a good database key, and the module said exactly that. Measured over 2000 made in a row: **974 of 1999 consecutive pairs sorted backwards.** With milliseconds in the first 48 bits and random in the rest, everything made inside one millisecond is in random order, and a tight loop stays inside one millisecond.
+
+RFC 9562 offers the fix and names it -- "replace leftmost random bits with increased clock precision". `rand_a`, the 12 bits after the version nibble, now carries the fraction of the millisecond rather than random: 4096 steps, one per 244 nanoseconds. `clock.now_raw` has genuine nanosecond resolution (consecutive reads differ by a few hundred), so two calls in a row land in different steps. 974 out of order became **0 out of 2999**, and the fixture now does the tight loop the old one carefully avoided -- it slept 3 ms between its two v7s, which is precisely the case that worked.
+
+Stated rather than hidden: ordering follows `CLOCK_REALTIME`, so a clock stepped backwards produces UUIDs that sort before ones already made. That is inherent to v7 -- the timestamp is wall-clock by definition -- and the alternative, a monotonic counter, needs state shared between threads. The 12 bits also stop being random, leaving 62, which is what RFC 9562 intends.
+
+**The header cited RFC 4122, which does not contain version 7.** 9562 obsoleted it. The variant bits really are 4122's, so that constant keeps its name and the header now says which is which.
+
+**`Uuid { bytes: [1b, 2b] }` was constructible, and the consequences landed inside the module.** Ziman has no per-field privacy, so nothing can stop it; what was missing was a sanctioned way in. `uuid_of(bytes)` answers an `Err` naming the length, at the line that made the mistake, instead of `format` dying three frames deeper on `substring index out of bounds`.
+
+`uuid_compare` had the sharper version of that problem. It walked `0..len(a.bytes)` and indexed `b.bytes[i]`, so comparing a short UUID against a full one read off the end -- **but only when the leading bytes happened to match**, which they usually do not. A crash that depends on the values is worse than one that does not, because it survives every test that does not happen to hit it. It compares the common prefix now and uses the length as the last tiebreak.
+
+**The entropy cost, measured and then deliberately left alone.** `uuid_new` is about 9.4 microseconds, of which 7.2 are `random.bytes` -- three syscalls for 16 bytes, where a single draw of 80,000 bytes measures under a millisecond. Buffering a block and slicing it would be roughly four times faster, and would need state shared between every caller: a program making UUIDs from a `spawn` would race on it. One UUID per request costs nothing, and a loop making a million should draw its own bytes and call `uuid_of`. That is now in the header, so the next reader finds the measurement and the reason rather than re-deriving both.
+
+Added while there: `uuid_max` (the all-ones UUID RFC 9562 defines beside Nil, which sorts after everything), `is_nil` (reads the bytes rather than building a UUID to compare against), and `timestamp_millis`, which reads the 48 bits back out and answers `None` for any other version. It answers a plain number, not a `time.Instant`, so the module gains no dependency on `time` -- `instant_of(millis / 1000, millis % 1000 * 1000000)` is the bridge, and it is in the comment. The 12 bits of finer time are deliberately left out of it: they order, they do not measure.

@@ -1389,8 +1389,8 @@ fn main() {
   hand-written arm that can see the whole call expression.
 - **A bundled *core module*** is ordinary `.zm` source embedded in the `ziman` binary, resolved
   by `use` when no project file by that name exists (docs/CORELIB.md lists every one and every
-  `pub` signature): `fs`, `os`, `clock`, `random`, `uuid` (`Uuid`, RFC 4122 v4,
-  satisfies `Eq`/`Hash`/`Ord`), `time`, `number`, `crypto`, `json` (`Json` is a recursive enum,
+  `pub` signature): `fs`, `os`, `clock`, `random`, `uuid` (`Uuid`, RFC 9562 v4 and
+  time-ordered v7, satisfies `Eq`/`Hash`/`Ord`), `time`, `number`, `crypto`, `json` (`Json` is a recursive enum,
   `JArray([Json])`/`JObject(Map<string, Json>)`; satisfies `Eq`/`Hash` but not `Ord` — no
   `json_compare`, so `compare`/`sort` on `Json` is a type error), `properties`, `log`, `net`,
   `http`/`server`/`client`, and the database layer `db`/`sql`/`sqlite`/`pg`/`mysql`. Each is an

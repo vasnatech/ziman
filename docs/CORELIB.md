@@ -1553,7 +1553,15 @@ pub fn uuid_new() -> Uuid
 
 pub fn uuid_new_v7() -> Uuid
 
+pub fn timestamp_millis(u: Uuid) -> Option<int>
+
+pub fn uuid_of(bytes: [byte]) -> Result<Uuid, string>
+
 pub fn uuid_nil() -> Uuid
+
+pub fn uuid_max() -> Uuid
+
+pub fn is_nil(u: Uuid) -> bool
 
 pub fn format(u: Uuid) -> string
 

@@ -1,5 +1,6 @@
 use clock
 use uuid
+use uuid.Uuid
 
 fn main() {
     val a = uuid.uuid_new()
@@ -25,4 +26,49 @@ fn main() {
     print(contains("89ab", substring(text, 19, 20)))
     print(clock.now_iso() > "2020-01-01")
     print(byte_len(clock.now_iso()))
+
+    // **v7 ordering with no sleep between**, which is the case the two above miss: with
+    // milliseconds alone and the rest random, 974 of 1999 consecutive pairs sorted backwards.
+    // `rand_a` now carries the fraction of the millisecond, so a tight loop stays ordered.
+    val run = mutable_array_new<Uuid>()
+    for _ in 0..3000 {
+        push(run, uuid.uuid_new_v7())
+    }
+    val made = snapshot(run)
+    var backwards = 0
+    for i in 1..prelude.len(made) {
+        if uuid.uuid_compare(made[i - 1], made[i]) > 0 {
+            backwards = backwards + 1
+        }
+    }
+    print(backwards)
+    print(sort(made) == made)
+    // and the version and variant survive having their neighbouring bits written
+    print(uuid.version(made[0]))
+    print(made[0].bytes[8] as int / 64)
+
+    // the 48 bits read back out
+    print(is_None(uuid.timestamp_millis(uuid.uuid_new())))
+    print(is_None(uuid.timestamp_millis(uuid.uuid_nil())))
+    val stamped = unwrap(uuid.timestamp_millis(made[0]))
+    print(stamped > 1700000000000 && stamped < 4000000000000)
+
+    // 16 bytes or an Err, which is the only sanctioned way in from bytes
+    print(is_ok(uuid.uuid_of(made[0].bytes)))
+    print(unwrap(uuid.uuid_of(made[0].bytes)) == made[0])
+    print(uuid.uuid_of([1b, 2b]))
+    print(uuid.uuid_of([]))
+
+    // the far end of the range, and the test that replaces `u == uuid_nil()`
+    print(uuid.format(uuid.uuid_max()))
+    print(uuid.uuid_compare(uuid.uuid_nil(), uuid.uuid_max()) < 0)
+    print(uuid.is_nil(uuid.uuid_nil()))
+    print(uuid.is_nil(uuid.uuid_max()))
+
+    // `bytes` is writable, so comparing a hand-built short one must not read off the end --
+    // it used to, whenever the leading bytes happened to match.
+    val short = Uuid { bytes: [0b, 0b] }
+    print(uuid.uuid_compare(short, uuid.uuid_nil()) < 0)
+    print(uuid.uuid_compare(uuid.uuid_nil(), short) > 0)
+    print(uuid.uuid_compare(short, short))
 }
