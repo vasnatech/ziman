@@ -957,7 +957,7 @@ pub struct TlsServerOptions {
 
 pub fn tls_server_options(cert_file: string, key_file: string) -> TlsServerOptions
 
-pub fn listen_tls_with_options(host: string, port: int, options: TlsServerOptions) -> Result<Listener, NetError>
+pub fn listen_tls(host: string, port: int, options: TlsServerOptions) -> Result<Listener, NetError>
 
 pub fn listener_port(l: Listener) -> int
 
@@ -979,13 +979,13 @@ pub fn write_text(s: Socket, text: string) -> Result<int, NetError>
 
 pub fn lines(s: Socket) -> Iter<Result<string, NetError>>
 
-pub fn lines_with(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetError>>
+pub fn lines(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetError>>
 
 pub fn set_timeout(s: Socket, millis: int) -> Result<unit, NetError>
 
 pub fn start_tls(s: Socket, host: string) -> Result<unit, NetError>
 
-pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError>
+pub fn start_tls(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError>
 
 pub struct TlsClientOptions {
     verify: TlsVerify
@@ -997,13 +997,13 @@ pub struct TlsClientOptions {
 
 pub fn tls_client_options() -> TlsClientOptions
 
-pub fn start_tls_with_options(s: Socket, host: string, options: TlsClientOptions) -> Result<unit, NetError>
+pub fn start_tls(s: Socket, host: string, options: TlsClientOptions) -> Result<unit, NetError>
 
 pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError>
 
-pub fn connect_tls_with(
+pub fn connect_tls(
 
-pub fn connect_tls_with_options(host: string, port: int, options: TlsClientOptions) -> Result<Socket, NetError>
+pub fn connect_tls(host: string, port: int, options: TlsClientOptions) -> Result<Socket, NetError>
 
 pub fn negotiated_protocol(s: Socket) -> Option<string>
 
@@ -1011,7 +1011,7 @@ pub fn peer_certificate_subject(s: Socket) -> Option<string>
 
 pub fn close(s: Socket)
 
-pub fn close_listener(l: Listener)
+pub fn close(l: Listener)
 
 ```
 

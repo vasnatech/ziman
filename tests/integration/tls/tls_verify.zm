@@ -26,7 +26,7 @@ fn reason(msg: string) -> string {
 }
 
 fn attempt(label: string, host: string, port: int, verify: TlsVerify, ca: Option<string>) {
-    val r = net.connect_tls_with(host, port, verify, ca)
+    val r = net.connect_tls(host, port, verify, ca)
     if is_ok(r) {
         printf("{}: ok ({})\n", label, get(unwrap(r)))
         net.close(unwrap(r))

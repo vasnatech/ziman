@@ -2366,9 +2366,9 @@ from source.
   has existed for some time** -- `net.listen_tls`, with its own TLS suite test, and `http`'s own
   docs tell you to hand `serve` a listener from it -- so this list outlived its first item.
   **Client certificates are now done on both sides**: `net.TlsServerOptions` (`client_ca_file`,
-  `require_client_cert`, via `listen_tls_with_options`) makes a listener authenticate its clients,
-  `net.TlsClientOptions` (`cert_file`, `key_file`, via `start_tls_with_options` /
-  `connect_tls_with_options`) presents one, and `net.peer_certificate_subject` is the identity to
+  `require_client_cert`, via `net.listen_tls`) makes a listener authenticate its clients,
+  `net.TlsClientOptions` (`cert_file`, `key_file`, via `net.start_tls` /
+  `net.connect_tls`) presents one, and `net.peer_certificate_subject` is the identity to
   authorize against. Two things the test transcript records because neither is obvious: a client
   whose certificate is refused still gets `Ok` from the handshake and only learns on the first read
   (TLS 1.3 validates the client certificate after its Finished), and requiring a certificate with
@@ -2973,9 +2973,9 @@ from source.
   missing, so this waits for a direct-exposure or gRPC need. What it takes, in order:
   1. ~~**ALPN in `net`.** The server side offers `h2` and `http/1.1` on `listen_tls` (`SSL_CTX_set_alpn_select_cb`) and the
      accepted socket says which was chosen (something like `net.negotiated_protocol(sock) -> Option<string>`); the client side
-     offers a list on `connect_tls_with`. Small, and useful on its own.~~ **Done 2026-10-11 (F65)**, and this entry guessed
+     offers a list on `net.connect_tls`. Small, and useful on its own.~~ **Done 2026-10-11 (F65)**, and this entry guessed
      its own answer: `net.negotiated_protocol(sock) -> Option<string>` is the name. The lists are
-     `TlsServerOptions.alpn` and `TlsClientOptions.alpn` rather than parameters on `listen_tls` and `connect_tls_with`,
+     `TlsServerOptions.alpn` and `TlsClientOptions.alpn` rather than parameters on `listen_tls` and `net.connect_tls`,
      since those two keep their signatures and the options structs are where new TLS settings now go. So **step 1 of HTTP/2
      is no longer in the way of step 2** -- what remains here is framing and HPACK. Cleartext HTTP/2 would be
      prior-knowledge only: the `Upgrade: h2c` route was dropped from the standard (RFC 9113) and is not planned.

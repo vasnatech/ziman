@@ -17,7 +17,11 @@ fn send_bytes(port: int, n: int) -> int {
     for i in 0..n {
         append(b, "x")
     }
-    return switch client.request(method: HttpMethod.Post, url: format("http://127.0.0.1:{}/", port), body: to_bytes(snapshot(b))) {
+    return switch client.request(
+        method: HttpMethod.Post,
+        url: format("http://127.0.0.1:{}/", port),
+        body: to_bytes(snapshot(b))
+    ) {
         Ok(resp) { resp.status }
         Err(_) { 0 - 1 }
     }
@@ -32,7 +36,7 @@ fn main() {
     print(format("4 bytes: {}", send_bytes(port, 4)))
     print(format("64 bytes: {}", send_bytes(port, 64)))
     print(format("65 bytes: {}", send_bytes(port, 65)))
-    // No `net.close_listener(l)` here, deliberately, and the four other `spawn server.serve`
+    // No `net.close(l)` here, deliberately, and the four other `spawn server.serve`
     // fixtures do the same. Closing the listener is not how a server is stopped -- `serve`
     // returns on a shutdown request (`os.install_shutdown_handler()`) -- so closing it out from
     // under the accepting thread is an error, and `serve` correctly reports one through

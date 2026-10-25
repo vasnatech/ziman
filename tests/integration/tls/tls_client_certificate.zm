@@ -64,10 +64,10 @@ fn client_options(cert: Option<string>, key: Option<string>) -> net.TlsClientOpt
 // **The exchange is the point, not a formality.** A client whose certificate the server refuses
 // still finishes its own side of a TLS 1.3 handshake, because the server validates the certificate
 // only after the client's Finished message; the rejection comes back as an alert afterwards. So
-// `connect_tls_with_options` returning `Ok` does **not** mean the server accepted you, and the
+// `net.connect_tls` returning `Ok` does **not** mean the server accepted you, and the
 // transcript below shows exactly where that is discovered instead -- on the first read.
 fn attempt(label: string, port: int, options: net.TlsClientOptions, results: Channel<string>) {
-    switch net.connect_tls_with_options("127.0.0.1", port, options) {
+    switch net.connect_tls("127.0.0.1", port, options) {
         Ok(s) {
             printf("{}: handshake returned Ok, server is {}\n", label, switch net.peer_certificate_subject(s) {
                 Some(subject) { subject }
@@ -90,7 +90,7 @@ fn attempt(label: string, port: int, options: net.TlsClientOptions, results: Cha
 fn main() {
     // A listener that asks every client for a certificate and verifies it against `b`, but lets a
     // client that has none through -- so the application decides what an anonymous caller may do.
-    val optional = unwrap(net.listen_tls_with_options(
+    val optional = unwrap(net.listen_tls(
         "127.0.0.1",
         0,
         with net.tls_server_options(server_cert, server_key) {
@@ -123,7 +123,7 @@ fn main() {
     )
 
     // The same listener, now requiring a certificate: an anonymous client cannot get in at all.
-    val required = unwrap(net.listen_tls_with_options(
+    val required = unwrap(net.listen_tls(
         "127.0.0.1",
         0,
         with net.tls_server_options(server_cert, server_key) {
@@ -152,7 +152,7 @@ fn main() {
     // at `listen` rather than failing every connection with a complaint about the certificate.
     printf(
         "require without a CA file: {}\n",
-        switch net.listen_tls_with_options("127.0.0.1", 0, with net.tls_server_options(server_cert, server_key) {
+        switch net.listen_tls("127.0.0.1", 0, with net.tls_server_options(server_cert, server_key) {
             require_client_cert: true
         }) {
             Ok(_) { "accepted, which it should not be" }
@@ -178,7 +178,7 @@ fn main() {
     // names the configuration rather than reporting a handshake failure.
     printf(
         "certificate without a key: {}\n",
-        switch net.connect_tls_with_options(
+        switch net.connect_tls(
             "127.0.0.1",
             plain_port,
             client_options(Option<string>.Some(client_cert), Option<string>.None)

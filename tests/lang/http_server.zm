@@ -1,8 +1,8 @@
 use http
-use server
-use server.HttpError
 use http.HttpMethod
 use net
+use server
+use server.HttpError
 
 // The server half is written the way an application writes it: its own
 // route function and its own accept loop, built from the raw pieces
@@ -38,8 +38,10 @@ fn route(req: http.Request) -> http.Response {
     if req.path == "/ua" && Option.is_Some(ua) {
         return server.text_response(200, Option.unwrap_Some(ua))
     }
-    return server.not_found_or_method_not_allowed(req,
-        ["GET /health", "HEAD /health", "GET /items/{id}", "POST /echo", "GET /search"])
+    return server.not_found_or_method_not_allowed(
+        req,
+        ["GET /health", "HEAD /health", "GET /items/{id}", "POST /echo", "GET /search"]
+    )
 }
 
 fn serve_connection(sock: net.Socket) {
@@ -165,8 +167,10 @@ fn main() {
     print(body_of(r))
 
     // POST with a body (Content-Length), echoed as JSON with a 201
-    put(s,
-        "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 15\r\n\r\n{\"hello\":\"you\"}")
+    put(
+        s,
+        "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 15\r\n\r\n{\"hello\":\"you\"}"
+    )
     r = read_response(s, true)
     print(first_line(r))
     print(body_of(r))
@@ -267,12 +271,20 @@ fn main() {
     print(first_line(read_response(s, true)))
     net.close(s)
     s = connect(port)
-    put(s,
-        concat("GET /health HTTP/1.1\r\nX-Big: ",
-            concat(join(separator: "",
-                pieces: ["0123456789", "0123456789", "0123456789", "0123456789", "0123456789", "0123456789",
-                    "0123456789", "0123456789", "0123456789", "0123456789"]),
-                "\r\n")))
+    put(
+        s,
+        concat(
+            "GET /health HTTP/1.1\r\nX-Big: ",
+            concat(
+                join(
+                    separator: "",
+                    pieces: ["0123456789", "0123456789", "0123456789", "0123456789", "0123456789", "0123456789",
+                        "0123456789", "0123456789", "0123456789", "0123456789"]
+                ),
+                "\r\n"
+            )
+        )
+    )
     var big = ""
     var i = 0
     while i < 500 {
@@ -305,7 +317,7 @@ fn main() {
         c = c + 1
     }
     print(ok)
-    net.close_listener(l)
+    net.close(l)
 }
 
 fn is_closed(r: Result<string, net.NetError>) -> bool {

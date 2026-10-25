@@ -31,5 +31,5 @@ fn main() {
     spawn server(l, done)
     print(is_ok(talk(net.listener_port(l))))
     print(receive(done))
-    net.close_listener(l)
+    net.close(l)
 }

@@ -560,7 +560,7 @@ fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: 
                 ClientError.Network(format("proxy refused the tunnel: {}", unwrap(head).status_line))
             )
         }
-        return switch lift<unit>(net.start_tls_with(sock, u.host, net.TlsVerify.Full, ca_file)) {
+        return switch lift<unit>(net.start_tls(sock, u.host, net.TlsVerify.Full, ca_file)) {
             Ok(_) { ok(sock) }
             Err(e) { fail_closed(sock, e) }
         }
@@ -570,15 +570,15 @@ fn open_socket(u: Url, proxy: Option<Url>, ca_file: Option<string>, timeout_ms: 
     // address with `timeout_ms: Some(1000)` took 135,942ms -- and then reported "request timed
     // out", which read as if the caller's deadline had fired (ziman tasks.md F60).
     //
-    // The TLS case connects and hands the socket to `start_tls_with` rather than calling
-    // `connect_tls_with`, which is that same pair with an untimed `connect` inside it. The
+    // The TLS case connects and hands the socket to `net.start_tls` rather than calling
+    // `net.connect_tls`, which is that same pair with an untimed `connect` inside it. The
     // handshake that follows is bounded by `set_timeout`, which every caller of this already sets.
     val direct = try lift<Socket>(net.connect_timeout(u.host, u.port, timeout_ms))
     if !u.secure {
         return ok(direct)
     }
     val _ = net.set_timeout(direct, timeout_ms)
-    return switch lift<unit>(net.start_tls_with(direct, u.host, net.TlsVerify.Full, ca_file)) {
+    return switch lift<unit>(net.start_tls(direct, u.host, net.TlsVerify.Full, ca_file)) {
         Ok(_) { ok(direct) }
         Err(e) { fail_closed(direct, e) }
     }

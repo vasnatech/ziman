@@ -98,5 +98,5 @@ fn main() {
     print(db_error_message(unwrap_err(required)))
     val preferred = datasource.open(format("postgres://u:p@127.0.0.1:{}/d?sslmode=prefer", port))
     print(db_error_message(unwrap_err(preferred)))
-    net.close_listener(l)
+    net.close(l)
 }

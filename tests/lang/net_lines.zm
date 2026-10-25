@@ -21,7 +21,7 @@ fn collect(port: int, max: int) -> [string] {
     val s = unwrap(net.connect("127.0.0.1", port))
     unwrap(net.set_timeout(s, 3000))
     var out: [string] = []
-    for item in net.lines_with(s, max) {
+    for item in net.lines(s, max) {
         if is_ok(item) {
             out = push(out, format("[{}]", unwrap(item)))
         } else {

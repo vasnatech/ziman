@@ -500,7 +500,7 @@ fn handshake(sock: Socket, url: MyUrl) -> Result<int, DbError> {
             } else {
                 Option<string>.None
             }
-            try db.lift_net<unit>(net.start_tls_with(sock, url.host, tls_verify(url.sslmode), root))
+            try db.lift_net<unit>(net.start_tls(sock, url.host, tls_verify(url.sslmode), root))
             tls = true
         } else if url.sslmode != "prefer" {
             return err(conn_err(format("the server does not support TLS (sslmode={})", url.sslmode)))

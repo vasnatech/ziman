@@ -26,6 +26,6 @@ fn main() {
         }
         return server.not_found()
     }, options)
-    net.close_listener(listener)
+    net.close(listener)
     print("stopped")
 }

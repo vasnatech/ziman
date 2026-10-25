@@ -50,7 +50,7 @@ fn main() {
     spawn serve(l, done)
 
     // TLS with full verification: the certificate names 127.0.0.1
-    val s = unwrap(net.connect_tls_with("127.0.0.1", port, TlsVerify.Full, ca()))
+    val s = unwrap(net.connect_tls("127.0.0.1", port, TlsVerify.Full, ca()))
     unwrap(net.write(s, [104b, 105b]))
     print(unwrap(net.read(s, 10)))
     net.close(s)
@@ -61,13 +61,13 @@ fn main() {
     net.close(plain)
     print(receive(done))
 
-    val s2 = unwrap(net.connect_tls_with("127.0.0.1", port, TlsVerify.Full, ca()))
+    val s2 = unwrap(net.connect_tls("127.0.0.1", port, TlsVerify.Full, ca()))
     unwrap(net.write(s2, [111b, 107b]))
     print(unwrap(net.read(s2, 10)))
     net.close(s2)
 
     // HTTP over the TLS listener
-    val s3 = unwrap(net.connect_tls_with("127.0.0.1", port, TlsVerify.Full, ca()))
+    val s3 = unwrap(net.connect_tls("127.0.0.1", port, TlsVerify.Full, ca()))
     unwrap(net.write_text(s3, "GET /secure HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"))
     var text = ""
     var reading = true
@@ -97,5 +97,5 @@ fn main() {
         "tests/integration/tls/.certs/a.pem",
         "tests/integration/tls/.certs/b.key"
     )))
-    net.close_listener(l)
+    net.close(l)
 }

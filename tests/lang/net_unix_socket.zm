@@ -26,7 +26,7 @@ fn main() {
     print(unwrap(net.read_text(client, 16)))
     net.close(client)
     clock.sleep_millis(80)
-    net.close_listener(listener)
+    net.close(listener)
 
     print(is_ok(net.listen_unix(path)))
     unwrap(fs.remove(path))

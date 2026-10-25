@@ -27,7 +27,7 @@ by the mapping layer, exactly as it is for SQLite.
 
 TLS is negotiated the way Postgres does it: an SSLRequest packet, the
 server's one-byte answer ('S' to proceed, 'N' if it has no TLS), then
-the same connection is upgraded in place (`net.start_tls_with`) before
+the same connection is upgraded in place (`net.start_tls`) before
 the startup message. The URL's `sslmode` follows libpq's meanings:
 `disable` (no TLS -- the default here, unlike libpq's `prefer`),
 `prefer` (use TLS if the server offers it, else plaintext; no

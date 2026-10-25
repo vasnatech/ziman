@@ -22,7 +22,7 @@
 //
 // TLS is negotiated the way Postgres does it: an SSLRequest packet, the
 // server's one-byte answer ('S' to proceed, 'N' if it has no TLS), then
-// the same connection is upgraded in place (`net.start_tls_with`) before
+// the same connection is upgraded in place (`net.start_tls`) before
 // the startup message. The URL's `sslmode` follows libpq's meanings:
 // `disable` (no TLS -- the default here, unlike libpq's `prefer`),
 // `prefer` (use TLS if the server offers it, else plaintext; no
@@ -354,7 +354,7 @@ fn negotiate_tls(sock: Socket, url: PgUrl) -> Result<unit, DbError> {
         net.TlsVerify.Off
     }
     val root = if url.sslrootcert != "" { Option<string>.Some(url.sslrootcert) } else { Option<string>.None }
-    return db.lift_net<unit>(net.start_tls_with(sock, url.host, verify, root))
+    return db.lift_net<unit>(net.start_tls(sock, url.host, verify, root))
 }
 
 fn handshake(sock: Socket, url: PgUrl) -> Result<int, DbError> {

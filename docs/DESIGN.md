@@ -200,6 +200,7 @@ them against the code.
 - [`metrics`: fifteen names become five (2026-10-24)](#metrics-fifteen-names-become-five-2026-10-24)
 - [`mime` was already right, and `to_string` turns out to be library-wide (2026-10-24)](#mime-was-already-right-and-to_string-turns-out-to-be-library-wide-2026-10-24)
 - [The `to_string` residue, cleared in one pass across five modules (2026-10-24)](#the-to_string-residue-cleared-in-one-pass-across-five-modules-2026-10-24)
+- [`net`: the `_with` suffixes go, and three names are kept on purpose (2026-10-24)](#net-the-_with-suffixes-go-and-three-names-are-kept-on-purpose-2026-10-24)
 
 <!-- end index -->
 
@@ -5909,7 +5910,7 @@ since everything such a note names is what *has* landed.
 
 docs/ROADMAP.md was tried the same way, with "not started" as a second marker, and **produced 40 findings
 of which nearly all were wrong** -- so it was reverted. The reason is the shape of the prose, not the
-rule: "HTTP/2 -- not started" is followed by a paragraph mentioning `listen_tls`, `connect_tls_with`,
+rule: "HTTP/2 -- not started" is followed by a paragraph mentioning `listen_tls`, `net.connect_tls`,
 `byte_and` and more, none of which the entry claims are missing, and the continuation-pulling that makes
 the check work on a terse `Not yet: a, b, c` list is exactly what drags those in. A narrower variant --
 flag a "not started" entry that cites a tasks.md id which is now closed -- is precise but matches three
@@ -8285,3 +8286,21 @@ A process note on the mechanics. Moving `series_of` below the second `series` de
 4. **`docs/reviews/` is not uniformly historical.** Excluding it wholesale left `benchmark/reference/33-toml-config.zm` and `36-yaml-list.zm` on dead names, and those two are *compiled and run* by `benchmark-check` -- unlike `benchmark/runs/`, which is recorded output. The distinction had been got right for `bits` that morning and lost here.
 
 `json.to_string_map` is deliberately untouched: it converts to a `Map<string, string>` rather than producing a display form. So is the prelude's `bytes_to_string`.
+
+## `net`: the `_with` suffixes go, and three names are kept on purpose (2026-10-24)
+
+`net.zm` had the `_with`/`_with_options` explosion `csv` had: `start_tls`, `start_tls_with`, `start_tls_with_options`, and the same shape for `connect_tls` and `listen_tls`. Each suffix restated the type of an argument the call already carries, so five names collapsed into three overload sets, `lines_with` folded into `lines` by arity, and `close_listener` became the `Listener` member of `close`. Seven names gone, 75 references moved, every call site already qualified.
+
+**The judgement in this one is what was *not* collapsed, because overloading would have worked and was still wrong.**
+
+`connect_unix` and `listen_unix` take a single `string` and would resolve against `connect(host, port)` by arity. They name a different *transport*, not a different arity, and `connect("/tmp/app.sock")` reads as a URL with a missing port rather than as a Unix socket.
+
+`connect_timeout(host, port, 5000)` keeps its name because a bare trailing `int` says nothing -- the same test `csv`'s `typed` flag failed and `csv`'s delimiter passed. `connect(host, port, 5000)` could as easily be a retry count.
+
+`connect_tls`/`listen_tls` stay separate from `connect`/`listen`, and this is the one with a real cost: both pairs differ in arity and *would* resolve. The argument against is that whether a connection is encrypted is the last property anybody should infer from counting arguments. A reader scanning for the plaintext listener wants to grep `net.listen(`, and if `net.listen(host, port, options)` were the TLS one, that grep would answer wrongly. The suffix is doing security-relevant work, not naming a type.
+
+`read_text`/`write_text` could not have joined `read`/`write` in any case: they take the identical arguments and differ only in answering a `string` rather than `[byte]`, which no argument list can state -- the third module this week to hit that (`fs.read_text`, `math.floor_float`, now here).
+
+The `Option` in `start_tls_with(s, host, verify, ca_file: Option<string>)` needed checking before the fold, since **overloading a name disables `Option` omission** (the `jwt` finding). Every one of its eight call sites passes all four arguments explicitly, so nothing depended on omitting it.
+
+Verified including the TLS integration suites, which carry 21 of the edits and are the only place the handshake paths run: `tls_alpn`, `tls_behavior`, `tls_client_certificate`, `tls_close_while_reading`, `tls_server`, `tls_verify` and `httpclient_tls` all pass.

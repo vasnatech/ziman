@@ -1,9 +1,9 @@
-use net
+use client
 use clock
 use http
 use http.Header
-use client
 use http.HttpMethod
+use net
 
 // A raw-socket server with canned answers, so the client is tested against exact wire formats.
 
@@ -105,7 +105,7 @@ fn main() {
 
     val h = unwrap(client.get(concat(base, "/plain")))
     print(http_header(h.headers, "content-type"))
-    // No `net.close_listener(l)`, for the reason http_body_cap_option.zm spells out and
+    // No `net.close(l)`, for the reason http_body_cap_option.zm spells out and
     // httpclient_redirect_keeps_url_credentials.zm was fixed for (9cab978): closing the listener is
     // not how a server is stopped, so closing it under the accepting thread is an error that
     // `on_error` would print into this fixture's own stdout. The window here is narrow -- the loop

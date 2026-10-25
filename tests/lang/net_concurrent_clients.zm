@@ -48,5 +48,5 @@ fn main() {
         i = i + 1
     }
     print(ok)
-    net.close_listener(l)
+    net.close(l)
 }

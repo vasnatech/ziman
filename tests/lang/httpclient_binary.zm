@@ -1,7 +1,7 @@
-use net
 use client
 use http
 use http.HttpMethod
+use net
 
 // An echo server that works on raw bytes, so a body may hold 0 bytes.
 fn find_head_end(buf: [byte]) -> int {
@@ -77,7 +77,7 @@ fn main() {
     print(is_ok(as_text))
     print(unwrap_err(as_text))
     print(is_ok(http.response_text(unwrap(client.get(bin_url)))))
-    // No `net.close_listener(l)`, for the reason http_body_cap_option.zm spells out and
+    // No `net.close(l)`, for the reason http_body_cap_option.zm spells out and
     // httpclient_redirect_keeps_url_credentials.zm was fixed for (9cab978): closing the listener is
     // not how a server is stopped, so closing it under the accepting thread is an error that
     // `on_error` would print into this fixture's own stdout. The window here is narrow -- the loop

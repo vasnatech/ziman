@@ -39,7 +39,7 @@ fn main() {
     spawn serve_one(l, done)
     clock.sleep_millis(60)
     val c = unwrap(net.connect("127.0.0.1", port))
-    val up = net.start_tls_with(c, "127.0.0.1", net.TlsVerify.Off, Option<string>.None)
+    val up = net.start_tls(c, "127.0.0.1", net.TlsVerify.Off, Option<string>.None)
     print(concat("client handshake ok: ", str(is_ok(up))))
     clock.sleep_millis(400)  // never send anything, so the server's reader stays blocked
     var saw_reader = false

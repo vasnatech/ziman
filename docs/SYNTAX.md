@@ -2095,7 +2095,7 @@ fn main() {
 - **Blocking, thread-per-connection** -- a blocked `accept`/`read` blocks only its own thread;
   `spawn` a handler per connection. No event loop, no async.
 - **Handles.** `Socket`/`Listener` are `{ handle: int }` over a native table, like
-  `datasource.Connection`. Closing is explicit (`net.close`/`close_listener`) -- no destructors,
+  `datasource.Connection`. Closing is explicit (`net.close`/`net.close`) -- no destructors,
   so a `try` returning early between `connect` and `close` leaks the socket. Close from the
   owning thread.
 - **Reading.** `read(s, max)` blocks for at least one byte, returns up to `max`. `read_exact(s,

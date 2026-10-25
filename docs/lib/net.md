@@ -30,7 +30,7 @@ built on `Socket` (the `pg` driver, a future HTTP layer) needs to know
 which it has. Verification is ON by default -- the certificate chain
 against the system CA store, and that it is valid for the host name
 (or IP address) you connected to. Turn it down only deliberately, with
-`start_tls_with`: `TlsVerify.Chain` skips the host-name check,
+`start_tls`: `TlsVerify.Chain` skips the host-name check,
 `TlsVerify.Off` skips verification entirely (encryption only, open to a
 man in the middle). Minimum protocol is TLS 1.2. A TLS socket must not
 be read and written from two threads at once without care -- each
@@ -172,6 +172,20 @@ pub fn connect(host: string, port: int) -> Result<Socket, NetError>
 ```
 
 `host` is a name or an address (IPv4 or IPv6).
+**A `_with` suffix that restates an argument's type is gone** (2026-10-24): `start_tls`,
+`connect_tls` and `listen_tls` are each one name over two or three arities, and `lines` over
+two, because a `TlsClientOptions` third argument and a `max_line_bytes` second one say what they
+are. `close` covers a `Socket` and a `Listener`, told apart by the argument.
+
+**Three names were kept that overloading could have taken.** `connect_unix`/`listen_unix` are a
+different transport, not a different arity, and `connect("/tmp/sock")` would read as a URL.
+`connect_timeout(host, port, 5000)` keeps its name because a bare trailing `int` says nothing --
+the same reason `csv`'s `typed` is a name. And `connect_tls`/`listen_tls` stay separate from
+`connect`/`listen`: both pairs *could* resolve by arity, but whether a connection is encrypted
+is the last thing that should be inferred from counting arguments.
+
+`read_text`/`write_text` cannot join `read`/`write` at all: they take the identical arguments and
+differ only in answering a `string` rather than `[byte]`, which no argument list can state.
 
 ### `connect_timeout`
 
@@ -276,10 +290,10 @@ pub fn tls_server_options(cert_file: string, key_file: string) -> TlsServerOptio
 `TlsServerOptions` for a plain HTTPS listener: the certificate and key, no client certificate
 asked for.
 
-### `listen_tls_with_options`
+### `listen_tls`
 
 ```
-pub fn listen_tls_with_options(host: string, port: int, options: TlsServerOptions) -> Result<Listener, NetError>
+pub fn listen_tls(host: string, port: int, options: TlsServerOptions) -> Result<Listener, NetError>
 ```
 
 `listen_tls` with the rest of `TlsServerOptions` -- a listener that also authenticates its
@@ -403,10 +417,8 @@ iteration ends. It ends normally when the peer closes the connection. It reads a
 on the socket only when you are not reading lines. The iterator does not close the socket; that stays
 yours. Set a timeout with `set_timeout` so a silent peer cannot block the loop for ever.
 
-### `lines_with`
-
 ```
-pub fn lines_with(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetError>>
+pub fn lines(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetError>>
 ```
 
 `lines` with a chosen longest line, in bytes.
@@ -429,10 +441,8 @@ pub fn start_tls(s: Socket, host: string) -> Result<unit, NetError>
 Upgrades a connected socket to TLS, verifying the server's certificate
 fully (chain against the system CA store, and that it names `host`).
 
-### `start_tls_with`
-
 ```
-pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError>
+pub fn start_tls(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError>
 ```
 
 The same, choosing how much to verify and optionally a PEM file of
@@ -465,7 +475,7 @@ certificate is only sent when requested.
 
 **A successful handshake does not mean the server accepted your certificate.** In TLS 1.3 the
 client finishes its own side before the server validates what it sent, so a server that refuses
-the certificate answers with an alert afterwards: `start_tls_with_options` returns `Ok` and the
+the certificate answers with an alert afterwards: `start_tls` returns `Ok` and the
 refusal appears on the first read or write as an `Err(Tls)`. Code that must know it is
 authenticated has to exchange something, not merely connect.
 
@@ -478,10 +488,10 @@ pub fn tls_client_options() -> TlsClientOptions
 `TlsClientOptions` that verify the server fully against the system CA store and present no
 certificate of their own, which is what an ordinary HTTPS client wants.
 
-### `start_tls_with_options`
+### `start_tls`
 
 ```
-pub fn start_tls_with_options(s: Socket, host: string, options: TlsClientOptions) -> Result<unit, NetError>
+pub fn start_tls(s: Socket, host: string, options: TlsClientOptions) -> Result<unit, NetError>
 ```
 
 `start_tls` with the rest of `TlsClientOptions`. An `Err` naming the client certificate means it
@@ -497,10 +507,8 @@ pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError>
 connect + start_tls. The socket is closed if the handshake fails, so a
 failed call leaks nothing.
 
-### `connect_tls_with`
-
 ```
-pub fn connect_tls_with(
+pub fn connect_tls(
     host: string,
     port: int,
     verify: TlsVerify,
@@ -511,10 +519,8 @@ pub fn connect_tls_with(
 `connect_tls` choosing how much of the certificate to verify and, optionally, a PEM file of
 trusted CAs. The socket is closed if the handshake fails.
 
-### `connect_tls_with_options`
-
 ```
-pub fn connect_tls_with_options(host: string, port: int, options: TlsClientOptions) -> Result<Socket, NetError>
+pub fn connect_tls(host: string, port: int, options: TlsClientOptions) -> Result<Socket, NetError>
 ```
 
 `connect_tls` with the rest of `TlsClientOptions`, including a client certificate to present.
@@ -569,10 +575,8 @@ closing from a different thread than the reader is supported, not merely tolerat
 holds a reference while a read is in flight, so the descriptor cannot be closed and its number
 handed to something else underneath it (docs/reviews/tasks.md A31).
 
-### `close_listener`
-
 ```
-pub fn close_listener(l: Listener)
+pub fn close(l: Listener)
 ```
 
 Stops listening and closes the listener's socket. A thread blocked in `accept` on it gets

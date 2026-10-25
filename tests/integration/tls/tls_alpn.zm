@@ -72,7 +72,7 @@ fn offering(protocols: [string]) -> net.TlsClientOptions {
 }
 
 fn attempt(label: string, port: int, options: net.TlsClientOptions, results: Channel<string>) {
-    switch net.connect_tls_with_options("127.0.0.1", port, options) {
+    switch net.connect_tls("127.0.0.1", port, options) {
         Ok(s) {
             printf("{}: client sees {}", label, named(net.negotiated_protocol(s)))
             printf(", first exchange {}\n", switch net.write(s, [104b, 105b]) {
@@ -91,7 +91,7 @@ fn attempt(label: string, port: int, options: net.TlsClientOptions, results: Cha
 
 fn main() {
     // The listener prefers h2; the clients below offer their own orders, and the server's wins.
-    val l = unwrap(net.listen_tls_with_options("127.0.0.1", 0, with net.tls_server_options(cert, key) {
+    val l = unwrap(net.listen_tls("127.0.0.1", 0, with net.tls_server_options(cert, key) {
         alpn: ["h2", "http/1.1"]
     }))
     val port = net.listener_port(l)
@@ -117,7 +117,7 @@ fn main() {
     // Caught where the list is given rather than at the handshake.
     printf(
         "empty protocol name, listener: {}\n",
-        switch net.listen_tls_with_options("127.0.0.1", 0, with net.tls_server_options(cert, key) {
+        switch net.listen_tls("127.0.0.1", 0, with net.tls_server_options(cert, key) {
             alpn: ["h2", ""]
         }) {
             Ok(_) { "accepted, which it should not be" }
@@ -126,7 +126,7 @@ fn main() {
     )
     printf(
         "overlong protocol name, client: {}\n",
-        switch net.connect_tls_with_options("127.0.0.1", quiet_port, offering([name_of_length(256)])) {
+        switch net.connect_tls("127.0.0.1", quiet_port, offering([name_of_length(256)])) {
             Ok(_) { "connected, which it should not be" }
             Err(e) { net.net_error_message(e) }
         }

@@ -28,7 +28,7 @@
 // which it has. Verification is ON by default -- the certificate chain
 // against the system CA store, and that it is valid for the host name
 // (or IP address) you connected to. Turn it down only deliberately, with
-// `start_tls_with`: `TlsVerify.Chain` skips the host-name check,
+// `start_tls`: `TlsVerify.Chain` skips the host-name check,
 // `TlsVerify.Off` skips verification entirely (encryption only, open to a
 // man in the middle). Minimum protocol is TLS 1.2. A TLS socket must not
 // be read and written from two threads at once without care -- each
@@ -157,6 +157,20 @@ fn net_error_from_raw(raw: string) -> NetError {
 }
 
 // `host` is a name or an address (IPv4 or IPv6).
+// **A `_with` suffix that restates an argument's type is gone** (2026-10-24): `start_tls`,
+// `connect_tls` and `listen_tls` are each one name over two or three arities, and `lines` over
+// two, because a `TlsClientOptions` third argument and a `max_line_bytes` second one say what they
+// are. `close` covers a `Socket` and a `Listener`, told apart by the argument.
+//
+// **Three names were kept that overloading could have taken.** `connect_unix`/`listen_unix` are a
+// different transport, not a different arity, and `connect("/tmp/sock")` would read as a URL.
+// `connect_timeout(host, port, 5000)` keeps its name because a bare trailing `int` says nothing --
+// the same reason `csv`'s `typed` is a name. And `connect_tls`/`listen_tls` stay separate from
+// `connect`/`listen`: both pairs *could* resolve by arity, but whether a connection is encrypted
+// is the last thing that should be inferred from counting arguments.
+//
+// `read_text`/`write_text` cannot join `read`/`write` at all: they take the identical arguments and
+// differ only in answering a `string` rather than `[byte]`, which no argument list can state.
 pub fn connect(host: string, port: int) -> Result<Socket, NetError> {
     val r = connect_raw(host, port)
     if Err(e) = r {
@@ -230,7 +244,7 @@ pub fn listen(host: string, port: int) -> Result<Listener, NetError> {
 // failed handshake is an `Err(Tls)` from `accept`, so an accept loop just goes round again. An Err
 // from `listen_tls` itself means the certificate or key could not be used, or the port is not available.
 pub fn listen_tls(host: string, port: int, cert_file: string, key_file: string) -> Result<Listener, NetError> {
-    return listen_tls_with_options(host, port, tls_server_options(cert_file, key_file))
+    return listen_tls(host, port, tls_server_options(cert_file, key_file))
 }
 
 // What a TLS listener presents and what it asks of the client. Build one with `tls_server_options`
@@ -272,7 +286,7 @@ pub fn tls_server_options(cert_file: string, key_file: string) -> TlsServerOptio
 // be used, the port is unavailable, or a client certificate was required with no CA file to verify
 // it against, which would otherwise fail every connection with a complaint about the certificate
 // rather than about the configuration.
-pub fn listen_tls_with_options(host: string, port: int, options: TlsServerOptions) -> Result<Listener, NetError> {
+pub fn listen_tls(host: string, port: int, options: TlsServerOptions) -> Result<Listener, NetError> {
     val r = listen_tls_raw(
         host,
         port,
@@ -462,11 +476,11 @@ fn send_failure_end(cell: Channel<LineBuffer>) {
 // on the socket only when you are not reading lines. The iterator does not close the socket; that stays
 // yours. Set a timeout with `set_timeout` so a silent peer cannot block the loop for ever.
 pub fn lines(s: Socket) -> Iter<Result<string, NetError>> {
-    return lines_with(s, default_max_line_bytes)
+    return lines(s, default_max_line_bytes)
 }
 
 // `lines` with a chosen longest line, in bytes.
-pub fn lines_with(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetError>> {
+pub fn lines(s: Socket, max_line_bytes: int) -> Iter<Result<string, NetError>> {
     val cell: Channel<LineBuffer> = channel_new()
     send(cell, LineBuffer { data: [], eof: false })
     return iter_from<Result<string, NetError>>(fn() -> Option<Result<string, NetError>> {
@@ -494,14 +508,14 @@ fn tls_verify_level(v: TlsVerify) -> int {
 // Upgrades a connected socket to TLS, verifying the server's certificate
 // fully (chain against the system CA store, and that it names `host`).
 pub fn start_tls(s: Socket, host: string) -> Result<unit, NetError> {
-    return start_tls_with(s, host, TlsVerify.Full, Option<string>.None)
+    return start_tls(s, host, TlsVerify.Full, Option<string>.None)
 }
 
 // The same, choosing how much to verify and optionally a PEM file of
 // trusted CAs to use instead of the system store (e.g. a private CA, or a
 // self-signed test certificate).
-pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError> {
-    return start_tls_with_options(s, host, with tls_client_options() {
+pub fn start_tls(s: Socket, host: string, verify: TlsVerify, ca_file: Option<string>) -> Result<unit, NetError> {
+    return start_tls(s, host, with tls_client_options() {
         verify: verify,
         ca_file: ca_file
     })
@@ -521,7 +535,7 @@ pub fn start_tls_with(s: Socket, host: string, verify: TlsVerify, ca_file: Optio
 //
 // **A successful handshake does not mean the server accepted your certificate.** In TLS 1.3 the
 // client finishes its own side before the server validates what it sent, so a server that refuses
-// the certificate answers with an alert afterwards: `start_tls_with_options` returns `Ok` and the
+// the certificate answers with an alert afterwards: `start_tls` returns `Ok` and the
 // refusal appears on the first read or write as an `Err(Tls)`. Code that must know it is
 // authenticated has to exchange something, not merely connect.
 pub struct TlsClientOptions {
@@ -547,7 +561,7 @@ pub fn tls_client_options() -> TlsClientOptions {
 // `start_tls` with the rest of `TlsClientOptions`. An `Err` naming the client certificate means it
 // or its key could not be read; one from the handshake itself means the server rejected what was
 // presented, or presented something this would not accept.
-pub fn start_tls_with_options(s: Socket, host: string, options: TlsClientOptions) -> Result<unit, NetError> {
+pub fn start_tls(s: Socket, host: string, options: TlsClientOptions) -> Result<unit, NetError> {
     return switch start_tls_raw(
         s.handle,
         host,
@@ -565,18 +579,18 @@ pub fn start_tls_with_options(s: Socket, host: string, options: TlsClientOptions
 // connect + start_tls. The socket is closed if the handshake fails, so a
 // failed call leaks nothing.
 pub fn connect_tls(host: string, port: int) -> Result<Socket, NetError> {
-    return connect_tls_with(host, port, TlsVerify.Full, Option<string>.None)
+    return connect_tls(host, port, TlsVerify.Full, Option<string>.None)
 }
 
 // `connect_tls` choosing how much of the certificate to verify and, optionally, a PEM file of
 // trusted CAs. The socket is closed if the handshake fails.
-pub fn connect_tls_with(
+pub fn connect_tls(
     host: string,
     port: int,
     verify: TlsVerify,
     ca_file: Option<string>
 ) -> Result<Socket, NetError> {
-    return connect_tls_with_options(host, port, with tls_client_options() {
+    return connect_tls(host, port, with tls_client_options() {
         verify: verify,
         ca_file: ca_file
     })
@@ -584,9 +598,9 @@ pub fn connect_tls_with(
 
 // `connect_tls` with the rest of `TlsClientOptions`, including a client certificate to present.
 // The socket is closed if the handshake fails.
-pub fn connect_tls_with_options(host: string, port: int, options: TlsClientOptions) -> Result<Socket, NetError> {
+pub fn connect_tls(host: string, port: int, options: TlsClientOptions) -> Result<Socket, NetError> {
     val s = try connect(host, port)
-    return switch start_tls_with_options(s, host, options) {
+    return switch start_tls(s, host, options) {
         Ok(_) { s }
         Err(e) {
             close(s)
@@ -670,6 +684,6 @@ pub fn close(s: Socket) {
 // Stops listening and closes the listener's socket. A thread blocked in `accept` on it gets
 // `NetError.Closed` -- which is how a server shuts down, so it is supported rather than tolerated:
 // see `close` just above on what makes that safe.
-pub fn close_listener(l: Listener) {
+pub fn close(l: Listener) {
     close_raw(l.handle)
 }

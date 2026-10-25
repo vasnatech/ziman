@@ -47,7 +47,7 @@ fn main() {
 
     net.close(s)
     print(receive(done))
-    net.close_listener(l)
+    net.close(l)
 
     // errors
     val refused = net.connect("127.0.0.1", port)
@@ -69,5 +69,5 @@ fn main() {
     val short = net.read_exact(c2, 5)
     print(NetError.is_Closed(unwrap_err(short)))
     net.close(c2)
-    net.close_listener(l2)
+    net.close(l2)
 }

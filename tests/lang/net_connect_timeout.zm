@@ -24,7 +24,7 @@ fn main() {
         }
         Err(e) { print(concat("unexpected failure: ", net.net_error_message(e))) }
     }
-    net.close_listener(listener)
+    net.close(listener)
 
     // The same port with nothing listening any more: refused, and promptly, not timed out.
     switch net.connect_timeout("127.0.0.1", port, 5000) {

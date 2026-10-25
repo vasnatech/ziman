@@ -23,7 +23,7 @@ fn plain_server(l: net.Listener) {
 fn main() {
     // A whole page arrives over several TLS records, then the server
     // closes: reading to the end yields the bytes, then Err(Closed).
-    val s = unwrap(net.connect_tls_with("127.0.0.1", 55443, TlsVerify.Full, ca()))
+    val s = unwrap(net.connect_tls("127.0.0.1", 55443, TlsVerify.Full, ca()))
     unwrap(net.write(s, request()))
     var total = 0
     var reading = true
@@ -42,13 +42,13 @@ fn main() {
     net.close(s)
 
     // read_exact works across TLS record boundaries
-    val s2 = unwrap(net.connect_tls_with("127.0.0.1", 55443, TlsVerify.Full, ca()))
+    val s2 = unwrap(net.connect_tls("127.0.0.1", 55443, TlsVerify.Full, ca()))
     unwrap(net.write(s2, request()))
     print(len(unwrap(net.read_exact(s2, 700))))
     net.close(s2)
 
     // a receive timeout surfaces as Timeout over TLS, not a TLS error
-    val s3 = unwrap(net.connect_tls_with("127.0.0.1", 55443, TlsVerify.Full, ca()))
+    val s3 = unwrap(net.connect_tls("127.0.0.1", 55443, TlsVerify.Full, ca()))
     unwrap(net.set_timeout(s3, 200))
     val slow = net.read(s3, 10)
     print(NetError.is_Timeout(unwrap_err(slow)))
@@ -56,8 +56,8 @@ fn main() {
 
     // upgrading twice is an error, not a crash
     val s4 = unwrap(net.connect("127.0.0.1", 55443))
-    unwrap(net.start_tls_with(s4, "127.0.0.1", TlsVerify.Full, ca()))
-    val again = net.start_tls_with(s4, "127.0.0.1", TlsVerify.Full, ca())
+    unwrap(net.start_tls(s4, "127.0.0.1", TlsVerify.Full, ca()))
+    val again = net.start_tls(s4, "127.0.0.1", TlsVerify.Full, ca())
     print(NetError.is_Tls(unwrap_err(again)))
     net.close(s4)
 
@@ -65,10 +65,10 @@ fn main() {
     // cleanly, and connect_tls closes the socket it opened
     val l = unwrap(net.listen("127.0.0.1", 0))
     spawn plain_server(l)
-    val bad = net.connect_tls_with("127.0.0.1", net.listener_port(l), TlsVerify.Off, Option<string>.None)
+    val bad = net.connect_tls("127.0.0.1", net.listener_port(l), TlsVerify.Off, Option<string>.None)
     print(is_ok(bad))
     print(NetError.is_Tls(unwrap_err(bad)))
-    net.close_listener(l)
+    net.close(l)
 
     // a closed port is still ConnectionRefused, not a TLS error
     val refused = net.connect_tls("127.0.0.1", 1)
