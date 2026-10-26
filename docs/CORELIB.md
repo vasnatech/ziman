@@ -1877,6 +1877,14 @@ pub fn translate(reg: Registry, query: string) -> Result<Translated, DbError>
 
 pub fn arrange(t: Translated, bound: [Binding]) -> Result<[SqlValue], DbError>
 
+pub fn list<E>(
+
+pub fn one<E>(
+
+pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError>
+
+pub fn count(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<int, DbError>
+
 ```
 
 ## `memdb`

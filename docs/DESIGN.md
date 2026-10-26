@@ -240,6 +240,7 @@ them against the code.
 - [`db`: a malformed row stops crashing, and an optimisation measured and declined (2026-10-26)](#db-a-malformed-row-stops-crashing-and-an-optimisation-measured-and-declined-2026-10-26)
 - [`#[derive(Entity)]`, and the table name it refuses to guess (2026-10-26)](#deriveentity-and-the-table-name-it-refuses-to-guess-2026-10-26)
 - [`eql`: an entity query language that is a translation, not an engine (2026-10-26)](#eql-an-entity-query-language-that-is-a-translation-not-an-engine-2026-10-26)
+- [`eql` runs, and the cost that decided its shape (2026-10-26)](#eql-runs-and-the-cost-that-decided-its-shape-2026-10-26)
 
 <!-- end index -->
 
@@ -9318,3 +9319,32 @@ One bug, found by the tests on their first run: `FROM Patient p, Visit v` left t
 **What it does not read, and the honest cost.** No associations -- the entities declare none, so there are no path expressions across entities and no fetch joins; a join names the second entity and its condition, as the repositories already do. No `SELECT new Dto(..)`: a projection answers rows. No bulk `UPDATE`/`DELETE`: writes stay SQL, where an explicit statement is worth more than brevity. Those are increments, not oversights, and the first of them is the one that brings N+1 with it.
 
 Increment 3 is execution -- `eql.list`/`one`/`rows` over `datasource`, cross-checked against `memdb` and real SQLite -- and increment 4 is adopting it in **one** repository rather than eighteen, so it earns the rest.
+
+## `eql` runs, and the cost that decided its shape (2026-10-26)
+
+`eql.list`, `eql.one`, `eql.rows` and `eql.count` over `datasource`, with 13 unit tests against `memdb` and a 17-query cross-check that runs each translation on **both** memdb and real SQLite.
+
+**The API shape came out of a measurement, not a preference.** Translating a query costs 140 to 300 microseconds -- tokenise, rewrite, parse, format -- against 300 to 3,000 for a PostgreSQL round trip. Translating per call would therefore add between a tenth and the whole of a fast query's cost, for an answer that never changes. So the executing functions take a **`Translated`**, not a query string, and a repository translates once in a module-level `val`:
+
+```ziman
+val by_last_name = unwrap(eql.translate(reg, "SELECT p FROM Patient p WHERE p.last_name = :name"))
+
+pub fn find_by_last_name(conn: datasource.Connection, name: string) -> Result<[Patient], DbError> {
+    return eql.list<Patient>(conn, by_last_name, [eql.bind("name", SqlValue.Text(name))], patient_from_row)
+}
+```
+
+A one-off is still one line -- `eql.list(conn, try eql.translate(reg, q), binds, from_row)` -- it just says what it is paying for. Had the functions taken a string, the fast path would have been the one nobody writes.
+
+**`from_row` is passed at the call site**, and that is forced rather than chosen: a `Registry` holding `fn(Row) -> Result<E, DbError>` would be typed over `E`, and a registry that can hold only one entity type is not a registry. The metamodel stays untyped and the call site, where the type is known anyway, supplies the reader.
+
+**The cross-check is what makes any of this a claim about SQL.** The unit tests and the translator read the same translator, so between them they cannot tell a subtly wrong translation from a right one -- a column aliased where it should not be, a parameter numbered out of order, a join that loses rows. Running each translation on two engines can: **17 of 17 agree**, over entity expansion, projections, counts, aggregates with `GROUP BY` and `HAVING`, inner and left joins, a comma join, `IN (SELECT ..)`, `EXISTS`, `LIKE`, `UNION`, `CASE`, and `LIMIT`/`OFFSET`. The fixture also prints the SQL each query becomes, which is the part a reviewer should actually read: a change there is a change in meaning.
+
+Two small things the tests decided:
+
+* **`count` refuses a query that answers more than one row or more than one column.** `SELECT count(*) AS n FROM ..` is the commonest projection there is and reading it by hand is four lines of row and converter every time -- but a helper that quietly read the first of several numbers would be worse than no helper, so it names what the query answered instead.
+* **A missing binding names what *was* bound.** The first version said `the query names :name and nothing was bound to it`, which is true and unhelpful when the cause is `eql.bind("nmae", ..)` two lines away. It now ends `(bound: nmae)`, and the two spellings side by side diagnose it at a glance. The test that found this was asserting the wrong message, which is its own small lesson: the test was right that something was wrong and wrong about what.
+
+One limit worth stating because it will surprise someone: a row answering **two** entities (`SELECT p, v FROM ..`) has two columns called `id`, and `row_get` takes the first -- so one `from_row` reads the first entity and the second is unreachable through it. Select one entity at a time, or use `rows` and read the tuple. JPQL answers an array of objects there; doing the same here needs a tuple type this layer does not have, which makes it an increment rather than a bug.
+
+What is left of the plan is increment 4: adopting this in **one** repository -- `health_event`, whose type filter and paging are the hand-numbered parameters that motivated the whole thing -- rather than in eighteen, so it earns the rest.

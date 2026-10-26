@@ -83,6 +83,7 @@ flowchart LR
     db --> url
     encoding --> locale
     encoding --> number
+    eql --> datasource
     eql --> db
     eql --> locale
     eql --> sql
@@ -252,10 +253,10 @@ otherwise: everything on a layer depends only on lower layers.
 | `compress` | - | `client`, `image`, `pdfobj`, `server` |
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
-| `datasource` | `clock`, `db` | `migrate` |
+| `datasource` | `clock`, `db` | `eql`, `migrate` |
 | `db` | `net`, `number`, `url` | `datasource`, `eql`, `memdb`, `migrate`, `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
-| `eql` | `db`, `locale`, `sql` | - |
+| `eql` | `datasource`, `db`, `locale`, `sql` | - |
 | `font` | `truetype` | `layout`, `pdf`, `raster` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `sql`, `zone` |
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |

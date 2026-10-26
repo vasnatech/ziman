@@ -61,7 +61,10 @@
 // brevity. **No implicit joins, no `FETCH`, no `TREAT`, no polymorphism** -- there is no
 // inheritance between entity structs to be polymorphic over.
 #![experimental]
+use datasource
+use db
 use db.DbError
+use db.Row
 use db.SqlValue
 use locale
 use sql
@@ -465,7 +468,20 @@ pub fn arrange(t: Translated, bound: [Binding]) -> Result<[SqlValue], DbError> {
         if Some(v) = found {
             push(out, v)
         } else {
-            return err(problem(prelude.format("the query names :{} and nothing was bound to it", name)))
+            // **What was bound is named too**, because the usual cause of a missing binding is a
+            // misspelled one, and the two names side by side diagnose it at a glance where either
+            // alone leaves the reader looking.
+            val given = mutable_array_new<string>()
+            for b in bound {
+                push(given, b.name)
+            }
+            return err(problem(prelude.format(
+                "the query names :{} and nothing was bound to it (bound: {})",
+                name,
+                if prelude.len(bound) == 0 { "nothing" } else {
+                    join(separator: ", ", pieces: snapshot(given))
+                }
+            )))
         }
     }
     for b in bound {
@@ -480,4 +496,95 @@ pub fn arrange(t: Translated, bound: [Binding]) -> Result<[SqlValue], DbError> {
         }
     }
     return ok(snapshot(out))
+}
+
+// ---------------------------------------------------------------- running one
+
+// Running a translated query. **Each of these takes a `Translated`, not a query string**, and the
+// reason is measured: translating costs 140 to 300 microseconds (tokenise, rewrite, parse,
+// format), against 300 to 3,000 for a PostgreSQL round trip. Translating per call would add
+// between a tenth and the whole of a fast query's cost for an answer that never changes, so a
+// repository translates **once**, in a module-level `val`, and runs it many times:
+//
+//     val by_last_name = unwrap(eql.translate(reg, "SELECT p FROM Patient p WHERE p.last_name = :name"))
+//
+//     pub fn find_by_last_name(conn: datasource.Connection, name: string) -> Result<[Patient], DbError> {
+//         return eql.list<Patient>(conn, by_last_name, [eql.bind("name", SqlValue.Text(name))], patient_from_row)
+//     }
+//
+// A one-off is still one line -- `eql.list(conn, try eql.translate(reg, q), binds, from_row)` --
+// it just says what it is paying for.
+//
+// `from_row` is passed at the call site rather than carried by the entity, because a `Registry`
+// holding `fn(Row) -> Result<E, DbError>` would be typed over `E` and could not then hold two
+// different entities. The metamodel is deliberately untyped; the call site is where the type is
+// known anyway.
+
+// The entities a query answers, read by `from_row`.
+//
+// A row answering **two** entities (`SELECT p, v FROM ..`) has two columns called `id`, and
+// `row_get` takes the first -- so one `from_row` reads the first entity of such a row and the
+// second is unreachable through it. Select one entity at a time, or use `rows` and read the tuple.
+// JPQL answers an array of objects there; doing that here would need a tuple type this layer does
+// not have.
+pub fn list<E>(
+    conn: datasource.Connection,
+    query: Translated,
+    bound: [Binding],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<[E], DbError> {
+    val out = mutable_array_new<E>()
+    for row in try rows(conn, query, bound) {
+        push(out, try from_row(row))
+    }
+    return ok(snapshot(out))
+}
+
+// The first entity a query answers, or None.
+//
+// It runs the query as written and keeps the first row: like `datasource.query_one`, it does
+// **not** add a `LIMIT 1`, so a query that could match many rows fetches and discards them all.
+// Write the limit into the query when that matters.
+pub fn one<E>(
+    conn: datasource.Connection,
+    query: Translated,
+    bound: [Binding],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<Option<E>, DbError> {
+    val found = try rows(conn, query, bound)
+    if prelude.len(found) == 0 {
+        return ok(Option<E>.None)
+    }
+    return ok(Option<E>.Some(try from_row(found[0])))
+}
+
+// The rows a query answers, for a projection -- a few fields, an aggregate, a count. The caller
+// reads them with `db.row_get` and the `sql_as_*` converters, as it would any other result.
+pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError> {
+    return datasource.query(conn, query.sql, try arrange(query, bound))
+}
+
+// The one number a counting query answers: one row of one column, read as an integer.
+//
+// `SELECT count(*) AS n FROM Visit v WHERE v.patient_id = :id` is the commonest projection there
+// is, and reading it by hand is four lines of row and converter every time. A query that answers
+// more than one row, or a row of more than one column, is an error naming what it answered --
+// because a count that quietly read the first of several numbers would be worse than no helper.
+pub fn count(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<int, DbError> {
+    val found = try rows(conn, query, bound)
+    if prelude.len(found) != 1 {
+        return err(problem(prelude.format(
+            "a counting query must answer one row, and this answered {}: {}",
+            prelude.len(found),
+            query.sql
+        )))
+    }
+    if prelude.len(found[0].values) != 1 {
+        return err(problem(prelude.format(
+            "a counting query must answer one column, and this answered {}: {}",
+            prelude.len(found[0].values),
+            query.sql
+        )))
+    }
+    return db.sql_as_int(found[0].values[0])
 }

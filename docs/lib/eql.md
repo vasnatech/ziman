@@ -165,3 +165,63 @@ The bound values in the order the translated SQL numbers them.
 **This is the half that removes the hand-numbering.** A caller binds by name, in any order, and
 a name the query does not use -- or one it uses and nothing bound -- is an error here, where the
 hand-written form silently shifted every later parameter by one.
+
+## Running one
+
+### `list`
+
+```
+pub fn list<E>(
+    conn: datasource.Connection,
+    query: Translated,
+    bound: [Binding],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<[E], DbError>
+```
+
+The entities a query answers, read by `from_row`.
+
+A row answering **two** entities (`SELECT p, v FROM ..`) has two columns called `id`, and
+`row_get` takes the first -- so one `from_row` reads the first entity of such a row and the
+second is unreachable through it. Select one entity at a time, or use `rows` and read the tuple.
+JPQL answers an array of objects there; doing that here would need a tuple type this layer does
+not have.
+
+### `one`
+
+```
+pub fn one<E>(
+    conn: datasource.Connection,
+    query: Translated,
+    bound: [Binding],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<Option<E>, DbError>
+```
+
+The first entity a query answers, or None.
+
+It runs the query as written and keeps the first row: like `datasource.query_one`, it does
+**not** add a `LIMIT 1`, so a query that could match many rows fetches and discards them all.
+Write the limit into the query when that matters.
+
+### `rows`
+
+```
+pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError>
+```
+
+The rows a query answers, for a projection -- a few fields, an aggregate, a count. The caller
+reads them with `db.row_get` and the `sql_as_*` converters, as it would any other result.
+
+### `count`
+
+```
+pub fn count(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<int, DbError>
+```
+
+The one number a counting query answers: one row of one column, read as an integer.
+
+`SELECT count(*) AS n FROM Visit v WHERE v.patient_id = :id` is the commonest projection there
+is, and reading it by hand is four lines of row and converter every time. A query that answers
+more than one row, or a row of more than one column, is an error naming what it answered --
+because a count that quietly read the first of several numbers would be worse than no helper.

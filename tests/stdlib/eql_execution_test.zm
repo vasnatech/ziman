@@ -1,0 +1,247 @@
+// `eql`'s queries actually run, against `memdb` -- the engine written for exactly this: a test
+// that needs a database and must not need a container.
+//
+// `tests/lang/eql_against_sqlite.zm` runs the same queries on real SQLite beside memdb and
+// compares the answers, which is what makes these assertions about SQL rather than about one
+// engine. Here the subject is the layer: that bindings reach the engine, that `from_row` is
+// applied, that a projection comes back readable, that the errors from translating and from
+// binding arrive before anything is sent.
+use datasource
+use db
+use db.DbError
+use db.Row
+use db.SqlValue
+use eql
+use memdb
+use test
+
+val drivers = datasource.registry([memdb.driver()])
+
+// An entity written as a repository would write it: the struct's fields are the column list, the
+// table is named beside it.
+#[derive(Row, Entity)]
+pub struct Patient {
+    id: int
+    last_name: string
+    gender: Option<string>
+}
+
+#[derive(Row, Entity)]
+pub struct Visit {
+    id: int
+    patient_id: int
+    reason: string
+    cost: float
+}
+
+val reg = eql.registry([
+    eql.entity("Patient", "patients", patient_columns),
+    eql.entity("Visit", "visits", visit_columns)
+])
+
+// Translated once, as a repository would: see `eql.list`'s comment for the measurement behind it.
+val by_last_name = unwrap(eql.translate(reg, "SELECT p FROM Patient p WHERE p.last_name = :name ORDER BY p.id"))
+val by_id = unwrap(eql.translate(reg, "SELECT p FROM Patient p WHERE p.id = :id"))
+val all_patients = unwrap(eql.translate(reg, "SELECT p FROM Patient p ORDER BY p.id"))
+val names_only = unwrap(eql.translate(reg, "SELECT p.id, p.last_name FROM Patient p ORDER BY p.id"))
+val visits_of = unwrap(eql.translate(reg, "SELECT count(*) AS n FROM Visit v WHERE v.patient_id = :pid"))
+val spend_by_reason = unwrap(eql.translate(
+    reg,
+    "SELECT v.reason, sum(v.cost) AS total FROM Visit v GROUP BY v.reason HAVING sum(v.cost) > :floor ORDER BY v.reason"
+))
+val joined = unwrap(eql.translate(
+    reg,
+    "SELECT v FROM Visit v JOIN Patient p ON p.id = v.patient_id WHERE p.last_name = :name ORDER BY v.id"
+))
+
+fn seeded() -> datasource.Connection {
+    val conn = test.assert_ok(datasource.open(drivers, "memdb:"))
+    for statement in [
+        "CREATE TABLE patients (id INTEGER PRIMARY KEY, last_name TEXT NOT NULL, gender TEXT)",
+        "CREATE TABLE visits (id INTEGER PRIMARY KEY, patient_id INTEGER NOT NULL, reason TEXT, cost REAL)",
+        "INSERT INTO patients (id, last_name, gender) VALUES (1, 'Ada', 'f')",
+        "INSERT INTO patients (id, last_name, gender) VALUES (2, 'Bob', NULL)",
+        "INSERT INTO patients (id, last_name, gender) VALUES (3, 'Ada', 'm')",
+        "INSERT INTO visits (id, patient_id, reason, cost) VALUES (1, 1, 'checkup', 120.5)",
+        "INSERT INTO visits (id, patient_id, reason, cost) VALUES (2, 1, 'follow up', 80.0)",
+        "INSERT INTO visits (id, patient_id, reason, cost) VALUES (3, 2, 'checkup', 95.25)"
+    ] {
+        test.assert_ok(datasource.execute(conn, statement))
+    }
+    return conn
+}
+
+fn no_bindings() -> [eql.Binding] {
+    val none: [eql.Binding] = []
+    return none
+}
+
+// ---------------------------------------------------------------- entities
+
+#[test]
+fn a_query_answers_entities() {
+    val conn = seeded()
+    val found = test.assert_ok(eql.list<Patient>(conn, all_patients, no_bindings(), patient_from_row))
+    test.assert_len(3, found)
+    test.assert_eq("Ada", found[0].last_name)
+    test.assert_eq(2, found[1].id)
+    // The Option field arrived as None, not as an error or an empty string.
+    test.assert_none(found[1].gender)
+    test.assert_eq("f", test.assert_some(found[0].gender))
+}
+
+#[test]
+fn a_binding_reaches_the_engine() {
+    val conn = seeded()
+    val ada = test.assert_ok(eql.list<Patient>(
+        conn,
+        by_last_name,
+        [eql.bind("name", SqlValue.Text("Ada"))],
+        patient_from_row
+    ))
+    test.assert_len(2, ada)
+    val bob = test.assert_ok(eql.list<Patient>(
+        conn,
+        by_last_name,
+        [eql.bind("name", SqlValue.Text("Bob"))],
+        patient_from_row
+    ))
+    test.assert_len(1, bob)
+    test.assert_eq(2, bob[0].id)
+}
+
+#[test]
+fn one_translation_runs_many_times_with_different_bindings() {
+    // The reason the executing functions take a `Translated`: this is the shape a repository has.
+    val conn = seeded()
+    for name in ["Ada", "Bob", "Nobody"] {
+        val found = test.assert_ok(eql.list<Patient>(
+            conn,
+            by_last_name,
+            [eql.bind("name", SqlValue.Text(name))],
+            patient_from_row
+        ))
+        val expected = if name == "Ada" { 2 } else if name == "Bob" { 1 } else { 0 }
+        test.assert_eq(expected, prelude.len(found))
+    }
+}
+
+#[test]
+fn one_answers_the_first_row_or_none() {
+    val conn = seeded()
+    val found = test.assert_ok(eql.one<Patient>(conn, by_id, [eql.bind("id", SqlValue.Int(2))], patient_from_row))
+    test.assert_eq("Bob", test.assert_some(found).last_name)
+    test.assert_none(test.assert_ok(eql.one<Patient>(
+        conn,
+        by_id,
+        [eql.bind("id", SqlValue.Int(99))],
+        patient_from_row
+    )))
+}
+
+#[test]
+fn a_join_answers_the_entity_the_select_names() {
+    // `SELECT v` with a join: the row holds Visit's columns, so `visit_from_row` reads it.
+    val conn = seeded()
+    val found = test.assert_ok(eql.list<Visit>(
+        conn,
+        joined,
+        [eql.bind("name", SqlValue.Text("Ada"))],
+        visit_from_row
+    ))
+    test.assert_len(2, found)
+    test.assert_eq("checkup", found[0].reason)
+    test.assert_eq("follow up", found[1].reason)
+}
+
+// ---------------------------------------------------------------- projections
+
+#[test]
+fn a_projection_answers_rows_the_caller_reads() {
+    val conn = seeded()
+    val found = test.assert_ok(eql.rows(conn, names_only, no_bindings()))
+    test.assert_len(3, found)
+    test.assert_eq("Ada", test.assert_ok(db.sql_as_text(test.assert_ok(db.row_get(found[0], "last_name")))))
+    // A projection's columns are the ones the query named, and nothing else.
+    test.assert_len(2, found[0].columns)
+    test.assert_err(db.row_get(found[0], "gender"))
+}
+
+#[test]
+fn count_answers_the_one_number() {
+    val conn = seeded()
+    test.assert_eq(2, test.assert_ok(eql.count(conn, visits_of, [eql.bind("pid", SqlValue.Int(1))])))
+    test.assert_eq(1, test.assert_ok(eql.count(conn, visits_of, [eql.bind("pid", SqlValue.Int(2))])))
+    test.assert_eq(0, test.assert_ok(eql.count(conn, visits_of, [eql.bind("pid", SqlValue.Int(99))])))
+}
+
+#[test]
+fn count_refuses_a_query_that_answers_more_than_one_number() {
+    // A count that quietly read the first of several would be worse than no helper.
+    val conn = seeded()
+    val message = db.db_error_message(test.assert_err(eql.count(conn, names_only, no_bindings())))
+    test.assert_contains(message, "must answer one row")
+}
+
+#[test]
+fn an_aggregate_with_a_group_and_a_having_runs() {
+    val conn = seeded()
+    val found = test.assert_ok(eql.rows(conn, spend_by_reason, [eql.bind("floor", SqlValue.Float(100.0))]))
+    // checkup is 120.5 + 95.25; follow up is 80.0 and does not clear the floor.
+    test.assert_len(1, found)
+    test.assert_eq("checkup", test.assert_ok(db.sql_as_text(test.assert_ok(db.row_get(found[0], "reason")))))
+}
+
+// ---------------------------------------------------------------- what fails, and when
+
+#[test]
+fn a_binding_the_query_does_not_name_fails_before_anything_is_sent() {
+    val conn = seeded()
+    val message = db.db_error_message(test.assert_err(eql.list<Patient>(
+        conn,
+        by_last_name,
+        [eql.bind("nmae", SqlValue.Text("Ada"))],
+        patient_from_row
+    )))
+    // The cause is the typo, and the message names both sides of it: the parameter nothing was
+    // bound to, and what *was* bound.
+    test.assert_contains(message, "the query names :name and nothing was bound to it")
+    test.assert_contains(message, "bound: nmae")
+}
+
+#[test]
+fn an_unbound_parameter_fails_before_anything_is_sent() {
+    val conn = seeded()
+    test.assert_contains(
+        db.db_error_message(test.assert_err(eql.list<Patient>(conn, by_last_name, no_bindings(), patient_from_row))),
+        "nothing was bound to it"
+    )
+}
+
+#[test]
+fn a_row_that_does_not_fit_the_entity_is_the_from_row_error() {
+    // The projection answers two columns; `patient_from_row` wants three, and says which is
+    // missing rather than inventing one.
+    val conn = seeded()
+    val message = db.db_error_message(test.assert_err(eql.list<Patient>(
+        conn,
+        names_only,
+        no_bindings(),
+        patient_from_row
+    )))
+    test.assert_contains(message, "no such column in result row: gender")
+}
+
+#[test]
+fn a_table_the_schema_does_not_have_is_the_engines_error() {
+    // The entity resolved and the SQL was well formed; the database is what knows the table is
+    // missing, and its message is what the caller gets.
+    val conn = test.assert_ok(datasource.open(drivers, "memdb:"))
+    val message = db.db_error_message(test.assert_err(eql.list<Patient>(
+        conn,
+        all_patients,
+        no_bindings(),
+        patient_from_row
+    )))
+    test.assert_contains(message, "patients")
+}

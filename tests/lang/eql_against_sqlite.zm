@@ -1,0 +1,141 @@
+// The same **entity** queries run on `memdb` and on real SQLite, with their answers compared.
+//
+// `tests/stdlib/eql_test.zm` checks what a query translates into and `eql_execution_test.zm`
+// checks that the layer runs it; neither says the translation is *right*, because both read the
+// same translator. This does: every query below goes through `eql` once and the SQL it produces is
+// then run by two engines, so a translation that is subtly wrong -- a column aliased where it
+// should not be, a parameter numbered out of order, a join that loses rows -- shows up as a
+// disagreement rather than as two consistent readings of one mistake.
+//
+// It also pins the thing a reader will want to know: the SQL each entity query becomes. Those
+// lines are the fixture's real content, and a change in them is a change a reviewer should see.
+use datasource
+use db
+use db.SqlValue
+use eql
+use memdb
+use sqlite
+
+val drivers = datasource.registry([memdb.driver(), sqlite.driver()])
+
+val reg = eql.registry([
+    eql.entity("Patient", "patients", ["id", "last_name", "gender"]),
+    eql.entity("Visit", "visits", ["id", "patient_id", "reason", "cost"])
+])
+
+val schema: [string] = [
+    "CREATE TABLE patients (id INTEGER PRIMARY KEY, last_name TEXT NOT NULL, gender TEXT)",
+    "CREATE TABLE visits (id INTEGER PRIMARY KEY, patient_id INTEGER NOT NULL, reason TEXT, cost REAL)",
+    "INSERT INTO patients (id, last_name, gender) VALUES (1, 'Ada', 'f')",
+    "INSERT INTO patients (id, last_name, gender) VALUES (2, 'Bob', NULL)",
+    "INSERT INTO patients (id, last_name, gender) VALUES (3, 'Ada', 'm')",
+    "INSERT INTO patients (id, last_name, gender) VALUES (4, 'Cy', 'm')",
+    "INSERT INTO visits (id, patient_id, reason, cost) VALUES (1, 1, 'checkup', 120.5)",
+    "INSERT INTO visits (id, patient_id, reason, cost) VALUES (2, 1, 'follow up', 80.0)",
+    "INSERT INTO visits (id, patient_id, reason, cost) VALUES (3, 2, 'checkup', 95.25)",
+    "INSERT INTO visits (id, patient_id, reason, cost) VALUES (4, 3, 'checkup', 10.0)"
+]
+
+// A query and what to bind to it, as a repository would pair them.
+val queries: [[string]] = [
+    ["SELECT p FROM Patient p ORDER BY p.id", ""],
+    ["SELECT p FROM Patient p WHERE p.last_name = :name ORDER BY p.id", "name=Ada"],
+    ["SELECT p.id, p.last_name FROM Patient p WHERE p.gender IS NULL ORDER BY p.id", ""],
+    ["SELECT p.last_name FROM Patient p WHERE p.id = :id OR p.id = :other ORDER BY p.id", "id=1|other=4"],
+    ["SELECT count(*) AS n FROM Patient p WHERE p.last_name = :name", "name=Ada"],
+    ["SELECT count(*) AS n FROM Visit v WHERE v.patient_id = :pid", "pid=1"],
+    ["SELECT v.reason, count(*) AS n, sum(v.cost) AS total FROM Visit v GROUP BY v.reason ORDER BY v.reason", ""],
+    ["SELECT v.reason FROM Visit v GROUP BY v.reason HAVING sum(v.cost) > :floor ORDER BY v.reason", "floor=100"],
+    ["SELECT v FROM Visit v JOIN Patient p ON p.id = v.patient_id WHERE p.last_name = :name ORDER BY v.id", "name=Ada"],
+    ["SELECT p.last_name, v.reason FROM Patient p LEFT JOIN Visit v ON v.patient_id = p.id ORDER BY p.id, v.id", ""],
+    ["SELECT p.last_name FROM Patient p WHERE p.id IN (SELECT v.patient_id FROM Visit v WHERE v.cost > :min) ORDER BY p.id",
+        "min=90"],
+    ["SELECT p.last_name FROM Patient p WHERE EXISTS (SELECT 1 FROM Visit v WHERE v.patient_id = p.id) ORDER BY p.id",
+        ""],
+    ["SELECT p.last_name FROM Patient p WHERE p.last_name LIKE :like ORDER BY p.id", "like=A%"],
+    ["SELECT p.id FROM Patient p ORDER BY p.last_name DESC, p.id LIMIT 2 OFFSET 1", ""],
+    ["SELECT p.id FROM Patient p UNION SELECT v.patient_id FROM Visit v ORDER BY 1", ""],
+    ["SELECT CASE WHEN p.gender IS NULL THEN 'unknown' ELSE p.gender END AS g FROM Patient p ORDER BY p.id", ""],
+    ["SELECT p.id, p.last_name FROM Patient p, Visit v WHERE v.patient_id = p.id AND v.cost > :min ORDER BY p.id, v.id",
+        "min=50"]
+]
+
+// `name=Ada|id=1` as bindings. Everything is bound as text unless it reads as a number, which is
+// all this fixture needs -- the typed conversions are the caller's job and `db`'s.
+fn bindings_of(spec: string) -> [eql.Binding] {
+    val out = mutable_array_new<eql.Binding>()
+    if spec == "" {
+        return snapshot(out)
+    }
+    for pair in split(spec, "|") {
+        val at = index_of(pair, "=", 0)
+        val name = substring(pair, 0, at)
+        val text = substring(pair, at + 1, len(pair))
+        push(out, eql.bind(name, value_of(text)))
+    }
+    return snapshot(out)
+}
+
+fn value_of(text: string) -> SqlValue {
+    if Ok(n) = parse_int(text) {
+        return SqlValue.Int(n)
+    }
+    return SqlValue.Text(text)
+}
+
+fn answer(conn: datasource.Connection, query: eql.Translated, bound: [eql.Binding]) -> string {
+    return switch eql.rows(conn, query, bound) {
+        Ok(rows) {
+            val out = mutable_string_new()
+            append(out, format("{} row(s)", prelude.len(rows)))
+            for r in rows {
+                append(out, " |")
+                for i in 0..prelude.len(r.columns) {
+                    append(out, format(" {}={}", r.columns[i], r.values[i]))
+                }
+            }
+            snapshot(out)
+        }
+        Err(e) { concat("error: ", db.db_error_message(e)) }
+    }
+}
+
+fn seed(url: string) -> datasource.Connection {
+    val conn = unwrap(datasource.open(drivers, url))
+    for statement in schema {
+        unwrap(datasource.execute(conn, statement))
+    }
+    return conn
+}
+
+fn main() {
+    val mem = seed("memdb:")
+    val lite = seed("sqlite::memory:")
+    var disagreements = 0
+    for pair in queries {
+        val translated = switch eql.translate(reg, pair[0]) {
+            Ok(t) { t }
+            Err(e) {
+                print(concat("TRANSLATION FAILED ", pair[0], ": ", db.db_error_message(e)))
+                continue
+            }
+        }
+        val bound = bindings_of(pair[1])
+        print(concat("-- ", pair[0]))
+        print(concat("   ", translated.sql))
+        val a = answer(mem, translated, bound)
+        val b = answer(lite, translated, bound)
+        if a == b {
+            print(concat("   agree    ", a))
+        } else {
+            disagreements = disagreements + 1
+            print("   DISAGREE")
+            print(concat("     memdb:  ", a))
+            print(concat("     sqlite: ", b))
+        }
+    }
+    print(format("{} of {} entity queries agree", prelude.len(queries) - disagreements, prelude.len(queries)))
+
+    datasource.close(mem)
+    datasource.close(lite)
+}

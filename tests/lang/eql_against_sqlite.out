@@ -1,0 +1,52 @@
+-- SELECT p FROM Patient p ORDER BY p.id
+   SELECT p.id AS id, p.last_name AS last_name, p.gender AS gender FROM patients AS p ORDER BY p.id
+   agree    4 row(s) | id=Int(1) last_name=Text(Ada) gender=Text(f) | id=Int(2) last_name=Text(Bob) gender=Null | id=Int(3) last_name=Text(Ada) gender=Text(m) | id=Int(4) last_name=Text(Cy) gender=Text(m)
+-- SELECT p FROM Patient p WHERE p.last_name = :name ORDER BY p.id
+   SELECT p.id AS id, p.last_name AS last_name, p.gender AS gender FROM patients AS p WHERE p.last_name = $1 ORDER BY p.id
+   agree    2 row(s) | id=Int(1) last_name=Text(Ada) gender=Text(f) | id=Int(3) last_name=Text(Ada) gender=Text(m)
+-- SELECT p.id, p.last_name FROM Patient p WHERE p.gender IS NULL ORDER BY p.id
+   SELECT p.id, p.last_name FROM patients AS p WHERE p.gender IS NULL ORDER BY p.id
+   agree    1 row(s) | id=Int(2) last_name=Text(Bob)
+-- SELECT p.last_name FROM Patient p WHERE p.id = :id OR p.id = :other ORDER BY p.id
+   SELECT p.last_name FROM patients AS p WHERE p.id = $1 OR p.id = $2 ORDER BY p.id
+   agree    2 row(s) | last_name=Text(Ada) | last_name=Text(Cy)
+-- SELECT count(*) AS n FROM Patient p WHERE p.last_name = :name
+   SELECT count(*) AS n FROM patients AS p WHERE p.last_name = $1
+   agree    1 row(s) | n=Int(2)
+-- SELECT count(*) AS n FROM Visit v WHERE v.patient_id = :pid
+   SELECT count(*) AS n FROM visits AS v WHERE v.patient_id = $1
+   agree    1 row(s) | n=Int(2)
+-- SELECT v.reason, count(*) AS n, sum(v.cost) AS total FROM Visit v GROUP BY v.reason ORDER BY v.reason
+   SELECT v.reason, count(*) AS n, sum(v.cost) AS total FROM visits AS v GROUP BY v.reason ORDER BY v.reason
+   agree    2 row(s) | reason=Text(checkup) n=Int(3) total=Float(225.75) | reason=Text(follow up) n=Int(1) total=Float(80.0)
+-- SELECT v.reason FROM Visit v GROUP BY v.reason HAVING sum(v.cost) > :floor ORDER BY v.reason
+   SELECT v.reason FROM visits AS v GROUP BY v.reason HAVING sum(v.cost) > $1 ORDER BY v.reason
+   agree    1 row(s) | reason=Text(checkup)
+-- SELECT v FROM Visit v JOIN Patient p ON p.id = v.patient_id WHERE p.last_name = :name ORDER BY v.id
+   SELECT v.id AS id, v.patient_id AS patient_id, v.reason AS reason, v.cost AS cost FROM visits AS v INNER JOIN patients AS p ON p.id = v.patient_id WHERE p.last_name = $1 ORDER BY v.id
+   agree    3 row(s) | id=Int(1) patient_id=Int(1) reason=Text(checkup) cost=Float(120.5) | id=Int(2) patient_id=Int(1) reason=Text(follow up) cost=Float(80.0) | id=Int(4) patient_id=Int(3) reason=Text(checkup) cost=Float(10.0)
+-- SELECT p.last_name, v.reason FROM Patient p LEFT JOIN Visit v ON v.patient_id = p.id ORDER BY p.id, v.id
+   SELECT p.last_name, v.reason FROM patients AS p LEFT JOIN visits AS v ON v.patient_id = p.id ORDER BY p.id, v.id
+   agree    5 row(s) | last_name=Text(Ada) reason=Text(checkup) | last_name=Text(Ada) reason=Text(follow up) | last_name=Text(Bob) reason=Text(checkup) | last_name=Text(Ada) reason=Text(checkup) | last_name=Text(Cy) reason=Null
+-- SELECT p.last_name FROM Patient p WHERE p.id IN (SELECT v.patient_id FROM Visit v WHERE v.cost > :min) ORDER BY p.id
+   SELECT p.last_name FROM patients AS p WHERE p.id IN (SELECT v.patient_id FROM visits AS v WHERE v.cost > $1) ORDER BY p.id
+   agree    2 row(s) | last_name=Text(Ada) | last_name=Text(Bob)
+-- SELECT p.last_name FROM Patient p WHERE EXISTS (SELECT 1 FROM Visit v WHERE v.patient_id = p.id) ORDER BY p.id
+   SELECT p.last_name FROM patients AS p WHERE EXISTS (SELECT 1 FROM visits AS v WHERE v.patient_id = p.id) ORDER BY p.id
+   agree    3 row(s) | last_name=Text(Ada) | last_name=Text(Bob) | last_name=Text(Ada)
+-- SELECT p.last_name FROM Patient p WHERE p.last_name LIKE :like ORDER BY p.id
+   SELECT p.last_name FROM patients AS p WHERE p.last_name LIKE $1 ORDER BY p.id
+   agree    2 row(s) | last_name=Text(Ada) | last_name=Text(Ada)
+-- SELECT p.id FROM Patient p ORDER BY p.last_name DESC, p.id LIMIT 2 OFFSET 1
+   SELECT p.id FROM patients AS p ORDER BY p.last_name DESC, p.id LIMIT 2 OFFSET 1
+   agree    2 row(s) | id=Int(2) | id=Int(1)
+-- SELECT p.id FROM Patient p UNION SELECT v.patient_id FROM Visit v ORDER BY 1
+   SELECT p.id FROM patients AS p UNION SELECT v.patient_id FROM visits AS v ORDER BY 1
+   agree    4 row(s) | id=Int(1) | id=Int(2) | id=Int(3) | id=Int(4)
+-- SELECT CASE WHEN p.gender IS NULL THEN 'unknown' ELSE p.gender END AS g FROM Patient p ORDER BY p.id
+   SELECT CASE WHEN p.gender IS NULL THEN 'unknown' ELSE p.gender END AS g FROM patients AS p ORDER BY p.id
+   agree    4 row(s) | g=Text(f) | g=Text(unknown) | g=Text(m) | g=Text(m)
+-- SELECT p.id, p.last_name FROM Patient p, Visit v WHERE v.patient_id = p.id AND v.cost > :min ORDER BY p.id, v.id
+   SELECT p.id, p.last_name FROM patients AS p CROSS JOIN visits AS v WHERE v.patient_id = p.id AND v.cost > $1 ORDER BY p.id, v.id
+   agree    3 row(s) | id=Int(1) last_name=Text(Ada) | id=Int(1) last_name=Text(Ada) | id=Int(2) last_name=Text(Bob)
+17 of 17 entity queries agree
