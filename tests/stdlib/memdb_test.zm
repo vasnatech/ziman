@@ -295,14 +295,37 @@ fn ordering_evaluates_its_keys_once_per_row() {
 }
 
 #[test]
-fn seeding_stays_within_reach_of_linear() {
-    // Inserting one row at a time is O(n) per statement by design -- a `Database` is an immutable
-    // value, which is what makes transactions free -- so seeding is quadratic in principle. What
-    // this guards is the *constant*: an extra pass per row, or a map built per insert, is what
-    // takes a fixture from a second to a minute.
-    val small = timed_seed(150)
-    val large = timed_seed(600)
-    test.assert_lt(large, math.max(small, 1) * 4 * 8)
+fn a_column_added_with_unique_is_indexed_from_then_on() {
+    // The one place the *set* of kept indexes changes after `CREATE TABLE`, and the one that
+    // `tests/lang/memdb_kept_index.zm` cannot cross-check: SQLite refuses to add a `UNIQUE` column
+    // at all, because it does not rewrite the rows already there, so only the strict reading --
+    // PostgreSQL's, which does rewrite them -- gets this far.
+    val c = opened("memdb-ansi:")
+    exec(c, "CREATE TABLE t (id INTEGER PRIMARY KEY)")
+    exec(c, "INSERT INTO t (id) VALUES (1)")
+    exec(c, "ALTER TABLE t ADD COLUMN code TEXT UNIQUE")
+    exec(c, "UPDATE t SET code = 'x' WHERE id = 1")
+    exec(c, "INSERT INTO t (id, code) VALUES (2, 'y')")
+    // The constraint arrived after the table did, so an index for it has to have been built then.
+    test.assert_err(datasource.execute(c, "INSERT INTO t (id, code) VALUES (3, 'x')"))
+    test.assert_err(datasource.execute(c, "UPDATE t SET code = 'y' WHERE id = 1"))
+    test.assert_eq(2, one_int(c, "SELECT count(*) AS c FROM t"))
+}
+
+#[test]
+fn seeding_is_linear_in_the_rows() {
+    // **Four times the rows, about four times the time** -- the table has a `PRIMARY KEY`, so this
+    // is the shape the kept index exists for.
+    //
+    // It used to be quadratic, and this test used to say so: it allowed 32x for 4x the rows and
+    // guarded only the constant. What made it quadratic was not the immutable `Database` -- which
+    // is what the comment here used to claim, and is wrong, since appending to an immutable array
+    // is amortised O(1) -- but a uniqueness index rebuilt per statement. Keeping the index on the
+    // table made 4,000 single-row inserts go from 48 seconds to half a second. 8x is the slack for
+    // a collector pause, and still well under the 16x a return to quadratic would cost.
+    val small = timed_seed(300)
+    val large = timed_seed(1200)
+    test.assert_lt(large, math.max(small, 1) * 8)
 }
 
 fn timed_seed(rows: int) -> int {

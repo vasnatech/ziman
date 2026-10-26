@@ -1,0 +1,167 @@
+// **The kept uniqueness index, checked against real SQLite one statement at a time.**
+//
+// `memdb` keeps a bucket index per key on the table itself rather than rebuilding one per
+// statement (see `KeyIndex` in lib/db/memdb.zm for why: a one-row write into a 4,000-row keyed
+// table went from quadratic to linear, 48 seconds to half a second). The index is maintained by
+// the three functions that may give a table new rows, and the hazard of that is specific and
+// nasty: **a stale index does not fail, it accepts a duplicate without a word.** No unit test of
+// the engine against itself can see that, because the thing that decides and the thing that
+// records are the same code.
+//
+// So every statement here runs on `memdb:` and on `sqlite::memory:`, and both the outcome and the
+// **whole contents of every table** are compared after each one. A position that moved and an
+// index that did not notice shows up as a row SQLite has and memdb does not, or as a write one
+// engine took and the other refused.
+//
+// The cases are chosen for where positions move or keys change hands:
+//   - a key freed by an UPDATE and then reused;
+//   - a key taken by an UPDATE, which must be refused;
+//   - a DELETE of the *first* row, which shifts every position after it;
+//   - a ROLLBACK, which republishes an older table and must bring that table's index with it;
+//   - an ON DELETE CASCADE, which moves positions in a table the statement did not name;
+//   - NULLs, which are in no bucket because a key holding one conflicts with nothing;
+//   - a write that was refused, which must leave no trace in the index.
+use datasource
+use db
+use memdb
+use sqlite
+
+val drivers = datasource.registry([memdb.driver(), sqlite.driver()])
+
+// What a statement did, as a string both engines can be compared on. The messages themselves
+// differ by engine and are not the claim -- that a write was taken or refused is.
+//
+// **`BEGIN`, `COMMIT` and `ROLLBACK` are compared without their row count**, which is not a
+// concession to make this pass: none of them affects a row, `memdb` says so, and SQLite answers
+// the count of the statement *before* it, because `sqlite3_changes` is not reset by a transaction
+// keyword. Comparing a number neither engine means leaves three differences that say nothing. The
+// contents are still compared after each of them, which is where a transaction's effect shows.
+fn outcome(c: datasource.Connection, sql: string) -> string {
+    val counts = !(sql == "BEGIN" || sql == "COMMIT" || sql == "ROLLBACK")
+    return switch datasource.execute(c, sql) {
+        Ok(n) { if counts { format("ok({})", n) } else { "ok" } }
+        Err(_) { "refused" }
+    }
+}
+
+// Every row of every table, in a fixed order, as one string.
+fn contents(c: datasource.Connection) -> string {
+    val out = mutable_string_new()
+    for q in [
+        "SELECT id, tag, part FROM keyed ORDER BY id, tag, part",
+        "SELECT id, label FROM parent ORDER BY id",
+        "SELECT id, owner FROM child ORDER BY id"
+    ] {
+        append(out, "[")
+        switch datasource.query(c, q) {
+            Ok(rows) {
+                for r in rows {
+                    for v in r.values {
+                        append(out, format("{},", v))
+                    }
+                    append(out, ";")
+                }
+            }
+            Err(e) { append(out, concat("query failed: ", db.db_error_message(e))) }
+        }
+        append(out, "] ")
+    }
+    return snapshot(out)
+}
+
+fn seeded(url: string) -> datasource.Connection {
+    val c = unwrap(datasource.open(drivers, url))
+    for stmt in [
+        // SQLite enforces foreign keys only when asked; `memdb` reads the pragma as a setting and
+        // enforces them either way.
+        "PRAGMA foreign_keys = ON",
+        // A single-column key, a two-column key, and a nullable column in the two-column one.
+        "CREATE TABLE keyed (id INTEGER PRIMARY KEY, tag TEXT, part TEXT, UNIQUE (tag, part))",
+        "CREATE TABLE parent (id INTEGER PRIMARY KEY, label TEXT)",
+        "CREATE TABLE child (id INTEGER PRIMARY KEY, owner INTEGER REFERENCES parent (id) ON DELETE CASCADE)"
+    ] {
+        unwrap(datasource.execute(c, stmt))
+    }
+    return c
+}
+
+fn main() {
+    val mem = seeded("memdb:")
+    val lite = seeded("sqlite::memory:")
+    var agreed = 0
+    var differed = 0
+    for sql in [
+        // Fill both keys.
+        "INSERT INTO keyed (id, tag, part) VALUES (1, 'a', 'x')",
+        "INSERT INTO keyed (id, tag, part) VALUES (2, 'a', 'y')",
+        "INSERT INTO keyed (id, tag, part) VALUES (3, 'b', 'x')",
+        // Each key refuses its own duplicate, and a refused write leaves nothing behind.
+        "INSERT INTO keyed (id, tag, part) VALUES (1, 'c', 'c')",
+        "INSERT INTO keyed (id, tag, part) VALUES (4, 'a', 'x')",
+        "INSERT INTO keyed (id, tag, part) VALUES (4, 'c', 'c')",
+        // An UPDATE frees a key, and the freed value may then be used.
+        "UPDATE keyed SET id = 11 WHERE id = 1",
+        "INSERT INTO keyed (id, tag, part) VALUES (1, 'd', 'd')",
+        // An UPDATE onto a key another row holds is refused.
+        "UPDATE keyed SET id = 2 WHERE id = 3",
+        // The two-column key, changed one column at a time.
+        "UPDATE keyed SET part = 'z' WHERE id = 2",
+        "INSERT INTO keyed (id, tag, part) VALUES (5, 'a', 'y')",
+        "UPDATE keyed SET tag = 'b', part = 'x' WHERE id = 5",
+        // NULLs are in no bucket: a key holding one conflicts with nothing, twice over.
+        "INSERT INTO keyed (id, tag, part) VALUES (6, 'n', NULL)",
+        "INSERT INTO keyed (id, tag, part) VALUES (7, 'n', NULL)",
+        // **Deleting the first row shifts every position after it.**
+        "DELETE FROM keyed WHERE id = 1",
+        "INSERT INTO keyed (id, tag, part) VALUES (1, 'e', 'e')",
+        "INSERT INTO keyed (id, tag, part) VALUES (8, 'b', 'x')",
+        // A deleted key may be used again; a surviving one may not.
+        "DELETE FROM keyed WHERE id = 11",
+        "INSERT INTO keyed (id, tag, part) VALUES (11, 'f', 'f')",
+        // **A ROLLBACK republishes an older table, index and all.**
+        "BEGIN",
+        "DELETE FROM keyed",
+        "INSERT INTO keyed (id, tag, part) VALUES (2, 'g', 'g')",
+        "ROLLBACK",
+        "INSERT INTO keyed (id, tag, part) VALUES (2, 'h', 'h')",
+        "UPDATE keyed SET tag = 'b', part = 'x' WHERE id = 6",
+        // And a COMMIT keeps what it did.
+        "BEGIN",
+        "INSERT INTO keyed (id, tag, part) VALUES (20, 'i', 'i')",
+        "COMMIT",
+        "INSERT INTO keyed (id, tag, part) VALUES (20, 'j', 'j')",
+        // **ON DELETE CASCADE moves positions in a table the statement does not name.**
+        "INSERT INTO parent (id, label) VALUES (1, 'p1')",
+        "INSERT INTO parent (id, label) VALUES (2, 'p2')",
+        "INSERT INTO child (id, owner) VALUES (1, 1)",
+        "INSERT INTO child (id, owner) VALUES (2, 2)",
+        "INSERT INTO child (id, owner) VALUES (3, 1)",
+        "DELETE FROM parent WHERE id = 1",
+        // 1 and 3 went with their parent, so their ids are free again and 2's is not.
+        "INSERT INTO child (id, owner) VALUES (1, 2)",
+        "INSERT INTO child (id, owner) VALUES (3, 2)",
+        "INSERT INTO child (id, owner) VALUES (2, 2)",
+        // A write refused by the foreign key must leave the child's index alone.
+        "INSERT INTO child (id, owner) VALUES (9, 99)",
+        "INSERT INTO child (id, owner) VALUES (9, 2)"
+    ] {
+        val got = outcome(mem, sql)
+        val want = outcome(lite, sql)
+        val mem_rows = contents(mem)
+        val lite_rows = contents(lite)
+        val same = got == want && mem_rows == lite_rows
+        if same {
+            agreed = agreed + 1
+            print(format("agree    {}  {}", got, sql))
+        } else {
+            differed = differed + 1
+            print(format("DIFFER   {}  {}", sql, ""))
+            print(format("  memdb  {} {}", got, mem_rows))
+            print(format("  sqlite {} {}", want, lite_rows))
+        }
+    }
+    print(format("{} of {} statements agree with SQLite", agreed, agreed + differed))
+    if differed > 0 {
+        print("a kept index has gone stale")
+    }
+}

@@ -242,6 +242,7 @@ them against the code.
 - [`eql`: an entity query language that is a translation, not an engine (2026-10-26)](#eql-an-entity-query-language-that-is-a-translation-not-an-engine-2026-10-26)
 - [`eql` runs, and the cost that decided its shape (2026-10-26)](#eql-runs-and-the-cost-that-decided-its-shape-2026-10-26)
 - [`eql` adopted in one repository, and the collection parameter that had to come first (2026-10-26)](#eql-adopted-in-one-repository-and-the-collection-parameter-that-had-to-come-first-2026-10-26)
+- [memdb keeps its uniqueness index instead of rebuilding it, and a one-row write stops being a pass over the table (2026-10-26)](#memdb-keeps-its-uniqueness-index-instead-of-rebuilding-it-and-a-one-row-write-stops-being-a-pass-over-the-table-2026-10-26)
 
 <!-- end index -->
 
@@ -9385,3 +9386,51 @@ Verified by the application suite rather than by unit tests, since this is a beh
 The writes stay SQL, and that is a choice rather than a gap: an `INSERT` naming its fifteen columns says what it stores, and `eql` translates reads.
 
 Left for later, in the order it should happen: the other seventeen repositories; a shared registry in `common.zm` once more than one entity has a `meta`; and tuple results, so `SELECT p, v FROM ..` can answer both entities instead of the first.
+
+## memdb keeps its uniqueness index instead of rebuilding it, and a one-row write stops being a pass over the table (2026-10-26)
+
+A `PRIMARY KEY` or `UNIQUE` index now lives on the `Table` as a value and is maintained by the three functions that may give a table new rows. Inserting rows one statement at a time into a keyed table, before and after:
+
+| rows | before | after |
+|---|---|---|
+| 500 | 376 ms | 62 ms |
+| 1,000 | 1,519 ms | 120 ms |
+| 2,000 | 8,090 ms | 274 ms |
+| 4,000 | 48,324 ms | 522 ms |
+| 8,000 | *not measured; ~5 minutes extrapolated* | 1,038 ms |
+
+Quadratic and then worse — the growth factor rises from 4x to 6x per doubling as the collector takes over — against about 2x per doubling after. **93x at 4,000 rows**, and the shape is now linear.
+
+**The question this started from was the wrong one, and that is the useful part.** It was asked as "would mutable collections make memdb faster", which is the natural suspicion: a `Database` is an immutable value, a write publishes a new one, so surely the copying is the cost. Measured, that suspicion is empty. Appending to an immutable array, including through a `with` rebuild of the struct that holds it, is amortised O(1) and indistinguishable from a `MutableArray`:
+
+| appends | `a = push(a, x)` | through `with t { rows: .. }` | `MutableArray` |
+|---|---|---|---|
+| 2,000 | 0 ms | 1 ms | 0 ms |
+| 4,000 | 1 ms | 1 ms | 1 ms |
+| 8,000 | 2 ms | 2 ms | 1 ms |
+
+`array_push` takes the next slot of its buffer in place when the array it is given is the tip of that buffer (src/value.c), and a `Map` is a HAMT whose `set` copies the path from the root and shares the rest (src/mapobj.c). Immutability here costs a pointer, not a pass. Two further measurements said the same thing from the other side: the same 4,000 single-row inserts into a table with **no constraint** took 262 ms, and the same 4,000 rows in **one** statement took 157 ms. Same data, same immutable collections, no quadratic — so the cost was neither the data structure nor the number of rows but something the *keyed* path did per statement.
+
+That something was the index. `unique_rule` had two strategies and both were O(rows) per statement:
+
+* a statement that wrote **more than four rows** built a bucket map over the whole table — the optimisation that took a 400-row `UPDATE` from 1.4 seconds to 20 ms, by replacing 160,000 key comparisons with 800;
+* a statement that wrote **four or fewer** scanned the table once per written row instead, on the reasoning that building a map for a single row could not pay for itself.
+
+Each was right about the other and they were wrong together: the cost they were dividing between them was the *building*, and the division made the per-statement O(rows) unavoidable either way. A kept index does not build. Both branches are gone and the dual path with them.
+
+**Keeping it in the table's value is what makes it correct, and that is the argument for immutability rather than against it.** `ROLLBACK` republishes an older `Database`; the index that comes back with it is the one that matches those rows, with nothing to invalidate and no cache to tell. A failed statement is the same story: `run_insert` extends the index before `enforce` runs, and when `enforce` refuses, the table carrying the extension is simply never published. A mutable index would need both of those written by hand, and the second is the kind of thing that is wrong for a year.
+
+**The hazard it introduces is specific, so it is held down by construction.** A stale index does not fail — it accepts a duplicate without a word. Five sites write rows and one rewrites them all, which is exactly the count that gets a sixth added with no index update, so `rows_appended` (O(added)), `rows_changed` (O(touched)) and `rows_rebuilt` (O(rows), where a `DELETE` shifts every later position and the statement is O(rows) regardless) are now the **only** functions that may hand a table different rows, and the field's comment says so. A `with t { rows: .. }` written by hand still compiles, which is the residual risk and why the fixture below exists.
+
+`tests/lang/memdb_kept_index.zm` runs 40 write statements on `memdb:` **and on real SQLite**, comparing the outcome and the whole contents of every table after each one — because the engine cannot check this against itself: the code that decides and the code that records are the same code. The cases are the ones where positions move or keys change hands: a key freed by an `UPDATE` and reused, a key taken by one and refused, a `DELETE` of the *first* row, a `ROLLBACK` over a `DELETE FROM`, an `ON DELETE CASCADE` that moves positions in a table the statement never named, NULL keys (in no bucket, since such a key conflicts with nothing), and writes that were refused and must leave no trace. 40 of 40 agree.
+
+Three cases in it compare `ok` without a row count, for `BEGIN`/`COMMIT`/`ROLLBACK`. That is not a concession: none of the three affects a row, `memdb` says 0, and SQLite answers the count of the statement *before* it, because `sqlite3_changes` is not reset by a transaction keyword. The contents are still compared after each.
+
+Two things fell out of the A/B, both measured interleaved because one bench process's allocations shape another's collector pauses:
+
+* **A table with no key must pay nothing.** The first version built an empty index list per statement, which cost 22% of a write to an unkeyed table (4,000 inserts, 330 ms against 400) — all of it allocation for a list that stays empty. Both maintaining functions now return early.
+* **A statement that fills an empty table rebuilds rather than maintains.** Maintaining row by row made a 4,000-row single `INSERT` 17% slower (217 ms against 182). This is not a threshold — the "small writes this way, large ones that way" split is what the replaced code got wrong — but an exact condition: when the table was empty, every row is new, so a rebuild and a maintenance produce the same index and the rebuild may use a mutable map in one pass. With it, the bulk shape matches the old engine exactly (190-198 ms either way). A large insert into a table that *already has rows* is left maintained, because there the two are not the same work.
+
+`tests/stdlib/memdb_test.zm`'s seeding guard was rewritten rather than retuned. It allowed 32x for 4x the rows and said in its comment that seeding is "quadratic in principle" because a `Database` is an immutable value — a claim this entry's second table disproves. It now asserts 4x the rows costs under 8x the time, and the new assertion was checked against the old binary, where it fails at 2,606 ms against a 944 ms bound. A test that cannot fail on the code it was written for proves nothing.
+
+What this does **not** fix, measured and left alone: a one-row `SELECT ... WHERE id = ?` is still a scan, because `CREATE INDEX` is recorded nowhere and a kept uniqueness index is not consulted by query planning. That is a larger piece of work — it changes what `run_select` does, not what a write maintains — and the next candidate after it is the parser, which the profiler puts at 21% of an unkeyed write (`sql::tokenize`) and which is re-run for every identical statement.

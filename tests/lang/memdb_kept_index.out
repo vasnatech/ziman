@@ -1,0 +1,41 @@
+agree    ok(1)  INSERT INTO keyed (id, tag, part) VALUES (1, 'a', 'x')
+agree    ok(1)  INSERT INTO keyed (id, tag, part) VALUES (2, 'a', 'y')
+agree    ok(1)  INSERT INTO keyed (id, tag, part) VALUES (3, 'b', 'x')
+agree    refused  INSERT INTO keyed (id, tag, part) VALUES (1, 'c', 'c')
+agree    refused  INSERT INTO keyed (id, tag, part) VALUES (4, 'a', 'x')
+agree    ok(1)  INSERT INTO keyed (id, tag, part) VALUES (4, 'c', 'c')
+agree    ok(1)  UPDATE keyed SET id = 11 WHERE id = 1
+agree    ok(1)  INSERT INTO keyed (id, tag, part) VALUES (1, 'd', 'd')
+agree    refused  UPDATE keyed SET id = 2 WHERE id = 3
+agree    ok(1)  UPDATE keyed SET part = 'z' WHERE id = 2
+agree    ok(1)  INSERT INTO keyed (id, tag, part) VALUES (5, 'a', 'y')
+agree    refused  UPDATE keyed SET tag = 'b', part = 'x' WHERE id = 5
+agree    ok(1)  INSERT INTO keyed (id, tag, part) VALUES (6, 'n', NULL)
+agree    ok(1)  INSERT INTO keyed (id, tag, part) VALUES (7, 'n', NULL)
+agree    ok(1)  DELETE FROM keyed WHERE id = 1
+agree    ok(1)  INSERT INTO keyed (id, tag, part) VALUES (1, 'e', 'e')
+agree    refused  INSERT INTO keyed (id, tag, part) VALUES (8, 'b', 'x')
+agree    ok(1)  DELETE FROM keyed WHERE id = 11
+agree    ok(1)  INSERT INTO keyed (id, tag, part) VALUES (11, 'f', 'f')
+agree    ok  BEGIN
+agree    ok(8)  DELETE FROM keyed
+agree    ok(1)  INSERT INTO keyed (id, tag, part) VALUES (2, 'g', 'g')
+agree    ok  ROLLBACK
+agree    refused  INSERT INTO keyed (id, tag, part) VALUES (2, 'h', 'h')
+agree    refused  UPDATE keyed SET tag = 'b', part = 'x' WHERE id = 6
+agree    ok  BEGIN
+agree    ok(1)  INSERT INTO keyed (id, tag, part) VALUES (20, 'i', 'i')
+agree    ok  COMMIT
+agree    refused  INSERT INTO keyed (id, tag, part) VALUES (20, 'j', 'j')
+agree    ok(1)  INSERT INTO parent (id, label) VALUES (1, 'p1')
+agree    ok(1)  INSERT INTO parent (id, label) VALUES (2, 'p2')
+agree    ok(1)  INSERT INTO child (id, owner) VALUES (1, 1)
+agree    ok(1)  INSERT INTO child (id, owner) VALUES (2, 2)
+agree    ok(1)  INSERT INTO child (id, owner) VALUES (3, 1)
+agree    ok(1)  DELETE FROM parent WHERE id = 1
+agree    ok(1)  INSERT INTO child (id, owner) VALUES (1, 2)
+agree    ok(1)  INSERT INTO child (id, owner) VALUES (3, 2)
+agree    refused  INSERT INTO child (id, owner) VALUES (2, 2)
+agree    refused  INSERT INTO child (id, owner) VALUES (9, 99)
+agree    ok(1)  INSERT INTO child (id, owner) VALUES (9, 2)
+40 of 40 statements agree with SQLite

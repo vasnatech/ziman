@@ -257,6 +257,25 @@ val invariant: Locale = locale.root()
 
 // ---------------------------------------------------------------- storage
 
+// A uniqueness index **kept across statements**: the columns it is on, and the position of every
+// row that has a key, bucketed by that key.
+//
+// Rebuilding one per statement is what made a one-row write cost a pass over the table. Measured
+// on 2026-10-26, inserting rows one statement at a time into a table with a `PRIMARY KEY`:
+// 500 rows 376 ms, 1,000 rows 1,519 ms, 2,000 rows 8,090 ms, 4,000 rows 48,324 ms -- quadratic and
+// then worse, as the collector took over. The same 4,000 rows in a single statement took 157 ms,
+// because the index was built once; the same 4,000 single-row inserts into a table with no
+// constraint took 262 ms, which is the parser and nothing else. So the gap was the index, not the
+// writing.
+//
+// Keeping it in the table's **value** is what makes it correct for free. A `ROLLBACK` republishes
+// an older `Database`, and the index that comes back with it is the one that matches those rows --
+// where a cache beside the engine would have to be told, and would be wrong when it was not.
+struct KeyIndex {
+    places: [int]
+    buckets: Map<string, [int]>
+}
+
 // A table: its columns in declaration order, and its rows as arrays of the same width. Row order
 // is insertion order, which is what a `SELECT` with no `ORDER BY` returns -- the real engines
 // promise nothing there, so a test that cares must say `ORDER BY`.
@@ -269,6 +288,14 @@ struct Table {
     // constraints of their own. Three places to remember is how a constraint gets enforced on
     // insert and forgotten on update.
     constraints: [TableConstraint]
+    // The kept uniqueness indexes, one per distinct set of key columns.
+    //
+    // **`rows_appended`, `rows_changed` and `rows_rebuilt` are the only functions that may give a
+    // table different rows.** A `with t { rows: .. }` written by hand compiles and leaves these
+    // pointing at rows that have moved -- and a stale index does not fail, it accepts a duplicate
+    // without a word. There are five places that write rows and one that rewrites them all, which
+    // is exactly the sort of count that gets one new site added and no index updated.
+    keys: [KeyIndex]
 }
 
 // The whole database as one immutable value. Tables are keyed by their folded name, so `Users` and
@@ -1181,6 +1208,186 @@ fn places_of(t: Table, shape: Names, columns: [string]) -> Result<[int], DbError
     return ok(snapshot(out))
 }
 
+// ---------------------------------------------------- the kept uniqueness indexes
+
+// A set of column positions as a map key, so two constraints on the same columns share one index.
+fn places_key(places: [int]) -> string {
+    val out = mutable_string_new()
+    for p in places {
+        append(out, str(p), ",")
+    }
+    return snapshot(out)
+}
+
+// The distinct column positions every `PRIMARY KEY` and `UNIQUE` constraint of `t` is on.
+//
+// A constraint whose columns do not resolve is **skipped rather than refused**, so that
+// `UNIQUE (nope)` still fails where it failed before -- in `unique_rule`, with its own message, on
+// the first write -- rather than at `CREATE TABLE`. Changing when that fails is a behaviour
+// change, and this increment is meant to have none.
+fn key_places(t: Table) -> [[int]] {
+    val shape = shape_of(t)
+    val seen = mutable_map_new<string, bool>()
+    val out = mutable_array_new<[int]>()
+    for tc in t.constraints {
+        var columns: [string] = []
+        if PrimaryKey(named) = tc.rule {
+            columns = named
+        }
+        if Unique(named) = tc.rule {
+            columns = named
+        }
+        if prelude.len(columns) == 0 {
+            continue
+        }
+        val resolved = places_of(t, shape, columns)
+        if Err(_) = resolved {
+            continue
+        }
+        val places = unwrap(resolved)
+        val k = places_key(places)
+        if contains(seen, k) {
+            continue
+        }
+        set(seen, k, true)
+        push(out, places)
+    }
+    return snapshot(out)
+}
+
+// `at` recorded under its key. A key holding a NULL is left out, because such a key is equal to
+// nothing and is never looked for -- the standard's rule and both engines'.
+fn with_row_indexed(buckets: Map<string, [int]>, row: [SqlValue], places: [int], at: int) -> Map<string, [int]> {
+    val key = values_at(row, places)
+    if prelude.len(key) == 0 {
+        return buckets
+    }
+    val nothing: [int] = []
+    val bucket = key_bucket(key)
+    return set(buckets, bucket, push(get_or(buckets, bucket, nothing), at))
+}
+
+// `at` taken back out, for a row whose key is about to change.
+fn without_row_indexed(buckets: Map<string, [int]>, row: [SqlValue], places: [int], at: int) -> Map<string, [int]> {
+    val key = values_at(row, places)
+    if prelude.len(key) == 0 {
+        return buckets
+    }
+    val nothing: [int] = []
+    val bucket = key_bucket(key)
+    val left = mutable_array_new<int>()
+    for other in get_or(buckets, bucket, nothing) {
+        if other != at {
+            push(left, other)
+        }
+    }
+    if prelude.len(left) == 0 {
+        return remove(buckets, bucket)
+    }
+    return set(buckets, bucket, snapshot(left))
+}
+
+// Every row of `t` bucketed, for each of its key column sets.
+//
+// O(rows), and called only where a statement already pays that: `CREATE TABLE` (no rows), a
+// `DELETE` (which shifts every position after the one it removed), and an `ALTER` (which rewrites
+// every row anyway).
+fn rebuilt_keys(t: Table) -> [KeyIndex] {
+    val out = mutable_array_new<KeyIndex>()
+    for places in key_places(t) {
+        val buckets = mutable_map_new<string, [int]>()
+        for i in 0..prelude.len(t.rows) {
+            val key = values_at(t.rows[i], places)
+            if prelude.len(key) > 0 {
+                val nothing: [int] = []
+                val bucket = key_bucket(key)
+                set(buckets, bucket, push(get_or(buckets, bucket, nothing), i))
+            }
+        }
+        push(out, KeyIndex { places: places, buckets: snapshot(buckets) })
+    }
+    return snapshot(out)
+}
+
+// A table with its indexes built from scratch: what `CREATE TABLE` and `ALTER` publish.
+fn with_keys(t: Table) -> Table {
+    return with t { keys: rebuilt_keys(t) }
+}
+
+// A table with `rows` appended from position `from`. Positions already there do not move, so the
+// indexes only gain the new rows: **O(added)**, where a rebuild is O(rows).
+//
+// Maintained through the immutable `set`, deliberately. A `Map` here is a HAMT, so `set` copies
+// the path from the root and shares the rest -- whereas taking a mutable copy of the buckets per
+// statement would copy the whole map and put back the O(rows) this exists to remove.
+fn rows_appended(t: Table, rows: [[SqlValue]], from: int) -> Table {
+    // **A table with no key pays nothing**, which is worth a line of its own: measured against the
+    // previous engine, building the empty index list per statement cost 22% of a write to an
+    // unkeyed table (4,000 single-row inserts, 330 ms against 400), all of it allocation for a
+    // list that stays empty. The two helpers below are the only writers, so this is where it goes.
+    if prelude.len(t.keys) == 0 {
+        return with t { rows: rows }
+    }
+    // **A statement that fills an empty table builds its buckets in one pass instead.** This is
+    // not a threshold -- the kind of "small writes go this way, large ones that way" split that
+    // the code this replaces got wrong -- but an exact condition: every row is new, so a rebuild
+    // and a row-by-row maintenance produce the same index, and the one pass may use a mutable map
+    // where maintenance must publish a value per row. Measured, 4,000 rows in one INSERT: 182 ms
+    // rebuilt against 217 maintained. A large insert into a table that already has rows is left
+    // maintained, because there the two are not the same work.
+    if from == 0 {
+        return rows_rebuilt(t, rows)
+    }
+    var keys: [KeyIndex] = []
+    for ki in t.keys {
+        var buckets = ki.buckets
+        for i in from..prelude.len(rows) {
+            buckets = with_row_indexed(buckets, rows[i], ki.places, i)
+        }
+        keys = push(keys, with ki { buckets: buckets })
+    }
+    return with t { rows: rows, keys: keys }
+}
+
+// A table whose rows at `touched` were rewritten in place -- one row back for every row out, so
+// every position still means what it meant. Each touched row's old key comes out of its bucket and
+// its new key goes in: **O(touched)**.
+fn rows_changed(t: Table, rows: [[SqlValue]], touched: [int]) -> Table {
+    if prelude.len(t.keys) == 0 {
+        return with t { rows: rows }
+    }
+    // Built with the immutable `push`, which this module measured as costing the same as a
+    // `MutableArray` and saves allocating the builder for the one or two indexes a table has.
+    var keys: [KeyIndex] = []
+    for ki in t.keys {
+        var buckets = ki.buckets
+        for i in touched {
+            buckets = without_row_indexed(buckets, t.rows[i], ki.places, i)
+            buckets = with_row_indexed(buckets, rows[i], ki.places, i)
+        }
+        keys = push(keys, with ki { buckets: buckets })
+    }
+    return with t { rows: rows, keys: keys }
+}
+
+// A table whose rows moved: a `DELETE` shifts every position after the one it took out, so there
+// is nothing to patch and the indexes are built again. O(rows), which a `DELETE` already is.
+fn rows_rebuilt(t: Table, rows: [[SqlValue]]) -> Table {
+    return with_keys(with t { rows: rows })
+}
+
+// The kept index on `places`, or one built now for a constraint the table carries no index for --
+// which `key_places` leaves when a constraint's columns do not resolve.
+fn kept_index(t: Table, places: [int]) -> Map<string, [int]> {
+    val want = places_key(places)
+    for ki in t.keys {
+        if places_key(ki.places) == want {
+            return ki.buckets
+        }
+    }
+    return key_index(t, places)
+}
+
 fn enforce(database: Database, t: Table, touched: [int], params: [SqlValue], strict: bool) -> Result<unit, DbError> {
     for i in touched {
         val row = t.rows[i]
@@ -1246,28 +1453,18 @@ fn unique_rule(
             }
         }
     }
-    // **An index is worth building for a statement that wrote several rows and not for one that
-    // wrote one.** Indexing costs a pass over the table; scanning costs a pass per written row. So
-    // an `INSERT` of a single row scans -- which is what seeding a table one statement at a time
-    // does, and building a map per row made that measurably slower -- and anything larger indexes.
-    if prelude.len(touched) <= 4 {
-        for i in touched {
-            val key = values_at(t.rows[i], places)
-            if prelude.len(key) == 0 {
-                continue
-            }
-            for other in 0..prelude.len(t.rows) {
-                if other != i && values_same(values_at(t.rows[other], places), key) {
-                    return err(DbError.Constraint(concat(
-                        "UNIQUE constraint failed: ",
-                        qualified_columns(t, columns)
-                    )))
-                }
-            }
-        }
-        return ok(unit)
-    }
-    val index = key_index(t, places)
+    // **The index is kept on the table, so this costs a bucket lookup per written row** rather
+    // than a pass over the rows.
+    //
+    // Two shapes came before it, and both were O(rows) *per statement*. A statement that wrote
+    // more than four rows built a bucket map over the whole table -- which took a 400-row `UPDATE`
+    // from 1.4 seconds to 20 ms, because it replaced 160,000 key comparisons with 800. A statement
+    // that wrote fewer scanned the table once per written row instead, on the reasoning that
+    // building a map for one row could not pay for itself. Both readings were right about each
+    // other and wrong together: the cost they were dividing up was the *building*, and a kept
+    // index does not build. Seeding 4,000 rows one statement at a time went from 48 seconds to
+    // under one. See `KeyIndex` for the measurements.
+    val index = kept_index(t, places)
     for i in touched {
         val key = values_at(t.rows[i], places)
         if prelude.len(key) == 0 {
@@ -1534,7 +1731,7 @@ fn one_cascade(
                     push(kept, child.rows[i])
                 }
             }
-            current = with_table(current, with child { rows: snapshot(kept) })
+            current = with_table(current, rows_rebuilt(child, snapshot(kept)))
             current = try cascade_from(current, child.name, snapshot(gone), [], false, params, strict)
             continue
         }
@@ -1569,7 +1766,7 @@ fn one_cascade(
             }
             rows = set(rows, i, row)
         }
-        val changed = with child { rows: rows }
+        val changed = rows_changed(child, rows, pointing)
         current = with_table(current, changed)
         try enforce(current, changed, pointing, params, strict)
     }
@@ -2159,12 +2356,15 @@ fn run_create(database: Database, stmt: CreateStmt) -> Result<Outcome, DbError> 
         }
         return err(problem(concat("table already exists: ", stmt.table)))
     }
-    val t = Table {
+    // The indexes are built here, empty, rather than on first use: a write extends what is there,
+    // so a table that carried none would never gain one.
+    val t = with_keys(Table {
         name: stmt.table,
         columns: stmt.columns,
         rows: [],
-        constraints: all_constraints(stmt.columns, stmt.constraints)
-    }
+        constraints: all_constraints(stmt.columns, stmt.constraints),
+        keys: []
+    })
     return ok(Outcome { database: with_table(database, t), rows: [], affected: 0 })
 }
 
@@ -2216,12 +2416,14 @@ fn run_alter(database: Database, stmt: AlterStmt, strict: bool) -> Result<Outcom
     for row in t.rows {
         push(rows, push(row, filler))
     }
-    val grown = with t {
+    // Rebuilt rather than patched: the added column may carry a `UNIQUE` of its own, so which
+    // indexes this table has can change here and not only what is in them.
+    val grown = with_keys(with t {
         columns: push(t.columns, column),
         rows: snapshot(rows),
         // The added column brings its own flags and constraints with it.
         constraints: concat(t.constraints, all_constraints([column], []))
-    }
+    })
     return ok(Outcome { database: with_table(database, grown), rows: [], affected: 0 })
 }
 
@@ -2356,7 +2558,7 @@ fn run_insert(database: Database, stmt: InsertStmt, params: [SqlValue], strict: 
         push(stored, written)
         added = added + 1
     }
-    val filled = with t { rows: rows }
+    val filled = rows_appended(t, rows, prelude.len(t.rows))
     // Against the database **with the new rows in it**, which matters for a self-referencing
     // foreign key: `INSERT INTO tree VALUES (1, NULL), (2, 1)` has the second row pointing at the
     // first, and SQLite accepts it because by then the first row is there.
@@ -2384,7 +2586,7 @@ fn run_delete(database: Database, stmt: DeleteStmt, params: [SqlValue], strict: 
             push(rows, t.rows[i])
         }
     }
-    val left = with t { rows: snapshot(rows) }
+    val left = rows_rebuilt(t, snapshot(rows))
     // The rows that pointed at what was just deleted, dealt with by each foreign key's own
     // `ON DELETE`: refused, cascaded, or set to NULL or to a default.
     val after = try cascade_from(
@@ -2438,7 +2640,7 @@ fn run_update(database: Database, stmt: UpdateStmt, params: [SqlValue], strict: 
         push(rows, row)
         push(written, row)
     }
-    val changed = with t { rows: snapshot(rows) }
+    val changed = rows_changed(t, snapshot(rows), touched)
     // The row indexes are unchanged -- one row goes back for every row that came out -- so the
     // rows this statement wrote are the ones it matched.
     try enforce(with_table(database, changed), changed, touched, params, strict)
