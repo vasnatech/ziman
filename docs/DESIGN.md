@@ -226,6 +226,7 @@ them against the code.
 - [`memdb`: a SQL engine in Ziman, and a tier boundary drawn in the wrong place (2026-10-25)](#memdb-a-sql-engine-in-ziman-and-a-tier-boundary-drawn-in-the-wrong-place-2026-10-25)
 - [`memdb` learns the aggregates, and two readings of SQL (2026-10-25)](#memdb-learns-the-aggregates-and-two-readings-of-sql-2026-10-25)
 - [`sql`: the statement tree moves out of the engine, and two precedence bugs fall out (2026-10-25)](#sql-the-statement-tree-moves-out-of-the-engine-and-two-precedence-bugs-fall-out-2026-10-25)
+- [`sql` and `memdb` learn joins and subqueries, and validation loses its nerve (2026-10-25)](#sql-and-memdb-learn-joins-and-subqueries-and-validation-loses-its-nerve-2026-10-25)
 
 <!-- end index -->
 
@@ -8883,3 +8884,44 @@ Neither is the kind of bug reading the parser finds, because each looks right wh
 **A fourth divergence between the two readings, found by the same fixture.** `SELECT id = 1 AS yes` came back as a boolean from `memdb` and as `Int(0)`/`Int(1)` from SQLite, because **SQLite has no boolean type** while PostgreSQL and the standard have one. So the lax reading now renders a projected boolean as 0 or 1 and the strict one does not -- which is also why `db.sql_as_bool` has always accepted an `Int` of 0 or 1. Only the projection converts; inside a `WHERE` a boolean stays a boolean, because nothing outside sees it.
 
 **What this is not.** It is not ANSI SQL. ISO/IEC 9075 also has joins, set operations, subqueries, `DISTINCT`, common table expressions, window functions, `MERGE`, `GRANT`/`REVOKE`, views, schemas, sequences, domains, triggers, routines, cursors, savepoints, isolation levels, `GROUPING SETS`, `LATERAL`, interval and row constructors, `IS DISTINCT FROM`, `SIMILAR TO`, `OVERLAPS`, temporal tables and SQL/JSON. PostgreSQL's own grammar is some twenty thousand lines and is not full ANSI either. The module says so in its header rather than in a release note, and `#![experimental]` says the tree will reshape as coverage grows -- joins will turn one `table` field into a list of table references, and a subquery will make `Expr` recursive through a `Statement`. The round trip is what makes those changes safe to make.
+
+## `sql` and `memdb` learn joins and subqueries, and validation loses its nerve (2026-10-25)
+
+The last entry predicted the shape of this one: *"joins will turn one `table` field into a list of table references, and a subquery will make `Expr` recursive through a `Statement`."* Both happened as written. `SelectStmt.table: string` is now `from: [TableRef]` with a `joins: [Join]` beside it, and `Expr` has four new variants -- `Sub`, `Exists`, `InSub` and `Cast` -- of which the first three hold a whole `SelectStmt`.
+
+**That makes `Expr` and `SelectStmt` mutually recursive**, an enum through a struct and back, which Ziman allows and constructs without ceremony because `Lit` and `Col` end the chain. Worth recording because it is the first place in either repo that needs it.
+
+**A join is a flat list, not a tree.** `a JOIN b ON .. JOIN c ON ..` is left-deep -- that is what SQL means by it -- so a list of joins onto the first table says the same thing as a tree of pairs and reads better at every use. A parenthesised join expression would need the tree, and is not read. `[INNER] JOIN`, `LEFT [OUTER] JOIN`, `CROSS JOIN`, `RIGHT` and `FULL`, each with `ON` or `USING`; `USING (a, b)` is desugared into the `ON` it stands for rather than carried into evaluation twice.
+
+**`RIGHT` and `FULL` are read by `sql` and refused by `memdb`, with an error naming the engine to use instead.** They are a mirror and a union of what the engine does, and shipping them without a test that proves them against a real engine would be guessing -- the whole point of this engine is that it does not guess. Reading them anyway is right, because a formatter that dropped a `RIGHT JOIN` from a file it was asked to rewrite would be worse than one that refused the file.
+
+**Two new ideas in the engine, and both are about *where a name lives*.**
+
+* A `Source` is what a `FROM` produces: a column name, a *table* and a row for each. The table per column is what makes `id` across two joined tables **ambiguous** rather than silently the left one -- `resolve_column` counts its matches and answers -2 for more than one, and `p.id` narrows it to one.
+* A `Ctx` carries the scopes enclosing it, outermost last. A name a subquery does not have falls **outward**, one level at a time, which is the whole of correlation: `WHERE visit.patient_id = patient.id` inside a subquery means what it says, and `EXISTS`, `IN (SELECT ..)` and a scalar `(SELECT ..)` all get it from the same three lines.
+
+`DISTINCT` drops duplicates **after the projection and before the `LIMIT`**, which is the order SQL specifies: `SELECT DISTINCT x .. LIMIT 2` means two distinct rows, not the distinct ones among the first two. Rows compare by SQL's own rules, so two NULLs are the same row -- `DISTINCT` asks about distinctness, not about equality, the same reading `GROUP BY` takes of its keys.
+
+**And the mistake, which is the reason this entry is worth its length.**
+
+`validate_expr` was the fix from the previous entry: resolve every column before the statement runs, so `SELECT count(age) FROM visit WHERE reason = 'nothing'` cannot answer 0 where SQLite says "no such column: age". Correlated subqueries break its premise -- a name may legitimately belong to an enclosing query -- and the loosening I reached for first was this:
+
+```ziman
+Col(_) {
+    // Columns are resolved against the row's own shape when the statement runs, which a
+    // join and a correlated subquery both need -- a name may belong to an enclosing query.
+    unit
+}
+```
+
+Which validates nothing. **The cross-check fixture failed on the same query it had caught the first time**, three commits after the entry describing that catch was written. One line of comment made it sound deliberate, which is how a guard dies: not removed, excused.
+
+The real fix is that validation needs a *shape*, not a row. `shape_ctx` reads the column names and qualifiers of every table in the `FROM` and its joins straight from the table definitions, with no rows touched at all, and the enclosing scopes chain onto it exactly as they do at evaluation -- so a correlated name resolves and a typo does not. A subquery validates against its own shape with the outer one enclosing it, so `EXISTS (SELECT 1 FROM visit WHERE visit.patient_id = patient.nope)` is refused before any row is read.
+
+**Then the fix broke seven queries, in a way worth keeping.** `ORDER BY alias` is legal SQL, so validation also admits the names the select list gives its columns -- and appending those to the source's columns made `SELECT name FROM patient ORDER BY name` report **"ambiguous column name: name"**, because `name` was now both a column and an alias. SQL resolves an `ORDER BY` term against the source *first* and against the select list *second*; a name that is both is the column. Two attempts at one guard, both caught by the fixture within seconds of being written, which is the argument for having it.
+
+**The numbers.** The cross-check fixture runs **80 queries on `memdb` and on real SQLite and all 80 agree**, up from 47: joins of every supported kind including a self-join and a `LEFT JOIN` whose `ON` filters the right side, `SELECT *` across a join, scalar and correlated subqueries, `IN`/`NOT IN (SELECT ..)`, `EXISTS`/`NOT EXISTS`, `DISTINCT`, `COUNT(DISTINCT x)`, `CAST` in four directions, and three queries whose column names are typos and must be refused by both. The round-trip fixture carries **61 statement shapes** settling in one pass, up from 40, plus the sample application's 39 migration files and 132 statements with none that fail to settle. The two readings of SQL still agree on everything outside their four stated divergences -- 20 shared queries now, up from 12.
+
+**One SQLite trap, recorded so nobody reverts the fix.** `SELECT (SELECT cost FROM visit WHERE id = 99) AS nothing` is a syntax error in SQLite: `NOTHING` is a keyword there, from `ON CONFLICT DO NOTHING`, and cannot be a bare alias. The fixture says `AS missing`. That is a difference in the dialects' *keyword lists*, not in the engines, and the distinction matters -- a cross-check that cannot tell those apart would be reporting noise.
+
+**Measured, as before, rather than assumed:** the sample application issues one `JOIN` and one subquery in 191 SQL strings, because its repositories query one table each and compose in Ziman. Both are here anyway. A test suite is not restricted to the queries the application happens to issue today, and an engine that refuses a join pushes every such test back onto a container -- which is the cost this engine exists to remove.

@@ -17,21 +17,36 @@
 //
 // `CREATE TABLE` (with `NOT NULL`, `PRIMARY KEY`, `UNIQUE`, `DEFAULT` and a column type that is
 // recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN`,
-// `DROP TABLE [IF EXISTS]`, `INSERT INTO ... VALUES`, `SELECT` with `WHERE`, `GROUP BY`, `HAVING`,
-// `ORDER BY`, `LIMIT` and `OFFSET`, `UPDATE ... SET ... WHERE`, `DELETE FROM ... WHERE`, and
-// `BEGIN`/`COMMIT`/`ROLLBACK`.
+// `DROP TABLE [IF EXISTS]`, `INSERT INTO ... VALUES`, `SELECT [DISTINCT]` with `WHERE`,
+// `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT` and `OFFSET`, `UPDATE ... SET ... WHERE`,
+// `DELETE FROM ... WHERE`, and `BEGIN`/`COMMIT`/`ROLLBACK`.
 //
-// Expressions: literals, column references, bound parameters (`?`, `$1`), `AND`/`OR`/`NOT`, the six
-// comparisons, `IS [NOT] NULL`, `LIKE`, `IN`, `BETWEEN`, `CASE WHEN`, `+ - * /`, `||`, parentheses,
-// the scalar functions `substr`, `length`, `lower`, `upper`, `trim`, `abs` and `coalesce`, and the
-// aggregates `COUNT`, `SUM`, `MIN`, `MAX` and `AVG`.
+// Joins: `[INNER] JOIN`, `LEFT [OUTER] JOIN` and `CROSS JOIN`, with `ON` or `USING`, chained left
+// to right and with table aliases. `RIGHT` and `FULL` are read by `sql` and refused here, with an
+// error naming the engine to use instead -- they are a mirror and a union of what this does, and
+// shipping them without a test that proves them against a real engine would be guessing.
+//
+// Subqueries: a scalar `(SELECT ..)`, `IN (SELECT ..)`, `NOT IN (SELECT ..)` and `EXISTS`, each of
+// which may be correlated -- a name a subquery does not have resolves outward through the scopes
+// enclosing it, which is what makes `WHERE visit.patient_id = patient.id` inside one mean what it
+// says.
+//
+// Expressions: literals, column references (qualified or not), bound parameters (`?`, `$1`),
+// `AND`/`OR`/`NOT`, the six comparisons, `IS [NOT] NULL`, `LIKE`, `IN`, `BETWEEN`, `CASE WHEN`,
+// `CAST(x AS type)`, `+ - * /`, `||`, parentheses, the scalar functions `substr`, `length`,
+// `lower`, `upper`, `trim`, `abs` and `coalesce`, and the aggregates `COUNT` (including
+// `COUNT(DISTINCT x)`), `SUM`, `MIN`, `MAX` and `AVG`.
 //
 // **Columns are resolved before a statement runs**, as a real engine resolves them when it
 // prepares one. Looking them up per row instead meant a query whose `WHERE` matched nothing never
 // looked, so `SELECT count(age) FROM visit WHERE reason = 'nothing'` answered 0 where SQLite
 // answers "no such column: age" -- a typo passing here and failing there is the exact false green
 // this engine exists to avoid, and the cross-check fixture caught it within a minute of the
-// aggregates being written.
+// aggregates being written. It caught the same thing a second time when joins arrived: validation
+// had been loosened to let a correlated name through, which let every typo through with it, so it
+// now checks against the shape the `FROM` produces *and* the scopes enclosing it -- which is also
+// where an unqualified `id` across two joined tables becomes "ambiguous column name" rather than
+// silently the left one.
 //
 // ## Two readings of SQL
 //
@@ -48,11 +63,13 @@
 //
 // Measured against the sample application before any of it was written: its 191 SQL strings use no
 // joins and no subqueries, because its repositories query one table each and compose in Ziman. The
-// 20,365 characters of SQL in it are almost all of the shape above.
+// 20,365 characters of SQL in it are almost all of the shape above. Joins and subqueries are here
+// anyway, because a test suite is not restricted to the queries the application happens to issue
+// and an engine that refuses them would push every such test onto a container.
 //
-// `DISTINCT` and `RETURNING` are the next increment, then constraint *enforcement*, `JOIN`,
-// subqueries and per-test forking. Anything it does not understand is an error naming the token,
-// never a quiet partial execution.
+// `RETURNING`, constraint *enforcement*, set operations (`UNION`, `INTERSECT`, `EXCEPT`), derived
+// tables in a `FROM` and per-test forking are the next increments. Anything it does not understand
+// is an error naming the token, never a quiet partial execution.
 //
 // ## Transactions are free, because a database is a value
 //
@@ -140,13 +157,97 @@ fn problem(message: string) -> DbError {
 // `strict` at the point it decides, so the two readings cannot drift apart in separate code.
 struct Ctx {
     columns: [string]
+    // The table each column came from, by alias where one was given. A join puts two tables'
+    // columns in one row, so `id` may be two columns and `o.id` only one -- which is what makes
+    // an unqualified name ambiguous rather than simply wrong.
+    tables: [string]
     row: [SqlValue]
     params: [SqlValue]
     strict: bool
+    // The database, because a subquery is an expression that runs a query.
+    database: Database
+    // The scopes enclosing this one, outermost last. A correlated subquery reads a column of the
+    // row its outer query is on, so resolution falls outward when a name is not here. Empty for a
+    // query that is not nested; one deep per level of nesting.
+    outer: [Ctx]
 }
 
-fn ctx_of(columns: [string], row: [SqlValue], params: [SqlValue], strict: bool) -> Ctx {
-    return Ctx { columns: columns, row: row, params: params, strict: strict }
+fn ctx_of(
+    database: Database,
+    columns: [string],
+    tables: [string],
+    row: [SqlValue],
+    params: [SqlValue],
+    strict: bool
+) -> Ctx {
+    val none: [Ctx] = []
+    return Ctx {
+        columns: columns,
+        tables: tables,
+        row: row,
+        params: params,
+        strict: strict,
+        database: database,
+        outer: none
+    }
+}
+
+// A context for a row with no table behind it: an `INSERT`'s values, a `LIMIT`, a `SELECT` with no
+// `FROM`.
+fn bare_ctx(database: Database, params: [SqlValue], strict: bool) -> Ctx {
+    val no_names: [string] = []
+    val no_row: [SqlValue] = []
+    return ctx_of(database, no_names, no_names, no_row, params, strict)
+}
+
+fn nested_in(inner: Ctx, outer: Ctx) -> Ctx {
+    return Ctx {
+        columns: inner.columns,
+        tables: inner.tables,
+        row: inner.row,
+        params: inner.params,
+        strict: inner.strict,
+        database: inner.database,
+        outer: push(outer.outer, outer)
+    }
+}
+
+// Where `ref` lives in this row: an index, or -1 for no such column and -2 for an ambiguous one.
+fn resolve_column(cx: Ctx, ref: sql.ColRef) -> int {
+    val want = sql.fold_name(ref.name)
+    val qualifier = sql.fold_name(ref.table)
+    var found = 0 - 1
+    var count = 0
+    for i in 0..prelude.len(cx.columns) {
+        if sql.fold_name(cx.columns[i]) == want {
+            if ref.table == "" || sql.fold_name(cx.tables[i]) == qualifier {
+                found = i
+                count = count + 1
+            }
+        }
+    }
+    if count > 1 {
+        return 0 - 2
+    }
+    return found
+}
+
+// `ref`'s value, looked for in this scope and then outward through the enclosing ones.
+fn lookup_column(cx: Ctx, ref: sql.ColRef) -> Result<SqlValue, DbError> {
+    val at = resolve_column(cx, ref)
+    if at == 0 - 2 {
+        return err(problem(concat("ambiguous column name: ", ref.name)))
+    }
+    if at >= 0 {
+        return ok(cx.row[at])
+    }
+    val depth = prelude.len(cx.outer)
+    if depth > 0 {
+        // Outermost last, so the nearest enclosing scope is the one at the end.
+        return lookup_column(cx.outer[depth - 1], ref)
+    }
+    val written = if ref.table == "" { ref.name } else { concat(ref.table, ".", ref.name) }
+    return err(problem(concat("no such column: ", written)))
 }
 
 // SQLite's type order, which is also the order NULLs sort first in: NULL, then numbers, then
@@ -249,15 +350,62 @@ fn eval_expr(e: Expr, cx: Ctx) -> Result<SqlValue, DbError> {
                 ok(cx.params[number - 1])
             }
         }
-        Col(ref) {
-            // The qualifier is kept by the tree and ignored here: one table is in scope, so
-            // `p.name` and `name` reach the same column.
-            val at = column_index(cx.columns, ref.name)
-            if at < 0 {
-                err(problem(prelude.format("no such column: {}", ref.name)))
+        Col(ref) { lookup_column(cx, ref) }
+        Sub(node) {
+            // A scalar subquery: one row of one column, or NULL when it answers none. More than
+            // one row is an error, as it is in both real engines -- a query that sometimes answers
+            // two rows and sometimes one would otherwise be a bug that only shows on live data.
+            val rows = try run_subquery(node.query, cx)
+            if prelude.len(rows) == 0 {
+                ok(SqlValue.Null)
+            } else if prelude.len(rows) > 1 {
+                err(problem(prelude.format(
+                    "a subquery used as a value answered {} rows; it must answer at most one",
+                    prelude.len(rows)
+                )))
+            } else if prelude.len(rows[0].values) != 1 {
+                err(problem(prelude.format(
+                    "a subquery used as a value answered {} columns; it must answer one",
+                    prelude.len(rows[0].values)
+                )))
             } else {
-                ok(cx.row[at])
+                ok(rows[0].values[0])
             }
+        }
+        Exists(node) {
+            val rows = try run_subquery(node.query, cx)
+            ok(SqlValue.Bool(prelude.len(rows) > 0))
+        }
+        InSub(node) {
+            val subject = try eval_expr(node.subject, cx)
+            if is_null(subject) {
+                ok(SqlValue.Null)
+            } else {
+                val rows = try run_subquery(node.query, cx)
+                var hit = false
+                var unknown = false
+                for r in rows {
+                    if prelude.len(r.values) != 1 {
+                        return err(problem("a subquery on the right of IN must answer one column"))
+                    }
+                    if is_null(r.values[0]) {
+                        unknown = true
+                    } else if compare_values(subject, r.values[0]) == 0 {
+                        hit = true
+                    }
+                }
+                if hit {
+                    ok(SqlValue.Bool(!node.negated))
+                } else if unknown {
+                    ok(SqlValue.Null)
+                } else {
+                    ok(SqlValue.Bool(node.negated))
+                }
+            }
+        }
+        Cast(node) {
+            val v = try eval_expr(node.inner, cx)
+            cast_value(v, node.type_name, cx.strict)
         }
         Not(node) {
             val inner = try eval_expr(node.inner, cx)
@@ -594,6 +742,74 @@ fn text_of(v: SqlValue) -> string {
     }
 }
 
+// `CAST(x AS t)`, by the leading word of the declared type: SQLite decides by affinity and looks
+// at the whole name, and these are the families both engines agree on. An unknown type is an error
+// rather than a value passed through unchanged, because a cast that silently does nothing is worse
+// than one that says it cannot.
+fn cast_value(v: SqlValue, type_name: string, strict: bool) -> Result<SqlValue, DbError> {
+    if is_null(v) {
+        return ok(SqlValue.Null)
+    }
+    val head = sql.fold_name(trim(switch split_once(type_name, "(") {
+        Some(parts) { parts[0] }
+        None { type_name }
+    }))
+    if contains(head, "int") {
+        return switch v {
+            Text(t) { switch parse_int(trim(t)) {
+                Ok(n) { ok(SqlValue.Int(n)) }
+                // SQLite reads the leading digits and answers 0 for none; the standard raises.
+                Err(_) { if strict { err(problem(concat(
+                    "cannot cast to ",
+                    type_name,
+                    ": ",
+                    t
+                ))) } else { ok(SqlValue.Int(0)) } }
+            } }
+            Float(f) { ok(SqlValue.Int(f as int)) }
+            Bool(b) { ok(SqlValue.Int(if b { 1 } else { 0 })) }
+            Int(_) { ok(v) }
+            Null { ok(SqlValue.Null) }
+            Bytes(_) { err(problem("cannot cast a blob to an integer")) }
+        }
+    }
+    if head == "real" || head == "float" || head == "double" || head == "numeric" || head == "decimal" {
+        return switch v {
+            Text(t) { switch parse_float(trim(t)) {
+                Ok(f) { ok(SqlValue.Float(f)) }
+                Err(_) { if strict { err(problem(concat(
+                    "cannot cast to ",
+                    type_name,
+                    ": ",
+                    t
+                ))) } else { ok(SqlValue.Float(0.0)) } }
+            } }
+            Int(n) { ok(SqlValue.Float(n as float)) }
+            Bool(b) { ok(SqlValue.Float(if b { 1.0 } else { 0.0 })) }
+            Float(_) { ok(v) }
+            Null { ok(SqlValue.Null) }
+            Bytes(_) { err(problem("cannot cast a blob to a real")) }
+        }
+    }
+    if head == "text" || head == "varchar" || head == "char" || head == "character" || head == "clob" {
+        return ok(SqlValue.Text(text_of(v)))
+    }
+    if head == "boolean" || head == "bool" {
+        return ok(SqlValue.Bool(is_true(v)))
+    }
+    if head == "blob" || head == "binary" || head == "varbinary" {
+        return switch v {
+            Bytes(_) { ok(v) }
+            Text(t) { ok(SqlValue.Bytes(to_bytes(t))) }
+            Int(_) { ok(SqlValue.Bytes(to_bytes(text_of(v)))) }
+            Float(_) { ok(SqlValue.Bytes(to_bytes(text_of(v)))) }
+            Bool(_) { ok(SqlValue.Bytes(to_bytes(text_of(v)))) }
+            Null { ok(SqlValue.Null) }
+        }
+    }
+    return err(problem(concat("cannot cast to an unknown type: ", type_name)))
+}
+
 fn is_comparison(op: string) -> bool {
     return op == "=" || op == "<>" || op == "<" || op == "<=" || op == ">" || op == ">="
 }
@@ -633,6 +849,97 @@ fn unwrap_int(v: SqlValue) -> int {
 
 // ---------------------------------------------------------------- aggregates
 
+// The columns a `FROM` produces, with no rows read: names and qualifiers only. Validation needs
+// exactly this, and getting it from the table definitions rather than from a built source means a
+// mistyped column is refused before a join is computed.
+fn shape_ctx(
+    database: Database,
+    stmt: SelectStmt,
+    outer: [Ctx],
+    params: [SqlValue],
+    strict: bool
+) -> Result<Ctx, DbError> {
+    val columns = mutable_array_new<string>()
+    val tables = mutable_array_new<string>()
+    val refs = mutable_array_new<sql.TableRef>()
+    for r in stmt.from {
+        push(refs, r)
+    }
+    for j in stmt.joins {
+        push(refs, j.table)
+    }
+    for r in refs {
+        val t = try table_of(database, r.name)
+        val qualifier = if r.alias == "" { t.name } else { r.alias }
+        for name in column_names(t) {
+            push(columns, name)
+            push(tables, qualifier)
+        }
+    }
+    val no_row: [SqlValue] = []
+    var cx = ctx_of(database, snapshot(columns), snapshot(tables), no_row, params, strict)
+    for o in outer {
+        cx = nested_in(cx, o)
+    }
+    return ok(cx)
+}
+
+// Every expression of a `SELECT`, checked against the shape its `FROM` produces.
+//
+// `ORDER BY` is checked against that shape *plus* the names the select list gives its columns,
+// because `ORDER BY alias` is legal SQL and naming an output column there is not a mistake.
+fn validate_query(stmt: SelectStmt, outer_cx: Ctx) -> Result<unit, DbError> {
+    val outer = push(outer_cx.outer, outer_cx)
+    return validate_select(outer_cx.database, stmt, outer, outer_cx.params, outer_cx.strict)
+}
+
+fn validate_select(
+    database: Database,
+    stmt: SelectStmt,
+    outer: [Ctx],
+    params: [SqlValue],
+    strict: bool
+) -> Result<unit, DbError> {
+    val cx = try shape_ctx(database, stmt, outer, params, strict)
+    for i in 0..prelude.len(stmt.items) {
+        try validate_expr(stmt.items[i].expr, cx)
+    }
+    if Some(e) = stmt.filter {
+        try validate_expr(e, cx)
+    }
+    for g in stmt.groups {
+        try validate_expr(g, cx)
+    }
+    if Some(e) = stmt.having {
+        try validate_expr(e, cx)
+    }
+    for term in stmt.order {
+        // `ORDER BY` resolves against the source first and against the select list's own names
+        // second, which is the order SQL gives it -- a `name` that is both a column and an alias
+        // is the column, not an ambiguity.
+        if Err(e) = validate_expr(term.expr, cx) {
+            if !names_an_output(term.expr, stmt) {
+                return err(e)
+            }
+        }
+    }
+    return ok(unit)
+}
+
+// Whether an `ORDER BY` term is simply the name the select list gave one of its columns.
+fn names_an_output(e: Expr, stmt: SelectStmt) -> bool {
+    if Col(ref) = e {
+        if ref.table == "" {
+            for i in 0..prelude.len(stmt.items) {
+                if sql.fold_name(item_name(stmt.items[i], i)) == sql.fold_name(ref.name) {
+                    return true
+                }
+            }
+        }
+    }
+    return false
+}
+
 // Every column an expression names, checked against the table before anything runs.
 //
 // **A real engine resolves columns when it prepares a statement, and this one looked them up as it
@@ -641,56 +948,78 @@ fn unwrap_int(v: SqlValue) -> int {
 // column: age". A typo in a column name passing on `memdb` and failing on the real engine is the
 // precise false green this whole arrangement exists to prevent, and the cross-check fixture caught
 // it on its first run against the aggregates.
-fn validate_expr(e: Expr, names: [string]) -> Result<unit, DbError> {
+// Whether `ref` names a column of this scope or of one enclosing it. The same walk
+// `lookup_column` makes, without a row to read -- which is the point: validation happens before
+// any row is in hand, and a correlated subquery's name may belong to an outer query.
+fn column_known(cx: Ctx, ref: sql.ColRef) -> Result<unit, DbError> {
+    val at = resolve_column(cx, ref)
+    if at == 0 - 2 {
+        return err(problem(concat("ambiguous column name: ", ref.name)))
+    }
+    if at >= 0 {
+        return ok(unit)
+    }
+    val depth = prelude.len(cx.outer)
+    if depth > 0 {
+        return column_known(cx.outer[depth - 1], ref)
+    }
+    val written = if ref.table == "" { ref.name } else { concat(ref.table, ".", ref.name) }
+    return err(problem(concat("no such column: ", written)))
+}
+
+fn validate_expr(e: Expr, cx: Ctx) -> Result<unit, DbError> {
     return switch e {
-        Col(ref) {
-            if column_index(names, ref.name) < 0 {
-                err(problem(concat("no such column: ", ref.name)))
-            } else {
-                unit
-            }
-        }
-        Not(node) { validate_expr(node.inner, names) }
-        IsNull(node) { validate_expr(node.inner, names) }
+        Col(ref) { column_known(cx, ref) }
+        Not(node) { validate_expr(node.inner, cx) }
+        IsNull(node) { validate_expr(node.inner, cx) }
         Bin(node) {
-            try validate_expr(node.left, names)
-            validate_expr(node.right, names)
+            try validate_expr(node.left, cx)
+            validate_expr(node.right, cx)
         }
         Like(node) {
-            try validate_expr(node.subject, names)
-            validate_expr(node.pattern, names)
+            try validate_expr(node.subject, cx)
+            validate_expr(node.pattern, cx)
         }
         Between(node) {
-            try validate_expr(node.subject, names)
-            try validate_expr(node.low, names)
-            validate_expr(node.high, names)
+            try validate_expr(node.subject, cx)
+            try validate_expr(node.low, cx)
+            validate_expr(node.high, cx)
         }
         In(node) {
-            try validate_expr(node.subject, names)
+            try validate_expr(node.subject, cx)
             for o in node.options {
-                try validate_expr(o, names)
+                try validate_expr(o, cx)
             }
             unit
         }
         Case(node) {
             for arm in node.arms {
-                try validate_expr(arm.condition, names)
-                try validate_expr(arm.value, names)
+                try validate_expr(arm.condition, cx)
+                try validate_expr(arm.value, cx)
             }
             for f in node.fallback {
-                try validate_expr(f, names)
+                try validate_expr(f, cx)
             }
             unit
         }
         Call(node) {
             for a in node.args {
-                try validate_expr(a, names)
+                try validate_expr(a, cx)
             }
             unit
         }
         Lit(_) { unit }
         Param(_) { unit }
         Star { unit }
+        // A subquery's own columns are checked against its own tables, with this scope enclosing
+        // them -- that is what makes a correlated name legal and a mistyped one an error.
+        Sub(node) { validate_query(node.query, cx) }
+        Exists(node) { validate_query(node.query, cx) }
+        InSub(node) {
+            try validate_expr(node.subject, cx)
+            validate_query(node.query, cx)
+        }
+        Cast(node) { validate_expr(node.inner, cx) }
     }
 }
 
@@ -781,6 +1110,11 @@ fn has_aggregate(e: Expr) -> bool {
         Col(_) { false }
         Param(_) { false }
         Star { false }
+        // An aggregate inside a subquery belongs to that subquery, not to this one.
+        Sub(_) { false }
+        Exists(_) { false }
+        InSub(node) { has_aggregate(node.subject) }
+        Cast(node) { has_aggregate(node.inner) }
     }
 }
 
@@ -797,13 +1131,7 @@ fn has_aggregate(e: Expr) -> bool {
 //
 // `AVG` answers a float, as SQLite does; PostgreSQL answers `numeric` for an integer column, and
 // the standard leaves the exact-numeric result type implementation-defined.
-fn eval_aggregate(
-    node: CallNode,
-    names: [string],
-    rows: [[SqlValue]],
-    params: [SqlValue],
-    strict: bool
-) -> Result<SqlValue, DbError> {
+fn eval_aggregate(node: CallNode, sc: Scope, rows: [[SqlValue]]) -> Result<SqlValue, DbError> {
     val name = sql.fold_name(node.name)
     if prelude.len(node.args) != 1 {
         return err(problem(prelude.format("{} takes one argument", node.name)))
@@ -814,12 +1142,29 @@ fn eval_aggregate(
     }
     val kept = mutable_array_new<SqlValue>()
     for row in rows {
-        val v = try eval_expr(arg, ctx_of(names, row, params, strict))
+        val v = try eval_expr(arg, scope_ctx(sc, row))
         if !is_null(v) {
             push(kept, v)
         }
     }
-    val values = snapshot(kept)
+    var values = snapshot(kept)
+    // `COUNT(DISTINCT x)`, and the same for the others: duplicates are dropped before the
+    // aggregate sees them. NULLs are already gone, so distinctness here is plain comparison.
+    if node.distinct {
+        val once = mutable_array_new<SqlValue>()
+        for v in values {
+            var seen = false
+            for already in once {
+                if !seen && compare_values(v, already) == 0 {
+                    seen = true
+                }
+            }
+            if !seen {
+                push(once, v)
+            }
+        }
+        values = snapshot(once)
+    }
     if name == "count" {
         return ok(SqlValue.Int(prelude.len(values)))
     }
@@ -858,37 +1203,31 @@ fn eval_aggregate(
 // difference in answers for the queries this engine is for, and the strict connection does not
 // tighten it -- that would need the parser to know which columns are grouped, which is the next
 // increment's problem rather than this one's.
-fn eval_grouped(
-    e: Expr,
-    names: [string],
-    rows: [[SqlValue]],
-    params: [SqlValue],
-    strict: bool
-) -> Result<SqlValue, DbError> {
+fn eval_grouped(e: Expr, sc: Scope, rows: [[SqlValue]]) -> Result<SqlValue, DbError> {
     if Call(node) = e {
         if is_aggregate(node.name) {
-            return eval_aggregate(node, names, rows, params, strict)
+            return eval_aggregate(node, sc, rows)
         }
     }
     if has_aggregate(e) {
         // An aggregate nested inside an expression: fold each piece for the group, then combine.
         return switch e {
             Not(node) {
-                val inner = try eval_grouped(node.inner, names, rows, params, strict)
+                val inner = try eval_grouped(node.inner, sc, rows)
                 if is_null(inner) { ok(SqlValue.Null) } else { ok(SqlValue.Bool(!is_true(inner))) }
             }
             IsNull(node) {
-                val inner = try eval_grouped(node.inner, names, rows, params, strict)
+                val inner = try eval_grouped(node.inner, sc, rows)
                 ok(SqlValue.Bool(if node.negated { !is_null(inner) } else { is_null(inner) }))
             }
             Bin(node) {
-                val left = try eval_grouped(node.left, names, rows, params, strict)
-                val right = try eval_grouped(node.right, names, rows, params, strict)
+                val left = try eval_grouped(node.left, sc, rows)
+                val right = try eval_grouped(node.right, sc, rows)
                 // Folded to literals, then run through the ordinary binary evaluator so the NULL
                 // rules and the strict checks are written once.
                 eval_binary(
                     BinNode { op: node.op, left: Expr.Lit(left), right: Expr.Lit(right) },
-                    ctx_of(names, first_row(rows), params, strict)
+                    scope_ctx(sc, first_row(rows))
                 )
             }
             Case(node) {
@@ -896,26 +1235,26 @@ fn eval_grouped(
                 var decided = false
                 for arm in node.arms {
                     if !decided {
-                        val test = try eval_grouped(arm.condition, names, rows, params, strict)
+                        val test = try eval_grouped(arm.condition, sc, rows)
                         if is_true(test) {
-                            answer = try eval_grouped(arm.value, names, rows, params, strict)
+                            answer = try eval_grouped(arm.value, sc, rows)
                             decided = true
                         }
                     }
                 }
                 if !decided && prelude.len(node.fallback) == 1 {
-                    answer = try eval_grouped(node.fallback[0], names, rows, params, strict)
+                    answer = try eval_grouped(node.fallback[0], sc, rows)
                 }
                 ok(answer)
             }
             Call(node) {
                 val args = mutable_array_new<Expr>()
                 for a in node.args {
-                    push(args, Expr.Lit(try eval_grouped(a, names, rows, params, strict)))
+                    push(args, Expr.Lit(try eval_grouped(a, sc, rows)))
                 }
                 eval_call(
-                    CallNode { name: node.name, args: snapshot(args) },
-                    ctx_of(names, first_row(rows), params, strict)
+                    CallNode { name: node.name, args: snapshot(args), distinct: node.distinct },
+                    scope_ctx(sc, first_row(rows))
                 )
             }
             Lit(v) { ok(v) }
@@ -925,9 +1264,16 @@ fn eval_grouped(
             Like(_) { err(problem("an aggregate inside LIKE is not supported")) }
             In(_) { err(problem("an aggregate inside IN is not supported")) }
             Between(_) { err(problem("an aggregate inside BETWEEN is not supported")) }
+            InSub(_) { err(problem("an aggregate inside IN (SELECT ..) is not supported")) }
+            Sub(_) { err(problem("unreachable: a subquery holds no aggregate of this query")) }
+            Exists(_) { err(problem("unreachable: EXISTS holds no aggregate of this query")) }
+            Cast(node) {
+                val inner = try eval_grouped(node.inner, sc, rows)
+                cast_value(inner, node.type_name, sc.strict)
+            }
         }
     }
-    return eval_expr(e, ctx_of(names, first_row(rows), params, strict))
+    return eval_expr(e, scope_ctx(sc, first_row(rows)))
 }
 
 // ---------------------------------------------------------------- running statements
@@ -960,13 +1306,19 @@ fn column_names(t: Table) -> [string] {
 
 // The rows of `t` that `filter` keeps, as indexes into `t.rows` so an UPDATE or DELETE can work on
 // positions rather than copies.
-fn matching(t: Table, filter: Option<Expr>, params: [SqlValue], strict: bool) -> Result<[int], DbError> {
+fn matching(
+    database: Database,
+    t: Table,
+    filter: Option<Expr>,
+    params: [SqlValue],
+    strict: bool
+) -> Result<[int], DbError> {
     val names = column_names(t)
     val out = mutable_array_new<int>()
     for i in 0..prelude.len(t.rows) {
         var keep = true
         if Some(e) = filter {
-            keep = is_true(try eval_expr(e, ctx_of(names, t.rows[i], params, strict)))
+            keep = is_true(try eval_expr(e, table_ctx(database, t, t.rows[i], params, strict)))
         }
         if keep {
             push(out, i)
@@ -1059,7 +1411,7 @@ fn run_insert(database: Database, stmt: InsertStmt, params: [SqlValue], strict: 
         for i in 0..prelude.len(where_to) {
             // An INSERT's expressions see no row, so a column reference in one is an error rather
             // than a silent NULL.
-            row[where_to[i]] = try eval_expr(values[i], ctx_of([], [], params, strict))
+            row[where_to[i]] = try eval_expr(values[i], bare_ctx(database, params, strict))
         }
         rows = push(rows, snapshot(row))
         added = added + 1
@@ -1071,9 +1423,9 @@ fn run_insert(database: Database, stmt: InsertStmt, params: [SqlValue], strict: 
 fn run_delete(database: Database, stmt: DeleteStmt, params: [SqlValue], strict: bool) -> Result<Outcome, DbError> {
     val t = try table_of(database, stmt.table)
     if Some(e) = stmt.filter {
-        try validate_expr(e, column_names(t))
+        try validate_expr(e, table_ctx(database, t, [], params, strict))
     }
-    val doomed = to_set(try matching(t, stmt.filter, params, strict))
+    val doomed = to_set(try matching(database, t, stmt.filter, params, strict))
     val rows = mutable_array_new<[SqlValue]>()
     for i in 0..prelude.len(t.rows) {
         if !contains(doomed, i) {
@@ -1091,13 +1443,14 @@ fn run_delete(database: Database, stmt: DeleteStmt, params: [SqlValue], strict: 
 fn run_update(database: Database, stmt: UpdateStmt, params: [SqlValue], strict: bool) -> Result<Outcome, DbError> {
     val t = try table_of(database, stmt.table)
     val names = column_names(t)
+    val shape = table_ctx(database, t, [], params, strict)
     if Some(e) = stmt.filter {
-        try validate_expr(e, names)
+        try validate_expr(e, shape)
     }
     for assignment in stmt.sets {
-        try validate_expr(assignment.value, names)
+        try validate_expr(assignment.value, shape)
     }
-    val chosen = to_set(try matching(t, stmt.filter, params, strict))
+    val chosen = to_set(try matching(database, t, stmt.filter, params, strict))
     val rows = mutable_array_new<[SqlValue]>()
     for i in 0..prelude.len(t.rows) {
         if !contains(chosen, i) {
@@ -1112,7 +1465,7 @@ fn run_update(database: Database, stmt: UpdateStmt, params: [SqlValue], strict: 
             }
             // Every assignment of one statement reads the row as it was before the statement,
             // which is what `SET a = b, b = a` means in SQL.
-            row = set(row, at, try eval_expr(assignment.value, ctx_of(names, t.rows[i], params, strict)))
+            row = set(row, at, try eval_expr(assignment.value, table_ctx(database, t, t.rows[i], params, strict)))
         }
         push(rows, row)
     }
@@ -1138,6 +1491,10 @@ fn item_name(item: SelectItem, at: int) -> string {
         Bin(_) { prelude.format("column{}", at + 1) }
         IsNull(_) { prelude.format("column{}", at + 1) }
         Call(node) { node.name }
+        Sub(_) { prelude.format("column{}", at + 1) }
+        Exists(_) { prelude.format("column{}", at + 1) }
+        InSub(_) { prelude.format("column{}", at + 1) }
+        Cast(_) { prelude.format("column{}", at + 1) }
         Like(_) { prelude.format("column{}", at + 1) }
         In(_) { prelude.format("column{}", at + 1) }
         Between(_) { prelude.format("column{}", at + 1) }
@@ -1146,39 +1503,31 @@ fn item_name(item: SelectItem, at: int) -> string {
     }
 }
 
-fn run_select(database: Database, stmt: SelectStmt, params: [SqlValue], strict: bool) -> Result<Outcome, DbError> {
-    // No `FROM`: one row of no columns, which is what makes `SELECT 1` answer a single 1.
-    if stmt.table == "" {
-        val names = mutable_array_new<string>()
-        val values = mutable_array_new<SqlValue>()
-        for i in 0..prelude.len(stmt.items) {
-            push(names, item_name(stmt.items[i], i))
-            push(values, present(try eval_expr(stmt.items[i].expr, ctx_of([], [], params, strict)), strict))
-        }
-        val one = Row { columns: snapshot(names), values: snapshot(values) }
-        return ok(Outcome { database: database, rows: [one], affected: 0 })
-    }
-    val t = try table_of(database, stmt.table)
-    val names = column_names(t)
-    for item in stmt.items {
-        try validate_expr(item.expr, names)
-    }
-    if Some(e) = stmt.filter {
-        try validate_expr(e, names)
-    }
-    for g in stmt.groups {
-        try validate_expr(g, names)
-    }
-    if Some(e) = stmt.having {
-        try validate_expr(e, names)
-    }
-    for term in stmt.order {
-        try validate_expr(term.expr, names)
-    }
-    var chosen = try matching(t, stmt.filter, params, strict)
+fn run_select(
+    database: Database,
+    stmt: SelectStmt,
+    params: [SqlValue],
+    strict: bool,
+    outer: [Ctx]
+) -> Result<Outcome, DbError> {
+    try validate_select(database, stmt, outer, params, strict)
+    val source = try build_source(database, stmt, params, strict, outer)
+    val sc = Scope { database: database, source: source, params: params, strict: strict, outer: outer }
+    val names = source.columns
 
-    // Aggregated when anything asks for it: a GROUP BY, a HAVING, or an aggregate in the select
-    // list. With none of those the ordinary row-at-a-time path runs below.
+    // The rows the `WHERE` keeps, as indexes into the source.
+    val chosen_rows = mutable_array_new<int>()
+    for i in 0..prelude.len(source.rows) {
+        var keep = true
+        if Some(e) = stmt.filter {
+            keep = is_true(try eval_expr(e, scope_ctx(sc, source.rows[i])))
+        }
+        if keep {
+            push(chosen_rows, i)
+        }
+    }
+    var chosen = snapshot(chosen_rows)
+
     var aggregated = prelude.len(stmt.groups) > 0 || Option.is_Some(stmt.having)
     for item in stmt.items {
         if has_aggregate(item.expr) {
@@ -1186,21 +1535,16 @@ fn run_select(database: Database, stmt: SelectStmt, params: [SqlValue], strict: 
         }
     }
     if aggregated {
-        return run_grouped(database, t, names, stmt, chosen, params, strict)
+        return run_grouped(sc, stmt, chosen)
     }
 
     if prelude.len(stmt.order) > 0 {
-        // Sorted by evaluating each term per row. `sort_with` is a stable sort, so equal keys keep
-        // insertion order and a second ORDER BY term is only consulted where the first ties.
         val terms = stmt.order
-        // A comparator cannot fail, and evaluating an ORDER BY term can, so the failure comes out
-        // in a cell: a lambda captures by value and cannot touch an enclosing `var`, which is the
-        // language saying that a closure and its enclosing function never share mutable state.
         val failure = mutable_new<string>("")
         chosen = sort_with(chosen, fn(a: int, b: int) -> int {
             for term in terms {
-                val left = eval_expr(term.expr, ctx_of(names, t.rows[a], params, strict))
-                val right = eval_expr(term.expr, ctx_of(names, t.rows[b], params, strict))
+                val left = eval_expr(term.expr, scope_ctx(sc, source.rows[a]))
+                val right = eval_expr(term.expr, scope_ctx(sc, source.rows[b]))
                 if Err(e) = left {
                     set(failure, db_message(e))
                     return 0
@@ -1221,55 +1565,252 @@ fn run_select(database: Database, stmt: SelectStmt, params: [SqlValue], strict: 
         }
     }
 
+    // `SELECT *` on its own expands to every column the `FROM` produced, joins included.
+    val star = prelude.len(stmt.items) == 1 && Expr.is_Star(stmt.items[0].expr)
+    val headers = mutable_array_new<string>()
+    if star {
+        for name in names {
+            push(headers, name)
+        }
+    } else {
+        for i in 0..prelude.len(stmt.items) {
+            push(headers, item_name(stmt.items[i], i))
+        }
+    }
+    val columns = snapshot(headers)
+
+    val projected = mutable_array_new<Row>()
+    for i in chosen {
+        val values = mutable_array_new<SqlValue>()
+        if star {
+            for v in source.rows[i] {
+                push(values, present(v, strict))
+            }
+        } else {
+            for item in stmt.items {
+                push(values, present(try eval_expr(item.expr, scope_ctx(sc, source.rows[i])), strict))
+            }
+        }
+        push(projected, Row { columns: columns, values: snapshot(values) })
+    }
+    // `DISTINCT` drops duplicates *after* the projection and *before* `LIMIT`, which is the order
+    // SQL specifies -- `SELECT DISTINCT x .. LIMIT 2` means two distinct rows, not the distinct
+    // ones among the first two.
+    var rows = snapshot(projected)
+    if stmt.distinct {
+        rows = distinct_rows(rows)
+    }
+
     var from = 0
     if Some(e) = stmt.offset {
-        from = unwrap_int(try eval_expr(e, ctx_of([], [], params, strict)))
+        from = unwrap_int(try eval_expr(e, bare_ctx(database, params, strict)))
     }
-    var upto = prelude.len(chosen)
+    var upto = prelude.len(rows)
     if Some(e) = stmt.limit {
-        val count = unwrap_int(try eval_expr(e, ctx_of([], [], params, strict)))
+        val count = unwrap_int(try eval_expr(e, bare_ctx(database, params, strict)))
         if count >= 0 && from + count < upto {
             upto = from + count
         }
     }
-    if from > prelude.len(chosen) {
-        from = prelude.len(chosen)
+    if from > prelude.len(rows) {
+        from = prelude.len(rows)
     }
     if upto < from {
         upto = from
     }
-
-    // `SELECT *` on its own expands to the table's columns; otherwise each item is one column.
-    var out_names = mutable_array_new<string>()
-    val star = prelude.len(stmt.items) == 1 && Expr.is_Star(stmt.items[0].expr)
-    if star {
-        out_names = mutable_array_new<string>()
-        for name in names {
-            push(out_names, name)
-        }
-    } else {
-        for i in 0..prelude.len(stmt.items) {
-            push(out_names, item_name(stmt.items[i], i))
-        }
-    }
-    val headers = snapshot(out_names)
-
-    val rows = mutable_array_new<Row>()
+    val sliced = mutable_array_new<Row>()
     for k in from..upto {
-        val source = t.rows[chosen[k]]
-        val values = mutable_array_new<SqlValue>()
-        if star {
-            for v in source {
-                push(values, v)
+        push(sliced, rows[k])
+    }
+    return ok(Outcome { database: database, rows: snapshot(sliced), affected: 0 })
+}
+
+// The rows a `FROM` clause produces, with a name and a table for each column.
+//
+// **A join is a chain, built left to right.** The first table's rows are the start; each join
+// combines what is there with the next table's rows. `CROSS` keeps every pair, `INNER` keeps the
+// pairs its `ON` accepts, and `LEFT` keeps every left row, padding with NULLs where the right side
+// has nothing -- which is why its filter runs per left row rather than over the finished product.
+//
+// `RIGHT` and `FULL` are read by `sql` and refused here. They are a mirror and a union of what
+// this does, and writing them without a test that proves them against a real engine would be
+// guessing; the error says which engine to use instead.
+struct Source {
+    columns: [string]
+    tables: [string]
+    rows: [[SqlValue]]
+}
+
+// Everything a row of one query is evaluated against, bundled: the database a subquery may need,
+// the shape the `FROM` produced, the statement's parameters, the reading of SQL in force, and the
+// scopes enclosing this query. Threading five of these through four functions separately was the
+// alternative.
+struct Scope {
+    database: Database
+    source: Source
+    params: [SqlValue]
+    strict: bool
+    outer: [Ctx]
+}
+
+// A context over one table's row, for the statements that read a single table: `matching`'s
+// filter, an `UPDATE`'s assignments.
+fn table_ctx(database: Database, t: Table, row: [SqlValue], params: [SqlValue], strict: bool) -> Ctx {
+    val names = column_names(t)
+    val tables = mutable_array_new<string>()
+    for _ in names {
+        push(tables, t.name)
+    }
+    return ctx_of(database, names, snapshot(tables), row, params, strict)
+}
+
+fn scope_ctx(sc: Scope, row: [SqlValue]) -> Ctx {
+    var cx = ctx_of(sc.database, sc.source.columns, sc.source.tables, row, sc.params, sc.strict)
+    for o in sc.outer {
+        cx = nested_in(cx, o)
+    }
+    return cx
+}
+
+fn table_source(database: Database, ref: sql.TableRef) -> Result<Source, DbError> {
+    val t = try table_of(database, ref.name)
+    val names = column_names(t)
+    val qualifier = if ref.alias == "" { t.name } else { ref.alias }
+    val tables = mutable_array_new<string>()
+    for _ in names {
+        push(tables, qualifier)
+    }
+    return ok(Source { columns: names, tables: snapshot(tables), rows: t.rows })
+}
+
+// The pair of rows a join puts side by side, as one row.
+fn combined(left: [SqlValue], right: [SqlValue]) -> [SqlValue] {
+    return concat(left, right)
+}
+
+fn nulls_like(columns: [string]) -> [SqlValue] {
+    val out = mutable_array_new<SqlValue>()
+    for _ in columns {
+        push(out, SqlValue.Null)
+    }
+    return snapshot(out)
+}
+
+// A `USING (a, b)` as the condition it stands for: the named column of the left side equals the
+// named column of the right side, for each.
+fn using_condition(using: [string], left: sql.TableRef, right: sql.TableRef) -> Option<Expr> {
+    if prelude.len(using) == 0 {
+        return Option<Expr>.None
+    }
+    val left_name = if left.alias == "" { left.name } else { left.alias }
+    val right_name = if right.alias == "" { right.name } else { right.alias }
+    var built = Option<Expr>.None
+    for name in using {
+        val one = Expr.Bin(BinNode {
+            op: "=",
+            left: Expr.Col(sql.ColRef { table: left_name, name: name }),
+            right: Expr.Col(sql.ColRef { table: right_name, name: name })
+        })
+        built = switch built {
+            Some(previous) { Option<Expr>.Some(Expr.Bin(BinNode { op: "AND", left: previous, right: one })) }
+            None { Option<Expr>.Some(one) }
+        }
+    }
+    return built
+}
+
+fn build_source(
+    database: Database,
+    stmt: SelectStmt,
+    params: [SqlValue],
+    strict: bool,
+    outer: [Ctx]
+) -> Result<Source, DbError> {
+    if prelude.len(stmt.from) == 0 {
+        val none: [string] = []
+        // One row of no columns, which is what makes `SELECT 1` answer a single 1.
+        val no_values: [SqlValue] = []
+        return ok(Source { columns: none, tables: none, rows: [no_values] })
+    }
+    var source = try table_source(database, stmt.from[0])
+    var previous = stmt.from[0]
+    for j in stmt.joins {
+        if j.kind == "RIGHT" || j.kind == "FULL" {
+            return err(problem(concat(
+                j.kind,
+                " JOIN is read by `sql` and not run by this engine; use sqlite or postgres for it"
+            )))
+        }
+        val right = try table_source(database, j.table)
+        val columns = concat(source.columns, right.columns)
+        val tables = concat(source.tables, right.tables)
+        val condition = switch j.on {
+            Some(e) { Option<Expr>.Some(e) }
+            None { using_condition(j.using, previous, j.table) }
+        }
+        val rows = mutable_array_new<[SqlValue]>()
+        for l in source.rows {
+            var matched = false
+            for r in right.rows {
+                val row = combined(l, r)
+                var keep = true
+                if Some(e) = condition {
+                    var cx = ctx_of(database, columns, tables, row, params, strict)
+                    for o in outer {
+                        cx = nested_in(cx, o)
+                    }
+                    keep = is_true(try eval_expr(e, cx))
+                }
+                if keep {
+                    matched = true
+                    push(rows, row)
+                }
             }
-        } else {
-            for item in stmt.items {
-                push(values, present(try eval_expr(item.expr, ctx_of(names, source, params, strict)), strict))
+            if j.kind == "LEFT" && !matched {
+                push(rows, combined(l, nulls_like(right.columns)))
             }
         }
-        push(rows, Row { columns: headers, values: snapshot(values) })
+        source = Source { columns: columns, tables: tables, rows: snapshot(rows) }
+        previous = j.table
     }
-    return ok(Outcome { database: database, rows: snapshot(rows), affected: 0 })
+    return ok(source)
+}
+
+// A subquery, run against its enclosing scope so a correlated one can read the outer row.
+fn run_subquery(query: SelectStmt, cx: Ctx) -> Result<[Row], DbError> {
+    val outer = push(cx.outer, cx)
+    return ok((try run_select(cx.database, query, cx.params, cx.strict, outer)).rows)
+}
+
+// `DISTINCT`: the first of each repeated row survives, in the order it first appeared. Compared by
+// SQL's own rules, so two NULLs count as the same row -- `DISTINCT` asks about distinctness, not
+// about equality, the same reading `GROUP BY` takes of its keys.
+fn distinct_rows(rows: [Row]) -> [Row] {
+    val out = mutable_array_new<Row>()
+    for r in rows {
+        var seen = false
+        for kept in out {
+            if !seen && prelude.len(kept.values) == prelude.len(r.values) {
+                var same = true
+                for i in 0..prelude.len(r.values) {
+                    val a = kept.values[i]
+                    val b = r.values[i]
+                    if is_null(a) != is_null(b) {
+                        same = false
+                    } else if !is_null(a) && compare_values(a, b) != 0 {
+                        same = false
+                    }
+                }
+                if same {
+                    seen = true
+                }
+            }
+        }
+        if !seen {
+            push(out, r)
+        }
+    }
+    return snapshot(out)
 }
 
 // The grouped form of `run_select`: partition, fold, filter, order, slice, project.
@@ -1278,34 +1819,28 @@ fn run_select(database: Database, stmt: SelectStmt, params: [SqlValue], strict: 
 // none, which is what makes `SELECT COUNT(*) FROM empty` answer one row of 0 rather than no rows
 // at all. With a `GROUP BY` and no matching rows there are no groups and no rows, which is the
 // other half of the same rule.
-fn run_grouped(
-    database: Database,
-    t: Table,
-    names: [string],
-    stmt: SelectStmt,
-    chosen: [int],
-    params: [SqlValue],
-    strict: bool
-) -> Result<Outcome, DbError> {
-    // Groups in first-appearance order, each a key and the rows that share it. A list searched
-    // linearly rather than a Map: a key is several `SqlValue`s compared by SQL's rules, and
-    // rendering that to a map key would mean inventing a canonical form for every type.
+fn run_grouped(sc: Scope, stmt: SelectStmt, chosen: [int]) -> Result<Outcome, DbError> {
+    val database = sc.database
+    val source = sc.source
+    val params = sc.params
+    val strict = sc.strict
+
     val keys = mutable_array_new<[SqlValue]>()
     val members = mutable_array_new<[[SqlValue]]>()
     if prelude.len(stmt.groups) == 0 {
         val all = mutable_array_new<[SqlValue]>()
         for i in chosen {
-            push(all, t.rows[i])
+            push(all, source.rows[i])
         }
         val no_key: [SqlValue] = []
         push(keys, no_key)
         push(members, snapshot(all))
     } else {
         for i in chosen {
-            val row = t.rows[i]
+            val row = source.rows[i]
             val key = mutable_array_new<SqlValue>()
             for g in stmt.groups {
-                push(key, try eval_expr(g, ctx_of(names, row, params, strict)))
+                push(key, try eval_expr(g, scope_ctx(sc, row)))
             }
             val wanted = snapshot(key)
             var at = 0 - 1
@@ -1313,9 +1848,8 @@ fn run_grouped(
                 if at < 0 {
                     var same = true
                     for j in 0..prelude.len(wanted) {
-                        // Two NULL keys group together, which is what both engines do even though
-                        // `NULL = NULL` is unknown: grouping compares for *distinctness*, not with
-                        // the equality operator.
+                        // Two NULL keys group together, although `NULL = NULL` is unknown:
+                        // grouping compares for distinctness, not with the equality operator.
                         val a = keys[k][j]
                         val b = wanted[j]
                         if is_null(a) != is_null(b) {
@@ -1339,12 +1873,11 @@ fn run_grouped(
     }
     val grouped = snapshot(members)
 
-    // HAVING filters whole groups, after the fold rather than before it.
     val surviving = mutable_array_new<[[SqlValue]]>()
     for rows in grouped {
         var keep = true
         if Some(e) = stmt.having {
-            keep = is_true(try eval_grouped(e, names, rows, params, strict))
+            keep = is_true(try eval_grouped(e, sc, rows))
         }
         if keep {
             push(surviving, rows)
@@ -1357,8 +1890,8 @@ fn run_grouped(
         val failure = mutable_new<string>("")
         ordered = sort_with(ordered, fn(a: [[SqlValue]], b: [[SqlValue]]) -> int {
             for term in terms {
-                val left = eval_grouped(term.expr, names, a, params, strict)
-                val right = eval_grouped(term.expr, names, b, params, strict)
+                val left = eval_grouped(term.expr, sc, a)
+                val right = eval_grouped(term.expr, sc, b)
                 if Err(e) = left {
                     set(failure, db_message(e))
                     return 0
@@ -1379,38 +1912,46 @@ fn run_grouped(
         }
     }
 
-    var from = 0
-    if Some(e) = stmt.offset {
-        from = unwrap_int(try eval_expr(e, ctx_of([], [], params, strict)))
-    }
-    var upto = prelude.len(ordered)
-    if Some(e) = stmt.limit {
-        val count = unwrap_int(try eval_expr(e, ctx_of([], [], params, strict)))
-        if count >= 0 && from + count < upto {
-            upto = from + count
-        }
-    }
-    if from > prelude.len(ordered) {
-        from = prelude.len(ordered)
-    }
-    if upto < from {
-        upto = from
-    }
-
     val headers = mutable_array_new<string>()
     for i in 0..prelude.len(stmt.items) {
         push(headers, item_name(stmt.items[i], i))
     }
     val columns = snapshot(headers)
-    val out = mutable_array_new<Row>()
-    for k in from..upto {
+    val projected = mutable_array_new<Row>()
+    for rows in ordered {
         val values = mutable_array_new<SqlValue>()
         for item in stmt.items {
-            push(values, present(try eval_grouped(item.expr, names, ordered[k], params, strict), strict))
+            push(values, present(try eval_grouped(item.expr, sc, rows), strict))
         }
-        push(out, Row { columns: columns, values: snapshot(values) })
+        push(projected, Row { columns: columns, values: snapshot(values) })
     }
-    return ok(Outcome { database: database, rows: snapshot(out), affected: 0 })
+    var out_rows = snapshot(projected)
+    if stmt.distinct {
+        out_rows = distinct_rows(out_rows)
+    }
+
+    var from = 0
+    if Some(e) = stmt.offset {
+        from = unwrap_int(try eval_expr(e, bare_ctx(database, params, strict)))
+    }
+    var upto = prelude.len(out_rows)
+    if Some(e) = stmt.limit {
+        val count = unwrap_int(try eval_expr(e, bare_ctx(database, params, strict)))
+        if count >= 0 && from + count < upto {
+            upto = from + count
+        }
+    }
+    if from > prelude.len(out_rows) {
+        from = prelude.len(out_rows)
+    }
+    if upto < from {
+        upto = from
+    }
+    val sliced = mutable_array_new<Row>()
+    for k in from..upto {
+        push(sliced, out_rows[k])
+    }
+    return ok(Outcome { database: database, rows: snapshot(sliced), affected: 0 })
 }
 
 fn db_message(e: DbError) -> string {
@@ -1472,7 +2013,10 @@ fn run_one(state: State, sql: string, params: [SqlValue]) -> Result<Outcome, DbE
         Insert(s) { run_insert(before, s, params, state.strict) }
         Update(s) { run_update(before, s, params, state.strict) }
         Delete(s) { run_delete(before, s, params, state.strict) }
-        Select(s) { run_select(before, s, params, state.strict) }
+        Select(s) {
+            val no_outer: [Ctx] = []
+            run_select(before, s, params, state.strict, no_outer)
+        }
     }
 }
 

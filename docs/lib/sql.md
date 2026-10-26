@@ -24,24 +24,30 @@ formatter forgets to write stops the suite rather than the reader.
 
 ## What it reads
 
-`SELECT` (items with aliases, one `FROM` table with an alias, `WHERE`, `GROUP BY`, `HAVING`,
-`ORDER BY` with `ASC`/`DESC`, `LIMIT`, `OFFSET`), `INSERT ... VALUES` (one or many rows),
+`SELECT [DISTINCT]` (items with aliases, a `FROM` table with an alias, joins, `WHERE`,
+`GROUP BY`, `HAVING`, `ORDER BY` with `ASC`/`DESC`, `LIMIT`, `OFFSET`), `INSERT ... VALUES`
+(one or many rows),
 `UPDATE ... SET ... WHERE`, `DELETE FROM ... WHERE`, `CREATE TABLE` (columns with their types and
 constraints, and table-level constraints), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN`,
 `DROP TABLE [IF EXISTS]`, and `BEGIN`/`COMMIT`/`ROLLBACK`.
 
+Joins: `[INNER] JOIN`, `LEFT`/`RIGHT`/`FULL [OUTER] JOIN` and `CROSS JOIN`, each with an `ON`
+condition or a `USING` column list, as a flat left-deep list -- which is what SQL means by
+`a JOIN b ON .. JOIN c ON ..`. A parenthesised join expression would need a tree and is not read.
+
 Expressions: literals, column references (qualified or not), bound parameters (`?` and `$1`, both
 numbered so a statement may mix them), `AND`/`OR`/`NOT`, the six comparisons, `IS [NOT] NULL`,
-`LIKE`, `IN`, `BETWEEN`, `CASE WHEN ... THEN ... ELSE ... END`, `+ - * /`, `||`, function calls
-including the aggregates, and parentheses.
+`LIKE`, `IN` (a list or a subquery), `BETWEEN`, `CASE WHEN ... THEN ... ELSE ... END`,
+`CAST(x AS type)`, a scalar subquery, `EXISTS (SELECT ..)`, `+ - * /`, `||`, function calls
+including the aggregates and `COUNT(DISTINCT x)`, and parentheses.
 
 ## What it does *not* read, and the honest size of that
 
-This is **not** ANSI SQL. ISO/IEC 9075 also has joins, set operations, subqueries, `DISTINCT`,
-common table expressions, window functions, `MERGE`, `GRANT`/`REVOKE`, views, schemas, sequences,
-domains, triggers, routines, cursors, savepoints, isolation levels, `GROUPING SETS`, `LATERAL`,
-interval and row constructors, `IS DISTINCT FROM`, `SIMILAR TO`, `OVERLAPS`, temporal tables and
-the SQL/JSON functions. For scale, PostgreSQL's own grammar is some twenty thousand lines and is
+This is **not** ANSI SQL. ISO/IEC 9075 also has set operations (`UNION`, `INTERSECT`, `EXCEPT`),
+derived tables and `LATERAL` in a `FROM`, common table expressions, window functions, `MERGE`,
+`GRANT`/`REVOKE`, views, schemas, sequences, domains, triggers, routines, cursors, savepoints,
+isolation levels, `GROUPING SETS`, interval and row constructors, `IS DISTINCT FROM`,
+`SIMILAR TO`, `OVERLAPS`, temporal tables and the SQL/JSON functions. For scale, PostgreSQL's own grammar is some twenty thousand lines and is
 not full ANSI either. Growing toward it is a direction; the round trip above is what keeps each
 step from undoing the last.
 
@@ -155,6 +161,8 @@ used to be parsed and dropped, which a formatter cannot afford.
 pub struct CallNode {
     name: string
     args: [Expr]
+    // `COUNT(DISTINCT x)`: the duplicates are dropped before the aggregate sees them.
+    distinct: bool
 }
 ```
 
@@ -220,6 +228,13 @@ pub enum Expr {
     Bin(BinNode)
     IsNull(NullNode)
     Call(CallNode)
+    // A scalar subquery, `(SELECT ..)`, which must answer one row of one column.
+    Sub(SubNode)
+    // `EXISTS (SELECT ..)`. `NOT EXISTS` is `Not(Exists(..))` -- `NOT` has its own precedence
+    // level now, so it needs no flag of its own here.
+    Exists(SubNode)
+    InSub(InSubNode)
+    Cast(CastNode)
     Like(LikeNode)
     In(InNode)
     Between(BetweenNode)
@@ -230,6 +245,67 @@ pub enum Expr {
 
 An expression. Recursion is direct rather than through an array: a struct field may be the enum
 that contains it, as long as some variant ends the chain -- `Lit` and `Col` do.
+
+### `TableRef`
+
+```
+pub struct TableRef {
+    name: string
+    alias: string
+}
+```
+
+A table in a `FROM`, with the alias it was given.
+
+### `Join`
+
+```
+pub struct Join {
+    kind: string
+    table: TableRef
+    on: Option<Expr>
+    using: [string]
+}
+```
+
+One join onto whatever is to its left. `kind` is `INNER`, `LEFT`, `RIGHT`, `FULL` or `CROSS`,
+and a join carries either an `ON` condition or a `USING` column list, never both -- `CROSS`
+carries neither.
+
+**A flat list rather than a tree.** `a JOIN b ON .. JOIN c ON ..` is left-deep, which is what
+SQL means by it, so a list of joins onto the first table says the same thing as a tree of pairs
+and reads better. A parenthesised join expression would need the tree, and is not read here.
+
+### `SubNode`
+
+```
+pub struct SubNode {
+    query: SelectStmt
+}
+```
+
+A subquery: a whole `SELECT` nested inside an expression. `Expr` holds a `SelectStmt` and a
+`SelectStmt` holds `Expr`s, which is mutual recursion between an enum and a struct -- allowed,
+because `Lit` and `Col` end the chain.
+
+### `InSubNode`
+
+```
+pub struct InSubNode {
+    subject: Expr
+    query: SelectStmt
+    negated: bool
+}
+```
+
+### `CastNode`
+
+```
+pub struct CastNode {
+    inner: Expr
+    type_name: string
+}
+```
 
 ### `SelectItem`
 
@@ -262,14 +338,13 @@ pub struct Assignment {
 
 ```
 pub struct SelectStmt {
+    distinct: bool
     items: [SelectItem]
     // Empty when the statement has no `FROM`: `SELECT 1` is legal in both real engines and is the
-    // liveness probe `datasource`'s pool sends, so it has to be legal here.
-    table: string
-    // `FROM patient p` / `FROM patient AS p`. One table and one alias rather than a list of table
-    // references: joins are a later increment and will want a list, and changing the shape then is
-    // a deliberate step the round-trip test protects.
-    table_alias: string
+    // liveness probe `datasource`'s pool sends, so it has to be legal here. Otherwise exactly one
+    // element, with `joins` carrying the rest.
+    from: [TableRef]
+    joins: [Join]
     filter: Option<Expr>
     groups: [Expr]
     having: Option<Expr>

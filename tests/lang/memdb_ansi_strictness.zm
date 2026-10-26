@@ -119,7 +119,15 @@ fn main() {
         "SELECT name || '!' AS shout FROM t ORDER BY id",
         "SELECT CASE WHEN n > 6 THEN 'big' ELSE 'small' END AS band FROM t ORDER BY id",
         "SELECT 7 / 2 AS half",
-        "SELECT id FROM t WHERE nope = 1"
+        "SELECT id FROM t WHERE nope = 1",
+        "SELECT DISTINCT name FROM t ORDER BY name",
+        "SELECT count(DISTINCT name) AS c FROM t",
+        "SELECT CAST(n AS TEXT) AS t FROM t ORDER BY id",
+        "SELECT a.id, b.id AS other FROM t AS a JOIN t AS b ON b.n = a.n ORDER BY a.id, b.id",
+        "SELECT a.id FROM t AS a LEFT JOIN t AS b ON b.id = a.id + 10 ORDER BY a.id",
+        "SELECT id FROM t WHERE id IN (SELECT id FROM t WHERE n > 1) ORDER BY id",
+        "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM t AS u WHERE u.n = t.n) ORDER BY id",
+        "SELECT (SELECT max(n) FROM t) AS most"
     ]
     for sql in shared {
         if answer(lax, sql) == answer(strict, sql) {

@@ -34,6 +34,27 @@ val samples: [string] = [
     "SELECT n + 1 * 2 AS a, (n + 1) * 2 AS b, n - 1 - 2 AS c, n - (1 - 2) AS d FROM t",
     "SELECT n / 2 AS half FROM t WHERE NOT (n > 3)",
     "SELECT $1 AS a, $2 AS b FROM t WHERE id = $3",
+    "SELECT DISTINCT name FROM patient",
+    "SELECT DISTINCT name, age FROM patient ORDER BY name LIMIT 2",
+    "SELECT count(DISTINCT name) AS c, count(*) AS all_of_them FROM patient",
+    "SELECT CAST(age AS TEXT) AS t, CAST('1' AS INTEGER) AS n, CAST(x AS NUMERIC(10, 2)) AS m FROM patient",
+    "SELECT p.name, v.reason FROM patient AS p JOIN visit AS v ON v.patient_id = p.id",
+    "SELECT p.name FROM patient AS p INNER JOIN visit AS v ON v.patient_id = p.id",
+    "SELECT p.name FROM patient AS p LEFT JOIN visit AS v ON v.patient_id = p.id",
+    "SELECT p.name FROM patient AS p RIGHT JOIN visit AS v ON v.patient_id = p.id",
+    "SELECT p.name FROM patient AS p FULL JOIN visit AS v ON v.patient_id = p.id",
+    "SELECT p.name FROM patient AS p CROSS JOIN visit AS v",
+    "SELECT a.name FROM patient AS a JOIN visit AS b USING (patient_id)",
+    "SELECT a.name FROM patient AS a JOIN visit AS b USING (patient_id, cost)",
+    "SELECT name FROM patient JOIN visit ON visit.patient_id = patient.id JOIN other ON other.id = visit.id",
+    "SELECT name FROM patient WHERE id IN (SELECT patient_id FROM visit)",
+    "SELECT name FROM patient WHERE id NOT IN (SELECT patient_id FROM visit WHERE cost > 10)",
+    "SELECT name FROM patient WHERE EXISTS (SELECT 1 FROM visit WHERE visit.patient_id = patient.id)",
+    "SELECT name FROM patient WHERE NOT EXISTS (SELECT 1 FROM visit)",
+    "SELECT name, (SELECT count(*) FROM visit WHERE visit.patient_id = patient.id) AS visits FROM patient",
+    "SELECT name FROM patient WHERE age > (SELECT avg(age) FROM patient)",
+    "SELECT (SELECT max(cost) FROM visit) AS most",
+    "SELECT name FROM patient WHERE (SELECT count(*) FROM visit) > 1 AND age > 1",
     "INSERT INTO patient (id, name) VALUES (1, 'Ada')",
     "INSERT INTO patient (id, name) VALUES (1, 'Ada'), (2, 'Bob'), (3, NULL)",
     "INSERT INTO patient VALUES (1, 'Ada', 36, 'first')",
@@ -98,7 +119,9 @@ fn main() {
         "SELECT a+b*c FROM t",
         "SELECT (a+b)*c FROM t",
         "CREATE TABLE t(a int primary key,b text not null)",
-        "insert into t(a,b)values(1,'x')"
+        "insert into t(a,b)values(1,'x')",
+        "select distinct p.name from patient p left join visit v on v.patient_id=p.id where exists(select 1 from other)",
+        "select count(distinct a),cast(b as text) from t group by cast(b as text)"
     ] {
         print(concat("  in:  ", s))
         print(concat("  out: ", switch sql.parse(s) {

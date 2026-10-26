@@ -92,7 +92,49 @@ val queries: [string] = [
     "SELECT patient_id, count(*) AS c FROM visit GROUP BY patient_id HAVING count(*) > 1 ORDER BY patient_id",
     "SELECT note, count(*) AS c FROM patient GROUP BY note ORDER BY note",
     "SELECT reason, sum(cost) + 1 AS plus FROM visit GROUP BY reason ORDER BY reason",
-    "SELECT patient_id, count(*) AS c FROM visit GROUP BY patient_id ORDER BY count(*) DESC, patient_id"
+    "SELECT patient_id, count(*) AS c FROM visit GROUP BY patient_id ORDER BY count(*) DESC, patient_id",
+    // joins, where a column name may belong to either side
+    "SELECT p.name, v.reason FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id",
+    "SELECT p.name, v.reason FROM patient AS p INNER JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id",
+    "SELECT p.name, v.reason FROM patient AS p LEFT JOIN visit AS v ON v.patient_id = p.id ORDER BY p.id, v.id",
+    "SELECT count(*) AS c FROM patient CROSS JOIN visit",
+    "SELECT p.name FROM patient AS p JOIN visit AS v ON v.patient_id = p.id WHERE v.cost > 100 ORDER BY p.id",
+    "SELECT p.name, count(*) AS c, sum(v.cost) AS s FROM patient AS p JOIN visit AS v ON v.patient_id = p.id GROUP BY p.name ORDER BY p.name",
+    "SELECT patient.name, visit.reason FROM patient JOIN visit ON visit.patient_id = patient.id ORDER BY visit.id",
+    "SELECT * FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id",
+    "SELECT p.name, v.reason FROM patient AS p LEFT JOIN visit AS v ON v.patient_id = p.id AND v.reason = 'checkup' ORDER BY p.id, v.id",
+    // a three-table chain, with the middle one joined twice
+    "SELECT a.name, b.name AS other FROM patient AS a JOIN patient AS b ON b.id = a.id + 1 ORDER BY a.id",
+    // subqueries: scalar, IN, EXISTS, correlated
+    "SELECT name FROM patient WHERE id IN (SELECT patient_id FROM visit) ORDER BY id",
+    "SELECT name FROM patient WHERE id NOT IN (SELECT patient_id FROM visit) ORDER BY id",
+    "SELECT name FROM patient WHERE EXISTS (SELECT 1 FROM visit WHERE visit.patient_id = patient.id) ORDER BY id",
+    "SELECT name FROM patient WHERE NOT EXISTS (SELECT 1 FROM visit WHERE visit.patient_id = patient.id) ORDER BY id",
+    "SELECT name, (SELECT count(*) FROM visit WHERE visit.patient_id = patient.id) AS visits FROM patient ORDER BY id",
+    "SELECT name FROM patient WHERE age > (SELECT avg(age) FROM patient) ORDER BY id",
+    "SELECT (SELECT max(cost) FROM visit) AS most",
+    "SELECT name FROM patient WHERE (SELECT count(*) FROM visit WHERE visit.patient_id = patient.id) > 1 ORDER BY id",
+    // a subquery that answers no row at all, which is NULL rather than an error. `missing`
+    // rather than `nothing` as the alias, because SQLite reserves NOTHING for `DO NOTHING` and
+    // refuses it as a bare name -- a difference in the dialects' keyword lists, not in the engines.
+    "SELECT (SELECT cost FROM visit WHERE id = 99) AS missing",
+    // DISTINCT, after the projection and before the LIMIT
+    "SELECT DISTINCT reason FROM visit ORDER BY reason",
+    "SELECT DISTINCT patient_id FROM visit ORDER BY patient_id",
+    "SELECT DISTINCT note FROM patient ORDER BY note",
+    "SELECT DISTINCT reason FROM visit ORDER BY reason LIMIT 1",
+    "SELECT count(DISTINCT patient_id) AS c FROM visit",
+    "SELECT count(DISTINCT reason) AS c FROM visit",
+    "SELECT count(DISTINCT note) AS c FROM patient",
+    // CAST
+    "SELECT CAST(age AS TEXT) AS t FROM patient ORDER BY id",
+    "SELECT CAST('42' AS INTEGER) AS n",
+    "SELECT CAST(cost AS INTEGER) AS whole FROM visit ORDER BY id",
+    "SELECT CAST(age AS REAL) AS r FROM patient ORDER BY id",
+    // and the column names a typo gives, which must be refused on both
+    "SELECT nope FROM patient",
+    "SELECT name FROM patient AS p JOIN visit AS v ON v.nope = p.id",
+    "SELECT id FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY id"
 ]
 
 fn seed(url: string) -> datasource.Connection {

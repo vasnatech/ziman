@@ -46,7 +46,40 @@ agree    SELECT patient_id, count(*) AS c FROM visit GROUP BY patient_id HAVING 
 agree    SELECT note, count(*) AS c FROM patient GROUP BY note ORDER BY note
 agree    SELECT reason, sum(cost) + 1 AS plus FROM visit GROUP BY reason ORDER BY reason
 agree    SELECT patient_id, count(*) AS c FROM visit GROUP BY patient_id ORDER BY count(*) DESC, patient_id
-47 of 47 queries agree
+agree    SELECT p.name, v.reason FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id
+agree    SELECT p.name, v.reason FROM patient AS p INNER JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id
+agree    SELECT p.name, v.reason FROM patient AS p LEFT JOIN visit AS v ON v.patient_id = p.id ORDER BY p.id, v.id
+agree    SELECT count(*) AS c FROM patient CROSS JOIN visit
+agree    SELECT p.name FROM patient AS p JOIN visit AS v ON v.patient_id = p.id WHERE v.cost > 100 ORDER BY p.id
+agree    SELECT p.name, count(*) AS c, sum(v.cost) AS s FROM patient AS p JOIN visit AS v ON v.patient_id = p.id GROUP BY p.name ORDER BY p.name
+agree    SELECT patient.name, visit.reason FROM patient JOIN visit ON visit.patient_id = patient.id ORDER BY visit.id
+agree    SELECT * FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id
+agree    SELECT p.name, v.reason FROM patient AS p LEFT JOIN visit AS v ON v.patient_id = p.id AND v.reason = 'checkup' ORDER BY p.id, v.id
+agree    SELECT a.name, b.name AS other FROM patient AS a JOIN patient AS b ON b.id = a.id + 1 ORDER BY a.id
+agree    SELECT name FROM patient WHERE id IN (SELECT patient_id FROM visit) ORDER BY id
+agree    SELECT name FROM patient WHERE id NOT IN (SELECT patient_id FROM visit) ORDER BY id
+agree    SELECT name FROM patient WHERE EXISTS (SELECT 1 FROM visit WHERE visit.patient_id = patient.id) ORDER BY id
+agree    SELECT name FROM patient WHERE NOT EXISTS (SELECT 1 FROM visit WHERE visit.patient_id = patient.id) ORDER BY id
+agree    SELECT name, (SELECT count(*) FROM visit WHERE visit.patient_id = patient.id) AS visits FROM patient ORDER BY id
+agree    SELECT name FROM patient WHERE age > (SELECT avg(age) FROM patient) ORDER BY id
+agree    SELECT (SELECT max(cost) FROM visit) AS most
+agree    SELECT name FROM patient WHERE (SELECT count(*) FROM visit WHERE visit.patient_id = patient.id) > 1 ORDER BY id
+agree    SELECT (SELECT cost FROM visit WHERE id = 99) AS missing
+agree    SELECT DISTINCT reason FROM visit ORDER BY reason
+agree    SELECT DISTINCT patient_id FROM visit ORDER BY patient_id
+agree    SELECT DISTINCT note FROM patient ORDER BY note
+agree    SELECT DISTINCT reason FROM visit ORDER BY reason LIMIT 1
+agree    SELECT count(DISTINCT patient_id) AS c FROM visit
+agree    SELECT count(DISTINCT reason) AS c FROM visit
+agree    SELECT count(DISTINCT note) AS c FROM patient
+agree    SELECT CAST(age AS TEXT) AS t FROM patient ORDER BY id
+agree    SELECT CAST('42' AS INTEGER) AS n
+agree    SELECT CAST(cost AS INTEGER) AS whole FROM visit ORDER BY id
+agree    SELECT CAST(age AS REAL) AS r FROM patient ORDER BY id
+agree    SELECT nope FROM patient
+agree    SELECT name FROM patient AS p JOIN visit AS v ON v.nope = p.id
+agree    SELECT id FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY id
+80 of 80 queries agree
 -- writes --
 1 rows both: true  <- UPDATE patient SET note = 'edited' WHERE id = 2
 1 rows both: true  <- DELETE FROM patient WHERE age IS NULL

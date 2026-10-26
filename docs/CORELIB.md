@@ -2023,6 +2023,8 @@ pub struct ColRef {
 pub struct CallNode {
     name: string
     args: [Expr]
+    // `COUNT(DISTINCT x)`: the duplicates are dropped before the aggregate sees them.
+    distinct: bool
 }
 
 pub struct LikeNode {
@@ -2062,11 +2064,45 @@ pub enum Expr {
     Bin(BinNode)
     IsNull(NullNode)
     Call(CallNode)
+    // A scalar subquery, `(SELECT ..)`, which must answer one row of one column.
+    Sub(SubNode)
+    // `EXISTS (SELECT ..)`. `NOT EXISTS` is `Not(Exists(..))` -- `NOT` has its own precedence
+    // level now, so it needs no flag of its own here.
+    Exists(SubNode)
+    InSub(InSubNode)
+    Cast(CastNode)
     Like(LikeNode)
     In(InNode)
     Between(BetweenNode)
     Case(CaseNode)
     Star
+}
+
+pub struct TableRef {
+    name: string
+    alias: string
+}
+
+pub struct Join {
+    kind: string
+    table: TableRef
+    on: Option<Expr>
+    using: [string]
+}
+
+pub struct SubNode {
+    query: SelectStmt
+}
+
+pub struct InSubNode {
+    subject: Expr
+    query: SelectStmt
+    negated: bool
+}
+
+pub struct CastNode {
+    inner: Expr
+    type_name: string
 }
 
 pub struct SelectItem {
@@ -2085,14 +2121,13 @@ pub struct Assignment {
 }
 
 pub struct SelectStmt {
+    distinct: bool
     items: [SelectItem]
     // Empty when the statement has no `FROM`: `SELECT 1` is legal in both real engines and is the
-    // liveness probe `datasource`'s pool sends, so it has to be legal here.
-    table: string
-    // `FROM patient p` / `FROM patient AS p`. One table and one alias rather than a list of table
-    // references: joins are a later increment and will want a list, and changing the shape then is
-    // a deliberate step the round-trip test protects.
-    table_alias: string
+    // liveness probe `datasource`'s pool sends, so it has to be legal here. Otherwise exactly one
+    // element, with `joins` carrying the rest.
+    from: [TableRef]
+    joins: [Join]
     filter: Option<Expr>
     groups: [Expr]
     having: Option<Expr>

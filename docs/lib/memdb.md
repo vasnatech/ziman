@@ -25,21 +25,36 @@ believing anything surprising.
 
 `CREATE TABLE` (with `NOT NULL`, `PRIMARY KEY`, `UNIQUE`, `DEFAULT` and a column type that is
 recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN`,
-`DROP TABLE [IF EXISTS]`, `INSERT INTO ... VALUES`, `SELECT` with `WHERE`, `GROUP BY`, `HAVING`,
-`ORDER BY`, `LIMIT` and `OFFSET`, `UPDATE ... SET ... WHERE`, `DELETE FROM ... WHERE`, and
-`BEGIN`/`COMMIT`/`ROLLBACK`.
+`DROP TABLE [IF EXISTS]`, `INSERT INTO ... VALUES`, `SELECT [DISTINCT]` with `WHERE`,
+`GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT` and `OFFSET`, `UPDATE ... SET ... WHERE`,
+`DELETE FROM ... WHERE`, and `BEGIN`/`COMMIT`/`ROLLBACK`.
 
-Expressions: literals, column references, bound parameters (`?`, `$1`), `AND`/`OR`/`NOT`, the six
-comparisons, `IS [NOT] NULL`, `LIKE`, `IN`, `BETWEEN`, `CASE WHEN`, `+ - * /`, `||`, parentheses,
-the scalar functions `substr`, `length`, `lower`, `upper`, `trim`, `abs` and `coalesce`, and the
-aggregates `COUNT`, `SUM`, `MIN`, `MAX` and `AVG`.
+Joins: `[INNER] JOIN`, `LEFT [OUTER] JOIN` and `CROSS JOIN`, with `ON` or `USING`, chained left
+to right and with table aliases. `RIGHT` and `FULL` are read by `sql` and refused here, with an
+error naming the engine to use instead -- they are a mirror and a union of what this does, and
+shipping them without a test that proves them against a real engine would be guessing.
+
+Subqueries: a scalar `(SELECT ..)`, `IN (SELECT ..)`, `NOT IN (SELECT ..)` and `EXISTS`, each of
+which may be correlated -- a name a subquery does not have resolves outward through the scopes
+enclosing it, which is what makes `WHERE visit.patient_id = patient.id` inside one mean what it
+says.
+
+Expressions: literals, column references (qualified or not), bound parameters (`?`, `$1`),
+`AND`/`OR`/`NOT`, the six comparisons, `IS [NOT] NULL`, `LIKE`, `IN`, `BETWEEN`, `CASE WHEN`,
+`CAST(x AS type)`, `+ - * /`, `||`, parentheses, the scalar functions `substr`, `length`,
+`lower`, `upper`, `trim`, `abs` and `coalesce`, and the aggregates `COUNT` (including
+`COUNT(DISTINCT x)`), `SUM`, `MIN`, `MAX` and `AVG`.
 
 **Columns are resolved before a statement runs**, as a real engine resolves them when it
 prepares one. Looking them up per row instead meant a query whose `WHERE` matched nothing never
 looked, so `SELECT count(age) FROM visit WHERE reason = 'nothing'` answered 0 where SQLite
 answers "no such column: age" -- a typo passing here and failing there is the exact false green
 this engine exists to avoid, and the cross-check fixture caught it within a minute of the
-aggregates being written.
+aggregates being written. It caught the same thing a second time when joins arrived: validation
+had been loosened to let a correlated name through, which let every typo through with it, so it
+now checks against the shape the `FROM` produces *and* the scopes enclosing it -- which is also
+where an unqualified `id` across two joined tables becomes "ambiguous column name" rather than
+silently the left one.
 
 ## Two readings of SQL
 
@@ -56,11 +71,13 @@ both halves: the lax reading still matches real SQLite, and the strict reading s
 
 Measured against the sample application before any of it was written: its 191 SQL strings use no
 joins and no subqueries, because its repositories query one table each and compose in Ziman. The
-20,365 characters of SQL in it are almost all of the shape above.
+20,365 characters of SQL in it are almost all of the shape above. Joins and subqueries are here
+anyway, because a test suite is not restricted to the queries the application happens to issue
+and an engine that refuses them would push every such test onto a container.
 
-`DISTINCT` and `RETURNING` are the next increment, then constraint *enforcement*, `JOIN`,
-subqueries and per-test forking. Anything it does not understand is an error naming the token,
-never a quiet partial execution.
+`RETURNING`, constraint *enforcement*, set operations (`UNION`, `INTERSECT`, `EXCEPT`), derived
+tables in a `FROM` and per-test forking are the next increments. Anything it does not understand
+is an error naming the token, never a quiet partial execution.
 
 ## Transactions are free, because a database is a value
 
