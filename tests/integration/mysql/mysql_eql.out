@@ -1,0 +1,33 @@
+dialect: mysql
+-- an entity by a scalar parameter
+   SELECT p.id AS id, p.last_name AS last_name, p.city AS city FROM eql_patients AS p WHERE p.city = $1 ORDER BY p.id
+   2 row(s) 1/Ada/Rome 3/Cy/Rome
+-- an entity by a collection of two
+   SELECT p.id AS id, p.last_name AS last_name, p.city AS city FROM eql_patients AS p WHERE p.city IN ($1, $2) ORDER BY p.id
+   3 row(s) 1/Ada/Rome 2/Bob/Oslo 3/Cy/Rome
+-- the same query, a collection of one
+   SELECT p.id AS id, p.last_name AS last_name, p.city AS city FROM eql_patients AS p WHERE p.city IN ($1) ORDER BY p.id
+   1 row(s) 2/Bob/Oslo
+-- a projection by a collection of two
+   SELECT p.last_name FROM eql_patients AS p WHERE p.city IN ($1, $2) ORDER BY p.last_name
+   3 row(s) Text(Ada) | Text(Bob) | Text(Cy) |
+-- LIMIT and OFFSET as parameters
+   SELECT p.id AS id, p.last_name AS last_name, p.city AS city FROM eql_patients AS p ORDER BY p.id LIMIT $1 OFFSET $2
+   2 row(s) 2/Bob/Oslo 3/Cy/Rome
+-- one, id = 2
+   SELECT p.id AS id, p.last_name AS last_name, p.city AS city FROM eql_patients AS p WHERE p.id = $1
+   2/Bob/Oslo
+-- one, id = 99
+   SELECT p.id AS id, p.last_name AS last_name, p.city AS city FROM eql_patients AS p WHERE p.id = $1
+   <none>
+-- count
+   SELECT count(*) AS n FROM eql_patients AS p WHERE p.last_name LIKE $1
+   1
+-- a projection with GROUP BY and HAVING
+   SELECT p.city, count(*) AS n FROM eql_patients AS p GROUP BY p.city HAVING count(*) > $1 ORDER BY p.city
+   Text(Rome) Int(2)
+-- refusals
+   prepare refused: database error: the query names :city and nothing was bound to it (bound: nothing)
+   prepare refused: database error: the query names the collection :cities after IN, so it needs eql.bind_list("cities", ..) rather than eql.bind
+   prepare refused: database error: nothing was bound to the collection :cities, and `IN ()` is not SQL -- decide what an empty filter means at the call site (usually: answer nothing without asking the database)
+   list refused: database error: no such column in result row: id

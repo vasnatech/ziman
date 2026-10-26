@@ -1,0 +1,208 @@
+// **The entity query language against real MySQL.**
+//
+// `eql` translates an entity query to SQL and hands it to a `datasource.Connection`, so it is
+// driver-agnostic by construction -- and that is exactly the kind of claim that is true until it
+// is not. It was developed against `memdb` and cross-checked against SQLite
+// (tests/lang/eql_against_sqlite.zm); this is the same claim where the SQL meets a server with its
+// own opinions about placeholders, quoting and types.
+//
+// **`tests/integration/pg/pg_eql.zm` prints the same lines from the same queries**, so the two
+// `.out` files differ only in the dialect on the first line. Diff them: anything else that differs
+// is a dialect leak in the translator.
+//
+// MySQL is the engine where the placeholder claim is actually tested, because it is the only one
+// of the four that does not take `$N`: `mysql.zm` rewrites them to `?` with its own lexer, so the
+// SQL printed below is what `eql` produced and not what reached the server.
+//
+// Two mechanisms do the portability work, and both are visible in the SQL printed below:
+//   - **`$N` is the common denominator.** PostgreSQL and SQLite take it as written, MySQL's driver
+//     rewrites it to `?`, and `memdb` reads it directly. No per-driver knowledge in `eql`.
+//   - **`SELECT p` expands to aliased columns** (`p.id AS id, ..`), so the names `from_row` reads
+//     are the translator's and not the engine's -- which is what lets one `patient_from_row` serve
+//     all four engines, and what a `SELECT *` would not have given.
+use datasource
+use db
+use db.SqlValue
+use eql
+use fs
+use mysql
+
+val drivers = datasource.registry([mysql.driver()])
+
+// The same struct, entity and queries as the PostgreSQL fixture.
+#[derive(Row, Entity)]
+pub struct Patient {
+    id: int
+    last_name: string
+    city: Option<string>
+}
+
+val reg = eql.registry([eql.entity("Patient", "eql_patients", patient_columns)])
+
+// Each query translated **once**, as a repository would: translating costs 140-300 microseconds
+// against 300-3,000 for a round trip to this server.
+val of_city = unwrap(eql.translate(reg, "SELECT p FROM Patient p WHERE p.city = :city ORDER BY p.id"))
+val by_id = unwrap(eql.translate(reg, "SELECT p FROM Patient p WHERE p.id = :id"))
+val in_cities = unwrap(eql.translate(reg, "SELECT p FROM Patient p WHERE p.city IN :cities ORDER BY p.id"))
+val names_in_cities = unwrap(eql.translate(
+    reg,
+    "SELECT p.last_name FROM Patient p WHERE p.city IN :cities ORDER BY p.last_name"
+))
+val counted = unwrap(eql.translate(reg, "SELECT count(*) AS n FROM Patient p WHERE p.last_name LIKE :like"))
+val grouped = unwrap(eql.translate(
+    reg,
+    "SELECT p.city, count(*) AS n FROM Patient p GROUP BY p.city HAVING count(*) > :least ORDER BY p.city"
+))
+val paged = unwrap(eql.translate(
+    reg,
+    "SELECT p FROM Patient p ORDER BY p.id LIMIT :limit OFFSET :offset"
+))
+
+fn text(city: Option<string>) -> string {
+    return switch city {
+        Some(c) { c }
+        None { "<null>" }
+    }
+}
+
+fn one_line(p: Patient) -> string {
+    return format("{}/{}/{}", p.id, p.last_name, text(p.city))
+}
+
+// The SQL a call actually sends, which is the part a reviewer should read: a change there is a
+// change in meaning, and a dialect leak would show up here first.
+fn sent(t: eql.Translated, binds: [eql.Binding]) -> string {
+    return switch eql.prepare(t, binds) {
+        Ok(ready) { ready.sql }
+        Err(e) { concat("prepare refused: ", db.db_error_message(e)) }
+    }
+}
+
+fn listed(conn: datasource.Connection, label: string, t: eql.Translated, binds: [eql.Binding]) {
+    print(format("-- {}", label))
+    print(format("   {}", sent(t, binds)))
+    switch eql.list<Patient>(conn, t, binds, patient_from_row) {
+        Ok(found) {
+            val out = mutable_string_new()
+            for p in found {
+                append(out, " ", one_line(p))
+            }
+            print(format("   {} row(s){}", prelude.len(found), snapshot(out)))
+        }
+        Err(e) { print(concat("   FAILED: ", db.db_error_message(e))) }
+    }
+}
+
+// A projection's rows, read as rows. `eql.list<Patient>` cannot read one and does not pretend to:
+// given `SELECT p.last_name`, `patient_from_row` reports `no such column in result row: id`, which
+// is the whole value of the entity's columns being named rather than starred.
+fn projected(conn: datasource.Connection, label: string, t: eql.Translated, binds: [eql.Binding]) {
+    print(format("-- {}", label))
+    print(format("   {}", sent(t, binds)))
+    switch eql.rows(conn, t, binds) {
+        Ok(rows) {
+            val out = mutable_string_new()
+            for r in rows {
+                for v in r.values {
+                    append(out, format(" {}", v))
+                }
+                append(out, " |")
+            }
+            print(format("   {} row(s){}", prelude.len(rows), snapshot(out)))
+        }
+        Err(e) { print(concat("   FAILED: ", db.db_error_message(e))) }
+    }
+}
+
+fn main() {
+    val hostport = trim(unwrap(fs.read_text("tests/integration/mysql/.hostport")))
+    val conn = unwrap(datasource.open(drivers, format("mysql://nat_user:natpw@{}/zimandb", hostport)))
+    print(format("dialect: {}", datasource.dialect(conn)))
+    unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS eql_patients"))
+    // The one statement that is not portable, and is written per engine on purpose: `eql`
+    // translates reads. Writes stay SQL, where the columns being stored are named.
+    unwrap(datasource.execute(
+        conn,
+        "CREATE TABLE eql_patients (id INT PRIMARY KEY, last_name VARCHAR(50) NOT NULL, city VARCHAR(50)) ENGINE=InnoDB"
+    ))
+    // Dee has no city, so a NULL is in the data every query below has to step around.
+    for values in [
+        [SqlValue.Int(1), SqlValue.Text("Ada"), SqlValue.Text("Rome")],
+        [SqlValue.Int(2), SqlValue.Text("Bob"), SqlValue.Text("Oslo")],
+        [SqlValue.Int(3), SqlValue.Text("Cy"), SqlValue.Text("Rome")],
+        [SqlValue.Int(4), SqlValue.Text("Dee"), SqlValue.Null]
+    ] {
+        unwrap(datasource.execute(conn, "INSERT INTO eql_patients (id, last_name, city) VALUES ($1, $2, $3)", values))
+    }
+
+    listed(conn, "an entity by a scalar parameter", of_city, [eql.bind("city", SqlValue.Text("Rome"))])
+
+    // A collection, and the same query with a different number of values -- which is a different
+    // SQL string, so `prepare` translates again where a static query does not.
+    val two = [eql.bind_list("cities", [SqlValue.Text("Rome"), SqlValue.Text("Oslo")])]
+    val one = [eql.bind_list("cities", [SqlValue.Text("Oslo")])]
+    listed(conn, "an entity by a collection of two", in_cities, two)
+    listed(conn, "the same query, a collection of one", in_cities, one)
+    projected(conn, "a projection by a collection of two", names_in_cities, two)
+
+    listed(conn, "LIMIT and OFFSET as parameters", paged, [
+        eql.bind("limit", SqlValue.Int(2)),
+        eql.bind("offset", SqlValue.Int(1))
+    ])
+
+    // `one`: a row, and no row.
+    for wanted in [2, 99] {
+        val binds = [eql.bind("id", SqlValue.Int(wanted))]
+        print(format("-- one, id = {}", wanted))
+        print(format("   {}", sent(by_id, binds)))
+        print(format("   {}", switch eql.one<Patient>(conn, by_id, binds, patient_from_row) {
+            Ok(found) {
+                switch found {
+                    Some(p) { one_line(p) }
+                    None { "<none>" }
+                }
+            }
+            Err(e) { concat("FAILED: ", db.db_error_message(e)) }
+        }))
+    }
+
+    // `count`, and a projection read as rows.
+    val like = [eql.bind("like", SqlValue.Text("A%"))]
+    print("-- count")
+    print(format("   {}", sent(counted, like)))
+    print(format("   {}", unwrap(eql.count(conn, counted, like))))
+    val least = [eql.bind("least", SqlValue.Int(1))]
+    print("-- a projection with GROUP BY and HAVING")
+    print(format("   {}", sent(grouped, least)))
+    for r in unwrap(eql.rows(conn, grouped, least)) {
+        val out = mutable_string_new()
+        for v in r.values {
+            append(out, format(" {}", v))
+        }
+        print(format("  {}", snapshot(out)))
+    }
+
+    // The refusals. Each is a mistake that, written as SQL by hand, would reach this server.
+    print("-- refusals")
+    val none: [eql.Binding] = []
+    for refused in [
+        sent(of_city, none),
+        sent(in_cities, [eql.bind("cities", SqlValue.Text("Rome"))]),
+        sent(in_cities, [eql.bind_list("cities", [])]),
+        // A projection read as an entity: the error names the column the entity wanted.
+        switch eql.list<Patient>(
+            conn,
+            names_in_cities,
+            [eql.bind_list("cities", [SqlValue.Text("Rome")])],
+            patient_from_row
+        ) {
+            Ok(_) { "a projection was read as an entity" }
+            Err(e) { concat("list refused: ", db.db_error_message(e)) }
+        }
+    ] {
+        print(format("   {}", refused))
+    }
+
+    unwrap(datasource.execute(conn, "DROP TABLE eql_patients"))
+    datasource.close(conn)
+}

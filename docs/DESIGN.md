@@ -243,6 +243,7 @@ them against the code.
 - [`eql` runs, and the cost that decided its shape (2026-10-26)](#eql-runs-and-the-cost-that-decided-its-shape-2026-10-26)
 - [`eql` adopted in one repository, and the collection parameter that had to come first (2026-10-26)](#eql-adopted-in-one-repository-and-the-collection-parameter-that-had-to-come-first-2026-10-26)
 - [memdb keeps its uniqueness index instead of rebuilding it, and a one-row write stops being a pass over the table (2026-10-26)](#memdb-keeps-its-uniqueness-index-instead-of-rebuilding-it-and-a-one-row-write-stops-being-a-pass-over-the-table-2026-10-26)
+- [`eql` guarded on real PostgreSQL and MySQL, and `sql.zm` kept out of the drivers (2026-10-26)](#eql-guarded-on-real-postgresql-and-mysql-and-sqlzm-kept-out-of-the-drivers-2026-10-26)
 
 <!-- end index -->
 
@@ -9434,3 +9435,38 @@ Two things fell out of the A/B, both measured interleaved because one bench proc
 `tests/stdlib/memdb_test.zm`'s seeding guard was rewritten rather than retuned. It allowed 32x for 4x the rows and said in its comment that seeding is "quadratic in principle" because a `Database` is an immutable value — a claim this entry's second table disproves. It now asserts 4x the rows costs under 8x the time, and the new assertion was checked against the old binary, where it fails at 2,606 ms against a 944 ms bound. A test that cannot fail on the code it was written for proves nothing.
 
 What this does **not** fix, measured and left alone: a one-row `SELECT ... WHERE id = ?` is still a scan, because `CREATE INDEX` is recorded nowhere and a kept uniqueness index is not consulted by query planning. That is a larger piece of work — it changes what `run_select` does, not what a write maintains — and the next candidate after it is the parser, which the profiler puts at 21% of an unkeyed write (`sql::tokenize`) and which is re-run for every identical statement.
+
+## `eql` guarded on real PostgreSQL and MySQL, and `sql.zm` kept out of the drivers (2026-10-26)
+
+Two questions, asked together: can `sql.zm` and `eql.zm` be used in the concrete drivers? They have opposite answers, and both are now measured rather than argued.
+
+**`eql` works on every driver, and that is now guarded rather than asserted.** `tests/integration/pg/pg_eql.zm` and `tests/integration/mysql/mysql_eql.zm` run the same entity queries against real PostgreSQL 17 and real MySQL 8, under `make test-pg` and `make test-mysql`. They print the same lines by construction, so **the two `.out` files differ in exactly one line**:
+
+```
+1c1
+< dialect: postgres
+---
+> dialect: mysql
+```
+
+Every translated SQL string, every row and every refusal message is byte-identical across the two engines. Anything that appears in that diff later is a dialect leak in the translator, which makes the pair a standing check and not just two passing tests. Together with `memdb` and the SQLite cross-check, `eql` is now exercised on four engines.
+
+Two mechanisms do that work, and naming them is the point, because neither is luck:
+
+* **`$N` is the common denominator.** PostgreSQL and SQLite take it as written, `memdb` reads it directly, and MySQL's driver rewrites it to `?`. MySQL is therefore the engine that actually tests the claim — it is the only one of the four that does not accept `$N`, so the SQL the fixture prints is what `eql` produced and not what reached the server.
+* **`SELECT p` expands to aliased columns** — `p.id AS id, p.last_name AS last_name, ..` — so the names a `from_row` reads belong to the translator and not to the engine. That is what lets one `patient_from_row` serve all four, and what a `SELECT *` would not have given.
+
+The portability that is *not* eql's to give is worth stating in the same breath: it extends exactly as far as the SQL in the query text does. `LIMIT`/`OFFSET`, `GROUP BY`/`HAVING`, `LIKE` and `IN` travel; a projected boolean or `||` concatenation would not, and `memdb-ansi:` is still the cheap way to find that out before a container does.
+
+**`sql.zm` in a driver: measured and declined.** No driver uses it, and there is exactly one place that is tempting — `mysql.zm`'s `rewrite_placeholders`, sixty lines of hand-written lexing (single, double and backtick quoting, backslash escapes, doubled quotes, `#`, `--` and `/* */` comments) whose entire job is to find `$N` *outside* strings and comments. That is `sql.tokenize`'s job, and the duplication is real. But the substitution is a regression, on ordinary MySQL:
+
+```
+SELECT 'a\'b', $1               -> REFUSED: a quoted string that is never closed
+SELECT 1 # a comment with $1    -> REFUSED: unexpected character '#' in SQL
+```
+
+`sql.zm` is a SQLite-and-standard-shaped dialect, and the places it departs from MySQL **are** the lexing. Worse than the refusal is the near miss it implies: a `$1` inside a `#` comment would be rewritten and the parameters renumbered, which is a silently different query rather than an error. So a driver's lexer belongs to its server. This is where `sql` is syntax, `memdb` is semantics reaches its edge: the syntax a driver has to read is the server's, not the engine's.
+
+One case in both fixtures is a mistake the first draft made, kept deliberately because the diagnostic is the feature: reading a projection (`SELECT p.last_name`) with `eql.list<Patient>` answers `no such column in result row: id`. An entity reader asked for a row that is not that entity, and it says which column was missing.
+
+A recording note, since it cost ten minutes: **never pipe a golden-file capture through `head`.** `./ziman fixture.zm | tee fixture.out | head -12` truncated the `.out` at twelve lines, because `head` exiting closed the pipe and SIGPIPE killed the writer mid-file. The fixture was correct and the recording was not, and the resulting diff looked exactly like the fixture dying partway through its run.
