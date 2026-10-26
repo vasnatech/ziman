@@ -23,8 +23,8 @@ believing anything surprising.
 
 ## What it understands
 
-`CREATE TABLE` (with `NOT NULL`, `PRIMARY KEY`, `UNIQUE`, `DEFAULT` and a column type that is
-recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD [COLUMN]`,
+`CREATE TABLE` (with `NOT NULL`, `PRIMARY KEY`, `UNIQUE`, `CHECK`, `DEFAULT` and a column type
+that is recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD [COLUMN]`,
 `DROP TABLE [IF EXISTS]`, `INSERT INTO ... VALUES`, `SELECT [DISTINCT]` with `WHERE`,
 `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT` and `OFFSET`, `UPDATE ... SET ... WHERE`,
 `DELETE FROM ... WHERE`, `RETURNING` on any of the three writes, and
@@ -74,6 +74,20 @@ Expressions: literals, column references (qualified or not), bound parameters (`
 `lower`, `upper`, `trim`, `abs` and `coalesce`, and the aggregates `COUNT` (including
 `COUNT(DISTINCT x)`), `SUM`, `MIN`, `MAX` and `AVG`.
 
+**Constraints are enforced**, not merely remembered: `NOT NULL`, `PRIMARY KEY`, `UNIQUE` and
+`CHECK`, at column level and at table level, on `INSERT` and on `UPDATE`, with SQLite's own
+messages. Each reads NULL the way SQL says to, and the three readings differ: `NOT NULL` refuses
+a NULL; `UNIQUE` and `PRIMARY KEY` *ignore* a key with a NULL in it, because uniqueness asks
+whether two keys are equal and a NULL is equal to nothing; and a `CHECK` fails only when it is
+false, NULL being unknown and passing. A statement that violates a constraint leaves the
+database exactly as it was, which costs nothing here because a `Database` is a value.
+
+A single-column `INTEGER PRIMARY KEY` is **SQLite's rowid under another name**: a NULL in it, or
+leaving the column out, takes the next value rather than being refused. The declared type must be
+exactly `INTEGER` -- `INT` and `BIGINT` are ordinary columns in SQLite and keep the NULL, which
+was measured rather than assumed. PostgreSQL has no rowid, so the strict reading does none of
+this and refuses a NULL in a key.
+
 **Columns are resolved before a statement runs**, as a real engine resolves them when it
 prepares one. Looking them up per row instead meant a query whose `WHERE` matched nothing never
 looked, so `SELECT count(age) FROM visit WHERE reason = 'nothing'` answered 0 where SQLite
@@ -88,12 +102,13 @@ silently the left one.
 ## Two readings of SQL
 
 `driver()` at `memdb:` reads SQL the way SQLite does. `strict_driver()` at `memdb-ansi:` reads it
-the way the standard does, and the two differ in exactly seven places -- `LIKE`'s case
+the way the standard does, and the two differ in exactly nine places -- `LIKE`'s case
 sensitivity, what division by zero answers, whether a number may be compared with text, whether
 a boolean in a select list comes back as a boolean or as the integer 0 or 1 (SQLite has no
 boolean type; PostgreSQL and the standard do), whether a `RETURNING` clause may use a qualified
-star, **how a chain of set operations groups**, and whether `INTERSECT ALL`, `EXCEPT ALL` and
-`UNION DISTINCT` exist at all.
+star, **how a chain of set operations groups**, whether `INTERSECT ALL`, `EXCEPT ALL` and
+`UNION DISTINCT` exist at all, whether a `PRIMARY KEY` column may hold NULL, and whether a
+`UNIQUE` column may be added to a table that already has rows.
 
 The grouping is the one to remember, because nothing in the text of the query says which reading
 is in force and both answer rows. SQLite reads `UNION`, `INTERSECT` and `EXCEPT` strictly left to
@@ -101,9 +116,9 @@ right; the standard and PostgreSQL bind `INTERSECT` tighter than the other two. 
 `a UNION b INTERSECT c` is `(a UNION b) INTERSECT c` on one engine and `a UNION (b INTERSECT c)`
 on the other -- a different answer, no error, no warning. Parenthesise it or do not write it.
 
-**Three of the seven run the other way**, and they are the ones where SQLite is the stricter
-engine: `RETURNING t.*`, the `ALL` forms of `INTERSECT` and `EXCEPT`, and `UNION DISTINCT` are
-each refused by SQLite and answered by PostgreSQL. There the lax reading refuses and the strict
+**Four of the nine run the other way**, and they are the ones where SQLite is the stricter
+engine: `RETURNING t.*`, the `ALL` forms of `INTERSECT` and `EXCEPT`, `UNION DISTINCT` and
+`ALTER TABLE ... ADD COLUMN .. UNIQUE` are each refused by SQLite and answered by PostgreSQL. There the lax reading refuses and the strict
 one runs it, so a statement failing on `memdb:` and passing on `memdb-ansi:` is PostgreSQL-only
 SQL that will break on SQLite. Both directions are worth knowing; only the direction of the
 arrow changes.
@@ -119,7 +134,7 @@ joins and no subqueries, because its repositories query one table each and compo
 anyway, because a test suite is not restricted to the queries the application happens to issue
 and an engine that refuses them would push every such test onto a container.
 
-Constraint *enforcement*, derived tables in a `FROM`, a parenthesised arm of a compound (which
+Referential integrity, derived tables in a `FROM`, a parenthesised arm of a compound (which
 SQLite also refuses, so nothing is lost yet) and per-test forking are the next increments. `count(t.*)` is not read: SQLite refuses it,
 PostgreSQL counts whole rows with it, and nothing needs it. Anything it does not understand
 is an error naming the token, never a quiet partial execution.
@@ -140,8 +155,13 @@ schema and a dataset once, then hand every test its own copy of the same value.
 - **The statement tree and the parser live in `sql`**, not here. This module is the engine:
   storage, evaluation and the two drivers. `sql.parse` reads SQL, `sql.format` writes it back,
   and anything wanting to read or rewrite SQL without a database uses that module alone.
-- **Constraints are recorded, not enforced** in this increment: `NOT NULL`, `PRIMARY KEY` and
-  `UNIQUE` parse and are remembered, and a violation is accepted. The real engines refuse it.
+- **A `FOREIGN KEY` is modelled and not yet enforced.** `NOT NULL`, `PRIMARY KEY`, `UNIQUE`
+  and `CHECK` are enforced; referential integrity is the next increment, so a row pointing at
+  a parent that is not there is accepted here and refused by both real engines (SQLite only
+  with `PRAGMA foreign_keys = ON`, which this library's driver sets).
+- **A column constraint with a name** (`a INT CONSTRAINT k CHECK (..)`) is kept as text and
+  not enforced, where the same constraint written at table level is. Nothing of it is lost; it
+  is simply opaque, and `sql`'s header says which shapes are modelled.
 - **`CREATE INDEX` is accepted and ignored.** An index changes how fast a query runs, not what
   it answers, and this engine has no query planner to put one in.
 - **NULLs sort first ascending**, which is SQLite's order. PostgreSQL sorts them last. A test
@@ -173,8 +193,8 @@ four would be four different databases.
 pub fn strict_driver() -> Driver
 ```
 
-The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Seven things differ,
-and the first four are places where SQLite departs from ANSI:
+The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Nine things differ,
+and the first five are places where SQLite departs from ANSI:
 
 
 ```
@@ -182,10 +202,13 @@ and the first four are places where SQLite departs from ANSI:
 - division by zero is an error (SQLSTATE 22012's rule), where SQLite answers NULL;
 - comparing a number with text is a type error, where SQLite orders them by a type rank;
 - a boolean in a select list stays a boolean, where SQLite has no boolean type and answers 0
-  or 1.
+  or 1;
+- a `PRIMARY KEY` column may not hold NULL, which makes a key implicitly `NOT NULL` as the
+  standard says -- where SQLite allows it, and for a single-column `INTEGER PRIMARY KEY` fills
+  in the next rowid instead.
 ```
 
-The other three point the other way, SQLite being the stricter engine (each measured, not
+The other four point the other way, SQLite being the stricter engine (each measured, not
 assumed):
 
 
@@ -194,7 +217,9 @@ assumed):
   standard and in PostgreSQL, so `a UNION b INTERSECT c` is two different queries;
 - `INTERSECT ALL`, `EXCEPT ALL` and `UNION DISTINCT` are syntax errors in SQLite and ordinary
   SQL in PostgreSQL;
-- `RETURNING t.*` is refused by SQLite and answered by PostgreSQL.
+- `RETURNING t.*` is refused by SQLite and answered by PostgreSQL;
+- `ALTER TABLE ... ADD COLUMN u TEXT UNIQUE` is refused by SQLite, which does not rewrite the
+  rows already there, and accepted by PostgreSQL, which does.
 ```
 
 For those, the lax reading refuses and this one runs them.

@@ -15,8 +15,8 @@
 //
 // ## What it understands
 //
-// `CREATE TABLE` (with `NOT NULL`, `PRIMARY KEY`, `UNIQUE`, `DEFAULT` and a column type that is
-// recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD [COLUMN]`,
+// `CREATE TABLE` (with `NOT NULL`, `PRIMARY KEY`, `UNIQUE`, `CHECK`, `DEFAULT` and a column type
+// that is recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD [COLUMN]`,
 // `DROP TABLE [IF EXISTS]`, `INSERT INTO ... VALUES`, `SELECT [DISTINCT]` with `WHERE`,
 // `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT` and `OFFSET`, `UPDATE ... SET ... WHERE`,
 // `DELETE FROM ... WHERE`, `RETURNING` on any of the three writes, and
@@ -66,6 +66,20 @@
 // `lower`, `upper`, `trim`, `abs` and `coalesce`, and the aggregates `COUNT` (including
 // `COUNT(DISTINCT x)`), `SUM`, `MIN`, `MAX` and `AVG`.
 //
+// **Constraints are enforced**, not merely remembered: `NOT NULL`, `PRIMARY KEY`, `UNIQUE` and
+// `CHECK`, at column level and at table level, on `INSERT` and on `UPDATE`, with SQLite's own
+// messages. Each reads NULL the way SQL says to, and the three readings differ: `NOT NULL` refuses
+// a NULL; `UNIQUE` and `PRIMARY KEY` *ignore* a key with a NULL in it, because uniqueness asks
+// whether two keys are equal and a NULL is equal to nothing; and a `CHECK` fails only when it is
+// false, NULL being unknown and passing. A statement that violates a constraint leaves the
+// database exactly as it was, which costs nothing here because a `Database` is a value.
+//
+// A single-column `INTEGER PRIMARY KEY` is **SQLite's rowid under another name**: a NULL in it, or
+// leaving the column out, takes the next value rather than being refused. The declared type must be
+// exactly `INTEGER` -- `INT` and `BIGINT` are ordinary columns in SQLite and keep the NULL, which
+// was measured rather than assumed. PostgreSQL has no rowid, so the strict reading does none of
+// this and refuses a NULL in a key.
+//
 // **Columns are resolved before a statement runs**, as a real engine resolves them when it
 // prepares one. Looking them up per row instead meant a query whose `WHERE` matched nothing never
 // looked, so `SELECT count(age) FROM visit WHERE reason = 'nothing'` answered 0 where SQLite
@@ -80,12 +94,13 @@
 // ## Two readings of SQL
 //
 // `driver()` at `memdb:` reads SQL the way SQLite does. `strict_driver()` at `memdb-ansi:` reads it
-// the way the standard does, and the two differ in exactly seven places -- `LIKE`'s case
+// the way the standard does, and the two differ in exactly nine places -- `LIKE`'s case
 // sensitivity, what division by zero answers, whether a number may be compared with text, whether
 // a boolean in a select list comes back as a boolean or as the integer 0 or 1 (SQLite has no
 // boolean type; PostgreSQL and the standard do), whether a `RETURNING` clause may use a qualified
-// star, **how a chain of set operations groups**, and whether `INTERSECT ALL`, `EXCEPT ALL` and
-// `UNION DISTINCT` exist at all.
+// star, **how a chain of set operations groups**, whether `INTERSECT ALL`, `EXCEPT ALL` and
+// `UNION DISTINCT` exist at all, whether a `PRIMARY KEY` column may hold NULL, and whether a
+// `UNIQUE` column may be added to a table that already has rows.
 //
 // The grouping is the one to remember, because nothing in the text of the query says which reading
 // is in force and both answer rows. SQLite reads `UNION`, `INTERSECT` and `EXCEPT` strictly left to
@@ -93,9 +108,9 @@
 // `a UNION b INTERSECT c` is `(a UNION b) INTERSECT c` on one engine and `a UNION (b INTERSECT c)`
 // on the other -- a different answer, no error, no warning. Parenthesise it or do not write it.
 //
-// **Three of the seven run the other way**, and they are the ones where SQLite is the stricter
-// engine: `RETURNING t.*`, the `ALL` forms of `INTERSECT` and `EXCEPT`, and `UNION DISTINCT` are
-// each refused by SQLite and answered by PostgreSQL. There the lax reading refuses and the strict
+// **Four of the nine run the other way**, and they are the ones where SQLite is the stricter
+// engine: `RETURNING t.*`, the `ALL` forms of `INTERSECT` and `EXCEPT`, `UNION DISTINCT` and
+// `ALTER TABLE ... ADD COLUMN .. UNIQUE` are each refused by SQLite and answered by PostgreSQL. There the lax reading refuses and the strict
 // one runs it, so a statement failing on `memdb:` and passing on `memdb-ansi:` is PostgreSQL-only
 // SQL that will break on SQLite. Both directions are worth knowing; only the direction of the
 // arrow changes.
@@ -111,7 +126,7 @@
 // anyway, because a test suite is not restricted to the queries the application happens to issue
 // and an engine that refuses them would push every such test onto a container.
 //
-// Constraint *enforcement*, derived tables in a `FROM`, a parenthesised arm of a compound (which
+// Referential integrity, derived tables in a `FROM`, a parenthesised arm of a compound (which
 // SQLite also refuses, so nothing is lost yet) and per-test forking are the next increments. `count(t.*)` is not read: SQLite refuses it,
 // PostgreSQL counts whole rows with it, and nothing needs it. Anything it does not understand
 // is an error naming the token, never a quiet partial execution.
@@ -130,8 +145,13 @@
 //   - **The statement tree and the parser live in `sql`**, not here. This module is the engine:
 //     storage, evaluation and the two drivers. `sql.parse` reads SQL, `sql.format` writes it back,
 //     and anything wanting to read or rewrite SQL without a database uses that module alone.
-//   - **Constraints are recorded, not enforced** in this increment: `NOT NULL`, `PRIMARY KEY` and
-//     `UNIQUE` parse and are remembered, and a violation is accepted. The real engines refuse it.
+//   - **A `FOREIGN KEY` is modelled and not yet enforced.** `NOT NULL`, `PRIMARY KEY`, `UNIQUE`
+//     and `CHECK` are enforced; referential integrity is the next increment, so a row pointing at
+//     a parent that is not there is accepted here and refused by both real engines (SQLite only
+//     with `PRAGMA foreign_keys = ON`, which this library's driver sets).
+//   - **A column constraint with a name** (`a INT CONSTRAINT k CHECK (..)`) is kept as text and
+//     not enforced, where the same constraint written at table level is. Nothing of it is lost; it
+//     is simply opaque, and `sql`'s header says which shapes are modelled.
 //   - **`CREATE INDEX` is accepted and ignored.** An index changes how fast a query runs, not what
 //     it answers, and this engine has no query planner to put one in.
 //   - **NULLs sort first ascending**, which is SQLite's order. PostgreSQL sorts them last. A test
@@ -153,6 +173,7 @@ use sql.Assignment
 use sql.BinNode
 use sql.CallNode
 use sql.Column
+use sql.ConstraintRule
 use sql.CreateStmt
 use sql.DeleteStmt
 use sql.DropStmt
@@ -163,6 +184,7 @@ use sql.SelectItem
 use sql.SelectStmt
 use sql.SetOp
 use sql.Statement
+use sql.TableConstraint
 use sql.UpdateStmt
 
 // Case folding for keywords and identifiers is protocol folding, so it names the invariant locale
@@ -179,6 +201,11 @@ struct Table {
     name: string
     columns: [Column]
     rows: [[SqlValue]]
+    // Every constraint this table carries, in **one** list: the table-level ones, the ones written
+    // in a column's position, and the single-column `PRIMARY KEY`/`UNIQUE` flags turned into
+    // constraints of their own. Three places to remember is how a constraint gets enforced on
+    // insert and forgotten on update.
+    constraints: [TableConstraint]
 }
 
 // The whole database as one immutable value. Tables are keyed by their folded name, so `Users` and
@@ -893,6 +920,211 @@ fn unwrap_int(v: SqlValue) -> int {
     }
 }
 
+// ---------------------------------------------------------------- constraints
+
+// Every constraint a table carries, gathered into one list: the table-level ones, each column's
+// own, and a `PrimaryKey`/`Unique` for every column that was flagged singly. Walking one list is
+// what keeps `INSERT` and `UPDATE` from enforcing different sets.
+fn all_constraints(columns: [Column], table_level: [TableConstraint]) -> [TableConstraint] {
+    val out = mutable_array_new<TableConstraint>()
+    for col in columns {
+        if col.primary_key {
+            push(out, TableConstraint {
+                name: "",
+                rule: ConstraintRule.PrimaryKey([col.name]),
+                text: "PRIMARY KEY"
+            })
+        }
+        if col.unique {
+            push(out, TableConstraint { name: "", rule: ConstraintRule.Unique([col.name]), text: "UNIQUE" })
+        }
+        for tc in col.constraints {
+            push(out, tc)
+        }
+    }
+    for tc in table_level {
+        push(out, tc)
+    }
+    return snapshot(out)
+}
+
+// What SQLite quotes when a `CHECK` fails: the constraint's name where it has one, and otherwise
+// **the expression as it was written**, brackets stripped. Taken from the source text rather than
+// re-formatted, so `CHECK (a<b)` is quoted as `a<b` the way SQLite quotes it.
+fn check_label(tc: TableConstraint) -> string {
+    if tc.name != "" {
+        return tc.name
+    }
+    val open = index_of(tc.text, "(", 0)
+    val close = last_index_of(tc.text, ")")
+    if open >= 0 && close > open {
+        return trim(substring(tc.text, open + 1, close))
+    }
+    return tc.text
+}
+
+// `t.a, t.b` -- how SQLite names the columns of a failed `UNIQUE` or `PRIMARY KEY`.
+fn qualified_columns(t: Table, columns: [string]) -> string {
+    val out = mutable_array_new<string>()
+    for name in columns {
+        push(out, concat(t.name, ".", name))
+    }
+    return join(separator: ", ", pieces: snapshot(out))
+}
+
+// The index of a single-column `INTEGER PRIMARY KEY`, or -1.
+//
+// **That column is SQLite's rowid under another name**, so a NULL in it -- or leaving it out of the
+// `INSERT` -- takes the next value instead of being refused. The declared type must be exactly
+// `INTEGER`: measured, not guessed, `INT PRIMARY KEY` and `BIGINT PRIMARY KEY` are ordinary columns
+// there and keep the NULL. PostgreSQL has no rowid, so the strict reading does none of this and
+// refuses a NULL in a key instead.
+fn rowid_column(t: Table) -> int {
+    var found = 0 - 1
+    var keys = 0
+    for i in 0..prelude.len(t.columns) {
+        if t.columns[i].primary_key {
+            keys = keys + 1
+            if sql.fold_name(t.columns[i].type_name) == "integer" {
+                found = i
+            }
+        }
+    }
+    // A composite primary key is not a rowid, even if one of its columns is an INTEGER.
+    if keys != 1 {
+        return 0 - 1
+    }
+    return found
+}
+
+fn next_rowid(rows: [[SqlValue]], at: int) -> SqlValue {
+    var top = 0
+    for row in rows {
+        if !is_null(row[at]) && is_int(row[at]) {
+            val n = unwrap_int(row[at])
+            if n > top {
+                top = n
+            }
+        }
+    }
+    return SqlValue.Int(top + 1)
+}
+
+// Every constraint on `t` checked against the rows it would hold, where `touched` names the rows
+// this statement wrote. Row-level rules are checked on those rows only; uniqueness compares them
+// against the whole table, which is why both are here rather than in two passes over the data.
+//
+// **Checked before the new table is published**, so a statement that violates a constraint leaves
+// the database exactly as it was -- the `Database` being a value is what makes that free.
+fn enforce(database: Database, t: Table, touched: [int], params: [SqlValue], strict: bool) -> Result<unit, DbError> {
+    for i in touched {
+        val row = t.rows[i]
+        for k in 0..prelude.len(t.columns) {
+            if t.columns[k].not_null && is_null(row[k]) {
+                return err(DbError.Constraint(prelude.format(
+                    "NOT NULL constraint failed: {}.{}",
+                    t.name,
+                    t.columns[k].name
+                )))
+            }
+        }
+    }
+    for tc in t.constraints {
+        for i in touched {
+            try one_constraint(database, t, tc, i, params, strict)
+        }
+    }
+    return ok(unit)
+}
+
+fn one_constraint(
+    database: Database,
+    t: Table,
+    tc: TableConstraint,
+    at: int,
+    params: [SqlValue],
+    strict: bool
+) -> Result<unit, DbError> {
+    val row = t.rows[at]
+    val names = column_names(t)
+    return switch tc.rule {
+        PrimaryKey(columns) {
+            // **SQLite lets a NULL sit in a primary key**; the standard and PostgreSQL make a key
+            // implicitly `NOT NULL`. The rowid case never reaches here, having been filled in.
+            if strict {
+                for name in columns {
+                    val k = column_index(names, name)
+                    if k >= 0 && is_null(row[k]) {
+                        return err(DbError.Constraint(prelude.format(
+                            "a PRIMARY KEY column may not be NULL: {}.{} (the standard and PostgreSQL refuse what SQLite allows)",
+                            t.name,
+                            name
+                        )))
+                    }
+                }
+            }
+            unique_check(t, tc, columns, at)
+        }
+        Unique(columns) { unique_check(t, tc, columns, at) }
+        Check(e) {
+            val v = try eval_expr(e, table_ctx(database, t, row, params, strict))
+            // A `CHECK` fails only when it is *false*: NULL is unknown and passes, in both engines
+            // and in the standard.
+            if !is_null(v) && !is_true(v) {
+                return err(DbError.Constraint(concat("CHECK constraint failed: ", check_label(tc))))
+            }
+            unit
+        }
+        // Referential integrity is the next increment; the rule is modelled and not yet enforced.
+        ForeignKey(_) { unit }
+        Opaque { unit }
+    }
+}
+
+// A key's uniqueness. **A key with a NULL in it conflicts with nothing**, which is the standard's
+// rule and both engines': `UNIQUE` asks whether two keys are *equal*, and a NULL is never equal to
+// anything -- the opposite reading of NULL from the one `DISTINCT` and `GROUP BY` take.
+fn unique_check(t: Table, tc: TableConstraint, columns: [string], at: int) -> Result<unit, DbError> {
+    val names = column_names(t)
+    val places = mutable_array_new<int>()
+    for name in columns {
+        val k = column_index(names, name)
+        if k < 0 {
+            return err(problem(prelude.format("no such column: {} in a constraint on {}", name, t.name)))
+        }
+        push(places, k)
+    }
+    val where_at = snapshot(places)
+    val key = mutable_array_new<SqlValue>()
+    for k in where_at {
+        if is_null(t.rows[at][k]) {
+            return ok(unit)
+        }
+        push(key, t.rows[at][k])
+    }
+    val wanted = snapshot(key)
+    for i in 0..prelude.len(t.rows) {
+        if i == at {
+            continue
+        }
+        val other = mutable_array_new<SqlValue>()
+        var null_seen = false
+        for k in where_at {
+            if is_null(t.rows[i][k]) {
+                null_seen = true
+            }
+            push(other, t.rows[i][k])
+        }
+        if !null_seen && values_same(snapshot(other), wanted) {
+            return err(DbError.Constraint(concat(
+                "UNIQUE constraint failed: ",
+                qualified_columns(t, columns)
+            )))
+        }
+    }
+    return ok(unit)
+}
+
 // ---------------------------------------------------------------- functions
 
 // Every function this engine has, and how many arguments it takes -- `most` of -1 meaning any
@@ -1453,7 +1685,12 @@ fn run_create(database: Database, stmt: CreateStmt) -> Result<Outcome, DbError> 
         }
         return err(problem(concat("table already exists: ", stmt.table)))
     }
-    val t = Table { name: stmt.table, columns: stmt.columns, rows: [] }
+    val t = Table {
+        name: stmt.table,
+        columns: stmt.columns,
+        rows: [],
+        constraints: all_constraints(stmt.columns, stmt.constraints)
+    }
     return ok(Outcome { database: with_table(database, t), rows: [], affected: 0 })
 }
 
@@ -1461,9 +1698,10 @@ fn run_create(database: Database, stmt: CreateStmt) -> Result<Outcome, DbError> 
 //
 // The constraint form is **refused by the SQLite-shaped reading**, in SQLite's own words, because
 // SQLite has no `ALTER TABLE ... ADD CONSTRAINT` at all; PostgreSQL and the standard have it. The
-// strict reading accepts it and records it nowhere, which is exactly what it already does with a
-// `CREATE TABLE`'s table constraints: this engine remembers no constraints and enforces none, so
-// adding one later changes nothing it can observe. Saying so beats pretending.
+// strict reading accepts it and **records it nowhere**, which is the one place this engine still
+// takes a constraint without keeping it: enforcing a constraint added after the fact means
+// checking the rows already there against it, and that is referential integrity's increment to
+// bring. Saying so beats pretending.
 fn run_alter(database: Database, stmt: AlterStmt, strict: bool) -> Result<Outcome, DbError> {
     val t = try table_of(database, stmt.table)
     val column = switch stmt.action {
@@ -1481,6 +1719,18 @@ fn run_alter(database: Database, stmt: AlterStmt, strict: bool) -> Result<Outcom
     if column_index(column_names(t), column.name) >= 0 {
         return err(problem(prelude.format("column {} already exists on {}", column.name, t.name)))
     }
+    // SQLite refuses both of these outright, in these words, because it adds a column without
+    // rewriting the rows that are already there. PostgreSQL rewrites, so it refuses the first only
+    // when the table has rows to falsify it and accepts the second always; the strict reading
+    // follows PostgreSQL.
+    if column.not_null && Option.is_None(column.default_value) {
+        if !strict || prelude.len(t.rows) > 0 {
+            return err(problem("Cannot add a NOT NULL column with default value NULL"))
+        }
+    }
+    if column.unique && !strict {
+        return err(problem("Cannot add a UNIQUE column"))
+    }
     // Existing rows gain the new column's default, or NULL -- which is what the real engines do
     // for an added column, and why `NOT NULL` without a default is refused there and merely
     // recorded here.
@@ -1492,10 +1742,11 @@ fn run_alter(database: Database, stmt: AlterStmt, strict: bool) -> Result<Outcom
     for row in t.rows {
         push(rows, push(row, filler))
     }
-    val grown = Table {
-        name: t.name,
+    val grown = with t {
         columns: push(t.columns, column),
-        rows: snapshot(rows)
+        rows: snapshot(rows),
+        // The added column brings its own flags and constraints with it.
+        constraints: concat(t.constraints, all_constraints([column], []))
     }
     return ok(Outcome { database: with_table(database, grown), rows: [], affected: 0 })
 }
@@ -1590,9 +1841,11 @@ fn run_insert(database: Database, stmt: InsertStmt, params: [SqlValue], strict: 
         push(positions, at)
     }
     val where_to = snapshot(positions)
+    val rowid = if strict { 0 - 1 } else { rowid_column(t) }
     var rows = t.rows
     var added = 0
     val stored = mutable_array_new<[SqlValue]>()
+    val touched = mutable_array_new<int>()
     for values in stmt.rows {
         if prelude.len(values) != prelude.len(where_to) {
             return err(problem(prelude.format(
@@ -1614,12 +1867,21 @@ fn run_insert(database: Database, stmt: InsertStmt, params: [SqlValue], strict: 
             // than a silent NULL.
             row[where_to[i]] = try eval_expr(values[i], bare_ctx(database, params, strict))
         }
+        // A single-column `INTEGER PRIMARY KEY` left NULL takes the next value, as SQLite's rowid
+        // does. Done before the constraints are checked, so the NOT NULL on a key never sees the
+        // NULL that was about to be replaced -- which is also how SQLite reads
+        // `a INTEGER PRIMARY KEY NOT NULL`.
+        if rowid >= 0 && is_null(row[rowid]) {
+            row[rowid] = next_rowid(rows, rowid)
+        }
         val written = snapshot(row)
+        push(touched, prelude.len(rows))
         rows = push(rows, written)
         push(stored, written)
         added = added + 1
     }
-    val filled = Table { name: t.name, columns: t.columns, rows: rows }
+    val filled = with t { rows: rows }
+    try enforce(database, filled, snapshot(touched), params, strict)
     return ok(Outcome {
         database: with_table(database, filled),
         rows: try returned_rows(database, filled, stmt.returning, snapshot(stored), params, strict),
@@ -1642,7 +1904,7 @@ fn run_delete(database: Database, stmt: DeleteStmt, params: [SqlValue], strict: 
             push(rows, t.rows[i])
         }
     }
-    val left = Table { name: t.name, columns: t.columns, rows: snapshot(rows) }
+    val left = with t { rows: snapshot(rows) }
     return ok(Outcome {
         database: with_table(database, left),
         // The row as it was, which is the only version of a deleted row there is.
@@ -1661,7 +1923,8 @@ fn run_update(database: Database, stmt: UpdateStmt, params: [SqlValue], strict: 
     for assignment in stmt.sets {
         try validate_expr(assignment.value, shape)
     }
-    val chosen = to_set(try matching(database, t, stmt.filter, params, strict))
+    val touched = try matching(database, t, stmt.filter, params, strict)
+    val chosen = to_set(touched)
     val rows = mutable_array_new<[SqlValue]>()
     val written = mutable_array_new<[SqlValue]>()
     for i in 0..prelude.len(t.rows) {
@@ -1682,7 +1945,10 @@ fn run_update(database: Database, stmt: UpdateStmt, params: [SqlValue], strict: 
         push(rows, row)
         push(written, row)
     }
-    val changed = Table { name: t.name, columns: t.columns, rows: snapshot(rows) }
+    val changed = with t { rows: snapshot(rows) }
+    // The row indexes are unchanged -- one row goes back for every row that came out -- so the
+    // rows this statement wrote are the ones it matched.
+    try enforce(database, changed, touched, params, strict)
     return ok(Outcome {
         database: with_table(database, changed),
         // The row as it now stands, which is what both engines return and what a caller asking for
@@ -2636,23 +2902,28 @@ pub fn driver() -> Driver {
     return engine("memdb:", false)
 }
 
-// The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Seven things differ,
-// and the first four are places where SQLite departs from ANSI:
+// The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Nine things differ,
+// and the first five are places where SQLite departs from ANSI:
 //
 //   - `LIKE` is case-sensitive, as the standard and PostgreSQL have it, where SQLite folds ASCII;
 //   - division by zero is an error (SQLSTATE 22012's rule), where SQLite answers NULL;
 //   - comparing a number with text is a type error, where SQLite orders them by a type rank;
 //   - a boolean in a select list stays a boolean, where SQLite has no boolean type and answers 0
-//     or 1.
+//     or 1;
+//   - a `PRIMARY KEY` column may not hold NULL, which makes a key implicitly `NOT NULL` as the
+//     standard says -- where SQLite allows it, and for a single-column `INTEGER PRIMARY KEY` fills
+//     in the next rowid instead.
 //
-// The other three point the other way, SQLite being the stricter engine (each measured, not
+// The other four point the other way, SQLite being the stricter engine (each measured, not
 // assumed):
 //
 //   - a chain of set operations groups left to right in SQLite and binds `INTERSECT` tighter in the
 //     standard and in PostgreSQL, so `a UNION b INTERSECT c` is two different queries;
 //   - `INTERSECT ALL`, `EXCEPT ALL` and `UNION DISTINCT` are syntax errors in SQLite and ordinary
 //     SQL in PostgreSQL;
-//   - `RETURNING t.*` is refused by SQLite and answered by PostgreSQL.
+//   - `RETURNING t.*` is refused by SQLite and answered by PostgreSQL;
+//   - `ALTER TABLE ... ADD COLUMN u TEXT UNIQUE` is refused by SQLite, which does not rewrite the
+//     rows already there, and accepted by PostgreSQL, which does.
 //
 // For those, the lax reading refuses and this one runs them.
 //

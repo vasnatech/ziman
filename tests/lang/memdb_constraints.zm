@@ -1,0 +1,173 @@
+// `memdb` enforcing constraints, with every answer compared against real SQLite.
+//
+// **Constraints were parsed and remembered and never enforced until now**, which the module's own
+// header said plainly -- and which made the engine useless for the half of a test suite that
+// checks a write is *refused*. A suite that passes here only because nothing was enforced is the
+// false green this whole arrangement exists to prevent, so each rule is asserted against the
+// engine the application actually ships on rather than against the standard's prose.
+//
+// The rules that have a NULL in them are the ones a reader guesses wrong, and they do not all read
+// NULL the same way:
+//
+//   - `NOT NULL` refuses a NULL, and a column left out of an `INSERT` is a NULL unless it has a
+//     default.
+//   - `UNIQUE` and `PRIMARY KEY` ignore a key with a NULL in it: two such keys never conflict,
+//     because uniqueness asks whether two keys are *equal* and a NULL is equal to nothing. This is
+//     the opposite of what `DISTINCT` and `GROUP BY` do with NULLs, and both readings are correct.
+//   - a `CHECK` fails only when it is **false**; NULL is unknown and passes.
+//   - a single-column `INTEGER PRIMARY KEY` is SQLite's rowid, so a NULL there -- or an omitted
+//     column -- takes the next value instead of being refused. `INT` and `BIGINT` are not
+//     `INTEGER`, and keep the NULL.
+//
+// Foreign keys are modelled and **not** enforced yet; `memdb_foreign_keys.zm` is where they go
+// when they are.
+use datasource
+use db
+use memdb
+use sqlite
+
+val drivers = datasource.registry([memdb.driver(), sqlite.driver()])
+
+val schema: [string] = [
+    "CREATE TABLE p (id INTEGER PRIMARY KEY, name TEXT NOT NULL, tag TEXT UNIQUE, n INTEGER CHECK (n > 0))",
+    "CREATE TABLE k (a INTEGER, b INTEGER, PRIMARY KEY (a, b))",
+    "CREATE TABLE u2 (a INTEGER, b INTEGER, UNIQUE (a, b))",
+    "CREATE TABLE ch (a INTEGER, b INTEGER, CHECK (a < b))",
+    "CREATE TABLE named (a INTEGER, CONSTRAINT positive CHECK (a > 0))",
+    "CREATE TABLE both (a INTEGER, b INTEGER, CONSTRAINT pair UNIQUE (a, b))",
+    "CREATE TABLE plain_int (a INT PRIMARY KEY, t TEXT)",
+    "CREATE TABLE big_int (a BIGINT PRIMARY KEY, t TEXT)",
+    "CREATE TABLE grow (a INTEGER)",
+    "CREATE TABLE defaults (a INTEGER NOT NULL DEFAULT 5, b TEXT)",
+    "INSERT INTO grow (a) VALUES (1)"
+]
+
+val probes: [string] = [
+    // NOT NULL, on insert and on update, and from a column left out
+    "INSERT INTO p (id, name) VALUES (1, 'a')",
+    "INSERT INTO p (id, name) VALUES (2, NULL)",
+    "INSERT INTO p (id) VALUES (3)",
+    "UPDATE p SET name = NULL WHERE id = 1",
+    "SELECT id, name FROM p ORDER BY id",
+    // PRIMARY KEY: a duplicate is a UNIQUE failure in SQLite's words, and a NULL is the rowid
+    "INSERT INTO p (id, name) VALUES (1, 'dup')",
+    "INSERT INTO p (id, name) VALUES (NULL, 'auto') RETURNING id",
+    "INSERT INTO p (name) VALUES ('auto too') RETURNING id",
+    "UPDATE p SET id = 1 WHERE name = 'auto'",
+    "SELECT id, name FROM p ORDER BY id",
+    // UNIQUE, where two NULLs are not a conflict
+    "UPDATE p SET tag = 'x' WHERE id = 1",
+    "INSERT INTO p (id, name, tag) VALUES (10, 'b', 'x')",
+    "INSERT INTO p (id, name, tag) VALUES (11, 'c', NULL)",
+    "INSERT INTO p (id, name, tag) VALUES (12, 'd', NULL)",
+    "UPDATE p SET tag = 'x' WHERE id = 11",
+    "SELECT count(*) AS c FROM p",
+    // CHECK, in a column's position: false fails, NULL passes
+    "INSERT INTO p (id, name, n) VALUES (20, 'e', 5)",
+    "INSERT INTO p (id, name, n) VALUES (21, 'f', 0)",
+    "INSERT INTO p (id, name, n) VALUES (22, 'g', NULL)",
+    "UPDATE p SET n = -1 WHERE id = 20",
+    "UPDATE p SET n = 7 WHERE id = 20",
+    // a composite PRIMARY KEY, which a NULL slips past in SQLite
+    "INSERT INTO k (a, b) VALUES (1, 1)",
+    "INSERT INTO k (a, b) VALUES (1, 2)",
+    "INSERT INTO k (a, b) VALUES (1, 1)",
+    "INSERT INTO k (a, b) VALUES (NULL, 1)",
+    "INSERT INTO k (a, b) VALUES (NULL, 1)",
+    "SELECT count(*) AS c FROM k",
+    // a composite UNIQUE
+    "INSERT INTO u2 (a, b) VALUES (1, 1)",
+    "INSERT INTO u2 (a, b) VALUES (1, 1)",
+    "INSERT INTO u2 (a, b) VALUES (1, 2)",
+    "INSERT INTO u2 (a, b) VALUES (NULL, NULL)",
+    "INSERT INTO u2 (a, b) VALUES (NULL, NULL)",
+    "SELECT count(*) AS c FROM u2",
+    // a table-level CHECK over two columns
+    "INSERT INTO ch (a, b) VALUES (1, 2)",
+    "INSERT INTO ch (a, b) VALUES (2, 1)",
+    "INSERT INTO ch (a, b) VALUES (NULL, 1)",
+    "UPDATE ch SET b = 0 WHERE a = 1",
+    // a named constraint, which both engines quote by name instead of by expression
+    "INSERT INTO named (a) VALUES (0)",
+    "INSERT INTO named (a) VALUES (1)",
+    "INSERT INTO both (a, b) VALUES (1, 1)",
+    "INSERT INTO both (a, b) VALUES (1, 1)",
+    // INT and BIGINT are not INTEGER, so no rowid and no refusal
+    "INSERT INTO plain_int (a, t) VALUES (NULL, 'null int')",
+    "INSERT INTO plain_int (a, t) VALUES (NULL, 'again')",
+    "SELECT a, t FROM plain_int",
+    "INSERT INTO big_int (a, t) VALUES (NULL, 'bigint')",
+    "SELECT a FROM big_int",
+    // ALTER TABLE, which SQLite refuses for both of these because it does not rewrite the rows
+    "ALTER TABLE grow ADD COLUMN b TEXT NOT NULL",
+    "ALTER TABLE grow ADD COLUMN c TEXT NOT NULL DEFAULT 'x'",
+    "ALTER TABLE grow ADD COLUMN d TEXT UNIQUE",
+    "SELECT a, c FROM grow",
+    // a default fills in where a column was left out, and is still subject to NOT NULL
+    "INSERT INTO defaults (a) VALUES (NULL)",
+    "INSERT INTO defaults (b) VALUES ('default fills in')",
+    "SELECT a, b FROM defaults",
+    // and a refused statement must leave the table exactly as it was
+    "DELETE FROM p WHERE id = 12",
+    "SELECT count(*) AS c FROM p"
+]
+
+fn kind(e: db.DbError) -> string {
+    return switch e {
+        NotFound(_) { "NotFound" }
+        Constraint(_) { "Constraint" }
+        Connection(_) { "Connection" }
+        Sql(_) { "Sql" }
+    }
+}
+
+// The answer, or the error **with its class**: a constraint violation has to come back as
+// `DbError.Constraint` and not as a `Sql` error, because that is what a caller switches on to tell
+// "you may not" from "I could not read that".
+fn answer(c: datasource.Connection, sql: string) -> string {
+    return switch datasource.query(c, sql) {
+        Ok(rows) {
+            val out = mutable_string_new()
+            append(out, format("ok {} row(s):", prelude.len(rows)))
+            for r in rows {
+                append(out, " [")
+                for i in 0..prelude.len(r.columns) {
+                    append(out, format("{}={} ", r.columns[i], r.values[i]))
+                }
+                append(out, "]")
+            }
+            snapshot(out)
+        }
+        Err(e) { concat(kind(e), ": ", db.db_error_message(e)) }
+    }
+}
+
+fn seed(url: string) -> datasource.Connection {
+    val c = unwrap(datasource.open(drivers, url))
+    for s in schema {
+        unwrap(datasource.execute(c, s))
+    }
+    return c
+}
+
+fn main() {
+    val mem = seed("memdb:")
+    val lite = seed("sqlite::memory:")
+    var disagreements = 0
+    for sql in probes {
+        val a = answer(mem, sql)
+        val b = answer(lite, sql)
+        if a == b {
+            print(concat("agree    ", sql))
+        } else {
+            disagreements = disagreements + 1
+            print(concat("DISAGREE ", sql))
+            print(concat("  memdb:  ", a))
+            print(concat("  sqlite: ", b))
+        }
+    }
+    print(format("{} of {} agree", prelude.len(probes) - disagreements, prelude.len(probes)))
+
+    datasource.close(mem)
+    datasource.close(lite)
+}

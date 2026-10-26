@@ -63,6 +63,16 @@
    lax:    refused: database error: near "ALL": syntax error
    ansi:   3 row(s) | Int(1) | Int(2) | Int(3)
    sqlite: refused: database error: near "ALL": syntax error
+-- **a NULL in a PRIMARY KEY**: the standard and PostgreSQL make a key implicitly NOT NULL, while SQLite allows it -- and for a single-column INTEGER PRIMARY KEY, which is its rowid, fills in the next value instead. So the lax reading answers a row and the strict one refuses the write
+   INSERT INTO keyed (id, v) VALUES (NULL, 'x')
+   lax:    0 row(s)
+   ansi:   refused: constraint violation: a PRIMARY KEY column may not be NULL: keyed.id (the standard and PostgreSQL refuse what SQLite allows)
+   sqlite: 0 row(s)
+-- adding a UNIQUE column: SQLite refuses it outright because it does not rewrite the rows already there, where PostgreSQL rewrites and accepts. (Adding a NOT NULL column with no default is refused by both when the table has rows, so it is not a divergence)
+   ALTER TABLE widen ADD COLUMN u TEXT UNIQUE
+   lax:    refused: database error: Cannot add a UNIQUE column
+   ansi:   0 row(s)
+   sqlite: refused: database error: Cannot add a UNIQUE column
 -- ALTER TABLE ... ADD CONSTRAINT is standard SQL that SQLite does not have at all. The strict reading accepts it and records it nowhere, which is what it already does with a CREATE TABLE's constraints -- this engine enforces none. Nothing observable changes on either connection, which is why it is safe to run here
    ALTER TABLE t ADD CONSTRAINT k UNIQUE (id)
    lax:    refused: database error: near "CONSTRAINT": syntax error
@@ -73,7 +83,7 @@
    lax:    refused: database error: near "DISTINCT": syntax error
    ansi:   6 row(s) | Int(0) | Int(1) | Int(2) | Int(3) | Int(5) | Int(10)
    sqlite: refused: database error: near "DISTINCT": syntax error
-lax matches sqlite on 15 of 15
-ansi differs from lax on 15 of 15
+lax matches sqlite on 17 of 17
+ansi differs from lax on 17 of 17
 -- the two readings agree on everything else --
 the two readings agree on 31 of 31

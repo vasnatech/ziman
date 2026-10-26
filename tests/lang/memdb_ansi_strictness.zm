@@ -38,6 +38,10 @@ fn answer(conn: datasource.Connection, sql: string) -> string {
 fn seed(url: string) -> datasource.Connection {
     val c = unwrap(datasource.open(drivers, url))
     unwrap(datasource.execute(c, "CREATE TABLE t (id INTEGER, name TEXT, n INTEGER)"))
+    // Two tables with keys, for the constraint divergences. Written to by the cases below and read
+    // by nothing, so what the two readings do to them cannot reach the shared list.
+    unwrap(datasource.execute(c, "CREATE TABLE keyed (id INTEGER PRIMARY KEY, v TEXT)"))
+    unwrap(datasource.execute(c, "CREATE TABLE widen (a INTEGER)"))
     for stmt in [
         "INSERT INTO t (id, name, n) VALUES (1, 'Ada', 10)",
         "INSERT INTO t (id, name, n) VALUES (2, 'ada', 0)",
@@ -94,6 +98,14 @@ fn main() {
         [
             "SELECT id FROM t EXCEPT ALL SELECT n FROM t ORDER BY 1",
             "EXCEPT ALL, likewise absent from SQLite: it removes one occurrence per occurrence on the right"
+        ],
+        [
+            "INSERT INTO keyed (id, v) VALUES (NULL, 'x')",
+            "**a NULL in a PRIMARY KEY**: the standard and PostgreSQL make a key implicitly NOT NULL, while SQLite allows it -- and for a single-column INTEGER PRIMARY KEY, which is its rowid, fills in the next value instead. So the lax reading answers a row and the strict one refuses the write"
+        ],
+        [
+            "ALTER TABLE widen ADD COLUMN u TEXT UNIQUE",
+            "adding a UNIQUE column: SQLite refuses it outright because it does not rewrite the rows already there, where PostgreSQL rewrites and accepts. (Adding a NOT NULL column with no default is refused by both when the table has rows, so it is not a divergence)"
         ],
         [
             "ALTER TABLE t ADD CONSTRAINT k UNIQUE (id)",

@@ -231,6 +231,7 @@ them against the code.
 - [A qualified star, and the first divergence that points the other way (2026-10-25)](#a-qualified-star-and-the-first-divergence-that-points-the-other-way-2026-10-25)
 - [Set operations, and a query whose answer depends on the engine (2026-10-25)](#set-operations-and-a-query-whose-answer-depends-on-the-engine-2026-10-25)
 - [Three defects an inventory found, one of them a crash (2026-10-25)](#three-defects-an-inventory-found-one-of-them-a-crash-2026-10-25)
+- [Constraints stop being decoration (2026-10-25)](#constraints-stop-being-decoration-2026-10-25)
 
 <!-- end index -->
 
@@ -9024,3 +9025,38 @@ All of 2 and 3 come from one absence, and one list fixes both: `known_functions`
 **The numbers.** 141 read queries agree with real SQLite, up from 121; the 20 new ones are the unknown-function, wrong-arity and misused-aggregate cases, each checked on a query whose rows are empty so that the *refusal* is what is compared. Five `ALTER TABLE ... ADD <constraint>` forms are refused identically by both engines in a section of their own. 96 round-trip shapes settle in one pass, up from 89. The strictness fixture holds 15 divergences, up from 14.
 
 One more thing the probe showed, recorded because it is a difference and not a defect: when a statement has two faults, the engines complain in their own order. `SELECT nosuchfunc(name) FROM visit`, where `visit` has no `name`, is `no such column: name` on SQLite and `no such function: nosuchfunc` here. Both refuse; which fault they look for first is their own business, and the fixture uses a column that exists so it is asserting the function rule rather than the order.
+
+## Constraints stop being decoration (2026-10-25)
+
+`NOT NULL`, `PRIMARY KEY`, `UNIQUE` and `CHECK` are **enforced**, at column level and at table level, on `INSERT` and on `UPDATE`, with SQLite's own messages. A new fixture runs 55 statements on `memdb` and on real SQLite and **all 55 agree on the first run**. `FOREIGN KEY` is modelled and not yet enforced; that is the next increment and it is named as such rather than implied.
+
+**Until now every constraint was a run of text nobody looked inside.** That was honest while nothing enforced them -- the header said so in its own divergence list -- and useless the moment anything did, because half of what a test suite checks about a write is that the write is *refused*. So the parser's model changed first: `ConstraintRule` with `PrimaryKey([string])`, `Unique([string])`, `Check(Expr)`, `ForeignKey(ForeignKeyRule)` and `Opaque`, each carried by a `TableConstraint` that also keeps the source `text`. **An engine cannot enforce a string**, and that is the whole argument for modelling them.
+
+Three decisions in that model are worth the space:
+
+* **`format` writes the rule, not the text.** Echoing `text` would have been one line and would have made a constraint built in code format as nothing at all. `text` survives for the `Opaque` rule, which has nothing else, and for the messages an engine quotes.
+* **A column-position `CHECK` or `REFERENCES` stays on the column.** Lifting them into the table's constraint list would have been simpler to enforce and would have rewritten every one of the sample application's migrations, which put every foreign key in column position. Two formatting functions is the price.
+* **A *named* column constraint is still text.** `a INT CONSTRAINT k CHECK (..)` keeps its whole run verbatim and is not enforced, where the same constraint at table level is. Nothing is lost and nothing is pretended; the alternative was a pending-name variable that would drop the name on any shape it did not expect.
+
+**The NULL rules are the reason this needs a cross-check rather than a careful reading**, because SQL gives NULL three different meanings inside four constraints:
+
+| | |
+|---|---|
+| `NOT NULL` | refuses a NULL, and a column left out of an `INSERT` is a NULL unless it has a default |
+| `UNIQUE`, `PRIMARY KEY` | **ignore** a key with a NULL in it -- two such keys never conflict, because uniqueness asks whether two keys are *equal* and a NULL is equal to nothing |
+| `CHECK` | fails only when it is **false**; NULL is unknown and passes |
+
+The second is the opposite of what `DISTINCT` and `GROUP BY` do with NULLs, where two NULLs *are* the same row. Both readings are correct and they sit in the same engine, one `values_same` apart -- which is why that function is shared by the three callers that want the grouping reading and skipped by the one that wants the uniqueness reading.
+
+**And then there is the rowid, which is the quirk that would have made a false green out of the common case.** A single-column `INTEGER PRIMARY KEY` is SQLite's rowid under another name: a NULL in it, or leaving the column out of the `INSERT`, takes the next value instead of being refused. Measured rather than assumed, and the measurement mattered twice: the declared type must be **exactly** `INTEGER`, since `INT PRIMARY KEY` and `BIGINT PRIMARY KEY` are ordinary columns there and keep the NULL; and a *composite* primary key is not a rowid even when one of its columns is an `INTEGER`. A reading of the documentation would have given the first and probably missed the second.
+
+Two new divergences between the readings, both measured on postgres:17, bringing the count to nine:
+
+* **A `PRIMARY KEY` column may hold NULL in SQLite** -- genuinely, not only in the rowid case: `CREATE TABLE t (a TEXT PRIMARY KEY)` takes a NULL and takes a second one. The standard makes a key implicitly `NOT NULL` and PostgreSQL enforces that, so the strict reading refuses the write.
+* **`ALTER TABLE ... ADD COLUMN u TEXT UNIQUE` is refused by SQLite** and accepted by PostgreSQL, because SQLite adds a column without rewriting the rows already there. The same reason makes SQLite refuse `ADD COLUMN x TEXT NOT NULL` outright (`Cannot add a NOT NULL column with default value NULL`) where PostgreSQL refuses it only when there are rows to falsify it -- so that one is a divergence *only* on an empty table, and is recorded as prose rather than asserted as a case.
+
+**Enforcement happens before the new table is published**, so a refused statement leaves the database exactly as it was. That is free here, and it is free for the same reason transactions are: a `Database` is an immutable value, and the new one simply never gets published. An engine that mutated rows in place would need the undo log this one has never had.
+
+One structural note. `Table` gained a `constraints` list holding **all** of them -- the table-level ones, the ones written in a column's position, and a synthesized `PrimaryKey`/`Unique` for every singly-flagged column -- so enforcement walks one list. Three places to remember is how a constraint gets enforced on `INSERT` and forgotten on `UPDATE`, and the four `Table` construction sites were found by the compiler the moment the field existed, which is the same mechanism that found the five `Expr` switches two entries above.
+
+**The numbers.** 55 of 55 constraint statements agree with real SQLite, including the `Constraint` error *class* and not just its text -- a caller switches on that to tell "you may not" from "I could not read that". 141 read queries and 21 `RETURNING` statements still agree. 107 round-trip shapes settle in one pass, up from 96, the new ones being named constraints, composite keys, foreign keys with every action, and the interleavings of a column's flags with its constraints. The strictness fixture holds 17 divergences, up from 15.

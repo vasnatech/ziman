@@ -1987,6 +1987,39 @@ pub struct Token {
     end: int
 }
 
+pub enum ConstraintRule {
+    PrimaryKey([string])
+    Unique([string])
+    Check(Expr)
+    ForeignKey(ForeignKeyRule)
+    // A shape this module does not model, carried by the constraint's `text` and written back
+    // verbatim.
+    Opaque
+}
+
+pub struct ForeignKeyRule {
+    // The child's columns -- this table's.
+    columns: [string]
+    table: string
+    // The parent's columns. Empty where none were named, which means the parent's primary key.
+    references: [string]
+    // `CASCADE`, `SET NULL`, `SET DEFAULT`, `RESTRICT`, `NO ACTION`, or empty for the default --
+    // which *is* `NO ACTION`, spelled differently so a reader can tell "not written" from
+    // "written as the default".
+    on_delete: string
+    on_update: string
+}
+
+pub struct TableConstraint {
+    // From `CONSTRAINT <name>`, or empty. An engine quotes it in its message when it is there.
+    name: string
+    rule: ConstraintRule
+    // The constraint exactly as written, brackets and spacing included. `format` writes it for an
+    // `Opaque` rule, and an engine's message quotes the expression inside it for an unnamed
+    // `CHECK` -- which is what SQLite quotes, spacing and all.
+    text: string
+}
+
 pub struct Column {
     name: string
     type_name: string
@@ -1994,9 +2027,18 @@ pub struct Column {
     primary_key: bool
     unique: bool
     default_value: Option<SqlValue>
-    // Every constraint on this column that is not one of the four above, as the text it was
-    // written as: `REFERENCES patients(id) ON DELETE CASCADE`, `CHECK (n > 0)`, `COLLATE NOCASE`,
-    // `AUTOINCREMENT`. Preserved rather than modelled, so `format` writes back what it read.
+    // The constraints written in this column's own position that this module models: a bare
+    // `CHECK (e)` and a bare `REFERENCES t (c)`, each with this column as its column list. They
+    // stay here rather than moving to the table's list so `format` writes them back where they
+    // were -- the sample application's migrations put every foreign key in column position.
+    //
+    // A *named* column constraint (`CONSTRAINT k CHECK (..)`) is **not** modelled and goes to
+    // `extra` whole, so nothing of it is lost and nothing of it is enforced.
+    constraints: [TableConstraint]
+    // Every constraint on this column that is modelled by neither the four flags above nor
+    // `constraints`, as the text it was written as: `COLLATE NOCASE`, `AUTOINCREMENT`,
+    // `GENERATED ALWAYS AS ..`, a named constraint. Preserved rather than modelled, so `format`
+    // writes back what it read.
     extra: string
 }
 
@@ -2186,8 +2228,8 @@ pub struct CreateStmt {
     table: string
     columns: [Column]
     // The table-level constraints -- `PRIMARY KEY (a, b)`, `FOREIGN KEY ... REFERENCES ...`,
-    // `UNIQUE (..)`, `CHECK (..)`, a named `CONSTRAINT` -- as the text they were written as.
-    constraints: [string]
+    // `UNIQUE (..)`, `CHECK (..)`, each with the name a `CONSTRAINT` prefix gave it.
+    constraints: [TableConstraint]
     if_not_exists: bool
 }
 
@@ -2241,6 +2283,8 @@ pub fn parse_file(path: string) -> Result<[Statement], DbError>
 pub fn format_value(v: SqlValue) -> string
 
 pub fn format_expr(e: Expr) -> string
+
+pub fn format_constraint(tc: TableConstraint) -> string
 
 pub fn format(s: Statement) -> string
 

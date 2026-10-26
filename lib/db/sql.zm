@@ -72,9 +72,15 @@
 //
 // A formatter that quietly dropped a `FOREIGN KEY` would be worse than no formatter, so the parts
 // this module does not model are **kept as the text they were written as** and written back
-// verbatim: a column's constraints beyond `NOT NULL`, `PRIMARY KEY`, `UNIQUE` and `DEFAULT`, a
-// table-level constraint, and a statement form that is recognised only well enough to pass through
-// (`PRAGMA`, `SET`, `ANALYZE`, `VACUUM`). They round-trip exactly; they are simply opaque. Where a
+// verbatim: a column's `COLLATE`, `AUTOINCREMENT` or `GENERATED`, a *named* constraint in a
+// column's position, a table-level constraint whose shape is none of the four, and a statement form
+// recognised only well enough to pass through (`PRAGMA`, `SET`, `ANALYZE`, `VACUUM`).
+//
+// The four constraint shapes themselves **are** modelled, because `memdb` enforces them and an
+// engine cannot enforce a string: `PRIMARY KEY (cols)`, `UNIQUE (cols)`, `CHECK (expr)` and
+// `FOREIGN KEY (cols) REFERENCES t (cols)` with their `ON DELETE`/`ON UPDATE` actions, at table
+// level and -- for `CHECK` and `REFERENCES` -- in a column's own position, where they stay so that
+// `format` writes them back where they were. They round-trip exactly; they are simply opaque. Where a
 // reader needs one of them taken apart, that is a modelling increment, and the text is already
 // there to start from.
 
@@ -263,6 +269,43 @@ fn tokenize(sql: string) -> Result<[Token], DbError> {
 
 // A column as the schema declares it. `type_name` is kept for messages and for a future increment
 // that applies affinity; nothing reads it to decide anything today.
+// What a constraint *says*, for the four shapes the standard makes and this module now models.
+// Until constraint enforcement, every one of these was a run of text nobody looked inside -- which
+// was honest while nothing enforced them and useless the moment something did.
+pub enum ConstraintRule {
+    PrimaryKey([string])
+    Unique([string])
+    Check(Expr)
+    ForeignKey(ForeignKeyRule)
+    // A shape this module does not model, carried by the constraint's `text` and written back
+    // verbatim.
+    Opaque
+}
+
+// `FOREIGN KEY (a, b) REFERENCES parent (x, y) ON DELETE CASCADE`.
+pub struct ForeignKeyRule {
+    // The child's columns -- this table's.
+    columns: [string]
+    table: string
+    // The parent's columns. Empty where none were named, which means the parent's primary key.
+    references: [string]
+    // `CASCADE`, `SET NULL`, `SET DEFAULT`, `RESTRICT`, `NO ACTION`, or empty for the default --
+    // which *is* `NO ACTION`, spelled differently so a reader can tell "not written" from
+    // "written as the default".
+    on_delete: string
+    on_update: string
+}
+
+pub struct TableConstraint {
+    // From `CONSTRAINT <name>`, or empty. An engine quotes it in its message when it is there.
+    name: string
+    rule: ConstraintRule
+    // The constraint exactly as written, brackets and spacing included. `format` writes it for an
+    // `Opaque` rule, and an engine's message quotes the expression inside it for an unnamed
+    // `CHECK` -- which is what SQLite quotes, spacing and all.
+    text: string
+}
+
 pub struct Column {
     name: string
     type_name: string
@@ -270,9 +313,18 @@ pub struct Column {
     primary_key: bool
     unique: bool
     default_value: Option<SqlValue>
-    // Every constraint on this column that is not one of the four above, as the text it was
-    // written as: `REFERENCES patients(id) ON DELETE CASCADE`, `CHECK (n > 0)`, `COLLATE NOCASE`,
-    // `AUTOINCREMENT`. Preserved rather than modelled, so `format` writes back what it read.
+    // The constraints written in this column's own position that this module models: a bare
+    // `CHECK (e)` and a bare `REFERENCES t (c)`, each with this column as its column list. They
+    // stay here rather than moving to the table's list so `format` writes them back where they
+    // were -- the sample application's migrations put every foreign key in column position.
+    //
+    // A *named* column constraint (`CONSTRAINT k CHECK (..)`) is **not** modelled and goes to
+    // `extra` whole, so nothing of it is lost and nothing of it is enforced.
+    constraints: [TableConstraint]
+    // Every constraint on this column that is modelled by neither the four flags above nor
+    // `constraints`, as the text it was written as: `COLLATE NOCASE`, `AUTOINCREMENT`,
+    // `GENERATED ALWAYS AS ..`, a named constraint. Preserved rather than modelled, so `format`
+    // writes back what it read.
     extra: string
 }
 
@@ -489,8 +541,8 @@ pub struct CreateStmt {
     table: string
     columns: [Column]
     // The table-level constraints -- `PRIMARY KEY (a, b)`, `FOREIGN KEY ... REFERENCES ...`,
-    // `UNIQUE (..)`, `CHECK (..)`, a named `CONSTRAINT` -- as the text they were written as.
-    constraints: [string]
+    // `UNIQUE (..)`, `CHECK (..)`, each with the name a `CONSTRAINT` prefix gave it.
+    constraints: [TableConstraint]
     if_not_exists: bool
 }
 
@@ -934,15 +986,15 @@ fn parse_expr(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
 // ---------------------------------------------------------------- parsing statements
 
 // Everything after a column's name and type until the `,` or `)` that ends it, picking out the
-// flags this engine records. Unknown column constraints (`REFERENCES`, `CHECK`, `COLLATE`,
-// `AUTOINCREMENT`) are consumed and dropped, which is the same promise the header makes about
-// constraints generally: remembered where cheap, never enforced here, and always enforced by the
-// engine the suite also runs against.
+// flags this module models. A bare `CHECK (e)` and a bare `REFERENCES t (c)` are modelled too, as
+// constraints on this one column; everything else (`COLLATE`, `AUTOINCREMENT`, `GENERATED`, a
+// *named* column constraint) is kept as the text it was written as and written back verbatim.
 fn parse_column_tail(c: Cursor, name: string, type_name: string) -> Result<Column, DbError> {
     var not_null = false
     var primary_key = false
     var unique = false
     var default_value = Option<SqlValue>.None
+    val constraints = mutable_array_new<TableConstraint>()
     val extra = mutable_array_new<string>()
     var depth = 0
     while !at_end(c) {
@@ -975,6 +1027,27 @@ fn parse_column_tail(c: Cursor, name: string, type_name: string) -> Result<Colum
         }
         if depth == 0 && accept(c, "UNIQUE") {
             unique = true
+            continue
+        }
+        if depth == 0 && sees(c, "CHECK") {
+            val from = get(c.at)
+            set(c.at, get(c.at) + 1)
+            val e = try parse_bracketed_expr(c)
+            push(constraints, TableConstraint {
+                name: "",
+                rule: ConstraintRule.Check(e),
+                text: span_since(c, from)
+            })
+            continue
+        }
+        if depth == 0 && sees(c, "REFERENCES") {
+            val from = get(c.at)
+            val fk = try parse_references(c, [name])
+            push(constraints, TableConstraint {
+                name: "",
+                rule: ConstraintRule.ForeignKey(fk),
+                text: span_since(c, from)
+            })
             continue
         }
         if depth == 0 && accept(c, "DEFAULT") {
@@ -1015,14 +1088,17 @@ fn parse_column_tail(c: Cursor, name: string, type_name: string) -> Result<Colum
         primary_key: primary_key,
         unique: unique,
         default_value: default_value,
+        constraints: snapshot(constraints),
         extra: join(separator: " ", pieces: snapshot(extra))
     })
 }
 
-// The words that begin one of the four constraints this module models, so the preserved run of an
-// unmodelled one knows where to stop.
+// The words that begin something this module models in a column's tail, so the preserved run of
+// an unmodelled constraint knows where to stop. `CHECK` and `REFERENCES` joined the list when they
+// stopped being text.
 fn is_column_flag(c: Cursor) -> bool {
-    return sees(c, "NOT") || sees(c, "NULL") || sees(c, "PRIMARY") || sees(c, "UNIQUE") || sees(c, "DEFAULT")
+    return sees(c, "NOT") || sees(c, "NULL") || sees(c, "PRIMARY") || sees(c, "UNIQUE") ||
+        sees(c, "DEFAULT") || sees(c, "CHECK") || sees(c, "REFERENCES")
 }
 
 // A column type as written: a name, then optionally `(n)` or `(n, m)`, then optionally more name
@@ -1046,12 +1122,129 @@ fn parse_type_name(c: Cursor) -> Result<string, DbError> {
     return ok(snapshot(out))
 }
 
-// The table-level constraints (`PRIMARY KEY (a, b)`, `FOREIGN KEY ... REFERENCES ...`,
-// `UNIQUE (..)`, `CHECK (..)`) -- recognised so a `CREATE TABLE` that has them parses, and then
-// skipped, since this increment enforces none of them.
+// Whether a table-level constraint starts here. The four shapes are modelled by
+// `parse_table_constraint`; anything else beginning with these words is kept as text.
 fn is_table_constraint(c: Cursor) -> bool {
     return sees(c, "PRIMARY") || sees(c, "FOREIGN") || sees(c, "UNIQUE") || sees(c, "CHECK") ||
         sees(c, "CONSTRAINT")
+}
+
+// A parenthesised list of column names, which is what `PRIMARY KEY`, `UNIQUE` and both sides of a
+// `FOREIGN KEY` take.
+fn parse_name_list(c: Cursor) -> Result<[string], DbError> {
+    try expect_punct(c, "(")
+    val out = mutable_array_new<string>()
+    var first = true
+    while !sees_punct(c, ")") {
+        if !first {
+            try expect_punct(c, ",")
+        }
+        first = false
+        push(out, try expect_name(c))
+    }
+    try expect_punct(c, ")")
+    return ok(snapshot(out))
+}
+
+fn parse_fk_action(c: Cursor) -> Result<string, DbError> {
+    if accept(c, "CASCADE") {
+        return ok("CASCADE")
+    }
+    if accept(c, "RESTRICT") {
+        return ok("RESTRICT")
+    }
+    if accept(c, "SET") {
+        if accept(c, "NULL") {
+            return ok("SET NULL")
+        }
+        try expect_word(c, "DEFAULT")
+        return ok("SET DEFAULT")
+    }
+    if accept(c, "NO") {
+        try expect_word(c, "ACTION")
+        return ok("NO ACTION")
+    }
+    return err(problem(prelude.format("expected a foreign key action, found {}", found(c))))
+}
+
+// `REFERENCES parent [(cols)] [ON DELETE a] [ON UPDATE a]`, with `columns` the child's side --
+// which a column-position `REFERENCES` gets from the column it is written on.
+fn parse_references(c: Cursor, columns: [string]) -> Result<ForeignKeyRule, DbError> {
+    try expect_word(c, "REFERENCES")
+    val table = try expect_name(c)
+    var references: [string] = []
+    if sees_punct(c, "(") {
+        references = try parse_name_list(c)
+    }
+    var on_delete = ""
+    var on_update = ""
+    while accept(c, "ON") {
+        if accept(c, "DELETE") {
+            on_delete = try parse_fk_action(c)
+        } else {
+            try expect_word(c, "UPDATE")
+            on_update = try parse_fk_action(c)
+        }
+    }
+    return ok(ForeignKeyRule {
+        columns: columns,
+        table: table,
+        references: references,
+        on_delete: on_delete,
+        on_update: on_update
+    })
+}
+
+// One table-level constraint, modelled where its shape is one of the four and kept as text where
+// it is not.
+fn parse_table_constraint(c: Cursor) -> Result<TableConstraint, DbError> {
+    val from = get(c.at)
+    var name = ""
+    if accept(c, "CONSTRAINT") {
+        name = try expect_name(c)
+    }
+    if accept(c, "PRIMARY") {
+        try expect_word(c, "KEY")
+        val columns = try parse_name_list(c)
+        return ok(TableConstraint {
+            name: name,
+            rule: ConstraintRule.PrimaryKey(columns),
+            text: span_since(c, from)
+        })
+    }
+    if accept(c, "UNIQUE") {
+        val columns = try parse_name_list(c)
+        return ok(TableConstraint {
+            name: name,
+            rule: ConstraintRule.Unique(columns),
+            text: span_since(c, from)
+        })
+    }
+    if accept(c, "CHECK") {
+        val e = try parse_bracketed_expr(c)
+        return ok(TableConstraint { name: name, rule: ConstraintRule.Check(e), text: span_since(c, from) })
+    }
+    if accept(c, "FOREIGN") {
+        try expect_word(c, "KEY")
+        val columns = try parse_name_list(c)
+        val fk = try parse_references(c, columns)
+        return ok(TableConstraint {
+            name: name,
+            rule: ConstraintRule.ForeignKey(fk),
+            text: span_since(c, from)
+        })
+    }
+    // Not a shape this models. Rewound, so the verbatim run starts where the constraint did.
+    set(c.at, from)
+    return ok(TableConstraint { name: "", rule: ConstraintRule.Opaque, text: take_table_constraint(c) })
+}
+
+fn parse_bracketed_expr(c: Cursor) -> Result<Expr, DbError> {
+    try expect_punct(c, "(")
+    val positional = mutable_new(0)
+    val e = try parse_expr(c, positional)
+    try expect_punct(c, ")")
+    return ok(e)
 }
 
 fn take_table_constraint(c: Cursor) -> string {
@@ -1117,7 +1310,7 @@ fn parse_create(c: Cursor) -> Result<Statement, DbError> {
     val name = try expect_name(c)
     try expect_punct(c, "(")
     val columns = mutable_array_new<Column>()
-    val constraints = mutable_array_new<string>()
+    val constraints = mutable_array_new<TableConstraint>()
     var first = true
     while !sees_punct(c, ")") {
         if !first {
@@ -1125,7 +1318,7 @@ fn parse_create(c: Cursor) -> Result<Statement, DbError> {
         }
         first = false
         if is_table_constraint(c) {
-            push(constraints, take_table_constraint(c))
+            push(constraints, try parse_table_constraint(c))
             continue
         }
         val column_name = try expect_name(c)
@@ -1825,6 +2018,54 @@ pub fn format_expr(e: Expr) -> string {
     }
 }
 
+// A constraint written back. **Derived from the rule rather than echoed from `text`**, so a
+// constraint built in code formats as well as one that was parsed; `text` is for the `Opaque` rule,
+// which has nothing else, and for the messages an engine quotes.
+pub fn format_constraint(tc: TableConstraint) -> string {
+    val out = mutable_string_new()
+    if tc.name != "" {
+        append(out, "CONSTRAINT ", tc.name, " ")
+    }
+    append(out, switch tc.rule {
+        PrimaryKey(columns) { concat("PRIMARY KEY (", join(separator: ", ", pieces: columns), ")") }
+        Unique(columns) { concat("UNIQUE (", join(separator: ", ", pieces: columns), ")") }
+        Check(e) { concat("CHECK (", format_expr(e), ")") }
+        ForeignKey(fk) {
+            concat("FOREIGN KEY (", join(separator: ", ", pieces: fk.columns), ") ", format_references(fk))
+        }
+        Opaque { tc.text }
+    })
+    return snapshot(out)
+}
+
+// The `REFERENCES ..` half, which is also the whole of a column-position foreign key.
+fn format_references(fk: ForeignKeyRule) -> string {
+    val out = mutable_string_new()
+    append(out, "REFERENCES ", fk.table)
+    if prelude.len(fk.references) > 0 {
+        append(out, " (", join(separator: ", ", pieces: fk.references), ")")
+    }
+    if fk.on_delete != "" {
+        append(out, " ON DELETE ", fk.on_delete)
+    }
+    if fk.on_update != "" {
+        append(out, " ON UPDATE ", fk.on_update)
+    }
+    return snapshot(out)
+}
+
+// A constraint in a column's own position, where the column list is the column it is written on and
+// so is left out.
+fn format_column_constraint(tc: TableConstraint) -> string {
+    return switch tc.rule {
+        Check(e) { concat("CHECK (", format_expr(e), ")") }
+        ForeignKey(fk) { format_references(fk) }
+        PrimaryKey(_) { "PRIMARY KEY" }
+        Unique(_) { "UNIQUE" }
+        Opaque { tc.text }
+    }
+}
+
 fn format_column(col: Column) -> string {
     val out = mutable_string_new()
     append(out, col.name)
@@ -1842,6 +2083,9 @@ fn format_column(col: Column) -> string {
     }
     if Some(v) = col.default_value {
         append(out, " DEFAULT ", format_value(v))
+    }
+    for tc in col.constraints {
+        append(out, " ", format_column_constraint(tc))
     }
     if col.extra != "" {
         append(out, " ", col.extra)
@@ -2012,7 +2256,7 @@ pub fn format(s: Statement) -> string {
                     append(out, ", ")
                 }
                 first = false
-                append(out, constraint)
+                append(out, format_constraint(constraint))
             }
             append(out, ")")
             snapshot(out)

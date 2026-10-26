@@ -1,0 +1,56 @@
+agree    INSERT INTO p (id, name) VALUES (1, 'a')
+agree    INSERT INTO p (id, name) VALUES (2, NULL)
+agree    INSERT INTO p (id) VALUES (3)
+agree    UPDATE p SET name = NULL WHERE id = 1
+agree    SELECT id, name FROM p ORDER BY id
+agree    INSERT INTO p (id, name) VALUES (1, 'dup')
+agree    INSERT INTO p (id, name) VALUES (NULL, 'auto') RETURNING id
+agree    INSERT INTO p (name) VALUES ('auto too') RETURNING id
+agree    UPDATE p SET id = 1 WHERE name = 'auto'
+agree    SELECT id, name FROM p ORDER BY id
+agree    UPDATE p SET tag = 'x' WHERE id = 1
+agree    INSERT INTO p (id, name, tag) VALUES (10, 'b', 'x')
+agree    INSERT INTO p (id, name, tag) VALUES (11, 'c', NULL)
+agree    INSERT INTO p (id, name, tag) VALUES (12, 'd', NULL)
+agree    UPDATE p SET tag = 'x' WHERE id = 11
+agree    SELECT count(*) AS c FROM p
+agree    INSERT INTO p (id, name, n) VALUES (20, 'e', 5)
+agree    INSERT INTO p (id, name, n) VALUES (21, 'f', 0)
+agree    INSERT INTO p (id, name, n) VALUES (22, 'g', NULL)
+agree    UPDATE p SET n = -1 WHERE id = 20
+agree    UPDATE p SET n = 7 WHERE id = 20
+agree    INSERT INTO k (a, b) VALUES (1, 1)
+agree    INSERT INTO k (a, b) VALUES (1, 2)
+agree    INSERT INTO k (a, b) VALUES (1, 1)
+agree    INSERT INTO k (a, b) VALUES (NULL, 1)
+agree    INSERT INTO k (a, b) VALUES (NULL, 1)
+agree    SELECT count(*) AS c FROM k
+agree    INSERT INTO u2 (a, b) VALUES (1, 1)
+agree    INSERT INTO u2 (a, b) VALUES (1, 1)
+agree    INSERT INTO u2 (a, b) VALUES (1, 2)
+agree    INSERT INTO u2 (a, b) VALUES (NULL, NULL)
+agree    INSERT INTO u2 (a, b) VALUES (NULL, NULL)
+agree    SELECT count(*) AS c FROM u2
+agree    INSERT INTO ch (a, b) VALUES (1, 2)
+agree    INSERT INTO ch (a, b) VALUES (2, 1)
+agree    INSERT INTO ch (a, b) VALUES (NULL, 1)
+agree    UPDATE ch SET b = 0 WHERE a = 1
+agree    INSERT INTO named (a) VALUES (0)
+agree    INSERT INTO named (a) VALUES (1)
+agree    INSERT INTO both (a, b) VALUES (1, 1)
+agree    INSERT INTO both (a, b) VALUES (1, 1)
+agree    INSERT INTO plain_int (a, t) VALUES (NULL, 'null int')
+agree    INSERT INTO plain_int (a, t) VALUES (NULL, 'again')
+agree    SELECT a, t FROM plain_int
+agree    INSERT INTO big_int (a, t) VALUES (NULL, 'bigint')
+agree    SELECT a FROM big_int
+agree    ALTER TABLE grow ADD COLUMN b TEXT NOT NULL
+agree    ALTER TABLE grow ADD COLUMN c TEXT NOT NULL DEFAULT 'x'
+agree    ALTER TABLE grow ADD COLUMN d TEXT UNIQUE
+agree    SELECT a, c FROM grow
+agree    INSERT INTO defaults (a) VALUES (NULL)
+agree    INSERT INTO defaults (b) VALUES ('default fills in')
+agree    SELECT a, b FROM defaults
+agree    DELETE FROM p WHERE id = 12
+agree    SELECT count(*) AS c FROM p
+55 of 55 agree

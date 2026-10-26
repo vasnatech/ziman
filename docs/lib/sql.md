@@ -80,9 +80,15 @@ step from undoing the last.
 
 A formatter that quietly dropped a `FOREIGN KEY` would be worse than no formatter, so the parts
 this module does not model are **kept as the text they were written as** and written back
-verbatim: a column's constraints beyond `NOT NULL`, `PRIMARY KEY`, `UNIQUE` and `DEFAULT`, a
-table-level constraint, and a statement form that is recognised only well enough to pass through
-(`PRAGMA`, `SET`, `ANALYZE`, `VACUUM`). They round-trip exactly; they are simply opaque. Where a
+verbatim: a column's `COLLATE`, `AUTOINCREMENT` or `GENERATED`, a *named* constraint in a
+column's position, a table-level constraint whose shape is none of the four, and a statement form
+recognised only well enough to pass through (`PRAGMA`, `SET`, `ANALYZE`, `VACUUM`).
+
+The four constraint shapes themselves **are** modelled, because `memdb` enforces them and an
+engine cannot enforce a string: `PRIMARY KEY (cols)`, `UNIQUE (cols)`, `CHECK (expr)` and
+`FOREIGN KEY (cols) REFERENCES t (cols)` with their `ON DELETE`/`ON UPDATE` actions, at table
+level and -- for `CHECK` and `REFERENCES` -- in a column's own position, where they stay so that
+`format` writes them back where they were. They round-trip exactly; they are simply opaque. Where a
 reader needs one of them taken apart, that is a modelling increment, and the text is already
 there to start from.
 
@@ -121,6 +127,59 @@ pairs collapsed.
 
 ## The tree
 
+### `ConstraintRule`
+
+```
+pub enum ConstraintRule {
+    PrimaryKey([string])
+    Unique([string])
+    Check(Expr)
+    ForeignKey(ForeignKeyRule)
+    // A shape this module does not model, carried by the constraint's `text` and written back
+    // verbatim.
+    Opaque
+}
+```
+
+A column as the schema declares it. `type_name` is kept for messages and for a future increment
+that applies affinity; nothing reads it to decide anything today.
+What a constraint *says*, for the four shapes the standard makes and this module now models.
+Until constraint enforcement, every one of these was a run of text nobody looked inside -- which
+was honest while nothing enforced them and useless the moment something did.
+
+### `ForeignKeyRule`
+
+```
+pub struct ForeignKeyRule {
+    // The child's columns -- this table's.
+    columns: [string]
+    table: string
+    // The parent's columns. Empty where none were named, which means the parent's primary key.
+    references: [string]
+    // `CASCADE`, `SET NULL`, `SET DEFAULT`, `RESTRICT`, `NO ACTION`, or empty for the default --
+    // which *is* `NO ACTION`, spelled differently so a reader can tell "not written" from
+    // "written as the default".
+    on_delete: string
+    on_update: string
+}
+```
+
+`FOREIGN KEY (a, b) REFERENCES parent (x, y) ON DELETE CASCADE`.
+
+### `TableConstraint`
+
+```
+pub struct TableConstraint {
+    // From `CONSTRAINT <name>`, or empty. An engine quotes it in its message when it is there.
+    name: string
+    rule: ConstraintRule
+    // The constraint exactly as written, brackets and spacing included. `format` writes it for an
+    // `Opaque` rule, and an engine's message quotes the expression inside it for an unnamed
+    // `CHECK` -- which is what SQLite quotes, spacing and all.
+    text: string
+}
+```
+
 ### `Column`
 
 ```
@@ -131,15 +190,21 @@ pub struct Column {
     primary_key: bool
     unique: bool
     default_value: Option<SqlValue>
-    // Every constraint on this column that is not one of the four above, as the text it was
-    // written as: `REFERENCES patients(id) ON DELETE CASCADE`, `CHECK (n > 0)`, `COLLATE NOCASE`,
-    // `AUTOINCREMENT`. Preserved rather than modelled, so `format` writes back what it read.
+    // The constraints written in this column's own position that this module models: a bare
+    // `CHECK (e)` and a bare `REFERENCES t (c)`, each with this column as its column list. They
+    // stay here rather than moving to the table's list so `format` writes them back where they
+    // were -- the sample application's migrations put every foreign key in column position.
+    //
+    // A *named* column constraint (`CONSTRAINT k CHECK (..)`) is **not** modelled and goes to
+    // `extra` whole, so nothing of it is lost and nothing of it is enforced.
+    constraints: [TableConstraint]
+    // Every constraint on this column that is modelled by neither the four flags above nor
+    // `constraints`, as the text it was written as: `COLLATE NOCASE`, `AUTOINCREMENT`,
+    // `GENERATED ALWAYS AS ..`, a named constraint. Preserved rather than modelled, so `format`
+    // writes back what it read.
     extra: string
 }
 ```
-
-A column as the schema declares it. `type_name` is kept for messages and for a future increment
-that applies affinity; nothing reads it to decide anything today.
 
 ### `BinNode`
 
@@ -463,8 +528,8 @@ pub struct CreateStmt {
     table: string
     columns: [Column]
     // The table-level constraints -- `PRIMARY KEY (a, b)`, `FOREIGN KEY ... REFERENCES ...`,
-    // `UNIQUE (..)`, `CHECK (..)`, a named `CONSTRAINT` -- as the text they were written as.
-    constraints: [string]
+    // `UNIQUE (..)`, `CHECK (..)`, each with the name a `CONSTRAINT` prefix gave it.
+    constraints: [TableConstraint]
     if_not_exists: bool
 }
 ```
@@ -605,6 +670,16 @@ pub fn format_expr(e: Expr) -> string
 
 `e` as SQL. Brackets appear where precedence needs them and nowhere else, so the text reads the
 way it was written rather than as a fully parenthesised tree.
+
+### `format_constraint`
+
+```
+pub fn format_constraint(tc: TableConstraint) -> string
+```
+
+A constraint written back. **Derived from the rule rather than echoed from `text`**, so a
+constraint built in code formats as well as one that was parsed; `text` is for the `Opaque` rule,
+which has nothing else, and for the messages an engine quotes.
 
 ### `format`
 
