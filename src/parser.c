@@ -2579,13 +2579,16 @@ typedef struct {
     int at_least_one;                /* `#[at_least_one]` was among them */
     int effectful;                   /* `#[effectful]` was among them */
     int compiler_resolved;           /* `#[compiler_resolved]` was among them */
+    char **args;                     /* parallel to `names`: a target's string argument, or NULL */
 } DeriveList;
 
-static void derive_list_push(DeriveList *list, char *name) {
+static void derive_list_push(DeriveList *list, char *name, char *arg) {
     if (list->count == list->capacity) {
         list->capacity = list->capacity == 0 ? 4 : list->capacity * 2;
         list->names = ziman_xrealloc(list->names, sizeof(char *) * (size_t)list->capacity);
+        list->args = ziman_xrealloc(list->args, sizeof(char *) * (size_t)list->capacity);
     }
+    list->args[list->count] = arg;
     list->names[list->count++] = name;
 }
 
@@ -2699,7 +2702,18 @@ static DeriveList parse_attributes(Parser *p) {
             } else if (match(p, TOK_LPAREN)) {
                 do {
                     Token *arg = expect(p, TOK_IDENT, "an attribute argument");
-                    if (is_derive) derive_list_push(&derives, dup_token_text(arg));
+                    /* **A target may carry one string**, which only `Entity` reads:
+                     * `#[derive(Row, Entity("patients"))]` names the table the struct is stored
+                     * in. Optional, because the same target without it still writes the column
+                     * list -- see src/derive.c -- and 18 of the 21 entities in the North Star
+                     * application wanted exactly that before the table came here. */
+                    char *target_arg = NULL;
+                    if (match(p, TOK_LPAREN)) {
+                        Token *text = expect(p, TOK_STRING_LIT, "a string -- derive(Entity(\"table\")) names a table");
+                        target_arg = dup_token_text(text);
+                        expect(p, TOK_RPAREN, "')'");
+                    }
+                    if (is_derive) derive_list_push(&derives, dup_token_text(arg), target_arg);
                 } while (match(p, TOK_COMMA));
                 expect(p, TOK_RPAREN, "')'");
             } else if (item_name->length == 12 && strncmp(item_name->start, "thread_bound", 12) == 0) {
@@ -2792,6 +2806,7 @@ Module *parse(TokenList tokens) {
             StructDecl *sd = parse_struct_decl(&p);
             sd->visibility = vis;
             sd->derives = derives.names;
+            sd->derive_args = derives.args;
             sd->derive_count = derives.count;
             sd->thread_bound = derives.thread_bound;
             sd->thread_key = derives.thread_key;
@@ -2805,6 +2820,7 @@ Module *parse(TokenList tokens) {
             EnumDecl *ed = parse_enum_decl(&p);
             ed->visibility = vis;
             ed->derives = derives.names;
+            ed->derive_args = derives.args;
             ed->derive_count = derives.count;
             if (derives.thread_bound) {
                 ziman_error("syntax", ed->line, ed->col, "#[thread_bound] applies to a struct, not to enum '%s'", ed->name);

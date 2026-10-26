@@ -832,6 +832,11 @@ typedef struct {
      * each entry is one derive target name (e.g. "Json"). Empty for a
      * struct with no attribute at all. See src/derive.c. */
     char **derives;
+    /* The string a target was written with, parallel to `derives`: `#[derive(Entity("patients"))]`
+     * puts "patients" here and NULL for every target written bare. One array rather than a struct
+     * per target because exactly one target takes an argument, and a parallel array is what the
+     * rest of this file does for the same shape. */
+    char **derive_args;
     int derive_count;
     /* `#[thread_bound]`: values of this type belong to the thread that made them (a builder is a mutable handle). Sharing one is refused: at compile time when
      * a type containing it is a Channel's element, a `spawn` argument or a module-level `val`, and at run time (the native that owns the handle checks
@@ -894,6 +899,7 @@ typedef struct {
     Visibility visibility;
     /* Same `#[derive(...)]` mechanism as StructDecl -- see src/derive.c. */
     char **derives;
+    char **derive_args;
     int derive_count;
     /* Same `#[deprecated]` as StructDecl -- an enum access from another module is a `--lint`
      * warning. See StructDecl's own comment for why a type annotation is not one. */

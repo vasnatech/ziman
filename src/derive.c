@@ -830,7 +830,22 @@ static char *generate_enum_from_json(EnumDecl *ed) {
  * cannot disagree.
  * --------------------------------------------------------------------- */
 
-static char *generate_struct_entity(StructDecl *sd) {
+/* `table` is the string the target was written with, or NULL for a bare `#[derive(Entity)]`.
+ *
+ * **With it, three hand-written lines per entity become none.** The North Star application wrote
+ * the same table name twice -- once in a `pub val table` its services import and once in the
+ * `eql.entity(..)` call beside it -- and the entity's own name a third time, which is the struct's
+ * name spelled again. All three are mechanical given the table, so the table is the only thing
+ * worth writing, and `#[derive(Entity("patients"))]` is where it goes.
+ *
+ * Without it the target still writes the column list alone, which is what it did before and what
+ * a struct whose table is decided elsewhere still wants.
+ *
+ * **The entity name is the struct's name**, not derived from the table: `eql` matches what a query
+ * writes (`FROM Patient p`) against it, and a query names the type a reader has in hand. Taking it
+ * from the table would make `FROM patients p` the spelling, which is SQL leaking back through the
+ * layer whose job is to hide it. */
+static char *generate_struct_entity(StructDecl *sd, const char *table) {
     CodeBuf cb;
     cb_init(&cb);
     char *val_name = pascal_to_snake(sd->name);
@@ -839,6 +854,11 @@ static char *generate_struct_entity(StructDecl *sd) {
         cb_appendf(&cb, "%s\"%s\"", i > 0 ? ", " : "", sd->fields.items[i].name);
     }
     cb_appendf(&cb, "]\n\n");
+    if (table != NULL) {
+        cb_appendf(&cb, "pub val table: string = \"%s\"\n\n", table);
+        cb_appendf(&cb, "pub val %s_meta: eql.Entity = eql.entity(\"%s\", \"%s\", %s_columns)\n\n",
+                   val_name, sd->name, table, val_name);
+    }
     return cb.data;
 }
 
@@ -1360,7 +1380,15 @@ void generate_derived_functions(Module *module) {
                                 "derive(Entity) on '%s' needs derive(Row) too -- an entity is read from a row, and `%s_from_row` is what reads it",
                                 sd->name, pascal_to_snake(sd->name));
                 }
-                parse_and_splice(module, generate_struct_entity(sd), sd->line, sd->col, label);
+                /* The generated `eql.entity(..)` call needs the module, and a file that wrote
+                 * only the attribute has no reason to have imported it. `ensure_module_import` is
+                 * what the standard-type conversions already do for `time` and `uuid`. */
+                if (sd->derive_args != NULL && sd->derive_args[d] != NULL) {
+                    ensure_module_import(module, "eql", sd->line, sd->col);
+                }
+                parse_and_splice(module,
+                                 generate_struct_entity(sd, sd->derive_args != NULL ? sd->derive_args[d] : NULL),
+                                 sd->line, sd->col, label);
             } else if (is_ord) {
                 if (sd->fields.count == 0) {
                     ziman_error("syntax", sd->line, sd->col, "derive(Ord) needs at least one field to compare ('%s' has none)", sd->name);

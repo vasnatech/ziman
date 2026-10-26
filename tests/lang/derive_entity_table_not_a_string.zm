@@ -1,0 +1,12 @@
+// The table has to be a string. A bare word reads like a type name and would be one more thing to
+// wonder about -- `Entity(patients)` could plausibly mean a struct called `patients`.
+use uuid.Uuid
+
+#[derive(Row, Entity(patients))]
+pub struct P {
+    id: Uuid
+}
+
+fn main() {
+    print(1)
+}

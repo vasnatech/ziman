@@ -1,0 +1,46 @@
+// `#[derive(Entity("<table>"))]`: the table name in the attribute, and the three lines it replaces.
+//
+// Before this, an entity wrote the same facts three times -- a `pub val table` its services
+// import, an `eql.entity(..)` call naming the table again, and the entity's own name inside that
+// call, which is the struct's name spelled a second time. All three are mechanical given the
+// table, so the table is the only one worth writing.
+//
+// The argument is **optional**: a bare `#[derive(Entity)]` still writes only the column list,
+// which is what 18 of the North Star application's 21 entities wanted before the table moved here.
+// `tests/lang/derive_entity.zm` covers that form.
+use uuid.Uuid
+
+#[derive(Row, Entity("patients"))]
+pub struct Patient {
+    id: Uuid
+    last_name: string
+    city: string
+}
+
+// The bare form beside it, in one file, so the two cannot drift apart.
+#[derive(Row, Entity)]
+pub struct Visit {
+    id: Uuid
+    reason: string
+}
+
+fn main() {
+    // The column list, as the bare form has always written it.
+    print(join(separator: ",", pieces: patient_columns))
+    print(join(separator: ",", pieces: visit_columns))
+
+    // `table`, which the services import by that name.
+    print(table)
+
+    // And a ready `eql.Entity`. **The entity's name is the struct's**, not the table's: a query
+    // writes `FROM Patient p`, naming the type the reader has in hand, and taking it from the
+    // table would make `FROM patients p` the spelling -- SQL leaking back through the layer whose
+    // job is to hide it.
+    print(patient_meta.name)
+    print(patient_meta.table)
+    print(join(separator: ",", pieces: patient_meta.columns))
+
+    // The generated call needs `eql`, and this file never imported it: the derive ensures it, the
+    // way the standard-type conversions already ensure `time` and `uuid`.
+    print(prelude.len(patient_meta.columns) == prelude.len(patient_columns))
+}

@@ -2118,11 +2118,20 @@ fn main() {
   its columns in, so the two cannot disagree. It needs `Row` beside it (`#[derive(Row, Entity)]`),
   since an entity is something read back out of a row and `<name>_from_row` is what reads it; a
   fieldless struct and an enum are both refused.
-  It emits **only** that: the table name is not guessed, because no pluralisation rule survives
-  real schemas (`FamilyHistory` is stored in `family_history`, `MedicalHistory` in
-  `medical_histories`, `UserNotificationPreference` in `user_notification_prefs`) and a wrong guess
-  would build SQL against a table that does not exist. Write the table beside the struct, where a
-  wrong one is refused by the database rather than silently generated.
+  The table name is never **guessed**, because no pluralisation rule survives real schemas
+  (`FamilyHistory` is stored in `family_history`, `MedicalHistory` in `medical_histories`,
+  `UserNotificationPreference` in `user_notification_prefs`) and a wrong guess would build SQL
+  against a table that does not exist. It can be **given**, though:
+- **`#[derive(Row, Entity("patients"))]`** adds `pub val table: string` and
+  `pub val <name>_meta: eql.Entity`, the latter being
+  `eql.entity("<StructName>", "<table>", <name>_columns)` -- so a struct that is stored in a table
+  says so once, where it used to say it three times (a `table` val, the table again inside an
+  `eql.entity` call, and the struct's own name a third time inside the same call). The `eql` import
+  is added for you, as it is for `time` and `uuid` behind the other derives.
+  The **entity's name is the struct's**, not the table's: a query writes `FROM Patient p`, naming
+  the type the reader has in hand, and taking it from the table would make `FROM patients p` the
+  spelling -- SQL leaking back through the layer whose job is to hide it. The argument must be a
+  string; a bare word is refused, since `Entity(patients)` could plausibly name a type.
 
 ## Networking
 
