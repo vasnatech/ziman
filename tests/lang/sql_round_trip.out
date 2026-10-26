@@ -1,5 +1,5 @@
 -- the shapes the module claims to read --
-89 of 89 round-trip
+96 of 96 round-trip
 -- what it writes --
   in:  select  name ,age from patient where age>30 order by name
   out: SELECT name, age FROM patient WHERE age > 30 ORDER BY name
@@ -25,6 +25,10 @@
   out: SELECT n FROM t UNION ALL SELECT n FROM u ORDER BY 1 DESC
   in:  select n from t union distinct select n from u
   out: SELECT n FROM t UNION DISTINCT SELECT n FROM u
+  in:  alter table t add d text not null
+  out: ALTER TABLE t ADD COLUMN d text NOT NULL
+  in:  alter table t add constraint k unique(a,b)
+  out: ALTER TABLE t ADD constraint k unique(a,b)
 -- several statements from one string --
   3 statement(s)
     CREATE TABLE t (a INTEGER)

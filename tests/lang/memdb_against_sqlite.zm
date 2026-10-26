@@ -185,6 +185,34 @@ val queries: [string] = [
     "SELECT patient.* FROM patient AS p ORDER BY p.id",
     // and a qualifier naming no table at all
     "SELECT nope.* FROM patient",
+    // a function this engine does not have, which must be refused **before** any row is read --
+    // the first four of these answered rows, or no rows, until the function registry existed
+    "SELECT nosuchfunc(name) FROM patient",
+    // the column named has to exist, or SQLite complains about the column and this engine about
+    // the function: both refuse, but the order they look in is their own business
+    "SELECT nosuchfunc(reason) FROM visit WHERE reason = 'nothing'",
+    "SELECT NoSuchFunc(reason) FROM visit WHERE reason = 'nothing'",
+    "SELECT reason, count(*) AS c FROM visit WHERE reason = 'nothing' GROUP BY ROLLUP (reason)",
+    "SELECT ROLLUP(reason) FROM visit WHERE reason = 'nothing'",
+    "SELECT name FROM patient WHERE nosuchfunc(name) = 1",
+    "SELECT name FROM patient ORDER BY nosuchfunc(name)",
+    // the wrong number of arguments. `upper()` **crashed the interpreter** before this list
+    // existed: the implementations without an arity check of their own read an argument that was
+    // never there
+    "SELECT upper() FROM patient",
+    "SELECT upper(name, name) FROM patient",
+    "SELECT length() FROM visit WHERE reason = 'nothing'",
+    "SELECT length(name, 2) FROM patient",
+    "SELECT substr(name) FROM patient",
+    "SELECT abs() FROM visit WHERE reason = 'nothing'",
+    "SELECT trim(name, 'x', 'y') FROM patient",
+    "SELECT coalesce(note) FROM patient",
+    "SELECT coalesce() FROM patient",
+    "SELECT count(id, id) FROM patient",
+    "SELECT sum(age, age) FROM patient",
+    // an aggregate where no group exists, which is a different complaint from a missing function
+    "SELECT name FROM patient WHERE count(id) > 1",
+    "SELECT name FROM patient WHERE sum(age) > 1",
     // and the column names a typo gives, which must be refused on both
     "SELECT nope FROM patient",
     "SELECT name FROM patient AS p JOIN visit AS v ON v.nope = p.id",
@@ -318,6 +346,27 @@ fn main() {
         print(concat(if both { "both refuse  " } else { "!! NOT BOTH  " }, sql))
         print(concat("   memdb:  ", a))
         print(concat("   sqlite: ", b))
+    }
+
+    // DDL both engines refuse in the same words. `ALTER TABLE ... ADD CONSTRAINT` is standard SQL
+    // that SQLite does not have, and `memdb` used to **accept** it -- reading `CONSTRAINT` as the
+    // name of a new column. A migration written against PostgreSQL would have passed here and
+    // failed on both real engines, which is the false green this file exists to catch.
+    print("-- DDL refused the same way by both --")
+    for sql in [
+        "ALTER TABLE patient ADD CONSTRAINT k UNIQUE (id)",
+        "ALTER TABLE patient ADD UNIQUE (id)",
+        "ALTER TABLE patient ADD PRIMARY KEY (id)",
+        "ALTER TABLE patient ADD CHECK (age > 0)",
+        "ALTER TABLE patient ADD FOREIGN KEY (id) REFERENCES visit (id)"
+    ] {
+        val a = rendered(mem, sql)
+        val b = rendered(lite, sql)
+        print(concat(if a == b { "agree    " } else { "DISAGREE " }, sql))
+        if a != b {
+            print(concat("   memdb:  ", a))
+            print(concat("   sqlite: ", b))
+        }
     }
 
     // And the writes that answer rows. Last, because each changes the table it reports on.

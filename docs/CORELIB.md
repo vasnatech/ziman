@@ -2191,9 +2191,14 @@ pub struct CreateStmt {
     if_not_exists: bool
 }
 
+pub enum AlterAction {
+    AddColumn(Column)
+    AddConstraint(string)
+}
+
 pub struct AlterStmt {
     table: string
-    column: Column
+    action: AlterAction
 }
 
 pub struct CreateIndexStmt {

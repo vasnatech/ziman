@@ -16,7 +16,7 @@
 // ## What it understands
 //
 // `CREATE TABLE` (with `NOT NULL`, `PRIMARY KEY`, `UNIQUE`, `DEFAULT` and a column type that is
-// recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN`,
+// recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD [COLUMN]`,
 // `DROP TABLE [IF EXISTS]`, `INSERT INTO ... VALUES`, `SELECT [DISTINCT]` with `WHERE`,
 // `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT` and `OFFSET`, `UPDATE ... SET ... WHERE`,
 // `DELETE FROM ... WHERE`, `RETURNING` on any of the three writes, and
@@ -147,6 +147,7 @@ use db.Row
 use db.SqlValue
 use locale
 use sql
+use sql.AlterAction
 use sql.AlterStmt
 use sql.Assignment
 use sql.BinNode
@@ -600,6 +601,7 @@ fn like_from(s: string, si: int, p: string, pi: int) -> bool {
 // aggregates (`COUNT`, `SUM`, `MIN`, `MAX`) are the next increment and say so: an unknown name is
 // an error, never a NULL.
 fn eval_call(node: CallNode, cx: Ctx) -> Result<SqlValue, DbError> {
+    try check_call(node)
     val name = sql.fold_name(node.name)
     val args = mutable_array_new<SqlValue>()
     for a in node.args {
@@ -622,9 +624,6 @@ fn eval_call(node: CallNode, cx: Ctx) -> Result<SqlValue, DbError> {
         }
     }
     if name == "length" {
-        if count != 1 {
-            return err(problem("length takes one argument"))
-        }
         return switch given[0] {
             Bytes(b) { ok(SqlValue.Int(prelude.len(b))) }
             Text(text) { ok(SqlValue.Int(prelude.len(text))) }
@@ -635,9 +634,6 @@ fn eval_call(node: CallNode, cx: Ctx) -> Result<SqlValue, DbError> {
         }
     }
     if name == "substr" || name == "substring" {
-        if count != 2 && count != 3 {
-            return err(problem("substr takes two or three arguments"))
-        }
         val text = text_of(given[0])
         val size = prelude.len(text)
         // SQL counts from 1, and a negative start counts back from the end.
@@ -682,10 +678,10 @@ fn eval_call(node: CallNode, cx: Ctx) -> Result<SqlValue, DbError> {
         val f = as_number(v)
         return ok(SqlValue.Float(if f < 0.0 { 0.0 - f } else { f }))
     }
-    return err(problem(prelude.format(
-        "unsupported function: {} (this engine has substr, length, lower, upper, trim, abs and coalesce; the aggregates are the next increment)",
-        node.name
-    )))
+    // What is left is a known name with no scalar implementation, which is every aggregate: this
+    // is reached when one is written where no group exists, such as in a `WHERE`. SQLite's words
+    // again, and the right ones -- the function is not missing, it is in the wrong place.
+    return err(problem(concat("misuse of aggregate function ", node.name, "()")))
 }
 
 fn eval_binary(node: BinNode, cx: Ctx) -> Result<SqlValue, DbError> {
@@ -897,6 +893,60 @@ fn unwrap_int(v: SqlValue) -> int {
     }
 }
 
+// ---------------------------------------------------------------- functions
+
+// Every function this engine has, and how many arguments it takes -- `most` of -1 meaning any
+// number.
+//
+// **One list, read by validation before a statement runs and by evaluation as it runs.** The two
+// being separate is what let three things through at once: `SELECT nosuchfunc(a) FROM empty`
+// answered no rows where both real engines refuse the statement, because nothing ever evaluated
+// the call; `GROUP BY ROLLUP (a)` was accepted for the same reason, `ROLLUP` parsing as an ordinary
+// function call; and `SELECT upper()` **crashed the interpreter**, because the three functions with
+// no arity check of their own read `args[0]` of an empty array. A function's arity is now a fact
+// about the function, in one place, instead of a check each implementation remembers or forgets.
+struct FnSpec {
+    name: string
+    least: int
+    most: int
+}
+
+// `coalesce` takes two or more, which is SQLite's rule as well -- `coalesce(x)` is refused there,
+// not read as `x`. The aggregates take exactly one argument, `count(*)`'s star included.
+val known_functions: [FnSpec] = [
+    FnSpec { name: "coalesce", least: 2, most: 0 - 1 },
+    FnSpec { name: "length", least: 1, most: 1 },
+    FnSpec { name: "substr", least: 2, most: 3 },
+    FnSpec { name: "substring", least: 2, most: 3 },
+    FnSpec { name: "lower", least: 1, most: 1 },
+    FnSpec { name: "upper", least: 1, most: 1 },
+    FnSpec { name: "trim", least: 1, most: 1 },
+    FnSpec { name: "abs", least: 1, most: 1 },
+    FnSpec { name: "count", least: 1, most: 1 },
+    FnSpec { name: "sum", least: 1, most: 1 },
+    FnSpec { name: "min", least: 1, most: 1 },
+    FnSpec { name: "max", least: 1, most: 1 },
+    FnSpec { name: "avg", least: 1, most: 1 }
+]
+
+// A call checked against that list: the name must be one this engine has, and the count of
+// arguments must be one the function takes. Both messages are SQLite's, which is what lets the
+// cross-check fixture report agreement rather than a near miss -- and the name is echoed as it was
+// written, as SQLite echoes it.
+fn check_call(node: CallNode) -> Result<unit, DbError> {
+    val want = sql.fold_name(node.name)
+    for spec in known_functions {
+        if spec.name == want {
+            val given = prelude.len(node.args)
+            if given < spec.least || (spec.most >= 0 && given > spec.most) {
+                return err(problem(concat("wrong number of arguments to function ", node.name, "()")))
+            }
+            return ok(unit)
+        }
+    }
+    return err(problem(concat("no such function: ", node.name)))
+}
+
 // ---------------------------------------------------------------- aggregates
 
 // The columns a `FROM` produces, with no rows read: names and qualifiers only. Validation needs
@@ -1070,6 +1120,7 @@ fn validate_expr(e: Expr, cx: Ctx) -> Result<unit, DbError> {
             unit
         }
         Call(node) {
+            try check_call(node)
             for a in node.args {
                 try validate_expr(a, cx)
             }
@@ -1201,10 +1252,8 @@ fn has_aggregate(e: Expr) -> bool {
 // `AVG` answers a float, as SQLite does; PostgreSQL answers `numeric` for an integer column, and
 // the standard leaves the exact-numeric result type implementation-defined.
 fn eval_aggregate(node: CallNode, sc: Scope, rows: [[SqlValue]]) -> Result<SqlValue, DbError> {
+    try check_call(node)
     val name = sql.fold_name(node.name)
-    if prelude.len(node.args) != 1 {
-        return err(problem(prelude.format("{} takes one argument", node.name)))
-    }
     val arg = node.args[0]
     if name == "count" && Expr.is_Star(arg) {
         return ok(SqlValue.Int(prelude.len(rows)))
@@ -1408,15 +1457,34 @@ fn run_create(database: Database, stmt: CreateStmt) -> Result<Outcome, DbError> 
     return ok(Outcome { database: with_table(database, t), rows: [], affected: 0 })
 }
 
-fn run_alter(database: Database, stmt: AlterStmt) -> Result<Outcome, DbError> {
+// `ALTER TABLE ... ADD` -- a column, or a table constraint.
+//
+// The constraint form is **refused by the SQLite-shaped reading**, in SQLite's own words, because
+// SQLite has no `ALTER TABLE ... ADD CONSTRAINT` at all; PostgreSQL and the standard have it. The
+// strict reading accepts it and records it nowhere, which is exactly what it already does with a
+// `CREATE TABLE`'s table constraints: this engine remembers no constraints and enforces none, so
+// adding one later changes nothing it can observe. Saying so beats pretending.
+fn run_alter(database: Database, stmt: AlterStmt, strict: bool) -> Result<Outcome, DbError> {
     val t = try table_of(database, stmt.table)
-    if column_index(column_names(t), stmt.column.name) >= 0 {
-        return err(problem(prelude.format("column {} already exists on {}", stmt.column.name, t.name)))
+    val column = switch stmt.action {
+        AddColumn(col) { col }
+        AddConstraint(text) {
+            if !strict {
+                // SQLite names the first word of what it could not read, and so does this.
+                val space = index_of(text, " ", 0)
+                val first = if space < 0 { text } else { substring(text, 0, space) }
+                return err(problem(prelude.format("near \"{}\": syntax error", first)))
+            }
+            return ok(Outcome { database: database, rows: [], affected: 0 })
+        }
+    }
+    if column_index(column_names(t), column.name) >= 0 {
+        return err(problem(prelude.format("column {} already exists on {}", column.name, t.name)))
     }
     // Existing rows gain the new column's default, or NULL -- which is what the real engines do
     // for an added column, and why `NOT NULL` without a default is refused there and merely
     // recorded here.
-    val filler = switch stmt.column.default_value {
+    val filler = switch column.default_value {
         Some(v) { v }
         None { SqlValue.Null }
     }
@@ -1426,7 +1494,7 @@ fn run_alter(database: Database, stmt: AlterStmt) -> Result<Outcome, DbError> {
     }
     val grown = Table {
         name: t.name,
-        columns: push(t.columns, stmt.column),
+        columns: push(t.columns, column),
         rows: snapshot(rows)
     }
     return ok(Outcome { database: with_table(database, grown), rows: [], affected: 0 })
@@ -2536,7 +2604,7 @@ fn run_one(state: State, sql: string, params: [SqlValue]) -> Result<Outcome, DbE
         Passthrough(_) { ok(Outcome { database: before, rows: [], affected: 0 }) }
         CreateIndex(_) { ok(Outcome { database: before, rows: [], affected: 0 }) }
         Create(s) { run_create(before, s) }
-        Alter(s) { run_alter(before, s) }
+        Alter(s) { run_alter(before, s, state.strict) }
         Drop(s) { run_drop(before, s) }
         Insert(s) { run_insert(before, s, params, state.strict) }
         Update(s) { run_update(before, s, params, state.strict) }

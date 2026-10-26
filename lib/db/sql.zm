@@ -21,7 +21,8 @@
 // (one or many rows),
 // `UPDATE ... SET ... WHERE`, `DELETE FROM ... WHERE`, a `RETURNING` clause on any of those three,
 // `CREATE TABLE` (columns with their types and
-// constraints, and table-level constraints), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN`,
+// constraints, and table-level constraints), `CREATE [UNIQUE] INDEX`,
+// `ALTER TABLE ... ADD [COLUMN]` and `ALTER TABLE ... ADD <table constraint>`,
 // `DROP TABLE [IF EXISTS]`, and `BEGIN`/`COMMIT`/`ROLLBACK`.
 //
 // Joins: `[INNER] JOIN`, `LEFT`/`RIGHT`/`FULL [OUTER] JOIN` and `CROSS JOIN`, each with an `ON`
@@ -53,6 +54,11 @@
 // PostgreSQL, SQLite from 3.35 and MariaDB all have `RETURNING`, so reading the clause people
 // actually write is worth more here than reading the one the standard specifies. The delta-table
 // form is not read.
+//
+// `ROLLUP`, `CUBE` and `GROUPING SETS` are **not** read as the grouping constructs they are: they
+// parse as ordinary function calls in a `GROUP BY`, which is what SQLite does with them too, and an
+// engine then refuses the function. Reading them properly needs a `GroupTerm` the `GROUP BY` list
+// does not have yet.
 //
 // This is **not** ANSI SQL. ISO/IEC 9075 also has derived tables and `LATERAL` in a `FROM`,
 // `CORRESPONDING` on a set operation, common table expressions, window functions, `MERGE`,
@@ -488,9 +494,23 @@ pub struct CreateStmt {
     if_not_exists: bool
 }
 
+// What an `ALTER TABLE` does. Two things are read: adding a column, and adding a table-level
+// constraint -- the second kept as the text it was written as, which is the treatment
+// `CREATE TABLE`'s table constraints already get and for the same reason.
+//
+// **An enum rather than a column plus a flag**, because the two cases cannot both be true and a
+// shape that cannot say otherwise is worth the enum. Before this, `ADD CONSTRAINT k UNIQUE (a)`
+// read `CONSTRAINT` as the *name of a new column* and wrote itself back as
+// `ADD COLUMN CONSTRAINT k PRIMARY KEY a` -- the brackets gone, the meaning gone, and the round
+// trip none the wiser because the wrong tree parses back to itself.
+pub enum AlterAction {
+    AddColumn(Column)
+    AddConstraint(string)
+}
+
 pub struct AlterStmt {
     table: string
-    column: Column
+    action: AlterAction
 }
 
 pub struct CreateIndexStmt {
@@ -1125,12 +1145,22 @@ fn parse_alter(c: Cursor) -> Result<Statement, DbError> {
     try expect_word(c, "TABLE")
     val name = try expect_name(c)
     if !accept(c, "ADD") {
-        return err(problem("only ALTER TABLE ... ADD [COLUMN] is understood"))
+        return err(problem("only ALTER TABLE ... ADD [COLUMN] or ADD <constraint> is understood"))
     }
-    val _ = accept(c, "COLUMN")
+    // `ADD COLUMN` settles it; without that word, a constraint keyword does. The order matters:
+    // `accept` consumes `COLUMN` when it is there, so the constraint test only runs when it is not.
+    if !accept(c, "COLUMN") && is_table_constraint(c) {
+        return ok(Statement.Alter(AlterStmt {
+            table: name,
+            action: AlterAction.AddConstraint(take_table_constraint(c))
+        }))
+    }
     val column_name = try expect_name(c)
     val type_name = if at_end(c) { "" } else { try parse_type_name(c) }
-    return ok(Statement.Alter(AlterStmt { table: name, column: try parse_column_tail(c, column_name, type_name) }))
+    return ok(Statement.Alter(AlterStmt {
+        table: name,
+        action: AlterAction.AddColumn(try parse_column_tail(c, column_name, type_name))
+    }))
 }
 
 fn parse_drop(c: Cursor) -> Result<Statement, DbError> {
@@ -2000,7 +2030,12 @@ pub fn format(s: Statement) -> string {
             append(out, q.name, " ON ", q.table, " (", join(separator: ", ", pieces: q.columns), ")")
             snapshot(out)
         }
-        Alter(q) { concat("ALTER TABLE ", q.table, " ADD COLUMN ", format_column(q.column)) }
+        Alter(q) {
+            concat("ALTER TABLE ", q.table, " ADD ", switch q.action {
+                AddColumn(col) { concat("COLUMN ", format_column(col)) }
+                AddConstraint(text) { text }
+            })
+        }
         Drop(q) {
             concat("DROP TABLE ", if q.if_exists { "IF EXISTS " } else { "" }, q.table)
         }

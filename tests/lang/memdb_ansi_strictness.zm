@@ -96,6 +96,10 @@ fn main() {
             "EXCEPT ALL, likewise absent from SQLite: it removes one occurrence per occurrence on the right"
         ],
         [
+            "ALTER TABLE t ADD CONSTRAINT k UNIQUE (id)",
+            "ALTER TABLE ... ADD CONSTRAINT is standard SQL that SQLite does not have at all. The strict reading accepts it and records it nowhere, which is what it already does with a CREATE TABLE's constraints -- this engine enforces none. Nothing observable changes on either connection, which is why it is safe to run here"
+        ],
+        [
             "SELECT id FROM t UNION DISTINCT SELECT n FROM t ORDER BY 1",
             "UNION DISTINCT, which is what a bare UNION means and which SQLite nonetheless refuses -- the word is why `SetOp` keeps the quantifier it was written with instead of a flag"
         ]

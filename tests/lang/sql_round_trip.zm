@@ -99,6 +99,13 @@ val samples: [string] = [
     "CREATE INDEX idx_t_a ON t (a)",
     "CREATE UNIQUE INDEX idx_t_ab ON t (a, b)",
     "ALTER TABLE t ADD COLUMN extra TEXT DEFAULT 'x'",
+    "ALTER TABLE t ADD CONSTRAINT k UNIQUE (a)",
+    "ALTER TABLE t ADD CONSTRAINT k2 PRIMARY KEY (a, b)",
+    "ALTER TABLE t ADD CONSTRAINT k3 FOREIGN KEY (a) REFERENCES u (b) ON DELETE CASCADE",
+    "ALTER TABLE t ADD UNIQUE (b)",
+    "ALTER TABLE t ADD PRIMARY KEY (a)",
+    "ALTER TABLE t ADD CHECK (a > 0)",
+    "ALTER TABLE t ADD FOREIGN KEY (a) REFERENCES u (b)",
     "DROP TABLE t",
     "DROP TABLE IF EXISTS t",
     "BEGIN",
@@ -154,7 +161,9 @@ fn main() {
         "delete from t where a=1 returning a",
         "select t.*,u.* from t join u using(id)",
         "select n from t union  all  select n from u order by 1 desc",
-        "select n from t union distinct select n from u"
+        "select n from t union distinct select n from u",
+        "alter table t add d text not null",
+        "alter table t add constraint k unique(a,b)"
     ] {
         print(concat("  in:  ", s))
         print(concat("  out: ", switch sql.parse(s) {

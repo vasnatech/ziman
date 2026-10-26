@@ -63,12 +63,17 @@
    lax:    refused: database error: near "ALL": syntax error
    ansi:   3 row(s) | Int(1) | Int(2) | Int(3)
    sqlite: refused: database error: near "ALL": syntax error
+-- ALTER TABLE ... ADD CONSTRAINT is standard SQL that SQLite does not have at all. The strict reading accepts it and records it nowhere, which is what it already does with a CREATE TABLE's constraints -- this engine enforces none. Nothing observable changes on either connection, which is why it is safe to run here
+   ALTER TABLE t ADD CONSTRAINT k UNIQUE (id)
+   lax:    refused: database error: near "CONSTRAINT": syntax error
+   ansi:   0 row(s)
+   sqlite: refused: database error: near "CONSTRAINT": syntax error
 -- UNION DISTINCT, which is what a bare UNION means and which SQLite nonetheless refuses -- the word is why `SetOp` keeps the quantifier it was written with instead of a flag
    SELECT id FROM t UNION DISTINCT SELECT n FROM t ORDER BY 1
    lax:    refused: database error: near "DISTINCT": syntax error
    ansi:   6 row(s) | Int(0) | Int(1) | Int(2) | Int(3) | Int(5) | Int(10)
    sqlite: refused: database error: near "DISTINCT": syntax error
-lax matches sqlite on 14 of 14
-ansi differs from lax on 14 of 14
+lax matches sqlite on 15 of 15
+ansi differs from lax on 15 of 15
 -- the two readings agree on everything else --
 the two readings agree on 31 of 31

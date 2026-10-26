@@ -117,10 +117,30 @@ agree    SELECT p.* FROM patient AS p LEFT JOIN visit AS v ON v.patient_id = p.i
 agree    SELECT p.name FROM patient AS p WHERE EXISTS (SELECT v.* FROM visit AS v WHERE v.patient_id = p.id) ORDER BY p.id
 agree    SELECT patient.* FROM patient AS p ORDER BY p.id
 agree    SELECT nope.* FROM patient
+agree    SELECT nosuchfunc(name) FROM patient
+agree    SELECT nosuchfunc(reason) FROM visit WHERE reason = 'nothing'
+agree    SELECT NoSuchFunc(reason) FROM visit WHERE reason = 'nothing'
+agree    SELECT reason, count(*) AS c FROM visit WHERE reason = 'nothing' GROUP BY ROLLUP (reason)
+agree    SELECT ROLLUP(reason) FROM visit WHERE reason = 'nothing'
+agree    SELECT name FROM patient WHERE nosuchfunc(name) = 1
+agree    SELECT name FROM patient ORDER BY nosuchfunc(name)
+agree    SELECT upper() FROM patient
+agree    SELECT upper(name, name) FROM patient
+agree    SELECT length() FROM visit WHERE reason = 'nothing'
+agree    SELECT length(name, 2) FROM patient
+agree    SELECT substr(name) FROM patient
+agree    SELECT abs() FROM visit WHERE reason = 'nothing'
+agree    SELECT trim(name, 'x', 'y') FROM patient
+agree    SELECT coalesce(note) FROM patient
+agree    SELECT coalesce() FROM patient
+agree    SELECT count(id, id) FROM patient
+agree    SELECT sum(age, age) FROM patient
+agree    SELECT name FROM patient WHERE count(id) > 1
+agree    SELECT name FROM patient WHERE sum(age) > 1
 agree    SELECT nope FROM patient
 agree    SELECT name FROM patient AS p JOIN visit AS v ON v.nope = p.id
 agree    SELECT id FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY id
-121 of 121 queries agree
+141 of 141 queries agree
 -- writes --
 1 rows both: true  <- UPDATE patient SET note = 'edited' WHERE id = 2
 1 rows both: true  <- DELETE FROM patient WHERE age IS NULL
@@ -137,6 +157,12 @@ both refuse  SELECT count(patient.*) FROM patient
 both refuse  SELECT patient.* + 1 FROM patient
    memdb:  error: database error: 'patient.*' is only allowed in a select list or a RETURNING clause
    sqlite: error: database error: near "+": syntax error
+-- DDL refused the same way by both --
+agree    ALTER TABLE patient ADD CONSTRAINT k UNIQUE (id)
+agree    ALTER TABLE patient ADD UNIQUE (id)
+agree    ALTER TABLE patient ADD PRIMARY KEY (id)
+agree    ALTER TABLE patient ADD CHECK (age > 0)
+agree    ALTER TABLE patient ADD FOREIGN KEY (id) REFERENCES visit (id)
 -- RETURNING --
 agree    INSERT INTO patient (id, name, age, note) VALUES (10, 'Eve', 50, 'tenth') RETURNING *
 agree    INSERT INTO patient (id, name, age) VALUES (11, 'Fay', 22) RETURNING id

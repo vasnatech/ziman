@@ -230,6 +230,7 @@ them against the code.
 - [`RETURNING`, and a clause the standard does not have (2026-10-25)](#returning-and-a-clause-the-standard-does-not-have-2026-10-25)
 - [A qualified star, and the first divergence that points the other way (2026-10-25)](#a-qualified-star-and-the-first-divergence-that-points-the-other-way-2026-10-25)
 - [Set operations, and a query whose answer depends on the engine (2026-10-25)](#set-operations-and-a-query-whose-answer-depends-on-the-engine-2026-10-25)
+- [Three defects an inventory found, one of them a crash (2026-10-25)](#three-defects-an-inventory-found-one-of-them-a-crash-2026-10-25)
 
 <!-- end index -->
 
@@ -8999,3 +9000,27 @@ Two refactors fell out and are worth naming because both were duplication the in
 **What is refused, and why that is the right answer for now.** A parenthesised arm -- `(SELECT ..) UNION (SELECT ..)` -- is not read. PostgreSQL accepts it, SQLite refuses it, and recording it would need a tree rather than a list; since the AST would not record the brackets, the formatter would write the flat form and so turn SQL SQLite rejects into SQL it accepts. The same argument as the quantifier, and the same conclusion: refuse it until the tree can hold it. `CORRESPONDING` is not read either, and nothing implements it.
 
 Three statements are now pinned in a small "both refuse, in different words" section of the cross-check: an `ORDER BY` before a `UNION`, `count(t.*)` and `t.* + 1`. A reader deciding whether to trust this engine needs to know that the two agree on what is *legal* even where they do not agree on how to say so -- and `sql` keeps its own voice for a parse error, because it has no dialect to borrow one from.
+
+## Three defects an inventory found, one of them a crash (2026-10-25)
+
+Asked what of ANSI SQL is still missing, I answered by **running** 62 standard constructs through `sql.parse` rather than by recalling what the header claims. Two of the 62 were not gaps at all but defects, and chasing those turned up a third that was worse than either.
+
+**1. `ALTER TABLE t ADD CONSTRAINT k UNIQUE (a)` was read as adding a column named `CONSTRAINT`.** It formatted back as `ALTER TABLE t ADD COLUMN CONSTRAINT k PRIMARY KEY a` -- brackets gone, meaning gone -- and `memdb` **accepted** it where SQLite refuses it outright. A migration written against PostgreSQL would have passed on this engine and failed on both real ones, which is precisely the false green the cross-check exists to prevent.
+
+The round trip could not catch it, and that is the lesson in it: **a wrong tree that re-parses to itself round-trips perfectly.** The property proves the parser and the formatter agree with each other, not that either agrees with SQL. Only a second engine can say that, which is why the cross-check and the round trip are both there.
+
+`AlterStmt` now carries an `AlterAction` enum -- `AddColumn(Column)` or `AddConstraint(string)` -- rather than a column and, implicitly, the hope that it is one. The constraint is kept as the text it was written as, which is the treatment `CREATE TABLE`'s table constraints already get. `ADD COLUMN` settles which case it is; without that word, a constraint keyword does. In `memdb` the lax reading refuses it in SQLite's own words, naming the first word it could not read (`near "CONSTRAINT": syntax error`, `near "UNIQUE": syntax error`), and the strict reading accepts it and records it nowhere -- which is exactly what it already does with a `CREATE TABLE`'s constraints, since it enforces none. Saying so beats pretending.
+
+**2. An unknown function was never refused until something evaluated it.** `SELECT nosuchfunc(a) FROM empty_table` answered no rows, where both real engines refuse the statement; so did `GROUP BY ROLLUP (a)`, `ROLLUP` parsing as an ordinary function call. Columns had been resolved before a statement runs since the join increment -- the entry above it in this file is about exactly that -- and **functions had not**, for no reason other than that nobody had looked.
+
+**3. `SELECT upper()` crashed the interpreter.** Not a `DbError`: a Ziman runtime panic, `index 0 out of bounds (array length 0)`, from `eval_call` reading `args[0]` of an empty array. `length` and `substr` checked their arity; `lower`, `upper`, `trim` and `abs` did not. **SQL text took the process down**, which for an engine whose whole purpose is to run inside a test suite is the most serious of the three.
+
+All of 2 and 3 come from one absence, and one list fixes both: `known_functions`, a name and an argument range per function, **read by validation before a statement runs and by evaluation as it runs**. An arity is now a fact about the function in one place instead of a check each implementation remembers or forgets, and the two messages are SQLite's to the letter -- `no such function: X` and `wrong number of arguments to function X()`, with the name echoed as written. A third message came out of it: an aggregate reached in scalar position is `misuse of aggregate function X()`, SQLite's wording again and the right complaint, since the function is not missing but in the wrong place. `eval_aggregate`'s own arity check went away in favour of the list, and so did two bespoke messages.
+
+**The inventory also found two smaller mismatches, both now matching SQLite:** `coalesce(x)` with a single argument is refused (it needs two, and SQLite refuses it too -- this engine had read it as `x`), and the stale `unsupported function: ... the aggregates are the next increment` message, which had outlived the aggregates by several increments.
+
+**And two SQLite quirks left deliberately unmodelled, listed in the header rather than left to be discovered:** SQLite accepts `count()` with no arguments as a synonym for `count(*)`, and has a *scalar* `max(a, b)`/`min(a, b)` beside the aggregates of the same name. PostgreSQL refuses the first and spells the second `greatest`/`least`. This engine refuses all three, so it is stricter than SQLite in two narrow places that the fixture does not assert agreement on.
+
+**The numbers.** 141 read queries agree with real SQLite, up from 121; the 20 new ones are the unknown-function, wrong-arity and misused-aggregate cases, each checked on a query whose rows are empty so that the *refusal* is what is compared. Five `ALTER TABLE ... ADD <constraint>` forms are refused identically by both engines in a section of their own. 96 round-trip shapes settle in one pass, up from 89. The strictness fixture holds 15 divergences, up from 14.
+
+One more thing the probe showed, recorded because it is a difference and not a defect: when a statement has two faults, the engines complain in their own order. `SELECT nosuchfunc(name) FROM visit`, where `visit` has no `name`, is `no such column: name` on SQLite and `no such function: nosuchfunc` here. Both refuse; which fault they look for first is their own business, and the fixture uses a column that exists so it is asserting the function rule rather than the order.

@@ -24,7 +24,7 @@ believing anything surprising.
 ## What it understands
 
 `CREATE TABLE` (with `NOT NULL`, `PRIMARY KEY`, `UNIQUE`, `DEFAULT` and a column type that is
-recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN`,
+recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD [COLUMN]`,
 `DROP TABLE [IF EXISTS]`, `INSERT INTO ... VALUES`, `SELECT [DISTINCT]` with `WHERE`,
 `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT` and `OFFSET`, `UPDATE ... SET ... WHERE`,
 `DELETE FROM ... WHERE`, `RETURNING` on any of the three writes, and

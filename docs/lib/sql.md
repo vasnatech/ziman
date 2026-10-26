@@ -29,7 +29,8 @@ formatter forgets to write stops the suite rather than the reader.
 (one or many rows),
 `UPDATE ... SET ... WHERE`, `DELETE FROM ... WHERE`, a `RETURNING` clause on any of those three,
 `CREATE TABLE` (columns with their types and
-constraints, and table-level constraints), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN`,
+constraints, and table-level constraints), `CREATE [UNIQUE] INDEX`,
+`ALTER TABLE ... ADD [COLUMN]` and `ALTER TABLE ... ADD <table constraint>`,
 `DROP TABLE [IF EXISTS]`, and `BEGIN`/`COMMIT`/`ROLLBACK`.
 
 Joins: `[INNER] JOIN`, `LEFT`/`RIGHT`/`FULL [OUTER] JOIN` and `CROSS JOIN`, each with an `ON`
@@ -61,6 +62,11 @@ as a data change delta table instead (`SELECT * FROM FINAL TABLE (INSERT ..)`, S
 PostgreSQL, SQLite from 3.35 and MariaDB all have `RETURNING`, so reading the clause people
 actually write is worth more here than reading the one the standard specifies. The delta-table
 form is not read.
+
+`ROLLUP`, `CUBE` and `GROUPING SETS` are **not** read as the grouping constructs they are: they
+parse as ordinary function calls in a `GROUP BY`, which is what SQLite does with them too, and an
+engine then refuses the function. Reading them properly needs a `GroupTerm` the `GROUP BY` list
+does not have yet.
 
 This is **not** ANSI SQL. ISO/IEC 9075 also has derived tables and `LATERAL` in a `FROM`,
 `CORRESPONDING` on a set operation, common table expressions, window functions, `MERGE`,
@@ -463,12 +469,31 @@ pub struct CreateStmt {
 }
 ```
 
+### `AlterAction`
+
+```
+pub enum AlterAction {
+    AddColumn(Column)
+    AddConstraint(string)
+}
+```
+
+What an `ALTER TABLE` does. Two things are read: adding a column, and adding a table-level
+constraint -- the second kept as the text it was written as, which is the treatment
+`CREATE TABLE`'s table constraints already get and for the same reason.
+
+**An enum rather than a column plus a flag**, because the two cases cannot both be true and a
+shape that cannot say otherwise is worth the enum. Before this, `ADD CONSTRAINT k UNIQUE (a)`
+read `CONSTRAINT` as the *name of a new column* and wrote itself back as
+`ADD COLUMN CONSTRAINT k PRIMARY KEY a` -- the brackets gone, the meaning gone, and the round
+trip none the wiser because the wrong tree parses back to itself.
+
 ### `AlterStmt`
 
 ```
 pub struct AlterStmt {
     table: string
-    column: Column
+    action: AlterAction
 }
 ```
 
