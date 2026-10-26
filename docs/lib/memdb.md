@@ -59,7 +59,15 @@ caller that gates on the dialect has to name `memdb` in its list** -- the sample
 `returns_written_row` does -- or its tests take a path production does not.
 
 Joins: `[INNER] JOIN`, `LEFT [OUTER] JOIN` and `CROSS JOIN`, with `ON` or `USING`, chained left
-to right and with table aliases. `RIGHT` and `FULL` are read by `sql` and refused here, with an
+to right and with table aliases. A comma in the `FROM` list is the `CROSS JOIN` it means.
+
+**Derived tables**: a `(SELECT ..)` in the `FROM`, run once and read like a table, with or
+without an alias, joined, nested, or holding a compound query. A derived table sees the scopes
+*enclosing the statement it is in* and not the `FROM` entry beside it -- so
+`FROM t, (SELECT .. WHERE u.id = t.id) AS x` is an error, while the same derived table inside a
+correlated subquery is legal. SQLite draws the line in exactly that place, which was measured
+rather than reasoned about: a derived table is not `LATERAL`, but it is still inside whatever
+encloses it. `RIGHT` and `FULL` are read by `sql` and refused here, with an
 error naming the engine to use instead -- they are a mirror and a union of what this does, and
 shipping them without a test that proves them against a real engine would be guessing.
 
@@ -119,13 +127,14 @@ silently the left one.
 ## Two readings of SQL
 
 `driver()` at `memdb:` reads SQL the way SQLite does. `strict_driver()` at `memdb-ansi:` reads it
-the way the standard does, and the two differ in exactly nine places -- `LIKE`'s case
+the way the standard does, and the two differ in exactly eleven places -- `LIKE`'s case
 sensitivity, what division by zero answers, whether a number may be compared with text, whether
 a boolean in a select list comes back as a boolean or as the integer 0 or 1 (SQLite has no
 boolean type; PostgreSQL and the standard do), whether a `RETURNING` clause may use a qualified
 star, **how a chain of set operations groups**, whether `INTERSECT ALL`, `EXCEPT ALL` and
-`UNION DISTINCT` exist at all, whether a `PRIMARY KEY` column may hold NULL, and whether a
-`UNIQUE` column may be added to a table that already has rows.
+`UNION DISTINCT` exist at all, whether a `PRIMARY KEY` column may hold NULL, whether a `UNIQUE`
+column may be added to a table that already has rows, whether two columns of one derived table
+may share a name, and whether a derived table may rename its columns with `AS x (a, b)`.
 
 The grouping is the one to remember, because nothing in the text of the query says which reading
 is in force and both answer rows. SQLite reads `UNION`, `INTERSECT` and `EXCEPT` strictly left to
@@ -133,9 +142,10 @@ right; the standard and PostgreSQL bind `INTERSECT` tighter than the other two. 
 `a UNION b INTERSECT c` is `(a UNION b) INTERSECT c` on one engine and `a UNION (b INTERSECT c)`
 on the other -- a different answer, no error, no warning. Parenthesise it or do not write it.
 
-**Four of the nine run the other way**, and they are the ones where SQLite is the stricter
-engine: `RETURNING t.*`, the `ALL` forms of `INTERSECT` and `EXCEPT`, `UNION DISTINCT` and
-`ALTER TABLE ... ADD COLUMN .. UNIQUE` are each refused by SQLite and answered by PostgreSQL. There the lax reading refuses and the strict
+**Five of the eleven run the other way**, and they are the ones where SQLite is the stricter
+engine: `RETURNING t.*`, the `ALL` forms of `INTERSECT` and `EXCEPT`, `UNION DISTINCT`,
+`ALTER TABLE ... ADD COLUMN .. UNIQUE` and a derived table's column alias list are each refused
+by SQLite and answered by PostgreSQL. There the lax reading refuses and the strict
 one runs it, so a statement failing on `memdb:` and passing on `memdb-ansi:` is PostgreSQL-only
 SQL that will break on SQLite. Both directions are worth knowing; only the direction of the
 arrow changes.
@@ -151,8 +161,9 @@ joins and no subqueries, because its repositories query one table each and compo
 anyway, because a test suite is not restricted to the queries the application happens to issue
 and an engine that refuses them would push every such test onto a container.
 
-Derived tables in a `FROM`, a parenthesised arm of a compound (which
-SQLite also refuses, so nothing is lost yet) and per-test forking are the next increments. `count(t.*)` is not read: SQLite refuses it,
+A parenthesised arm of a compound (which SQLite also refuses, so nothing is lost yet), a
+parenthesised join expression, `LATERAL`, common table expressions and per-test forking are the
+next increments. `count(t.*)` is not read: SQLite refuses it,
 PostgreSQL counts whole rows with it, and nothing needs it. Anything it does not understand
 is an error naming the token, never a quiet partial execution.
 
@@ -210,8 +221,8 @@ four would be four different databases.
 pub fn strict_driver() -> Driver
 ```
 
-The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Nine things differ,
-and the first five are places where SQLite departs from ANSI:
+The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Eleven things
+differ, and the first six are places where SQLite departs from ANSI:
 
 
 ```
@@ -222,7 +233,9 @@ and the first five are places where SQLite departs from ANSI:
   or 1;
 - a `PRIMARY KEY` column may not hold NULL, which makes a key implicitly `NOT NULL` as the
   standard says -- where SQLite allows it, and for a single-column `INTEGER PRIMARY KEY` fills
-  in the next rowid instead.
+  in the next rowid instead;
+- two columns of one derived table sharing a name make a reference to it ambiguous, where
+  SQLite takes the first.
 ```
 
 The other four point the other way, SQLite being the stricter engine (each measured, not
@@ -236,7 +249,9 @@ assumed):
   SQL in PostgreSQL;
 - `RETURNING t.*` is refused by SQLite and answered by PostgreSQL;
 - `ALTER TABLE ... ADD COLUMN u TEXT UNIQUE` is refused by SQLite, which does not rewrite the
-  rows already there, and accepted by PostgreSQL, which does.
+  rows already there, and accepted by PostgreSQL, which does;
+- a derived table's column alias list, `(SELECT ..) AS x (a, b)`, is a syntax error in SQLite
+  and ordinary SQL in PostgreSQL.
 ```
 
 For those, the lax reading refuses and this one runs them.

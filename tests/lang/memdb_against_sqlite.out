@@ -117,6 +117,29 @@ agree    SELECT p.* FROM patient AS p LEFT JOIN visit AS v ON v.patient_id = p.i
 agree    SELECT p.name FROM patient AS p WHERE EXISTS (SELECT v.* FROM visit AS v WHERE v.patient_id = p.id) ORDER BY p.id
 agree    SELECT patient.* FROM patient AS p ORDER BY p.id
 agree    SELECT nope.* FROM patient
+agree    SELECT x.name FROM (SELECT name FROM patient) AS x ORDER BY x.name
+agree    SELECT name FROM (SELECT name FROM patient) AS x ORDER BY name
+agree    SELECT name FROM (SELECT name FROM patient) ORDER BY name
+agree    SELECT * FROM (SELECT id, name FROM patient WHERE age > 30) AS x ORDER BY id
+agree    SELECT x.* FROM (SELECT id, name FROM patient) AS x ORDER BY id
+agree    SELECT count(*) AS c FROM (SELECT id FROM patient WHERE age > 30) AS x
+agree    SELECT x.note, count(*) AS c FROM (SELECT note FROM patient) AS x GROUP BY x.note ORDER BY x.note
+agree    SELECT x.oldest FROM (SELECT max(age) AS oldest FROM patient) AS x
+agree    SELECT x.name, y.reason FROM (SELECT id, name FROM patient) AS x JOIN (SELECT patient_id, reason FROM visit) AS y ON y.patient_id = x.id ORDER BY x.id, y.reason
+agree    SELECT x.name FROM (SELECT name FROM (SELECT name FROM patient) AS inner_one) AS x ORDER BY 1
+agree    SELECT x.v FROM (SELECT id AS v FROM patient UNION SELECT patient_id FROM visit) AS x ORDER BY 1
+agree    SELECT x.name FROM (SELECT name FROM patient ORDER BY name LIMIT 2) AS x ORDER BY 1
+agree    SELECT x.one FROM (SELECT 1 AS one) AS x
+agree    SELECT x.name FROM (SELECT name FROM patient) AS x WHERE x.name LIKE 'A%' ORDER BY 1
+agree    SELECT patient.name FROM (SELECT name FROM patient) AS x
+agree    SELECT x.nope FROM (SELECT name FROM patient) AS x
+agree    SELECT x.id FROM (SELECT id, id FROM patient) AS x ORDER BY 1
+agree    SELECT x.id FROM (SELECT p.id, v.id FROM patient AS p JOIN visit AS v ON v.patient_id = p.id) AS x ORDER BY 1
+agree    SELECT count(*) AS c FROM patient, visit
+agree    SELECT count(*) AS c FROM patient, (SELECT id FROM visit) AS x
+agree    SELECT p.name, x.reason FROM patient AS p, (SELECT patient_id, reason FROM visit) AS x WHERE x.patient_id = p.id ORDER BY p.id, x.reason
+agree    SELECT x.reason FROM patient AS p, (SELECT reason FROM visit WHERE visit.patient_id = p.id) AS x
+agree    SELECT p.name FROM patient AS p WHERE p.id IN (SELECT y.patient_id FROM (SELECT patient_id FROM visit WHERE visit.patient_id = p.id) AS y) ORDER BY p.id
 agree    SELECT nosuchfunc(name) FROM patient
 agree    SELECT nosuchfunc(reason) FROM visit WHERE reason = 'nothing'
 agree    SELECT NoSuchFunc(reason) FROM visit WHERE reason = 'nothing'
@@ -140,7 +163,7 @@ agree    SELECT name FROM patient WHERE sum(age) > 1
 agree    SELECT nope FROM patient
 agree    SELECT name FROM patient AS p JOIN visit AS v ON v.nope = p.id
 agree    SELECT id FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY id
-141 of 141 queries agree
+164 of 164 queries agree
 -- writes --
 1 rows both: true  <- UPDATE patient SET note = 'edited' WHERE id = 2
 1 rows both: true  <- DELETE FROM patient WHERE age IS NULL

@@ -2124,8 +2124,17 @@ pub enum Expr {
 }
 
 pub struct TableRef {
+    // The table's name, or empty for a derived table -- a `(SELECT ..)` in the `FROM`, which has a
+    // query instead of a name.
     name: string
     alias: string
+    // The query a derived table is. Empty for a named table; one element otherwise. An array
+    // rather than an `Option`, the way `CaseNode.fallback` is, so a `TableRef` need not name the
+    // type that contains it.
+    query: [SelectStmt]
+    // `AS x (a, b)` -- the names the derived table's columns take, which may be shorter than the
+    // query's list and rename only its first columns. Empty where none were written.
+    column_aliases: [string]
 }
 
 pub struct Join {

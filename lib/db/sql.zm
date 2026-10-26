@@ -27,7 +27,11 @@
 //
 // Joins: `[INNER] JOIN`, `LEFT`/`RIGHT`/`FULL [OUTER] JOIN` and `CROSS JOIN`, each with an `ON`
 // condition or a `USING` column list, as a flat left-deep list -- which is what SQL means by
-// `a JOIN b ON .. JOIN c ON ..`. A parenthesised join expression would need a tree and is not read.
+// `a JOIN b ON .. JOIN c ON ..`. A comma in the `FROM` list is read as the `CROSS JOIN` it means.
+// A parenthesised join expression would need a tree and is not read.
+//
+// A **derived table** -- `(SELECT ..) AS x`, with an optional `(a, b)` renaming its columns -- is a
+// `FROM` entry like any other, and may be joined, nested, or given a compound query.
 //
 // Set operations: `UNION`, `INTERSECT` and `EXCEPT`, each with an optional `ALL` or `DISTINCT`,
 // chained left to right, with the compound's `ORDER BY`, `LIMIT` and `OFFSET` after the last arm.
@@ -60,8 +64,8 @@
 // engine then refuses the function. Reading them properly needs a `GroupTerm` the `GROUP BY` list
 // does not have yet.
 //
-// This is **not** ANSI SQL. ISO/IEC 9075 also has derived tables and `LATERAL` in a `FROM`,
-// `CORRESPONDING` on a set operation, common table expressions, window functions, `MERGE`,
+// This is **not** ANSI SQL. ISO/IEC 9075 also has `LATERAL` and a parenthesised join expression in
+// a `FROM`, `CORRESPONDING` on a set operation, common table expressions, window functions, `MERGE`,
 // `GRANT`/`REVOKE`, views, schemas, sequences, domains, triggers, routines, cursors, savepoints,
 // isolation levels, `GROUPING SETS`, interval and row constructors, `IS DISTINCT FROM`,
 // `SIMILAR TO`, `OVERLAPS`, temporal tables and the SQL/JSON functions. For scale, PostgreSQL's own grammar is some twenty thousand lines and is
@@ -85,8 +89,8 @@
 // there to start from.
 
 // Marked experimental because its coverage is a fraction of ANSI SQL and the tree will reshape as
-// that grows -- a derived table will make a `FROM` entry hold a query rather than a name, and a
-// parenthesised arm would turn the flat `set_ops` list into a tree. The round-trip property is what
+// that grows -- a parenthesised arm would turn the flat `set_ops` list into a tree, and so would a
+// parenthesised join expression turn the flat `joins` list. The round-trip property is what
 // makes those changes safe to make; the attribute is what says they are still coming.
 #![experimental]
 use db.DbError
@@ -416,8 +420,17 @@ pub enum Expr {
 
 // A table in a `FROM`, with the alias it was given.
 pub struct TableRef {
+    // The table's name, or empty for a derived table -- a `(SELECT ..)` in the `FROM`, which has a
+    // query instead of a name.
     name: string
     alias: string
+    // The query a derived table is. Empty for a named table; one element otherwise. An array
+    // rather than an `Option`, the way `CaseNode.fallback` is, so a `TableRef` need not name the
+    // type that contains it.
+    query: [SelectStmt]
+    // `AS x (a, b)` -- the names the derived table's columns take, which may be shorter than the
+    // query's list and rename only its first columns. Empty where none were written.
+    column_aliases: [string]
 }
 
 // One join onto whatever is to its left. `kind` is `INNER`, `LEFT`, `RIGHT`, `FULL` or `CROSS`,
@@ -1437,14 +1450,34 @@ fn starts_clause(c: Cursor) -> bool {
 }
 
 fn parse_table_ref(c: Cursor) -> Result<TableRef, DbError> {
-    val name = try expect_name(c)
+    var name = ""
+    val query = mutable_array_new<SelectStmt>()
+    if accept_punct(c, "(") {
+        // A derived table. A parenthesised *join* expression starts the same way and is not read,
+        // so the error a reader gets names the `SELECT` that was expected.
+        try expect_word(c, "SELECT")
+        val positional = mutable_new(0)
+        push(query, try parse_query(c, positional))
+        try expect_punct(c, ")")
+    } else {
+        name = try expect_name(c)
+    }
     var alias = ""
     if accept(c, "AS") {
         alias = try expect_name(c)
     } else if peek(c).kind == "name" && !starts_clause(c) {
         alias = advance(c).text
     }
-    return ok(TableRef { name: name, alias: alias })
+    var column_aliases: [string] = []
+    if sees_punct(c, "(") {
+        column_aliases = try parse_name_list(c)
+    }
+    return ok(TableRef {
+        name: name,
+        alias: alias,
+        query: snapshot(query),
+        column_aliases: column_aliases
+    })
 }
 
 // The joins after the first table. `RIGHT` and `FULL` are read here and refused by the engine:
@@ -1455,7 +1488,12 @@ fn parse_joins(c: Cursor, positional: Mutable<int>) -> Result<[Join], DbError> {
     var more = true
     while more {
         var kind = ""
-        if accept(c, "CROSS") {
+        // `FROM a, b` is the older spelling of `CROSS JOIN`, and it is what the comma in a `FROM`
+        // list means -- including the `FROM t, (SELECT ..) AS x` that derived tables are usually
+        // written with. Read as the join it is rather than modelled twice.
+        if accept_punct(c, ",") {
+            kind = "CROSS"
+        } else if accept(c, "CROSS") {
             try expect_word(c, "JOIN")
             kind = "CROSS"
         } else if accept(c, "LEFT") {
@@ -2094,7 +2132,19 @@ fn format_column(col: Column) -> string {
 }
 
 fn format_table_ref(t: TableRef) -> string {
-    return if t.alias == "" { t.name } else { concat(t.name, " AS ", t.alias) }
+    val out = mutable_string_new()
+    if prelude.len(t.query) > 0 {
+        append(out, "(", format_select(t.query[0]), ")")
+    } else {
+        append(out, t.name)
+    }
+    if t.alias != "" {
+        append(out, " AS ", t.alias)
+    }
+    if prelude.len(t.column_aliases) > 0 {
+        append(out, " (", join(separator: ", ", pieces: t.column_aliases), ")")
+    }
+    return snapshot(out)
 }
 
 // A result item list as text: the half of the round trip that `parse_items` is the other half of.

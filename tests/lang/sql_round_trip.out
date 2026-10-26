@@ -1,5 +1,5 @@
 -- the shapes the module claims to read --
-107 of 107 round-trip
+120 of 120 round-trip
 -- what it writes --
   in:  select  name ,age from patient where age>30 order by name
   out: SELECT name, age FROM patient WHERE age > 30 ORDER BY name

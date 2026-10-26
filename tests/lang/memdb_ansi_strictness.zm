@@ -100,6 +100,14 @@ fn main() {
             "EXCEPT ALL, likewise absent from SQLite: it removes one occurrence per occurrence on the right"
         ],
         [
+            "SELECT x.id FROM (SELECT id, id FROM t) AS x ORDER BY 1",
+            "duplicate column names in a derived table: SQLite takes the first and PostgreSQL calls the reference ambiguous. Across two *sources* -- a join -- both engines call it ambiguous, and so does either reading here"
+        ],
+        [
+            "SELECT x.v FROM (SELECT id FROM t) AS x (v) ORDER BY 1",
+            "a column alias list on a derived table, `AS x (v)`: ordinary SQL in PostgreSQL and a syntax error in SQLite, which has no such form"
+        ],
+        [
             "INSERT INTO keyed (id, v) VALUES (NULL, 'x')",
             "**a NULL in a PRIMARY KEY**: the standard and PostgreSQL make a key implicitly NOT NULL, while SQLite allows it -- and for a single-column INTEGER PRIMARY KEY, which is its rowid, fills in the next value instead. So the lax reading answers a row and the strict one refuses the write"
         ],

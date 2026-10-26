@@ -185,6 +185,36 @@ val queries: [string] = [
     "SELECT patient.* FROM patient AS p ORDER BY p.id",
     // and a qualifier naming no table at all
     "SELECT nope.* FROM patient",
+    // derived tables: a `(SELECT ..)` in the FROM, read like a table
+    "SELECT x.name FROM (SELECT name FROM patient) AS x ORDER BY x.name",
+    "SELECT name FROM (SELECT name FROM patient) AS x ORDER BY name",
+    "SELECT name FROM (SELECT name FROM patient) ORDER BY name",
+    "SELECT * FROM (SELECT id, name FROM patient WHERE age > 30) AS x ORDER BY id",
+    "SELECT x.* FROM (SELECT id, name FROM patient) AS x ORDER BY id",
+    "SELECT count(*) AS c FROM (SELECT id FROM patient WHERE age > 30) AS x",
+    "SELECT x.note, count(*) AS c FROM (SELECT note FROM patient) AS x GROUP BY x.note ORDER BY x.note",
+    "SELECT x.oldest FROM (SELECT max(age) AS oldest FROM patient) AS x",
+    "SELECT x.name, y.reason FROM (SELECT id, name FROM patient) AS x JOIN (SELECT patient_id, reason FROM visit) AS y ON y.patient_id = x.id ORDER BY x.id, y.reason",
+    "SELECT x.name FROM (SELECT name FROM (SELECT name FROM patient) AS inner_one) AS x ORDER BY 1",
+    "SELECT x.v FROM (SELECT id AS v FROM patient UNION SELECT patient_id FROM visit) AS x ORDER BY 1",
+    "SELECT x.name FROM (SELECT name FROM patient ORDER BY name LIMIT 2) AS x ORDER BY 1",
+    "SELECT x.one FROM (SELECT 1 AS one) AS x",
+    "SELECT x.name FROM (SELECT name FROM patient) AS x WHERE x.name LIKE 'A%' ORDER BY 1",
+    // a derived table's inner table is not visible outside it, and neither is a column it did not
+    // answer
+    "SELECT patient.name FROM (SELECT name FROM patient) AS x",
+    "SELECT x.nope FROM (SELECT name FROM patient) AS x",
+    // duplicate names in a derived table: SQLite takes the first and does not call it ambiguous
+    "SELECT x.id FROM (SELECT id, id FROM patient) AS x ORDER BY 1",
+    "SELECT x.id FROM (SELECT p.id, v.id FROM patient AS p JOIN visit AS v ON v.patient_id = p.id) AS x ORDER BY 1",
+    // a comma in the FROM is a CROSS JOIN, which is how a derived table is usually written
+    "SELECT count(*) AS c FROM patient, visit",
+    "SELECT count(*) AS c FROM patient, (SELECT id FROM visit) AS x",
+    "SELECT p.name, x.reason FROM patient AS p, (SELECT patient_id, reason FROM visit) AS x WHERE x.patient_id = p.id ORDER BY p.id, x.reason",
+    // a derived table may not see the entry beside it -- it is not LATERAL -- but may see what
+    // encloses the statement it is in
+    "SELECT x.reason FROM patient AS p, (SELECT reason FROM visit WHERE visit.patient_id = p.id) AS x",
+    "SELECT p.name FROM patient AS p WHERE p.id IN (SELECT y.patient_id FROM (SELECT patient_id FROM visit WHERE visit.patient_id = p.id) AS y) ORDER BY p.id",
     // a function this engine does not have, which must be refused **before** any row is read --
     // the first four of these answered rows, or no rows, until the function registry existed
     "SELECT nosuchfunc(name) FROM patient",

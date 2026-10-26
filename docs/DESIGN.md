@@ -233,6 +233,7 @@ them against the code.
 - [Three defects an inventory found, one of them a crash (2026-10-25)](#three-defects-an-inventory-found-one-of-them-a-crash-2026-10-25)
 - [Constraints stop being decoration (2026-10-25)](#constraints-stop-being-decoration-2026-10-25)
 - [Referential integrity, and a pragma that makes a green suite mean nothing (2026-10-25)](#referential-integrity-and-a-pragma-that-makes-a-green-suite-mean-nothing-2026-10-25)
+- [Derived tables, and the line SQLite draws around them (2026-10-25)](#derived-tables-and-the-line-sqlite-draws-around-them-2026-10-25)
 
 <!-- end index -->
 
@@ -9080,3 +9081,35 @@ Foreign keys are enforced: the child's side on `INSERT` and `UPDATE`, the parent
 **And one the fixture caused rather than caught**, which is worth recording because the diagnosis was the opposite of the symptom. Adding a deliberately malformed foreign key -- one pointing at a non-key column -- made SQLite refuse **every** `DELETE` on the table it named, including deletes with nothing to do with it: a parent's delete checks every key pointing at it, and the mismatch is reported before any action runs. Three fixture lines disagreed, and none of them was about the malformed key. The fix was to give the malformed shapes a parent of their own, and the finding is that a broken constraint anywhere in a schema can make unrelated statements fail on a real engine.
 
 `DEFERRABLE` is read and ignored, so every constraint is checked as its statement runs. SQLite ignores it too unless `PRAGMA defer_foreign_keys` is set, so the two agree and the fixture says so; PostgreSQL honours it, and a test that needs a deferred check is asking for the real engine. That is the last of the constraint increment: `NOT NULL`, `PRIMARY KEY`, `UNIQUE`, `CHECK` and `FOREIGN KEY` are all enforced, and the module's divergence list no longer has a line saying constraints are decoration.
+
+## Derived tables, and the line SQLite draws around them (2026-10-25)
+
+`FROM (SELECT ..) AS x` -- a query in a `FROM`, run once and read like a table, with or without an alias, joined with others, nested, or holding a compound. **164 read queries agree with real SQLite, up from 141**, and 120 round-trip shapes settle in one pass, up from 107.
+
+`TableRef` gained a `query: [SelectStmt]` -- empty for a named table, one element for a derived one -- which is the reshaping the module's own `#![experimental]` note predicted twice. An array rather than an `Option`, the way `CaseNode.fallback` is, so a `TableRef` need not name the type that contains it.
+
+**The interesting question was what a derived table can see**, and it has a non-obvious answer that only measurement gives. A derived table is not `LATERAL`, so it cannot reference the `FROM` entry beside it:
+
+```sql
+SELECT x.reason FROM patient AS p, (SELECT reason FROM visit WHERE visit.patient_id = p.id) AS x
+-- no such column: p.id, on SQLite and here
+```
+
+But it *is* inside whatever encloses the statement, so the same derived table inside a correlated subquery resolves outward and runs:
+
+```sql
+SELECT p.name FROM patient AS p
+ WHERE p.id IN (SELECT y.patient_id FROM (SELECT patient_id FROM visit WHERE visit.patient_id = p.id) AS y)
+-- runs on SQLite and here
+```
+
+Both were measured on real SQLite, and together they say exactly where the line is: a derived table is given the enclosing scopes and not the current one. **Which is what the existing `Ctx.outer` chain already does if the derived query is handed `outer` unchanged** -- the scope that would make the first query legal is the one being built and so is not in the chain yet. The two behaviours came out of one argument passed through, and I would not have trusted that without the pair of measurements.
+
+**A comma in a `FROM` list turned out to be unread**, which the derived-table idiom exposed: `FROM t, (SELECT ..) AS x` is how people write it, and `FROM a, b` is Core SQL and the older spelling of `CROSS JOIN`. Nothing had noticed because the 39 real migrations and every fixture use an explicit `JOIN`. It is now read as the cross join it is -- four lines in `parse_joins`, rather than a second thing to model.
+
+**Two new divergences, bringing the count to eleven:**
+
+* **Duplicate column names in a derived table.** `SELECT x.id FROM (SELECT p.id, v.id FROM p JOIN v ..) AS x` is `column reference "id" is ambiguous` on PostgreSQL and **answers the first column** on SQLite. The rule that fits both is sharper than "count the matches": ambiguity is across *sources*, so two columns of one derived table are not ambiguous while the same two names across a join are, in either engine and either reading. `resolve_column` now counts distinct qualifiers rather than matches, with the one-source case ambiguous only in the strict reading.
+* **A column alias list**, `(SELECT ..) AS x (a, b)`, is ordinary SQL in PostgreSQL -- which also accepts a list shorter than the query's and renames only that far -- and a syntax error in SQLite. The lax reading refuses it in SQLite's words; the strict one renames.
+
+What is still not read is now a shorter list, and every item on it is a tree rather than a field: a parenthesised join expression, a parenthesised arm of a compound, `LATERAL`, and common table expressions. The flat `joins` and `set_ops` lists are what make the first two refusals rather than mistakes, and the round trip is what will make turning either into a tree safe.

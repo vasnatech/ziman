@@ -51,7 +51,15 @@
 // `returns_written_row` does -- or its tests take a path production does not.
 //
 // Joins: `[INNER] JOIN`, `LEFT [OUTER] JOIN` and `CROSS JOIN`, with `ON` or `USING`, chained left
-// to right and with table aliases. `RIGHT` and `FULL` are read by `sql` and refused here, with an
+// to right and with table aliases. A comma in the `FROM` list is the `CROSS JOIN` it means.
+//
+// **Derived tables**: a `(SELECT ..)` in the `FROM`, run once and read like a table, with or
+// without an alias, joined, nested, or holding a compound query. A derived table sees the scopes
+// *enclosing the statement it is in* and not the `FROM` entry beside it -- so
+// `FROM t, (SELECT .. WHERE u.id = t.id) AS x` is an error, while the same derived table inside a
+// correlated subquery is legal. SQLite draws the line in exactly that place, which was measured
+// rather than reasoned about: a derived table is not `LATERAL`, but it is still inside whatever
+// encloses it. `RIGHT` and `FULL` are read by `sql` and refused here, with an
 // error naming the engine to use instead -- they are a mirror and a union of what this does, and
 // shipping them without a test that proves them against a real engine would be guessing.
 //
@@ -111,13 +119,14 @@
 // ## Two readings of SQL
 //
 // `driver()` at `memdb:` reads SQL the way SQLite does. `strict_driver()` at `memdb-ansi:` reads it
-// the way the standard does, and the two differ in exactly nine places -- `LIKE`'s case
+// the way the standard does, and the two differ in exactly eleven places -- `LIKE`'s case
 // sensitivity, what division by zero answers, whether a number may be compared with text, whether
 // a boolean in a select list comes back as a boolean or as the integer 0 or 1 (SQLite has no
 // boolean type; PostgreSQL and the standard do), whether a `RETURNING` clause may use a qualified
 // star, **how a chain of set operations groups**, whether `INTERSECT ALL`, `EXCEPT ALL` and
-// `UNION DISTINCT` exist at all, whether a `PRIMARY KEY` column may hold NULL, and whether a
-// `UNIQUE` column may be added to a table that already has rows.
+// `UNION DISTINCT` exist at all, whether a `PRIMARY KEY` column may hold NULL, whether a `UNIQUE`
+// column may be added to a table that already has rows, whether two columns of one derived table
+// may share a name, and whether a derived table may rename its columns with `AS x (a, b)`.
 //
 // The grouping is the one to remember, because nothing in the text of the query says which reading
 // is in force and both answer rows. SQLite reads `UNION`, `INTERSECT` and `EXCEPT` strictly left to
@@ -125,9 +134,10 @@
 // `a UNION b INTERSECT c` is `(a UNION b) INTERSECT c` on one engine and `a UNION (b INTERSECT c)`
 // on the other -- a different answer, no error, no warning. Parenthesise it or do not write it.
 //
-// **Four of the nine run the other way**, and they are the ones where SQLite is the stricter
-// engine: `RETURNING t.*`, the `ALL` forms of `INTERSECT` and `EXCEPT`, `UNION DISTINCT` and
-// `ALTER TABLE ... ADD COLUMN .. UNIQUE` are each refused by SQLite and answered by PostgreSQL. There the lax reading refuses and the strict
+// **Five of the eleven run the other way**, and they are the ones where SQLite is the stricter
+// engine: `RETURNING t.*`, the `ALL` forms of `INTERSECT` and `EXCEPT`, `UNION DISTINCT`,
+// `ALTER TABLE ... ADD COLUMN .. UNIQUE` and a derived table's column alias list are each refused
+// by SQLite and answered by PostgreSQL. There the lax reading refuses and the strict
 // one runs it, so a statement failing on `memdb:` and passing on `memdb-ansi:` is PostgreSQL-only
 // SQL that will break on SQLite. Both directions are worth knowing; only the direction of the
 // arrow changes.
@@ -143,8 +153,9 @@
 // anyway, because a test suite is not restricted to the queries the application happens to issue
 // and an engine that refuses them would push every such test onto a container.
 //
-// Derived tables in a `FROM`, a parenthesised arm of a compound (which
-// SQLite also refuses, so nothing is lost yet) and per-test forking are the next increments. `count(t.*)` is not read: SQLite refuses it,
+// A parenthesised arm of a compound (which SQLite also refuses, so nothing is lost yet), a
+// parenthesised join expression, `LATERAL`, common table expressions and per-test forking are the
+// next increments. `count(t.*)` is not read: SQLite refuses it,
 // PostgreSQL counts whole rows with it, and nothing needs it. Anything it does not understand
 // is an error naming the token, never a quiet partial execution.
 //
@@ -311,15 +322,23 @@ fn resolve_column(cx: Ctx, ref: sql.ColRef) -> int {
     val qualifier = sql.fold_name(ref.table)
     var found = 0 - 1
     var count = 0
+    val sources = mutable_set_new<string>()
     for i in 0..prelude.len(cx.columns) {
         if sql.fold_name(cx.columns[i]) == want {
             if ref.table == "" || sql.fold_name(cx.tables[i]) == qualifier {
-                found = i
+                if found < 0 {
+                    found = i
+                }
                 count = count + 1
+                add(sources, sql.fold_name(cx.tables[i]))
             }
         }
     }
-    if count > 1 {
+    // **Two columns of one source are not ambiguous in SQLite**, which takes the first: a derived
+    // table may answer `SELECT n, n FROM t` and `x.n` then means its first column. Across two
+    // sources it is ambiguous in both engines -- that is the join case. PostgreSQL calls the
+    // one-source case ambiguous too, so the strict reading does as well.
+    if count > 1 && (prelude.len(sources) > 1 || cx.strict) {
         return 0 - 2
     }
     return found
@@ -1478,8 +1497,17 @@ fn shape_ctx(
         push(refs, j.table)
     }
     for r in refs {
+        if prelude.len(r.query) > 0 {
+            // A derived table's shape is its query's, which `query_columns` reads without running
+            // anything -- the point of having it.
+            for name in try derived_columns(database, r, params, strict, outer) {
+                push(columns, name)
+                push(tables, r.alias)
+            }
+            continue
+        }
         val t = try table_of(database, r.name)
-        val qualifier = if r.alias == "" { t.name } else { r.alias }
+        val qualifier = ref_qualifier(r)
         for name in column_names(t) {
             push(columns, name)
             push(tables, qualifier)
@@ -2703,10 +2731,79 @@ fn scope_ctx(sc: Scope, row: [SqlValue]) -> Ctx {
     return cx
 }
 
-fn table_source(database: Database, ref: sql.TableRef) -> Result<Source, DbError> {
+// The name a `FROM` entry is known by: its alias, else its table name. A derived table with no
+// alias has neither, so nothing can qualify its columns -- which is also true in both engines.
+fn ref_qualifier(ref: sql.TableRef) -> string {
+    if ref.alias != "" {
+        return ref.alias
+    }
+    return ref.name
+}
+
+// The names a derived table's columns take: the query's own, with `AS x (a, b)` renaming the first
+// of them where it was written.
+//
+// **A column alias list is refused by the SQLite-shaped reading**, in SQLite's words, because
+// SQLite has no such syntax: `(SELECT 1 AS a) AS x (b)` is a syntax error there and ordinary SQL in
+// PostgreSQL, which also allows a list shorter than the query's and renames only that far.
+fn derived_columns(
+    database: Database,
+    ref: sql.TableRef,
+    params: [SqlValue],
+    strict: bool,
+    outer: [Ctx]
+) -> Result<[string], DbError> {
+    val own = try query_columns(database, ref.query[0], params, strict, outer)
+    if prelude.len(ref.column_aliases) == 0 {
+        return ok(own)
+    }
+    if !strict {
+        return err(problem("near \"(\": syntax error"))
+    }
+    if prelude.len(ref.column_aliases) > prelude.len(own) {
+        return err(problem(prelude.format(
+            "table \"{}\" has {} columns available but {} columns specified",
+            ref_qualifier(ref),
+            prelude.len(own),
+            prelude.len(ref.column_aliases)
+        )))
+    }
+    val out = mutable_array_new<string>()
+    for i in 0..prelude.len(own) {
+        push(out, if i < prelude.len(ref.column_aliases) { ref.column_aliases[i] } else { own[i] })
+    }
+    return ok(snapshot(out))
+}
+
+// One entry of a `FROM`, as columns and rows: a stored table, or a **derived table** -- a
+// `(SELECT ..)` run once and read like a table.
+//
+// The derived query sees `outer` and not the entry beside it, which is what makes
+// `FROM t, (SELECT .. WHERE u.id = t.id) AS x` an error and the same derived table inside a
+// correlated subquery legal. Both were measured against SQLite, which draws the line in exactly
+// that place: a derived table is not `LATERAL`, but it is still inside whatever encloses it.
+fn table_source(
+    database: Database,
+    ref: sql.TableRef,
+    params: [SqlValue],
+    strict: bool,
+    outer: [Ctx]
+) -> Result<Source, DbError> {
+    if prelude.len(ref.query) > 0 {
+        val names = try derived_columns(database, ref, params, strict, outer)
+        val rows = mutable_array_new<[SqlValue]>()
+        for r in (try run_select(database, ref.query[0], params, strict, outer)).rows {
+            push(rows, r.values)
+        }
+        val tables = mutable_array_new<string>()
+        for _ in names {
+            push(tables, ref.alias)
+        }
+        return ok(Source { columns: names, tables: snapshot(tables), rows: snapshot(rows) })
+    }
     val t = try table_of(database, ref.name)
     val names = column_names(t)
-    val qualifier = if ref.alias == "" { t.name } else { ref.alias }
+    val qualifier = ref_qualifier(ref)
     val tables = mutable_array_new<string>()
     for _ in names {
         push(tables, qualifier)
@@ -2733,8 +2830,8 @@ fn using_condition(using: [string], left: sql.TableRef, right: sql.TableRef) -> 
     if prelude.len(using) == 0 {
         return Option<Expr>.None
     }
-    val left_name = if left.alias == "" { left.name } else { left.alias }
-    val right_name = if right.alias == "" { right.name } else { right.alias }
+    val left_name = ref_qualifier(left)
+    val right_name = ref_qualifier(right)
     var built = Option<Expr>.None
     for name in using {
         val one = Expr.Bin(BinNode {
@@ -2763,7 +2860,7 @@ fn build_source(
         val no_values: [SqlValue] = []
         return ok(Source { columns: none, tables: none, rows: [no_values] })
     }
-    var source = try table_source(database, stmt.from[0])
+    var source = try table_source(database, stmt.from[0], params, strict, outer)
     var previous = stmt.from[0]
     for j in stmt.joins {
         if j.kind == "RIGHT" || j.kind == "FULL" {
@@ -2772,7 +2869,7 @@ fn build_source(
                 " JOIN is read by `sql` and not run by this engine; use sqlite or postgres for it"
             )))
         }
-        val right = try table_source(database, j.table)
+        val right = try table_source(database, j.table, params, strict, outer)
         val columns = concat(source.columns, right.columns)
         val tables = concat(source.tables, right.tables)
         val condition = switch j.on {
@@ -3209,8 +3306,8 @@ pub fn driver() -> Driver {
     return engine("memdb:", false)
 }
 
-// The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Nine things differ,
-// and the first five are places where SQLite departs from ANSI:
+// The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Eleven things
+// differ, and the first six are places where SQLite departs from ANSI:
 //
 //   - `LIKE` is case-sensitive, as the standard and PostgreSQL have it, where SQLite folds ASCII;
 //   - division by zero is an error (SQLSTATE 22012's rule), where SQLite answers NULL;
@@ -3219,7 +3316,9 @@ pub fn driver() -> Driver {
 //     or 1;
 //   - a `PRIMARY KEY` column may not hold NULL, which makes a key implicitly `NOT NULL` as the
 //     standard says -- where SQLite allows it, and for a single-column `INTEGER PRIMARY KEY` fills
-//     in the next rowid instead.
+//     in the next rowid instead;
+//   - two columns of one derived table sharing a name make a reference to it ambiguous, where
+//     SQLite takes the first.
 //
 // The other four point the other way, SQLite being the stricter engine (each measured, not
 // assumed):
@@ -3230,7 +3329,9 @@ pub fn driver() -> Driver {
 //     SQL in PostgreSQL;
 //   - `RETURNING t.*` is refused by SQLite and answered by PostgreSQL;
 //   - `ALTER TABLE ... ADD COLUMN u TEXT UNIQUE` is refused by SQLite, which does not rewrite the
-//     rows already there, and accepted by PostgreSQL, which does.
+//     rows already there, and accepted by PostgreSQL, which does;
+//   - a derived table's column alias list, `(SELECT ..) AS x (a, b)`, is a syntax error in SQLite
+//     and ordinary SQL in PostgreSQL.
 //
 // For those, the lax reading refuses and this one runs them.
 //

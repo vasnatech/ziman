@@ -35,7 +35,11 @@ constraints, and table-level constraints), `CREATE [UNIQUE] INDEX`,
 
 Joins: `[INNER] JOIN`, `LEFT`/`RIGHT`/`FULL [OUTER] JOIN` and `CROSS JOIN`, each with an `ON`
 condition or a `USING` column list, as a flat left-deep list -- which is what SQL means by
-`a JOIN b ON .. JOIN c ON ..`. A parenthesised join expression would need a tree and is not read.
+`a JOIN b ON .. JOIN c ON ..`. A comma in the `FROM` list is read as the `CROSS JOIN` it means.
+A parenthesised join expression would need a tree and is not read.
+
+A **derived table** -- `(SELECT ..) AS x`, with an optional `(a, b)` renaming its columns -- is a
+`FROM` entry like any other, and may be joined, nested, or given a compound query.
 
 Set operations: `UNION`, `INTERSECT` and `EXCEPT`, each with an optional `ALL` or `DISTINCT`,
 chained left to right, with the compound's `ORDER BY`, `LIMIT` and `OFFSET` after the last arm.
@@ -68,8 +72,8 @@ parse as ordinary function calls in a `GROUP BY`, which is what SQLite does with
 engine then refuses the function. Reading them properly needs a `GroupTerm` the `GROUP BY` list
 does not have yet.
 
-This is **not** ANSI SQL. ISO/IEC 9075 also has derived tables and `LATERAL` in a `FROM`,
-`CORRESPONDING` on a set operation, common table expressions, window functions, `MERGE`,
+This is **not** ANSI SQL. ISO/IEC 9075 also has `LATERAL` and a parenthesised join expression in
+a `FROM`, `CORRESPONDING` on a set operation, common table expressions, window functions, `MERGE`,
 `GRANT`/`REVOKE`, views, schemas, sequences, domains, triggers, routines, cursors, savepoints,
 isolation levels, `GROUPING SETS`, interval and row constructors, `IS DISTINCT FROM`,
 `SIMILAR TO`, `OVERLAPS`, temporal tables and the SQL/JSON functions. For scale, PostgreSQL's own grammar is some twenty thousand lines and is
@@ -343,8 +347,17 @@ that contains it, as long as some variant ends the chain -- `Lit` and `Col` do.
 
 ```
 pub struct TableRef {
+    // The table's name, or empty for a derived table -- a `(SELECT ..)` in the `FROM`, which has a
+    // query instead of a name.
     name: string
     alias: string
+    // The query a derived table is. Empty for a named table; one element otherwise. An array
+    // rather than an `Option`, the way `CaseNode.fallback` is, so a `TableRef` need not name the
+    // type that contains it.
+    query: [SelectStmt]
+    // `AS x (a, b)` -- the names the derived table's columns take, which may be shorter than the
+    // query's list and rename only its first columns. Empty where none were written.
+    column_aliases: [string]
 }
 ```
 
