@@ -1,0 +1,34 @@
+-- LIKE: SQLite folds ASCII case, the standard and PostgreSQL compare by collation
+   SELECT id FROM t WHERE name LIKE 'A%' ORDER BY id
+   lax:    2 row(s) | Int(1) | Int(2)
+   ansi:   1 row(s) | Int(1)
+   sqlite: 2 row(s) | Int(1) | Int(2)
+-- the same pattern the other way round
+   SELECT id FROM t WHERE name LIKE 'a%' ORDER BY id
+   lax:    2 row(s) | Int(1) | Int(2)
+   ansi:   1 row(s) | Int(2)
+   sqlite: 2 row(s) | Int(1) | Int(2)
+-- division by zero: SQLite answers NULL, the standard makes it an error (22012)
+   SELECT 1 / 0 AS boom
+   lax:    1 row(s) | Null
+   ansi:   refused: database error: division by zero
+   sqlite: 1 row(s) | Null
+-- the same, reached through columns rather than literals
+   SELECT n / (n - n) AS boom FROM t WHERE id = 1
+   lax:    1 row(s) | Null
+   ansi:   refused: database error: division by zero
+   sqlite: 1 row(s) | Null
+-- number against text: SQLite orders by a type rank and matches nothing, the standard refuses
+   SELECT id FROM t WHERE name = 1 ORDER BY id
+   lax:    0 row(s)
+   ansi:   refused: database error: cannot compare TEXT with INTEGER (the strict engine refuses what SQLite would order by type)
+   sqlite: 0 row(s)
+-- the same comparison the other way round
+   SELECT id FROM t WHERE n > 'x' ORDER BY id
+   lax:    0 row(s)
+   ansi:   refused: database error: cannot compare INTEGER with TEXT (the strict engine refuses what SQLite would order by type)
+   sqlite: 0 row(s)
+lax matches sqlite on 6 of 6
+ansi differs from lax on 6 of 6
+-- the two readings agree on everything else --
+the two readings agree on 12 of 12

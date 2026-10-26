@@ -69,7 +69,23 @@ val queries: [string] = [
     "SELECT id FROM patient WHERE age > 30 OR note = 'fourth' ORDER BY id",
     // and integer division, which both engines truncate
     "SELECT 7 / 2 AS half",
-    "SELECT 7.0 / 2 AS half"
+    "SELECT 7.0 / 2 AS half",
+    // the aggregates, whose NULL rules are the standard's and are the ones a reader guesses wrong
+    "SELECT count(*) AS c FROM patient",
+    "SELECT count(age) AS c FROM patient",
+    "SELECT count(*) AS c FROM visit WHERE reason = 'nothing'",
+    "SELECT count(age) AS c FROM visit WHERE reason = 'nothing'",
+    "SELECT sum(cost) AS s FROM visit WHERE reason = 'nothing'",
+    "SELECT min(age) AS lo, max(age) AS hi, sum(age) AS s FROM patient",
+    "SELECT avg(age) AS a FROM patient",
+    "SELECT sum(cost) AS s FROM visit",
+    // grouping, including the NULL key that groups with itself although NULL = NULL is unknown
+    "SELECT reason, count(*) AS c, sum(cost) AS s FROM visit GROUP BY reason ORDER BY reason",
+    "SELECT patient_id, count(*) AS c FROM visit GROUP BY patient_id ORDER BY patient_id",
+    "SELECT patient_id, count(*) AS c FROM visit GROUP BY patient_id HAVING count(*) > 1 ORDER BY patient_id",
+    "SELECT note, count(*) AS c FROM patient GROUP BY note ORDER BY note",
+    "SELECT reason, sum(cost) + 1 AS plus FROM visit GROUP BY reason ORDER BY reason",
+    "SELECT patient_id, count(*) AS c FROM visit GROUP BY patient_id ORDER BY count(*) DESC, patient_id"
 ]
 
 fn seed(url: string) -> datasource.Connection {

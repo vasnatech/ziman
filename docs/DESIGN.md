@@ -224,6 +224,7 @@ them against the code.
 - [`migrate`: one missing `*/` applied half a migration and called it done (2026-10-25)](#migrate-one-missing-applied-half-a-migration-and-called-it-done-2026-10-25)
 - [`datasource` stops knowing which databases exist (2026-10-25)](#datasource-stops-knowing-which-databases-exist-2026-10-25)
 - [`memdb`: a SQL engine in Ziman, and a tier boundary drawn in the wrong place (2026-10-25)](#memdb-a-sql-engine-in-ziman-and-a-tier-boundary-drawn-in-the-wrong-place-2026-10-25)
+- [`memdb` learns the aggregates, and two readings of SQL (2026-10-25)](#memdb-learns-the-aggregates-and-two-readings-of-sql-2026-10-25)
 
 <!-- end index -->
 
@@ -8826,3 +8827,27 @@ The lesson is not that the estimate was bad. It is that **a tier boundary drawn 
 Divergences it knows about are in its header rather than discovered later: no type affinity, NULLs sort first ascending (SQLite's order, not PostgreSQL's), `LIKE` case-insensitive for ASCII (SQLite's rule, not PostgreSQL's), division by zero answers NULL (SQLite's answer, where PostgreSQL raises), `CREATE INDEX` accepted and ignored because an index decides speed and not answers, and no `sqlite_master` or `information_schema` -- a test that asks the engine about itself is asking the wrong question of this one.
 
 Three things the language said no to, each for a stated reason. A lambda cannot capture a `var` ("captures are by value, so the lambda and the enclosing function never share mutable state"), so the `ORDER BY` comparator carries its failure out in a cell. `try` cannot sit on the right of `&&` ("it must run exactly once and unconditionally"), so a `CASE` arm evaluates its condition in its own step. And `if V(x) = e` is a statement form, not an expression, so a test for a payload-free variant is `SqlValue.is_Null(v)`.
+
+## `memdb` learns the aggregates, and two readings of SQL (2026-10-25)
+
+**ANSI SQL is real -- ISO/IEC 9075, current edition SQL:2023 -- and conformance is not on the table.** Core SQL, the standard's own minimum bar, already wants views, cursors, `GRANT`/`REVOKE`, isolation levels, `information_schema`, full outer joins, set operations, quantified subqueries and enforced constraints. Claiming "ANSI SQL" for a 2,400-line module would be the kind of sentence these documents exist to prevent. What is worth having is the standard deciding *semantics* inside the subset that is implemented, instead of behaviour copied from reading SQLite.
+
+**The aggregates are where that pays immediately**, because their NULL rules are the standard's, both real engines follow them, and they are the ones a reader guesses wrong:
+
+* `COUNT(*)` counts **rows**, including a row whose every column is NULL; `COUNT(expr)` counts rows where `expr` is not NULL.
+* Every other aggregate **ignores** NULLs rather than propagating them -- the one place in SQL where a NULL does not poison the result.
+* Over no surviving value, `SUM`, `MIN`, `MAX` and `AVG` are **NULL** while `COUNT` is **0**. `SELECT SUM(x) FROM empty` is NULL and `SELECT COUNT(x) FROM empty` is 0, and that asymmetry is worth having written down rather than rediscovered.
+* With no `GROUP BY` there is one group over every matching row *including none*, which is what makes `SELECT COUNT(*) FROM empty` answer one row of 0 rather than no rows. With a `GROUP BY` and no rows there are no groups and no rows -- the other half of the same rule.
+* Two NULL group keys group **together**, although `NULL = NULL` is unknown: grouping compares for distinctness, not with the equality operator.
+
+`GROUP BY`, `HAVING`, `COUNT`/`SUM`/`MIN`/`MAX`/`AVG`, aggregates inside expressions and `ORDER BY count(*)` all agree with SQLite -- 42 of 42 queries in the cross-check fixture, up from 28.
+
+**Two readings of SQL, one engine.** `driver()` at `memdb:` reads SQL as SQLite does; `strict_driver()` at `memdb-ansi:` reads it as the standard does. They differ in exactly three places, which are the three where SQLite departs from ANSI: `LIKE` folds ASCII case (the standard compares by collation), division by zero answers NULL (the standard makes it error 22012), and a number may be compared with text by a type rank (the standard refuses). One `strict` field on the evaluation context, marked at each of the three decisions, so the two readings cannot drift apart in separate code.
+
+**The strict one is a portability check, and that is the whole reason it exists.** The sample application ships on SQLite *and* PostgreSQL, and this file records a two-commit PostgreSQL outage caused by exactly that gap. Where SQLite departs from the standard, PostgreSQL does not -- so a query that passes on `memdb:` and fails on `memdb-ansi:` is leaning on SQLite and will behave differently in production. Finding that costs a second local run rather than a container. `SELECT id FROM t WHERE name = 1` is the one to remember: SQLite matches nothing and says nothing, and the strict engine answers "cannot compare TEXT with INTEGER".
+
+The fixture asserts **both** halves, which is what keeps the flag honest: the lax reading still matches real SQLite on all six divergent queries, the strict reading still differs on all six, and the two agree on twelve others. Either half failing means the flag has stopped meaning anything -- the lax one by drifting from SQLite, the strict one by checking nothing.
+
+**The cross-check earned its keep within a minute of the aggregates existing.** `SELECT count(age) FROM visit WHERE reason = 'nothing'` answered `0` on `memdb` and `no such column: age` on SQLite, because `age` is not a column of `visit` and the aggregate looked columns up *as it read each row* -- so a `WHERE` that matched nothing never looked. A real engine resolves columns when it prepares a statement, and now so does this one: a pass over the select list, filter, groups, having and order terms before anything runs. **A typo'd column name passing here and failing on the real engine is the precise false green this arrangement is for**, and it was found by the mechanism built to find it rather than by a reader.
+
+One duplication bug, worth recording for its shape. `GROUP BY grp` failed with "unexpected 'BY' after the statement", because the two places that accept a bare alias each spelled out the clause keywords that cannot *be* an alias, and the second spelling was missing `GROUP` and `HAVING` -- so `FROM t GROUP BY grp` read `GROUP` as the table's alias. The list is one `val` consulted twice now. Two copies of a keyword list is one copy too many, and the second copy is always the stale one.

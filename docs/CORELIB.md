@@ -1848,6 +1848,8 @@ pub fn open_rows(
 ```
 pub fn driver() -> Driver
 
+pub fn strict_driver() -> Driver
+
 ```
 
 ## `migrate`
