@@ -1,0 +1,1943 @@
+// memdb.zm -- a small SQL engine in pure Ziman, holding its tables in memory, for tests.
+//
+// A `db.Driver` like `sqlite`, `pg` and `mysql`, so `datasource` reaches it the same way and
+// nothing above it knows the difference:
+//
+//     val drivers = datasource.registry([memdb.driver()])
+//     val conn = try datasource.open(drivers, "memdb:")
+//     try migrate.run(conn, "migrations")          // or run schema.sql and data.sql by hand
+//
+// **It is a third target, not a replacement.** A test that passes here and fails on PostgreSQL
+// certifies nothing, so the point of this engine is to run the *same* suite that sqlite and
+// postgres run, where a divergence shows up as a failure instead of hiding as a false green. The
+// divergences it knows about are listed at the bottom of this comment; run the real engine before
+// believing anything surprising.
+//
+// ## What it understands
+//
+// `CREATE TABLE` (with `NOT NULL`, `PRIMARY KEY`, `UNIQUE`, `DEFAULT` and a column type that is
+// recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN`,
+// `DROP TABLE [IF EXISTS]`, `INSERT INTO ... VALUES`, `SELECT` with `WHERE`, `ORDER BY`, `LIMIT`
+// and `OFFSET`, `UPDATE ... SET ... WHERE`, `DELETE FROM ... WHERE`, and
+// `BEGIN`/`COMMIT`/`ROLLBACK`. Expressions: literals, column references, bound parameters (`?`,
+// `$1`), `AND`/`OR`/`NOT`, the six comparisons, `IS [NOT] NULL`, `+ - * /`, and parentheses.
+//
+// Measured against the sample application before any of it was written: its 191 SQL strings use no
+// joins and no subqueries, because its repositories query one table each and compose in Ziman. The
+// 20,365 characters of SQL in it are almost all of the shape above.
+//
+// Aggregates (`COUNT`, `SUM`, `MIN`, `MAX`), `GROUP BY`, `LIKE`, `BETWEEN`, `IN`, `CASE WHEN`,
+// `COALESCE`, the string functions, `DISTINCT` and `RETURNING` are the next increment; constraint
+// *enforcement*, `JOIN`, subqueries and per-test forking are the one after. Anything it does not
+// understand is an error naming the token, never a quiet partial execution.
+//
+// ## Transactions are free, because a database is a value
+//
+// A `Database` is an immutable `Map` of immutable tables, so `BEGIN` keeps the current one,
+// `ROLLBACK` puts it back and `COMMIT` forgets it. There is no undo log and no copying: the saved
+// database *is* the old state. That is also what will make per-test forking free later -- seed a
+// schema and a dataset once, then hand every test its own copy of the same value.
+//
+// ## Known divergences from SQLite and PostgreSQL
+//
+//   - **No type affinity.** A column declared `INTEGER` holds whatever is inserted; SQLite would
+//     coerce `'7'` to 7. Insert the right type.
+//   - **Constraints are recorded, not enforced** in this increment: `NOT NULL`, `PRIMARY KEY` and
+//     `UNIQUE` parse and are remembered, and a violation is accepted. The real engines refuse it.
+//   - **`CREATE INDEX` is accepted and ignored.** An index changes how fast a query runs, not what
+//     it answers, and this engine has no query planner to put one in.
+//   - **NULLs sort first ascending**, which is SQLite's order. PostgreSQL sorts them last. A test
+//     that depends on either is already engine-specific.
+//   - **No `sqlite_master`, no `information_schema`.** A test that inspects the schema through SQL
+//     is asking the engine about itself, and this one answers only about data.
+
+#![experimental]
+use db.Conn
+use db.DbError
+use db.Driver
+use db.Row
+use db.SqlValue
+use locale
+
+// Case folding for keywords and identifiers is protocol folding, so it names the invariant locale
+// rather than whatever a program set as its default: in Turkish, `I` folds to `ı` and `SELECT`
+// would stop being a keyword.
+val invariant: Locale = locale.root()
+
+// ---------------------------------------------------------------- storage
+
+// A column as the schema declares it. `type_name` is kept for messages and for a future increment
+// that applies affinity; nothing reads it to decide anything today.
+struct Column {
+    name: string
+    type_name: string
+    not_null: bool
+    primary_key: bool
+    unique: bool
+    default_value: Option<SqlValue>
+}
+
+// A table: its columns in declaration order, and its rows as arrays of the same width. Row order
+// is insertion order, which is what a `SELECT` with no `ORDER BY` returns -- the real engines
+// promise nothing there, so a test that cares must say `ORDER BY`.
+struct Table {
+    name: string
+    columns: [Column]
+    rows: [[SqlValue]]
+}
+
+// The whole database as one immutable value. Tables are keyed by their folded name, so `Users` and
+// `users` are one table, as they are in SQLite and (for unquoted names) PostgreSQL.
+struct Database {
+    tables: Map<string, Table>
+}
+
+fn folded(name: string) -> string {
+    return to_lower(name, invariant)
+}
+
+fn empty_database() -> Database {
+    return Database { tables: Map<string, Table> {} }
+}
+
+fn problem(message: string) -> DbError {
+    return DbError.Sql(message)
+}
+
+// ---------------------------------------------------------------- tokens
+
+// One token. `kind` is "name", "number", "text", "punct" or "param"; `text` is what was written,
+// except for a `text` token, which holds the string's value with its quotes removed and its `''`
+// pairs collapsed.
+struct Token {
+    kind: string
+    text: string
+    value: int
+}
+
+fn is_name_start(c: string) -> bool {
+    return is_alpha(c) || c == "_"
+}
+
+fn is_name_char(c: string) -> bool {
+    return is_alpha_numeric(c) || c == "_" || c == "$"
+}
+
+// The two-character operators, longest first so `<=` is not read as `<` and `=`.
+val two_char_ops: [string] = ["<=", ">=", "<>", "!=", "||"]
+
+// `sql` as tokens. An unterminated string or an unexpected character is an error naming what was
+// found, in the spirit of the rest of the library: nothing here runs on text it did not understand.
+fn tokenize(sql: string) -> Result<[Token], DbError> {
+    val out = mutable_array_new<Token>()
+    val n = len(sql)
+    var i = 0
+    while i < n {
+        val c = char_at(sql, i)
+        if c == " " || c == "\t" || c == "\n" || c == "\r" {
+            i = i + 1
+            continue
+        }
+        if c == "-" && i + 1 < n && char_at(sql, i + 1) == "-" {
+            val end = index_of(sql, "\n", i)
+            i = if end < 0 { n } else { end }
+            continue
+        }
+        if c == "/" && i + 1 < n && char_at(sql, i + 1) == "*" {
+            val end = index_of(sql, "*/", i + 2)
+            if end < 0 {
+                return err(problem("a /* comment that is never closed"))
+            }
+            i = end + 2
+            continue
+        }
+        if c == "'" {
+            val text = mutable_string_new()
+            var j = i + 1
+            var closed = false
+            while j < n {
+                if char_at(sql, j) == "'" {
+                    if j + 1 < n && char_at(sql, j + 1) == "'" {
+                        append(text, "'")
+                        j = j + 2
+                        continue
+                    }
+                    closed = true
+                    j = j + 1
+                    break
+                }
+                append(text, char_at(sql, j))
+                j = j + 1
+            }
+            if !closed {
+                return err(problem("a quoted string that is never closed"))
+            }
+            push(out, Token { kind: "text", text: snapshot(text), value: 0 })
+            i = j
+            continue
+        }
+        if c == "\"" || c == "`" {
+            // A quoted identifier. Its case is kept as written, and `folded` makes the lookup
+            // insensitive anyway -- this engine has no case-sensitive identifiers to get wrong.
+            val close = index_of(sql, c, i + 1)
+            if close < 0 {
+                return err(problem("a quoted identifier that is never closed"))
+            }
+            push(out, Token { kind: "name", text: substring(sql, i + 1, close), value: 0 })
+            i = close + 1
+            continue
+        }
+        if is_digit(c) {
+            var j = i
+            var dotted = false
+            while j < n && (is_digit(char_at(sql, j)) || char_at(sql, j) == ".") {
+                if char_at(sql, j) == "." {
+                    if dotted {
+                        break
+                    }
+                    dotted = true
+                }
+                j = j + 1
+            }
+            push(out, Token { kind: "number", text: substring(sql, i, j), value: 0 })
+            i = j
+            continue
+        }
+        if is_name_start(c) {
+            var j = i
+            while j < n && is_name_char(char_at(sql, j)) {
+                j = j + 1
+            }
+            push(out, Token { kind: "name", text: substring(sql, i, j), value: 0 })
+            i = j
+            continue
+        }
+        if c == "?" {
+            // A positional placeholder: SQLite's and MySQL's spelling. Numbered from the order it
+            // appears, so `?` and `$1` can be counted the same way.
+            push(out, Token { kind: "param", text: "?", value: 0 })
+            i = i + 1
+            continue
+        }
+        if c == "$" && i + 1 < n && is_digit(char_at(sql, i + 1)) {
+            var j = i + 1
+            while j < n && is_digit(char_at(sql, j)) {
+                j = j + 1
+            }
+            val number = unwrap(parse_int(substring(sql, i + 1, j)))
+            if number < 1 {
+                return err(problem("a bound parameter is numbered from $1"))
+            }
+            push(out, Token { kind: "param", text: substring(sql, i, j), value: number })
+            i = j
+            continue
+        }
+        var matched = ""
+        for op in two_char_ops {
+            if matched == "" && i + 1 < n && substring(sql, i, i + 2) == op {
+                matched = op
+            }
+        }
+        if matched != "" {
+            push(out, Token { kind: "punct", text: matched, value: 0 })
+            i = i + 2
+            continue
+        }
+        if contains("=<>+-*/(),;.|", c) {
+            push(out, Token { kind: "punct", text: c, value: 0 })
+            i = i + 1
+            continue
+        }
+        return err(problem(prelude.format("unexpected character '{}' in SQL", c)))
+    }
+    return ok(snapshot(out))
+}
+
+// ---------------------------------------------------------------- the tree
+
+struct BinNode {
+    op: string
+    left: Expr
+    right: Expr
+}
+
+struct NotNode {
+    inner: Expr
+}
+
+struct NullNode {
+    inner: Expr
+    negated: bool
+}
+
+struct CallNode {
+    name: string
+    args: [Expr]
+}
+
+struct LikeNode {
+    subject: Expr
+    pattern: Expr
+    negated: bool
+}
+
+struct InNode {
+    subject: Expr
+    options: [Expr]
+    negated: bool
+}
+
+struct BetweenNode {
+    subject: Expr
+    low: Expr
+    high: Expr
+    negated: bool
+}
+
+// One `WHEN cond THEN value` of a `CASE`.
+struct WhenArm {
+    condition: Expr
+    value: Expr
+}
+
+struct CaseNode {
+    arms: [WhenArm]
+    fallback: [Expr]
+}
+
+// An expression. Recursion is direct rather than through an array: a struct field may be the enum
+// that contains it, as long as some variant ends the chain -- `Lit` and `Col` do.
+enum Expr {
+    Lit(SqlValue)
+    Col(string)
+    Param(int)
+    Not(NotNode)
+    Bin(BinNode)
+    IsNull(NullNode)
+    Call(CallNode)
+    Like(LikeNode)
+    In(InNode)
+    Between(BetweenNode)
+    Case(CaseNode)
+    Star
+}
+
+struct SelectItem {
+    expr: Expr
+    alias: string
+}
+
+struct OrderTerm {
+    expr: Expr
+    descending: bool
+}
+
+struct Assignment {
+    column: string
+    value: Expr
+}
+
+struct SelectStmt {
+    items: [SelectItem]
+    // Empty when the statement has no `FROM`: `SELECT 1` is legal in both real engines and is the
+    // liveness probe `datasource`'s pool sends, so it has to be legal here.
+    table: string
+    filter: Option<Expr>
+    order: [OrderTerm]
+    limit: Option<Expr>
+    offset: Option<Expr>
+}
+
+struct InsertStmt {
+    table: string
+    columns: [string]
+    rows: [[Expr]]
+}
+
+struct UpdateStmt {
+    table: string
+    sets: [Assignment]
+    filter: Option<Expr>
+}
+
+struct DeleteStmt {
+    table: string
+    filter: Option<Expr>
+}
+
+struct CreateStmt {
+    table: string
+    columns: [Column]
+    if_not_exists: bool
+}
+
+struct AlterStmt {
+    table: string
+    column: Column
+}
+
+struct DropStmt {
+    table: string
+    if_exists: bool
+}
+
+enum Stmt {
+    Select(SelectStmt)
+    Insert(InsertStmt)
+    Update(UpdateStmt)
+    Delete(DeleteStmt)
+    Create(CreateStmt)
+    Alter(AlterStmt)
+    Drop(DropStmt)
+    Begin
+    Commit
+    Rollback
+    // `CREATE INDEX` and anything else accepted for compatibility and with nothing to do.
+    Ignored(string)
+}
+
+// ---------------------------------------------------------------- the parser
+
+// The token list and a position in it. A cell rather than a threaded index: a recursive-descent
+// parser that returns `(value, next)` pairs everywhere spends half its lines moving the index
+// around, and this is a parser, not a reentrant one.
+struct Cursor {
+    tokens: [Token]
+    at: Mutable<int>
+}
+
+fn cursor_of(tokens: [Token]) -> Cursor {
+    return Cursor { tokens: tokens, at: mutable_new(0) }
+}
+
+fn at_end(c: Cursor) -> bool {
+    return get(c.at) >= prelude.len(c.tokens)
+}
+
+fn peek(c: Cursor) -> Token {
+    if at_end(c) {
+        return Token { kind: "end", text: "", value: 0 }
+    }
+    return c.tokens[get(c.at)]
+}
+
+fn advance(c: Cursor) -> Token {
+    val t = peek(c)
+    set(c.at, get(c.at) + 1)
+    return t
+}
+
+// True when the next token is the keyword `word`, compared without case.
+fn sees(c: Cursor, word: string) -> bool {
+    val t = peek(c)
+    return t.kind == "name" && to_upper(t.text, invariant) == word
+}
+
+fn accept(c: Cursor, word: string) -> bool {
+    if sees(c, word) {
+        set(c.at, get(c.at) + 1)
+        return true
+    }
+    return false
+}
+
+fn sees_punct(c: Cursor, text: string) -> bool {
+    val t = peek(c)
+    return t.kind == "punct" && t.text == text
+}
+
+fn accept_punct(c: Cursor, text: string) -> bool {
+    if sees_punct(c, text) {
+        set(c.at, get(c.at) + 1)
+        return true
+    }
+    return false
+}
+
+fn found(c: Cursor) -> string {
+    val t = peek(c)
+    return if t.kind == "end" { "the end of the statement" } else { prelude.format("'{}'", t.text) }
+}
+
+fn expect_punct(c: Cursor, text: string) -> Result<unit, DbError> {
+    if !accept_punct(c, text) {
+        return err(problem(prelude.format("expected '{}', found {}", text, found(c))))
+    }
+    return unit
+}
+
+fn expect_word(c: Cursor, word: string) -> Result<unit, DbError> {
+    if !accept(c, word) {
+        return err(problem(prelude.format("expected {}, found {}", word, found(c))))
+    }
+    return unit
+}
+
+fn expect_name(c: Cursor) -> Result<string, DbError> {
+    val t = peek(c)
+    if t.kind != "name" {
+        return err(problem(prelude.format("expected a name, found {}", found(c))))
+    }
+    set(c.at, get(c.at) + 1)
+    return ok(t.text)
+}
+
+// A `?` numbered by where it sits, so a statement may mix `?` and `$1` without the evaluator
+// caring which was written.
+fn next_param_number(positional: Mutable<int>) -> int {
+    set(positional, get(positional) + 1)
+    return get(positional)
+}
+
+fn parse_primary(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
+    if accept_punct(c, "(") {
+        val inner = try parse_expr(c, positional)
+        try expect_punct(c, ")")
+        return ok(inner)
+    }
+    if accept_punct(c, "*") {
+        return ok(Expr.Star)
+    }
+    if accept_punct(c, "-") {
+        // Negation as `0 - x`, which keeps one code path for arithmetic.
+        val inner = try parse_primary(c, positional)
+        return ok(Expr.Bin(BinNode { op: "-", left: Expr.Lit(SqlValue.Int(0)), right: inner }))
+    }
+    if accept(c, "NOT") {
+        val inner = try parse_primary(c, positional)
+        return ok(Expr.Not(NotNode { inner: inner }))
+    }
+    if accept(c, "CASE") {
+        // Only the searched form, `CASE WHEN cond THEN v ... [ELSE v] END`. The simple form
+        // (`CASE subject WHEN ...`) is sugar for it and nothing here writes it.
+        val arms = mutable_array_new<WhenArm>()
+        while accept(c, "WHEN") {
+            val condition = try parse_expr(c, positional)
+            try expect_word(c, "THEN")
+            push(arms, WhenArm { condition: condition, value: try parse_expr(c, positional) })
+        }
+        if prelude.len(arms) == 0 {
+            return err(problem("a CASE needs at least one WHEN"))
+        }
+        // The fallback in an array so the node can say "there is none" without an Option of the
+        // enum it lives in.
+        val fallback = mutable_array_new<Expr>()
+        if accept(c, "ELSE") {
+            push(fallback, try parse_expr(c, positional))
+        }
+        try expect_word(c, "END")
+        return ok(Expr.Case(CaseNode { arms: snapshot(arms), fallback: snapshot(fallback) }))
+    }
+    val t = peek(c)
+    if t.kind == "param" {
+        set(c.at, get(c.at) + 1)
+        return ok(Expr.Param(if t.value > 0 { t.value } else { next_param_number(positional) }))
+    }
+    if t.kind == "text" {
+        set(c.at, get(c.at) + 1)
+        return ok(Expr.Lit(SqlValue.Text(t.text)))
+    }
+    if t.kind == "number" {
+        set(c.at, get(c.at) + 1)
+        if contains(t.text, ".") {
+            return switch parse_float(t.text) {
+                Ok(f) { ok(Expr.Lit(SqlValue.Float(f))) }
+                Err(_) { err(problem(prelude.format("'{}' is not a number", t.text))) }
+            }
+        }
+        return switch parse_int(t.text) {
+            Ok(number) { ok(Expr.Lit(SqlValue.Int(number))) }
+            Err(_) { err(problem(prelude.format("'{}' is not a number", t.text))) }
+        }
+    }
+    if t.kind == "name" {
+        val upper = to_upper(t.text, invariant)
+        if upper == "NULL" {
+            set(c.at, get(c.at) + 1)
+            return ok(Expr.Lit(SqlValue.Null))
+        }
+        if upper == "TRUE" || upper == "FALSE" {
+            set(c.at, get(c.at) + 1)
+            return ok(Expr.Lit(SqlValue.Bool(upper == "TRUE")))
+        }
+        set(c.at, get(c.at) + 1)
+        var name = t.text
+        // `table.column`: the table part is dropped, since a statement here reads one table.
+        if accept_punct(c, ".") {
+            name = try expect_name(c)
+        }
+        if accept_punct(c, "(") {
+            val args = mutable_array_new<Expr>()
+            var first = true
+            while !sees_punct(c, ")") {
+                if !first {
+                    try expect_punct(c, ",")
+                }
+                first = false
+                push(args, try parse_expr(c, positional))
+            }
+            try expect_punct(c, ")")
+            return ok(Expr.Call(CallNode { name: name, args: snapshot(args) }))
+        }
+        return ok(Expr.Col(name))
+    }
+    return err(problem(prelude.format("expected a value, found {}", found(c))))
+}
+
+// `IS NULL` / `IS NOT NULL`, which bind tighter than a comparison.
+fn parse_postfix(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
+    var left = try parse_primary(c, positional)
+    while accept(c, "IS") {
+        val negated = accept(c, "NOT")
+        try expect_word(c, "NULL")
+        left = Expr.IsNull(NullNode { inner: left, negated: negated })
+    }
+    return ok(left)
+}
+
+// `||` binds tighter than `*`, which is SQLite's and PostgreSQL's order -- `'a' || 1 * 2` is
+// `'a' || 2`'s neighbour rather than `('a' || 1) * 2`.
+fn parse_concat(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
+    var left = try parse_postfix(c, positional)
+    while sees_punct(c, "||") {
+        set(c.at, get(c.at) + 1)
+        val right = try parse_postfix(c, positional)
+        left = Expr.Bin(BinNode { op: "||", left: left, right: right })
+    }
+    return ok(left)
+}
+
+fn parse_product(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
+    var left = try parse_concat(c, positional)
+    while sees_punct(c, "*") || sees_punct(c, "/") {
+        val op = advance(c).text
+        val right = try parse_concat(c, positional)
+        left = Expr.Bin(BinNode { op: op, left: left, right: right })
+    }
+    return ok(left)
+}
+
+fn parse_sum(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
+    var left = try parse_product(c, positional)
+    while sees_punct(c, "+") || sees_punct(c, "-") {
+        val op = advance(c).text
+        val right = try parse_product(c, positional)
+        left = Expr.Bin(BinNode { op: op, left: left, right: right })
+    }
+    return ok(left)
+}
+
+val comparisons: [string] = ["=", "<>", "!=", "<", "<=", ">", ">="]
+
+fn parse_comparison(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
+    var left = try parse_sum(c, positional)
+    var more = true
+    while more {
+        // `NOT LIKE`, `NOT IN` and `NOT BETWEEN` read their own negation, so the `NOT` has to be
+        // looked past before deciding what this is -- and put back if it turns out to be a plain
+        // `NOT` applying to what follows.
+        val before_not = get(c.at)
+        val negated = accept(c, "NOT")
+        if sees(c, "LIKE") {
+            set(c.at, get(c.at) + 1)
+            left = Expr.Like(LikeNode {
+                subject: left,
+                pattern: try parse_sum(c, positional),
+                negated: negated
+            })
+            continue
+        }
+        if sees(c, "IN") {
+            set(c.at, get(c.at) + 1)
+            try expect_punct(c, "(")
+            val options = mutable_array_new<Expr>()
+            var first = true
+            while !sees_punct(c, ")") {
+                if !first {
+                    try expect_punct(c, ",")
+                }
+                first = false
+                push(options, try parse_expr(c, positional))
+            }
+            try expect_punct(c, ")")
+            left = Expr.In(InNode { subject: left, options: snapshot(options), negated: negated })
+            continue
+        }
+        if sees(c, "BETWEEN") {
+            set(c.at, get(c.at) + 1)
+            val low = try parse_sum(c, positional)
+            try expect_word(c, "AND")
+            left = Expr.Between(BetweenNode {
+                subject: left,
+                low: low,
+                high: try parse_sum(c, positional),
+                negated: negated
+            })
+            continue
+        }
+        set(c.at, before_not)
+        var op = ""
+        for candidate in comparisons {
+            if op == "" && sees_punct(c, candidate) {
+                op = candidate
+            }
+        }
+        if op == "" {
+            more = false
+        } else {
+            set(c.at, get(c.at) + 1)
+            val right = try parse_sum(c, positional)
+            left = Expr.Bin(BinNode { op: if op == "!=" { "<>" } else { op }, left: left, right: right })
+        }
+    }
+    return ok(left)
+}
+
+fn parse_and(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
+    var left = try parse_comparison(c, positional)
+    while accept(c, "AND") {
+        val right = try parse_comparison(c, positional)
+        left = Expr.Bin(BinNode { op: "AND", left: left, right: right })
+    }
+    return ok(left)
+}
+
+fn parse_expr(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
+    var left = try parse_and(c, positional)
+    while accept(c, "OR") {
+        val right = try parse_and(c, positional)
+        left = Expr.Bin(BinNode { op: "OR", left: left, right: right })
+    }
+    return ok(left)
+}
+
+// ---------------------------------------------------------------- parsing statements
+
+// Everything after a column's name and type until the `,` or `)` that ends it, picking out the
+// flags this engine records. Unknown column constraints (`REFERENCES`, `CHECK`, `COLLATE`,
+// `AUTOINCREMENT`) are consumed and dropped, which is the same promise the header makes about
+// constraints generally: remembered where cheap, never enforced here, and always enforced by the
+// engine the suite also runs against.
+fn parse_column_tail(c: Cursor, name: string, type_name: string) -> Result<Column, DbError> {
+    var not_null = false
+    var primary_key = false
+    var unique = false
+    var default_value = Option<SqlValue>.None
+    var depth = 0
+    while !at_end(c) {
+        if depth == 0 && (sees_punct(c, ",") || sees_punct(c, ")")) {
+            break
+        }
+        if sees_punct(c, "(") {
+            depth = depth + 1
+            set(c.at, get(c.at) + 1)
+            continue
+        }
+        if sees_punct(c, ")") {
+            depth = depth - 1
+            set(c.at, get(c.at) + 1)
+            continue
+        }
+        if depth == 0 && sees(c, "NOT") {
+            set(c.at, get(c.at) + 1)
+            if accept(c, "NULL") {
+                not_null = true
+                continue
+            }
+            continue
+        }
+        if depth == 0 && sees(c, "PRIMARY") {
+            set(c.at, get(c.at) + 1)
+            val _ = accept(c, "KEY")
+            primary_key = true
+            continue
+        }
+        if depth == 0 && accept(c, "UNIQUE") {
+            unique = true
+            continue
+        }
+        if depth == 0 && accept(c, "DEFAULT") {
+            val positional = mutable_new(0)
+            val e = try parse_primary(c, positional)
+            // A literal default is kept; anything else (`CURRENT_TIMESTAMP`, an expression) is
+            // dropped, because applying it would mean evaluating it per insert with no row to
+            // read and no clock this module owns.
+            if Lit(v) = e {
+                default_value = Option<SqlValue>.Some(v)
+            }
+            continue
+        }
+        set(c.at, get(c.at) + 1)
+    }
+    return ok(Column {
+        name: name,
+        type_name: type_name,
+        not_null: not_null,
+        primary_key: primary_key,
+        unique: unique,
+        default_value: default_value
+    })
+}
+
+// A column type as written: a name, then optionally `(n)` or `(n, m)`, then optionally more name
+// words (`DOUBLE PRECISION`, `TIMESTAMP WITH TIME ZONE`).
+fn parse_type_name(c: Cursor) -> Result<string, DbError> {
+    val out = mutable_string_new()
+    append(out, try expect_name(c))
+    while peek(c).kind == "name" && !sees(c, "NOT") && !sees(c, "PRIMARY") && !sees(c, "UNIQUE") &&
+        !sees(c, "DEFAULT") && !sees(c, "REFERENCES") && !sees(c, "CHECK") && !sees(c, "COLLATE") &&
+        !sees(c, "AUTOINCREMENT") && !sees(c, "NULL") && !sees(c, "GENERATED") {
+        append(out, " ", advance(c).text)
+    }
+    if accept_punct(c, "(") {
+        append(out, "(")
+        while !at_end(c) && !sees_punct(c, ")") {
+            append(out, advance(c).text)
+        }
+        try expect_punct(c, ")")
+        append(out, ")")
+    }
+    return ok(snapshot(out))
+}
+
+// The table-level constraints (`PRIMARY KEY (a, b)`, `FOREIGN KEY ... REFERENCES ...`,
+// `UNIQUE (..)`, `CHECK (..)`) -- recognised so a `CREATE TABLE` that has them parses, and then
+// skipped, since this increment enforces none of them.
+fn is_table_constraint(c: Cursor) -> bool {
+    return sees(c, "PRIMARY") || sees(c, "FOREIGN") || sees(c, "UNIQUE") || sees(c, "CHECK") ||
+        sees(c, "CONSTRAINT")
+}
+
+fn skip_table_constraint(c: Cursor) {
+    var depth = 0
+    while !at_end(c) {
+        if depth == 0 && (sees_punct(c, ",") || sees_punct(c, ")")) {
+            break
+        }
+        if sees_punct(c, "(") {
+            depth = depth + 1
+        }
+        if sees_punct(c, ")") {
+            depth = depth - 1
+        }
+        set(c.at, get(c.at) + 1)
+    }
+}
+
+fn parse_create(c: Cursor) -> Result<Stmt, DbError> {
+    if accept(c, "UNIQUE") || sees(c, "INDEX") {
+        // `CREATE [UNIQUE] INDEX ...`: accepted and ignored. An index decides how fast a query
+        // runs, not what it answers, and there is no planner here to give one to.
+        try expect_word(c, "INDEX")
+        while !at_end(c) {
+            set(c.at, get(c.at) + 1)
+        }
+        return ok(Stmt.Ignored("CREATE INDEX"))
+    }
+    try expect_word(c, "TABLE")
+    var if_not_exists = false
+    if accept(c, "IF") {
+        try expect_word(c, "NOT")
+        try expect_word(c, "EXISTS")
+        if_not_exists = true
+    }
+    val name = try expect_name(c)
+    try expect_punct(c, "(")
+    val columns = mutable_array_new<Column>()
+    var first = true
+    while !sees_punct(c, ")") {
+        if !first {
+            try expect_punct(c, ",")
+        }
+        first = false
+        if is_table_constraint(c) {
+            skip_table_constraint(c)
+            continue
+        }
+        val column_name = try expect_name(c)
+        val type_name = if sees_punct(c, ",") || sees_punct(c, ")") { "" } else { try parse_type_name(c) }
+        push(columns, try parse_column_tail(c, column_name, type_name))
+    }
+    try expect_punct(c, ")")
+    return ok(Stmt.Create(CreateStmt {
+        table: name,
+        columns: snapshot(columns),
+        if_not_exists: if_not_exists
+    }))
+}
+
+fn parse_alter(c: Cursor) -> Result<Stmt, DbError> {
+    try expect_word(c, "TABLE")
+    val name = try expect_name(c)
+    if !accept(c, "ADD") {
+        return err(problem("only ALTER TABLE ... ADD [COLUMN] is understood"))
+    }
+    val _ = accept(c, "COLUMN")
+    val column_name = try expect_name(c)
+    val type_name = if at_end(c) { "" } else { try parse_type_name(c) }
+    return ok(Stmt.Alter(AlterStmt { table: name, column: try parse_column_tail(c, column_name, type_name) }))
+}
+
+fn parse_drop(c: Cursor) -> Result<Stmt, DbError> {
+    try expect_word(c, "TABLE")
+    var if_exists = false
+    if accept(c, "IF") {
+        try expect_word(c, "EXISTS")
+        if_exists = true
+    }
+    return ok(Stmt.Drop(DropStmt { table: try expect_name(c), if_exists: if_exists }))
+}
+
+fn parse_insert(c: Cursor, positional: Mutable<int>) -> Result<Stmt, DbError> {
+    try expect_word(c, "INTO")
+    val table = try expect_name(c)
+    val columns = mutable_array_new<string>()
+    if accept_punct(c, "(") {
+        var first = true
+        while !sees_punct(c, ")") {
+            if !first {
+                try expect_punct(c, ",")
+            }
+            first = false
+            push(columns, try expect_name(c))
+        }
+        try expect_punct(c, ")")
+    }
+    try expect_word(c, "VALUES")
+    val rows = mutable_array_new<[Expr]>()
+    var more = true
+    while more {
+        try expect_punct(c, "(")
+        val values = mutable_array_new<Expr>()
+        var first = true
+        while !sees_punct(c, ")") {
+            if !first {
+                try expect_punct(c, ",")
+            }
+            first = false
+            push(values, try parse_expr(c, positional))
+        }
+        try expect_punct(c, ")")
+        push(rows, snapshot(values))
+        more = accept_punct(c, ",")
+    }
+    return ok(Stmt.Insert(InsertStmt {
+        table: table,
+        columns: snapshot(columns),
+        rows: snapshot(rows)
+    }))
+}
+
+fn parse_select(c: Cursor, positional: Mutable<int>) -> Result<Stmt, DbError> {
+    val items = mutable_array_new<SelectItem>()
+    var first = true
+    while first || accept_punct(c, ",") {
+        first = false
+        val e = try parse_expr(c, positional)
+        var alias = ""
+        if accept(c, "AS") {
+            alias = try expect_name(c)
+        } else if peek(c).kind == "name" && !sees(c, "FROM") && !sees(c, "WHERE") && !sees(c, "ORDER") &&
+            !sees(c, "LIMIT") && !sees(c, "OFFSET") {
+            alias = advance(c).text
+        }
+        push(items, SelectItem { expr: e, alias: alias })
+    }
+    var table = ""
+    if accept(c, "FROM") {
+        table = try expect_name(c)
+        // `FROM t AS x` / `FROM t x`: the alias is accepted and dropped, since one table is in scope.
+        if accept(c, "AS") {
+            val _ = try expect_name(c)
+        } else if peek(c).kind == "name" && !sees(c, "WHERE") && !sees(c, "ORDER") && !sees(c, "LIMIT") &&
+            !sees(c, "OFFSET") {
+            set(c.at, get(c.at) + 1)
+        }
+    }
+    var filter = Option<Expr>.None
+    if accept(c, "WHERE") {
+        filter = Option<Expr>.Some(try parse_expr(c, positional))
+    }
+    val order = mutable_array_new<OrderTerm>()
+    if accept(c, "ORDER") {
+        try expect_word(c, "BY")
+        var more = true
+        while more {
+            val e = try parse_expr(c, positional)
+            var descending = false
+            if accept(c, "DESC") {
+                descending = true
+            } else {
+                val _ = accept(c, "ASC")
+            }
+            push(order, OrderTerm { expr: e, descending: descending })
+            more = accept_punct(c, ",")
+        }
+    }
+    var limit = Option<Expr>.None
+    var offset = Option<Expr>.None
+    if accept(c, "LIMIT") {
+        limit = Option<Expr>.Some(try parse_expr(c, positional))
+    }
+    if accept(c, "OFFSET") {
+        offset = Option<Expr>.Some(try parse_expr(c, positional))
+    }
+    return ok(Stmt.Select(SelectStmt {
+        items: snapshot(items),
+        table: table,
+        filter: filter,
+        order: snapshot(order),
+        limit: limit,
+        offset: offset
+    }))
+}
+
+fn parse_update(c: Cursor, positional: Mutable<int>) -> Result<Stmt, DbError> {
+    val table = try expect_name(c)
+    try expect_word(c, "SET")
+    val sets = mutable_array_new<Assignment>()
+    var more = true
+    while more {
+        val column = try expect_name(c)
+        try expect_punct(c, "=")
+        push(sets, Assignment { column: column, value: try parse_expr(c, positional) })
+        more = accept_punct(c, ",")
+    }
+    var filter = Option<Expr>.None
+    if accept(c, "WHERE") {
+        filter = Option<Expr>.Some(try parse_expr(c, positional))
+    }
+    return ok(Stmt.Update(UpdateStmt { table: table, sets: snapshot(sets), filter: filter }))
+}
+
+fn parse_delete(c: Cursor, positional: Mutable<int>) -> Result<Stmt, DbError> {
+    try expect_word(c, "FROM")
+    val table = try expect_name(c)
+    var filter = Option<Expr>.None
+    if accept(c, "WHERE") {
+        filter = Option<Expr>.Some(try parse_expr(c, positional))
+    }
+    return ok(Stmt.Delete(DeleteStmt { table: table, filter: filter }))
+}
+
+// One statement. Trailing `;` and empty statements are tolerated; anything past the first
+// statement is an error, because `datasource.execute` is one statement and `migrate` splits a
+// script before it gets here.
+fn parse_statement(sql: string) -> Result<Stmt, DbError> {
+    val c = cursor_of(try tokenize(sql))
+    val positional = mutable_new(0)
+    if at_end(c) {
+        return ok(Stmt.Ignored("empty"))
+    }
+    var stmt = Stmt.Ignored("empty")
+    if accept(c, "SELECT") {
+        stmt = try parse_select(c, positional)
+    } else if accept(c, "INSERT") {
+        stmt = try parse_insert(c, positional)
+    } else if accept(c, "UPDATE") {
+        stmt = try parse_update(c, positional)
+    } else if accept(c, "DELETE") {
+        stmt = try parse_delete(c, positional)
+    } else if accept(c, "CREATE") {
+        stmt = try parse_create(c)
+    } else if accept(c, "ALTER") {
+        stmt = try parse_alter(c)
+    } else if accept(c, "DROP") {
+        stmt = try parse_drop(c)
+    } else if accept(c, "BEGIN") {
+        val _ = accept(c, "TRANSACTION")
+        val _ = accept(c, "IMMEDIATE")
+        val _ = accept(c, "DEFERRED")
+        stmt = Stmt.Begin
+    } else if accept(c, "START") {
+        try expect_word(c, "TRANSACTION")
+        stmt = Stmt.Begin
+    } else if accept(c, "COMMIT") {
+        stmt = Stmt.Commit
+    } else if accept(c, "ROLLBACK") {
+        stmt = Stmt.Rollback
+    } else if accept(c, "PRAGMA") || accept(c, "SET") || accept(c, "ANALYZE") || accept(c, "VACUUM") {
+        // Settings and maintenance: accepted so a script written for a real engine runs, and
+        // ignored because there is nothing here for them to change.
+        while !at_end(c) {
+            set(c.at, get(c.at) + 1)
+        }
+        stmt = Stmt.Ignored("setting")
+    } else {
+        return err(problem(prelude.format("unsupported SQL statement starting at {}", found(c))))
+    }
+    val _ = accept_punct(c, ";")
+    if !at_end(c) {
+        return err(problem(prelude.format("unexpected {} after the statement", found(c))))
+    }
+    return ok(stmt)
+}
+
+// ---------------------------------------------------------------- evaluating
+
+// SQLite's type order, which is also the order NULLs sort first in: NULL, then numbers, then
+// text, then blobs. PostgreSQL would refuse to compare a number with text at all; a test that
+// relies on either is already engine-specific.
+fn type_rank(v: SqlValue) -> int {
+    return switch v {
+        Null { 0 }
+        Bool(_) { 1 }
+        Int(_) { 1 }
+        Float(_) { 1 }
+        Text(_) { 2 }
+        Bytes(_) { 3 }
+    }
+}
+
+fn as_number(v: SqlValue) -> float {
+    return switch v {
+        Int(n) { n as float }
+        Float(f) { f }
+        Bool(b) { if b { 1.0 } else { 0.0 } }
+        Null { 0.0 }
+        Text(_) { 0.0 }
+        Bytes(_) { 0.0 }
+    }
+}
+
+// Negative, zero or positive, for `ORDER BY` and for the comparison operators. Two NULLs compare
+// equal *here* so that sorting is a total order; `=` never reaches this with a NULL, because
+// `compare_values` is only asked after the three-valued check below.
+fn compare_values(a: SqlValue, b: SqlValue) -> int {
+    val ra = type_rank(a)
+    val rb = type_rank(b)
+    if ra != rb {
+        return if ra < rb { 0 - 1 } else { 1 }
+    }
+    return switch a {
+        Text(sa) { switch b {
+            Text(sb) { compare(sa, sb) }
+            Null { 0 }
+            Int(_) { 0 }
+            Float(_) { 0 }
+            Bool(_) { 0 }
+            Bytes(_) { 0 }
+        } }
+        Bytes(ba) { switch b {
+            Bytes(bb) { compare(ba, bb) }
+            Null { 0 }
+            Int(_) { 0 }
+            Float(_) { 0 }
+            Bool(_) { 0 }
+            Text(_) { 0 }
+        } }
+        Null { 0 }
+        Int(_) { compare(as_number(a), as_number(b)) }
+        Float(_) { compare(as_number(a), as_number(b)) }
+        Bool(_) { compare(as_number(a), as_number(b)) }
+    }
+}
+
+// `WHERE` keeps a row when the filter is true; NULL and false both drop it, which is SQL's
+// three-valued logic seen from the outside.
+fn is_true(v: SqlValue) -> bool {
+    return switch v {
+        Bool(b) { b }
+        Int(n) { n != 0 }
+        Float(f) { f != 0.0 }
+        Text(_) { false }
+        Bytes(_) { false }
+        Null { false }
+    }
+}
+
+fn is_null(v: SqlValue) -> bool {
+    return SqlValue.is_Null(v)
+}
+
+fn column_index(columns: [string], name: string) -> int {
+    val want = folded(name)
+    for i in 0..prelude.len(columns) {
+        if folded(columns[i]) == want {
+            return i
+        }
+    }
+    return 0 - 1
+}
+
+fn eval_expr(e: Expr, columns: [string], row: [SqlValue], params: [SqlValue]) -> Result<SqlValue, DbError> {
+    return switch e {
+        Lit(v) { ok(v) }
+        Star { err(problem("'*' is only allowed on its own in a SELECT list")) }
+        Param(number) {
+            if number > prelude.len(params) {
+                err(problem(prelude.format(
+                    "the statement wants parameter ${} but {} were given",
+                    number,
+                    prelude.len(params)
+                )))
+            } else {
+                ok(params[number - 1])
+            }
+        }
+        Col(name) {
+            val at = column_index(columns, name)
+            if at < 0 {
+                err(problem(prelude.format("no such column: {}", name)))
+            } else {
+                ok(row[at])
+            }
+        }
+        Not(node) {
+            val inner = try eval_expr(node.inner, columns, row, params)
+            // NOT NULL is NULL, not true.
+            if is_null(inner) { ok(SqlValue.Null) } else { ok(SqlValue.Bool(!is_true(inner))) }
+        }
+        IsNull(node) {
+            val inner = try eval_expr(node.inner, columns, row, params)
+            ok(SqlValue.Bool(if node.negated { !is_null(inner) } else { is_null(inner) }))
+        }
+        Bin(node) { eval_binary(node, columns, row, params) }
+        Call(node) { eval_call(node, columns, row, params) }
+        Like(node) {
+            val subject = try eval_expr(node.subject, columns, row, params)
+            val pattern = try eval_expr(node.pattern, columns, row, params)
+            if is_null(subject) || is_null(pattern) {
+                ok(SqlValue.Null)
+            } else {
+                val hit = like_matches(text_of(subject), text_of(pattern))
+                ok(SqlValue.Bool(if node.negated { !hit } else { hit }))
+            }
+        }
+        In(node) {
+            val subject = try eval_expr(node.subject, columns, row, params)
+            if is_null(subject) {
+                ok(SqlValue.Null)
+            } else {
+                var hit = false
+                var unknown = false
+                for option in node.options {
+                    val v = try eval_expr(option, columns, row, params)
+                    if is_null(v) {
+                        unknown = true
+                    } else if compare_values(subject, v) == 0 {
+                        hit = true
+                    }
+                }
+                // `x IN (1, NULL)` is true when x is 1 and unknown otherwise -- a NULL in the list
+                // cannot make a match false, only an absence unknown.
+                if hit {
+                    ok(SqlValue.Bool(!node.negated))
+                } else if unknown {
+                    ok(SqlValue.Null)
+                } else {
+                    ok(SqlValue.Bool(node.negated))
+                }
+            }
+        }
+        Between(node) {
+            val subject = try eval_expr(node.subject, columns, row, params)
+            val low = try eval_expr(node.low, columns, row, params)
+            val high = try eval_expr(node.high, columns, row, params)
+            if is_null(subject) || is_null(low) || is_null(high) {
+                ok(SqlValue.Null)
+            } else {
+                val inside = compare_values(subject, low) >= 0 && compare_values(subject, high) <= 0
+                ok(SqlValue.Bool(if node.negated { !inside } else { inside }))
+            }
+        }
+        Case(node) {
+            var answer = SqlValue.Null
+            var decided = false
+            for arm in node.arms {
+                if !decided {
+                    // `try` cannot sit on the right of `&&` -- it must run exactly once and
+                    // unconditionally -- so the condition is evaluated in its own step.
+                    val test = try eval_expr(arm.condition, columns, row, params)
+                    if is_true(test) {
+                        answer = try eval_expr(arm.value, columns, row, params)
+                        decided = true
+                    }
+                }
+            }
+            if !decided && prelude.len(node.fallback) == 1 {
+                answer = try eval_expr(node.fallback[0], columns, row, params)
+            }
+            ok(answer)
+        }
+    }
+}
+
+// SQL's `LIKE`: `%` stands for any run of characters, `_` for exactly one, and `\` escapes either.
+//
+// **Case-insensitive for ASCII, which is SQLite's rule and not PostgreSQL's** (there, `LIKE` is
+// case-sensitive and `ILIKE` is the other one). The two real engines already disagree here, so a
+// test that depends on it is engine-specific whatever this does; matching SQLite keeps `memdb`
+// shadowing the engine it stands in for.
+fn like_matches(subject: string, pattern: string) -> bool {
+    return like_from(to_lower(subject, invariant), 0, to_lower(pattern, invariant), 0)
+}
+
+fn like_from(s: string, si: int, p: string, pi: int) -> bool {
+    var i = si
+    var j = pi
+    while j < prelude.len(p) {
+        val pc = char_at(p, j)
+        if pc == "%" {
+            // Try every split, shortest first. A pattern of all `%` therefore costs one step, and
+            // the backtracking only pays where a `%` is followed by something real.
+            var k = i
+            while k <= prelude.len(s) {
+                if like_from(s, k, p, j + 1) {
+                    return true
+                }
+                k = k + 1
+            }
+            return false
+        }
+        if i >= prelude.len(s) {
+            return false
+        }
+        if pc == "_" {
+            i = i + 1
+            j = j + 1
+            continue
+        }
+        if pc == "\\" && j + 1 < prelude.len(p) {
+            if char_at(s, i) != char_at(p, j + 1) {
+                return false
+            }
+            i = i + 1
+            j = j + 2
+            continue
+        }
+        if char_at(s, i) != pc {
+            return false
+        }
+        i = i + 1
+        j = j + 1
+    }
+    return i == prelude.len(s)
+}
+
+// The scalar functions this increment carries. `substr` and `length` are here because the sample
+// application's own migrations call them 30 times each for a data conversion, and an engine that
+// cannot run a real migration directory is not usable for the thing it was built for. The
+// aggregates (`COUNT`, `SUM`, `MIN`, `MAX`) are the next increment and say so: an unknown name is
+// an error, never a NULL.
+fn eval_call(node: CallNode, columns: [string], row: [SqlValue], params: [SqlValue]) -> Result<SqlValue, DbError> {
+    val name = folded(node.name)
+    val args = mutable_array_new<SqlValue>()
+    for a in node.args {
+        push(args, try eval_expr(a, columns, row, params))
+    }
+    val given = snapshot(args)
+    val count = prelude.len(given)
+    if name == "coalesce" {
+        for v in given {
+            if !is_null(v) {
+                return ok(v)
+            }
+        }
+        return ok(SqlValue.Null)
+    }
+    // Every other function here answers NULL for a NULL argument, as both real engines do.
+    for v in given {
+        if is_null(v) {
+            return ok(SqlValue.Null)
+        }
+    }
+    if name == "length" {
+        if count != 1 {
+            return err(problem("length takes one argument"))
+        }
+        return switch given[0] {
+            Bytes(b) { ok(SqlValue.Int(prelude.len(b))) }
+            Text(text) { ok(SqlValue.Int(prelude.len(text))) }
+            Int(n) { ok(SqlValue.Int(prelude.len(str(n)))) }
+            Float(f) { ok(SqlValue.Int(prelude.len(str(f)))) }
+            Bool(_) { ok(SqlValue.Int(1)) }
+            Null { ok(SqlValue.Null) }
+        }
+    }
+    if name == "substr" || name == "substring" {
+        if count != 2 && count != 3 {
+            return err(problem("substr takes two or three arguments"))
+        }
+        val text = text_of(given[0])
+        val size = prelude.len(text)
+        // SQL counts from 1, and a negative start counts back from the end.
+        var from = unwrap_int(given[1])
+        if from < 0 {
+            from = size + from + 1
+        }
+        if from < 1 {
+            from = 1
+        }
+        var upto = size
+        if count == 3 {
+            val wanted = unwrap_int(given[2])
+            if wanted < 0 {
+                return ok(SqlValue.Text(""))
+            }
+            upto = from - 1 + wanted
+        }
+        if upto > size {
+            upto = size
+        }
+        if from - 1 >= upto {
+            return ok(SqlValue.Text(""))
+        }
+        return ok(SqlValue.Text(substring(text, from - 1, upto)))
+    }
+    if name == "lower" {
+        return ok(SqlValue.Text(to_lower(text_of(given[0]), invariant)))
+    }
+    if name == "upper" {
+        return ok(SqlValue.Text(to_upper(text_of(given[0]), invariant)))
+    }
+    if name == "trim" {
+        return ok(SqlValue.Text(trim(text_of(given[0]))))
+    }
+    if name == "abs" {
+        val v = given[0]
+        if is_int(v) {
+            val n = unwrap_int(v)
+            return ok(SqlValue.Int(if n < 0 { 0 - n } else { n }))
+        }
+        val f = as_number(v)
+        return ok(SqlValue.Float(if f < 0.0 { 0.0 - f } else { f }))
+    }
+    return err(problem(prelude.format(
+        "unsupported function: {} (this engine has substr, length, lower, upper, trim, abs and coalesce; the aggregates are the next increment)",
+        node.name
+    )))
+}
+
+fn eval_binary(node: BinNode, columns: [string], row: [SqlValue], params: [SqlValue]) -> Result<SqlValue, DbError> {
+    // AND and OR short-circuit on a decisive left side, which is also what keeps
+    // `x IS NOT NULL AND x > 3` from reading a NULL as a number.
+    if node.op == "AND" {
+        val left = try eval_expr(node.left, columns, row, params)
+        if !is_null(left) && !is_true(left) {
+            return ok(SqlValue.Bool(false))
+        }
+        val right = try eval_expr(node.right, columns, row, params)
+        if is_null(left) || is_null(right) {
+            return if !is_null(right) && !is_true(right) { ok(SqlValue.Bool(false)) } else { ok(SqlValue.Null) }
+        }
+        return ok(SqlValue.Bool(is_true(left) && is_true(right)))
+    }
+    if node.op == "OR" {
+        val left = try eval_expr(node.left, columns, row, params)
+        if is_true(left) {
+            return ok(SqlValue.Bool(true))
+        }
+        val right = try eval_expr(node.right, columns, row, params)
+        if is_true(right) {
+            return ok(SqlValue.Bool(true))
+        }
+        return if is_null(left) || is_null(right) { ok(SqlValue.Null) } else { ok(SqlValue.Bool(false)) }
+    }
+    val left = try eval_expr(node.left, columns, row, params)
+    val right = try eval_expr(node.right, columns, row, params)
+    // Every other operator is NULL when either side is: comparing or adding an unknown gives an
+    // unknown. This is the rule that makes `WHERE col = NULL` match nothing, which surprises
+    // people and is correct.
+    if is_null(left) || is_null(right) {
+        return ok(SqlValue.Null)
+    }
+    if node.op == "||" {
+        return ok(SqlValue.Text(concat(text_of(left), text_of(right))))
+    }
+    if node.op == "=" {
+        return ok(SqlValue.Bool(compare_values(left, right) == 0))
+    }
+    if node.op == "<>" {
+        return ok(SqlValue.Bool(compare_values(left, right) != 0))
+    }
+    if node.op == "<" {
+        return ok(SqlValue.Bool(compare_values(left, right) < 0))
+    }
+    if node.op == "<=" {
+        return ok(SqlValue.Bool(compare_values(left, right) <= 0))
+    }
+    if node.op == ">" {
+        return ok(SqlValue.Bool(compare_values(left, right) > 0))
+    }
+    if node.op == ">=" {
+        return ok(SqlValue.Bool(compare_values(left, right) >= 0))
+    }
+    // Arithmetic stays in integers when both sides are, so `3 / 2` is 1 as it is in SQLite and
+    // PostgreSQL, and becomes a float as soon as either side is one.
+    val both_int = is_int(left) && is_int(right)
+    if node.op == "+" || node.op == "-" || node.op == "*" {
+        val a = as_number(left)
+        val b = as_number(right)
+        val f = if node.op == "+" { a + b } else if node.op == "-" { a - b } else { a * b }
+        return if both_int { ok(SqlValue.Int(f as int)) } else { ok(SqlValue.Float(f)) }
+    }
+    if node.op == "/" {
+        val b = as_number(right)
+        if b == 0.0 {
+            // SQLite answers NULL for a division by zero; PostgreSQL raises. NULL is the quieter
+            // of the two and the one a test is less likely to depend on.
+            return ok(SqlValue.Null)
+        }
+        return if both_int {
+            ok(SqlValue.Int(unwrap_int(left) / unwrap_int(right)))
+        } else {
+            ok(SqlValue.Float(as_number(left) / b))
+        }
+    }
+    return err(problem(prelude.format("unsupported operator '{}'", node.op)))
+}
+
+// A value as `||` renders it, which is how both real engines read a number in a concatenation.
+fn text_of(v: SqlValue) -> string {
+    return switch v {
+        Text(s) { s }
+        Int(n) { str(n) }
+        Float(f) { str(f) }
+        Bool(b) { if b { "1" } else { "0" } }
+        Null { "" }
+        Bytes(_) { "" }
+    }
+}
+
+fn is_int(v: SqlValue) -> bool {
+    return switch v {
+        Int(_) { true }
+        Bool(_) { true }
+        Null { false }
+        Float(_) { false }
+        Text(_) { false }
+        Bytes(_) { false }
+    }
+}
+
+fn unwrap_int(v: SqlValue) -> int {
+    return switch v {
+        Int(n) { n }
+        Bool(b) { if b { 1 } else { 0 } }
+        Float(f) { f as int }
+        Null { 0 }
+        Text(_) { 0 }
+        Bytes(_) { 0 }
+    }
+}
+
+// ---------------------------------------------------------------- running statements
+
+// What a statement did: the database after it, the rows it answered and how many it changed.
+struct Outcome {
+    database: Database
+    rows: [Row]
+    affected: int
+}
+
+fn table_of(database: Database, name: string) -> Result<Table, DbError> {
+    return switch get(database.tables, folded(name)) {
+        Some(t) { ok(t) }
+        None { err(problem(concat("no such table: ", name))) }
+    }
+}
+
+fn with_table(database: Database, t: Table) -> Database {
+    return Database { tables: set(database.tables, folded(t.name), t) }
+}
+
+fn column_names(t: Table) -> [string] {
+    val out = mutable_array_new<string>()
+    for c in t.columns {
+        push(out, c.name)
+    }
+    return snapshot(out)
+}
+
+// The rows of `t` that `filter` keeps, as indexes into `t.rows` so an UPDATE or DELETE can work on
+// positions rather than copies.
+fn matching(t: Table, filter: Option<Expr>, params: [SqlValue]) -> Result<[int], DbError> {
+    val names = column_names(t)
+    val out = mutable_array_new<int>()
+    for i in 0..prelude.len(t.rows) {
+        var keep = true
+        if Some(e) = filter {
+            keep = is_true(try eval_expr(e, names, t.rows[i], params))
+        }
+        if keep {
+            push(out, i)
+        }
+    }
+    return ok(snapshot(out))
+}
+
+fn run_create(database: Database, stmt: CreateStmt) -> Result<Outcome, DbError> {
+    if contains(database.tables, folded(stmt.table)) {
+        if stmt.if_not_exists {
+            return ok(Outcome { database: database, rows: [], affected: 0 })
+        }
+        return err(problem(concat("table already exists: ", stmt.table)))
+    }
+    val t = Table { name: stmt.table, columns: stmt.columns, rows: [] }
+    return ok(Outcome { database: with_table(database, t), rows: [], affected: 0 })
+}
+
+fn run_alter(database: Database, stmt: AlterStmt) -> Result<Outcome, DbError> {
+    val t = try table_of(database, stmt.table)
+    if column_index(column_names(t), stmt.column.name) >= 0 {
+        return err(problem(prelude.format("column {} already exists on {}", stmt.column.name, t.name)))
+    }
+    // Existing rows gain the new column's default, or NULL -- which is what the real engines do
+    // for an added column, and why `NOT NULL` without a default is refused there and merely
+    // recorded here.
+    val filler = switch stmt.column.default_value {
+        Some(v) { v }
+        None { SqlValue.Null }
+    }
+    val rows = mutable_array_new<[SqlValue]>()
+    for row in t.rows {
+        push(rows, push(row, filler))
+    }
+    val grown = Table {
+        name: t.name,
+        columns: push(t.columns, stmt.column),
+        rows: snapshot(rows)
+    }
+    return ok(Outcome { database: with_table(database, grown), rows: [], affected: 0 })
+}
+
+fn run_drop(database: Database, stmt: DropStmt) -> Result<Outcome, DbError> {
+    if !contains(database.tables, folded(stmt.table)) {
+        if stmt.if_exists {
+            return ok(Outcome { database: database, rows: [], affected: 0 })
+        }
+        return err(problem(concat("no such table: ", stmt.table)))
+    }
+    return ok(Outcome {
+        database: Database { tables: remove(database.tables, folded(stmt.table)) },
+        rows: [],
+        affected: 0
+    })
+}
+
+fn run_insert(database: Database, stmt: InsertStmt, params: [SqlValue]) -> Result<Outcome, DbError> {
+    val t = try table_of(database, stmt.table)
+    val names = column_names(t)
+    // With no column list the values are positional, in declaration order.
+    val targets = if prelude.len(stmt.columns) > 0 { stmt.columns } else { names }
+    val positions = mutable_array_new<int>()
+    for name in targets {
+        val at = column_index(names, name)
+        if at < 0 {
+            return err(problem(prelude.format("no such column: {} on {}", name, t.name)))
+        }
+        push(positions, at)
+    }
+    val where_to = snapshot(positions)
+    var rows = t.rows
+    var added = 0
+    for values in stmt.rows {
+        if prelude.len(values) != prelude.len(where_to) {
+            return err(problem(prelude.format(
+                "{} values for {} columns",
+                prelude.len(values),
+                prelude.len(where_to)
+            )))
+        }
+        // Start from each column's default (NULL where there is none), then place the values.
+        val row = mutable_array_new<SqlValue>()
+        for c in t.columns {
+            push(row, switch c.default_value {
+                Some(v) { v }
+                None { SqlValue.Null }
+            })
+        }
+        for i in 0..prelude.len(where_to) {
+            // An INSERT's expressions see no row, so a column reference in one is an error rather
+            // than a silent NULL.
+            row[where_to[i]] = try eval_expr(values[i], [], [], params)
+        }
+        rows = push(rows, snapshot(row))
+        added = added + 1
+    }
+    val filled = Table { name: t.name, columns: t.columns, rows: rows }
+    return ok(Outcome { database: with_table(database, filled), rows: [], affected: added })
+}
+
+fn run_delete(database: Database, stmt: DeleteStmt, params: [SqlValue]) -> Result<Outcome, DbError> {
+    val t = try table_of(database, stmt.table)
+    val doomed = to_set(try matching(t, stmt.filter, params))
+    val rows = mutable_array_new<[SqlValue]>()
+    for i in 0..prelude.len(t.rows) {
+        if !contains(doomed, i) {
+            push(rows, t.rows[i])
+        }
+    }
+    val left = Table { name: t.name, columns: t.columns, rows: snapshot(rows) }
+    return ok(Outcome {
+        database: with_table(database, left),
+        rows: [],
+        affected: prelude.len(doomed)
+    })
+}
+
+fn run_update(database: Database, stmt: UpdateStmt, params: [SqlValue]) -> Result<Outcome, DbError> {
+    val t = try table_of(database, stmt.table)
+    val names = column_names(t)
+    val chosen = to_set(try matching(t, stmt.filter, params))
+    val rows = mutable_array_new<[SqlValue]>()
+    for i in 0..prelude.len(t.rows) {
+        if !contains(chosen, i) {
+            push(rows, t.rows[i])
+            continue
+        }
+        var row = t.rows[i]
+        for assignment in stmt.sets {
+            val at = column_index(names, assignment.column)
+            if at < 0 {
+                return err(problem(prelude.format("no such column: {} on {}", assignment.column, t.name)))
+            }
+            // Every assignment of one statement reads the row as it was before the statement,
+            // which is what `SET a = b, b = a` means in SQL.
+            row = set(row, at, try eval_expr(assignment.value, names, t.rows[i], params))
+        }
+        push(rows, row)
+    }
+    val changed = Table { name: t.name, columns: t.columns, rows: snapshot(rows) }
+    return ok(Outcome {
+        database: with_table(database, changed),
+        rows: [],
+        affected: prelude.len(chosen)
+    })
+}
+
+// The output column name for a select item: its alias, else the column it names, else its
+// position -- which is roughly what SQLite does and close enough for a test to read by name.
+fn item_name(item: SelectItem, at: int) -> string {
+    if item.alias != "" {
+        return item.alias
+    }
+    return switch item.expr {
+        Col(name) { name }
+        Lit(_) { prelude.format("column{}", at + 1) }
+        Param(_) { prelude.format("column{}", at + 1) }
+        Not(_) { prelude.format("column{}", at + 1) }
+        Bin(_) { prelude.format("column{}", at + 1) }
+        IsNull(_) { prelude.format("column{}", at + 1) }
+        Call(node) { node.name }
+        Like(_) { prelude.format("column{}", at + 1) }
+        In(_) { prelude.format("column{}", at + 1) }
+        Between(_) { prelude.format("column{}", at + 1) }
+        Case(_) { prelude.format("column{}", at + 1) }
+        Star { "*" }
+    }
+}
+
+fn run_select(database: Database, stmt: SelectStmt, params: [SqlValue]) -> Result<Outcome, DbError> {
+    // No `FROM`: one row of no columns, which is what makes `SELECT 1` answer a single 1.
+    if stmt.table == "" {
+        val names = mutable_array_new<string>()
+        val values = mutable_array_new<SqlValue>()
+        for i in 0..prelude.len(stmt.items) {
+            push(names, item_name(stmt.items[i], i))
+            push(values, try eval_expr(stmt.items[i].expr, [], [], params))
+        }
+        val one = Row { columns: snapshot(names), values: snapshot(values) }
+        return ok(Outcome { database: database, rows: [one], affected: 0 })
+    }
+    val t = try table_of(database, stmt.table)
+    val names = column_names(t)
+    var chosen = try matching(t, stmt.filter, params)
+
+    if prelude.len(stmt.order) > 0 {
+        // Sorted by evaluating each term per row. `sort_with` is a stable sort, so equal keys keep
+        // insertion order and a second ORDER BY term is only consulted where the first ties.
+        val terms = stmt.order
+        // A comparator cannot fail, and evaluating an ORDER BY term can, so the failure comes out
+        // in a cell: a lambda captures by value and cannot touch an enclosing `var`, which is the
+        // language saying that a closure and its enclosing function never share mutable state.
+        val failure = mutable_new<string>("")
+        chosen = sort_with(chosen, fn(a: int, b: int) -> int {
+            for term in terms {
+                val left = eval_expr(term.expr, names, t.rows[a], params)
+                val right = eval_expr(term.expr, names, t.rows[b], params)
+                if Err(e) = left {
+                    set(failure, db_message(e))
+                    return 0
+                }
+                if Err(e) = right {
+                    set(failure, db_message(e))
+                    return 0
+                }
+                val c = compare_values(unwrap(left), unwrap(right))
+                if c != 0 {
+                    return if term.descending { 0 - c } else { c }
+                }
+            }
+            return 0
+        })
+        if get(failure) != "" {
+            return err(problem(get(failure)))
+        }
+    }
+
+    var from = 0
+    if Some(e) = stmt.offset {
+        from = unwrap_int(try eval_expr(e, [], [], params))
+    }
+    var upto = prelude.len(chosen)
+    if Some(e) = stmt.limit {
+        val count = unwrap_int(try eval_expr(e, [], [], params))
+        if count >= 0 && from + count < upto {
+            upto = from + count
+        }
+    }
+    if from > prelude.len(chosen) {
+        from = prelude.len(chosen)
+    }
+    if upto < from {
+        upto = from
+    }
+
+    // `SELECT *` on its own expands to the table's columns; otherwise each item is one column.
+    var out_names = mutable_array_new<string>()
+    val star = prelude.len(stmt.items) == 1 && Expr.is_Star(stmt.items[0].expr)
+    if star {
+        out_names = mutable_array_new<string>()
+        for name in names {
+            push(out_names, name)
+        }
+    } else {
+        for i in 0..prelude.len(stmt.items) {
+            push(out_names, item_name(stmt.items[i], i))
+        }
+    }
+    val headers = snapshot(out_names)
+
+    val rows = mutable_array_new<Row>()
+    for k in from..upto {
+        val source = t.rows[chosen[k]]
+        val values = mutable_array_new<SqlValue>()
+        if star {
+            for v in source {
+                push(values, v)
+            }
+        } else {
+            for item in stmt.items {
+                push(values, try eval_expr(item.expr, names, source, params))
+            }
+        }
+        push(rows, Row { columns: headers, values: snapshot(values) })
+    }
+    return ok(Outcome { database: database, rows: snapshot(rows), affected: 0 })
+}
+
+fn db_message(e: DbError) -> string {
+    return switch e {
+        NotFound(m) { m }
+        Constraint(m) { m }
+        Connection(m) { m }
+        Sql(m) { m }
+    }
+}
+
+// ---------------------------------------------------------------- the connection
+
+// A connection's state: the database, and the database as it was when a transaction began.
+//
+// **This is where a database being a value pays for itself.** `BEGIN` keeps the current `Database`,
+// `ROLLBACK` puts it back and `COMMIT` forgets it -- no undo log, no copying, because the saved
+// value *is* the old state. The same property is what will make per-test forking free: seed a
+// schema and a dataset once, then hand each test its own copy.
+struct State {
+    database: Mutable<Database>
+    saved: Mutable<[Database]>
+}
+
+fn run_one(state: State, sql: string, params: [SqlValue]) -> Result<Outcome, DbError> {
+    val stmt = try parse_statement(sql)
+    val before = get(state.database)
+    return switch stmt {
+        Begin {
+            set(state.saved, push(get(state.saved), before))
+            ok(Outcome { database: before, rows: [], affected: 0 })
+        }
+        Commit {
+            val depth = prelude.len(get(state.saved))
+            if depth > 0 {
+                set(state.saved, slice(get(state.saved), 0, depth - 1))
+            }
+            ok(Outcome { database: before, rows: [], affected: 0 })
+        }
+        Rollback {
+            val stack = get(state.saved)
+            val depth = prelude.len(stack)
+            if depth == 0 {
+                ok(Outcome { database: before, rows: [], affected: 0 })
+            } else {
+                set(state.saved, slice(stack, 0, depth - 1))
+                ok(Outcome { database: stack[depth - 1], rows: [], affected: 0 })
+            }
+        }
+        Ignored(_) { ok(Outcome { database: before, rows: [], affected: 0 }) }
+        Create(s) { run_create(before, s) }
+        Alter(s) { run_alter(before, s) }
+        Drop(s) { run_drop(before, s) }
+        Insert(s) { run_insert(before, s, params) }
+        Update(s) { run_update(before, s, params) }
+        Delete(s) { run_delete(before, s, params) }
+        Select(s) { run_select(before, s, params) }
+    }
+}
+
+// Runs `sql` and keeps whatever it changed. A statement that fails leaves the database untouched,
+// because the new value is only published when the whole statement succeeded.
+fn apply(state: State, sql: string, params: [SqlValue]) -> Result<Outcome, DbError> {
+    val outcome = try run_one(state, sql, params)
+    set(state.database, outcome.database)
+    return ok(outcome)
+}
+
+// ---------------------------------------------------------------- the driver
+
+// This engine as a `db.Driver`, for `datasource.registry([memdb.driver()])`.
+//
+// The URL is `memdb:` with anything after it ignored, so `memdb:` and `memdb:whatever` are both a
+// fresh empty database. There is no sharing between connections and no file: like
+// `sqlite::memory:`, a connection *is* the database, which is why `poolable` says no -- a pool of
+// four would be four different databases.
+pub fn driver() -> Driver {
+    return Driver {
+        name: "memdb",
+        prefixes: ["memdb:"],
+        poolable: fn(url: string) -> bool { return false },
+        // Nothing here can go stale: there is no socket and no file, only a value in this process.
+        idle_check: false,
+        open: fn(url: string) -> Result<Conn, DbError> {
+            val state = State { database: mutable_new(empty_database()), saved: mutable_new<[Database]>([]) }
+            return ok(Conn {
+                dialect: "memdb",
+                close: fn() {},
+                execute: fn(sql: string, params: [SqlValue]) -> Result<int, DbError> {
+                    return ok((try apply(state, sql, params)).affected)
+                },
+                query: fn(sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+                    return ok((try apply(state, sql, params)).rows)
+                },
+                rows: fn(sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+                    // Every row is already in memory, so the lazy form hands them out one at a
+                    // time from the array rather than pretending to be a cursor.
+                    val all = (try apply(state, sql, params)).rows
+                    val at = mutable_new(0)
+                    return ok(iter_from<Result<Row, DbError>>(
+                        fn() -> Option<Result<Row, DbError>> {
+                            val i = get(at)
+                            if i >= prelude.len(all) {
+                                return Option<Result<Row, DbError>>.None
+                            }
+                            set(at, i + 1)
+                            return Option<Result<Row, DbError>>.Some(ok(all[i]))
+                        },
+                        fn() {}
+                    ))
+                }
+            })
+        }
+    }
+}

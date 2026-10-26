@@ -94,9 +94,15 @@ rather than read from a directory.
 ```
 pub struct TypeToken {
     token: string
-    sqlite: string
-    postgres: string
-    mysql: string
+    // What each engine spells this token as, keyed by the dialect `datasource.dialect` answers.
+    //
+    // **A map rather than a field per engine.** It was `sqlite`/`postgres`/`mysql` as three
+    // fields with a three-branch lookup, so a fourth engine meant editing this struct, the table
+    // and the lookup -- which is exactly the shape `datasource` lost when a driver became a value.
+    // The first thing `memdb` did on meeting a real migration directory was fail here, with
+    // "uses {{uuid}} and there is no spelling of it for 'memdb'", which is the right error and
+    // was being raised by the wrong design.
+    spellings: Map<string, string>
 }
 ```
 

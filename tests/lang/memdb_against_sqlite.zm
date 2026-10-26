@@ -1,0 +1,150 @@
+// `memdb` and `sqlite` given the same schema, the same data and the same queries, with their
+// answers compared row by row.
+//
+// **This is the test that makes a second SQL engine safe to own.** A test suite that runs on
+// `memdb` is only worth something if `memdb` answers what the real engine answers; a divergence
+// has to be a failing test rather than a quiet difference nobody looks at. So this prints
+// `agree` per query and nothing else -- the moment one of them disagrees, the recorded output
+// changes and the suite fails.
+//
+// The divergences `memdb` already knows about are in its own header (no type affinity, NULLs
+// first in ascending order, `LIKE` case-insensitive as SQLite has it, constraints recorded and
+// not enforced). The queries below stay clear of them on purpose: this file is for catching the
+// differences nobody has thought of yet.
+use datasource
+use db
+use db.SqlValue
+use memdb
+use sqlite
+
+val drivers = datasource.registry([memdb.driver(), sqlite.driver()])
+
+// A schema and a dataset, as a test would keep them in schema.sql and data.sql.
+val schema: [string] = [
+    "CREATE TABLE patient (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INTEGER, note TEXT)",
+    "CREATE INDEX idx_patient_name ON patient (name)",
+    "CREATE TABLE visit (id INTEGER PRIMARY KEY, patient_id INTEGER NOT NULL, reason TEXT, cost REAL)"
+]
+
+val data: [string] = [
+    "INSERT INTO patient (id, name, age, note) VALUES (1, 'Ada', 36, 'first')",
+    "INSERT INTO patient (id, name, age, note) VALUES (2, 'Bob', 41, NULL)",
+    "INSERT INTO patient (id, name, age, note) VALUES (3, 'Cy', 29, 'third')",
+    "INSERT INTO patient (id, name, age, note) VALUES (4, 'Dee', NULL, 'fourth')",
+    "INSERT INTO visit (id, patient_id, reason, cost) VALUES (1, 1, 'checkup', 120.5)",
+    "INSERT INTO visit (id, patient_id, reason, cost) VALUES (2, 1, 'follow up', 80.0)",
+    "INSERT INTO visit (id, patient_id, reason, cost) VALUES (3, 2, 'checkup', 95.25)"
+]
+
+// Every query both engines must answer identically. Ordered wherever more than one row comes
+// back, because neither engine promises an order without `ORDER BY` and a test that relied on
+// one would be testing the implementation rather than the SQL.
+val queries: [string] = [
+    "SELECT id, name, age, note FROM patient ORDER BY id",
+    "SELECT name FROM patient WHERE age > 30 ORDER BY name",
+    "SELECT name FROM patient WHERE age IS NULL ORDER BY id",
+    "SELECT name FROM patient WHERE age IS NOT NULL AND age < 40 ORDER BY id",
+    "SELECT name, note FROM patient WHERE note IS NULL ORDER BY id",
+    "SELECT name FROM patient ORDER BY name DESC",
+    "SELECT name FROM patient ORDER BY name LIMIT 2",
+    "SELECT name FROM patient ORDER BY name LIMIT 2 OFFSET 2",
+    "SELECT id FROM patient WHERE id IN (1, 3) ORDER BY id",
+    "SELECT id FROM patient WHERE id NOT IN (1, 3) ORDER BY id",
+    "SELECT name FROM patient WHERE age BETWEEN 30 AND 40 ORDER BY id",
+    "SELECT name FROM patient WHERE name LIKE 'A%' ORDER BY id",
+    "SELECT name FROM patient WHERE name LIKE '_y' ORDER BY id",
+    "SELECT name FROM patient WHERE note LIKE '%r%' ORDER BY id",
+    "SELECT name, CASE WHEN age IS NULL THEN 'unknown' WHEN age > 40 THEN 'older' ELSE 'younger' END AS band FROM patient ORDER BY id",
+    "SELECT id, age + 1 AS next, age * 2 AS doubled FROM patient WHERE age IS NOT NULL ORDER BY id",
+    "SELECT name, length(name) AS n FROM patient ORDER BY id",
+    "SELECT substr(name, 1, 2) AS head FROM patient ORDER BY id",
+    "SELECT upper(name) AS up, lower(name) AS down FROM patient ORDER BY id",
+    "SELECT coalesce(note, 'none') AS note FROM patient ORDER BY id",
+    "SELECT name || '!' AS shout FROM patient ORDER BY id",
+    "SELECT reason, cost FROM visit ORDER BY cost DESC",
+    "SELECT patient_id FROM visit WHERE reason = 'checkup' ORDER BY id",
+    // the three-valued logic a reader gets wrong before an engine does
+    "SELECT id FROM patient WHERE age = NULL ORDER BY id",
+    "SELECT id FROM patient WHERE NOT (age > 30) ORDER BY id",
+    "SELECT id FROM patient WHERE age > 30 OR note = 'fourth' ORDER BY id",
+    // and integer division, which both engines truncate
+    "SELECT 7 / 2 AS half",
+    "SELECT 7.0 / 2 AS half"
+]
+
+fn seed(url: string) -> datasource.Connection {
+    val conn = unwrap(datasource.open(drivers, url))
+    for statement in schema {
+        unwrap(datasource.execute(conn, statement))
+    }
+    for statement in data {
+        unwrap(datasource.execute(conn, statement))
+    }
+    return conn
+}
+
+// A result as one comparable string. `format`'s `{}` on a `SqlValue` prints its variant, so an
+// `Int(1)` and a `Text(1)` can never compare equal by accident -- which is the point, since type
+// affinity is one of the places the engines are allowed to differ and this test must notice.
+fn rendered(conn: datasource.Connection, sql: string) -> string {
+    return switch datasource.query(conn, sql) {
+        Ok(rows) {
+            val out = mutable_string_new()
+            append(out, format("{} row(s)", prelude.len(rows)))
+            for r in rows {
+                append(out, " |")
+                for i in 0..prelude.len(r.columns) {
+                    append(out, format(" {}={}", r.columns[i], r.values[i]))
+                }
+            }
+            snapshot(out)
+        }
+        Err(e) { concat("error: ", db.db_error_message(e)) }
+    }
+}
+
+fn main() {
+    val mem = seed("memdb:")
+    val lite = seed("sqlite::memory:")
+    print(format("engines: {} and {}", datasource.dialect(mem), datasource.dialect(lite)))
+
+    var disagreements = 0
+    for sql in queries {
+        val a = rendered(mem, sql)
+        val b = rendered(lite, sql)
+        if a == b {
+            print(concat("agree    ", sql))
+        } else {
+            disagreements = disagreements + 1
+            print(concat("DISAGREE ", sql))
+            print(concat("  memdb:  ", a))
+            print(concat("  sqlite: ", b))
+        }
+    }
+    print(format("{} of {} queries agree", prelude.len(queries) - disagreements, prelude.len(queries)))
+
+    // Writes too: the same UPDATE and DELETE on both, then the same read back.
+    print("-- writes --")
+    for statement in ["UPDATE patient SET note = 'edited' WHERE id = 2", "DELETE FROM patient WHERE age IS NULL"] {
+        val ma = unwrap(datasource.execute(mem, statement))
+        val la = unwrap(datasource.execute(lite, statement))
+        print(format("{} rows both: {}  <- {}", ma, ma == la, statement))
+    }
+    val after = "SELECT id, note FROM patient ORDER BY id"
+    print(if rendered(mem, after) == rendered(lite, after) { "agree    after the writes" } else {
+        concat("DISAGREE after the writes: ", rendered(mem, after), " vs ", rendered(lite, after))
+    })
+
+    // And a transaction rolled back on both.
+    print("-- rollback --")
+    for statement in ["BEGIN", "DELETE FROM patient", "ROLLBACK"] {
+        unwrap(datasource.execute(mem, statement))
+        unwrap(datasource.execute(lite, statement))
+    }
+    print(if rendered(mem, after) == rendered(lite, after) { "agree    after the rollback" } else {
+        concat("DISAGREE after the rollback: ", rendered(mem, after), " vs ", rendered(lite, after))
+    })
+
+    datasource.close(mem)
+    datasource.close(lite)
+}

@@ -223,6 +223,7 @@ them against the code.
 - [`mysql`: an endless stream of full packets, and a cap I got wrong first (2026-10-25)](#mysql-an-endless-stream-of-full-packets-and-a-cap-i-got-wrong-first-2026-10-25)
 - [`migrate`: one missing `*/` applied half a migration and called it done (2026-10-25)](#migrate-one-missing-applied-half-a-migration-and-called-it-done-2026-10-25)
 - [`datasource` stops knowing which databases exist (2026-10-25)](#datasource-stops-knowing-which-databases-exist-2026-10-25)
+- [`memdb`: a SQL engine in Ziman, and a tier boundary drawn in the wrong place (2026-10-25)](#memdb-a-sql-engine-in-ziman-and-a-tier-boundary-drawn-in-the-wrong-place-2026-10-25)
 
 <!-- end index -->
 
@@ -8792,3 +8793,36 @@ Those three are why a `Driver` has properties and not only functions. A vtable o
 One test got better rather than merely fixed. `db_pool_sqlite` proved the pool hands out distinct connections by reading `Connection.unwrap_Sqlite(tx).handle` -- a C handle, through two layers that no longer exist. It now builds a per-connection identity out of SQLite's own `TEMP` schema, which belongs to the connection that created it, so the first borrow stamps a connection and every later borrow of it reads the same stamp. The assertion is unchanged and it now tests a property of the pool rather than of SQLite's internals.
 
 Verified on every engine, which this refactor deserved: `make check` (1196 lang tests plus the sample backend's own suite), `make test-pg` (11 against a real PostgreSQL 17), `make test-mysql` (6 against a real MySQL 8), and `make northstar-both`, which runs the whole sample application's behavioural suite against **sqlite and postgres in turn** -- 0 failed on both, through the new registry. The dependency graph is the short version: `datasource --> clock` and `datasource --> db`, and nothing else.
+
+## `memdb`: a SQL engine in Ziman, and a tier boundary drawn in the wrong place (2026-10-25)
+
+1,943 lines of Ziman that lex, parse and run SQL over tables held as immutable values, reached through `db.Driver` like any other engine:
+
+```ziman
+val drivers = datasource.registry([memdb.driver()])
+val conn = try datasource.open(drivers, "memdb:")
+```
+
+It exists because `datasource` stopped naming engines the day before. A fourth engine is a new module and a `driver()`, and nothing above it changed -- which is the first time that claim was tested by something other than the three drivers that were already there.
+
+**Scoped by measuring first.** "Supports SQL" is unbounded, so before writing any of it: the sample application's 191 SQL strings (20,365 characters) use `SELECT` 85, `DELETE` 49, `ORDER BY` 40, `UPDATE` 30, `INSERT` 27, `COUNT` 12, `LIMIT` 11, and **no joins and no subqueries at all**, because its repositories query one table each and compose in Ziman. That is what made this a few days' work rather than a quarter's.
+
+**It is a third target, not a replacement, and that was the important decision.** A suite that runs only on an engine production never uses certifies the wrong thing, and the divergences are the quiet kind -- NULL ordering, type affinity, `LIKE` case sensitivity, integer division. So `tests/lang/memdb_against_sqlite.zm` gives both engines the same schema, the same data and 28 queries, and compares the answers row by row: three-valued logic (`age = NULL` matching nothing, `NOT (age > 30)` dropping the NULL row), integer versus float division, `LIKE` with `%` and `_`, `IN`/`NOT IN`, `BETWEEN`, `CASE WHEN`, the scalar functions, `||`, writes, and a rolled-back transaction. **28 of 28 agree.** A divergence is a changed recording and a failing test, which is the only arrangement that makes a second SQL implementation safe to own.
+
+**Transactions are free because a database is a value.** `BEGIN` keeps the current `Database`, `ROLLBACK` puts it back, `COMMIT` forgets it. No undo log, no copying: the saved value *is* the old state, and the saves are a stack so nesting works. The same property is what will make per-test forking free -- seed a schema and a dataset once, hand each test its own copy.
+
+**The tier boundary was in the wrong place, and the real schema is what proved it.** The agreed first increment was "enough to run schema.sql + data.sql and simple reads", with aggregates, `LIKE`, `IN`, `BETWEEN` and `CASE WHEN` held back for the next one. Then it met the sample application's actual migration directory, and each attempt found one more thing a *real* schema.sql needs:
+
+* `{{uuid}}` had no spelling for a new dialect -- and `migrate`'s token table had a field per engine with a three-branch lookup, which is the shape `datasource` had just lost. It is a `Map<string, string>` keyed by dialect now, so an engine is an entry rather than an edit.
+* The migrations live in a shared directory plus one per engine, and `memdb` has neither. No library change: the caller says `load_for(dir, "sqlite")`, because *the application* knows its memdb runs its sqlite migrations and `migrate` should not.
+* `SELECT 1` -- no `FROM`. Legal in both real engines, and the liveness probe `datasource`'s own pool sends.
+* `||`, then `substr` and `length` (30 calls each, for a data conversion), then `LIKE`, `IN`, `BETWEEN` and `CASE WHEN`.
+* All 40 migrations then applied, building a 36-table schema.
+
+The lesson is not that the estimate was bad. It is that **a tier boundary drawn from a feature list and one drawn from a real input are different boundaries**, and only the second one is worth anything. "Simple reads" sounded like a milestone; "runs the actual migration directory" is one, and it sits most of a tier further along.
+
+**What it does not do yet, measured rather than guessed.** Across the application and its tests: `COUNT(` 41, `RETURNING` 2, `GROUP BY` 2, `SUM`/`MIN`/`MAX` 1, `JOIN` 1, one subquery, no `DISTINCT`. So the aggregates are the whole of the next increment -- 41 of the 48 remaining uses are `COUNT`, and the backend's own tests cannot run on `memdb` until they exist. Constraint *enforcement* (`NOT NULL`, `PRIMARY KEY`, `UNIQUE`, foreign keys are parsed and remembered, never enforced), `JOIN`, subqueries and per-test forking come after.
+
+Divergences it knows about are in its header rather than discovered later: no type affinity, NULLs sort first ascending (SQLite's order, not PostgreSQL's), `LIKE` case-insensitive for ASCII (SQLite's rule, not PostgreSQL's), division by zero answers NULL (SQLite's answer, where PostgreSQL raises), `CREATE INDEX` accepted and ignored because an index decides speed and not answers, and no `sqlite_master` or `information_schema` -- a test that asks the engine about itself is asking the wrong question of this one.
+
+Three things the language said no to, each for a stated reason. A lambda cannot capture a `var` ("captures are by value, so the lambda and the enclosing function never share mutable state"), so the `ORDER BY` comparator carries its failure out in a cell. `try` cannot sit on the right of `&&` ("it must run exactly once and unconditionally"), so a `CASE` arm evaluates its condition in its own step. And `if V(x) = e` is a statement form, not an expression, so a test for a payload-free variant is `SqlValue.is_Null(v)`.
