@@ -46,7 +46,23 @@ for ri,r in enumerate(rows):
     for i,n in enumerate(r):
         xy[n]=(start+i*(NW+GAPX), 46+ri*(NH+GAPY))
 H=46+len(rows)*(NH+GAPY)-GAPY+30
-layer_label=lambda l:{0:'Foundations',1:'Building blocks',2:'Drivers and servers',3:'Front doors'}[l]
+# A name for the layers that have one, and **nothing for the rest** rather than a KeyError.
+#
+# This raised `KeyError: 5` from 2026-10-?? until 2026-10-26, because the four names below were
+# written when lib/ was four layers deep and it is six now. The lookup is total so that the next
+# module to deepen it cannot break the script again, which is the whole of the bug: a hand-written
+# list that the sources grew past.
+#
+# **Only the bottom two are named, and that is deliberate.** A layer here is dependency *depth*,
+# not role, so prose fits it only where the two coincide. They do at the bottom -- layer 0 is
+# whatever uses nothing -- and they stop coinciding above it: the old "drivers and servers" is
+# layer 4 now and the old "front doors" layer 5, while `time` and `uuid` sit beside `pg` at 4 and
+# `toml` beside `eql` at 5. Naming those would be a label that reads as a claim about design and
+# is really a claim about imports.
+LAYER_NAMES={0:'Foundations',1:'Building blocks'}
+def layer_label(l):
+    name=LAYER_NAMES.get(l)
+    return 'LAYER %d \u00b7 %s'%(l,name.upper()) if name else 'LAYER %d'%l
 svg=[]
 svg.append('<svg id="graph" viewBox="0 0 %d %d" role="img" aria-label="Module dependency diagram" xmlns="http://www.w3.org/2000/svg">'%(W,H))
 svg.append('<defs><marker id="head" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arrow"/></marker><marker id="head-use" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arrow-use"/></marker><marker id="head-by" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L8,4 L0,8 z" class="arrow-by"/></marker></defs>')
@@ -54,7 +70,7 @@ svg.append('<defs><marker id="head" viewBox="0 0 8 8" refX="7" refY="4" markerWi
 for ri,r in enumerate(rows):
     l=maxl-ri
     y=xy[r[0]][1]
-    svg.append('<text class="layer-label" x="8" y="%d">LAYER %d · %s</text>'%(y-10,l,layer_label(l).upper()))
+    svg.append('<text class="layer-label" x="8" y="%d">%s</text>'%(y-10,layer_label(l)))
 for ri,r in enumerate(rows):
     y=46+ri*(NH+GAPY)
 svg.append('<g id="edges">')

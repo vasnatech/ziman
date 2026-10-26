@@ -34,6 +34,18 @@ lib-manual-check: $(BIN)
 	python3 tools/gen_lib_deps.py
 	git diff --exit-code --stat -- docs/lib
 
+# Fails when `tools/gen_lib_map.py` cannot run.
+#
+# **It is here because nothing ran it.** The script raised `KeyError: 5` for an unknown length of
+# time -- its layer-label table was written for a four-layer lib/ and the sources grew to six --
+# and no target noticed, because its output is for a website that does not exist yet and is not
+# committed, so the usual `git diff --exit-code` shape does not apply. Running it and throwing the
+# output away is the whole check: a generator that crashes is the only failure it can have, and
+# that is exactly the failure it had.
+lib-map-check:
+	@python3 tools/gen_lib_map.py $(shell mktemp -t ziman-lib-map-XXXXXX.html) >/dev/null
+	@echo "ok   gen_lib_map.py runs"
+
 # Fails when the editor grammar stops giving a token the scope it is meant to. The grammar had no
 # test of any kind until 2026-10-12 -- nothing loaded it, nothing asserted a scope -- and three real
 # gaps sat in it unnoticed (`internal` matched nothing, `#![...]` was not an attribute, `val`/`var`
@@ -97,4 +109,4 @@ showcase-check: $(BIN)
 	$(BIN) --check editors/vscode/showcase.zm
 	$(BIN) --fmt --check editors/vscode/showcase.zm
 
-docs-check: lib-manual-check corelib-reference-check not-yet-check experimental-check doc-module-check syntax-check design-index-check vscode-grammar-check showcase-check
+docs-check: lib-manual-check corelib-reference-check not-yet-check experimental-check doc-module-check syntax-check design-index-check vscode-grammar-check showcase-check lib-map-check
