@@ -1878,6 +1878,8 @@ pub struct Translated {
     lists: [string]
     query: string
     registry: Registry
+    // The sizes already worked out, for a query with a collection parameter. See `Shaped`.
+    shaped: [Shaped]
 }
 
 pub fn translate(reg: Registry, query: string) -> Result<Translated, DbError>

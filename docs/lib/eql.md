@@ -162,6 +162,8 @@ pub struct Translated {
     lists: [string]
     query: string
     registry: Registry
+    // The sizes already worked out, for a query with a collection parameter. See `Shaped`.
+    shaped: [Shaped]
 }
 ```
 

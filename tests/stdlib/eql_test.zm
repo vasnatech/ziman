@@ -395,6 +395,48 @@ fn a_query_that_is_not_a_select_is_refused() {
 }
 
 #[test]
+fn a_collection_larger_than_the_worked_out_sizes_still_prepares() {
+    // `translate` works out the first eight sizes in advance; the ninth takes the old path and
+    // must answer the same shape. A cache whose miss is wrong is worse than no cache.
+    val q = test.assert_ok(eql.translate(reg, "SELECT p.id FROM Patient p WHERE p.id IN :ids"))
+    for count in [1, 8, 9, 17] {
+        val values = mutable_array_new<SqlValue>()
+        for i in 0..count {
+            push(values, SqlValue.Int(i))
+        }
+        val holes = mutable_array_new<string>()
+        for i in 0..count {
+            push(holes, format("${}", i + 1))
+        }
+        val ready = test.assert_ok(eql.prepare(q, [eql.bind_list("ids", snapshot(values))]))
+        test.assert_eq(
+            format("SELECT p.id FROM patients AS p WHERE p.id IN ({})", join(separator: ", ", pieces: snapshot(holes))),
+            ready.sql
+        )
+        test.assert_len(count, ready.params)
+    }
+}
+
+#[test]
+fn two_collections_in_one_query_are_not_worked_out_in_advance_but_still_work() {
+    // The sizes of two collections are a cross product, so `translate` does not enumerate them.
+    // This is the path that still translates per call, and it has to stay correct.
+    val q = test.assert_ok(eql.translate(
+        reg,
+        "SELECT p.id FROM Patient p WHERE p.id IN :ids AND p.last_name IN :names"
+    ))
+    val ready = test.assert_ok(eql.prepare(q, [
+        eql.bind_list("ids", [SqlValue.Int(1), SqlValue.Int(2)]),
+        eql.bind_list("names", [SqlValue.Text("Ada"), SqlValue.Text("Bob"), SqlValue.Text("Cy")])
+    ]))
+    test.assert_eq(
+        "SELECT p.id FROM patients AS p WHERE p.id IN ($1, $2) AND p.last_name IN ($3, $4, $5)",
+        ready.sql
+    )
+    test.assert_len(5, ready.params)
+}
+
+#[test]
 fn a_select_with_no_from_is_refused() {
     // Every path needs an alias to resolve against, so a query with no entity has nothing to say.
     test.assert_contains(refusal("SELECT 1"), "needs a FROM naming at least one entity")

@@ -126,6 +126,42 @@ pub fn bind_list(name: string, values: [SqlValue]) -> Binding {
     return Binding { name: name, value: SqlValue.Null, values: values, list: true }
 }
 
+// One collection size's translation, kept so that the second call with the same size does not
+// translate again.
+//
+// **A value rather than a cache**, which is what makes it safe here: `eql` sits above the
+// connection and has nowhere to keep per-connection state, module-level mutable state is refused,
+// and Ziman has no mutex -- so a shared mutable cache would be both unreachable and unsound. These
+// are computed once by `translate` and are thereafter immutable, so every thread may read them.
+struct Shaped {
+    key: string
+    sql: string
+    bindings: [string]
+}
+
+// How many collection sizes `translate` works out in advance.
+//
+// Measured: `prepare` costs **2 microseconds** for a static query, which reuses the one
+// translation, and **227** for one with a collection, which re-translates because the number of
+// placeholders is the number of values. Against a 300-3,000 microsecond round trip that is 7 to 43%
+// of a request, spent on an answer that depends on nothing but a count.
+//
+// Eight because an `IN` list written by hand is a handful of values -- the health-record backend's
+// widest category maps to six types -- and because each size costs one translation at startup:
+// eight is under two milliseconds per query, once. A size past the eighth still works and still
+// translates per call, which is the old behaviour rather than a failure.
+val eager_sizes: int = 8
+
+// The sizes a call bound, as a key. Ordered by `lists`, which the translator fixed, so the same
+// sizes always render the same key.
+fn sizes_key(lists: [string], sizes: Map<string, int>) -> string {
+    val out = mutable_string_new()
+    for name in lists {
+        append(out, name, "=", str(get_or(sizes, name, 0)), ";")
+    }
+    return snapshot(out)
+}
+
 // What a query became: the SQL to send, the tree it parsed into, and the parameter names in the
 // order the SQL numbers them.
 //
@@ -142,6 +178,8 @@ pub struct Translated {
     lists: [string]
     query: string
     registry: Registry
+    // The sizes already worked out, for a query with a collection parameter. See `Shaped`.
+    shaped: [Shaped]
 }
 
 fn problem(message: string) -> DbError {
@@ -332,7 +370,23 @@ fn spaced(before: Token, now: Token) -> bool {
 // alias on its own becomes the entity's columns.
 pub fn translate(reg: Registry, query: string) -> Result<Translated, DbError> {
     val no_sizes: Map<string, int> = Map<string, int> {}
-    return translate_sized(reg, query, no_sizes)
+    val base = try translate_sized(reg, query, no_sizes)
+    // **Only for a query with exactly one collection**, which is every one anybody writes. With
+    // two the sizes are a cross product and working them all out in advance would cost 64
+    // translations for a saving nothing has asked for; such a query translates per call, as before.
+    if prelude.len(base.lists) != 1 {
+        return ok(base)
+    }
+    val name = base.lists[0]
+    val shaped = mutable_array_new<Shaped>()
+    for n in 1..(eager_sizes + 1) {
+        val sizes = mutable_map_new<string, int>()
+        set(sizes, name, n)
+        val fixed = snapshot(sizes)
+        val variant = try translate_sized(reg, query, fixed)
+        push(shaped, Shaped { key: sizes_key(base.lists, fixed), sql: variant.sql, bindings: variant.bindings })
+    }
+    return ok(with base { shaped: snapshot(shaped) })
 }
 
 // The translation, with the size of each collection parameter where it is known.
@@ -506,13 +560,15 @@ fn translate_sized(reg: Registry, query: string, sizes: Map<string, int>) -> Res
         Ok(s) { s }
         Err(e) { return err(problem(concat(db_message(e), " -- in the SQL this query became: ", text))) }
     }
+    val nothing_yet: [Shaped] = []
     return ok(Translated {
         sql: sql.format(statement),
         statement: statement,
         bindings: snapshot(order),
         lists: snapshot(lists),
         query: query,
-        registry: reg
+        registry: reg,
+        shaped: nothing_yet
     })
 }
 
@@ -531,8 +587,14 @@ fn db_message(e: DbError) -> string {
 // a name the query does not use -- or one it uses and nothing bound -- is an error here, where the
 // hand-written form silently shifted every later parameter by one.
 pub fn arrange(t: Translated, bound: [Binding]) -> Result<[SqlValue], DbError> {
+    return arrange_names(t.bindings, bound)
+}
+
+// The values for a parameter order, which for a collection query is the order of the *sized*
+// translation rather than of the one `translate` answered.
+fn arrange_names(names: [string], bound: [Binding]) -> Result<[SqlValue], DbError> {
     val out = mutable_array_new<SqlValue>()
-    for name in t.bindings {
+    for name in names {
         var found = Option<Binding>.None
         for b in bound {
             if b.name == name {
@@ -566,12 +628,12 @@ pub fn arrange(t: Translated, bound: [Binding]) -> Result<[SqlValue], DbError> {
         }
     }
     for b in bound {
-        if !contains(t.bindings, b.name) {
+        if !contains(names, b.name) {
             return err(problem(prelude.format(
                 "nothing in the query names :{} (it names: {})",
                 b.name,
-                if prelude.len(t.bindings) == 0 { "no parameters" } else {
-                    join(separator: ", ", pieces: t.bindings)
+                if prelude.len(names) == 0 { "no parameters" } else {
+                    join(separator: ", ", pieces: names)
                 }
             )))
         }
@@ -612,7 +674,16 @@ pub fn prepare(query: Translated, bound: [Binding]) -> Result<Prepared, DbError>
             )))
         }
     }
-    val sized = try translate_sized(query.registry, query.query, snapshot(sizes))
+    // The sizes `translate` already worked out. A hit is the whole point of this layer: the second
+    // call with a three-item `IN` list does no translating at all.
+    val fixed = snapshot(sizes)
+    val key = sizes_key(query.lists, fixed)
+    for variant in query.shaped {
+        if variant.key == key {
+            return ok(Prepared { sql: variant.sql, params: try arrange_names(variant.bindings, bound) })
+        }
+    }
+    val sized = try translate_sized(query.registry, query.query, fixed)
     return ok(Prepared { sql: sized.sql, params: try arrange(sized, bound) })
 }
 
