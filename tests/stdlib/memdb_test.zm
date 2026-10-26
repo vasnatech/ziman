@@ -295,6 +295,39 @@ fn ordering_evaluates_its_keys_once_per_row() {
 }
 
 #[test]
+fn a_boolean_and_the_number_it_equals_share_a_bucket() {
+    // **The kept index's one invariant: equal keys always land in the same bucket.** `type_rank`
+    // puts Bool, Int and Float on one rank and `compare_values` compares them through `as_number`,
+    // so `Bool(true)` and `Int(1)` are equal -- and `key_bucket` gave the boolean a bucket of its
+    // own, so a UNIQUE column holding `Int(1)` accepted a second row holding `Bool(true)`.
+    //
+    // A regression the kept index brought with it: the scan it replaced asked `values_same` about
+    // every row and had no such hole. It cannot be cross-checked against SQLite, which has no
+    // boolean type to bind, so it is pinned here.
+    val c = opened("memdb:")
+    exec(c, "CREATE TABLE t (id INTEGER PRIMARY KEY, v INTEGER UNIQUE)")
+    test.assert_ok(datasource.execute(c, "INSERT INTO t (id, v) VALUES ($1, $2)", [SqlValue.Int(1), SqlValue.Int(1)]))
+    test.assert_err(datasource.execute(
+        c,
+        "INSERT INTO t (id, v) VALUES ($1, $2)",
+        [SqlValue.Int(2), SqlValue.Bool(true)]
+    ))
+    test.assert_err(datasource.execute(
+        c,
+        "INSERT INTO t (id, v) VALUES ($1, $2)",
+        [SqlValue.Int(3), SqlValue.Float(1.0)]
+    ))
+    // Zero and false are the same key for the same reason.
+    test.assert_ok(datasource.execute(
+        c,
+        "INSERT INTO t (id, v) VALUES ($1, $2)",
+        [SqlValue.Int(4), SqlValue.Bool(false)]
+    ))
+    test.assert_err(datasource.execute(c, "INSERT INTO t (id, v) VALUES ($1, $2)", [SqlValue.Int(5), SqlValue.Int(0)]))
+    test.assert_eq(2, one_int(c, "SELECT count(*) AS c FROM t"))
+}
+
+#[test]
 fn a_column_added_with_unique_is_indexed_from_then_on() {
     // The one place the *set* of kept indexes changes after `CREATE TABLE`, and the one that
     // `tests/lang/memdb_kept_index.zm` cannot cross-check: SQLite refuses to add a `UNIQUE` column

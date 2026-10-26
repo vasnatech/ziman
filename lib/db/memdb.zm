@@ -1151,7 +1151,17 @@ fn key_bucket(key: [SqlValue]) -> string {
     for v in key {
         append(out, switch v {
             Null { "~" }
-            Bool(b) { if b { "b1" } else { "b0" } }
+            // **A boolean renders as the number it compares as.** `type_rank` puts Bool, Int and
+            // Float on one rank and `compare_values` then compares them through `as_number`, so
+            // `Bool(true)` and `Int(1)` are `values_same` -- and a bucket of its own would put
+            // them in different places, which breaks the one invariant this function has.
+            //
+            // It did, from the kept index's first commit until 2026-10-26: a UNIQUE column holding
+            // `Int(1)` accepted a second row holding `Bool(true)`, because only the `b1` bucket was
+            // searched. The scan this index replaced had no such hole -- it asked `values_same`
+            // about every row -- so this was a regression, and the kind the index's own comment
+            // warned about from the other side: a duplicate accepted without a word.
+            Bool(_) { concat("n", str(as_number(v))) }
             Int(_) { concat("n", str(as_number(v))) }
             Float(_) { concat("n", str(as_number(v))) }
             Text(text) { concat("s", text) }
