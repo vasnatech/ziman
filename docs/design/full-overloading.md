@@ -851,3 +851,31 @@ The shadow gate that would have caught it is gone on purpose — `make/ziman.mk`
 `set` takes named arguments. `set(items: a, index: 2, x: 0)` was rejected before for no better reason than that `set` had an arm — the restriction §14's `BUILTINS_WITH_NAMED_ARGS` comment called *"a restriction with no reason behind it"*. Emptying that table is the end of its story: every name that was dispatched-but-armless has now either been converted or had its arm deleted.
 
 **No collection arm remains.** `concat` keeps the §16 shape -- the decision without the dispatch -- and `mutable` stays a polymorphic builtin for the §4 reasons. Neither is a collection verb, so the sentence §14 left open is closed rather than moved on.
+
+## 18. The four that are left, and why the population is closed
+
+Added 2026-10-26, after §17 deleted the last arm. §11 measured "roughly 50 convertible" and §12 began working through them. The count now reads **71 resolver-owned sets, 0 unresolvable; 4 polymorphic builtins; 1 compiler-resolved**, and this section is about those four: `compare`, `mutable`, `str`, `unwrap`.
+
+**None of them can convert, and each is blocked by something different.** That is worth writing down as a list rather than leaving as four scattered notes, because the obvious reading of §11 is that fifty names were convertible and some remain — and the remainder is zero.
+
+| name | what blocks it | where it was decided |
+|---|---|---|
+| `mutable` | the choice *is* the result type, which a declaration cannot state | §4 |
+| `str` | its argument is where a value block appears, and a value block carries no type, so six candidates cannot be narrowed. Converted, then reverted | §12 (F191) |
+| `unwrap` | its arm **rewrites** the `Option` case into `Option.unwrap_Some`, so by the time a set would be consulted the call is not a call to `unwrap` | the arm's own comment |
+| `compare` | the native ABI has no module, and its implementation needs one | here |
+
+`compare` is the new finding, and it is the interesting one because **the diagnostics were not the obstacle**. §11 named them as the gate — "what actually gates it is the diagnostics, not the mechanism" — and `#[when_unmatched]` (F187) is the answer it asked for; §17 showed that answer working on two per-argument messages at once. By that test `compare` looks convertible: two declarations told apart by **arity** (`compare<T: Ord>(a, b)` and `compare(a, b, with_locale)`), which the resolver separates trivially, and of the arm's four messages only one is irreplaceable -- the sentence naming what satisfies `Ord` and that `#[derive(Ord)]` writes it.
+
+The obstacle is one layer down. A native is called as `(Value *args, int argc, int line, int col)`; `value_compare` is `(Module *module, Value a, Value b, int line, int col)` and uses that module for the case the whole set exists to serve:
+
+```c
+char *fn_name = ziman_compare_function_name(type_name_str);
+FunctionDecl *fn = find_function(module, fn_name);
+```
+
+A derived `<type>_compare` is found by looking it up in the module. `src/prelude.c` contains no `Module *` anywhere -- every native there works on values alone, and a callback goes out through `native_call_closure`, which needs no module either. So converting `compare` means giving natives a way to reach a module, which is new infrastructure for one name.
+
+**That is the shape of the remaining three too, generalised.** `format`, `printf` and `error_message` are in `BUILTIN_NO_SIGNATURE` for *typing* reasons -- a rule that reads more than types -- and `error_message` has this same implementation-side twin: it looks up `<type>_message`. The two reasons coincide, and §11 only counted the first. A name whose implementation needs the module is as stuck as one whose rule needs more than types, and nothing in the measurement distinguished them.
+
+So the effort has run to its end rather than been abandoned, and the useful artifact is the table above: **a fifth polymorphic builtin would be a new design question, not the next item on a list.** `BUILTINS_WITH_NAMED_ARGS` is empty, no collection arm remains, and the three populations are stable.
