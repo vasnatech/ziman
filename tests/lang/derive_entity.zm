@@ -1,0 +1,70 @@
+// `#[derive(Entity)]`: the struct's own field names as its column list.
+use db
+use time
+use uuid
+//
+// **It emits only what the compiler knows for certain**, which is the field names in `to_params`
+// order -- and deliberately not the table name. Of the sample application's eighteen entities,
+// three break every pluralisation rule (`FamilyHistory` is stored in `family_history`,
+// `MedicalHistory` in `medical_histories`, `UserNotificationPreference` in
+// `user_notification_prefs`), so a guess there would build SQL against a table that does not
+// exist. The table stays a hand-written `val`, which cannot drift silently because the database
+// refuses a wrong one.
+//
+// What was drifting silently is the list: every entity carried its own `pub val columns = [...]`
+// beside the struct that already said it, in an order that had to match `to_params`'. Now the one
+// place it is written is the struct.
+use db.SqlValue
+use time.Instant
+use uuid.Uuid
+
+#[derive(Row, Entity)]
+pub struct Visit {
+    id: Uuid
+    patient_id: Uuid
+    reason: string
+    cost: Option<float>
+    seen_at: Instant
+}
+
+// One field is enough, and a column list of one is still a list.
+#[derive(Row, Entity)]
+pub struct Tag {
+    label: string
+}
+
+fn main() {
+    print(format("{}", visit_columns))
+    print(format(
+        "{} columns, first {}, last {}",
+        prelude.len(visit_columns),
+        visit_columns[0],
+        visit_columns[prelude.len(visit_columns) - 1]
+    ))
+    print(format("{}", tag_columns))
+
+    // The list is in `to_params` order, which is what makes an `INSERT` built from the two agree:
+    // every column named here has a parameter in the same position.
+    val row = Visit {
+        id: unwrap(uuid.parse("00000000-0000-4000-8000-000000000001")),
+        patient_id: unwrap(uuid.parse("00000000-0000-4000-8000-000000000002")),
+        reason: "checkup",
+        cost: Option<float>.Some(120.5),
+        seen_at: time.instant_of(0, 0)
+    }
+    val params = visit_to_params(row)
+    print(format(
+        "{} columns, {} parameters, agree: {}",
+        prelude.len(visit_columns),
+        prelude.len(params),
+        prelude.len(visit_columns) == prelude.len(params)
+    ))
+
+    // And the names are the ones `from_row` reads by, so a row built from the list round-trips.
+    val values = mutable_array_new<SqlValue>()
+    for p in params {
+        push(values, p)
+    }
+    val read_back = unwrap(visit_from_row(db.Row { columns: visit_columns, values: snapshot(values) }))
+    print(format("read back: reason={} cost={}", read_back.reason, read_back.cost))
+}

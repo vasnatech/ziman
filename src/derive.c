@@ -808,6 +808,41 @@ static char *generate_enum_from_json(EnumDecl *ed) {
 }
 
 /* ---------------------------------------------------------------------
+ * Entity derive: <name>_columns, the struct's field names in order.
+ *
+ * It emits only what the compiler already knows for certain. In
+ * particular it does **not** guess the table name: of the sample
+ * application's eighteen entities, three break every pluralisation rule
+ * (`FamilyHistory` is stored in `family_history`, `MedicalHistory` in
+ * `medical_histories`, `UserNotificationPreference` in
+ * `user_notification_prefs`), and a wrong guess there would generate SQL
+ * against a table that does not exist. The table name stays a hand-written
+ * `val` beside the struct, which is one line and cannot drift silently
+ * because the database refuses it.
+ *
+ * What *was* drifting silently is this list. Every entity carried its own
+ * `pub val columns = ["id", "user_id", ...]` in `to_params` order, written
+ * by hand beside the struct that already says it -- and `patient.zm`'s own
+ * comment records the profile growing "from 8 columns to 24 in one commit",
+ * while `service/crud.zm`'s E9 note is about a hand-numbered INSERT passing
+ * 24 parameters to 8 holes. The order here is field declaration order, which
+ * is exactly the order `<name>_to_params` pushes its values in, so the two
+ * cannot disagree.
+ * --------------------------------------------------------------------- */
+
+static char *generate_struct_entity(StructDecl *sd) {
+    CodeBuf cb;
+    cb_init(&cb);
+    char *val_name = pascal_to_snake(sd->name);
+    cb_appendf(&cb, "pub val %s_columns: [string] = [", val_name);
+    for (int i = 0; i < sd->fields.count; i++) {
+        cb_appendf(&cb, "%s\"%s\"", i > 0 ? ", " : "", sd->fields.items[i].name);
+    }
+    cb_appendf(&cb, "]\n\n");
+    return cb.data;
+}
+
+/* ---------------------------------------------------------------------
  * Row derive: <name>_from_row / <name>_to_params, for mapping a struct to
  * and from one SQL result row (lib/db/db.zm's Row/SqlValue).
  *
@@ -1049,6 +1084,28 @@ static void parse_and_splice(Module *module, char *source, int line, int col, co
         snippet->functions.items[i]->derived_from = label;
         function_list_push(&module->functions, snippet->functions.items[i]);
     }
+    /* A derive may emit a module-level `val` as well as functions -- `Entity`'s column list is a
+     * value, computed once, not a function rebuilding its array per call. Only functions were
+     * carried over before, so such a `val` parsed cleanly and then vanished, and the first thing
+     * that referenced it failed with "use of undefined variable".
+     *
+     * **Prepended, not appended.** Module-level vals are initialised in list order, so a
+     * hand-written `pub val columns = patient_columns` beside the struct would be evaluated
+     * before a derived val pushed onto the end -- and fail, with an error pointing at whatever
+     * file was being checked. A derived val's initialiser is a literal, referencing no other val,
+     * so putting them all first is safe and makes the derived name available to every hand-written
+     * val whatever order the file is in. */
+    if (snippet->vals.count > 0) {
+        GlobalValList combined;
+        memset(&combined, 0, sizeof combined);
+        for (int i = 0; i < snippet->vals.count; i++) {
+            global_val_list_push(&combined, snippet->vals.items[i]);
+        }
+        for (int i = 0; i < module->vals.count; i++) {
+            global_val_list_push(&combined, module->vals.items[i]);
+        }
+        module->vals = combined;
+    }
     /* `tokens`/`snippet`/`source` are deliberately never freed -- AST
      * nodes in this codebase are never freed at all (see ast.h), and a
      * spliced-in FunctionDecl's own Tokens were already fully copied out
@@ -1268,10 +1325,11 @@ void generate_derived_functions(Module *module) {
             int is_row = strcmp(sd->derives[d], "Row") == 0;
             int is_props = strcmp(sd->derives[d], "Properties") == 0;
             int is_ord = strcmp(sd->derives[d], "Ord") == 0;
-            if (!is_json && !is_row && !is_props && !is_ord) {
+            int is_entity = strcmp(sd->derives[d], "Entity") == 0;
+            if (!is_json && !is_row && !is_props && !is_ord && !is_entity) {
                 ziman_error("syntax", sd->line, sd->col, "unknown derive target '%s' on struct '%s'", sd->derives[d], sd->name);
             }
-            if (sd->type_params.count > 0 && (is_row || is_props)) {
+            if (sd->type_params.count > 0 && (is_row || is_props || is_entity)) {
                 ziman_error("syntax", sd->line, sd->col, "derive(%s) does not support a generic struct ('%s') -- only Json and Ord do", sd->derives[d], sd->name);
             }
             const char *label = fmt_str("derive(%s) for '%s'", sd->derives[d], sd->name);
@@ -1286,7 +1344,24 @@ void generate_derived_functions(Module *module) {
                     import_field_converters(module, is_json ? "json" : "sql", sd->fields.items[fi].type, sd->line, sd->col);
                 }
             }
-            if (is_ord) {
+            if (is_entity) {
+                if (sd->fields.count == 0) {
+                    ziman_error("syntax", sd->line, sd->col, "derive(Entity) needs at least one field to be a column ('%s' has none)", sd->name);
+                }
+                /* An entity is something read back out of a row, and the only thing that reads
+                 * one is `<name>_from_row`. Deriving the column list without it leaves half a
+                 * metamodel: a query layer could name the columns and could not build the value. */
+                int has_row = 0;
+                for (int other = 0; other < sd->derive_count; other++) {
+                    if (strcmp(sd->derives[other], "Row") == 0) has_row = 1;
+                }
+                if (!has_row) {
+                    ziman_error("syntax", sd->line, sd->col,
+                                "derive(Entity) on '%s' needs derive(Row) too -- an entity is read from a row, and `%s_from_row` is what reads it",
+                                sd->name, pascal_to_snake(sd->name));
+                }
+                parse_and_splice(module, generate_struct_entity(sd), sd->line, sd->col, label);
+            } else if (is_ord) {
                 if (sd->fields.count == 0) {
                     ziman_error("syntax", sd->line, sd->col, "derive(Ord) needs at least one field to compare ('%s' has none)", sd->name);
                 }
@@ -1312,6 +1387,9 @@ void generate_derived_functions(Module *module) {
             ziman_set_error_context(NULL);
             continue;
         }
+            if (strcmp(ed->derives[d], "Entity") == 0) {
+                ziman_error("syntax", ed->line, ed->col, "derive(Entity) does not support an enum ('%s') -- an entity is a struct, one field per column", ed->name);
+            }
             if (strcmp(ed->derives[d], "Row") == 0) {
                 ziman_error("syntax", ed->line, ed->col, "derive(Row) does not support an enum ('%s') -- a SQL row is a struct", ed->name);
             }

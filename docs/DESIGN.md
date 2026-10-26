@@ -238,6 +238,7 @@ them against the code.
 - [`memdb` gets unit tests, and four quadratics come out of hiding (2026-10-25)](#memdb-gets-unit-tests-and-four-quadratics-come-out-of-hiding-2026-10-25)
 - [`datasource` tested with an engine that is not a database, and a wall clock taken out of the pool (2026-10-25)](#datasource-tested-with-an-engine-that-is-not-a-database-and-a-wall-clock-taken-out-of-the-pool-2026-10-25)
 - [`db`: a malformed row stops crashing, and an optimisation measured and declined (2026-10-26)](#db-a-malformed-row-stops-crashing-and-an-optimisation-measured-and-declined-2026-10-26)
+- [`#[derive(Entity)]`, and the table name it refuses to guess (2026-10-26)](#deriveentity-and-the-table-name-it-refuses-to-guess-2026-10-26)
 
 <!-- end index -->
 
@@ -9251,3 +9252,30 @@ Two candidates, both measured:
 * **An index built once per result and shared by its rows**, the way `columns` already is: 215 ns a lookup against 790, costing 3,900 ns to build for twelve columns, so it pays for itself after five lookups in a result set and saves about 9 ms on a thousand-row read. **Not done**, because the callers that would benefit are the `from_row` functions `#[derive(Row)]` emits, so adopting it means changing what the compiler generates and every generated signature. That is a deliberate increment with these numbers in hand, not a change to make in passing -- and the numbers are now in the comment that would start it.
 
 So the module is unchanged except for the crash, which is the right outcome: this layer is types and converters, and the only thing in it that costs anything is a scan whose fix lives somewhere else.
+
+## `#[derive(Entity)]`, and the table name it refuses to guess (2026-10-26)
+
+The first step toward an entity query language, and valuable on its own: `#[derive(Entity)]` writes `<name>_columns` -- the struct's field names in `to_params` order. The sample application's eighteen entities drop their hand-written `pub val columns = [...]` arrays and take the list from the struct instead.
+
+**That array was a real drift risk, recorded in the code's own comments before this.** `entity/patient.zm` notes the profile growing "from 8 columns to 24 in one commit", and `service/crud.zm`'s E9 note is about a hand-numbered `INSERT` that "would have gone on compiling while passing 24 parameters to 8 holes". The list and `to_params` had to agree in *order*, and nothing checked that they did. Now the struct is the only place either is written.
+
+Before changing them I checked all eighteen against their structs, because replacing a list that had already drifted would have changed behaviour rather than preserving it: **every one matched, field for field, in order.** A good outcome to have verified rather than assumed.
+
+**The table name is not derived, and that is the interesting decision.** The obvious convention -- snake_case the struct, add an `s` -- is wrong for three of the eighteen:
+
+| struct | table |
+|---|---|
+| `FamilyHistory` | `family_history` |
+| `MedicalHistory` | `medical_histories` |
+| `UserNotificationPreference` | `user_notification_prefs` |
+
+A wrong guess there generates SQL against a table that does not exist, and the failure arrives at runtime, in whichever request first touches that entity. So the derive emits only what the compiler knows for certain, and the table stays a hand-written `val` beside the struct -- one line, and one that cannot be silently wrong, because the database refuses it. (`#[test(cases: ident)]` shows attributes take identifiers rather than string literals, so `#[entity(table: "patients")]` would have needed a lexer change as well; the evidence made that moot.)
+
+`Entity` **requires `Row`**: an entity is something read back out of a row, and `<name>_from_row` is what reads it, so deriving the column list alone leaves half a metamodel -- a query layer able to name the columns and unable to build the value. The error says so by name.
+
+**Two compiler findings came out of writing it.**
+
+* `parse_and_splice` carried only the *functions* out of a derive's generated source. A `pub val` parsed cleanly and then vanished, and the first reference to it failed with "use of undefined variable" -- with a position pointing at a comment in a different file, because the spliced declaration's tokens all carry the deriving struct's line. Every derive until now emitted functions only, so nothing had noticed.
+* Prepending those vals rather than appending them matters. Module-level vals initialise in list order, so `pub val columns = patient_columns` -- written beside the struct, above the derive's output -- was evaluated before a val pushed onto the end of the list. A derived val's initialiser is a literal that references no other val, so putting them all first is safe and makes the derived name available wherever the hand-written vals happen to sit.
+
+This is increment 1 of four. The rest, decided but not built: `lib/db/eql.zm` translating JPQL-shaped text into a `sql.SelectStmt` (entities resolved through a registry, the way `datasource` resolves drivers, so the module names no entity); execution through `datasource` with the translator numbering the parameters, which is what removes the hand-numbered `$2, $3, ...` in `repository/paging.zm`; and adopting it in one repository rather than eighteen, so it earns the rest.

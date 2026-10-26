@@ -1,0 +1,11 @@
+// `#[derive(Entity)]` alone is half a metamodel: it names the columns and leaves nothing able to
+// build the value, so it asks for `Row` by name rather than emitting a list nobody can use.
+#[derive(Entity)]
+pub struct Patient {
+    id: int
+    name: string
+}
+
+fn main() {
+    print(format("{}", patient_columns))
+}

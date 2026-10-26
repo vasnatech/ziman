@@ -1,0 +1,4 @@
+ziman: syntax error at 4:5 in tests/lang/derive_entity_needs_row.zm: derive(Entity) on 'Patient' needs derive(Row) too -- an entity is read from a row, and `patient_from_row` is what reads it
+  |
+4 | pub struct Patient {
+  |     ^

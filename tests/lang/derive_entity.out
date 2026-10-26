@@ -1,0 +1,5 @@
+[id, patient_id, reason, cost, seen_at]
+5 columns, first id, last seen_at
+[label]
+5 columns, 5 parameters, agree: true
+read back: reason=checkup cost=Some(120.5)

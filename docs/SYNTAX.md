@@ -2113,6 +2113,16 @@ fn main() {
   struct, array field, or `bigint`/`decimal`/`byte` field is a compile error. The derive imports
   what its generated code calls; a field type of your own needs its conversion imported by the
   deriving module.
+- **`#[derive(Entity)]`** on a struct generates `<name>_columns: [string]` -- the field names in
+  `to_params` order, which is the order a hand-written `INSERT INTO t (a, b) VALUES ($1, $2)` lists
+  its columns in, so the two cannot disagree. It needs `Row` beside it (`#[derive(Row, Entity)]`),
+  since an entity is something read back out of a row and `<name>_from_row` is what reads it; a
+  fieldless struct and an enum are both refused.
+  It emits **only** that: the table name is not guessed, because no pluralisation rule survives
+  real schemas (`FamilyHistory` is stored in `family_history`, `MedicalHistory` in
+  `medical_histories`, `UserNotificationPreference` in `user_notification_prefs`) and a wrong guess
+  would build SQL against a table that does not exist. Write the table beside the struct, where a
+  wrong one is refused by the database rather than silently generated.
 
 ## Networking
 
