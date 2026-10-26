@@ -4,12 +4,15 @@ use db.db_error_message
 use db.row_get
 use db.sql_as_text
 use fs
+use pg
+
+val drivers = datasource.registry([pg.driver()])
 
 // Same server, three authentication methods, chosen per role by pg_hba:
 // trust (no exchange), cleartext password, and SCRAM-SHA-256 (the
 // default, covered by every other test here).
 fn whoami(url: string) {
-    val conn = datasource.open(url)
+    val conn = datasource.open(drivers, url)
     if !is_ok(conn) {
         print(db_error_message(unwrap_err(conn)))
     } else {

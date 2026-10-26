@@ -4,6 +4,9 @@ use db.db_error_message
 use db.row_get
 use db.sql_as_int
 use fs
+use mysql
+
+val drivers = datasource.registry([mysql.driver()])
 
 fn writer(pool: datasource.Connection, base: int, done: Channel<int>) {
     var ok = 0
@@ -22,7 +25,7 @@ fn writer(pool: datasource.Connection, base: int, done: Channel<int>) {
 
 fn main() {
     val hp = trim(unwrap(fs.read_text("tests/integration/mysql/.hostport")))
-    val pool = unwrap(datasource.open_pool(format("mysql://nat_user:natpw@{}/zimandb", hp), 3))
+    val pool = unwrap(datasource.open_pool(drivers, format("mysql://nat_user:natpw@{}/zimandb", hp), 3))
     unwrap(datasource.execute(pool, "DROP TABLE IF EXISTS my_p"))
     unwrap(datasource.execute(pool, "CREATE TABLE my_p (id INT PRIMARY KEY, who INT NOT NULL) ENGINE=InnoDB"))
 

@@ -8,6 +8,7 @@ use db.sql_as_bool
 use db.sql_as_float
 use db.sql_as_int
 use db.sql_as_text
+use sqlite
 use time.Instant
 use time.LocalDate
 use time.instant_now
@@ -19,6 +20,8 @@ use uuid.Uuid
 use uuid.uuid_from_sql
 use uuid.uuid_new
 use uuid.uuid_to_sql
+
+val drivers = datasource.registry([sqlite.driver()])
 
 #[derive(Row)]
 pub struct Person {
@@ -33,7 +36,7 @@ pub struct Person {
 }
 
 fn main() {
-    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
     unwrap(datasource.execute(
         conn,
         "CREATE TABLE people (id TEXT PRIMARY KEY, name TEXT NOT NULL, nickname TEXT, born TEXT NOT NULL, age_hint INTEGER, active INTEGER NOT NULL, score REAL NOT NULL, created_at TEXT NOT NULL)"

@@ -20,6 +20,9 @@
 use datasource
 use db
 use migrate
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 fn show_split(label: string, sql: string) {
     print(switch migrate.split_statements(sql) {
@@ -54,7 +57,7 @@ fn main() {
     show_split("line comment at the end", "SELECT 1; -- trailing")
 
     // and the end-to-end consequence: nothing is applied, not even the first statement
-    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
     val dir = "tests/lang/migrate_unterminated_data"
     print(switch migrate.run(conn, dir) {
         Ok(n) { format("applied {}", n) }

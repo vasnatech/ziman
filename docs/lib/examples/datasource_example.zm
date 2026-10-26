@@ -5,11 +5,16 @@ use db.db_error_message
 use db.row_get
 use db.sql_as_int
 use db.sql_as_text
+use sqlite
+
+// The engines this program links. `datasource` names none of them itself, so a program that
+// talks to SQLite pulls in SQLite and nothing else; add `pg.driver()` to reach Postgres too.
+val drivers = datasource.registry([sqlite.driver()])
 
 // Bound parameters, rows, and a transaction that rolls back on an error. `sqlite::memory:` is a
 // private in-memory database; `postgres://...` and `mysql://...` URLs work the same way.
 fn main() {
-    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
     unwrap(datasource.execute(
         conn,
         """

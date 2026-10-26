@@ -6,6 +6,9 @@ use db.db_error_message
 use db.row_get
 use db.sql_as_int
 use fs
+use pg
+
+val drivers = datasource.registry([pg.driver()])
 
 fn pid_of(conn: datasource.Connection) -> int {
     val rows = unwrap(datasource.query(conn, "SELECT pg_backend_pid() AS pid"))
@@ -14,8 +17,8 @@ fn pid_of(conn: datasource.Connection) -> int {
 
 fn main() {
     val url = trim(unwrap(fs.read_text("tests/integration/pg/.url")))
-    val admin = unwrap(datasource.open(url))
-    val pool = unwrap(datasource.open_pool(url, 1))
+    val admin = unwrap(datasource.open(drivers, url))
+    val pool = unwrap(datasource.open_pool(drivers, url, 1))
 
     val first = pid_of(pool)
     print(pid_of(pool) == first)

@@ -2,6 +2,9 @@ use datasource
 use db.DbError
 use db.db_error_message
 use fs
+use mysql
+
+val drivers = datasource.registry([mysql.driver()])
 
 fn show(r: Result<datasource.Connection, DbError>) {
     print(is_ok(r))
@@ -31,17 +34,17 @@ fn show_unknown_user(r: Result<datasource.Connection, DbError>) {
 fn main() {
     val hp = trim(unwrap(fs.read_text("tests/integration/mysql/.hostport")))
     // unknown user, unknown database
-    show_unknown_user(datasource.open(format("mysql://nobody:secret@{}/zimandb", hp)))
-    show(datasource.open(format("mysql://nat_user:natpw@{}/no_such_db", hp)))
+    show_unknown_user(datasource.open(drivers, format("mysql://nobody:secret@{}/zimandb", hp)))
+    show(datasource.open(drivers, format("mysql://nat_user:natpw@{}/no_such_db", hp)))
     // nothing listening
-    show(datasource.open("mysql://root:secret@127.0.0.1:1/zimandb"))
+    show(datasource.open(drivers, "mysql://root:secret@127.0.0.1:1/zimandb"))
     // unsupported sslmode values are refused, not guessed at
-    show(datasource.open(format("mysql://nat_user:natpw@{}/zimandb?sslmode=allow", hp)))
+    show(datasource.open(drivers, format("mysql://nat_user:natpw@{}/zimandb?sslmode=allow", hp)))
     // malformed URLs
-    show(datasource.open("mysql://@127.0.0.1/db"))
-    show(datasource.open("mysql://u:p@127.0.0.1:notaport/db"))
+    show(datasource.open(drivers, "mysql://@127.0.0.1/db"))
+    show(datasource.open(drivers, "mysql://u:p@127.0.0.1:notaport/db"))
     // percent-encoded credentials decode ("nat%70w" == "natpw")
-    val ok = datasource.open(format("mysql://nat_user:nat%70w@{}/zimandb", hp))
+    val ok = datasource.open(drivers, format("mysql://nat_user:nat%70w@{}/zimandb", hp))
     print(is_ok(ok))
     if is_ok(ok) {
         datasource.close(unwrap(ok))

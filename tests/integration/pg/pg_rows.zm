@@ -5,6 +5,9 @@ use db.Row
 use db.row_get
 use db.sql_as_int
 use fs
+use pg
+
+val drivers = datasource.registry([pg.driver()])
 
 fn n_of(row: Row) -> int {
     return unwrap(sql_as_int(unwrap(row_get(row, "n"))))
@@ -22,7 +25,7 @@ fn sum_rows(conn: datasource.Connection, sql: string) -> Result<int, DbError> {
 
 fn main() {
     val url = trim(unwrap(fs.read_text("tests/integration/pg/.url")))
-    val conn = unwrap(datasource.open(url))
+    val conn = unwrap(datasource.open(drivers, url))
 
     // more rows than one page (500), read a page at a time
     print(unwrap(sum_rows(conn, "SELECT g AS n FROM generate_series(1, 2000) AS g")))
@@ -83,7 +86,7 @@ fn main() {
     unwrap(datasource.rollback(conn))
 
     // a pool: the connection is borrowed for the loop and returned however it ends
-    val pool = unwrap(datasource.open_pool(url, 1))
+    val pool = unwrap(datasource.open_pool(drivers, url, 1))
     print(unwrap(sum_rows(pool, "SELECT g AS n FROM generate_series(1, 1200) AS g")))
     for round in 0..3 {
         for row in unwrap(datasource.rows(pool, "SELECT g AS n FROM generate_series(1, 5000) AS g")) {

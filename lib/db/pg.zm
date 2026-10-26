@@ -1,5 +1,6 @@
 // pg.zm -- a PostgreSQL client, the second backend behind the `datasource`
-// module (`datasource.open("postgres://user:password@host:port/database")`).
+// module, which reaches it through the `db.Driver` that `driver()` below answers:
+// `datasource.open(datasource.registry([pg.driver()]), "postgres://user:password@host:port/database")`.
 // Written in Ziman on top of `net` (TCP), byte arrays (message framing) and
 // `crypto` (SCRAM-SHA-256); nothing here is native but the exact float
 // formatting. It speaks protocol version 3.0.
@@ -60,7 +61,9 @@ use crypto.hmac_sha256
 use crypto.pbkdf2_hmac_sha256
 use crypto.sha256
 use db
+use db.Conn
 use db.DbError
+use db.Driver
 use db.EndRequest
 use db.FetchRequest
 use db.OpenRequest
@@ -885,4 +888,35 @@ pub fn close(conn: Connection) {
 // it is garbage collected.
 pub fn rows(conn: Connection, sql: string, params: variadic SqlValue) -> Result<Iter<Result<Row, DbError>>, DbError> {
     return open_rows(conn.requests, sql, params)
+}
+
+// ---------------------------------------------------------------- the driver
+
+// This engine as a `db.Driver`, for `datasource.registry([..])`. The closures in the `Conn` hold
+// the connection, so nothing above here needs a name for it.
+pub fn driver() -> Driver {
+    return Driver {
+        name: "postgres",
+        prefixes: ["postgres://", "postgresql://"],
+        // Every connection to one of these URLs reaches the same database, so a pool is a pool.
+        poolable: fn(url: string) -> bool { return true },
+        // A socket can be closed from the far end while the connection sits idle.
+        idle_check: true,
+        open: fn(url: string) -> Result<Conn, DbError> {
+            val conn = try connect(url)
+            return ok(Conn {
+                dialect: "postgres",
+                close: fn() { close(conn) },
+                execute: fn(sql: string, params: [SqlValue]) -> Result<int, DbError> {
+                    return execute(conn, sql, params)
+                },
+                query: fn(sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+                    return query(conn, sql, params)
+                },
+                rows: fn(sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+                    return rows(conn, sql, params)
+                }
+            })
+        }
+    }
 }

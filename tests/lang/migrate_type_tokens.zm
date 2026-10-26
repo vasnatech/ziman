@@ -6,6 +6,9 @@ use db.DbError
 use db.db_error_message
 use fs
 use migrate
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 fn put(path: string, text: string) {
     unwrap(fs.write_text(path, text))
@@ -88,7 +91,7 @@ fn main() {
     print(unwrap(migrate.substitute("x {{uuid}} , '{{1,2}}'", "sqlite", "V009__x.sql")))
 
     // End to end: the same two files build the schema on SQLite.
-    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
     print(unwrap(migrate.run(conn, dir)))
     val no_args: [db.SqlValue] = []
     unwrap(datasource.execute(

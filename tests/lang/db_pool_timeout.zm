@@ -1,9 +1,12 @@
 use datasource
 use db.db_error_message
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 fn main() {
     val url = "sqlite:/tmp/ziman_fixture_pool_timeout.db"
-    val pool = unwrap(datasource.open_pool(url, 2))
+    val pool = unwrap(datasource.open_pool(drivers, url, 2))
     val a = unwrap(datasource.acquire_timeout(pool, 50))
     val b = unwrap(datasource.acquire_timeout(pool, 0))
     val none = datasource.acquire_timeout(pool, 40)
@@ -22,7 +25,7 @@ fn main() {
     print(is_ok(datasource.query(d, "SELECT 1 AS n")))
     datasource.release(pool, d)
     // on a plain connection both are no-ops
-    val plain = unwrap(datasource.open("sqlite::memory:"))
+    val plain = unwrap(datasource.open(drivers, "sqlite::memory:"))
     val same = unwrap(datasource.acquire_timeout(plain, 10))
     datasource.discard(plain, same)
     print(is_ok(datasource.query(plain, "SELECT 1 AS n")))

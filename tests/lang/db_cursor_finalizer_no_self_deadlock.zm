@@ -12,13 +12,21 @@ use datasource
 use db.DbError
 use db.Row
 use db.SqlValue
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 fn main() {
-    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
     val _ = unwrap(datasource.execute(conn, "create table t (a integer, b text)"))
     var i = 0
     while i < 200 {
-        val _ = unwrap(datasource.execute(conn, "insert into t values ($1, $2)", SqlValue.Int(i), SqlValue.Text("a payload wide enough to keep the allocator busy")))
+        val _ = unwrap(datasource.execute(
+            conn,
+            "insert into t values ($1, $2)",
+            SqlValue.Int(i),
+            SqlValue.Text("a payload wide enough to keep the allocator busy")
+        ))
         i = i + 1
     }
     var round = 0
@@ -28,5 +36,8 @@ fn main() {
         val _ = unwrap(datasource.query(conn, "select a, b from t limit 50"))
         round = round + 1
     }
-    print(format("{} rows still readable after 1500 abandoned cursors", len(unwrap(datasource.query(conn, "select a from t")))))
+    print(format(
+        "{} rows still readable after 1500 abandoned cursors",
+        len(unwrap(datasource.query(conn, "select a from t")))
+    ))
 }

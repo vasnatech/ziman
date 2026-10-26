@@ -3,6 +3,9 @@ use db.DbError
 use db.SqlValue
 use db.row_get
 use db.sql_as_int
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 // The motivating case: begin a transaction, `defer` the rollback, and
 // every way out of the function -- an error propagated by `?`, or
@@ -24,7 +27,7 @@ fn count(conn: datasource.Connection) -> int {
 }
 
 fn main() {
-    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
     unwrap(datasource.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY)"))
     print(is_ok(insert_two(conn, 1, 2)))
     print(count(conn))

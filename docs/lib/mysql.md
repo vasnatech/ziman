@@ -4,7 +4,8 @@
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 A MySQL / MariaDB client, the third engine behind the `datasource`
-module (`datasource.open("mysql://user:password@host:port/database")`). Written
+module, which reaches it through the `db.Driver` that `driver()` below answers:
+`datasource.open(datasource.registry([mysql.driver()]), "mysql://user:...@host/db")`. Written
 in Ziman on top of `net` (TCP + TLS), byte arrays (packet framing) and
 `crypto` (SHA-1 / SHA-256 for the login scramble); nothing here is
 native at all.
@@ -120,3 +121,14 @@ page. Each item is a `Result<Row, DbError>`: a row, or the error that ended the 
 which the iteration ends). The Err on the call is the statement failing. A connection holds one cursor
 at a time; other statements may run between fetches. A cursor dropped unfinished is ended when it is
 garbage collected.
+
+## The driver
+
+### `driver`
+
+```
+pub fn driver() -> Driver
+```
+
+This engine as a `db.Driver`, for `datasource.registry([..])`. The closures in the `Conn` hold
+the connection, so nothing above here needs a name for it.

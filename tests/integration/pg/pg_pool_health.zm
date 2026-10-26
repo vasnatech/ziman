@@ -5,6 +5,9 @@ use db.SqlValue
 use db.row_get
 use db.sql_as_int
 use fs
+use pg
+
+val drivers = datasource.registry([pg.driver()])
 
 fn pid_of(conn: datasource.Connection) -> Result<int, db.DbError> {
     val rows = try datasource.query(conn, "SELECT pg_backend_pid() AS pid")
@@ -13,11 +16,11 @@ fn pid_of(conn: datasource.Connection) -> Result<int, db.DbError> {
 
 fn main() {
     val url = trim(unwrap(fs.read_text("tests/integration/pg/.url")))
-    val admin = unwrap(datasource.open(url))
+    val admin = unwrap(datasource.open(drivers, url))
 
     // idle past the limit: the dead connection is found by a test query and replaced before it is lent out,
     // so the first statement after the outage succeeds
-    val pool = unwrap(datasource.open_pool_with(url, 1, 1))
+    val pool = unwrap(datasource.open_pool_with(drivers, url, 1, 1))
     val first = unwrap(pid_of(pool))
     unwrap(datasource.query(admin, "SELECT pg_terminate_backend($1)", SqlValue.Int(first)))
     clock.sleep_millis(1300)
@@ -27,7 +30,7 @@ fn main() {
     datasource.close(pool)
 
     // not idle long enough to be tested: the first statement after the outage fails, the next works
-    val eager = unwrap(datasource.open_pool_with(url, 1, 3600))
+    val eager = unwrap(datasource.open_pool_with(drivers, url, 1, 3600))
     val a = unwrap(pid_of(eager))
     unwrap(datasource.query(admin, "SELECT pg_terminate_backend($1)", SqlValue.Int(a)))
     clock.sleep_millis(300)
@@ -36,7 +39,7 @@ fn main() {
     datasource.close(eager)
 
     // testing turned off behaves the same way
-    val off = unwrap(datasource.open_pool_with(url, 1, 0))
+    val off = unwrap(datasource.open_pool_with(drivers, url, 1, 0))
     val b = unwrap(pid_of(off))
     unwrap(datasource.query(admin, "SELECT pg_terminate_backend($1)", SqlValue.Int(b)))
     clock.sleep_millis(1300)
@@ -45,7 +48,7 @@ fn main() {
     datasource.close(off)
 
     // a healthy idle connection is kept
-    val keep = unwrap(datasource.open_pool_with(url, 1, 1))
+    val keep = unwrap(datasource.open_pool_with(drivers, url, 1, 1))
     val c = unwrap(pid_of(keep))
     clock.sleep_millis(1300)
     print(unwrap(pid_of(keep)) == c)

@@ -4,6 +4,9 @@ use db.SqlValue
 use db.row_get
 use db.sql_as_int
 use fs
+use pg
+
+val drivers = datasource.registry([pg.driver()])
 
 fn value(rows: [Row], name: string) -> int {
     return unwrap(sql_as_int(unwrap(row_get(rows[0], name))))
@@ -61,7 +64,7 @@ fn distinct_count(items: [int]) -> int {
 
 fn main() {
     val url = trim(unwrap(fs.read_text("tests/integration/pg/.url")))
-    val setup = unwrap(datasource.open(url))
+    val setup = unwrap(datasource.open(drivers, url))
     unwrap(datasource.execute(setup, "DROP TABLE IF EXISTS pg_pool_counter; DROP TABLE IF EXISTS pg_pool_rows"))
     unwrap(datasource.execute(
         setup,
@@ -69,7 +72,7 @@ fn main() {
     ))
     datasource.close(setup)
 
-    val pool = unwrap(datasource.open_pool(url, 4))
+    val pool = unwrap(datasource.open_pool(drivers, url, 4))
 
     // 12 workers, 4 connections: never more than 4 backends, more than 1 used
     val pids: Channel<int> = channel_new()
@@ -119,5 +122,5 @@ fn main() {
     datasource.close(pool)
 
     // opening a pool fails fast, and leaves nothing open, when it can't connect
-    print(is_ok(datasource.open_pool("postgres://ziman:wrong@127.0.0.1:55432/zimandb", 3)))
+    print(is_ok(datasource.open_pool(drivers, "postgres://ziman:wrong@127.0.0.1:55432/zimandb", 3)))
 }

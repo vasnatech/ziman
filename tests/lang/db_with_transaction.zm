@@ -4,6 +4,9 @@ use db.DbError
 use db.Row
 use db.SqlValue
 use db.db_error_message
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 struct Transfer {
     from: int
@@ -12,17 +15,27 @@ struct Transfer {
 }
 
 fn setup(conn: datasource.Connection) -> Result<int, DbError> {
-    try datasource.execute(conn,
-        "CREATE TABLE acct (id INTEGER PRIMARY KEY, balance INTEGER NOT NULL CHECK (balance >= 0))")
+    try datasource.execute(
+        conn,
+        "CREATE TABLE acct (id INTEGER PRIMARY KEY, balance INTEGER NOT NULL CHECK (balance >= 0))"
+    )
     try datasource.execute(conn, "INSERT INTO acct (id, balance) VALUES (1, 100), (2, 50)")
     return ok(0)
 }
 
 fn transfer(tx: datasource.Connection, t: Transfer) -> Result<int, DbError> {
-    try datasource.execute(tx, "UPDATE acct SET balance = balance - $1 WHERE id = $2",
-        SqlValue.Int(t.amount), SqlValue.Int(t.from))
-    try datasource.execute(tx, "UPDATE acct SET balance = balance + $1 WHERE id = $2",
-        SqlValue.Int(t.amount), SqlValue.Int(t.to))
+    try datasource.execute(
+        tx,
+        "UPDATE acct SET balance = balance - $1 WHERE id = $2",
+        SqlValue.Int(t.amount),
+        SqlValue.Int(t.from)
+    )
+    try datasource.execute(
+        tx,
+        "UPDATE acct SET balance = balance + $1 WHERE id = $2",
+        SqlValue.Int(t.amount),
+        SqlValue.Int(t.to)
+    )
     return ok(t.amount)
 }
 
@@ -51,13 +64,15 @@ fn sql_as_int_of(row: Row) -> Result<int, DbError> {
 }
 
 fn main() {
-    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
     unwrap(setup(conn))
     val first = Transfer { from: 1, to: 2, amount: 30 }
     val too_much = Transfer { from: 1, to: 2, amount: 500 }
     // success commits
-    print(unwrap(datasource.with_transaction<int>(conn,
-        fn(tx: datasource.Connection) -> Result<int, DbError> { return transfer(tx, first) })))
+    print(unwrap(datasource.with_transaction<int>(
+        conn,
+        fn(tx: datasource.Connection) -> Result<int, DbError> { return transfer(tx, first) }
+    )))
     print(total(conn, 1))
     print(total(conn, 2))
     // an Err from work rolls back: the UPDATE inside it is undone
@@ -66,8 +81,10 @@ fn main() {
     print(db_error_message(unwrap_err(failed)))
     print(total(conn, 1))
     // a constraint violation midway rolls the first UPDATE back too
-    val overdraw = datasource.with_transaction<int>(conn,
-        fn(tx: datasource.Connection) -> Result<int, DbError> { return transfer(tx, too_much) })
+    val overdraw = datasource.with_transaction<int>(
+        conn,
+        fn(tx: datasource.Connection) -> Result<int, DbError> { return transfer(tx, too_much) }
+    )
     print(is_ok(overdraw))
     print(total(conn, 1))
     print(total(conn, 2))

@@ -1709,16 +1709,20 @@ pub fn format(j: Json) -> string
 ## `datasource`
 
 ```
+pub struct Registry {
+    drivers: [Driver]
+}
+
+pub fn registry(drivers: [Driver]) -> Registry
+
 pub enum Connection {
-    Sqlite(sqlite.Connection)
-    Postgres(pg.Connection)
-    Mysql(mysql.Connection)
+    Direct(Conn)
     Pool(PoolState)
 }
 
 pub fn dialect(conn: Connection) -> string
 
-pub fn open(url: string) -> Result<Connection, DbError>
+pub fn open(reg: Registry, url: string) -> Result<Connection, DbError>
 
 pub fn close(conn: Connection)
 
@@ -1736,9 +1740,9 @@ pub fn commit(conn: Connection) -> Result<unit, DbError>
 
 pub fn rollback(conn: Connection) -> Result<unit, DbError>
 
-pub fn open_pool(url: string, size: int) -> Result<Connection, DbError>
+pub fn open_pool(reg: Registry, url: string, size: int) -> Result<Connection, DbError>
 
-pub fn open_pool_with(url: string, size: int, check_after_seconds: int) -> Result<Connection, DbError>
+pub fn open_pool_with(reg: Registry, url: string, size: int, check_after_seconds: int) -> Result<Connection, DbError>
 
 pub fn acquire(conn: Connection) -> Result<Connection, DbError>
 
@@ -1755,6 +1759,22 @@ pub fn with_transaction<R>(conn: Connection, work: fn(Connection) -> Result<R, D
 ## `db`
 
 ```
+pub struct Conn {
+    dialect: string
+    close: fn()
+    execute: fn(string, [SqlValue]) -> Result<int, DbError>
+    query: fn(string, [SqlValue]) -> Result<[Row], DbError>
+    rows: fn(string, [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+}
+
+pub struct Driver {
+    name: string
+    prefixes: [string]
+    poolable: fn(string) -> bool
+    idle_check: bool
+    open: fn(string) -> Result<Conn, DbError>
+}
+
 pub enum SqlValue {
     Null
     Int(int)
@@ -1881,6 +1901,8 @@ pub fn close(conn: Connection)
 
 pub fn rows(conn: Connection, sql: string, params: variadic SqlValue) -> Result<Iter<Result<Row, DbError>>, DbError>
 
+pub fn driver() -> Driver
+
 ```
 
 ## `pg`
@@ -1905,6 +1927,8 @@ pub fn close(conn: Connection)
 
 pub fn rows(conn: Connection, sql: string, params: variadic SqlValue) -> Result<Iter<Result<Row, DbError>>, DbError>
 
+pub fn driver() -> Driver
+
 ```
 
 ## `sqlite`
@@ -1923,6 +1947,8 @@ pub fn execute(conn: Connection, sql: string, params: variadic SqlValue) -> Resu
 pub fn query(conn: Connection, sql: string, params: variadic SqlValue) -> Result<[Row], DbError>
 
 pub fn rows(conn: Connection, sql: string, params: variadic SqlValue) -> Result<Iter<Result<Row, DbError>>, DbError>
+
+pub fn driver() -> Driver
 
 ```
 

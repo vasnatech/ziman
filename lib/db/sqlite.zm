@@ -3,7 +3,9 @@
 // libsqlite3), closed by `close` or, failing that, when it is garbage collected. This
 // module encodes `SqlValue` parameters into that native's primitive-only shape and decodes
 // result cells back. Use it
-// through `datasource.open("sqlite:...")`; `pg` is the Postgres counterpart.
+// through `datasource` -- `datasource.open(datasource.registry([sqlite.driver()]), "sqlite:...")`
+// -- which drives this module through the `db.Driver` that `driver()` below answers, and so never
+// names it; `pg` is the Postgres counterpart.
 //
 // The natives only ever exchange primitives (ints, strings, arrays of
 // *tagged strings* -- one tag character then a payload: N null,
@@ -19,7 +21,9 @@
 // still in hand, and arrive here as an ordinary `DbError` naming `CAST(col AS BLOB)` as the
 // lossless way to read such a column.
 
+use db.Conn
 use db.DbError
+use db.Driver
 use db.Row
 use db.SqlValue
 use number.byte_from_hex
@@ -216,4 +220,41 @@ pub fn rows(conn: Connection, sql: string, params: variadic SqlValue) -> Result<
         fn() -> Option<Result<Row, DbError>> { next_row(cursor, names) },
         fn() { cursor_close_raw(cursor) }
     )
+}
+
+// ---------------------------------------------------------------- the driver
+
+// SQLite as a `db.Driver`, for `datasource.registry([sqlite.driver(), ..])`. The closures in the
+// `Conn` hold the connection, so nothing above here needs a name for it.
+pub fn driver() -> Driver {
+    return Driver {
+        name: "sqlite",
+        prefixes: ["sqlite:"],
+        // `:memory:` is private to the connection that opened it, so a pool of them would be a
+        // pool of *different databases* -- the one engine-specific rule `datasource` used to hold
+        // as a `starts_with(url, "sqlite::memory")` of its own.
+        poolable: fn(url: string) -> bool { return !starts_with(url, "sqlite::memory") },
+        // An open file is not closed from the far end while nobody is looking, so an idle
+        // connection cannot have gone stale and a `SELECT 1` before lending it out buys nothing.
+        idle_check: false,
+        open: fn(url: string) -> Result<Conn, DbError> {
+            // The engine owns its URL spelling: `datasource` used to strip this prefix with a
+            // `substring(url, 7, ..)` that only made sense if you knew which scheme it was.
+            val path = if starts_with(url, "sqlite:") { substring(url, 7, len(url)) } else { url }
+            val conn = try open(path)
+            return ok(Conn {
+                dialect: "sqlite",
+                close: fn() { close(conn) },
+                execute: fn(sql: string, params: [SqlValue]) -> Result<int, DbError> {
+                    return execute(conn, sql, params)
+                },
+                query: fn(sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+                    return query(conn, sql, params)
+                },
+                rows: fn(sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+                    return rows(conn, sql, params)
+                }
+            })
+        }
+    }
 }

@@ -4,6 +4,9 @@ use db.SqlValue
 use db.db_error_message
 use fs
 use migrate
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 fn put(dir: string, name: string, text: string) {
     unwrap(fs.write_text(fs.path_join(dir, name), text))
@@ -27,7 +30,7 @@ fn main() {
     } else {
         unwrap(fs.make_dirs(dir))
     }
-    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
 
     print(split_statements_demo())
 
@@ -75,7 +78,7 @@ fn main() {
     print(message(migrate.run(conn, dir)))
 
     // a failing migration rolls the whole run back
-    val fresh = unwrap(datasource.open("sqlite::memory:"))
+    val fresh = unwrap(datasource.open(drivers, "sqlite::memory:"))
     unwrap(fs.remove(fs.path_join(dir, "V003__add_column.sql")))
     put(dir, "V003__bad.sql", "CREATE TABLE fine (id INTEGER); CREATE TABLE fine (id INTEGER)")
     print(!is_ok(migrate.run(fresh, dir)))
@@ -94,7 +97,7 @@ fn main() {
     print(message(migrate.run(fresh, dir)))
 
     // migrations written in the program
-    val inline = unwrap(datasource.open("sqlite::memory:"))
+    val inline = unwrap(datasource.open(drivers, "sqlite::memory:"))
     val ms = [migrate.migration(1, "one", "CREATE TABLE one (x INTEGER)"),
         migrate.migration(2, "two", "CREATE TABLE two (x INTEGER)")]
     print(unwrap(migrate.apply(inline, ms)))

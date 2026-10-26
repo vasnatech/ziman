@@ -9,6 +9,9 @@ use db.sql_as_float
 use db.sql_as_int
 use db.sql_as_text
 use fs
+use pg
+
+val drivers = datasource.registry([pg.driver()])
 
 fn field(row: Row, name: string) -> SqlValue {
     return unwrap(row_get(row, name))
@@ -16,7 +19,7 @@ fn field(row: Row, name: string) -> SqlValue {
 
 fn main() {
     val url = trim(unwrap(fs.read_text("tests/integration/pg/.url")))
-    val conn = unwrap(datasource.open(url))
+    val conn = unwrap(datasource.open(drivers, url))
 
     // ---- DDL script (several statements, no params) and every value kind
     unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS pg_t; DROP TABLE IF EXISTS pg_u"))

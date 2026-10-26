@@ -5,6 +5,9 @@ use db.SqlValue
 use db.db_error_message
 use db.row_get
 use db.sql_as_int
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 // A pool over a SQLite *file* (several real connections to it), driven by
 // more threads than connections.
@@ -14,18 +17,41 @@ fn count(conn: datasource.Connection, table: string) -> int {
     return unwrap(sql_as_int(unwrap(row_get(rows[0], "n"))))
 }
 
+// **A per-connection identity out of SQLite's own temp schema.** A `TEMP` table belongs to the
+// connection that created it, so the first borrow of a connection stamps it and every later borrow
+// of that same connection reads the same stamp back -- which is what the distinctness check below
+// needs, and it needs it through the public API.
+//
+// This used to read `datasource.Connection.unwrap_Sqlite(tx).handle`. `datasource` has no such
+// variant now: it holds a driver's closures rather than one of three concrete connection types, so
+// there is nothing to unwrap and nothing to name. The test is the better for it -- it asserts a
+// property of the pool rather than of SQLite's C handle.
+fn connection_id(tx: datasource.Connection, stamp: int) -> int {
+    unwrap(datasource.execute(tx, "CREATE TEMP TABLE IF NOT EXISTS conn_mark (v INTEGER)"))
+    val marked = unwrap(datasource.query(tx, "SELECT count(*) AS n FROM conn_mark"))
+    if unwrap(sql_as_int(unwrap(row_get(marked[0], "n")))) == 0 {
+        unwrap(datasource.execute(tx, "INSERT INTO conn_mark (v) VALUES ($1)", SqlValue.Int(stamp)))
+    }
+    val got = unwrap(datasource.query(tx, "SELECT v FROM conn_mark"))
+    return unwrap(sql_as_int(unwrap(row_get(got[0], "v"))))
+}
+
 // Per-statement borrows, then one exclusive borrow held long enough for
 // the other workers to overlap with it.
 fn worker(pool: datasource.Connection, id: int, handles: Channel<int>, done: Channel<int>) {
     var i = 0
     while i < 5 {
-        unwrap(datasource.execute(pool, "INSERT INTO events (worker, n) VALUES ($1, $2)",
-            SqlValue.Int(id), SqlValue.Int(i)))
+        unwrap(datasource.execute(
+            pool,
+            "INSERT INTO events (worker, n) VALUES ($1, $2)",
+            SqlValue.Int(id),
+            SqlValue.Int(i)
+        ))
         i = i + 1
     }
     val tx = unwrap(datasource.acquire(pool))
     defer datasource.release(pool, tx)
-    send(handles, datasource.Connection.unwrap_Sqlite(tx).handle)
+    send(handles, connection_id(tx, id))
     clock.sleep_millis(20)
     send(done, 1)
 }
@@ -65,13 +91,15 @@ fn insert_from_thread(pool: datasource.Connection, done: Channel<int>) {
 
 fn main() {
     val url = "sqlite:/tmp/ziman_pool_test.db"
-    val setup = unwrap(datasource.open(url))
+    val setup = unwrap(datasource.open(drivers, url))
     unwrap(datasource.execute(setup, "DROP TABLE IF EXISTS events; DROP TABLE IF EXISTS counter"))
-    unwrap(datasource.execute(setup,
-        "CREATE TABLE events (worker INTEGER, n INTEGER); CREATE TABLE counter (n INTEGER); INSERT INTO counter VALUES (0)"))
+    unwrap(datasource.execute(
+        setup,
+        "CREATE TABLE events (worker INTEGER, n INTEGER); CREATE TABLE counter (n INTEGER); INSERT INTO counter VALUES (0)"
+    ))
     datasource.close(setup)
 
-    val pool = unwrap(datasource.open_pool(url, 3))
+    val pool = unwrap(datasource.open_pool(drivers, url, 3))
     val handles: Channel<int> = channel_new()
     val done: Channel<int> = channel_new()
     var w = 0
@@ -108,7 +136,7 @@ fn main() {
     datasource.close(pool)
 
     // a pool of ONE: an early return still releases, so this doesn't hang
-    val one = unwrap(datasource.open_pool(url, 1))
+    val one = unwrap(datasource.open_pool(drivers, url, 1))
     print(is_ok(fails_early(one)))
     print(is_ok(fails_early(one)))
     print(count(one, "events"))
@@ -116,13 +144,13 @@ fn main() {
 
     // transactions on the pool itself are refused (each statement would
     // borrow a different connection); the pool stays usable
-    val p2 = unwrap(datasource.open_pool(url, 2))
+    val p2 = unwrap(datasource.open_pool(drivers, url, 2))
     print(db_error_message(unwrap_err(datasource.begin(p2))))
     print(count(p2, "counter"))
     datasource.close(p2)
 
     // on a plain connection, acquire returns it and release is a no-op
-    val plain = unwrap(datasource.open(url))
+    val plain = unwrap(datasource.open(drivers, url))
     val same = unwrap(datasource.acquire(plain))
     datasource.release(plain, same)
     print(count(same, "counter"))
@@ -130,7 +158,7 @@ fn main() {
 
     // a pool over :memory: is a single connection (every in-memory
     // connection is a private database), so all threads share one database
-    val mem = unwrap(datasource.open_pool("sqlite::memory:", 5))
+    val mem = unwrap(datasource.open_pool(drivers, "sqlite::memory:", 5))
     unwrap(datasource.execute(mem, "CREATE TABLE shared (v INTEGER)"))
     val d2: Channel<int> = channel_new()
     spawn insert_from_thread(mem, d2)
@@ -138,6 +166,6 @@ fn main() {
     print(count(mem, "shared"))
     datasource.close(mem)
 
-    print(is_ok(datasource.open_pool(url, 0)))
-    print(db_error_message(unwrap_err(datasource.open_pool(url, 0))))
+    print(is_ok(datasource.open_pool(drivers, url, 0)))
+    print(db_error_message(unwrap_err(datasource.open_pool(drivers, url, 0))))
 }

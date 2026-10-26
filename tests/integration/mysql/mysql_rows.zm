@@ -6,6 +6,9 @@ use db.SqlValue
 use db.row_get
 use db.sql_as_int
 use fs
+use mysql
+
+val drivers = datasource.registry([mysql.driver()])
 
 fn n_of(row: Row) -> int {
     return unwrap(sql_as_int(unwrap(row_get(row, "n"))))
@@ -24,7 +27,7 @@ fn sum_rows(conn: datasource.Connection, sql: string) -> Result<int, DbError> {
 fn main() {
     val hp = trim(unwrap(fs.read_text("tests/integration/mysql/.hostport")))
     val url = format("mysql://nat_user:natpw@{}/zimandb", hp)
-    val conn = unwrap(datasource.open(url))
+    val conn = unwrap(datasource.open(drivers, url))
     unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS my_rows"))
     unwrap(datasource.execute(
         conn,
@@ -96,7 +99,7 @@ fn main() {
     unwrap(datasource.rollback(conn))
 
     // a pool: the connection is borrowed for the loop and returned however it ends
-    val pool = unwrap(datasource.open_pool(url, 1))
+    val pool = unwrap(datasource.open_pool(drivers, url, 1))
     print(unwrap(sum_rows(pool, "SELECT n FROM my_rows WHERE n BETWEEN 1 AND 1200")))
     for round in 0..3 {
         for row in unwrap(datasource.rows(pool, "SELECT n FROM my_rows")) {

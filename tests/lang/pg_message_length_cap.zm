@@ -14,6 +14,9 @@
 use datasource
 use db
 use net
+use pg
+
+val drivers = datasource.registry([pg.driver()])
 
 // Accepts one connection, reads whatever startup packet arrives, and answers with a five-byte
 // header claiming `length` and nothing else.
@@ -34,7 +37,7 @@ fn attempt(length: [byte]) {
     val done: Channel<string> = channel_new()
     spawn liar(l, length, done)
     val url = format("postgres://u:p@127.0.0.1:{}/d", net.listener_port(l))
-    val result = datasource.open(url)
+    val result = datasource.open(drivers, url)
     print(switch result {
         Ok(_) { "opened, which it must not have" }
         Err(e) { db.db_error_message(e) }

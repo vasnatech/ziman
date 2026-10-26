@@ -1,5 +1,6 @@
 // mysql.zm -- a MySQL / MariaDB client, the third engine behind the `datasource`
-// module (`datasource.open("mysql://user:password@host:port/database")`). Written
+// module, which reaches it through the `db.Driver` that `driver()` below answers:
+// `datasource.open(datasource.registry([mysql.driver()]), "mysql://user:...@host/db")`. Written
 // in Ziman on top of `net` (TCP + TLS), byte arrays (packet framing) and
 // `crypto` (SHA-1 / SHA-256 for the login scramble); nothing here is
 // native at all.
@@ -60,7 +61,9 @@ use crypto.bytes_xor
 use crypto.sha1
 use crypto.sha256
 use db
+use db.Conn
 use db.DbError
+use db.Driver
 use db.EndRequest
 use db.FetchRequest
 use db.OpenRequest
@@ -1343,4 +1346,36 @@ pub fn close(conn: Connection) {
 // garbage collected.
 pub fn rows(conn: Connection, sql: string, params: variadic SqlValue) -> Result<Iter<Result<Row, DbError>>, DbError> {
     return open_rows(conn.requests, sql, params)
+}
+
+// ---------------------------------------------------------------- the driver
+
+// This engine as a `db.Driver`, for `datasource.registry([..])`. The closures in the `Conn` hold
+// the connection, so nothing above here needs a name for it.
+pub fn driver() -> Driver {
+    return Driver {
+        name: "mysql",
+        prefixes: ["mysql://"],
+        // Every connection to one of these URLs reaches the same database, so a pool is a pool.
+        poolable: fn(url: string) -> bool { return true },
+        // A socket can be closed from the far end while the connection sits idle, and MySQL
+        // closes one itself after `wait_timeout`.
+        idle_check: true,
+        open: fn(url: string) -> Result<Conn, DbError> {
+            val conn = try connect(url)
+            return ok(Conn {
+                dialect: "mysql",
+                close: fn() { close(conn) },
+                execute: fn(sql: string, params: [SqlValue]) -> Result<int, DbError> {
+                    return execute(conn, sql, params)
+                },
+                query: fn(sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+                    return query(conn, sql, params)
+                },
+                rows: fn(sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+                    return rows(conn, sql, params)
+                }
+            })
+        }
+    }
 }

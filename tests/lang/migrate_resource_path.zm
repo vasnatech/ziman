@@ -1,8 +1,11 @@
 use datasource
 use migrate
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 fn main() {
-    val conn = unwrap(datasource.open_pool("sqlite::memory:", 1))
+    val conn = unwrap(datasource.open_pool(drivers, "sqlite::memory:", 1))
     val n = unwrap(migrate.run(conn, "migrations"))
     print(n)
 }

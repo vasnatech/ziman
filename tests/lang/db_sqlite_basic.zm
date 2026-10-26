@@ -8,16 +8,32 @@ use db.sql_as_bool
 use db.sql_as_float
 use db.sql_as_int
 use db.sql_as_text
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 fn main() {
-    val conn = unwrap(datasource.open("sqlite::memory:"))
-    print(unwrap(datasource.execute(conn,
-        "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, score REAL, ok INTEGER, note TEXT); CREATE TABLE u (id INTEGER PRIMARY KEY, t_id INTEGER NOT NULL REFERENCES t(id))")))
-    val ins = datasource.execute(conn, "INSERT INTO t (id, name, score, ok, note) VALUES ($1, $2, $3, $4, $5)",
-        SqlValue.Int(1), SqlValue.Text("Ada | 'x'"), SqlValue.Float(0.1), SqlValue.Bool(true), SqlValue.Null)
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
+    print(unwrap(datasource.execute(
+        conn,
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, score REAL, ok INTEGER, note TEXT); CREATE TABLE u (id INTEGER PRIMARY KEY, t_id INTEGER NOT NULL REFERENCES t(id))"
+    )))
+    val ins = datasource.execute(
+        conn,
+        "INSERT INTO t (id, name, score, ok, note) VALUES ($1, $2, $3, $4, $5)",
+        SqlValue.Int(1),
+        SqlValue.Text("Ada | 'x'"),
+        SqlValue.Float(0.1),
+        SqlValue.Bool(true),
+        SqlValue.Null
+    )
     print(is_ok(ins))
-    print(is_ok(datasource.execute(conn, "INSERT INTO t (id, name) VALUES (?1, ?2)",
-        SqlValue.Int(2), SqlValue.Text("Bob"))))
+    print(is_ok(datasource.execute(
+        conn,
+        "INSERT INTO t (id, name) VALUES (?1, ?2)",
+        SqlValue.Int(2),
+        SqlValue.Text("Bob")
+    )))
     val rows = unwrap(datasource.query(conn, "SELECT * FROM t ORDER BY id"))
     print(len(rows))
     val r = rows[0]
@@ -41,5 +57,5 @@ fn main() {
     print(is_ok(datasource.execute(conn, "INSERT INTO b VALUES ($1)", SqlValue.Bytes([1b, 255b]))))
     val br = unwrap(datasource.query(conn, "SELECT x FROM b"))
     print(len(SqlValue.unwrap_Bytes(unwrap(row_get(br[0], "x")))))
-    print(db_error_message(unwrap_err(datasource.open("oracle://x"))))
+    print(db_error_message(unwrap_err(datasource.open(drivers, "oracle://x"))))
 }

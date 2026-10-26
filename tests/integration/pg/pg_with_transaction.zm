@@ -2,6 +2,9 @@ use datasource
 use db.DbError
 use db.SqlValue
 use fs
+use pg
+
+val drivers = datasource.registry([pg.driver()])
 
 fn add(tx: datasource.Connection, n: int) -> Result<int, DbError> {
     try datasource.execute(tx, "INSERT INTO pg_tx (n) VALUES ($1)", SqlValue.Int(n))
@@ -25,7 +28,7 @@ fn count(conn: datasource.Connection) -> int {
 
 fn main() {
     val url = trim(unwrap(fs.read_text("tests/integration/pg/.url")))
-    val pool = unwrap(datasource.open_pool(url, 3))
+    val pool = unwrap(datasource.open_pool(drivers, url, 3))
     unwrap(datasource.execute(pool, "DROP TABLE IF EXISTS pg_tx"))
     unwrap(datasource.execute(pool, "CREATE TABLE pg_tx (n INTEGER PRIMARY KEY)"))
     print(unwrap(datasource.with_transaction<int>(

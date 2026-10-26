@@ -3,6 +3,9 @@ use db.SqlValue
 use db.row_get
 use db.sql_as_int
 use fs
+use pg
+
+val drivers = datasource.registry([pg.driver()])
 
 // Ten threads share one connection and each insert 20 rows. The owner
 // thread serialises the wire protocol, so nothing interleaves.
@@ -24,7 +27,7 @@ fn worker(conn: datasource.Connection, base: int, done: Channel<int>) {
 }
 
 fn main() {
-    val conn = unwrap(datasource.open(trim(unwrap(fs.read_text("tests/integration/pg/.url")))))
+    val conn = unwrap(datasource.open(drivers, trim(unwrap(fs.read_text("tests/integration/pg/.url")))))
     unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS pg_c"))
     unwrap(datasource.execute(conn, "CREATE TABLE pg_c (id INTEGER PRIMARY KEY, who INTEGER NOT NULL)"))
     val done: Channel<int> = channel_new()

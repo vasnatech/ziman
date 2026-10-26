@@ -9,6 +9,9 @@ use db.sql_as_int
 use fs
 use net
 use number
+use pg
+
+val drivers = datasource.registry([pg.driver()])
 
 // The Postgres server here has TLS enabled with a self-signed certificate
 // valid for localhost and 127.0.0.1; it is its own CA.
@@ -22,7 +25,7 @@ fn root() -> string {
 
 // Does the server say this very connection is encrypted?
 fn encrypted(label: string, url: string) {
-    val c = datasource.open(url)
+    val c = datasource.open(drivers, url)
     if !is_ok(c) {
         val msg = db_error_message(unwrap_err(c))
         if contains(msg, "self-signed") {
@@ -77,7 +80,7 @@ fn main() {
     encrypted("verify-ca, missing root cert file", concat(base(), "?sslmode=verify-ca&sslrootcert=/nonexistent.pem"))
 
     // ordinary work over an encrypted connection, including concurrent callers
-    val conn = unwrap(datasource.open(format("{}?sslmode=verify-full&{}", base(), root())))
+    val conn = unwrap(datasource.open(drivers, format("{}?sslmode=verify-full&{}", base(), root())))
     defer datasource.close(conn)
     unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS pg_tls_t"))
     unwrap(datasource.execute(conn, "CREATE TABLE pg_tls_t (id INTEGER PRIMARY KEY, note TEXT)"))
@@ -94,9 +97,9 @@ fn main() {
     val l = unwrap(net.listen("127.0.0.1", 0))
     spawn no_tls_server(l)
     val port = net.listener_port(l)
-    val required = datasource.open(format("postgres://u:p@127.0.0.1:{}/d?sslmode=require", port))
+    val required = datasource.open(drivers, format("postgres://u:p@127.0.0.1:{}/d?sslmode=require", port))
     print(db_error_message(unwrap_err(required)))
-    val preferred = datasource.open(format("postgres://u:p@127.0.0.1:{}/d?sslmode=prefer", port))
+    val preferred = datasource.open(drivers, format("postgres://u:p@127.0.0.1:{}/d?sslmode=prefer", port))
     print(db_error_message(unwrap_err(preferred)))
     net.close(l)
 }

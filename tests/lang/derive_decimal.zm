@@ -1,6 +1,9 @@
 use datasource
 use json
 use json.parse
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 #[derive(Json)]
 #[derive(Row)]
@@ -19,7 +22,7 @@ fn main() {
     print(is_ok(price_from_json(unwrap(parse("{\"id\": 1, \"total\": \"x\"}")))))
     print(unwrap(price_from_json(unwrap(parse("{\"id\": 2, \"total\": 0.1}")))).total)
 
-    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
     unwrap(datasource.execute(conn, "CREATE TABLE price (id INTEGER, amount TEXT, total TEXT NOT NULL)"))
     unwrap(datasource.execute(conn, "INSERT INTO price VALUES ($1, $2, $3)", price_to_params(p)))
     val rows = unwrap(datasource.query(conn, "SELECT * FROM price"))

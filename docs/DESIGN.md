@@ -222,6 +222,7 @@ them against the code.
 - [`pg`: a five-byte header that stopped the client, and a flag I had raised wrongly (2026-10-25)](#pg-a-five-byte-header-that-stopped-the-client-and-a-flag-i-had-raised-wrongly-2026-10-25)
 - [`mysql`: an endless stream of full packets, and a cap I got wrong first (2026-10-25)](#mysql-an-endless-stream-of-full-packets-and-a-cap-i-got-wrong-first-2026-10-25)
 - [`migrate`: one missing `*/` applied half a migration and called it done (2026-10-25)](#migrate-one-missing-applied-half-a-migration-and-called-it-done-2026-10-25)
+- [`datasource` stops knowing which databases exist (2026-10-25)](#datasource-stops-knowing-which-databases-exist-2026-10-25)
 
 <!-- end index -->
 
@@ -8752,3 +8753,42 @@ It is an error now, naming the line the construct opened on, which is why `split
 **Left as a known difference, written down rather than discovered.** Block comments do not nest here, which is SQLite's and MySQL's reading; PostgreSQL's nest. A nested comment is therefore mis-split rather than silently truncated -- the text after the inner `*/` goes to the server, which refuses it -- so the failure is loud, and making it dialect-dependent would mean threading a dialect into a function that is otherwise pure text.
 
 A note on the test that found the second bug: declaring a local `fn split(label, sql)` in the fixture collided with the prelude's `split(s, separator)` and the ambiguity was reported *inside `lib/prelude/string.zm`*, at its own use of `split`. That is the cost the `test` entry above describes for short names -- "a module that declares its own `to_json` binds the name" -- showing up from the other direction, and it is worth knowing that the error surfaces in the prelude rather than at the declaration that caused it.
+
+## `datasource` stops knowing which databases exist (2026-10-25)
+
+`datasource.zm` used to begin with `use mysql`, `use pg`, `use sqlite` and carry an enum of the three concrete connection types:
+
+```ziman
+pub enum Connection { Sqlite(sqlite.Connection), Postgres(pg.Connection), Mysql(mysql.Connection), Pool(PoolState) }
+```
+
+Its own header explained why: *"There are no interfaces in Ziman to abstract over drivers with; dispatching by URL scheme inside this module is the substitute."* That was the claim this change tested, and it is false. **An engine is now a value an application hands over**, and the module names none of them.
+
+```ziman
+val drivers = datasource.registry([sqlite.driver(), pg.driver()])
+val db = try datasource.open_pool(drivers, url, 10)
+```
+
+**The encoding is a record of closures, and one detail makes it work.** `db.Conn` holds `close`, `execute`, `query` and `rows` as function fields that *already hold* the driver's own connection, so there is no type for a `sqlite.Connection` to be named by and none has to exist. `close` has to live on the connection rather than on the `Driver` -- a `close(connection)` on the driver would need a parameter type for the very thing the closure hides. That is the only forced move in the shape; everything else was a choice.
+
+`db.Driver` is the engine: `name` (which is also the dialect, one field rather than two so they cannot drift), the URL `prefixes` it claims, `poolable(url)`, `idle_check`, and `open(url) -> Result<Conn, DbError>`.
+
+**Eight places in `datasource` knew an engine, not five.** The five `switch` arms were the obvious ones. The other three were the interesting ones, because each was a rule rather than a dispatch:
+
+* the URL-scheme map in `open`, including a `substring(url, 7, len(url))` that silently meant "strip `sqlite:`" -- each engine now owns its URL spelling and strips its own prefix;
+* `starts_with(url, "sqlite::memory")` in `open_pool_with`, because an in-memory database is private to its connection and a pool of four would be four different databases -- now `driver.poolable(url)`;
+* `Connection.is_Sqlite(c)` in `checked`, because a connection over a socket can be closed from the far end while it sits idle and an open file cannot -- now `driver.idle_check`.
+
+Those three are why a `Driver` has properties and not only functions. A vtable of operations alone would have left all three behind.
+
+**Two bugs fell out.** `dialect` on a pool used to re-read the URL and answer `"postgres"` for any scheme it did not recognise, because the pool held no connection to ask; it holds its `Driver` now and answers `driver.name`. And `migrate` asked `Connection.is_Postgres(tx)` for its advisory lock, reaching through an enum it had no business knowing; it asks `dialect(tx) == "postgres"`.
+
+**What the language allows, and where it pushed back.** Function-typed struct fields, closures capturing a private struct, and a module-level `val` holding a registry of them all work. A module-level **mutable** registry does not, and the error is a design statement rather than a limitation: *"`Mutable<[Driver]>` cannot be the type of a module-level val (every thread would share it)"*. That settled the "kept somewhere" question before it could be argued -- the registry is a value an application builds and passes, not a global drivers register, and self-registering drivers were never on the table.
+
+**Call-site arithmetic, which is why this was affordable.** 89 sites call `open`/`open_pool*` and needed the registry; 511 call `query`/`execute`/`rows`/`with_transaction`/`close`/`dialect` and take a `Connection`, so they did not change at all. Of the 89, **three are in the real application** -- and all three now read `datasource.open_pool(drivers, ..)` with one `pub val drivers` in `common/common.zm`, the single place the sample backend decides it links SQLite and PostgreSQL. The rest are test setup.
+
+**The sweep script had to be rewritten twice, and the dry run is what saved it.** The first version matched `datasource.open` inside *comments*, and its edit list included `lib/db/datasource.zm`, `pg.zm`, `sqlite.zm` and `mysql.zm` -- it would have added `use pg` back to `datasource` and undone the entire change on the same commit that made it. The second version stripped comments by cutting each line at `//`, which cuts `postgres://` in half, so it mistook a Postgres test for a SQLite one. Only the third, which skips string literals while stripping comments, was right. **A migration script's dry run is not a formality when the script's own subject is the text it edits.**
+
+One test got better rather than merely fixed. `db_pool_sqlite` proved the pool hands out distinct connections by reading `Connection.unwrap_Sqlite(tx).handle` -- a C handle, through two layers that no longer exist. It now builds a per-connection identity out of SQLite's own `TEMP` schema, which belongs to the connection that created it, so the first borrow stamps a connection and every later borrow of it reads the same stamp. The assertion is unchanged and it now tests a property of the pool rather than of SQLite's internals.
+
+Verified on every engine, which this refactor deserved: `make check` (1196 lang tests plus the sample backend's own suite), `make test-pg` (11 against a real PostgreSQL 17), `make test-mysql` (6 against a real MySQL 8), and `make northstar-both`, which runs the whole sample application's behavioural suite against **sqlite and postgres in turn** -- 0 failed on both, through the new registry. The dependency graph is the short version: `datasource --> clock` and `datasource --> db`, and nothing else.

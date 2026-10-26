@@ -9,6 +9,7 @@ use db.sql_as_float
 use db.sql_as_int
 use db.sql_as_text
 use fs
+use pg
 use time.Instant
 use time.LocalDate
 use time.instant_now
@@ -20,6 +21,8 @@ use uuid.Uuid
 use uuid.uuid_from_sql
 use uuid.uuid_new
 use uuid.uuid_to_sql
+
+val drivers = datasource.registry([pg.driver()])
 
 // The same struct and the same SQL as the SQLite fixture -- the point:
 // repository code doesn't change between backends.
@@ -36,7 +39,7 @@ pub struct Person {
 }
 
 fn main() {
-    val conn = unwrap(datasource.open(trim(unwrap(fs.read_text("tests/integration/pg/.url")))))
+    val conn = unwrap(datasource.open(drivers, trim(unwrap(fs.read_text("tests/integration/pg/.url")))))
     unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS people"))
     unwrap(datasource.execute(
         conn,

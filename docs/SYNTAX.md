@@ -2001,19 +2001,29 @@ keeps its own location, which is already the one the reader wants.
 ## Databases
 
 Two modules: `db` (shared by the drivers -- `SqlValue`, `Row`, `DbError`, `sql_as_*` readers,
-the URL parser) and `datasource` (what a program calls -- connections, `execute`, `query`,
-`rows`, pools, transactions). SQLite (`sqlite::memory:`/`sqlite:<path>`) and PostgreSQL
-(`postgres://user:password@host:port/database`) are the two backends, chosen by URL scheme
-behind the same calls.
+the URL parser, and the `Driver`/`Conn` contract) and `datasource` (what a program calls --
+connections, `execute`, `query`, `rows`, pools, transactions). SQLite (`sqlite::memory:`/
+`sqlite:<path>`), PostgreSQL (`postgres://user:password@host:port/database`) and MySQL
+(`mysql://...`) are the backends, behind the same calls.
+
+**An application says which engines it links**, and `datasource` names none of them: a `db.Driver`
+is an engine (its name, the URL prefixes it claims, and how to open a connection), a `db.Conn` is
+one open connection as a handful of closures that already hold it. So a program that talks to
+SQLite registers SQLite and contains no Postgres driver at all; a fourth engine is a new module
+rather than an edit to `datasource`.
 
 ```ziman
 use datasource
 use db.SqlValue
 use db.row_get
 use db.sql_as_text
+use sqlite
+
+// the one place an engine is named
+val drivers = datasource.registry([sqlite.driver()])
 
 fn main() {
-    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
     unwrap(datasource.execute(conn, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"))
     unwrap(datasource.execute(conn, "INSERT INTO t (id, name) VALUES ($1, $2)", SqlValue.Int(1), SqlValue.Text("Ada")))
     val rows = unwrap(datasource.query(conn, "SELECT name FROM t WHERE id = $1", SqlValue.Int(1)))

@@ -490,7 +490,9 @@ fn apply_one(tx: Connection, m: Migration) -> Result<int, DbError> {
 }
 
 fn apply_in(tx: Connection, migrations: [Migration]) -> Result<int, DbError> {
-    if Connection.is_Postgres(tx) {
+    // Asked through `dialect` rather than by matching the connection's variant, which `datasource`
+    // no longer has: it holds a driver's closures now, not one of three concrete connection types.
+    if datasource.dialect(tx) == "postgres" {
         try datasource.query(tx, "SELECT pg_advisory_xact_lock($1)", SqlValue.Int(lock_key))
     }
     try datasource.execute(

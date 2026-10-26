@@ -5,7 +5,9 @@ handle to a native connection object (src/native_sqlite.c, linked against
 libsqlite3), closed by `close` or, failing that, when it is garbage collected. This
 module encodes `SqlValue` parameters into that native's primitive-only shape and decodes
 result cells back. Use it
-through `datasource.open("sqlite:...")`; `pg` is the Postgres counterpart.
+through `datasource` -- `datasource.open(datasource.registry([sqlite.driver()]), "sqlite:...")`
+-- which drives this module through the `db.Driver` that `driver()` below answers, and so never
+names it; `pg` is the Postgres counterpart.
 
 The natives only ever exchange primitives (ints, strings, arrays of
 *tagged strings* -- one tag character then a payload: N null,
@@ -108,3 +110,14 @@ error that ended the result part-way (after which the iteration ends). The Err o
 statement failing to prepare or bind. The cursor is finalized when the rows are used up, when the
 loop is left early, with `iter_close`, or when it is garbage collected. Close cursors before
 closing the connection.
+
+## The driver
+
+### `driver`
+
+```
+pub fn driver() -> Driver
+```
+
+SQLite as a `db.Driver`, for `datasource.registry([sqlite.driver(), ..])`. The closures in the
+`Conn` hold the connection, so nothing above here needs a name for it.

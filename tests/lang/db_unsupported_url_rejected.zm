@@ -1,8 +1,11 @@
 use datasource
 use db.db_error_message
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 fn main() {
-    val r = datasource.open("oracle://nope")
+    val r = datasource.open(drivers, "oracle://nope")
     print(is_ok(r))
     print(db_error_message(unwrap_err(r)))
     unwrap(r)

@@ -6,12 +6,29 @@
 // `sqlite::memory:`, `sqlite:<path>` or
 // `postgres://user:password@host:port/database` or
 // `mysql://user:password@host:port/database` -- the API above doesn't
-// change, so repositories written against it don't either. There are no
-// interfaces in Ziman to abstract over drivers with; dispatching by URL
-// scheme inside this module is the substitute. Each engine has its own
+// change, so repositories written against it don't either.
+//
+// **This module names no engine.** An application says which it links:
+//
+//     val reg = datasource.registry([sqlite.driver(), pg.driver()])
+//     val db = try datasource.open_pool(reg, url, 10)
+//
+// and everything after that takes the `Connection` and never mentions a
+// driver again. A `db.Driver` is an engine (a name, the URL prefixes it
+// claims, whether a URL of its can be pooled, whether an idle connection
+// of its can go stale, and how to open one); a `db.Conn` is one open
+// connection as four closures that already hold it, which is what lets
+// this module work an engine it has no type for. Each engine has its own
 // driver module: `sqlite` (a thin layer over the C library), `pg` and
 // `mysql` (both written in Ziman, on top of `net`), sharing the value,
 // row and error types and URL parsing through `db`.
+//
+// It used to hold an enum of the three concrete connection types and
+// switch over it in five places, plus the URL-scheme map, the rule that
+// `sqlite::memory:` cannot be pooled and the rule that a SQLite
+// connection is never probed -- so adding a fourth engine meant editing
+// this file in eight places. Now it means writing a `driver()` and
+// putting it in the registry.
 //
 // Concurrency: sharing one `Connection` between threads is safe
 // statement by statement -- SQLite takes the connection's own lock, and a
@@ -32,12 +49,11 @@
 
 use clock.now_raw
 use clock.sleep_millis
+use db.Conn
 use db.DbError
+use db.Driver
 use db.Row
 use db.SqlValue
-use mysql
-use pg
-use sqlite
 
 // The state of a pool: the channel of idle connections, how many were opened and the URL to
 // reopen one from (see `open_pool`). Statements run on the pool borrow a connection for that one
@@ -49,7 +65,53 @@ internal struct PoolState {
     idle: Channel<IdleConnection>
     size: int
     url: string
+    // The driver the pool opened from, so a replacement connection can be opened without
+    // knowing which engine it is. Before this the pool held only the URL and `dialect` had to
+    // re-read it, which answered "postgres" for any scheme it did not recognise.
+    driver: Driver
     check_after: int
+}
+
+// The drivers an application has chosen to link, and the only thing here that knows an engine
+// exists. Built once at startup -- `datasource.registry([sqlite.driver(), pg.driver()])` -- and
+// handed to `open`; a program that talks to SQLite alone names SQLite alone.
+pub struct Registry {
+    drivers: [Driver]
+}
+
+// A registry of `drivers`. Order matters only if two drivers claim the same prefix, in which case
+// the first wins.
+pub fn registry(drivers: [Driver]) -> Registry {
+    return Registry { drivers: drivers }
+}
+
+// The driver whose prefixes `url` starts with, or an Err naming what was registered -- which is
+// the message a program gets when it reaches for an engine it did not link.
+fn driver_for(reg: Registry, url: string) -> Result<Driver, DbError> {
+    for d in reg.drivers {
+        for prefix in d.prefixes {
+            if starts_with(url, prefix) {
+                return ok(d)
+            }
+        }
+    }
+    val names = mutable_array_new<string>()
+    for d in reg.drivers {
+        for prefix in d.prefixes {
+            push(names, prefix)
+        }
+    }
+    if prelude.len(names) == 0 {
+        return err(DbError.Connection(concat(
+            "no database drivers are registered, so no URL can be opened: ",
+            url
+        )))
+    }
+    return err(DbError.Connection(format(
+        "no registered driver handles '{}' (registered: {})",
+        url,
+        join(separator: ", ", pieces: snapshot(names))
+    )))
 }
 
 // A connection waiting in the pool, and the time (Unix seconds) it was put there, so a long-idle one can
@@ -62,9 +124,7 @@ internal struct IdleConnection {
 // One database connection, or a pool of them; every `datasource` function takes this one type, so code
 // written against it does not care which engine is behind it or whether it is pooled.
 pub enum Connection {
-    Sqlite(sqlite.Connection)
-    Postgres(pg.Connection)
-    Mysql(mysql.Connection)
+    Direct(Conn)
     Pool(PoolState)
 }
 
@@ -72,18 +132,8 @@ pub enum Connection {
 // (see `migrate`).
 pub fn dialect(conn: Connection) -> string {
     return switch conn {
-        Sqlite(_) { "sqlite" }
-        Postgres(_) { "postgres" }
-        Mysql(_) { "mysql" }
-        Pool(state) {
-            if starts_with(state.url, "sqlite:") {
-                "sqlite"
-            } else if starts_with(state.url, "mysql://") {
-                "mysql"
-            } else {
-                "postgres"
-            }
-        }
+        Direct(c) { c.dialect }
+        Pool(state) { state.driver.name }
     }
 }
 
@@ -91,20 +141,13 @@ pub fn dialect(conn: Connection) -> string {
 // process exits), `sqlite:<path>` (a file, created if missing), or
 // `postgres://user:password@host:port/database` (`postgresql://` too;
 // no TLS yet -- a `sslmode=require` URL is refused, not downgraded).
-pub fn open(url: string) -> Result<Connection, DbError> {
-    if starts_with(url, "sqlite:") {
-        return Connection.Sqlite(try sqlite.open(substring(url, 7, len(url))))
-    }
-    if starts_with(url, "postgres://") || starts_with(url, "postgresql://") {
-        return Connection.Postgres(try pg.connect(url))
-    }
-    if starts_with(url, "mysql://") {
-        return Connection.Mysql(try mysql.connect(url))
-    }
-    return err(DbError.Connection(concat(
-        "unsupported database URL (expected sqlite:, postgres:// or mysql://): ",
-        url
-    )))
+pub fn open(reg: Registry, url: string) -> Result<Connection, DbError> {
+    return open_one(try driver_for(reg, url), url)
+}
+
+// One connection from an already-resolved driver, which is what the pool reopens with.
+fn open_one(driver: Driver, url: string) -> Result<Connection, DbError> {
+    return Connection.Direct(try driver.open(url))
 }
 
 // Closes a connection. For a pool, waits until every connection has been
@@ -118,9 +161,7 @@ pub fn close(conn: Connection) {
                 close(receive(pool.idle).connection)
             }
         }
-        Postgres(pg_conn) { pg.close(pg_conn) }
-        Mysql(mysql_conn) { mysql.close(mysql_conn) }
-        Sqlite(sqlite_conn) { sqlite.close(sqlite_conn) }
+        Direct(c) { c.close() }
     }
 }
 
@@ -180,9 +221,7 @@ fn pooled_query(conn: Connection, sql: string, params: [SqlValue]) -> Result<[Ro
 pub fn execute(conn: Connection, sql: string, params: variadic SqlValue) -> Result<int, DbError> {
     return switch conn {
         Pool(_) { pooled_execute(conn, sql, params) }
-        Postgres(pg_conn) { pg.execute(pg_conn, sql, params) }
-        Mysql(mysql_conn) { mysql.execute(mysql_conn, sql, params) }
-        Sqlite(sqlite_conn) { sqlite.execute(sqlite_conn, sql, params) }
+        Direct(c) { c.execute(sql, params) }
     }
 }
 
@@ -191,9 +230,7 @@ pub fn execute(conn: Connection, sql: string, params: variadic SqlValue) -> Resu
 pub fn query(conn: Connection, sql: string, params: variadic SqlValue) -> Result<[Row], DbError> {
     return switch conn {
         Pool(_) { pooled_query(conn, sql, params) }
-        Postgres(pg_conn) { pg.query(pg_conn, sql, params) }
-        Mysql(mysql_conn) { mysql.query(mysql_conn, sql, params) }
-        Sqlite(sqlite_conn) { sqlite.query(sqlite_conn, sql, params) }
+        Direct(c) { c.query(sql, params) }
     }
 }
 
@@ -235,9 +272,7 @@ pub fn rows(conn: Connection, sql: string, params: variadic SqlValue) -> Result<
                 }
             )
         }
-        Postgres(pg_conn) { pg.rows(pg_conn, sql, params) }
-        Mysql(mysql_conn) { mysql.rows(mysql_conn, sql, params) }
-        Sqlite(sqlite_conn) { sqlite.rows(sqlite_conn, sql, params) }
+        Direct(c) { c.rows(sql, params) }
     }
 }
 
@@ -323,8 +358,8 @@ pub fn rollback(conn: Connection) -> Result<unit, DbError> {
 // leaked borrow blocks other callers forever -- `defer release` is the guard. A pool over `sqlite::memory:` is a single connection whatever
 // `size` says: every in-memory connection is its own private database, so
 // N of them would be N different databases.
-pub fn open_pool(url: string, size: int) -> Result<Connection, DbError> {
-    return open_pool_with(url, size, default_check_after_seconds)
+pub fn open_pool(reg: Registry, url: string, size: int) -> Result<Connection, DbError> {
+    return open_pool_with(reg, url, size, default_check_after_seconds)
 }
 
 // How long a connection may sit idle in a pool before it is tested when lent out, in seconds.
@@ -343,17 +378,20 @@ fn park(idle: Channel<IdleConnection>, c: Connection) {
 // `check_after_seconds` or more gets a `SELECT 1` first, and if that fails with a connection error it is
 // replaced with a fresh connection before it is lent out, so a server restart overnight does not cost the
 // first request of the morning. Zero or less turns the test off. SQLite connections are never tested.
-pub fn open_pool_with(url: string, size: int, check_after_seconds: int) -> Result<Connection, DbError> {
+pub fn open_pool_with(reg: Registry, url: string, size: int, check_after_seconds: int) -> Result<Connection, DbError> {
     if size < 1 {
         return err(DbError.Sql("a pool needs at least one connection"))
     }
-    if starts_with(url, "sqlite::memory") {
-        return open(url)
+    val driver = try driver_for(reg, url)
+    // The driver says whether several connections to this URL would be the same database. Only
+    // SQLite's `:memory:` says no, and it says so itself now.
+    if !driver.poolable(url) {
+        return open_one(driver, url)
     }
     val idle: Channel<IdleConnection> = channel_new()
     var opened = 0
     while opened < size {
-        val c = open(url)
+        val c = open_one(driver, url)
         if Err(e) = c {
             var i = 0
             while i < opened {
@@ -365,13 +403,19 @@ pub fn open_pool_with(url: string, size: int, check_after_seconds: int) -> Resul
         park(idle, unwrap(c))
         opened = opened + 1
     }
-    return Connection.Pool(PoolState { idle: idle, size: size, url: url, check_after: check_after_seconds })
+    return Connection.Pool(PoolState {
+        idle: idle,
+        size: size,
+        url: url,
+        driver: driver,
+        check_after: check_after_seconds
+    })
 }
 
 // A connection that failed with a connection error, swapped for a fresh one; the failed one when
 // none can be opened, so the pool never shrinks.
 fn replacement(pool: PoolState, dead: Connection) -> Connection {
-    val fresh = open(pool.url)
+    val fresh = open_one(pool.driver, pool.url)
     return switch fresh {
         Ok(c) {
             close(dead)
@@ -386,13 +430,15 @@ fn replacement(pool: PoolState, dead: Connection) -> Connection {
 // dead one goes back and the borrower gets the Err, rather than a connection that would fail.
 fn checked(pool: PoolState, entry: IdleConnection) -> Result<Connection, DbError> {
     val c = entry.connection
-    if pool.check_after <= 0 || Connection.is_Sqlite(c) || now_seconds() - entry.since < pool.check_after {
+    // `idle_check` is the driver's answer to "can one of my connections go stale while nobody
+    // is looking": an open file cannot, a socket can. This used to read `Connection.is_Sqlite(c)`.
+    if pool.check_after <= 0 || !pool.driver.idle_check || now_seconds() - entry.since < pool.check_after {
         return c
     }
     val probe = query(c, "SELECT 1")
     if Err(e) = probe {
         if DbError.is_Connection(e) {
-            val fresh = open(pool.url)
+            val fresh = open_one(pool.driver, pool.url)
             if Err(fresh_e) = fresh {
                 park(pool.idle, c)
                 return err(fresh_e)

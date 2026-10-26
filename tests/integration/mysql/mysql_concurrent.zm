@@ -3,6 +3,9 @@ use db.SqlValue
 use db.row_get
 use db.sql_as_int
 use fs
+use mysql
+
+val drivers = datasource.registry([mysql.driver()])
 
 // Ten threads share one connection and each insert 20 rows. The owner
 // thread serialises the wire protocol, so nothing interleaves.
@@ -25,7 +28,7 @@ fn worker(conn: datasource.Connection, base: int, done: Channel<int>) {
 
 fn main() {
     val hp = trim(unwrap(fs.read_text("tests/integration/mysql/.hostport")))
-    val conn = unwrap(datasource.open(format("mysql://nat_user:natpw@{}/zimandb", hp)))
+    val conn = unwrap(datasource.open(drivers, format("mysql://nat_user:natpw@{}/zimandb", hp)))
     unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS my_c"))
     unwrap(datasource.execute(conn, "CREATE TABLE my_c (id INT PRIMARY KEY, who INT NOT NULL)"))
     val done: Channel<int> = channel_new()

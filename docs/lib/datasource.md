@@ -8,12 +8,32 @@ engine sits behind a handle is chosen by the URL given to `open`:
 `sqlite::memory:`, `sqlite:<path>` or
 `postgres://user:password@host:port/database` or
 `mysql://user:password@host:port/database` -- the API above doesn't
-change, so repositories written against it don't either. There are no
-interfaces in Ziman to abstract over drivers with; dispatching by URL
-scheme inside this module is the substitute. Each engine has its own
+change, so repositories written against it don't either.
+
+**This module names no engine.** An application says which it links:
+
+
+```
+val reg = datasource.registry([sqlite.driver(), pg.driver()])
+val db = try datasource.open_pool(reg, url, 10)
+```
+
+and everything after that takes the `Connection` and never mentions a
+driver again. A `db.Driver` is an engine (a name, the URL prefixes it
+claims, whether a URL of its can be pooled, whether an idle connection
+of its can go stale, and how to open one); a `db.Conn` is one open
+connection as four closures that already hold it, which is what lets
+this module work an engine it has no type for. Each engine has its own
 driver module: `sqlite` (a thin layer over the C library), `pg` and
 `mysql` (both written in Ziman, on top of `net`), sharing the value,
 row and error types and URL parsing through `db`.
+
+It used to hold an enum of the three concrete connection types and
+switch over it in five places, plus the URL-scheme map, the rule that
+`sqlite::memory:` cannot be pooled and the rule that a SQLite
+connection is never probed -- so adding a fourth engine meant editing
+this file in eight places. Now it means writing a `driver()` and
+putting it in the registry.
 
 Concurrency: sharing one `Connection` between threads is safe
 statement by statement -- SQLite takes the connection's own lock, and a
@@ -47,11 +67,16 @@ use db.db_error_message
 use db.row_get
 use db.sql_as_int
 use db.sql_as_text
+use sqlite
+
+// The engines this program links. `datasource` names none of them itself, so a program that
+// talks to SQLite pulls in SQLite and nothing else; add `pg.driver()` to reach Postgres too.
+val drivers = datasource.registry([sqlite.driver()])
 
 // Bound parameters, rows, and a transaction that rolls back on an error. `sqlite::memory:` is a
 // private in-memory database; `postgres://...` and `mysql://...` URLs work the same way.
 fn main() {
-    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
     unwrap(datasource.execute(
         conn,
         """
@@ -99,13 +124,32 @@ false
 1
 ```
 
+### `Registry`
+
+```
+pub struct Registry {
+    drivers: [Driver]
+}
+```
+
+The drivers an application has chosen to link, and the only thing here that knows an engine
+exists. Built once at startup -- `datasource.registry([sqlite.driver(), pg.driver()])` -- and
+handed to `open`; a program that talks to SQLite alone names SQLite alone.
+
+### `registry`
+
+```
+pub fn registry(drivers: [Driver]) -> Registry
+```
+
+A registry of `drivers`. Order matters only if two drivers claim the same prefix, in which case
+the first wins.
+
 ### `Connection`
 
 ```
 pub enum Connection {
-    Sqlite(sqlite.Connection)
-    Postgres(pg.Connection)
-    Mysql(mysql.Connection)
+    Direct(Conn)
     Pool(PoolState)
 }
 ```
@@ -125,7 +169,7 @@ Which engine `conn` is on: `sqlite`, `postgres` or `mysql`; for a pool, the one 
 ### `open`
 
 ```
-pub fn open(url: string) -> Result<Connection, DbError>
+pub fn open(reg: Registry, url: string) -> Result<Connection, DbError>
 ```
 
 `sqlite::memory:` (a private in-memory database, gone when the
@@ -232,7 +276,7 @@ lets `defer datasource.rollback(conn)` stand guard after a commit.
 ### `open_pool`
 
 ```
-pub fn open_pool(url: string, size: int) -> Result<Connection, DbError>
+pub fn open_pool(reg: Registry, url: string, size: int) -> Result<Connection, DbError>
 ```
 
 Opens `size` connections to `url` up front (failing fast if any can't
@@ -275,7 +319,7 @@ N of them would be N different databases.
 ### `open_pool_with`
 
 ```
-pub fn open_pool_with(url: string, size: int, check_after_seconds: int) -> Result<Connection, DbError>
+pub fn open_pool_with(reg: Registry, url: string, size: int, check_after_seconds: int) -> Result<Connection, DbError>
 ```
 
 `open_pool`, choosing how long a connection may sit idle before it is tested when borrowed: one idle for

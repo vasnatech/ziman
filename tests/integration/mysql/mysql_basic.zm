@@ -9,6 +9,9 @@ use db.sql_as_float
 use db.sql_as_int
 use db.sql_as_text
 use fs
+use mysql
+
+val drivers = datasource.registry([mysql.driver()])
 
 fn field(row: Row, name: string) -> SqlValue {
     return unwrap(row_get(row, name))
@@ -16,7 +19,7 @@ fn field(row: Row, name: string) -> SqlValue {
 
 fn main() {
     val hostport = trim(unwrap(fs.read_text("tests/integration/mysql/.hostport")))
-    val conn = unwrap(datasource.open(format("mysql://nat_user:natpw@{}/zimandb", hostport)))
+    val conn = unwrap(datasource.open(drivers, format("mysql://nat_user:natpw@{}/zimandb", hostport)))
 
     // ---- DDL script (several statements, no params) and every value kind
     unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS my_u; DROP TABLE IF EXISTS my_t"))

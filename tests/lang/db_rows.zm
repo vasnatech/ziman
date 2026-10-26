@@ -7,6 +7,9 @@ use db.row_get
 use db.sql_as_int
 use db.sql_as_text
 use fs
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 fn n_of(row: Row) -> int {
     return unwrap(sql_as_int(unwrap(row_get(row, "n"))))
@@ -34,19 +37,28 @@ fn first_n(conn: datasource.Connection) -> Result<int, DbError> {
 fn fill(conn: datasource.Connection) {
     unwrap(datasource.execute(conn, "CREATE TABLE t (n INTEGER, label TEXT, extra REAL, blob BLOB)"))
     for i in 1..11 {
-        unwrap(datasource.execute(conn, "INSERT INTO t VALUES ($1, $2, $3, $4)",
-            SqlValue.Int(i), SqlValue.Text(format("row {}", i)), SqlValue.Float(1.5), SqlValue.Bytes([1b, 2b])))
+        unwrap(datasource.execute(
+            conn,
+            "INSERT INTO t VALUES ($1, $2, $3, $4)",
+            SqlValue.Int(i),
+            SqlValue.Text(format("row {}", i)),
+            SqlValue.Float(1.5),
+            SqlValue.Bytes([1b, 2b])
+        ))
     }
     unwrap(datasource.execute(conn, "INSERT INTO t VALUES (NULL, NULL, NULL, NULL)"))
 }
 
 fn main() {
-    val conn = unwrap(datasource.open("sqlite::memory:"))
+    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
     fill(conn)
 
     // every row, in order, with each kind of value; parameters bind like query's
-    val rows = unwrap(datasource.rows(conn, "SELECT n, label, extra, blob FROM t WHERE n <= $1 OR n IS NULL ORDER BY n",
-        SqlValue.Int(2)))
+    val rows = unwrap(datasource.rows(
+        conn,
+        "SELECT n, label, extra, blob FROM t WHERE n <= $1 OR n IS NULL ORDER BY n",
+        SqlValue.Int(2)
+    ))
     for row in rows {
         val r = unwrap(row)
         print(r.values)
@@ -100,10 +112,10 @@ fn main() {
     if fs.exists(path) {
         unwrap(fs.remove(path))
     }
-    val single = unwrap(datasource.open(concat("sqlite:", path)))
+    val single = unwrap(datasource.open(drivers, concat("sqlite:", path)))
     fill(single)
     datasource.close(single)
-    val pool = unwrap(datasource.open_pool(concat("sqlite:", path), 1))
+    val pool = unwrap(datasource.open_pool(drivers, concat("sqlite:", path), 1))
     print(unwrap(sum_rows(pool, "SELECT n FROM t WHERE n IS NOT NULL")))
     print(unwrap(first_n(pool)))
     for round in 0..5 {

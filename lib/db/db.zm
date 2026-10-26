@@ -1,7 +1,8 @@
 // db.zm -- what every database module shares: the value, row and error types, the readers that turn a
 // `SqlValue` into an ordinary value, and the parser for database URLs. `sqlite`, `pg` and `mysql` are
-// built on it, and so is `datasource`, the module a program calls (`datasource.open`, `datasource.query`, ...), which picks
-// the driver and pools connections. Anything that maps its own types to and from SQL (`uuid`, `time`,
+// built on it, and so is `datasource`, the module a program calls (`datasource.open`, `datasource.query`, ...), which
+// resolves a URL to one of the `Driver`s an application registered and pools connections. `Driver` and `Conn` below are
+// that contract: they are why `datasource` names no engine. Anything that maps its own types to and from SQL (`uuid`, `time`,
 // `#[derive(Row)]`-generated code) uses this module alone, so it needs no driver.
 //
 // Only primitives cross the driver boundary: NULL, integer, float, text, bool, and bytes. Uuid,
@@ -28,6 +29,56 @@ use net
 use net.net_error_message
 use number.byte_from_hex
 use url
+
+// ---------------------------------------------------------------- the driver contract
+
+// One open connection, as the four functions `datasource` needs from it.
+//
+// **Every field is a closure that already holds the driver's own connection**, and that is what
+// lets `datasource` drive an engine it cannot name: there is no type here for a
+// `sqlite.Connection` or a `pg.Connection` to be, so none has to exist. Before this, `datasource`
+// held an enum of the three concrete connection types and switched over it in five places, which
+// made it the one module that had to change whenever an engine was added.
+//
+// **`close` belongs here and not on `Driver`** -- that is the one forced move in the shape. A
+// `close(connection)` on the driver would need a parameter type for the connection, which is
+// exactly the concrete type the closure is hiding; as a closure with no arguments it needs none.
+//
+// `dialect` rides along because `migrate` asks for it, and reading it from the connection is what
+// lets a pool answer without re-parsing its URL.
+pub struct Conn {
+    dialect: string
+    close: fn()
+    execute: fn(string, [SqlValue]) -> Result<int, DbError>
+    query: fn(string, [SqlValue]) -> Result<[Row], DbError>
+    rows: fn(string, [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError>
+}
+
+// One engine, as an application hands it over: `datasource.registry([sqlite.driver(), pg.driver()])`.
+// A program that talks to SQLite alone names SQLite alone, and nothing it links pulls in `pg` or
+// `mysql`.
+//
+// `name` is the dialect too, deliberately one field rather than two: `migrate` compares it against
+// "sqlite", "postgres" and "mysql", and a separate `dialect` could drift from the name.
+//
+// `prefixes` is how a URL finds its engine, so each engine owns its own URL spelling -- `sqlite`
+// strips its own `sqlite:` rather than having `datasource` do it with a `substring(url, 7, ..)`.
+//
+// `poolable` answers whether several connections to this URL would be the same database. Only
+// SQLite says no, and only for `:memory:`, where each connection is a private database and a pool
+// of four would be four different ones. Asking the driver puts that where the knowledge is.
+//
+// `idle_check` answers whether a connection that has sat idle is worth testing before it is lent
+// out again. A connection over a socket can be closed from the far end while nobody is looking;
+// an open file cannot, so SQLite says no. It is a plain `bool` where `poolable` is a function
+// because it is a fact about the engine, while poolability is a fact about the URL.
+pub struct Driver {
+    name: string
+    prefixes: [string]
+    poolable: fn(string) -> bool
+    idle_check: bool
+    open: fn(string) -> Result<Conn, DbError>
+}
 
 // ---------------------------------------------------------------- values, rows, errors
 

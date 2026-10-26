@@ -4,7 +4,8 @@
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 A PostgreSQL client, the second backend behind the `datasource`
-module (`datasource.open("postgres://user:password@host:port/database")`).
+module, which reaches it through the `db.Driver` that `driver()` below answers:
+`datasource.open(datasource.registry([pg.driver()]), "postgres://user:password@host:port/database")`.
 Written in Ziman on top of `net` (TCP), byte arrays (message framing) and
 `crypto` (SCRAM-SHA-256); nothing here is native but the exact float
 formatting. It speaks protocol version 3.0.
@@ -127,3 +128,14 @@ result part-way (after which the iteration ends). The Err on the call is the sta
 connection carries no other statement until the cursor is read to the end, left early or closed
 with `iter_close`: a statement sent meanwhile is an Err. A cursor dropped unfinished is ended when
 it is garbage collected.
+
+## The driver
+
+### `driver`
+
+```
+pub fn driver() -> Driver
+```
+
+This engine as a `db.Driver`, for `datasource.registry([..])`. The closures in the `Conn` hold
+the connection, so nothing above here needs a name for it.

@@ -1,6 +1,9 @@
 use datasource
 use db.DbError
 use db.SqlValue
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
 
 // with_transaction on a pool borrows one connection for the whole unit of work
 // and returns it on every way out: after a commit and after a rollback the
@@ -20,16 +23,22 @@ fn count(conn: datasource.Connection) -> int {
 }
 
 fn main() {
-    val pool = unwrap(datasource.open_pool("sqlite:/tmp/ziman_fixture_txpool.db", 3))
+    val pool = unwrap(datasource.open_pool(drivers, "sqlite:/tmp/ziman_fixture_txpool.db", 3))
     unwrap(datasource.execute(pool, "DROP TABLE IF EXISTS t"))
     unwrap(datasource.execute(pool, "CREATE TABLE t (n INTEGER)"))
-    print(unwrap(datasource.with_transaction<int>(pool,
-        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 1) })))
+    print(unwrap(datasource.with_transaction<int>(
+        pool,
+        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 1) }
+    )))
     print(is_ok(datasource.with_transaction<int>(pool, boom)))
-    print(unwrap(datasource.with_transaction<int>(pool,
-        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 2) })))
-    print(unwrap(datasource.with_transaction<int>(pool,
-        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 3) })))
+    print(unwrap(datasource.with_transaction<int>(
+        pool,
+        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 2) }
+    )))
+    print(unwrap(datasource.with_transaction<int>(
+        pool,
+        fn(tx: datasource.Connection) -> Result<int, DbError> { return add(tx, 3) }
+    )))
     print(count(pool))
     datasource.close(pool)
 }
