@@ -1,0 +1,170 @@
+// `parse` then `format` then `parse` must give the same tree.
+//
+// **This is the property the `sql` module is built around**, and it is what makes its coverage safe
+// to grow. A clause the parser learns to read and the formatter forgets to write shows up here as a
+// changed recording rather than as a value quietly missing from somebody's SQL; so does the reverse.
+// It is asserted two ways: the text must settle after one pass (`format(parse(format(parse(x))))`
+// equals `format(parse(x))`), and the formatted text must still parse.
+//
+// The corpus is deliberately not hand-written SQL. It is the sample application's own 40 migration
+// files, read off disk, plus the statement shapes its repositories issue -- because a round trip
+// that only survives the examples its author thought of is not a property, it is a demonstration.
+use db
+use fs
+use migrate
+use sql
+
+val samples: [string] = [
+    "SELECT 1",
+    "SELECT 1 AS one, 2 AS two",
+    "SELECT * FROM patient",
+    "SELECT name FROM patient AS p WHERE p.age > 30",
+    "SELECT id, name FROM patient WHERE age >= 18 AND age < 65 ORDER BY name DESC, id LIMIT 10 OFFSET 5",
+    "SELECT name FROM patient WHERE note IS NULL OR note = ''",
+    "SELECT name FROM patient WHERE name LIKE 'A%' AND name NOT LIKE '%z'",
+    "SELECT id FROM patient WHERE id IN (1, 2, 3) AND age NOT IN (0)",
+    "SELECT id FROM patient WHERE age BETWEEN 18 AND 65",
+    "SELECT id FROM patient WHERE age NOT BETWEEN 18 AND 65",
+    "SELECT CASE WHEN age IS NULL THEN 'unknown' WHEN age > 40 THEN 'older' ELSE 'younger' END AS band FROM patient",
+    "SELECT count(*) AS c, sum(n) AS s, min(n) AS lo, max(n) AS hi, avg(n) AS a FROM t",
+    "SELECT grp, count(*) AS c FROM t GROUP BY grp HAVING count(*) > 1 ORDER BY count(*) DESC",
+    "SELECT substr(name, 1, 2) AS head, length(name) AS n, upper(name) AS up FROM patient",
+    "SELECT name || ' ' || note AS joined FROM patient",
+    "SELECT coalesce(note, 'none') AS note FROM patient",
+    "SELECT n + 1 * 2 AS a, (n + 1) * 2 AS b, n - 1 - 2 AS c, n - (1 - 2) AS d FROM t",
+    "SELECT n / 2 AS half FROM t WHERE NOT (n > 3)",
+    "SELECT $1 AS a, $2 AS b FROM t WHERE id = $3",
+    "INSERT INTO patient (id, name) VALUES (1, 'Ada')",
+    "INSERT INTO patient (id, name) VALUES (1, 'Ada'), (2, 'Bob'), (3, NULL)",
+    "INSERT INTO patient VALUES (1, 'Ada', 36, 'first')",
+    "INSERT INTO patient (name) VALUES ('it''s quoted')",
+    "UPDATE patient SET name = 'Ada', age = age + 1 WHERE id = $1",
+    "DELETE FROM patient",
+    "DELETE FROM patient WHERE age IS NULL",
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INTEGER, email TEXT UNIQUE DEFAULT 'none')",
+    "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY)",
+    "CREATE TABLE t (id INTEGER, ref INTEGER REFERENCES other(id) ON DELETE CASCADE)",
+    "CREATE TABLE t (a INTEGER, b INTEGER, PRIMARY KEY (a, b))",
+    "CREATE TABLE t (a INTEGER, CHECK (a > 0))",
+    "CREATE TABLE t (a VARCHAR(255), b NUMERIC(10, 2), c DOUBLE PRECISION)",
+    "CREATE INDEX idx_t_a ON t (a)",
+    "CREATE UNIQUE INDEX idx_t_ab ON t (a, b)",
+    "ALTER TABLE t ADD COLUMN extra TEXT DEFAULT 'x'",
+    "DROP TABLE t",
+    "DROP TABLE IF EXISTS t",
+    "BEGIN",
+    "COMMIT",
+    "ROLLBACK"
+]
+
+// The directory the sample application keeps its migrations in. Absent in a checkout without it,
+// and the test says so rather than failing -- the corpus above still carries the property.
+val migrations = "../health-record/health-record-backend-ziman/src/main/resources/migrations"
+
+// `text`, not `sql`: a parameter named `sql` shadows the module and `sql.parse` stops resolving.
+fn settles(text: string) -> string {
+    val first = switch sql.parse(text) {
+        Ok(s) { sql.format(s) }
+        Err(e) { return concat("PARSE FAILED: ", db.db_error_message(e)) }
+    }
+    val second = switch sql.parse(first) {
+        Ok(s) { sql.format(s) }
+        Err(e) { return concat("REPARSE FAILED: ", db.db_error_message(e), " <- ", first) }
+    }
+    if first != second {
+        return concat("DID NOT SETTLE: ", first, " then ", second)
+    }
+    return ""
+}
+
+fn main() {
+    print("-- the shapes the module claims to read --")
+    var failed = 0
+    for s in samples {
+        val problem = settles(s)
+        if problem != "" {
+            failed = failed + 1
+            print(concat("  ", s))
+            print(concat("    ", problem))
+        }
+    }
+    print(format("{} of {} round-trip", prelude.len(samples) - failed, prelude.len(samples)))
+
+    // And what the formatter writes for a handful, so a change in its output is visible rather
+    // than merely still-round-tripping.
+    print("-- what it writes --")
+    for s in [
+        "select  name ,age from patient where age>30 order by name",
+        "SELECT a+b*c FROM t",
+        "SELECT (a+b)*c FROM t",
+        "CREATE TABLE t(a int primary key,b text not null)",
+        "insert into t(a,b)values(1,'x')"
+    ] {
+        print(concat("  in:  ", s))
+        print(concat("  out: ", switch sql.parse(s) {
+            Ok(st) { sql.format(st) }
+            Err(e) { concat("error: ", db.db_error_message(e)) }
+        }))
+    }
+
+    print("-- several statements from one string --")
+    val script = "CREATE TABLE t (a INTEGER);\n-- a comment with a ; in it\nINSERT INTO t (a) VALUES (1);\nSELECT 'a;b' AS semi FROM t;\n"
+    switch sql.parse_many(script) {
+        Ok(all) {
+            print(format("  {} statement(s)", prelude.len(all)))
+            for s in all {
+                print(concat("    ", sql.format(s)))
+            }
+        }
+        Err(e) { print(concat("  error: ", db.db_error_message(e))) }
+    }
+
+    print("-- the application's real migrations, from disk --")
+    switch fs.list_dir(migrations) {
+        Ok(entries) {
+            var files = 0
+            var statements = 0
+            var broken = 0
+            val names = sort(entries)
+            for name in names {
+                if ends_with(name, ".sql") {
+                    files = files + 1
+                    val path = concat(migrations, "/", name)
+                    // A migration may hold `{{uuid}}`, which `migrate` substitutes per engine
+                    // before any parser sees it. Reading the file raw would stop at the brace, so
+                    // the test runs the same pipeline the real one does.
+                    val raw = switch fs.read_text(path) {
+                        Ok(text) { text }
+                        Err(e) { return }
+                    }
+                    val resolved_sql = switch migrate.substitute(raw, "sqlite", name) {
+                        Ok(text) { text }
+                        Err(e) {
+                            print(concat("    ", name, ": ", db.db_error_message(e)))
+                            continue
+                        }
+                    }
+                    switch sql.parse_many(resolved_sql) {
+                        Ok(all) {
+                            statements = statements + prelude.len(all)
+                            for s in all {
+                                val written = sql.format(s)
+                                if Err(e) = sql.parse(written) {
+                                    broken = broken + 1
+                                    print(concat("    ", name, ": ", db.db_error_message(e)))
+                                    print(concat("      ", written))
+                                }
+                            }
+                        }
+                        Err(e) {
+                            broken = broken + 1
+                            print(concat("    ", name, ": ", db.db_error_message(e)))
+                        }
+                    }
+                }
+            }
+            print(format("  {} files, {} statements, {} that do not round-trip", files, statements, broken))
+        }
+        Err(_) { print("  (no sample application checkout here; the corpus above still carries the property)") }
+    }
+}

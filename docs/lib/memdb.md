@@ -44,8 +44,10 @@ aggregates being written.
 ## Two readings of SQL
 
 `driver()` at `memdb:` reads SQL the way SQLite does. `strict_driver()` at `memdb-ansi:` reads it
-the way the standard does, and the two differ in exactly three places -- `LIKE`'s case
-sensitivity, what division by zero answers, and whether a number may be compared with text.
+the way the standard does, and the two differ in exactly four places -- `LIKE`'s case
+sensitivity, what division by zero answers, whether a number may be compared with text, and
+whether a boolean in a select list comes back as a boolean or as the integer 0 or 1 (SQLite has
+no boolean type; PostgreSQL and the standard do).
 
 **The strict one is a portability check.** A query that passes on `memdb:` and fails on
 `memdb-ansi:` is leaning on SQLite and will behave differently on PostgreSQL, which matters when
@@ -73,6 +75,9 @@ schema and a dataset once, then hand every test its own copy of the same value.
 ```
 - **No type affinity.** A column declared `INTEGER` holds whatever is inserted; SQLite would
   coerce `'7'` to 7. Insert the right type.
+- **The statement tree and the parser live in `sql`**, not here. This module is the engine:
+  storage, evaluation and the two drivers. `sql.parse` reads SQL, `sql.format` writes it back,
+  and anything wanting to read or rewrite SQL without a database uses that module alone.
 - **Constraints are recorded, not enforced** in this increment: `NOT NULL`, `PRIMARY KEY` and
   `UNIQUE` parse and are remembered, and a violation is accepted. The real engines refuse it.
 - **`CREATE INDEX` is accepted and ignored.** An index changes how fast a query runs, not what

@@ -85,6 +85,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`pg`](pg.md) | A PostgreSQL client, the second backend behind the `datasource` module, which reaches it through the `db.Driver` that `driver()` below answers. |
 | [`mysql`](mysql.md) | A MySQL / MariaDB client, the third engine behind the `datasource` module, which reaches it through the `db.Driver` that `driver()` below answers. |
 | [`memdb`](memdb.md) | A small SQL engine in pure Ziman, holding its tables in memory, for tests. |
+| [`sql`](sql.md) | SQL as a value: a statement tree, a parser that reads one, and a formatter that writes it back. |
 
 ## Testing
 

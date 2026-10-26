@@ -28,7 +28,7 @@ GROUPS = [
     ("System", "core", ["fs", "os", "process", "thread", "log", "metrics", "random", "clock", "locale"]),
     ("Networking", "core", ["net", "url"]),
     ("HTTP", "http", ["http", "server", "client"]),
-    ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql", "memdb"]),
+    ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql", "memdb", "sql"]),
     ("Testing", "core", ["test"]),
     ("Graphics", "graphics", ["geom", "shape", "paint", "scene", "pdfobj", "pdf", "truetype", "font", "image", "stroker", "raster", "layout"]),
 ]

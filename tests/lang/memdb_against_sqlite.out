@@ -23,6 +23,11 @@ agree    SELECT name || '!' AS shout FROM patient ORDER BY id
 agree    SELECT reason, cost FROM visit ORDER BY cost DESC
 agree    SELECT patient_id FROM visit WHERE reason = 'checkup' ORDER BY id
 agree    SELECT id FROM patient WHERE age = NULL ORDER BY id
+agree    SELECT id FROM patient WHERE NOT age = 36 ORDER BY id
+agree    SELECT id FROM patient WHERE NOT age > 30 ORDER BY id
+agree    SELECT id, age + 0 IS NULL AS unknown FROM patient ORDER BY id
+agree    SELECT id FROM patient WHERE NOT name LIKE 'A%' ORDER BY id
+agree    SELECT id FROM patient WHERE NOT (age > 30 AND note IS NULL) ORDER BY id
 agree    SELECT id FROM patient WHERE NOT (age > 30) ORDER BY id
 agree    SELECT id FROM patient WHERE age > 30 OR note = 'fourth' ORDER BY id
 agree    SELECT 7 / 2 AS half
@@ -41,7 +46,7 @@ agree    SELECT patient_id, count(*) AS c FROM visit GROUP BY patient_id HAVING 
 agree    SELECT note, count(*) AS c FROM patient GROUP BY note ORDER BY note
 agree    SELECT reason, sum(cost) + 1 AS plus FROM visit GROUP BY reason ORDER BY reason
 agree    SELECT patient_id, count(*) AS c FROM visit GROUP BY patient_id ORDER BY count(*) DESC, patient_id
-42 of 42 queries agree
+47 of 47 queries agree
 -- writes --
 1 rows both: true  <- UPDATE patient SET note = 'edited' WHERE id = 2
 1 rows both: true  <- DELETE FROM patient WHERE age IS NULL

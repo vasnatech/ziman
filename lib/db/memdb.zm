@@ -36,8 +36,10 @@
 // ## Two readings of SQL
 //
 // `driver()` at `memdb:` reads SQL the way SQLite does. `strict_driver()` at `memdb-ansi:` reads it
-// the way the standard does, and the two differ in exactly three places -- `LIKE`'s case
-// sensitivity, what division by zero answers, and whether a number may be compared with text.
+// the way the standard does, and the two differ in exactly four places -- `LIKE`'s case
+// sensitivity, what division by zero answers, whether a number may be compared with text, and
+// whether a boolean in a select list comes back as a boolean or as the integer 0 or 1 (SQLite has
+// no boolean type; PostgreSQL and the standard do).
 //
 // **The strict one is a portability check.** A query that passes on `memdb:` and fails on
 // `memdb-ansi:` is leaning on SQLite and will behave differently on PostgreSQL, which matters when
@@ -63,6 +65,9 @@
 //
 //   - **No type affinity.** A column declared `INTEGER` holds whatever is inserted; SQLite would
 //     coerce `'7'` to 7. Insert the right type.
+//   - **The statement tree and the parser live in `sql`**, not here. This module is the engine:
+//     storage, evaluation and the two drivers. `sql.parse` reads SQL, `sql.format` writes it back,
+//     and anything wanting to read or rewrite SQL without a database uses that module alone.
 //   - **Constraints are recorded, not enforced** in this increment: `NOT NULL`, `PRIMARY KEY` and
 //     `UNIQUE` parse and are remembered, and a violation is accepted. The real engines refuse it.
 //   - **`CREATE INDEX` is accepted and ignored.** An index changes how fast a query runs, not what
@@ -79,6 +84,21 @@ use db.Driver
 use db.Row
 use db.SqlValue
 use locale
+use sql
+use sql.AlterStmt
+use sql.Assignment
+use sql.BinNode
+use sql.CallNode
+use sql.Column
+use sql.CreateStmt
+use sql.DeleteStmt
+use sql.DropStmt
+use sql.Expr
+use sql.InsertStmt
+use sql.SelectItem
+use sql.SelectStmt
+use sql.Statement
+use sql.UpdateStmt
 
 // Case folding for keywords and identifiers is protocol folding, so it names the invariant locale
 // rather than whatever a program set as its default: in Turkish, `I` folds to `ı` and `SELECT`
@@ -86,17 +106,6 @@ use locale
 val invariant: Locale = locale.root()
 
 // ---------------------------------------------------------------- storage
-
-// A column as the schema declares it. `type_name` is kept for messages and for a future increment
-// that applies affinity; nothing reads it to decide anything today.
-struct Column {
-    name: string
-    type_name: string
-    not_null: bool
-    primary_key: bool
-    unique: bool
-    default_value: Option<SqlValue>
-}
 
 // A table: its columns in declaration order, and its rows as arrays of the same width. Row order
 // is insertion order, which is what a `SELECT` with no `ORDER BY` returns -- the real engines
@@ -113,10 +122,6 @@ struct Database {
     tables: Map<string, Table>
 }
 
-fn folded(name: string) -> string {
-    return to_lower(name, invariant)
-}
-
 fn empty_database() -> Database {
     return Database { tables: Map<string, Table> {} }
 }
@@ -124,1009 +129,6 @@ fn empty_database() -> Database {
 fn problem(message: string) -> DbError {
     return DbError.Sql(message)
 }
-
-// ---------------------------------------------------------------- tokens
-
-// One token. `kind` is "name", "number", "text", "punct" or "param"; `text` is what was written,
-// except for a `text` token, which holds the string's value with its quotes removed and its `''`
-// pairs collapsed.
-struct Token {
-    kind: string
-    text: string
-    value: int
-}
-
-fn is_name_start(c: string) -> bool {
-    return is_alpha(c) || c == "_"
-}
-
-fn is_name_char(c: string) -> bool {
-    return is_alpha_numeric(c) || c == "_" || c == "$"
-}
-
-// The two-character operators, longest first so `<=` is not read as `<` and `=`.
-val two_char_ops: [string] = ["<=", ">=", "<>", "!=", "||"]
-
-// `sql` as tokens. An unterminated string or an unexpected character is an error naming what was
-// found, in the spirit of the rest of the library: nothing here runs on text it did not understand.
-fn tokenize(sql: string) -> Result<[Token], DbError> {
-    val out = mutable_array_new<Token>()
-    val n = len(sql)
-    var i = 0
-    while i < n {
-        val c = char_at(sql, i)
-        if c == " " || c == "\t" || c == "\n" || c == "\r" {
-            i = i + 1
-            continue
-        }
-        if c == "-" && i + 1 < n && char_at(sql, i + 1) == "-" {
-            val end = index_of(sql, "\n", i)
-            i = if end < 0 { n } else { end }
-            continue
-        }
-        if c == "/" && i + 1 < n && char_at(sql, i + 1) == "*" {
-            val end = index_of(sql, "*/", i + 2)
-            if end < 0 {
-                return err(problem("a /* comment that is never closed"))
-            }
-            i = end + 2
-            continue
-        }
-        if c == "'" {
-            val text = mutable_string_new()
-            var j = i + 1
-            var closed = false
-            while j < n {
-                if char_at(sql, j) == "'" {
-                    if j + 1 < n && char_at(sql, j + 1) == "'" {
-                        append(text, "'")
-                        j = j + 2
-                        continue
-                    }
-                    closed = true
-                    j = j + 1
-                    break
-                }
-                append(text, char_at(sql, j))
-                j = j + 1
-            }
-            if !closed {
-                return err(problem("a quoted string that is never closed"))
-            }
-            push(out, Token { kind: "text", text: snapshot(text), value: 0 })
-            i = j
-            continue
-        }
-        if c == "\"" || c == "`" {
-            // A quoted identifier. Its case is kept as written, and `folded` makes the lookup
-            // insensitive anyway -- this engine has no case-sensitive identifiers to get wrong.
-            val close = index_of(sql, c, i + 1)
-            if close < 0 {
-                return err(problem("a quoted identifier that is never closed"))
-            }
-            push(out, Token { kind: "name", text: substring(sql, i + 1, close), value: 0 })
-            i = close + 1
-            continue
-        }
-        if is_digit(c) {
-            var j = i
-            var dotted = false
-            while j < n && (is_digit(char_at(sql, j)) || char_at(sql, j) == ".") {
-                if char_at(sql, j) == "." {
-                    if dotted {
-                        break
-                    }
-                    dotted = true
-                }
-                j = j + 1
-            }
-            push(out, Token { kind: "number", text: substring(sql, i, j), value: 0 })
-            i = j
-            continue
-        }
-        if is_name_start(c) {
-            var j = i
-            while j < n && is_name_char(char_at(sql, j)) {
-                j = j + 1
-            }
-            push(out, Token { kind: "name", text: substring(sql, i, j), value: 0 })
-            i = j
-            continue
-        }
-        if c == "?" {
-            // A positional placeholder: SQLite's and MySQL's spelling. Numbered from the order it
-            // appears, so `?` and `$1` can be counted the same way.
-            push(out, Token { kind: "param", text: "?", value: 0 })
-            i = i + 1
-            continue
-        }
-        if c == "$" && i + 1 < n && is_digit(char_at(sql, i + 1)) {
-            var j = i + 1
-            while j < n && is_digit(char_at(sql, j)) {
-                j = j + 1
-            }
-            val number = unwrap(parse_int(substring(sql, i + 1, j)))
-            if number < 1 {
-                return err(problem("a bound parameter is numbered from $1"))
-            }
-            push(out, Token { kind: "param", text: substring(sql, i, j), value: number })
-            i = j
-            continue
-        }
-        var matched = ""
-        for op in two_char_ops {
-            if matched == "" && i + 1 < n && substring(sql, i, i + 2) == op {
-                matched = op
-            }
-        }
-        if matched != "" {
-            push(out, Token { kind: "punct", text: matched, value: 0 })
-            i = i + 2
-            continue
-        }
-        if contains("=<>+-*/(),;.|", c) {
-            push(out, Token { kind: "punct", text: c, value: 0 })
-            i = i + 1
-            continue
-        }
-        return err(problem(prelude.format("unexpected character '{}' in SQL", c)))
-    }
-    return ok(snapshot(out))
-}
-
-// ---------------------------------------------------------------- the tree
-
-struct BinNode {
-    op: string
-    left: Expr
-    right: Expr
-}
-
-struct NotNode {
-    inner: Expr
-}
-
-struct NullNode {
-    inner: Expr
-    negated: bool
-}
-
-struct CallNode {
-    name: string
-    args: [Expr]
-}
-
-struct LikeNode {
-    subject: Expr
-    pattern: Expr
-    negated: bool
-}
-
-struct InNode {
-    subject: Expr
-    options: [Expr]
-    negated: bool
-}
-
-struct BetweenNode {
-    subject: Expr
-    low: Expr
-    high: Expr
-    negated: bool
-}
-
-// One `WHEN cond THEN value` of a `CASE`.
-struct WhenArm {
-    condition: Expr
-    value: Expr
-}
-
-struct CaseNode {
-    arms: [WhenArm]
-    fallback: [Expr]
-}
-
-// An expression. Recursion is direct rather than through an array: a struct field may be the enum
-// that contains it, as long as some variant ends the chain -- `Lit` and `Col` do.
-enum Expr {
-    Lit(SqlValue)
-    Col(string)
-    Param(int)
-    Not(NotNode)
-    Bin(BinNode)
-    IsNull(NullNode)
-    Call(CallNode)
-    Like(LikeNode)
-    In(InNode)
-    Between(BetweenNode)
-    Case(CaseNode)
-    Star
-}
-
-struct SelectItem {
-    expr: Expr
-    alias: string
-}
-
-struct OrderTerm {
-    expr: Expr
-    descending: bool
-}
-
-struct Assignment {
-    column: string
-    value: Expr
-}
-
-struct SelectStmt {
-    items: [SelectItem]
-    // Empty when the statement has no `FROM`: `SELECT 1` is legal in both real engines and is the
-    // liveness probe `datasource`'s pool sends, so it has to be legal here.
-    table: string
-    filter: Option<Expr>
-    groups: [Expr]
-    having: Option<Expr>
-    order: [OrderTerm]
-    limit: Option<Expr>
-    offset: Option<Expr>
-}
-
-struct InsertStmt {
-    table: string
-    columns: [string]
-    rows: [[Expr]]
-}
-
-struct UpdateStmt {
-    table: string
-    sets: [Assignment]
-    filter: Option<Expr>
-}
-
-struct DeleteStmt {
-    table: string
-    filter: Option<Expr>
-}
-
-struct CreateStmt {
-    table: string
-    columns: [Column]
-    if_not_exists: bool
-}
-
-struct AlterStmt {
-    table: string
-    column: Column
-}
-
-struct DropStmt {
-    table: string
-    if_exists: bool
-}
-
-enum Stmt {
-    Select(SelectStmt)
-    Insert(InsertStmt)
-    Update(UpdateStmt)
-    Delete(DeleteStmt)
-    Create(CreateStmt)
-    Alter(AlterStmt)
-    Drop(DropStmt)
-    Begin
-    Commit
-    Rollback
-    // `CREATE INDEX` and anything else accepted for compatibility and with nothing to do.
-    Ignored(string)
-}
-
-// ---------------------------------------------------------------- the parser
-
-// The token list and a position in it. A cell rather than a threaded index: a recursive-descent
-// parser that returns `(value, next)` pairs everywhere spends half its lines moving the index
-// around, and this is a parser, not a reentrant one.
-struct Cursor {
-    tokens: [Token]
-    at: Mutable<int>
-}
-
-fn cursor_of(tokens: [Token]) -> Cursor {
-    return Cursor { tokens: tokens, at: mutable_new(0) }
-}
-
-fn at_end(c: Cursor) -> bool {
-    return get(c.at) >= prelude.len(c.tokens)
-}
-
-fn peek(c: Cursor) -> Token {
-    if at_end(c) {
-        return Token { kind: "end", text: "", value: 0 }
-    }
-    return c.tokens[get(c.at)]
-}
-
-fn advance(c: Cursor) -> Token {
-    val t = peek(c)
-    set(c.at, get(c.at) + 1)
-    return t
-}
-
-// True when the next token is the keyword `word`, compared without case.
-fn sees(c: Cursor, word: string) -> bool {
-    val t = peek(c)
-    return t.kind == "name" && to_upper(t.text, invariant) == word
-}
-
-fn accept(c: Cursor, word: string) -> bool {
-    if sees(c, word) {
-        set(c.at, get(c.at) + 1)
-        return true
-    }
-    return false
-}
-
-fn sees_punct(c: Cursor, text: string) -> bool {
-    val t = peek(c)
-    return t.kind == "punct" && t.text == text
-}
-
-fn accept_punct(c: Cursor, text: string) -> bool {
-    if sees_punct(c, text) {
-        set(c.at, get(c.at) + 1)
-        return true
-    }
-    return false
-}
-
-fn found(c: Cursor) -> string {
-    val t = peek(c)
-    return if t.kind == "end" { "the end of the statement" } else { prelude.format("'{}'", t.text) }
-}
-
-fn expect_punct(c: Cursor, text: string) -> Result<unit, DbError> {
-    if !accept_punct(c, text) {
-        return err(problem(prelude.format("expected '{}', found {}", text, found(c))))
-    }
-    return unit
-}
-
-fn expect_word(c: Cursor, word: string) -> Result<unit, DbError> {
-    if !accept(c, word) {
-        return err(problem(prelude.format("expected {}, found {}", word, found(c))))
-    }
-    return unit
-}
-
-fn expect_name(c: Cursor) -> Result<string, DbError> {
-    val t = peek(c)
-    if t.kind != "name" {
-        return err(problem(prelude.format("expected a name, found {}", found(c))))
-    }
-    set(c.at, get(c.at) + 1)
-    return ok(t.text)
-}
-
-// A `?` numbered by where it sits, so a statement may mix `?` and `$1` without the evaluator
-// caring which was written.
-fn next_param_number(positional: Mutable<int>) -> int {
-    set(positional, get(positional) + 1)
-    return get(positional)
-}
-
-fn parse_primary(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    if accept_punct(c, "(") {
-        val inner = try parse_expr(c, positional)
-        try expect_punct(c, ")")
-        return ok(inner)
-    }
-    if accept_punct(c, "*") {
-        return ok(Expr.Star)
-    }
-    if accept_punct(c, "-") {
-        // Negation as `0 - x`, which keeps one code path for arithmetic.
-        val inner = try parse_primary(c, positional)
-        return ok(Expr.Bin(BinNode { op: "-", left: Expr.Lit(SqlValue.Int(0)), right: inner }))
-    }
-    if accept(c, "NOT") {
-        val inner = try parse_primary(c, positional)
-        return ok(Expr.Not(NotNode { inner: inner }))
-    }
-    if accept(c, "CASE") {
-        // Only the searched form, `CASE WHEN cond THEN v ... [ELSE v] END`. The simple form
-        // (`CASE subject WHEN ...`) is sugar for it and nothing here writes it.
-        val arms = mutable_array_new<WhenArm>()
-        while accept(c, "WHEN") {
-            val condition = try parse_expr(c, positional)
-            try expect_word(c, "THEN")
-            push(arms, WhenArm { condition: condition, value: try parse_expr(c, positional) })
-        }
-        if prelude.len(arms) == 0 {
-            return err(problem("a CASE needs at least one WHEN"))
-        }
-        // The fallback in an array so the node can say "there is none" without an Option of the
-        // enum it lives in.
-        val fallback = mutable_array_new<Expr>()
-        if accept(c, "ELSE") {
-            push(fallback, try parse_expr(c, positional))
-        }
-        try expect_word(c, "END")
-        return ok(Expr.Case(CaseNode { arms: snapshot(arms), fallback: snapshot(fallback) }))
-    }
-    val t = peek(c)
-    if t.kind == "param" {
-        set(c.at, get(c.at) + 1)
-        return ok(Expr.Param(if t.value > 0 { t.value } else { next_param_number(positional) }))
-    }
-    if t.kind == "text" {
-        set(c.at, get(c.at) + 1)
-        return ok(Expr.Lit(SqlValue.Text(t.text)))
-    }
-    if t.kind == "number" {
-        set(c.at, get(c.at) + 1)
-        if contains(t.text, ".") {
-            return switch parse_float(t.text) {
-                Ok(f) { ok(Expr.Lit(SqlValue.Float(f))) }
-                Err(_) { err(problem(prelude.format("'{}' is not a number", t.text))) }
-            }
-        }
-        return switch parse_int(t.text) {
-            Ok(number) { ok(Expr.Lit(SqlValue.Int(number))) }
-            Err(_) { err(problem(prelude.format("'{}' is not a number", t.text))) }
-        }
-    }
-    if t.kind == "name" {
-        val upper = to_upper(t.text, invariant)
-        if upper == "NULL" {
-            set(c.at, get(c.at) + 1)
-            return ok(Expr.Lit(SqlValue.Null))
-        }
-        if upper == "TRUE" || upper == "FALSE" {
-            set(c.at, get(c.at) + 1)
-            return ok(Expr.Lit(SqlValue.Bool(upper == "TRUE")))
-        }
-        set(c.at, get(c.at) + 1)
-        var name = t.text
-        // `table.column`: the table part is dropped, since a statement here reads one table.
-        if accept_punct(c, ".") {
-            name = try expect_name(c)
-        }
-        if accept_punct(c, "(") {
-            val args = mutable_array_new<Expr>()
-            var first = true
-            while !sees_punct(c, ")") {
-                if !first {
-                    try expect_punct(c, ",")
-                }
-                first = false
-                push(args, try parse_expr(c, positional))
-            }
-            try expect_punct(c, ")")
-            return ok(Expr.Call(CallNode { name: name, args: snapshot(args) }))
-        }
-        return ok(Expr.Col(name))
-    }
-    return err(problem(prelude.format("expected a value, found {}", found(c))))
-}
-
-// `IS NULL` / `IS NOT NULL`, which bind tighter than a comparison.
-fn parse_postfix(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_primary(c, positional)
-    while accept(c, "IS") {
-        val negated = accept(c, "NOT")
-        try expect_word(c, "NULL")
-        left = Expr.IsNull(NullNode { inner: left, negated: negated })
-    }
-    return ok(left)
-}
-
-// `||` binds tighter than `*`, which is SQLite's and PostgreSQL's order -- `'a' || 1 * 2` is
-// `'a' || 2`'s neighbour rather than `('a' || 1) * 2`.
-fn parse_concat(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_postfix(c, positional)
-    while sees_punct(c, "||") {
-        set(c.at, get(c.at) + 1)
-        val right = try parse_postfix(c, positional)
-        left = Expr.Bin(BinNode { op: "||", left: left, right: right })
-    }
-    return ok(left)
-}
-
-fn parse_product(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_concat(c, positional)
-    while sees_punct(c, "*") || sees_punct(c, "/") {
-        val op = advance(c).text
-        val right = try parse_concat(c, positional)
-        left = Expr.Bin(BinNode { op: op, left: left, right: right })
-    }
-    return ok(left)
-}
-
-fn parse_sum(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_product(c, positional)
-    while sees_punct(c, "+") || sees_punct(c, "-") {
-        val op = advance(c).text
-        val right = try parse_product(c, positional)
-        left = Expr.Bin(BinNode { op: op, left: left, right: right })
-    }
-    return ok(left)
-}
-
-val comparisons: [string] = ["=", "<>", "!=", "<", "<=", ">", ">="]
-
-fn parse_comparison(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_sum(c, positional)
-    var more = true
-    while more {
-        // `NOT LIKE`, `NOT IN` and `NOT BETWEEN` read their own negation, so the `NOT` has to be
-        // looked past before deciding what this is -- and put back if it turns out to be a plain
-        // `NOT` applying to what follows.
-        val before_not = get(c.at)
-        val negated = accept(c, "NOT")
-        if sees(c, "LIKE") {
-            set(c.at, get(c.at) + 1)
-            left = Expr.Like(LikeNode {
-                subject: left,
-                pattern: try parse_sum(c, positional),
-                negated: negated
-            })
-            continue
-        }
-        if sees(c, "IN") {
-            set(c.at, get(c.at) + 1)
-            try expect_punct(c, "(")
-            val options = mutable_array_new<Expr>()
-            var first = true
-            while !sees_punct(c, ")") {
-                if !first {
-                    try expect_punct(c, ",")
-                }
-                first = false
-                push(options, try parse_expr(c, positional))
-            }
-            try expect_punct(c, ")")
-            left = Expr.In(InNode { subject: left, options: snapshot(options), negated: negated })
-            continue
-        }
-        if sees(c, "BETWEEN") {
-            set(c.at, get(c.at) + 1)
-            val low = try parse_sum(c, positional)
-            try expect_word(c, "AND")
-            left = Expr.Between(BetweenNode {
-                subject: left,
-                low: low,
-                high: try parse_sum(c, positional),
-                negated: negated
-            })
-            continue
-        }
-        set(c.at, before_not)
-        var op = ""
-        for candidate in comparisons {
-            if op == "" && sees_punct(c, candidate) {
-                op = candidate
-            }
-        }
-        if op == "" {
-            more = false
-        } else {
-            set(c.at, get(c.at) + 1)
-            val right = try parse_sum(c, positional)
-            left = Expr.Bin(BinNode { op: if op == "!=" { "<>" } else { op }, left: left, right: right })
-        }
-    }
-    return ok(left)
-}
-
-fn parse_and(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_comparison(c, positional)
-    while accept(c, "AND") {
-        val right = try parse_comparison(c, positional)
-        left = Expr.Bin(BinNode { op: "AND", left: left, right: right })
-    }
-    return ok(left)
-}
-
-fn parse_expr(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_and(c, positional)
-    while accept(c, "OR") {
-        val right = try parse_and(c, positional)
-        left = Expr.Bin(BinNode { op: "OR", left: left, right: right })
-    }
-    return ok(left)
-}
-
-// ---------------------------------------------------------------- parsing statements
-
-// Everything after a column's name and type until the `,` or `)` that ends it, picking out the
-// flags this engine records. Unknown column constraints (`REFERENCES`, `CHECK`, `COLLATE`,
-// `AUTOINCREMENT`) are consumed and dropped, which is the same promise the header makes about
-// constraints generally: remembered where cheap, never enforced here, and always enforced by the
-// engine the suite also runs against.
-fn parse_column_tail(c: Cursor, name: string, type_name: string) -> Result<Column, DbError> {
-    var not_null = false
-    var primary_key = false
-    var unique = false
-    var default_value = Option<SqlValue>.None
-    var depth = 0
-    while !at_end(c) {
-        if depth == 0 && (sees_punct(c, ",") || sees_punct(c, ")")) {
-            break
-        }
-        if sees_punct(c, "(") {
-            depth = depth + 1
-            set(c.at, get(c.at) + 1)
-            continue
-        }
-        if sees_punct(c, ")") {
-            depth = depth - 1
-            set(c.at, get(c.at) + 1)
-            continue
-        }
-        if depth == 0 && sees(c, "NOT") {
-            set(c.at, get(c.at) + 1)
-            if accept(c, "NULL") {
-                not_null = true
-                continue
-            }
-            continue
-        }
-        if depth == 0 && sees(c, "PRIMARY") {
-            set(c.at, get(c.at) + 1)
-            val _ = accept(c, "KEY")
-            primary_key = true
-            continue
-        }
-        if depth == 0 && accept(c, "UNIQUE") {
-            unique = true
-            continue
-        }
-        if depth == 0 && accept(c, "DEFAULT") {
-            val positional = mutable_new(0)
-            val e = try parse_primary(c, positional)
-            // A literal default is kept; anything else (`CURRENT_TIMESTAMP`, an expression) is
-            // dropped, because applying it would mean evaluating it per insert with no row to
-            // read and no clock this module owns.
-            if Lit(v) = e {
-                default_value = Option<SqlValue>.Some(v)
-            }
-            continue
-        }
-        set(c.at, get(c.at) + 1)
-    }
-    return ok(Column {
-        name: name,
-        type_name: type_name,
-        not_null: not_null,
-        primary_key: primary_key,
-        unique: unique,
-        default_value: default_value
-    })
-}
-
-// A column type as written: a name, then optionally `(n)` or `(n, m)`, then optionally more name
-// words (`DOUBLE PRECISION`, `TIMESTAMP WITH TIME ZONE`).
-fn parse_type_name(c: Cursor) -> Result<string, DbError> {
-    val out = mutable_string_new()
-    append(out, try expect_name(c))
-    while peek(c).kind == "name" && !sees(c, "NOT") && !sees(c, "PRIMARY") && !sees(c, "UNIQUE") &&
-        !sees(c, "DEFAULT") && !sees(c, "REFERENCES") && !sees(c, "CHECK") && !sees(c, "COLLATE") &&
-        !sees(c, "AUTOINCREMENT") && !sees(c, "NULL") && !sees(c, "GENERATED") {
-        append(out, " ", advance(c).text)
-    }
-    if accept_punct(c, "(") {
-        append(out, "(")
-        while !at_end(c) && !sees_punct(c, ")") {
-            append(out, advance(c).text)
-        }
-        try expect_punct(c, ")")
-        append(out, ")")
-    }
-    return ok(snapshot(out))
-}
-
-// The table-level constraints (`PRIMARY KEY (a, b)`, `FOREIGN KEY ... REFERENCES ...`,
-// `UNIQUE (..)`, `CHECK (..)`) -- recognised so a `CREATE TABLE` that has them parses, and then
-// skipped, since this increment enforces none of them.
-fn is_table_constraint(c: Cursor) -> bool {
-    return sees(c, "PRIMARY") || sees(c, "FOREIGN") || sees(c, "UNIQUE") || sees(c, "CHECK") ||
-        sees(c, "CONSTRAINT")
-}
-
-fn skip_table_constraint(c: Cursor) {
-    var depth = 0
-    while !at_end(c) {
-        if depth == 0 && (sees_punct(c, ",") || sees_punct(c, ")")) {
-            break
-        }
-        if sees_punct(c, "(") {
-            depth = depth + 1
-        }
-        if sees_punct(c, ")") {
-            depth = depth - 1
-        }
-        set(c.at, get(c.at) + 1)
-    }
-}
-
-fn parse_create(c: Cursor) -> Result<Stmt, DbError> {
-    if accept(c, "UNIQUE") || sees(c, "INDEX") {
-        // `CREATE [UNIQUE] INDEX ...`: accepted and ignored. An index decides how fast a query
-        // runs, not what it answers, and there is no planner here to give one to.
-        try expect_word(c, "INDEX")
-        while !at_end(c) {
-            set(c.at, get(c.at) + 1)
-        }
-        return ok(Stmt.Ignored("CREATE INDEX"))
-    }
-    try expect_word(c, "TABLE")
-    var if_not_exists = false
-    if accept(c, "IF") {
-        try expect_word(c, "NOT")
-        try expect_word(c, "EXISTS")
-        if_not_exists = true
-    }
-    val name = try expect_name(c)
-    try expect_punct(c, "(")
-    val columns = mutable_array_new<Column>()
-    var first = true
-    while !sees_punct(c, ")") {
-        if !first {
-            try expect_punct(c, ",")
-        }
-        first = false
-        if is_table_constraint(c) {
-            skip_table_constraint(c)
-            continue
-        }
-        val column_name = try expect_name(c)
-        val type_name = if sees_punct(c, ",") || sees_punct(c, ")") { "" } else { try parse_type_name(c) }
-        push(columns, try parse_column_tail(c, column_name, type_name))
-    }
-    try expect_punct(c, ")")
-    return ok(Stmt.Create(CreateStmt {
-        table: name,
-        columns: snapshot(columns),
-        if_not_exists: if_not_exists
-    }))
-}
-
-fn parse_alter(c: Cursor) -> Result<Stmt, DbError> {
-    try expect_word(c, "TABLE")
-    val name = try expect_name(c)
-    if !accept(c, "ADD") {
-        return err(problem("only ALTER TABLE ... ADD [COLUMN] is understood"))
-    }
-    val _ = accept(c, "COLUMN")
-    val column_name = try expect_name(c)
-    val type_name = if at_end(c) { "" } else { try parse_type_name(c) }
-    return ok(Stmt.Alter(AlterStmt { table: name, column: try parse_column_tail(c, column_name, type_name) }))
-}
-
-fn parse_drop(c: Cursor) -> Result<Stmt, DbError> {
-    try expect_word(c, "TABLE")
-    var if_exists = false
-    if accept(c, "IF") {
-        try expect_word(c, "EXISTS")
-        if_exists = true
-    }
-    return ok(Stmt.Drop(DropStmt { table: try expect_name(c), if_exists: if_exists }))
-}
-
-fn parse_insert(c: Cursor, positional: Mutable<int>) -> Result<Stmt, DbError> {
-    try expect_word(c, "INTO")
-    val table = try expect_name(c)
-    val columns = mutable_array_new<string>()
-    if accept_punct(c, "(") {
-        var first = true
-        while !sees_punct(c, ")") {
-            if !first {
-                try expect_punct(c, ",")
-            }
-            first = false
-            push(columns, try expect_name(c))
-        }
-        try expect_punct(c, ")")
-    }
-    try expect_word(c, "VALUES")
-    val rows = mutable_array_new<[Expr]>()
-    var more = true
-    while more {
-        try expect_punct(c, "(")
-        val values = mutable_array_new<Expr>()
-        var first = true
-        while !sees_punct(c, ")") {
-            if !first {
-                try expect_punct(c, ",")
-            }
-            first = false
-            push(values, try parse_expr(c, positional))
-        }
-        try expect_punct(c, ")")
-        push(rows, snapshot(values))
-        more = accept_punct(c, ",")
-    }
-    return ok(Stmt.Insert(InsertStmt {
-        table: table,
-        columns: snapshot(columns),
-        rows: snapshot(rows)
-    }))
-}
-
-// The words that begin a clause, so a bare name after a table or a select item is a *name* and not
-// the start of the next clause.
-//
-// **One list, consulted twice.** It was spelled out at each of the two places that accept a bare
-// alias, and the second spelling was missing `GROUP` and `HAVING` -- so `FROM t GROUP BY grp` read
-// `GROUP` as the table's alias and then complained about `BY`. Two copies of a keyword list is one
-// copy too many.
-val clause_words: [string] = ["FROM", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "AS"]
-
-fn starts_clause(c: Cursor) -> bool {
-    for word in clause_words {
-        if sees(c, word) {
-            return true
-        }
-    }
-    return false
-}
-
-fn parse_select(c: Cursor, positional: Mutable<int>) -> Result<Stmt, DbError> {
-    val items = mutable_array_new<SelectItem>()
-    var first = true
-    while first || accept_punct(c, ",") {
-        first = false
-        val e = try parse_expr(c, positional)
-        var alias = ""
-        if accept(c, "AS") {
-            alias = try expect_name(c)
-        } else if peek(c).kind == "name" && !starts_clause(c) {
-            alias = advance(c).text
-        }
-        push(items, SelectItem { expr: e, alias: alias })
-    }
-    var table = ""
-    if accept(c, "FROM") {
-        table = try expect_name(c)
-        // `FROM t AS x` / `FROM t x`: the alias is accepted and dropped, since one table is in scope.
-        if accept(c, "AS") {
-            val _ = try expect_name(c)
-        } else if peek(c).kind == "name" && !starts_clause(c) {
-            set(c.at, get(c.at) + 1)
-        }
-    }
-    var filter = Option<Expr>.None
-    if accept(c, "WHERE") {
-        filter = Option<Expr>.Some(try parse_expr(c, positional))
-    }
-    val groups = mutable_array_new<Expr>()
-    if accept(c, "GROUP") {
-        try expect_word(c, "BY")
-        var more = true
-        while more {
-            push(groups, try parse_expr(c, positional))
-            more = accept_punct(c, ",")
-        }
-    }
-    var having = Option<Expr>.None
-    if accept(c, "HAVING") {
-        having = Option<Expr>.Some(try parse_expr(c, positional))
-    }
-    val order = mutable_array_new<OrderTerm>()
-    if accept(c, "ORDER") {
-        try expect_word(c, "BY")
-        var more = true
-        while more {
-            val e = try parse_expr(c, positional)
-            var descending = false
-            if accept(c, "DESC") {
-                descending = true
-            } else {
-                val _ = accept(c, "ASC")
-            }
-            push(order, OrderTerm { expr: e, descending: descending })
-            more = accept_punct(c, ",")
-        }
-    }
-    var limit = Option<Expr>.None
-    var offset = Option<Expr>.None
-    if accept(c, "LIMIT") {
-        limit = Option<Expr>.Some(try parse_expr(c, positional))
-    }
-    if accept(c, "OFFSET") {
-        offset = Option<Expr>.Some(try parse_expr(c, positional))
-    }
-    return ok(Stmt.Select(SelectStmt {
-        items: snapshot(items),
-        table: table,
-        filter: filter,
-        groups: snapshot(groups),
-        having: having,
-        order: snapshot(order),
-        limit: limit,
-        offset: offset
-    }))
-}
-
-fn parse_update(c: Cursor, positional: Mutable<int>) -> Result<Stmt, DbError> {
-    val table = try expect_name(c)
-    try expect_word(c, "SET")
-    val sets = mutable_array_new<Assignment>()
-    var more = true
-    while more {
-        val column = try expect_name(c)
-        try expect_punct(c, "=")
-        push(sets, Assignment { column: column, value: try parse_expr(c, positional) })
-        more = accept_punct(c, ",")
-    }
-    var filter = Option<Expr>.None
-    if accept(c, "WHERE") {
-        filter = Option<Expr>.Some(try parse_expr(c, positional))
-    }
-    return ok(Stmt.Update(UpdateStmt { table: table, sets: snapshot(sets), filter: filter }))
-}
-
-fn parse_delete(c: Cursor, positional: Mutable<int>) -> Result<Stmt, DbError> {
-    try expect_word(c, "FROM")
-    val table = try expect_name(c)
-    var filter = Option<Expr>.None
-    if accept(c, "WHERE") {
-        filter = Option<Expr>.Some(try parse_expr(c, positional))
-    }
-    return ok(Stmt.Delete(DeleteStmt { table: table, filter: filter }))
-}
-
-// One statement. Trailing `;` and empty statements are tolerated; anything past the first
-// statement is an error, because `datasource.execute` is one statement and `migrate` splits a
-// script before it gets here.
-fn parse_statement(sql: string) -> Result<Stmt, DbError> {
-    val c = cursor_of(try tokenize(sql))
-    val positional = mutable_new(0)
-    if at_end(c) {
-        return ok(Stmt.Ignored("empty"))
-    }
-    var stmt = Stmt.Ignored("empty")
-    if accept(c, "SELECT") {
-        stmt = try parse_select(c, positional)
-    } else if accept(c, "INSERT") {
-        stmt = try parse_insert(c, positional)
-    } else if accept(c, "UPDATE") {
-        stmt = try parse_update(c, positional)
-    } else if accept(c, "DELETE") {
-        stmt = try parse_delete(c, positional)
-    } else if accept(c, "CREATE") {
-        stmt = try parse_create(c)
-    } else if accept(c, "ALTER") {
-        stmt = try parse_alter(c)
-    } else if accept(c, "DROP") {
-        stmt = try parse_drop(c)
-    } else if accept(c, "BEGIN") {
-        val _ = accept(c, "TRANSACTION")
-        val _ = accept(c, "IMMEDIATE")
-        val _ = accept(c, "DEFERRED")
-        stmt = Stmt.Begin
-    } else if accept(c, "START") {
-        try expect_word(c, "TRANSACTION")
-        stmt = Stmt.Begin
-    } else if accept(c, "COMMIT") {
-        stmt = Stmt.Commit
-    } else if accept(c, "ROLLBACK") {
-        stmt = Stmt.Rollback
-    } else if accept(c, "PRAGMA") || accept(c, "SET") || accept(c, "ANALYZE") || accept(c, "VACUUM") {
-        // Settings and maintenance: accepted so a script written for a real engine runs, and
-        // ignored because there is nothing here for them to change.
-        while !at_end(c) {
-            set(c.at, get(c.at) + 1)
-        }
-        stmt = Stmt.Ignored("setting")
-    } else {
-        return err(problem(prelude.format("unsupported SQL statement starting at {}", found(c))))
-    }
-    val _ = accept_punct(c, ";")
-    if !at_end(c) {
-        return err(problem(prelude.format("unexpected {} after the statement", found(c))))
-    }
-    return ok(stmt)
-}
-
 // ---------------------------------------------------------------- evaluating
 
 // What an expression is evaluated against: the row's shape and values, the statement's bound
@@ -1223,9 +225,9 @@ fn is_null(v: SqlValue) -> bool {
 }
 
 fn column_index(columns: [string], name: string) -> int {
-    val want = folded(name)
+    val want = sql.fold_name(name)
     for i in 0..prelude.len(columns) {
-        if folded(columns[i]) == want {
+        if sql.fold_name(columns[i]) == want {
             return i
         }
     }
@@ -1247,10 +249,12 @@ fn eval_expr(e: Expr, cx: Ctx) -> Result<SqlValue, DbError> {
                 ok(cx.params[number - 1])
             }
         }
-        Col(name) {
-            val at = column_index(cx.columns, name)
+        Col(ref) {
+            // The qualifier is kept by the tree and ignored here: one table is in scope, so
+            // `p.name` and `name` reach the same column.
+            val at = column_index(cx.columns, ref.name)
             if at < 0 {
-                err(problem(prelude.format("no such column: {}", name)))
+                err(problem(prelude.format("no such column: {}", ref.name)))
             } else {
                 ok(cx.row[at])
             }
@@ -1398,7 +402,7 @@ fn like_from(s: string, si: int, p: string, pi: int) -> bool {
 // aggregates (`COUNT`, `SUM`, `MIN`, `MAX`) are the next increment and say so: an unknown name is
 // an error, never a NULL.
 fn eval_call(node: CallNode, cx: Ctx) -> Result<SqlValue, DbError> {
-    val name = folded(node.name)
+    val name = sql.fold_name(node.name)
     val args = mutable_array_new<SqlValue>()
     for a in node.args {
         push(args, try eval_expr(a, cx))
@@ -1639,9 +643,9 @@ fn unwrap_int(v: SqlValue) -> int {
 // it on its first run against the aggregates.
 fn validate_expr(e: Expr, names: [string]) -> Result<unit, DbError> {
     return switch e {
-        Col(name) {
-            if column_index(names, name) < 0 {
-                err(problem(concat("no such column: ", name)))
+        Col(ref) {
+            if column_index(names, ref.name) < 0 {
+                err(problem(concat("no such column: ", ref.name)))
             } else {
                 unit
             }
@@ -1692,6 +696,29 @@ fn validate_expr(e: Expr, names: [string]) -> Result<unit, DbError> {
 
 // A group's representative row, or no row at all for an empty group. An empty array literal
 // needs its element type somewhere, and a function signature is the tidiest place to put it.
+// A value on its way out to the caller.
+//
+// **SQLite has no boolean type**, so a comparison in a select list comes back as the integer 0 or
+// 1; PostgreSQL and the standard have a real boolean and answer one. That makes it the fourth place
+// the two readings part, and the lax one follows SQLite -- which is also why `db.sql_as_bool`
+// accepts an `Int` of 0 or 1 in the first place.
+//
+// Only the projection is converted. Inside a `WHERE` or a `HAVING` a boolean stays a boolean,
+// because nothing outside sees it.
+fn present(v: SqlValue, strict: bool) -> SqlValue {
+    if strict {
+        return v
+    }
+    return switch v {
+        Bool(b) { SqlValue.Int(if b { 1 } else { 0 }) }
+        Null { v }
+        Int(_) { v }
+        Float(_) { v }
+        Text(_) { v }
+        Bytes(_) { v }
+    }
+}
+
 fn first_row(rows: [[SqlValue]]) -> [SqlValue] {
     if prelude.len(rows) > 0 {
         return rows[0]
@@ -1701,7 +728,7 @@ fn first_row(rows: [[SqlValue]]) -> [SqlValue] {
 }
 
 fn is_aggregate(name: string) -> bool {
-    val n = folded(name)
+    val n = sql.fold_name(name)
     return n == "count" || n == "sum" || n == "min" || n == "max" || n == "avg"
 }
 
@@ -1777,7 +804,7 @@ fn eval_aggregate(
     params: [SqlValue],
     strict: bool
 ) -> Result<SqlValue, DbError> {
-    val name = folded(node.name)
+    val name = sql.fold_name(node.name)
     if prelude.len(node.args) != 1 {
         return err(problem(prelude.format("{} takes one argument", node.name)))
     }
@@ -1913,14 +940,14 @@ struct Outcome {
 }
 
 fn table_of(database: Database, name: string) -> Result<Table, DbError> {
-    return switch get(database.tables, folded(name)) {
+    return switch get(database.tables, sql.fold_name(name)) {
         Some(t) { ok(t) }
         None { err(problem(concat("no such table: ", name))) }
     }
 }
 
 fn with_table(database: Database, t: Table) -> Database {
-    return Database { tables: set(database.tables, folded(t.name), t) }
+    return Database { tables: set(database.tables, sql.fold_name(t.name), t) }
 }
 
 fn column_names(t: Table) -> [string] {
@@ -1949,7 +976,7 @@ fn matching(t: Table, filter: Option<Expr>, params: [SqlValue], strict: bool) ->
 }
 
 fn run_create(database: Database, stmt: CreateStmt) -> Result<Outcome, DbError> {
-    if contains(database.tables, folded(stmt.table)) {
+    if contains(database.tables, sql.fold_name(stmt.table)) {
         if stmt.if_not_exists {
             return ok(Outcome { database: database, rows: [], affected: 0 })
         }
@@ -1984,14 +1011,14 @@ fn run_alter(database: Database, stmt: AlterStmt) -> Result<Outcome, DbError> {
 }
 
 fn run_drop(database: Database, stmt: DropStmt) -> Result<Outcome, DbError> {
-    if !contains(database.tables, folded(stmt.table)) {
+    if !contains(database.tables, sql.fold_name(stmt.table)) {
         if stmt.if_exists {
             return ok(Outcome { database: database, rows: [], affected: 0 })
         }
         return err(problem(concat("no such table: ", stmt.table)))
     }
     return ok(Outcome {
-        database: Database { tables: remove(database.tables, folded(stmt.table)) },
+        database: Database { tables: remove(database.tables, sql.fold_name(stmt.table)) },
         rows: [],
         affected: 0
     })
@@ -2104,7 +1131,7 @@ fn item_name(item: SelectItem, at: int) -> string {
         return item.alias
     }
     return switch item.expr {
-        Col(name) { name }
+        Col(ref) { ref.name }
         Lit(_) { prelude.format("column{}", at + 1) }
         Param(_) { prelude.format("column{}", at + 1) }
         Not(_) { prelude.format("column{}", at + 1) }
@@ -2126,7 +1153,7 @@ fn run_select(database: Database, stmt: SelectStmt, params: [SqlValue], strict: 
         val values = mutable_array_new<SqlValue>()
         for i in 0..prelude.len(stmt.items) {
             push(names, item_name(stmt.items[i], i))
-            push(values, try eval_expr(stmt.items[i].expr, ctx_of([], [], params, strict)))
+            push(values, present(try eval_expr(stmt.items[i].expr, ctx_of([], [], params, strict)), strict))
         }
         val one = Row { columns: snapshot(names), values: snapshot(values) }
         return ok(Outcome { database: database, rows: [one], affected: 0 })
@@ -2237,7 +1264,7 @@ fn run_select(database: Database, stmt: SelectStmt, params: [SqlValue], strict: 
             }
         } else {
             for item in stmt.items {
-                push(values, try eval_expr(item.expr, ctx_of(names, source, params, strict)))
+                push(values, present(try eval_expr(item.expr, ctx_of(names, source, params, strict)), strict))
             }
         }
         push(rows, Row { columns: headers, values: snapshot(values) })
@@ -2379,7 +1406,7 @@ fn run_grouped(
     for k in from..upto {
         val values = mutable_array_new<SqlValue>()
         for item in stmt.items {
-            push(values, try eval_grouped(item.expr, names, ordered[k], params, strict))
+            push(values, present(try eval_grouped(item.expr, names, ordered[k], params, strict), strict))
         }
         push(out, Row { columns: columns, values: snapshot(values) })
     }
@@ -2411,7 +1438,7 @@ struct State {
 }
 
 fn run_one(state: State, sql: string, params: [SqlValue]) -> Result<Outcome, DbError> {
-    val stmt = try parse_statement(sql)
+    val stmt = try sql.parse(sql)
     val before = get(state.database)
     return switch stmt {
         Begin {
@@ -2435,7 +1462,10 @@ fn run_one(state: State, sql: string, params: [SqlValue]) -> Result<Outcome, DbE
                 ok(Outcome { database: stack[depth - 1], rows: [], affected: 0 })
             }
         }
-        Ignored(_) { ok(Outcome { database: before, rows: [], affected: 0 }) }
+        // A statement this engine has nothing to do about: a setting, an empty statement, or an
+        // index, which decides how fast a query runs and not what it answers.
+        Passthrough(_) { ok(Outcome { database: before, rows: [], affected: 0 }) }
+        CreateIndex(_) { ok(Outcome { database: before, rows: [], affected: 0 }) }
         Create(s) { run_create(before, s) }
         Alter(s) { run_alter(before, s) }
         Drop(s) { run_drop(before, s) }

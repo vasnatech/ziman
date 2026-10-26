@@ -1,0 +1,20 @@
+-- the shapes the module claims to read --
+40 of 40 round-trip
+-- what it writes --
+  in:  select  name ,age from patient where age>30 order by name
+  out: SELECT name, age FROM patient WHERE age > 30 ORDER BY name
+  in:  SELECT a+b*c FROM t
+  out: SELECT a + b * c FROM t
+  in:  SELECT (a+b)*c FROM t
+  out: SELECT (a + b) * c FROM t
+  in:  CREATE TABLE t(a int primary key,b text not null)
+  out: CREATE TABLE t (a int PRIMARY KEY, b text NOT NULL)
+  in:  insert into t(a,b)values(1,'x')
+  out: INSERT INTO t (a, b) VALUES (1, 'x')
+-- several statements from one string --
+  3 statement(s)
+    CREATE TABLE t (a INTEGER)
+    INSERT INTO t (a) VALUES (1)
+    SELECT 'a;b' AS semi FROM t
+-- the application's real migrations, from disk --
+  39 files, 132 statements, 0 that do not round-trip

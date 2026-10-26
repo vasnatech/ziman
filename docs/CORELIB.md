@@ -1969,6 +1969,214 @@ pub fn driver() -> Driver
 
 ```
 
+## `sql`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub fn fold_name(name: string) -> string
+
+pub struct Token {
+    kind: string
+    text: string
+    value: int
+    // Where this token sits in the source, so a run of tokens can be recovered as the text it was
+    // written as. That is what lets the parts this module does not model be **preserved verbatim**
+    // rather than re-assembled from tokens with guessed spacing.
+    start: int
+    end: int
+}
+
+pub struct Column {
+    name: string
+    type_name: string
+    not_null: bool
+    primary_key: bool
+    unique: bool
+    default_value: Option<SqlValue>
+    // Every constraint on this column that is not one of the four above, as the text it was
+    // written as: `REFERENCES patients(id) ON DELETE CASCADE`, `CHECK (n > 0)`, `COLLATE NOCASE`,
+    // `AUTOINCREMENT`. Preserved rather than modelled, so `format` writes back what it read.
+    extra: string
+}
+
+pub struct BinNode {
+    op: string
+    left: Expr
+    right: Expr
+}
+
+pub struct NotNode {
+    inner: Expr
+}
+
+pub struct NullNode {
+    inner: Expr
+    negated: bool
+}
+
+pub struct ColRef {
+    table: string
+    name: string
+}
+
+pub struct CallNode {
+    name: string
+    args: [Expr]
+}
+
+pub struct LikeNode {
+    subject: Expr
+    pattern: Expr
+    negated: bool
+}
+
+pub struct InNode {
+    subject: Expr
+    options: [Expr]
+    negated: bool
+}
+
+pub struct BetweenNode {
+    subject: Expr
+    low: Expr
+    high: Expr
+    negated: bool
+}
+
+pub struct WhenArm {
+    condition: Expr
+    value: Expr
+}
+
+pub struct CaseNode {
+    arms: [WhenArm]
+    fallback: [Expr]
+}
+
+pub enum Expr {
+    Lit(SqlValue)
+    Col(ColRef)
+    Param(int)
+    Not(NotNode)
+    Bin(BinNode)
+    IsNull(NullNode)
+    Call(CallNode)
+    Like(LikeNode)
+    In(InNode)
+    Between(BetweenNode)
+    Case(CaseNode)
+    Star
+}
+
+pub struct SelectItem {
+    expr: Expr
+    alias: string
+}
+
+pub struct OrderTerm {
+    expr: Expr
+    descending: bool
+}
+
+pub struct Assignment {
+    column: string
+    value: Expr
+}
+
+pub struct SelectStmt {
+    items: [SelectItem]
+    // Empty when the statement has no `FROM`: `SELECT 1` is legal in both real engines and is the
+    // liveness probe `datasource`'s pool sends, so it has to be legal here.
+    table: string
+    // `FROM patient p` / `FROM patient AS p`. One table and one alias rather than a list of table
+    // references: joins are a later increment and will want a list, and changing the shape then is
+    // a deliberate step the round-trip test protects.
+    table_alias: string
+    filter: Option<Expr>
+    groups: [Expr]
+    having: Option<Expr>
+    order: [OrderTerm]
+    limit: Option<Expr>
+    offset: Option<Expr>
+}
+
+pub struct InsertStmt {
+    table: string
+    columns: [string]
+    rows: [[Expr]]
+}
+
+pub struct UpdateStmt {
+    table: string
+    sets: [Assignment]
+    filter: Option<Expr>
+}
+
+pub struct DeleteStmt {
+    table: string
+    filter: Option<Expr>
+}
+
+pub struct CreateStmt {
+    table: string
+    columns: [Column]
+    // The table-level constraints -- `PRIMARY KEY (a, b)`, `FOREIGN KEY ... REFERENCES ...`,
+    // `UNIQUE (..)`, `CHECK (..)`, a named `CONSTRAINT` -- as the text they were written as.
+    constraints: [string]
+    if_not_exists: bool
+}
+
+pub struct AlterStmt {
+    table: string
+    column: Column
+}
+
+pub struct CreateIndexStmt {
+    name: string
+    table: string
+    columns: [string]
+    unique: bool
+    if_not_exists: bool
+}
+
+pub struct DropStmt {
+    table: string
+    if_exists: bool
+}
+
+pub enum Statement {
+    Select(SelectStmt)
+    Insert(InsertStmt)
+    Update(UpdateStmt)
+    Delete(DeleteStmt)
+    Create(CreateStmt)
+    CreateIndex(CreateIndexStmt)
+    Alter(AlterStmt)
+    Drop(DropStmt)
+    Begin
+    Commit
+    Rollback
+    // A statement recognised only well enough to pass through -- `PRAGMA`, `SET`, `ANALYZE`,
+    // `VACUUM` -- carrying its own text so `format` writes back exactly what was read. Empty for
+    // an empty statement.
+    Passthrough(string)
+}
+
+pub fn parse(sql: string) -> Result<Statement, DbError>
+
+pub fn parse_many(text: string) -> Result<[Statement], DbError>
+
+pub fn parse_file(path: string) -> Result<[Statement], DbError>
+
+pub fn format_value(v: SqlValue) -> string
+
+pub fn format_expr(e: Expr) -> string
+
+pub fn format(s: Statement) -> string
+
+```
+
 ## `client`
 
 ```

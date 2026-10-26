@@ -225,6 +225,7 @@ them against the code.
 - [`datasource` stops knowing which databases exist (2026-10-25)](#datasource-stops-knowing-which-databases-exist-2026-10-25)
 - [`memdb`: a SQL engine in Ziman, and a tier boundary drawn in the wrong place (2026-10-25)](#memdb-a-sql-engine-in-ziman-and-a-tier-boundary-drawn-in-the-wrong-place-2026-10-25)
 - [`memdb` learns the aggregates, and two readings of SQL (2026-10-25)](#memdb-learns-the-aggregates-and-two-readings-of-sql-2026-10-25)
+- [`sql`: the statement tree moves out of the engine, and two precedence bugs fall out (2026-10-25)](#sql-the-statement-tree-moves-out-of-the-engine-and-two-precedence-bugs-fall-out-2026-10-25)
 
 <!-- end index -->
 
@@ -8851,3 +8852,34 @@ The fixture asserts **both** halves, which is what keeps the flag honest: the la
 **The cross-check earned its keep within a minute of the aggregates existing.** `SELECT count(age) FROM visit WHERE reason = 'nothing'` answered `0` on `memdb` and `no such column: age` on SQLite, because `age` is not a column of `visit` and the aggregate looked columns up *as it read each row* -- so a `WHERE` that matched nothing never looked. A real engine resolves columns when it prepares a statement, and now so does this one: a pass over the select list, filter, groups, having and order terms before anything runs. **A typo'd column name passing here and failing on the real engine is the precise false green this arrangement is for**, and it was found by the mechanism built to find it rather than by a reader.
 
 One duplication bug, worth recording for its shape. `GROUP BY grp` failed with "unexpected 'BY' after the statement", because the two places that accept a bare alias each spelled out the clause keywords that cannot *be* an alias, and the second spelling was missing `GROUP` and `HAVING` -- so `FROM t GROUP BY grp` read `GROUP` as the table's alias. The list is one `val` consulted twice now. Two copies of a keyword list is one copy too many, and the second copy is always the stale one.
+
+## `sql`: the statement tree moves out of the engine, and two precedence bugs fall out (2026-10-25)
+
+`lib/db/sql.zm` -- a `Statement` tree, a parser that reads one, and a formatter that writes it back. No database, no connection, no engine. `memdb` is built on it and keeps only storage, evaluation and its two drivers; 1,621 lines moved out of it, leaving 1,556.
+
+```ziman
+val statement = try sql.parse("SELECT name FROM patient WHERE id = $1")
+print(sql.format(statement))
+for s in try sql.parse_file("migrations/V001__create_users.sql") { ... }
+```
+
+**The module was already written and in the wrong place.** memdb held a lexer, a token cursor, an AST and a recursive-descent parser -- the whole of which is a SQL front end that has nothing to do with running a database. Moving it is the split the two names already implied: **`sql` is syntax, `memdb` is semantics.**
+
+Two smaller things fell out of the move. README.md and SYNTAX.md had both listed a `sql` module in the database layer **for as long as that table has existed**, and there was no such file; `check_doc_modules.py` missed it because it validates `module.member` spans and `use` lines, and `sql` appeared only in prose. And `Statement` is named `Statement` rather than `SqlStatement`, because qualified it reads `sql.Statement` where `sql.SqlStatement` would stutter exactly as `random.random_bytes` and `uuid.uuid_new` were weighed for.
+
+**`parse(format(parse(x))) == parse(x)` is the point of having a formatter**, and it earns its keep immediately. `tests/lang/sql_round_trip.zm` asserts it over 40 hand-written statement shapes and then over the sample application's own migration directory, read off disk and passed through `migrate.substitute` first so `{{uuid}}` is resolved the way the real pipeline resolves it: **39 files, 132 statements, 0 that do not settle.**
+
+**It found two precedence bugs, and both changed what a query means rather than how it looks.**
+
+* **`NOT` was parsed as a prefix of a primary**, so `WHERE NOT a = 1` read as `(NOT a) = 1`. SQL puts `NOT` *looser* than a comparison: it means `NOT (a = 1)`. Checked against SQLite rather than against the standard's prose -- `SELECT a FROM t WHERE NOT a = 1` over rows 1 and 2 answers one row, which is `NOT (a = 1)` and not `(NOT a) = 1`.
+* **`IS NULL` was parsed as a postfix on a primary**, so `1 + NULL IS NULL` read as `1 + (NULL IS NULL)`, which is 2. SQLite answers 1, because `IS NULL` is a predicate and binds looser than arithmetic: `(1 + NULL) IS NULL`.
+
+Neither is the kind of bug reading the parser finds, because each looks right where it is written. The round trip found them the same way: a tree printed as text that parses back to a *different* tree. The ladder is now one comment away from the code that implements it -- `||`, then `* /`, then `+ -`, then the predicates, then `NOT`, then `AND`, then `OR` -- and the precedence numbers the formatter uses are the same constants.
+
+**Preserved rather than modelled.** A formatter that quietly dropped a `FOREIGN KEY` would be worse than no formatter, so the parts the tree does not model are kept as the text they were written as and written back verbatim: a column constraint beyond `NOT NULL`/`PRIMARY KEY`/`UNIQUE`/`DEFAULT`, a table-level constraint, and a pass-through statement (`PRAGMA`, `SET`, `ANALYZE`, `VACUUM`). Tokens carry their source span for it, which is also what makes the preservation exact rather than re-assembled with guessed spacing. Three things the parser used to discard are now modelled properly instead: a qualified column reference (`t.c` kept its name and threw away its table), a table alias, and `CREATE INDEX`, which was swallowed whole because the engine has no use for one -- a formatter does.
+
+**`parse_many` splits on `;` *tokens*, not characters**, which is the one real advantage of having a lexer: a `;` inside `'a;b'`, inside `"a;b"`, or inside a `--` or `/* */` comment cannot be mistaken for a separator. `migrate.split_statements` stays where it is and keeps its text-level scan, because it must divide SQL this module may not be able to *parse* -- engine-specific DDL included. Same word, different job.
+
+**A fourth divergence between the two readings, found by the same fixture.** `SELECT id = 1 AS yes` came back as a boolean from `memdb` and as `Int(0)`/`Int(1)` from SQLite, because **SQLite has no boolean type** while PostgreSQL and the standard have one. So the lax reading now renders a projected boolean as 0 or 1 and the strict one does not -- which is also why `db.sql_as_bool` has always accepted an `Int` of 0 or 1. Only the projection converts; inside a `WHERE` a boolean stays a boolean, because nothing outside sees it.
+
+**What this is not.** It is not ANSI SQL. ISO/IEC 9075 also has joins, set operations, subqueries, `DISTINCT`, common table expressions, window functions, `MERGE`, `GRANT`/`REVOKE`, views, schemas, sequences, domains, triggers, routines, cursors, savepoints, isolation levels, `GROUPING SETS`, `LATERAL`, interval and row constructors, `IS DISTINCT FROM`, `SIMILAR TO`, `OVERLAPS`, temporal tables and SQL/JSON. PostgreSQL's own grammar is some twenty thousand lines and is not full ANSI either. The module says so in its header rather than in a release note, and `#![experimental]` says the tree will reshape as coverage grows -- joins will turn one `table` field into a list of table references, and a subquery will make `Expr` recursive through a `Statement`. The round trip is what makes those changes safe to make.

@@ -66,7 +66,15 @@ fn main() {
         ["SELECT id FROM t WHERE name = 1 ORDER BY id",
             "number against text: SQLite orders by a type rank and matches nothing, the standard refuses"],
         ["SELECT id FROM t WHERE n > 'x' ORDER BY id",
-            "the same comparison the other way round"]
+            "the same comparison the other way round"],
+        [
+            "SELECT id = 1 AS yes FROM t ORDER BY id",
+            "a boolean in a select list: SQLite has no boolean type and answers 0 or 1, while the standard and PostgreSQL answer one"
+        ],
+        [
+            "SELECT n IS NULL AS unknown FROM t ORDER BY id",
+            "the same, reached through a predicate rather than a comparison"
+        ]
     ]
 
     var agreed_with_sqlite = 0

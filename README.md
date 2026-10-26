@@ -102,7 +102,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | `net`, `http`, `server`, `client` | TCP and TLS, the types HTTP shares, an HTTP/1.1 server toolkit (with the peer address on each request, a per-key rate limiter and a per-client connection cap), an HTTP/HTTPS client |
 | `url` | percent-encoding, shared by `http` and `db` |
 | `locale`\* | a `Locale` from the operating system's own locale data, and the process-wide default that locale-aware functions use when given none; the invariant `root()` is what protocol and identifier code folds case with |
-| `db`, `sql`, `sqlite`, `pg`\*, `mysql`\*, `memdb`\* | one database API over SQLite, PostgreSQL, MySQL and an in-memory SQL engine written in Ziman, with pooling |
+| `db`, `sql`\*, `sqlite`, `pg`\*, `mysql`\*, `memdb`\* | one database API over SQLite, PostgreSQL, MySQL and an in-memory SQL engine written in Ziman, with pooling |
 
 \* Experimental: less real-world use than the rest of the library, so treat a gap or a
 protocol-conformance bug as more likely here. See [docs/DESIGN.md](docs/DESIGN.md)

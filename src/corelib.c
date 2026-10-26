@@ -40,6 +40,7 @@
 #include "mime_source.h"
 #include "jwt_source.h"
 #include "memdb_source.h"
+#include "sql_source.h"
 #include "migrate_source.h"
 #include "otp_source.h"
 #include "encoding_source.h"
@@ -110,6 +111,7 @@ static const CoreModule CORE_MODULES[] = {
     {"mime", MIME_SOURCE},
     {"jwt", JWT_SOURCE},
     {"memdb", MEMDB_SOURCE},
+    {"sql", SQL_SOURCE},
     {"migrate", MIGRATE_SOURCE},
     {"otp", OTP_SOURCE},
     {"encoding", ENCODING_SOURCE},

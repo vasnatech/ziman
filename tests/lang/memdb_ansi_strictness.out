@@ -28,7 +28,17 @@
    lax:    0 row(s)
    ansi:   refused: database error: cannot compare INTEGER with TEXT (the strict engine refuses what SQLite would order by type)
    sqlite: 0 row(s)
-lax matches sqlite on 6 of 6
-ansi differs from lax on 6 of 6
+-- a boolean in a select list: SQLite has no boolean type and answers 0 or 1, while the standard and PostgreSQL answer one
+   SELECT id = 1 AS yes FROM t ORDER BY id
+   lax:    3 row(s) | Int(1) | Int(0) | Int(0)
+   ansi:   3 row(s) | Bool(true) | Bool(false) | Bool(false)
+   sqlite: 3 row(s) | Int(1) | Int(0) | Int(0)
+-- the same, reached through a predicate rather than a comparison
+   SELECT n IS NULL AS unknown FROM t ORDER BY id
+   lax:    3 row(s) | Int(0) | Int(0) | Int(0)
+   ansi:   3 row(s) | Bool(false) | Bool(false) | Bool(false)
+   sqlite: 3 row(s) | Int(0) | Int(0) | Int(0)
+lax matches sqlite on 8 of 8
+ansi differs from lax on 8 of 8
 -- the two readings agree on everything else --
 the two readings agree on 12 of 12

@@ -65,6 +65,13 @@ val queries: [string] = [
     "SELECT patient_id FROM visit WHERE reason = 'checkup' ORDER BY id",
     // the three-valued logic a reader gets wrong before an engine does
     "SELECT id FROM patient WHERE age = NULL ORDER BY id",
+    // SQL's precedence, which the sql module had wrong twice until the round-trip test caught it:
+    // NOT is looser than a comparison, and IS NULL is looser than arithmetic
+    "SELECT id FROM patient WHERE NOT age = 36 ORDER BY id",
+    "SELECT id FROM patient WHERE NOT age > 30 ORDER BY id",
+    "SELECT id, age + 0 IS NULL AS unknown FROM patient ORDER BY id",
+    "SELECT id FROM patient WHERE NOT name LIKE 'A%' ORDER BY id",
+    "SELECT id FROM patient WHERE NOT (age > 30 AND note IS NULL) ORDER BY id",
     "SELECT id FROM patient WHERE NOT (age > 30) ORDER BY id",
     "SELECT id FROM patient WHERE age > 30 OR note = 'fourth' ORDER BY id",
     // and integer division, which both engines truncate

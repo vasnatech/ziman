@@ -2006,6 +2006,12 @@ connections, `execute`, `query`, `rows`, pools, transactions). SQLite (`sqlite::
 `sqlite:<path>`), PostgreSQL (`postgres://user:password@host:port/database`) and MySQL
 (`mysql://...`) are the backends, behind the same calls.
 
+`sql` is the statement tree on its own -- `sql.parse` reads one statement, `sql.parse_many` a
+script, `sql.parse_file` a file, and `sql.format` writes a `sql.Statement` back as SQL. It holds no
+database and no connection, so a program that wants to read, rewrite or generate SQL uses it
+without an engine; `memdb` is built on it. `parse` then `format` then `parse` gives the same tree,
+which is the property it is tested against over the sample application's real migrations.
+
 **An application says which engines it links**, and `datasource` names none of them: a `db.Driver`
 is an engine (its name, the URL prefixes it claims, and how to open a connection), a `db.Conn` is
 one open connection as a handful of closures that already hold it. So a program that talks to
