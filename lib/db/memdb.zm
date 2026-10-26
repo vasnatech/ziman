@@ -23,7 +23,9 @@
 // `BEGIN`/`COMMIT`/`ROLLBACK`.
 //
 // `RETURNING a, b`, `RETURNING *` or an expression with an alias, on `INSERT`, `UPDATE` and
-// `DELETE`. An `INSERT` answers what it stored with defaults filled in, an `UPDATE` the row as it
+// `DELETE`. A qualified star, `t.*`, in a select list -- naming one table's columns by the name or
+// alias the `FROM` gave it, which is what makes `p.*` work and `patient.*` not once `patient AS p`
+// has been written. In a `RETURNING` clause it is one of the two readings' divergences, below. An `INSERT` answers what it stored with defaults filled in, an `UPDATE` the row as it
 // now stands, a `DELETE` the row as it was -- each what a real engine answers. A `*` expands
 // anywhere in the list, so `RETURNING *, id` is two copies of `id`, and the same is now true of a
 // select list.
@@ -66,10 +68,18 @@
 // ## Two readings of SQL
 //
 // `driver()` at `memdb:` reads SQL the way SQLite does. `strict_driver()` at `memdb-ansi:` reads it
-// the way the standard does, and the two differ in exactly four places -- `LIKE`'s case
-// sensitivity, what division by zero answers, whether a number may be compared with text, and
-// whether a boolean in a select list comes back as a boolean or as the integer 0 or 1 (SQLite has
-// no boolean type; PostgreSQL and the standard do).
+// the way the standard does, and the two differ in exactly five places -- `LIKE`'s case
+// sensitivity, what division by zero answers, whether a number may be compared with text, whether
+// a boolean in a select list comes back as a boolean or as the integer 0 or 1 (SQLite has no
+// boolean type; PostgreSQL and the standard do), and whether a `RETURNING` clause may use a
+// qualified star.
+//
+// **The fifth one runs the other way**, and is the only one that does. The first four are places
+// the strict reading *refuses* what SQLite accepts. `RETURNING t.*` is refused by SQLite in those
+// words and answered by PostgreSQL, so there the lax reading refuses and the strict one runs it --
+// which means a statement failing on `memdb:` and passing on `memdb-ansi:` is PostgreSQL-only SQL
+// that will break on SQLite. Both directions are worth knowing; only the direction of the arrow
+// changes.
 //
 // **The strict one is a portability check.** A query that passes on `memdb:` and fails on
 // `memdb-ansi:` is leaning on SQLite and will behave differently on PostgreSQL, which matters when
@@ -82,8 +92,9 @@
 // anyway, because a test suite is not restricted to the queries the application happens to issue
 // and an engine that refuses them would push every such test onto a container.
 //
-// A qualified star (`SELECT t.*`), constraint *enforcement*, set operations (`UNION`, `INTERSECT`,
-// `EXCEPT`), derived tables in a `FROM` and per-test forking are the next increments. Anything it does not understand
+// Constraint *enforcement*, set operations (`UNION`, `INTERSECT`, `EXCEPT`), derived tables in a
+// `FROM` and per-test forking are the next increments. `count(t.*)` is not read: SQLite refuses it,
+// PostgreSQL counts whole rows with it, and nothing needs it. Anything it does not understand
 // is an error naming the token, never a quiet partial execution.
 //
 // ## Transactions are free, because a database is a value
@@ -353,7 +364,10 @@ fn column_index(columns: [string], name: string) -> int {
 fn eval_expr(e: Expr, cx: Ctx) -> Result<SqlValue, DbError> {
     return switch e {
         Lit(v) { ok(v) }
-        Star { err(problem("'*' is only allowed on its own in a SELECT list")) }
+        Star { err(problem("'*' is only allowed in a select list or a RETURNING clause")) }
+        TableStar(table) {
+            err(problem(concat("'", table, ".*' is only allowed in a select list or a RETURNING clause")))
+        }
         Param(number) {
             if number > prelude.len(cx.params) {
                 err(problem(prelude.format(
@@ -982,6 +996,23 @@ fn column_known(cx: Ctx, ref: sql.ColRef) -> Result<unit, DbError> {
     return err(problem(concat("no such column: ", written)))
 }
 
+// Whether `table` names a table this scope reads, by its alias where one was given. The same
+// outward walk `column_known` makes, because `t.*` inside a correlated subquery may name a table
+// of the enclosing query.
+fn table_known(cx: Ctx, table: string) -> Result<unit, DbError> {
+    val want = sql.fold_name(table)
+    for name in cx.tables {
+        if sql.fold_name(name) == want {
+            return ok(unit)
+        }
+    }
+    val depth = prelude.len(cx.outer)
+    if depth > 0 {
+        return table_known(cx.outer[depth - 1], table)
+    }
+    return err(problem(concat("no such table: ", table)))
+}
+
 fn validate_expr(e: Expr, cx: Ctx) -> Result<unit, DbError> {
     return switch e {
         Col(ref) { column_known(cx, ref) }
@@ -1026,6 +1057,7 @@ fn validate_expr(e: Expr, cx: Ctx) -> Result<unit, DbError> {
         Lit(_) { unit }
         Param(_) { unit }
         Star { unit }
+        TableStar(table) { table_known(cx, table) }
         // A subquery's own columns are checked against its own tables, with this scope enclosing
         // them -- that is what makes a correlated name legal and a mistyped one an error.
         Sub(node) { validate_query(node.query, cx) }
@@ -1125,6 +1157,7 @@ fn has_aggregate(e: Expr) -> bool {
         Col(_) { false }
         Param(_) { false }
         Star { false }
+        TableStar(_) { false }
         // An aggregate inside a subquery belongs to that subquery, not to this one.
         Sub(_) { false }
         Exists(_) { false }
@@ -1276,6 +1309,7 @@ fn eval_grouped(e: Expr, sc: Scope, rows: [[SqlValue]]) -> Result<SqlValue, DbEr
             Col(_) { err(problem("unreachable: a column holds no aggregate")) }
             Param(_) { err(problem("unreachable: a parameter holds no aggregate")) }
             Star { err(problem("'*' is only allowed inside COUNT")) }
+            TableStar(_) { err(problem("'*' is only allowed inside COUNT")) }
             Like(_) { err(problem("an aggregate inside LIKE is not supported")) }
             In(_) { err(problem("an aggregate inside IN is not supported")) }
             Between(_) { err(problem("an aggregate inside BETWEEN is not supported")) }
@@ -1419,18 +1453,27 @@ fn returned_rows(
     val names = column_names(t)
     val shape = table_ctx(database, t, [], params, strict)
     for item in items {
+        // **`RETURNING t.*` is where the two readings part, and in the opposite direction to every
+        // other divergence**: SQLite refuses a qualified star in a `RETURNING` clause outright,
+        // and PostgreSQL answers it (measured on postgres:17, not assumed). So the SQLite-shaped
+        // reading refuses it, with SQLite's own words, and the other one runs it. A statement that
+        // fails on `memdb:` and passes on `memdb-ansi:` is the mirror of the usual signal: it is
+        // PostgreSQL-only SQL, and it will break on SQLite.
+        if !strict && Expr.is_TableStar(item.expr) {
+            return err(problem("RETURNING may not use \"TABLE.*\" wildcards"))
+        }
         try validate_expr(item.expr, shape)
     }
     // `RETURNING *` answers every column of the table, by the same rule a select list's `*`
     // follows -- including beside other items, as `RETURNING *, id`.
-    val columns = item_headers(items, names)
+    val columns = try item_headers(items, names, shape.tables)
     val out = mutable_array_new<Row>()
     for row in touched {
         val values = mutable_array_new<SqlValue>()
         for item in items {
-            if Expr.is_Star(item.expr) {
-                for v in row {
-                    push(values, present(v, strict))
+            if is_star_item(item.expr) {
+                for at in try star_positions(item.expr, names, shape.tables) {
+                    push(values, present(row[at], strict))
                 }
             } else {
                 push(values, present(
@@ -1562,21 +1605,50 @@ fn run_update(database: Database, stmt: UpdateStmt, params: [SqlValue], strict: 
 
 // The output column name for a select item: its alias, else the column it names, else its
 // position -- which is roughly what SQLite does and close enough for a test to read by name.
-// The output column names a list of items produces, with every `*` expanded to the columns named
-// in `names`. One function for a select list and for a `RETURNING` clause, which answer the same
-// question.
-fn item_headers(items: [SelectItem], names: [string]) -> [string] {
+// Whether an item is a star of either kind, and so stands for columns rather than for a value.
+fn is_star_item(e: Expr) -> bool {
+    return Expr.is_Star(e) || Expr.is_TableStar(e)
+}
+
+// The column positions a star stands for: every column for a bare `*`, and one table's columns for
+// `t.*`, matched against the qualifier each column was given by the `FROM` -- an alias where the
+// table had one, which is what makes `SELECT p.* FROM patient AS p` work and `patient.*` not.
+//
+// A qualifier naming no table in scope is an error rather than an empty expansion, because
+// `SELECT x.* FROM t` is a mistake and answering no columns would hide it. Real engines say
+// "no such table: x"; so does this.
+fn star_positions(e: Expr, names: [string], tables: [string]) -> Result<[int], DbError> {
+    var qualifier = ""
+    if TableStar(table) = e {
+        qualifier = table
+    }
+    val want = sql.fold_name(qualifier)
+    val out = mutable_array_new<int>()
+    for i in 0..prelude.len(names) {
+        if qualifier == "" || sql.fold_name(tables[i]) == want {
+            push(out, i)
+        }
+    }
+    if qualifier != "" && prelude.len(out) == 0 {
+        return err(problem(concat("no such table: ", qualifier)))
+    }
+    return ok(snapshot(out))
+}
+
+// The output column names a list of items produces, with every star expanded. One function for a
+// select list and for a `RETURNING` clause, which answer the same question.
+fn item_headers(items: [SelectItem], names: [string], tables: [string]) -> Result<[string], DbError> {
     val headers = mutable_array_new<string>()
     for i in 0..prelude.len(items) {
-        if Expr.is_Star(items[i].expr) {
-            for name in names {
-                push(headers, name)
+        if is_star_item(items[i].expr) {
+            for at in try star_positions(items[i].expr, names, tables) {
+                push(headers, names[at])
             }
         } else {
             push(headers, item_name(items[i], i))
         }
     }
-    return snapshot(headers)
+    return ok(snapshot(headers))
 }
 
 fn item_name(item: SelectItem, at: int) -> string {
@@ -1600,6 +1672,7 @@ fn item_name(item: SelectItem, at: int) -> string {
         Between(_) { prelude.format("column{}", at + 1) }
         Case(_) { prelude.format("column{}", at + 1) }
         Star { "*" }
+        TableStar(table) { concat(table, ".*") }
     }
 }
 
@@ -1669,14 +1742,14 @@ fn run_select(
     // list**, so `SELECT *, id` is two copies of `id` and not an error. It was once allowed only on
     // its own, which the `RETURNING` cross-check found by running `RETURNING *, id` against real
     // SQLite.
-    val columns = item_headers(stmt.items, names)
+    val columns = try item_headers(stmt.items, names, source.tables)
     val projected = mutable_array_new<Row>()
     for i in chosen {
         val values = mutable_array_new<SqlValue>()
         for item in stmt.items {
-            if Expr.is_Star(item.expr) {
-                for v in source.rows[i] {
-                    push(values, present(v, strict))
+            if is_star_item(item.expr) {
+                for at in try star_positions(item.expr, names, source.tables) {
+                    push(values, present(source.rows[i][at], strict))
                 }
             } else {
                 push(values, present(try eval_expr(item.expr, scope_ctx(sc, source.rows[i])), strict))
@@ -2131,16 +2204,24 @@ pub fn driver() -> Driver {
     return engine("memdb:", false)
 }
 
-// The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Three things
-// differ, and they are the three where SQLite departs from ANSI:
+// The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Five things differ,
+// and the first four are places where SQLite departs from ANSI:
 //
 //   - `LIKE` is case-sensitive, as the standard and PostgreSQL have it, where SQLite folds ASCII;
 //   - division by zero is an error (SQLSTATE 22012's rule), where SQLite answers NULL;
-//   - comparing a number with text is a type error, where SQLite orders them by a type rank.
+//   - comparing a number with text is a type error, where SQLite orders them by a type rank;
+//   - a boolean in a select list stays a boolean, where SQLite has no boolean type and answers 0
+//     or 1.
+//
+// The fifth is the one exception, and it points the other way: `RETURNING t.*` is **refused** by
+// SQLite and answered by PostgreSQL (measured, not assumed), so the lax reading refuses it and
+// this one runs it.
 //
 // **It is a portability check, not a better engine.** A suite that passes on `memdb:` and fails on
 // `memdb-ansi:` has found SQL that leans on SQLite, which matters when the same application also
 // ships on PostgreSQL -- and finding it costs a second local run rather than a Postgres container.
+// A statement that fails the other way round, on `memdb:` only, is the mirror of that: SQL only
+// PostgreSQL will take.
 // Both report the dialect `memdb`, so migrations and `migrate`'s type tokens work for either.
 pub fn strict_driver() -> Driver {
     return engine("memdb-ansi:", true)

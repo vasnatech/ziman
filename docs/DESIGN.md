@@ -228,6 +228,7 @@ them against the code.
 - [`sql`: the statement tree moves out of the engine, and two precedence bugs fall out (2026-10-25)](#sql-the-statement-tree-moves-out-of-the-engine-and-two-precedence-bugs-fall-out-2026-10-25)
 - [`sql` and `memdb` learn joins and subqueries, and validation loses its nerve (2026-10-25)](#sql-and-memdb-learn-joins-and-subqueries-and-validation-loses-its-nerve-2026-10-25)
 - [`RETURNING`, and a clause the standard does not have (2026-10-25)](#returning-and-a-clause-the-standard-does-not-have-2026-10-25)
+- [A qualified star, and the first divergence that points the other way (2026-10-25)](#a-qualified-star-and-the-first-divergence-that-points-the-other-way-2026-10-25)
 
 <!-- end index -->
 
@@ -8946,3 +8947,19 @@ The same gate is the reason for a one-line change in the sample application in t
 A qualified star (`SELECT t.*`) is still not read -- it errors on both sides with different messages -- and is the next increment rather than a silent wrong answer.
 
 **The numbers.** The round-trip fixture carries 70 statement shapes, up from 61, plus the sample application's 39 migration files and 132 statements with none failing to settle. The cross-check runs 80 read queries and 17 `RETURNING` writes against real SQLite with no disagreement, and compares what is left of the table afterwards. One more case runs the shape the application *actually* issues -- placeholders plus `RETURNING *`, read through `query_one` -- because every other line in that file binds nothing, and a clause that worked only with literals would pass all of them and fail in production. It also checks that `execute` on a `RETURNING` statement still reports the affected count, since both forms read `.affected` and `.rows` from one shared run. The two readings of SQL agree on 23 shared queries, up from 20, three of which are `RETURNING` writes -- so the decision above is a guard and not just a paragraph.
+
+## A qualified star, and the first divergence that points the other way (2026-10-25)
+
+`SELECT t.*` -- a star naming one table's columns. `Expr` gained `TableStar(string)` rather than a qualifier on `Star`, so `count(*)` and every other reader of a bare star is untouched; `memdb` resolves it against the qualifier each column was given by the `FROM`, which is an alias where the table had one. That is what makes `SELECT p.* FROM patient AS p` work and `SELECT patient.* FROM patient AS p` fail, on this engine and on both real ones.
+
+**The enum did the work of finding the call sites.** Adding the variant produced five compile errors and no more: `eval_expr`, `validate_expr`, `has_aggregate`, the nested-aggregate fold and `item_name`, each with the message *"this `switch` over sql.Expr is not exhaustive: missing TableStar (there is no default arm on purpose, so a new variant is a compile error here)"*. The no-default-arm rule is the reason this increment needed no searching.
+
+A qualifier naming no table in scope is an error rather than an empty expansion -- `SELECT x.* FROM t` is a mistake, and answering no columns would hide it. `memdb` says "no such table: x", which is SQLite's wording too, so the cross-check reports agreement rather than a near miss. `table_known` makes the same outward walk through enclosing scopes that `column_known` makes, because `t.*` inside a correlated subquery may name a table of the enclosing query -- and the fixture has that case.
+
+**Then `RETURNING t.*` turned out to be the first place the two readings part in the opposite direction.** SQLite refuses it outright -- `RETURNING may not use "TABLE.*" wildcards` -- and PostgreSQL answers it. That was **measured rather than assumed**: a throwaway `postgres:17` container, four statements, removed afterwards. The same probe settled three neighbouring questions: `SELECT *, t.*` works on PostgreSQL as on SQLite, `SELECT zz.* FROM zz AS p` is refused by PostgreSQL as by SQLite ("Perhaps you meant to reference the table alias"), and `count(t.*)` -- which SQLite and this engine refuse -- *counts whole rows* on PostgreSQL. The last is why `count(t.*)` is listed as not read rather than left to be discovered.
+
+So the lax reading refuses `RETURNING t.*` in SQLite's own words and the strict reading runs it, which makes it **the fifth divergence and the only one whose arrow points the other way**. The first four are places where the strict reading refuses what SQLite accepts, and the rule for reading a failure was simple: passes on `memdb:`, fails on `memdb-ansi:`, therefore leans on SQLite. The fifth adds a mirror of that rule -- fails on `memdb:`, passes on `memdb-ansi:`, therefore PostgreSQL-only and will break on SQLite. Both are worth knowing, and the asymmetry is in both drivers' headers rather than left for a reader to infer from the code.
+
+Writing it the other way was tempting and would have been wrong. Refusing `RETURNING t.*` in both readings is less machinery, and it would have meant `memdb-ansi:` no longer modelled the engine it exists to stand in for.
+
+**The numbers.** 93 read queries and 21 `RETURNING` statements agree with real SQLite, up from 80 and 17; the new ones include a qualified star across a join, both sides of a self-join, `*, p.*` together, inside `EXISTS`, through a `LEFT JOIN`'s unmatched rows, shadowed by an alias, and with a qualifier that names nothing. 76 round-trip shapes settle in one pass, up from 70. The strictness fixture holds 10 divergences, each still matching SQLite on the lax side and still differing on the strict side.

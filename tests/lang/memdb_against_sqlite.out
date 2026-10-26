@@ -76,10 +76,23 @@ agree    SELECT CAST(age AS TEXT) AS t FROM patient ORDER BY id
 agree    SELECT CAST('42' AS INTEGER) AS n
 agree    SELECT CAST(cost AS INTEGER) AS whole FROM visit ORDER BY id
 agree    SELECT CAST(age AS REAL) AS r FROM patient ORDER BY id
+agree    SELECT p.* FROM patient AS p ORDER BY p.id
+agree    SELECT patient.* FROM patient ORDER BY id
+agree    SELECT p.*, v.* FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id
+agree    SELECT v.* FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id
+agree    SELECT v.*, p.name FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id
+agree    SELECT *, p.* FROM patient AS p ORDER BY p.id
+agree    SELECT p.*, p.id FROM patient AS p ORDER BY p.id
+agree    SELECT DISTINCT p.* FROM patient AS p ORDER BY p.id
+agree    SELECT a.*, b.* FROM patient AS a JOIN patient AS b ON b.id = a.id ORDER BY a.id
+agree    SELECT p.* FROM patient AS p LEFT JOIN visit AS v ON v.patient_id = p.id WHERE v.id IS NULL ORDER BY p.id
+agree    SELECT p.name FROM patient AS p WHERE EXISTS (SELECT v.* FROM visit AS v WHERE v.patient_id = p.id) ORDER BY p.id
+agree    SELECT patient.* FROM patient AS p ORDER BY p.id
+agree    SELECT nope.* FROM patient
 agree    SELECT nope FROM patient
 agree    SELECT name FROM patient AS p JOIN visit AS v ON v.nope = p.id
 agree    SELECT id FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY id
-80 of 80 queries agree
+93 of 93 queries agree
 -- writes --
 1 rows both: true  <- UPDATE patient SET note = 'edited' WHERE id = 2
 1 rows both: true  <- DELETE FROM patient WHERE age IS NULL
@@ -104,7 +117,11 @@ agree    DELETE FROM patient WHERE id = 19 RETURNING *
 agree    DELETE FROM patient WHERE id = 18 RETURNING id, name
 agree    DELETE FROM patient WHERE id = 999 RETURNING id
 agree    DELETE FROM patient WHERE age > 40 RETURNING id AS gone
-17 of 17 RETURNING statements agree
+agree    INSERT INTO patient (id, name) VALUES (30, 'Pat') RETURNING patient.*
+agree    UPDATE patient SET note = 'q' WHERE id = 1 RETURNING patient.*
+agree    DELETE FROM patient WHERE id = 999 RETURNING patient.*
+agree    INSERT INTO patient (id, name) VALUES (31, 'Quinn') RETURNING nope.*
+21 of 21 RETURNING statements agree
 -- RETURNING with bound parameters, through query_one --
 agree    both engines handed back the row they stored
 execute on a RETURNING update reports 1 on both: true

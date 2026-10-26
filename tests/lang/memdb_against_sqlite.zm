@@ -131,6 +131,22 @@ val queries: [string] = [
     "SELECT CAST('42' AS INTEGER) AS n",
     "SELECT CAST(cost AS INTEGER) AS whole FROM visit ORDER BY id",
     "SELECT CAST(age AS REAL) AS r FROM patient ORDER BY id",
+    // a qualified star, which names one side of a join by the name the FROM gave it
+    "SELECT p.* FROM patient AS p ORDER BY p.id",
+    "SELECT patient.* FROM patient ORDER BY id",
+    "SELECT p.*, v.* FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id",
+    "SELECT v.* FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id",
+    "SELECT v.*, p.name FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id",
+    "SELECT *, p.* FROM patient AS p ORDER BY p.id",
+    "SELECT p.*, p.id FROM patient AS p ORDER BY p.id",
+    "SELECT DISTINCT p.* FROM patient AS p ORDER BY p.id",
+    "SELECT a.*, b.* FROM patient AS a JOIN patient AS b ON b.id = a.id ORDER BY a.id",
+    "SELECT p.* FROM patient AS p LEFT JOIN visit AS v ON v.patient_id = p.id WHERE v.id IS NULL ORDER BY p.id",
+    "SELECT p.name FROM patient AS p WHERE EXISTS (SELECT v.* FROM visit AS v WHERE v.patient_id = p.id) ORDER BY p.id",
+    // an alias hides the table's own name, on both engines and on PostgreSQL
+    "SELECT patient.* FROM patient AS p ORDER BY p.id",
+    // and a qualifier naming no table at all
+    "SELECT nope.* FROM patient",
     // and the column names a typo gives, which must be refused on both
     "SELECT nope FROM patient",
     "SELECT name FROM patient AS p JOIN visit AS v ON v.nope = p.id",
@@ -165,7 +181,14 @@ val returning: [string] = [
     "DELETE FROM patient WHERE id = 19 RETURNING *",
     "DELETE FROM patient WHERE id = 18 RETURNING id, name",
     "DELETE FROM patient WHERE id = 999 RETURNING id",
-    "DELETE FROM patient WHERE age > 40 RETURNING id AS gone"
+    "DELETE FROM patient WHERE age > 40 RETURNING id AS gone",
+    // **SQLite refuses a qualified star in a RETURNING clause**, in those words, where PostgreSQL
+    // answers it -- measured on postgres:17 rather than assumed. The SQLite-shaped reading refuses
+    // it too; `memdb_ansi_strictness.zm` holds the other half, where the strict reading runs it.
+    "INSERT INTO patient (id, name) VALUES (30, 'Pat') RETURNING patient.*",
+    "UPDATE patient SET note = 'q' WHERE id = 1 RETURNING patient.*",
+    "DELETE FROM patient WHERE id = 999 RETURNING patient.*",
+    "INSERT INTO patient (id, name) VALUES (31, 'Quinn') RETURNING nope.*"
 ]
 
 fn seed(url: string) -> datasource.Connection {

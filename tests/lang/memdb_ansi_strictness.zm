@@ -74,6 +74,14 @@ fn main() {
         [
             "SELECT n IS NULL AS unknown FROM t ORDER BY id",
             "the same, reached through a predicate rather than a comparison"
+        ],
+        [
+            "DELETE FROM t WHERE id = 999 RETURNING t.*",
+            "a qualified star in a RETURNING clause: SQLite refuses it outright and PostgreSQL answers it, so here the usual direction is reversed -- what fails on the lax reading and passes on the strict one is PostgreSQL-only SQL that will break on SQLite. Chosen to match no rows, so neither connection's data moves"
+        ],
+        [
+            "UPDATE t SET n = n WHERE id = 999 RETURNING t.*, t.id",
+            "the same, on an UPDATE, and again matching nothing"
         ]
     ]
 

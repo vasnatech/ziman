@@ -36,6 +36,9 @@ Joins: `[INNER] JOIN`, `LEFT`/`RIGHT`/`FULL [OUTER] JOIN` and `CROSS JOIN`, each
 condition or a `USING` column list, as a flat left-deep list -- which is what SQL means by
 `a JOIN b ON .. JOIN c ON ..`. A parenthesised join expression would need a tree and is not read.
 
+A `*` stands anywhere in a result list, on its own or beside other items, and `t.*` names one
+table's columns -- in a select list and in a `RETURNING` clause alike.
+
 Expressions: literals, column references (qualified or not), bound parameters (`?` and `$1`, both
 numbered so a statement may mix them), `AND`/`OR`/`NOT`, the six comparisons, `IS [NOT] NULL`,
 `LIKE`, `IN` (a list or a subquery), `BETWEEN`, `CASE WHEN ... THEN ... ELSE ... END`,
@@ -248,6 +251,9 @@ pub enum Expr {
     Between(BetweenNode)
     Case(CaseNode)
     Star
+    // `t.*`, holding the table name or alias it was written with. A separate variant rather than a
+    // qualifier on `Star`, so `count(*)` and every other reader of a bare star is untouched.
+    TableStar(string)
 }
 ```
 

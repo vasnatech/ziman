@@ -2076,6 +2076,9 @@ pub enum Expr {
     Between(BetweenNode)
     Case(CaseNode)
     Star
+    // `t.*`, holding the table name or alias it was written with. A separate variant rather than a
+    // qualifier on `Star`, so `count(*)` and every other reader of a bare star is untouched.
+    TableStar(string)
 }
 
 pub struct TableRef {

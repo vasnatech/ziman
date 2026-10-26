@@ -38,7 +38,17 @@
    lax:    3 row(s) | Int(0) | Int(0) | Int(0)
    ansi:   3 row(s) | Bool(false) | Bool(false) | Bool(false)
    sqlite: 3 row(s) | Int(0) | Int(0) | Int(0)
-lax matches sqlite on 8 of 8
-ansi differs from lax on 8 of 8
+-- a qualified star in a RETURNING clause: SQLite refuses it outright and PostgreSQL answers it, so here the usual direction is reversed -- what fails on the lax reading and passes on the strict one is PostgreSQL-only SQL that will break on SQLite. Chosen to match no rows, so neither connection's data moves
+   DELETE FROM t WHERE id = 999 RETURNING t.*
+   lax:    refused: database error: RETURNING may not use "TABLE.*" wildcards
+   ansi:   0 row(s)
+   sqlite: refused: database error: RETURNING may not use "TABLE.*" wildcards
+-- the same, on an UPDATE, and again matching nothing
+   UPDATE t SET n = n WHERE id = 999 RETURNING t.*, t.id
+   lax:    refused: database error: RETURNING may not use "TABLE.*" wildcards
+   ansi:   0 row(s)
+   sqlite: refused: database error: RETURNING may not use "TABLE.*" wildcards
+lax matches sqlite on 10 of 10
+ansi differs from lax on 10 of 10
 -- the two readings agree on everything else --
 the two readings agree on 23 of 23

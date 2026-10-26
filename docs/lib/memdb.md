@@ -31,7 +31,9 @@ recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN
 `BEGIN`/`COMMIT`/`ROLLBACK`.
 
 `RETURNING a, b`, `RETURNING *` or an expression with an alias, on `INSERT`, `UPDATE` and
-`DELETE`. An `INSERT` answers what it stored with defaults filled in, an `UPDATE` the row as it
+`DELETE`. A qualified star, `t.*`, in a select list -- naming one table's columns by the name or
+alias the `FROM` gave it, which is what makes `p.*` work and `patient.*` not once `patient AS p`
+has been written. In a `RETURNING` clause it is one of the two readings' divergences, below. An `INSERT` answers what it stored with defaults filled in, an `UPDATE` the row as it
 now stands, a `DELETE` the row as it was -- each what a real engine answers. A `*` expands
 anywhere in the list, so `RETURNING *, id` is two copies of `id`, and the same is now true of a
 select list.
@@ -74,10 +76,18 @@ silently the left one.
 ## Two readings of SQL
 
 `driver()` at `memdb:` reads SQL the way SQLite does. `strict_driver()` at `memdb-ansi:` reads it
-the way the standard does, and the two differ in exactly four places -- `LIKE`'s case
-sensitivity, what division by zero answers, whether a number may be compared with text, and
-whether a boolean in a select list comes back as a boolean or as the integer 0 or 1 (SQLite has
-no boolean type; PostgreSQL and the standard do).
+the way the standard does, and the two differ in exactly five places -- `LIKE`'s case
+sensitivity, what division by zero answers, whether a number may be compared with text, whether
+a boolean in a select list comes back as a boolean or as the integer 0 or 1 (SQLite has no
+boolean type; PostgreSQL and the standard do), and whether a `RETURNING` clause may use a
+qualified star.
+
+**The fifth one runs the other way**, and is the only one that does. The first four are places
+the strict reading *refuses* what SQLite accepts. `RETURNING t.*` is refused by SQLite in those
+words and answered by PostgreSQL, so there the lax reading refuses and the strict one runs it --
+which means a statement failing on `memdb:` and passing on `memdb-ansi:` is PostgreSQL-only SQL
+that will break on SQLite. Both directions are worth knowing; only the direction of the arrow
+changes.
 
 **The strict one is a portability check.** A query that passes on `memdb:` and fails on
 `memdb-ansi:` is leaning on SQLite and will behave differently on PostgreSQL, which matters when
@@ -90,8 +100,9 @@ joins and no subqueries, because its repositories query one table each and compo
 anyway, because a test suite is not restricted to the queries the application happens to issue
 and an engine that refuses them would push every such test onto a container.
 
-A qualified star (`SELECT t.*`), constraint *enforcement*, set operations (`UNION`, `INTERSECT`,
-`EXCEPT`), derived tables in a `FROM` and per-test forking are the next increments. Anything it does not understand
+Constraint *enforcement*, set operations (`UNION`, `INTERSECT`, `EXCEPT`), derived tables in a
+`FROM` and per-test forking are the next increments. `count(t.*)` is not read: SQLite refuses it,
+PostgreSQL counts whole rows with it, and nothing needs it. Anything it does not understand
 is an error naming the token, never a quiet partial execution.
 
 ## Transactions are free, because a database is a value
@@ -143,17 +154,25 @@ four would be four different databases.
 pub fn strict_driver() -> Driver
 ```
 
-The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Three things
-differ, and they are the three where SQLite departs from ANSI:
+The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Five things differ,
+and the first four are places where SQLite departs from ANSI:
 
 
 ```
 - `LIKE` is case-sensitive, as the standard and PostgreSQL have it, where SQLite folds ASCII;
 - division by zero is an error (SQLSTATE 22012's rule), where SQLite answers NULL;
-- comparing a number with text is a type error, where SQLite orders them by a type rank.
+- comparing a number with text is a type error, where SQLite orders them by a type rank;
+- a boolean in a select list stays a boolean, where SQLite has no boolean type and answers 0
+  or 1.
 ```
+
+The fifth is the one exception, and it points the other way: `RETURNING t.*` is **refused** by
+SQLite and answered by PostgreSQL (measured, not assumed), so the lax reading refuses it and
+this one runs it.
 
 **It is a portability check, not a better engine.** A suite that passes on `memdb:` and fails on
 `memdb-ansi:` has found SQL that leans on SQLite, which matters when the same application also
 ships on PostgreSQL -- and finding it costs a second local run rather than a Postgres container.
+A statement that fails the other way round, on `memdb:` only, is the mirror of that: SQL only
+PostgreSQL will take.
 Both report the dialect `memdb`, so migrations and `migrate`'s type tokens work for either.

@@ -28,6 +28,9 @@
 // condition or a `USING` column list, as a flat left-deep list -- which is what SQL means by
 // `a JOIN b ON .. JOIN c ON ..`. A parenthesised join expression would need a tree and is not read.
 //
+// A `*` stands anywhere in a result list, on its own or beside other items, and `t.*` names one
+// table's columns -- in a select list and in a `RETURNING` clause alike.
+//
 // Expressions: literals, column references (qualified or not), bound parameters (`?` and `$1`, both
 // numbered so a statement may mix them), `AND`/`OR`/`NOT`, the six comparisons, `IS [NOT] NULL`,
 // `LIKE`, `IN` (a list or a subquery), `BETWEEN`, `CASE WHEN ... THEN ... ELSE ... END`,
@@ -340,6 +343,9 @@ pub enum Expr {
     Between(BetweenNode)
     Case(CaseNode)
     Star
+    // `t.*`, holding the table name or alias it was written with. A separate variant rather than a
+    // qualifier on `Star`, so `count(*)` and every other reader of a bare star is untouched.
+    TableStar(string)
 }
 
 // A table in a `FROM`, with the alias it was given.
@@ -697,9 +703,12 @@ fn parse_primary(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
         }
         set(c.at, get(c.at) + 1)
         var name = t.text
-        // `table.column`: the table part is dropped, since a statement here reads one table.
+        // `table.column`, or `table.*`.
         var qualifier = ""
         if accept_punct(c, ".") {
+            if accept_punct(c, "*") {
+                return ok(Expr.TableStar(name))
+            }
             qualifier = name
             name = try expect_name(c)
         }
@@ -1587,6 +1596,7 @@ fn strength(e: Expr) -> int {
         Call(_) { 9 }
         Case(_) { 9 }
         Star { 9 }
+        TableStar(_) { 9 }
     }
 }
 
@@ -1598,6 +1608,7 @@ pub fn format_expr(e: Expr) -> string {
         Col(ref) { if ref.table == "" { ref.name } else { concat(ref.table, ".", ref.name) } }
         Param(number) { concat("$", str(number)) }
         Star { "*" }
+        TableStar(table) { concat(table, ".*") }
         Not(node) { concat("NOT ", bracketed(format_expr(node.inner), strength(node.inner), precedence_not)) }
         IsNull(node) {
             concat(

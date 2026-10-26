@@ -38,6 +38,10 @@ val samples: [string] = [
     "SELECT DISTINCT name, age FROM patient ORDER BY name LIMIT 2",
     "SELECT count(DISTINCT name) AS c, count(*) AS all_of_them FROM patient",
     "SELECT CAST(age AS TEXT) AS t, CAST('1' AS INTEGER) AS n, CAST(x AS NUMERIC(10, 2)) AS m FROM patient",
+    "SELECT t.* FROM t",
+    "SELECT t.*, u.id FROM t JOIN u ON u.t_id = t.id",
+    "SELECT *, t.* FROM t",
+    "SELECT t.*, u.*, 1 AS one FROM t JOIN u ON u.t_id = t.id",
     "SELECT p.name, v.reason FROM patient AS p JOIN visit AS v ON v.patient_id = p.id",
     "SELECT p.name FROM patient AS p INNER JOIN visit AS v ON v.patient_id = p.id",
     "SELECT p.name FROM patient AS p LEFT JOIN visit AS v ON v.patient_id = p.id",
@@ -65,6 +69,8 @@ val samples: [string] = [
     "INSERT INTO patient (id, name) VALUES (1, 'Ada'), (2, 'Bob') RETURNING id, name",
     "INSERT INTO patient (id, name) VALUES (1, 'Ada') RETURNING id AS made, age * 2 AS twice",
     "INSERT INTO patient (id, name) VALUES (1, 'Ada') RETURNING *, id",
+    "INSERT INTO patient (id, name) VALUES (1, 'Ada') RETURNING patient.*",
+    "UPDATE patient SET name = 'Ada' RETURNING patient.*, patient.id",
     "UPDATE patient SET name = 'Ada' WHERE id = $1 RETURNING *",
     "UPDATE patient SET name = 'Ada' RETURNING id, name",
     "DELETE FROM patient WHERE id = $1 RETURNING *",
@@ -132,7 +138,8 @@ fn main() {
         "select distinct p.name from patient p left join visit v on v.patient_id=p.id where exists(select 1 from other)",
         "select count(distinct a),cast(b as text) from t group by cast(b as text)",
         "insert into t(a)values(1)returning *,a as copy",
-        "delete from t where a=1 returning a"
+        "delete from t where a=1 returning a",
+        "select t.*,u.* from t join u using(id)"
     ] {
         print(concat("  in:  ", s))
         print(concat("  out: ", switch sql.parse(s) {
