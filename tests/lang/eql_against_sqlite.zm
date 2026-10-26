@@ -57,7 +57,14 @@ val queries: [[string]] = [
     ["SELECT p.id FROM Patient p UNION SELECT v.patient_id FROM Visit v ORDER BY 1", ""],
     ["SELECT CASE WHEN p.gender IS NULL THEN 'unknown' ELSE p.gender END AS g FROM Patient p ORDER BY p.id", ""],
     ["SELECT p.id, p.last_name FROM Patient p, Visit v WHERE v.patient_id = p.id AND v.cost > :min ORDER BY p.id, v.id",
-        "min=50"]
+        "min=50"],
+    // A collection parameter: the placeholders are the translator's, and the two engines have to
+    // agree about the rows they pick.
+    ["SELECT p.last_name FROM Patient p WHERE p.last_name IN :names ORDER BY p.id", "*names=Ada,Cy"],
+    ["SELECT p.id FROM Patient p WHERE p.last_name IN :names AND p.gender = :g ORDER BY p.id", "*names=Ada,Bob|g=m"],
+    ["SELECT p.last_name FROM Patient p WHERE p.last_name NOT IN :names ORDER BY p.id", "*names=Ada"],
+    ["SELECT count(*) AS n FROM Visit v WHERE v.reason IN :reasons", "*reasons=checkup,follow up"],
+    ["SELECT v.reason FROM Visit v WHERE v.patient_id IN :ids GROUP BY v.reason ORDER BY v.reason", "*ids=1,2"]
 ]
 
 // `name=Ada|id=1` as bindings. Everything is bound as text unless it reads as a number, which is
@@ -71,7 +78,19 @@ fn bindings_of(spec: string) -> [eql.Binding] {
         val at = index_of(pair, "=", 0)
         val name = substring(pair, 0, at)
         val text = substring(pair, at + 1, len(pair))
-        push(out, eql.bind(name, value_of(text)))
+        // A `*` before the name means a collection, which is this fixture's own shorthand and not
+        // anything `eql` knows about. It is a marker rather than "has a comma in it" because a
+        // collection of **one** value cannot be told from a scalar by looking -- the reason
+        // `eql.bind_list` is its own function, and a mistake this fixture made first.
+        if starts_with(name, "*") {
+            val values = mutable_array_new<SqlValue>()
+            for part in split(text, ",") {
+                push(values, value_of(part))
+            }
+            push(out, eql.bind_list(substring(name, 1, len(name)), snapshot(values)))
+        } else {
+            push(out, eql.bind(name, value_of(text)))
+        }
     }
     return snapshot(out)
 }
@@ -122,7 +141,12 @@ fn main() {
         }
         val bound = bindings_of(pair[1])
         print(concat("-- ", pair[0]))
-        print(concat("   ", translated.sql))
+        // The SQL a collection query becomes depends on how many values are bound, so what is
+        // printed is what this call would send.
+        print(concat("   ", switch eql.prepare(translated, bound) {
+            Ok(ready) { ready.sql }
+            Err(e) { concat("PREPARE FAILED: ", db.db_error_message(e)) }
+        }))
         val a = answer(mem, translated, bound)
         val b = answer(lite, translated, bound)
         if a == b {

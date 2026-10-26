@@ -49,4 +49,19 @@
 -- SELECT p.id, p.last_name FROM Patient p, Visit v WHERE v.patient_id = p.id AND v.cost > :min ORDER BY p.id, v.id
    SELECT p.id, p.last_name FROM patients AS p CROSS JOIN visits AS v WHERE v.patient_id = p.id AND v.cost > $1 ORDER BY p.id, v.id
    agree    3 row(s) | id=Int(1) last_name=Text(Ada) | id=Int(1) last_name=Text(Ada) | id=Int(2) last_name=Text(Bob)
-17 of 17 entity queries agree
+-- SELECT p.last_name FROM Patient p WHERE p.last_name IN :names ORDER BY p.id
+   SELECT p.last_name FROM patients AS p WHERE p.last_name IN ($1, $2) ORDER BY p.id
+   agree    3 row(s) | last_name=Text(Ada) | last_name=Text(Ada) | last_name=Text(Cy)
+-- SELECT p.id FROM Patient p WHERE p.last_name IN :names AND p.gender = :g ORDER BY p.id
+   SELECT p.id FROM patients AS p WHERE p.last_name IN ($1, $2) AND p.gender = $3 ORDER BY p.id
+   agree    1 row(s) | id=Int(3)
+-- SELECT p.last_name FROM Patient p WHERE p.last_name NOT IN :names ORDER BY p.id
+   SELECT p.last_name FROM patients AS p WHERE p.last_name NOT IN ($1) ORDER BY p.id
+   agree    2 row(s) | last_name=Text(Bob) | last_name=Text(Cy)
+-- SELECT count(*) AS n FROM Visit v WHERE v.reason IN :reasons
+   SELECT count(*) AS n FROM visits AS v WHERE v.reason IN ($1, $2)
+   agree    1 row(s) | n=Int(4)
+-- SELECT v.reason FROM Visit v WHERE v.patient_id IN :ids GROUP BY v.reason ORDER BY v.reason
+   SELECT v.reason FROM visits AS v WHERE v.patient_id IN ($1, $2) GROUP BY v.reason ORDER BY v.reason
+   agree    2 row(s) | reason=Text(checkup) | reason=Text(follow up)
+22 of 22 entity queries agree

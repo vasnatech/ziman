@@ -98,22 +98,50 @@ pub fn registry(entities: [Entity]) -> Registry {
     return Registry { entities: entities }
 }
 
-// A named parameter's value.
+// A named parameter's value, or the values of a collection one.
+//
+// A collection is its own kind rather than an array of `SqlValue` everywhere, because the two
+// cannot be told apart by looking: `:ids` bound to one value and `:ids` bound to a list of one are
+// different queries, and only the binding knows which was meant.
 pub struct Binding {
     name: string
     value: SqlValue
+    values: [SqlValue]
+    list: bool
 }
 
 pub fn bind(name: string, value: SqlValue) -> Binding {
-    return Binding { name: name, value: value }
+    val none: [SqlValue] = []
+    return Binding { name: name, value: value, values: none, list: false }
+}
+
+// A collection parameter, for `IN :names`.
+//
+// **An empty list is refused rather than guessed at.** `x IN ()` is not SQL, and every spelling
+// that is has the wrong answer for one of the two directions: `IN (NULL)` is unknown rather than
+// false, and `NOT IN (NULL)` is unknown rather than true. A caller that can have an empty filter
+// knows what it means by one -- usually "match nothing", which is an answer it can give without a
+// round trip -- so it says so at the call site instead of here.
+pub fn bind_list(name: string, values: [SqlValue]) -> Binding {
+    return Binding { name: name, value: SqlValue.Null, values: values, list: true }
 }
 
 // What a query became: the SQL to send, the tree it parsed into, and the parameter names in the
 // order the SQL numbers them.
+//
+// It also keeps the query and the registry it came from, because a **collection parameter's** SQL
+// depends on how many values are bound -- `IN :types` is three placeholders for three values --
+// and that is not known until the call. A query with no collection parameter is translated once and
+// its `sql` is used as it stands; one with a collection is re-translated per call, which costs the
+// 140-300 microseconds `translate` costs and is still a fraction of the round trip it saves
+// hand-numbering for. `lists` is how `prepare` tells the two apart.
 pub struct Translated {
     sql: string
     statement: Statement
     bindings: [string]
+    lists: [string]
+    query: string
+    registry: Registry
 }
 
 fn problem(message: string) -> DbError {
@@ -303,6 +331,16 @@ fn spaced(before: Token, now: Token) -> bool {
 // A query translated: entity names become tables, paths are checked, `:name` becomes `$N`, and an
 // alias on its own becomes the entity's columns.
 pub fn translate(reg: Registry, query: string) -> Result<Translated, DbError> {
+    val no_sizes: Map<string, int> = Map<string, int> {}
+    return translate_sized(reg, query, no_sizes)
+}
+
+// The translation, with the size of each collection parameter where it is known.
+//
+// Called twice for a query that has one: once by `translate` with nothing known, to learn the
+// query's shape and which parameters are collections, and again by `prepare` once the values are
+// in hand and the placeholder count is settled.
+fn translate_sized(reg: Registry, query: string, sizes: Map<string, int>) -> Result<Translated, DbError> {
     val tokens = try sql.tokenize(query)
     if prelude.len(tokens) == 0 {
         return err(problem("an empty query"))
@@ -313,7 +351,9 @@ pub fn translate(reg: Registry, query: string) -> Result<Translated, DbError> {
     val binds = try bindings_of(reg, tokens)
     val out = mutable_string_new()
     val order = mutable_array_new<string>()
+    val lists = mutable_array_new<string>()
     val seen = mutable_map_new<string, int>()
+    var next_number = 1
     // Where the select list ends, so an alias on its own is expanded there and nowhere else.
     var in_select = true
     // Inside a `FROM` or `JOIN` list, where a comma introduces another entity rather than another
@@ -410,14 +450,41 @@ pub fn translate(reg: Registry, query: string) -> Result<Translated, DbError> {
                 return err(problem("expected a parameter name after ':'"))
             }
             val name = tokens[i + 1].text
-            var number = prelude.len(order) + 1
+            // A collection parameter is the one written after `IN`, and it stands for as many
+            // placeholders as there are values. `sizes` is empty on the first translation, so one
+            // placeholder is emitted then and the query is translated again once the count is
+            // known -- which is what `lists` tells `prepare` to do.
+            var width = 1
+            var is_list = false
+            if i >= 1 && is_name(tokens[i - 1]) && tokens[i - 1].upper == "IN" {
+                is_list = true
+                width = 1
+                if Some(n) = get(sizes, name) {
+                    width = n
+                }
+                if !contains(snapshot(lists), name) {
+                    push(lists, name)
+                }
+            }
+            var number = next_number
             if Some(already) = get(seen, name) {
                 number = already
             } else {
                 set(seen, name, number)
                 push(order, name)
+                next_number = next_number + width
             }
-            append(out, "$", str(number))
+            if is_list {
+                // The parentheses are the translator's, because `IN :types` has none and SQL's
+                // `IN` needs them.
+                val holes = mutable_array_new<string>()
+                for k in 0..width {
+                    push(holes, concat("$", str(number + k)))
+                }
+                append(out, "(", join(separator: ", ", pieces: snapshot(holes)), ")")
+            } else {
+                append(out, "$", str(number))
+            }
             i = i + 2
             continue
         }
@@ -439,7 +506,14 @@ pub fn translate(reg: Registry, query: string) -> Result<Translated, DbError> {
         Ok(s) { s }
         Err(e) { return err(problem(concat(db_message(e), " -- in the SQL this query became: ", text))) }
     }
-    return ok(Translated { sql: sql.format(statement), statement: statement, bindings: snapshot(order) })
+    return ok(Translated {
+        sql: sql.format(statement),
+        statement: statement,
+        bindings: snapshot(order),
+        lists: snapshot(lists),
+        query: query,
+        registry: reg
+    })
 }
 
 fn db_message(e: DbError) -> string {
@@ -459,14 +533,21 @@ fn db_message(e: DbError) -> string {
 pub fn arrange(t: Translated, bound: [Binding]) -> Result<[SqlValue], DbError> {
     val out = mutable_array_new<SqlValue>()
     for name in t.bindings {
-        var found = Option<SqlValue>.None
+        var found = Option<Binding>.None
         for b in bound {
             if b.name == name {
-                found = Option<SqlValue>.Some(b.value)
+                found = Option<Binding>.Some(b)
             }
         }
-        if Some(v) = found {
-            push(out, v)
+        if Some(b) = found {
+            // A collection's values go in where its placeholders are, in order.
+            if b.list {
+                for v in b.values {
+                    push(out, v)
+                }
+            } else {
+                push(out, b.value)
+            }
         } else {
             // **What was bound is named too**, because the usual cause of a missing binding is a
             // misspelled one, and the two names side by side diagnose it at a glance where either
@@ -496,6 +577,49 @@ pub fn arrange(t: Translated, bound: [Binding]) -> Result<[SqlValue], DbError> {
         }
     }
     return ok(snapshot(out))
+}
+
+// The SQL to send and the values to send with it.
+//
+// For a query with no collection parameter this is `t.sql` as it stands and the values laid out by
+// `arrange` -- the translation was done once and is reused. For one with a collection it is a
+// second translation, now that the number of values is known, because `IN :types` is three
+// placeholders for three values and one for one. That costs what a translation costs and still
+// beats what it replaces: a hand-built ` AND type IN ($2, $3, ...)` in one function with the
+// values assembled in another.
+pub fn prepare(query: Translated, bound: [Binding]) -> Result<Prepared, DbError> {
+    if prelude.len(query.lists) == 0 {
+        return ok(Prepared { sql: query.sql, params: try arrange(query, bound) })
+    }
+    val sizes = mutable_map_new<string, int>()
+    for b in bound {
+        if b.list {
+            if prelude.len(b.values) == 0 {
+                return err(problem(prelude.format(
+                    "nothing was bound to the collection :{}, and `IN ()` is not SQL -- decide what an empty filter means at the call site (usually: answer nothing without asking the database)",
+                    b.name
+                )))
+            }
+            set(sizes, b.name, prelude.len(b.values))
+        }
+    }
+    for name in query.lists {
+        if !contains(sizes, name) {
+            return err(problem(prelude.format(
+                "the query names the collection :{} after IN, so it needs eql.bind_list(\"{}\", ..) rather than eql.bind",
+                name,
+                name
+            )))
+        }
+    }
+    val sized = try translate_sized(query.registry, query.query, snapshot(sizes))
+    return ok(Prepared { sql: sized.sql, params: try arrange(sized, bound) })
+}
+
+// One call's SQL and values.
+pub struct Prepared {
+    sql: string
+    params: [SqlValue]
 }
 
 // ---------------------------------------------------------------- running one
@@ -561,7 +685,8 @@ pub fn one<E>(
 // The rows a query answers, for a projection -- a few fields, an aggregate, a count. The caller
 // reads them with `db.row_get` and the `sql_as_*` converters, as it would any other result.
 pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError> {
-    return datasource.query(conn, query.sql, try arrange(query, bound))
+    val ready = try prepare(query, bound)
+    return datasource.query(conn, ready.sql, ready.params)
 }
 
 // The one number a counting query answers: one row of one column, read as an integer.

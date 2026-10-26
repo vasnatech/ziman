@@ -1863,19 +1863,33 @@ pub fn registry(entities: [Entity]) -> Registry
 pub struct Binding {
     name: string
     value: SqlValue
+    values: [SqlValue]
+    list: bool
 }
 
 pub fn bind(name: string, value: SqlValue) -> Binding
+
+pub fn bind_list(name: string, values: [SqlValue]) -> Binding
 
 pub struct Translated {
     sql: string
     statement: Statement
     bindings: [string]
+    lists: [string]
+    query: string
+    registry: Registry
 }
 
 pub fn translate(reg: Registry, query: string) -> Result<Translated, DbError>
 
 pub fn arrange(t: Translated, bound: [Binding]) -> Result<[SqlValue], DbError>
+
+pub fn prepare(query: Translated, bound: [Binding]) -> Result<Prepared, DbError>
+
+pub struct Prepared {
+    sql: string
+    params: [SqlValue]
+}
 
 pub fn list<E>(
 

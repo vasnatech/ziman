@@ -121,16 +121,36 @@ pub fn registry(entities: [Entity]) -> Registry
 pub struct Binding {
     name: string
     value: SqlValue
+    values: [SqlValue]
+    list: bool
 }
 ```
 
-A named parameter's value.
+A named parameter's value, or the values of a collection one.
+
+A collection is its own kind rather than an array of `SqlValue` everywhere, because the two
+cannot be told apart by looking: `:ids` bound to one value and `:ids` bound to a list of one are
+different queries, and only the binding knows which was meant.
 
 ### `bind`
 
 ```
 pub fn bind(name: string, value: SqlValue) -> Binding
 ```
+
+### `bind_list`
+
+```
+pub fn bind_list(name: string, values: [SqlValue]) -> Binding
+```
+
+A collection parameter, for `IN :names`.
+
+**An empty list is refused rather than guessed at.** `x IN ()` is not SQL, and every spelling
+that is has the wrong answer for one of the two directions: `IN (NULL)` is unknown rather than
+false, and `NOT IN (NULL)` is unknown rather than true. A caller that can have an empty filter
+knows what it means by one -- usually "match nothing", which is an answer it can give without a
+round trip -- so it says so at the call site instead of here.
 
 ### `Translated`
 
@@ -139,11 +159,21 @@ pub struct Translated {
     sql: string
     statement: Statement
     bindings: [string]
+    lists: [string]
+    query: string
+    registry: Registry
 }
 ```
 
 What a query became: the SQL to send, the tree it parsed into, and the parameter names in the
 order the SQL numbers them.
+
+It also keeps the query and the registry it came from, because a **collection parameter's** SQL
+depends on how many values are bound -- `IN :types` is three placeholders for three values --
+and that is not known until the call. A query with no collection parameter is translated once and
+its `sql` is used as it stands; one with a collection is re-translated per call, which costs the
+140-300 microseconds `translate` costs and is still a fraction of the round trip it saves
+hand-numbering for. `lists` is how `prepare` tells the two apart.
 
 ### `translate`
 
@@ -165,6 +195,32 @@ The bound values in the order the translated SQL numbers them.
 **This is the half that removes the hand-numbering.** A caller binds by name, in any order, and
 a name the query does not use -- or one it uses and nothing bound -- is an error here, where the
 hand-written form silently shifted every later parameter by one.
+
+### `prepare`
+
+```
+pub fn prepare(query: Translated, bound: [Binding]) -> Result<Prepared, DbError>
+```
+
+The SQL to send and the values to send with it.
+
+For a query with no collection parameter this is `t.sql` as it stands and the values laid out by
+`arrange` -- the translation was done once and is reused. For one with a collection it is a
+second translation, now that the number of values is known, because `IN :types` is three
+placeholders for three values and one for one. That costs what a translation costs and still
+beats what it replaces: a hand-built ` AND type IN ($2, $3, ...)` in one function with the
+values assembled in another.
+
+### `Prepared`
+
+```
+pub struct Prepared {
+    sql: string
+    params: [SqlValue]
+}
+```
+
+One call's SQL and values.
 
 ## Running one
 

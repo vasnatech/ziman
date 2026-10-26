@@ -241,6 +241,7 @@ them against the code.
 - [`#[derive(Entity)]`, and the table name it refuses to guess (2026-10-26)](#deriveentity-and-the-table-name-it-refuses-to-guess-2026-10-26)
 - [`eql`: an entity query language that is a translation, not an engine (2026-10-26)](#eql-an-entity-query-language-that-is-a-translation-not-an-engine-2026-10-26)
 - [`eql` runs, and the cost that decided its shape (2026-10-26)](#eql-runs-and-the-cost-that-decided-its-shape-2026-10-26)
+- [`eql` adopted in one repository, and the collection parameter that had to come first (2026-10-26)](#eql-adopted-in-one-repository-and-the-collection-parameter-that-had-to-come-first-2026-10-26)
 
 <!-- end index -->
 
@@ -9348,3 +9349,39 @@ Two small things the tests decided:
 One limit worth stating because it will surprise someone: a row answering **two** entities (`SELECT p, v FROM ..`) has two columns called `id`, and `row_get` takes the first -- so one `from_row` reads the first entity and the second is unreachable through it. Select one entity at a time, or use `rows` and read the tuple. JPQL answers an array of objects there; doing the same here needs a tuple type this layer does not have, which makes it an increment rather than a bug.
 
 What is left of the plan is increment 4: adopting this in **one** repository -- `health_event`, whose type filter and paging are the hand-numbered parameters that motivated the whole thing -- rather than in eighteen, so it earns the rest.
+
+## `eql` adopted in one repository, and the collection parameter that had to come first (2026-10-26)
+
+`repository/health_event.zm` in the sample backend now reads through `eql` -- seven queries, each translated once in a module-level `val` -- and writes in SQL. That is increment 4 of the plan, and it is deliberately **one** repository of eighteen: the entity query language earns the other seventeen by surviving this one, which is the one that motivated it.
+
+**Adoption could not start until `eql` had collection parameters.** `find_page` and `count` are the functions the project was for, and both filter by a *list* of types. What they did before is the thing worth remembering, because it is what a hand-numbered query looks like when it grows:
+
+```ziman
+// repository/paging.zm, still there for the seventeen that have not moved
+val marks = mutable_array_new<string>()
+for i in 0..len(wanted) {
+    push(marks, format("${}", i + 2))           // + 2: $1 is the patient
+}
+return format(" AND type IN ({})", join(separator: ", ", pieces: snapshot(marks)))
+```
+
+and the values were assembled by a *second* function -- `params_of`, whose comment is literally *"the patient's id, then the types, in the order `type_condition` numbers them"*: an ordering invariant held by a sentence. A shift of one there reads the wrong column and answers rows; nothing fails. So the increment began in `eql` rather than in the backend:
+
+* **`eql.bind_list(name, values)`** is a binding of its own kind, not an array in the same slot as a scalar. The two cannot be told apart by looking: `:ids` bound to one value and `:ids` bound to a list of one value are different queries, and only the caller knows which it meant.
+* **`Translated` keeps the query and the registry**, because a collection's SQL depends on how many values are bound -- `IN :types` is three placeholders for three values and one for one. `lists` names the collection parameters the query has, and `prepare` uses it to decide: no collections, send `sql` as it stands; a collection, translate again now that the count is known. A static query still translates once, which is the measurement that shaped this layer in the first place.
+* **An empty list is refused.** `x IN ()` is not SQL, and every spelling that *is* has the wrong answer in one direction: `IN (NULL)` is unknown rather than false, `NOT IN (NULL)` is unknown rather than true. A caller with an empty filter knows what it means by one -- here, "match nothing", which it answers without a round trip -- so the decision is made at the call site. The old hand-built form sent ` AND 1 = 0` to the database to learn what the caller already knew.
+* **A collection bound with `bind` is refused by name**: *the query names the collection :types after IN, so it needs eql.bind_list("types", ..) rather than eql.bind*. This is the mistake the previous point makes available, so the message names the function to call.
+
+**The fixture made the mistake the API is designed around, which is the best evidence for it.** `tests/lang/eql_against_sqlite.zm` takes its bindings from strings and read "has a comma in it" as "is a collection" -- so `names=Ada` bound one value and `NOT IN :names` was refused, correctly, by the rule above. The shorthand is now an explicit `*names=Ada`, because a one-element collection is exactly what cannot be inferred from a value. The cross-check is at **22 of 22 agreeing** across memdb and real SQLite, five of them collection cases, and it prints the *prepared* SQL rather than the translated SQL, so the expansion a reviewer needs to see is on the page.
+
+What adoption bought, stated as the three ways it was possible to be wrong here:
+
+1. **A field name is checked when the query is translated**, and translation happens when the module loads -- so `e.efective_start` fails at startup, not on the request that first reads that column.
+2. **Nothing is numbered by hand.** `LIMIT :limit OFFSET :offset` is bound like any other parameter; the type filter is one `bind_list`.
+3. **`SELECT e` is the entity's own column list**, aliased to the bare names `health_event_from_row` reads by, rather than a `SELECT *` whose column order belongs to the engine.
+
+Verified by the application suite rather than by unit tests, since this is a behaviour claim about a running server: `./tests/run_northstar.sh` is green at **61 suites, 2603 checks**, and the health-event suite exercises `?type=`, `?category=sleep` (which is a multi-type `IN` list), paging, and `totalElements` -- the count query and the page query, which are the two that take the collection.
+
+The writes stay SQL, and that is a choice rather than a gap: an `INSERT` naming its fifteen columns says what it stores, and `eql` translates reads.
+
+Left for later, in the order it should happen: the other seventeen repositories; a shared registry in `common.zm` once more than one entity has a `meta`; and tuple results, so `SELECT p, v FROM ..` can answer both entities instead of the first.

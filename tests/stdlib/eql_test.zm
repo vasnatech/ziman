@@ -237,6 +237,95 @@ fn a_query_with_no_parameters_arranges_to_nothing() {
     test.assert_empty(test.assert_ok(eql.arrange(t, none)))
 }
 
+// ---------------------------------------------------------------- collections
+
+#[test]
+fn a_collection_parameter_is_known_at_translation() {
+    val t = test.assert_ok(eql.translate(reg, "SELECT p.id FROM Patient p WHERE p.last_name IN :names"))
+    test.assert_eq(["names"], t.lists)
+    // One placeholder until the values are in hand -- the SQL is still SQL, so the translation is
+    // parsed and checked as every other one is.
+    test.assert_contains(t.sql, "IN ($1)")
+}
+
+#[test]
+fn a_collection_expands_to_one_placeholder_per_value() {
+    val t = test.assert_ok(eql.translate(reg, "SELECT p.id FROM Patient p WHERE p.last_name IN :names"))
+    val ready = test.assert_ok(eql.prepare(t, [eql.bind_list("names", [
+        SqlValue.Text("Ada"),
+        SqlValue.Text("Bob"),
+        SqlValue.Text("Cy")
+    ])]))
+    test.assert_contains(ready.sql, "IN ($1, $2, $3)")
+    test.assert_len(3, ready.params)
+}
+
+#[test]
+fn the_parameters_after_a_collection_are_numbered_past_it() {
+    // The thing the hand-written form got wrong: a list of three shifts everything after it by
+    // three, and here the translator does the shifting.
+    val t = test.assert_ok(eql.translate(
+        reg,
+        "SELECT p.id FROM Patient p WHERE p.last_name IN :names AND p.user_id = :user ORDER BY p.id"
+    ))
+    val ready = test.assert_ok(eql.prepare(t, [
+        eql.bind_list("names", [SqlValue.Text("Ada"), SqlValue.Text("Bob")]),
+        eql.bind("user", SqlValue.Int(7))
+    ]))
+    test.assert_contains(ready.sql, "IN ($1, $2) AND p.user_id = $3")
+    test.assert_len(3, ready.params)
+    test.assert_eq(7, test.assert_ok(db.sql_as_int(ready.params[2])))
+}
+
+#[test]
+fn a_collection_before_a_scalar_keeps_the_values_in_order() {
+    val t = test.assert_ok(eql.translate(
+        reg,
+        "SELECT p.id FROM Patient p WHERE p.user_id = :user AND p.last_name IN :names"
+    ))
+    val ready = test.assert_ok(eql.prepare(t, [
+        eql.bind_list("names", [SqlValue.Text("Ada"), SqlValue.Text("Bob")]),
+        eql.bind("user", SqlValue.Int(7))
+    ]))
+    // `:user` comes first in the query whatever order the bindings were written in.
+    test.assert_eq(7, test.assert_ok(db.sql_as_int(ready.params[0])))
+    test.assert_eq("Ada", test.assert_ok(db.sql_as_text(ready.params[1])))
+    test.assert_eq("Bob", test.assert_ok(db.sql_as_text(ready.params[2])))
+}
+
+#[test]
+fn a_query_with_no_collection_is_not_translated_again() {
+    // The fast path: `prepare` hands back the SQL translated once, unchanged.
+    val t = translated("SELECT p.id FROM Patient p WHERE p.user_id = :user")
+    val ready = test.assert_ok(eql.prepare(t, [eql.bind("user", SqlValue.Int(1))]))
+    test.assert_eq(t.sql, ready.sql)
+}
+
+#[test]
+fn an_empty_collection_is_refused_with_what_to_do_about_it() {
+    // `x IN ()` is not SQL, and every spelling that is has the wrong answer for one direction:
+    // `IN (NULL)` is unknown rather than false, `NOT IN (NULL)` unknown rather than true.
+    val t = translated("SELECT p.id FROM Patient p WHERE p.last_name IN :names")
+    val empty: [SqlValue] = []
+    val message = db.db_error_message(test.assert_err(eql.prepare(t, [eql.bind_list("names", empty)])))
+    test.assert_contains(message, "`IN ()` is not SQL")
+    test.assert_contains(message, "decide what an empty filter means at the call site")
+}
+
+#[test]
+fn a_collection_bound_as_a_scalar_is_refused() {
+    val t = translated("SELECT p.id FROM Patient p WHERE p.last_name IN :names")
+    val message = db.db_error_message(test.assert_err(eql.prepare(t, [eql.bind("names", SqlValue.Text("Ada"))])))
+    test.assert_contains(message, "needs eql.bind_list")
+}
+
+#[test]
+fn a_not_in_collection_expands_too() {
+    val t = translated("SELECT p.id FROM Patient p WHERE p.last_name NOT IN :names")
+    val ready = test.assert_ok(eql.prepare(t, [eql.bind_list("names", [SqlValue.Text("Ada"), SqlValue.Text("Bob")])]))
+    test.assert_contains(ready.sql, "NOT IN ($1, $2)")
+}
+
 // ---------------------------------------------------------------- the rest of SQL
 
 #[test]
