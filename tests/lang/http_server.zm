@@ -87,23 +87,43 @@ fn put(s: net.Socket, text: string) {
 
 // Reads one complete response (headers, then Content-Length bytes of body)
 // and returns it as text; a HEAD response has a Content-Length but no body.
-fn read_response(s: net.Socket, expect_body: bool) -> string {
-    var acc = ""
-    while !contains(acc, "\r\n\r\n") {
-        acc = concat(acc, unwrap(net.read_text(s, 4096)))
+// One response, and **whatever came after it stays in `buf` for the next call.**
+//
+// The version before this read in 4,096-byte chunks and threw away everything past the response it
+// wanted. That matters because this test **pipelines**: there are two `read_response` calls in a
+// row with no request between them, so one read can return response 1 together with part of
+// response 2. The remainder was dropped, the next call blocked on a socket with nothing left, and
+// the server's own header timeout answered 408 and closed the connection -- which is exactly how
+// it failed.
+//
+// **Nagle was hiding it.** Coalesced writes meant one read returned exactly one response almost
+// always, so the bug sat here unnoticed; `TCP_NODELAY` (2026-10-26) made the segment boundaries
+// real and the fixture began failing about three runs in ten. The defect was always the reader's.
+//
+// `buf` is a parameter rather than a module-level `val` because Ziman refuses a `Mutable` there,
+// and says why: every thread would share it.
+//
+// Content-Length counts **bytes** and `substring` counts characters. Every response in this file is
+// ASCII, where the two coincide, and the `byte_len` comparison below is the one HTTP specifies --
+// a non-ASCII body would need the split done in bytes too, and this would be the place.
+fn read_response(s: net.Socket, buf: Mutable<string>, expect_body: bool) -> string {
+    while !contains(get(buf), "\r\n\r\n") {
+        set(buf, concat(get(buf), unwrap(net.read_text(s, 4096))))
     }
-    if !expect_body || !contains(to_lower(acc), "content-length: ") {
-        return acc
+    val at = index_of(get(buf), "\r\n\r\n", 0)
+    val head = substring(get(buf), 0, at)
+    var rest = substring(get(buf), at + 4, len(get(buf)))
+    if !expect_body || !contains(to_lower(head), "content-length: ") {
+        set(buf, rest)
+        return concat(head, "\r\n\r\n")
     }
-    val parts = split(acc, "\r\n\r\n")
-    val head = parts[0]
-    var body = join(separator: "\r\n\r\n", pieces: [parts[1]])
     val lines = split(to_lower(head), "content-length: ")
     val want = unwrap(parse_int(trim(split(lines[1], "\r\n")[0])))
-    while byte_len(body) < want {
-        body = concat(body, unwrap(net.read_text(s, 4096)))
+    while byte_len(rest) < want {
+        rest = concat(rest, unwrap(net.read_text(s, 4096)))
     }
-    return concat(concat(head, "\r\n\r\n"), body)
+    set(buf, substring(rest, want, len(rest)))
+    return concat(concat(head, "\r\n\r\n"), substring(rest, 0, want))
 }
 
 fn first_line(response: string) -> string {
@@ -114,16 +134,20 @@ fn body_of(response: string) -> string {
     return split(response, "\r\n\r\n")[1]
 }
 
-fn connect(port: int) -> net.Socket {
+// A fresh connection, and a reader buffer emptied to match it: bytes left over from the last
+// connection describe a socket that is gone.
+fn connect(port: int, buf: Mutable<string>) -> net.Socket {
     val s = unwrap(net.connect("127.0.0.1", port))
     unwrap(net.set_timeout(s, 3000))
+    set(buf, "")
     return s
 }
 
 fn client(port: int, n: int, results: Channel<string>) {
-    val s = connect(port)
+    val buf = mutable_new("")
+    val s = connect(port, buf)
     put(s, format("GET /items/c{} HTTP/1.1\r\nHost: x\r\n\r\n", n))
-    val r = read_response(s, true)
+    val r = read_response(s, buf, true)
     net.close(s)
     if body_of(r) == format("item=c{}", n) {
         send_result(results, "ok")
@@ -142,9 +166,10 @@ fn main() {
     spawn accept_loop(l)
 
     // basic GET, and the response framing
-    var s = connect(port)
+    val buf = mutable_new("")
+    var s = connect(port, buf)
     put(s, "GET /health HTTP/1.1\r\nHost: x\r\n\r\n")
-    var r = read_response(s, true)
+    var r = read_response(s, buf, true)
     print(first_line(r))
     print(contains(r, "Content-Length: 2"))
     print(contains(r, "Connection: keep-alive"))
@@ -154,16 +179,16 @@ fn main() {
     // keep-alive: a second request on the same connection; a percent-encoded
     // path parameter is decoded; header names are case-insensitive
     put(s, "GET /items/abc%20d HTTP/1.1\r\nhost: x\r\n\r\n")
-    r = read_response(s, true)
+    r = read_response(s, buf, true)
     print(body_of(r))
     put(s, "GET /ua HTTP/1.1\r\nHost: x\r\nuSeR-aGeNt: probe/1\r\n\r\n")
-    print(body_of(read_response(s, true)))
+    print(body_of(read_response(s, buf, true)))
 
     // pipelining: two requests in one write, two responses back
     put(s, "GET /health HTTP/1.1\r\nHost: x\r\n\r\nGET /items/second HTTP/1.1\r\nHost: x\r\n\r\n")
-    r = read_response(s, true)
+    r = read_response(s, buf, true)
     print(body_of(r))
-    r = read_response(s, true)
+    r = read_response(s, buf, true)
     print(body_of(r))
 
     // POST with a body (Content-Length), echoed as JSON with a 201
@@ -171,106 +196,106 @@ fn main() {
         s,
         "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: 15\r\n\r\n{\"hello\":\"you\"}"
     )
-    r = read_response(s, true)
+    r = read_response(s, buf, true)
     print(first_line(r))
     print(body_of(r))
     print(contains(r, "Content-Type: application/json"))
 
     // query string, decoded ("+" is a space)
     put(s, "GET /search?x=1&q=a+b%21 HTTP/1.1\r\nHost: x\r\n\r\n")
-    print(body_of(read_response(s, true)))
+    print(body_of(read_response(s, buf, true)))
     put(s, "GET /search HTTP/1.1\r\nHost: x\r\n\r\n")
-    print(first_line(read_response(s, true)))
+    print(first_line(read_response(s, buf, true)))
 
     // unknown path is 404; a known path with the wrong method is 405 + Allow
     put(s, "GET /nope HTTP/1.1\r\nHost: x\r\n\r\n")
-    print(first_line(read_response(s, true)))
+    print(first_line(read_response(s, buf, true)))
     put(s, "DELETE /items/7 HTTP/1.1\r\nHost: x\r\n\r\n")
-    r = read_response(s, true)
+    r = read_response(s, buf, true)
     print(first_line(r))
     print(contains(r, "Allow: GET"))
 
     // HEAD: headers with the Content-Length, no body
     put(s, "HEAD /health HTTP/1.1\r\nHost: x\r\n\r\n")
-    r = read_response(s, false)
+    r = read_response(s, buf, false)
     print(first_line(r))
     print(contains(r, "Content-Length: 2"))
     print(byte_len(split(r, "\r\n\r\n")[1]))
 
     // Connection: close on HTTP/1.1 -> answered, then the server hangs up
     put(s, "GET /health HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
-    r = read_response(s, true)
+    r = read_response(s, buf, true)
     print(contains(r, "Connection: close"))
     print(is_closed(net.read_text(s, 10)))
     net.close(s)
 
     // HTTP/1.0 closes by default
-    s = connect(port)
+    s = connect(port, buf)
     put(s, "GET /health HTTP/1.0\r\n\r\n")
-    r = read_response(s, true)
+    r = read_response(s, buf, true)
     print(contains(r, "Connection: close"))
     print(is_closed(net.read_text(s, 10)))
     net.close(s)
 
     // Expect: 100-continue -- the server says "continue" before the body is sent
-    s = connect(port)
+    s = connect(port, buf)
     put(s, "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 4\r\nExpect: 100-continue\r\n\r\n")
-    print(first_line(read_response(s, false)))
+    print(first_line(read_response(s, buf, false)))
     put(s, "\"ab\"")
-    r = read_response(s, true)
+    r = read_response(s, buf, true)
     print(first_line(r))
     print(body_of(r))
     net.close(s)
 
     // malformed / unsupported requests get an answer, then the connection closes
-    s = connect(port)
+    s = connect(port, buf)
     put(s, "NONSENSE\r\n\r\n")
-    print(first_line(read_response(s, true)))
+    print(first_line(read_response(s, buf, true)))
     net.close(s)
-    s = connect(port)
+    s = connect(port, buf)
     put(s, "GET /health HTTP/9.9\r\n\r\n")
-    print(first_line(read_response(s, true)))
+    print(first_line(read_response(s, buf, true)))
     net.close(s)
-    s = connect(port)
+    s = connect(port, buf)
     put(s, "POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: gzip\r\n\r\n")
-    print(first_line(read_response(s, true)))
+    print(first_line(read_response(s, buf, true)))
     net.close(s)
     // a chunked request body is decoded (extensions and trailers are read and ignored), even when it
     // arrives in pieces, and a second request on the same connection still works
-    s = connect(port)
+    s = connect(port, buf)
     put(s, "POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n5\r\n{\"hel")
     put(s, "\r\nA;ext=1\r\nlo\":\"you\"}\r\n0\r\nX-Trailer: 1\r\n\r\n")
-    r = read_response(s, true)
+    r = read_response(s, buf, true)
     print(first_line(r))
     print(body_of(r))
     put(s, "GET /health HTTP/1.1\r\nHost: x\r\n\r\n")
-    print(first_line(read_response(s, true)))
+    print(first_line(read_response(s, buf, true)))
     net.close(s)
-    s = connect(port)
+    s = connect(port, buf)
     put(s, "POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\nContent-Length: 4\r\n\r\n0\r\n\r\n")
-    print(first_line(read_response(s, true)))
+    print(first_line(read_response(s, buf, true)))
     net.close(s)
-    s = connect(port)
+    s = connect(port, buf)
     put(s, "POST /echo HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\n")
-    print(first_line(read_response(s, true)))
+    print(first_line(read_response(s, buf, true)))
     net.close(s)
     // every response carries Date and X-Content-Type-Options, and no Server
-    s = connect(port)
+    s = connect(port, buf)
     put(s, "GET /health HTTP/1.1\r\nHost: x\r\n\r\n")
-    r = read_response(s, true)
+    r = read_response(s, buf, true)
     print(contains(r, "Server:"))
     print(contains(r, "X-Content-Type-Options: nosniff"))
     print(contains(r, " GMT\r\n"))
     net.close(s)
-    s = connect(port)
+    s = connect(port, buf)
     put(s, "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: 99999999\r\n\r\n")
-    print(first_line(read_response(s, true)))
+    print(first_line(read_response(s, buf, true)))
     net.close(s)
-    s = connect(port)
+    s = connect(port, buf)
     put(s, "POST /echo HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n")
-    print(first_line(read_response(s, true)))
+    print(first_line(read_response(s, buf, true)))
     net.close(s)
-    s = connect(port)
+    s = connect(port, buf)
     put(
         s,
         concat(
@@ -292,13 +317,13 @@ fn main() {
         i = i + 1
     }
     put(s, concat("X-Huge: ", concat(big, "\r\n\r\n")))
-    print(first_line(read_response(s, true)))
+    print(first_line(read_response(s, buf, true)))
     net.close(s)
 
     // a stalled request (headers never finish) times out with a 408
-    s = connect(port)
+    s = connect(port, buf)
     put(s, "GET /hea")
-    print(first_line(read_response(s, true)))
+    print(first_line(read_response(s, buf, true)))
     net.close(s)
 
     // several clients at once, each on its own handler thread
