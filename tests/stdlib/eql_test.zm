@@ -1,0 +1,312 @@
+// Unit tests for `eql`, the entity query translator.
+//
+// Translation is **text to text**, so the whole of it is testable without a database: a query goes
+// in, the SQL it becomes comes out, and the test reads that SQL. What the tests are mostly for is
+// the refusals -- every one of them is a mistake that, written as SQL by hand, compiles and
+// deploys and fails on a request: a mistyped field, an entity that is not registered, an alias
+// nothing binds, a parameter nothing is bound to.
+//
+// Nothing here opens a connection: running the translated SQL is the next increment, and when it
+// lands it is cross-checked against `memdb` and real SQLite the way the rest of this layer is.
+use db
+use db.SqlValue
+use eql
+use sql
+use test
+
+val patient = eql.entity("Patient", "patients", ["id", "user_id", "first_name", "last_name", "created_at"])
+val visit = eql.entity("Visit", "visits", ["id", "patient_id", "reason", "cost"])
+val reg = eql.registry([patient, visit])
+
+fn sql_of(query: string) -> string {
+    return test.assert_ok(eql.translate(reg, query)).sql
+}
+
+fn refusal(query: string) -> string {
+    return db.db_error_message(test.assert_err(eql.translate(reg, query)))
+}
+
+// ---------------------------------------------------------------- entities and tables
+
+#[test]
+fn an_entity_becomes_its_table() {
+    test.assert_contains(sql_of("SELECT p.id FROM Patient p"), "FROM patients AS p")
+    test.assert_contains(sql_of("SELECT v.id FROM Visit v"), "FROM visits AS v")
+}
+
+#[test]
+fn an_entity_name_is_matched_without_case() {
+    // SQL folds an unquoted name and so does this, for the same reason: two spellings of one name
+    // must mean one thing.
+    test.assert_contains(sql_of("SELECT p.id FROM patient p"), "FROM patients AS p")
+    test.assert_contains(sql_of("SELECT p.id FROM PATIENT p"), "FROM patients AS p")
+}
+
+#[test]
+fn an_alias_may_be_written_with_as() {
+    test.assert_contains(sql_of("SELECT p.id FROM Patient AS p"), "FROM patients AS p")
+}
+
+#[test]
+fn an_alias_on_its_own_is_the_entitys_columns() {
+    // Each aliased to its bare name, because `<name>_from_row` reads a row by name.
+    test.assert_eq(
+        "SELECT p.id AS id, p.user_id AS user_id, p.first_name AS first_name, p.last_name AS last_name, p.created_at AS created_at FROM patients AS p",
+        sql_of("SELECT p FROM Patient p")
+    )
+}
+
+#[test]
+fn a_qualified_star_is_the_same_expansion() {
+    test.assert_eq(sql_of("SELECT p FROM Patient p"), sql_of("SELECT p.* FROM Patient p"))
+}
+
+#[test]
+fn two_entities_each_expand() {
+    val text = sql_of("SELECT p, v FROM Patient p JOIN Visit v ON v.patient_id = p.id")
+    test.assert_contains(text, "p.last_name AS last_name")
+    test.assert_contains(text, "v.reason AS reason")
+    test.assert_contains(text, "FROM patients AS p INNER JOIN visits AS v ON v.patient_id = p.id")
+}
+
+#[test]
+fn a_comma_in_the_from_binds_two_entities() {
+    val text = sql_of("SELECT p.id, v.id FROM Patient p, Visit v")
+    test.assert_contains(text, "FROM patients AS p CROSS JOIN visits AS v")
+}
+
+// ---------------------------------------------------------------- paths
+
+#[test]
+fn a_path_becomes_a_qualified_column() {
+    test.assert_contains(sql_of("SELECT p.last_name FROM Patient p"), "SELECT p.last_name FROM")
+}
+
+#[test]
+fn a_mistyped_field_is_refused_with_what_the_entity_has() {
+    val message = refusal("SELECT p.last_nmae FROM Patient p")
+    test.assert_contains(message, "entity Patient has no field 'last_nmae'")
+    test.assert_contains(message, "first_name, last_name")
+}
+
+#[test]
+fn a_field_of_the_wrong_entity_is_refused() {
+    // `reason` is Visit's, not Patient's -- which as SQL would have been a runtime failure.
+    test.assert_contains(refusal("SELECT p.reason FROM Patient p"), "entity Patient has no field 'reason'")
+}
+
+#[test]
+fn an_alias_nothing_binds_is_refused() {
+    val message = refusal("SELECT q.id FROM Patient p")
+    test.assert_contains(message, "nothing in this query binds the alias 'q'")
+    test.assert_contains(message, "it binds: p")
+}
+
+#[test]
+fn an_entity_without_an_alias_is_refused() {
+    test.assert_contains(refusal("SELECT p FROM Patient"), "needs an alias")
+}
+
+#[test]
+fn an_unregistered_entity_is_refused_with_what_is_registered() {
+    val message = refusal("SELECT x.id FROM Appointment x")
+    test.assert_contains(message, "no registered entity is called 'Appointment'")
+    test.assert_contains(message, "Patient, Visit")
+}
+
+#[test]
+fn an_empty_registry_says_so() {
+    val none: [eql.Entity] = []
+    val message = db.db_error_message(test.assert_err(eql.translate(eql.registry(none), "SELECT p FROM Patient p")))
+    test.assert_contains(message, "no entities are registered")
+}
+
+#[test]
+fn one_alias_bound_twice_is_refused() {
+    test.assert_contains(refusal("SELECT p.id FROM Patient p, Visit p"), "already bound to Patient")
+}
+
+// ---------------------------------------------------------------- parameters
+
+#[test]
+fn a_named_parameter_becomes_a_numbered_one() {
+    val t = test.assert_ok(eql.translate(reg, "SELECT p.id FROM Patient p WHERE p.last_name = :name"))
+    test.assert_contains(t.sql, "WHERE p.last_name = $1")
+    test.assert_eq(["name"], t.bindings)
+}
+
+#[test]
+fn parameters_are_numbered_in_the_order_they_appear() {
+    val t = test.assert_ok(eql.translate(
+        reg,
+        "SELECT p.id FROM Patient p WHERE p.last_name = :surname AND p.created_at > :since"
+    ))
+    test.assert_contains(t.sql, "p.last_name = $1")
+    test.assert_contains(t.sql, "p.created_at > $2")
+    test.assert_eq(["surname", "since"], t.bindings)
+}
+
+#[test]
+fn one_name_used_twice_is_one_parameter() {
+    // The hand-written form has to repeat the value; here the name decides, so `:id` in two
+    // places is bound once.
+    val t = test.assert_ok(eql.translate(reg, "SELECT p.id FROM Patient p WHERE p.id = :id OR p.user_id = :id"))
+    test.assert_contains(t.sql, "p.id = $1 OR p.user_id = $1")
+    test.assert_eq(["id"], t.bindings)
+}
+
+#[test]
+fn a_colon_inside_a_string_is_not_a_parameter() {
+    // **The reason the rewrite is on tokens and not on text.** A text-level substitution would
+    // have found this one and silently changed the query's meaning.
+    val t = test.assert_ok(eql.translate(reg, "SELECT p.id FROM Patient p WHERE p.last_name = ':name'"))
+    test.assert_contains(t.sql, "':name'")
+    test.assert_empty(t.bindings)
+}
+
+#[test]
+fn a_colon_inside_a_comment_is_not_a_parameter() {
+    val t = test.assert_ok(eql.translate(reg, "SELECT p.id FROM Patient p -- :not_a_param\n"))
+    test.assert_empty(t.bindings)
+}
+
+#[test]
+fn the_sql_parameter_spellings_are_refused() {
+    // A query that mixed the two numbering schemes would be a bug waiting for a reader.
+    test.assert_contains(refusal("SELECT p.id FROM Patient p WHERE p.id = ?"), "write ':name'")
+    test.assert_contains(refusal("SELECT p.id FROM Patient p WHERE p.id = $1"), "write ':name'")
+}
+
+#[test]
+fn a_colon_with_no_name_is_refused() {
+    test.assert_contains(refusal("SELECT p.id FROM Patient p WHERE p.id = :"), "expected a parameter name")
+}
+
+// ---------------------------------------------------------------- arrange
+
+fn translated(query: string) -> eql.Translated {
+    return test.assert_ok(eql.translate(reg, query))
+}
+
+#[test]
+fn values_are_laid_out_in_the_order_the_sql_numbers_them() {
+    val t = translated("SELECT p.id FROM Patient p WHERE p.last_name = :surname AND p.user_id = :user")
+    // Bound in the other order on purpose: the point is that the caller does not have to care.
+    val values = test.assert_ok(eql.arrange(t, [
+        eql.bind("user", SqlValue.Int(7)),
+        eql.bind("surname", SqlValue.Text("Ada"))
+    ]))
+    test.assert_len(2, values)
+    test.assert_eq("Ada", test.assert_ok(db.sql_as_text(values[0])))
+    test.assert_eq(7, test.assert_ok(db.sql_as_int(values[1])))
+}
+
+#[test]
+fn a_name_used_twice_is_bound_once_and_passed_once() {
+    val t = translated("SELECT p.id FROM Patient p WHERE p.id = :id OR p.user_id = :id")
+    val values = test.assert_ok(eql.arrange(t, [eql.bind("id", SqlValue.Int(3))]))
+    test.assert_len(1, values)
+}
+
+#[test]
+fn an_unbound_parameter_is_refused() {
+    val t = translated("SELECT p.id FROM Patient p WHERE p.last_name = :name")
+    val no_bindings: [eql.Binding] = []
+    test.assert_contains(
+        db.db_error_message(test.assert_err(eql.arrange(t, no_bindings))),
+        "the query names :name and nothing was bound to it"
+    )
+}
+
+#[test]
+fn a_binding_the_query_does_not_name_is_refused() {
+    // The hand-written form would have shifted every later parameter by one instead.
+    val t = translated("SELECT p.id FROM Patient p WHERE p.last_name = :name")
+    val message = db.db_error_message(test.assert_err(eql.arrange(t, [
+        eql.bind("name", SqlValue.Text("Ada")),
+        eql.bind("surnmae", SqlValue.Text("typo"))
+    ])))
+    test.assert_contains(message, "nothing in the query names :surnmae")
+    test.assert_contains(message, "it names: name")
+}
+
+#[test]
+fn a_query_with_no_parameters_arranges_to_nothing() {
+    val t = translated("SELECT p.id FROM Patient p")
+    val none: [eql.Binding] = []
+    test.assert_empty(test.assert_ok(eql.arrange(t, none)))
+}
+
+// ---------------------------------------------------------------- the rest of SQL
+
+#[test]
+fn what_the_expression_grammar_reads_passes_through() {
+    // Nothing here knows about CASE, BETWEEN, IN, CAST or a function call: the SQL parser does,
+    // and the rewrite happens around it.
+    test.assert_contains(
+        sql_of("SELECT CASE WHEN p.created_at IS NULL THEN 'new' ELSE 'old' END AS age FROM Patient p"),
+        "CASE WHEN p.created_at IS NULL"
+    )
+    test.assert_contains(
+        sql_of("SELECT p.id FROM Patient p WHERE p.last_name BETWEEN :a AND :b"),
+        "BETWEEN $1 AND $2"
+    )
+    test.assert_contains(sql_of("SELECT count(*) AS n, max(v.cost) AS top FROM Visit v"), "count(*) AS n")
+    test.assert_contains(sql_of("SELECT CAST(v.cost AS TEXT) AS c FROM Visit v"), "CAST(v.cost AS TEXT)")
+}
+
+#[test]
+fn a_subquery_resolves_its_own_entities() {
+    val text = sql_of("SELECT p.id FROM Patient p WHERE p.id IN (SELECT v.patient_id FROM Visit v WHERE v.cost > :min)")
+    test.assert_contains(text, "IN (SELECT v.patient_id FROM visits AS v WHERE v.cost > $1)")
+}
+
+#[test]
+fn grouping_ordering_and_paging_pass_through() {
+    val text = sql_of(
+        "SELECT v.reason, sum(v.cost) AS total FROM Visit v GROUP BY v.reason HAVING sum(v.cost) > :floor ORDER BY 2 DESC LIMIT 5 OFFSET 10"
+    )
+    test.assert_contains(text, "GROUP BY v.reason HAVING sum(v.cost) > $1")
+    test.assert_contains(text, "ORDER BY 2 DESC LIMIT 5 OFFSET 10")
+}
+
+#[test]
+fn a_set_operation_resolves_both_arms() {
+    val text = sql_of("SELECT p.id FROM Patient p UNION SELECT v.patient_id FROM Visit v")
+    test.assert_contains(text, "FROM patients AS p UNION SELECT v.patient_id FROM visits AS v")
+}
+
+// ---------------------------------------------------------------- the property
+
+#[test]
+fn every_translation_is_sql_the_parser_accepts() {
+    // True by construction -- `translate` parses before it answers -- and pinned here because the
+    // construction is the guarantee: a rewrite that produced something the grammar does not read
+    // is reported at translation, with the SQL it became, rather than by a database.
+    for query in [
+        "SELECT p FROM Patient p",
+        "SELECT p.first_name, p.last_name FROM Patient p WHERE p.id = :id",
+        "SELECT p, v FROM Patient p LEFT JOIN Visit v ON v.patient_id = p.id ORDER BY p.last_name",
+        "SELECT count(*) AS n FROM Visit v WHERE v.reason LIKE :like",
+        "SELECT v.reason FROM Visit v GROUP BY v.reason HAVING count(*) > :least",
+        "SELECT p.id FROM Patient p WHERE EXISTS (SELECT 1 FROM Visit v WHERE v.patient_id = p.id)"
+    ] {
+        val t = test.assert_ok(eql.translate(reg, query))
+        val reparsed = test.assert_ok(sql.parse(t.sql))
+        // And the SQL is already canonical, so formatting it again changes nothing.
+        test.assert_eq(t.sql, sql.format(reparsed))
+    }
+}
+
+#[test]
+fn a_query_that_is_not_a_select_is_refused() {
+    test.assert_contains(refusal("UPDATE Patient p SET p.last_name = :n"), "starts with SELECT")
+    test.assert_contains(refusal("DELETE FROM Patient p"), "starts with SELECT")
+    test.assert_contains(refusal(""), "empty query")
+}
+
+#[test]
+fn a_select_with_no_from_is_refused() {
+    // Every path needs an alias to resolve against, so a query with no entity has nothing to say.
+    test.assert_contains(refusal("SELECT 1"), "needs a FROM naming at least one entity")
+}

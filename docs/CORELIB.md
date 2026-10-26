@@ -1841,6 +1841,44 @@ pub fn open_rows(
 
 ```
 
+## `eql`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub struct Entity {
+    name: string
+    table: string
+    columns: [string]
+}
+
+pub fn entity(name: string, table: string, columns: [string]) -> Entity
+
+pub struct Registry {
+    entities: [Entity]
+}
+
+pub fn registry(entities: [Entity]) -> Registry
+
+pub struct Binding {
+    name: string
+    value: SqlValue
+}
+
+pub fn bind(name: string, value: SqlValue) -> Binding
+
+pub struct Translated {
+    sql: string
+    statement: Statement
+    bindings: [string]
+}
+
+pub fn translate(reg: Registry, query: string) -> Result<Translated, DbError>
+
+pub fn arrange(t: Translated, bound: [Binding]) -> Result<[SqlValue], DbError>
+
+```
+
 ## `memdb`
 
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
@@ -1993,6 +2031,8 @@ pub struct Token {
     start: int
     end: int
 }
+
+pub fn tokenize(sql: string) -> Result<[Token], DbError>
 
 pub enum ConstraintRule {
     PrimaryKey([string])

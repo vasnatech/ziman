@@ -239,6 +239,7 @@ them against the code.
 - [`datasource` tested with an engine that is not a database, and a wall clock taken out of the pool (2026-10-25)](#datasource-tested-with-an-engine-that-is-not-a-database-and-a-wall-clock-taken-out-of-the-pool-2026-10-25)
 - [`db`: a malformed row stops crashing, and an optimisation measured and declined (2026-10-26)](#db-a-malformed-row-stops-crashing-and-an-optimisation-measured-and-declined-2026-10-26)
 - [`#[derive(Entity)]`, and the table name it refuses to guess (2026-10-26)](#deriveentity-and-the-table-name-it-refuses-to-guess-2026-10-26)
+- [`eql`: an entity query language that is a translation, not an engine (2026-10-26)](#eql-an-entity-query-language-that-is-a-translation-not-an-engine-2026-10-26)
 
 <!-- end index -->
 
@@ -9279,3 +9280,41 @@ A wrong guess there generates SQL against a table that does not exist, and the f
 * Prepending those vals rather than appending them matters. Module-level vals initialise in list order, so `pub val columns = patient_columns` -- written beside the struct, above the derive's output -- was evaluated before a val pushed onto the end of the list. A derived val's initialiser is a literal that references no other val, so putting them all first is safe and makes the derived name available wherever the hand-written vals happen to sit.
 
 This is increment 1 of four. The rest, decided but not built: `lib/db/eql.zm` translating JPQL-shaped text into a `sql.SelectStmt` (entities resolved through a registry, the way `datasource` resolves drivers, so the module names no entity); execution through `datasource` with the translator numbering the parameters, which is what removes the hand-numbered `$2, $3, ...` in `repository/paging.zm`; and adopting it in one repository rather than eighteen, so it earns the rest.
+
+## `eql`: an entity query language that is a translation, not an engine (2026-10-26)
+
+`lib/db/eql.zm` -- JPQL's shape over a Ziman struct. A query names entities and their fields; the answer is the SQL those names stand for, plus the `sql.Statement` it parsed into and the parameter names in the order the SQL numbers them.
+
+```
+SELECT p FROM Patient p WHERE p.last_name = :name ORDER BY p.created_at DESC
+-> SELECT p.id AS id, p.user_id AS user_id, .. FROM patients AS p WHERE p.last_name = $1 ORDER BY p.created_at DESC
+   bindings: ["name"]
+```
+
+**It is a translator and nothing else.** Everything downstream stays what it was: `datasource` runs the text, `memdb` can run it in a test, `sql.format` decides how it is spelled. That is what made increment 2 a day's work rather than a project -- the tree, the formatter, the dialect knowledge and the test harness were all already there.
+
+**The rewrite happens on tokens, and that is the whole design.** `sql.tokenize` is now public, because reading SQL-shaped text is not only `sql`'s job, and a token run is the *only* level at which this is safe: a `:` inside a quoted string or a `--` comment is text and not a parameter, and only the lexer knows which is which. Two of the tests exist for exactly that, and a text-level substitution would fail both. The lexer also gained `:` as a punctuation token -- SQL has no bare colon, so for SQL the only change is that one is now an unexpected *token* rather than an unexpected character, which is a better error.
+
+The rewritten run is handed back to **`sql.parse` before it is answered**, so a translation that produced something the SQL grammar cannot read is reported at translation, with the SQL it became, instead of by a database. And because the expression grammar does the rest, `CASE`, `BETWEEN`, `IN`, `CAST`, function calls, subqueries and set operations all work here without this module knowing they exist -- there is a test asserting each, and the module contains no code for any of them.
+
+**What it refuses is the point.** Every one of these, written as SQL by hand, compiles and deploys and fails on a request:
+
+| query | |
+|---|---|
+| `SELECT p.last_nmae FROM Patient p` | `entity Patient has no field 'last_nmae' (it has: id, user_id, first_name, last_name, created_at)` |
+| `SELECT p.reason FROM Patient p` | the field exists -- on the other entity |
+| `SELECT q.id FROM Patient p` | `nothing in this query binds the alias 'q' (it binds: p)` |
+| `SELECT p FROM Patient` | `entity Patient needs an alias` |
+| `SELECT x.id FROM Appointment x` | `no registered entity is called 'Appointment' (registered: Patient, Visit)` |
+| `FROM Patient p, Visit p` | `the alias 'p' is already bound to Patient` |
+| `WHERE p.id = ?` or `= $1` | `an entity query's parameters are named, so write ':name'` |
+
+**And `arrange` is what removes the hand-numbering.** A caller binds by name, in any order, and the translator lays the values out in the order the SQL ended up numbering them. A name the query does not use is an error, and so is a parameter nothing was bound to -- where `repository/paging.zm`'s hand-built ` AND type IN ($2, $3, ...)` and its separate `params_of` would simply have shifted every later parameter by one. `:id` written twice is **one** parameter bound once, which the hand-written form cannot express at all.
+
+Entities are resolved through a **registry** -- `eql.registry([patient.meta, visit.meta])` -- the same shape `datasource` uses for drivers and for the same reason: this module names no entity, so an application that has three hands over three. The metamodel is `#[derive(Entity)]`'s column list plus the hand-written table name, so what a query may name and what `<name>_from_row` reads are the same list by construction.
+
+One bug, found by the tests on their first run: `FROM Patient p, Visit v` left the second entity's *name* in the SQL, because the flag that says "an entity name comes next" was consumed by the first entity and never set again. A comma inside a `FROM` list means another entity; a comma anywhere else means another select item; the translator now tracks which it is in.
+
+**What it does not read, and the honest cost.** No associations -- the entities declare none, so there are no path expressions across entities and no fetch joins; a join names the second entity and its condition, as the repositories already do. No `SELECT new Dto(..)`: a projection answers rows. No bulk `UPDATE`/`DELETE`: writes stay SQL, where an explicit statement is worth more than brevity. Those are increments, not oversights, and the first of them is the one that brings N+1 with it.
+
+Increment 3 is execution -- `eql.list`/`one`/`rows` over `datasource`, cross-checked against `memdb` and real SQLite -- and increment 4 is adopting it in **one** repository rather than eighteen, so it earns the rest.

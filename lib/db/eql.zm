@@ -1,0 +1,483 @@
+// eql.zm -- an **entity query language**: JPQL's shape, over a Ziman struct instead of a Java
+// class. A query names entities and their fields, and this module turns it into the SQL those
+// names stand for.
+//
+//     val reg = eql.registry([patient.meta, visit.meta])
+//     val q = try eql.translate(reg, "SELECT p FROM Patient p WHERE p.last_name = :name ORDER BY p.created_at DESC")
+//     // q.sql       -> SELECT p.id AS id, p.last_name AS last_name, .. FROM patients AS p
+//     //                WHERE p.last_name = $1 ORDER BY p.created_at DESC
+//     // q.bindings  -> ["name"]
+//
+// **It is a translator, not an engine.** The answer is a `sql.Statement` and the SQL text that
+// tree writes, so everything downstream is what it already was: `datasource` runs the text,
+// `memdb` can run it in a test, and `sql.format` decides how it is spelled. Nothing here talks to
+// a database -- `eql.list` and friends, which do, are a layer above this one.
+//
+// ## Why a translation rather than a string you write yourself
+//
+// Three things the repositories it is for do by hand today, and each is a mistake the type checker
+// cannot see:
+//
+//   - **a field name is just text in a SQL string.** `WHERE last_nmae = $1` compiles, deploys, and
+//     fails on the first request. Here a path is resolved against the entity's own column list, so
+//     the error arrives at translation and names the entity and what it does have.
+//   - **parameters are numbered by hand**, in one function, with the values assembled in another,
+//     in the same order. `repository/paging.zm` builds ` AND type IN ($2, $3, ...)` that way, and
+//     `service/crud.zm`'s E9 note is about a hand-numbered INSERT "passing 24 parameters to 8
+//     holes". Here a parameter has a *name*, `arrange` lays the values out in whatever order the
+//     SQL ended up numbering them, and a missing or unused one is an error rather than a shift.
+//   - **the column list of a `SELECT *` is implicit**, so a row read by name depends on the
+//     engine's column order. `SELECT p` expands to the entity's own columns, each aliased to its
+//     bare name, which is what `<name>_from_row` reads by.
+//
+// ## How it works, and why at the token level
+//
+// The lexer is `sql.tokenize`, and the rewrite happens on the token run: entity names become
+// tables, `alias.field` is checked and passed through, `:name` becomes `$N`. **A text-level
+// substitution could not do this correctly** -- a `:` inside a quoted string or a `--` comment is
+// text and not a parameter, and only the lexer knows the difference. The rewritten run is then
+// handed to `sql.parse`, so the output is checked by the SQL parser before it can reach a
+// database, and anything the expression grammar already reads -- `CASE`, `BETWEEN`, `IN`,
+// subqueries, function calls, `CAST` -- works here without this module knowing it exists.
+//
+// ## What it reads
+//
+// `SELECT` (an alias on its own, or any expression over paths, aliases and literals, with
+// `AS` names), `FROM Entity alias` with more entities after a comma, `[INNER|LEFT|RIGHT|FULL|
+// CROSS] JOIN Entity alias [ON ..|USING (..)]`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY` with
+// `ASC`/`DESC`, `LIMIT` and `OFFSET`. Named parameters are `:name`; the SQL forms `?` and `$1` are
+// refused, because a query that mixes the two numbering schemes is a bug waiting for a reader.
+//
+// ## What it does not read, and what that costs
+//
+// **No associations.** The entities this was built for declare no relationships -- a `patient_id`
+// is a `Uuid` field, not a reference -- so there are no path expressions across entities
+// (`v.patient.last_name`) and no fetch joins. A join names the second entity and its condition
+// explicitly, which is what the repositories write today. Adding relationships is a modelling
+// increment of its own, and the one that brings the N+1 question with it.
+//
+// **No `SELECT new Dto(..)`**: a projection answers rows, and the caller reads them. **No bulk
+// `UPDATE`/`DELETE`**: writes stay SQL, where the statement being explicit is worth more than the
+// brevity. **No implicit joins, no `FETCH`, no `TREAT`, no polymorphism** -- there is no
+// inheritance between entity structs to be polymorphic over.
+#![experimental]
+use db.DbError
+use db.SqlValue
+use locale
+use sql
+use sql.Statement
+use sql.Token
+
+// One entity: the name a query calls it, the table it is stored in, and its columns.
+//
+// The columns are `#[derive(Entity)]`'s `<name>_columns`, which is the struct's own field list, so
+// what a query may name and what `from_row` reads are the same list by construction. The table is
+// hand-written beside the struct, because no pluralisation rule survives a real schema -- see the
+// derive's own comment.
+pub struct Entity {
+    name: string
+    table: string
+    columns: [string]
+}
+
+pub fn entity(name: string, table: string, columns: [string]) -> Entity {
+    return Entity { name: name, table: table, columns: columns }
+}
+
+// The entities a program has, and the only thing here that knows one exists -- the same shape as
+// `datasource.registry`, and for the same reason: this module names no entity, so an application
+// that has three hands over three.
+pub struct Registry {
+    entities: [Entity]
+}
+
+pub fn registry(entities: [Entity]) -> Registry {
+    return Registry { entities: entities }
+}
+
+// A named parameter's value.
+pub struct Binding {
+    name: string
+    value: SqlValue
+}
+
+pub fn bind(name: string, value: SqlValue) -> Binding {
+    return Binding { name: name, value: value }
+}
+
+// What a query became: the SQL to send, the tree it parsed into, and the parameter names in the
+// order the SQL numbers them.
+pub struct Translated {
+    sql: string
+    statement: Statement
+    bindings: [string]
+}
+
+fn problem(message: string) -> DbError {
+    return DbError.Sql(message)
+}
+
+// One entry of the `FROM`: the alias a query gave an entity.
+struct Bound {
+    alias: string
+    entity: Entity
+}
+
+fn entity_named(reg: Registry, name: string) -> Result<Entity, DbError> {
+    val want = sql.fold_name(name)
+    for e in reg.entities {
+        if sql.fold_name(e.name) == want {
+            return ok(e)
+        }
+    }
+    val names = mutable_array_new<string>()
+    for e in reg.entities {
+        push(names, e.name)
+    }
+    if prelude.len(names) == 0 {
+        return err(problem(concat("no entities are registered, so '", name, "' cannot be resolved")))
+    }
+    return err(problem(prelude.format(
+        "no registered entity is called '{}' (registered: {})",
+        name,
+        join(separator: ", ", pieces: snapshot(names))
+    )))
+}
+
+fn bound_for(binds: [Bound], alias: string) -> Option<Bound> {
+    val want = sql.fold_name(alias)
+    for b in binds {
+        if sql.fold_name(b.alias) == want {
+            return Option<Bound>.Some(b)
+        }
+    }
+    return Option<Bound>.None
+}
+
+// Whether `entity` has a column `field`, with an error naming what it does have -- which is the
+// whole point of translating rather than writing the SQL by hand.
+fn check_field(e: Entity, field: string) -> Result<unit, DbError> {
+    val want = sql.fold_name(field)
+    for c in e.columns {
+        if sql.fold_name(c) == want {
+            return ok(unit)
+        }
+    }
+    return err(problem(prelude.format(
+        "entity {} has no field '{}' (it has: {})",
+        e.name,
+        field,
+        join(separator: ", ", pieces: e.columns)
+    )))
+}
+
+// The words that end a `FROM`/`JOIN` entry, so an entity's alias is not mistaken for one.
+// The words that end a `FROM` list, so a comma after one is a select item's comma and not another
+// entity's.
+val from_enders: Set<string> = to_set([
+    "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "ON", "USING", "UNION", "INTERSECT",
+    "EXCEPT"
+])
+
+val clause_enders: Set<string> = to_set([
+    "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "JOIN", "INNER", "LEFT", "RIGHT",
+    "FULL", "CROSS", "OUTER", "ON", "USING", "AS"
+])
+
+fn is_name(t: Token) -> bool {
+    return t.kind == "name"
+}
+
+// Every `FROM`/`JOIN` entry's entity and alias, resolved against the registry.
+//
+// Read in a pass of its own, before anything is emitted, because a path may name an alias the
+// `FROM` introduces *after* it: `SELECT v.reason FROM Visit v` reads `v` before the line that
+// binds it.
+fn bindings_of(reg: Registry, tokens: [Token]) -> Result<[Bound], DbError> {
+    val out = mutable_array_new<Bound>()
+    var i = 0
+    while i < prelude.len(tokens) {
+        val t = tokens[i]
+        var entry = false
+        if is_name(t) && (t.upper == "FROM" || t.upper == "JOIN") {
+            entry = true
+        }
+        if !entry {
+            i = i + 1
+            continue
+        }
+        // `FROM Entity alias` and `FROM Entity alias, Entity alias`, so the loop keeps reading
+        // entries while commas separate them.
+        var more = true
+        i = i + 1
+        while more {
+            more = false
+            if i >= prelude.len(tokens) || !is_name(tokens[i]) {
+                return err(problem("expected an entity name after FROM or JOIN"))
+            }
+            val e = try entity_named(reg, tokens[i].text)
+            i = i + 1
+            if i < prelude.len(tokens) && is_name(tokens[i]) && tokens[i].upper == "AS" {
+                i = i + 1
+            }
+            if i >= prelude.len(tokens) || !is_name(tokens[i]) || contains(clause_enders, tokens[i].upper) {
+                return err(problem(prelude.format(
+                    "entity {} needs an alias: write `{} {}` and refer to its fields through it",
+                    e.name,
+                    e.name,
+                    to_lower(e.name, sql_locale())
+                )))
+            }
+            val alias = tokens[i].text
+            if Some(already) = bound_for(snapshot(out), alias) {
+                return err(problem(prelude.format(
+                    "the alias '{}' is already bound to {}",
+                    alias,
+                    already.entity.name
+                )))
+            }
+            push(out, Bound { alias: alias, entity: e })
+            i = i + 1
+            if i < prelude.len(tokens) && tokens[i].kind == "punct" && tokens[i].text == "," {
+                i = i + 1
+                more = true
+            }
+        }
+    }
+    if prelude.len(out) == 0 {
+        return err(problem("a query needs a FROM naming at least one entity"))
+    }
+    return ok(snapshot(out))
+}
+
+// Case folding for an entity or field name is protocol folding, so it names the invariant locale
+// for the same reason `sql` does: in Turkish, `I` folds to `ı`.
+fn sql_locale() -> Locale {
+    return locale.root()
+}
+
+// `alias.column AS column, ...` -- what an alias on its own in the select list stands for.
+//
+// Each column is aliased to its bare name because `<name>_from_row` reads a row **by name**
+// through `row_get`, and a joined query can otherwise answer two columns called `id`.
+fn expanded(b: Bound) -> string {
+    val out = mutable_array_new<string>()
+    for c in b.entity.columns {
+        push(out, prelude.format("{}.{} AS {}", b.alias, c, c))
+    }
+    return join(separator: ", ", pieces: snapshot(out))
+}
+
+// A token written back as SQL text. Only the shapes `sql.tokenize` produces need a case here, and
+// a `text` token has to be re-quoted, since the lexer took its quotes off.
+fn written(t: Token) -> string {
+    if t.kind == "text" {
+        return concat("'", replace(t.text, "'", "''"), "'")
+    }
+    return t.text
+}
+
+// Whether `before` and `now` want a space between them. Punctuation mostly does not; two names
+// always do, or `SELECT p` would come out as `SELECTp`.
+fn spaced(before: Token, now: Token) -> bool {
+    if before.kind == "punct" {
+        if before.text == "(" || before.text == "." {
+            return false
+        }
+    }
+    if now.kind == "punct" {
+        if now.text == ")" || now.text == "," || now.text == "." || now.text == ";" {
+            return false
+        }
+        if now.text == "(" {
+            // `count(` stays joined; `IN (` reads better apart, and either parses.
+            return !is_name(before)
+        }
+    }
+    return true
+}
+
+// A query translated: entity names become tables, paths are checked, `:name` becomes `$N`, and an
+// alias on its own becomes the entity's columns.
+pub fn translate(reg: Registry, query: string) -> Result<Translated, DbError> {
+    val tokens = try sql.tokenize(query)
+    if prelude.len(tokens) == 0 {
+        return err(problem("an empty query"))
+    }
+    if !is_name(tokens[0]) || tokens[0].upper != "SELECT" {
+        return err(problem("an entity query starts with SELECT -- writes stay SQL"))
+    }
+    val binds = try bindings_of(reg, tokens)
+    val out = mutable_string_new()
+    val order = mutable_array_new<string>()
+    val seen = mutable_map_new<string, int>()
+    // Where the select list ends, so an alias on its own is expanded there and nowhere else.
+    var in_select = true
+    // Inside a `FROM` or `JOIN` list, where a comma introduces another entity rather than another
+    // select item. Without this the second entity of `FROM Patient p, Visit v` kept its entity
+    // name in the SQL, which the `eql` tests caught on their first run.
+    var in_from = false
+    var at_entity = false
+    var i = 0
+    while i < prelude.len(tokens) {
+        val t = tokens[i]
+        if i > 0 && spaced(tokens[i - 1], t) {
+            append(out, " ")
+        }
+        if is_name(t) {
+            if t.upper == "FROM" {
+                in_select = false
+            }
+            if t.upper == "FROM" || t.upper == "JOIN" {
+                at_entity = true
+                in_from = true
+                append(out, t.text)
+                i = i + 1
+                continue
+            }
+            if contains(from_enders, t.upper) {
+                in_from = false
+            }
+            if at_entity {
+                // An entity name, which becomes its table; the alias after it is written as the
+                // SQL alias it already is.
+                val e = try entity_named(reg, t.text)
+                append(out, e.table)
+                at_entity = false
+                i = i + 1
+                continue
+            }
+        }
+        if t.kind == "punct" && t.text == "," && in_from {
+            at_entity = true
+            append(out, ",")
+            i = i + 1
+            continue
+        }
+        if t.kind == "punct" && t.text == "," && at_entity {
+            append(out, ",")
+            i = i + 1
+            continue
+        }
+        // A path: `alias.field`, checked against the alias's entity -- and `alias.*`, which is
+        // the entity's columns, the same as the alias on its own.
+        //
+        // **A dotted name whose left side is not an alias is a mistake**, not a table reference:
+        // every table here is reached through an entity's alias, so `q.id` where nothing binds `q`
+        // is the typo this layer exists to catch. Passing it through would have produced SQL that
+        // a database refuses later and further away.
+        if is_name(t) && i + 1 < prelude.len(tokens) && tokens[i + 1].kind == "punct" &&
+            tokens[i + 1].text == "." {
+            val star = tokens[i + 2].kind == "punct" && tokens[i + 2].text == "*"
+            if is_name(tokens[i + 2]) || star {
+                val found = bound_for(binds, t.text)
+                if Some(b) = found {
+                    if star {
+                        append(out, expanded(b))
+                    } else {
+                        try check_field(b.entity, tokens[i + 2].text)
+                        append(out, b.alias, ".", tokens[i + 2].text)
+                    }
+                    i = i + 3
+                    continue
+                }
+                val aliases = mutable_array_new<string>()
+                for b in binds {
+                    push(aliases, b.alias)
+                }
+                return err(problem(prelude.format(
+                    "nothing in this query binds the alias '{}' (it binds: {})",
+                    t.text,
+                    join(separator: ", ", pieces: snapshot(aliases))
+                )))
+            }
+        }
+        // An alias on its own in the select list: the entity's columns.
+        if in_select && is_name(t) {
+            if Some(b) = bound_for(binds, t.text) {
+                append(out, expanded(b))
+                i = i + 1
+                continue
+            }
+        }
+        // A named parameter. The same name twice is the same number, which is what makes
+        // `:patient_id` usable in two places.
+        if t.kind == "punct" && t.text == ":" {
+            if i + 1 >= prelude.len(tokens) || !is_name(tokens[i + 1]) {
+                return err(problem("expected a parameter name after ':'"))
+            }
+            val name = tokens[i + 1].text
+            var number = prelude.len(order) + 1
+            if Some(already) = get(seen, name) {
+                number = already
+            } else {
+                set(seen, name, number)
+                push(order, name)
+            }
+            append(out, "$", str(number))
+            i = i + 2
+            continue
+        }
+        if t.kind == "param" {
+            return err(problem(prelude.format(
+                "an entity query's parameters are named, so write ':name' rather than '{}'",
+                t.text
+            )))
+        }
+        // Anything else is SQL the expression grammar already reads, passed through: a literal, an
+        // operator, a function name, a keyword.
+        append(out, written(t))
+        i = i + 1
+    }
+    val text = snapshot(out)
+    // Parsed before it is answered, so a translation that produced something the SQL grammar does
+    // not accept is reported here rather than by a database.
+    val statement = switch sql.parse(text) {
+        Ok(s) { s }
+        Err(e) { return err(problem(concat(db_message(e), " -- in the SQL this query became: ", text))) }
+    }
+    return ok(Translated { sql: sql.format(statement), statement: statement, bindings: snapshot(order) })
+}
+
+fn db_message(e: DbError) -> string {
+    return switch e {
+        NotFound(m) { m }
+        Constraint(m) { m }
+        Connection(m) { m }
+        Sql(m) { m }
+    }
+}
+
+// The bound values in the order the translated SQL numbers them.
+//
+// **This is the half that removes the hand-numbering.** A caller binds by name, in any order, and
+// a name the query does not use -- or one it uses and nothing bound -- is an error here, where the
+// hand-written form silently shifted every later parameter by one.
+pub fn arrange(t: Translated, bound: [Binding]) -> Result<[SqlValue], DbError> {
+    val out = mutable_array_new<SqlValue>()
+    for name in t.bindings {
+        var found = Option<SqlValue>.None
+        for b in bound {
+            if b.name == name {
+                found = Option<SqlValue>.Some(b.value)
+            }
+        }
+        if Some(v) = found {
+            push(out, v)
+        } else {
+            return err(problem(prelude.format("the query names :{} and nothing was bound to it", name)))
+        }
+    }
+    for b in bound {
+        if !contains(t.bindings, b.name) {
+            return err(problem(prelude.format(
+                "nothing in the query names :{} (it names: {})",
+                b.name,
+                if prelude.len(t.bindings) == 0 { "no parameters" } else {
+                    join(separator: ", ", pieces: t.bindings)
+                }
+            )))
+        }
+    }
+    return ok(snapshot(out))
+}

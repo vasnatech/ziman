@@ -136,6 +136,19 @@ One token. `kind` is "name", "number", "text", "punct" or "param"; `text` is wha
 except for a `text` token, which holds the string's value with its quotes removed and its `''`
 pairs collapsed.
 
+### `tokenize`
+
+```
+pub fn tokenize(sql: string) -> Result<[Token], DbError>
+```
+
+`sql` as tokens. An unterminated string or an unexpected character is an error naming what was
+found, in the spirit of the rest of the library: nothing here runs on text it did not understand.
+**Public, because reading SQL-shaped text is not only this module's job.** `eql` translates an
+entity query into SQL by rewriting a token run -- entity names into tables, `:name` into `$1` --
+and a token run is the only level at which that is safe: a `:` inside a quoted string or a
+comment is text, not a parameter, and only the lexer knows which is which.
+
 ## The tree
 
 ### `ConstraintRule`

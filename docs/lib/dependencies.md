@@ -43,6 +43,7 @@ flowchart LR
     subgraph group_db["databases"]
         datasource["db.datasource"]
         db["db"]
+        eql["db.eql"]
         memdb["db.memdb"]
         migrate["db.migrate"]
         mysql["db.mysql"]
@@ -82,6 +83,9 @@ flowchart LR
     db --> url
     encoding --> locale
     encoding --> number
+    eql --> db
+    eql --> locale
+    eql --> sql
     font --> truetype
     fs --> os
     geom --> math
@@ -236,7 +240,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
 | 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sql`, `sqlite`, `time`, `uuid` |
-| 5 | `client`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
+| 5 | `client`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
 
 ## Each module
 
@@ -249,8 +253,9 @@ otherwise: everything on a layer depends only on lower layers.
 | `crypto` | `encoding`, `random` | `jwt`, `migrate`, `mysql`, `otp`, `pg` |
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db` | `migrate` |
-| `db` | `net`, `number`, `url` | `datasource`, `memdb`, `migrate`, `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
+| `db` | `net`, `number`, `url` | `datasource`, `eql`, `memdb`, `migrate`, `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
+| `eql` | `db`, `locale`, `sql` | - |
 | `font` | `truetype` | `layout`, `pdf`, `raster` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `sql`, `zone` |
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |
@@ -259,7 +264,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `json` | `math`, `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `encoding`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
-| `locale` | - | `client`, `encoding`, `http`, `log`, `memdb`, `mime`, `number`, `paint`, `properties`, `schedule`, `server`, `sql`, `time`, `toml`, `url`, `xml`, `yaml` |
+| `locale` | - | `client`, `encoding`, `eql`, `http`, `log`, `memdb`, `mime`, `number`, `paint`, `properties`, `schedule`, `server`, `sql`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
 | `math` | - | `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
@@ -286,7 +291,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `schedule` | `clock`, `locale`, `time` | - |
 | `server` | `clock`, `compress`, `http`, `json`, `locale`, `metrics`, `mime`, `net`, `number`, `os` | - |
 | `shape` | `geom`, `math` | `layout`, `pdf`, `raster`, `scene`, `stroker`, `truetype` |
-| `sql` | `db`, `fs`, `locale`, `number` | `memdb` |
+| `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
 | `test` | `regex` | - |

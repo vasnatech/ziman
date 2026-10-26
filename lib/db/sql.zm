@@ -151,7 +151,11 @@ val two_char_ops: [string] = ["<=", ">=", "<>", "!=", "||"]
 
 // `sql` as tokens. An unterminated string or an unexpected character is an error naming what was
 // found, in the spirit of the rest of the library: nothing here runs on text it did not understand.
-fn tokenize(sql: string) -> Result<[Token], DbError> {
+// **Public, because reading SQL-shaped text is not only this module's job.** `eql` translates an
+// entity query into SQL by rewriting a token run -- entity names into tables, `:name` into `$1` --
+// and a token run is the only level at which that is safe: a `:` inside a quoted string or a
+// comment is text, not a parameter, and only the lexer knows which is which.
+pub fn tokenize(sql: string) -> Result<[Token], DbError> {
     val out = mutable_array_new<Token>()
     val n = len(sql)
     var i = 0
@@ -290,7 +294,11 @@ fn tokenize(sql: string) -> Result<[Token], DbError> {
             i = i + 2
             continue
         }
-        if contains("=<>+-*/(),;.|", c) {
+        // `:` is here for `eql`, whose named parameters are `:name` and which rewrites them on
+        // this token run. SQL itself has no bare colon, so for SQL the only change is that one is
+        // now an unexpected *token* rather than an unexpected character -- a parse error that says
+        // where it is, instead of a lexical one.
+        if contains("=<>+-*/(),;.|:", c) {
             push(out, Token { kind: "punct", text: c, upper: "", value: 0, start: i, end: i + 1 })
             i = i + 1
             continue
