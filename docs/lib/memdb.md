@@ -167,6 +167,35 @@ next increments. `count(t.*)` is not read: SQLite refuses it,
 PostgreSQL counts whole rows with it, and nothing needs it. Anything it does not understand
 is an error naming the token, never a quiet partial execution.
 
+## What a statement costs
+
+Every row of every table is an array in memory and there are **no indexes**, so the shape of a
+statement's cost is worth knowing before a fixture grows to thousands of rows. Measured, and
+guarded by `tests/bench/memdb_ops.zm` and the cost tests in `tests/stdlib/memdb_test.zm`:
+
+
+```
+- a scan, a filter, an aggregate and a `GROUP BY` are **linear** in the rows;
+- an `ORDER BY` sorts with its keys computed once per row, so it is n log n comparisons and n
+  evaluations -- it used to evaluate the keys once per *comparison*;
+- a join whose `ON` has an equality between a column of each side is **linear**: the right
+  side is bucketed by that column once and each left row looks up only what can match. A join
+  without such an equality still tries every pair, because nothing else can;
+- an **uncorrelated** subquery is answered once per statement, not once per row. A long
+  `IN (SELECT ..)` list is then compared against per row, so that part is rows times values;
+- a **correlated** subquery runs per row, as it must in any engine without an index to help
+  it. `EXISTS (SELECT .. WHERE inner.x = outer.y)` over a thousand rows is a million
+  comparisons here, where a real engine would use the index on `x`. A fixture that needs that
+  shape at scale wants the real engine;
+- a write is **linear in the table** -- a `Database` is an immutable value, so inserting one
+  row rebuilds the row array -- which makes seeding n rows one statement at a time quadratic
+  in principle. The constant is what matters, and the constants that were there (a uniqueness
+  scan per written row, a column-name array built per row) are gone;
+- a key's uniqueness is checked through an index built once per statement for a write that
+  touched several rows, and by a scan for one that touched one or two, because building a map
+  to check a single row costs more than looking.
+```
+
 ## Transactions are free, because a database is a value
 
 A `Database` is an immutable `Map` of immutable tables, so `BEGIN` keeps the current one,

@@ -1,0 +1,314 @@
+// Unit tests for `memdb`, covering what a cross-check against SQLite cannot.
+//
+// `tests/lang/memdb_against_sqlite.zm`, `memdb_constraints.zm` and `memdb_foreign_keys.zm` compare
+// this engine's answers with real SQLite's statement by statement, which is the strongest thing
+// that can be said about an engine's semantics. What they cannot say is anything about the parts
+// that have **no counterpart to compare with**: the two readings of SQL, a `Database` being a
+// value so a refused statement changes nothing, the shape of the `DbError` a caller switches on,
+// the seeding path the module exists for -- and, most of all, the **cost** of a statement.
+//
+// The cost tests are the reason this file was written. Four of this engine's operations were
+// quadratic in the number of rows and nothing said so: a 400-row `UPDATE` took 1.4 seconds, a
+// 200-row self-join half a second, an uncorrelated subquery ran once per outer row, and an
+// `ORDER BY` evaluated its keys once per *comparison* rather than once per row. Every fixture was
+// green throughout, because a cross-check compares answers and not clocks.
+use clock
+use datasource
+use db
+use db.SqlValue
+use math
+use memdb
+use test
+
+val drivers = datasource.registry([memdb.driver(), memdb.strict_driver()])
+
+fn opened(url: string) -> datasource.Connection {
+    return test.assert_ok(datasource.open(drivers, url))
+}
+
+fn exec(c: datasource.Connection, sql: string) -> int {
+    return test.assert_ok(datasource.execute(c, sql))
+}
+
+fn one_int(c: datasource.Connection, sql: string) -> int {
+    val rows = test.assert_ok(datasource.query(c, sql))
+    test.assert_len(1, rows)
+    var found = Option<int>.None
+    if Int(n) = rows[0].values[0] {
+        found = Option<int>.Some(n)
+    }
+    return test.assert_some(found)
+}
+
+fn seeded(rows: int) -> datasource.Connection {
+    val c = opened("memdb:")
+    exec(c, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, n INTEGER, g TEXT)")
+    var i = 0
+    while i < rows {
+        test.assert_ok(datasource.execute(
+            c,
+            "INSERT INTO t (id, name, n, g) VALUES ($1, $2, $3, $4)",
+            [SqlValue.Int(i), SqlValue.Text("name"), SqlValue.Int(i % 7), SqlValue.Text("a")]
+        ))
+        i = i + 1
+    }
+    return c
+}
+
+// ---------------------------------------------------------------- the engine as a driver
+
+#[test]
+fn both_drivers_report_the_same_dialect() {
+    // Migrations and `migrate`'s type tokens key off the dialect, so the strict reading has to be
+    // the same engine as far as they are concerned.
+    test.assert_eq("memdb", datasource.dialect(opened("memdb:")))
+    test.assert_eq("memdb", datasource.dialect(opened("memdb-ansi:")))
+}
+
+#[test]
+fn a_url_no_driver_claims_is_refused() {
+    test.assert_err(datasource.open(drivers, "postgres://localhost/x"))
+}
+
+#[test]
+fn anything_after_the_prefix_is_a_fresh_database() {
+    val a = opened("memdb:one")
+    val b = opened("memdb:two")
+    exec(a, "CREATE TABLE t (x INTEGER)")
+    exec(a, "INSERT INTO t (x) VALUES (1)")
+    // `b` is its own database: a connection *is* the database here.
+    test.assert_err(datasource.query(b, "SELECT x FROM t"))
+}
+
+#[test]
+fn a_schema_and_a_dataset_seed_a_connection() {
+    // The path the module exists for: a schema.sql and a data.sql, statement by statement.
+    val c = opened("memdb:")
+    for statement in [
+        "CREATE TABLE patient (id INTEGER PRIMARY KEY, name TEXT NOT NULL)",
+        "CREATE INDEX idx_patient_name ON patient (name)",
+        "INSERT INTO patient (id, name) VALUES (1, 'Ada')",
+        "INSERT INTO patient (id, name) VALUES (2, 'Bob')"
+    ] {
+        exec(c, statement)
+    }
+    test.assert_eq(2, one_int(c, "SELECT count(*) AS c FROM patient"))
+}
+
+// ---------------------------------------------------------------- a database is a value
+
+#[test]
+fn a_refused_statement_changes_nothing() {
+    val c = seeded(5)
+    // A duplicate key in the middle of a multi-row insert: none of its rows may land.
+    test.assert_err(datasource.execute(
+        c,
+        "INSERT INTO t (id, name) VALUES (100, 'ok'), (1, 'duplicate'), (101, 'ok')"
+    ))
+    test.assert_eq(5, one_int(c, "SELECT count(*) AS c FROM t"))
+}
+
+#[test]
+fn a_refused_update_leaves_every_row_as_it_was() {
+    val c = seeded(5)
+    test.assert_err(datasource.execute(c, "UPDATE t SET name = NULL"))
+    test.assert_eq(5, one_int(c, "SELECT count(*) AS c FROM t WHERE name = 'name'"))
+}
+
+#[test]
+fn rollback_puts_the_whole_database_back() {
+    val c = seeded(5)
+    exec(c, "BEGIN")
+    exec(c, "DELETE FROM t")
+    exec(c, "INSERT INTO t (id, name) VALUES (99, 'new')")
+    test.assert_eq(1, one_int(c, "SELECT count(*) AS c FROM t"))
+    exec(c, "ROLLBACK")
+    test.assert_eq(5, one_int(c, "SELECT count(*) AS c FROM t"))
+}
+
+#[test]
+fn commit_keeps_what_the_transaction_did() {
+    val c = seeded(5)
+    exec(c, "BEGIN")
+    exec(c, "DELETE FROM t WHERE id = 0")
+    exec(c, "COMMIT")
+    test.assert_eq(4, one_int(c, "SELECT count(*) AS c FROM t"))
+}
+
+#[test]
+fn transactions_nest_and_the_inner_rollback_is_the_inner_one() {
+    val c = seeded(5)
+    exec(c, "BEGIN")
+    exec(c, "DELETE FROM t WHERE id = 0")
+    exec(c, "BEGIN")
+    exec(c, "DELETE FROM t WHERE id = 1")
+    exec(c, "ROLLBACK")
+    // The inner rollback undid its own delete and not the outer one.
+    test.assert_eq(4, one_int(c, "SELECT count(*) AS c FROM t"))
+    exec(c, "ROLLBACK")
+    test.assert_eq(5, one_int(c, "SELECT count(*) AS c FROM t"))
+}
+
+#[test]
+fn a_rollback_without_a_begin_is_not_an_error() {
+    val c = seeded(2)
+    exec(c, "ROLLBACK")
+    test.assert_eq(2, one_int(c, "SELECT count(*) AS c FROM t"))
+}
+
+// ---------------------------------------------------------------- what a caller reads
+
+#[test]
+fn execute_reports_the_rows_each_statement_touched() {
+    val c = seeded(5)
+    test.assert_eq(1, exec(c, "INSERT INTO t (id, name) VALUES (50, 'a')"))
+    test.assert_eq(2, exec(c, "INSERT INTO t (id, name) VALUES (51, 'b'), (52, 'c')"))
+    test.assert_eq(3, exec(c, "UPDATE t SET g = 'z' WHERE id >= 50"))
+    test.assert_eq(3, exec(c, "DELETE FROM t WHERE id >= 50"))
+    test.assert_eq(0, exec(c, "DELETE FROM t WHERE id = 9999"))
+    // DDL and transaction statements report nothing touched.
+    test.assert_eq(0, exec(c, "CREATE TABLE other (x INTEGER)"))
+    test.assert_eq(0, exec(c, "BEGIN"))
+    test.assert_eq(0, exec(c, "COMMIT"))
+}
+
+#[test]
+fn a_constraint_violation_is_a_constraint_error() {
+    // A caller switches on this to tell "you may not" from "I could not read that".
+    val c = seeded(2)
+    val refused = test.assert_err(datasource.execute(c, "INSERT INTO t (id, name) VALUES (1, 'dup')"))
+    test.assert(db.DbError.is_Constraint(refused))
+    val unreadable = test.assert_err(datasource.execute(c, "SELECT nonsense FROM"))
+    test.assert(db.DbError.is_Sql(unreadable))
+}
+
+#[test]
+fn the_lazy_form_hands_out_the_same_rows() {
+    val c = seeded(4)
+    val all = test.assert_ok(datasource.query(c, "SELECT id FROM t ORDER BY id"))
+    val streamed = mutable_array_new<int>()
+    for r in test.assert_ok(datasource.rows(c, "SELECT id FROM t ORDER BY id")) {
+        val row = test.assert_ok(r)
+        if Int(n) = row.values[0] {
+            push(streamed, n)
+        }
+    }
+    test.assert_len(prelude.len(all), snapshot(streamed))
+    test.assert_eq([0, 1, 2, 3], snapshot(streamed))
+}
+
+#[test]
+fn query_one_answers_none_for_no_rows() {
+    val c = seeded(2)
+    test.assert_none(test.assert_ok(datasource.query_one(c, "SELECT id FROM t WHERE id = 99")))
+    test.assert_some(test.assert_ok(datasource.query_one(c, "SELECT id FROM t WHERE id = 1")))
+}
+
+// ---------------------------------------------------------------- the two readings
+
+#[test]
+fn the_strict_reading_refuses_what_sqlite_allows() {
+    val lax = opened("memdb:")
+    val strict = opened("memdb-ansi:")
+    for c in [lax, strict] {
+        exec(c, "CREATE TABLE t (id INTEGER, name TEXT)")
+        exec(c, "INSERT INTO t (id, name) VALUES (1, 'Ada')")
+    }
+    // division by zero: NULL in SQLite, an error in the standard
+    test.assert_ok(datasource.query(lax, "SELECT 1 / 0 AS boom"))
+    test.assert_err(datasource.query(strict, "SELECT 1 / 0 AS boom"))
+    // a number against text: a type rank in SQLite, a type error in the standard
+    test.assert_ok(datasource.query(lax, "SELECT id FROM t WHERE name = 1"))
+    test.assert_err(datasource.query(strict, "SELECT id FROM t WHERE name = 1"))
+}
+
+#[test]
+fn the_strict_reading_runs_what_sqlite_refuses() {
+    val lax = opened("memdb:")
+    val strict = opened("memdb-ansi:")
+    for c in [lax, strict] {
+        exec(c, "CREATE TABLE t (id INTEGER, name TEXT)")
+        exec(c, "INSERT INTO t (id, name) VALUES (1, 'Ada')")
+    }
+    // The divergences that run the other way: SQLite is the stricter engine for these.
+    test.assert_err(datasource.query(lax, "SELECT id FROM t INTERSECT ALL SELECT id FROM t"))
+    test.assert_ok(datasource.query(strict, "SELECT id FROM t INTERSECT ALL SELECT id FROM t"))
+    test.assert_err(datasource.execute(lax, "DELETE FROM t WHERE id = 99 RETURNING t.*"))
+    test.assert_ok(datasource.execute(strict, "DELETE FROM t WHERE id = 99 RETURNING t.*"))
+}
+
+#[test]
+fn an_integer_primary_key_is_a_rowid_in_the_lax_reading_only() {
+    val lax = opened("memdb:")
+    val strict = opened("memdb-ansi:")
+    for c in [lax, strict] {
+        exec(c, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+        exec(c, "INSERT INTO t (id, name) VALUES (5, 'five')")
+    }
+    // SQLite fills in the next value; the standard refuses a NULL in a key.
+    exec(lax, "INSERT INTO t (name) VALUES ('next')")
+    test.assert_eq(6, one_int(lax, "SELECT max(id) AS m FROM t"))
+    test.assert_err(datasource.execute(strict, "INSERT INTO t (name) VALUES ('next')"))
+}
+
+// ---------------------------------------------------------------- cost
+//
+// Each of these was quadratic in the number of rows, and each budget is deliberately loose: what
+// is being guarded against is a return to O(n^2), which at these sizes is tens of times the
+// budget rather than a few percent over it.
+
+#[test]
+fn updating_every_row_is_linear() {
+    val c = seeded(400)
+    val started = clock.monotonic_millis()
+    test.assert_eq(400, exec(c, "UPDATE t SET name = 'y'"))
+    // 1.4 seconds before the key index; a few milliseconds after.
+    test.assert_lt(clock.monotonic_millis() - started, 400)
+}
+
+#[test]
+fn a_join_does_not_try_every_pair() {
+    val c = seeded(400)
+    val started = clock.monotonic_millis()
+    test.assert_eq(400, one_int(c, "SELECT count(*) AS c FROM t AS a JOIN t AS b ON b.id = a.id"))
+    // 160,000 pairs tried before the index narrowed them to 400.
+    test.assert_lt(clock.monotonic_millis() - started, 400)
+}
+
+#[test]
+fn an_uncorrelated_subquery_runs_once() {
+    val c = seeded(400)
+    val started = clock.monotonic_millis()
+    val wanted = one_int(c, "SELECT count(*) AS c FROM t WHERE id IN (SELECT id FROM t WHERE n = 3)")
+    test.assert_gt(wanted, 0)
+    // It used to run once per outer row, which is 400 scans of 400 rows.
+    test.assert_lt(clock.monotonic_millis() - started, 400)
+}
+
+#[test]
+fn ordering_evaluates_its_keys_once_per_row() {
+    val c = seeded(400)
+    val started = clock.monotonic_millis()
+    test.assert_len(400, test.assert_ok(datasource.query(c, "SELECT id FROM t ORDER BY n, id")))
+    // The comparator used to evaluate both terms for both rows of every comparison.
+    test.assert_lt(clock.monotonic_millis() - started, 300)
+}
+
+#[test]
+fn seeding_stays_within_reach_of_linear() {
+    // Inserting one row at a time is O(n) per statement by design -- a `Database` is an immutable
+    // value, which is what makes transactions free -- so seeding is quadratic in principle. What
+    // this guards is the *constant*: an extra pass per row, or a map built per insert, is what
+    // takes a fixture from a second to a minute.
+    val small = timed_seed(150)
+    val large = timed_seed(600)
+    test.assert_lt(large, math.max(small, 1) * 4 * 8)
+}
+
+fn timed_seed(rows: int) -> int {
+    val started = clock.monotonic_millis()
+    val c = seeded(rows)
+    val elapsed = clock.monotonic_millis() - started
+    datasource.close(c)
+    return elapsed
+}

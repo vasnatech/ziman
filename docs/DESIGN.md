@@ -235,6 +235,7 @@ them against the code.
 - [Referential integrity, and a pragma that makes a green suite mean nothing (2026-10-25)](#referential-integrity-and-a-pragma-that-makes-a-green-suite-mean-nothing-2026-10-25)
 - [Derived tables, and the line SQLite draws around them (2026-10-25)](#derived-tables-and-the-line-sqlite-draws-around-them-2026-10-25)
 - [`sql` gets unit tests, and the unit tests find what the round trip cannot (2026-10-25)](#sql-gets-unit-tests-and-the-unit-tests-find-what-the-round-trip-cannot-2026-10-25)
+- [`memdb` gets unit tests, and four quadratics come out of hiding (2026-10-25)](#memdb-gets-unit-tests-and-four-quadratics-come-out-of-hiding-2026-10-25)
 
 <!-- end index -->
 
@@ -9153,3 +9154,36 @@ So **1.4x over the corpus and 1.9x on the statements an engine runs most**, and 
 One tidy-up fell out that is worth more than its milliseconds: **the parser and the formatter now read one `precedence` function** instead of a table each. Two tables are two chances to disagree about what a query means, which is the shape of both precedence bugs this module has had.
 
 `tests/bench/sql_parse.zm` is the standing measurement -- the corpus, a sweep over the number of expression atoms, and the real migration files -- and it exits 1 if parsing stops being linear in the atoms, which is what a ladder coming back would look like.
+
+## `memdb` gets unit tests, and four quadratics come out of hiding (2026-10-25)
+
+`tests/stdlib/memdb_test.zm` -- 22 tests -- and then the four operations they exposed as quadratic. Interleaved A/B of two binaries built from the same tree, 400 rows:
+
+| | before | after | |
+|---|---|---|---|
+| `UPDATE` every row | 7,100 ms | 50 ms | **150x** |
+| a self-join on `id` | 505 ms | 4 ms | **125x** |
+| `WHERE id IN (SELECT ..)` | 397 ms | 12 ms | **33x** |
+| `ORDER BY n, id` | 1,945 ms | 260 ms | **7.5x** |
+
+**The cross-check fixtures could not have found any of this.** 164 queries agreeing with real SQLite, 57 constraint statements, 51 foreign-key statements -- all green, all the way through, because **a cross-check compares answers and not clocks**. That is the same blind spot the round-trip property has for a wrong tree, and the same answer: a different kind of test, not a bigger corpus of the same one.
+
+**What each one was.**
+
+* **A key's uniqueness was a scan of the whole table per written row.** A 400-row `UPDATE` with a `PRIMARY KEY` therefore did 160,000 key comparisons. It now builds a bucket index over the table once per statement and looks each written row up in it. The bucket name normalises numbers through `as_number`, so `Int(1)` and `Float(1.0)` land together as they must, and `values_same` still decides equality inside the bucket -- **the index chooses where to look, never what is equal**.
+* **A join tried every pair.** 200 rows against 200 is 40,000 combined rows, each with a context built and a condition evaluated: measured at 13 microseconds a pair. Now an `ON` with an equality between a column of each side -- which is nearly every join anyone writes -- buckets the right side once and gives each left row only the rows that can match. The full condition is still evaluated on the survivors, so the index only ever *narrows*: a pair whose keys differ cannot satisfy `=`, and neither can a pair with a NULL. A join without such an equality still tries every pair, because nothing else can.
+* **An uncorrelated subquery ran once per outer row.** `WHERE id IN (SELECT ..)` over 400 rows ran the inner query 400 times. A subquery that reads nothing from the row it is evaluated against answers the same thing every time, and `uncorrelated` is exactly `validate_select` **with no enclosing scopes**: if every column it names resolves inside it, nothing outside can change its answer. Such a subquery is now replaced, once per statement, by what it answers -- `IN (SELECT ..)` becomes an `IN` over literals, whose evaluation arm handles NULL identically; `EXISTS` becomes a boolean; a scalar subquery becomes its value. A correlated one is left exactly as it was and still runs per row, as it must in an engine with no indexes.
+* **`ORDER BY` evaluated its keys inside the comparator**, so a term that is an expression was evaluated twice per comparison -- O(n log n) evaluations where O(n) will do. The keys are computed once per row now, which also let the comparator stop being able to fail, which in turn removed the failure-carrying cell that a lambda needs because it cannot capture a `var`.
+
+**And the measurements that were wrong.** Two things I was sure about and that the clock disproved:
+
+* folding every column name once per statement instead of per lookup -- `resolve_column` called `to_lower` on every candidate column of every reference of every row -- gained **nothing measurable** on the join it was supposed to fix. The join's cost was interpreted calls per pair, not allocations, which is the same answer `perf` gave for `sql`'s parser an hour earlier. The change stayed anyway, because it makes `Names` a thing that exists once rather than per row, which is what let the join's combined shape be folded once instead of per pair.
+* a correlated `EXISTS` looked 60% slower afterwards, which sent me looking for a regression that was not there. Running that one query alone, interleaved, it is unchanged. **The bench runs everything in one process**, so an earlier line's allocations shape a later line's collector pauses; a 60% difference between two runs of the same binary is ordinary. The bench now says so in its header, and its verdict compares shapes across sizes rather than absolute times.
+
+**One real bug, found by the subquery work and not by the clock.** Replacing an uncorrelated subquery with its answer requires knowing it is uncorrelated, and `validate_select` did not look inside a derived table's query -- so a correlation hidden in one (`IN (SELECT y.x FROM (SELECT x FROM v WHERE v.id = p.id) AS y)`) read as uncorrelated, was evaluated once with no outer row, and failed with "no such column: p.id". The derived query is now validated too, against the scopes enclosing the statement and not its siblings, which is the same rule it is *run* under. That also closed a hole the fixtures had: a typo inside a derived table used to be caught only when the derived table ran.
+
+Also worth recording because it cost me ten minutes: a `python` replacement I did not verify silently did nothing -- the anchor said `q.items` where the code says `stmt.items` -- and I spent that time re-deriving a conclusion I had already reached. Every edit in that pass now asserts its anchor exists.
+
+**What is still quadratic, stated rather than hidden.** A write is linear in the table, because a `Database` is an immutable value -- which is exactly what makes transactions free -- so seeding n rows one statement at a time is quadratic in principle; what was removed is the per-row *constants*, and 800 rows now seed in under two seconds where the shape alone predicts it. A long `IN` list is compared against per row. A correlated subquery runs per row. `memdb`'s header lists all of it under "What a statement costs", and `tests/bench/memdb_ops.zm` fails if a join or an uncorrelated subquery goes back to being quadratic.
+
+The other 18 tests cover what no comparison can: that a refused statement leaves the database exactly as it was, that transactions nest, that `execute` reports what each statement kind touched, that a constraint violation arrives as `DbError.Constraint` and a syntax error as `DbError.Sql`, that the lazy `rows` form hands out what `query` does, and that each of the two readings refuses what the other runs.

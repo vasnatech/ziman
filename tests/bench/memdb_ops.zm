@@ -1,0 +1,125 @@
+// **What a statement costs this engine**, which is what a test suite running on it pays per line.
+//
+// Four of these operations were quadratic in the number of rows and every fixture was green
+// throughout, because a cross-check against SQLite compares answers and not clocks: a 400-row
+// `UPDATE` took 1.4 seconds (a key's uniqueness was a scan per written row), a 200-row self-join
+// half a second (every pair was tried), an uncorrelated subquery ran once per outer row, and an
+// `ORDER BY` evaluated its keys once per *comparison*.
+//
+// Run it directly: `./ziman tests/bench/memdb_ops.zm`. It prints a table and ends with a verdict,
+// exiting 1 if a join or a subquery has gone quadratic again.
+//
+// One caveat worth knowing before reading the numbers: these all run in **one process**, so an
+// earlier line's allocations shape a later line's collector pauses. A 60% difference between two
+// runs of the same binary is ordinary here, which is why the verdict compares *shapes* across
+// sizes rather than absolute milliseconds, and why an A/B of two binaries has to interleave them.
+use clock
+use datasource
+use db
+use db.SqlValue
+use math
+use memdb
+use os
+
+val drivers = datasource.registry([memdb.driver()])
+
+fn seeded(rows: int) -> datasource.Connection {
+    val c = unwrap(datasource.open(drivers, "memdb:"))
+    unwrap(datasource.execute(c, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, n INTEGER, g TEXT)"))
+    var i = 0
+    while i < rows {
+        unwrap(datasource.execute(
+            c,
+            "INSERT INTO t (id, name, n, g) VALUES ($1, $2, $3, $4)",
+            [SqlValue.Int(i), SqlValue.Text("name"), SqlValue.Int(i % 7), SqlValue.Text("a")]
+        ))
+        i = i + 1
+    }
+    return c
+}
+
+fn ms(c: datasource.Connection, sql: string, rounds: int) -> int {
+    val started = clock.monotonic_millis()
+    var i = 0
+    while i < rounds {
+        if Err(e) = datasource.query(c, sql) {
+            printf("  FAILED: {}\n", db.db_error_message(e))
+            os.exit(1)
+        }
+        i = i + 1
+    }
+    return clock.monotonic_millis() - started
+}
+
+fn timed_seed(rows: int) -> int {
+    val started = clock.monotonic_millis()
+    val c = seeded(rows)
+    val elapsed = clock.monotonic_millis() - started
+    datasource.close(c)
+    return elapsed
+}
+
+fn main() {
+    print("seeding, one INSERT per row")
+    for rows in [200, 400, 800] {
+        printf("  {} rows: {} ms\n", rows, timed_seed(rows))
+    }
+
+    val c = seeded(400)
+    print("\nreads and writes over 400 rows")
+    printf("  scan        {} ms (20 rounds)\n", ms(c, "SELECT id, name, n, g FROM t", 20))
+    printf("  where       {} ms (20)\n", ms(c, "SELECT id FROM t WHERE n = 3", 20))
+    printf("  order       {} ms (20)\n", ms(c, "SELECT id FROM t ORDER BY n, id", 20))
+    printf("  group       {} ms (20)\n", ms(c, "SELECT g, count(*) AS c, sum(n) AS s FROM t GROUP BY g", 20))
+    printf("  aggregate   {} ms (20)\n", ms(c, "SELECT count(*) AS c, max(n) AS m FROM t", 20))
+    printf("  update all  {} ms (5)\n", ms(c, "UPDATE t SET name = 'y'", 5))
+    printf("  update one  {} ms (20)\n", ms(c, "UPDATE t SET name = 'x' WHERE id = 5", 20))
+    printf("  delete none {} ms (20)\n", ms(c, "DELETE FROM t WHERE id = 99999", 20))
+
+    print("\njoins and subqueries, against the number of rows")
+    val join_times = mutable_array_new<int>()
+    val sub_times = mutable_array_new<int>()
+    val sizes = [200, 400, 800]
+    for rows in sizes {
+        val each = seeded(rows)
+        val join_ms = ms(each, "SELECT count(*) AS c FROM t AS a JOIN t AS b ON b.id = a.id", 1)
+        val sub_ms = ms(each, "SELECT count(*) AS c FROM t WHERE id IN (SELECT id FROM t WHERE n = 3)", 1)
+        val correlated_ms = ms(
+            each,
+            "SELECT count(*) AS c FROM t AS o WHERE EXISTS (SELECT 1 FROM t WHERE t.id = o.id)",
+            1
+        )
+        push(join_times, join_ms)
+        push(sub_times, sub_ms)
+        printf(
+            "  {} rows: join {} ms, uncorrelated subquery {} ms, correlated EXISTS {} ms\n",
+            rows,
+            join_ms,
+            sub_ms,
+            correlated_ms
+        )
+        datasource.close(each)
+    }
+    datasource.close(c)
+
+    // A join narrowed by its `ON` equality is linear in the rows. An uncorrelated subquery is
+    // answered once, but a long `IN` list is then scanned per row -- so its growth is checked
+    // against an absolute budget instead: running the subquery per outer row again would cost
+    // seconds at this size rather than a fraction of one.
+    val joins = snapshot(join_times)
+    val subs = snapshot(sub_times)
+    val span = sizes[len(sizes) - 1] / sizes[0]
+    val join_growth = math.max(joins[len(joins) - 1], 1) / math.max(joins[0], 1)
+    val sub_growth = math.max(subs[len(subs) - 1], 1) / math.max(subs[0], 1)
+    printf("\ngrowth over {}x the rows: join {}x, subquery {}x\n", span, join_growth, sub_growth)
+    if join_growth > span * 4 {
+        printf("FAIL: the join grew {}x -- it looks like every pair is being tried again\n", join_growth)
+        os.exit(1)
+    }
+    val biggest_sub = subs[len(subs) - 1]
+    if biggest_sub > 1500 {
+        printf("FAIL: the subquery took {} ms -- it looks like it runs per outer row again\n", biggest_sub)
+        os.exit(1)
+    }
+    print("ok   joins and uncorrelated subqueries are linear in the rows")
+}
