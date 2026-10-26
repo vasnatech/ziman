@@ -3965,10 +3965,43 @@ struct State {
     saved: Mutable<[Database]>
     // Which reading of SQL this connection takes: see `Ctx.strict` and the two drivers below.
     strict: bool
+    // The statements this connection has already parsed, by their text. See `parse_cached`.
+    parsed: Mutable<Map<string, Statement>>
+}
+
+// How many parsed statements one connection keeps. **Bounded, because the key is SQL text and a
+// connection can see unbounded distinct text** -- a tool that builds a statement per row would
+// otherwise grow this until the process died, which is a worse failure than re-parsing.
+//
+// A repository's working set is a fixed handful of templates, so 128 holds all of them; past the
+// cap the cache is emptied rather than evicted one at a time, which costs the next call of each
+// live template one parse and needs no recency bookkeeping on the hot path.
+val parse_cache_limit: int = 128
+
+// `sql.parse`, once per distinct statement text per connection.
+//
+// **The parse is a pure function of the text and a `Statement` is an immutable value**, so reusing
+// one is not a cache in the risky sense -- there is nothing to invalidate, and no parameter is part
+// of it: values travel separately and are applied to the tree per call. That is the whole reason
+// the same template can be reused with different parameters.
+//
+// Measured on 2,000 single-row INSERTs, where the profiler put `sql::tokenize` at 21% of the work
+// and the parser's other functions at most of the rest.
+fn parse_cached(state: State, sql: string) -> Result<Statement, DbError> {
+    val seen = get(state.parsed)
+    if Some(already) = get(seen, sql) {
+        return ok(already)
+    }
+    val stmt = try sql.parse(sql)
+    if prelude.len(seen) >= parse_cache_limit {
+        set(state.parsed, Map<string, Statement> {})
+    }
+    set(state.parsed, set(get(state.parsed), sql, stmt))
+    return ok(stmt)
 }
 
 fn run_one(state: State, sql: string, params: [SqlValue]) -> Result<Outcome, DbError> {
-    val stmt = try sql.parse(sql)
+    val stmt = try parse_cached(state, sql)
     val before = get(state.database)
     return switch stmt {
         Begin {
@@ -4079,7 +4112,8 @@ fn engine(prefix: string, strict: bool) -> Driver {
             val state = State {
                 database: mutable_new(empty_database()),
                 saved: mutable_new<[Database]>([]),
-                strict: strict
+                strict: strict,
+                parsed: mutable_new(Map<string, Statement> {})
             }
             return ok(Conn {
                 dialect: "memdb",
