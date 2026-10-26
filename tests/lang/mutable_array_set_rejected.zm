@@ -1,5 +1,9 @@
 // `set` has no MutableArray form on purpose: a copying three-argument call would read as though it
 // left the container alone. The element write is `b[i] = value`, and this says so.
+//
+// The sentence moved from a `typecheck.c` arm to `#[when_unmatched]` on 2026-10-26, where it is
+// now one line shared with the set advice -- so this asserts the half that is about a
+// MutableArray, and `collection_word_per_type.diag` pins the whole of it.
 fn main() {
     val b = mutable<int>([1, 2])
     val copy = set(b, 0, 9)

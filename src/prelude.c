@@ -3570,6 +3570,29 @@ static Value native_map_remove_keys(Value *args, int argc, int line, int col) {
  * The array form is `call_remove` moved out of interpreter.c unchanged: bounds-checked against the
  * length, one `array_packed_edit` when the elements are packed, and otherwise two memcpys around
  * the hole. The result's element type is patched by the caller, as it is for any generic native. */
+/* An array with `index` replaced, `set`'s array member.
+ *
+ * `call_set` moved out of interpreter.c unchanged, and with it the last of the collection arms:
+ * `set` was the one name still handled by hand in `check_call`, and it was there only for two
+ * refusals keyed on the type it rejected. See lib/prelude/array.zm's `set` for what became of
+ * them. The result's element type is patched by the caller, as for any generic native. */
+static Value native_array_set(Value *args, int argc, int line, int col) {
+    (void)argc;
+    ArrayObj *old = args[0].as.arr;
+    int64_t i = args[1].as.i;
+    if (i < 0 || i >= old->count) {
+        ziman_error("runtime", line, col, "set index %lld out of bounds (array length %d)",
+                    (long long)i, old->count);
+    }
+    if (array_pack_kind(old) != PK_NONE) {
+        return value_array(args[0].type, array_packed_edit(old, 2, (int)i, args[2]));
+    }
+    Value *items = ziman_xmalloc((size_t)old->count * sizeof(Value));
+    memcpy(items, old->boxed_items, (size_t)old->count * sizeof(Value));
+    items[i] = args[2];
+    return value_array(args[0].type, array_obj_new(items, old->count));
+}
+
 static Value native_array_remove(Value *args, int argc, int line, int col) {
     (void)argc;
     ArrayObj *old = args[0].as.arr;
@@ -3745,6 +3768,7 @@ void prelude_register(void) {
     native_register("map_merge", native_map_merge);
     native_register("mutable_map_merge", native_mutable_map_merge);
     native_register("map_remove_keys", native_map_remove_keys);
+    native_register("array_set", native_array_set);
     native_register("array_remove", native_array_remove);
     native_register("map_remove", native_map_remove);
     native_register("set_remove", native_map_remove);

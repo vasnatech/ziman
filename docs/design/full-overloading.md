@@ -800,3 +800,54 @@ measured: **52 resolver-owned sets, 0 unresolvable; 9 polymorphic builtins; 1 co
 to doubt the second, not as a precedent. Walls 1 and 2 are peculiar to `concat`: it is the only
 prelude name whose two worlds answer *different types* to the *same* argument. `mutable` stays a
 polymorphic builtin for its own reasons (§4) and is not a candidate.
+
+## 17. `set`, the last collection arm, and the metric that could not see it
+
+Added 2026-10-26. §14 ended *"One collection arm is left, `set`"*, and this is the end of that sentence. The arm is deleted, the array member is a `native fn` like the other four declarations, and `BUILTINS_WITH_NAMED_ARGS` is **empty**.
+
+### What the arm was still doing
+
+Ten checks, of which eight were things the resolver says anyway:
+
+| check | who says it now |
+|---|---|
+| two arity checks (`< 1`, `!= 3`) | the resolver |
+| `argument 2 of 'set' expects int` | the resolver |
+| `argument 3 of 'set' expects T (the array's element type)` | the resolver, bar the parenthetical |
+| *"expects an array, a Map, a MutableMap, a MutableString or a Mutable cell"* | **derived from the five signatures** |
+| `Map`, `MutableMap`, `Mutable`, `MutableString` | already declined to the resolver |
+| the array member's own type checking | `native_array_set` |
+| `Set`/`MutableSet` → *"use add(set, item)"* | merged `#[when_unmatched]` |
+| `MutableArray` → *"written with 'b[i] = value'"* | merged `#[when_unmatched]` |
+
+The hand-written type list is the entry worth dwelling on. It is the same shape as the one §14 found had fallen behind `remove`'s declarations by naming two functions that no longer existed, and it was one `set` declaration away from doing it again: a `MutableString` member arrived on 2026-10-22, and the list was updated by hand that day. Derived, it cannot fall behind.
+
+### The merged message, and the bug it exposed
+
+Both refusals became one `#[when_unmatched]` line, the trade `remove`, `clear` and `snapshot` made before it (F190: the content survives, the aim does not). **Unlike `remove`'s, both halves were already pinned** — `collection_word_per_type.diag` and `mutable_array_set_rejected.err` — so the cost was visible the moment the arm went rather than afterwards. That is the §14 complaint answered: *"no fixture had ever asserted that message while the arm owned it, which is why the trade was invisible until the arm was deleted."*
+
+And the fixtures earned it, because the premise of the trade was **wrong**. §13 assumed a merged line would at least be *shown*. It was not:
+
+```
+set(aSet, item)   ->  argument 1 of 'set' expects Mutable<int>, found Set<int>
+```
+
+Two arguments match exactly one declaration — the `Mutable<T>` cell — so the call never reaches the overload resolver, and the resolver is where the set-wide `#[when_unmatched]` lookup lives. The hint, which the array member carries for the whole set, was never consulted. The message is true and worse than useless: nothing about a set suggests a cell.
+
+The resolver had always read the attribute set-wide, and its own comment says why -- *"it is about the name, not about which declaration happened to be looked at first"*. The two single-candidate paths read it off the one declaration they had. `when_unmatched_for_name` gives them the same lookup, which is a fix to the **mechanism** rather than a workaround for `set`: any set whose hint lives on a sibling member now shows it wherever a single candidate fails on a type. `make test` found exactly the two fixtures that pinned `set`'s messages and no others, which bounds the change.
+
+### The metric could not see the arm
+
+`make overload-sets-check` reports **71 resolver-owned sets, 0 unresolvable; 4 polymorphic builtins; 1 compiler-resolved** — and reported exactly that before this change too, measured by running the tool against the previous binary.
+
+So the number this effort has quoted since §1 never tracked the quantity being reduced. A **mixed** set already counts as resolver-owned: four of `set`'s five declarations were ordinary `fn`, so the set was counted whole while one member was still dispatched by id and one arm still answered before any declaration was consulted. §14 quoted a move from "39 and 20" to "41 and 18" as *"the measurement to quote"*, and for that step it was — but it cannot see an arm standing in front of a set it already counts.
+
+What tracked the last arm was **prose**: §14's closing sentence. That is worth stating plainly rather than filing as a curiosity, because the same shape bit the effort twice already — §14 notes the running total "has been re-derived by hand since, incorrectly at least once", and §13 found `insert` on a `Set` accepted for two passes with no guard able to notice. **A gate that counts sets does not count arms.** The honest measurements for this change are: 74 lines of arm deleted, one builtin id and its dispatch branch gone, `ziman_builtin_count()` down by one, and `BUILTINS_WITH_NAMED_ARGS` from one entry to none.
+
+The shadow gate that would have caught it is gone on purpose — `make/ziman.mk` records it standing from F176 to F180 and removed because *"with the last arm gone it has no second opinion to compare against, and a gate that can only pass is worse than no gate"*. That reasoning was sound and is now, finally, accurate.
+
+### What the conversion bought beyond the deletion
+
+`set` takes named arguments. `set(items: a, index: 2, x: 0)` was rejected before for no better reason than that `set` had an arm — the restriction §14's `BUILTINS_WITH_NAMED_ARGS` comment called *"a restriction with no reason behind it"*. Emptying that table is the end of its story: every name that was dispatched-but-armless has now either been converted or had its arm deleted.
+
+**No collection arm remains.** `concat` keeps the §16 shape -- the decision without the dispatch -- and `mutable` stays a polymorphic builtin for the §4 reasons. Neither is a collection verb, so the sentence §14 left open is closed rather than moved on.

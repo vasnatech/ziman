@@ -961,19 +961,6 @@ static Value value_error_message(Module *module, Value e, int line, int col) {
  * value-semantics decision for arrays. Sharing `old->items[k]` Values by
  * plain struct copy into the new buffer is safe precisely because ArrayObj
  * is immutable once built (see value.h) -- there's nothing to alias into. */
-static Value call_set(Type array_type, Value arr, Value idx, Value x, int line, int col) {
-    ArrayObj *old = arr.as.arr;
-    int64_t i = idx.as.i;
-    if (i < 0 || i >= old->count) {
-        ziman_error("runtime", line, col, "set index %lld out of bounds (array length %d)", (long long)i, old->count);
-    }
-    if (array_pack_kind(old) != PK_NONE) return value_array(type_ref(array_type), array_packed_edit(old, 2, (int)i, x));
-    Value *items = ziman_xmalloc((size_t)old->count * sizeof(Value));
-    memcpy(items, old->boxed_items, (size_t)old->count * sizeof(Value));
-    items[i] = x;
-    return value_array(type_ref(array_type), array_obj_new(items, old->count));
-}
-
 static Value call_ok(Type result_type, Value x) {
     return value_result(type_ref(result_type), result_obj_new(1, x));
 }
@@ -1230,7 +1217,6 @@ typedef enum {
     B_mutable_map_from,
     B_mutable_string_from,
     B_mutable_set_from,
-    B_set,
     B_map_lit,
     B_set_lit,
     B_ok,
@@ -1265,7 +1251,6 @@ static const struct { const char *name; int id; } g_builtins[] = {
     {"$mutable_map_from", B_mutable_map_from},
     {"$mutable_string_from", B_mutable_string_from},
     {"$mutable_set_from", B_mutable_set_from},
-    {"set", B_set},
     {"$map_lit", B_map_lit},
     {"$set_lit", B_set_lit},
     {"ok", B_ok},
@@ -1447,8 +1432,6 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                     m = mapobj_set(m, args[i], is_map ? args[i + 1] : value_int(0));
                 }
                 result = value_map(&e->resolved_type, m);
-            } else if (bid == B_set) {
-                result = call_set(e->resolved_type, args[0], args[1], args[2], e->line, e->col);
             } else if (bid == B_ok) {
                 result = call_ok(e->resolved_type, args[0]);
             } else if (bid == B_err) {

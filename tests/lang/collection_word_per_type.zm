@@ -12,8 +12,13 @@
 // F207 then deleted two of the three arms -- `push` and `insert` are resolver-owned, their one
 // sentence each now an `#[when_unmatched]` attribute in lib/prelude/array.zm -- so most of these
 // lines come from the resolver and the fixture outlived the code it was written against. It is
-// kept because the property it asserts did not change: **the answer depends on the type, not the
-// name.** `set` is the one still arm-handled, and the last three lines are why.
+// kept because the property it asserts did not change for `push` and `insert`: **the answer
+// depends on the type, not the name.**
+//
+// `set` was the last arm, and it went on 2026-10-26. Its two refusals *were* keyed on the type,
+// which is what had kept it; merged into one `#[when_unmatched]` they are not, and the last three
+// lines record that honestly rather than being deleted. A fixture that pins a message is worth
+// more when the message changes than when it does not.
 fn main() {
     val m = Map<string, int> { "a": 1 }
     val s = Set<int> { 1 }
@@ -31,7 +36,8 @@ fn main() {
     insert(ms, 2)
     insert(mm, "b", 2)
 
-    // `set`'s two refusals are keyed on the type it rejected, and that is what keeps it arm-handled.
+    // `set`'s two refusals were keyed on the type it rejected; they are one merged line now, and
+    // the first two of these reach it only because the hint is read set-wide.
     val s1 = set(s, 2)
     set(ms, 2)
     set(b, 0, 9)

@@ -1487,7 +1487,7 @@ static void warn_brace_interpolation(Env *env, Expr *e) {
  * with `#[effectful]` and `call_is_effectful_overload` vetoes the name. Those three could not be
  * listed at all until that attribute existed (F208). */
 static const char *const PURE_BUILTINS[] = {
-    "set", "mutable",
+    "mutable",
     "str", "format", "hash", "compare", "error_message",
     "is_ok",
     "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from",
@@ -1584,7 +1584,7 @@ static int is_pure_builtin_name(const char *name) {
  * conversion removes its two entries the same way -- the name appears once per world. */
 static const char *const BUILTINS_NO_NAMED_ARGS[] = {
     "print", "printf", "str", "format", "hash", "compare", "error_message",
-    "set", "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
+    "is_ok", "unwrap", "unwrap_err", "is_Some", "is_None", "unwrap_Some", "$is_variant", "$unwrap_variant",
     "ok", "err", "channel_new", "send", "receive", "try_send", "try_receive", "channel_len", "channel_close", "receive_option", "receive_timeout", "select2", "$map_lit", "$set_lit", "mutable", "$mutable_array_from", "$mutable_array_lit", "$mutable_map_from", "$mutable_set_from", "$mutable_string_from", NULL,
 };
 
@@ -1612,9 +1612,14 @@ static const char *const BUILTINS_NO_NAMED_ARGS[] = {
  * state -- no arm, but still dispatched by id -- and converting it to a `native fn` ends that
  * state: it stops being dispatched at all and leaves both tables together. `union`, `intersect`,
  * `difference`, `is_subset` and `add` went that way on 2026-10-22 and took five of this table's
- * six entries with them. `set` is the one left, and it is here because its arm is still there. */
+ * six entries with them, and `set` took the sixth on 2026-10-26 when the last collection arm was
+ * deleted.
+ *
+ * **It is empty, and kept.** The mechanism it names is still live -- the next builtin to lose its
+ * arm before it loses its dispatch belongs here -- and an empty table says that in one line, where
+ * deleting it would make the next such conversion look like new ground. `builtin_refuses_named_args`
+ * walks it either way. */
 static const char *const BUILTINS_WITH_NAMED_ARGS[] = {
-    "set",
     NULL,
 };
 
@@ -3330,6 +3335,27 @@ static int lambda_arg_type(Module *module, Env *env, Expr *arg, Type want, TypeP
     return 1;
 }
 
+/* The advice `#[when_unmatched]` carries for a **name**, from whichever of its declarations wrote
+ * it.
+ *
+ * The overload resolver has always read it this way, and its own comment says why: the attribute is
+ * about the name, not about which declaration happened to be looked at first. The single-candidate
+ * path below read it off the one declaration it had, so a set whose hint lives on a sibling member
+ * never showed it there.
+ *
+ * Found by deleting `set`'s arm on 2026-10-26. `set(aSet, item)` is a two-argument call, and the
+ * only two-argument `set` is the `Mutable<T>` cell -- so it never reached the resolver, and the
+ * hint, which the array member carries for the whole set, was not consulted. The message read
+ * *"argument 1 of 'set' expects Mutable<int>, found Set<int>"*: true, and worse than useless, since
+ * nothing about a set suggests a cell. */
+static const char *when_unmatched_for_name(Module *module, const char *name) {
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *f = module->functions.items[i];
+        if (strcmp(f->name, name) == 0 && f->when_unmatched != NULL) return f->when_unmatched;
+    }
+    return NULL;
+}
+
 static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, FunctionDecl *fn) {
     int n_params = fn->type_params.count;
     Type *bindings = ziman_xcalloc((size_t)n_params, sizeof(Type));
@@ -3458,13 +3484,16 @@ static TypeList infer_call_type_args(Module *module, Env *env, Expr *e, Function
              * `MutableArray<T>`. `#[when_unmatched]` is appended here too -- a shape mismatch
              * against the only declaration is precisely the case that attribute is for, and a
              * single-declaration name never reaches the overload resolver that otherwise adds
-             * it. The old message stays for a call that really is uninferable, where every
-             * argument fits and none of them mentions the parameter. */
+             * it. **Read set-wide**, by `when_unmatched_for_name`: the one candidate reached here
+             * need not be the member that wrote the hint. The old message stays for a call that
+             * really is uninferable, where every argument fits and none of them mentions the
+             * parameter. */
             if (blame_pos > 0) {
+                const char *advice = when_unmatched_for_name(module, fn->name);
                 ziman_error("type", blame_at->line, blame_at->col, "argument %d of '%s' expects %s, found %s%s%s",
                             blame_pos, fn->name, type_name(blame_pattern), type_name(blame_actual),
-                            fn->when_unmatched != NULL ? " -- " : "",
-                            fn->when_unmatched != NULL ? fn->when_unmatched : "");
+                            advice != NULL ? " -- " : "",
+                            advice != NULL ? advice : "");
             }
             /* The second pass typed a lambda argument and found it answers nothing, which names
              * both the argument and what is missing from it -- where "write it explicitly" would
@@ -4033,80 +4062,6 @@ static Type check_call(Module *module, Env *env, Expr *e) {
      * `expected_argc` from the name in its second statement, which is how `set(mutableSet, 2)`
      * came to be told it "takes exactly 3 argument(s)" of a form that does not exist. */
 
-    if (strcmp(name, "set") == 0) {
-        if (e->as.call.args.count < 1) {
-            ziman_error("type", e->line, e->col, "'set' takes exactly 3 argument(s), found %d", e->as.call.args.count);
-        }
-        Expr *coll_arg = e->as.call.args.items[0];
-        Type coll_type = check_expr(module, env, coll_arg);
-
-        /* A Map declines to the resolver as a MutableMap already did. That branch only routed to
-         * a shared `set`/`remove` helper that checked the arity and the key's type -- both of
-         * which the resolver says anyway, bar a "(the map's key type)" parenthetical -- and it was
-         * that helper's last caller, so the helper is gone too. The three refusals below are what
-         * keeps the arm. */
-        if (coll_type.kind == TY_MAP) {
-            goto ordinary_call;
-        }
-
-        /* The two refusals below are keyed on the type that was rejected rather than stating the
-         * type rule, and they are the reason `set` stays arm-handled where `push` and `insert` do
-         * not: `#[when_unmatched]` is one line for a whole set and cannot say a different thing per
-         * argument. Both are measured messages, so they are kept and the conversion is not
-         * attempted -- see docs/design/full-overloading.md §13. */
-        if (coll_type.kind == TY_SET) {
-            ziman_error("type", e->line, e->col, "a set has no 'set' -- use add(set, item) to add an item");
-        }
-        if (coll_type.kind == TY_STRUCT && coll_type.struct_name != NULL) {
-            /* An element write is `b[i] = v`, which reads better than a three-argument call and is
-             * the same sugar an array gets; a copying `set` would read as though it left the
-             * container alone. */
-            if (strcmp(coll_type.struct_name, "MutableArray") == 0) {
-                ziman_error("type", e->line, e->col,
-                            "a MutableArray element is written with 'b[i] = value', not with 'set' (which "
-                            "copies an array, and a MutableArray is not copied)");
-            }
-            if (strcmp(coll_type.struct_name, "MutableSet") == 0) {
-                ziman_error("type", e->line, e->col, "a set has no 'set' -- use add(set, item) to add an item");
-            }
-            /* F200 gave `set` a MutableMap declaration, and the shared arm claimed the name before
-             * the declaration could be reached. The arm declines every shape it does not refuse:
-             * a MutableMap, a Map (since the Map member became a declaration), and a `Mutable<T>`
-             * cell, whose `set` was `mutable_set` until 2026-10-22. */
-            if (strcmp(coll_type.struct_name, "MutableMap") == 0 ||
-                strcmp(coll_type.struct_name, "Mutable") == 0 ||
-                /* `mutable_string_set` became `set` on 2026-10-22, the same prefix drop `append`
-                 * had in F205. A MutableString writes one byte at an index, which is a `set` in
-                 * every sense this arm refuses nothing about. */
-                strcmp(coll_type.struct_name, "MutableString") == 0) {
-                goto ordinary_call;
-            }
-        }
-        if (coll_type.kind != TY_ARRAY) {
-            ziman_error("type", coll_arg->line, coll_arg->col,
-                        "argument 1 of 'set' expects an array, a Map, a MutableMap, a MutableString or a "
-                        "Mutable cell, found %s",
-                        type_name(coll_type));
-        }
-
-        if (e->as.call.args.count != 3) {
-            ziman_error("type", e->line, e->col, "'set' takes exactly 3 argument(s), found %d", e->as.call.args.count);
-        }
-        Expr *idx_arg = e->as.call.args.items[1];
-        Type idx_type = check_expr(module, env, idx_arg);
-        if (idx_type.kind != TY_INT) {
-            ziman_error("type", idx_arg->line, idx_arg->col, "argument 2 of 'set' expects int, found %s", type_name(idx_type));
-        }
-        Expr *value_arg = e->as.call.args.items[2];
-        Type value_type = check_expr(module, env, value_arg);
-        require_not_void(value_arg, "as an array element");
-        if (!type_equals(value_type, *coll_type.elem)) {
-            ziman_error("type", value_arg->line, value_arg->col,
-                        "argument 3 of 'set' expects %s (the array's element type), found %s",
-                        type_name(*coll_type.elem), type_name(value_type));
-        }
-        return coll_type;
-    }
 
     /* `is_Some(o)`, `is_None(o)` and `unwrap_Some(o)`: Option's own helpers without the `Option.`, rewritten in
      * place into the enum call they abbreviate (so the interpreter never sees these names). */
@@ -4569,9 +4524,17 @@ ordinary_call:;
                             "argument %d of '%s' expects %s, %s, or %s, found %s",
                             i + 1, name, type_name(expected), type_name(ok_type), type_name(err_type), type_name(arg_type));
             }
+            /* `#[when_unmatched]` here too, and **read set-wide**, for the reason
+             * `when_unmatched_for_name` gives: a call that matches exactly one declaration by
+             * arity never reaches the overload resolver, so the resolver's own set-wide lookup
+             * cannot run -- and the member it matched need not be the one carrying the hint.
+             * `set(aSet, item)` is that call: two arguments match only the `Mutable<T>` cell, and
+             * the advice about `add` lives on the array member. */
+            const char *advice = when_unmatched_for_name(module, name);
             ziman_error("type", arg->line, arg->col,
-                        "argument %d of '%s' expects %s, found %s",
-                        i + 1, name, type_name(expected), type_name(arg_type));
+                        "argument %d of '%s' expects %s, found %s%s%s",
+                        i + 1, name, type_name(expected), type_name(arg_type),
+                        advice != NULL ? " -- " : "", advice != NULL ? advice : "");
         }
     }
     /* The trailing (variadic) arguments -- either zero or more individual

@@ -1,1 +1,1 @@
-a MutableArray element is written with 'b[i] = value', not with 'set'
+a MutableArray element is written with 'b[i] = value' rather than with 'set'

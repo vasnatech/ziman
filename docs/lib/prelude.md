@@ -1062,15 +1062,35 @@ declarations differ, so it finds `mutable_array_insert`.
 ### `set`
 
 ```
-pub builtin fn set<T>(items: [T], index: int, x: T) -> [T]
+pub native fn set<T>(items: [T], index: int, x: T) -> [T]
 ```
 
-**A new array with `index` replaced** -- `set`'s array member, the other two being a Map's and a
-MutableMap's in map.zm, which replace the value under a key.
+**A new array with `index` replaced** -- `set`'s array member, the others being a Map's and a
+MutableMap's in map.zm, a `Mutable` cell's in mutable.zm and a MutableString's in string.zm.
 
-`set` has no MutableArray form on purpose: an element write there is `b[i] = value`, the same
-sugar an array's element write gets, and a copying three-argument call would read as though it
-left the container alone. `set(b, i, v)` says so rather than failing as an unknown overload.
+**`native fn` since 2026-10-26, and with it the last collection arm is gone.** `set` was the one
+name `check_call` still handled by hand, and of its ten checks only two were things the resolver
+could not say: a `Set` or `MutableSet` was told *"a set has no 'set' -- use add(set, item)"* and a
+`MutableArray` *"an element is written with 'b[i] = value'"*. The other eight were two arity
+checks, `argument 2 expects int`, `argument 3 expects T (the array's element type)` -- bar that
+parenthetical -- and a hand-written list of the types it accepted, which is the kind of list that
+falls behind the declarations and had already done so for `remove`.
+
+The two refusals are **merged into the one `#[when_unmatched]` line below**, which is the trade
+`remove`, `clear` and `snapshot` made before it: every unmatched `set` now gets both halves of
+the advice, whether it passed a set or a MutableArray. F190's criterion -- the content survives,
+the aim does not. Unlike `remove`'s, both halves were already pinned by fixtures
+(`collection_word_per_type.diag`, `mutable_array_set_rejected.err`), so the trade was visible as
+soon as the arm went rather than afterwards.
+
+**The reason to make the trade is not the line count.** An arm answers before the declarations
+are consulted, so it can keep a spelling alive after they have retired it and no guard notices:
+`insert` on a `Set` stayed accepted for two passes that way, undeclared and absent from
+`--api builtins`. Converting is what closes that permanently (full-overloading.md §13).
+
+`set` still has no MutableArray form on purpose: an element write there is `b[i] = value`, the
+same sugar an array's element write gets, and a copying three-argument call would read as though
+it left the container alone.
 
 ### `remove`
 
