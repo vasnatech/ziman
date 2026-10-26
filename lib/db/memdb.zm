@@ -1398,6 +1398,158 @@ fn kept_index(t: Table, places: [int]) -> Map<string, [int]> {
     return key_index(t, places)
 }
 
+// ------------------------------------------------- reading through a kept index
+
+// The value a `WHERE` compares a column against, when it is the same for every row.
+//
+// **Only a literal and a parameter**, which is conservative on purpose: those two are what a
+// repository writes (`WHERE id = $1`), they cannot read a column, and nothing about them can
+// change between rows. Anything else -- a function call, an arithmetic expression, a subquery the
+// folder has already answered -- declines and the query scans, which is what every query did
+// before this existed. A narrowing that is sometimes unavailable costs a scan; one that is
+// sometimes wrong costs a wrong answer.
+fn constant_probe(e: Expr, params: [SqlValue]) -> [SqlValue] {
+    val none: [SqlValue] = []
+    if Lit(v) = e {
+        return [v]
+    }
+    if Param(number) = e {
+        if number >= 1 && number <= prelude.len(params) {
+            return [params[number - 1]]
+        }
+    }
+    return none
+}
+
+// A column of `names` compared for equality against a constant, anywhere in the top level of an
+// `AND` chain: the column's place and the value, or empty.
+//
+// `OR` is not walked into, and that is the point rather than a limit: a row satisfying one arm of
+// an `OR` need not satisfy the equality, so a bucket would be the wrong set of candidates. Only an
+// `AND` chain lets every matching row be required to satisfy the equality, which is what makes the
+// bucket complete.
+fn equality_probe(e: Expr, names: Names, params: [SqlValue]) -> [int] {
+    val none: [int] = []
+    if Bin(node) = e {
+        if node.op == "AND" {
+            val first = equality_probe(node.left, names, params)
+            if prelude.len(first) > 0 {
+                return first
+            }
+            return equality_probe(node.right, names, params)
+        }
+        if node.op == "=" {
+            if Col(c) = node.left {
+                val place = place_in(names, c)
+                if place >= 0 && prelude.len(constant_probe(node.right, params)) > 0 {
+                    return [place, 0]
+                }
+            }
+            if Col(c) = node.right {
+                val place = place_in(names, c)
+                if place >= 0 && prelude.len(constant_probe(node.left, params)) > 0 {
+                    return [place, 1]
+                }
+            }
+        }
+    }
+    return none
+}
+
+// The side of a recognised equality that holds the constant.
+fn probe_value(e: Expr, names: Names, params: [SqlValue], side: int) -> [SqlValue] {
+    val none: [SqlValue] = []
+    if Bin(node) = e {
+        if node.op == "AND" {
+            val left = equality_probe(node.left, names, params)
+            if prelude.len(left) > 0 {
+                return probe_value(node.left, names, params, side)
+            }
+            return probe_value(node.right, names, params, side)
+        }
+        if node.op == "=" {
+            return constant_probe(if side == 0 { node.right } else { node.left }, params)
+        }
+    }
+    return none
+}
+
+// **The rows a `WHERE` can be narrowed to, or every row.**
+//
+// A kept `PRIMARY KEY` or `UNIQUE` index is a map from a key's bucket to the positions holding it,
+// maintained by the writes (see `KeyIndex`). A read that fixes that key to a constant therefore
+// needs to look at one bucket instead of the whole table -- the same index, used for the other
+// half of its job.
+//
+// **Why this is safe, stated as the argument it is.** A row that satisfies `col = value` has
+// `values_same` between its key and the probe; `key_bucket`'s invariant is that equal keys render
+// to the same bucket; so every matching row is in `bucket(value)` and none is missed. The bucket
+// may hold rows that do *not* match -- it decides where to look, never what is equal -- which costs
+// nothing, because the caller still evaluates the whole `WHERE` on every candidate. This narrows
+// the candidates and changes no answer.
+//
+// That invariant was broken for a boolean against a number until 2026-10-26, which is the reason
+// `key_bucket` carries the comment it does: this function would have answered "no rows" for
+// `WHERE flag = 1` against a stored `Bool(true)`.
+//
+// Declined for a NULL probe. `col = NULL` is unknown for every row, so the answer is no rows
+// either way and the index would agree -- but a key holding NULL is in no bucket at all, so the
+// two reasons coincide by luck rather than by construction, and a scan says so plainly.
+// Narrowed or not, told apart explicitly: **an empty `rows` with `narrowed` set means no row can
+// match**, which is a different answer from "look at every row", and a bare `[int]` cannot say
+// which it is. A sentinel in the array would have been shorter and is exactly the kind of thing
+// that reads as data until it is read as a row index.
+struct Narrowing {
+    narrowed: bool
+    rows: [int]
+}
+
+fn narrow_rows(t: Table, names: Names, filter: Option<Expr>, params: [SqlValue]) -> Narrowing {
+    val none: [int] = []
+    val scan = Narrowing { narrowed: false, rows: none }
+    val e = switch filter {
+        Some(x) { x }
+        None { return scan }
+    }
+    if prelude.len(t.keys) == 0 {
+        return scan
+    }
+    val found = equality_probe(e, names, params)
+    if prelude.len(found) == 0 {
+        return scan
+    }
+    val place = found[0]
+    val value = probe_value(e, names, params, found[1])
+    if prelude.len(value) == 0 || is_null(value[0]) {
+        return scan
+    }
+    for ki in t.keys {
+        // A single-column index only: a two-column key needs both columns fixed, and recognising
+        // that is a larger piece of work than the one query shape this is for.
+        if prelude.len(ki.places) == 1 && ki.places[0] == place {
+            return Narrowing { narrowed: true, rows: get_or(ki.buckets, key_bucket(value), none) }
+        }
+    }
+    return scan
+}
+
+// `0..n` as an array, for the reads that look at every row.
+fn all_positions(n: int) -> [int] {
+    val out = mutable_array_new<int>()
+    for i in 0..n {
+        push(out, i)
+    }
+    return snapshot(out)
+}
+
+// Positions in increasing order. A bucket holds them in the order rows were written to it, which
+// for a narrowed read is not table order.
+fn sorted_positions(xs: [int]) -> [int] {
+    val out = mutable(xs)
+    sort(out)
+    return snapshot(out)
+}
+
 fn enforce(database: Database, t: Table, touched: [int], params: [SqlValue], strict: bool) -> Result<unit, DbError> {
     for i in touched {
         val row = t.rows[i]
@@ -2987,9 +3139,28 @@ fn run_select(
         items = snapshot(folded_items)
     }
 
+    // **The candidates, which is every row unless a kept index can narrow them.**
+    //
+    // Only for a single named table with no join: `table_source` hands back `t.rows` itself for
+    // one, so a position in the source is a position in the table and the index's positions mean
+    // what they say. A join builds a new array of pairs and a derived table runs a query, and in
+    // neither does a source position correspond to anything the index knows -- so both scan, as
+    // every read did before this.
+    var candidates = Narrowing { narrowed: false, rows: [] }
+    if prelude.len(stmt.from) == 1 && prelude.len(stmt.joins) == 0 && prelude.len(stmt.from[0].query) == 0 {
+        if Ok(t) = table_of(database, stmt.from[0].name) {
+            candidates = narrow_rows(t, source.names, filter, params)
+        }
+    }
+
     // The rows the `WHERE` keeps, as indexes into the source.
+    //
+    // **The filter still runs on every candidate**, which is what makes the narrowing a change of
+    // cost and not of meaning: a bucket decides where to look and `=` decides what matches, exactly
+    // as uniqueness enforcement uses the same two.
     val chosen_rows = mutable_array_new<int>()
-    for i in 0..prelude.len(source.rows) {
+    val looked_at = if candidates.narrowed { candidates.rows } else { all_positions(prelude.len(source.rows)) }
+    for i in looked_at {
         var keep = true
         if Some(e) = filter {
             keep = is_true(try eval_expr(e, scope_ctx(sc, source.rows[i])))
@@ -2998,7 +3169,11 @@ fn run_select(
             push(chosen_rows, i)
         }
     }
-    val chosen = snapshot(chosen_rows)
+    // A narrowed read answers a bucket's positions, which are in insertion order within the bucket
+    // but need not be in table order -- and a `SELECT` with no `ORDER BY` answers table order here,
+    // which `tests/lang/memdb_against_sqlite.zm` compares against SQLite row by row. Sorted, so the
+    // narrowing cannot be seen in an answer.
+    val chosen = if candidates.narrowed { sorted_positions(snapshot(chosen_rows)) } else { snapshot(chosen_rows) }
 
     var aggregated = prelude.len(stmt.groups) > 0 || Option.is_Some(stmt.having)
     for item in items {
