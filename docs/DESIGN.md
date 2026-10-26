@@ -246,6 +246,7 @@ them against the code.
 - [`eql` guarded on real PostgreSQL and MySQL, and `sql.zm` kept out of the drivers (2026-10-26)](#eql-guarded-on-real-postgresql-and-mysql-and-sqlzm-kept-out-of-the-drivers-2026-10-26)
 - [A statement is parsed once per connection, in all four engines (2026-10-26)](#a-statement-is-parsed-once-per-connection-in-all-four-engines-2026-10-26)
 - [The statement cache reaches SQLite, and finds that Nagle was never turned off (2026-10-26)](#the-statement-cache-reaches-sqlite-and-finds-that-nagle-was-never-turned-off-2026-10-26)
+- [The table name moves into the annotation, and an entity becomes a struct again (2026-10-26)](#the-table-name-moves-into-the-annotation-and-an-entity-becomes-a-struct-again-2026-10-26)
 
 <!-- end index -->
 
@@ -9569,3 +9570,35 @@ The fix is three sites and one helper:
 **Latency over throughput is the right default** for a runtime whose sockets carry database protocols and HTTP. A caller wanting the other trade-off writes one large buffer instead of several small ones, which is what the HTTP server already does with a response. The verification that mattered was breadth rather than depth: `make check`, whose North Star phase starts 49 real HTTP servers through the accept path, plus `test-pg`, `test-mysql` and `test-tls` -- the TLS handshake being the one place this could plausibly have interacted badly, and the reason that suite was run at all.
 
 One number to keep in proportion: across the five engines the statement cache was worth 2.3x, 32x, 6x, 1.8x and 15%. One line of `setsockopt` was worth 50 to 90x. The feature was asked for and is worth having; the defect it uncovered was not asked about by anyone, and had been there the whole time.
+
+## The table name moves into the annotation, and an entity becomes a struct again (2026-10-26)
+
+`#[derive(Entity("vital_signs"))]`. The user's suggestion, and it was better than the objection already written against it.
+
+`docs/SYNTAX.md` said the table is not derived because *"no pluralisation rule survives real schemas"* -- `FamilyHistory` in `family_history`, `UserNotificationPreference` in `user_notification_prefs` -- and that is still true and still the reason nothing guesses. But it is an argument about **deriving** the name, and it had been read as an argument about **where the author writes it**. Written inside the attribute it is still written explicitly, just once instead of three times.
+
+Three times is what it was. `entity/vital_sign.zm` before:
+
+```ziman
+#[derive(Row, Entity)]
+pub struct VitalSign { .. }
+
+pub val table = "vital_signs"
+pub val meta = eql.entity("VitalSign", table, vital_sign_columns)
+```
+
+The table twice, and the struct's own name a third time inside the call. All three are mechanical given the table, so the table is the only one worth writing, and the file is now the struct and its annotation and nothing else.
+
+**What made the change bigger than it looked**: `pub val table` is not an `eql` artifact. It predates that work and the *services* import it -- `use entity/allergy.table` and twenty more -- so emitting it from the derive is not an addition, it is a replacement, and every one of the **21** entities that derives `Entity` also hand-wrote it. A 1:1 mapping, so the conversion was uniform: **119 lines deleted, 21 added**. Had the derive emitted only the metamodel, the table name would have appeared *twice* and the change would have been a loss.
+
+Three decisions, each one a fork that could have gone the other way:
+
+* **The argument is optional.** 18 of those 21 entities derive `Entity` for the column list alone and have no use for a metamodel, so requiring a table would have forced one on them. `#[deprecated]` is the precedent for an attribute whose argument is decoration rather than its whole content -- against `#[when_unmatched]`, whose bare form is a syntax error because there the message *is* the content.
+* **The entity's name is the struct's, not the table's.** A query writes `FROM Patient p`, naming the type the reader has in hand. Deriving it from the table would make `FROM patients p` the spelling, which is SQL leaking back through the one layer whose job is to hide it.
+* **The argument must be a string.** `Entity(patients)` is refused, because a bare word could plausibly name a type, and the message names the form that works.
+
+The grammar change is one optional `("...")` per derive target. `DeriveList` and both declaration nodes carry a `derive_args` array parallel to `derives` -- one array rather than a struct per target, since exactly one target reads an argument, and a parallel array is the shape the rest of `ast.h` already uses for this. The generated `eql.entity(..)` call needs the module, and a file that wrote only the attribute has no reason to have imported it, so the derive calls `ensure_module_import` -- which is what the standard-type conversions already do for `time` and `uuid`.
+
+**The effect on work not yet done is the part worth keeping.** 24 repositories still read raw SQL, and adopting `eql` in one used to mean editing its entity first: add the target, add the table, add the metamodel. Every entity now has a `<name>_meta` waiting, so that step is gone -- which is a thing to notice about this kind of change. It removed 98 lines, and the reason to do it was the 24 edits it will not need.
+
+Guarded by two fixtures, both forms in one file so they cannot drift apart, and one for the refusal. `make check` green at 1208 fixtures with North Star at 62 suites / 2646 checks; in the application, the in-process repository suite at 43 checks and the behavioural suite with 0 failures.
