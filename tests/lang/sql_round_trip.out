@@ -1,5 +1,5 @@
 -- the shapes the module claims to read --
-61 of 61 round-trip
+70 of 70 round-trip
 -- what it writes --
   in:  select  name ,age from patient where age>30 order by name
   out: SELECT name, age FROM patient WHERE age > 30 ORDER BY name
@@ -15,6 +15,10 @@
   out: SELECT DISTINCT p.name FROM patient AS p LEFT JOIN visit AS v ON v.patient_id = p.id WHERE EXISTS (SELECT 1 FROM other)
   in:  select count(distinct a),cast(b as text) from t group by cast(b as text)
   out: SELECT count(DISTINCT a), CAST(b AS text) FROM t GROUP BY CAST(b AS text)
+  in:  insert into t(a)values(1)returning *,a as copy
+  out: INSERT INTO t (a) VALUES (1) RETURNING *, a AS copy
+  in:  delete from t where a=1 returning a
+  out: DELETE FROM t WHERE a = 1 RETURNING a
 -- several statements from one string --
   3 statement(s)
     CREATE TABLE t (a INTEGER)

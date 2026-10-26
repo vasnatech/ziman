@@ -127,7 +127,16 @@ fn main() {
         "SELECT a.id FROM t AS a LEFT JOIN t AS b ON b.id = a.id + 10 ORDER BY a.id",
         "SELECT id FROM t WHERE id IN (SELECT id FROM t WHERE n > 1) ORDER BY id",
         "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM t AS u WHERE u.n = t.n) ORDER BY id",
-        "SELECT (SELECT max(n) FROM t) AS most"
+        "SELECT (SELECT max(n) FROM t) AS most",
+        // `RETURNING` is **not** ANSI SQL -- the standard's form is a data change delta table,
+        // `SELECT * FROM FINAL TABLE (INSERT ..)` -- and the strict reading runs it anyway. That is
+        // deliberate: whether a connection has `RETURNING` is a question about the engine, which
+        // `datasource.dialect` answers, and not about which reading of SQL's semantics is in force.
+        // Refusing it here would fail every write in the sample application on a flag whose job is
+        // to find SQL that leans on SQLite.
+        "INSERT INTO t (id, name, n) VALUES (4, 'Dee', 1) RETURNING *",
+        "UPDATE t SET n = n + 1 WHERE id = 4 RETURNING id, n",
+        "DELETE FROM t WHERE id = 4 RETURNING id AS gone"
     ]
     for sql in shared {
         if answer(lax, sql) == answer(strict, sql) {

@@ -2140,17 +2140,22 @@ pub struct InsertStmt {
     table: string
     columns: [string]
     rows: [[Expr]]
+    // `RETURNING a, b` or `RETURNING *`, as select items so an alias and an expression both work.
+    // Empty where the statement has no such clause, which is the overwhelming majority.
+    returning: [SelectItem]
 }
 
 pub struct UpdateStmt {
     table: string
     sets: [Assignment]
     filter: Option<Expr>
+    returning: [SelectItem]
 }
 
 pub struct DeleteStmt {
     table: string
     filter: Option<Expr>
+    returning: [SelectItem]
 }
 
 pub struct CreateStmt {

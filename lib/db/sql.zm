@@ -19,7 +19,8 @@
 // `SELECT [DISTINCT]` (items with aliases, a `FROM` table with an alias, joins, `WHERE`,
 // `GROUP BY`, `HAVING`, `ORDER BY` with `ASC`/`DESC`, `LIMIT`, `OFFSET`), `INSERT ... VALUES`
 // (one or many rows),
-// `UPDATE ... SET ... WHERE`, `DELETE FROM ... WHERE`, `CREATE TABLE` (columns with their types and
+// `UPDATE ... SET ... WHERE`, `DELETE FROM ... WHERE`, a `RETURNING` clause on any of those three,
+// `CREATE TABLE` (columns with their types and
 // constraints, and table-level constraints), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN`,
 // `DROP TABLE [IF EXISTS]`, and `BEGIN`/`COMMIT`/`ROLLBACK`.
 //
@@ -34,6 +35,13 @@
 // including the aggregates and `COUNT(DISTINCT x)`, and parentheses.
 //
 // ## What it does *not* read, and the honest size of that
+//
+// `RETURNING` is read although it is **not** in the standard, which reads the rows a write touched
+// as a data change delta table instead (`SELECT * FROM FINAL TABLE (INSERT ..)`, SQL:2011, with
+// `OLD`, `NEW` and `FINAL` as the options). Essentially only Db2 implements that form, while
+// PostgreSQL, SQLite from 3.35 and MariaDB all have `RETURNING`, so reading the clause people
+// actually write is worth more here than reading the one the standard specifies. The delta-table
+// form is not read.
 //
 // This is **not** ANSI SQL. ISO/IEC 9075 also has set operations (`UNION`, `INTERSECT`, `EXCEPT`),
 // derived tables and `LATERAL` in a `FROM`, common table expressions, window functions, `MERGE`,
@@ -407,17 +415,22 @@ pub struct InsertStmt {
     table: string
     columns: [string]
     rows: [[Expr]]
+    // `RETURNING a, b` or `RETURNING *`, as select items so an alias and an expression both work.
+    // Empty where the statement has no such clause, which is the overwhelming majority.
+    returning: [SelectItem]
 }
 
 pub struct UpdateStmt {
     table: string
     sets: [Assignment]
     filter: Option<Expr>
+    returning: [SelectItem]
 }
 
 pub struct DeleteStmt {
     table: string
     filter: Option<Expr>
+    returning: [SelectItem]
 }
 
 pub struct CreateStmt {
@@ -1127,7 +1140,8 @@ fn parse_insert(c: Cursor, positional: Mutable<int>) -> Result<Statement, DbErro
     return ok(Statement.Insert(InsertStmt {
         table: table,
         columns: snapshot(columns),
-        rows: snapshot(rows)
+        rows: snapshot(rows),
+        returning: try parse_returning(c, positional)
     }))
 }
 
@@ -1142,7 +1156,10 @@ val clause_words: [string] = [
     "FROM", "WHERE", "GROUP", "HAVING", "ORDER", "LIMIT", "OFFSET", "AS",
     // A join's words end a table's alias as surely as `WHERE` does: `FROM a JOIN b` must not read
     // `JOIN` as `a`'s alias, which is the same mistake `GROUP` caused before the list was shared.
-    "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "OUTER", "ON", "USING"
+    "JOIN", "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "OUTER", "ON", "USING",
+    // So `UPDATE t SET a = 1 RETURNING a` cannot read `RETURNING` as the assignment's alias, the
+    // way `GROUP` was once read as a table's.
+    "RETURNING"
 ]
 
 fn starts_clause(c: Cursor) -> bool {
@@ -1222,12 +1239,10 @@ fn parse_joins(c: Cursor, positional: Mutable<int>) -> Result<[Join], DbError> {
     return ok(snapshot(out))
 }
 
-fn parse_select(c: Cursor, positional: Mutable<int>) -> Result<Statement, DbError> {
-    val distinct = accept(c, "DISTINCT")
-    if !distinct {
-        // `ALL` is the default and says so explicitly; it is read and has nothing to record.
-        val _ = accept(c, "ALL")
-    }
+// A comma-separated list of result items, each an expression with an optional alias. A `SELECT`'s
+// select list and a `RETURNING` clause are the same list, so they are the same function -- the
+// alternative is two copies that drift, which is exactly what `clause_words` was written to end.
+fn parse_items(c: Cursor, positional: Mutable<int>) -> Result<[SelectItem], DbError> {
     val items = mutable_array_new<SelectItem>()
     var first = true
     while first || accept_punct(c, ",") {
@@ -1241,6 +1256,31 @@ fn parse_select(c: Cursor, positional: Mutable<int>) -> Result<Statement, DbErro
         }
         push(items, SelectItem { expr: e, alias: alias })
     }
+    return ok(snapshot(items))
+}
+
+// `RETURNING a, b`, `RETURNING *`, or nothing at all.
+//
+// **Not ANSI SQL.** The standard's way to read the rows a write touched is a data change delta
+// table -- `SELECT * FROM FINAL TABLE (INSERT INTO t ..)`, SQL:2011, with `OLD`, `NEW` and `FINAL`
+// as the options -- which essentially only Db2 implements. `RETURNING` is PostgreSQL's, adopted by
+// SQLite in 3.35 and by MariaDB, and absent from MySQL entirely. It is read here because both
+// engines this library is tested against have it and the sample application uses it on both.
+fn parse_returning(c: Cursor, positional: Mutable<int>) -> Result<[SelectItem], DbError> {
+    if !accept(c, "RETURNING") {
+        val none: [SelectItem] = []
+        return ok(none)
+    }
+    return parse_items(c, positional)
+}
+
+fn parse_select(c: Cursor, positional: Mutable<int>) -> Result<Statement, DbError> {
+    val distinct = accept(c, "DISTINCT")
+    if !distinct {
+        // `ALL` is the default and says so explicitly; it is read and has nothing to record.
+        val _ = accept(c, "ALL")
+    }
+    val items = try parse_items(c, positional)
     val from = mutable_array_new<TableRef>()
     var joins: [Join] = []
     if accept(c, "FROM") {
@@ -1290,7 +1330,7 @@ fn parse_select(c: Cursor, positional: Mutable<int>) -> Result<Statement, DbErro
     }
     return ok(Statement.Select(SelectStmt {
         distinct: distinct,
-        items: snapshot(items),
+        items: items,
         from: snapshot(from),
         joins: joins,
         filter: filter,
@@ -1317,7 +1357,12 @@ fn parse_update(c: Cursor, positional: Mutable<int>) -> Result<Statement, DbErro
     if accept(c, "WHERE") {
         filter = Option<Expr>.Some(try parse_expr(c, positional))
     }
-    return ok(Statement.Update(UpdateStmt { table: table, sets: snapshot(sets), filter: filter }))
+    return ok(Statement.Update(UpdateStmt {
+        table: table,
+        sets: snapshot(sets),
+        filter: filter,
+        returning: try parse_returning(c, positional)
+    }))
 }
 
 fn parse_delete(c: Cursor, positional: Mutable<int>) -> Result<Statement, DbError> {
@@ -1327,7 +1372,11 @@ fn parse_delete(c: Cursor, positional: Mutable<int>) -> Result<Statement, DbErro
     if accept(c, "WHERE") {
         filter = Option<Expr>.Some(try parse_expr(c, positional))
     }
-    return ok(Statement.Delete(DeleteStmt { table: table, filter: filter }))
+    return ok(Statement.Delete(DeleteStmt {
+        table: table,
+        filter: filter,
+        returning: try parse_returning(c, positional)
+    }))
 }
 
 // One statement. Trailing `;` and empty statements are tolerated; anything past the first
@@ -1666,21 +1715,35 @@ fn format_table_ref(t: TableRef) -> string {
     return if t.alias == "" { t.name } else { concat(t.name, " AS ", t.alias) }
 }
 
+// A result item list as text: the half of the round trip that `parse_items` is the other half of.
+fn format_items(items: [SelectItem]) -> string {
+    val out = mutable_string_new()
+    for i in 0..prelude.len(items) {
+        if i > 0 {
+            append(out, ", ")
+        }
+        append(out, format_expr(items[i].expr))
+        if items[i].alias != "" {
+            append(out, " AS ", items[i].alias)
+        }
+    }
+    return snapshot(out)
+}
+
+fn format_returning(items: [SelectItem]) -> string {
+    if prelude.len(items) == 0 {
+        return ""
+    }
+    return concat(" RETURNING ", format_items(items))
+}
+
 fn format_select(s: SelectStmt) -> string {
     val out = mutable_string_new()
     append(out, "SELECT ")
     if s.distinct {
         append(out, "DISTINCT ")
     }
-    for i in 0..prelude.len(s.items) {
-        if i > 0 {
-            append(out, ", ")
-        }
-        append(out, format_expr(s.items[i].expr))
-        if s.items[i].alias != "" {
-            append(out, " AS ", s.items[i].alias)
-        }
-    }
+    append(out, format_items(s.items))
     for t in s.from {
         append(out, " FROM ", format_table_ref(t))
     }
@@ -1754,6 +1817,7 @@ pub fn format(s: Statement) -> string {
                 }
                 append(out, ")")
             }
+            append(out, format_returning(q.returning))
             snapshot(out)
         }
         Update(q) {
@@ -1768,6 +1832,7 @@ pub fn format(s: Statement) -> string {
             if Some(e) = q.filter {
                 append(out, " WHERE ", format_expr(e))
             }
+            append(out, format_returning(q.returning))
             snapshot(out)
         }
         Delete(q) {
@@ -1776,6 +1841,7 @@ pub fn format(s: Statement) -> string {
             if Some(e) = q.filter {
                 append(out, " WHERE ", format_expr(e))
             }
+            append(out, format_returning(q.returning))
             snapshot(out)
         }
         Create(q) {

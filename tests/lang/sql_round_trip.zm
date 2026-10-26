@@ -60,6 +60,15 @@ val samples: [string] = [
     "INSERT INTO patient VALUES (1, 'Ada', 36, 'first')",
     "INSERT INTO patient (name) VALUES ('it''s quoted')",
     "UPDATE patient SET name = 'Ada', age = age + 1 WHERE id = $1",
+    "INSERT INTO patient (id, name) VALUES (1, 'Ada') RETURNING *",
+    "INSERT INTO patient (id, name) VALUES (1, 'Ada') RETURNING id",
+    "INSERT INTO patient (id, name) VALUES (1, 'Ada'), (2, 'Bob') RETURNING id, name",
+    "INSERT INTO patient (id, name) VALUES (1, 'Ada') RETURNING id AS made, age * 2 AS twice",
+    "INSERT INTO patient (id, name) VALUES (1, 'Ada') RETURNING *, id",
+    "UPDATE patient SET name = 'Ada' WHERE id = $1 RETURNING *",
+    "UPDATE patient SET name = 'Ada' RETURNING id, name",
+    "DELETE FROM patient WHERE id = $1 RETURNING *",
+    "DELETE FROM patient RETURNING id AS gone",
     "DELETE FROM patient",
     "DELETE FROM patient WHERE age IS NULL",
     "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INTEGER, email TEXT UNIQUE DEFAULT 'none')",
@@ -121,7 +130,9 @@ fn main() {
         "CREATE TABLE t(a int primary key,b text not null)",
         "insert into t(a,b)values(1,'x')",
         "select distinct p.name from patient p left join visit v on v.patient_id=p.id where exists(select 1 from other)",
-        "select count(distinct a),cast(b as text) from t group by cast(b as text)"
+        "select count(distinct a),cast(b as text) from t group by cast(b as text)",
+        "insert into t(a)values(1)returning *,a as copy",
+        "delete from t where a=1 returning a"
     ] {
         print(concat("  in:  ", s))
         print(concat("  out: ", switch sql.parse(s) {

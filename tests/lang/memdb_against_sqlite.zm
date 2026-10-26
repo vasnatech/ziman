@@ -137,6 +137,37 @@ val queries: [string] = [
     "SELECT id FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY id"
 ]
 
+// `RETURNING` is a write that answers rows, so these run through `query` rather than `execute` and
+// are kept apart from the read-only list above: each one changes the table it reports on.
+//
+// SQLite has had `RETURNING` since 3.35 and the bundled driver reports 3.50, so this list is a
+// real cross-check rather than a feature only one side has. MySQL has none at all, which is why
+// the sample application asks `datasource.dialect` before using it.
+val returning: [string] = [
+    "INSERT INTO patient (id, name, age, note) VALUES (10, 'Eve', 50, 'tenth') RETURNING *",
+    "INSERT INTO patient (id, name, age) VALUES (11, 'Fay', 22) RETURNING id",
+    "INSERT INTO patient (id, name, age) VALUES (12, 'Gil', 23) RETURNING id, name",
+    "INSERT INTO patient (id, name, age) VALUES (13, 'Hal', 24), (14, 'Ivy', 25) RETURNING id, age",
+    "INSERT INTO patient (id, name, age) VALUES (15, 'Jo', 26) RETURNING id AS made, age * 2 AS twice",
+    "INSERT INTO patient (id, name, age) VALUES (16, 'Kit', 27) RETURNING upper(name) AS up",
+    // a `*` beside another item, which is what made the select list accept a star anywhere
+    "INSERT INTO patient (id, name, age) VALUES (17, 'Lin', 28) RETURNING *, id",
+    // the column `note` is not in the list, so its declared default (none, so NULL) comes back
+    "INSERT INTO patient (id, name, age) VALUES (18, 'Max', 29) RETURNING id, note",
+    // a typo in a RETURNING clause must be refused, not answered with NULL
+    "INSERT INTO patient (id, name, age) VALUES (19, 'Ned', 30) RETURNING nope",
+    // UPDATE returns the row as it now stands
+    "UPDATE patient SET age = age + 1 WHERE id = 10 RETURNING *",
+    "UPDATE patient SET note = 'edited' WHERE id = 11 RETURNING id, note",
+    "UPDATE patient SET age = 0 WHERE id = 999 RETURNING id",
+    "UPDATE patient SET note = 'all' WHERE age < 25 RETURNING id, note",
+    // DELETE returns the row as it was, the only version of a deleted row there is
+    "DELETE FROM patient WHERE id = 19 RETURNING *",
+    "DELETE FROM patient WHERE id = 18 RETURNING id, name",
+    "DELETE FROM patient WHERE id = 999 RETURNING id",
+    "DELETE FROM patient WHERE age > 40 RETURNING id AS gone"
+]
+
 fn seed(url: string) -> datasource.Connection {
     val conn = unwrap(datasource.open(drivers, url))
     for statement in schema {
@@ -208,6 +239,71 @@ fn main() {
     }
     print(if rendered(mem, after) == rendered(lite, after) { "agree    after the rollback" } else {
         concat("DISAGREE after the rollback: ", rendered(mem, after), " vs ", rendered(lite, after))
+    })
+
+    // And the writes that answer rows. Last, because each changes the table it reports on.
+    print("-- RETURNING --")
+    var returning_disagreements = 0
+    for sql in returning {
+        val a = rendered(mem, sql)
+        val b = rendered(lite, sql)
+        if a == b {
+            print(concat("agree    ", sql))
+        } else {
+            returning_disagreements = returning_disagreements + 1
+            print(concat("DISAGREE ", sql))
+            print(concat("  memdb:  ", a))
+            print(concat("  sqlite: ", b))
+        }
+    }
+    print(format(
+        "{} of {} RETURNING statements agree",
+        prelude.len(returning) - returning_disagreements,
+        prelude.len(returning)
+    ))
+    // The shape the sample application actually issues, which is placeholders plus `RETURNING *`
+    // read through `query_one` -- the rest of this file binds nothing, and a clause that worked
+    // only with literals would pass every line above and fail in production.
+    print("-- RETURNING with bound parameters, through query_one --")
+    val insert = "INSERT INTO patient (id, name, age) VALUES ($1, $2, $3) RETURNING *"
+    val bound: [SqlValue] = [SqlValue.Int(20), SqlValue.Text("Nan"), SqlValue.Int(31)]
+    val one_mem = unwrap(datasource.query_one(mem, insert, bound))
+    val one_lite = unwrap(datasource.query_one(lite, insert, bound))
+    print(switch one_mem {
+        Some(a) {
+            switch one_lite {
+                Some(b) {
+                    if prelude.len(a.values) == prelude.len(b.values) && format("{}", a.values) == format(
+                        "{}",
+                        b.values
+                    ) {
+                        "agree    both engines handed back the row they stored"
+                    } else {
+                        format("DISAGREE {} vs {}", a.values, b.values)
+                    }
+                }
+                None { "DISAGREE sqlite answered no row" }
+            }
+        }
+        None { "DISAGREE memdb answered no row" }
+    })
+    // `execute` on a RETURNING statement still reports the affected count, because both read
+    // `.affected` and `.rows` from one shared run.
+    val changed_mem = unwrap(datasource.execute(
+        mem,
+        "UPDATE patient SET note = 'bound' WHERE id = $1 RETURNING id",
+        [SqlValue.Int(20)]
+    ))
+    val changed_lite = unwrap(datasource.execute(
+        lite,
+        "UPDATE patient SET note = 'bound' WHERE id = $1 RETURNING id",
+        [SqlValue.Int(20)]
+    ))
+    print(format("execute on a RETURNING update reports {} on both: {}", changed_mem, changed_mem == changed_lite))
+
+    val left = "SELECT id, name, age, note FROM patient ORDER BY id"
+    print(if rendered(mem, left) == rendered(lite, left) { "agree    what is left of the table" } else {
+        concat("DISAGREE what is left: ", rendered(mem, left), " vs ", rendered(lite, left))
     })
 
     datasource.close(mem)

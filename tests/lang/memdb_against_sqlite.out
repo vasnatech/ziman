@@ -86,3 +86,26 @@ agree    SELECT id FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDE
 agree    after the writes
 -- rollback --
 agree    after the rollback
+-- RETURNING --
+agree    INSERT INTO patient (id, name, age, note) VALUES (10, 'Eve', 50, 'tenth') RETURNING *
+agree    INSERT INTO patient (id, name, age) VALUES (11, 'Fay', 22) RETURNING id
+agree    INSERT INTO patient (id, name, age) VALUES (12, 'Gil', 23) RETURNING id, name
+agree    INSERT INTO patient (id, name, age) VALUES (13, 'Hal', 24), (14, 'Ivy', 25) RETURNING id, age
+agree    INSERT INTO patient (id, name, age) VALUES (15, 'Jo', 26) RETURNING id AS made, age * 2 AS twice
+agree    INSERT INTO patient (id, name, age) VALUES (16, 'Kit', 27) RETURNING upper(name) AS up
+agree    INSERT INTO patient (id, name, age) VALUES (17, 'Lin', 28) RETURNING *, id
+agree    INSERT INTO patient (id, name, age) VALUES (18, 'Max', 29) RETURNING id, note
+agree    INSERT INTO patient (id, name, age) VALUES (19, 'Ned', 30) RETURNING nope
+agree    UPDATE patient SET age = age + 1 WHERE id = 10 RETURNING *
+agree    UPDATE patient SET note = 'edited' WHERE id = 11 RETURNING id, note
+agree    UPDATE patient SET age = 0 WHERE id = 999 RETURNING id
+agree    UPDATE patient SET note = 'all' WHERE age < 25 RETURNING id, note
+agree    DELETE FROM patient WHERE id = 19 RETURNING *
+agree    DELETE FROM patient WHERE id = 18 RETURNING id, name
+agree    DELETE FROM patient WHERE id = 999 RETURNING id
+agree    DELETE FROM patient WHERE age > 40 RETURNING id AS gone
+17 of 17 RETURNING statements agree
+-- RETURNING with bound parameters, through query_one --
+agree    both engines handed back the row they stored
+execute on a RETURNING update reports 1 on both: true
+agree    what is left of the table

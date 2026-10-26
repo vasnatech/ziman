@@ -19,7 +19,22 @@
 // recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN`,
 // `DROP TABLE [IF EXISTS]`, `INSERT INTO ... VALUES`, `SELECT [DISTINCT]` with `WHERE`,
 // `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT` and `OFFSET`, `UPDATE ... SET ... WHERE`,
-// `DELETE FROM ... WHERE`, and `BEGIN`/`COMMIT`/`ROLLBACK`.
+// `DELETE FROM ... WHERE`, `RETURNING` on any of the three writes, and
+// `BEGIN`/`COMMIT`/`ROLLBACK`.
+//
+// `RETURNING a, b`, `RETURNING *` or an expression with an alias, on `INSERT`, `UPDATE` and
+// `DELETE`. An `INSERT` answers what it stored with defaults filled in, an `UPDATE` the row as it
+// now stands, a `DELETE` the row as it was -- each what a real engine answers. A `*` expands
+// anywhere in the list, so `RETURNING *, id` is two copies of `id`, and the same is now true of a
+// select list.
+//
+// **`RETURNING` is not ANSI SQL and both readings run it anyway.** The standard's form is a data
+// change delta table -- `SELECT * FROM FINAL TABLE (INSERT ..)`, SQL:2011 -- which essentially only
+// Db2 implements; `RETURNING` is PostgreSQL's, SQLite has had it since 3.35 and MySQL has nothing
+// of the kind. So whether a connection has it is a question about the *engine*, which
+// `datasource.dialect` answers, and not about which reading of SQL's semantics is in force. **A
+// caller that gates on the dialect has to name `memdb` in its list** -- the sample application's
+// `returns_written_row` does -- or its tests take a path production does not.
 //
 // Joins: `[INNER] JOIN`, `LEFT [OUTER] JOIN` and `CROSS JOIN`, with `ON` or `USING`, chained left
 // to right and with table aliases. `RIGHT` and `FULL` are read by `sql` and refused here, with an
@@ -67,8 +82,8 @@
 // anyway, because a test suite is not restricted to the queries the application happens to issue
 // and an engine that refuses them would push every such test onto a container.
 //
-// `RETURNING`, constraint *enforcement*, set operations (`UNION`, `INTERSECT`, `EXCEPT`), derived
-// tables in a `FROM` and per-test forking are the next increments. Anything it does not understand
+// A qualified star (`SELECT t.*`), constraint *enforcement*, set operations (`UNION`, `INTERSECT`,
+// `EXCEPT`), derived tables in a `FROM` and per-test forking are the next increments. Anything it does not understand
 // is an error naming the token, never a quiet partial execution.
 //
 // ## Transactions are free, because a database is a value
@@ -1376,6 +1391,59 @@ fn run_drop(database: Database, stmt: DropStmt) -> Result<Outcome, DbError> {
     })
 }
 
+// The rows a `RETURNING` clause answers: its items projected over the rows the write touched.
+//
+// Which rows those are differs per statement and is the caller's business -- an `INSERT` returns
+// what it stored (defaults filled in), an `UPDATE` the row as it now stands, a `DELETE` the row as
+// it was. Each is the one a real engine returns.
+//
+// **Not ANSI SQL**, and deliberately not gated on the strict reading. The standard's form is a data
+// change delta table (`SELECT * FROM FINAL TABLE (INSERT ..)`, SQL:2011), which essentially only
+// Db2 implements; `RETURNING` is PostgreSQL's, SQLite has it from 3.35 and MySQL has nothing of the
+// kind. So it is the *dialect* that answers whether a connection has it, not `strict` -- and the
+// sample application already asks exactly that way, `datasource.dialect(conn)` against a list of
+// engines. Refusing it under `memdb-ansi:` would break every write in that application on a flag
+// whose job is to find SQL that leans on SQLite, which this does not.
+fn returned_rows(
+    database: Database,
+    t: Table,
+    items: [SelectItem],
+    touched: [[SqlValue]],
+    params: [SqlValue],
+    strict: bool
+) -> Result<[Row], DbError> {
+    val empty: [Row] = []
+    if prelude.len(items) == 0 {
+        return ok(empty)
+    }
+    val names = column_names(t)
+    val shape = table_ctx(database, t, [], params, strict)
+    for item in items {
+        try validate_expr(item.expr, shape)
+    }
+    // `RETURNING *` answers every column of the table, by the same rule a select list's `*`
+    // follows -- including beside other items, as `RETURNING *, id`.
+    val columns = item_headers(items, names)
+    val out = mutable_array_new<Row>()
+    for row in touched {
+        val values = mutable_array_new<SqlValue>()
+        for item in items {
+            if Expr.is_Star(item.expr) {
+                for v in row {
+                    push(values, present(v, strict))
+                }
+            } else {
+                push(values, present(
+                    try eval_expr(item.expr, table_ctx(database, t, row, params, strict)),
+                    strict
+                ))
+            }
+        }
+        push(out, Row { columns: columns, values: snapshot(values) })
+    }
+    return ok(snapshot(out))
+}
+
 fn run_insert(database: Database, stmt: InsertStmt, params: [SqlValue], strict: bool) -> Result<Outcome, DbError> {
     val t = try table_of(database, stmt.table)
     val names = column_names(t)
@@ -1392,6 +1460,7 @@ fn run_insert(database: Database, stmt: InsertStmt, params: [SqlValue], strict: 
     val where_to = snapshot(positions)
     var rows = t.rows
     var added = 0
+    val stored = mutable_array_new<[SqlValue]>()
     for values in stmt.rows {
         if prelude.len(values) != prelude.len(where_to) {
             return err(problem(prelude.format(
@@ -1413,11 +1482,17 @@ fn run_insert(database: Database, stmt: InsertStmt, params: [SqlValue], strict: 
             // than a silent NULL.
             row[where_to[i]] = try eval_expr(values[i], bare_ctx(database, params, strict))
         }
-        rows = push(rows, snapshot(row))
+        val written = snapshot(row)
+        rows = push(rows, written)
+        push(stored, written)
         added = added + 1
     }
     val filled = Table { name: t.name, columns: t.columns, rows: rows }
-    return ok(Outcome { database: with_table(database, filled), rows: [], affected: added })
+    return ok(Outcome {
+        database: with_table(database, filled),
+        rows: try returned_rows(database, filled, stmt.returning, snapshot(stored), params, strict),
+        affected: added
+    })
 }
 
 fn run_delete(database: Database, stmt: DeleteStmt, params: [SqlValue], strict: bool) -> Result<Outcome, DbError> {
@@ -1427,15 +1502,19 @@ fn run_delete(database: Database, stmt: DeleteStmt, params: [SqlValue], strict: 
     }
     val doomed = to_set(try matching(database, t, stmt.filter, params, strict))
     val rows = mutable_array_new<[SqlValue]>()
+    val gone = mutable_array_new<[SqlValue]>()
     for i in 0..prelude.len(t.rows) {
-        if !contains(doomed, i) {
+        if contains(doomed, i) {
+            push(gone, t.rows[i])
+        } else {
             push(rows, t.rows[i])
         }
     }
     val left = Table { name: t.name, columns: t.columns, rows: snapshot(rows) }
     return ok(Outcome {
         database: with_table(database, left),
-        rows: [],
+        // The row as it was, which is the only version of a deleted row there is.
+        rows: try returned_rows(database, t, stmt.returning, snapshot(gone), params, strict),
         affected: prelude.len(doomed)
     })
 }
@@ -1452,6 +1531,7 @@ fn run_update(database: Database, stmt: UpdateStmt, params: [SqlValue], strict: 
     }
     val chosen = to_set(try matching(database, t, stmt.filter, params, strict))
     val rows = mutable_array_new<[SqlValue]>()
+    val written = mutable_array_new<[SqlValue]>()
     for i in 0..prelude.len(t.rows) {
         if !contains(chosen, i) {
             push(rows, t.rows[i])
@@ -1468,17 +1548,37 @@ fn run_update(database: Database, stmt: UpdateStmt, params: [SqlValue], strict: 
             row = set(row, at, try eval_expr(assignment.value, table_ctx(database, t, t.rows[i], params, strict)))
         }
         push(rows, row)
+        push(written, row)
     }
     val changed = Table { name: t.name, columns: t.columns, rows: snapshot(rows) }
     return ok(Outcome {
         database: with_table(database, changed),
-        rows: [],
+        // The row as it now stands, which is what both engines return and what a caller asking for
+        // `RETURNING *` after an `UPDATE` is after.
+        rows: try returned_rows(database, changed, stmt.returning, snapshot(written), params, strict),
         affected: prelude.len(chosen)
     })
 }
 
 // The output column name for a select item: its alias, else the column it names, else its
 // position -- which is roughly what SQLite does and close enough for a test to read by name.
+// The output column names a list of items produces, with every `*` expanded to the columns named
+// in `names`. One function for a select list and for a `RETURNING` clause, which answer the same
+// question.
+fn item_headers(items: [SelectItem], names: [string]) -> [string] {
+    val headers = mutable_array_new<string>()
+    for i in 0..prelude.len(items) {
+        if Expr.is_Star(items[i].expr) {
+            for name in names {
+                push(headers, name)
+            }
+        } else {
+            push(headers, item_name(items[i], i))
+        }
+    }
+    return snapshot(headers)
+}
+
 fn item_name(item: SelectItem, at: int) -> string {
     if item.alias != "" {
         return item.alias
@@ -1565,29 +1665,20 @@ fn run_select(
         }
     }
 
-    // `SELECT *` on its own expands to every column the `FROM` produced, joins included.
-    val star = prelude.len(stmt.items) == 1 && Expr.is_Star(stmt.items[0].expr)
-    val headers = mutable_array_new<string>()
-    if star {
-        for name in names {
-            push(headers, name)
-        }
-    } else {
-        for i in 0..prelude.len(stmt.items) {
-            push(headers, item_name(stmt.items[i], i))
-        }
-    }
-    val columns = snapshot(headers)
-
+    // A `*` expands to every column the `FROM` produced, joins included -- **anywhere in the
+    // list**, so `SELECT *, id` is two copies of `id` and not an error. It was once allowed only on
+    // its own, which the `RETURNING` cross-check found by running `RETURNING *, id` against real
+    // SQLite.
+    val columns = item_headers(stmt.items, names)
     val projected = mutable_array_new<Row>()
     for i in chosen {
         val values = mutable_array_new<SqlValue>()
-        if star {
-            for v in source.rows[i] {
-                push(values, present(v, strict))
-            }
-        } else {
-            for item in stmt.items {
+        for item in stmt.items {
+            if Expr.is_Star(item.expr) {
+                for v in source.rows[i] {
+                    push(values, present(v, strict))
+                }
+            } else {
                 push(values, present(try eval_expr(item.expr, scope_ctx(sc, source.rows[i])), strict))
             }
         }

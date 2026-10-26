@@ -27,7 +27,8 @@ formatter forgets to write stops the suite rather than the reader.
 `SELECT [DISTINCT]` (items with aliases, a `FROM` table with an alias, joins, `WHERE`,
 `GROUP BY`, `HAVING`, `ORDER BY` with `ASC`/`DESC`, `LIMIT`, `OFFSET`), `INSERT ... VALUES`
 (one or many rows),
-`UPDATE ... SET ... WHERE`, `DELETE FROM ... WHERE`, `CREATE TABLE` (columns with their types and
+`UPDATE ... SET ... WHERE`, `DELETE FROM ... WHERE`, a `RETURNING` clause on any of those three,
+`CREATE TABLE` (columns with their types and
 constraints, and table-level constraints), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN`,
 `DROP TABLE [IF EXISTS]`, and `BEGIN`/`COMMIT`/`ROLLBACK`.
 
@@ -42,6 +43,13 @@ numbered so a statement may mix them), `AND`/`OR`/`NOT`, the six comparisons, `I
 including the aggregates and `COUNT(DISTINCT x)`, and parentheses.
 
 ## What it does *not* read, and the honest size of that
+
+`RETURNING` is read although it is **not** in the standard, which reads the rows a write touched
+as a data change delta table instead (`SELECT * FROM FINAL TABLE (INSERT ..)`, SQL:2011, with
+`OLD`, `NEW` and `FINAL` as the options). Essentially only Db2 implements that form, while
+PostgreSQL, SQLite from 3.35 and MariaDB all have `RETURNING`, so reading the clause people
+actually write is worth more here than reading the one the standard specifies. The delta-table
+form is not read.
 
 This is **not** ANSI SQL. ISO/IEC 9075 also has set operations (`UNION`, `INTERSECT`, `EXCEPT`),
 derived tables and `LATERAL` in a `FROM`, common table expressions, window functions, `MERGE`,
@@ -361,6 +369,9 @@ pub struct InsertStmt {
     table: string
     columns: [string]
     rows: [[Expr]]
+    // `RETURNING a, b` or `RETURNING *`, as select items so an alias and an expression both work.
+    // Empty where the statement has no such clause, which is the overwhelming majority.
+    returning: [SelectItem]
 }
 ```
 
@@ -371,6 +382,7 @@ pub struct UpdateStmt {
     table: string
     sets: [Assignment]
     filter: Option<Expr>
+    returning: [SelectItem]
 }
 ```
 
@@ -380,6 +392,7 @@ pub struct UpdateStmt {
 pub struct DeleteStmt {
     table: string
     filter: Option<Expr>
+    returning: [SelectItem]
 }
 ```
 

@@ -27,7 +27,22 @@ believing anything surprising.
 recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN`,
 `DROP TABLE [IF EXISTS]`, `INSERT INTO ... VALUES`, `SELECT [DISTINCT]` with `WHERE`,
 `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT` and `OFFSET`, `UPDATE ... SET ... WHERE`,
-`DELETE FROM ... WHERE`, and `BEGIN`/`COMMIT`/`ROLLBACK`.
+`DELETE FROM ... WHERE`, `RETURNING` on any of the three writes, and
+`BEGIN`/`COMMIT`/`ROLLBACK`.
+
+`RETURNING a, b`, `RETURNING *` or an expression with an alias, on `INSERT`, `UPDATE` and
+`DELETE`. An `INSERT` answers what it stored with defaults filled in, an `UPDATE` the row as it
+now stands, a `DELETE` the row as it was -- each what a real engine answers. A `*` expands
+anywhere in the list, so `RETURNING *, id` is two copies of `id`, and the same is now true of a
+select list.
+
+**`RETURNING` is not ANSI SQL and both readings run it anyway.** The standard's form is a data
+change delta table -- `SELECT * FROM FINAL TABLE (INSERT ..)`, SQL:2011 -- which essentially only
+Db2 implements; `RETURNING` is PostgreSQL's, SQLite has had it since 3.35 and MySQL has nothing
+of the kind. So whether a connection has it is a question about the *engine*, which
+`datasource.dialect` answers, and not about which reading of SQL's semantics is in force. **A
+caller that gates on the dialect has to name `memdb` in its list** -- the sample application's
+`returns_written_row` does -- or its tests take a path production does not.
 
 Joins: `[INNER] JOIN`, `LEFT [OUTER] JOIN` and `CROSS JOIN`, with `ON` or `USING`, chained left
 to right and with table aliases. `RIGHT` and `FULL` are read by `sql` and refused here, with an
@@ -75,8 +90,8 @@ joins and no subqueries, because its repositories query one table each and compo
 anyway, because a test suite is not restricted to the queries the application happens to issue
 and an engine that refuses them would push every such test onto a container.
 
-`RETURNING`, constraint *enforcement*, set operations (`UNION`, `INTERSECT`, `EXCEPT`), derived
-tables in a `FROM` and per-test forking are the next increments. Anything it does not understand
+A qualified star (`SELECT t.*`), constraint *enforcement*, set operations (`UNION`, `INTERSECT`,
+`EXCEPT`), derived tables in a `FROM` and per-test forking are the next increments. Anything it does not understand
 is an error naming the token, never a quiet partial execution.
 
 ## Transactions are free, because a database is a value
