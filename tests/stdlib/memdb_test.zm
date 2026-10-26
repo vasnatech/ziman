@@ -295,6 +295,63 @@ fn ordering_evaluates_its_keys_once_per_row() {
 }
 
 #[test]
+fn a_template_hands_every_connection_its_own_copy_of_one_seed() {
+    // The promise `State` has carried since the engine was written: seed once, hand each test its
+    // own copy. A `Database` is a value, so the copy is a pointer.
+    val seed = test.assert_ok(memdb.template("memdb:", [
+        "CREATE TABLE patient (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE)",
+        "INSERT INTO patient (id, name) VALUES (1, 'Ada')",
+        "INSERT INTO patient (id, name) VALUES (2, 'Bob')"
+    ]))
+    val fresh = datasource.registry([memdb.seeded(seed)])
+    val a = test.assert_ok(datasource.open(fresh, "memdb:"))
+    val b = test.assert_ok(datasource.open(fresh, "memdb:"))
+    // Both start from the seed.
+    test.assert_eq(2, one_int(a, "SELECT count(*) AS c FROM patient"))
+    test.assert_eq(2, one_int(b, "SELECT count(*) AS c FROM patient"))
+    // And neither can reach the other, which is what makes it per-test.
+    exec(a, "DELETE FROM patient")
+    exec(b, "INSERT INTO patient (id, name) VALUES (3, 'Cy')")
+    test.assert_eq(0, one_int(a, "SELECT count(*) AS c FROM patient"))
+    test.assert_eq(3, one_int(b, "SELECT count(*) AS c FROM patient"))
+    // The seed itself is untouched, so a third test gets what the first two did.
+    val c = test.assert_ok(datasource.open(fresh, "memdb:"))
+    test.assert_eq(2, one_int(c, "SELECT count(*) AS c FROM patient"))
+    // The constraints came with it -- a seeded copy is the schema, not just the rows.
+    test.assert_err(datasource.execute(c, "INSERT INTO patient (id, name) VALUES (9, 'Ada')"))
+}
+
+#[test]
+fn a_template_refuses_what_it_cannot_seed() {
+    // A statement that fails fails *here*, where the suite is being set up, rather than on
+    // whichever test first touched the table.
+    test.assert_err(memdb.template("memdb:", ["CREATE TABLE t (id INTEGER)", "INSERT INTO nope (x) VALUES (1)"]))
+    // And the reading is the one the tests will read it back in: this schema is legal for the lax
+    // engine and refused by the strict one, so seeding in the wrong reading is caught at the seam.
+    test.assert_ok(memdb.template(
+        "memdb:",
+        ["CREATE TABLE k (id INTEGER PRIMARY KEY)", "INSERT INTO k (id) VALUES (NULL)"]
+    ))
+    test.assert_err(memdb.template(
+        "memdb-ansi:",
+        ["CREATE TABLE k (id INTEGER PRIMARY KEY)", "INSERT INTO k (id) VALUES (NULL)"]
+    ))
+    // A url no reading answers to.
+    test.assert_err(memdb.template("sqlite::memory:", ["CREATE TABLE t (id INTEGER)"]))
+}
+
+#[test]
+fn a_strict_template_seeds_a_strict_connection() {
+    val seed = test.assert_ok(memdb.template("memdb-ansi:", ["CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)"]))
+    val fresh = datasource.registry([memdb.seeded(seed)])
+    // The driver answers the prefix the template was seeded with, and keeps its reading: division
+    // by zero is an error in the strict one and NULL in the lax one.
+    val c = test.assert_ok(datasource.open(fresh, "memdb-ansi:"))
+    test.assert_err(datasource.query(c, "SELECT 1 / 0 AS boom"))
+    test.assert_eq("memdb", datasource.dialect(c))
+}
+
+#[test]
 fn a_boolean_and_the_number_it_equals_share_a_bucket() {
     // **The kept index's one invariant: equal keys always land in the same bucket.** `type_rank`
     // puts Bool, Int and Float on one rank and `compare_values` compares them through `as_number`,

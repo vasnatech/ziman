@@ -291,3 +291,53 @@ ships on PostgreSQL -- and finding it costs a second local run rather than a Pos
 A statement that fails the other way round, on `memdb:` only, is the mirror of that: SQL only
 PostgreSQL will take.
 Both report the dialect `memdb`, so migrations and `migrate`'s type tokens work for either.
+
+## A seeded start
+
+### `Template`
+
+```
+pub struct Template {
+    database: Database
+    strict: bool
+}
+```
+
+A database seeded once and handed to as many connections as there are tests.
+
+**This is the promise `State` has carried since the engine was written**: "the same property is
+what will make per-test forking free: seed a schema and a dataset once, then hand each test its
+own copy." A `Database` is an immutable value, so the copy is a pointer and the fork costs
+nothing -- the work was never the copying, it was that nothing could *reach* a connection's
+database to copy it. A `Conn` is a struct of closures with no way back in, which is why this
+starts from the statements rather than from a connection.
+
+### `template`
+
+```
+pub fn template(url: string, setup: [string]) -> Result<Template, DbError>
+```
+
+Every statement of `setup` run against a fresh database, kept as a value.
+
+`url` picks the reading, the same two prefixes the drivers answer to, so a suite that runs on
+`memdb-ansi:` seeds in the reading it will be read back in -- a schema the strict reading refuses
+should fail here rather than on the first test.
+
+One statement per element, because this engine runs one statement per call and a `;`-separated
+script is the caller's to split (`migrate.split_statements` does it, and does it knowing about
+quoted semicolons).
+
+### `seeded`
+
+```
+pub fn seeded(t: Template) -> Driver
+```
+
+A driver whose every connection starts from `t` instead of from nothing.
+
+Each connection still **is** its own database -- that is unchanged and is why `poolable` stays
+false -- but they all start equal, which is what a test suite wants: the schema and the dataset
+are built once and each test gets a copy it may write to freely. Rolling back is not a
+substitute: a test that leaves a transaction open, or that runs DDL, leaves the next one a
+database the seed did not describe.

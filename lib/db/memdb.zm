@@ -4286,7 +4286,67 @@ pub fn strict_driver() -> Driver {
     return engine("memdb-ansi:", true)
 }
 
+// ---------------------------------------------------------- a seeded start
+
+// A database seeded once and handed to as many connections as there are tests.
+//
+// **This is the promise `State` has carried since the engine was written**: "the same property is
+// what will make per-test forking free: seed a schema and a dataset once, then hand each test its
+// own copy." A `Database` is an immutable value, so the copy is a pointer and the fork costs
+// nothing -- the work was never the copying, it was that nothing could *reach* a connection's
+// database to copy it. A `Conn` is a struct of closures with no way back in, which is why this
+// starts from the statements rather than from a connection.
+pub struct Template {
+    database: Database
+    strict: bool
+}
+
+// Every statement of `setup` run against a fresh database, kept as a value.
+//
+// `url` picks the reading, the same two prefixes the drivers answer to, so a suite that runs on
+// `memdb-ansi:` seeds in the reading it will be read back in -- a schema the strict reading refuses
+// should fail here rather than on the first test.
+//
+// One statement per element, because this engine runs one statement per call and a `;`-separated
+// script is the caller's to split (`migrate.split_statements` does it, and does it knowing about
+// quoted semicolons).
+pub fn template(url: string, setup: [string]) -> Result<Template, DbError> {
+    val strict = starts_with(url, "memdb-ansi:")
+    if !strict && !starts_with(url, "memdb:") {
+        return err(problem(concat(
+            "a memdb template is seeded through 'memdb:' or 'memdb-ansi:', not: ",
+            url
+        )))
+    }
+    val no_params: [SqlValue] = []
+    val state = State {
+        database: mutable_new(empty_database()),
+        saved: mutable_new<[Database]>([]),
+        strict: strict,
+        parsed: mutable_new(Map<string, Statement> {})
+    }
+    for statement in setup {
+        try apply(state, statement, no_params)
+    }
+    return ok(Template { database: get(state.database), strict: strict })
+}
+
+// A driver whose every connection starts from `t` instead of from nothing.
+//
+// Each connection still **is** its own database -- that is unchanged and is why `poolable` stays
+// false -- but they all start equal, which is what a test suite wants: the schema and the dataset
+// are built once and each test gets a copy it may write to freely. Rolling back is not a
+// substitute: a test that leaves a transaction open, or that runs DDL, leaves the next one a
+// database the seed did not describe.
+pub fn seeded(t: Template) -> Driver {
+    return engine_from(if t.strict { "memdb-ansi:" } else { "memdb:" }, t.strict, t.database)
+}
+
 fn engine(prefix: string, strict: bool) -> Driver {
+    return engine_from(prefix, strict, empty_database())
+}
+
+fn engine_from(prefix: string, strict: bool, initial: Database) -> Driver {
     return Driver {
         name: "memdb",
         prefixes: [prefix],
@@ -4295,7 +4355,9 @@ fn engine(prefix: string, strict: bool) -> Driver {
         idle_check: false,
         open: fn(url: string) -> Result<Conn, DbError> {
             val state = State {
-                database: mutable_new(empty_database()),
+                // The seed, or an empty database -- a pointer either way, because a `Database` is
+                // a value and `seeded` hands every connection the same one.
+                database: mutable_new(initial),
                 saved: mutable_new<[Database]>([]),
                 strict: strict,
                 parsed: mutable_new(Map<string, Statement> {})

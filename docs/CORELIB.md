@@ -1912,6 +1912,15 @@ pub fn driver() -> Driver
 
 pub fn strict_driver() -> Driver
 
+pub struct Template {
+    database: Database
+    strict: bool
+}
+
+pub fn template(url: string, setup: [string]) -> Result<Template, DbError>
+
+pub fn seeded(t: Template) -> Driver
+
 ```
 
 ## `migrate`
