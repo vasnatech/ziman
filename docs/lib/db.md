@@ -213,6 +213,25 @@ pub fn row_get(row: Row, column: string) -> Result<SqlValue, DbError>
 
 The value of column `column` in `row`, or a DbError.Sql naming the missing column.
 
+A scan of the row's own names, which is the right shape for one lookup and **is most of what it
+costs to read a wide result**. Measured on a 12-column row: 290 ns for the first column, 790 for
+the last, and 8 microseconds to read every column of one row -- so a thousand rows of twelve
+columns spend about 8 milliseconds here, which for a query that takes 5 to 20 on the wire is a
+third of the client's own work.
+
+The structural answer is an index built once per result and shared by its rows, the way
+`columns` already is: measured at 215 ns a lookup against 790, paying for itself after five
+lookups in a result set and saving about 9 milliseconds on a thousand-row read. It is not here
+because the callers that would benefit are the `from_row` functions `#[derive(Row)]` generates,
+so adopting it means changing what that emits -- a deliberate increment with these numbers in
+hand, not a change to make in passing.
+
+Reading the length once rather than per iteration was tried and is **not** a win: interleaved
+A/B, it takes 17-20% off a scan that walks twelve columns or more and adds 3-7% to one that
+stops at the first or second, and reading every column of a 12-column row -- which is what a
+`from_row` does -- came out the same either way. The cost is the call and the string comparisons,
+not the loop condition, so the loop stays in its clearer form.
+
 ### `sql_as_text`
 
 ```

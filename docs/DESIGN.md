@@ -237,6 +237,7 @@ them against the code.
 - [`sql` gets unit tests, and the unit tests find what the round trip cannot (2026-10-25)](#sql-gets-unit-tests-and-the-unit-tests-find-what-the-round-trip-cannot-2026-10-25)
 - [`memdb` gets unit tests, and four quadratics come out of hiding (2026-10-25)](#memdb-gets-unit-tests-and-four-quadratics-come-out-of-hiding-2026-10-25)
 - [`datasource` tested with an engine that is not a database, and a wall clock taken out of the pool (2026-10-25)](#datasource-tested-with-an-engine-that-is-not-a-database-and-a-wall-clock-taken-out-of-the-pool-2026-10-25)
+- [`db`: a malformed row stops crashing, and an optimisation measured and declined (2026-10-26)](#db-a-malformed-row-stops-crashing-and-an-optimisation-measured-and-declined-2026-10-26)
 
 <!-- end index -->
 
@@ -9220,3 +9221,33 @@ A PostgreSQL round trip is 300,000 to 3,000,000 ns and a SQLite file statement 5
 **And a measurement I nearly reported as a regression.** `with_transaction` looked 28% slower afterwards, consistently, across three interleaved passes. Measured alone with ten times the rounds it is identical -- 143/137/144 against 141/143/134 ms. It had been the last line of a process that had already run 80,000 statements, and the collector's state at that point is what differed. That is the caveat I had written into `tests/bench/memdb_ops.zm` an hour earlier, and the thing worth recording is that **the habit paid: the check cost two minutes and would have cost an afternoon of looking for a cause that was not there.**
 
 One testability finding, left as it is on purpose. `check_after_seconds` of zero means "do not test", so the smallest reachable setting is one second and the one test that exercises a stale connection has to wait for it. Redefining zero as "test every time" would make the suite a second faster and would silently turn the check *on* for `tests/integration/pg/pg_pool_health.zm`, which passes zero to turn it off. A second of waiting is the cheaper of the two, and three pools are set up before the single sleep so it is paid once.
+
+## `db`: a malformed row stops crashing, and an optimisation measured and declined (2026-10-26)
+
+`tests/stdlib/db_test.zm` -- 23 tests over the part every row read in the application goes through: `row_get`, the `sql_as_*` family, `sql_lift`, `db_error_message`, and the URL helpers the 30-URL fixture leaves out.
+
+**One defect, and it is the same shape as `upper()` crashing `memdb` yesterday.** A `Row` whose `columns` has more names than `values` has values ended the process:
+
+```
+ziman: runtime error at 150:30: index 1 out of bounds (array length 1)
+    at db::row_get (15:18)
+```
+
+Not a `DbError` a caller could report -- a panic. A `Row` is built by a driver out of what a server sent, so the way to get one is a protocol desync: a PostgreSQL `DataRow` carrying fewer fields than its `RowDescription` promised. The check is on the hit rather than at the top of the scan, so the common path costs nothing for it, and the message names both counts. **Finding this took a probe that fed the function something no happy path produces**, which is the only way these are ever found: 20 tests written from the documented behaviour all passed first time and found nothing.
+
+**What is not tested here, stated rather than left as a gap.** The other half of this module is the cursor machinery `pg` and `mysql` share -- `open_rows`, the page buffer, the request protocol with the thread that owns a socket. Its `Request` and `Page` types are `internal` **on purpose**: they are a wire protocol between a connection and its owning thread, not something a caller constructs. So a test outside the package cannot play the owning thread, and the attempt fails at the type system:
+
+```
+struct 'Page' in module 'db' is internal to its own package
+```
+
+That is the privacy working, and the price of it is that this code is covered only by `make test-pg` and `make test-mysql`, which need containers. Worth writing down as the deliberate trade it is, so the gap is not mistaken for an oversight.
+
+**And an optimisation measured, then declined.** `row_get` scans a row's names, so reading every column of a row is quadratic in its width. Measured on a 12-column row: 290 ns for the first column, 790 for the last, **8 microseconds to read the whole row** -- so a thousand rows of twelve columns spend about 8 ms here, against 5 to 20 ms on the wire for the query itself. A third of the client's own work, which is worth knowing.
+
+Two candidates, both measured:
+
+* **Reading the length once** instead of per iteration: 17-20% off a scan that walks twelve columns or more, 3-7% *added* to one that stops at the first or second, and **no measurable difference** to reading a whole 12-column row, which is what a `from_row` does. The cost is the call and the string comparisons, not the loop condition. Reverted, with the numbers in the function's comment so the next person does not redo it.
+* **An index built once per result and shared by its rows**, the way `columns` already is: 215 ns a lookup against 790, costing 3,900 ns to build for twelve columns, so it pays for itself after five lookups in a result set and saves about 9 ms on a thousand-row read. **Not done**, because the callers that would benefit are the `from_row` functions `#[derive(Row)]` emits, so adopting it means changing what the compiler generates and every generated signature. That is a deliberate increment with these numbers in hand, not a change to make in passing -- and the numbers are now in the comment that would start it.
+
+So the module is unchanged except for the crash, which is the right outcome: this layer is types and converters, and the only thing in it that costs anything is a scan whose fix lives somewhere else.

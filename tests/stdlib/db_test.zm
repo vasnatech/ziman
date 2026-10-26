@@ -1,0 +1,286 @@
+// Unit tests for `db` -- the types, the row reader and the value converters every driver and every
+// repository shares.
+//
+// **What is not here, and why.** The other half of this module is the cursor machinery `pg` and
+// `mysql` share: `open_rows`, the page buffer, the request protocol with the thread that owns a
+// socket. Its types (`Request`, `Page`) are `internal` on purpose -- they are a wire protocol
+// between a connection and its owning thread, not something a caller constructs -- so a test
+// outside the package cannot play the owning thread, by design. That code is covered by
+// `make test-pg` and `make test-mysql`, both of which read cursors, and the price of its privacy
+// is that those need containers. `tests/lang/db_url_parsing.zm` covers `parse_url` over 30 URLs,
+// so the URL tests here are only the ones that fixture leaves out.
+//
+// What *is* here is the part every row read in the application goes through, and the converters
+// whose NULL and widening rules are the ones a reader guesses wrong.
+use clock
+use db
+use db.DbError
+use db.Row
+use db.SqlValue
+use test
+
+fn row_of(columns: [string], values: [SqlValue]) -> Row {
+    return Row { columns: columns, values: values }
+}
+
+fn got(row: Row, column: string) -> SqlValue {
+    return test.assert_ok(db.row_get(row, column))
+}
+
+fn text_of(v: SqlValue) -> string {
+    return test.assert_ok(db.sql_as_text(v))
+}
+
+// ---------------------------------------------------------------- reading a row
+
+#[test]
+fn a_column_is_found_by_name() {
+    val row = row_of(["id", "name"], [SqlValue.Int(7), SqlValue.Text("Ada")])
+    test.assert_eq(7, test.assert_ok(db.sql_as_int(got(row, "id"))))
+    test.assert_eq("Ada", text_of(got(row, "name")))
+}
+
+#[test]
+fn a_missing_column_names_itself_in_the_error() {
+    val row = row_of(["id"], [SqlValue.Int(1)])
+    val refused = test.assert_err(db.row_get(row, "nope"))
+    test.assert_contains(db.db_error_message(refused), "no such column in result row: nope")
+}
+
+#[test]
+fn a_column_name_is_matched_exactly() {
+    // SQL folds case when it *resolves* a name; a result row's columns are already whatever the
+    // engine called them, and this is a lookup by that label rather than a second resolution.
+    val row = row_of(["Name"], [SqlValue.Text("Ada")])
+    test.assert_ok(db.row_get(row, "Name"))
+    test.assert_err(db.row_get(row, "name"))
+}
+
+#[test]
+fn the_first_of_two_columns_of_one_name_is_read() {
+    // A join or a `SELECT *, id` can answer two columns of one name, and both engines hand them
+    // over as written rather than refusing.
+    val row = row_of(["id", "id"], [SqlValue.Int(1), SqlValue.Int(2)])
+    test.assert_eq(1, test.assert_ok(db.sql_as_int(got(row, "id"))))
+}
+
+#[test]
+fn a_row_of_no_columns_refuses_every_lookup() {
+    val none: [string] = []
+    val no_values: [SqlValue] = []
+    test.assert_err(db.row_get(row_of(none, no_values), "id"))
+}
+
+#[test]
+fn a_row_with_fewer_values_than_names_is_refused_not_a_crash() {
+    // A `Row` is built by a driver out of what a server sent, so a protocol desync can produce
+    // one -- a Postgres `DataRow` with fewer fields than its `RowDescription` promised. This used
+    // to end the process with `index 1 out of bounds` instead of answering an error.
+    val lopsided = row_of(["a", "b", "c"], [SqlValue.Int(1)])
+    test.assert_ok(db.row_get(lopsided, "a"))
+    val refused = test.assert_err(db.row_get(lopsided, "b"))
+    test.assert_contains(db.db_error_message(refused), "names 3 columns but carries 1 values")
+    // A name that is not there is still "no such column", not a complaint about the shape.
+    test.assert_contains(db.db_error_message(test.assert_err(db.row_get(lopsided, "zz"))), "no such column")
+}
+
+#[test]
+fn a_null_column_is_read_as_null_not_as_missing() {
+    // The difference a caller has to be able to tell: the column is there and holds nothing.
+    val row = row_of(["note"], [SqlValue.Null])
+    test.assert_eq("NULL", db_type_of(got(row, "note")))
+    test.assert_err(db.sql_as_text(got(row, "note")))
+}
+
+// The type name a mismatch message would use, read back out of the message so the test does not
+// need `sql_type_name`, which is private.
+fn db_type_of(v: SqlValue) -> string {
+    val message = db.db_error_message(test.assert_err(db.sql_as_int(v)))
+    if Int(_) = v {
+        return "INTEGER"
+    }
+    // "database error: expected INTEGER, found TEXT"
+    val at = last_index_of(message, " ")
+    return substring(message, at + 1, len(message))
+}
+
+// ---------------------------------------------------------------- the converters
+
+#[test]
+fn each_converter_takes_its_own_type() {
+    test.assert_eq("x", test.assert_ok(db.sql_as_text(SqlValue.Text("x"))))
+    test.assert_eq(5, test.assert_ok(db.sql_as_int(SqlValue.Int(5))))
+    test.assert_eq(true, test.assert_ok(db.sql_as_bool(SqlValue.Bool(true))))
+    test.assert_near(1.5, test.assert_ok(db.sql_as_float(SqlValue.Float(1.5))), 0.0001)
+}
+
+#[test]
+fn a_converter_says_what_it_found_instead() {
+    val refused = test.assert_err(db.sql_as_int(SqlValue.Text("7")))
+    test.assert_contains(db.db_error_message(refused), "expected INTEGER, found TEXT")
+    // Deliberately not lenient: text that looks like a number is still text. A column typed
+    // wrongly in a migration is a bug to find, not one to paper over.
+    test.assert_err(db.sql_as_int(SqlValue.Text("7")))
+    test.assert_err(db.sql_as_text(SqlValue.Int(7)))
+}
+
+#[test]
+fn a_bool_is_also_an_integer_of_zero_or_one() {
+    // SQLite has no boolean type and answers 0 or 1 where Postgres answers a boolean, so a
+    // repository that ran on both would otherwise need two readers.
+    test.assert_eq(false, test.assert_ok(db.sql_as_bool(SqlValue.Int(0))))
+    test.assert_eq(true, test.assert_ok(db.sql_as_bool(SqlValue.Int(1))))
+    // And only those two: 2 is not a boolean anywhere.
+    test.assert_err(db.sql_as_bool(SqlValue.Int(2)))
+    test.assert_err(db.sql_as_bool(SqlValue.Int(0 - 1)))
+    test.assert_err(db.sql_as_bool(SqlValue.Text("true")))
+}
+
+#[test]
+fn a_float_is_also_a_whole_number() {
+    // `SELECT sum(cost)` can answer an integer where the column is REAL, so widening is allowed.
+    test.assert_near(7.0, test.assert_ok(db.sql_as_float(SqlValue.Int(7))), 0.0001)
+    test.assert_err(db.sql_as_float(SqlValue.Text("7.0")))
+    test.assert_err(db.sql_as_float(SqlValue.Null))
+}
+
+#[test]
+fn a_decimal_reads_text_integers_and_floats() {
+    // `#[derive(Row)]` writes a decimal as TEXT to keep its scale, so that is the shape to read
+    // first; a number from an engine that has no decimal type widens.
+    test.assert_eq("1.50", str(test.assert_ok(db.sql_as_decimal(SqlValue.Text("1.50")))))
+    test.assert_eq("7", str(test.assert_ok(db.sql_as_decimal(SqlValue.Int(7)))))
+    test.assert_ok(db.sql_as_decimal(SqlValue.Float(1.5)))
+    test.assert_err(db.sql_as_decimal(SqlValue.Null))
+}
+
+#[test]
+fn a_decimal_that_is_not_a_number_says_which_value_was_wrong() {
+    val refused = test.assert_err(db.sql_as_decimal(SqlValue.Text("not a number")))
+    test.assert_contains(db.db_error_message(refused), "invalid decimal value")
+}
+
+#[test]
+fn every_converter_refuses_null() {
+    // NULL is never a value of any of these types: a nullable column is read as an `Option` by
+    // the caller, not by a converter that quietly answers zero.
+    test.assert_err(db.sql_as_text(SqlValue.Null))
+    test.assert_err(db.sql_as_int(SqlValue.Null))
+    test.assert_err(db.sql_as_bool(SqlValue.Null))
+    test.assert_err(db.sql_as_float(SqlValue.Null))
+    test.assert_err(db.sql_as_decimal(SqlValue.Null))
+}
+
+#[test]
+fn bytes_are_their_own_type() {
+    val bytes = SqlValue.Bytes(to_bytes("hi"))
+    test.assert_err(db.sql_as_text(bytes))
+    test.assert_contains(db.db_error_message(test.assert_err(db.sql_as_int(bytes))), "found BYTES")
+}
+
+#[test]
+fn sql_lift_turns_a_domain_parse_error_into_a_db_error() {
+    val ok_result: Result<int, string> = ok(3)
+    test.assert_eq(3, test.assert_ok(db.sql_lift<int>(ok_result, "number")))
+    val bad_result: Result<int, string> = err("not a number")
+    val refused = test.assert_err(db.sql_lift<int>(bad_result, "number"))
+    test.assert_contains(db.db_error_message(refused), "invalid number value: not a number")
+}
+
+// ---------------------------------------------------------------- errors
+
+#[test]
+fn an_error_says_which_kind_it_is() {
+    // A caller switches on the kind; a log line reads the sentence. `NotFound` carries no prefix
+    // because it is the application's own message, not the database's.
+    test.assert_eq("gone", db.db_error_message(DbError.NotFound("gone")))
+    test.assert_eq("constraint violation: dup", db.db_error_message(DbError.Constraint("dup")))
+    test.assert_eq("database connection error: down", db.db_error_message(DbError.Connection("down")))
+    test.assert_eq("database error: syntax", db.db_error_message(DbError.Sql("syntax")))
+}
+
+// ---------------------------------------------------------------- URLs
+
+#[test]
+fn a_url_parameter_is_found_by_name_or_absent() {
+    val u = test.assert_ok(db.parse_url("postgres://u:p@h/d?sslmode=require&x=1", ["postgres://"], 5432))
+    test.assert_eq("require", test.assert_some(db.url_param(u, "sslmode")))
+    test.assert_eq("1", test.assert_some(db.url_param(u, "x")))
+    test.assert_none(db.url_param(u, "nope"))
+}
+
+#[test]
+fn percent_escapes_are_decoded_and_a_broken_one_names_the_url() {
+    test.assert_eq("a b", test.assert_ok(db.percent_decode("a%20b")))
+    test.assert_eq("p@ss", test.assert_ok(db.percent_decode("p%40ss")))
+    // A plus is a literal plus: a database URL is not a query string.
+    test.assert_eq("a+b", test.assert_ok(db.percent_decode("a+b")))
+    val refused = test.assert_err(db.percent_decode("a%2"))
+    test.assert_contains(db.db_error_message(refused), "database URL")
+    test.assert_err(db.percent_decode("a%zz"))
+    // A NUL would end a C string half way, so it is refused rather than truncating silently.
+    test.assert_err(db.percent_decode("a%00b"))
+}
+
+#[test]
+fn a_url_whose_scheme_no_prefix_matches_is_refused() {
+    test.assert_err(db.parse_url("mysql://u@h/d", ["postgres://", "postgresql://"], 5432))
+}
+
+#[test]
+fn a_port_has_to_be_a_port() {
+    // Each of these is a URL someone writes by hand, and each says which part was wrong rather
+    // than connecting somewhere unintended.
+    for url in ["postgres://u@h:abc/d", "postgres://u@h:/d"] {
+        test.assert_contains(db.db_error_message(test.assert_err(db.parse_url(url, ["postgres://"], 5432))), "bad port")
+    }
+    for url in ["postgres://u@h:-5/d", "postgres://u@h:99999/d", "postgres://u@h:0/d"] {
+        test.assert_contains(
+            db.db_error_message(test.assert_err(db.parse_url(url, ["postgres://"], 5432))),
+            "not in 1..65535"
+        )
+    }
+}
+
+#[test]
+fn a_url_missing_its_parts_says_which() {
+    test.assert_contains(
+        db.db_error_message(test.assert_err(db.parse_url("postgres://u@/d", ["postgres://"], 5432))),
+        "no host"
+    )
+    test.assert_contains(
+        db.db_error_message(test.assert_err(db.parse_url("postgres://", ["postgres://"], 5432))),
+        "no user name"
+    )
+}
+
+// ---------------------------------------------------------------- cost
+
+#[test]
+fn reading_a_row_stays_cheap() {
+    // `row_get` scans the row's names, so reading every column of a row is quadratic in its width
+    // -- which is fine at the widths a table has and is most of what it costs to read a wide
+    // result. Measured: about 8 microseconds for a 12-column row, so a thousand such rows spend
+    // 8 milliseconds here against 5 to 20 on the wire. The budget below is what catches that
+    // becoming a different number, not a target to tune towards.
+    val names = mutable_array_new<string>()
+    val values = mutable_array_new<SqlValue>()
+    for i in 0..12 {
+        push(names, format("column_number_{}", i))
+        push(values, SqlValue.Int(i))
+    }
+    val row = row_of(snapshot(names), snapshot(values))
+    val started = clock.monotonic_millis()
+    var reads = 0
+    var r = 0
+    while r < 2000 {
+        for name in row.columns {
+            if Ok(_) = db.row_get(row, name) {
+                reads = reads + 1
+            }
+        }
+        r = r + 1
+    }
+    test.assert_eq(24000, reads)
+    test.assert_lt(clock.monotonic_millis() - started, 400)
+}
