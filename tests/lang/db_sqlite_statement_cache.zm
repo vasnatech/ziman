@@ -1,0 +1,136 @@
+// **The SQLite driver keeps its prepared statements, and the ways that could go wrong.**
+//
+// `sqlite3_prepare_v2` is in-process, so there is no round trip to save -- the saving is its parse
+// and code generation, measured at 15-20% of a cheap statement (8-9 to 7 microseconds for an
+// insert, 11-12 to 9 for a one-row lookup) and nothing at all for a statement whose cost is in the
+// execution. A small win, which is why what matters most here is that it costs no correctness.
+//
+// Four things are checked, in descending order of how quietly they would break:
+//
+//   1. **`close` still closes.** `sqlite3_close` answers SQLITE_BUSY and leaves the database open
+//      when any statement is still live, so a cache nobody finalised would stop `close` closing,
+//      leaking the database handle and its descriptor every time.
+//
+//      The descriptors are **counted**, through `/proc/self/fd`, rather than inferred from running
+//      out of them: the first version of this test opened and closed two thousand connections on
+//      the theory that a leak per connection could not survive it, and passed with the draining
+//      deliberately removed -- because the limit on this machine is 1,048,576. A test that cannot
+//      fail on the code it was written for proves nothing, so it now reads the number.
+//   2. **A cached statement does not hold its read lock.** It is reset after use as well as
+//      before, because an unreset statement keeps a shared lock and a cached one lives as long as
+//      the connection -- which would leave a reader open for ever and block every writer. Here a
+//      second connection writes to the same file after the first has read from it.
+//   3. **A schema change under a cached statement is handled.** `prepare_v2` has SQLite re-prepare
+//      the statement itself, so a column added between two uses of one template is picked up.
+//   4. **Bindings do not leak between calls**, and the cap holds: forty distinct templates against
+//      a cap of thirty-two all answer.
+use datasource
+use db
+use db.SqlValue
+use fs
+use os
+use sqlite
+
+val drivers = datasource.registry([sqlite.driver()])
+val no_params: [SqlValue] = []
+
+fn opened(url: string) -> datasource.Connection {
+    return unwrap(datasource.open(drivers, url))
+}
+
+fn one_int(c: datasource.Connection, sql: string, params: [SqlValue]) -> int {
+    val rows = unwrap(datasource.query(c, sql, params))
+    if prelude.len(rows) == 0 {
+        return 0 - 1
+    }
+    return unwrap(db.sql_as_int(unwrap(db.row_get(rows[0], "n"))))
+}
+
+fn main() {
+    val dir = concat(fs.temp_dir(), "/ziman-stmt-cache-", str(os.pid()))
+    unwrap(fs.make_dirs(dir))
+    val path = concat(dir, "/c.db")
+
+    // 1. Open/cache/close cycles on a file database, with the descriptors counted either side.
+    val fd_dir = "/proc/self/fd"
+    val counted = fs.is_dir(fd_dir)
+    val before_fds = if counted { prelude.len(unwrap(fs.list_dir(fd_dir))) } else { 0 }
+    var cycles = 0
+    for i in 0..200 {
+        val c = opened(concat("sqlite:", path))
+        unwrap(datasource.execute(c, "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY, v TEXT)", no_params))
+        unwrap(datasource.execute(
+            c,
+            "INSERT OR REPLACE INTO t (id, v) VALUES ($1, $2)",
+            [SqlValue.Int(i), SqlValue.Text("v")]
+        ))
+        // Two reads of one template, so the second is served from the cache.
+        val _ = one_int(c, "SELECT count(*) AS n FROM t WHERE id = $1", [SqlValue.Int(i)])
+        val _2 = one_int(c, "SELECT count(*) AS n FROM t WHERE id = $1", [SqlValue.Int(i)])
+        datasource.close(c)
+        cycles = cycles + 1
+    }
+    val after_fds = if counted { prelude.len(unwrap(fs.list_dir(fd_dir))) } else { 0 }
+    print(format("200 open/cache/close cycles: {}", cycles == 200))
+    // A `close` that did not close leaks one descriptor per cycle, so the growth would be ~200.
+    print(format("descriptors did not grow: {}", if counted { after_fds - before_fds < 10 } else { true }))
+
+    // 2. A cached read must not leave a lock behind for a writer on another connection.
+    val reader = opened(concat("sqlite:", path))
+    val writer = opened(concat("sqlite:", path))
+    val before = one_int(reader, "SELECT count(*) AS n FROM t", no_params)
+    val _3 = one_int(reader, "SELECT count(*) AS n FROM t", no_params)
+    print(format("another connection can write after a cached read: {}", switch datasource.execute(
+        writer,
+        "INSERT INTO t (id, v) VALUES ($1, $2)",
+        [SqlValue.Int(90001), SqlValue.Text("w")]
+    ) {
+        Ok(_) { "yes" }
+        Err(e) { concat("no: ", db.db_error_message(e)) }
+    }))
+    print(format(
+        "the reader sees the new row: {}",
+        one_int(reader, "SELECT count(*) AS n FROM t", no_params) == before + 1
+    ))
+    datasource.close(reader)
+    datasource.close(writer)
+
+    // 3. A schema change between two uses of one cached template.
+    val c = opened("sqlite::memory:")
+    unwrap(datasource.execute(c, "CREATE TABLE s (id INTEGER PRIMARY KEY)", no_params))
+    unwrap(datasource.execute(c, "INSERT INTO s (id) VALUES ($1)", [SqlValue.Int(1)]))
+    print(format("before the ALTER: {}", one_int(c, "SELECT count(*) AS n FROM s WHERE id = $1", [SqlValue.Int(1)])))
+    unwrap(datasource.execute(c, "ALTER TABLE s ADD COLUMN extra TEXT", no_params))
+    print(format("after the ALTER:  {}", one_int(c, "SELECT count(*) AS n FROM s WHERE id = $1", [SqlValue.Int(1)])))
+    // And the same template once the column it never mentioned is gone again.
+    unwrap(datasource.execute(c, "DROP TABLE s", no_params))
+    print(format("after the table goes: {}", switch datasource.query(
+        c,
+        "SELECT count(*) AS n FROM s WHERE id = $1",
+        [SqlValue.Int(1)]
+    ) {
+        Ok(_) { "answered, which it should not" }
+        Err(e) { concat("refused: ", db.db_error_message(e)) }
+    }))
+
+    // 4. Bindings cleared between calls -- a NULL after a value, through one cached template --
+    //    and forty distinct templates against a cap of thirty-two.
+    unwrap(datasource.execute(c, "CREATE TABLE b (id INTEGER PRIMARY KEY, v TEXT)", no_params))
+    unwrap(datasource.execute(c, "INSERT INTO b (id, v) VALUES ($1, $2)", [SqlValue.Int(1), SqlValue.Text("x")]))
+    unwrap(datasource.execute(c, "INSERT INTO b (id, v) VALUES ($1, $2)", [SqlValue.Int(2), SqlValue.Null]))
+    print(format(
+        "a NULL bound through the same template: {}",
+        one_int(c, "SELECT count(*) AS n FROM b WHERE v IS NULL", no_params)
+    ))
+    var answered = 0
+    for n in 0..40 {
+        answered = answered + one_int(
+            c,
+            format("SELECT count(*) AS n FROM b WHERE id > $1 AND {} = {}", n, n),
+            [SqlValue.Int(0)]
+        )
+    }
+    print(format("40 distinct templates against a cap of 32: {}", answered == 80))
+    datasource.close(c)
+    unwrap(fs.remove_all(dir))
+}

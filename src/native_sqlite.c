@@ -42,9 +42,24 @@
  * share -- another thread's statements can interleave inside it; see
  * docs/DESIGN.md's "db" entry. */
 
+/* How many statements one connection keeps prepared. Past the cap a statement is prepared and
+ * finalized per call, which is what every call did before this existed. */
+#define STMT_CACHE_MAX 32
+
+/* One statement kept for reuse, with the text it was prepared from. */
+typedef struct {
+    char *sql;
+    sqlite3_stmt *stmt;
+} HeldStmt;
+
 typedef struct {
     sqlite3 *db;
     pthread_mutex_t mu;
+    /* Prepared statements kept across calls, by their text. Guarded by `mu` like everything else
+     * here -- this connection, unlike the Postgres and MySQL ones, is shared between threads
+     * rather than owned by one, and every site that prepares already holds the lock. */
+    HeldStmt held[STMT_CACHE_MAX];
+    int held_count;
 } DbConn;
 
 /* The handle Ziman holds is the DbConn's address; g_live says which addresses are open
@@ -58,6 +73,85 @@ static HandleSet g_live = HANDLE_SET_INIT;
  * it; defined with the cursor code below, where the reason for it is written down. */
 static void pending_drain(DbConn *c);
 
+/* Whether only whitespace is left, which is how a single statement is told from a script: a
+ * statement is cached only when nothing follows it, so a cached hit never has a tail to run. A
+ * trailing comment counts as "something follows" and simply is not cached, which costs a prepare
+ * and cannot be wrong. */
+static int only_blank(const char *s) {
+    if (s == NULL) return 1;
+    while (*s != '\0') {
+        if (*s != ' ' && *s != '\t' && *s != '\n' && *s != '\r' && *s != ';') return 0;
+        s++;
+    }
+    return 1;
+}
+
+/* The statement for `sql`, prepared once per connection.
+ *
+ * **Reused rather than re-prepared**, and `sqlite3_prepare_v2` is what makes that safe across a
+ * schema change: a v2 statement is re-prepared by SQLite itself when the schema it depends on
+ * changes, so a CREATE or ALTER under a cached statement is handled before this code could see it.
+ * (A v1 statement would answer SQLITE_SCHEMA and have to be redone by hand.)
+ *
+ * `sqlite3_reset` is called on the way *in* and the way *out*. On the way in because a statement
+ * that ran before is still sitting at its last row; on the way out because an unreset statement
+ * holds its read lock, and a cached one lives for the connection -- so forgetting that would leave
+ * a reader open for ever and block the writer. Its return value is the *previous* run's error code,
+ * which has already been reported, so it is deliberately ignored.
+ *
+ * `*cached` says who owns the statement: the cache, or the caller, who must then finalize it. */
+static int held_get(DbConn *c, const char *sql, sqlite3_stmt **out, const char **tail, int *cached) {
+    for (int i = 0; i < c->held_count; i++) {
+        if (strcmp(c->held[i].sql, sql) == 0) {
+            (void)sqlite3_reset(c->held[i].stmt);
+            sqlite3_clear_bindings(c->held[i].stmt);
+            *out = c->held[i].stmt;
+            *tail = "";
+            *cached = 1;
+            return SQLITE_OK;
+        }
+    }
+    sqlite3_stmt *stmt = NULL;
+    const char *rest = NULL;
+    int rc = sqlite3_prepare_v2(c->db, sql, -1, &stmt, &rest);
+    *out = stmt;
+    *tail = rest;
+    *cached = 0;
+    if (rc != SQLITE_OK || stmt == NULL) return rc;
+    if (c->held_count < STMT_CACHE_MAX && only_blank(rest)) {
+        c->held[c->held_count].sql = ziman_xstrdup(sql);
+        c->held[c->held_count].stmt = stmt;
+        c->held_count++;
+        *cached = 1;
+    }
+    return rc;
+}
+
+/* Done with a statement: reset if the cache owns it, finalized if the caller does. */
+static void held_release(sqlite3_stmt *stmt, int cached) {
+    if (stmt == NULL) return;
+    if (cached) {
+        (void)sqlite3_reset(stmt);
+        sqlite3_clear_bindings(stmt);
+    } else {
+        sqlite3_finalize(stmt);
+    }
+}
+
+/* Every kept statement finalized, with `mu` held.
+ *
+ * **This must run before `sqlite3_close`**, which answers SQLITE_BUSY and leaves the database open
+ * when a statement is still live -- so a cache nobody drained would quietly stop `close` from
+ * closing, and a file database would stay locked. The strings are collector-owned, so there is
+ * nothing to free. */
+static void held_clear(DbConn *c) {
+    for (int i = 0; i < c->held_count; i++) {
+        sqlite3_finalize(c->held[i].stmt);
+        c->held[i].stmt = NULL;
+    }
+    c->held_count = 0;
+}
+
 #ifdef ZIMAN_GC
 static void conn_finalizer(void *obj, void *client_data) {
     (void)client_data;
@@ -65,6 +159,7 @@ static void conn_finalizer(void *obj, void *client_data) {
     if (handleset_remove(&g_live, c)) {
         pthread_mutex_lock(&c->mu);
         pending_drain(c); /* a deferred cursor's statement, before the database it belongs to goes */
+        held_clear(c);    /* and the kept statements, or sqlite3_close answers SQLITE_BUSY */
         if (c->db != NULL) sqlite3_close(c->db);
         c->db = NULL;
         pthread_mutex_unlock(&c->mu);
@@ -140,6 +235,7 @@ static Value native_sqlite_close_raw(Value *args, int argc, int line, int col) {
     DbConn *c = conn_get(args[0].as.i, line, col);
     pthread_mutex_lock(&c->mu);
     pending_drain(c); /* a deferred cursor's statement, before the database it belongs to goes */
+    held_clear(c);    /* and the kept statements, or sqlite3_close answers SQLITE_BUSY */
     sqlite3_close(c->db);
     c->db = NULL;
     pthread_mutex_unlock(&c->mu);
@@ -256,7 +352,14 @@ static Value native_sqlite_execute_raw(Value *args, int argc, int line, int col)
     for (;;) {
         sqlite3_stmt *stmt = NULL;
         const char *tail = NULL;
-        if (sqlite3_prepare_v2(c->db, sql, -1, &stmt, &tail) != SQLITE_OK) {
+        /* **Only the first statement is a candidate for the cache**, and only when nothing follows
+         * it: `held_get` declines a script, so a later turn of this loop always prepares afresh.
+         * That keeps the script path exactly as it was, including its refusal of bound parameters
+         * alongside a multi-statement script. */
+        int cached = 0;
+        int prc = first ? held_get(c, sql, &stmt, &tail, &cached)
+                        : sqlite3_prepare_v2(c->db, sql, -1, &stmt, &tail);
+        if (prc != SQLITE_OK) {
             result = err_result(int_type, category_for(c->db), sqlite3_errmsg(c->db));
             goto done;
         }
@@ -268,11 +371,11 @@ static Value native_sqlite_execute_raw(Value *args, int argc, int line, int col)
             int rc = bind_all(stmt, params);
             if (rc != SQLITE_OK) {
                 result = bind_error(int_type, c->db, rc, 0, params);
-                sqlite3_finalize(stmt);
+                held_release(stmt, cached);
                 goto done;
             }
         } else if (params->count > 0) {
-            sqlite3_finalize(stmt);
+            held_release(stmt, cached);
             result = err_result(int_type, "sql", "bound parameters are not allowed with a multi-statement script");
             goto done;
         }
@@ -280,11 +383,11 @@ static Value native_sqlite_execute_raw(Value *args, int argc, int line, int col)
         do { rc = sqlite3_step(stmt); } while (rc == SQLITE_ROW);
         if (rc != SQLITE_DONE) {
             result = err_result(int_type, category_for(c->db), sqlite3_errmsg(c->db));
-            sqlite3_finalize(stmt);
+            held_release(stmt, cached);
             goto done;
         }
         changes = sqlite3_changes(c->db);
-        sqlite3_finalize(stmt);
+        held_release(stmt, cached);
         sql = tail;
         first = 0;
     }
@@ -391,14 +494,16 @@ static Value native_sqlite_query_raw(Value *args, int argc, int line, int col) {
     Value result;
     sqlite3_stmt *stmt = NULL;
     char *sql = rewrite_placeholders(value_cstr(args[1]));
-    if (sqlite3_prepare_v2(c->db, sql, -1, &stmt, NULL) != SQLITE_OK || stmt == NULL) {
+    const char *tail = NULL;
+    int cached = 0;
+    if (held_get(c, sql, &stmt, &tail, &cached) != SQLITE_OK || stmt == NULL) {
         result = err_result(arr_type, category_for(c->db), stmt == NULL && sqlite3_errcode(c->db) == SQLITE_OK ? "empty statement" : sqlite3_errmsg(c->db));
         goto done;
     }
     int rc = bind_all(stmt, params);
     if (rc != SQLITE_OK) {
         result = bind_error(arr_type, c->db, rc, 0, params);
-        sqlite3_finalize(stmt);
+        held_release(stmt, cached);
         goto done;
     }
 
@@ -413,10 +518,10 @@ static Value native_sqlite_query_raw(Value *args, int argc, int line, int col) {
     }
     if (rc != SQLITE_DONE) {
         result = err_result(arr_type, category_for(c->db), sqlite3_errmsg(c->db));
-        sqlite3_finalize(stmt);
+        held_release(stmt, cached);
         goto done;
     }
-    sqlite3_finalize(stmt);
+    held_release(stmt, cached);
     result = ok_result(arr_type, value_array(type_ref(arr_type), array_obj_new(cells.items, cells.count)));
 done:
     pthread_mutex_unlock(&c->mu);

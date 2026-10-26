@@ -245,6 +245,7 @@ them against the code.
 - [memdb keeps its uniqueness index instead of rebuilding it, and a one-row write stops being a pass over the table (2026-10-26)](#memdb-keeps-its-uniqueness-index-instead-of-rebuilding-it-and-a-one-row-write-stops-being-a-pass-over-the-table-2026-10-26)
 - [`eql` guarded on real PostgreSQL and MySQL, and `sql.zm` kept out of the drivers (2026-10-26)](#eql-guarded-on-real-postgresql-and-mysql-and-sqlzm-kept-out-of-the-drivers-2026-10-26)
 - [A statement is parsed once per connection, in all four engines (2026-10-26)](#a-statement-is-parsed-once-per-connection-in-all-four-engines-2026-10-26)
+- [The statement cache reaches SQLite, and finds that Nagle was never turned off (2026-10-26)](#the-statement-cache-reaches-sqlite-and-finds-that-nagle-was-never-turned-off-2026-10-26)
 
 <!-- end index -->
 
@@ -9510,3 +9511,61 @@ That MySQL test earned its place on its first run, by failing: **`defer` runs wh
 One behaviour change to state plainly rather than bury: **Postgres moves a prepared statement to a generic plan after about five executions.** Much of the 6x above is that, and it cuts the other way for a query whose best plan depends on the parameter value -- a selective value and an unselective one now share one plan. It is inherent in reusing a prepared statement rather than in how this was built, and `plan_cache_mode = force_custom_plan` is the server-side escape hatch.
 
 `sqlite` is the one engine left: its statements are prepared in `src/native_sqlite.c`, so caching them is C work rather than Ziman, and it is the cheapest of the four to begin with, having no socket and no server.
+
+## The statement cache reaches SQLite, and finds that Nagle was never turned off (2026-10-26)
+
+The last two parts of "parsed and cached once in the driver and connection". One is the smallest result of the five and one is the largest thing in this repository, and they are in the same entry because the second was found by disbelieving the first.
+
+### SQLite: the cheapest engine to cache and the least to gain
+
+`sqlite3_prepare_v2` runs in process, so there is no round trip to save -- the saving is its parse and code generation, and nothing else. Interleaved A/B, 4,000 calls each:
+
+| | base | cached |
+|---|---|---|
+| insert | 8-9 us | 7 us |
+| one-row lookup | 11-12 us | 9 us |
+| `GROUP BY` over 4,000 rows | 367-368 us | 361-371 us |
+
+About 15 to 20% on a cheap statement, nothing where the cost is in the execution. **Small, and recorded as small.** It does reproduce across rounds, which is the difference between this and the Postgres single-row lookup that was reported as no result at all.
+
+So the work here was not the speed, it was that the speed costs no correctness, and SQLite's hazards are not the socket drivers':
+
+* **`DbConn` carries a mutex.** This connection is shared between threads rather than owned by one -- the opposite of the pg and mysql drivers, whose caches are safe because a single thread owns the socket -- so the cache lives under the lock that every site which prepares already takes.
+* **`sqlite3_close` answers `SQLITE_BUSY` while any statement is live.** Both close paths, the explicit one and the collector's finalizer, therefore drain the cache first. Without it `close` silently stops closing: the handle leaks, a file database stays locked, and nothing says so.
+* **A cached statement is reset after use as well as before.** An unreset statement holds its read lock and a cached one lives as long as the connection, so skipping the second reset would leave a reader open for ever and block every writer. The return value of `sqlite3_reset` is the *previous* run's error code, already reported, and is deliberately ignored.
+* **`prepare_v2` is what makes a schema change safe.** SQLite re-prepares a v2 statement itself when the schema under it changes, so an `ALTER` between two uses of one template needs no handling here. A v1 statement would answer `SQLITE_SCHEMA` and have to be redone by hand.
+* Only the first statement of a script is a candidate, and only when nothing follows it, so the script path is untouched -- bound parameters are still refused alongside a multi-statement script.
+
+**The test for all of that was worthless in its first version, and that is the part worth keeping.** It opened and closed two thousand file-backed connections, each caching a statement, on the reasoning that a leaked descriptor per connection could not survive two thousand cycles. It passed **with the draining deliberately removed**, because `ulimit -n` on this machine is 1,048,576. It now reads `/proc/self/fd` and compares the count either side, and was checked both ways: `descriptors did not grow: false` without the drain, `true` with it. That is the second time in one day -- after the memdb seeding guard -- that a test had to be run against the broken code before it could be believed. **Verifying a guard is a separate step from writing it**, and skipping it produces a test that reports success for the wrong reason.
+
+### Nagle: never turned off, and worth more than the feature that found it
+
+`TCP_NODELAY` was set on **no socket anywhere in this runtime**.
+
+Nagle holds a small write back until the previous one is acknowledged; the peer's delayed ACK holds that acknowledgement for up to 40 milliseconds. Together they are a 40ms stall on any protocol that writes a small request, reads a reply, and writes again -- which is every protocol here.
+
+It was found by refusing to accept a good number. The MySQL statement cache appeared to make a parameterised query **129x** faster, and saving one round trip of two cannot do that. 42.7 milliseconds a call is not a protocol cost, and 40 of them is a number with a known cause. The old path ended each call with an unreplied `COM_STMT_CLOSE`, so the next call's small write waited for an ACK the server was holding back. With `TCP_NODELAY` patched in as a scratch experiment, the four cells read:
+
+| mysql, one-row lookup | Nagle (as shipped) | TCP_NODELAY |
+|---|---|---|
+| no statement cache | 42,700 us | 450-547 us |
+| statement cached | 272-345 us | 262-292 us |
+
+and, measured again per statement rather than per configuration:
+
+| | Nagle | TCP_NODELAY |
+|---|---|---|
+| kept (cached) statement | 200-300 us | 275 us |
+| unkept statement | 42,575-42,825 us | 475-900 us |
+
+So **a kept statement was never affected** -- its path is a clean write-then-read with no trailing unreplied write -- and an unkept one is 50 to 90 times faster. The statement cache did not fix the stall; it hid it for the statements it keeps and left it for every other one, which is worse than either fixing it or leaving it alone, because it makes the pathology harder to find. **An optimisation that routes around a defect conceals it**, and that is the general lesson here: the 129x was not a result to report, it was a symptom to chase.
+
+The fix is three sites and one helper:
+
+* `set_nodelay(fd)` **ignores failure on purpose**: a Unix-domain socket answers `ENOPROTOOPT` and has no Nagle to turn off, so attempting it everywhere and ignoring the answer is both correct and the shortest way to say so.
+* Outbound connections, at the one success point in `open_socket_timeout`, guarded on `!listener` because the option belongs to a connected socket.
+* Accepted sockets, immediately after `accept(2)` -- there rather than on the listener, because an accepted socket does not reliably inherit it, and before both returns so the TLS path gets it too.
+
+**Latency over throughput is the right default** for a runtime whose sockets carry database protocols and HTTP. A caller wanting the other trade-off writes one large buffer instead of several small ones, which is what the HTTP server already does with a response. The verification that mattered was breadth rather than depth: `make check`, whose North Star phase starts 49 real HTTP servers through the accept path, plus `test-pg`, `test-mysql` and `test-tls` -- the TLS handshake being the one place this could plausibly have interacted badly, and the reason that suite was run at all.
+
+One number to keep in proportion: across the five engines the statement cache was worth 2.3x, 32x, 6x, 1.8x and 15%. One line of `setsockopt` was worth 50 to 90x. The feature was asked for and is worth having; the defect it uncovered was not asked about by anyone, and had been there the whole time.

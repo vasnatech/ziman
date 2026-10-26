@@ -1,0 +1,9 @@
+200 open/cache/close cycles: true
+descriptors did not grow: true
+another connection can write after a cached read: yes
+the reader sees the new row: true
+before the ALTER: 1
+after the ALTER:  1
+after the table goes: refused: database error: no such table: s
+a NULL bound through the same template: 1
+40 distinct templates against a cap of 32: true
