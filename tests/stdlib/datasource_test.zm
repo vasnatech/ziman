@@ -1,0 +1,487 @@
+// Unit tests for `datasource`, driven by a **driver that is not a database**.
+//
+// This module's whole claim is that it names no engine: a `db.Driver` is a name, some URL
+// prefixes, two questions about pooling and a function that opens a connection, and a `db.Conn` is
+// four closures. So the way to test it is to hand it an engine made of counters -- which is both
+// the sharpest test available and a demonstration of the claim.
+//
+// It is also the only way to test the parts that matter most and that a real engine will not do on
+// command: a connection that dies mid-statement and has to be **replaced**, a connection that has
+// gone stale while idle and fails its `SELECT 1`, an `open` that fails partway through filling a
+// pool, and a server that is still down when the replacement is attempted. Those paths decide
+// whether an application survives a database restart, and `tests/lang/db_pool_*.zm` cannot reach
+// them with real SQLite files.
+use clock
+use datasource
+use db
+use db.Conn
+use db.DbError
+use db.Driver
+use db.Row
+use db.SqlValue
+use test
+
+// What the fake engine records and what it has been told to do next. Cells rather than fields,
+// because a closure captures by value and these have to be shared with the test that set them.
+struct Journal {
+    opens: Mutable<int>
+    closes: Mutable<int>
+    statements: MutableArray<string>
+    // The next statement on any connection fails with a connection error, as a dropped socket
+    // would.
+    statement_dies: Mutable<bool>
+    // `SELECT 1` fails with a connection error: a connection that went stale while idle.
+    probe_dies: Mutable<bool>
+    // Opening fails once this many connections have been opened; -1 for never.
+    open_fails_after: Mutable<int>
+}
+
+fn journal() -> Journal {
+    return Journal {
+        opens: mutable_new(0),
+        closes: mutable_new(0),
+        statements: mutable_array_new<string>(),
+        statement_dies: mutable_new(false),
+        probe_dies: mutable_new(false),
+        open_fails_after: mutable_new(0 - 1)
+    }
+}
+
+fn fake_driver(j: Journal, name: string, prefix: string, poolable: bool, idle_check: bool) -> Driver {
+    return Driver {
+        name: name,
+        prefixes: [prefix],
+        poolable: fn(url: string) -> bool { return poolable },
+        idle_check: idle_check,
+        open: fn(url: string) -> Result<Conn, DbError> {
+            val limit = get(j.open_fails_after)
+            if limit >= 0 && get(j.opens) >= limit {
+                return err(DbError.Connection(concat("the fake engine refuses to open: ", url)))
+            }
+            set(j.opens, get(j.opens) + 1)
+            // This connection's own number, so a test can tell one from another.
+            val which = get(j.opens)
+            return ok(Conn {
+                dialect: name,
+                close: fn() { set(j.closes, get(j.closes) + 1) },
+                execute: fn(sql: string, params: [SqlValue]) -> Result<int, DbError> {
+                    push(j.statements, sql)
+                    if get(j.statement_dies) {
+                        set(j.statement_dies, false)
+                        return err(DbError.Connection("the fake engine dropped the connection"))
+                    }
+                    if starts_with(sql, "NOPE") {
+                        return err(DbError.Sql("the fake engine cannot read that"))
+                    }
+                    return ok(prelude.len(params))
+                },
+                query: fn(sql: string, params: [SqlValue]) -> Result<[Row], DbError> {
+                    push(j.statements, sql)
+                    if sql == "SELECT 1" && get(j.probe_dies) {
+                        return err(DbError.Connection("the fake engine dropped an idle connection"))
+                    }
+                    if get(j.statement_dies) {
+                        set(j.statement_dies, false)
+                        return err(DbError.Connection("the fake engine dropped the connection"))
+                    }
+                    // One row per bound parameter, plus one naming the connection, so a test can
+                    // see which connection answered.
+                    val rows = mutable_array_new<Row>()
+                    push(rows, Row { columns: ["which"], values: [SqlValue.Int(which)] })
+                    for p in params {
+                        push(rows, Row { columns: ["p"], values: [p] })
+                    }
+                    return ok(snapshot(rows))
+                },
+                rows: fn(sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+                    push(j.statements, sql)
+                    val at = mutable_new(0)
+                    return ok(iter_from<Result<Row, DbError>>(
+                        fn() -> Option<Result<Row, DbError>> {
+                            if get(at) >= 2 {
+                                return Option<Result<Row, DbError>>.None
+                            }
+                            set(at, get(at) + 1)
+                            return Option<Result<Row, DbError>>.Some(ok(Row {
+                                columns: ["which"],
+                                values: [SqlValue.Int(which)]
+                            }))
+                        },
+                        fn() {}
+                    ))
+                }
+            })
+        }
+    }
+}
+
+fn fake(j: Journal) -> Driver {
+    return fake_driver(j, "fake", "fake:", true, true)
+}
+
+fn which_answered(conn: datasource.Connection) -> int {
+    val rows = test.assert_ok(datasource.query(conn, "SELECT which"))
+    var found = Option<int>.None
+    if Int(n) = rows[0].values[0] {
+        found = Option<int>.Some(n)
+    }
+    return test.assert_some(found)
+}
+
+// ---------------------------------------------------------------- resolving a URL
+
+#[test]
+fn a_url_finds_the_driver_whose_prefix_it_starts_with() {
+    val a = journal()
+    val b = journal()
+    val reg = datasource.registry([fake_driver(a, "one", "one:", true, true),
+        fake_driver(b, "two", "two:", true, true)])
+    test.assert_eq("one", datasource.dialect(test.assert_ok(datasource.open(reg, "one:x"))))
+    test.assert_eq("two", datasource.dialect(test.assert_ok(datasource.open(reg, "two:x"))))
+}
+
+#[test]
+fn the_first_driver_wins_a_prefix_two_claim() {
+    val a = journal()
+    val b = journal()
+    val reg = datasource.registry([fake_driver(a, "first", "same:", true, true),
+        fake_driver(b, "second", "same:", true, true)])
+    test.assert_eq("first", datasource.dialect(test.assert_ok(datasource.open(reg, "same:x"))))
+}
+
+#[test]
+fn an_unclaimed_url_is_refused_with_what_was_registered() {
+    val reg = datasource.registry([fake(journal())])
+    val refused = test.assert_err(datasource.open(reg, "postgres://localhost/x"))
+    test.assert_contains(db.db_error_message(refused), "no registered driver handles")
+    test.assert_contains(db.db_error_message(refused), "fake:")
+}
+
+#[test]
+fn an_empty_registry_says_so_rather_than_naming_nothing() {
+    val empty: [Driver] = []
+    val refused = test.assert_err(datasource.open(datasource.registry(empty), "fake:x"))
+    test.assert_contains(db.db_error_message(refused), "no database drivers are registered")
+}
+
+// ---------------------------------------------------------------- a direct connection
+
+#[test]
+fn a_statement_reaches_the_driver_as_written() {
+    val j = journal()
+    val conn = test.assert_ok(datasource.open(datasource.registry([fake(j)]), "fake:x"))
+    test.assert_eq(
+        2,
+        test.assert_ok(datasource.execute(conn, "INSERT INTO t VALUES ($1, $2)", SqlValue.Int(1), SqlValue.Text("a")))
+    )
+    test.assert_eq(["INSERT INTO t VALUES ($1, $2)"], snapshot(j.statements))
+}
+
+#[test]
+fn closing_a_direct_connection_closes_it_once() {
+    val j = journal()
+    val conn = test.assert_ok(datasource.open(datasource.registry([fake(j)]), "fake:x"))
+    datasource.close(conn)
+    test.assert_eq(1, get(j.closes))
+}
+
+#[test]
+fn query_one_answers_the_first_row_or_none() {
+    val j = journal()
+    val conn = test.assert_ok(datasource.open(datasource.registry([fake(j)]), "fake:x"))
+    // The fake answers one row plus one per parameter, so no parameters is exactly one row.
+    test.assert_some(test.assert_ok(datasource.query_one(conn, "SELECT which")))
+    // Two rows: the first is the one kept.
+    val first = test.assert_some(test.assert_ok(datasource.query_one(conn, "SELECT which", SqlValue.Int(7))))
+    test.assert_eq("which", first.columns[0])
+}
+
+#[test]
+fn transactions_are_plain_statements_on_a_direct_connection() {
+    val j = journal()
+    val conn = test.assert_ok(datasource.open(datasource.registry([fake(j)]), "fake:x"))
+    test.assert_ok(datasource.begin(conn))
+    test.assert_ok(datasource.commit(conn))
+    test.assert_ok(datasource.rollback(conn))
+    test.assert_eq(["BEGIN", "COMMIT", "ROLLBACK"], snapshot(j.statements))
+}
+
+// ---------------------------------------------------------------- the pool
+
+#[test]
+fn a_pool_opens_its_connections_up_front() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 4))
+    test.assert_eq(4, get(j.opens))
+    datasource.close(pool)
+    test.assert_eq(4, get(j.closes))
+}
+
+#[test]
+fn a_pool_that_cannot_fill_closes_what_it_opened() {
+    // The third `open` fails, and the two already open must not be left behind.
+    val j = journal()
+    set(j.open_fails_after, 2)
+    test.assert_err(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 4))
+    test.assert_eq(2, get(j.opens))
+    test.assert_eq(2, get(j.closes))
+}
+
+#[test]
+fn a_pool_of_an_unpoolable_url_is_one_connection() {
+    // What `sqlite::memory:` does: every connection would be its own database, so the driver says
+    // no and the pool is a single direct connection.
+    val j = journal()
+    val reg = datasource.registry([fake_driver(j, "single", "single:", false, false)])
+    val pool = test.assert_ok(datasource.open_pool(reg, "single:x", 4))
+    test.assert_eq(1, get(j.opens))
+    // Being direct, a transaction is allowed on it -- which is the point of answering no.
+    test.assert_ok(datasource.begin(pool))
+}
+
+#[test]
+fn a_transaction_is_refused_on_a_pool() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 2))
+    test.assert_contains(db.db_error_message(test.assert_err(datasource.begin(pool))), "exclusive connection")
+    test.assert_err(datasource.commit(pool))
+    test.assert_err(datasource.rollback(pool))
+}
+
+#[test]
+fn a_pooled_statement_borrows_and_gives_back() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 1))
+    // One connection, three statements in a row: each borrow must give it back, or the second
+    // would block forever.
+    test.assert_eq(1, which_answered(pool))
+    test.assert_eq(1, which_answered(pool))
+    test.assert_eq(1, which_answered(pool))
+    test.assert_eq(1, get(j.opens))
+}
+
+#[test]
+fn acquire_holds_a_connection_until_it_is_released() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 2))
+    val held = test.assert_ok(datasource.acquire(pool))
+    // Taking both leaves none, and a timeout says so rather than blocking.
+    val other = test.assert_ok(datasource.acquire_timeout(pool, 0))
+    test.assert_contains(db.db_error_message(test.assert_err(datasource.acquire_timeout(pool, 10))), "timed out")
+    datasource.release(pool, held)
+    // And one given back can be taken again.
+    test.assert_ok(datasource.acquire_timeout(pool, 0))
+    datasource.release(pool, other)
+}
+
+#[test]
+fn an_acquired_connection_takes_a_transaction() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 2))
+    val tx = test.assert_ok(datasource.acquire(pool))
+    test.assert_ok(datasource.begin(tx))
+    test.assert_ok(datasource.commit(tx))
+    datasource.release(pool, tx)
+    test.assert_contains(snapshot(j.statements), "BEGIN")
+}
+
+// ---------------------------------------------------------------- a connection that dies
+
+#[test]
+fn a_statement_that_dies_gets_its_connection_replaced() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 1))
+    set(j.statement_dies, true)
+    test.assert_err(datasource.query(pool, "SELECT which"))
+    // The dead one was closed and a fresh one opened in its place, so the pool still has one.
+    test.assert_eq(2, get(j.opens))
+    test.assert_eq(1, get(j.closes))
+    // And the next statement works, on the replacement.
+    test.assert_eq(2, which_answered(pool))
+}
+
+#[test]
+fn a_statement_that_merely_fails_keeps_its_connection() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 1))
+    test.assert_err(datasource.execute(pool, "NOPE"))
+    // A SQL error says nothing about the connection, so nothing is replaced.
+    test.assert_eq(1, get(j.opens))
+    test.assert_eq(0, get(j.closes))
+}
+
+#[test]
+fn discard_replaces_a_connection_release_keeps_it() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 1))
+    val taken = test.assert_ok(datasource.acquire(pool))
+    datasource.discard(pool, taken)
+    test.assert_eq(2, get(j.opens))
+    test.assert_eq(1, get(j.closes))
+    val again = test.assert_ok(datasource.acquire(pool))
+    datasource.release(pool, again)
+    test.assert_eq(2, get(j.opens))
+}
+
+#[test]
+fn a_replacement_that_cannot_be_opened_puts_the_dead_one_back() {
+    // The server is still down. The pool must not shrink: the failed connection goes back, and
+    // the next statement tries again.
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 1))
+    set(j.open_fails_after, 1)
+    val taken = test.assert_ok(datasource.acquire(pool))
+    datasource.discard(pool, taken)
+    test.assert_eq(1, get(j.opens))
+    test.assert_eq(0, get(j.closes))
+    // Still usable, because the pool still has a connection in it.
+    test.assert_ok(datasource.acquire_timeout(pool, 0))
+}
+
+#[test]
+fn an_idle_connection_is_tested_before_it_is_lent_out() {
+    // **The one test here that has to wait.** `check_after` is in seconds and zero means "do not
+    // test", so the smallest reachable setting is one second and the connection has to sit idle
+    // for it. Two pools are set up before the single sleep so the wait is paid once: one whose
+    // replacement can be opened, and one whose cannot.
+    val replaceable = journal()
+    val stuck = journal()
+    val good = test.assert_ok(datasource.open_pool_with(datasource.registry([fake(replaceable)]), "fake:x", 1, 1))
+    val bad = test.assert_ok(datasource.open_pool_with(datasource.registry([fake(stuck)]), "fake:x", 1, 1))
+    val healthy = journal()
+    val well = test.assert_ok(datasource.open_pool_with(datasource.registry([fake(healthy)]), "fake:x", 1, 1))
+    set(replaceable.probe_dies, true)
+    set(stuck.probe_dies, true)
+    set(stuck.open_fails_after, 1)
+    clock.sleep_millis(1100)
+
+    // The probe fails with a connection error, so the connection is replaced before it is used,
+    // and the statement that follows runs on the fresh one.
+    test.assert_eq(2, which_answered(good))
+    test.assert_eq(2, get(replaceable.opens))
+    test.assert_eq(1, get(replaceable.closes))
+    test.assert_contains(snapshot(replaceable.statements), "SELECT 1")
+
+    // The server is still down: the dead connection goes back rather than being lost, and the
+    // borrower is told, instead of being handed a connection that would fail.
+    test.assert_err(datasource.query(bad, "SELECT which"))
+    test.assert_eq(1, get(stuck.opens))
+    test.assert_eq(0, get(stuck.closes))
+    // The pool still has its connection, so a later borrow -- after the probe stops failing --
+    // works.
+    set(stuck.probe_dies, false)
+    test.assert_ok(datasource.acquire_timeout(bad, 0))
+
+    // And one that is tested and found well is kept: the same connection answers, and nothing was
+    // opened or closed.
+    test.assert_eq(1, which_answered(well))
+    test.assert_eq(1, get(healthy.opens))
+    test.assert_eq(0, get(healthy.closes))
+    test.assert_contains(snapshot(healthy.statements), "SELECT 1")
+}
+
+#[test]
+fn an_engine_that_cannot_go_stale_is_never_probed() {
+    // SQLite's answer: an open file does not close itself while nobody is looking.
+    val j = journal()
+    val reg = datasource.registry([fake_driver(j, "file", "file:", true, false)])
+    val pool = test.assert_ok(datasource.open_pool_with(reg, "file:x", 1, 1))
+    test.assert_eq(1, which_answered(pool))
+    test.assert_not_contains(snapshot(j.statements), "SELECT 1")
+}
+
+#[test]
+fn turning_the_idle_check_off_skips_it_too() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool_with(datasource.registry([fake(j)]), "fake:x", 1, 0))
+    test.assert_eq(1, which_answered(pool))
+    test.assert_not_contains(snapshot(j.statements), "SELECT 1")
+}
+
+// ---------------------------------------------------------------- with_transaction
+
+#[test]
+fn with_transaction_commits_on_ok() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 1))
+    val answer = test.assert_ok(datasource.with_transaction<int>(
+        pool,
+        fn(tx: datasource.Connection) -> Result<int, DbError> {
+            try datasource.execute(tx, "UPDATE t SET a = 1")
+            return ok(7)
+        }
+    ))
+    test.assert_eq(7, answer)
+    test.assert_eq(["BEGIN", "UPDATE t SET a = 1", "COMMIT", "ROLLBACK"], snapshot(j.statements))
+}
+
+#[test]
+fn with_transaction_rolls_back_on_err() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 1))
+    test.assert_err(datasource.with_transaction<int>(pool, fn(tx: datasource.Connection) -> Result<int, DbError> {
+        try datasource.execute(tx, "UPDATE t SET a = 1")
+        return err(DbError.Sql("the caller gave up"))
+    }))
+    test.assert_eq(["BEGIN", "UPDATE t SET a = 1", "ROLLBACK"], snapshot(j.statements))
+    // The connection went back to the pool rather than being replaced: the failure was not the
+    // connection's fault.
+    test.assert_eq(1, get(j.opens))
+    test.assert_eq(0, get(j.closes))
+}
+
+#[test]
+fn with_transaction_replaces_the_connection_after_a_connection_error() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 1))
+    test.assert_err(datasource.with_transaction<int>(pool, fn(tx: datasource.Connection) -> Result<int, DbError> {
+        set(j.statement_dies, true)
+        try datasource.execute(tx, "UPDATE t SET a = 1")
+        return ok(1)
+    }))
+    test.assert_eq(2, get(j.opens))
+    test.assert_eq(1, get(j.closes))
+}
+
+#[test]
+fn with_transaction_gives_the_connection_back_every_time() {
+    // Five units of work over a pool of one: each has to give its connection back, or the second
+    // would block forever.
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 1))
+    var i = 0
+    while i < 5 {
+        test.assert_ok(datasource.with_transaction<int>(pool, fn(tx: datasource.Connection) -> Result<int, DbError> {
+            return ok(1)
+        }))
+        i = i + 1
+    }
+    test.assert_eq(1, get(j.opens))
+}
+
+// ---------------------------------------------------------------- the lazy form
+
+#[test]
+fn a_pooled_iterator_gives_its_connection_back_when_it_is_finished() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 1))
+    var seen = 0
+    for row in test.assert_ok(datasource.rows(pool, "SELECT which")) {
+        test.assert_ok(row)
+        seen = seen + 1
+    }
+    test.assert_eq(2, seen)
+    // Finished, so the connection is back: another statement can run.
+    test.assert_eq(1, which_answered(pool))
+}
+
+#[test]
+fn a_pooled_iterator_gives_its_connection_back_when_it_is_closed_early() {
+    val j = journal()
+    val pool = test.assert_ok(datasource.open_pool(datasource.registry([fake(j)]), "fake:x", 1))
+    val rows = test.assert_ok(datasource.rows(pool, "SELECT which"))
+    val first = test.assert_some(iter_next<Result<Row, DbError>>(rows))
+    test.assert_ok(first)
+    iter_close<Result<Row, DbError>>(rows)
+    test.assert_eq(1, which_answered(pool))
+}

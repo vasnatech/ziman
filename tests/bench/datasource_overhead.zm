@@ -1,0 +1,121 @@
+// **What this module costs on top of the engine behind it**, measured against a driver that does
+// nothing at all -- so what the clock shows is `datasource` and not a database.
+//
+// The number that matters is the comparison, not the microseconds: a PostgreSQL round trip is
+// 300 to 3,000 microseconds and a SQLite file statement 5 to 50, so a pooled statement's ~5
+// microseconds of borrow-and-return is **a fraction of a percent of a network engine** and a few
+// percent of a local one. That is the argument for leaving this layer alone: there is no
+// optimisation here worth a correctness risk, and knowing the size of it is what lets that be a
+// decision rather than an assumption.
+//
+// Run it directly: `./ziman tests/bench/datasource_overhead.zm`. It prints a table and ends with a
+// verdict, exiting 1 if the overhead has grown by an order of magnitude -- which would mean
+// something in the borrow path started doing real work.
+//
+// As in the other benches here, everything runs in one process, so a later line's collector pauses
+// are shaped by an earlier line's allocations. A 30% difference between two runs of the same
+// binary is ordinary; only a multiple means anything.
+use clock
+use datasource
+use db.Conn
+use db.DbError
+use db.Driver
+use db.Row
+use db.SqlValue
+use os
+
+// An engine made of nothing: every statement succeeds and answers no rows. `idle_check` is what a
+// socket engine says and a file engine does not, and it is measured both ways because it decides
+// whether a borrow reads the clock.
+fn null_driver(idle_check: bool) -> Driver {
+    return Driver {
+        name: "null",
+        prefixes: ["null:"],
+        poolable: fn(url: string) -> bool { return true },
+        idle_check: idle_check,
+        open: fn(url: string) -> Result<Conn, DbError> {
+            val no_rows: [Row] = []
+            return ok(Conn {
+                dialect: "null",
+                close: fn() {},
+                execute: fn(sql: string, params: [SqlValue]) -> Result<int, DbError> { return ok(0) },
+                query: fn(sql: string, params: [SqlValue]) -> Result<[Row], DbError> { return ok(no_rows) },
+                rows: fn(sql: string, params: [SqlValue]) -> Result<Iter<Result<Row, DbError>>, DbError> {
+                    return ok(iter_from<Result<Row, DbError>>(
+                        fn() -> Option<Result<Row, DbError>> { return Option<Result<Row, DbError>>.None },
+                        fn() {}
+                    ))
+                }
+            })
+        }
+    }
+}
+
+val rounds = 20000
+
+fn statements(conn: datasource.Connection) -> int {
+    val started = clock.monotonic_millis()
+    var i = 0
+    while i < rounds {
+        unwrap(datasource.execute(conn, "SELECT 1"))
+        i = i + 1
+    }
+    return clock.monotonic_millis() - started
+}
+
+fn nanos_each(ms: int) -> int {
+    return ms * 1000000 / rounds
+}
+
+fn report(label: string, ms: int) {
+    printf("  {}: {} ms for {} statements, {} ns each\n", label, ms, rounds, nanos_each(ms))
+}
+
+fn main() {
+    val socket = datasource.registry([null_driver(true)])
+    val file = datasource.registry([null_driver(false)])
+
+    print("one statement at a time")
+    val direct_ms = statements(unwrap(datasource.open(socket, "null:x")))
+    report("direct            ", direct_ms)
+    val pooled_ms = statements(unwrap(datasource.open_pool(socket, "null:x", 4)))
+    report("pooled, socket    ", pooled_ms)
+    report("pooled, file      ", statements(unwrap(datasource.open_pool(file, "null:x", 4))))
+    report("pooled, one deep  ", statements(unwrap(datasource.open_pool(socket, "null:x", 1))))
+
+    val pool = unwrap(datasource.open_pool(socket, "null:x", 4))
+    val borrow_started = clock.monotonic_millis()
+    var i = 0
+    while i < rounds {
+        val taken = unwrap(datasource.acquire(pool))
+        datasource.release(pool, taken)
+        i = i + 1
+    }
+    report("acquire + release ", clock.monotonic_millis() - borrow_started)
+
+    val tx_started = clock.monotonic_millis()
+    i = 0
+    while i < rounds {
+        unwrap(datasource.with_transaction<int>(pool, fn(tx: datasource.Connection) -> Result<int, DbError> {
+            try datasource.execute(tx, "SELECT 1")
+            return ok(1)
+        }))
+        i = i + 1
+    }
+    report("with_transaction  ", clock.monotonic_millis() - tx_started)
+
+    printf("\nfor scale: a PostgreSQL round trip is 300,000 to 3,000,000 ns; a SQLite file statement 5,000 to 50,000\n")
+
+    // A ceiling rather than a target. 50 microseconds a statement would still be invisible against
+    // a network engine, so this only fails if the borrow path has started doing something real --
+    // opening a connection per statement, say, or probing one every time.
+    if nanos_each(pooled_ms) > 50000 {
+        printf("FAIL: a pooled statement costs {} ns of overhead\n", nanos_each(pooled_ms))
+        os.exit(1)
+    }
+    if nanos_each(direct_ms) > 20000 {
+        printf("FAIL: a direct statement costs {} ns of overhead\n", nanos_each(direct_ms))
+        os.exit(1)
+    }
+    print("ok   the layer's overhead is a fraction of any engine's own")
+}

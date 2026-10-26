@@ -236,6 +236,7 @@ them against the code.
 - [Derived tables, and the line SQLite draws around them (2026-10-25)](#derived-tables-and-the-line-sqlite-draws-around-them-2026-10-25)
 - [`sql` gets unit tests, and the unit tests find what the round trip cannot (2026-10-25)](#sql-gets-unit-tests-and-the-unit-tests-find-what-the-round-trip-cannot-2026-10-25)
 - [`memdb` gets unit tests, and four quadratics come out of hiding (2026-10-25)](#memdb-gets-unit-tests-and-four-quadratics-come-out-of-hiding-2026-10-25)
+- [`datasource` tested with an engine that is not a database, and a wall clock taken out of the pool (2026-10-25)](#datasource-tested-with-an-engine-that-is-not-a-database-and-a-wall-clock-taken-out-of-the-pool-2026-10-25)
 
 <!-- end index -->
 
@@ -9187,3 +9188,35 @@ Also worth recording because it cost me ten minutes: a `python` replacement I di
 **What is still quadratic, stated rather than hidden.** A write is linear in the table, because a `Database` is an immutable value -- which is exactly what makes transactions free -- so seeding n rows one statement at a time is quadratic in principle; what was removed is the per-row *constants*, and 800 rows now seed in under two seconds where the shape alone predicts it. A long `IN` list is compared against per row. A correlated subquery runs per row. `memdb`'s header lists all of it under "What a statement costs", and `tests/bench/memdb_ops.zm` fails if a join or an uncorrelated subquery goes back to being quadratic.
 
 The other 18 tests cover what no comparison can: that a refused statement leaves the database exactly as it was, that transactions nest, that `execute` reports what each statement kind touched, that a constraint violation arrives as `DbError.Constraint` and a syntax error as `DbError.Sql`, that the lazy `rows` form hands out what `query` does, and that each of the two readings refuses what the other runs.
+
+## `datasource` tested with an engine that is not a database, and a wall clock taken out of the pool (2026-10-25)
+
+`tests/stdlib/datasource_test.zm` -- 28 tests -- driven by a **driver made of counters**. This module's whole claim is that it names no engine: a `db.Driver` is a name, some URL prefixes, two questions about pooling and a function that opens a connection, and a `db.Conn` is four closures. So the sharpest test available is to hand it an engine that does not exist, which is also a demonstration of the claim.
+
+**It is the only way to reach the paths that decide whether an application survives a database restart.** `tests/lang/db_pool_*.zm` drive a pool over real SQLite files, which cannot be made to drop a connection mid-statement, go stale while idle, or refuse to open on the third of four. A fake can, on command, and so the suite now covers:
+
+* a pooled statement that fails with `DbError.Connection` -- the connection is closed and a fresh one opened in its place, and the next statement runs on the replacement;
+* a statement that merely fails -- `DbError.Sql` says nothing about the connection, so nothing is replaced;
+* `discard` replacing a connection where `release` keeps it;
+* a replacement that **cannot** be opened, because the server is still down: the dead connection goes back rather than being lost, so the pool never shrinks, and the next borrow tries again;
+* an `open` that fails partway through filling a pool: the connections already opened are closed, counted;
+* the idle check in all three states -- probed and replaced, probed and kept, and never probed because the driver says a connection of its kind cannot go stale;
+* a `with_transaction` that commits, one that rolls back, one whose connection dies (replaced) and five in a row over a pool of one (each must give the connection back or the second would block forever);
+* a pooled `rows` iterator giving its connection back both when it is finished and when it is closed early.
+
+**What the measurement said, and why it ends the optimisation question.** With a driver that does nothing, so the clock shows only this module:
+
+| | overhead per statement |
+|---|---|
+| direct | 750 ns |
+| pooled | 3,850 ns |
+| `acquire` + `release` | 1,550 ns |
+| `with_transaction` | 4,800 ns |
+
+A PostgreSQL round trip is 300,000 to 3,000,000 ns and a SQLite file statement 5,000 to 50,000. **A pooled borrow is a fraction of a percent of a network engine**, so there is no optimisation here worth a correctness risk -- and the point of measuring was to make that a decision rather than an assumption. `tests/bench/datasource_overhead.zm` keeps the number honest with a ceiling an order of magnitude above it, which only a borrow path that started doing real work could cross.
+
+**One change was worth making, and it is a correctness fix that happens to be faster.** A pooled connection was stamped with `now_raw()[0]` -- Unix wall-clock seconds -- when it was parked, and the idle check compared that against the wall clock again. A clock step moves both: an NTP correction forward makes every idle connection look stale and get probed, and one backward makes them all look fresh for as long as the step was, so **the health check this exists for would quietly stop happening** on a machine whose clock was corrected. It reads `monotonic_millis` now, which cannot be moved and allocates nothing where `now_raw` built a two-element array per park and per borrow. `check_after` is converted to milliseconds once when the pool is made; the API still takes seconds, and zero or less still turns the check off, which `tests/integration/pg/pg_pool_health.zm` relies on. Interleaved A/B: a pooled statement 5,050 to 4,800 ns, and `acquire` + `release` 2,450 to 1,950.
+
+**And a measurement I nearly reported as a regression.** `with_transaction` looked 28% slower afterwards, consistently, across three interleaved passes. Measured alone with ten times the rounds it is identical -- 143/137/144 against 141/143/134 ms. It had been the last line of a process that had already run 80,000 statements, and the collector's state at that point is what differed. That is the caveat I had written into `tests/bench/memdb_ops.zm` an hour earlier, and the thing worth recording is that **the habit paid: the check cost two minutes and would have cost an afternoon of looking for a cause that was not there.**
+
+One testability finding, left as it is on purpose. `check_after_seconds` of zero means "do not test", so the smallest reachable setting is one second and the one test that exercises a stale connection has to wait for it. Redefining zero as "test every time" would make the suite a second faster and would silently turn the check *on* for `tests/integration/pg/pg_pool_health.zm`, which passes zero to turn it off. A second of waiting is the cheaper of the two, and three pools are set up before the single sleep so it is paid once.
