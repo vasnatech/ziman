@@ -1,0 +1,15 @@
+held at the start: 0
+rows: 1 0 1
+held after three calls of one template: 1
+held after a second template: 2
+rows after an ALTER: 1
+held after an ALTER: 2
+a bad template: database error: Unknown column 'nosuchcolumn' in 'field list'
+held after a failed prepare: 2
+rows after a failed prepare: 1
+a failing write: constraint violation: Duplicate entry '1' for key 'prep_m.PRIMARY'
+the same template with a good value: 1
+rows now: 2
+held after both failures and one success: 3
+70 distinct templates all answered: true
+held, against a cap of 64: 64

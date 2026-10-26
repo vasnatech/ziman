@@ -1,0 +1,19 @@
+held after setup: 0
+rows: 1 0 1
+held after three calls of one template: 1
+the name: zs1
+held after a second template: 2
+held after DEALLOCATE ALL: 0
+rows after DEALLOCATE ALL: 1
+held again: 1
+held after DISCARD ALL: 0
+rows after DISCARD ALL: 1
+a bad template: database error: column "nosuchcolumn" does not exist
+rows after a failed parse: 1
+held after a failed parse: 1
+a failing write: constraint violation: duplicate key value violates unique constraint "prep_t_pkey"
+the same template with a good value: 1
+rows now: 2
+held after both failures and one success: 2
+70 distinct templates all answered: true
+held, against a cap of 64: 64

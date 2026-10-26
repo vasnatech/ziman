@@ -1024,36 +1024,121 @@ fn execute_body(stmt_id: int, params: [SqlValue], flags: int) -> [byte] {
 
 // --------------------------------------------------------------- queries
 
+// Closes a statement the connection did not end up keeping. A function of its own because a
+// `defer` takes a call, and the condition has to be read when the deferred call runs rather than
+// when it was written.
+fn close_unless_kept(sock: Socket, stmt_id: int, kept: Mutable<bool>) {
+    if !get(kept) {
+        close_statement(sock, stmt_id)
+    }
+}
+
 fn close_statement(sock: Socket, stmt_id: int) {
     val _ = send_packet(sock, 0, concat([25b], le(stmt_id, 4)))
 }
 
-fn prepared_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+// ------------------------------------------- reusing a prepared statement
+
+// How many statements one connection keeps prepared on the server. Past the cap a statement is
+// prepared and closed per call, which is what every call did before this existed.
+//
+// The server has its own ceiling -- `max_prepared_stmt_count`, 16,382 by default, counted across
+// **all** connections -- so a per-connection cap is also how a pool of a hundred connections stays
+// a long way under it.
+val prepared_limit: int = 64
+
+// What one cached statement is: the server's handle, and how many parameters it takes.
+struct Held {
+    id: int
+    params: int
+}
+
+// The statements this connection has prepared, by the SQL they were prepared from.
+//
+// **In `serve`'s locals**, like the Postgres driver's: one thread owns the socket for the
+// connection's life, so there is no lock, and a reconnect runs a fresh `serve` with an empty cache
+// rather than one naming handles the new session never issued.
+struct Statements {
+    held: Mutable<Map<string, Held>>
+}
+
+fn statements_new() -> Statements {
+    return Statements { held: mutable_new(Map<string, Held> {}) }
+}
+
+// **MySQL needs far less invalidation care than Postgres**, and the reason is the server's, not
+// ours: a binary-protocol statement is re-prepared *by the server* when the metadata it depends on
+// changes, so a `DROP`/`CREATE` of a table underneath a cached statement is handled before we
+// could see it. There is no `DEALLOCATE ALL` for these either -- SQL-level `DEALLOCATE PREPARE`
+// acts on SQL-level `PREPARE`, which is a different namespace. What does take them away,
+// `COM_RESET_CONNECTION` and `COM_CHANGE_USER`, this driver never sends.
+fn prepared_query(
+    sock: Socket,
+    sql: string,
+    params: [SqlValue],
+    statements: Statements
+) -> Result<QueryResult, DbError> {
     val rewritten = try rewrite_placeholders(sql, params)
+    // A statement already prepared: straight to execute. One round trip instead of two, and none
+    // of the parameter and column metadata the prepare answers with.
+    if Some(already) = get(get(statements.held), sql) {
+        if already.params != len(rewritten.params) {
+            return err(DbError.Sql(format(
+                "statement takes {} parameters, {} given",
+                already.params,
+                len(rewritten.params)
+            )))
+        }
+        try send_packet(sock, 0, execute_body(already.id, rewritten.params, 0))
+        return to_result(try read_all_results(sock), true)
+    }
     try send_packet(sock, 0, concat([22b], to_bytes(rewritten.sql)))
     val reply = try read_packet(sock)
     if is_err_packet(reply.body) {
         return err(parse_error(reply.body))
     }
     val stmt_id = read_le(reply.body, 1, 4)
-    defer close_statement(sock, stmt_id)
     val column_count = read_le(reply.body, 5, 2)
     val param_count = read_le(reply.body, 7, 2)
+    // **Closed on every path out unless it is kept**, including a `try` that propagates.
+    //
+    // This `defer` has to be the function's, not an `if`'s: `defer` runs when its *enclosing
+    // block* exits, so `if !keeping { defer close_statement(..) }` closes the statement the moment
+    // that `if` ends -- before the execute that needs it. MySQL then answers `Unknown prepared
+    // statement handler`, which is what `tests/integration/mysql/mysql_prepared.zm` caught on its
+    // first run, at the cap where the unkept path begins.
+    val kept = mutable_new(false)
+    defer close_unless_kept(sock, stmt_id, kept)
     try read_columns(sock, param_count)
     try read_columns(sock, column_count)
     if param_count != len(rewritten.params) {
         return err(DbError.Sql(format("statement takes {} parameters, {} given", param_count, len(rewritten.params))))
     }
     try send_packet(sock, 0, execute_body(stmt_id, rewritten.params, 0))
-    return to_result(try read_all_results(sock), true)
+    val answered = to_result(try read_all_results(sock), true)
+    // Recorded only when the call succeeded, for the Postgres driver's reason: a statement the
+    // driver has stopped tracking is a statement nothing will ever close. Past the cap nothing is
+    // recorded, so the deferred close runs and the call cost what every call cost before.
+    if prelude.len(get(statements.held)) < prepared_limit {
+        if Ok(_) = answered {
+            set(statements.held, set(get(statements.held), sql, Held { id: stmt_id, params: param_count }))
+            set(kept, true)
+        }
+    }
+    return answered
 }
 
-fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+fn run_query(
+    sock: Socket,
+    sql: string,
+    params: [SqlValue],
+    statements: Statements
+) -> Result<QueryResult, DbError> {
     if len(params) == 0 {
         try send_packet(sock, 0, concat([3b], to_bytes(sql)))
         return to_result(try read_all_results(sock), false)
     }
-    return prepared_query(sock, sql, params)
+    return prepared_query(sock, sql, params, statements)
 }
 
 // ---------------------------------------------------------------- cursors
@@ -1234,11 +1319,14 @@ fn serve(sock: Socket, requests: Channel<Request>) {
     var statement = 0
     var columns: [Column] = []
     var deferred = Option<DbError>.None
+    // The statements this connection holds prepared. A local, so it is this thread's alone and
+    // goes when the connection does -- see `Statements`.
+    val statements = statements_new()
     while open {
         val req = receive(requests)
         switch req {
             Run(r) {
-                send(r.reply_to, run_query(sock, r.sql, r.params))
+                send(r.reply_to, run_query(sock, r.sql, r.params, statements))
             }
             OpenCursor(r) {
                 if cursor_open {

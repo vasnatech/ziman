@@ -1,0 +1,118 @@
+// **Prepared statements reused across calls, observed from the server's own catalogue.**
+//
+// The driver asks Postgres to keep a parameterised statement under a name and binds to that name
+// on later calls, so the server parses and plans once. `pg_prepared_statements` is how that stops
+// being a claim about intent: it lists what this session holds, so the test can watch entries
+// appear, and watch them disappear when something takes them away.
+//
+// Reading it is itself safe to do here because a statement with **no** parameters goes through the
+// simple protocol and is never prepared -- so the counting query never shows up in its own count.
+//
+// What it guards, in order of how badly it would fail silently:
+//   - `DEALLOCATE ALL` and `DISCARD ALL` remove the server's statements and tell the protocol
+//     nothing. A cache that kept its names would bind to statements that no longer exist, and
+//     every later call on that connection would fail. Those two keywords clear the cache.
+//   - a statement that fails must not leave a name recorded. If its `Parse` failed there is
+//     nothing to bind to; if the `Parse` succeeded and the `Execute` failed, the statement exists
+//     but the driver has stopped tracking it -- so the name is closed either way.
+//   - the names must not grow without bound: past the cap a statement goes the unnamed way, which
+//     is what every call did before this existed.
+use datasource
+use db
+use db.SqlValue
+use db.row_get
+use db.sql_as_int
+use fs
+use pg
+
+val drivers = datasource.registry([pg.driver()])
+
+fn held(conn: datasource.Connection) -> int {
+    val rows = unwrap(datasource.query(conn, "SELECT count(*) AS n FROM pg_prepared_statements"))
+    return unwrap(sql_as_int(unwrap(row_get(rows[0], "n"))))
+}
+
+fn one_name(conn: datasource.Connection, at: int) -> string {
+    val rows = unwrap(datasource.query(conn, "SELECT name FROM pg_prepared_statements ORDER BY name"))
+    return switch db.sql_as_text(unwrap(row_get(rows[at], "name"))) {
+        Ok(s) { s }
+        Err(_) { "?" }
+    }
+}
+
+fn lookup(conn: datasource.Connection, id: int) -> int {
+    val rows = unwrap(datasource.query(conn, "SELECT id FROM prep_t WHERE id = $1", [SqlValue.Int(id)]))
+    return prelude.len(rows)
+}
+
+fn main() {
+    val conn = unwrap(datasource.open(drivers, trim(unwrap(fs.read_text("tests/integration/pg/.url")))))
+    unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS prep_t"))
+    unwrap(datasource.execute(conn, "CREATE TABLE prep_t (id INTEGER PRIMARY KEY, v TEXT)"))
+    unwrap(datasource.execute(conn, "INSERT INTO prep_t (id, v) VALUES (1, 'a')"))
+    print(format("held after setup: {}", held(conn)))
+
+    // The same template three times with different parameters: prepared once.
+    print(format("rows: {} {} {}", lookup(conn, 1), lookup(conn, 2), lookup(conn, 1)))
+    print(format("held after three calls of one template: {}", held(conn)))
+    print(format("the name: {}", one_name(conn, 0)))
+
+    // A second template is a second statement.
+    unwrap(datasource.query(conn, "SELECT v FROM prep_t WHERE v = $1", [SqlValue.Text("a")]))
+    print(format("held after a second template: {}", held(conn)))
+
+    // DEALLOCATE ALL takes them away. The driver must notice, or every later call fails.
+    unwrap(datasource.execute(conn, "DEALLOCATE ALL"))
+    print(format("held after DEALLOCATE ALL: {}", held(conn)))
+    print(format("rows after DEALLOCATE ALL: {}", lookup(conn, 1)))
+    print(format("held again: {}", held(conn)))
+
+    // DISCARD ALL does the same, and also resets the session.
+    unwrap(datasource.execute(conn, "DISCARD ALL"))
+    print(format("held after DISCARD ALL: {}", held(conn)))
+    print(format("rows after DISCARD ALL: {}", lookup(conn, 1)))
+
+    // A statement whose Parse fails leaves nothing behind, and does not stop the next one.
+    print(format("a bad template: {}", db.db_error_message(
+        unwrap_err(datasource.query(conn, "SELECT nosuchcolumn FROM prep_t WHERE id = $1", [SqlValue.Int(1)]))
+    )))
+    print(format("rows after a failed parse: {}", lookup(conn, 1)))
+    print(format("held after a failed parse: {}", held(conn)))
+
+    // A statement that parses and then fails on the data: the name must not be left recorded.
+    print(format("a failing write: {}", db.db_error_message(
+        unwrap_err(datasource.execute(
+            conn,
+            "INSERT INTO prep_t (id, v) VALUES ($1, $2)",
+            [SqlValue.Int(1), SqlValue.Text("dup")]
+        ))
+    )))
+    // The same template again, now with a value that works -- it has to be prepared afresh.
+    print(format("the same template with a good value: {}", unwrap(datasource.execute(
+        conn,
+        "INSERT INTO prep_t (id, v) VALUES ($1, $2)",
+        [SqlValue.Int(2), SqlValue.Text("b")]
+    ))))
+    print(format("rows now: {}", prelude.len(unwrap(datasource.query(conn, "SELECT id FROM prep_t")))))
+    // **A failed statement leaks nothing server-side.** The counts above and here are the proof:
+    // a Parse that failed and a Parse that succeeded before a failing Execute both leave the
+    // session holding only the statements the driver is still tracking.
+    print(format("held after both failures and one success: {}", held(conn)))
+
+    // **The cap.** Seventy distinct templates against a cap of sixty-four: the rest go the unnamed
+    // way, which is what every call did before any of this, and all of them still answer.
+    var answered = 0
+    for n in 0..70 {
+        val rows = unwrap(datasource.query(
+            conn,
+            format("SELECT id FROM prep_t WHERE id = $1 AND {} = {}", n, n),
+            [SqlValue.Int(1)]
+        ))
+        answered = answered + prelude.len(rows)
+    }
+    print(format("70 distinct templates all answered: {}", answered == 70))
+    print(format("held, against a cap of 64: {}", held(conn)))
+
+    unwrap(datasource.execute(conn, "DROP TABLE prep_t"))
+    datasource.close(conn)
+}

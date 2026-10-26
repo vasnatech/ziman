@@ -78,6 +78,7 @@ use db.run_request
 use encoding
 use encoding.base64_decode
 use encoding.base64_encode
+use locale
 use net
 use net.Socket
 use number.byte_from_hex
@@ -93,6 +94,10 @@ use random
 // code where the version goes.
 val startup_header_bytes = 8
 val protocol_version_3 = 196608
+// Case folding for the keyword check in `forgets_statements`: the invariant locale rather than
+// whatever a program set as its default, for the reason given there.
+val invariant: Locale = locale.root()
+
 val ssl_request_code = 80877103
 
 struct Message {
@@ -575,14 +580,92 @@ fn encode_param(v: SqlValue) -> [byte] {
     return concat(u32_to_bytes(len(payload)), payload)
 }
 
-fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+// ---------------------------------------------- reusing a prepared statement
+
+// How many statements one connection keeps prepared on the server.
+//
+// **Bounded, and past the cap a statement goes the old unnamed way** rather than evicting one.
+// Eviction would mean choosing a victim and closing it, for a workload whose working set has
+// already outgrown this -- where falling back costs exactly what every call cost before. A
+// repository's set of templates is a fixed handful, so the cap is never reached by the code this
+// is for.
+val prepared_limit: int = 64
+
+// The statements this connection has asked the server to keep, by their text.
+//
+// **It lives in `serve`'s locals**, which is what makes it safe: one thread owns the socket for the
+// connection's whole life, so there is no lock to take, and a reconnect runs a fresh `serve` whose
+// cache is empty. A cache that outlived its connection would name statements the new session has
+// never heard of -- the failure this design cannot have rather than has to remember.
+struct Statements {
+    names: Mutable<Map<string, string>>
+    next: Mutable<int>
+}
+
+fn statements_new() -> Statements {
+    return Statements { names: mutable_new(Map<string, string> {}), next: mutable_new(0) }
+}
+
+// **The two statements that can take our prepared statements away.** `DEALLOCATE ALL` and
+// `DISCARD ALL` (and `DISCARD PLANS`) remove them server-side, and nothing in the protocol tells
+// us it happened -- the next `Bind` to a name simply fails. Rather than recognise that failure
+// afterwards and recover, the first keyword is read before sending: these are the only SQL
+// statements that can invalidate the cache, so clearing it here is both cheap and complete.
+fn forgets_statements(sql: string) -> bool {
+    val head = trim(sql)
+    val stop = if len(head) < 12 { len(head) } else { 12 }
+    // The invariant locale, because this is protocol folding: with a Turkish default, `discard`
+    // upper-cases to `DİSCARD` and would stop matching.
+    val word = to_upper(substring(head, 0, stop), invariant)
+    return starts_with(word, "DEALLOCATE") || starts_with(word, "DISCARD")
+}
+
+// Tells the server to forget a name. Postgres does not treat closing a name that does not exist as
+// an error, which is what makes this safe to send after a failure whose cause we do not know: if
+// the `Parse` failed there is nothing there, and if it succeeded there is.
+fn close_statement(sock: Socket, name: string) {
+    val batch = concat(frame("C", concat(to_bytes("S"), cstring(name))), frame("S", []))
+    if Ok(_) = db.lift_net<int>(net.write(sock, batch)) {
+        // Drained to the next ReadyForQuery, so the connection is not left mid-exchange. A failure
+        // here is the socket's problem and the next real call will report it.
+        var done = false
+        while !done {
+            switch read_message(sock) {
+                Ok(m) { done = m.kind == "Z" }
+                Err(_) { done = true }
+            }
+        }
+    }
+}
+
+fn extended_query(
+    sock: Socket,
+    sql: string,
+    params: [SqlValue],
+    held: Statements
+) -> Result<QueryResult, DbError> {
     val encoded = mutable_array_new<[byte]>()
     for p in params {
         push(encoded, encode_param(p))
     }
+    if forgets_statements(sql) {
+        set(held.names, Map<string, string> {})
+    }
+    // A name this connection already prepared, a new name to prepare under, or none -- in which
+    // case this is the unnamed statement the driver always used.
+    val known = get(get(held.names), sql)
+    var name = ""
+    var parsing = false
+    if Some(already) = known {
+        name = already
+    } else if prelude.len(get(held.names)) < prepared_limit && !forgets_statements(sql) {
+        set(held.next, get(held.next) + 1)
+        name = concat("zs", str(get(held.next)))
+        parsing = true
+    }
     val bind_body = concat(
         cstring(""),
-        cstring(""),
+        cstring(name),
         u16_to_bytes(0),
         u16_to_bytes(len(params)),
         concat(snapshot(encoded)),
@@ -590,27 +673,54 @@ fn extended_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<Query
     )
     val describe_body = concat(to_bytes("P"), cstring(""))
     val execute_body = concat(cstring(""), u32_to_bytes(0))
+    // **The `Parse` is sent only the first time**, and with it the SQL text; later calls send the
+    // name. Not a round trip saved -- this batch was always one write and one read -- but the
+    // server's parsing and planning, and the statement's bytes on the wire.
+    val prefix = if Option.is_Some(known) {
+        val nothing: [byte] = []
+        nothing
+    } else {
+        frame("P", concat(cstring(name), cstring(sql), u16_to_bytes(0)))
+    }
     val batch = concat(
-        frame("P", concat([0b], cstring(sql), u16_to_bytes(0))),
+        prefix,
         frame("B", bind_body),
         frame("D", describe_body),
         frame("E", execute_body),
         frame("S", [])
     )
     try db.lift_net<int>(net.write(sock, batch))
-    return collect_result(sock)
+    val answered = collect_result(sock)
+    if parsing {
+        // **Recorded only when the whole call succeeded.** A `Parse` that failed left nothing to
+        // name, and a `Parse` that succeeded before an `Execute` failed left a statement this
+        // connection would otherwise never mention again -- so the name is closed either way, and
+        // closing one that is not there is not an error.
+        if Ok(_) = answered {
+            set(held.names, set(get(held.names), sql, name))
+        } else {
+            close_statement(sock, name)
+        }
+    }
+    return answered
 }
 
 fn frame(kind: string, body: [byte]) -> [byte] {
     return concat(to_bytes(kind), u32_to_bytes(len(body) + 4), body)
 }
 
-fn run_query(sock: Socket, sql: string, params: [SqlValue]) -> Result<QueryResult, DbError> {
+fn run_query(sock: Socket, sql: string, params: [SqlValue], held: Statements) -> Result<QueryResult, DbError> {
     if len(params) == 0 {
+        // A statement with no parameters goes through the simple protocol, which also runs a
+        // `;`-separated script -- so it is never prepared, and it is still able to take the
+        // prepared statements away.
+        if forgets_statements(sql) {
+            set(held.names, Map<string, string> {})
+        }
         try send_message(sock, "Q", cstring(sql))
         return collect_result(sock)
     }
-    return extended_query(sock, sql, params)
+    return extended_query(sock, sql, params, held)
 }
 
 // ---------------------------------------------------------------- cursors
@@ -770,6 +880,9 @@ fn serve(sock: Socket, requests: Channel<Request>) {
     var deferred = Option<DbError>.None
     var names: [string] = []
     var oids: [int] = []
+    // The prepared statements this connection holds. A local, so it is this thread's alone and
+    // dies with the connection -- see `Statements`.
+    val held = statements_new()
     while open {
         val req = receive(requests)
         switch req {
@@ -778,7 +891,7 @@ fn serve(sock: Socket, requests: Channel<Request>) {
                     val busy: Result<QueryResult, DbError> = cursor_busy()
                     send(r.reply_to, busy)
                 } else {
-                    send(r.reply_to, run_query(sock, r.sql, r.params))
+                    send(r.reply_to, run_query(sock, r.sql, r.params, held))
                 }
             }
             OpenCursor(r) {

@@ -1,0 +1,107 @@
+// **Prepared statements reused across calls, counted by the server itself.**
+//
+// The driver asks MySQL to keep a parameterised statement and sends only `COM_STMT_EXECUTE` on
+// later calls, so a call costs one round trip instead of two -- a prepare, its parameter and column
+// metadata, an execute and a close become just an execute. `Prepared_stmt_count` is the server's
+// own tally, so the test watches it rather than trusting the driver's account of itself.
+//
+// The counting query takes no parameters, so it goes through the text protocol and is never
+// prepared: it does not appear in its own count.
+//
+// **MySQL needs much less invalidation care than Postgres**, and the reason belongs to the server:
+// a binary-protocol statement is re-prepared *by MySQL* when the metadata under it changes, so the
+// `DROP`/`CREATE` below is handled before the driver could notice. SQL-level `DEALLOCATE PREPARE`
+// is a different namespace and cannot touch these. That is why there is no keyword check here, as
+// there is in the Postgres driver for `DEALLOCATE ALL`.
+use datasource
+use db
+use db.SqlValue
+use db.row_get
+use db.sql_as_int
+use fs
+use mysql
+
+val drivers = datasource.registry([mysql.driver()])
+
+fn held(conn: datasource.Connection) -> int {
+    val rows = unwrap(datasource.query(
+        conn,
+        "SELECT VARIABLE_VALUE AS n FROM performance_schema.global_status WHERE VARIABLE_NAME = 'Prepared_stmt_count'"
+    ))
+    return switch sql_as_int(unwrap(row_get(rows[0], "n"))) {
+        Ok(n) { n }
+        Err(_) {
+            switch db.sql_as_text(unwrap(row_get(rows[0], "n"))) {
+                Ok(t) { unwrap(parse_int(t)) }
+                Err(_) { 0 - 1 }
+            }
+        }
+    }
+}
+
+fn lookup(conn: datasource.Connection, id: int) -> int {
+    return prelude.len(unwrap(datasource.query(conn, "SELECT id FROM prep_m WHERE id = $1", [SqlValue.Int(id)])))
+}
+
+fn main() {
+    val hostport = trim(unwrap(fs.read_text("tests/integration/mysql/.hostport")))
+    val conn = unwrap(datasource.open(drivers, format("mysql://nat_user:natpw@{}/zimandb", hostport)))
+    unwrap(datasource.execute(conn, "DROP TABLE IF EXISTS prep_m"))
+    unwrap(datasource.execute(conn, "CREATE TABLE prep_m (id INT PRIMARY KEY, v VARCHAR(10)) ENGINE=InnoDB"))
+    unwrap(datasource.execute(conn, "INSERT INTO prep_m (id, v) VALUES (1, 'a')"))
+    val start = held(conn)
+    print(format("held at the start: {}", start))
+
+    // One template, three parameter sets: prepared once.
+    print(format("rows: {} {} {}", lookup(conn, 1), lookup(conn, 2), lookup(conn, 1)))
+    print(format("held after three calls of one template: {}", held(conn) - start))
+
+    // A second template is a second statement.
+    unwrap(datasource.query(conn, "SELECT v FROM prep_m WHERE v = $1", [SqlValue.Text("a")]))
+    print(format("held after a second template: {}", held(conn) - start))
+
+    // The table's definition changes under both of them. MySQL re-prepares them itself.
+    unwrap(datasource.execute(conn, "ALTER TABLE prep_m ADD COLUMN extra INT NULL"))
+    print(format("rows after an ALTER: {}", lookup(conn, 1)))
+    print(format("held after an ALTER: {}", held(conn) - start))
+
+    // A statement whose prepare fails leaves nothing behind and does not stop the next one.
+    print(format("a bad template: {}", db.db_error_message(
+        unwrap_err(datasource.query(conn, "SELECT nosuchcolumn FROM prep_m WHERE id = $1", [SqlValue.Int(1)]))
+    )))
+    print(format("held after a failed prepare: {}", held(conn) - start))
+    print(format("rows after a failed prepare: {}", lookup(conn, 1)))
+
+    // A statement that prepares and then fails on the data: the handle must not be left recorded,
+    // and the same template must work afterwards.
+    print(format("a failing write: {}", db.db_error_message(
+        unwrap_err(datasource.execute(
+            conn,
+            "INSERT INTO prep_m (id, v) VALUES ($1, $2)",
+            [SqlValue.Int(1), SqlValue.Text("dup")]
+        ))
+    )))
+    print(format("the same template with a good value: {}", unwrap(datasource.execute(
+        conn,
+        "INSERT INTO prep_m (id, v) VALUES ($1, $2)",
+        [SqlValue.Int(2), SqlValue.Text("b")]
+    ))))
+    print(format("rows now: {}", prelude.len(unwrap(datasource.query(conn, "SELECT id FROM prep_m")))))
+    print(format("held after both failures and one success: {}", held(conn) - start))
+
+    // The cap: seventy distinct templates against a cap of sixty-four. The rest are prepared and
+    // closed per call, which is what every call did before this existed, and all of them answer.
+    var answered = 0
+    for n in 0..70 {
+        answered = answered + prelude.len(unwrap(datasource.query(
+            conn,
+            format("SELECT id FROM prep_m WHERE id = $1 AND {} = {}", n, n),
+            [SqlValue.Int(1)]
+        )))
+    }
+    print(format("70 distinct templates all answered: {}", answered == 70))
+    print(format("held, against a cap of 64: {}", held(conn) - start))
+
+    unwrap(datasource.execute(conn, "DROP TABLE prep_m"))
+    datasource.close(conn)
+}

@@ -153,6 +153,7 @@ flowchart LR
     pg --> crypto
     pg --> db
     pg --> encoding
+    pg --> locale
     pg --> net
     pg --> number
     pg --> random
@@ -265,7 +266,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `json` | `math`, `number` | `csv`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `encoding`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
-| `locale` | - | `client`, `encoding`, `eql`, `http`, `log`, `memdb`, `mime`, `number`, `paint`, `properties`, `schedule`, `server`, `sql`, `time`, `toml`, `url`, `xml`, `yaml` |
+| `locale` | - | `client`, `encoding`, `eql`, `http`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `time`, `toml`, `url`, `xml`, `yaml` |
 | `log` | `clock`, `fs`, `json`, `locale`, `number`, `os` | - |
 | `markdown` | `math` | - |
 | `math` | - | `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
@@ -282,7 +283,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `paint` | `geom`, `locale` | `image`, `layout`, `pdf`, `raster`, `scene`, `stroker` |
 | `pdf` | `font`, `geom`, `image`, `paint`, `pdfobj`, `scene`, `shape`, `truetype` | - |
 | `pdfobj` | `compress` | `pdf` |
-| `pg` | `crypto`, `db`, `encoding`, `net`, `number`, `random` | - |
+| `pg` | `crypto`, `db`, `encoding`, `locale`, `net`, `number`, `random` | - |
 | `process` | `encoding`, `fs`, `os`, `random` | - |
 | `properties` | `fs`, `locale`, `math`, `os` | - |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `process`, `uuid` |
