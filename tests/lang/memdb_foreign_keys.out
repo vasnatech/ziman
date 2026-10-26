@@ -1,0 +1,52 @@
+agree    INSERT INTO plain (id, p_id) VALUES (1, 1)
+agree    INSERT INTO plain (id, p_id) VALUES (2, 999)
+agree    INSERT INTO plain (id, p_id) VALUES (3, NULL)
+agree    INSERT INTO plain (id) VALUES (4)
+agree    UPDATE plain SET p_id = 999 WHERE id = 1
+agree    UPDATE plain SET p_id = 2 WHERE id = 1
+agree    SELECT id, p_id FROM plain ORDER BY id
+agree    INSERT INTO implied (id, p_id) VALUES (1, 3)
+agree    INSERT INTO implied (id, p_id) VALUES (2, 999)
+agree    INSERT INTO pair_child (id, x, y) VALUES (1, 1, 1)
+agree    INSERT INTO pair_child (id, x, y) VALUES (2, 1, 9)
+agree    INSERT INTO pair_child (id, x, y) VALUES (3, NULL, 9)
+agree    INSERT INTO pair_child (id, x, y) VALUES (4, 1, NULL)
+agree    DELETE FROM parent WHERE id = 2
+agree    INSERT INTO restricted (id, p_id) VALUES (1, 4)
+agree    DELETE FROM parent WHERE id = 4
+agree    SELECT count(*) AS c FROM parent
+agree    INSERT INTO cascaded (id, p_id) VALUES (1, 5), (2, 5), (3, 6)
+agree    DELETE FROM parent WHERE id = 5
+agree    SELECT id, p_id FROM cascaded ORDER BY id
+agree    INSERT INTO nulled (id, p_id) VALUES (1, 6)
+agree    INSERT INTO defaulted (id, p_id) VALUES (1, 6)
+agree    DELETE FROM parent WHERE id = 6
+agree    SELECT id, p_id FROM nulled ORDER BY id
+agree    SELECT id, p_id FROM defaulted ORDER BY id
+agree    SELECT id, p_id FROM cascaded ORDER BY id
+agree    INSERT INTO required (id, p_id) VALUES (1, 7)
+agree    DELETE FROM parent WHERE id = 7
+agree    SELECT id, p_id FROM required ORDER BY id
+agree    SELECT count(*) AS c FROM parent
+agree    INSERT INTO tree (id, up) VALUES (1, NULL), (2, 1), (3, 2), (4, 3), (5, 1)
+agree    DELETE FROM tree WHERE id = 1
+agree    SELECT id, up FROM tree ORDER BY id
+agree    INSERT INTO follows (id, m_id) VALUES (1, 10)
+agree    UPDATE moved SET id = 20 WHERE id = 10
+agree    SELECT id, m_id FROM follows ORDER BY id
+agree    SELECT id, label FROM moved ORDER BY id
+agree    INSERT INTO stays (id, m_id) VALUES (1, 11)
+agree    UPDATE moved SET id = 21 WHERE id = 11
+agree    UPDATE moved SET label = 'renamed' WHERE id = 11
+agree    SELECT id, label FROM moved ORDER BY id
+agree    SELECT id, m_id FROM stays ORDER BY id
+agree    INSERT INTO by_tag (id, tag) VALUES (1, 'alpha')
+agree    INSERT INTO by_tag (id, tag) VALUES (2, 'beta')
+agree    INSERT INTO loose (id, label) VALUES (1, 'one')
+agree    INSERT INTO at_keyless (a) VALUES (1)
+agree    INSERT INTO later (a) VALUES (999)
+agree    INSERT INTO later (a) VALUES (3)
+agree    DELETE FROM plain WHERE id = 1
+agree    DELETE FROM parent WHERE id = 2
+agree    SELECT count(*) AS c FROM parent
+51 of 51 agree

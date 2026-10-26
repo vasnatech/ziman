@@ -19,8 +19,8 @@
 //     column -- takes the next value instead of being refused. `INT` and `BIGINT` are not
 //     `INTEGER`, and keep the NULL.
 //
-// Foreign keys are modelled and **not** enforced yet; `memdb_foreign_keys.zm` is where they go
-// when they are.
+// Foreign keys have a fixture of their own, `memdb_foreign_keys.zm`, because referential
+// integrity is about two tables rather than one row.
 use datasource
 use db
 use memdb

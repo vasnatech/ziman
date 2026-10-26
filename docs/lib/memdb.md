@@ -74,13 +74,30 @@ Expressions: literals, column references (qualified or not), bound parameters (`
 `lower`, `upper`, `trim`, `abs` and `coalesce`, and the aggregates `COUNT` (including
 `COUNT(DISTINCT x)`), `SUM`, `MIN`, `MAX` and `AVG`.
 
-**Constraints are enforced**, not merely remembered: `NOT NULL`, `PRIMARY KEY`, `UNIQUE` and
-`CHECK`, at column level and at table level, on `INSERT` and on `UPDATE`, with SQLite's own
-messages. Each reads NULL the way SQL says to, and the three readings differ: `NOT NULL` refuses
+**Constraints are enforced**, not merely remembered: `NOT NULL`, `PRIMARY KEY`, `UNIQUE`,
+`CHECK` and `FOREIGN KEY`, at column level and at table level, on `INSERT`, `UPDATE` and
+`DELETE`, with SQLite's own messages. Each reads NULL the way SQL says to, and the three readings differ: `NOT NULL` refuses
 a NULL; `UNIQUE` and `PRIMARY KEY` *ignore* a key with a NULL in it, because uniqueness asks
 whether two keys are equal and a NULL is equal to nothing; and a `CHECK` fails only when it is
 false, NULL being unknown and passing. A statement that violates a constraint leaves the
 database exactly as it was, which costs nothing here because a `Database` is a value.
+
+Referential integrity: a child key must name a row of the parent unless it has a NULL in it
+(the standard's `MATCH SIMPLE`, which is the default in both engines), and the parent's side
+obeys each key's `ON DELETE` and `ON UPDATE` -- `NO ACTION` and `RESTRICT` refuse, `CASCADE`
+follows, `SET NULL` and `SET DEFAULT` rewrite the child's key and then check the child's *own*
+constraints, which is how a `SET NULL` into a `NOT NULL` column is caught. A cascade recurses
+and cannot loop: deleting only ever shrinks the database, so a cycle runs out of rows.
+
+**The referenced columns must be a key of the parent**, a `PRIMARY KEY` or a `UNIQUE`, not merely
+columns that exist -- otherwise "the row it points at" need not be one row. Both engines refuse
+the shape; SQLite does it when the statement runs, which is the wording here
+(`foreign key mismatch - "child" referencing "parent"`), and PostgreSQL when the table is made.
+
+**SQLite enforces foreign keys only with `PRAGMA foreign_keys = ON`**, which is off by default
+and which this library's driver sets at every connection. An application whose suite runs
+against a plain `sqlite3` therefore tests no referential integrity at all, which is worth knowing
+before trusting any suite that is green on one engine.
 
 A single-column `INTEGER PRIMARY KEY` is **SQLite's rowid under another name**: a NULL in it, or
 leaving the column out, takes the next value rather than being refused. The declared type must be
@@ -134,7 +151,7 @@ joins and no subqueries, because its repositories query one table each and compo
 anyway, because a test suite is not restricted to the queries the application happens to issue
 and an engine that refuses them would push every such test onto a container.
 
-Referential integrity, derived tables in a `FROM`, a parenthesised arm of a compound (which
+Derived tables in a `FROM`, a parenthesised arm of a compound (which
 SQLite also refuses, so nothing is lost yet) and per-test forking are the next increments. `count(t.*)` is not read: SQLite refuses it,
 PostgreSQL counts whole rows with it, and nothing needs it. Anything it does not understand
 is an error naming the token, never a quiet partial execution.
@@ -155,10 +172,10 @@ schema and a dataset once, then hand every test its own copy of the same value.
 - **The statement tree and the parser live in `sql`**, not here. This module is the engine:
   storage, evaluation and the two drivers. `sql.parse` reads SQL, `sql.format` writes it back,
   and anything wanting to read or rewrite SQL without a database uses that module alone.
-- **A `FOREIGN KEY` is modelled and not yet enforced.** `NOT NULL`, `PRIMARY KEY`, `UNIQUE`
-  and `CHECK` are enforced; referential integrity is the next increment, so a row pointing at
-  a parent that is not there is accepted here and refused by both real engines (SQLite only
-  with `PRAGMA foreign_keys = ON`, which this library's driver sets).
+- **`DEFERRABLE` is read and ignored**, so every constraint is checked as each statement runs
+  rather than at the end of the transaction. SQLite ignores it too unless
+  `PRAGMA defer_foreign_keys` is set, so the two agree; PostgreSQL honours it, and a test that
+  needs a deferred check is asking for the real engine.
 - **A column constraint with a name** (`a INT CONSTRAINT k CHECK (..)`) is kept as text and
   not enforced, where the same constraint written at table level is. Nothing of it is lost; it
   is simply opaque, and `sql`'s header says which shapes are modelled.

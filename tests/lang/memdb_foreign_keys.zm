@@ -1,0 +1,191 @@
+// `memdb` enforcing referential integrity, compared against real SQLite statement by statement.
+//
+// **SQLite enforces foreign keys only with `PRAGMA foreign_keys = ON`**, which is off by default
+// and which this library's driver sets at every connection (`src/native_sqlite.c`). So this file
+// is a cross-check rather than a comparison with a no-op -- and that pragma is the reason an
+// application can pass its whole suite against SQLite and discover referential integrity in
+// production, which is the kind of gap this engine exists to close rather than widen.
+//
+// What each statement means for the rows pointing at it:
+//
+//   - a child key with a **NULL** in it points at nothing and is never checked, which is the
+//     standard's `MATCH SIMPLE` and the default in both engines;
+//   - `NO ACTION` and `RESTRICT`, and no action at all, **refuse** the parent's delete or update;
+//   - `CASCADE` deletes the children, recursively -- and a cycle runs out of rows rather than out
+//     of stack, because a cascade only ever deletes;
+//   - `SET NULL` and `SET DEFAULT` rewrite the child's key, and the child's *own* constraints are
+//     then checked, which is how a `SET NULL` into a `NOT NULL` column is caught.
+use datasource
+use db
+use memdb
+use sqlite
+
+val drivers = datasource.registry([memdb.driver(), sqlite.driver()])
+
+val schema: [string] = [
+    "CREATE TABLE parent (id INTEGER PRIMARY KEY, label TEXT)",
+    // the four actions, one child table each
+    "CREATE TABLE plain (id INTEGER PRIMARY KEY, p_id INTEGER REFERENCES parent (id))",
+    "CREATE TABLE restricted (id INTEGER PRIMARY KEY, p_id INTEGER REFERENCES parent (id) ON DELETE RESTRICT)",
+    "CREATE TABLE cascaded (id INTEGER PRIMARY KEY, p_id INTEGER REFERENCES parent (id) ON DELETE CASCADE)",
+    "CREATE TABLE nulled (id INTEGER PRIMARY KEY, p_id INTEGER, FOREIGN KEY (p_id) REFERENCES parent (id) ON DELETE SET NULL)",
+    "CREATE TABLE defaulted (id INTEGER PRIMARY KEY, p_id INTEGER DEFAULT 1 REFERENCES parent (id) ON DELETE SET DEFAULT)",
+    // a SET NULL into a NOT NULL column, which the child's own constraint has to catch
+    "CREATE TABLE required (id INTEGER PRIMARY KEY, p_id INTEGER NOT NULL, FOREIGN KEY (p_id) REFERENCES parent (id) ON DELETE SET NULL)",
+    // a key named by the parent's primary key rather than by a column list
+    "CREATE TABLE implied (id INTEGER PRIMARY KEY, p_id INTEGER REFERENCES parent)",
+    // a two-column key
+    "CREATE TABLE pair (a INTEGER, b INTEGER, PRIMARY KEY (a, b))",
+    "CREATE TABLE pair_child (id INTEGER PRIMARY KEY, x INTEGER, y INTEGER, FOREIGN KEY (x, y) REFERENCES pair (a, b) ON DELETE CASCADE)",
+    // a self-reference, where a cascade walks a chain
+    "CREATE TABLE tree (id INTEGER PRIMARY KEY, up INTEGER REFERENCES tree (id) ON DELETE CASCADE)",
+    // and an update that moves a key
+    "CREATE TABLE moved (id INTEGER PRIMARY KEY, label TEXT)",
+    "CREATE TABLE follows (id INTEGER PRIMARY KEY, m_id INTEGER REFERENCES moved (id) ON UPDATE CASCADE)",
+    "CREATE TABLE stays (id INTEGER PRIMARY KEY, m_id INTEGER REFERENCES moved (id))",
+    "INSERT INTO parent (id, label) VALUES (1, 'one'), (2, 'two'), (3, 'three'), (4, 'four'), (5, 'five'), (6, 'six'), (7, 'seven')",
+    "INSERT INTO pair (a, b) VALUES (1, 1), (1, 2)",
+    "INSERT INTO moved (id, label) VALUES (10, 'ten'), (11, 'eleven')",
+    // a key that is UNIQUE rather than PRIMARY KEY is still a key
+    "CREATE TABLE tagged (id INTEGER PRIMARY KEY, tag TEXT UNIQUE)",
+    "CREATE TABLE by_tag (id INTEGER PRIMARY KEY, tag TEXT REFERENCES tagged (tag))",
+    "INSERT INTO tagged (id, tag) VALUES (1, 'alpha')",
+    // Two shapes that are mistakes rather than weaker references. They point at a parent of their
+    // own on purpose: a malformed foreign key makes SQLite refuse **every** delete on the table it
+    // names, because a parent's delete checks every key pointing at it and the mismatch is
+    // reported before anything else -- which cost this fixture three disagreements until the
+    // tables were separated.
+    "CREATE TABLE spare (id INTEGER PRIMARY KEY, label TEXT)",
+    "INSERT INTO spare (id, label) VALUES (1, 'one')",
+    "CREATE TABLE loose (id INTEGER PRIMARY KEY, label TEXT REFERENCES spare (label))",
+    "CREATE TABLE keyless (a INTEGER)",
+    "CREATE TABLE at_keyless (a INTEGER REFERENCES keyless)",
+    "CREATE TABLE later (a INTEGER REFERENCES parent (id) DEFERRABLE INITIALLY DEFERRED)"
+]
+
+val probes: [string] = [
+    // the child side: a key must exist, unless it is NULL
+    "INSERT INTO plain (id, p_id) VALUES (1, 1)",
+    "INSERT INTO plain (id, p_id) VALUES (2, 999)",
+    "INSERT INTO plain (id, p_id) VALUES (3, NULL)",
+    "INSERT INTO plain (id) VALUES (4)",
+    "UPDATE plain SET p_id = 999 WHERE id = 1",
+    "UPDATE plain SET p_id = 2 WHERE id = 1",
+    "SELECT id, p_id FROM plain ORDER BY id",
+    // the implied key, from the parent's primary key
+    "INSERT INTO implied (id, p_id) VALUES (1, 3)",
+    "INSERT INTO implied (id, p_id) VALUES (2, 999)",
+    // a two-column key
+    "INSERT INTO pair_child (id, x, y) VALUES (1, 1, 1)",
+    "INSERT INTO pair_child (id, x, y) VALUES (2, 1, 9)",
+    "INSERT INTO pair_child (id, x, y) VALUES (3, NULL, 9)",
+    "INSERT INTO pair_child (id, x, y) VALUES (4, 1, NULL)",
+    // the parent side: no action and RESTRICT both refuse
+    "DELETE FROM parent WHERE id = 2",
+    "INSERT INTO restricted (id, p_id) VALUES (1, 4)",
+    "DELETE FROM parent WHERE id = 4",
+    "SELECT count(*) AS c FROM parent",
+    // CASCADE takes the children with it
+    "INSERT INTO cascaded (id, p_id) VALUES (1, 5), (2, 5), (3, 6)",
+    "DELETE FROM parent WHERE id = 5",
+    "SELECT id, p_id FROM cascaded ORDER BY id",
+    // SET NULL and SET DEFAULT rewrite the child's key
+    "INSERT INTO nulled (id, p_id) VALUES (1, 6)",
+    "INSERT INTO defaulted (id, p_id) VALUES (1, 6)",
+    "DELETE FROM parent WHERE id = 6",
+    "SELECT id, p_id FROM nulled ORDER BY id",
+    "SELECT id, p_id FROM defaulted ORDER BY id",
+    "SELECT id, p_id FROM cascaded ORDER BY id",
+    // a SET NULL into a NOT NULL column, caught by the child's own constraint
+    "INSERT INTO required (id, p_id) VALUES (1, 7)",
+    "DELETE FROM parent WHERE id = 7",
+    "SELECT id, p_id FROM required ORDER BY id",
+    "SELECT count(*) AS c FROM parent",
+    // a cascade down a chain of self-references
+    "INSERT INTO tree (id, up) VALUES (1, NULL), (2, 1), (3, 2), (4, 3), (5, 1)",
+    "DELETE FROM tree WHERE id = 1",
+    "SELECT id, up FROM tree ORDER BY id",
+    // an update that moves a key: CASCADE follows it, no action refuses it
+    "INSERT INTO follows (id, m_id) VALUES (1, 10)",
+    "UPDATE moved SET id = 20 WHERE id = 10",
+    "SELECT id, m_id FROM follows ORDER BY id",
+    "SELECT id, label FROM moved ORDER BY id",
+    "INSERT INTO stays (id, m_id) VALUES (1, 11)",
+    "UPDATE moved SET id = 21 WHERE id = 11",
+    "UPDATE moved SET label = 'renamed' WHERE id = 11",
+    "SELECT id, label FROM moved ORDER BY id",
+    "SELECT id, m_id FROM stays ORDER BY id",
+    // a UNIQUE column is a key, so this reference is sound
+    "INSERT INTO by_tag (id, tag) VALUES (1, 'alpha')",
+    "INSERT INTO by_tag (id, tag) VALUES (2, 'beta')",
+    // **pointing at a column that is not a key is a mistake**, because nothing stops the parent
+    // holding the value twice and "the row it points at" would not be one row. Both engines refuse
+    // it, SQLite when the statement runs and PostgreSQL when the table is created
+    "INSERT INTO loose (id, label) VALUES (1, 'one')",
+    "INSERT INTO at_keyless (a) VALUES (1)",
+    // `DEFERRABLE INITIALLY DEFERRED` is not modelled, and SQLite ignores it too unless
+    // `PRAGMA defer_foreign_keys` is set -- so both check immediately, and agree
+    "INSERT INTO later (a) VALUES (999)",
+    "INSERT INTO later (a) VALUES (3)",
+    // and a parent with no rows left pointing at it deletes freely
+    "DELETE FROM plain WHERE id = 1",
+    "DELETE FROM parent WHERE id = 2",
+    "SELECT count(*) AS c FROM parent"
+]
+
+fn kind(e: db.DbError) -> string {
+    return switch e {
+        NotFound(_) { "NotFound" }
+        Constraint(_) { "Constraint" }
+        Connection(_) { "Connection" }
+        Sql(_) { "Sql" }
+    }
+}
+
+fn answer(c: datasource.Connection, sql: string) -> string {
+    return switch datasource.query(c, sql) {
+        Ok(rows) {
+            val out = mutable_string_new()
+            append(out, format("ok {} row(s):", prelude.len(rows)))
+            for r in rows {
+                append(out, " [")
+                for i in 0..prelude.len(r.columns) {
+                    append(out, format("{}={} ", r.columns[i], r.values[i]))
+                }
+                append(out, "]")
+            }
+            snapshot(out)
+        }
+        Err(e) { concat(kind(e), ": ", db.db_error_message(e)) }
+    }
+}
+
+fn seed(url: string) -> datasource.Connection {
+    val c = unwrap(datasource.open(drivers, url))
+    for s in schema {
+        unwrap(datasource.execute(c, s))
+    }
+    return c
+}
+
+fn main() {
+    val mem = seed("memdb:")
+    val lite = seed("sqlite::memory:")
+    var disagreements = 0
+    for sql in probes {
+        val a = answer(mem, sql)
+        val b = answer(lite, sql)
+        if a == b {
+            print(concat("agree    ", sql))
+        } else {
+            disagreements = disagreements + 1
+            print(concat("DISAGREE ", sql))
+            print(concat("  memdb:  ", a))
+            print(concat("  sqlite: ", b))
+        }
+    }
+    print(format("{} of {} agree", prelude.len(probes) - disagreements, prelude.len(probes)))
+
+    datasource.close(mem)
+    datasource.close(lite)
+}

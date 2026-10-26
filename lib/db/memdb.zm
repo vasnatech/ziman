@@ -66,13 +66,30 @@
 // `lower`, `upper`, `trim`, `abs` and `coalesce`, and the aggregates `COUNT` (including
 // `COUNT(DISTINCT x)`), `SUM`, `MIN`, `MAX` and `AVG`.
 //
-// **Constraints are enforced**, not merely remembered: `NOT NULL`, `PRIMARY KEY`, `UNIQUE` and
-// `CHECK`, at column level and at table level, on `INSERT` and on `UPDATE`, with SQLite's own
-// messages. Each reads NULL the way SQL says to, and the three readings differ: `NOT NULL` refuses
+// **Constraints are enforced**, not merely remembered: `NOT NULL`, `PRIMARY KEY`, `UNIQUE`,
+// `CHECK` and `FOREIGN KEY`, at column level and at table level, on `INSERT`, `UPDATE` and
+// `DELETE`, with SQLite's own messages. Each reads NULL the way SQL says to, and the three readings differ: `NOT NULL` refuses
 // a NULL; `UNIQUE` and `PRIMARY KEY` *ignore* a key with a NULL in it, because uniqueness asks
 // whether two keys are equal and a NULL is equal to nothing; and a `CHECK` fails only when it is
 // false, NULL being unknown and passing. A statement that violates a constraint leaves the
 // database exactly as it was, which costs nothing here because a `Database` is a value.
+//
+// Referential integrity: a child key must name a row of the parent unless it has a NULL in it
+// (the standard's `MATCH SIMPLE`, which is the default in both engines), and the parent's side
+// obeys each key's `ON DELETE` and `ON UPDATE` -- `NO ACTION` and `RESTRICT` refuse, `CASCADE`
+// follows, `SET NULL` and `SET DEFAULT` rewrite the child's key and then check the child's *own*
+// constraints, which is how a `SET NULL` into a `NOT NULL` column is caught. A cascade recurses
+// and cannot loop: deleting only ever shrinks the database, so a cycle runs out of rows.
+//
+// **The referenced columns must be a key of the parent**, a `PRIMARY KEY` or a `UNIQUE`, not merely
+// columns that exist -- otherwise "the row it points at" need not be one row. Both engines refuse
+// the shape; SQLite does it when the statement runs, which is the wording here
+// (`foreign key mismatch - "child" referencing "parent"`), and PostgreSQL when the table is made.
+//
+// **SQLite enforces foreign keys only with `PRAGMA foreign_keys = ON`**, which is off by default
+// and which this library's driver sets at every connection. An application whose suite runs
+// against a plain `sqlite3` therefore tests no referential integrity at all, which is worth knowing
+// before trusting any suite that is green on one engine.
 //
 // A single-column `INTEGER PRIMARY KEY` is **SQLite's rowid under another name**: a NULL in it, or
 // leaving the column out, takes the next value rather than being refused. The declared type must be
@@ -126,7 +143,7 @@
 // anyway, because a test suite is not restricted to the queries the application happens to issue
 // and an engine that refuses them would push every such test onto a container.
 //
-// Referential integrity, derived tables in a `FROM`, a parenthesised arm of a compound (which
+// Derived tables in a `FROM`, a parenthesised arm of a compound (which
 // SQLite also refuses, so nothing is lost yet) and per-test forking are the next increments. `count(t.*)` is not read: SQLite refuses it,
 // PostgreSQL counts whole rows with it, and nothing needs it. Anything it does not understand
 // is an error naming the token, never a quiet partial execution.
@@ -145,10 +162,10 @@
 //   - **The statement tree and the parser live in `sql`**, not here. This module is the engine:
 //     storage, evaluation and the two drivers. `sql.parse` reads SQL, `sql.format` writes it back,
 //     and anything wanting to read or rewrite SQL without a database uses that module alone.
-//   - **A `FOREIGN KEY` is modelled and not yet enforced.** `NOT NULL`, `PRIMARY KEY`, `UNIQUE`
-//     and `CHECK` are enforced; referential integrity is the next increment, so a row pointing at
-//     a parent that is not there is accepted here and refused by both real engines (SQLite only
-//     with `PRAGMA foreign_keys = ON`, which this library's driver sets).
+//   - **`DEFERRABLE` is read and ignored**, so every constraint is checked as each statement runs
+//     rather than at the end of the transaction. SQLite ignores it too unless
+//     `PRAGMA defer_foreign_keys` is set, so the two agree; PostgreSQL honours it, and a test that
+//     needs a deferred check is asking for the real engine.
 //   - **A column constraint with a name** (`a INT CONSTRAINT k CHECK (..)`) is kept as text and
 //     not enforced, where the same constraint written at table level is. Nothing of it is lost; it
 //     is simply opaque, and `sql`'s header says which shapes are modelled.
@@ -178,6 +195,7 @@ use sql.CreateStmt
 use sql.DeleteStmt
 use sql.DropStmt
 use sql.Expr
+use sql.ForeignKeyRule
 use sql.InsertStmt
 use sql.OrderTerm
 use sql.SelectItem
@@ -1075,8 +1093,20 @@ fn one_constraint(
             }
             unit
         }
-        // Referential integrity is the next increment; the rule is modelled and not yet enforced.
-        ForeignKey(_) { unit }
+        ForeignKey(fk) {
+            val key = key_values(names, row, fk.columns)
+            if prelude.len(key) == 0 {
+                // A NULL anywhere in the key: nothing to point at and nothing to check.
+                return ok(unit)
+            }
+            val parent = try table_of(database, fk.table)
+            val parent_cols = try parent_columns(database, t.name, fk)
+            if !has_key(parent, parent_cols, key) {
+                // SQLite says exactly this and no more -- no table, no column, no value.
+                return err(DbError.Constraint("FOREIGN KEY constraint failed"))
+            }
+            unit
+        }
         Opaque { unit }
     }
 }
@@ -1123,6 +1153,253 @@ fn unique_check(t: Table, tc: TableConstraint, columns: [string], at: int) -> Re
         }
     }
     return ok(unit)
+}
+
+// ---------------------------------------------------------------- foreign keys
+
+// The parent columns a foreign key points at: the ones it named, or the parent's primary key where
+// it named none -- which is what `REFERENCES parent` without a column list means.
+//
+// **They must be a key of the parent**, a `PRIMARY KEY` or a `UNIQUE`, and not merely columns that
+// exist. Pointing at an unconstrained column is a mistake rather than a weaker reference: nothing
+// stops the parent holding the value twice, so "the row it points at" would not be one row. Both
+// engines refuse it -- SQLite when the statement runs, PostgreSQL when the table is created -- and
+// SQLite's words are the ones here, which also cover a parent that has no key at all.
+fn parent_columns(database: Database, child: string, fk: ForeignKeyRule) -> Result<[string], DbError> {
+    val parent = try table_of(database, fk.table)
+    val mismatch = DbError.Sql(prelude.format(
+        "foreign key mismatch - \"{}\" referencing \"{}\"",
+        child,
+        fk.table
+    ))
+    val wanted = mutable_array_new<string>()
+    for name in fk.references {
+        push(wanted, name)
+    }
+    if prelude.len(wanted) == 0 {
+        for tc in parent.constraints {
+            if PrimaryKey(columns) = tc.rule {
+                if prelude.len(wanted) == 0 {
+                    for name in columns {
+                        push(wanted, name)
+                    }
+                }
+            }
+        }
+        if prelude.len(wanted) == 0 {
+            return err(mismatch)
+        }
+        return ok(snapshot(wanted))
+    }
+    val named = snapshot(wanted)
+    for tc in parent.constraints {
+        var columns = named
+        var keyed = false
+        if PrimaryKey(cols) = tc.rule {
+            columns = cols
+            keyed = true
+        }
+        if Unique(cols) = tc.rule {
+            columns = cols
+            keyed = true
+        }
+        if keyed && same_columns(columns, named) {
+            return ok(named)
+        }
+    }
+    return err(mismatch)
+}
+
+// Two column lists naming the same columns, in any order -- which is how a key is matched, since
+// `UNIQUE (a, b)` constrains the pair however a foreign key happens to write it.
+fn same_columns(a: [string], b: [string]) -> bool {
+    if prelude.len(a) != prelude.len(b) {
+        return false
+    }
+    for name in a {
+        if column_index(b, name) < 0 {
+            return false
+        }
+    }
+    return true
+}
+
+// The values `columns` hold in `row`. **Empty where any of them is NULL**, which is the signal that
+// there is nothing to check: a key with a NULL in it satisfies a foreign key without being looked
+// for at all. That is the standard's `MATCH SIMPLE`, the default, and what both engines do.
+fn key_values(names: [string], row: [SqlValue], columns: [string]) -> [SqlValue] {
+    val out = mutable_array_new<SqlValue>()
+    for name in columns {
+        val k = column_index(names, name)
+        if k < 0 || is_null(row[k]) {
+            val none: [SqlValue] = []
+            return none
+        }
+        push(out, row[k])
+    }
+    return snapshot(out)
+}
+
+fn has_key(t: Table, columns: [string], key: [SqlValue]) -> bool {
+    val names = column_names(t)
+    for row in t.rows {
+        val other = key_values(names, row, columns)
+        if prelude.len(other) > 0 && values_same(other, key) {
+            return true
+        }
+    }
+    return false
+}
+
+// Which rows of `t` point at `key` through `columns`.
+fn rows_pointing_at(t: Table, columns: [string], key: [SqlValue]) -> [int] {
+    val names = column_names(t)
+    val out = mutable_array_new<int>()
+    for i in 0..prelude.len(t.rows) {
+        val other = key_values(names, t.rows[i], columns)
+        if prelude.len(other) > 0 && values_same(other, key) {
+            push(out, i)
+        }
+    }
+    return snapshot(out)
+}
+
+// What a `DELETE` or an `UPDATE` on a parent does to the rows pointing at it.
+//
+// `removed` are the parent rows whose key has gone -- deleted outright, or changed by an `UPDATE`,
+// in which case `replacements` holds the row each became. The action is the foreign key's
+// `ON DELETE` or `ON UPDATE`, and an absent one means `NO ACTION`, which refuses.
+//
+// **Recursion terminates without a depth guard**, because a `CASCADE` only ever deletes rows: each
+// step strictly shrinks the database, so a cycle between two tables runs out of rows rather than
+// out of stack. A child whose rows a cascade changed is checked against *its own* constraints
+// afterwards, which is how a `SET NULL` into a `NOT NULL` column is caught.
+fn cascade_from(
+    database: Database,
+    parent: string,
+    removed: [[SqlValue]],
+    replacements: [[SqlValue]],
+    on_update: bool,
+    params: [SqlValue],
+    strict: bool
+) -> Result<Database, DbError> {
+    if prelude.len(removed) == 0 {
+        return ok(database)
+    }
+    val want = sql.fold_name(parent)
+    var current = database
+    for child in values(current.tables) {
+        for tc in child.constraints {
+            if ForeignKey(fk) = tc.rule {
+                if sql.fold_name(fk.table) == want {
+                    current = try one_cascade(
+                        current,
+                        child.name,
+                        fk,
+                        removed,
+                        replacements,
+                        on_update,
+                        params,
+                        strict
+                    )
+                }
+            }
+        }
+    }
+    return ok(current)
+}
+
+fn one_cascade(
+    database: Database,
+    child_name: string,
+    fk: ForeignKeyRule,
+    removed: [[SqlValue]],
+    replacements: [[SqlValue]],
+    on_update: bool,
+    params: [SqlValue],
+    strict: bool
+) -> Result<Database, DbError> {
+    val action = if on_update { fk.on_update } else { fk.on_delete }
+    val parent_cols = try parent_columns(database, child_name, fk)
+    var current = database
+    for which in 0..prelude.len(removed) {
+        // Read the child afresh each time: an earlier parent row may already have changed it.
+        val child = try table_of(current, child_name)
+        val parent_table = try table_of(current, fk.table)
+        val old_key = key_values(column_names(parent_table), removed[which], parent_cols)
+        if prelude.len(old_key) == 0 {
+            continue
+        }
+        if on_update && which < prelude.len(replacements) {
+            val new_key = key_values(column_names(parent_table), replacements[which], parent_cols)
+            if prelude.len(new_key) > 0 && values_same(new_key, old_key) {
+                // The key did not move, so nothing points anywhere new.
+                continue
+            }
+        }
+        // A parent row may still be there: an `UPDATE` that moved one row's key leaves another row
+        // holding the same key, and then nothing is orphaned.
+        if has_key(parent_table, parent_cols, old_key) {
+            continue
+        }
+        val pointing = rows_pointing_at(child, fk.columns, old_key)
+        if prelude.len(pointing) == 0 {
+            continue
+        }
+        if action == "" || action == "NO ACTION" || action == "RESTRICT" {
+            return err(DbError.Constraint("FOREIGN KEY constraint failed"))
+        }
+        if action == "CASCADE" && !on_update {
+            val doomed = to_set(pointing)
+            val kept = mutable_array_new<[SqlValue]>()
+            val gone = mutable_array_new<[SqlValue]>()
+            for i in 0..prelude.len(child.rows) {
+                if contains(doomed, i) {
+                    push(gone, child.rows[i])
+                } else {
+                    push(kept, child.rows[i])
+                }
+            }
+            current = with_table(current, with child { rows: snapshot(kept) })
+            current = try cascade_from(current, child.name, snapshot(gone), [], false, params, strict)
+            continue
+        }
+        // The remaining actions rewrite the child's key in place: `CASCADE` on an update to the
+        // parent's new values, `SET NULL` to NULL, `SET DEFAULT` to each column's default.
+        val names = column_names(child)
+        var rows = child.rows
+        for i in pointing {
+            var row = rows[i]
+            for k in 0..prelude.len(fk.columns) {
+                val at = column_index(names, fk.columns[k])
+                if at < 0 {
+                    return err(problem(prelude.format(
+                        "no such column: {} in a foreign key on {}",
+                        fk.columns[k],
+                        child.name
+                    )))
+                }
+                if action == "CASCADE" {
+                    val new_key = key_values(column_names(parent_table), replacements[which], parent_cols)
+                    row = set(row, at, if prelude.len(new_key) > k { new_key[k] } else { SqlValue.Null })
+                } else if action == "SET NULL" {
+                    row = set(row, at, SqlValue.Null)
+                } else if action == "SET DEFAULT" {
+                    row = set(row, at, switch child.columns[at].default_value {
+                        Some(v) { v }
+                        None { SqlValue.Null }
+                    })
+                } else {
+                    return err(problem(concat("unsupported foreign key action: ", action)))
+                }
+            }
+            rows = set(rows, i, row)
+        }
+        val changed = with child { rows: rows }
+        current = with_table(current, changed)
+        try enforce(current, changed, pointing, params, strict)
+    }
+    return ok(current)
 }
 
 // ---------------------------------------------------------------- functions
@@ -1881,7 +2158,10 @@ fn run_insert(database: Database, stmt: InsertStmt, params: [SqlValue], strict: 
         added = added + 1
     }
     val filled = with t { rows: rows }
-    try enforce(database, filled, snapshot(touched), params, strict)
+    // Against the database **with the new rows in it**, which matters for a self-referencing
+    // foreign key: `INSERT INTO tree VALUES (1, NULL), (2, 1)` has the second row pointing at the
+    // first, and SQLite accepts it because by then the first row is there.
+    try enforce(with_table(database, filled), filled, snapshot(touched), params, strict)
     return ok(Outcome {
         database: with_table(database, filled),
         rows: try returned_rows(database, filled, stmt.returning, snapshot(stored), params, strict),
@@ -1905,8 +2185,19 @@ fn run_delete(database: Database, stmt: DeleteStmt, params: [SqlValue], strict: 
         }
     }
     val left = with t { rows: snapshot(rows) }
+    // The rows that pointed at what was just deleted, dealt with by each foreign key's own
+    // `ON DELETE`: refused, cascaded, or set to NULL or to a default.
+    val after = try cascade_from(
+        with_table(database, left),
+        t.name,
+        snapshot(gone),
+        [],
+        false,
+        params,
+        strict
+    )
     return ok(Outcome {
-        database: with_table(database, left),
+        database: after,
         // The row as it was, which is the only version of a deleted row there is.
         rows: try returned_rows(database, t, stmt.returning, snapshot(gone), params, strict),
         affected: prelude.len(doomed)
@@ -1948,9 +2239,25 @@ fn run_update(database: Database, stmt: UpdateStmt, params: [SqlValue], strict: 
     val changed = with t { rows: snapshot(rows) }
     // The row indexes are unchanged -- one row goes back for every row that came out -- so the
     // rows this statement wrote are the ones it matched.
-    try enforce(database, changed, touched, params, strict)
+    try enforce(with_table(database, changed), changed, touched, params, strict)
+    // And whatever pointed at the keys this statement moved, by each foreign key's `ON UPDATE`.
+    val before_rows = mutable_array_new<[SqlValue]>()
+    val after_rows = mutable_array_new<[SqlValue]>()
+    for i in touched {
+        push(before_rows, t.rows[i])
+        push(after_rows, changed.rows[i])
+    }
+    val after = try cascade_from(
+        with_table(database, changed),
+        t.name,
+        snapshot(before_rows),
+        snapshot(after_rows),
+        true,
+        params,
+        strict
+    )
     return ok(Outcome {
-        database: with_table(database, changed),
+        database: after,
         // The row as it now stands, which is what both engines return and what a caller asking for
         // `RETURNING *` after an `UPDATE` is after.
         rows: try returned_rows(database, changed, stmt.returning, snapshot(written), params, strict),
