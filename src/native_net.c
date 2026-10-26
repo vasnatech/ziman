@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <netinet/tcp.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
 #include <openssl/x509v3.h>
@@ -571,6 +572,30 @@ static int connect_with_deadline(int fd, const struct sockaddr *addr, socklen_t 
     return result;
 }
 
+/* Nagle's algorithm off, on every TCP socket this runtime opens or accepts.
+ *
+ * Nagle holds a small write back until the previous one is acknowledged, and the peer's delayed
+ * ACK holds that acknowledgement for up to 40ms. The two together are a 40ms stall on any protocol
+ * that writes a small request, reads a reply, and writes again -- which is every protocol here.
+ *
+ * It was measured, not assumed. A parameterised MySQL query cost **42.7 milliseconds** a call
+ * because the driver's old path ended each one with an unreplied COM_STMT_CLOSE, leaving the next
+ * call's prepare waiting on an ACK the server was holding; with this one line it cost 0.5. The
+ * statement cache that found it hides the stall for the statements it keeps and leaves it for the
+ * rest, so caching was never the fix. See docs/DESIGN.md, 2026-10-26.
+ *
+ * Failure is ignored on purpose: a Unix-domain socket answers ENOPROTOOPT, and has no Nagle to
+ * turn off, so attempting it everywhere and ignoring the answer is both correct and the shortest
+ * way to say so.
+ *
+ * Latency over throughput is the right default for a runtime whose sockets carry database
+ * protocols and HTTP. A caller wanting the other trade-off writes one large buffer rather than
+ * several small ones, which is what the HTTP server already does with a response. */
+static void set_nodelay(int fd) {
+    int one = 1;
+    (void)setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
+}
+
 /* `timeout_ms` of 0 means "the OS default", which is what `net.connect` has always done and what
  * every existing caller gets. A positive value bounds the whole attempt across every address the
  * host resolves to. */
@@ -623,6 +648,9 @@ static Value open_socket_timeout(const char *host, int64_t port, int listener, i
     }
     freeaddrinfo(res);
     if (fd < 0) return errno_result(int_type, last_errno != 0 ? last_errno : EIO);
+    /* Not on a listener: the option belongs to a connected socket, and an accepted one gets its
+     * own below rather than inheriting this. */
+    if (!listener) set_nodelay(fd);
     return ok_result(int_type, value_int(handle_register(fd)));
 }
 
@@ -853,6 +881,9 @@ static Value native_net_accept_raw(Value *args, int argc, int line, int col) {
     }
     do { c = accept(fd, NULL, NULL); } while (c < 0 && errno == EINTR);
     if (c < 0 && (errno == EMFILE || errno == ENFILE) && reclaim_descriptors()) c = accept(fd, NULL, NULL);
+    /* Set here rather than on the listener, because an accepted socket does not reliably inherit
+     * it -- and set before either return below, so the plain and the TLS path both get it. */
+    if (c >= 0) set_nodelay(c);
     if (c < 0) {
         /* `closed` rather than whatever errno the kernel chose, when the listener was closed by
          * this program while we were waiting: accept(2) on a shut-down socket answers EINVAL, which
