@@ -30,6 +30,18 @@ recorded but not enforced), `CREATE [UNIQUE] INDEX`, `ALTER TABLE ... ADD COLUMN
 `DELETE FROM ... WHERE`, `RETURNING` on any of the three writes, and
 `BEGIN`/`COMMIT`/`ROLLBACK`.
 
+Set operations: `UNION [ALL]`, `INTERSECT [ALL]` and `EXCEPT [ALL]`, chained, with the
+compound's own `ORDER BY`, `LIMIT` and `OFFSET`. A compound's `ORDER BY` may name an output
+column or its position and nothing else, because there is no single source to resolve anything
+else against. Two of the five divergences between the two readings live here -- how a chain
+groups, and whether the `ALL` forms exist at all.
+
+`ORDER BY 2` and `ORDER BY alias` work everywhere, not only in a compound. They did not before
+set operations needed them: an integer term was evaluated per row, so `ORDER BY 1 DESC` compared
+1 with 1 for every pair and quietly left the rows as they came, and an output name was "no such
+column". Five such queries now agree with SQLite that did not, including the out-of-range
+refusal, which is SQLite's wording down to the `1st`.
+
 `RETURNING a, b`, `RETURNING *` or an expression with an alias, on `INSERT`, `UPDATE` and
 `DELETE`. A qualified star, `t.*`, in a select list -- naming one table's columns by the name or
 alias the `FROM` gave it, which is what makes `p.*` work and `patient.*` not once `patient AS p`
@@ -76,18 +88,25 @@ silently the left one.
 ## Two readings of SQL
 
 `driver()` at `memdb:` reads SQL the way SQLite does. `strict_driver()` at `memdb-ansi:` reads it
-the way the standard does, and the two differ in exactly five places -- `LIKE`'s case
+the way the standard does, and the two differ in exactly seven places -- `LIKE`'s case
 sensitivity, what division by zero answers, whether a number may be compared with text, whether
 a boolean in a select list comes back as a boolean or as the integer 0 or 1 (SQLite has no
-boolean type; PostgreSQL and the standard do), and whether a `RETURNING` clause may use a
-qualified star.
+boolean type; PostgreSQL and the standard do), whether a `RETURNING` clause may use a qualified
+star, **how a chain of set operations groups**, and whether `INTERSECT ALL`, `EXCEPT ALL` and
+`UNION DISTINCT` exist at all.
 
-**The fifth one runs the other way**, and is the only one that does. The first four are places
-the strict reading *refuses* what SQLite accepts. `RETURNING t.*` is refused by SQLite in those
-words and answered by PostgreSQL, so there the lax reading refuses and the strict one runs it --
-which means a statement failing on `memdb:` and passing on `memdb-ansi:` is PostgreSQL-only SQL
-that will break on SQLite. Both directions are worth knowing; only the direction of the arrow
-changes.
+The grouping is the one to remember, because nothing in the text of the query says which reading
+is in force and both answer rows. SQLite reads `UNION`, `INTERSECT` and `EXCEPT` strictly left to
+right; the standard and PostgreSQL bind `INTERSECT` tighter than the other two. So
+`a UNION b INTERSECT c` is `(a UNION b) INTERSECT c` on one engine and `a UNION (b INTERSECT c)`
+on the other -- a different answer, no error, no warning. Parenthesise it or do not write it.
+
+**Three of the seven run the other way**, and they are the ones where SQLite is the stricter
+engine: `RETURNING t.*`, the `ALL` forms of `INTERSECT` and `EXCEPT`, and `UNION DISTINCT` are
+each refused by SQLite and answered by PostgreSQL. There the lax reading refuses and the strict
+one runs it, so a statement failing on `memdb:` and passing on `memdb-ansi:` is PostgreSQL-only
+SQL that will break on SQLite. Both directions are worth knowing; only the direction of the
+arrow changes.
 
 **The strict one is a portability check.** A query that passes on `memdb:` and fails on
 `memdb-ansi:` is leaning on SQLite and will behave differently on PostgreSQL, which matters when
@@ -100,8 +119,8 @@ joins and no subqueries, because its repositories query one table each and compo
 anyway, because a test suite is not restricted to the queries the application happens to issue
 and an engine that refuses them would push every such test onto a container.
 
-Constraint *enforcement*, set operations (`UNION`, `INTERSECT`, `EXCEPT`), derived tables in a
-`FROM` and per-test forking are the next increments. `count(t.*)` is not read: SQLite refuses it,
+Constraint *enforcement*, derived tables in a `FROM`, a parenthesised arm of a compound (which
+SQLite also refuses, so nothing is lost yet) and per-test forking are the next increments. `count(t.*)` is not read: SQLite refuses it,
 PostgreSQL counts whole rows with it, and nothing needs it. Anything it does not understand
 is an error naming the token, never a quiet partial execution.
 
@@ -154,7 +173,7 @@ four would be four different databases.
 pub fn strict_driver() -> Driver
 ```
 
-The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Five things differ,
+The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Seven things differ,
 and the first four are places where SQLite departs from ANSI:
 
 
@@ -166,9 +185,19 @@ and the first four are places where SQLite departs from ANSI:
   or 1.
 ```
 
-The fifth is the one exception, and it points the other way: `RETURNING t.*` is **refused** by
-SQLite and answered by PostgreSQL (measured, not assumed), so the lax reading refuses it and
-this one runs it.
+The other three point the other way, SQLite being the stricter engine (each measured, not
+assumed):
+
+
+```
+- a chain of set operations groups left to right in SQLite and binds `INTERSECT` tighter in the
+  standard and in PostgreSQL, so `a UNION b INTERSECT c` is two different queries;
+- `INTERSECT ALL`, `EXCEPT ALL` and `UNION DISTINCT` are syntax errors in SQLite and ordinary
+  SQL in PostgreSQL;
+- `RETURNING t.*` is refused by SQLite and answered by PostgreSQL.
+```
+
+For those, the lax reading refuses and this one runs them.
 
 **It is a portability check, not a better engine.** A suite that passes on `memdb:` and fails on
 `memdb-ansi:` has found SQL that leans on SQLite, which matters when the same application also

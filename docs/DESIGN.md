@@ -229,6 +229,7 @@ them against the code.
 - [`sql` and `memdb` learn joins and subqueries, and validation loses its nerve (2026-10-25)](#sql-and-memdb-learn-joins-and-subqueries-and-validation-loses-its-nerve-2026-10-25)
 - [`RETURNING`, and a clause the standard does not have (2026-10-25)](#returning-and-a-clause-the-standard-does-not-have-2026-10-25)
 - [A qualified star, and the first divergence that points the other way (2026-10-25)](#a-qualified-star-and-the-first-divergence-that-points-the-other-way-2026-10-25)
+- [Set operations, and a query whose answer depends on the engine (2026-10-25)](#set-operations-and-a-query-whose-answer-depends-on-the-engine-2026-10-25)
 
 <!-- end index -->
 
@@ -8963,3 +8964,38 @@ So the lax reading refuses `RETURNING t.*` in SQLite's own words and the strict 
 Writing it the other way was tempting and would have been wrong. Refusing `RETURNING t.*` in both readings is less machinery, and it would have meant `memdb-ansi:` no longer modelled the engine it exists to stand in for.
 
 **The numbers.** 93 read queries and 21 `RETURNING` statements agree with real SQLite, up from 80 and 17; the new ones include a qualified star across a join, both sides of a self-join, `*, p.*` together, inside `EXISTS`, through a `LEFT JOIN`'s unmatched rows, shadowed by an alias, and with a qualifier that names nothing. 76 round-trip shapes settle in one pass, up from 70. The strictness fixture holds 10 divergences, each still matching SQLite on the lax side and still differing on the strict side.
+
+## Set operations, and a query whose answer depends on the engine (2026-10-25)
+
+`UNION`, `INTERSECT`, `EXCEPT`, each with `ALL`, chained, with the compound's own `ORDER BY`, `LIMIT` and `OFFSET`. **121 read queries and 21 `RETURNING` statements agree with real SQLite, up from 93 and 21; 89 statement shapes round-trip, up from 76; the two readings now differ in seven places, up from five.**
+
+**`SelectStmt` gained `set_ops: [SetOp]` -- a flat list, as joins are, but for a sharper reason than style.** The grouping of a chain is dialect-specific, and that is this increment's one genuinely dangerous finding:
+
+* **SQLite reads `UNION`, `INTERSECT` and `EXCEPT` strictly left to right.**
+* **The standard and PostgreSQL bind `INTERSECT` tighter than the other two.**
+
+So `a UNION b INTERSECT c` is `(a UNION b) INTERSECT c` on one engine and `a UNION (b INTERSECT c)` on the other. Both were measured, with a dataset chosen to tell them apart -- a={1,2}, b={2,3}, c={3}, giving {3} on SQLite and {1,2,3} on PostgreSQL. **Two answers, no error, no warning, and nothing in the text of the query to say which you are getting.** A tree built in `sql` would have to pick an engine, and `sql` has no dialect; so the parser records the sequence as written and `memdb` groups it -- left to right in the lax reading, with one pass over the `INTERSECT`s first in the strict one. Which is the same split this module pair was built on: **`sql` is syntax, `memdb` is semantics**, and here the difference between the engines is semantic even though it looks syntactic.
+
+Three smaller divergences came with it, all in the direction where **SQLite is the stricter engine**: `INTERSECT ALL`, `EXCEPT ALL` and `UNION DISTINCT` are syntax errors in SQLite and ordinary SQL in PostgreSQL. `sql` reads all three because one of the two engines does; the lax reading refuses them in SQLite's own words, down to `near "ALL": syntax error`, so the cross-check reports agreement rather than a near miss. The `ALL` forms are counting operations in the strict reading, measured against PostgreSQL: `INTERSECT ALL` keeps a row as many times as it appears in the side it appears in least, `EXCEPT ALL` removes one occurrence per occurrence on the right.
+
+`UNION DISTINCT` is why **`SetOp` keeps the quantifier as the word it was written with** rather than as an `all: bool`. `DISTINCT` after a set operator changes nothing about the answer -- it is the default -- so a flag would have been the obvious shape, and it would have let the formatter write `UNION` where `UNION DISTINCT` was read. That is not a cosmetic normalisation: it turns SQL that SQLite rejects into SQL that SQLite accepts. A formatter may tidy whitespace; it may not launder a dialect error.
+
+**And the increment turned up five pre-existing `ORDER BY` bugs, because a compound query cannot be ordered any other way.** A compound has no single source, so its `ORDER BY` may name only an output column or a position -- and neither worked:
+
+| query | `memdb` answered | SQLite answers |
+|---|---|---|
+| `SELECT n FROM a ORDER BY 1 DESC` | ascending | descending |
+| `SELECT n AS x FROM a ORDER BY x DESC` | `no such column: x` | descending |
+| `SELECT n FROM a ORDER BY 3` | the rows, unordered | `1st ORDER BY term out of range - should be between 1 and 1` |
+| `SELECT n FROM a ORDER BY 0` | the rows, unordered | the same refusal |
+| `SELECT n, n * 2 AS d FROM a ORDER BY 2 DESC, 1` | unordered | ordered |
+
+An integer `ORDER BY` term is a **position**, not the number it looks like; evaluating it per row compares 1 with 1 for every pair and silently leaves the rows as they came. The fixture had never used an ordinal or an output name in an `ORDER BY`, so nothing caught it -- 93 queries agreeing is not the same as a feature being right, which is worth remembering about every green suite. The out-of-range message is SQLite's wording down to the `1st`, which needed an English ordinal helper (`1st`, `2nd`, `3rd`, `11th`, `21st`) to match.
+
+Fixing it meant **projecting before ordering**, which is the order SQL specifies anyway: `ORDER BY 2` has nothing to read until the second output column exists. Both the plain and the grouped path now project into a values array, sort a *permutation* of places so a comparator can reach both the projected row and the source row behind it, and build the rows afterwards. A term resolves against the source first and the output second -- `SELECT name FROM t ORDER BY name` orders by the column -- which is the rule the join increment already established for validation.
+
+Two refactors fell out and are worth naming because both were duplication the increment would otherwise have tripled: `values_same` is now the one place a row is compared for *distinctness* (two NULLs are the same row), shared by `DISTINCT`, `GROUP BY`'s keys and every set operation; and `sliced_rows` is the one place `LIMIT`/`OFFSET` is applied, shared by the plain, grouped and compound paths. `parse_subquery` lost an eleven-arm switch that existed only to unwrap a `Statement` -- it reads `parse_query` now, which also means **a subquery may be a compound**, and the fixture has `IN (SELECT .. UNION SELECT ..)` to prove it.
+
+**What is refused, and why that is the right answer for now.** A parenthesised arm -- `(SELECT ..) UNION (SELECT ..)` -- is not read. PostgreSQL accepts it, SQLite refuses it, and recording it would need a tree rather than a list; since the AST would not record the brackets, the formatter would write the flat form and so turn SQL SQLite rejects into SQL it accepts. The same argument as the quantifier, and the same conclusion: refuse it until the tree can hold it. `CORRESPONDING` is not read either, and nothing implements it.
+
+Three statements are now pinned in a small "both refuse, in different words" section of the cross-check: an `ORDER BY` before a `UNION`, `count(t.*)` and `t.* + 1`. A reader deciding whether to trust this engine needs to know that the two agree on what is *legal* even where they do not agree on how to say so -- and `sql` keeps its own voice for a parse error, because it has no dialect to borrow one from.

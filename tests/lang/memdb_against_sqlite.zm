@@ -131,6 +131,44 @@ val queries: [string] = [
     "SELECT CAST('42' AS INTEGER) AS n",
     "SELECT CAST(cost AS INTEGER) AS whole FROM visit ORDER BY id",
     "SELECT CAST(age AS REAL) AS r FROM patient ORDER BY id",
+    // set operations. Every one of them ordered, because a compound promises no order either.
+    "SELECT id FROM patient UNION SELECT patient_id FROM visit ORDER BY id",
+    "SELECT id FROM patient UNION ALL SELECT patient_id FROM visit ORDER BY id",
+    "SELECT id FROM patient INTERSECT SELECT patient_id FROM visit ORDER BY id",
+    "SELECT id FROM patient EXCEPT SELECT patient_id FROM visit ORDER BY id",
+    "SELECT patient_id FROM visit EXCEPT SELECT id FROM patient ORDER BY patient_id",
+    // **the grouping**: SQLite reads all three operators left to right, where the standard and
+    // PostgreSQL bind INTERSECT tighter. This query answers differently under the two readings, and
+    // the lax one must answer what SQLite answers
+    "SELECT id FROM patient UNION SELECT patient_id FROM visit INTERSECT SELECT id FROM visit ORDER BY id",
+    "SELECT id FROM patient EXCEPT SELECT patient_id FROM visit UNION SELECT id FROM visit ORDER BY id",
+    "SELECT id FROM patient UNION SELECT patient_id FROM visit UNION SELECT id FROM visit ORDER BY id",
+    // the ordering of a compound, which can only name an output column or its position
+    "SELECT id AS who FROM patient UNION SELECT patient_id FROM visit ORDER BY who DESC",
+    "SELECT id FROM patient UNION SELECT patient_id FROM visit ORDER BY 1 DESC",
+    "SELECT id FROM patient UNION SELECT patient_id FROM visit ORDER BY id LIMIT 2 OFFSET 1",
+    "SELECT id FROM patient UNION SELECT patient_id FROM visit ORDER BY 2",
+    "SELECT id FROM patient UNION SELECT patient_id FROM visit ORDER BY id + 1",
+    "SELECT id FROM patient UNION SELECT patient_id FROM visit ORDER BY nope",
+    // arity, which an arm answering no rows must still be checked for
+    "SELECT id, name FROM patient UNION SELECT patient_id FROM visit",
+    "SELECT id FROM patient UNION ALL SELECT patient_id, reason FROM visit",
+    "SELECT id FROM patient WHERE id = 99 UNION SELECT patient_id, reason FROM visit",
+    "SELECT id FROM patient UNION SELECT patient_id FROM visit UNION SELECT id, reason FROM visit",
+    // two NULLs are the same row for a set operation, as they are for DISTINCT and GROUP BY
+    "SELECT note FROM patient UNION SELECT note FROM patient ORDER BY note",
+    "SELECT note FROM patient UNION ALL SELECT note FROM patient ORDER BY note",
+    // and the ALL forms SQLite has no syntax for, which PostgreSQL does
+    "SELECT id FROM patient INTERSECT ALL SELECT patient_id FROM visit",
+    "SELECT id FROM patient EXCEPT ALL SELECT patient_id FROM visit",
+    "SELECT id FROM patient UNION DISTINCT SELECT patient_id FROM visit",
+    // a compound inside a subquery, and a DISTINCT head
+    "SELECT name FROM patient WHERE id IN (SELECT patient_id FROM visit UNION SELECT id FROM visit) ORDER BY id",
+    "SELECT DISTINCT patient_id FROM visit UNION SELECT id FROM patient ORDER BY 1",
+    "SELECT count(*) AS c FROM patient UNION SELECT count(*) FROM visit ORDER BY 1",
+    // an empty arm, and two empty arms
+    "SELECT id FROM patient WHERE id = 99 UNION SELECT patient_id FROM visit ORDER BY id",
+    "SELECT id FROM patient WHERE id = 99 UNION SELECT patient_id FROM visit WHERE patient_id = 99",
     // a qualified star, which names one side of a join by the name the FROM gave it
     "SELECT p.* FROM patient AS p ORDER BY p.id",
     "SELECT patient.* FROM patient ORDER BY id",
@@ -263,6 +301,24 @@ fn main() {
     print(if rendered(mem, after) == rendered(lite, after) { "agree    after the rollback" } else {
         concat("DISAGREE after the rollback: ", rendered(mem, after), " vs ", rendered(lite, after))
     })
+
+    // Statements both engines refuse, where only the **wording** differs. Worth pinning: a reader
+    // deciding whether to believe `memdb` needs to know that the engines agree on what is legal
+    // even where they do not agree on how to say so. `sql` keeps its own voice for a parse error,
+    // because it has no dialect to borrow one from.
+    print("-- both refuse, in different words --")
+    for sql in [
+        "SELECT id FROM patient ORDER BY id UNION SELECT patient_id FROM visit",
+        "SELECT count(patient.*) FROM patient",
+        "SELECT patient.* + 1 FROM patient"
+    ] {
+        val a = rendered(mem, sql)
+        val b = rendered(lite, sql)
+        val both = starts_with(a, "error:") && starts_with(b, "error:")
+        print(concat(if both { "both refuse  " } else { "!! NOT BOTH  " }, sql))
+        print(concat("   memdb:  ", a))
+        print(concat("   sqlite: ", b))
+    }
 
     // And the writes that answer rows. Last, because each changes the table it reports on.
     print("-- RETURNING --")

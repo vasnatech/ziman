@@ -76,6 +76,34 @@ agree    SELECT CAST(age AS TEXT) AS t FROM patient ORDER BY id
 agree    SELECT CAST('42' AS INTEGER) AS n
 agree    SELECT CAST(cost AS INTEGER) AS whole FROM visit ORDER BY id
 agree    SELECT CAST(age AS REAL) AS r FROM patient ORDER BY id
+agree    SELECT id FROM patient UNION SELECT patient_id FROM visit ORDER BY id
+agree    SELECT id FROM patient UNION ALL SELECT patient_id FROM visit ORDER BY id
+agree    SELECT id FROM patient INTERSECT SELECT patient_id FROM visit ORDER BY id
+agree    SELECT id FROM patient EXCEPT SELECT patient_id FROM visit ORDER BY id
+agree    SELECT patient_id FROM visit EXCEPT SELECT id FROM patient ORDER BY patient_id
+agree    SELECT id FROM patient UNION SELECT patient_id FROM visit INTERSECT SELECT id FROM visit ORDER BY id
+agree    SELECT id FROM patient EXCEPT SELECT patient_id FROM visit UNION SELECT id FROM visit ORDER BY id
+agree    SELECT id FROM patient UNION SELECT patient_id FROM visit UNION SELECT id FROM visit ORDER BY id
+agree    SELECT id AS who FROM patient UNION SELECT patient_id FROM visit ORDER BY who DESC
+agree    SELECT id FROM patient UNION SELECT patient_id FROM visit ORDER BY 1 DESC
+agree    SELECT id FROM patient UNION SELECT patient_id FROM visit ORDER BY id LIMIT 2 OFFSET 1
+agree    SELECT id FROM patient UNION SELECT patient_id FROM visit ORDER BY 2
+agree    SELECT id FROM patient UNION SELECT patient_id FROM visit ORDER BY id + 1
+agree    SELECT id FROM patient UNION SELECT patient_id FROM visit ORDER BY nope
+agree    SELECT id, name FROM patient UNION SELECT patient_id FROM visit
+agree    SELECT id FROM patient UNION ALL SELECT patient_id, reason FROM visit
+agree    SELECT id FROM patient WHERE id = 99 UNION SELECT patient_id, reason FROM visit
+agree    SELECT id FROM patient UNION SELECT patient_id FROM visit UNION SELECT id, reason FROM visit
+agree    SELECT note FROM patient UNION SELECT note FROM patient ORDER BY note
+agree    SELECT note FROM patient UNION ALL SELECT note FROM patient ORDER BY note
+agree    SELECT id FROM patient INTERSECT ALL SELECT patient_id FROM visit
+agree    SELECT id FROM patient EXCEPT ALL SELECT patient_id FROM visit
+agree    SELECT id FROM patient UNION DISTINCT SELECT patient_id FROM visit
+agree    SELECT name FROM patient WHERE id IN (SELECT patient_id FROM visit UNION SELECT id FROM visit) ORDER BY id
+agree    SELECT DISTINCT patient_id FROM visit UNION SELECT id FROM patient ORDER BY 1
+agree    SELECT count(*) AS c FROM patient UNION SELECT count(*) FROM visit ORDER BY 1
+agree    SELECT id FROM patient WHERE id = 99 UNION SELECT patient_id FROM visit ORDER BY id
+agree    SELECT id FROM patient WHERE id = 99 UNION SELECT patient_id FROM visit WHERE patient_id = 99
 agree    SELECT p.* FROM patient AS p ORDER BY p.id
 agree    SELECT patient.* FROM patient ORDER BY id
 agree    SELECT p.*, v.* FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY v.id
@@ -92,13 +120,23 @@ agree    SELECT nope.* FROM patient
 agree    SELECT nope FROM patient
 agree    SELECT name FROM patient AS p JOIN visit AS v ON v.nope = p.id
 agree    SELECT id FROM patient AS p JOIN visit AS v ON v.patient_id = p.id ORDER BY id
-93 of 93 queries agree
+121 of 121 queries agree
 -- writes --
 1 rows both: true  <- UPDATE patient SET note = 'edited' WHERE id = 2
 1 rows both: true  <- DELETE FROM patient WHERE age IS NULL
 agree    after the writes
 -- rollback --
 agree    after the rollback
+-- both refuse, in different words --
+both refuse  SELECT id FROM patient ORDER BY id UNION SELECT patient_id FROM visit
+   memdb:  error: database error: an ORDER BY, LIMIT or OFFSET must come after the last UNION, not before it
+   sqlite: error: database error: ORDER BY clause should come after UNION not before
+both refuse  SELECT count(patient.*) FROM patient
+   memdb:  error: database error: 'patient.*' is only allowed in a select list or a RETURNING clause
+   sqlite: error: database error: near "*": syntax error
+both refuse  SELECT patient.* + 1 FROM patient
+   memdb:  error: database error: 'patient.*' is only allowed in a select list or a RETURNING clause
+   sqlite: error: database error: near "+": syntax error
 -- RETURNING --
 agree    INSERT INTO patient (id, name, age, note) VALUES (10, 'Eve', 50, 'tenth') RETURNING *
 agree    INSERT INTO patient (id, name, age) VALUES (11, 'Fay', 22) RETURNING id

@@ -22,6 +22,18 @@
 // `DELETE FROM ... WHERE`, `RETURNING` on any of the three writes, and
 // `BEGIN`/`COMMIT`/`ROLLBACK`.
 //
+// Set operations: `UNION [ALL]`, `INTERSECT [ALL]` and `EXCEPT [ALL]`, chained, with the
+// compound's own `ORDER BY`, `LIMIT` and `OFFSET`. A compound's `ORDER BY` may name an output
+// column or its position and nothing else, because there is no single source to resolve anything
+// else against. Two of the five divergences between the two readings live here -- how a chain
+// groups, and whether the `ALL` forms exist at all.
+//
+// `ORDER BY 2` and `ORDER BY alias` work everywhere, not only in a compound. They did not before
+// set operations needed them: an integer term was evaluated per row, so `ORDER BY 1 DESC` compared
+// 1 with 1 for every pair and quietly left the rows as they came, and an output name was "no such
+// column". Five such queries now agree with SQLite that did not, including the out-of-range
+// refusal, which is SQLite's wording down to the `1st`.
+//
 // `RETURNING a, b`, `RETURNING *` or an expression with an alias, on `INSERT`, `UPDATE` and
 // `DELETE`. A qualified star, `t.*`, in a select list -- naming one table's columns by the name or
 // alias the `FROM` gave it, which is what makes `p.*` work and `patient.*` not once `patient AS p`
@@ -68,18 +80,25 @@
 // ## Two readings of SQL
 //
 // `driver()` at `memdb:` reads SQL the way SQLite does. `strict_driver()` at `memdb-ansi:` reads it
-// the way the standard does, and the two differ in exactly five places -- `LIKE`'s case
+// the way the standard does, and the two differ in exactly seven places -- `LIKE`'s case
 // sensitivity, what division by zero answers, whether a number may be compared with text, whether
 // a boolean in a select list comes back as a boolean or as the integer 0 or 1 (SQLite has no
-// boolean type; PostgreSQL and the standard do), and whether a `RETURNING` clause may use a
-// qualified star.
+// boolean type; PostgreSQL and the standard do), whether a `RETURNING` clause may use a qualified
+// star, **how a chain of set operations groups**, and whether `INTERSECT ALL`, `EXCEPT ALL` and
+// `UNION DISTINCT` exist at all.
 //
-// **The fifth one runs the other way**, and is the only one that does. The first four are places
-// the strict reading *refuses* what SQLite accepts. `RETURNING t.*` is refused by SQLite in those
-// words and answered by PostgreSQL, so there the lax reading refuses and the strict one runs it --
-// which means a statement failing on `memdb:` and passing on `memdb-ansi:` is PostgreSQL-only SQL
-// that will break on SQLite. Both directions are worth knowing; only the direction of the arrow
-// changes.
+// The grouping is the one to remember, because nothing in the text of the query says which reading
+// is in force and both answer rows. SQLite reads `UNION`, `INTERSECT` and `EXCEPT` strictly left to
+// right; the standard and PostgreSQL bind `INTERSECT` tighter than the other two. So
+// `a UNION b INTERSECT c` is `(a UNION b) INTERSECT c` on one engine and `a UNION (b INTERSECT c)`
+// on the other -- a different answer, no error, no warning. Parenthesise it or do not write it.
+//
+// **Three of the seven run the other way**, and they are the ones where SQLite is the stricter
+// engine: `RETURNING t.*`, the `ALL` forms of `INTERSECT` and `EXCEPT`, and `UNION DISTINCT` are
+// each refused by SQLite and answered by PostgreSQL. There the lax reading refuses and the strict
+// one runs it, so a statement failing on `memdb:` and passing on `memdb-ansi:` is PostgreSQL-only
+// SQL that will break on SQLite. Both directions are worth knowing; only the direction of the
+// arrow changes.
 //
 // **The strict one is a portability check.** A query that passes on `memdb:` and fails on
 // `memdb-ansi:` is leaning on SQLite and will behave differently on PostgreSQL, which matters when
@@ -92,8 +111,8 @@
 // anyway, because a test suite is not restricted to the queries the application happens to issue
 // and an engine that refuses them would push every such test onto a container.
 //
-// Constraint *enforcement*, set operations (`UNION`, `INTERSECT`, `EXCEPT`), derived tables in a
-// `FROM` and per-test forking are the next increments. `count(t.*)` is not read: SQLite refuses it,
+// Constraint *enforcement*, derived tables in a `FROM`, a parenthesised arm of a compound (which
+// SQLite also refuses, so nothing is lost yet) and per-test forking are the next increments. `count(t.*)` is not read: SQLite refuses it,
 // PostgreSQL counts whole rows with it, and nothing needs it. Anything it does not understand
 // is an error naming the token, never a quiet partial execution.
 //
@@ -138,8 +157,10 @@ use sql.DeleteStmt
 use sql.DropStmt
 use sql.Expr
 use sql.InsertStmt
+use sql.OrderTerm
 use sql.SelectItem
 use sql.SelectStmt
+use sql.SetOp
 use sql.Statement
 use sql.UpdateStmt
 
@@ -1676,95 +1697,16 @@ fn item_name(item: SelectItem, at: int) -> string {
     }
 }
 
-fn run_select(
-    database: Database,
+// A result cut down to its `LIMIT` and `OFFSET`, which is the last thing SQL does to a query --
+// after the projection, after `DISTINCT`, after the ordering, and for a compound query after the
+// whole compound rather than to any one arm. One function, because all three paths end here.
+fn sliced_rows(
+    rows: [Row],
     stmt: SelectStmt,
+    database: Database,
     params: [SqlValue],
-    strict: bool,
-    outer: [Ctx]
-) -> Result<Outcome, DbError> {
-    try validate_select(database, stmt, outer, params, strict)
-    val source = try build_source(database, stmt, params, strict, outer)
-    val sc = Scope { database: database, source: source, params: params, strict: strict, outer: outer }
-    val names = source.columns
-
-    // The rows the `WHERE` keeps, as indexes into the source.
-    val chosen_rows = mutable_array_new<int>()
-    for i in 0..prelude.len(source.rows) {
-        var keep = true
-        if Some(e) = stmt.filter {
-            keep = is_true(try eval_expr(e, scope_ctx(sc, source.rows[i])))
-        }
-        if keep {
-            push(chosen_rows, i)
-        }
-    }
-    var chosen = snapshot(chosen_rows)
-
-    var aggregated = prelude.len(stmt.groups) > 0 || Option.is_Some(stmt.having)
-    for item in stmt.items {
-        if has_aggregate(item.expr) {
-            aggregated = true
-        }
-    }
-    if aggregated {
-        return run_grouped(sc, stmt, chosen)
-    }
-
-    if prelude.len(stmt.order) > 0 {
-        val terms = stmt.order
-        val failure = mutable_new<string>("")
-        chosen = sort_with(chosen, fn(a: int, b: int) -> int {
-            for term in terms {
-                val left = eval_expr(term.expr, scope_ctx(sc, source.rows[a]))
-                val right = eval_expr(term.expr, scope_ctx(sc, source.rows[b]))
-                if Err(e) = left {
-                    set(failure, db_message(e))
-                    return 0
-                }
-                if Err(e) = right {
-                    set(failure, db_message(e))
-                    return 0
-                }
-                val c = compare_values(unwrap(left), unwrap(right))
-                if c != 0 {
-                    return if term.descending { 0 - c } else { c }
-                }
-            }
-            return 0
-        })
-        if get(failure) != "" {
-            return err(problem(get(failure)))
-        }
-    }
-
-    // A `*` expands to every column the `FROM` produced, joins included -- **anywhere in the
-    // list**, so `SELECT *, id` is two copies of `id` and not an error. It was once allowed only on
-    // its own, which the `RETURNING` cross-check found by running `RETURNING *, id` against real
-    // SQLite.
-    val columns = try item_headers(stmt.items, names, source.tables)
-    val projected = mutable_array_new<Row>()
-    for i in chosen {
-        val values = mutable_array_new<SqlValue>()
-        for item in stmt.items {
-            if is_star_item(item.expr) {
-                for at in try star_positions(item.expr, names, source.tables) {
-                    push(values, present(source.rows[i][at], strict))
-                }
-            } else {
-                push(values, present(try eval_expr(item.expr, scope_ctx(sc, source.rows[i])), strict))
-            }
-        }
-        push(projected, Row { columns: columns, values: snapshot(values) })
-    }
-    // `DISTINCT` drops duplicates *after* the projection and *before* `LIMIT`, which is the order
-    // SQL specifies -- `SELECT DISTINCT x .. LIMIT 2` means two distinct rows, not the distinct
-    // ones among the first two.
-    var rows = snapshot(projected)
-    if stmt.distinct {
-        rows = distinct_rows(rows)
-    }
-
+    strict: bool
+) -> Result<[Row], DbError> {
     var from = 0
     if Some(e) = stmt.offset {
         from = unwrap_int(try eval_expr(e, bare_ctx(database, params, strict)))
@@ -1786,7 +1728,291 @@ fn run_select(
     for k in from..upto {
         push(sliced, rows[k])
     }
-    return ok(Outcome { database: database, rows: snapshot(sliced), affected: 0 })
+    return ok(snapshot(sliced))
+}
+
+// A compound query: two or more results joined by `UNION`, `INTERSECT` or `EXCEPT`.
+//
+// **The grouping is the engine's decision, not the parser's, because the two dialects disagree
+// about it.** `a UNION b INTERSECT c` is `(a UNION b) INTERSECT c` in SQLite, which reads all three
+// operators strictly left to right, and `a UNION (b INTERSECT c)` in the standard and in
+// PostgreSQL, which bind `INTERSECT` tighter than the other two. Both were measured, on real
+// SQLite and on postgres:17, with a dataset that tells the two apart. So `sql` records the sequence
+// as written and this function groups it -- the lax reading left to right, the strict reading with
+// one pass over the `INTERSECT`s first.
+//
+// `ORDER BY`, `LIMIT` and `OFFSET` belong to the whole compound, and an `ORDER BY` here may name
+// only an output column or its position: there is no single source to resolve anything else
+// against, which is what both engines say in their own words.
+fn run_compound(
+    database: Database,
+    stmt: SelectStmt,
+    params: [SqlValue],
+    strict: bool,
+    outer: [Ctx]
+) -> Result<Outcome, DbError> {
+    val no_ops: [SetOp] = []
+    val no_order: [OrderTerm] = []
+    val head = with stmt {
+        order: no_order,
+        limit: Option<Expr>.None,
+        offset: Option<Expr>.None,
+        set_ops: no_ops
+    }
+    val columns = try query_columns(database, head, params, strict, outer)
+
+    val operands = mutable_array_new<[[SqlValue]]>()
+    push(operands, try result_values(database, head, params, strict, outer))
+    val kinds = mutable_array_new<string>()
+    val alls = mutable_array_new<bool>()
+    for op in stmt.set_ops {
+        // SQLite has no `INTERSECT ALL` or `EXCEPT ALL` -- it refuses them where it reads the
+        // `ALL`, in those words -- while PostgreSQL has both. `sql` reads them because one of the
+        // two engines does; the SQLite-shaped reading answers what SQLite answers, down to the
+        // message, so the cross-check can report agreement rather than a near miss.
+        val all = sql.set_op_keeps_all(op)
+        if all && op.kind != "UNION" && !strict {
+            return err(problem("near \"ALL\": syntax error"))
+        }
+        // SQLite has no `UNION DISTINCT` either, although `DISTINCT` is what a bare `UNION` means
+        // and PostgreSQL accepts the word. Refused here for the same reason: this reading answers
+        // what SQLite answers.
+        if sql.fold_name(op.quantifier) == "distinct" && !strict {
+            return err(problem("near \"DISTINCT\": syntax error"))
+        }
+        val written = if op.quantifier == "" { op.kind } else { concat(op.kind, " ", op.quantifier) }
+        val arm_columns = try query_columns(database, op.query, params, strict, outer)
+        if prelude.len(arm_columns) != prelude.len(columns) {
+            return err(problem(prelude.format(
+                "SELECTs to the left and right of {} do not have the same number of result columns",
+                written
+            )))
+        }
+        push(operands, try result_values(database, op.query, params, strict, outer))
+        push(kinds, op.kind)
+        push(alls, all)
+    }
+
+    var rows = try folded(snapshot(operands), snapshot(kinds), snapshot(alls), strict)
+
+    if prelude.len(stmt.order) > 0 {
+        val no_source: [string] = []
+        val keys = try order_keys(stmt.order, columns, no_source)
+        for k in 0..prelude.len(keys) {
+            if keys[k].at < 0 {
+                return err(problem(prelude.format(
+                    "{} ORDER BY term does not match any column in the result set",
+                    ordinal_word(k + 1)
+                )))
+            }
+        }
+        rows = sort_with(rows, fn(a: [SqlValue], b: [SqlValue]) -> int {
+            for key in keys {
+                val c = compare_values(a[key.at], b[key.at])
+                if c != 0 {
+                    return if key.descending { 0 - c } else { c }
+                }
+            }
+            return 0
+        })
+    }
+
+    val out = mutable_array_new<Row>()
+    for values in rows {
+        push(out, Row { columns: columns, values: values })
+    }
+    return ok(Outcome {
+        database: database,
+        rows: try sliced_rows(snapshot(out), stmt, database, params, strict),
+        affected: 0
+    })
+}
+
+// The operands folded into one result, in the order the reading in force gives them.
+fn folded(operands: [[[SqlValue]]], kinds: [string], alls: [bool], strict: bool) -> Result<[[SqlValue]], DbError> {
+    var left = operands
+    var ops = kinds
+    var all_flags = alls
+    if strict {
+        // One pass over the `INTERSECT`s, which bind tighter than `UNION` and `EXCEPT` in the
+        // standard. What is left after it is a sequence of equal-precedence operators, folded
+        // left to right like the lax reading.
+        val tighter = mutable_array_new<[[SqlValue]]>()
+        val rest_kinds = mutable_array_new<string>()
+        val rest_alls = mutable_array_new<bool>()
+        push(tighter, operands[0])
+        for i in 1..prelude.len(operands) {
+            if kinds[i - 1] == "INTERSECT" {
+                val last = prelude.len(tighter) - 1
+                tighter[last] = combine_results("INTERSECT", alls[i - 1], tighter[last], operands[i])
+            } else {
+                push(rest_kinds, kinds[i - 1])
+                push(rest_alls, alls[i - 1])
+                push(tighter, operands[i])
+            }
+        }
+        left = snapshot(tighter)
+        ops = snapshot(rest_kinds)
+        all_flags = snapshot(rest_alls)
+    }
+    var rows = left[0]
+    for i in 1..prelude.len(left) {
+        rows = combine_results(ops[i - 1], all_flags[i - 1], rows, left[i])
+    }
+    return ok(rows)
+}
+
+// The output column names of a query, read from its shape rather than from its rows -- which is
+// what makes the arity check work for an arm that happens to answer nothing.
+fn query_columns(
+    database: Database,
+    q: SelectStmt,
+    params: [SqlValue],
+    strict: bool,
+    outer: [Ctx]
+) -> Result<[string], DbError> {
+    val cx = try shape_ctx(database, q, outer, params, strict)
+    return item_headers(q.items, cx.columns, cx.tables)
+}
+
+fn result_values(
+    database: Database,
+    q: SelectStmt,
+    params: [SqlValue],
+    strict: bool,
+    outer: [Ctx]
+) -> Result<[[SqlValue]], DbError> {
+    val out = mutable_array_new<[SqlValue]>()
+    for r in (try run_select(database, q, params, strict, outer)).rows {
+        push(out, r.values)
+    }
+    return ok(snapshot(out))
+}
+
+fn run_select(
+    database: Database,
+    stmt: SelectStmt,
+    params: [SqlValue],
+    strict: bool,
+    outer: [Ctx]
+) -> Result<Outcome, DbError> {
+    // Before validation, because a compound's `ORDER BY` is resolved against the compound's output
+    // and not against the head's source -- `validate_select` would refuse a legal one.
+    if prelude.len(stmt.set_ops) > 0 {
+        return run_compound(database, stmt, params, strict, outer)
+    }
+    try validate_select(database, stmt, outer, params, strict)
+    val source = try build_source(database, stmt, params, strict, outer)
+    val sc = Scope { database: database, source: source, params: params, strict: strict, outer: outer }
+    val names = source.columns
+
+    // The rows the `WHERE` keeps, as indexes into the source.
+    val chosen_rows = mutable_array_new<int>()
+    for i in 0..prelude.len(source.rows) {
+        var keep = true
+        if Some(e) = stmt.filter {
+            keep = is_true(try eval_expr(e, scope_ctx(sc, source.rows[i])))
+        }
+        if keep {
+            push(chosen_rows, i)
+        }
+    }
+    val chosen = snapshot(chosen_rows)
+
+    var aggregated = prelude.len(stmt.groups) > 0 || Option.is_Some(stmt.having)
+    for item in stmt.items {
+        if has_aggregate(item.expr) {
+            aggregated = true
+        }
+    }
+    if aggregated {
+        return run_grouped(sc, stmt, chosen)
+    }
+
+    // A `*` expands to every column the `FROM` produced, joins included -- **anywhere in the
+    // list**, so `SELECT *, id` is two copies of `id` and not an error. It was once allowed only on
+    // its own, which the `RETURNING` cross-check found by running `RETURNING *, id` against real
+    // SQLite.
+    val columns = try item_headers(stmt.items, names, source.tables)
+
+    // **Projected before ordered**, which is the order SQL specifies and what an `ORDER BY` naming
+    // an output column or a position needs: `ORDER BY 2` has nothing to read until the second
+    // output column exists.
+    val values_of = mutable_array_new<[SqlValue]>()
+    for i in chosen {
+        val values = mutable_array_new<SqlValue>()
+        for item in stmt.items {
+            if is_star_item(item.expr) {
+                for at in try star_positions(item.expr, names, source.tables) {
+                    push(values, present(source.rows[i][at], strict))
+                }
+            } else {
+                push(values, present(try eval_expr(item.expr, scope_ctx(sc, source.rows[i])), strict))
+            }
+        }
+        push(values_of, snapshot(values))
+    }
+    val values_by_place = snapshot(values_of)
+
+    // Sorted as a permutation of places, so a comparator can reach both the projected row and the
+    // source row behind it -- a term that is neither an ordinal nor an output name is still an
+    // expression over the source.
+    val order = mutable_array_new<int>()
+    for k in 0..prelude.len(chosen) {
+        push(order, k)
+    }
+    var places = snapshot(order)
+    if prelude.len(stmt.order) > 0 {
+        val keys = try order_keys(stmt.order, columns, names)
+        val failure = mutable_new<string>("")
+        places = sort_with(places, fn(a: int, b: int) -> int {
+            for key in keys {
+                var left: Result<SqlValue, DbError> = ok(SqlValue.Null)
+                var right: Result<SqlValue, DbError> = ok(SqlValue.Null)
+                if key.at >= 0 {
+                    left = ok(values_by_place[a][key.at])
+                    right = ok(values_by_place[b][key.at])
+                } else {
+                    left = eval_expr(key.expr, scope_ctx(sc, source.rows[chosen[a]]))
+                    right = eval_expr(key.expr, scope_ctx(sc, source.rows[chosen[b]]))
+                }
+                if Err(e) = left {
+                    set(failure, db_message(e))
+                    return 0
+                }
+                if Err(e) = right {
+                    set(failure, db_message(e))
+                    return 0
+                }
+                val c = compare_values(unwrap(left), unwrap(right))
+                if c != 0 {
+                    return if key.descending { 0 - c } else { c }
+                }
+            }
+            return 0
+        })
+        if get(failure) != "" {
+            return err(problem(get(failure)))
+        }
+    }
+
+    val projected = mutable_array_new<Row>()
+    for place in places {
+        push(projected, Row { columns: columns, values: values_by_place[place] })
+    }
+    // `DISTINCT` drops duplicates *after* the projection and *before* `LIMIT`, which is the order
+    // SQL specifies -- `SELECT DISTINCT x .. LIMIT 2` means two distinct rows, not the distinct
+    // ones among the first two.
+    var rows = snapshot(projected)
+    if stmt.distinct {
+        rows = distinct_rows(rows)
+    }
+
+    return ok(Outcome {
+        database: database,
+        rows: try sliced_rows(rows, stmt, database, params, strict),
+        affected: 0
+    })
 }
 
 // The rows a `FROM` clause produces, with a name and a table for each column.
@@ -1954,20 +2180,8 @@ fn distinct_rows(rows: [Row]) -> [Row] {
     for r in rows {
         var seen = false
         for kept in out {
-            if !seen && prelude.len(kept.values) == prelude.len(r.values) {
-                var same = true
-                for i in 0..prelude.len(r.values) {
-                    val a = kept.values[i]
-                    val b = r.values[i]
-                    if is_null(a) != is_null(b) {
-                        same = false
-                    } else if !is_null(a) && compare_values(a, b) != 0 {
-                        same = false
-                    }
-                }
-                if same {
-                    seen = true
-                }
+            if !seen && values_same(kept.values, r.values) {
+                seen = true
             }
         }
         if !seen {
@@ -1975,6 +2189,157 @@ fn distinct_rows(rows: [Row]) -> [Row] {
         }
     }
     return snapshot(out)
+}
+
+// Two rows compared the way SQL compares them for *distinctness*: **two NULLs are the same row**,
+// although `NULL = NULL` is unknown. `DISTINCT`, `GROUP BY`'s keys and every set operation take
+// this same reading, which is why it is one function.
+fn values_same(a: [SqlValue], b: [SqlValue]) -> bool {
+    if prelude.len(a) != prelude.len(b) {
+        return false
+    }
+    for i in 0..prelude.len(a) {
+        if is_null(a[i]) != is_null(b[i]) {
+            return false
+        }
+        if !is_null(a[i]) && compare_values(a[i], b[i]) != 0 {
+            return false
+        }
+    }
+    return true
+}
+
+fn occurrences(rows: [[SqlValue]], row: [SqlValue]) -> int {
+    var n = 0
+    for other in rows {
+        if values_same(other, row) {
+            n = n + 1
+        }
+    }
+    return n
+}
+
+fn distinct_values(rows: [[SqlValue]]) -> [[SqlValue]] {
+    val out = mutable_array_new<[SqlValue]>()
+    for r in rows {
+        if occurrences(snapshot(out), r) == 0 {
+            push(out, r)
+        }
+    }
+    return snapshot(out)
+}
+
+// One set operation applied to two results.
+//
+// `UNION` concatenates, `INTERSECT` keeps what is in both, `EXCEPT` keeps what is only in the left
+// -- each of them removing duplicates unless `ALL` was written, in which case **counts matter**:
+// `INTERSECT ALL` keeps a row as many times as it appears in the side it appears in least, and
+// `EXCEPT ALL` removes one occurrence per occurrence on the right. Measured against PostgreSQL,
+// which is where the `ALL` forms of the two come from at all.
+fn combine_results(kind: string, all: bool, left: [[SqlValue]], right: [[SqlValue]]) -> [[SqlValue]] {
+    if kind == "UNION" {
+        val joined = concat(left, right)
+        return if all { joined } else { distinct_values(joined) }
+    }
+    val out = mutable_array_new<[SqlValue]>()
+    if kind == "INTERSECT" {
+        val source = if all { left } else { distinct_values(left) }
+        for r in source {
+            val available = occurrences(right, r)
+            if all {
+                if occurrences(snapshot(out), r) < available {
+                    push(out, r)
+                }
+            } else if available > 0 {
+                push(out, r)
+            }
+        }
+        return snapshot(out)
+    }
+    // EXCEPT
+    val source = if all { left } else { distinct_values(left) }
+    val dropped = mutable_array_new<[SqlValue]>()
+    for r in source {
+        val to_drop = occurrences(right, r)
+        if all {
+            if occurrences(snapshot(dropped), r) < to_drop {
+                push(dropped, r)
+            } else {
+                push(out, r)
+            }
+        } else if to_drop == 0 {
+            push(out, r)
+        }
+    }
+    return snapshot(out)
+}
+
+// ---------------------------------------------------------------- ordering
+
+// Where an `ORDER BY` term's value comes from. `at` is a position in the *output* row, for a term
+// that is an ordinal (`ORDER BY 2`) or the name the select list gave a column (`ORDER BY alias`);
+// `at` is -1 for a term to be evaluated per row, which is every other term.
+struct OrderKey {
+    at: int
+    expr: Expr
+    descending: bool
+}
+
+// `1st`, `2nd`, `3rd`, `4th`, `11th`, `21st` -- SQLite's wording for an out-of-range `ORDER BY`
+// term names the term this way, and matching it exactly is what lets the cross-check fixture
+// report agreement instead of a near miss.
+fn ordinal_word(n: int) -> string {
+    val last_two = n % 100
+    val suffix = if last_two >= 11 && last_two <= 13 {
+        "th"
+    } else if n % 10 == 1 {
+        "st"
+    } else if n % 10 == 2 {
+        "nd"
+    } else if n % 10 == 3 {
+        "rd"
+    } else {
+        "th"
+    }
+    return concat(str(n), suffix)
+}
+
+// How each `ORDER BY` term will be read, resolved once before any row is sorted.
+//
+// **A term resolves against the source first and the output second**, which is the order SQL gives
+// it: `SELECT name FROM t ORDER BY name` orders by the column, not by the output column that
+// happens to share its name. An integer literal is a *position* in the output row rather than the
+// number it looks like -- `ORDER BY 1` sorts, where evaluating the literal per row would compare 1
+// with 1 for every pair and silently leave the rows as they came. That is what this engine did
+// until set operations needed ordering by position, and `SELECT n FROM a ORDER BY 1 DESC` answered
+// ascending where SQLite answers descending.
+fn order_keys(terms: [OrderTerm], columns: [string], source_columns: [string]) -> Result<[OrderKey], DbError> {
+    val out = mutable_array_new<OrderKey>()
+    for k in 0..prelude.len(terms) {
+        val term = terms[k]
+        var at = 0 - 1
+        if Lit(v) = term.expr {
+            if Int(n) = v {
+                if n < 1 || n > prelude.len(columns) {
+                    return err(problem(prelude.format(
+                        "{} ORDER BY term out of range - should be between 1 and {}",
+                        ordinal_word(k + 1),
+                        prelude.len(columns)
+                    )))
+                }
+                at = n - 1
+            }
+        }
+        if at < 0 {
+            if Col(ref) = term.expr {
+                if ref.table == "" && column_index(source_columns, ref.name) < 0 {
+                    at = column_index(columns, ref.name)
+                }
+            }
+        }
+        push(out, OrderKey { at: at, expr: term.expr, descending: term.descending })
+    }
+    return ok(snapshot(out))
 }
 
 // The grouped form of `run_select`: partition, fold, filter, order, slice, project.
@@ -2047,15 +2412,40 @@ fn run_grouped(sc: Scope, stmt: SelectStmt, chosen: [int]) -> Result<Outcome, Db
             push(surviving, rows)
         }
     }
-    var ordered = snapshot(surviving)
+    val groups_left = snapshot(surviving)
 
+    val columns = try item_headers(stmt.items, source.columns, source.tables)
+    // Projected before ordered here too, so `ORDER BY 2` and `ORDER BY alias` mean in a grouped
+    // query what they mean in a plain one.
+    val values_of = mutable_array_new<[SqlValue]>()
+    for rows in groups_left {
+        val values = mutable_array_new<SqlValue>()
+        for item in stmt.items {
+            push(values, present(try eval_grouped(item.expr, sc, rows), strict))
+        }
+        push(values_of, snapshot(values))
+    }
+    val values_by_place = snapshot(values_of)
+
+    val order = mutable_array_new<int>()
+    for k in 0..prelude.len(groups_left) {
+        push(order, k)
+    }
+    var places = snapshot(order)
     if prelude.len(stmt.order) > 0 {
-        val terms = stmt.order
+        val keys = try order_keys(stmt.order, columns, source.columns)
         val failure = mutable_new<string>("")
-        ordered = sort_with(ordered, fn(a: [[SqlValue]], b: [[SqlValue]]) -> int {
-            for term in terms {
-                val left = eval_grouped(term.expr, sc, a)
-                val right = eval_grouped(term.expr, sc, b)
+        places = sort_with(places, fn(a: int, b: int) -> int {
+            for key in keys {
+                var left: Result<SqlValue, DbError> = ok(SqlValue.Null)
+                var right: Result<SqlValue, DbError> = ok(SqlValue.Null)
+                if key.at >= 0 {
+                    left = ok(values_by_place[a][key.at])
+                    right = ok(values_by_place[b][key.at])
+                } else {
+                    left = eval_grouped(key.expr, sc, groups_left[a])
+                    right = eval_grouped(key.expr, sc, groups_left[b])
+                }
                 if Err(e) = left {
                     set(failure, db_message(e))
                     return 0
@@ -2066,7 +2456,7 @@ fn run_grouped(sc: Scope, stmt: SelectStmt, chosen: [int]) -> Result<Outcome, Db
                 }
                 val c = compare_values(unwrap(left), unwrap(right))
                 if c != 0 {
-                    return if term.descending { 0 - c } else { c }
+                    return if key.descending { 0 - c } else { c }
                 }
             }
             return 0
@@ -2076,46 +2466,20 @@ fn run_grouped(sc: Scope, stmt: SelectStmt, chosen: [int]) -> Result<Outcome, Db
         }
     }
 
-    val headers = mutable_array_new<string>()
-    for i in 0..prelude.len(stmt.items) {
-        push(headers, item_name(stmt.items[i], i))
-    }
-    val columns = snapshot(headers)
     val projected = mutable_array_new<Row>()
-    for rows in ordered {
-        val values = mutable_array_new<SqlValue>()
-        for item in stmt.items {
-            push(values, present(try eval_grouped(item.expr, sc, rows), strict))
-        }
-        push(projected, Row { columns: columns, values: snapshot(values) })
+    for place in places {
+        push(projected, Row { columns: columns, values: values_by_place[place] })
     }
     var out_rows = snapshot(projected)
     if stmt.distinct {
         out_rows = distinct_rows(out_rows)
     }
 
-    var from = 0
-    if Some(e) = stmt.offset {
-        from = unwrap_int(try eval_expr(e, bare_ctx(database, params, strict)))
-    }
-    var upto = prelude.len(out_rows)
-    if Some(e) = stmt.limit {
-        val count = unwrap_int(try eval_expr(e, bare_ctx(database, params, strict)))
-        if count >= 0 && from + count < upto {
-            upto = from + count
-        }
-    }
-    if from > prelude.len(out_rows) {
-        from = prelude.len(out_rows)
-    }
-    if upto < from {
-        upto = from
-    }
-    val sliced = mutable_array_new<Row>()
-    for k in from..upto {
-        push(sliced, out_rows[k])
-    }
-    return ok(Outcome { database: database, rows: snapshot(sliced), affected: 0 })
+    return ok(Outcome {
+        database: database,
+        rows: try sliced_rows(out_rows, stmt, database, params, strict),
+        affected: 0
+    })
 }
 
 fn db_message(e: DbError) -> string {
@@ -2204,7 +2568,7 @@ pub fn driver() -> Driver {
     return engine("memdb:", false)
 }
 
-// The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Five things differ,
+// The same engine reading SQL the way the **standard** does, at `memdb-ansi:`. Seven things differ,
 // and the first four are places where SQLite departs from ANSI:
 //
 //   - `LIKE` is case-sensitive, as the standard and PostgreSQL have it, where SQLite folds ASCII;
@@ -2213,9 +2577,16 @@ pub fn driver() -> Driver {
 //   - a boolean in a select list stays a boolean, where SQLite has no boolean type and answers 0
 //     or 1.
 //
-// The fifth is the one exception, and it points the other way: `RETURNING t.*` is **refused** by
-// SQLite and answered by PostgreSQL (measured, not assumed), so the lax reading refuses it and
-// this one runs it.
+// The other three point the other way, SQLite being the stricter engine (each measured, not
+// assumed):
+//
+//   - a chain of set operations groups left to right in SQLite and binds `INTERSECT` tighter in the
+//     standard and in PostgreSQL, so `a UNION b INTERSECT c` is two different queries;
+//   - `INTERSECT ALL`, `EXCEPT ALL` and `UNION DISTINCT` are syntax errors in SQLite and ordinary
+//     SQL in PostgreSQL;
+//   - `RETURNING t.*` is refused by SQLite and answered by PostgreSQL.
+//
+// For those, the lax reading refuses and this one runs them.
 //
 // **It is a portability check, not a better engine.** A suite that passes on `memdb:` and fails on
 // `memdb-ansi:` has found SQL that leans on SQLite, which matters when the same application also

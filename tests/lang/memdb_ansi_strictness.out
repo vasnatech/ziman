@@ -48,7 +48,27 @@
    lax:    refused: database error: RETURNING may not use "TABLE.*" wildcards
    ansi:   0 row(s)
    sqlite: refused: database error: RETURNING may not use "TABLE.*" wildcards
-lax matches sqlite on 10 of 10
-ansi differs from lax on 10 of 10
+-- **how a compound query groups**: SQLite reads UNION, INTERSECT and EXCEPT strictly left to right, while the standard and PostgreSQL bind INTERSECT tighter than the other two -- so this one query is two different queries depending on the engine, and nothing in its text says which
+   SELECT id FROM t UNION SELECT n FROM t INTERSECT SELECT n FROM t ORDER BY 1
+   lax:    3 row(s) | Int(0) | Int(5) | Int(10)
+   ansi:   6 row(s) | Int(0) | Int(1) | Int(2) | Int(3) | Int(5) | Int(10)
+   sqlite: 3 row(s) | Int(0) | Int(5) | Int(10)
+-- INTERSECT ALL: SQLite has no such syntax at all, PostgreSQL keeps a row as many times as it appears in the side it appears in least
+   SELECT id FROM t INTERSECT ALL SELECT id FROM t ORDER BY 1
+   lax:    refused: database error: near "ALL": syntax error
+   ansi:   3 row(s) | Int(1) | Int(2) | Int(3)
+   sqlite: refused: database error: near "ALL": syntax error
+-- EXCEPT ALL, likewise absent from SQLite: it removes one occurrence per occurrence on the right
+   SELECT id FROM t EXCEPT ALL SELECT n FROM t ORDER BY 1
+   lax:    refused: database error: near "ALL": syntax error
+   ansi:   3 row(s) | Int(1) | Int(2) | Int(3)
+   sqlite: refused: database error: near "ALL": syntax error
+-- UNION DISTINCT, which is what a bare UNION means and which SQLite nonetheless refuses -- the word is why `SetOp` keeps the quantifier it was written with instead of a flag
+   SELECT id FROM t UNION DISTINCT SELECT n FROM t ORDER BY 1
+   lax:    refused: database error: near "DISTINCT": syntax error
+   ansi:   6 row(s) | Int(0) | Int(1) | Int(2) | Int(3) | Int(5) | Int(10)
+   sqlite: refused: database error: near "DISTINCT": syntax error
+lax matches sqlite on 14 of 14
+ansi differs from lax on 14 of 14
 -- the two readings agree on everything else --
-the two readings agree on 23 of 23
+the two readings agree on 31 of 31

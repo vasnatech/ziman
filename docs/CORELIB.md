@@ -2123,6 +2123,19 @@ pub struct Assignment {
     value: Expr
 }
 
+pub struct SetOp {
+    kind: string
+    // `ALL`, `DISTINCT`, or empty where neither was written -- kept as the word it was rather than
+    // reduced to a flag. `DISTINCT` is the default and changes nothing, but SQLite *refuses* it
+    // after a set operator where PostgreSQL accepts it, so an engine has to be able to tell
+    // `UNION DISTINCT` from `UNION`; a formatter that normalised one into the other would turn SQL
+    // one engine rejects into SQL it accepts.
+    quantifier: string
+    query: SelectStmt
+}
+
+pub fn set_op_keeps_all(op: SetOp) -> bool
+
 pub struct SelectStmt {
     distinct: bool
     items: [SelectItem]
@@ -2137,6 +2150,14 @@ pub struct SelectStmt {
     order: [OrderTerm]
     limit: Option<Expr>
     offset: Option<Expr>
+    // The set operations applied to this query, left to right. Empty for a simple `SELECT`.
+    //
+    // On a *compound* query the head carries them, and the head's `order`, `limit` and `offset`
+    // belong to the **whole** compound rather than to its first arm -- which is what SQL means by
+    // them, since an arm may not have an `ORDER BY` of its own (`SELECT .. ORDER BY .. UNION ..` is
+    // an error in both engines). An arm's own `set_ops`, `order`, `limit` and `offset` are always
+    // empty, so a reader can treat an arm as a simple query.
+    set_ops: [SetOp]
 }
 
 pub struct InsertStmt {

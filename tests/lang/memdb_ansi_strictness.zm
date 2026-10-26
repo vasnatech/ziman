@@ -82,6 +82,22 @@ fn main() {
         [
             "UPDATE t SET n = n WHERE id = 999 RETURNING t.*, t.id",
             "the same, on an UPDATE, and again matching nothing"
+        ],
+        [
+            "SELECT id FROM t UNION SELECT n FROM t INTERSECT SELECT n FROM t ORDER BY 1",
+            "**how a compound query groups**: SQLite reads UNION, INTERSECT and EXCEPT strictly left to right, while the standard and PostgreSQL bind INTERSECT tighter than the other two -- so this one query is two different queries depending on the engine, and nothing in its text says which"
+        ],
+        [
+            "SELECT id FROM t INTERSECT ALL SELECT id FROM t ORDER BY 1",
+            "INTERSECT ALL: SQLite has no such syntax at all, PostgreSQL keeps a row as many times as it appears in the side it appears in least"
+        ],
+        [
+            "SELECT id FROM t EXCEPT ALL SELECT n FROM t ORDER BY 1",
+            "EXCEPT ALL, likewise absent from SQLite: it removes one occurrence per occurrence on the right"
+        ],
+        [
+            "SELECT id FROM t UNION DISTINCT SELECT n FROM t ORDER BY 1",
+            "UNION DISTINCT, which is what a bare UNION means and which SQLite nonetheless refuses -- the word is why `SetOp` keeps the quantifier it was written with instead of a flag"
         ]
     ]
 
@@ -136,6 +152,14 @@ fn main() {
         "SELECT id FROM t WHERE id IN (SELECT id FROM t WHERE n > 1) ORDER BY id",
         "SELECT id FROM t WHERE EXISTS (SELECT 1 FROM t AS u WHERE u.n = t.n) ORDER BY id",
         "SELECT (SELECT max(n) FROM t) AS most",
+        "SELECT id FROM t UNION SELECT n FROM t ORDER BY 1",
+        "SELECT id FROM t UNION ALL SELECT n FROM t ORDER BY 1",
+        "SELECT id FROM t INTERSECT SELECT n FROM t ORDER BY 1",
+        "SELECT id FROM t EXCEPT SELECT n FROM t ORDER BY 1",
+        "SELECT id AS k FROM t UNION SELECT n FROM t ORDER BY k DESC",
+        "SELECT id FROM t UNION SELECT n FROM t ORDER BY 1 LIMIT 2 OFFSET 1",
+        "SELECT id, name FROM t UNION SELECT n FROM t",
+        "SELECT id FROM t UNION SELECT n FROM t ORDER BY 7",
         // `RETURNING` is **not** ANSI SQL -- the standard's form is a data change delta table,
         // `SELECT * FROM FINAL TABLE (INSERT ..)` -- and the strict reading runs it anyway. That is
         // deliberate: whether a connection has `RETURNING` is a question about the engine, which

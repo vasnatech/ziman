@@ -36,6 +36,14 @@ Joins: `[INNER] JOIN`, `LEFT`/`RIGHT`/`FULL [OUTER] JOIN` and `CROSS JOIN`, each
 condition or a `USING` column list, as a flat left-deep list -- which is what SQL means by
 `a JOIN b ON .. JOIN c ON ..`. A parenthesised join expression would need a tree and is not read.
 
+Set operations: `UNION`, `INTERSECT` and `EXCEPT`, each with an optional `ALL` or `DISTINCT`,
+chained left to right, with the compound's `ORDER BY`, `LIMIT` and `OFFSET` after the last arm.
+**The sequence is recorded as written and not grouped into a tree**, because the grouping is
+dialect-specific: SQLite reads the three operators left to right and the standard binds
+`INTERSECT` tighter, so a tree built here would have to pick an engine. A parenthesised arm
+(`(SELECT ..) UNION (SELECT ..)`) is not read -- SQLite refuses it too, and recording it would
+mean a formatter that could turn SQL one engine rejects into SQL it accepts.
+
 A `*` stands anywhere in a result list, on its own or beside other items, and `t.*` names one
 table's columns -- in a select list and in a `RETURNING` clause alike.
 
@@ -54,8 +62,8 @@ PostgreSQL, SQLite from 3.35 and MariaDB all have `RETURNING`, so reading the cl
 actually write is worth more here than reading the one the standard specifies. The delta-table
 form is not read.
 
-This is **not** ANSI SQL. ISO/IEC 9075 also has set operations (`UNION`, `INTERSECT`, `EXCEPT`),
-derived tables and `LATERAL` in a `FROM`, common table expressions, window functions, `MERGE`,
+This is **not** ANSI SQL. ISO/IEC 9075 also has derived tables and `LATERAL` in a `FROM`,
+`CORRESPONDING` on a set operation, common table expressions, window functions, `MERGE`,
 `GRANT`/`REVOKE`, views, schemas, sequences, domains, triggers, routines, cursors, savepoints,
 isolation levels, `GROUPING SETS`, interval and row constructors, `IS DISTINCT FROM`,
 `SIMILAR TO`, `OVERLAPS`, temporal tables and the SQL/JSON functions. For scale, PostgreSQL's own grammar is some twenty thousand lines and is
@@ -348,6 +356,38 @@ pub struct Assignment {
 }
 ```
 
+### `SetOp`
+
+```
+pub struct SetOp {
+    kind: string
+    // `ALL`, `DISTINCT`, or empty where neither was written -- kept as the word it was rather than
+    // reduced to a flag. `DISTINCT` is the default and changes nothing, but SQLite *refuses* it
+    // after a set operator where PostgreSQL accepts it, so an engine has to be able to tell
+    // `UNION DISTINCT` from `UNION`; a formatter that normalised one into the other would turn SQL
+    // one engine rejects into SQL it accepts.
+    quantifier: string
+    query: SelectStmt
+}
+```
+
+One arm of a set operation, with the operator that joins it to everything on its left. `kind` is
+`UNION`, `INTERSECT` or `EXCEPT`; `all` is the `ALL` that keeps duplicates.
+
+**A flat list, as joins are, and for a sharper reason: the grouping is dialect-specific.** The
+standard and PostgreSQL bind `INTERSECT` tighter than `UNION` and `EXCEPT`, and SQLite reads all
+three strictly left to right -- so `a UNION b INTERSECT c` is two different queries depending on
+the engine. A tree built here would have to pick one, and this module has no dialect. The
+sequence as written is what it records; `memdb` decides how to group it.
+
+### `set_op_keeps_all`
+
+```
+pub fn set_op_keeps_all(op: SetOp) -> bool
+```
+
+Whether a set operation keeps duplicates.
+
 ### `SelectStmt`
 
 ```
@@ -365,6 +405,14 @@ pub struct SelectStmt {
     order: [OrderTerm]
     limit: Option<Expr>
     offset: Option<Expr>
+    // The set operations applied to this query, left to right. Empty for a simple `SELECT`.
+    //
+    // On a *compound* query the head carries them, and the head's `order`, `limit` and `offset`
+    // belong to the **whole** compound rather than to its first arm -- which is what SQL means by
+    // them, since an arm may not have an `ORDER BY` of its own (`SELECT .. ORDER BY .. UNION ..` is
+    // an error in both engines). An arm's own `set_ops`, `order`, `limit` and `offset` are always
+    // empty, so a reader can treat an arm as a simple query.
+    set_ops: [SetOp]
 }
 ```
 

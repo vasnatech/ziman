@@ -38,6 +38,19 @@ val samples: [string] = [
     "SELECT DISTINCT name, age FROM patient ORDER BY name LIMIT 2",
     "SELECT count(DISTINCT name) AS c, count(*) AS all_of_them FROM patient",
     "SELECT CAST(age AS TEXT) AS t, CAST('1' AS INTEGER) AS n, CAST(x AS NUMERIC(10, 2)) AS m FROM patient",
+    "SELECT n FROM t UNION SELECT n FROM u",
+    "SELECT n FROM t UNION ALL SELECT n FROM u",
+    "SELECT n FROM t UNION DISTINCT SELECT n FROM u",
+    "SELECT n FROM t INTERSECT SELECT n FROM u",
+    "SELECT n FROM t INTERSECT ALL SELECT n FROM u",
+    "SELECT n FROM t EXCEPT SELECT n FROM u",
+    "SELECT n FROM t EXCEPT ALL SELECT n FROM u",
+    "SELECT n FROM t UNION SELECT n FROM u INTERSECT SELECT n FROM v EXCEPT SELECT n FROM w",
+    "SELECT n FROM t WHERE n > 1 GROUP BY n HAVING count(*) > 1 UNION SELECT n FROM u WHERE n < 9 ORDER BY 1 DESC LIMIT 2 OFFSET 1",
+    "SELECT DISTINCT n FROM t UNION SELECT n FROM u ORDER BY n",
+    "SELECT a.n FROM t AS a JOIN u AS b ON b.n = a.n UNION SELECT n FROM v",
+    "SELECT n FROM t WHERE n IN (SELECT n FROM u UNION SELECT n FROM v)",
+    "SELECT n FROM t WHERE EXISTS (SELECT 1 FROM u EXCEPT SELECT 1 FROM v)",
     "SELECT t.* FROM t",
     "SELECT t.*, u.id FROM t JOIN u ON u.t_id = t.id",
     "SELECT *, t.* FROM t",
@@ -139,7 +152,9 @@ fn main() {
         "select count(distinct a),cast(b as text) from t group by cast(b as text)",
         "insert into t(a)values(1)returning *,a as copy",
         "delete from t where a=1 returning a",
-        "select t.*,u.* from t join u using(id)"
+        "select t.*,u.* from t join u using(id)",
+        "select n from t union  all  select n from u order by 1 desc",
+        "select n from t union distinct select n from u"
     ] {
         print(concat("  in:  ", s))
         print(concat("  out: ", switch sql.parse(s) {
