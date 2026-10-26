@@ -1,0 +1,601 @@
+// Unit tests for `sql`, asserting on the **tree** rather than on the text.
+//
+// `tests/lang/sql_round_trip.zm` already pins the text: 120 statement shapes and the sample
+// application's 39 migration files all settle after one `format(parse(..))`. What that property
+// cannot see is a tree that is *wrong in a way the formatter writes back consistently* -- which is
+// exactly how `ALTER TABLE t ADD CONSTRAINT k UNIQUE (a)` spent several increments being read as a
+// column named `CONSTRAINT`, round-tripping perfectly the whole time. So these tests take the tree
+// apart and name what each node has to be.
+//
+// The precedence cases are the ones to keep. SQL's precedence is not the obvious one, this module
+// had it wrong twice, and the expression parser was rewritten from nine nested functions into one
+// climbing loop for speed -- a change that could have altered what a query *means* while leaving
+// every round trip intact.
+use clock
+use db
+use math
+use sql
+use test
+
+fn parsed(text: string) -> sql.Statement {
+    return test.assert_ok(sql.parse(text))
+}
+
+fn select_of(text: string) -> sql.SelectStmt {
+    var found = Option<sql.SelectStmt>.None
+    if Select(q) = parsed(text) {
+        found = Option<sql.SelectStmt>.Some(q)
+    }
+    return test.assert_some(found)
+}
+
+fn created(text: string) -> sql.CreateStmt {
+    var found = Option<sql.CreateStmt>.None
+    if Create(q) = parsed(text) {
+        found = Option<sql.CreateStmt>.Some(q)
+    }
+    return test.assert_some(found)
+}
+
+fn inserted(text: string) -> sql.InsertStmt {
+    var found = Option<sql.InsertStmt>.None
+    if Insert(q) = parsed(text) {
+        found = Option<sql.InsertStmt>.Some(q)
+    }
+    return test.assert_some(found)
+}
+
+fn altered(text: string) -> sql.AlterStmt {
+    var found = Option<sql.AlterStmt>.None
+    if Alter(q) = parsed(text) {
+        found = Option<sql.AlterStmt>.Some(q)
+    }
+    return test.assert_some(found)
+}
+
+// An expression as a shape string -- `Bin(=, Col(a), Lit(1))` -- which is what makes a precedence
+// assertion readable and independent of how the formatter decides to bracket things.
+fn shape(e: sql.Expr) -> string {
+    return switch e {
+        Lit(v) { concat("Lit(", sql.format_value(v), ")") }
+        Col(ref) { concat("Col(", if ref.table == "" { ref.name } else { concat(ref.table, ".", ref.name) }, ")") }
+        Param(n) { concat("Param(", str(n), ")") }
+        Not(node) { concat("Not(", shape(node.inner), ")") }
+        Bin(node) { concat("Bin(", node.op, ", ", shape(node.left), ", ", shape(node.right), ")") }
+        IsNull(node) { concat(if node.negated { "IsNotNull(" } else { "IsNull(" }, shape(node.inner), ")") }
+        Call(node) {
+            val args = mutable_array_new<string>()
+            for a in node.args {
+                push(args, shape(a))
+            }
+            concat(
+                "Call(",
+                node.name,
+                if node.distinct { " DISTINCT" } else { "" },
+                ", ",
+                join(separator: ", ", pieces: snapshot(args)),
+                ")"
+            )
+        }
+        Sub(_) { "Sub(..)" }
+        Exists(_) { "Exists(..)" }
+        InSub(node) { concat(if node.negated { "NotInSub(" } else { "InSub(" }, shape(node.subject), ")") }
+        Cast(node) { concat("Cast(", shape(node.inner), " AS ", node.type_name, ")") }
+        Like(node) {
+            concat(if node.negated { "NotLike(" } else { "Like(" }, shape(node.subject), ", ", shape(node.pattern), ")")
+        }
+        In(node) { concat(if node.negated { "NotIn(" } else { "In(" }, shape(node.subject), ")") }
+        Between(node) {
+            concat(
+                if node.negated { "NotBetween(" } else { "Between(" },
+                shape(node.subject),
+                ", ",
+                shape(node.low),
+                ", ",
+                shape(node.high),
+                ")"
+            )
+        }
+        Case(node) { concat("Case(", str(prelude.len(node.arms)), " when)") }
+        Star { "Star" }
+        TableStar(t) { concat("TableStar(", t, ")") }
+    }
+}
+
+// The shape of the one expression a `SELECT <expr>` selects.
+fn item_shape(expression: string) -> string {
+    val q = select_of(concat("SELECT ", expression))
+    test.assert_len(1, q.items)
+    return shape(q.items[0].expr)
+}
+
+// ---------------------------------------------------------------- precedence
+
+#[test]
+fn not_binds_looser_than_a_comparison() {
+    // `NOT a = 1` is `NOT (a = 1)`, not `(NOT a) = 1`. Checked against SQLite when it was fixed.
+    test.assert_eq("Not(Bin(=, Col(a), Lit(1)))", item_shape("NOT a = 1"))
+}
+
+#[test]
+fn is_null_binds_looser_than_arithmetic() {
+    // `1 + NULL IS NULL` is `(1 + NULL) IS NULL`, which is true -- not `1 + (NULL IS NULL)`.
+    test.assert_eq("IsNull(Bin(+, Lit(1), Lit(NULL)))", item_shape("1 + NULL IS NULL"))
+}
+
+#[test]
+fn and_binds_tighter_than_or() {
+    test.assert_eq(
+        "Bin(OR, Col(a), Bin(AND, Col(b), Col(c)))",
+        item_shape("a OR b AND c")
+    )
+}
+
+#[test]
+fn not_binds_tighter_than_and() {
+    test.assert_eq("Bin(AND, Not(Col(a)), Col(b))", item_shape("NOT a AND b"))
+}
+
+#[test]
+fn concatenation_binds_tighter_than_multiplication() {
+    // SQLite's and PostgreSQL's order, which is not the one a reader expects.
+    test.assert_eq(
+        "Bin(*, Lit('a'), Bin(||, Lit(1), Lit(2)))",
+        item_shape("'a' * 1 || 2")
+    )
+}
+
+#[test]
+fn multiplication_binds_tighter_than_addition() {
+    test.assert_eq("Bin(+, Lit(1), Bin(*, Lit(2), Lit(3)))", item_shape("1 + 2 * 3"))
+}
+
+#[test]
+fn subtraction_is_left_associative() {
+    // The climbing loop recurses at `prec + 1` for exactly this: `1 - 2 - 3` is `(1 - 2) - 3`,
+    // which is -4, where the other grouping is 2.
+    test.assert_eq("Bin(-, Bin(-, Lit(1), Lit(2)), Lit(3))", item_shape("1 - 2 - 3"))
+}
+
+#[test]
+fn division_is_left_associative() {
+    test.assert_eq("Bin(/, Bin(/, Lit(8), Lit(4)), Lit(2))", item_shape("8 / 4 / 2"))
+}
+
+#[test]
+fn brackets_override_precedence() {
+    test.assert_eq("Bin(*, Bin(+, Lit(1), Lit(2)), Lit(3))", item_shape("(1 + 2) * 3"))
+}
+
+#[test]
+fn a_predicate_applies_to_the_whole_arithmetic_expression() {
+    test.assert_eq(
+        "Like(Bin(||, Col(a), Lit('x')), Lit('y%'))",
+        item_shape("a || 'x' LIKE 'y%'")
+    )
+}
+
+#[test]
+fn between_takes_the_and_that_follows_it() {
+    // The `AND` after the low bound is BETWEEN's own, not a boolean operator.
+    test.assert_eq(
+        "Between(Col(a), Lit(1), Lit(2))",
+        item_shape("a BETWEEN 1 AND 2")
+    )
+}
+
+#[test]
+fn between_and_a_boolean_and_can_both_appear() {
+    test.assert_eq(
+        "Bin(AND, Between(Col(a), Lit(1), Lit(2)), Col(b))",
+        item_shape("a BETWEEN 1 AND 2 AND b")
+    )
+}
+
+#[test]
+fn a_negated_predicate_keeps_its_not() {
+    test.assert_eq("NotLike(Col(a), Lit('x'))", item_shape("a NOT LIKE 'x'"))
+    test.assert_eq("NotIn(Col(a))", item_shape("a NOT IN (1, 2)"))
+    test.assert_eq("NotBetween(Col(a), Lit(1), Lit(2))", item_shape("a NOT BETWEEN 1 AND 2"))
+    test.assert_eq("IsNotNull(Col(a))", item_shape("a IS NOT NULL"))
+}
+
+#[test]
+fn a_plain_not_before_a_predicate_is_still_a_not() {
+    // The parser looks past a `NOT` to see whether it belongs to `LIKE`, and has to put it back
+    // when it does not.
+    test.assert_eq("Not(Like(Col(a), Lit('x')))", item_shape("NOT a LIKE 'x'"))
+}
+
+#[test]
+fn predicates_chain_left_to_right() {
+    test.assert_eq("IsNull(Bin(=, Col(a), Lit(1)))", item_shape("a = 1 IS NULL"))
+}
+
+#[test]
+fn a_negation_is_zero_minus_the_value() {
+    test.assert_eq("Bin(-, Lit(0), Lit(5))", item_shape("-5"))
+}
+
+// ---------------------------------------------------------------- the tree
+
+#[test]
+fn a_bound_parameter_keeps_its_number() {
+    test.assert_eq("Param(3)", item_shape("$3"))
+}
+
+#[test]
+fn positional_parameters_are_numbered_in_order() {
+    val q = select_of("SELECT ? , ? , ?")
+    test.assert_eq("Param(1)", shape(q.items[0].expr))
+    test.assert_eq("Param(2)", shape(q.items[1].expr))
+    test.assert_eq("Param(3)", shape(q.items[2].expr))
+}
+
+#[test]
+fn a_statement_may_mix_the_two_parameter_spellings() {
+    val q = select_of("SELECT $2, ?, $7")
+    test.assert_eq("Param(2)", shape(q.items[0].expr))
+    test.assert_eq("Param(1)", shape(q.items[1].expr))
+    test.assert_eq("Param(7)", shape(q.items[2].expr))
+}
+
+#[test]
+fn a_qualified_column_keeps_its_table() {
+    test.assert_eq("Col(t.a)", item_shape("t.a"))
+}
+
+#[test]
+fn an_alias_is_read_with_or_without_as() {
+    test.assert_eq("x", select_of("SELECT a AS x").items[0].alias)
+    test.assert_eq("x", select_of("SELECT a x").items[0].alias)
+    test.assert_blank(select_of("SELECT a").items[0].alias)
+}
+
+#[test]
+fn a_clause_keyword_is_not_an_alias() {
+    // `FROM t` after a bare item must not read `FROM` as the item's alias, which is what the
+    // clause-word set is for.
+    val q = select_of("SELECT a FROM t")
+    test.assert_blank(q.items[0].alias)
+    test.assert_len(1, q.from)
+    test.assert_eq("t", q.from[0].name)
+}
+
+#[test]
+fn a_table_alias_is_read_with_or_without_as() {
+    test.assert_eq("p", select_of("SELECT a FROM patient AS p").from[0].alias)
+    test.assert_eq("p", select_of("SELECT a FROM patient p").from[0].alias)
+}
+
+#[test]
+fn count_star_and_count_distinct_are_told_apart() {
+    test.assert_eq("Call(count, Star)", item_shape("count(*)"))
+    test.assert_eq("Call(count DISTINCT, Col(a))", item_shape("count(DISTINCT a)"))
+    test.assert_eq("Call(count, Col(a))", item_shape("count(a)"))
+}
+
+#[test]
+fn a_comma_in_a_from_list_is_a_cross_join() {
+    val q = select_of("SELECT a FROM t, u")
+    test.assert_len(1, q.from)
+    test.assert_len(1, q.joins)
+    test.assert_eq("CROSS", q.joins[0].kind)
+    test.assert_eq("u", q.joins[0].table.name)
+}
+
+#[test]
+fn a_join_without_a_kind_is_inner() {
+    val q = select_of("SELECT a FROM t JOIN u ON u.i = t.i")
+    test.assert_eq("INNER", q.joins[0].kind)
+    test.assert_some(q.joins[0].on)
+}
+
+#[test]
+fn a_using_list_is_kept_as_columns() {
+    val q = select_of("SELECT a FROM t JOIN u USING (i, j)")
+    test.assert_none(q.joins[0].on)
+    test.assert_eq(["i", "j"], q.joins[0].using)
+}
+
+#[test]
+fn a_derived_table_holds_its_query() {
+    val q = select_of("SELECT x.n FROM (SELECT n FROM t) AS x")
+    test.assert_blank(q.from[0].name)
+    test.assert_len(1, q.from[0].query)
+    test.assert_eq("x", q.from[0].alias)
+    test.assert_eq("t", q.from[0].query[0].from[0].name)
+}
+
+#[test]
+fn a_derived_table_keeps_its_column_aliases() {
+    val q = select_of("SELECT x.b FROM (SELECT a FROM t) AS x (b, c)")
+    test.assert_eq(["b", "c"], q.from[0].column_aliases)
+}
+
+#[test]
+fn a_set_operation_keeps_its_quantifier_as_written() {
+    // `UNION DISTINCT` has to be distinguishable from `UNION`, because SQLite refuses the first
+    // and accepts the second. A `bool` could not tell them apart.
+    test.assert_blank(select_of("SELECT a FROM t UNION SELECT b FROM u").set_ops[0].quantifier)
+    test.assert_eq("ALL", select_of("SELECT a FROM t UNION ALL SELECT b FROM u").set_ops[0].quantifier)
+    test.assert_eq(
+        "DISTINCT",
+        select_of("SELECT a FROM t UNION DISTINCT SELECT b FROM u").set_ops[0].quantifier
+    )
+}
+
+#[test]
+fn a_compounds_order_by_belongs_to_the_head() {
+    val q = select_of("SELECT a FROM t UNION SELECT b FROM u ORDER BY 1 LIMIT 2")
+    test.assert_len(1, q.set_ops)
+    test.assert_len(1, q.order)
+    test.assert_some(q.limit)
+    // and not to the arm it was written after
+    test.assert_empty(q.set_ops[0].query.order)
+    test.assert_none(q.set_ops[0].query.limit)
+}
+
+#[test]
+fn a_returning_clause_is_a_select_list() {
+    val q = inserted("INSERT INTO t (a) VALUES (1) RETURNING a AS made, b")
+    test.assert_len(2, q.returning)
+    test.assert_eq("made", q.returning[0].alias)
+    test.assert_eq("Col(b)", shape(q.returning[1].expr))
+}
+
+// ---------------------------------------------------------------- constraints
+
+fn rule_name(tc: sql.TableConstraint) -> string {
+    return switch tc.rule {
+        PrimaryKey(columns) { concat("PrimaryKey(", join(separator: ",", pieces: columns), ")") }
+        Unique(columns) { concat("Unique(", join(separator: ",", pieces: columns), ")") }
+        Check(e) { concat("Check(", shape(e), ")") }
+        ForeignKey(fk) {
+            concat(
+                "ForeignKey(",
+                join(separator: ",", pieces: fk.columns),
+                " -> ",
+                fk.table,
+                "(",
+                join(separator: ",", pieces: fk.references),
+                ")",
+                if fk.on_delete == "" { "" } else { concat(" ON DELETE ", fk.on_delete) },
+                if fk.on_update == "" { "" } else { concat(" ON UPDATE ", fk.on_update) },
+                ")"
+            )
+        }
+        Opaque { concat("Opaque(", tc.text, ")") }
+    }
+}
+
+#[test]
+fn a_column_keeps_its_four_flags() {
+    val q = created("CREATE TABLE t (a INTEGER PRIMARY KEY NOT NULL UNIQUE DEFAULT 7)")
+    test.assert(q.columns[0].primary_key)
+    test.assert(q.columns[0].not_null)
+    test.assert(q.columns[0].unique)
+    test.assert_eq("7", sql.format_value(test.assert_some(q.columns[0].default_value)))
+}
+
+#[test]
+fn a_table_level_key_is_modelled_with_its_columns() {
+    val q = created("CREATE TABLE t (a INTEGER, b INTEGER, PRIMARY KEY (a, b), UNIQUE (b))")
+    test.assert_len(2, q.constraints)
+    test.assert_eq("PrimaryKey(a,b)", rule_name(q.constraints[0]))
+    test.assert_eq("Unique(b)", rule_name(q.constraints[1]))
+}
+
+#[test]
+fn a_named_constraint_keeps_its_name() {
+    val q = created("CREATE TABLE t (a INTEGER, CONSTRAINT positive CHECK (a > 0))")
+    test.assert_eq("positive", q.constraints[0].name)
+    test.assert_eq("Check(Bin(>, Col(a), Lit(0)))", rule_name(q.constraints[0]))
+}
+
+#[test]
+fn a_foreign_key_keeps_its_actions() {
+    val q = created(
+        "CREATE TABLE t (a INTEGER, FOREIGN KEY (a) REFERENCES u (b) ON DELETE CASCADE ON UPDATE SET NULL)"
+    )
+    test.assert_eq("ForeignKey(a -> u(b) ON DELETE CASCADE ON UPDATE SET NULL)", rule_name(q.constraints[0]))
+}
+
+#[test]
+fn a_column_position_reference_is_modelled_on_the_column() {
+    val q = created("CREATE TABLE t (a INTEGER REFERENCES u (b) ON DELETE SET DEFAULT)")
+    test.assert_empty(q.constraints)
+    test.assert_len(1, q.columns[0].constraints)
+    test.assert_eq("ForeignKey(a -> u(b) ON DELETE SET DEFAULT)", rule_name(q.columns[0].constraints[0]))
+}
+
+#[test]
+fn a_reference_without_columns_names_no_parent_columns() {
+    val q = created("CREATE TABLE t (a INTEGER REFERENCES u)")
+    test.assert_eq("ForeignKey(a -> u())", rule_name(q.columns[0].constraints[0]))
+}
+
+#[test]
+fn an_unmodelled_constraint_shape_is_kept_as_text() {
+    // PostgreSQL's `EXCLUDE`, which this module does not model and must not mistake for a column.
+    val q = created("CREATE TABLE t (a INTEGER, EXCLUDE USING gist (a WITH =))")
+    test.assert_len(1, q.columns)
+    test.assert_eq("Opaque(EXCLUDE USING gist (a WITH =))", rule_name(q.constraints[0]))
+    // and a named constraint whose shape is none of the four
+    val named = created("CREATE TABLE t (a INTEGER, CONSTRAINT k EXCLUDE USING gist (a WITH =))")
+    test.assert_eq("Opaque(CONSTRAINT k EXCLUDE USING gist (a WITH =))", rule_name(named.constraints[0]))
+}
+
+#[test]
+fn a_named_column_constraint_keeps_its_name() {
+    val q = created("CREATE TABLE t (a TEXT COLLATE NOCASE, b INTEGER CONSTRAINT k CHECK (b > 0))")
+    test.assert_eq("COLLATE NOCASE", q.columns[0].extra)
+    test.assert_empty(q.columns[0].constraints)
+    // A *named* column constraint keeps its name on the rule it names.
+    test.assert_len(1, q.columns[1].constraints)
+    test.assert_eq("k", q.columns[1].constraints[0].name)
+    test.assert_eq("Check(Bin(>, Col(b), Lit(0)))", rule_name(q.columns[1].constraints[0]))
+    test.assert_blank(q.columns[1].extra)
+    // and a named constraint of an unmodelled shape stays text, whole
+    val other = created("CREATE TABLE t (a INTEGER CONSTRAINT k COLLATE NOCASE)")
+    test.assert_empty(other.columns[0].constraints)
+    test.assert_eq("CONSTRAINT k COLLATE NOCASE", other.columns[0].extra)
+}
+
+#[test]
+fn add_constraint_is_not_a_column() {
+    // This is the bug the round trip could not see: `CONSTRAINT` read as a column's name.
+    var text = ""
+    if AddConstraint(written) = altered("ALTER TABLE t ADD CONSTRAINT k UNIQUE (a)").action {
+        text = written
+    }
+    test.assert_eq("CONSTRAINT k UNIQUE (a)", text)
+    // and `ADD COLUMN` is still a column
+    var name = ""
+    if AddColumn(col) = altered("ALTER TABLE t ADD COLUMN b TEXT").action {
+        name = col.name
+    }
+    test.assert_eq("b", name)
+}
+
+// ---------------------------------------------------------------- the lexer
+
+#[test]
+fn a_quoted_string_collapses_its_doubled_quotes() {
+    test.assert_eq("Lit('it''s')", item_shape("'it''s'"))
+}
+
+#[test]
+fn a_comment_is_not_a_statement_separator() {
+    val all = test.assert_ok(sql.parse_many("SELECT 1; -- a ; in a comment\nSELECT 2;"))
+    test.assert_len(2, all)
+}
+
+#[test]
+fn a_semicolon_inside_a_string_is_not_a_separator() {
+    val all = test.assert_ok(sql.parse_many("SELECT 'a;b' AS s; SELECT 2"))
+    test.assert_len(2, all)
+}
+
+#[test]
+fn a_block_comment_is_skipped() {
+    val all = test.assert_ok(sql.parse_many("SELECT 1 /* ; still a comment ; */ ; SELECT 2"))
+    test.assert_len(2, all)
+}
+
+#[test]
+fn empty_statements_are_tolerated() {
+    test.assert_len(1, test.assert_ok(sql.parse_many(";;\nSELECT 1;;\n")))
+    test.assert_empty(test.assert_ok(sql.parse_many("   \n-- nothing but a comment\n")))
+}
+
+#[test]
+fn a_quoted_identifier_keeps_its_text() {
+    test.assert_eq("Col(from)", item_shape("\"from\""))
+}
+
+// ---------------------------------------------------------------- refusals
+
+fn refused(text: string) -> string {
+    return db.db_error_message(test.assert_err(sql.parse(text)))
+}
+
+#[test]
+fn an_unclosed_string_is_refused() {
+    test.assert_contains(refused("SELECT 'x"), "never closed")
+}
+
+#[test]
+fn an_unclosed_block_comment_is_refused() {
+    test.assert_contains(refused("SELECT 1 /* x"), "never closed")
+}
+
+#[test]
+fn a_parameter_numbered_from_zero_is_refused() {
+    test.assert_contains(refused("SELECT $0"), "numbered from $1")
+}
+
+#[test]
+fn an_order_by_before_a_set_operator_is_refused() {
+    test.assert_contains(
+        refused("SELECT a FROM t ORDER BY a UNION SELECT b FROM u"),
+        "must come after the last UNION"
+    )
+}
+
+#[test]
+fn a_parenthesised_join_expression_is_refused() {
+    // Not read, and refused rather than mangled: the flat `joins` list cannot hold it.
+    test.assert_contains(refused("SELECT a FROM t JOIN (u JOIN v ON v.i = u.i) ON u.i = t.i"), "expected SELECT")
+}
+
+#[test]
+fn trailing_tokens_are_refused() {
+    test.assert_contains(refused("SELECT 1 nonsense nonsense"), "after the statement")
+}
+
+#[test]
+fn a_case_without_a_when_is_refused() {
+    test.assert_contains(refused("SELECT CASE 1 WHEN 1 THEN 2 END"), "needs at least one WHEN")
+}
+
+#[test]
+fn more_than_one_statement_is_refused_by_parse() {
+    test.assert_contains(refused("SELECT 1; SELECT 2"), "after the statement")
+}
+
+// ---------------------------------------------------------------- cost
+
+// **Parsing stays linear in the number of expression atoms, and cheap per atom.**
+//
+// The expression parser was nine nested functions, one per precedence level, so every atom paid
+// nine interpreted calls to reach a primary and the comparison level asked its seven operators
+// one at a time. It is one climbing loop now, and the cursor's own questions read the token array
+// directly instead of going through `peek`. Measured on this machine: 13.7 microseconds per select
+// item before, 6.3 after, and a bare `SELECT 1` from 44 to 24.
+//
+// The budget below is deliberately loose -- these are wall-clock milliseconds on a shared machine,
+// and what it guards against is the *shape* coming back: a ladder, or a per-check scan, shows up as
+// several times this, not as a few percent.
+#[test]
+fn parsing_stays_linear_in_the_number_of_items() {
+    val small = timed_parse(10, 200)
+    val large = timed_parse(80, 200)
+    // Eight times the items, within four times the budget of eight times the time.
+    test.assert_lt(large, math.max(small, 1) * 8 * 4)
+}
+
+#[test]
+fn parsing_a_simple_statement_stays_cheap() {
+    // 2000 parses of a statement with a join, a predicate and an order: under a second unless
+    // something structural has regressed.
+    val text = "SELECT p.name, v.reason FROM patient AS p JOIN visit AS v ON v.patient_id = p.id WHERE v.cost > 10 AND p.age IS NOT NULL ORDER BY p.name LIMIT 5"
+    val started = clock.monotonic_millis()
+    var i = 0
+    while i < 2000 {
+        val _ = test.assert_ok(sql.parse(text))
+        i = i + 1
+    }
+    test.assert_lt(clock.monotonic_millis() - started, 1000)
+}
+
+fn timed_parse(items: int, rounds: int) -> int {
+    val b = mutable_string_new()
+    append(b, "SELECT ")
+    var k = 0
+    while k < items {
+        if k > 0 {
+            append(b, ", ")
+        }
+        append(b, "a + 1")
+        k = k + 1
+    }
+    val text = snapshot(b)
+    val started = clock.monotonic_millis()
+    var i = 0
+    while i < rounds {
+        val _ = test.assert_ok(sql.parse(text))
+        i = i + 1
+    }
+    return clock.monotonic_millis() - started
+}

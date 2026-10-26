@@ -37,6 +37,8 @@ agree    INSERT INTO ch (a, b) VALUES (NULL, 1)
 agree    UPDATE ch SET b = 0 WHERE a = 1
 agree    INSERT INTO named (a) VALUES (0)
 agree    INSERT INTO named (a) VALUES (1)
+agree    INSERT INTO named_col (a, b) VALUES (0, 'x')
+agree    INSERT INTO named_col (a, b) VALUES (1, 'y')
 agree    INSERT INTO both (a, b) VALUES (1, 1)
 agree    INSERT INTO both (a, b) VALUES (1, 1)
 agree    INSERT INTO plain_int (a, t) VALUES (NULL, 'null int')
@@ -53,4 +55,4 @@ agree    INSERT INTO defaults (b) VALUES ('default fills in')
 agree    SELECT a, b FROM defaults
 agree    DELETE FROM p WHERE id = 12
 agree    SELECT count(*) AS c FROM p
-55 of 55 agree
+57 of 57 agree

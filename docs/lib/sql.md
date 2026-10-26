@@ -116,6 +116,13 @@ compare equal, and lower reads better in a message.
 pub struct Token {
     kind: string
     text: string
+    // `text` upper-cased once, for a `name` token, and empty for every other kind.
+    //
+    // **The parser asks "is this word FROM?" far more often than there are tokens** -- a single
+    // bare alias runs the whole `clause_words` list past one token -- and each such question used
+    // to upper-case the token's text again, allocating a string to throw away. Folding once, here,
+    // is what turns that from a per-question cost into a per-token one.
+    upper: string
     value: int
     // Where this token sits in the source, so a run of tokens can be recovered as the text it was
     // written as. That is what lets the parts this module does not model be **preserved verbatim**

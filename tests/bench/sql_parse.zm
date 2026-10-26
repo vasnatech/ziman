@@ -1,0 +1,157 @@
+// **What it costs to read SQL**, which is what `memdb` pays for every statement it runs and what
+// any tool built on `sql` pays per file.
+//
+// The expression parser used to be nine functions, one per precedence level, so every atom of
+// every expression -- every literal, every column name -- paid nine interpreted calls to reach a
+// primary, and the comparison level asked its seven operators one question at a time. The cursor's
+// own predicates went through `peek`, which copied a `Token` out of the array for each of the tens
+// of questions asked per token. Both are gone: one climbing loop reading the operator once, and
+// predicates that index the token array directly.
+//
+// Run it directly: `./ziman tests/bench/sql_parse.zm`. It prints a table and ends with a verdict,
+// exiting 1 if parsing has stopped being linear in the number of expression atoms -- which is the
+// shape a ladder coming back would have, rather than a few percent on the clock.
+use clock
+use fs
+use math
+use migrate
+use os
+use sql
+
+val corpus: [string] = [
+    "SELECT id, name, age, note FROM patient WHERE age >= 18 AND age < 65 ORDER BY name DESC, id LIMIT 10 OFFSET 5",
+    "SELECT p.name, count(*) AS c, sum(v.cost) AS s FROM patient AS p JOIN visit AS v ON v.patient_id = p.id WHERE v.cost > 10 GROUP BY p.name HAVING count(*) > 1 ORDER BY 2 DESC",
+    "INSERT INTO patient (id, name, age, note) VALUES ($1, $2, $3, $4)",
+    "UPDATE patient SET name = $1, age = age + 1, note = coalesce($2, note) WHERE id = $3 RETURNING *",
+    "DELETE FROM visit WHERE patient_id = $1 AND reason LIKE 'x%'",
+    "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INTEGER CHECK (age > 0), ref INTEGER REFERENCES other (id) ON DELETE CASCADE, CONSTRAINT k UNIQUE (name, age))",
+    "SELECT name FROM patient WHERE id IN (SELECT patient_id FROM visit UNION SELECT id FROM visit) AND EXISTS (SELECT 1 FROM visit WHERE visit.patient_id = patient.id)",
+    "SELECT x.n FROM (SELECT age AS n FROM patient WHERE age IS NOT NULL) AS x WHERE x.n > 1 ORDER BY 1"
+]
+
+// A `SELECT` with `items` expression atoms in its select list.
+fn with_items(items: int) -> string {
+    val b = mutable_string_new()
+    append(b, "SELECT ")
+    var k = 0
+    while k < items {
+        if k > 0 {
+            append(b, ", ")
+        }
+        append(b, "a + 1")
+        k = k + 1
+    }
+    return snapshot(b)
+}
+
+fn time_parse(text: string, rounds: int) -> int {
+    val started = clock.monotonic_millis()
+    var i = 0
+    while i < rounds {
+        if Err(_) = sql.parse(text) {
+            print("  PARSE FAILED")
+            os.exit(1)
+        }
+        i = i + 1
+    }
+    return clock.monotonic_millis() - started
+}
+
+fn main() {
+    print("the corpus, parsed and written back")
+    val rounds = 400
+    val parse_started = clock.monotonic_millis()
+    var r = 0
+    while r < rounds {
+        for text in corpus {
+            if Err(_) = sql.parse(text) {
+                print("  PARSE FAILED")
+                os.exit(1)
+            }
+        }
+        r = r + 1
+    }
+    val parse_ms = clock.monotonic_millis() - parse_started
+
+    val trees = mutable_array_new<sql.Statement>()
+    for text in corpus {
+        push(trees, unwrap(sql.parse(text)))
+    }
+    val all = snapshot(trees)
+    val format_started = clock.monotonic_millis()
+    var written = 0
+    r = 0
+    while r < rounds {
+        for t in all {
+            written = written + len(sql.format(t))
+        }
+        r = r + 1
+    }
+    val format_ms = clock.monotonic_millis() - format_started
+
+    val statements = rounds * len(corpus)
+    printf("  parse   {} statements in {} ms\n", statements, parse_ms)
+    printf("  format  {} statements in {} ms ({} characters written)\n", statements, format_ms, written)
+
+    print("\nparsing against the number of expression atoms")
+    val counts = [10, 20, 40, 80]
+    val times = mutable_array_new<int>()
+    for n in counts {
+        val ms = time_parse(with_items(n), 200)
+        push(times, ms)
+        printf("  {} items: {} ms for 200 parses\n", n, ms)
+    }
+
+    // The application's own migrations, which is the realistic shape: a file of statements.
+    val dir = "../health-record/health-record-backend-ziman/src/main/resources/migrations"
+    if Ok(entries) = fs.list_dir(dir) {
+        val scripts = mutable_array_new<string>()
+        var chars = 0
+        for name in sort(entries) {
+            if ends_with(name, ".sql") {
+                if Ok(raw) = fs.read_text(concat(dir, "/", name)) {
+                    if Ok(text) = migrate.substitute(raw, "sqlite", name) {
+                        push(scripts, text)
+                        chars = chars + len(text)
+                    }
+                }
+            }
+        }
+        val files = snapshot(scripts)
+        val started = clock.monotonic_millis()
+        var parsed = 0
+        var pass = 0
+        while pass < 20 {
+            for text in files {
+                if Ok(list) = sql.parse_many(text) {
+                    parsed = parsed + len(list)
+                }
+            }
+            pass = pass + 1
+        }
+        val ms = clock.monotonic_millis() - started
+        printf(
+            "\n  the sample application's migrations: {} files, {} characters, {} statements, 20 passes in {} ms\n",
+            len(files),
+            chars,
+            parsed / 20,
+            ms
+        )
+    } else {
+        print("\n  (no sample application checkout next door; the corpus above still carries the measurement)")
+    }
+
+    // Linear in the atoms means 8x the items costs about 8x, not 64x. The bound is loose on
+    // purpose: these are wall-clock milliseconds, and the regression being guarded against is a
+    // return to a per-atom ladder, which shows up as several times this rather than a few percent.
+    val first = math.max(times[0], 1)
+    val last = math.max(times[len(times) - 1], 1)
+    val span = counts[len(counts) - 1] / counts[0]
+    val growth = last / first
+    printf("\ngrowth over {}x the atoms: {}x\n", span, growth)
+    if growth > span * 3 {
+        printf("FAIL: {}x is not linear -- the expression parser looks like a ladder again\n", growth)
+        os.exit(1)
+    }
+    print("ok   parsing is linear in the number of expression atoms")
+}

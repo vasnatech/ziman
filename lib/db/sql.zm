@@ -123,6 +123,13 @@ fn problem(message: string) -> DbError {
 pub struct Token {
     kind: string
     text: string
+    // `text` upper-cased once, for a `name` token, and empty for every other kind.
+    //
+    // **The parser asks "is this word FROM?" far more often than there are tokens** -- a single
+    // bare alias runs the whole `clause_words` list past one token -- and each such question used
+    // to upper-case the token's text again, allocating a string to throw away. Folding once, here,
+    // is what turns that from a per-question cost into a per-token one.
+    upper: string
     value: int
     // Where this token sits in the source, so a run of tokens can be recovered as the text it was
     // written as. That is what lets the parts this module does not model be **preserved verbatim**
@@ -188,7 +195,7 @@ fn tokenize(sql: string) -> Result<[Token], DbError> {
             if !closed {
                 return err(problem("a quoted string that is never closed"))
             }
-            push(out, Token { kind: "text", text: snapshot(text), value: 0, start: i, end: j })
+            push(out, Token { kind: "text", text: snapshot(text), upper: "", value: 0, start: i, end: j })
             i = j
             continue
         }
@@ -199,7 +206,17 @@ fn tokenize(sql: string) -> Result<[Token], DbError> {
             if close < 0 {
                 return err(problem("a quoted identifier that is never closed"))
             }
-            push(out, Token { kind: "name", text: substring(sql, i + 1, close), value: 0, start: i, end: close + 1 })
+            push(
+                out,
+                Token {
+                    kind: "name",
+                    text: substring(sql, i + 1, close),
+                    upper: to_upper(substring(sql, i + 1, close), invariant),
+                    value: 0,
+                    start: i,
+                    end: close + 1
+                }
+            )
             i = close + 1
             continue
         }
@@ -215,7 +232,7 @@ fn tokenize(sql: string) -> Result<[Token], DbError> {
                 }
                 j = j + 1
             }
-            push(out, Token { kind: "number", text: substring(sql, i, j), value: 0, start: i, end: j })
+            push(out, Token { kind: "number", text: substring(sql, i, j), upper: "", value: 0, start: i, end: j })
             i = j
             continue
         }
@@ -224,14 +241,24 @@ fn tokenize(sql: string) -> Result<[Token], DbError> {
             while j < n && is_name_char(char_at(sql, j)) {
                 j = j + 1
             }
-            push(out, Token { kind: "name", text: substring(sql, i, j), value: 0, start: i, end: j })
+            push(
+                out,
+                Token {
+                    kind: "name",
+                    text: substring(sql, i, j),
+                    upper: to_upper(substring(sql, i, j), invariant),
+                    value: 0,
+                    start: i,
+                    end: j
+                }
+            )
             i = j
             continue
         }
         if c == "?" {
             // A positional placeholder: SQLite's and MySQL's spelling. Numbered from the order it
             // appears, so `?` and `$1` can be counted the same way.
-            push(out, Token { kind: "param", text: "?", value: 0, start: i, end: i + 1 })
+            push(out, Token { kind: "param", text: "?", upper: "", value: 0, start: i, end: i + 1 })
             i = i + 1
             continue
         }
@@ -244,23 +271,27 @@ fn tokenize(sql: string) -> Result<[Token], DbError> {
             if number < 1 {
                 return err(problem("a bound parameter is numbered from $1"))
             }
-            push(out, Token { kind: "param", text: substring(sql, i, j), value: number, start: i, end: j })
+            push(out, Token { kind: "param", text: substring(sql, i, j), upper: "", value: number, start: i, end: j })
             i = j
             continue
         }
         var matched = ""
-        for op in two_char_ops {
-            if matched == "" && i + 1 < n && substring(sql, i, i + 2) == op {
-                matched = op
+        if i + 1 < n {
+            // One substring for the position rather than one per candidate.
+            val pair = substring(sql, i, i + 2)
+            for op in two_char_ops {
+                if matched == "" && pair == op {
+                    matched = op
+                }
             }
         }
         if matched != "" {
-            push(out, Token { kind: "punct", text: matched, value: 0, start: i, end: i + 2 })
+            push(out, Token { kind: "punct", text: matched, upper: "", value: 0, start: i, end: i + 2 })
             i = i + 2
             continue
         }
         if contains("=<>+-*/(),;.|", c) {
-            push(out, Token { kind: "punct", text: c, value: 0, start: i, end: i + 1 })
+            push(out, Token { kind: "punct", text: c, upper: "", value: 0, start: i, end: i + 1 })
             i = i + 1
             continue
         }
@@ -647,7 +678,14 @@ fn at_end(c: Cursor) -> bool {
 
 fn peek(c: Cursor) -> Token {
     if at_end(c) {
-        return Token { kind: "end", text: "", value: 0, start: prelude.len(c.source), end: prelude.len(c.source) }
+        return Token {
+            kind: "end",
+            text: "",
+            upper: "",
+            value: 0,
+            start: prelude.len(c.source),
+            end: prelude.len(c.source)
+        }
     }
     return c.tokens[get(c.at)]
 }
@@ -659,27 +697,46 @@ fn advance(c: Cursor) -> Token {
 }
 
 // True when the next token is the keyword `word`, compared without case.
+// **Written without `peek`, deliberately.** A `Cursor` question is asked tens of times per token
+// -- every clause keyword of every statement form is an `accept` -- and routing each through
+// `peek` and `at_end` made five interpreted calls and a `Token` copy out of what is three array
+// reads. Measured: the ladder below and these two functions were between them most of the parse
+// time.
 fn sees(c: Cursor, word: string) -> bool {
-    val t = peek(c)
-    return t.kind == "name" && to_upper(t.text, invariant) == word
+    val i = get(c.at)
+    if i >= prelude.len(c.tokens) {
+        return false
+    }
+    return c.tokens[i].kind == "name" && c.tokens[i].upper == word
 }
 
 fn accept(c: Cursor, word: string) -> bool {
-    if sees(c, word) {
-        set(c.at, get(c.at) + 1)
+    val i = get(c.at)
+    if i >= prelude.len(c.tokens) {
+        return false
+    }
+    if c.tokens[i].kind == "name" && c.tokens[i].upper == word {
+        set(c.at, i + 1)
         return true
     }
     return false
 }
 
 fn sees_punct(c: Cursor, text: string) -> bool {
-    val t = peek(c)
-    return t.kind == "punct" && t.text == text
+    val i = get(c.at)
+    if i >= prelude.len(c.tokens) {
+        return false
+    }
+    return c.tokens[i].kind == "punct" && c.tokens[i].text == text
 }
 
 fn accept_punct(c: Cursor, text: string) -> bool {
-    if sees_punct(c, text) {
-        set(c.at, get(c.at) + 1)
+    val i = get(c.at)
+    if i >= prelude.len(c.tokens) {
+        return false
+    }
+    if c.tokens[i].kind == "punct" && c.tokens[i].text == text {
+        set(c.at, i + 1)
         return true
     }
     return false
@@ -807,7 +864,7 @@ fn parse_primary(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
         }
     }
     if t.kind == "name" {
-        val upper = to_upper(t.text, invariant)
+        val upper = t.upper
         if upper == "NULL" {
             set(c.at, get(c.at) + 1)
             return ok(Expr.Lit(SqlValue.Null))
@@ -849,54 +906,115 @@ fn parse_primary(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
     return err(problem(prelude.format("expected a value, found {}", found(c))))
 }
 
-// `||` binds tighter than `*`, which is SQLite's and PostgreSQL's order -- `'a' || 1 * 2` is
-// `'a' || 2`'s neighbour rather than `('a' || 1) * 2`.
-fn parse_concat(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_primary(c, positional)
-    while sees_punct(c, "||") {
-        set(c.at, get(c.at) + 1)
-        val right = try parse_primary(c, positional)
-        left = Expr.Bin(BinNode { op: "||", left: left, right: right })
-    }
-    return ok(left)
-}
-
-fn parse_product(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_concat(c, positional)
-    while sees_punct(c, "*") || sees_punct(c, "/") {
-        val op = advance(c).text
-        val right = try parse_concat(c, positional)
-        left = Expr.Bin(BinNode { op: op, left: left, right: right })
-    }
-    return ok(left)
-}
-
-fn parse_sum(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_product(c, positional)
-    while sees_punct(c, "+") || sees_punct(c, "-") {
-        val op = advance(c).text
-        val right = try parse_product(c, positional)
-        left = Expr.Bin(BinNode { op: op, left: left, right: right })
-    }
-    return ok(left)
-}
-
-val comparisons: [string] = ["=", "<>", "!=", "<", "<=", ">", ">="]
-
-// **SQL's precedence, which is not the obvious one and which this had wrong twice.**
+// SQL's precedence, as one table rather than as a function per level.
 //
 // Tightest to loosest: `||`, then `* /`, then `+ -`, then the *predicates* -- the six comparisons,
-// `LIKE`, `IN`, `BETWEEN` and `IS [NOT] NULL` -- then `NOT`, then `AND`, then `OR`.
+// `LIKE`, `IN`, `BETWEEN` and `IS [NOT] NULL` -- then `NOT`, then `AND`, then `OR`. `||` binding
+// tighter than `*` is SQLite's and PostgreSQL's order, so `'a' || 1 * 2` is `'a' || 2`'s
+// neighbour rather than `('a' || 1) * 2`.
 //
-// Both mistakes were found by the round-trip property rather than by reading, and both would have
-// changed what a query means rather than how it looks:
+// **This had the precedence wrong twice, and the round trip found both** -- neither was visible in
+// the code, and each changed what a query means rather than how it looks:
 //
 //   - `NOT` was parsed as a prefix of a *primary*, so `WHERE NOT a = 1` read as `(NOT a) = 1`.
 //     SQLite reads it as `NOT (a = 1)` -- checked against it -- and those select different rows.
 //   - `IS NULL` was parsed as a postfix on a *primary*, so `1 + NULL IS NULL` read as
 //     `1 + (NULL IS NULL)`, which is 2. SQLite answers 1, because it reads `(1 + NULL) IS NULL`.
-fn parse_predicate(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_sum(c, positional)
+//
+// **It was also nine functions deep, one per level, and that was most of the parser's cost.**
+// Every atom of every expression -- every `1`, every column name -- paid nine interpreted calls to
+// reach `parse_primary` and the comparison level scanned its seven operators with seven separate
+// cursor questions. Measured at 13 microseconds per select item; the climbing loop below reaches a
+// primary in two calls and reads the operator once. The precedence is the same precedence, which
+// is what the fixtures are for.
+// Loosest to tightest. The formatter reads these too, through `precedence` below.
+val precedence_or = 1
+val precedence_and = 2
+val precedence_not = 3
+val precedence_predicate = 4
+val precedence_sum = 5
+val precedence_product = 6
+val precedence_concat = 7
+
+// The binary operator at the cursor, or "" for "not an operator". One token read for what used to
+// be a scan of two lists.
+fn binary_here(c: Cursor) -> string {
+    val i = get(c.at)
+    if i >= prelude.len(c.tokens) {
+        return ""
+    }
+    val kind = c.tokens[i].kind
+    if kind == "punct" {
+        val text = c.tokens[i].text
+        if text == "||" || text == "*" || text == "/" || text == "+" || text == "-" {
+            return text
+        }
+        if text == "=" || text == "<" || text == "<=" || text == ">" || text == ">=" {
+            return text
+        }
+        if text == "<>" || text == "!=" {
+            return "<>"
+        }
+        return ""
+    }
+    if kind == "name" {
+        val word = c.tokens[i].upper
+        if word == "AND" || word == "OR" {
+            return word
+        }
+    }
+    return ""
+}
+
+// An expression whose operators all bind at least as tightly as `floor`.
+//
+// `NOT` is a prefix at its own level, the predicates are suffixes at theirs, and everything else
+// is an infix operator read from the table above. Recursing with `prec + 1` is what makes the
+// infix operators left-associative, so `a - b - c` is `(a - b) - c`.
+fn parse_at(c: Cursor, positional: Mutable<int>, floor: int) -> Result<Expr, DbError> {
+    var left = Expr.Star
+    if floor <= precedence_not && accept(c, "NOT") {
+        // `NOT` takes everything that binds tighter than it -- and then the loop below still runs,
+        // because `NOT a AND b` is `(NOT a) AND b`. Returning here instead left the `AND b`
+        // unread, which `tests/stdlib/sql_test.zm` caught and no round trip could: the corpus had
+        // no unbracketed `NOT x AND y` in it.
+        left = Expr.Not(NotNode { inner: try parse_at(c, positional, precedence_not) })
+    } else {
+        left = try parse_primary(c, positional)
+        if floor <= precedence_predicate {
+            left = try parse_predicates(c, positional, left)
+        }
+    }
+    var more = true
+    while more {
+        val op = binary_here(c)
+        if op == "" {
+            more = false
+            continue
+        }
+        val prec = precedence(op)
+        if prec < floor {
+            more = false
+            continue
+        }
+        set(c.at, get(c.at) + 1)
+        val right = try parse_at(c, positional, prec + 1)
+        left = Expr.Bin(BinNode { op: op, left: left, right: right })
+        // A predicate may follow what the operator produced, the comparisons included: `a + 1 IS
+        // NULL` is `(a + 1) IS NULL`, and `a = 1 IS NULL` is `(a = 1) IS NULL`. `>=` rather than
+        // `>`, because a comparison sits *at* the predicate level and the old nine-function ladder
+        // read both in one loop.
+        if floor <= precedence_predicate && prec >= precedence_predicate {
+            left = try parse_predicates(c, positional, left)
+        }
+    }
+    return ok(left)
+}
+
+// The predicate suffixes, which apply to whatever is already parsed: `IS [NOT] NULL`,
+// `[NOT] LIKE`, `[NOT] IN`, `[NOT] BETWEEN`.
+fn parse_predicates(c: Cursor, positional: Mutable<int>, subject: Expr) -> Result<Expr, DbError> {
+    var left = subject
     var more = true
     while more {
         while accept(c, "IS") {
@@ -913,7 +1031,7 @@ fn parse_predicate(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError>
             set(c.at, get(c.at) + 1)
             left = Expr.Like(LikeNode {
                 subject: left,
-                pattern: try parse_sum(c, positional),
+                pattern: try parse_at(c, positional, precedence_sum),
                 negated: negated
             })
             continue
@@ -942,58 +1060,25 @@ fn parse_predicate(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError>
         }
         if sees(c, "BETWEEN") {
             set(c.at, get(c.at) + 1)
-            val low = try parse_sum(c, positional)
+            // Above `AND`, so the `AND` that follows is BETWEEN's own.
+            val low = try parse_at(c, positional, precedence_sum)
             try expect_word(c, "AND")
             left = Expr.Between(BetweenNode {
                 subject: left,
                 low: low,
-                high: try parse_sum(c, positional),
+                high: try parse_at(c, positional, precedence_sum),
                 negated: negated
             })
             continue
         }
         set(c.at, before_not)
-        var op = ""
-        for candidate in comparisons {
-            if op == "" && sees_punct(c, candidate) {
-                op = candidate
-            }
-        }
-        if op == "" {
-            more = false
-        } else {
-            set(c.at, get(c.at) + 1)
-            val right = try parse_sum(c, positional)
-            left = Expr.Bin(BinNode { op: if op == "!=" { "<>" } else { op }, left: left, right: right })
-        }
-    }
-    return ok(left)
-}
-
-// `NOT`, which binds looser than every predicate and tighter than `AND`.
-fn parse_not(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    if accept(c, "NOT") {
-        return ok(Expr.Not(NotNode { inner: try parse_not(c, positional) }))
-    }
-    return parse_predicate(c, positional)
-}
-
-fn parse_and(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_not(c, positional)
-    while accept(c, "AND") {
-        val right = try parse_not(c, positional)
-        left = Expr.Bin(BinNode { op: "AND", left: left, right: right })
+        more = false
     }
     return ok(left)
 }
 
 fn parse_expr(c: Cursor, positional: Mutable<int>) -> Result<Expr, DbError> {
-    var left = try parse_and(c, positional)
-    while accept(c, "OR") {
-        val right = try parse_and(c, positional)
-        left = Expr.Bin(BinNode { op: "OR", left: left, right: right })
-    }
-    return ok(left)
+    return parse_at(c, positional, precedence_or)
 }
 
 // ---------------------------------------------------------------- parsing statements
@@ -1008,6 +1093,9 @@ fn parse_column_tail(c: Cursor, name: string, type_name: string) -> Result<Colum
     var unique = false
     var default_value = Option<SqlValue>.None
     val constraints = mutable_array_new<TableConstraint>()
+    // A `CONSTRAINT <name>` seen just before the constraint it names, and where it started.
+    var pending_name = ""
+    var pending_from = 0 - 1
     val extra = mutable_array_new<string>()
     var depth = 0
     while !at_end(c) {
@@ -1042,25 +1130,46 @@ fn parse_column_tail(c: Cursor, name: string, type_name: string) -> Result<Colum
             unique = true
             continue
         }
-        if depth == 0 && sees(c, "CHECK") {
+        // `CONSTRAINT k CHECK (..)` in a column's position: the name belongs to the constraint
+        // that follows it. Without this the name was consumed as unmodelled text and the `CHECK`
+        // modelled separately and unnamed -- so an engine quoted the expression where both real
+        // ones quote `k`, and the round trip never noticed because the halves re-parsed the same
+        // way.
+        if depth == 0 && sees(c, "CONSTRAINT") {
             val from = get(c.at)
+            set(c.at, from + 1)
+            val given = try expect_name(c)
+            if sees(c, "CHECK") || sees(c, "REFERENCES") {
+                pending_name = given
+                pending_from = from
+                continue
+            }
+            // Anything else keeps its whole run as text, starting at the `CONSTRAINT`.
+            set(c.at, from)
+        }
+        if depth == 0 && sees(c, "CHECK") {
+            val from = if pending_from >= 0 { pending_from } else { get(c.at) }
             set(c.at, get(c.at) + 1)
             val e = try parse_bracketed_expr(c)
             push(constraints, TableConstraint {
-                name: "",
+                name: pending_name,
                 rule: ConstraintRule.Check(e),
                 text: span_since(c, from)
             })
+            pending_name = ""
+            pending_from = 0 - 1
             continue
         }
         if depth == 0 && sees(c, "REFERENCES") {
-            val from = get(c.at)
+            val from = if pending_from >= 0 { pending_from } else { get(c.at) }
             val fk = try parse_references(c, [name])
             push(constraints, TableConstraint {
-                name: "",
+                name: pending_name,
                 rule: ConstraintRule.ForeignKey(fk),
                 text: span_since(c, from)
             })
+            pending_name = ""
+            pending_from = 0 - 1
             continue
         }
         if depth == 0 && accept(c, "DEFAULT") {
@@ -1109,9 +1218,16 @@ fn parse_column_tail(c: Cursor, name: string, type_name: string) -> Result<Colum
 // The words that begin something this module models in a column's tail, so the preserved run of
 // an unmodelled constraint knows where to stop. `CHECK` and `REFERENCES` joined the list when they
 // stopped being text.
+val column_flag_words: Set<string> = to_set([
+    "NOT", "NULL", "PRIMARY", "UNIQUE", "DEFAULT", "CHECK", "REFERENCES"
+])
+
 fn is_column_flag(c: Cursor) -> bool {
-    return sees(c, "NOT") || sees(c, "NULL") || sees(c, "PRIMARY") || sees(c, "UNIQUE") ||
-        sees(c, "DEFAULT") || sees(c, "CHECK") || sees(c, "REFERENCES")
+    val i = get(c.at)
+    if i >= prelude.len(c.tokens) {
+        return false
+    }
+    return c.tokens[i].kind == "name" && contains(column_flag_words, c.tokens[i].upper)
 }
 
 // A column type as written: a name, then optionally `(n)` or `(n, m)`, then optionally more name
@@ -1119,9 +1235,14 @@ fn is_column_flag(c: Cursor) -> bool {
 fn parse_type_name(c: Cursor) -> Result<string, DbError> {
     val out = mutable_string_new()
     append(out, try expect_name(c))
+    // `CONSTRAINT` ends a type as surely as `NOT` does. It was missing, so
+    // `b INTEGER CONSTRAINT k CHECK (b > 0)` read its type as `INTEGER CONSTRAINT k` and the
+    // constraint lost the name -- found by a unit test asking for the name, not by any round trip,
+    // since both halves re-parse identically.
     while peek(c).kind == "name" && !sees(c, "NOT") && !sees(c, "PRIMARY") && !sees(c, "UNIQUE") &&
         !sees(c, "DEFAULT") && !sees(c, "REFERENCES") && !sees(c, "CHECK") && !sees(c, "COLLATE") &&
-        !sees(c, "AUTOINCREMENT") && !sees(c, "NULL") && !sees(c, "GENERATED") {
+        !sees(c, "AUTOINCREMENT") && !sees(c, "NULL") && !sees(c, "GENERATED") &&
+        !sees(c, "CONSTRAINT") {
         append(out, " ", advance(c).text)
     }
     if accept_punct(c, "(") {
@@ -1137,9 +1258,19 @@ fn parse_type_name(c: Cursor) -> Result<string, DbError> {
 
 // Whether a table-level constraint starts here. The four shapes are modelled by
 // `parse_table_constraint`; anything else beginning with these words is kept as text.
+// `EXCLUDE` is PostgreSQL's and is not modelled; it is here so that a table using one is
+// *preserved* rather than read as a column named `EXCLUDE` of type `USING`, which is what happened
+// before `tests/stdlib/sql_test.zm` asked.
+val table_constraint_words: Set<string> = to_set([
+    "PRIMARY", "FOREIGN", "UNIQUE", "CHECK", "CONSTRAINT", "EXCLUDE"
+])
+
 fn is_table_constraint(c: Cursor) -> bool {
-    return sees(c, "PRIMARY") || sees(c, "FOREIGN") || sees(c, "UNIQUE") || sees(c, "CHECK") ||
-        sees(c, "CONSTRAINT")
+    val i = get(c.at)
+    if i >= prelude.len(c.tokens) {
+        return false
+    }
+    return c.tokens[i].kind == "name" && contains(table_constraint_words, c.tokens[i].upper)
 }
 
 // A parenthesised list of column names, which is what `PRIMARY KEY`, `UNIQUE` and both sides of a
@@ -1440,13 +1571,16 @@ val clause_words: [string] = [
     "UNION", "INTERSECT", "EXCEPT"
 ]
 
+// The same words as a set, because this is asked once per bare name and the list is twenty long:
+// one hash lookup rather than twenty string comparisons.
+val clause_word_set: Set<string> = to_set(clause_words)
+
 fn starts_clause(c: Cursor) -> bool {
-    for word in clause_words {
-        if sees(c, word) {
-            return true
-        }
+    val i = get(c.at)
+    if i >= prelude.len(c.tokens) {
+        return false
     }
-    return false
+    return c.tokens[i].kind == "name" && contains(clause_word_set, c.tokens[i].upper)
 }
 
 fn parse_table_ref(c: Cursor) -> Result<TableRef, DbError> {
@@ -1629,31 +1763,46 @@ fn parse_select_core(c: Cursor, positional: Mutable<int>) -> Result<SelectStmt, 
 
 val set_operators: [string] = ["UNION", "INTERSECT", "EXCEPT"]
 
+val set_operator_words: Set<string> = to_set(set_operators)
+
+// The set operator at the cursor, or "". One lookup, where asking `accept` three times cost four
+// cursor questions on the overwhelmingly common path of there being none.
+fn set_operator_here(c: Cursor) -> string {
+    val i = get(c.at)
+    if i >= prelude.len(c.tokens) {
+        return ""
+    }
+    if c.tokens[i].kind != "name" {
+        return ""
+    }
+    val word = c.tokens[i].upper
+    if contains(set_operator_words, word) {
+        return word
+    }
+    return ""
+}
+
 // A whole query expression: one or more cores joined by set operators, then the `ORDER BY`, `LIMIT`
 // and `OFFSET` that belong to all of it. The leading `SELECT` has already been read.
 fn parse_query(c: Cursor, positional: Mutable<int>) -> Result<SelectStmt, DbError> {
     val head = try parse_select_core(c, positional)
     val ops = mutable_array_new<SetOp>()
-    var more = true
-    while more {
-        more = false
-        for word in set_operators {
-            if !more && accept(c, word) {
-                var quantifier = ""
-                if accept(c, "ALL") {
-                    quantifier = "ALL"
-                } else if accept(c, "DISTINCT") {
-                    quantifier = "DISTINCT"
-                }
-                try expect_word(c, "SELECT")
-                push(ops, SetOp {
-                    kind: word,
-                    quantifier: quantifier,
-                    query: try parse_select_core(c, positional)
-                })
-                more = true
-            }
+    var word = set_operator_here(c)
+    while word != "" {
+        set(c.at, get(c.at) + 1)
+        var quantifier = ""
+        if accept(c, "ALL") {
+            quantifier = "ALL"
+        } else if accept(c, "DISTINCT") {
+            quantifier = "DISTINCT"
         }
+        try expect_word(c, "SELECT")
+        push(ops, SetOp {
+            kind: word,
+            quantifier: quantifier,
+            query: try parse_select_core(c, positional)
+        })
+        word = set_operator_here(c)
     }
     val order = mutable_array_new<OrderTerm>()
     if accept(c, "ORDER") {
@@ -1682,13 +1831,12 @@ fn parse_query(c: Cursor, positional: Mutable<int>) -> Result<SelectStmt, DbErro
     // `SELECT .. ORDER BY .. UNION SELECT ..` is not SQL: an arm of a compound query carries no
     // `ORDER BY` of its own, because the ordering is of the whole result. Both real engines refuse
     // it; saying which rule was broken beats "unexpected 'UNION'".
-    for word in set_operators {
-        if sees(c, word) {
-            return err(problem(prelude.format(
-                "an ORDER BY, LIMIT or OFFSET must come after the last {}, not before it",
-                word
-            )))
-        }
+    val trailing = set_operator_here(c)
+    if trailing != "" {
+        return err(problem(prelude.format(
+            "an ORDER BY, LIMIT or OFFSET must come after the last {}, not before it",
+            trailing
+        )))
     }
     return ok(SelectStmt {
         distinct: head.distinct,
@@ -1895,15 +2043,9 @@ pub fn format_value(v: SqlValue) -> string {
     }
 }
 
-// How tightly an operator binds, so the writer puts in a bracket exactly where one is needed.
-// Higher binds tighter; the numbers mirror the parser's own ladder.
-// The same ladder the parser climbs, as numbers: see `parse_predicate`'s comment for why it is
-// this ladder and not the obvious one.
-val precedence_or = 1
-val precedence_and = 2
-val precedence_not = 3
-val precedence_predicate = 4
-
+// How tightly an operator binds. **One function, read by the parser to decide what to climb and
+// by the formatter to decide where a bracket is needed** -- two tables would be two chances to
+// disagree about what a query means, which is the shape of both precedence bugs above.
 fn precedence(op: string) -> int {
     if op == "OR" {
         return precedence_or
@@ -1915,13 +2057,13 @@ fn precedence(op: string) -> int {
         return precedence_predicate
     }
     if op == "+" || op == "-" {
-        return 5
+        return precedence_sum
     }
     if op == "*" || op == "/" {
-        return 6
+        return precedence_product
     }
     if op == "||" {
-        return 7
+        return precedence_concat
     }
     return 9
 }

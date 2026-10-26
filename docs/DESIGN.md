@@ -234,6 +234,7 @@ them against the code.
 - [Constraints stop being decoration (2026-10-25)](#constraints-stop-being-decoration-2026-10-25)
 - [Referential integrity, and a pragma that makes a green suite mean nothing (2026-10-25)](#referential-integrity-and-a-pragma-that-makes-a-green-suite-mean-nothing-2026-10-25)
 - [Derived tables, and the line SQLite draws around them (2026-10-25)](#derived-tables-and-the-line-sqlite-draws-around-them-2026-10-25)
+- [`sql` gets unit tests, and the unit tests find what the round trip cannot (2026-10-25)](#sql-gets-unit-tests-and-the-unit-tests-find-what-the-round-trip-cannot-2026-10-25)
 
 <!-- end index -->
 
@@ -9113,3 +9114,42 @@ Both were measured on real SQLite, and together they say exactly where the line 
 * **A column alias list**, `(SELECT ..) AS x (a, b)`, is ordinary SQL in PostgreSQL -- which also accepts a list shorter than the query's and renames only that far -- and a syntax error in SQLite. The lax reading refuses it in SQLite's words; the strict one renames.
 
 What is still not read is now a shorter list, and every item on it is a tree rather than a field: a parenthesised join expression, a parenthesised arm of a compound, `LATERAL`, and common table expressions. The flat `joins` and `set_ops` lists are what make the first two refusals rather than mistakes, and the round trip is what will make turning either into a tree safe.
+
+## `sql` gets unit tests, and the unit tests find what the round trip cannot (2026-10-25)
+
+Two things, and the order matters: `tests/stdlib/sql_test.zm` -- **57 tests asserting on the tree** -- and then an expression parser rewritten for speed, which those tests immediately caught breaking in two ways.
+
+**The round-trip property cannot see a wrong tree that the formatter writes back consistently.** That is not a hypothetical: `ALTER TABLE t ADD CONSTRAINT k UNIQUE (a)` spent several increments being read as a column named `CONSTRAINT`, round-tripping perfectly the whole time, until an inventory happened to ask. 120 statement shapes settling and 164 cross-checked queries agreeing say nothing about a node's *contents*. So the new tests take the tree apart: a `shape` helper renders an expression as `Bin(=, Col(a), Lit(1))`, and each test names what a node has to be -- precedence, associativity, a parameter's number, an alias, a constraint's rule, a set operation's quantifier, a derived table's query.
+
+**They found four defects within a minute of existing, and two were mine from the same sitting.**
+
+* **`NOT a AND b` dropped the `AND b`.** The climbing loop returned straight out of its `NOT` branch instead of carrying on, so `NOT` swallowed the statement and the rest was "unexpected 'b' after the statement". **No fixture had an unbracketed `NOT x AND y` in it** -- the round-trip corpus and the cross-check between them had `NOT a = 1`, `NOT name LIKE 'A%'`, `NOT (age > 30 AND note IS NULL)`, and not the one shape the rewrite broke. A 120-shape corpus with a hole in it is still a corpus with a hole in it.
+* **`a = 1 IS NULL` was refused.** The nine-function ladder read comparisons and predicates in one loop, so a predicate could follow a comparison; the climbing loop only re-checked predicates after an operator binding *tighter* than they do. A comparison sits **at** the predicate level, so the test is `>=`, not `>`.
+* **`b INTEGER CONSTRAINT k CHECK (b > 0)` lost the name `k`**, because `parse_type_name` had no reason to stop at `CONSTRAINT` and read the type as `INTEGER CONSTRAINT k`. The `CHECK` was then modelled unnamed, so an engine quoted the expression where both real ones quote `k`. Again invisible to the round trip: both halves re-parse the same way.
+* **`EXCLUDE USING gist (..)` was read as a column** named `EXCLUDE` of type `USING`. It is PostgreSQL's and is not modelled, but *preserving* it is the module's promise; `EXCLUDE` is now one of the words that begins a table constraint, so it comes back as written.
+
+**Then the optimization, and the measurements that mattered are the ones that disproved me.** Parsing was 0.19 ms per statement, about 2 MB of SQL a second. Three guesses, all wrong:
+
+* folding every token's text once at lex time instead of upper-casing it per comparison: **2%** (and lexing 5% slower);
+* the twenty-word clause list and the other keyword scans as hash sets: **0%**;
+* the lexer's per-character comparisons, as one `contains` and an inlined name loop: **0%**, so both were reverted.
+
+`perf` then said where the time actually was: **19% in `strcmp` and about 20% in function-call machinery** (`call_function`, `env_define`, `env_lookup_resolved`, `overload_pick`, `ziman_push_frame`). Which pointed at two shapes rather than two lines:
+
+* **The precedence ladder was nine functions, one per level.** Every atom of every expression -- every literal, every column name -- paid nine interpreted calls to reach `parse_primary`, and the comparison level asked its seven operators one `sees_punct` at a time. It is one climbing loop now, reading the operator from the token in one go and recursing at `prec + 1` for left associativity. Measured per select item: **13.3 microseconds down to 7.4**.
+* **Every cursor question went through `peek`**, which copies a `Token` out of the array and constructs a fresh one at end of input, behind `at_end`, behind two more calls. `sees`, `accept` and the three keyword predicates now index the token array directly. A bare `SELECT 1` costs **45 microseconds down to 24**, which is the clause-keyword checks and almost nothing else.
+
+**A/B interleaved, two binaries built from the same tree** -- because this file already records a case where non-interleaved sampling reported a real 15% cost as zero:
+
+| | before | after |
+|---|---|---|
+| the corpus, 3,200 statements | 622 ms | 447 ms |
+| a bare `SELECT 1` | 45 µs | 24 µs |
+| a select list of 40 atoms | 582 µs | 313 µs |
+| the application's 39 migration files, 20 passes | 392 ms | 326 ms |
+
+So **1.4x over the corpus and 1.9x on the statements an engine runs most**, and only 1.2x on the migrations, which are many short DDL statements and therefore lexer-bound. Lexing is about 40% of what is left and is allocation-bound -- a substring, an upper-cased copy and a `Token` per name token -- which is a representation change rather than a tidy-up, so it is not done here. `format` was never the cost: it is ten times cheaper than `parse` and unchanged.
+
+One tidy-up fell out that is worth more than its milliseconds: **the parser and the formatter now read one `precedence` function** instead of a table each. Two tables are two chances to disagree about what a query means, which is the shape of both precedence bugs this module has had.
+
+`tests/bench/sql_parse.zm` is the standing measurement -- the corpus, a sweep over the number of expression atoms, and the real migration files -- and it exits 1 if parsing stops being linear in the atoms, which is what a ladder coming back would look like.

@@ -34,6 +34,9 @@ val schema: [string] = [
     "CREATE TABLE u2 (a INTEGER, b INTEGER, UNIQUE (a, b))",
     "CREATE TABLE ch (a INTEGER, b INTEGER, CHECK (a < b))",
     "CREATE TABLE named (a INTEGER, CONSTRAINT positive CHECK (a > 0))",
+    // a named constraint in a *column's* position, whose name was lost until `sql` learned to stop
+    // a type name at `CONSTRAINT`
+    "CREATE TABLE named_col (a INTEGER CONSTRAINT also_positive CHECK (a > 0), b TEXT)",
     "CREATE TABLE both (a INTEGER, b INTEGER, CONSTRAINT pair UNIQUE (a, b))",
     "CREATE TABLE plain_int (a INT PRIMARY KEY, t TEXT)",
     "CREATE TABLE big_int (a BIGINT PRIMARY KEY, t TEXT)",
@@ -90,6 +93,8 @@ val probes: [string] = [
     // a named constraint, which both engines quote by name instead of by expression
     "INSERT INTO named (a) VALUES (0)",
     "INSERT INTO named (a) VALUES (1)",
+    "INSERT INTO named_col (a, b) VALUES (0, 'x')",
+    "INSERT INTO named_col (a, b) VALUES (1, 'y')",
     "INSERT INTO both (a, b) VALUES (1, 1)",
     "INSERT INTO both (a, b) VALUES (1, 1)",
     // INT and BIGINT are not INTEGER, so no rowid and no refusal
