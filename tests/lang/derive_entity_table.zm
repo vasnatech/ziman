@@ -33,8 +33,10 @@ fn main() {
     print(join(separator: ",", pieces: patient_columns))
     print(join(separator: ",", pieces: visit_columns))
 
-    // `table`, which the services import by that name.
-    print(table)
+    // `<name>_table`, which the services import by that name. Prefixed like its three siblings;
+    // it was the bare `table` until 2026-10-27, which is what made two entities in one module
+    // collide. `Visit` below uses the bare form of the attribute and so has none.
+    print(patient_table)
 
     // And a ready `eql.Entity`. **The entity's name is the struct's**, not the table's: a query
     // writes `FROM Patient p`, naming the type the reader has in hand, and taking it from the
@@ -50,8 +52,7 @@ fn main() {
 
     // The key columns, in field order.
     print(join(separator: ",", pieces: patient_meta.keys))
-    // A compound key and a keyless entity are in `derive_entity_pk_shapes.zm`, one keyed entity
-    // per module: `table` is emitted under that bare name, so two in one file collide. That is a
-    // limit of the name rather than of the attribute -- its three siblings are `<name>_columns`,
-    // `<name>_meta` and `<name>_from_row`.
+    // A compound key and a keyless entity are in `derive_entity_pk_shapes.zm`. Two keyed entities
+    // in one module are in `derive_entity_two_in_one_module.zm`, which was impossible until the
+    // table val took its prefix.
 }

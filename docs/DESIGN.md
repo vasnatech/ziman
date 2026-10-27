@@ -256,6 +256,7 @@ them against the code.
 - [`DELETE` joins the entity query language, and `UPDATE` does not (2026-10-26)](#delete-joins-the-entity-query-language-and-update-does-not-2026-10-26)
 - [Reading a module val before its initialiser has run is an error now, not a crash (2026-10-26)](#reading-a-module-val-before-its-initialiser-has-run-is-an-error-now-not-a-crash-2026-10-26)
 - [`Registry` becomes a map keyed on the folded name (2026-10-26)](#registry-becomes-a-map-keyed-on-the-folded-name-2026-10-26)
+- [The derived table val takes a prefix, and two entities fit in one module (2026-10-27)](#the-derived-table-val-takes-a-prefix-and-two-entities-fit-in-one-module-2026-10-27)
 
 <!-- end index -->
 
@@ -9991,3 +9992,34 @@ have made it the last. `registry` answers a `Registry` rather than a `Result`, s
 the duplicate -- changing that would put an `unwrap` at every call site for a mistake nothing has
 made -- so it keeps first-wins with a `contains` check. Silently changing which of two entities a
 query resolves to is the one outcome worse than either.
+
+## The derived table val takes a prefix, and two entities fit in one module (2026-10-27)
+
+`#[derive(Entity("t"))]` emitted `pub val table = "t"` under that **bare** name while its three
+siblings were all prefixed -- `<snake>_columns`, `<snake>_meta`, `<snake>_from_row`. It is
+`<snake>_table` now.
+
+**The bare name made two entities in one module impossible.** Both emitted `table`, and the
+collision was reported as *"'table' is already declared in this scope"* pointing at the **struct** --
+because neither declaration appears in the source a reader is looking at. `entity/broadcast.zm`
+holds `Broadcast` and `Dismissal` and could have neither, so neither reached the registry and
+`repository/broadcast.zm` could not take the annotation. That is now the fixture
+`derive_entity_two_in_one_module`, built in that module's own shape.
+
+What it cost outside the one `cb_appendf`: ten service files importing `entity/X.table`, in two
+forms. Nine aliased it to the name the val now has, so those lost a redundant `as`; `allergy` keeps
+one, because its struct is `AllergyIntolerance` and the val is `allergy_intolerance_table`. **The
+aliased form is what the first sweep missed** -- a regex for `use entity/X.table` does not match
+`use entity/X.table as allergy_table`, and `--check serve.zm` named the file immediately.
+
+**`Dismissal` is the schema's only compound key**, and converting it put the two-column path into
+production for the first time: `dismiss` goes through `eql.insert_one`, which reads the row back
+through `dismissal_meta.keys` -- both columns -- so a two-column `find_by_key` now runs against a
+real database rather than only in a test.
+
+**And `broadcast.set_active` is the clearest justification yet for `eql` having no `UPDATE`.** It
+sets a single column. `eql.update_one` writes every non-key column from a whole entity, so using it
+there would mean reading the broadcast first and overwriting whatever a concurrent request had
+changed -- a worse statement than the one it replaced. A partial update has no entity-shaped
+equivalent. That reasoning was written down when `DELETE` landed on general grounds; this is the
+first place it is load-bearing, and the comment now lives in the function.

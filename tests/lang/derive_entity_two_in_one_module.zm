@@ -1,0 +1,43 @@
+// **Two entities in one module**, which was impossible until the generated table val took a prefix.
+// Both used to emit `pub val table`, and the collision was reported as "'table' is already declared
+// in this scope" pointing at the *struct* -- because neither declaration appears in the source a
+// reader is looking at.
+//
+// The shape is `entity/broadcast.zm` in the North Star application: a broadcast, and the join row
+// recording who dismissed it. That join row is also the schema's only compound key, so the two
+// facts arrive together.
+use eql
+
+#[derive(Row, Entity("broadcast_messages"))]
+pub struct Broadcast {
+    #[pk]
+    id: int
+    message: string
+}
+
+#[derive(Row, Entity("user_broadcast_reads"))]
+pub struct Dismissal {
+    #[pk]
+    patient_id: int
+    #[pk]
+    broadcast_id: int
+    dismissed_at: string
+}
+
+fn main() {
+    // Each table val is named for its own entity, so neither shadows the other.
+    print(broadcast_table)
+    print(dismissal_table)
+
+    // And each metamodel carries its own key: one column, and two in field order.
+    print(join(separator: ",", pieces: broadcast_meta.keys))
+    print(join(separator: ",", pieces: dismissal_meta.keys))
+
+    // The registry resolves both, which is what a repository over either one needs.
+    val reg = eql.registry([broadcast_meta, dismissal_meta])
+    print(unwrap(eql.translate(reg, "SELECT b FROM Broadcast b WHERE b.id = :id")).sql)
+    print(unwrap(eql.translate(
+        reg,
+        "SELECT d FROM Dismissal d WHERE d.patient_id = :p AND d.broadcast_id = :b"
+    )).sql)
+}

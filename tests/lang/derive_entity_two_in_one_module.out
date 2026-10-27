@@ -1,0 +1,6 @@
+broadcast_messages
+user_broadcast_reads
+id
+patient_id,broadcast_id
+SELECT b.id AS id, b.message AS message FROM broadcast_messages AS b WHERE b.id = $1
+SELECT d.patient_id AS patient_id, d.broadcast_id AS broadcast_id, d.dismissed_at AS dismissed_at FROM user_broadcast_reads AS d WHERE d.patient_id = $1 AND d.broadcast_id = $2

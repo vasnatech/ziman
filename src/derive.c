@@ -833,9 +833,9 @@ static char *generate_enum_from_json(EnumDecl *ed) {
 /* `table` is the string the target was written with, or NULL for a bare `#[derive(Entity)]`.
  *
  * **With it, three hand-written lines per entity become none.** The North Star application wrote
- * the same table name twice -- once in a `pub val table` its services import and once in the
- * `eql.entity(..)` call beside it -- and the entity's own name a third time, which is the struct's
- * name spelled again. All three are mechanical given the table, so the table is the only thing
+ * the same table name twice -- once in a `pub val <snake>_table` its services import and once in
+ * the `eql.entity(..)` call beside it -- and the entity's own name a third time, which is the
+ * struct's name spelled again. All three are mechanical given the table, so the table is the only thing
  * worth writing, and `#[derive(Entity("patients"))]` is where it goes.
  *
  * Without it the target still writes the column list alone, which is what it did before and what
@@ -855,7 +855,13 @@ static char *generate_struct_entity(StructDecl *sd, const char *table) {
     }
     cb_appendf(&cb, "]\n\n");
     if (table != NULL) {
-        cb_appendf(&cb, "pub val table: string = \"%s\"\n\n", table);
+        /* `<snake>_table`, prefixed like `<snake>_columns` and `<snake>_meta` beside it. It was
+         * the bare name `table` until 2026-10-27, which was the one unprefixed thing this derive
+         * emitted -- and that made **two entities in one module impossible**: both emitted `table`,
+         * and the collision was reported as "'table' is already declared in this scope" pointing at
+         * the *struct*, because neither declaration appears in the source a reader is looking at.
+         * `entity/broadcast.zm` holds Broadcast and Dismissal and could have neither. */
+        cb_appendf(&cb, "pub val %s_table: string = \"%s\"\n\n", val_name, table);
         /* The `#[pk]` fields, in field order. `keyed_entity` when there are any and `entity` when
          * there are none, so an entity that declares no key says so in the call rather than
          * carrying an empty list that reads like an oversight. */
