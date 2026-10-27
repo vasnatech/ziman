@@ -618,6 +618,12 @@ static int run_api(const char *module_name) {
     }
     TokenList tokens = lex(source);
     Module *m = parse(tokens);
+    /* `--api` lists what a module offers, and a derived function is part of that -- `--api` on an
+     * entity prints its `<name>_from_row`. Asked for explicitly since 2026-10-26, when generation
+     * moved out of `parse` into the loader: this path has no loader and no imports, so a generator
+     * that needs an imported type can do nothing here, which is a limit of reading one file in
+     * isolation rather than of the generator. */
+    generate_derived_functions(m);
     print_api_module(module_name, m);
     free(owned);
     return 0;

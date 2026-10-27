@@ -2880,8 +2880,18 @@ Module *parse(TokenList tokens) {
     /* A file with syntax errors is not checked further: what is missing would
      * make the next phases report errors that are only echoes. */
     ziman_finish_errors();
-    generate_derived_functions(module);
-    ziman_finish_errors();
 
+    /* **Derives no longer run here.** They ran at the end of parsing one file from the first
+     * derive until 2026-10-26, which meant a generator could see the declaration it was attached
+     * to and nothing else -- not an imported type, not the module it would like to write into.
+     * That is the wall docs/ROADMAP.md's "Code generation from annotations" entry is about: it
+     * forced the table name into `#[derive(Entity("t"))]`, and it is why a generator cannot write
+     * `delete(conn, id: Uuid)` from a `#[pk]` field in another module.
+     *
+     * `load_module` calls it now, after a module's dependencies are loaded and before its named
+     * imports are resolved -- the one point where an imported `StructDecl` is reachable and
+     * `ensure_module_import` still works. Every caller of `parse` that needs generated
+     * declarations therefore asks for them: the two in loader.c and `--api`'s single-file read.
+     * A file parsed for its text alone (the formatter, the LSP's prelude) does not. */
     return module;
 }

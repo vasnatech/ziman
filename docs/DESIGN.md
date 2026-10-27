@@ -247,6 +247,7 @@ them against the code.
 - [A statement is parsed once per connection, in all four engines (2026-10-26)](#a-statement-is-parsed-once-per-connection-in-all-four-engines-2026-10-26)
 - [The statement cache reaches SQLite, and finds that Nagle was never turned off (2026-10-26)](#the-statement-cache-reaches-sqlite-and-finds-that-nagle-was-never-turned-off-2026-10-26)
 - [The table name moves into the annotation, and an entity becomes a struct again (2026-10-26)](#the-table-name-moves-into-the-annotation-and-an-entity-becomes-a-struct-again-2026-10-26)
+- [Code generation moves out of the parser, and what sat between the old position and the new one (2026-10-26)](#code-generation-moves-out-of-the-parser-and-what-sat-between-the-old-position-and-the-new-one-2026-10-26)
 
 <!-- end index -->
 
@@ -9602,3 +9603,22 @@ The grammar change is one optional `("...")` per derive target. `DeriveList` and
 **The effect on work not yet done is the part worth keeping.** 24 repositories still read raw SQL, and adopting `eql` in one used to mean editing its entity first: add the target, add the table, add the metamodel. Every entity now has a `<name>_meta` waiting, so that step is gone -- which is a thing to notice about this kind of change. It removed 98 lines, and the reason to do it was the 24 edits it will not need.
 
 Guarded by two fixtures, both forms in one file so they cannot drift apart, and one for the refusal. `make check` green at 1208 fixtures with North Star at 62 suites / 2646 checks; in the application, the in-process repository suite at 43 checks and the behavioural suite with 0 failures.
+
+## Code generation moves out of the parser, and what sat between the old position and the new one (2026-10-26)
+
+`generate_derived_functions(module)` ran at the end of parsing **one file**, from the first derive until today. It now runs in `load_module`, after a module's dependencies are loaded and before its named imports are resolved.
+
+**The specification that forced it was one line.** Designing a `#![repository(VitalSign)]` that generates the ten CRUD functions a repository writes by hand, the requirement settled as: the annotation names the entity and nothing else, and the generated `delete(conn, id: Uuid)` takes its parameter's name and type from the entity's `#[pk]` field. That cannot be met from the parser. The parameter name and type are compile-time text, the field is in another module, and at the end of parsing `repository/vital_sign.zm` the entity module may not have been read yet. The alternatives were to repeat the fact in the annotation, or to assume `id: Uuid` -- right for 27 of 27 entities in the application today, and the dangerous kind of wrong, because a wrong parameter *name* with the right type compiles and reads perfectly well.
+
+**`load_module` already had the position**, which is why this is three edits rather than a redesign: it parses, loads every dependency to completion, then resolves named imports. Generation belongs between the second and the third -- dependencies are loaded, so a generator may read an imported `StructDecl`; imports are unresolved, so a generator may still add the ones its output needs.
+
+Four callers ask for generation now, because `parse` no longer does it: `load_module`, the entry module, and `--api <file>` -- which lists derived functions, so dropping it would have quietly changed that output. The formatter and the LSP's prelude read do not, because they want the text.
+
+**Both failures were in the gap between the old position and the new one, and neither was the risk that was predicted.** The roadmap entry said the thing to verify was whether any of the seven derive targets depends on running before anything else is known. None does. What does depend on it is the loader, twice:
+
+* **A segfault.** `#[derive(Entity("t"))]` calls `ensure_module_import` to add `use eql`. Appended after the loop that loads uses had already run, so nothing loaded `eql`, and resolving the generated `eql.entity(..)` call dereferenced a module that was never there. The seam needs both halves: generate after dependencies are loaded, *then load what generation itself imported*.
+* **Two fixtures, and a lesson about which tests are load-bearing.** The loader assigns every declaration's `source_file` before the uses loop, so the newly generated declarations missed it -- and `source_file` is what later phases report an error *in*. `derive(Ord)` on an unordered field went from *"type error at 2:1 in tests/lang/ord_derive_field_not_ordered.zm (in derive(Ord) for 'Bad')"* to the same sentence with no file. Exactly two fixtures caught it, because the field is invisible unless a derive's **output** fails to check, and almost nothing has a deliberately broken derive. Without those two this would have shipped as "every error inside generated code names no file", to be found by whoever next debugged one.
+
+**The general lesson is about moving a phase at all.** The hazard was not the phase and not its new neighbours -- it was everything that had been running *between* the old position and the new one, each step of which had quietly assumed the generated declarations were already there. Neither failure is visible by reading `generate_derived_functions`, and neither would have been found by reasoning about derives. A suite of 1,208 fixtures found both in two runs.
+
+What this unblocks, in order: `#[pk]` on a field, so the metamodel carries the key columns rather than assuming the first one; `eql`'s runtime CRUD half, callable without any annotation; and then `#![repository(..)]`, whose generated signatures are now derivable from the entity. The remaining four decisions of the roadmap entry are untouched -- whether a generator may write into a module it is not declared in, what happens on a name collision, whether generated declarations are visible in the source, and whether the name contract can be checked rather than conventional.

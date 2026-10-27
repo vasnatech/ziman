@@ -8,6 +8,7 @@
 #include <string.h>
 
 #include "corelib.h"
+#include "derive.h"
 #include "error.h"
 #include "lexer.h"
 #include "parser.h"
@@ -1887,6 +1888,38 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
     }
     ziman_set_error_file(from_disk ? file_path : NULL);
 
+    /* **Generation runs here, and the position is the whole point.** Every dependency above is
+     * loaded to completion, including its own generated declarations, so a generator may read an
+     * imported type; and named imports below are not resolved yet, so a generator may still add
+     * the imports its output needs (`ensure_module_import`). Parsing is too early for the first
+     * and resolution is too late for the second, which leaves exactly this line.
+     *
+     * **And what it adds has to be loaded**, which is the part that segfaulted on the first
+     * attempt: `#[derive(Entity("t"))]` ensures a `use eql`, appended after the loop above had
+     * already run, so nothing loaded `eql` and resolving the generated call dereferenced a module
+     * that was never there. The loop below picks up exactly the uses generation appended. */
+    int uses_before_derive = mod->uses.count;
+    generate_derived_functions(mod);
+    ziman_finish_errors();
+    for (int i = uses_before_derive; i < mod->uses.count; i++) {
+        UseDecl *u = &mod->uses.items[i];
+        ziman_set_error_file(from_disk ? file_path : NULL);
+        canonicalize_use_path(ldr, u);
+        load_module(ldr, u->path, u->line, u->col);
+    }
+    ziman_set_error_file(from_disk ? file_path : NULL);
+    /* **And the generated declarations need the file they came from**, which the loops above
+     * assigned before any of them existed. A `source_file` is what later phases report an error
+     * *in*: without it, `derive(Ord)` on an unordered field said "type error at 2:1 (in derive(Ord)
+     * for 'Bad')" and named no file. Two fixtures caught that and nothing else did, because the
+     * field is only visible when a derive's output fails to check. */
+    if (from_disk) {
+        for (int i = 0; i < mod->functions.count; i++) mod->functions.items[i]->source_file = file_path;
+        for (int i = 0; i < mod->structs.count; i++) mod->structs.items[i]->source_file = file_path;
+        for (int i = 0; i < mod->enums.count; i++) mod->enums.items[i]->source_file = file_path;
+        for (int i = 0; i < mod->vals.count; i++) mod->vals.items[i]->source_file = file_path;
+    }
+
     int n_imports = 0;
     NamedImport *imports = resolve_named_imports(ldr, mod, file_path, &n_imports);
     self_qualify_module(mod, use_path, imports, n_imports);
@@ -1983,6 +2016,24 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
         load_module(&ldr, u->path, u->line, u->col);
     }
     ziman_set_error_file(entry_path);
+    /* The entry module's own generation, for `load_module`'s reason: its dependencies are loaded
+     * and its imports are not yet resolved -- and, as there, whatever generation imports has to be
+     * loaded after it. */
+    int entry_uses_before_derive = entry_mod->uses.count;
+    generate_derived_functions(entry_mod);
+    ziman_finish_errors();
+    for (int i = entry_uses_before_derive; i < entry_mod->uses.count; i++) {
+        UseDecl *u = &entry_mod->uses.items[i];
+        ziman_set_error_file(entry_path);
+        canonicalize_use_path(&ldr, u);
+        load_module(&ldr, u->path, u->line, u->col);
+    }
+    ziman_set_error_file(entry_path);
+    /* The generated declarations' own file, for the reason `load_module` gives above. */
+    for (int i = 0; i < entry_mod->functions.count; i++) entry_mod->functions.items[i]->source_file = entry_path;
+    for (int i = 0; i < entry_mod->structs.count; i++) entry_mod->structs.items[i]->source_file = entry_path;
+    for (int i = 0; i < entry_mod->enums.count; i++) entry_mod->enums.items[i]->source_file = entry_path;
+    for (int i = 0; i < entry_mod->vals.count; i++) entry_mod->vals.items[i]->source_file = entry_path;
     /* The entry module is never a `use` target, so it keeps its own bare
      * names (no self-qualify *rename* pass) -- a program with no `use`
      * statements behaves exactly as it always has. Its named imports
