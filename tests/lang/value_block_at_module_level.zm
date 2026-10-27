@@ -1,0 +1,35 @@
+// An `if`/`switch` used as a value, as a module-level val's initialiser. **This segfaulted until
+// 2026-10-26**, and the feature that found it (a `{ .. }` block as an expression) is not involved:
+// any value block at module level ran a block with no call frame on the stack, and
+// `exec_stmts_in_scope` reads the current frame's Env as `t_frames[ziman_frame_count() - 1]` --
+// `t_frames[-1]` with none.
+
+enum Mode {
+    Fast
+    Slow
+}
+
+val mode = Mode.Fast
+
+val label = if true {
+    "yes"
+} else {
+    "no"
+}
+
+val speed = switch mode {
+    Fast { 10 }
+    Slow { 1 }
+}
+
+val typed: int = if false {
+    0
+} else {
+    42
+}
+
+fn main() {
+    print(label)
+    print(speed)
+    print(typed)
+}

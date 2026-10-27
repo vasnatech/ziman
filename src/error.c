@@ -297,7 +297,15 @@ int ziman_frame_count(void) {
     return t_frame_count;
 }
 
+/* Out of range answers NULL rather than reading the array, which is not defensiveness: the one
+ * caller asks for `ziman_frame_count() - 1`, and that is **-1 during module initialisation**, where
+ * no function has been entered and `t_frames` may still be NULL. A module-level `val` whose
+ * initialiser is an `if`/`switch`/block used as a value runs a block, `exec_stmts_in_scope` saves
+ * the frame's Env first, and the read of `t_frames[-1]` segfaulted. Guarding here is only half the
+ * fix -- see `interpret`, which gives module initialisation a frame, because without one
+ * `ziman_set_frame_env` is also a no-op and the scope would be invisible to the GC root walk. */
 void *ziman_frame_env_at(int i) {
+    if (i < 0 || i >= t_frame_count) return NULL;
     return t_frames[i].env;
 }
 

@@ -2409,8 +2409,26 @@ Value native_call_closure(Value fn, Value *args, int argc, int line, int col) {
 void interpret(Module *module) {
     g_program = module;
     g_global_env = env_new(NULL);
+    /* **Module initialisation gets a frame of its own**, where it had none: nothing has been called
+     * yet, so `t_frame_count` was 0 and every nested scope opened by a global initialiser ran
+     * without one. Two separate things needed it, and only the first was visible.
+     *
+     * `exec_stmts_in_scope` reads the current frame's Env before replacing it, as
+     * `ziman_frame_env_at(ziman_frame_count() - 1)` -- which is `t_frames[-1]` with no frame, and
+     * segfaulted on any module-level `val` whose initialiser was an `if`, a `switch` or a block
+     * used as a value.
+     *
+     * The quiet half is the GC. `ziman_set_frame_env` is what makes a *nested* scope reachable from
+     * a root walk at all, since `gc_mark_env_chain` only ever walks an Env upward through its
+     * parents, and it is a no-op with no frame to record into. So a value allocated inside a global
+     * initialiser's own block -- the builder in `val x = { val out = mutable_array_new<string>()
+     * .. }` -- was not a root, and a collection during initialisation could have taken it. Fixing
+     * only the read would have turned a crash into that. */
+    ziman_push_frame("<module initialisation>", NULL, 0, 0);
+    ziman_set_frame_env(g_global_env);
     init_param_defaults(module);
     init_global_vals(module);
+    ziman_pop_frame();
     FunctionDecl *main_fn = find_function(module, "main");
     call_function(module, main_fn, NULL, 0, 0, main_fn->line, main_fn->col);
 }
@@ -2493,8 +2511,12 @@ static int run_one_test(Module *module, FunctionDecl *fn, Value *args, int argc,
 void interpret_tests(Module *module, const char *file_label, int *out_run, int *out_failed) {
     g_program = module;
     g_global_env = env_new(NULL);
+    /* The same frame `interpret` gives module initialisation, for the same two reasons. */
+    ziman_push_frame("<module initialisation>", NULL, 0, 0);
+    ziman_set_frame_env(g_global_env);
     init_param_defaults(module);
     init_global_vals(module);
+    ziman_pop_frame();
     char label[512];
     for (int i = 0; i < module->functions.count; i++) {
         FunctionDecl *fn = module->functions.items[i];
