@@ -572,3 +572,20 @@ fn a_parameter_named_after_a_clause_keyword_is_a_parameter() {
     test.assert_contains(sql_of("SELECT v.id FROM Visit v WHERE v.reason = :join"), "WHERE v.reason = $1")
     test.assert_contains(sql_of("SELECT v.id FROM Visit v WHERE v.reason = :where"), "WHERE v.reason = $1")
 }
+
+#[test]
+fn a_name_after_as_is_a_label_not_an_alias() {
+    // `SELECT count(*) AS p FROM Patient p` uses `p` for both the count's column name and the
+    // entity. The label was expanded into the entity's column list, producing
+    // `SELECT count(*) AS p.id AS id, ..` and an error about a '.' the caller never wrote. The
+    // collision is avoidable by choosing another alias, but a label is not an alias in any query.
+    test.assert_eq(
+        "SELECT count(*) AS p FROM patients AS p WHERE p.last_name = $1",
+        sql_of("SELECT count(*) AS p FROM Patient p WHERE p.last_name = :name")
+    )
+    // And a bare alias that really is one still expands.
+    test.assert_contains(
+        sql_of("SELECT p FROM Patient p WHERE p.id = :id"),
+        "SELECT p.id AS id, p.user_id AS user_id"
+    )
+}

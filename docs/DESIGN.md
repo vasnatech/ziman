@@ -258,6 +258,7 @@ them against the code.
 - [`Registry` becomes a map keyed on the folded name (2026-10-26)](#registry-becomes-a-map-keyed-on-the-folded-name-2026-10-26)
 - [The derived table val takes a prefix, and two entities fit in one module (2026-10-27)](#the-derived-table-val-takes-a-prefix-and-two-entities-fit-in-one-module-2026-10-27)
 - [A parameter named after a clause keyword is a parameter (2026-10-27)](#a-parameter-named-after-a-clause-keyword-is-a-parameter-2026-10-27)
+- [A name after `AS` is a label, not an alias (2026-10-27)](#a-name-after-as-is-a-label-not-an-alias-2026-10-27)
 
 <!-- end index -->
 
@@ -10043,3 +10044,30 @@ enough from the cause that reading it would not have suggested the fix.
 
 Tested for `:from`, `:to`, `:order`, `:join` and `:where`, which is the set a parameter might
 plausibly be called.
+
+## A name after `AS` is a label, not an alias (2026-10-27)
+
+`SELECT count(*) AS n FROM Notification n` -- `n` for both the count's column name and the entity --
+expanded the *label* into the entity's column list:
+
+```
+SELECT count(*) AS n.id AS id, n.patient_id AS patient_id, .. FROM notifications n
+```
+
+and then failed with `unexpected '.' after the statement`, about a `.` the caller never wrote.
+
+The bare-alias expansion is what makes `SELECT v FROM VitalSign v` mean the entity's columns, and it
+fires on any name in the select list that a `FROM` bound. A label is such a name. One condition
+fixes it: not immediately after `AS`.
+
+**The collision was avoidable and the fix is still right.** Every other repository in the sample
+backend writes `AS n` with an entity alias of `v`, `m`, `p` and so on, so 24 conversions passed
+before one chose `n` for a `Notification`. But a label is not an alias in any query, so the
+translator should not read one as the other -- the same shape as the `:from` bug a few hours
+earlier, where a name was read in a position it could not occupy.
+
+**Where it surfaced is worth recording.** `--check serve.zm` passed it, because translation runs at
+module *initialisation* and not at type-check time, so the only thing that could catch it was
+running the application. It then failed at load with the SQL in the message, which is the property
+the module-level `val` exists for: not on the request that would have read that column. Of roughly
+twenty-five repository conversions this was the only mistake the type checker could not see.

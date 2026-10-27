@@ -714,7 +714,14 @@ fn translate_sized(reg: Registry, query: string, sizes: Map<string, int>) -> Res
             }
         }
         // An alias on its own in the select list: the entity's columns.
-        if in_select && is_name(t) {
+        //
+        // **Except right after `AS`, where a name is a label.** `SELECT count(*) AS n FROM
+        // Notification n` uses `n` for both the count's column name and the entity, and the label
+        // was expanded into the entity's column list -- producing
+        // `SELECT count(*) AS n.id AS id, ..` and an error about a '.' the caller never wrote. The
+        // collision is avoidable by choosing another alias, but a label is not an alias in any
+        // query, so the translator should not read one as the other.
+        if in_select && is_name(t) && !(i >= 1 && is_name(tokens[i - 1]) && tokens[i - 1].upper == "AS") {
             if Some(b) = bound_for(binds, t.text) {
                 append(out, expanded(b))
                 i = i + 1
