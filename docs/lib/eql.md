@@ -159,6 +159,71 @@ different queries, and only the binding knows which was meant.
 pub fn bind(name: string, value: SqlValue) -> Binding
 ```
 
+```
+pub fn bind(name: string, value: int) -> Binding
+```
+
+**The conversion to `SqlValue` belongs here, not at the call site.** Every one of these is the
+one conversion its type has -- `uuid_to_sql` for a `Uuid`, `time.to_sql` for an instant -- so
+writing it out at the call site was never a choice being made, only a step that could be
+forgotten or, worse, got right in a way the reader has to re-verify. What a binding list looked
+like before was `[bind("id", uuid_to_sql(id)), bind("patient_id", uuid_to_sql(patient_id))]`,
+where the names and the values are what the reader is checking and `uuid_to_sql` is in the way
+of both.
+
+The `SqlValue` overload above stays, and is the escape hatch: a value whose SQL representation is
+a decision rather than a convention -- a decimal as text at a chosen scale, an `Option` as
+`Null` or not -- says so by constructing the `SqlValue` itself. These overloads deliberately do
+not cover `Option<T>`, because "absent means NULL" is exactly such a decision.
+
+```
+pub fn bind(name: string, value: float) -> Binding
+```
+
+```
+pub fn bind(name: string, value: string) -> Binding
+```
+
+```
+pub fn bind(name: string, value: bool) -> Binding
+```
+
+```
+pub fn bind(name: string, value: [byte]) -> Binding
+```
+
+```
+pub fn bind(name: string, value: Uuid) -> Binding
+```
+
+```
+pub fn bind(name: string, value: Instant) -> Binding
+```
+
+```
+pub fn bind(name: string, value: LocalDate) -> Binding
+```
+
+```
+pub fn bind(name: string, value: LocalTime) -> Binding
+```
+
+```
+pub fn bind(name: string, value: LocalDateTime) -> Binding
+```
+
+```
+pub fn bind(name: string, value: Duration) -> Binding
+```
+
+```
+pub fn bind(name: string, value: ZoneOffset) -> Binding
+```
+
+```
+pub fn bind(name: string, value: ZoneId) -> Binding
+```
+
 ### `bind_list`
 
 ```
@@ -172,6 +237,24 @@ that is has the wrong answer for one of the two directions: `IN (NULL)` is unkno
 false, and `NOT IN (NULL)` is unknown rather than true. A caller that can have an empty filter
 knows what it means by one -- usually "match nothing", which is an answer it can give without a
 round trip -- so it says so at the call site instead of here.
+
+```
+pub fn bind_list(name: string, values: [string]) -> Binding
+```
+
+The same conversion `bind` does, for a collection. **Three types rather than `bind`'s thirteen**,
+and the asymmetry is deliberate: a collection parameter is an `IN` list, and what a query filters
+a set of rows by is identifiers, numbers or text. `IN` over a list of durations or zone offsets
+is not a shape any query here has, so it is not guessed at -- the `[SqlValue]` overload above
+takes one if it ever is.
+
+```
+pub fn bind_list(name: string, values: [int]) -> Binding
+```
+
+```
+pub fn bind_list(name: string, values: [Uuid]) -> Binding
+```
 
 ### `Translated`
 

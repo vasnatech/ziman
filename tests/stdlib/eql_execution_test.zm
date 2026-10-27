@@ -14,6 +14,8 @@ use db.SqlValue
 use eql
 use memdb
 use test
+use time
+use uuid
 
 val drivers = datasource.registry([memdb.driver()])
 
@@ -503,4 +505,82 @@ fn a_delete_predicate_column_the_entity_does_not_have_is_refused() {
         db.db_error_message(test.assert_err(eql.delete_where(conn, visit, [eql.bind("owner_id", SqlValue.Int(1))]))),
         "Visit names owner_id and has no such column"
     )
+}
+
+// ---------------------------------------------------------------- typed bindings
+
+// A row whose key and timestamp are the types a real application uses, so the bindings below are
+// the ones a repository writes rather than the int-keyed ones above.
+#[derive(Row, Entity)]
+pub struct Stamped {
+    id: uuid.Uuid
+    at: time.Instant
+    label: string
+}
+
+val stamped = eql.keyed_entity("Stamped", "stamped", stamped_columns, ["id"])
+val by_stamped_id = unwrap(eql.translate(
+    eql.registry([stamped]),
+    "SELECT s FROM Stamped s WHERE s.id = :id"
+))
+
+#[test]
+fn a_binding_converts_its_own_value() {
+    // **No `uuid_to_sql` at the call site**, which is the whole point: the names and the values are
+    // what a reader checks, and a conversion between them is in the way of both.
+    val conn = test.assert_ok(datasource.open(drivers, "memdb:"))
+    test.assert_ok(datasource.execute(conn, "CREATE TABLE stamped (id TEXT, at TEXT, label TEXT)"))
+    val id = uuid.uuid_new()
+    val now = time.instant_now()
+    test.assert_ok(eql.insert_one<Stamped>(
+        conn,
+        stamped,
+        stamped_to_params(Stamped { id: id, at: now, label: "first" }),
+        stamped_from_row
+    ))
+    val found = test.assert_ok(eql.list<Stamped>(conn, by_stamped_id, [eql.bind("id", id)], stamped_from_row))
+    test.assert_len(1, found)
+    test.assert_eq("first", found[0].label)
+    // The SqlValue overload is still there, and answers the same row.
+    val same = test.assert_ok(eql.list<Stamped>(
+        conn,
+        by_stamped_id,
+        [eql.bind("id", uuid.uuid_to_sql(id))],
+        stamped_from_row
+    ))
+    test.assert_len(1, same)
+}
+
+#[test]
+fn every_scalar_overload_reaches_the_engine() {
+    val conn = seeded()
+    // int, float and string, each bound as itself.
+    val by_cost = unwrap(eql.translate(reg, "SELECT v FROM Visit v WHERE v.cost = :cost"))
+    test.assert_len(1, test.assert_ok(eql.list<Visit>(conn, by_cost, [eql.bind("cost", 120.5)], visit_from_row)))
+    val by_reason = unwrap(eql.translate(reg, "SELECT v FROM Visit v WHERE v.reason = :reason ORDER BY v.id"))
+    test.assert_len(
+        2,
+        test.assert_ok(eql.list<Visit>(conn, by_reason, [eql.bind("reason", "checkup")], visit_from_row))
+    )
+    val by_patient = unwrap(eql.translate(reg, "SELECT v FROM Visit v WHERE v.patient_id = :pid ORDER BY v.id"))
+    test.assert_len(2, test.assert_ok(eql.list<Visit>(conn, by_patient, [eql.bind("pid", 1)], visit_from_row)))
+}
+
+#[test]
+fn a_collection_binding_converts_its_own_values() {
+    val conn = seeded()
+    val in_reasons = unwrap(eql.translate(reg, "SELECT v FROM Visit v WHERE v.reason IN :reasons ORDER BY v.id"))
+    test.assert_len(3, test.assert_ok(eql.list<Visit>(
+        conn,
+        in_reasons,
+        [eql.bind_list("reasons", ["checkup", "follow up"])],
+        visit_from_row
+    )))
+    val in_ids = unwrap(eql.translate(reg, "SELECT v FROM Visit v WHERE v.id IN :ids ORDER BY v.id"))
+    test.assert_len(2, test.assert_ok(eql.list<Visit>(
+        conn,
+        in_ids,
+        [eql.bind_list("ids", [1, 3])],
+        visit_from_row
+    )))
 }

@@ -70,6 +70,16 @@ use locale
 use sql
 use sql.Statement
 use sql.Token
+use time
+use time.Duration
+use time.Instant
+use time.LocalDate
+use time.LocalDateTime
+use time.LocalTime
+use time.ZoneId
+use time.ZoneOffset
+use uuid.Uuid
+use uuid.uuid_to_sql
 
 // One entity: the name a query calls it, the table it is stored in, and its columns.
 //
@@ -133,6 +143,70 @@ pub fn bind(name: string, value: SqlValue) -> Binding {
     return Binding { name: name, value: value, values: none, list: false }
 }
 
+// **The conversion to `SqlValue` belongs here, not at the call site.** Every one of these is the
+// one conversion its type has -- `uuid_to_sql` for a `Uuid`, `time.to_sql` for an instant -- so
+// writing it out at the call site was never a choice being made, only a step that could be
+// forgotten or, worse, got right in a way the reader has to re-verify. What a binding list looked
+// like before was `[bind("id", uuid_to_sql(id)), bind("patient_id", uuid_to_sql(patient_id))]`,
+// where the names and the values are what the reader is checking and `uuid_to_sql` is in the way
+// of both.
+//
+// The `SqlValue` overload above stays, and is the escape hatch: a value whose SQL representation is
+// a decision rather than a convention -- a decimal as text at a chosen scale, an `Option` as
+// `Null` or not -- says so by constructing the `SqlValue` itself. These overloads deliberately do
+// not cover `Option<T>`, because "absent means NULL" is exactly such a decision.
+pub fn bind(name: string, value: int) -> Binding {
+    return bind(name, SqlValue.Int(value))
+}
+
+pub fn bind(name: string, value: float) -> Binding {
+    return bind(name, SqlValue.Float(value))
+}
+
+pub fn bind(name: string, value: string) -> Binding {
+    return bind(name, SqlValue.Text(value))
+}
+
+pub fn bind(name: string, value: bool) -> Binding {
+    return bind(name, SqlValue.Bool(value))
+}
+
+pub fn bind(name: string, value: [byte]) -> Binding {
+    return bind(name, SqlValue.Bytes(value))
+}
+
+pub fn bind(name: string, value: Uuid) -> Binding {
+    return bind(name, uuid_to_sql(value))
+}
+
+pub fn bind(name: string, value: Instant) -> Binding {
+    return bind(name, time.to_sql(value))
+}
+
+pub fn bind(name: string, value: LocalDate) -> Binding {
+    return bind(name, time.to_sql(value))
+}
+
+pub fn bind(name: string, value: LocalTime) -> Binding {
+    return bind(name, time.to_sql(value))
+}
+
+pub fn bind(name: string, value: LocalDateTime) -> Binding {
+    return bind(name, time.to_sql(value))
+}
+
+pub fn bind(name: string, value: Duration) -> Binding {
+    return bind(name, time.to_sql(value))
+}
+
+pub fn bind(name: string, value: ZoneOffset) -> Binding {
+    return bind(name, time.to_sql(value))
+}
+
+pub fn bind(name: string, value: ZoneId) -> Binding {
+    return bind(name, time.to_sql(value))
+}
+
 // A collection parameter, for `IN :names`.
 //
 // **An empty list is refused rather than guessed at.** `x IN ()` is not SQL, and every spelling
@@ -142,6 +216,35 @@ pub fn bind(name: string, value: SqlValue) -> Binding {
 // round trip -- so it says so at the call site instead of here.
 pub fn bind_list(name: string, values: [SqlValue]) -> Binding {
     return Binding { name: name, value: SqlValue.Null, values: values, list: true }
+}
+
+// The same conversion `bind` does, for a collection. **Three types rather than `bind`'s thirteen**,
+// and the asymmetry is deliberate: a collection parameter is an `IN` list, and what a query filters
+// a set of rows by is identifiers, numbers or text. `IN` over a list of durations or zone offsets
+// is not a shape any query here has, so it is not guessed at -- the `[SqlValue]` overload above
+// takes one if it ever is.
+pub fn bind_list(name: string, values: [string]) -> Binding {
+    val out = mutable_array_new<SqlValue>()
+    for v in values {
+        push(out, SqlValue.Text(v))
+    }
+    return bind_list(name, snapshot(out))
+}
+
+pub fn bind_list(name: string, values: [int]) -> Binding {
+    val out = mutable_array_new<SqlValue>()
+    for v in values {
+        push(out, SqlValue.Int(v))
+    }
+    return bind_list(name, snapshot(out))
+}
+
+pub fn bind_list(name: string, values: [Uuid]) -> Binding {
+    val out = mutable_array_new<SqlValue>()
+    for v in values {
+        push(out, uuid_to_sql(v))
+    }
+    return bind_list(name, snapshot(out))
 }
 
 // One collection size's translation, kept so that the second call with the same size does not

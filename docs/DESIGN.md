@@ -252,6 +252,7 @@ them against the code.
 - [An update takes a scope column, and why the read-back does not go through the key (2026-10-26)](#an-update-takes-a-scope-column-and-why-the-read-back-does-not-go-through-the-key-2026-10-26)
 - [`#![repository(Entity)]`, and the rule that a hand-written function wins (2026-10-26)](#repositoryentity-and-the-rule-that-a-hand-written-function-wins-2026-10-26)
 - [A `{ .. }` block is an expression, and the crash that was waiting under module initialisation (2026-10-26)](#a-block-is-an-expression-and-the-crash-that-was-waiting-under-module-initialisation-2026-10-26)
+- [`eql.bind` converts its own value, and the thirteen-against-three asymmetry (2026-10-26)](#eqlbind-converts-its-own-value-and-the-thirteen-against-three-asymmetry-2026-10-26)
 
 <!-- end index -->
 
@@ -9821,3 +9822,41 @@ once**, about the same mechanism: a GC root that is reached only through a side 
 in the code that depends on it. The first incident was a value in a `for` body; this one is a value
 in a global initialiser. Both read as ordinary code, and in both the missing root was a no-op guard
 two files away.
+
+## `eql.bind` converts its own value, and the thirteen-against-three asymmetry (2026-10-26)
+
+`eql.bind` took a `SqlValue`, so every binding list in a repository carried its conversions:
+
+```ziman
+[eql.bind("id", uuid_to_sql(id)), eql.bind("patient_id", uuid_to_sql(patient_id))]
+```
+
+The names and the values are what a reader of that line is checking, and `uuid_to_sql` is in the way
+of both. It is also not a decision: `uuid_to_sql` is the one conversion a `Uuid` has, so writing it
+out was a step that could be forgotten rather than a choice being made. `bind` now has an overload
+per bindable type and the line is `[eql.bind("id", id), eql.bind("patient_id", patient_id)]`.
+
+**The `SqlValue` overload stays, and is the point of keeping it.** A value whose SQL representation
+*is* a decision says so by constructing the `SqlValue`: a decimal as text at a chosen scale, or an
+`Option` as `Null`. The overloads deliberately do not cover `Option<T>` for exactly that reason --
+"absent means NULL" is a choice a repository should write down.
+
+**Nothing new was needed to make it resolve.** Full overloading shipped in F167-F202, `to_sql` was
+already an overload set in `lib/time/time.zm` for the seven time types, and `uuid_to_sql` was
+already there to call. The cost was `use time` and `use uuid.uuid_to_sql` in `lib/db/eql.zm`, which
+is a dependency from the query layer onto two domain-scalar modules -- allowed, and already taken by
+`lib/db/migrate.zm`, and not a cycle: `time` and `uuid` both depend on `db`, while `eql` is a
+different module in that folder.
+
+**`bind` covers thirteen types and `bind_list` three, and the asymmetry is the recorded decision.**
+A collection parameter is an `IN` list, and what a query filters a set of rows by is identifiers,
+numbers or text -- so `[string]`, `[int]` and `[Uuid]`. `IN` over a list of durations or zone
+offsets is not a shape any query in either repository has, and the `[SqlValue]` overload takes one
+if it ever is. Mirroring `bind` exactly would have been ten more one-line functions for query shapes
+nobody writes, which is the kind of symmetry that costs API surface and buys nothing.
+
+What it removed from the sample backend: **25 conversions** at the binding sites (18 `uuid_to_sql`,
+6 `SqlValue.Int`, 1 `SqlValue.Text`) and **three copies of a ten-line `type_values` helper** whose
+whole job was turning `Option<[string]>` into `Option<[SqlValue]>`. With `bind_list` taking the
+`[string]`, what is left at the call site is the part that was always a real decision -- that an
+empty filter answers nothing without asking the database.

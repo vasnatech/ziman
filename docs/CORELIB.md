@@ -1881,7 +1881,39 @@ pub struct Binding {
 
 pub fn bind(name: string, value: SqlValue) -> Binding
 
+pub fn bind(name: string, value: int) -> Binding
+
+pub fn bind(name: string, value: float) -> Binding
+
+pub fn bind(name: string, value: string) -> Binding
+
+pub fn bind(name: string, value: bool) -> Binding
+
+pub fn bind(name: string, value: [byte]) -> Binding
+
+pub fn bind(name: string, value: Uuid) -> Binding
+
+pub fn bind(name: string, value: Instant) -> Binding
+
+pub fn bind(name: string, value: LocalDate) -> Binding
+
+pub fn bind(name: string, value: LocalTime) -> Binding
+
+pub fn bind(name: string, value: LocalDateTime) -> Binding
+
+pub fn bind(name: string, value: Duration) -> Binding
+
+pub fn bind(name: string, value: ZoneOffset) -> Binding
+
+pub fn bind(name: string, value: ZoneId) -> Binding
+
 pub fn bind_list(name: string, values: [SqlValue]) -> Binding
+
+pub fn bind_list(name: string, values: [string]) -> Binding
+
+pub fn bind_list(name: string, values: [int]) -> Binding
+
+pub fn bind_list(name: string, values: [Uuid]) -> Binding
 
 pub struct Translated {
     sql: string

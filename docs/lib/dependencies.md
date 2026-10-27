@@ -87,6 +87,8 @@ flowchart LR
     eql --> db
     eql --> locale
     eql --> sql
+    eql --> time
+    eql --> uuid
     font --> truetype
     fs --> os
     geom --> math
@@ -257,7 +259,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `datasource` | `clock`, `db` | `eql`, `migrate` |
 | `db` | `net`, `number`, `url` | `datasource`, `eql`, `memdb`, `migrate`, `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
-| `eql` | `datasource`, `db`, `locale`, `sql` | - |
+| `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `font` | `truetype` | `layout`, `pdf`, `raster` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `sql`, `zone` |
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |
@@ -298,11 +300,11 @@ otherwise: everything on a layer depends only on lower layers.
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
 | `test` | `regex` | - |
 | `thread` | - | - |
-| `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `migrate`, `schedule`, `toml` |
+| `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `eql`, `migrate`, `schedule`, `toml` |
 | `toml` | `json`, `locale`, `number`, `time` | - |
 | `truetype` | `geom`, `shape` | `font`, `pdf`, `raster` |
 | `url` | `locale`, `number` | `db`, `http` |
-| `uuid` | `clock`, `db`, `json`, `number`, `random` | - |
+| `uuid` | `clock`, `db`, `json`, `number`, `random` | `eql` |
 | `xml` | `locale` | - |
 | `yaml` | `json`, `locale`, `number` | - |
 | `zone` | `fs`, `number`, `os` | `time` |
