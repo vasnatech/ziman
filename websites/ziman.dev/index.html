@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ziman</title>
+<meta name="description" content="A small, statically-typed language designed to be cheap for an LLM to generate correctly and cheap for a human to read without running it.">
+<link rel="icon" href="logo.svg" type="image/svg+xml">
+<meta property="og:title" content="Ziman">
+<meta property="og:description" content="A small, statically-typed language designed to be cheap for an LLM to generate correctly and cheap for a human to read without running it.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://ziman.dev/">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+/* Layout: one reading column at ~68ch; code and the error report break out into their own
+   full-width bands, because showing a compiler's output is the page's argument, not decoration.
+   Palette is taken from the logo itself -- ochre braces, deep green Z. */
+:root {
+  --paper:      #faf8f4;
+  --ink:        #1d2420;
+  --ink-soft:   #55605a;
+  --rule:       #e2ddd3;
+  --panel:      #f2efe8;
+  --accent:     #a8701a;   /* ochre, darkened for contrast on paper */
+  --structure:  #2e6b4f;   /* the Z */
+  --code-bg:    #15201b;
+  --code-fg:    #e8e4da;
+  --code-dim:   #8fa096;
+  --display: "Literata", Georgia, "Times New Roman", serif;
+  --body:    "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper:     #121714;
+    --ink:       #e6e9e5;
+    --ink-soft:  #9aa8a0;
+    --rule:      #26302a;
+    --panel:     #1a221d;
+    --accent:    #e0a63c;
+    --structure: #6fbf96;
+    --code-bg:   #0c110e;
+    --code-fg:   #e8e4da;
+    --code-dim:  #7d8d84;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper:     #121714;
+  --ink:       #e6e9e5;
+  --ink-soft:  #9aa8a0;
+  --rule:      #26302a;
+  --panel:     #1a221d;
+  --accent:    #e0a63c;
+  --structure: #6fbf96;
+  --code-bg:   #0c110e;
+  --code-fg:   #e8e4da;
+  --code-dim:  #7d8d84;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box }
+html { -webkit-text-size-adjust: 100% }
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 17px/1.65 var(--body);
+}
+img, svg { max-width: 100% }
+a { color: var(--accent); text-underline-offset: 3px; text-decoration-thickness: 1px }
+a:hover { text-decoration-thickness: 2px }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px }
+
+.wrap {
+  max-width: 72ch;
+  margin-inline: auto;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+.wrap--wide { max-width: 100ch }
+
+h1, h2, h3 { font-family: var(--display); font-weight: 600; text-wrap: balance; line-height: 1.2 }
+h2 { font-size: 1.5rem; margin: 0 0 .2em }
+h3 { font-size: 1.05rem; margin: 0 0 .3em }
+p { margin: 0 0 1em }
+.lede { font-size: 1.15rem; color: var(--ink-soft) }
+.eyebrow {
+  font: 600 .72rem/1 var(--body);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--structure);
+  margin: 0 0 .9em;
+}
+
+/* --- masthead --- */
+.masthead {
+  border-bottom: 1px solid var(--rule);
+  padding-block: 18px;
+}
+.masthead .wrap { display: flex; align-items: center; gap: 18px; flex-wrap: wrap }
+.brand { display: flex; align-items: center; gap: 11px; font-family: var(--display); font-weight: 600; font-size: 1.2rem }
+.brand svg { width: 30px; height: 30px; flex: none }
+.masthead nav { margin-left: auto; display: flex; gap: 20px; flex-wrap: wrap; font-size: .95rem }
+.masthead nav a { color: var(--ink-soft); text-decoration: none }
+.masthead nav a:hover { color: var(--accent); text-decoration: underline }
+
+/* --- hero --- */
+.hero { padding-block: 56px 40px }
+.hero h1 { font-size: clamp(2.1rem, 6vw, 3.1rem); margin: 0 0 .35em; letter-spacing: -.015em }
+.hero .kurdish { color: var(--ink-soft); font-style: italic }
+.hero .lede { max-width: 60ch }
+.hero .meta { color: var(--ink-soft); font-size: .92rem; margin-top: 1.6em }
+
+/* --- code --- */
+pre {
+  margin: 0;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  font: 400 14px/1.6 var(--mono);
+  padding: 18px 20px;
+  border-radius: 6px;
+  overflow-x: auto;
+  tab-size: 4;
+}
+pre b { color: var(--accent); font-weight: 700 }
+pre .dim { color: var(--code-dim) }
+pre .grn { color: var(--structure) }
+code { font-family: var(--mono); font-size: .92em }
+p code, li code, td code { background: var(--panel); padding: .1em .35em; border-radius: 3px }
+
+.section { padding-block: 44px; border-top: 1px solid var(--rule) }
+.stack { display: flex; flex-direction: column; gap: 18px }
+
+.two { display: grid; grid-template-columns: 1fr 1fr; gap: 18px }
+@media (max-width: 760px) { .two { grid-template-columns: 1fr } }
+.two > * { min-width: 0 }
+
+.caption { font-size: .88rem; color: var(--ink-soft); margin: 0 }
+
+/* --- glance list --- */
+.glance { list-style: none; margin: 0; padding: 0; display: grid; gap: 14px }
+.glance li { min-width: 0 }
+.glance b { font-family: var(--display); font-weight: 600 }
+
+/* --- stdlib --- */
+table { border-collapse: collapse; width: 100%; font-size: .93rem }
+th, td { text-align: left; vertical-align: top; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--rule) }
+th { font: 600 .72rem/1 var(--body); letter-spacing: .12em; text-transform: uppercase; color: var(--structure) }
+td:first-child { white-space: nowrap; font-family: var(--mono); font-size: .85rem }
+.tablewrap { overflow-x: auto }
+
+/* --- link lists --- */
+.links { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px }
+.links li { min-width: 0 }
+.links a { font-weight: 600; text-decoration: none }
+.links a:hover { text-decoration: underline }
+.links span { display: block; color: var(--ink-soft); font-size: .92rem }
+
+.chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 0; padding: 0; list-style: none }
+.chips a {
+  display: inline-block;
+  font: 400 .84rem/1 var(--mono);
+  padding: 6px 9px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  color: var(--ink-soft);
+  text-decoration: none;
+  background: var(--panel);
+}
+.chips a:hover { border-color: var(--accent); color: var(--accent) }
+
+footer { border-top: 1px solid var(--rule); padding-block: 36px 48px; color: var(--ink-soft); font-size: .92rem }
+footer .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 26px }
+footer h3 { font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--structure); font-family: var(--body) }
+footer ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 7px }
+footer a { color: var(--ink) }
+.colophon { margin-top: 30px; padding-top: 18px; border-top: 1px solid var(--rule) }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="wrap wrap--wide">
+    <span class="brand">
+      <svg viewBox="0 0 128 128" role="img" aria-label="Ziman logo">
+        <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M38 26 C27 26 27 33 27 42 L27 54 C27 60 24 64 18 64 C24 64 27 68 27 74 L27 86 C27 95 27 102 38 102" stroke="#d9992b" stroke-width="7"/>
+          <path d="M90 26 C101 26 101 33 101 42 L101 54 C101 60 104 64 110 64 C104 64 101 68 101 74 L101 86 C101 95 101 102 90 102" stroke="#d9992b" stroke-width="7"/>
+          <path d="M47 40 L81 40 L47 88 L81 88" stroke="#2e6b4f" stroke-width="10"/>
+        </g>
+      </svg>
+      Ziman
+    </span>
+    <nav>
+      <a href="#taste">Taste</a>
+      <a href="#errors">Errors</a>
+      <a href="#library">Library</a>
+      <a href="#manuals">Manuals</a>
+      <a href="#examples">Examples</a>
+      <a href="https://github.com/vasnatech/ziman">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="hero">
+  <div class="wrap">
+    <h1>A language you can read<br>without running it.</h1>
+    <p class="lede">
+      Ziman <span class="kurdish">(&ldquo;language&rdquo; in Kurdish)</span> is small and statically
+      typed. Its syntax and semantics are designed to be cheap for an LLM to generate correctly and
+      cheap for a human to check by eye: no implicit coercion, no exceptions, no operator
+      overloading, one obvious way to spell most things, and errors that say what to write instead.
+    </p>
+    <p class="meta">
+      The reference interpreter &mdash; lexer, parser, type checker, tree-walking evaluator &mdash;
+      is written in C11, but C is only its host. Ziman itself is designed from scratch. It is v0:
+      complete enough to run a real HTTP backend against PostgreSQL, not yet fast.
+    </p>
+  </div>
+</section>
+
+<section class="section" id="taste">
+  <div class="wrap wrap--wide">
+    <p class="eyebrow">A taste</p>
+    <div class="two">
+      <div class="stack">
+<pre><b>use</b> json
+
+<span class="dim">#[derive(Json)]</span>
+<b>struct</b> Item {
+    name: string
+    qty: int
+}
+
+<b>fn</b> total(items: [Item]) -&gt; int {
+    <b>var</b> sum = 0
+    <b>for</b> item <b>in</b> items {
+        sum = sum + item.qty
+    }
+    <b>return</b> sum
+}
+
+<b>fn</b> summarize(text: string) -&gt; Result&lt;string, string&gt; {
+    <b>val</b> parsed = <b>try</b> json.parse(text)
+    <b>val</b> item = <b>try</b> item_from_json(parsed)
+    <b>return</b> ok(format(<span class="grn">"{} x{}"</span>, item.name, item.qty))
+}
+
+<b>fn</b> main() {
+    <b>val</b> items = [Item { name: <span class="grn">"pen"</span>, qty: 3 },
+                 Item { name: <span class="grn">"ink"</span>, qty: 4 }]
+    printf(<span class="grn">"total units: {}\n"</span>, total(items))
+    print(summarize(<span class="grn">"{\"name\":\"cup\",\"qty\":2}"</span>))
+    print(summarize(<span class="grn">"{\"name\":1}"</span>))
+}</pre>
+      </div>
+      <div class="stack">
+<pre>total units: 7
+Ok(cup x2)
+Err(name: expected a string)</pre>
+        <p class="caption">
+          Errors are values. <code>try</code> propagates them; there is nothing to catch.
+        </p>
+        <p class="caption">
+          This program is <code>tests/lang/readme_example.zm</code>, run by the test suite on every
+          change &mdash; so it stays true. It is one of 1,142 fixtures that work the same way.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="errors">
+  <div class="wrap wrap--wide">
+    <p class="eyebrow">Errors that say what to write instead</p>
+    <p style="max-width:68ch">
+      A diagnostic is part of the language&rsquo;s surface, not an afterthought. Ziman reports
+      <em>every</em> error it can find rather than stopping at the first, names the file each one is
+      in, and points a caret at the column. Where there is a right thing to write, the message says
+      what it is.
+    </p>
+    <div class="two">
+      <div class="stack">
+<pre>ziman: type error at 2:19 in hello.zm: arithmetic
+operator requires two operands of the same numeric
+type, found int and float <b>(use 'as' to cast
+explicitly)</b>
+  |
+2 |     val total = 3 + 2.5
+  |                   ^</pre>
+        <p class="caption">No implicit coercion &mdash; and the fix is in the message.</p>
+      </div>
+      <div class="stack">
+<pre>ziman: type error at 1:1 in pick.zm: function
+'pick' does not return a value on every path
+  |
+1 | fn pick(n: int) -&gt; string {
+  | ^</pre>
+        <p class="caption">
+          Checked without running: <code>ziman --check</code> loads and type-checks only.
+          <code>--json</code> reports each error as one JSON object for an editor or an agent.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="section" id="glance">
+  <div class="wrap">
+    <p class="eyebrow">The language at a glance</p>
+    <ul class="glance">
+      <li><b>Types.</b> <code>int</code>, <code>float</code>, <code>bool</code>, <code>string</code>,
+        <code>byte</code>, arbitrary-precision <code>bigint</code> and <code>decimal</code>, arrays,
+        structs, tagged-union enums, <code>Option&lt;T&gt;</code>, <code>Result&lt;T, E&gt;</code>,
+        <code>Map</code>, <code>Set</code>, <code>Channel&lt;T&gt;</code> and function types. Values
+        are immutable unless declared <code>var</code>.</li>
+      <li><b>Errors are values.</b> <code>Result</code> and <code>Option</code> with a prefix
+        <code>try</code> to propagate, and a narrow bare-value auto-wrap so <code>return x</code>
+        works in a <code>Result</code> function.</li>
+      <li><b>Control flow.</b> <code>if</code>/<code>else</code>, <code>while</code>,
+        <code>for x in arr</code>, an exhaustive <code>switch</code> over enums and results, and
+        <code>defer</code> for cleanup.</li>
+      <li><b>Generics.</b> Explicit type arguments with <code>Eq</code>, <code>Hash</code> and
+        <code>Ord</code> bounds. No general traits.</li>
+      <li><b>Derives.</b> <code>#[derive(Json)]</code>, <code>#[derive(Row)]</code> for SQL rows,
+        <code>#[derive(Entity)]</code>, <code>#[derive(Ord)]</code>,
+        <code>#[derive(Properties)]</code>. <code>--emit-derived</code> prints what each one
+        generates.</li>
+      <li><b>Concurrency.</b> Real OS threads with <code>spawn</code> and thread-safe channels, in a
+        single-writer style rather than shared memory.</li>
+      <li><b>Modules.</b> <code>use path/to/mod</code> or <code>use mod.Name as alias</code>. The
+        standard library is bundled with the binary and needs no installation.</li>
+    </ul>
+  </div>
+</section>
+
+<section class="section" id="library">
+  <div class="wrap wrap--wide">
+    <p class="eyebrow">Standard library</p>
+    <p style="max-width:68ch">
+      Bundled with the binary, reached with <code>use name</code>. Every <code>pub</code> signature
+      is generated from the source into the corelib reference, and a gate fails if the committed
+      copy drifts.
+    </p>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Modules</th><th>What they are</th></tr></thead>
+        <tbody>
+          <tr><td>fs, os, process,<br>clock, random</td><td>Files, environment and this process, starting and signalling children, time source, entropy</td></tr>
+          <tr><td>time</td><td><code>java.time</code>-shaped dates, times, durations and instants, with named zones from the system&rsquo;s own zone files</td></tr>
+          <tr><td>json, ndjson, csv,<br>toml*, yaml*</td><td>JSON, and the other formats as converters to and from the same <code>Json</code> tree</td></tr>
+          <tr><td>xml*, markdown*</td><td>Document trees of their own, each with a reader, a writer that escapes per position, and limits where a format has no syntax errors to lean on</td></tr>
+          <tr><td>net, http, server,<br>client, url</td><td>TCP and TLS, an HTTP/1.1 server toolkit with per-key rate limiting and connection caps, an HTTP client</td></tr>
+          <tr><td>db, sql*, eql*,<br>sqlite, pg*, mysql*,<br>memdb*</td><td>One database API over SQLite, PostgreSQL and MySQL, with pooling, a SQL statement tree, an entity query language, and an in-memory SQL engine written in Ziman</td></tr>
+          <tr><td>uuid, number,<br>encoding, compress,<br>bits</td><td>UUIDs, number formatting, base 2/8/16/32/64, deflate and gzip, bitwise helpers</td></tr>
+          <tr><td>crypto, jwt, otp</td><td>SHA-256, HMAC, PBKDF2, Argon2id, bcrypt; signed tokens; time-based one-time passwords</td></tr>
+          <tr><td>geom, shape, paint,<br>scene, pdf, raster,<br>font, image</td><td>A device-independent 2D drawing model, and two backends that render the same scene: PDF documents and anti-aliased raster images, with embedded TrueType text</td></tr>
+          <tr><td>properties, log,<br>metrics, regex,<br>schedule, locale*</td><td>Configuration, levelled logging, Prometheus-format metrics, regular expressions, cron and interval scheduling, system locale data</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="caption" style="margin-top:14px">
+      * Experimental: less real-world use than the rest, so treat a gap or a protocol-conformance
+      bug as more likely there.
+    </p>
+  </div>
+</section>
+
+<section class="section" id="install">
+  <div class="wrap">
+    <p class="eyebrow">Building and running</p>
+<pre>$ make
+$ <b>echo</b> 'fn main() { print("hello, ziman") }' &gt; hello.zm
+$ ./ziman hello.zm
+hello, ziman</pre>
+    <p class="caption" style="margin-top:14px">
+      Developed and tested on Linux (x86-64). Needs a C11 compiler, <code>make</code>, and
+      development files for SQLite, OpenSSL 3.2+, libxcrypt and zlib. macOS and the BSDs use the
+      same POSIX interfaces and will probably build, but nobody has tried. Windows needs WSL or a
+      container.
+    </p>
+  </div>
+</section>
+
+<section class="section" id="manuals">
+  <div class="wrap">
+    <p class="eyebrow">Manuals</p>
+    <ul class="links">
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/TUTORIAL.md">Tutorial</a>
+        <span>Start here: the language in order, with programs you can run.</span></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/SYNTAX.md">Syntax reference</a>
+        <span>The full grammar and rules &mdash; what the language <em>is</em>.</span></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/CORELIB.md">Corelib reference</a>
+        <span>Every <code>pub</code> signature in the bundled library, generated from the source.</span></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/CHEATSHEET.md">Cheatsheet</a>
+        <span>One page, for when you know the idea and want the spelling.</span></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/DESIGN.md">Design log</a>
+        <span>A dated record of why each decision was made and what was tried &mdash; the reasoning
+        behind the reference.</span></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/FEATURE-NOTES.md">Feature notes</a>
+        <span>Long-form notes on individual features.</span></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/ROADMAP.md">Roadmap</a>
+        <span>What is next, what was declined, and why.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section class="section" id="examples">
+  <div class="wrap wrap--wide">
+    <p class="eyebrow">Examples</p>
+    <p style="max-width:68ch">
+      One runnable program per library module, each stored with its expected output and checked by
+      the suite &mdash; so an example that drifts from the library fails the build rather than
+      misleading you.
+    </p>
+    <ul class="chips">
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/client_example.zm">client</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/clock_example.zm">clock</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/compress_example.zm">compress</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/crypto_example.zm">crypto</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/csv_example.zm">csv</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/datasource_example.zm">datasource</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db_example.zm">db</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/fs_example.zm">fs</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/http_example.zm">http</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/json_example.zm">json</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/log_example.zm">log</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/markdown_example.zm">markdown</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/math_example.zm">math</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/mime_example.zm">mime</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/ndjson_example.zm">ndjson</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/net_example.zm">net</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/number_example.zm">number</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/os_example.zm">os</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/prelude_example.zm">prelude</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/properties_example.zm">properties</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/random_example.zm">random</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/regex_example.zm">regex</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/server_example.zm">server</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/sqlite_example.zm">sqlite</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/thread_example.zm">thread</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/time_example.zm">time</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/toml_example.zm">toml</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/uuid_example.zm">uuid</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/xml_example.zm">xml</a></li>
+      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/yaml_example.zm">yaml</a></li>
+    </ul>
+    <p class="caption" style="margin-top:18px">
+      Beyond the examples there is a whole application: <strong>health-record-backend-ziman</strong>,
+      an HTTP backend with 27 repositories over SQLite and PostgreSQL, used as the language&rsquo;s
+      North Star and run by its test suite on every change.
+    </p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap wrap--wide">
+    <div class="cols">
+      <div>
+        <h3>Project</h3>
+        <ul>
+          <li><a href="https://github.com/vasnatech/ziman">Source on GitHub</a></li>
+          <li><a href="https://github.com/vasnatech/ziman/issues">Issues</a></li>
+          <li><a href="https://github.com/vasnatech/ziman/blob/main/LICENSE">MIT licence</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Read</h3>
+        <ul>
+          <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/TUTORIAL.md">Tutorial</a></li>
+          <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/SYNTAX.md">Syntax</a></li>
+          <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/CORELIB.md">Corelib</a></li>
+          <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/DESIGN.md">Design log</a></li>
+        </ul>
+      </div>
+      <div>
+        <h3>Made by</h3>
+        <ul>
+          <li><a href="https://vasna.tech/menderes-guven">Menderes Fatih Guven</a></li>
+          <li><a href="https://vasna.tech">Vasna Tech</a></li>
+          <li><a href="https://github.com/mfguven">mfguven on GitHub</a></li>
+        </ul>
+      </div>
+    </div>
+    <p class="colophon">
+      Ziman is MIT-licensed and v0. <em>Ziman</em> is the Kurdish word for language.
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
