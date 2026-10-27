@@ -259,6 +259,7 @@ them against the code.
 - [The derived table val takes a prefix, and two entities fit in one module (2026-10-27)](#the-derived-table-val-takes-a-prefix-and-two-entities-fit-in-one-module-2026-10-27)
 - [A parameter named after a clause keyword is a parameter (2026-10-27)](#a-parameter-named-after-a-clause-keyword-is-a-parameter-2026-10-27)
 - [A name after `AS` is a label, not an alias (2026-10-27)](#a-name-after-as-is-a-label-not-an-alias-2026-10-27)
+- [What adopting `eql` across 26 repositories taught, and what it did not remove (2026-10-27)](#what-adopting-eql-across-26-repositories-taught-and-what-it-did-not-remove-2026-10-27)
 
 <!-- end index -->
 
@@ -10071,3 +10072,106 @@ module *initialisation* and not at type-check time, so the only thing that could
 running the application. It then failed at load with the SQL in the message, which is the property
 the module-level `val` exists for: not on the request that would have read that column. Of roughly
 twenty-five repository conversions this was the only mistake the type checker could not see.
+
+## What adopting `eql` across 26 repositories taught, and what it did not remove (2026-10-27)
+
+The entity query language went from one repository to all of them: **26 of 26 convertible
+repositories**, 30 backend commits and 18 ziman commits, 1,356 insertions against 1,449 deletions
+across `repository/`. The individual conversions are in those commits. What is here is what the
+exercise found, because almost none of it was visible from the first repository.
+
+### The real reason `eql` has no `UPDATE`
+
+When `DELETE` landed the argument was that a bulk update needs a `SET` list, which is the half with
+no entity to check it against. True, and far weaker than what adoption showed: **thirteen partial
+updates across six repositories**, against a handful of full-row ones.
+
+`user` alone has seven -- password hash, name, role and status, provider, reset, change, login
+attempt -- each setting a named subset, several baking a literal into the `SET`. `eql.update_one`
+writes every non-key column from a whole entity, so using it there would mean a password reset
+rewriting `role` and `status` from whatever the caller happened to be holding.
+
+Three shapes have no entity-shaped form at all:
+
+* `notification.mark_all_read` -- two columns, many rows, and a predicate on the very column being
+  written (`status <> $2`). Not one row, not every column, and the `WHERE` depends on the old value.
+* `patient.lock` -- `UPDATE patients SET id = id WHERE id = $1`, a write that writes nothing,
+  because that is what makes SQLite take its write lock and Postgres the row lock where a `SELECT`
+  takes neither and `FOR UPDATE` is not SQLite's.
+* `broadcast.set_active` -- one column of five.
+
+So the rule is not "an update is hard to translate". It is that **an entity-shaped update can only
+express a full-row write, and in a real application those are the minority.**
+
+### Four defects only adoption could find
+
+Each needed a real query. None would have come from more unit tests on the first repository.
+
+* **`:from` read as a `FROM` clause.** `bindings_of` scans tokens for `FROM`/`JOIN` without
+  consuming `:name` pairs the way the rewriter does, so a date range's obvious parameter names broke
+  it -- with the error *"no registered entity is called 'AND'"*. It took the one date-range read in
+  26 repositories.
+* **A label after `AS` expanded as an alias.** `SELECT count(*) AS n FROM Notification n` produced
+  `SELECT count(*) AS n.id AS id, ..`. 24 conversions passed first, because every other repository
+  writes `AS n` with an entity alias of `v`, `m` or `p`.
+* **`import_field_converters` stripped `.` but not `::`**, so `#![repository(E)]` over an entity
+  with a `Uuid` key emitted `uuid_to_sql(id)` and imported nothing. Invisible while the one
+  repository using the annotation imported that converter by hand for its own raw SQL.
+* **A module-level `val` read before its initialiser segfaulted.** Found by wanting a three-line
+  `query(..)` helper over a registry -- `init_param_defaults`' own comment had predicted the
+  dependency and recorded it as unaddressed.
+
+### Three places had already solved the column-list problem
+
+`patient.save`/`update` built their statements from the entity's own `columns` at runtime,
+`assessment.update` did the same through `crud.set_clause`, and `service/crud.zm` is that idea as a
+whole module. `patient.zm`'s comment dates the bug they were avoiding: *the profile grew from 8
+columns to 24 in one commit, and a hand-numbered INSERT would have gone on compiling while passing
+24 parameters to 8 holes.*
+
+That is the defect `insert_one` exists for, discovered independently three times before the library
+had an answer. It is the strongest evidence the feature was worth building -- and the conversion of
+`patient` is the one place `eql` replaced a *correct* hand-rolled solution rather than a risky one.
+
+### "A hand-written function wins" became an override, not a grandfather clause
+
+The rule was chosen so that a scoped `update` could not be silently replaced by a keyed one.
+Adoption turned it into a deliberate mechanism: `file_attachment.insert` and `shared_link.insert`
+are **named for the generated function on purpose**, because `INSERT .. RETURNING *` is one
+statement where `eql.insert_one` is two. Writing a function under the generated name is now how a
+repository keeps a better statement than the generator can produce.
+
+### Four repositories declined the annotation, each for its own stated reason
+
+`#![repository(E)]` is not free, and refusing it is a design choice:
+
+* `encounter` and `recipe_ingredient` -- their rows are never addressed by id on their own, which is
+  all nine generated functions do.
+* `patient` and `user` -- a generated `delete_all(conn)` over *patients* or *users* is every account
+  in the system in one call.
+* `audit_event` -- the generated nine include `update`, `delete` and `delete_all`, which is exactly
+  what an audit table forbids.
+
+That is the unscoped-surface concern becoming concrete. It is also the argument for `#[scope]`:
+eleven repositories keep a hand-written `delete` only to carry `patient_id`, three of them needing
+two extra columns.
+
+### Which check is load-bearing, measured rather than assumed
+
+* `--check main.zm` **does not reach the services.** It is the CLI entry; controllers and services
+  hang off `serve.zm`. Four caller mistakes passed `main.zm` and failed `serve.zm` at once.
+* Only the running suite could catch the `AS`-label bug, because translation happens at module
+  *initialisation*, not at type-check time. Of 26 conversions that was the single mistake no static
+  check could see -- and it failed at load with the SQL in the message, which is the property the
+  module-level `val` exists for.
+* A textual sweep that inserts the pattern it then rewrites will rewrite its own output: `query`
+  became `return query(text)` in three files, and `--check` passed it, a self-call being perfectly
+  well typed.
+
+### What `eql` did not remove
+
+`stats.zm` and `service/crud.zm` build SQL from **runtime** table and column names, so no entity
+query can express them; ten entities are served through `crud.zm` and have no repository at all.
+And `recipe_ingredient.save` now pays for a read-back it discards -- accepted, because the
+alternative keeps a twenty-column `INSERT` whose silent failure mode is worse than a keyed `SELECT`
+inside a transaction that was already writing the whole list.
