@@ -1,0 +1,6 @@
+#![repository(Note)]
+#![repository(Other)]
+
+fn main() {
+    print("never runs")
+}

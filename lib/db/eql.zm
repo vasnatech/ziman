@@ -855,17 +855,17 @@ fn writable(e: Entity, values: [SqlValue]) -> Result<unit, DbError> {
     return ok(unit)
 }
 
-// **The one row a predicate addresses, and a second one refused rather than taken.** That refusal
-// is what makes a mistake about the key loud: an entity whose `#[pk]` does not identify a row --
-// one column of a compound key, or a key marked on a column that is not unique -- otherwise returns
-// plausible data forever, picked by whatever order the engine happened to use.
-fn only_row<E>(
+// **The row a predicate addresses, if it is there, and a second one refused rather than taken.**
+// That refusal is what makes a mistake about the key loud: an entity whose `#[pk]` does not
+// identify a row -- one column of a compound key, or a key marked on a column that is not unique --
+// otherwise returns plausible data forever, picked by whatever order the engine happened to use.
+fn maybe_row<E>(
     conn: datasource.Connection,
     e: Entity,
     predicate: [string],
     values: [SqlValue],
     from_row: fn(Row) -> Result<E, DbError>
-) -> Result<E, DbError> {
+) -> Result<Option<E>, DbError> {
     val found = try datasource.query(conn, prelude.format(
         "SELECT {} FROM {} WHERE {}",
         join(separator: ", ", pieces: e.columns),
@@ -881,9 +881,40 @@ fn only_row<E>(
         )))
     }
     if prelude.len(found) == 0 {
-        return err(DbError.NotFound(prelude.format("{} not found", e.name)))
+        return ok(Option<E>.None)
     }
-    return from_row(found[0])
+    return ok(Option<E>.Some(try from_row(found[0])))
+}
+
+// The same, where absence is an error rather than an answer.
+fn only_row<E>(
+    conn: datasource.Connection,
+    e: Entity,
+    predicate: [string],
+    values: [SqlValue],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<E, DbError> {
+    val found = try maybe_row<E>(conn, e, predicate, values, from_row)
+    if Some(row) = found {
+        return row
+    }
+    return err(DbError.NotFound(prelude.format("{} not found", e.name)))
+}
+
+// A key, and the right number of values for it. Shared by everything that addresses one row, so
+// the message about a compound key is written once.
+fn keyed(e: Entity, keys: [SqlValue]) -> Result<unit, DbError> {
+    try addressable(e)
+    if prelude.len(keys) != prelude.len(e.keys) {
+        return err(problem(prelude.format(
+            "{} has a {}-column key ({}) and {} value(s) were given",
+            e.name,
+            prelude.len(e.keys),
+            join(separator: ", ", pieces: e.keys),
+            prelude.len(keys)
+        )))
+    }
+    return ok(unit)
 }
 
 // **One row stored, and read back.** The columns and their order are the entity's, so the statement
@@ -979,17 +1010,164 @@ pub fn find_by_key<E>(
     keys: [SqlValue],
     from_row: fn(Row) -> Result<E, DbError>
 ) -> Result<E, DbError> {
+    try keyed(e, keys)
+    return only_row<E>(conn, e, e.keys, keys, from_row)
+}
+
+// The row a key addresses, or `None`. **Absence is an answer here and an error in `find_by_key`**,
+// and which one a caller wants is not guessable: a request for one record by id is a 404 and wants
+// the error, while a check before writing wants the `Option` and would otherwise read a `NotFound`
+// back out of a `Result` to decide nothing is wrong.
+pub fn find_maybe<E>(
+    conn: datasource.Connection,
+    e: Entity,
+    keys: [SqlValue],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<Option<E>, DbError> {
+    try keyed(e, keys)
+    return maybe_row<E>(conn, e, e.keys, keys, from_row)
+}
+
+// Whether the key addresses a row, without building the entity from it. The projection is the key
+// rather than `1` or `*`: a constant is a different kind of expression for an engine to plan, and
+// every column is work thrown away.
+pub fn exists(conn: datasource.Connection, e: Entity, keys: [SqlValue]) -> Result<bool, DbError> {
+    try keyed(e, keys)
+    val found = try datasource.query(conn, prelude.format(
+        "SELECT {} FROM {} WHERE {}",
+        join(separator: ", ", pieces: e.keys),
+        e.table,
+        where_of(e.keys, 1)
+    ), keys)
+    return ok(prelude.len(found) > 0)
+}
+
+// **Every row, ordered by the key.** The order is not decoration: without an `ORDER BY` the engine
+// may answer in any order it likes, and two runs of the same program disagreeing about the order of
+// a list is the kind of difference that is found in production rather than in a test. The key is
+// the one ordering every entity is guaranteed to have.
+pub fn find_all<E>(
+    conn: datasource.Connection,
+    e: Entity,
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<[E], DbError> {
     try addressable(e)
-    if prelude.len(keys) != prelude.len(e.keys) {
+    val found = try datasource.query(conn, prelude.format(
+        "SELECT {} FROM {} ORDER BY {}",
+        join(separator: ", ", pieces: e.columns),
+        e.table,
+        join(separator: ", ", pieces: e.keys)
+    ))
+    val out = mutable_array_new<E>()
+    for row in found {
+        push(out, try from_row(row))
+    }
+    return ok(snapshot(out))
+}
+
+// How many rows the table has.
+pub fn count_all(conn: datasource.Connection, e: Entity) -> Result<int, DbError> {
+    val found = try datasource.query(conn, prelude.format("SELECT count(*) AS n FROM {}", e.table))
+    if prelude.len(found) != 1 {
         return err(problem(prelude.format(
-            "{} has a {}-column key ({}) and {} value(s) were given",
-            e.name,
-            prelude.len(e.keys),
-            join(separator: ", ", pieces: e.keys),
-            prelude.len(keys)
+            "counting {} answered {} rows",
+            e.table,
+            prelude.len(found)
         )))
     }
-    return only_row<E>(conn, e, e.keys, keys, from_row)
+    return db.sql_as_int(found[0].values[0])
+}
+
+// `c1 = $1 AND c2 = $2` for named columns and their values, which is the shape every delete in the
+// sample backend has: a key with an owner beside it, or an owner alone.
+//
+// **Columns named beside their values, where `update_one` takes a column list alone.** The
+// difference is not style: `update_one` has the whole row in its hands, so taking a scope value out
+// of it is one fewer thing that can disagree with what is being written. A delete has no row --
+// only an id and an owner -- so the alternative here would be two parallel arrays, which is the
+// convention these functions exist to remove.
+fn where_bound(matching: [Binding]) -> Result<string, DbError> {
+    if prelude.len(matching) == 0 {
+        return err(problem("a delete with no predicate would empty the table -- name at least one column"))
+    }
+    for b in matching {
+        // A collection predicate is `IN`, not `=`; that is a different statement and not one of
+        // these, so it is refused rather than silently taking the first value.
+        if b.list {
+            return err(problem(prelude.format(
+                "{} was bound as a collection, and a delete predicate matches one value per column",
+                b.name
+            )))
+        }
+    }
+    val parts = mutable_array_new<string>()
+    for i in 0..prelude.len(matching) {
+        push(parts, prelude.format("{} = ${}", matching[i].name, i + 1))
+    }
+    return ok(join(separator: " AND ", pieces: snapshot(parts)))
+}
+
+fn bound_values(matching: [Binding]) -> [SqlValue] {
+    val out = mutable_array_new<SqlValue>()
+    for b in matching {
+        push(out, b.value)
+    }
+    return snapshot(out)
+}
+
+// **Every row matching `matching`, and how many there were.** An empty predicate is refused rather
+// than read as "all of them": `DELETE FROM t` is a different intention and says so through
+// `delete_all`.
+pub fn delete_where(conn: datasource.Connection, e: Entity, matching: [Binding]) -> Result<int, DbError> {
+    val predicate = try where_bound(matching)
+    for b in matching {
+        try column_at(e, b.name)
+    }
+    return datasource.execute(conn, prelude.format(
+        "DELETE FROM {} WHERE {}",
+        e.table,
+        predicate
+    ), bound_values(matching))
+}
+
+// **The one row the key addresses, with `scope` as well**, and `NotFound` when nothing matched --
+// which is also the answer for a row another owner holds, because that is the rule the repository
+// layer keeps throughout: another owner's row is not found, not forbidden.
+//
+// Unlike an update, this does consult the number of rows affected. A `DELETE` has no rows-changed
+// regime to be wrong about: every engine counts the rows it removed.
+pub fn delete_one(
+    conn: datasource.Connection,
+    e: Entity,
+    keys: [SqlValue],
+    scope: [Binding]
+) -> Result<unit, DbError> {
+    try keyed(e, keys)
+    val matching = mutable_array_new<Binding>()
+    for i in 0..prelude.len(e.keys) {
+        push(matching, bind(e.keys[i], keys[i]))
+    }
+    for b in scope {
+        if contains(e.keys, b.name) {
+            return err(problem(prelude.format(
+                "{} is already part of {}'s key, so naming it as a scope column says nothing",
+                b.name,
+                e.name
+            )))
+        }
+        push(matching, b)
+    }
+    val gone = try delete_where(conn, e, snapshot(matching))
+    if gone == 0 {
+        return err(DbError.NotFound(prelude.format("{} not found", e.name)))
+    }
+    return ok(unit)
+}
+
+// Every row of the table, and how many there were. **Spelled out rather than reached by an empty
+// predicate**, so emptying a table is never what a predicate that came out empty does by accident.
+pub fn delete_all(conn: datasource.Connection, e: Entity) -> Result<int, DbError> {
+    return datasource.execute(conn, prelude.format("DELETE FROM {}", e.table))
 }
 
 pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError> {

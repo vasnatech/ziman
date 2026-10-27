@@ -1,0 +1,14 @@
+#![repository(Note)]
+
+use eql
+
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: Option<int>
+    body: string
+}
+
+fn main() {
+    print("never runs")
+}

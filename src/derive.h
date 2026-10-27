@@ -15,6 +15,12 @@
  * and derive" entry for the full design. */
 void generate_derived_functions(Module *module);
 
+/* `#![repository(Entity)]`: generates the CRUD functions `module` does not write by hand, from
+ * `sd` -- the entity's struct, which lives in `entity_module` and is found by the loader, because
+ * at the point generation runs it is the loader that knows which files are loaded. A function the
+ * module defines itself is not generated; see the comment on the implementation. */
+void generate_repository_functions(Module *module, StructDecl *sd, const char *entity_module);
+
 /* "LocalDate" -> "local_date": the naming rule a derive's generated
  * functions use, and that `Ord` dispatch uses to find a type's
  * `<snake>_compare`. The caller owns the result. */

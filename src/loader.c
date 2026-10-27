@@ -1819,6 +1819,45 @@ static void canonicalize_use_path(Loader *ldr, UseDecl *u) {
     }
 }
 
+/* `#![repository(X)]`: finds X's struct and hands it to the generator.
+ *
+ * **The lookup is here and the emitting is in derive.c**, because X is in another file: at the
+ * point generation runs it is the loader that knows which files are loaded, and `find_loaded` is
+ * the only way from a `use` path to the module it named. The generated signatures need the struct
+ * itself -- `delete(conn, id: Uuid)` takes its parameter's name and type from the `#[pk]` field --
+ * which is the requirement that moved generation out of the parser in the first place.
+ *
+ * A struct in the module's own file is allowed and needs no imports, which `NULL` says. */
+static void resolve_repository(Loader *ldr, Module *mod) {
+    if (mod->repository_entity == NULL) return;
+    for (int s = 0; s < mod->structs.count; s++) {
+        if (strcmp(mod->structs.items[s]->name, mod->repository_entity) == 0) {
+            generate_repository_functions(mod, mod->structs.items[s], NULL);
+            return;
+        }
+    }
+    /* A loaded module's own declarations are already self-qualified (`entity/vital_sign::VitalSign`),
+     * so the comparison is against the bare name after the separator -- the attribute names the
+     * type as the source does. */
+    for (int i = 0; i < mod->uses.count; i++) {
+        Module *target = find_loaded(ldr, mod->uses.items[i].path);
+        if (target == NULL) continue;
+        for (int s = 0; s < target->structs.count; s++) {
+            const char *name = target->structs.items[s]->name;
+            const char *sep = strstr(name, "::");
+            const char *bare = sep != NULL ? sep + 2 : name;
+            if (strcmp(bare, mod->repository_entity) == 0) {
+                generate_repository_functions(mod, target->structs.items[s], mod->uses.items[i].path);
+                return;
+            }
+        }
+    }
+    ziman_error("module", mod->repository_line, mod->repository_col,
+                "#![repository(%s)] names a type this module cannot see -- a repository is generated from its "
+                "entity's own fields, so the file has to import it (use <module>.%s)",
+                mod->repository_entity, mod->repository_entity);
+}
+
 static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int ref_col) {
     Module *existing = find_loaded(ldr, use_path);
     if (existing != NULL) return existing;
@@ -1900,6 +1939,7 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
      * that was never there. The loop below picks up exactly the uses generation appended. */
     int uses_before_derive = mod->uses.count;
     generate_derived_functions(mod);
+    resolve_repository(ldr, mod);
     ziman_finish_errors();
     for (int i = uses_before_derive; i < mod->uses.count; i++) {
         UseDecl *u = &mod->uses.items[i];
@@ -2021,6 +2061,7 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
      * loaded after it. */
     int entry_uses_before_derive = entry_mod->uses.count;
     generate_derived_functions(entry_mod);
+    resolve_repository(&ldr, entry_mod);
     ziman_finish_errors();
     for (int i = entry_uses_before_derive; i < entry_mod->uses.count; i++) {
         UseDecl *u = &entry_mod->uses.items[i];

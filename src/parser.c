@@ -2772,9 +2772,24 @@ static void parse_module_attributes(Parser *p, Module *module) {
                     module->deprecated_message = (const char *)msg->start;
                     expect(p, TOK_RPAREN, "')'");
                 }
+            } else if (name->length == 10 && strncmp(name->start, "repository", 10) == 0) {
+                /* Takes the entity, required: `#![repository]` alone would have nothing to
+                 * generate from, and guessing from the file name is the kind of convention that
+                 * works until a file is renamed. */
+                expect(p, TOK_LPAREN, "'(' and the entity this module is a repository over");
+                Token *entity = expect(p, TOK_IDENT, "the entity's type name");
+                if (module->repository_entity != NULL) {
+                    ziman_error("syntax", entity->line, entity->col,
+                                "this module is already a repository over '%s' -- one module, one entity",
+                                module->repository_entity);
+                }
+                module->repository_entity = dup_token_text(entity);
+                module->repository_line = entity->line;
+                module->repository_col = entity->col;
+                expect(p, TOK_RPAREN, "')'");
             } else {
                 ziman_error("syntax", name->line, name->col,
-                            "unknown module attribute '%.*s' (the two are 'experimental' and 'deprecated')", name->length, name->start);
+                            "unknown module attribute '%.*s' (the three are 'experimental', 'deprecated' and 'repository')", name->length, name->start);
             }
         } while (match(p, TOK_COMMA));
         expect(p, TOK_RBRACKET, "']'");

@@ -895,6 +895,18 @@ static char *generate_struct_entity(StructDecl *sd, const char *table) {
  * remaining scalar kinds are compile-time errors, not silently wrong.
  * --------------------------------------------------------------------- */
 
+/* A struct or enum name with its module qualifier stripped. A declaration read out of an
+ * already-loaded module carries the loader's self-qualified form (`uuid::Uuid`), which no generated
+ * text may contain: `::` is the loader's internal separator and is not source syntax. Only `::` is
+ * stripped -- a dotted `uuid.Uuid` is how a program writes a qualified type itself, and is left
+ * alone. Returns `name` unchanged for everything a derive sees before loading, which is the usual
+ * case and the reason this is a no-op for the Row and Json derives. */
+static const char *bare_name_of(const char *name) {
+    if (name == NULL) return NULL;
+    const char *sep = strstr(name, "::");
+    return sep != NULL ? sep + 2 : name;
+}
+
 static void emit_to_sql(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col) {
     switch (t.kind) {
         case TY_INT:
@@ -925,7 +937,7 @@ static void emit_to_sql(Type t, const char *src_expr, const char *dst_var, CodeB
                 cb_appendf(cb, "    }\n");
                 return;
             } else {
-                const char *name = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
+                const char *name = bare_name_of(t.kind == TY_STRUCT ? t.struct_name : t.enum_name);
                 char *fn = pascal_to_snake(name);
                 if (standard_flat_type_name(name) != NULL) {
                     cb_appendf(cb, "    val %s = to_sql(%s)\n", dst_var, src_expr);
@@ -1347,6 +1359,201 @@ static void import_for_derive(Module *module, const char *target, int line, int 
     } else if (strcmp(target, "Properties") == 0) {
         ensure_module_import(module, "properties", line, col);
     }
+}
+
+/* ---------------------------------------------------------------------
+ * `#![repository(Entity)]`: the CRUD every repository writes the same way.
+ *
+ * The functions below are the ones whose body is decided entirely by the
+ * entity -- its table, its column list and the `#[pk]` fields that address
+ * one of its rows. A repository's *domain* queries are not here and are not
+ * generated: "this patient's vital signs, newest first, page 3" is a fact
+ * about the application, not about the entity, and a generator that tried to
+ * guess it from a function name would be a naming convention pretending to
+ * be a feature.
+ *
+ * **A name the module already defines wins, and nothing is emitted for it.**
+ * That rule is what makes the attribute safe to add to a repository that has
+ * already been written: `repository/vital_sign.zm` scopes its `update` and
+ * `delete` by the patient as well as the id -- the defence that makes another
+ * patient's row "not found" rather than moved -- and a generated keyed
+ * version replacing it would silently remove a guarantee. The cost is that
+ * the file does not say which of its functions are generated. `--emit-derived`
+ * prints them, and names each one it skipped for a hand-written version;
+ * `--api` on the module names the attribute, since reading one file in
+ * isolation cannot reach the entity and so cannot list the signatures.
+ * --------------------------------------------------------------------- */
+
+/* The type as the generated signature must spell it: see `bare_name_of`. The import ensured beside
+ * it is what puts that bare name in scope. */
+static const char *bare_type_text(Type t) {
+    const char *name = NULL;
+    if (t.kind == TY_STRUCT) name = t.struct_name;
+    if (t.kind == TY_ENUM) name = t.enum_name;
+    if (name == NULL) return type_name(t);
+    return bare_name_of(name);
+}
+
+static int module_defines_function(Module *module, const char *name) {
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *f = module->functions.items[i];
+        if (f->name != NULL && strcmp(f->name, name) == 0) return 1;
+    }
+    return 0;
+}
+
+/* Appends `fn` to `cb` unless the module writes its own, and says which it skipped when asked. */
+static void emit_unless_written(Module *module, CodeBuf *cb, const char *name, char *text) {
+    if (module_defines_function(module, name)) {
+        if (g_emit_derived) printf("// repository: '%s' is written by hand, so none is generated\n", name);
+        return;
+    }
+    cb_appendf(cb, "%s", text);
+}
+
+void generate_repository_functions(Module *module, StructDecl *sd, const char *entity_module) {
+    /* The name as the attribute wrote it, not `sd->name`: a struct from an already-loaded module
+     * carries its self-qualified name (`entity/vital_sign::VitalSign`), and the generated text is
+     * source, where the bare name is what resolves. */
+    const char *entity = module->repository_entity;
+    char *snake = pascal_to_snake(entity);
+    int line = module->repository_line;
+    int col = module->repository_col;
+
+    int key_count = 0;
+    for (int i = 0; i < sd->fields.count; i++) {
+        if (sd->fields.items[i].is_pk) key_count++;
+    }
+    if (key_count == 0) {
+        ziman_error("syntax", line, col,
+                    "#![repository(%s)] needs '%s' to mark at least one field #[pk] -- a repository's "
+                    "find, update and delete each address one row, and without a key there is nothing "
+                    "that addresses one",
+                    entity, entity);
+        return;
+    }
+    for (int i = 0; i < sd->fields.count; i++) {
+        Param *f = &sd->fields.items[i];
+        if (f->is_pk && is_option_type_here(f->type)) {
+            ziman_error("syntax", line, col,
+                        "#![repository(%s)] cannot use '%s' as a key column: it is an Option, and a key "
+                        "that may be absent does not address a row",
+                        entity, f->name);
+            return;
+        }
+    }
+
+    /* Everything the generated bodies name. A file that wrote only the attribute has no reason to
+     * have imported any of it, which is the point of the attribute. */
+    ensure_module_import(module, "eql", line, col);
+    ensure_module_import(module, "datasource", line, col);
+    ensure_named_import(module, "db", "DbError", line, col);
+    ensure_named_import(module, "db", "SqlValue", line, col);
+    /* `NULL` means the entity is declared in this same file, where its own names are already in
+     * scope and importing them from itself would be a cycle. */
+    if (entity_module != NULL) {
+        ensure_named_import(module, entity_module, entity, line, col);
+        ensure_named_import(module, entity_module, fmt_str("%s_meta", snake), line, col);
+        ensure_named_import(module, entity_module, fmt_str("%s_to_params", snake), line, col);
+        ensure_named_import(module, entity_module, fmt_str("%s_from_row", snake), line, col);
+    }
+    for (int i = 0; i < sd->fields.count; i++) {
+        Param *f = &sd->fields.items[i];
+        if (!f->is_pk) continue;
+        import_field_converters(module, "sql", f->type, line, col);
+        /* The key's own type has to be nameable in the signature, which is a different import from
+         * its converter: `delete(conn, id: Uuid)` needs `Uuid` as well as `to_sql`. */
+        if (f->type.kind == TY_STRUCT || f->type.kind == TY_ENUM) {
+            const char *tn = f->type.kind == TY_STRUCT ? f->type.struct_name : f->type.enum_name;
+            if (tn != NULL) {
+                const char *bare = bare_type_text(f->type);
+                for (size_t s = 0; s < sizeof STANDARD_TYPES / sizeof STANDARD_TYPES[0]; s++) {
+                    if (strcmp(bare, STANDARD_TYPES[s].type) == 0) {
+                        ensure_named_import(module, STANDARD_TYPES[s].module, STANDARD_TYPES[s].type, line, col);
+                    }
+                }
+            }
+        }
+    }
+
+    /* `, id: Uuid` for each key field, and the block that turns them into a `[SqlValue]`. The
+     * conversion is `emit_to_sql`, the same one `<name>_to_params` is built from, so a key's value
+     * reaches SQL by exactly the route its column does. */
+    CodeBuf params;
+    cb_init(&params);
+    CodeBuf keys;
+    cb_init(&keys);
+    CodeBuf key_array;
+    cb_init(&key_array);
+    int tmp = 0;
+    int written = 0;
+    for (int i = 0; i < sd->fields.count; i++) {
+        Param *f = &sd->fields.items[i];
+        if (!f->is_pk) continue;
+        cb_appendf(&params, ", %s: %s", f->name, bare_type_text(f->type));
+        char *dst = gen_tmp(&tmp, "key");
+        emit_to_sql(f->type, f->name, dst, &keys, &tmp, line, col);
+        cb_appendf(&key_array, "%s%s", written++ > 0 ? ", " : "", dst);
+    }
+    char *key_params = params.data;
+    char *key_block = fmt_str("%s    val keys: [SqlValue] = [%s]\n", keys.data, key_array.data);
+
+    CodeBuf cb;
+    cb_init(&cb);
+    emit_unless_written(module, &cb, "insert", fmt_str(
+        "pub fn insert(conn: datasource.Connection, a: %s) -> Result<%s, DbError> {\n"
+        "    return eql.insert_one<%s>(conn, %s_meta, %s_to_params(a), %s_from_row)\n"
+        "}\n\n",
+        entity, entity, entity, snake, snake, snake));
+    emit_unless_written(module, &cb, "update", fmt_str(
+        "pub fn update(conn: datasource.Connection, a: %s) -> Result<%s, DbError> {\n"
+        "    val unscoped: [string] = []\n"
+        "    return eql.update_one<%s>(conn, %s_meta, %s_to_params(a), unscoped, %s_from_row)\n"
+        "}\n\n",
+        entity, entity, entity, snake, snake, snake));
+    emit_unless_written(module, &cb, "find", fmt_str(
+        "pub fn find(conn: datasource.Connection%s) -> Result<Option<%s>, DbError> {\n"
+        "%s"
+        "    return eql.find_maybe<%s>(conn, %s_meta, keys, %s_from_row)\n"
+        "}\n\n",
+        key_params, entity, key_block, entity, snake, snake));
+    emit_unless_written(module, &cb, "find_or_error", fmt_str(
+        "pub fn find_or_error(conn: datasource.Connection%s) -> Result<%s, DbError> {\n"
+        "%s"
+        "    return eql.find_by_key<%s>(conn, %s_meta, keys, %s_from_row)\n"
+        "}\n\n",
+        key_params, entity, key_block, entity, snake, snake));
+    emit_unless_written(module, &cb, "exists", fmt_str(
+        "pub fn exists(conn: datasource.Connection%s) -> Result<bool, DbError> {\n"
+        "%s"
+        "    return eql.exists(conn, %s_meta, keys)\n"
+        "}\n\n",
+        key_params, key_block, snake));
+    emit_unless_written(module, &cb, "delete", fmt_str(
+        "pub fn delete(conn: datasource.Connection%s) -> Result<unit, DbError> {\n"
+        "%s"
+        "    val unscoped: [eql.Binding] = []\n"
+        "    return eql.delete_one(conn, %s_meta, keys, unscoped)\n"
+        "}\n\n",
+        key_params, key_block, snake));
+    emit_unless_written(module, &cb, "find_all", fmt_str(
+        "pub fn find_all(conn: datasource.Connection) -> Result<[%s], DbError> {\n"
+        "    return eql.find_all<%s>(conn, %s_meta, %s_from_row)\n"
+        "}\n\n",
+        entity, entity, snake, snake));
+    emit_unless_written(module, &cb, "count_all", fmt_str(
+        "pub fn count_all(conn: datasource.Connection) -> Result<int, DbError> {\n"
+        "    return eql.count_all(conn, %s_meta)\n"
+        "}\n\n",
+        snake));
+    emit_unless_written(module, &cb, "delete_all", fmt_str(
+        "pub fn delete_all(conn: datasource.Connection) -> Result<int, DbError> {\n"
+        "    return eql.delete_all(conn, %s_meta)\n"
+        "}\n\n",
+        snake));
+
+    if (cb.data == NULL || cb.data[0] == '\0') return;
+    parse_and_splice(module, cb.data, line, col, fmt_str("repository(%s)", entity));
 }
 
 void generate_derived_functions(Module *module) {

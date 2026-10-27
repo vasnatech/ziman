@@ -415,3 +415,92 @@ fn a_scope_column_the_entity_does_not_have_is_refused_by_name() {
         "Visit names owner_id and has no such column"
     )
 }
+
+#[test]
+fn every_row_comes_back_ordered_by_the_key() {
+    val conn = seeded()
+    val all = test.assert_ok(eql.find_all<Visit>(conn, visit, visit_from_row))
+    test.assert_len(3, all)
+    // The order is the key's, not the engine's choice.
+    test.assert_eq(1, all[0].id)
+    test.assert_eq(2, all[1].id)
+    test.assert_eq(3, all[2].id)
+    test.assert_eq(3, test.assert_ok(eql.count_all(conn, visit)))
+}
+
+#[test]
+fn a_key_that_is_there_and_one_that_is_not() {
+    val conn = seeded()
+    val there = test.assert_ok(eql.find_maybe<Visit>(conn, visit, [SqlValue.Int(2)], visit_from_row))
+    test.assert_eq("follow up", test.assert_some(there).reason)
+    // Absence is the answer, not an error -- which is the whole difference from find_by_key.
+    test.assert_none(test.assert_ok(eql.find_maybe<Visit>(conn, visit, [SqlValue.Int(99)], visit_from_row)))
+    test.assert(test.assert_ok(eql.exists(conn, visit, [SqlValue.Int(2)])))
+    test.assert_false(test.assert_ok(eql.exists(conn, visit, [SqlValue.Int(99)])))
+}
+
+#[test]
+fn a_row_is_deleted_once_and_then_not_found() {
+    val conn = seeded()
+    val none: [eql.Binding] = []
+    test.assert_ok(eql.delete_one(conn, visit, [SqlValue.Int(2)], none))
+    test.assert_none(test.assert_ok(eql.find_maybe<Visit>(conn, visit, [SqlValue.Int(2)], visit_from_row)))
+    // The second delete is NotFound, which is also what another request having deleted it looks
+    // like -- the reason this consults the row count at all.
+    test.assert_err(eql.delete_one(conn, visit, [SqlValue.Int(2)], none))
+}
+
+#[test]
+fn a_scope_column_refuses_a_delete_of_another_owners_row() {
+    // Visit 1 belongs to patient 1, so patient 2 deleting it is NotFound and the row stays.
+    val conn = seeded()
+    test.assert_err(eql.delete_one(conn, visit, [SqlValue.Int(1)], [eql.bind("patient_id", SqlValue.Int(2))]))
+    test.assert(test.assert_ok(eql.exists(conn, visit, [SqlValue.Int(1)])))
+    test.assert_ok(eql.delete_one(conn, visit, [SqlValue.Int(1)], [eql.bind("patient_id", SqlValue.Int(1))]))
+    test.assert_false(test.assert_ok(eql.exists(conn, visit, [SqlValue.Int(1)])))
+}
+
+#[test]
+fn deleting_by_a_column_that_is_not_the_key() {
+    // The second shape every repository has: every row belonging to one owner.
+    val conn = seeded()
+    test.assert_eq(2, test.assert_ok(eql.delete_where(conn, visit, [eql.bind("patient_id", SqlValue.Int(1))])))
+    test.assert_eq(1, test.assert_ok(eql.count_all(conn, visit)))
+}
+
+#[test]
+fn a_delete_with_no_predicate_is_refused_and_delete_all_is_not() {
+    // An empty predicate is how a filter that came out empty would empty a table, so it is an
+    // error; emptying the table has its own name.
+    val conn = seeded()
+    val none: [eql.Binding] = []
+    test.assert_contains(
+        db.db_error_message(test.assert_err(eql.delete_where(conn, visit, none))),
+        "a delete with no predicate would empty the table"
+    )
+    test.assert_eq(3, test.assert_ok(eql.count_all(conn, visit)))
+    test.assert_eq(3, test.assert_ok(eql.delete_all(conn, visit)))
+    test.assert_eq(0, test.assert_ok(eql.count_all(conn, visit)))
+}
+
+#[test]
+fn a_collection_binding_is_not_a_delete_predicate() {
+    val conn = seeded()
+    test.assert_contains(
+        db.db_error_message(test.assert_err(eql.delete_where(
+            conn,
+            visit,
+            [eql.bind_list("patient_id", [SqlValue.Int(1), SqlValue.Int(2)])]
+        ))),
+        "patient_id was bound as a collection"
+    )
+}
+
+#[test]
+fn a_delete_predicate_column_the_entity_does_not_have_is_refused() {
+    val conn = seeded()
+    test.assert_contains(
+        db.db_error_message(test.assert_err(eql.delete_where(conn, visit, [eql.bind("owner_id", SqlValue.Int(1))]))),
+        "Visit names owner_id and has no such column"
+    )
+}

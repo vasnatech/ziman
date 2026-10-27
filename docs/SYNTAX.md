@@ -1792,7 +1792,7 @@ message is required: `#[when_unmatched]` with no text is a syntax error rather t
 
 `#![...]`, with the `!`, attaches to the *whole file* instead of to the declaration after it (the
 same inner/outer split Rust draws), so it must appear before the first declaration -- writing one
-later is an error that says so. One name is interpreted: `#![experimental]`, which marks a module
+later is an error that says so. Three names are interpreted. `#![experimental]` marks a module
 whose surface is more likely to have a gap than the rest of the library. It changes nothing at
 compile time or runtime by design; its job is to be the single place that claim lives, so that
 docs/CORELIB.md and docs/lib/*.md can generate the "Experimental" callout from the source rather
@@ -1810,6 +1810,26 @@ $ ziman app.zm
 app.zm:8:1: warning: module 'oldmod' is deprecated: use newmod instead
 app.zm:9:1: warning: module 'oldmod' is deprecated: use newmod instead
 ```
+
+`#![repository(Entity)]` says the module is a repository over that entity, and generates the CRUD
+functions whose body the entity decides: `insert`, `update`, `find`, `find_or_error`, `exists`,
+`delete`, `find_all`, `count_all` and `delete_all`. The entity is required and is the only argument
+-- everything else a generated function needs is already written beside the struct, and repeating
+one here would be a second place for it to be wrong. The table and column list come from
+`#[derive(Entity("table"))]`, and the parameters of the keyed functions come from its `#[pk]`
+fields, so `delete(conn, id: Uuid)` takes that name and that type because the entity's key is
+`#[pk] id: Uuid`; a compound key makes it `delete(conn, patient_id: Uuid, broadcast_id: Uuid)`.
+
+**A name the module defines itself wins, and nothing is generated for it.** That is what makes the
+attribute addable to a repository already written by hand: one whose `delete` is scoped by an owner
+as well as an id keeps it, where a generated keyed version replacing it would silently remove a
+guarantee. The trade is that the file does not say which of its functions are generated --
+`--emit-derived` prints them and names each one it skipped, and `--api` on the module names the
+attribute, since reading one file cannot reach the entity in another.
+
+An entity with no `#[pk]` field is an error: every one of the keyed functions addresses one row, and
+without a key nothing does. So is a `#[pk]` field of an `Option` type, and a second
+`#![repository(..)]` in the same file -- one module, one entity.
 
 A `use` from inside a bundled module is silent, the same same-source rule the declaration-level
 attribute follows. On the program's own entry file the attribute warns nowhere, because nothing

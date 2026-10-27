@@ -343,6 +343,92 @@ pub fn find_by_key<E>(
 
 The one row a key addresses.
 
+### `find_maybe`
+
+```
+pub fn find_maybe<E>(
+    conn: datasource.Connection,
+    e: Entity,
+    keys: [SqlValue],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<Option<E>, DbError>
+```
+
+The row a key addresses, or `None`. **Absence is an answer here and an error in `find_by_key`**,
+and which one a caller wants is not guessable: a request for one record by id is a 404 and wants
+the error, while a check before writing wants the `Option` and would otherwise read a `NotFound`
+back out of a `Result` to decide nothing is wrong.
+
+### `exists`
+
+```
+pub fn exists(conn: datasource.Connection, e: Entity, keys: [SqlValue]) -> Result<bool, DbError>
+```
+
+Whether the key addresses a row, without building the entity from it. The projection is the key
+rather than `1` or `*`: a constant is a different kind of expression for an engine to plan, and
+every column is work thrown away.
+
+### `find_all`
+
+```
+pub fn find_all<E>(
+    conn: datasource.Connection,
+    e: Entity,
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<[E], DbError>
+```
+
+**Every row, ordered by the key.** The order is not decoration: without an `ORDER BY` the engine
+may answer in any order it likes, and two runs of the same program disagreeing about the order of
+a list is the kind of difference that is found in production rather than in a test. The key is
+the one ordering every entity is guaranteed to have.
+
+### `count_all`
+
+```
+pub fn count_all(conn: datasource.Connection, e: Entity) -> Result<int, DbError>
+```
+
+How many rows the table has.
+
+### `delete_where`
+
+```
+pub fn delete_where(conn: datasource.Connection, e: Entity, matching: [Binding]) -> Result<int, DbError>
+```
+
+**Every row matching `matching`, and how many there were.** An empty predicate is refused rather
+than read as "all of them": `DELETE FROM t` is a different intention and says so through
+`delete_all`.
+
+### `delete_one`
+
+```
+pub fn delete_one(
+    conn: datasource.Connection,
+    e: Entity,
+    keys: [SqlValue],
+    scope: [Binding]
+) -> Result<unit, DbError>
+```
+
+**The one row the key addresses, with `scope` as well**, and `NotFound` when nothing matched --
+which is also the answer for a row another owner holds, because that is the rule the repository
+layer keeps throughout: another owner's row is not found, not forbidden.
+
+Unlike an update, this does consult the number of rows affected. A `DELETE` has no rows-changed
+regime to be wrong about: every engine counts the rows it removed.
+
+### `delete_all`
+
+```
+pub fn delete_all(conn: datasource.Connection, e: Entity) -> Result<int, DbError>
+```
+
+Every row of the table, and how many there were. **Spelled out rather than reached by an empty
+predicate**, so emptying a table is never what a predicate that came out empty does by accident.
+
 ### `rows`
 
 ```

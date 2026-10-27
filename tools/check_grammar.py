@@ -75,6 +75,7 @@ CASES = [
     ("native fn clear<T>(items: MutableArray<T>)", "native", "storage.modifier"),
     ("#![experimental]", "#![experimental]", "meta.attribute"),
     ("#![deprecated(\"use newmod\")]", "#![deprecated(\"use newmod\")]", "meta.attribute"),
+    ("#![repository(VitalSign)]", "#![repository(VitalSign)]", "meta.attribute"),
     # the things that already worked, so a fix cannot quietly break them
     ("fn main() {", "fn", "storage.type.function"),
     ("    with base { x: 1 }", "with", "keyword.other"),

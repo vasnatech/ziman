@@ -1,0 +1,15 @@
+#![repository(Note)]
+
+use eql
+
+// No field is `#[pk]`, so nothing addresses one row and there is no find, update or delete to
+// generate.
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    id: int
+    body: string
+}
+
+fn main() {
+    print("never runs")
+}

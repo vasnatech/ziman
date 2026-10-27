@@ -250,6 +250,7 @@ them against the code.
 - [Code generation moves out of the parser, and what sat between the old position and the new one (2026-10-26)](#code-generation-moves-out-of-the-parser-and-what-sat-between-the-old-position-and-the-new-one-2026-10-26)
 - [`eql` writes one row, and the column list stops being written twice (2026-10-26)](#eql-writes-one-row-and-the-column-list-stops-being-written-twice-2026-10-26)
 - [An update takes a scope column, and why the read-back does not go through the key (2026-10-26)](#an-update-takes-a-scope-column-and-why-the-read-back-does-not-go-through-the-key-2026-10-26)
+- [`#![repository(Entity)]`, and the rule that a hand-written function wins (2026-10-26)](#repositoryentity-and-the-rule-that-a-hand-written-function-wins-2026-10-26)
 
 <!-- end index -->
 
@@ -9697,3 +9698,50 @@ a caller error rather than a redundancy to absorb. `find_by_key` gained the no-k
 missing -- it built `WHERE` out of an empty key list, which is not a statement.
 
 Seven of the ten runtime writes remain.
+
+## `#![repository(Entity)]`, and the rule that a hand-written function wins (2026-10-26)
+
+The seven remaining runtime writes landed first -- `delete_one`, `delete_where`, `delete_all`,
+`find_maybe`, `find_all`, `exists`, `count_all` -- and then the attribute that calls them.
+`#![repository(VitalSign)]` generates nine functions whose body the entity decides, and the sample
+backend's `repository/vital_sign.zm` now carries it.
+
+**The attribute names the entity and nothing else**, which was the specification that moved
+generation out of the parser weeks of work ago: `delete(conn, id: Uuid)` takes its parameter's name
+and type from the entity's `#[pk]` field, and the entity is in another file. The lookup lives in
+`loader.c` and the emitting in `derive.c`, split exactly there because at the generation point it is
+the loader that knows which files are loaded -- `find_loaded` is the only way from a `use` path to
+the module it named -- while `derive.c` owns `emit_to_sql`, so a key's value reaches SQL by the same
+route its column does.
+
+**What is not generated is as decided as what is.** A repository's domain queries stay hand-written:
+"this patient's vital signs, newest first, page 3" is a fact about the application, not about the
+entity, and a generator inferring it from a function name would be a naming convention pretending to
+be a feature.
+
+**A name the module defines itself wins, and nothing is emitted for it.** This was the one open
+decision, and it was settled by what it would have cost here:
+`repository/vital_sign.zm` scopes its `update` and `delete` by the patient as well as the id, which
+is what makes another patient's row *not found* rather than moved or deleted. A generated keyed
+`update` replacing it would have removed that silently, in a diff that reads like an improvement.
+Generating only what the file does not write makes the attribute addable to 27 repositories already
+written, none of them losing a guarantee. The cost is that the file does not say which half is
+which; `--emit-derived` prints the generated functions and names each one it skipped, and `--api`
+names the attribute, since reading one file in isolation cannot reach the entity in another.
+
+**The generated reads are not owner-scoped, and that is a property of the entity, not an oversight.**
+`VitalSign`'s key is its id alone, so the generated `find(conn, id)` answers any patient's row. Every
+hand-written access in that file is patient-scoped, so the attribute adds seven entry points that
+are not -- additive, unused until called, and a thing a request path must not reach for. The
+alternative is a `#[scope]` field attribute beside `#[pk]`, which would put the owner into every
+generated signature; it is not built, and is the shape to reach for if an unscoped read is ever
+called by mistake.
+
+**Three places leaked the loader's internal name.** A declaration read out of an already-loaded
+module carries its self-qualified form -- `entity/vital_sign::VitalSign` -- and `::` is not source
+syntax, while the generated text *is* source. It appeared as `id: uuid::Uuid` in a signature, as
+`uuid::uuid_to_sql(id)` from `emit_to_sql` falling past the standard-type table, and as the entity
+name in the splice label. One helper, `bare_name_of`, handles all three; it strips only `::`,
+because a dotted `uuid.Uuid` is how a program writes a qualified type itself. Worth recording
+because nothing about reading a `StructDecl` suggests its name is not the name in the source: the
+field is the same field the Row derive reads, and the difference is only *when*.

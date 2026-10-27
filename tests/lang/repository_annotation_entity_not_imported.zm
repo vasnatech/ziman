@@ -1,0 +1,5 @@
+#![repository(Missing)]
+
+fn main() {
+    print("never runs")
+}

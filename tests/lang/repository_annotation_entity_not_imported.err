@@ -1,0 +1,1 @@
+#![repository(Missing)] names a type this module cannot see -- a repository is generated from its entity's own fields, so the file has to import it (use <module>.Missing)

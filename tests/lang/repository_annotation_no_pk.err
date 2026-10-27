@@ -1,0 +1,1 @@
+#![repository(Note)] needs 'Note' to mark at least one field #[pk] -- a repository's find, update and delete each address one row, and without a key there is nothing that addresses one

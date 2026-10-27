@@ -1915,6 +1915,20 @@ pub fn update_one<E>(
 
 pub fn find_by_key<E>(
 
+pub fn find_maybe<E>(
+
+pub fn exists(conn: datasource.Connection, e: Entity, keys: [SqlValue]) -> Result<bool, DbError>
+
+pub fn find_all<E>(
+
+pub fn count_all(conn: datasource.Connection, e: Entity) -> Result<int, DbError>
+
+pub fn delete_where(conn: datasource.Connection, e: Entity, matching: [Binding]) -> Result<int, DbError>
+
+pub fn delete_one(
+
+pub fn delete_all(conn: datasource.Connection, e: Entity) -> Result<int, DbError>
+
 pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError>
 
 pub fn count(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<int, DbError>

@@ -1024,6 +1024,18 @@ typedef struct {
      * lives there). See docs/ROADMAP.md, F70. */
     int deprecated;
     const char *deprecated_message;
+    /* `#![repository(Entity)]` at the top of this module's own file: the module is a repository
+     * over that entity, and the CRUD functions it does not write by hand are generated from the
+     * entity's own metamodel -- its columns, and the `#[pk]` fields that address one of its rows.
+     * The attribute names the entity and nothing else on purpose: every other fact a generated
+     * function needs is already written beside the struct, and repeating one here would be a
+     * second place for it to be wrong.
+     *
+     * Resolved in loader.c rather than in the parser, because the struct is in another file: see
+     * the comment at the generation point in `load_module`. */
+    const char *repository_entity;
+    int repository_line;
+    int repository_col;
 } Module;
 
 /* Constructors. All AST nodes are heap-allocated and never freed --

@@ -1,0 +1,5 @@
+#![repository]
+
+fn main() {
+    print("never runs")
+}

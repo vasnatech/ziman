@@ -400,6 +400,17 @@ static void print_doc_comment(int decl_line) {
 
 static void print_api_module(const char *name, Module *m) {
     printf("module %s%s\n", name, m->experimental ? "  (experimental)" : "");
+    /* **Named rather than listed**, because this path reads one file and the functions come from
+     * another: `#![repository(X)]` generates from X's own fields, X is in the module this one
+     * imports, and nothing here has loaded it. Saying so is the point -- a reader who sees only
+     * the hand-written half and no mention of the rest would conclude the rest does not exist. */
+    if (m->repository_entity != NULL) {
+        printf("\n  #![repository(%s)] also generates insert, update, find, find_or_error, exists,\n"
+               "  delete, find_all, count_all and delete_all -- minus any this module writes itself,\n"
+               "  which win. Their key parameters are %s's #[pk] fields, so the signatures are in\n"
+               "  that module, not this one, and are not listed here.\n",
+               m->repository_entity, m->repository_entity);
+    }
     for (int i = 0; i < m->structs.count; i++) {
         StructDecl *s = m->structs.items[i];
         if (s->visibility != VIS_PUBLIC) continue;

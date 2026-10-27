@@ -1,0 +1,54 @@
+#![repository(Note)]
+
+// `#![repository(Note)]` generates the CRUD whose body the entity decides, and leaves alone any
+// name the file writes itself -- here `delete`, which is scoped by the owner.
+use datasource
+use db.DbError
+use db.SqlValue
+use eql
+use memdb
+
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: int
+    owner: int
+    body: string
+}
+
+// Written by hand, so no keyed `delete` is generated: another owner's note is not found.
+pub fn delete(conn: datasource.Connection, id: int, owner: int) -> Result<unit, DbError> {
+    return eql.delete_one(conn, note_meta, [SqlValue.Int(id)], [eql.bind("owner", SqlValue.Int(owner))])
+}
+
+fn main() {
+    val drivers = datasource.registry([memdb.driver()])
+    val conn = unwrap(datasource.open(drivers, "memdb:"))
+    unwrap(datasource.execute(conn, "CREATE TABLE notes (id INTEGER PRIMARY KEY, owner INTEGER NOT NULL, body TEXT)"))
+
+    unwrap(insert(conn, Note { id: 1, owner: 7, body: "first" }))
+    unwrap(insert(conn, Note { id: 2, owner: 8, body: "second" }))
+    print(unwrap(count_all(conn)))
+    print(unwrap(exists(conn, 1)))
+    print(unwrap(exists(conn, 9)))
+
+    print(unwrap(find_or_error(conn, 2)).body)
+    print(Option.is_None(unwrap(find(conn, 9))))
+
+    unwrap(update(conn, Note { id: 1, owner: 7, body: "rewritten" }))
+    print(unwrap(find_or_error(conn, 1)).body)
+
+    for note in unwrap(find_all(conn)) {
+        print(note.id)
+    }
+
+    // The hand-written delete won: another owner cannot remove it, and its owner can.
+    if Err(e) = delete(conn, 1, 8) {
+        print("another owner cannot delete it")
+    }
+    if Ok(done) = delete(conn, 1, 7) {
+        print("its owner can")
+    }
+    print(unwrap(count_all(conn)))
+    print(unwrap(delete_all(conn)))
+}

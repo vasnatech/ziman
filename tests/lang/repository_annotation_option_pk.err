@@ -1,0 +1,1 @@
+#![repository(Note)] cannot use 'id' as a key column: it is an Option, and a key that may be absent does not address a row
