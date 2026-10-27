@@ -257,6 +257,7 @@ them against the code.
 - [Reading a module val before its initialiser has run is an error now, not a crash (2026-10-26)](#reading-a-module-val-before-its-initialiser-has-run-is-an-error-now-not-a-crash-2026-10-26)
 - [`Registry` becomes a map keyed on the folded name (2026-10-26)](#registry-becomes-a-map-keyed-on-the-folded-name-2026-10-26)
 - [The derived table val takes a prefix, and two entities fit in one module (2026-10-27)](#the-derived-table-val-takes-a-prefix-and-two-entities-fit-in-one-module-2026-10-27)
+- [A parameter named after a clause keyword is a parameter (2026-10-27)](#a-parameter-named-after-a-clause-keyword-is-a-parameter-2026-10-27)
 
 <!-- end index -->
 
@@ -10023,3 +10024,22 @@ there would mean reading the broadcast first and overwriting whatever a concurre
 changed -- a worse statement than the one it replaced. A partial update has no entity-shaped
 equivalent. That reasoning was written down when `DELETE` landed on general grounds; this is the
 first place it is load-bearing, and the comment now lives in the function.
+
+## A parameter named after a clause keyword is a parameter (2026-10-27)
+
+`WHERE d >= :from AND d <= :to` -- the obvious names for a date range -- was refused with
+*"no registered entity is called 'AND'"*, which names nothing the caller wrote.
+
+`bindings_of` scans the token list for `FROM` and `JOIN` to find each entity and its alias, and it
+walks tokens one at a time. The rewriter consumes `:name` as a pair, so it never sees the name
+alone; `bindings_of` does, so `from` read as a clause and it went looking for an entity after it,
+found `AND`, and reported that. One extra condition fixes it: a name preceded by `:` is a parameter.
+
+**It took the sample backend's only date-range read to find.** `repository/encounter.zm` asks for
+every patient's encounters with a follow-up in a window, and `from`/`to` are what those parameters
+are called -- in the Spring backend too, whose `findByFollowUpDateBetween` this mirrors. Nothing
+else in 26 repositories had a parameter named after a clause word, and the error message was far
+enough from the cause that reading it would not have suggested the fix.
+
+Tested for `:from`, `:to`, `:order`, `:join` and `:where`, which is the set a parameter might
+plausibly be called.

@@ -414,6 +414,14 @@ fn bindings_of(reg: Registry, tokens: [Token]) -> Result<[Bound], DbError> {
         if is_name(t) && (t.upper == "FROM" || t.upper == "JOIN") {
             entry = true
         }
+        // **A parameter named after a clause keyword is a parameter.** `:from` and `:to` are the
+        // obvious names for a date range, and this loop walks tokens without consuming `:name`
+        // pairs the way the rewriter does -- so `WHERE d >= :from AND ..` read `from` as a FROM
+        // clause and went looking for an entity after it. The error was
+        // "no registered entity is called 'AND'", which names nothing the caller wrote.
+        if i > 0 && tokens[i - 1].kind == "punct" && tokens[i - 1].text == ":" {
+            entry = false
+        }
         if !entry {
             i = i + 1
             continue

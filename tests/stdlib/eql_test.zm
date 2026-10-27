@@ -557,3 +557,18 @@ fn the_first_of_a_repeated_name_wins() {
         test.assert_ok(eql.translate(dup, "SELECT p.id FROM Patient p")).sql
     )
 }
+
+#[test]
+fn a_parameter_named_after_a_clause_keyword_is_a_parameter() {
+    // `:from` and `:to` are the obvious names for a date range, and `bindings_of` walks tokens
+    // without consuming `:name` pairs the way the rewriter does -- so `from` read as a FROM clause
+    // and the error was "no registered entity is called 'AND'", naming nothing the caller wrote.
+    test.assert_eq(
+        "SELECT v.id FROM visits AS v WHERE v.cost >= $1 AND v.cost <= $2",
+        sql_of("SELECT v.id FROM Visit v WHERE v.cost >= :from AND v.cost <= :to")
+    )
+    // The other clause words a parameter might plausibly be called.
+    test.assert_contains(sql_of("SELECT v.id FROM Visit v WHERE v.reason = :order"), "WHERE v.reason = $1")
+    test.assert_contains(sql_of("SELECT v.id FROM Visit v WHERE v.reason = :join"), "WHERE v.reason = $1")
+    test.assert_contains(sql_of("SELECT v.id FROM Visit v WHERE v.reason = :where"), "WHERE v.reason = $1")
+}
