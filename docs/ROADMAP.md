@@ -1186,6 +1186,28 @@ from source.
 
 ## Larger, needs its own design pass
 
+- **Derived queries: a repository function's name is its query. Design written, nothing built --
+  `docs/design/derived-queries.md`.**
+  Raised 2026-10-27, after converting all 26 repositories of the sample backend to `eql`. The
+  bodies written during that conversion are derivable from the names they sit under, because the
+  repositories are hand-ports of Spring Data interfaces and their own comments cite fourteen of the
+  originals. Counted rather than guessed: **91 of 144 repository function instances are derivable
+  from entity field names alone**, and the derivable ones are the repeated ones -- six name shapes
+  cover 69 functions (`delete_by_patient_id` x19, `find_all_by_patient_id` x16, the scoped `delete`
+  x15, `find_by_id_and_patient_id` x12).
+
+  This supersedes the `#[scope]` sketch, which was the small version of the same idea: a scope
+  attribute on a field, putting the owner into every generated signature. The grammar makes it
+  unnecessary -- `find_by_id_and_patient_id` states the scope, its order, and which functions have
+  one, which is the three open questions `#[scope]` could not answer.
+
+  **The reason to build it rather than copy Spring Data** is in the design doc's §4.2: Spring binds
+  parameters positionally, so `findByIdAndPatientId(patientId, id)` -- two UUIDs transposed --
+  compiles, boots and answers the wrong rows forever. Matching parameters by *name* against the
+  predicate's terms makes that a compile error, and it is the same failure mode `#[pk]` and
+  `insert_one` were built to remove.
+
+
 - **Code generation from annotations needs a mechanism, not a series of exceptions. Not started;
   this is the design talk.**
   Raised 2026-10-26, from the conversation that added `#[derive(Entity("table"))]` and then tried
