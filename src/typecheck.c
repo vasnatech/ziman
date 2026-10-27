@@ -5599,6 +5599,10 @@ typedef struct ValueCtx {
     Type expected;
     int count;
     Type first;
+    /* What the reader wrote, for the messages: an `if`/`switch` used as a value has arms, and a
+     * `{ .. }` block used as a value has one tail, so "the arms of" is wrong for half the callers
+     * since blocks became expressions. NULL means the `if`/`switch` wording. */
+    const char *what;
 } ValueCtx;
 
 static ValueCtx *g_value_ctx = NULL;
@@ -5988,6 +5992,14 @@ static Type check_initializer(Module *module, Env *env, Expr **init_slot, int ha
         } else {
             init_type = check_expr(module, env, init);
         }
+        /* A block with no value, said in the block's own terms: "cannot use a void value to
+         * initialize a variable" is true and leaves the reader looking for the variable. */
+        if (init->kind == EXPR_VALUE_BLOCK && init_type.kind == TY_VOID &&
+            init->as.value_block.inner->kind == STMT_BLOCK) {
+            ziman_error("type", init->line, init->col,
+                        "this '{ .. }' block has no value, so there is nothing to bind: a block's value is its "
+                        "last expression, and this one ends with something that produces none");
+        }
         require_not_void(init, "to initialize a variable");
         declared = init_type;
         if (has_declared) {
@@ -6258,17 +6270,32 @@ static int arm_may_leave(const Stmt *s, int in_loop) {
 static Type check_value_block_expr(Module *module, Env *env, Expr *e, const Type *expected) {
     if (e->resolved_type.kind != TY_VOID) return e->resolved_type; /* already checked */
     Stmt *inner = e->as.value_block.inner;
+    /* A plain `{ .. }` block used as a value, rather than an `if`/`switch`: the same machinery, and
+     * messages that have to say which one the reader wrote. */
+    int is_block = inner->kind == STMT_BLOCK;
     if (!arm_yields_or_leaves(inner)) {
+        if (is_block) {
+            ziman_error("type", inner->line, inner->col,
+                        "a '{ .. }' block used as a value must end with an expression, which is the value it "
+                        "has -- this one ends with something that produces none");
+        }
         ziman_error("type", inner->line, inner->col,
                     "every arm of an 'if'/'switch' used as a value must end with a value expression");
     }
     if (arm_may_leave(inner, 0)) {
+        if (is_block) {
+            ziman_error("type", inner->line, inner->col,
+                        "a '{ .. }' block used as a value cannot 'return', 'break', 'continue' or use 'try': it is "
+                        "an expression, and those leave the function or the loop around it. Bind the part that "
+                        "can leave to a 'val' before the block");
+        }
         ziman_error("type", inner->line, inner->col,
                     "an arm of an 'if'/'switch' used inside an expression cannot 'return', 'break', 'continue' or use 'try' -- "
                     "bind it to a 'val' (or return it) first, where an arm may leave");
     }
     ValueCtx ctx;
     memset(&ctx, 0, sizeof ctx);
+    ctx.what = is_block ? "a '{ .. }' block used as a value and its nested arms" : NULL;
     if (expected != NULL) {
         ctx.has_expected = 1;
         ctx.expected = *expected;
@@ -6370,7 +6397,8 @@ static void check_stmt(Module *module, Env *env, Stmt *s, Type fn_return_type, i
                 ctx->first = t;
             } else if (!type_equals(t, ctx->first)) {
                 ziman_error("type", s->line, s->col,
-                            "the arms of an 'if'/'switch' used as a value must all have the same type: found %s and %s",
+                            "%s must all have the same type: found %s and %s",
+                            ctx->what != NULL ? ctx->what : "the arms of an 'if'/'switch' used as a value",
                             type_name(ctx->first), type_name(t));
             }
             ctx->count++;

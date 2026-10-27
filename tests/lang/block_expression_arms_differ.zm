@@ -1,0 +1,11 @@
+fn main() {
+    val x = {
+        val a = 1
+        if a == 1 {
+            1
+        } else {
+            "two"
+        }
+    }
+    print(x)
+}

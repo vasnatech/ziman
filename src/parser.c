@@ -993,14 +993,47 @@ static Expr *parse_primary(Parser *p) {
                     "statement ends at the newline, so the '}' above already finished the 'if' and this 'else' "
                     "has nothing to attach to");
     }
-    /* `{"a": 1}` -- the map literal nearly every other language spells this way. Ziman has `Map`
-     * and `Set` literals, but the type arguments are always written, because `{}` alone cannot say
-     * what an empty one holds. */
     if (t->type == TOK_LBRACE) {
-        ziman_error("syntax", t->line, t->col,
-                    "a '{' cannot start an expression -- a map or set literal is written with its type arguments, "
-                    "as 'Map<string, int> { \"a\": 1 }' or 'Set<int> { 1, 2 }' (always written, since '{}' alone "
-                    "cannot say what an empty one holds)");
+        /* `{"a": 1}` / `{1, 2}` / `{}` -- the map and set literals nearly every other language
+         * spells this way. Ziman writes the type arguments, because `{}` alone cannot say what an
+         * empty one holds, and that message is worth keeping now that `{` *does* start something:
+         * a block of statements ending in a value would otherwise report whatever token stopped it,
+         * leaving the reader looking at a `:` rather than at the literal they meant to write. Only
+         * the one-line shapes are caught, which is the shape the mistake has -- after a real
+         * block's `{` comes a newline. */
+        int map_shape = check_ahead(p, 1, TOK_RBRACE) ||
+                        ((check_ahead(p, 1, TOK_STRING_LIT) || check_ahead(p, 1, TOK_INT_LIT) ||
+                          check_ahead(p, 1, TOK_IDENT)) &&
+                         (check_ahead(p, 2, TOK_COLON) || check_ahead(p, 2, TOK_COMMA)));
+        if (map_shape) {
+            ziman_error("syntax", t->line, t->col,
+                        "a map or set literal is written with its type arguments, as 'Map<string, int> { \"a\": 1 }' "
+                        "or 'Set<int> { 1, 2 }' (always written, since '{}' alone cannot say what an empty one "
+                        "holds). A '{' otherwise starts a block whose last expression is its value");
+        }
+        /* **A block used as a value**: statements, then a final expression that is what the block
+         * is worth. The same `yieldify` an `if`/`switch`-as-a-value gets, and the same
+         * EXPR_VALUE_BLOCK afterwards, so the type checker and the interpreter need to know
+         * nothing new -- a block was already one of the shapes `yieldify` understood, because an
+         * arm of a value `if` is one.
+         *
+         * What it buys is a load-time computation that takes more than one expression without
+         * inventing a function to hold it: a module-level `val` can build an immutable value with a
+         * loop and a mutable builder, where the builder stays inside the block and only the
+         * finished value is the val's type -- which is what keeps a `MutableArray` out of a
+         * module-level val, since that is refused by name. */
+        Stmt *inner = parse_block(p);
+        yieldify(inner);
+        Token *after = cur(p);
+        if (continues_expression(after)) {
+            ziman_error("syntax", after->line, after->col,
+                        "a block used as a value must be the whole expression; wrap it in parentheses to use its "
+                        "value as an operand: ({ ... }) %s ...",
+                        token_type_name(after->type));
+        }
+        Expr *e = expr_new(EXPR_VALUE_BLOCK, t->line, t->col);
+        e->as.value_block.inner = inner;
+        return e;
     }
     ziman_error("syntax", t->line, t->col, "expected an expression, found %s", token_type_name(t->type));
 }
@@ -1889,6 +1922,18 @@ static Stmt *parse_defer(Parser *p) {
 }
 
 static Stmt *parse_statement(Parser *p) {
+    /* **A block is a value, so it is not a statement.** Without this it parses as an expression
+     * statement whose value nobody takes, and `yieldify` has already turned its last line into the
+     * block's value -- so `{ print("x") }` on its own reported "cannot use a void value to
+     * initialize a variable" pointing at the `print`, with no variable anywhere in sight. Ziman has
+     * no bare scope block, and the two things someone writing one meant are both named here. */
+    if (check(p, TOK_LBRACE)) {
+        Token *brace = cur(p);
+        ziman_error("syntax", brace->line, brace->col,
+                    "a '{ .. }' block is a value, not a statement -- bind it with 'val x = { .. }' to use what it "
+                    "evaluates to. (Ziman has no bare block for scoping a variable: a 'val' lasts to the end of the "
+                    "block it is in, and a 'defer' runs when that block exits.)");
+    }
     if (match(p, TOK_VAL)) return parse_decl(p, STMT_VAL);
     if (match(p, TOK_VAR)) return parse_decl(p, STMT_VAR);
     if (match(p, TOK_IF)) return parse_if(p);

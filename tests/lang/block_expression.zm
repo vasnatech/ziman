@@ -1,0 +1,68 @@
+// A `{ .. }` block used as a value: statements, then a final expression that is what the block is
+// worth. The motivating case is the first one -- a module-level immutable value built with a loop,
+// where the mutable builder stays inside the block and only the finished value is the val's type,
+// which is what keeps a `MutableArray` out of a module-level val (refused by name).
+
+val names = ["b", "a", "c"]
+
+val patterns = {
+    val out = mutable_array_new<string>()
+    for name in names {
+        push(out, concat("^", name, "$"))
+    }
+    snapshot(out)
+}
+
+// Enough allocation inside a module-level block to need a real collection while it runs. Before
+// module initialisation had a call frame, `ziman_set_frame_env` was a no-op here and this scope was
+// invisible to the GC root walk -- so the builder was not a root and a collection could take it.
+val many = {
+    val out = mutable_array_new<string>()
+    for i in 0..20000 {
+        push(out, concat("row-", str(i)))
+    }
+    snapshot(out)
+}
+
+// A block whose tail is an `if` used as a value: `yieldify` recurses, so both arms are the block's
+// value.
+val sized = {
+    val n = prelude.len(names)
+    if n > 2 {
+        "many"
+    } else {
+        "few"
+    }
+}
+
+fn main() {
+    print(patterns)
+    print(sized)
+    print(prelude.len(many))
+    print(many[0])
+    print(many[19999])
+
+    // In a function body.
+    val n = {
+        val a = 2
+        val b = 3
+        a * b
+    }
+    print(n)
+
+    // As an argument, and nested one block inside another.
+    print(concat("n=", {
+        val inner = {
+            val s = str(n)
+            s
+        }
+        inner
+    }))
+
+    // A block is an expression, so it composes where one is wanted.
+    val doubled = ({
+        val base = 7
+        base
+    }) * 2
+    print(doubled)
+}

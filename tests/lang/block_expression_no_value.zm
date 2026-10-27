@@ -1,0 +1,7 @@
+val x = {
+    print("this block ends with something that produces nothing")
+}
+
+fn main() {
+    print(x)
+}

@@ -1,0 +1,1 @@
+a '{ .. }' block is a value, not a statement -- bind it with 'val x = { .. }'

@@ -1,0 +1,15 @@
+fn source() -> Result<int, string> {
+    return ok(1)
+}
+
+fn use_it() -> Result<int, string> {
+    val x = {
+        val a = try source()
+        a + 1
+    }
+    return x
+}
+
+fn main() {
+    print(unwrap(use_it()))
+}

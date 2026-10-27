@@ -1,0 +1,1 @@
+a '{ .. }' block used as a value cannot 'return', 'break', 'continue' or use 'try'

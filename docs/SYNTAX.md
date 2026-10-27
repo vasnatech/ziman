@@ -1421,6 +1421,40 @@ name), each with a rule the bundled modules follow and new ones should too:
 The thing to avoid: a short generic verb also meant for bare import — the collision the two
 modes are otherwise designed around.
 
+### `{ .. }` blocks as values
+
+A `{ .. }` block is an expression: its statements run, and its **last expression is its value**.
+What this buys over a helper function is a computation of more than one step that stays where the
+value it produces is named -- most usefully at module level, where a `val` can be built with a loop:
+
+```ziman ignore: `names` and `compile` are the reader's own
+val patterns = {
+    val out = mutable_array_new<string>()
+    for name in names {
+        push(out, compile(name))
+    }
+    snapshot(out)
+}
+```
+
+That shape is the reason it exists. A `MutableArray` cannot be the type of a module-level `val`
+(every thread would share it), but a *builder inside a block* is not the val's type -- only
+`snapshot(out)` is, so the val is an ordinary immutable `[string]` and the handle never escapes the
+block it was made in.
+
+- **Where:** anywhere an expression may appear. As an operand it needs parentheses when anything
+  follows (`({ .. }) * 2`), the same rule an `if` used as a value has.
+- **Not a statement.** A block at the start of a statement is a compile error naming what to write
+  instead, because its value would have nowhere to go. Ziman has no bare scope block: a `val` lasts
+  to the end of the block it is in, and a `defer` runs when that block exits.
+- **It must end with an expression that has a value**, and that expression may itself be an
+  `if`/`switch` used as a value, so a block whose tail is a choice works.
+- **It cannot `return`, `break`, `continue` or `try`**, for the reason an `if` used inside an
+  expression cannot: the interpreter can leave a statement, not the middle of an expression. Bind
+  the part that leaves to a `val` before the block.
+- `{}`, `{"a": 1}` and `{1, 2}` are still the map and set literal mistake, and still say so --
+  those are written with their type arguments (`Map<string, int> { "a": 1 }`).
+
 ### `if` and `switch` as values
 
 An `if` or `switch` can produce a value, which removes the "declare a `var`,

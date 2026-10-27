@@ -251,6 +251,7 @@ them against the code.
 - [`eql` writes one row, and the column list stops being written twice (2026-10-26)](#eql-writes-one-row-and-the-column-list-stops-being-written-twice-2026-10-26)
 - [An update takes a scope column, and why the read-back does not go through the key (2026-10-26)](#an-update-takes-a-scope-column-and-why-the-read-back-does-not-go-through-the-key-2026-10-26)
 - [`#![repository(Entity)]`, and the rule that a hand-written function wins (2026-10-26)](#repositoryentity-and-the-rule-that-a-hand-written-function-wins-2026-10-26)
+- [A `{ .. }` block is an expression, and the crash that was waiting under module initialisation (2026-10-26)](#a-block-is-an-expression-and-the-crash-that-was-waiting-under-module-initialisation-2026-10-26)
 
 <!-- end index -->
 
@@ -9745,3 +9746,78 @@ name in the splice label. One helper, `bare_name_of`, handles all three; it stri
 because a dotted `uuid.Uuid` is how a program writes a qualified type itself. Worth recording
 because nothing about reading a `StructDecl` suggests its name is not the name in the source: the
 field is the same field the Row derive reads, and the difference is only *when*.
+
+## A `{ .. }` block is an expression, and the crash that was waiting under module initialisation (2026-10-26)
+
+The question was whether ziman should have top-level `{ .. }` blocks run once at load, interleaved
+with the global vals. The answer was no, and the reasons are worth keeping because they are about
+what the language already is rather than about taste:
+
+**The semantics already existed.** `val _ = install()` runs before `main`, once per module, in
+dependency order -- deepest first, then file order. Measured with three modules, where a shared
+dependency ran once: `dep loaded / mid loaded / entry loaded / main`.
+
+**What a static initialiser is classically *for* is already refused.** Java's `static { MAP.put(..) }`
+exists to fill static mutable state, and a module-level `MutableArray` is rejected by name here
+("every thread would share it"). So the feature would have arrived with its principal use case ruled
+out, leaving only external effects -- the ones least wanted on import, since importing a module to
+call one function from it would fire them.
+
+**And nobody had wanted it**: `val _ =` appears zero times across `lib/` and the sample backend --
+27 repositories, a db layer, an HTTP server, a graphics library.
+
+**What the question did expose was a different gap**, and the one worth filling: a `val` needing
+several statements had to invent a function to hold them. So `{` now starts a **block expression**,
+whose last expression is its value.
+
+**It cost 40 lines of parser and nothing else**, which is the part worth recording. `{` was free as
+an expression starter because an uppercase identifier is what makes `Name { .. }` a struct literal
+(`starts_upper`), so a bare brace was unambiguous in every position, condition included. And
+everything behind it already existed for `if`/`switch`-as-a-value: `yieldify` *already* handled
+`STMT_BLOCK`, because an arm of a value `if` is one, so turning a block's trailing expression into a
+`STMT_YIELD` was already written. The new form reuses `EXPR_VALUE_BLOCK` whole -- the type checker
+and the interpreter learned nothing new.
+
+**The shape that motivated it is the one that needs the block, not a function.** A module-level val
+built with a loop:
+
+```ziman
+val patterns = {
+    val out = mutable_array_new<string>()
+    for name in names { push(out, concat("^", name, "$")) }
+    snapshot(out)
+}
+```
+
+A `MutableArray` cannot be a module-level val's type, but a builder *inside* the block is not the
+val's type -- `snapshot(out)` is. The handle never escapes the scope it was made in, which is
+exactly the rule the module-level refusal exists to keep.
+
+### The crash, which was not mine and was two bugs
+
+The first module-level block segfaulted. So did `val x = if true { 1 } else { 2 }` -- on the
+committed build, with no block expression involved. A value block at module level had **never**
+worked:
+
+`exec_stmts_in_scope` saves the current frame's Env before replacing it, as
+`ziman_frame_env_at(ziman_frame_count() - 1)`. During module initialisation nothing has been called,
+so the count is 0, the index is -1, and `ziman_set_frame_env` had a `t_frame_count > 0` guard while
+the *reader* had none. `t_frames[-1]`.
+
+**Guarding the read would have turned a crash into something worse.** `ziman_set_frame_env` is what
+makes a *nested* scope reachable from a root walk at all -- `gc_mark_env_chain` only walks an Env
+upward through its parents, and `gc_interp_roots.c` reaches a block's scope only through the frame
+it was recorded in. With no frame that call is also a no-op, so the builder in the example above
+would not have been a root, and a collection during initialisation could have taken it. A segfault
+on every run would have become a corruption on some runs.
+
+So module initialisation now gets a frame of its own, at both entry points (`interpret` and
+`interpret_tests`), and the accessor refuses an out-of-range index. The fixture allocates 20,000
+strings inside a module-level block for the second half, because the first half is caught by any
+block at all and the second by nothing smaller.
+
+**The general lesson is the one the frame-env comment in `exec_stmts_in_scope` already recorded
+once**, about the same mechanism: a GC root that is reached only through a side table is invisible
+in the code that depends on it. The first incident was a value in a `for` body; this one is a value
+in a global initialiser. Both read as ordinary code, and in both the missing root was a no-op guard
+two files away.
