@@ -47,7 +47,7 @@ Six shapes, 69 functions.
 ## 3. The grammar
 
 ```
-name       := verb [ "_all" ] [ "_by_" predicate ] [ "_order_by_" ordering ]
+name       := verb [ "_by_" predicate ] [ "_order_by_" ordering ]
 verb       := "find" | "count" | "exists" | "delete"
 predicate  := term { "_and_" term }
 term       := column [ "_" op ]
@@ -56,11 +56,14 @@ ordering   := column [ "_" dir ] { "_and_" column [ "_" dir ] }
 dir        := "asc" | "desc"
 ```
 
-`_all` is a *cardinality* marker, not a predicate: `find_by_..` answers one row, `find_all_by_..`
-answers many. It is spelled on `find` only, because `count`, `exists` and `delete` take their
-cardinality from the return type (§5).
+**There is no `_all`.** Cardinality comes from the return type and nothing else, which is how
+Spring Data reads it too -- `findBy` and `findAllBy` are synonyms there. So `find_by_patient_id`
+answers one row or many depending on whether it returns `VitalSign` or `[VitalSign]`, and §5 is the
+only place that distinction lives. The corpus spells 16 of these `find_all_by_patient_id` today;
+those names shorten.
 
-**No `_by_` means no predicate.** `find_all(conn)` is every row; there is no form where the predicate
+**No `_by_` means no predicate.** `find(conn) -> Result<[E], DbError>` is every row; there is no
+form where the predicate
 comes from the parameter list. This is the one place the grammar costs churn: the 15 bare
 `delete(conn, id, patient_id)` functions become `delete_by_id_and_patient_id`, which is the point —
 a scoped delete should say so in its name, which is exactly the argument the `#[scope]` sketch was
@@ -120,7 +123,7 @@ Operators change the arity of a term:
 |---|---|---|
 | `find` | `Result<E, DbError>` | `eql.one`, `NotFound` when absent |
 | `find` | `Result<Option<E>, DbError>` | `eql.one`, absence is the answer |
-| `find_all` | `Result<[E], DbError>` | `eql.list` |
+| `find` | `Result<[E], DbError>` | `eql.list` |
 | `count` | `Result<int, DbError>` | `eql.count` |
 | `exists` | `Result<bool, DbError>` | `eql.exists` over the predicate |
 | `delete` | `Result<unit, DbError>` | one row, `NotFound` when none matched |
@@ -133,9 +136,39 @@ call (`deleted_one` versus `delete_where`). Putting it in the type makes it decl
 
 A verb and return type that do not pair is a refusal.
 
-## 6. Refusals
+## 6. Refusals, and why they are compile errors
 
-Every one of these is a compile error, not a runtime surprise:
+**Every refusal below is checked in the generator, from the entity's `StructDecl` and the function's
+signature, before any SQL exists.** That is a commitment about *where* the check happens, not just a
+wish: the generator already receives the `StructDecl` (it reads `#[pk]` from it), so every field
+name and type is in hand at compile time, and a `ziman_error` at the function's own `fn->line` /
+`fn->col` reads like any other type error:
+
+```
+ziman: type error at 31:1 in repository/vital_sign.zm (in derived query 'find_by_patinet_id'):
+  entity VitalSign has no field 'patinet_id' (it has: id, patient_id, type, vital_value1, ..)
+   |
+31 | pub fn find_by_patinet_id(conn: datasource.Connection, patinet_id: Uuid) -> Result<[VitalSign], DbError>
+   | ^
+```
+
+**This is the difference between a design that works and one that is merely clever.** A derived
+query whose name is wrong must fail where the author wrote it. The alternative -- letting the
+generated `repository.query(..)` fail when `eql.translate` runs at module initialisation -- was
+measured on a real mistake during the adoption: the error arrived with three frames of *library*
+code and not one line of the repository that caused it.
+
+```
+at repository::translated (repository.zm:150:12)
+at repository::query (repository.zm:41:30)
+at <module initialisation> (0:0)
+```
+
+The one case that stays a load-time error is SQL the generator itself emits badly, which is a
+generator bug rather than an author mistake -- the author's input is the name and the signature, and
+both are fully checked before any SQL is built.
+
+The refusals:
 
 * a term naming no column of the entity — listing the columns, as `eql` already does for a field
 * two readings of one name — showing both
@@ -164,33 +197,71 @@ The 49 non-derivable instances are not a gap to close later. They are:
 
 All of them stay hand-written under the existing rule, and a hand-written body still wins.
 
-## 8. What is still open
+## 8. Decisions
 
-1. **Name length.** `find_all_by_patient_id_and_name_ignore_case_and_id_not` is in `medication.zm`
-   today. Deriving bodies makes names like that load-bearing rather than merely descriptive, which is
-   the standing criticism of Spring Data's scheme. No answer proposed; worth deciding whether the
-   grammar should cap term count and push the rest to a hand-written query.
-2. **Where the generated query val goes.** Each derived function needs a `Translated` built once at
-   load. Emitting one val per function is the obvious shape and makes the module's `--emit-derived`
-   output large.
-3. **Resolved: an attribute naming its generator, not a `derived` keyword.** The marker on a
-   bodyless declaration is `#[repository]`, not `derived`.
+All four questions this document opened are settled. Recorded here rather than folded into the
+sections above, so that a reader can see what was chosen *and* what was given up.
 
-   A bare `derived` leaves "derived from *what*?" unanswered at every site, and it would be the
-   first bodyless form in the language that does not say what fills it -- `native fn` names the
-   runtime. `#[repository]` names the mechanism, and reads against the module attribute as the
-   inner/outer split already works elsewhere: `#![repository(VitalSign)]` says *this module is a
-   repository over VitalSign*, `#[repository]` says *this function is one of its queries*.
+1. **No `_all`. Cardinality comes from the return type.** `find_by_patient_id` answers one row or
+   many depending on whether it returns `VitalSign` or `[VitalSign]`.
 
-   It is also **general by construction without needing a registry.** The rule is not "there is a
-   generic `derived` hole that some generator fills" -- which would need an owner, a what-if-nobody
-   rule and a what-if-two rule -- but "a bodyless `fn` carrying attribute X is filled by X's
-   generator". One consumer exists today; a second costs no new language surface. That is the
-   mechanism `docs/ROADMAP.md`'s code-generation entry asked for, stated as narrowly as it can be.
+   What this gives up: a call site reading `repository.find_by_patient_id(conn, id)` cannot tell
+   which it gets without looking at the declaration. The rejected alternative was to *require* the
+   name and the return type to agree -- `find_by_..` one, `find_all_by_..` many, a mismatch being a
+   refusal -- which would have made the redundancy checked rather than merely present. Shorter names
+   won; 16 names in the corpus lose six characters.
+
+2. **No cap on term count.** The longest in the corpus is three terms
+   (`find_all_by_patient_id_and_name_ignore_case_and_id_not`,
+   `find_by_id_and_medication_id_and_patient_id`).
+
+   A cap would turn a style problem into a build error while offering nothing better: an author who
+   finds a five-term name unbearable will write the query by hand anyway, and a hand-written body
+   already wins. The guidance -- not the rule -- is that `repository.query` is always available and
+   usually clearer past about three terms.
+
+3. **One generated `Translated` val per derived function**, private, named for the function, with a
+   refusal if the name collides with a hand-written val.
+
+   The considered alternative was a single `Map<string, Translated>` for the whole module. It was
+   **not** rejected on speed: hashing a 25-byte key is tens of nanoseconds against a round trip this
+   layer measures at 300-3,000 microseconds, four orders of magnitude apart, so performance does not
+   decide it. It was rejected because (a) the vals are *generated*, so one-versus-N is invisible to
+   the author and only changes `--emit-derived` output, (b) a map literal puts every query inside
+   one expression, so a load-time failure's position is the map rather than the function, and (c) the
+   lookup needs an `unwrap` on a `None` the generator guarantees cannot happen, in generated code
+   that `--emit-derived` exists to make readable.
+
+   If a name-indexed registry of a module's queries ever has a consumer, the per-function vals can
+   be collected into one without changing a single author-written line.
+
+4. **The marker is `#[repository]` on a bodyless `pub fn`, not a `derived` keyword.**
+
+   A bare `derived` never answers "derived from *what*?", and it would be the first bodyless form in
+   the language that does not say what fills it -- `native fn` names the runtime. `#[repository]`
+   names the mechanism and reads against the module attribute as the inner/outer split already
+   works: `#![repository(VitalSign)]` says *this module is a repository over VitalSign*,
+   `#[repository]` says *this function is one of its queries*.
+
+   It is general by construction without needing a registry. The rule is not "there is a generic
+   `derived` hole that some generator fills" -- which would need an owner, a what-if-nobody rule and
+   a what-if-two rule -- but "a bodyless `fn` carrying attribute X is filled by X's generator". One
+   consumer exists today; a second costs no new language surface. That is the mechanism
+   `docs/ROADMAP.md`'s code-generation entry asked for, stated as narrowly as it can be.
 
    Seven declaration attributes already carry behaviour (`effectful`, `compiler_resolved`,
    `when_unmatched`, `deprecated`, `thread_bound`, `at_least_one`, `thread_key`), so this needs no
-   new grammar at all -- where a keyword would.
-4. **Whether `_all` should exist at all**, given the return type already says `[E]`. It is redundant
-   with `Result<[E], DbError>`, and dropping it would shorten every list name — at the cost of
-   `find_by_patient_id` meaning one row or many depending on a type a reader has to look at.
+   new grammar -- where a keyword would.
+
+## 9. What is left before building
+
+Nothing in the design. The open work is implementation, in this order:
+
+1. The name parser and its refusals, against a `StructDecl` -- all of §6, checkable without running
+   anything.
+2. Parameter matching by name and type (§4.2), which is the reason to build this rather than copy
+   Spring Data.
+3. Emission: one query val plus one body per function, spliced at the function's own `fn->line` so
+   that anything which does reach a runtime error names the right line. The current repository
+   generator splices everything at the *module attribute's* position, which is worse than the val
+   and should be fixed with this.
