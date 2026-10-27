@@ -9622,3 +9622,36 @@ Four callers ask for generation now, because `parse` no longer does it: `load_mo
 **The general lesson is about moving a phase at all.** The hazard was not the phase and not its new neighbours -- it was everything that had been running *between* the old position and the new one, each step of which had quietly assumed the generated declarations were already there. Neither failure is visible by reading `generate_derived_functions`, and neither would have been found by reasoning about derives. A suite of 1,208 fixtures found both in two runs.
 
 What this unblocks, in order: `#[pk]` on a field, so the metamodel carries the key columns rather than assuming the first one; `eql`'s runtime CRUD half, callable without any annotation; and then `#![repository(..)]`, whose generated signatures are now derivable from the entity. The remaining four decisions of the roadmap entry are untouched -- whether a generator may write into a module it is not declared in, what happens on a name collision, whether generated declarations are visible in the source, and whether the name contract can be checked rather than conventional.
+
+## `eql` writes one row, and the column list stops being written twice (2026-10-26)
+
+`eql` could read. Its first two writes -- `insert_one` and `find_by_key` -- take an `Entity` rather
+than a translated query, because **a single-row write has nothing to translate**: the table, the
+columns and the key are already in the metamodel that `#[derive(Entity("t"))]` writes, so the
+statement is derivable and the query language would only be a way of restating it.
+
+What this removes from a repository is a *second* ordering convention. The hand-written insert named
+ten columns in one place and filled them from `vital_sign_to_params` in another, and the two had to
+agree in order -- checked by nothing, and wrong in the worst available way: swap two adjacent
+columns of the same type and every value is valid, the row saves, the API answers 200, and only the
+contents are wrong. `insert_one` builds the statement from `entity.columns`, which the derive writes
+from the same struct `to_params` walks. The two agreements become one fact.
+
+**`writable` holds the two refusals none of them may forget**, which is why it exists before there
+is a second caller: an entity with no key cannot have one of its rows addressed, so a missing `#[pk]`
+is an error at the call rather than an update with no `WHERE`; and a value count that disagrees with
+the column count is refused rather than sent, which is what a renamed field without a regenerated
+`to_params` looks like.
+
+**`find_by_key` refuses a second row rather than taking the first.** This is the one deliberate
+strictness. An entity whose `#[pk]` does not actually identify a row -- one column of a compound key,
+a key marked on a non-unique column -- otherwise returns plausible data forever, picked by whatever
+order the engine happened to use. The refusal names the key columns, so the message says what is
+wrong with the entity rather than what went wrong with the query.
+
+Together they turn the sample backend's `save` into one line, and the read-back moves from id *and*
+patient to the key alone: equivalent, because the row was just inserted with that id, and one query
+fewer to keep right.
+
+Eight of the ten runtime writes are still to come. The order is set by what the repository actually
+hand-writes, not by what looks symmetric.

@@ -1909,6 +1909,10 @@ pub fn list<E>(
 
 pub fn one<E>(
 
+pub fn insert_one<E>(
+
+pub fn find_by_key<E>(
+
 pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError>
 
 pub fn count(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<int, DbError>

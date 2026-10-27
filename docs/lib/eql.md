@@ -283,14 +283,43 @@ It runs the query as written and keeps the first row: like `datasource.query_one
 **not** add a `LIMIT 1`, so a query that could match many rows fetches and discards them all.
 Write the limit into the query when that matters.
 
+## Writing one row by its key
+
+### `insert_one`
+
+```
+pub fn insert_one<E>(
+    conn: datasource.Connection,
+    e: Entity,
+    values: [SqlValue],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<E, DbError>
+```
+
+**One row stored, and read back.** The columns and their order are the entity's, so the statement
+and the values cannot disagree; the read-back is by the entity's key, which is what `#[pk]` is
+for.
+
+### `find_by_key`
+
+```
+pub fn find_by_key<E>(
+    conn: datasource.Connection,
+    e: Entity,
+    keys: [SqlValue],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<E, DbError>
+```
+
+The one row a key addresses. **A second row is refused rather than taken**, which is what makes
+a mistake about the key loud: an entity whose `#[pk]` does not identify a row -- one column of a
+compound key, say -- answers an error here instead of plausibly-wrong data.
+
 ### `rows`
 
 ```
 pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError>
 ```
-
-The rows a query answers, for a projection -- a few fields, an aggregate, a count. The caller
-reads them with `db.row_get` and the `sql_as_*` converters, as it would any other result.
 
 ### `count`
 

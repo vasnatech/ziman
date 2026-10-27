@@ -773,6 +773,133 @@ pub fn one<E>(
 
 // The rows a query answers, for a projection -- a few fields, an aggregate, a count. The caller
 // reads them with `db.row_get` and the `sql_as_*` converters, as it would any other result.
+// ------------------------------------------------- writing one row by its key
+//
+// **These take an `Entity`, not a query**, which is the difference between this half of the module
+// and the rest of it. A read is a query because a reader chooses what to ask; storing a row is not
+// a question -- the table, the columns and the key are the entity's own, so a statement built from
+// the metamodel cannot disagree with it.
+//
+// That is the point rather than the convenience. The hand-written form these replace names its
+// columns in one place and fills them from `<name>_to_params` in another, and the two must agree
+// in *order* -- a convention checked by nothing. Two adjacent columns of the same type swapped in
+// that list produce a row that saves, with every value valid and a 200 from the API, and only the
+// contents wrong. Built from `e.columns`, which is the same list `#[derive(Entity(..))]` writes
+// from the struct, the two agreements are one fact.
+
+// The values at the entity's key columns, in key order.
+fn key_values(e: Entity, values: [SqlValue]) -> Result<[SqlValue], DbError> {
+    val out = mutable_array_new<SqlValue>()
+    for key in e.keys {
+        var at = 0 - 1
+        for i in 0..prelude.len(e.columns) {
+            if e.columns[i] == key {
+                at = i
+            }
+        }
+        if at < 0 {
+            return err(problem(prelude.format(
+                "{} names {} as a key column and has no such column (it has: {})",
+                e.name,
+                key,
+                join(separator: ", ", pieces: e.columns)
+            )))
+        }
+        push(out, values[at])
+    }
+    return ok(snapshot(out))
+}
+
+// `WHERE k1 = $1 AND k2 = $2`, numbered from `from`.
+fn key_where(e: Entity, from: int) -> string {
+    val parts = mutable_array_new<string>()
+    for i in 0..prelude.len(e.keys) {
+        push(parts, prelude.format("{} = ${}", e.keys[i], from + i))
+    }
+    return join(separator: " AND ", pieces: snapshot(parts))
+}
+
+// The two refusals every one of these shares, so none of them can forget one.
+fn writable(e: Entity, values: [SqlValue]) -> Result<unit, DbError> {
+    if prelude.len(e.keys) == 0 {
+        return err(problem(prelude.format(
+            "{} declares no key, so one of its rows cannot be addressed -- mark a field #[pk]",
+            e.name
+        )))
+    }
+    if prelude.len(values) != prelude.len(e.columns) {
+        return err(problem(prelude.format(
+            "{} takes {} values and {} were given ({})",
+            e.table,
+            prelude.len(e.columns),
+            prelude.len(values),
+            join(separator: ", ", pieces: e.columns)
+        )))
+    }
+    return ok(unit)
+}
+
+// **One row stored, and read back.** The columns and their order are the entity's, so the statement
+// and the values cannot disagree; the read-back is by the entity's key, which is what `#[pk]` is
+// for.
+pub fn insert_one<E>(
+    conn: datasource.Connection,
+    e: Entity,
+    values: [SqlValue],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<E, DbError> {
+    try writable(e, values)
+    val holes = mutable_array_new<string>()
+    for i in 0..prelude.len(e.columns) {
+        push(holes, concat("$", str(i + 1)))
+    }
+    try datasource.execute(conn, prelude.format(
+        "INSERT INTO {} ({}) VALUES ({})",
+        e.table,
+        join(separator: ", ", pieces: e.columns),
+        join(separator: ", ", pieces: snapshot(holes))
+    ), values)
+    return find_by_key<E>(conn, e, try key_values(e, values), from_row)
+}
+
+// The one row a key addresses. **A second row is refused rather than taken**, which is what makes
+// a mistake about the key loud: an entity whose `#[pk]` does not identify a row -- one column of a
+// compound key, say -- answers an error here instead of plausibly-wrong data.
+pub fn find_by_key<E>(
+    conn: datasource.Connection,
+    e: Entity,
+    keys: [SqlValue],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<E, DbError> {
+    if prelude.len(keys) != prelude.len(e.keys) {
+        return err(problem(prelude.format(
+            "{} has a {}-column key ({}) and {} value(s) were given",
+            e.name,
+            prelude.len(e.keys),
+            join(separator: ", ", pieces: e.keys),
+            prelude.len(keys)
+        )))
+    }
+    val found = try datasource.query(conn, prelude.format(
+        "SELECT {} FROM {} WHERE {}",
+        join(separator: ", ", pieces: e.columns),
+        e.table,
+        key_where(e, 1)
+    ), keys)
+    if prelude.len(found) > 1 {
+        return err(problem(prelude.format(
+            "{} answered {} rows for one key, so {} does not identify a row",
+            e.table,
+            prelude.len(found),
+            join(separator: ", ", pieces: e.keys)
+        )))
+    }
+    if prelude.len(found) == 0 {
+        return err(DbError.NotFound(prelude.format("{} not found", e.name)))
+    }
+    return from_row(found[0])
+}
+
 pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError> {
     val ready = try prepare(query, bound)
     return datasource.query(conn, ready.sql, ready.params)

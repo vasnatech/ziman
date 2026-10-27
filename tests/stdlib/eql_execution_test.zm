@@ -245,3 +245,46 @@ fn a_table_the_schema_does_not_have_is_the_engines_error() {
     )))
     test.assert_contains(message, "patients")
 }
+#[test]
+fn a_write_refuses_the_wrong_number_of_values() {
+    // The check that makes the column list and `to_params` one fact rather than two that agree by
+    // convention: a values array that is not the entity's width cannot be a row of it.
+    val e = eql.keyed_entity("Patient", "patients", ["id", "last_name", "city"], ["id"])
+    val conn = test.assert_ok(datasource.open(drivers, "memdb:"))
+    val short: [SqlValue] = [SqlValue.Int(1)]
+    val message = db.db_error_message(test.assert_err(
+        eql.insert_one<string>(conn, e, short, fn(row: Row) -> Result<string, DbError> { return ok("") })
+    ))
+    test.assert_contains(message, "patients takes 3 values and 1 were given")
+    test.assert_contains(message, "id, last_name, city")
+}
+
+#[test]
+fn a_write_refuses_an_entity_with_no_key() {
+    // `eql.entity` is the constructor for an entity that declares none, so this is the shape a
+    // struct with no `#[pk]` field produces -- and a row of it cannot be addressed.
+    val e = eql.entity("Patient", "patients", ["id", "last_name"])
+    val conn = test.assert_ok(datasource.open(drivers, "memdb:"))
+    val values: [SqlValue] = [SqlValue.Int(1), SqlValue.Text("a")]
+    test.assert_contains(
+        db.db_error_message(test.assert_err(
+            eql.insert_one<string>(conn, e, values, fn(row: Row) -> Result<string, DbError> { return ok("") })
+        )),
+        "Patient declares no key"
+    )
+}
+
+#[test]
+fn a_key_of_the_wrong_width_is_refused_by_name() {
+    // What makes a mistake about a compound key loud: one value for a two-column key is an error
+    // naming both columns, not a lookup that answers the first matching row.
+    val e = eql.keyed_entity("Read", "reads", ["patient_id", "broadcast_id", "seen"], ["patient_id", "broadcast_id"])
+    val conn = test.assert_ok(datasource.open(drivers, "memdb:"))
+    val one: [SqlValue] = [SqlValue.Int(1)]
+    test.assert_contains(
+        db.db_error_message(test.assert_err(
+            eql.find_by_key<string>(conn, e, one, fn(row: Row) -> Result<string, DbError> { return ok("") })
+        )),
+        "Read has a 2-column key (patient_id, broadcast_id) and 1 value(s) were given"
+    )
+}
