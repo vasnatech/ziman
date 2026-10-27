@@ -254,6 +254,7 @@ them against the code.
 - [A `{ .. }` block is an expression, and the crash that was waiting under module initialisation (2026-10-26)](#a-block-is-an-expression-and-the-crash-that-was-waiting-under-module-initialisation-2026-10-26)
 - [`eql.bind` converts its own value, and the thirteen-against-three asymmetry (2026-10-26)](#eqlbind-converts-its-own-value-and-the-thirteen-against-three-asymmetry-2026-10-26)
 - [`DELETE` joins the entity query language, and `UPDATE` does not (2026-10-26)](#delete-joins-the-entity-query-language-and-update-does-not-2026-10-26)
+- [Reading a module val before its initialiser has run is an error now, not a crash (2026-10-26)](#reading-a-module-val-before-its-initialiser-has-run-is-an-error-now-not-a-crash-2026-10-26)
 
 <!-- end index -->
 
@@ -9921,3 +9922,39 @@ had to be **two files**: a repository and an entity in its own module, with the 
 no converter at all. The single-file `repository_annotation` fixture passes either way, because its
 key is an `int` and an `int` needs no converter. A cross-module generator needs a cross-module test,
 and the first one written was not.
+
+## Reading a module val before its initialiser has run is an error now, not a crash (2026-10-26)
+
+```ziman
+val greeting = decorated("one")
+
+fn decorated(text: string) -> string {
+    return concat(prefix, text)
+}
+
+val prefix = "p:"
+```
+
+This segfaulted. `EXPR_IDENT` ended `return b->value` with no check, and `env_lookup` answers NULL
+for a name that resolves but has no value *yet* -- which is exactly a module-level val reached,
+through a function, by an initialiser that runs earlier. Module vals are initialised in file order
+(`init_global_vals`), so the order is a real constraint of eager initialisation; what it must not be
+is a crash with no name in it.
+
+**`init_param_defaults`' own comment had already written this down as the unaddressed half of the
+same problem**, from the day the two eager passes were ordered against each other: *"A default
+expression could, in principle, also reference an actual global val -- the reverse dependency,
+unaddressed either way, and not yet hit by anything real in this codebase."* It is hit now, by the
+ordinary shape of a repository that wants a one-argument `query(..)` helper over a registry declared
+above it. The fix that would remove the constraint rather than report it is the one that comment
+names -- evaluating globals lazily on first reference -- and it is still not built.
+
+The message says what to do, and the stack trace now ends at `<module initialisation>`, the frame
+added earlier the same day for the value-block crash. Two bugs in one morning in the same
+mechanism, and the second one's diagnostic is legible because of the first one's fix.
+
+**What found it was a three-line helper.** Turning
+`repository.translated(reg, "SELECT ..")` into `query("SELECT ..")` across three repositories means
+a module-level `fn` closing over a module-level `val`, and the first thing worth checking about that
+shape is whether the order matters. It does, it was undiagnosable, and now it is one line of
+message.

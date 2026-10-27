@@ -1304,6 +1304,28 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
             if (e->fn_ref != NULL) return value_function((FunctionDecl *)e->fn_ref);
             Binding *b = e->resolved_depth >= 0 ? env_at_slot(env, e->resolved_depth, e->resolved_slot)
                                                  : env_lookup(env, e->as.ident_name);
+            /* **Not defensiveness: this is reachable, and it used to segfault.** The type checker
+             * proves every name resolves, so the only way here is a name that resolves and has no
+             * value *yet* -- a module-level val read before its own initialiser has run. Module
+             * vals are initialised in file order (see init_global_vals), so
+             *
+             *     val a = tag("one")        // runs first
+             *     fn tag(t: string) -> string { return concat(base, t) }
+             *     val base = "prefix:"      // not initialised when tag() reads it
+             *
+             * dereferenced NULL. The order is a real constraint of eager initialisation and the
+             * message says what to do about it; what it must not be is a crash with no name in it.
+             * See init_param_defaults' own comment, which records this as the unaddressed half of
+             * the same problem -- the fix it suggests, evaluating globals lazily on first
+             * reference, is the one that would remove the constraint rather than report it. */
+            if (b == NULL) {
+                ziman_error("runtime", e->line, e->col,
+                            "'%s' is read before it is initialised: module-level vals are initialised in file "
+                            "order, and this one is reached by an initialiser that runs earlier -- move '%s' "
+                            "above the val whose initialiser uses it",
+                            e->as.ident_name, e->as.ident_name);
+                return value_int(0);
+            }
             return b->value;
         }
         case EXPR_UNARY: {

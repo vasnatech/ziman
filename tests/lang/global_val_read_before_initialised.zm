@@ -1,0 +1,19 @@
+// A module-level val whose initialiser reaches, through a function, a val declared below it.
+// **This segfaulted until 2026-10-26**: the type checker proves the name resolves, so the only way
+// to a NULL binding is a val that resolves and has no value yet, and `EXPR_IDENT` returned
+// `b->value` without looking.
+//
+// Module vals are initialised in file order, so the order is a real constraint of eager
+// initialisation. What it must not be is a crash with no name in it.
+
+val greeting = decorated("one")
+
+fn decorated(text: string) -> string {
+    return concat(prefix, text)
+}
+
+val prefix = "p:"
+
+fn main() {
+    print(greeting)
+}
