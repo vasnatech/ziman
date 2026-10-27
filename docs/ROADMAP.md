@@ -1226,9 +1226,26 @@ from source.
 
   **What a solution has to decide**, in rough order of how much it changes:
 
-  1. **When generation runs.** Moving it after import resolution is the change that dissolves four
-     of the six bullets above -- and it touches every existing derive, so it wants its own
-     measurement (how many of the 7 targets depend on running before anything else is known).
+  1. **When generation runs. Decided 2026-10-26: after a module's dependencies are loaded.** The
+     specification that settled it is one line -- `#![repository(VitalSign)]`, everything else
+     taken from the entity, and no hardcoded `Uuid` -- which cannot be met any other way: the
+     parameter name and type in `delete(conn, id: Uuid)` are compile-time text, and they live on
+     the `#[pk]` field in another module. The alternatives were to repeat the fact in the
+     annotation or to assume `id: Uuid` (right for 27 of 27 entities today, and silently wrong the
+     first time it is not -- a wrong parameter *name* with the right type compiles and reads fine).
+
+     **`load_module` already has the insertion point.** It parses the module, then loads every
+     dependency to completion, then resolves named imports. Generation belongs between the second
+     and third: dependencies are loaded, so a generator can reach an imported `StructDecl` through
+     the module's own `uses`, and imports are not yet resolved, so `ensure_module_import` still
+     works for whatever the generated code needs. Today the call sits at the end of `parse_module`,
+     which is before all of it.
+
+     Three edits and one helper -- move the call, and give `derive.c` a way to look up a type
+     through the importing module's loaded uses, which it has never needed. **The claim to verify
+     rather than assert** is that none of the seven existing targets depends on running before
+     anything else is known: each reads only its own declaration and splices into the same module,
+     so each should be indifferent, and the fixture suite is what says so.
   2. **Whether a generator may write into a module it is not declared in**, and if so how that is
      spelled and how a reader finds out it happened.
   3. **What happens on a collision**: refused with the name, or overridden by the hand-written one
