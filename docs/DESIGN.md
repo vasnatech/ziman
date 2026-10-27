@@ -253,6 +253,7 @@ them against the code.
 - [`#![repository(Entity)]`, and the rule that a hand-written function wins (2026-10-26)](#repositoryentity-and-the-rule-that-a-hand-written-function-wins-2026-10-26)
 - [A `{ .. }` block is an expression, and the crash that was waiting under module initialisation (2026-10-26)](#a-block-is-an-expression-and-the-crash-that-was-waiting-under-module-initialisation-2026-10-26)
 - [`eql.bind` converts its own value, and the thirteen-against-three asymmetry (2026-10-26)](#eqlbind-converts-its-own-value-and-the-thirteen-against-three-asymmetry-2026-10-26)
+- [`DELETE` joins the entity query language, and `UPDATE` does not (2026-10-26)](#delete-joins-the-entity-query-language-and-update-does-not-2026-10-26)
 
 <!-- end index -->
 
@@ -9860,3 +9861,63 @@ What it removed from the sample backend: **25 conversions** at the binding sites
 whole job was turning `Option<[string]>` into `Option<[SqlValue]>`. With `bind_list` taking the
 `[string]`, what is left at the call site is the part that was always a real decision -- that an
 empty filter answers nothing without asking the database.
+
+## `DELETE` joins the entity query language, and `UPDATE` does not (2026-10-26)
+
+`eql` translated `SELECT` and refused everything else with *"an entity query starts with SELECT --
+writes stay SQL"*. `DELETE FROM VitalSign v WHERE v.patient_id = :patient_id` now translates to
+`DELETE FROM vital_signs WHERE patient_id = $1`, and `eql.execute` runs it for a row count.
+
+**The line is drawn by what each statement needs, not by how much work it is.** A bulk delete is a
+`WHERE` over one entity and nothing else -- the same translation a `SELECT`'s `WHERE` already gets --
+and the reason to write it as an entity query is the reason a select is: a misspelt `v.patinet_id`
+fails when the module loads rather than on the request that would have run it. A bulk update
+additionally needs a `SET` list, which is the half with no entity to check it against; and a one-row
+update is already `eql.update_one`, which builds its statement from the entity's own columns and so
+cannot disagree with them. An `UPDATE .. SET ..` entity query would add nothing but a second way to
+get a column list wrong.
+
+**The alias is dropped from the SQL, where a `SELECT` keeps it, and that was measured rather than
+assumed.** `DELETE FROM t AS x WHERE x.a = 1` is accepted by SQLite and *refused by memdb*
+("unexpected 'AS' after the statement"), so the bare form is the only one all four engines take. The
+alias is still required in the entity query -- it is what makes `v.patient_id` a field the
+translator can check -- it simply does not survive into SQL, where a single-table delete has nothing
+to qualify against. This is the one translation decision a `DELETE` has that a `SELECT` does not,
+which is why the SQLite cross-check gained a delete phase: five deletes, each on a freshly seeded
+pair, comparing both the count reported *and* the ids each table is left holding, because a count
+can agree while the wrong rows are gone.
+
+**Three refusals, each about what the statement would otherwise do.** One entity, because a
+multi-table delete is `USING` in PostgreSQL, a table list in MySQL and a subquery in SQLite -- there
+is no single SQL to produce. A `WHERE` required, because without one the statement empties the
+table, and `delete_where` already refuses an empty predicate for that reason while `delete_all` is
+the spelling that means it; a filter must not be able to collapse into "every row". And
+`DELETE v FROM ..` refused, because the row list between `DELETE` and `FROM` is one engine's
+spelling rather than SQL's.
+
+**The read and write paths refuse each other's statements by name**, and that guard is not about
+returning a wrong answer: handing a `DELETE` to `eql.list` would have *run* it, removed the rows, and
+handed back the empty result as though nothing had been found. `removes_rows` answers the one
+question a `switch` over `Statement`'s thirteen variants would have cost thirteen arms.
+
+### The fourth place the loader's `::` leaked, and why it waited (2026-10-26)
+
+The entry above on `#![repository(Entity)]` says three places leaked `entity/vital_sign::VitalSign`
+into generated source. There were four. `import_field_converters` compares a field's type name
+against `STANDARD_TYPES` after stripping a `.`, and never a `::` -- so for a `#[pk] id: Uuid` read
+out of a loaded module it matched nothing, and the generator emitted `uuid_to_sql(id)` while
+importing no `uuid_to_sql`.
+
+**It waited because the one repository using the annotation imported that converter by hand**, for
+its own raw SQL. `#![repository(VitalSign)]` worked from the day it landed, on an import written for
+something else. The gap appeared the moment the raw SQL went away: converting the file's two deletes
+to `eql.execute` left `use uuid.uuid_to_sql` unused, removing it broke the module, and the error
+named the attribute.
+
+Two things worth keeping from that. The **Row and Json derives can never hit this** -- they read a
+struct in their own module, whose field types are not self-qualified yet -- so the bug belonged to
+exactly one caller and no existing fixture could have caught it. And the fixture that does catch it
+had to be **two files**: a repository and an entity in its own module, with the repository importing
+no converter at all. The single-file `repository_annotation` fixture passes either way, because its
+key is an `int` and an `int` needs no converter. A cross-module generator needs a cross-module test,
+and the first one written was not.

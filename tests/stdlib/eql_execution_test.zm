@@ -584,3 +584,54 @@ fn a_collection_binding_converts_its_own_values() {
         visit_from_row
     )))
 }
+
+// ---------------------------------------------------------------- DELETE
+
+val delete_of_patient = unwrap(eql.translate(reg, "DELETE FROM Visit v WHERE v.patient_id = :pid"))
+val delete_of_ids = unwrap(eql.translate(reg, "DELETE FROM Visit v WHERE v.id IN :ids"))
+
+#[test]
+fn a_translated_delete_removes_its_rows() {
+    val conn = seeded()
+    // Patient 1 has two visits of the three.
+    test.assert_eq(2, test.assert_ok(eql.execute(conn, delete_of_patient, [eql.bind("pid", 1)])))
+    test.assert_eq(1, test.assert_ok(eql.count_all(conn, visit)))
+    // A second run removes nothing and says so, rather than failing.
+    test.assert_eq(0, test.assert_ok(eql.execute(conn, delete_of_patient, [eql.bind("pid", 1)])))
+}
+
+#[test]
+fn a_delete_takes_a_collection_parameter_at_runtime() {
+    // The collection widens the statement the same way a SELECT's does, which is the part that
+    // needs a second translation once the size is known.
+    val conn = seeded()
+    test.assert_eq(2, test.assert_ok(eql.execute(conn, delete_of_ids, [eql.bind_list("ids", [1, 3])])))
+    test.assert_eq(1, test.assert_ok(eql.count_all(conn, visit)))
+}
+
+#[test]
+fn a_read_refuses_to_run_a_delete() {
+    // **The mistake this prevents is not a wrong answer.** Handing a DELETE to a read would run
+    // it, remove the rows, and hand back the empty result as though nothing had been found.
+    val conn = seeded()
+    test.assert_contains(
+        db.db_error_message(test.assert_err(eql.list<Visit>(
+            conn,
+            delete_of_patient,
+            [eql.bind("pid", 1)],
+            visit_from_row
+        ))),
+        "this query is a DELETE, so reading it would run it"
+    )
+    // And the rows are still there, which is the assertion that matters.
+    test.assert_eq(3, test.assert_ok(eql.count_all(conn, visit)))
+}
+
+#[test]
+fn execute_refuses_a_read() {
+    val conn = seeded()
+    test.assert_contains(
+        db.db_error_message(test.assert_err(eql.execute(conn, all_patients, no_bindings()))),
+        "eql.execute runs a DELETE and this query reads"
+    )
+}

@@ -56,10 +56,19 @@
 // explicitly, which is what the repositories write today. Adding relationships is a modelling
 // increment of its own, and the one that brings the N+1 question with it.
 //
-// **No `SELECT new Dto(..)`**: a projection answers rows, and the caller reads them. **No bulk
-// `UPDATE`/`DELETE`**: writes stay SQL, where the statement being explicit is worth more than the
-// brevity. **No implicit joins, no `FETCH`, no `TREAT`, no polymorphism** -- there is no
-// inheritance between entity structs to be polymorphic over.
+// **No `SELECT new Dto(..)`**: a projection answers rows, and the caller reads them.
+//
+// **`DELETE` is translated and `UPDATE` is not**, which is a line drawn by what each one needs
+// rather than by how much work it is. A bulk delete is a `WHERE` over one entity and nothing else,
+// so it is the same translation a `SELECT`'s `WHERE` already gets, and the reason to write it here
+// is the same: a misspelt `v.patinet_id` fails when the module loads rather than on the request
+// that would have run it. A bulk update additionally needs a `SET` list, which is the half that has no entity to check it
+// against -- and a one-row update is `eql.update_one`, which builds its statement from the
+// entity's own columns and so cannot disagree with them at all. There is nothing an
+// `UPDATE .. SET ..` entity query would add except a second way to get a column list wrong.
+//
+// **No implicit joins, no `FETCH`, no `TREAT`, no polymorphism** -- there is no inheritance
+// between entity structs to be polymorphic over.
 #![experimental]
 use datasource
 use db
@@ -510,6 +519,38 @@ pub fn translate(reg: Registry, query: string) -> Result<Translated, DbError> {
     return ok(with base { shaped: snapshot(shaped) })
 }
 
+// **A DELETE names one entity, and must say which rows.** Both refusals are about what the thing
+// would otherwise do rather than about taste.
+//
+// One entity, because a multi-table delete is spelled differently by every engine -- `USING` in
+// PostgreSQL, a table list before `FROM` in MySQL, a subquery in SQLite -- so there is no single
+// SQL for this layer to produce.
+//
+// And a `WHERE`, because without one the statement empties the table. `delete_where` refuses an
+// empty predicate for the same reason, and `delete_all` is the spelling that means it: a `DELETE`
+// that came out unfiltered should never be the shape a filter collapsed into.
+fn deletable(binds: [Bound], tokens: [Token]) -> Result<unit, DbError> {
+    if prelude.len(binds) != 1 {
+        val names = mutable_array_new<string>()
+        for b in binds {
+            push(names, b.entity.name)
+        }
+        return err(problem(prelude.format(
+            "a DELETE names one entity and this names {} ({}) -- a multi-table delete has no portable SQL, so it is not translated here",
+            prelude.len(binds),
+            join(separator: ", ", pieces: snapshot(names))
+        )))
+    }
+    for t in tokens {
+        if is_name(t) && t.upper == "WHERE" {
+            return ok(unit)
+        }
+    }
+    return err(problem(
+        "a DELETE with no WHERE would empty the table -- `eql.delete_all` is the spelling that says so, and this layer will not have a filter collapse into it"
+    ))
+}
+
 // The translation, with the size of each collection parameter where it is known.
 //
 // Called twice for a query that has one: once by `translate` with nothing known, to learn the
@@ -520,17 +561,33 @@ fn translate_sized(reg: Registry, query: string, sizes: Map<string, int>) -> Res
     if prelude.len(tokens) == 0 {
         return err(problem("an empty query"))
     }
-    if !is_name(tokens[0]) || tokens[0].upper != "SELECT" {
-        return err(problem("an entity query starts with SELECT -- writes stay SQL"))
+    if !is_name(tokens[0]) {
+        return err(problem("an entity query starts with SELECT or DELETE"))
+    }
+    val deleting = tokens[0].upper == "DELETE"
+    if !deleting && tokens[0].upper != "SELECT" {
+        return err(problem(
+            "an entity query starts with SELECT or DELETE -- a one-row INSERT or UPDATE is `eql.insert_one` / `eql.update_one`, which build their statement from the entity rather than from a query"
+        ))
+    }
+    if deleting && (prelude.len(tokens) < 2 || !is_name(tokens[1]) || tokens[1].upper != "FROM") {
+        return err(problem(
+            "a DELETE is written `DELETE FROM Entity alias WHERE ..` -- the row list some engines allow between DELETE and FROM is spelled differently by each of them"
+        ))
     }
     val binds = try bindings_of(reg, tokens)
+    if deleting {
+        try deletable(binds, tokens)
+    }
     val out = mutable_string_new()
     val order = mutable_array_new<string>()
     val lists = mutable_array_new<string>()
     val seen = mutable_map_new<string, int>()
     var next_number = 1
-    // Where the select list ends, so an alias on its own is expanded there and nowhere else.
-    var in_select = true
+    // Where the select list ends, so an alias on its own is expanded there and nowhere else. A
+    // DELETE has no select list, so it starts outside one: an alias standing for the entity's
+    // columns is a projection, and a DELETE projects nothing.
+    var in_select = !deleting
     // Inside a `FROM` or `JOIN` list, where a comma introduces another entity rather than another
     // select item. Without this the second entity of `FROM Patient p, Visit v` kept its entity
     // name in the SQL, which the `eql` tests caught on their first run.
@@ -563,6 +620,20 @@ fn translate_sized(reg: Registry, query: string, sizes: Map<string, int>) -> Res
                 append(out, e.table)
                 at_entity = false
                 i = i + 1
+                // **The alias is dropped from a DELETE's SQL, where a SELECT keeps it.** Measured,
+                // not assumed: memdb refuses `DELETE FROM t AS x` with "unexpected 'AS' after the
+                // statement" while SQLite accepts it, so the bare form is the only one all four
+                // engines take. The alias is still required in the entity query -- it is what makes
+                // `v.patient_id` a field this layer can check -- it just does not survive into SQL,
+                // where a single-table delete has nothing to qualify against anyway.
+                if deleting {
+                    if i < prelude.len(tokens) && is_name(tokens[i]) && tokens[i].upper == "AS" {
+                        i = i + 1
+                    }
+                    if i < prelude.len(tokens) && is_name(tokens[i]) {
+                        i = i + 1
+                    }
+                }
                 continue
             }
         }
@@ -591,10 +662,21 @@ fn translate_sized(reg: Registry, query: string, sizes: Map<string, int>) -> Res
                 val found = bound_for(binds, t.text)
                 if Some(b) = found {
                     if star {
+                        if deleting {
+                            return err(problem(prelude.format(
+                                "'{}.*' is a projection and a DELETE has none -- name the rows in a WHERE instead",
+                                t.text
+                            )))
+                        }
                         append(out, expanded(b))
                     } else {
                         try check_field(b.entity, tokens[i + 2].text)
-                        append(out, b.alias, ".", tokens[i + 2].text)
+                        // The qualifier goes with the alias it refers to; see the entity branch.
+                        if deleting {
+                            append(out, tokens[i + 2].text)
+                        } else {
+                            append(out, b.alias, ".", tokens[i + 2].text)
+                        }
                     }
                     i = i + 3
                     continue
@@ -1273,7 +1355,37 @@ pub fn delete_all(conn: datasource.Connection, e: Entity) -> Result<int, DbError
     return datasource.execute(conn, prelude.format("DELETE FROM {}", e.table))
 }
 
+// Whether a translated query is the one kind that changes the database. `switch` over `Statement`
+// would be thirteen arms to answer one question.
+fn removes_rows(statement: Statement) -> bool {
+    if Delete(d) = statement {
+        return true
+    }
+    return false
+}
+
+// **A DELETE, and the rows it removed.** Separate from `rows`/`list`/`one`/`count` rather than
+// folded into them, because the mistake worth preventing is not a wrong answer: handing a DELETE to
+// a read would *run* it, delete the rows, and hand back the empty result as though it had found
+// nothing. So each side refuses the other's statement by name.
+pub fn execute(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<int, DbError> {
+    if !removes_rows(query.statement) {
+        return err(problem(concat(
+            "eql.execute runs a DELETE and this query reads -- use eql.list, eql.one or eql.count: ",
+            query.sql
+        )))
+    }
+    val ready = try prepare(query, bound)
+    return datasource.execute(conn, ready.sql, ready.params)
+}
+
 pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError> {
+    if removes_rows(query.statement) {
+        return err(problem(concat(
+            "this query is a DELETE, so reading it would run it -- use eql.execute: ",
+            query.sql
+        )))
+    }
     val ready = try prepare(query, bound)
     return datasource.query(conn, ready.sql, ready.params)
 }

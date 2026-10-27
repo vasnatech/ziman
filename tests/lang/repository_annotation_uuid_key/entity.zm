@@ -1,0 +1,11 @@
+use uuid
+
+// The entity in its own module, which is the shape that matters: a struct read out of a *loaded*
+// module carries the loader's self-qualified type names (`uuid::Uuid`), and a generator comparing
+// those against its table of standard types has to strip that qualifier first.
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: uuid.Uuid
+    body: string
+}

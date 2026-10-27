@@ -1,0 +1,26 @@
+#![repository(Note)]
+
+// **This module imports no SQL converter**, which is the whole point. `uuid_to_sql` is needed only
+// by the functions `#![repository(Note)]` generates from the entity's `#[pk] id: Uuid`, so the
+// generator has to import it -- and it did not, because `import_field_converters` compared
+// `uuid::Uuid` against a table holding `Uuid`. The gap went unseen because the first repository to
+// use the annotation imported `uuid_to_sql` by hand for its own raw SQL; it appeared the moment
+// that SQL went away.
+use datasource
+use entity.Note
+use memdb
+use uuid
+
+fn main() {
+    val conn = unwrap(datasource.open(datasource.registry([memdb.driver()]), "memdb:"))
+    unwrap(datasource.execute(conn, "CREATE TABLE notes (id TEXT PRIMARY KEY, body TEXT)"))
+    val id = uuid.uuid_new()
+    unwrap(insert(conn, Note { id: id, body: "first" }))
+    print(unwrap(count_all(conn)))
+    print(unwrap(exists(conn, id)))
+    print(unwrap(find_or_error(conn, id)).body)
+    print(Option.is_Some(unwrap(find(conn, id))))
+    unwrap(delete(conn, id))
+    print(unwrap(count_all(conn)))
+    print(unwrap(exists(conn, id)))
+}

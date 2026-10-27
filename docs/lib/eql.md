@@ -67,10 +67,19 @@ is a `Uuid` field, not a reference -- so there are no path expressions across en
 explicitly, which is what the repositories write today. Adding relationships is a modelling
 increment of its own, and the one that brings the N+1 question with it.
 
-**No `SELECT new Dto(..)`**: a projection answers rows, and the caller reads them. **No bulk
-`UPDATE`/`DELETE`**: writes stay SQL, where the statement being explicit is worth more than the
-brevity. **No implicit joins, no `FETCH`, no `TREAT`, no polymorphism** -- there is no
-inheritance between entity structs to be polymorphic over.
+**No `SELECT new Dto(..)`**: a projection answers rows, and the caller reads them.
+
+**`DELETE` is translated and `UPDATE` is not**, which is a line drawn by what each one needs
+rather than by how much work it is. A bulk delete is a `WHERE` over one entity and nothing else,
+so it is the same translation a `SELECT`'s `WHERE` already gets, and the reason to write it here
+is the same: a misspelt `v.patinet_id` fails when the module loads rather than on the request
+that would have run it. A bulk update additionally needs a `SET` list, which is the half that has no entity to check it
+against -- and a one-row update is `eql.update_one`, which builds its statement from the
+entity's own columns and so cannot disagree with them at all. There is nothing an
+`UPDATE .. SET ..` entity query would add except a second way to get a column list wrong.
+
+**No implicit joins, no `FETCH`, no `TREAT`, no polymorphism** -- there is no inheritance
+between entity structs to be polymorphic over.
 
 `use eql` -- or `use eql.Name` to bring one item in bare.
 
@@ -511,6 +520,17 @@ pub fn delete_all(conn: datasource.Connection, e: Entity) -> Result<int, DbError
 
 Every row of the table, and how many there were. **Spelled out rather than reached by an empty
 predicate**, so emptying a table is never what a predicate that came out empty does by accident.
+
+### `execute`
+
+```
+pub fn execute(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<int, DbError>
+```
+
+**A DELETE, and the rows it removed.** Separate from `rows`/`list`/`one`/`count` rather than
+folded into them, because the mistake worth preventing is not a wrong answer: handing a DELETE to
+a read would *run* it, delete the rows, and hand back the empty result as though it had found
+nothing. So each side refuses the other's statement by name.
 
 ### `rows`
 

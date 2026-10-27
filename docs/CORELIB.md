@@ -1961,6 +1961,8 @@ pub fn delete_one(
 
 pub fn delete_all(conn: datasource.Connection, e: Entity) -> Result<int, DbError>
 
+pub fn execute(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<int, DbError>
+
 pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError>
 
 pub fn count(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<int, DbError>

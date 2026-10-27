@@ -388,9 +388,11 @@ fn every_translation_is_sql_the_parser_accepts() {
 }
 
 #[test]
-fn a_query_that_is_not_a_select_is_refused() {
-    test.assert_contains(refusal("UPDATE Patient p SET p.last_name = :n"), "starts with SELECT")
-    test.assert_contains(refusal("DELETE FROM Patient p"), "starts with SELECT")
+fn a_query_that_is_neither_a_select_nor_a_delete_is_refused() {
+    // `DELETE FROM Patient p` was refused here too until DELETE was translated; it is now refused
+    // for having no WHERE, which `a_delete_with_no_where_is_refused` holds.
+    test.assert_contains(refusal("UPDATE Patient p SET p.last_name = :n"), "starts with SELECT or DELETE")
+    test.assert_contains(refusal("INSERT INTO Patient (id) VALUES (1)"), "starts with SELECT or DELETE")
     test.assert_contains(refusal(""), "empty query")
 }
 
@@ -440,4 +442,85 @@ fn two_collections_in_one_query_are_not_worked_out_in_advance_but_still_work() {
 fn a_select_with_no_from_is_refused() {
     // Every path needs an alias to resolve against, so a query with no entity has nothing to say.
     test.assert_contains(refusal("SELECT 1"), "needs a FROM naming at least one entity")
+}
+
+// ---------------------------------------------------------------- DELETE
+
+#[test]
+fn a_delete_becomes_a_delete_on_the_table() {
+    // **The alias goes and the qualifiers go with it.** A SELECT keeps both; a DELETE cannot,
+    // because memdb refuses `DELETE FROM t AS x` while SQLite accepts it, so the bare form is the
+    // only one every engine takes. The alias is still written here -- it is what makes
+    // `v.patient_id` a field the translator can check against the entity.
+    test.assert_eq(
+        "DELETE FROM visits WHERE patient_id = $1",
+        sql_of("DELETE FROM Visit v WHERE v.patient_id = :pid")
+    )
+    test.assert_eq(
+        "DELETE FROM visits WHERE id = $1 AND reason = $2",
+        sql_of("DELETE FROM Visit AS v WHERE v.id = :id AND v.reason = :reason")
+    )
+}
+
+#[test]
+fn a_delete_checks_its_fields_like_a_select() {
+    // The reason to write a delete here rather than as SQL: the field is checked against the
+    // entity, so a typo fails at startup rather than on the request that runs it.
+    test.assert_contains(
+        refusal("DELETE FROM Visit v WHERE v.nosuch = :x"),
+        "entity Visit has no field 'nosuch'"
+    )
+    test.assert_contains(
+        refusal("DELETE FROM Visit v WHERE q.id = :x"),
+        "nothing in this query binds the alias 'q'"
+    )
+}
+
+#[test]
+fn a_delete_takes_a_collection_parameter() {
+    test.assert_eq(
+        "DELETE FROM visits WHERE reason IN ($1)",
+        sql_of("DELETE FROM Visit v WHERE v.reason IN :reasons")
+    )
+}
+
+#[test]
+fn a_delete_with_no_where_is_refused() {
+    // Not a convenience withheld: a filter that came out empty must not become "every row".
+    test.assert_contains(
+        refusal("DELETE FROM Visit v"),
+        "a DELETE with no WHERE would empty the table"
+    )
+}
+
+#[test]
+fn a_delete_names_one_entity() {
+    // A multi-table delete is USING in PostgreSQL, a table list in MySQL and a subquery in SQLite,
+    // so there is no one SQL to translate it to.
+    test.assert_contains(
+        refusal("DELETE FROM Visit v, Patient p WHERE v.patient_id = p.id"),
+        "a DELETE names one entity and this names 2 (Visit, Patient)"
+    )
+}
+
+#[test]
+fn a_delete_projects_nothing() {
+    test.assert_contains(
+        refusal("DELETE FROM Visit v WHERE v.* = :x"),
+        "'v.*' is a projection and a DELETE has none"
+    )
+    // The row list MySQL allows between DELETE and FROM is one engine's spelling, not SQL's.
+    test.assert_contains(
+        refusal("DELETE v FROM Visit v WHERE v.id = :id"),
+        "a DELETE is written `DELETE FROM Entity alias WHERE ..`"
+    )
+}
+
+#[test]
+fn an_update_still_says_where_to_go() {
+    // The one write eql does not translate, and the message names what does it instead.
+    test.assert_contains(
+        refusal("UPDATE Visit v SET v.reason = :r"),
+        "a one-row INSERT or UPDATE is `eql.insert_one` / `eql.update_one`"
+    )
 }

@@ -69,6 +69,18 @@ val queries: [[string]] = [
 
 // `name=Ada|id=1` as bindings. Everything is bound as text unless it reads as a number, which is
 // all this fixture needs -- the typed conversions are the caller's job and `db`'s.
+// Deletes, kept apart from the reads because they change what a read sees. Each runs on both
+// engines and **both halves are compared**: the count it reports, and what the table is left
+// holding -- the second being what would catch a stripped alias leaving a `WHERE` that matches the
+// wrong rows, which is the one translation decision a DELETE has that a SELECT does not.
+val deletes: [[string]] = [
+    ["DELETE FROM Visit v WHERE v.patient_id = :pid", "pid=1"],
+    ["DELETE FROM Visit v WHERE v.cost > :floor", "floor=50"],
+    ["DELETE FROM Visit v WHERE v.reason IN :reasons", "*reasons=checkup,follow up"],
+    ["DELETE FROM Patient p WHERE p.gender = :g AND p.last_name = :n", "g=m|n=Ada"],
+    ["DELETE FROM Patient p WHERE p.id IN :ids", "*ids=2,4"]
+]
+
 fn bindings_of(spec: string) -> [eql.Binding] {
     val out = mutable_array_new<eql.Binding>()
     if spec == "" {
@@ -119,6 +131,28 @@ fn answer(conn: datasource.Connection, query: eql.Translated, bound: [eql.Bindin
     }
 }
 
+// What a delete did: the rows it says it removed, and then every row both tables still hold. The
+// second half is the point -- a count can agree while the wrong rows are gone.
+fn removed(conn: datasource.Connection, query: eql.Translated, bound: [eql.Binding]) -> string {
+    val gone = switch eql.execute(conn, query, bound) {
+        Ok(n) { n }
+        Err(e) { return concat("error: ", db.db_error_message(e)) }
+    }
+    val out = mutable_string_new()
+    append(out, format("removed {}", gone))
+    for table in ["patients", "visits"] {
+        append(out, format(" | {}:", table))
+        val left = switch datasource.query(conn, concat("SELECT id FROM ", table, " ORDER BY id")) {
+            Ok(rows) { rows }
+            Err(e) { return concat("error reading back: ", db.db_error_message(e)) }
+        }
+        for r in left {
+            append(out, format(" {}", r.values[0]))
+        }
+    }
+    return snapshot(out)
+}
+
 fn seed(url: string) -> datasource.Connection {
     val conn = unwrap(datasource.open(drivers, url))
     for statement in schema {
@@ -159,6 +193,39 @@ fn main() {
         }
     }
     print(format("{} of {} entity queries agree", prelude.len(queries) - disagreements, prelude.len(queries)))
+
+    // Each delete gets a freshly seeded pair, so the one before it cannot change what it removes.
+    var delete_disagreements = 0
+    for pair in deletes {
+        val fresh_mem = seed("memdb:")
+        val fresh_lite = seed("sqlite::memory:")
+        val translated = switch eql.translate(reg, pair[0]) {
+            Ok(t) { t }
+            Err(e) {
+                print(concat("TRANSLATION FAILED ", pair[0], ": ", db.db_error_message(e)))
+                continue
+            }
+        }
+        val bound = bindings_of(pair[1])
+        print(concat("-- ", pair[0]))
+        print(concat("   ", switch eql.prepare(translated, bound) {
+            Ok(ready) { ready.sql }
+            Err(e) { concat("PREPARE FAILED: ", db.db_error_message(e)) }
+        }))
+        val a = removed(fresh_mem, translated, bound)
+        val b = removed(fresh_lite, translated, bound)
+        if a == b {
+            print(concat("   agree    ", a))
+        } else {
+            delete_disagreements = delete_disagreements + 1
+            print("   DISAGREE")
+            print(concat("     memdb:  ", a))
+            print(concat("     sqlite: ", b))
+        }
+        datasource.close(fresh_mem)
+        datasource.close(fresh_lite)
+    }
+    print(format("{} of {} deletes agree", prelude.len(deletes) - delete_disagreements, prelude.len(deletes)))
 
     datasource.close(mem)
     datasource.close(lite)

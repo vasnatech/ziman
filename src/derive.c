@@ -1316,7 +1316,15 @@ static void refuse_handle_field(Module *module, const char *target, Type t, int 
 
 static void import_field_converters(Module *module, const char *suffix, Type t, int line, int col) {
     if (t.kind == TY_STRUCT || t.kind == TY_ENUM) {
-        const char *full = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
+        /* `bare_name_of` first, for the fourth place the loader's `::` leaked: a field type read
+         * out of an already-loaded module is `uuid::Uuid`, which matched no STANDARD_TYPES entry,
+         * so `#![repository(E)]` over an entity with a `Uuid` key generated `uuid_to_sql(id)` and
+         * imported nothing. It went unseen because the one repository using the annotation imported
+         * `uuid_to_sql` by hand for its own raw SQL; the gap appeared the moment that SQL went
+         * away. The Row and Json derives never saw it -- they read a struct in their own module,
+         * whose field types are not self-qualified yet. */
+        const char *full = bare_name_of(t.kind == TY_STRUCT ? t.struct_name : t.enum_name);
+        if (full == NULL) return;
         const char *dot = strrchr(full, '.');
         const char *bare = dot != NULL ? dot + 1 : full;
         for (size_t i = 0; i < sizeof STANDARD_TYPES / sizeof STANDARD_TYPES[0]; i++) {

@@ -65,3 +65,19 @@
    SELECT v.reason FROM visits AS v WHERE v.patient_id IN ($1, $2) GROUP BY v.reason ORDER BY v.reason
    agree    2 row(s) | reason=Text(checkup) | reason=Text(follow up)
 22 of 22 entity queries agree
+-- DELETE FROM Visit v WHERE v.patient_id = :pid
+   DELETE FROM visits WHERE patient_id = $1
+   agree    removed 2 | patients: Int(1) Int(2) Int(3) Int(4) | visits: Int(3) Int(4)
+-- DELETE FROM Visit v WHERE v.cost > :floor
+   DELETE FROM visits WHERE cost > $1
+   agree    removed 3 | patients: Int(1) Int(2) Int(3) Int(4) | visits: Int(4)
+-- DELETE FROM Visit v WHERE v.reason IN :reasons
+   DELETE FROM visits WHERE reason IN ($1, $2)
+   agree    removed 4 | patients: Int(1) Int(2) Int(3) Int(4) | visits:
+-- DELETE FROM Patient p WHERE p.gender = :g AND p.last_name = :n
+   DELETE FROM patients WHERE gender = $1 AND last_name = $2
+   agree    removed 1 | patients: Int(1) Int(2) Int(4) | visits: Int(1) Int(2) Int(3) Int(4)
+-- DELETE FROM Patient p WHERE p.id IN :ids
+   DELETE FROM patients WHERE id IN ($1, $2)
+   agree    removed 2 | patients: Int(1) Int(3) | visits: Int(1) Int(2) Int(3) Int(4)
+5 of 5 deletes agree
