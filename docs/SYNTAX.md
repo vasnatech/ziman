@@ -2132,6 +2132,17 @@ fn main() {
   the type the reader has in hand, and taking it from the table would make `FROM patients p` the
   spelling -- SQL leaking back through the layer whose job is to hide it. The argument must be a
   string; a bare word is refused, since `Entity(patients)` could plausibly name a type.
+- **`#[pk]` on a struct field** marks it as part of the row's key, and `#[derive(Entity("t"))]`
+  puts the marked fields in the metamodel as `keys`, in field order. **The only field attribute**:
+  an unknown name is refused rather than ignored, and a function parameter cannot carry one, since
+  the attribute is read in the struct-field loop and nowhere else.
+  `keys` is **empty when nothing is marked**, which means "no key was declared" and not "the first
+  column". A reader that addresses a single row refuses an empty `keys` by name rather than
+  guessing -- the guess would have been right for all 27 entities in the North Star application,
+  which is the kind of right that stops being true without anything failing.
+  **More than one field may be marked**, and that is the whole syntax for a compound key. Nothing
+  about the attribute objects; a reader that can only address a single-column key is what has to
+  say so.
 
 ## Networking
 

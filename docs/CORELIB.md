@@ -1850,9 +1850,21 @@ pub struct Entity {
     name: string
     table: string
     columns: [string]
+    // The columns that identify one row, in field order: the fields marked `#[pk]`.
+    //
+    // **Empty is allowed and means "no key was declared"**, not "the first column". A reader that
+    // needs one -- anything addressing a single row -- refuses an empty `keys` by name rather than
+    // guessing, because the guess was right for all 27 entities in the North Star application and
+    // would have been silently wrong for the first table that is keyed on something else.
+    //
+    // More than one is a compound key, which is simply two fields marked. Nothing here objects to
+    // that; a *reader* that can only address a single-column key is the thing that has to say so.
+    keys: [string]
 }
 
 pub fn entity(name: string, table: string, columns: [string]) -> Entity
+
+pub fn keyed_entity(name: string, table: string, columns: [string], keys: [string]) -> Entity
 
 pub struct Registry {
     entities: [Entity]

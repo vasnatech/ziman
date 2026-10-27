@@ -927,7 +927,7 @@ static Expr *parse_primary(Parser *p) {
             for (;;) {
                 Token *name = expect(p, TOK_IDENT, "a parameter name");
                 require_lower_start(name, "a parameter name");
-                Param param = {dup_token_text(name), type_scalar(TY_VOID), 0, NULL, NULL, name->line, name->col, 0};
+                Param param = {dup_token_text(name), type_scalar(TY_VOID), 0, NULL, NULL, name->line, name->col, 0, 0};
                 if (match(p, TOK_COLON)) param.type = parse_type(p);
                 else param.type_omitted = 1;
                 param_list_push(&fn->params, param);
@@ -1336,7 +1336,7 @@ static Expr *field_accessor_lambda(Parser *p, const char *type_name, Token *at) 
     fn->name = (char *)"lambda";
     fn->line = at->line;
     fn->col = at->col;
-    Param param = {(char *)"$x", type_struct(type_name), 0, NULL, NULL, at->line, at->col, 0};
+    Param param = {(char *)"$x", type_struct(type_name), 0, NULL, NULL, at->line, at->col, 0, 0};
     param_list_push(&fn->params, param);
     fn->return_type = type_scalar(TY_VOID);
     fn->return_omitted = 1;
@@ -2050,7 +2050,7 @@ static ParamList parse_params(Parser *p) {
                 default_expr = parse_expr(p);
                 default_key = param_default_key(param_name->start, param_name->length);
             }
-            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col, 0};
+            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col, 0, 0};
             param_list_push(&params, param);
             skip_newlines(p);
             if (!match(p, TOK_COMMA)) break;
@@ -2396,12 +2396,34 @@ static StructDecl *parse_struct_decl(Parser *p) {
     expect(p, TOK_LBRACE, "'{'");
     skip_newlines(p);
     while (!check(p, TOK_RBRACE)) {
+        /* **A field may carry `#[pk]`**, and nothing else yet. Read here rather than in
+         * `parse_attributes` because that one belongs to a whole declaration; this belongs to one
+         * field, and a function parameter must not be able to take it.
+         *
+         * An unknown name is refused rather than ignored, which is the rule the module-level form
+         * follows for the reason its comment gives: a silently-ignored attribute is how
+         * `#[deprecated]` managed to parse and do nothing for as long as it did. */
+        int field_is_pk = 0;
+        while (check(p, TOK_HASH)) {
+            expect(p, TOK_HASH, "'#'");
+            expect(p, TOK_LBRACKET, "'['");
+            Token *attr = expect(p, TOK_IDENT, "a field attribute name");
+            if (attr->length == 2 && strncmp(attr->start, "pk", 2) == 0) {
+                field_is_pk = 1;
+            } else {
+                ziman_error("syntax", attr->line, attr->col,
+                            "unknown field attribute '%.*s' -- a struct field takes '#[pk]' and nothing else",
+                            (int)attr->length, attr->start);
+            }
+            expect(p, TOK_RBRACKET, "']'");
+            skip_newlines(p);
+        }
         Token *field_name = expect(p, TOK_IDENT, "a field name");
         require_lower_start(field_name, "a field name");
         expect(p, TOK_COLON, "':'");
         Type field_type = parse_type(p);
         if (sd->type_params.count > 0) reclassify_type_params(&field_type, &sd->type_params);
-        Param field = {dup_token_text(field_name), field_type, 0, NULL, NULL, field_name->line, field_name->col, 0};
+        Param field = {dup_token_text(field_name), field_type, 0, NULL, NULL, field_name->line, field_name->col, 0, field_is_pk};
         param_list_push(&sd->fields, field);
         skip_newlines(p);
     }

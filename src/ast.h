@@ -584,6 +584,14 @@ typedef struct {
     /* A lambda parameter written without a type (`fn(n) { ... }`); the type
      * checker fills `type` in from the function type the lambda is used as. */
     int type_omitted;
+    /* `#[pk]` on a **struct field**: this column is part of the row's key.
+     *
+     * Only a field can carry it -- the attribute is read in the struct-field loop and nowhere
+     * else, so a function parameter cannot have one, which is why this lives on the shared `Param`
+     * without meaning anything there. More than one field may be marked, which is how a compound
+     * key is spelled; `#[derive(Entity("t"))]` puts them in the metamodel as `keys`, in field
+     * order. See docs/ROADMAP.md's "Code generation from annotations". */
+    int is_pk;
 } Param;
 
 typedef struct {

@@ -5,3 +5,4 @@ Patient
 patients
 id,last_name,city
 true
+id

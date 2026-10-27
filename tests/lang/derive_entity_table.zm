@@ -12,6 +12,10 @@ use uuid.Uuid
 
 #[derive(Row, Entity("patients"))]
 pub struct Patient {
+    // **`#[pk]` says which columns identify one row**, so nothing has to assume it is the first
+    // one. That assumption was right for all 27 entities in the North Star application and is the
+    // kind of right that stops being true without anything failing.
+    #[pk]
     id: Uuid
     last_name: string
     city: string
@@ -43,4 +47,11 @@ fn main() {
     // The generated call needs `eql`, and this file never imported it: the derive ensures it, the
     // way the standard-type conversions already ensure `time` and `uuid`.
     print(prelude.len(patient_meta.columns) == prelude.len(patient_columns))
+
+    // The key columns, in field order.
+    print(join(separator: ",", pieces: patient_meta.keys))
+    // A compound key and a keyless entity are in `derive_entity_pk_shapes.zm`, one keyed entity
+    // per module: `table` is emitted under that bare name, so two in one file collide. That is a
+    // limit of the name rather than of the attribute -- its three siblings are `<name>_columns`,
+    // `<name>_meta` and `<name>_from_row`.
 }

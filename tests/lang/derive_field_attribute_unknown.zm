@@ -1,0 +1,15 @@
+// A struct field takes `#[pk]` and nothing else. An unknown name is refused rather than ignored,
+// which is the rule the module-level attributes follow for the reason their comment gives: a
+// silently-ignored attribute is how `#[deprecated]` managed to parse and do nothing for as long as
+// it did.
+use uuid.Uuid
+
+#[derive(Row, Entity("t"))]
+pub struct P {
+    #[key]
+    id: Uuid
+}
+
+fn main() {
+    print(1)
+}

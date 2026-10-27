@@ -856,8 +856,26 @@ static char *generate_struct_entity(StructDecl *sd, const char *table) {
     cb_appendf(&cb, "]\n\n");
     if (table != NULL) {
         cb_appendf(&cb, "pub val table: string = \"%s\"\n\n", table);
-        cb_appendf(&cb, "pub val %s_meta: eql.Entity = eql.entity(\"%s\", \"%s\", %s_columns)\n\n",
-                   val_name, sd->name, table, val_name);
+        /* The `#[pk]` fields, in field order. `keyed_entity` when there are any and `entity` when
+         * there are none, so an entity that declares no key says so in the call rather than
+         * carrying an empty list that reads like an oversight. */
+        int keys = 0;
+        for (int i = 0; i < sd->fields.count; i++) {
+            if (sd->fields.items[i].is_pk) keys++;
+        }
+        if (keys == 0) {
+            cb_appendf(&cb, "pub val %s_meta: eql.Entity = eql.entity(\"%s\", \"%s\", %s_columns)\n\n",
+                       val_name, sd->name, table, val_name);
+        } else {
+            cb_appendf(&cb, "pub val %s_meta: eql.Entity = eql.keyed_entity(\"%s\", \"%s\", %s_columns, [",
+                       val_name, sd->name, table, val_name);
+            int written = 0;
+            for (int i = 0; i < sd->fields.count; i++) {
+                if (!sd->fields.items[i].is_pk) continue;
+                cb_appendf(&cb, "%s\"%s\"", written++ > 0 ? ", " : "", sd->fields.items[i].name);
+            }
+            cb_appendf(&cb, "])\n\n");
+        }
     }
     return cb.data;
 }

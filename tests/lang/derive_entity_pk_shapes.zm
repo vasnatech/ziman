@@ -1,0 +1,25 @@
+// The two `#[pk]` shapes that are not one marked field: a compound key, and none at all.
+//
+// In its own file because `#[derive(Entity("t"))]` emits `pub val table` under that bare name, so
+// two keyed entities in one module collide on it -- which this fixture found on the day `#[pk]`
+// was added. The other three generated names are `<name>_columns`, `<name>_meta` and
+// `<name>_from_row`; `table` is the odd one, kept bare because the application's services import
+// it by that spelling.
+use uuid.Uuid
+
+// **A compound key is two fields marked**, and that is the whole of the syntax for it. Nothing
+// here objects: a *reader* that can only address a single-column key is what has to say so.
+#[derive(Row, Entity("user_broadcast_reads"))]
+pub struct Read {
+    #[pk]
+    patient_id: Uuid
+    #[pk]
+    broadcast_id: Uuid
+    seen: bool
+}
+
+fn main() {
+    print(join(separator: ",", pieces: read_meta.keys))
+    print(join(separator: ",", pieces: read_meta.columns))
+    print(read_meta.table)
+}
