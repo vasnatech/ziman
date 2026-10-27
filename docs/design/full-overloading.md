@@ -11,12 +11,12 @@ hand-written in `src/typecheck.c` and starts being read off the declarations.
 | Scope chosen | 2026-10-19, by the user: **full overloading**, not first-parameter only |
 | Written | 2026-10-19 |
 | Supersedes | `first-argument-overloading.md`, kept beside this for its §3 measurements |
-| Measurements | from `lib/prelude.zm` and `src/typecheck.c` at `033efe2`, by script |
+| Measurements | from `lib/prelude.zm` and `src/typecheck.c` at `f8fbd67`, by script |
 
 ## 1. What the language does today
 
 **Ziman is not missing argument-based overloading. It is missing overloading available to a
-declaration.** Measured at `033efe2`:
+declaration.** Measured at `f8fbd67`:
 
 ```
 50   overloaded names in lib/prelude.zm
@@ -375,7 +375,7 @@ exactly that. All nine would be named `len`, so all nine find the one registrati
 implementation, no new C code. F180 shipped the harder version of this already, `filter` being
 two `native fn` declarations needing *two* symbols.
 
-The scale, measured at `8df7c0f`: **71 dispatched builtin names, 70 arms, 11 with a recorded
+The scale, measured at `95bb701`: **71 dispatched builtin names, 70 arms, 11 with a recorded
 reason they can carry no signature.** Those 11 are genuinely stuck — `format` and `printf` read a
 template against the argument list, `error_message` looks up a `<type>_message` function, the `$`
 names are parser emissions — and `concat` and `mutable` stay for §4's reasons. That leaves

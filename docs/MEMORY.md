@@ -1045,7 +1045,7 @@ the clean tree before touching it.
 Verified: `make test-pg` 11/11 and `make test-mysql` 6/6, **both fully green for the first time in
 this whole investigation**; suite 834/834; `fmt-check` clean; all nine `gc_*` unit tests pass. One
 thing to flag: the `ziman-nogc` build now segfaults flakily on two or three fixtures per run, a
-different subset each time, and does so identically at the clean `d1893c9` -- a separate pre-existing
+different subset each time, and does so identically at the clean `792c3a0` -- a separate pre-existing
 regression (this file last recorded that build stable across five runs), none of the affected
 fixtures touching `lib/db`.
 
@@ -1084,8 +1084,8 @@ the links went both ways. Each is a real 2.4x-4.3x win; neither was the "never f
 my first comments claimed. Lesson worth keeping: don't write the number down before producing it.
 
 Verified with the thing that matters most for a GC change -- that it costs nothing when unneeded. At
-four cursors (the only load both builds can run, being under the old ceiling) clean `bf8f908` and
-this are indistinguishable; at sixteen `bf8f908` aborts in 4.35s and this completes.
+four cursors (the only load both builds can run, being under the old ceiling) clean `1dcc852` and
+this are indistinguishable; at sixteen `1dcc852` aborts in 4.35s and this completes.
 `server_concurrency.sh` against the real app, both builds back to back, flat within noise (661/1315/
 1382/958 vs 666/1324/1355/963 req/s, zero failures) -- an earlier better-looking set for this build
 was just variance, caught by rebuilding the baseline instead of trusting numbers recorded here in an

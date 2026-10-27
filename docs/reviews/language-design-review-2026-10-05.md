@@ -1,6 +1,6 @@
 # Ziman: independent language-design review (2026-10-05)
 
-Reviewed at `ziman` commit **6a826d8**; the reference application `health-record-backend-ziman` at **bd664c7**.
+Reviewed at `ziman` commit **3c0908f**; the reference application `health-record-backend-ziman` at **bd664c7**.
 Starting test state, run once before anything else: **`make test`: 845 passed, 0 failed** (exit 0); **`make test-lsp`:
 0 failures**. The prebuilt `./ziman` was already current (`make -q` reported nothing to do); I did not run `make gc`,
 `make nogc` or `make clean`, and I did not run the backend's own test suites or bind any port.
@@ -794,7 +794,7 @@ module makes the collector decision more expensive and none of them makes it eas
 
 ## Appendix: experiments
 
-All scratch files under `/tmp/ziman_review_lang/`. `Z=./ziman` at 6a826d8. Nothing in either repository was modified
+All scratch files under `/tmp/ziman_review_lang/`. `Z=./ziman` at 3c0908f. Nothing in either repository was modified
 except this file. Timings on a 16-core Linux 7.2.7 box; every surprising result was re-run at least once.
 
 **A1 — Baseline.** `make test` → `845 passed, 0 failed`, exit 0. `make test-lsp` → `0 failure(s)`.

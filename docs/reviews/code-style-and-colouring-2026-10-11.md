@@ -1,12 +1,12 @@
 # Ziman code style and colouring architecture
 
-**Date:** 2026-10-11 · **Commit:** `f71e4d9`, working tree clean at the start.
-**Binary:** rebuilt from clean at that commit — `./ziman --version` → `ziman f71e4d9`. [V]
+**Date:** 2026-10-11 · **Commit:** `5fff8a2`, working tree clean at the start.
+**Binary:** rebuilt from clean at that commit — `./ziman --version` → `ziman 5fff8a2`. [V]
 **`make fmt-check`:** clean, exit 0, over the 99 `.zm` files it covers. [V]
 **`make test`:** `956 passed, 0 failed`, exit 0, 24.4 s. [V]
 
-> The checked-in binary first reported `ziman 18c402e-dirty`, three commits behind `HEAD`, and
-> `make -j8 ziman` said "up to date". `git diff --stat 18c402e..HEAD -- src Makefile` is empty
+> The checked-in binary first reported `ziman 9e2e303-dirty`, three commits behind `HEAD`, and
+> `make -j8 ziman` said "up to date". `git diff --stat 9e2e303..HEAD -- src Makefile` is empty
 > and `ziman`'s mtime matched `lib/http/server.zm`'s to the second, so only the embedded version
 > string was stale — but I rebuilt from clean and re-ran every result below against that binary,
 > because a report whose oracle might be a different build than its commit is worth nothing. [V]

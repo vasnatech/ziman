@@ -13,7 +13,7 @@ Findings are tagged **[V]** where I reproduced them and **[O]** where they are j
 
 | | |
 |---|---|
-| `ziman` | `6a826d8` (`coverage: report on stderr, so all three tools follow one rule`) |
+| `ziman` | `3c0908f` (`coverage: report on stderr, so all three tools follow one rule`) |
 | `health-record` (both backends) | `bd664c7` |
 | `make test` (ziman fixtures) | **845 passed, 0 failed** — matches the stated baseline |
 | `src/test/other/run-all.sh` (SQLite) | **19 suites, 958 checks, 0 failed** |
@@ -849,7 +849,7 @@ running untouched.
 ### A. Baselines
 
 ```sh
-git -C ziman rev-parse --short HEAD                      # 6a826d8
+git -C ziman rev-parse --short HEAD                      # 3c0908f
 git -C health-record rev-parse --short HEAD              # bd664c7
 cd ziman && make test                                    # 845 passed, 0 failed
 cd health-record-backend-ziman && src/test/other/run-all.sh

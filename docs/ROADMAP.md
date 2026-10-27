@@ -1130,9 +1130,9 @@ from source.
 
   *Update 2026-10-16: that sentence is struck because **all four are now closed**, and it had gone
   stale twice over -- once when (3) was retired and again when (4) was, each time by a note added
-  underneath it rather than a correction to it. (3) was measured and retired in `070d922`: node
+  underneath it rather than a correction to it. (3) was measured and retired in `7c8cb93`: node
   growth is not the insert cost (281-287 against 284-288 ns/insert, since glibc grows small chunks
-  in place), and `MutableMap`/`MutableSet` then left the trie for a flat table anyway (`308503b`),
+  in place), and `MutableMap`/`MutableSet` then left the trie for a flat table anyway (`b3fc91c`),
   so the field it asks for is on a structure they no longer use. (4) is the attempt-and-decline
   recorded below. **What is actually left of this entry is one thing, and it is not in this list:**
   `Option` boxing on `get`/`remove`-shaped natives, which keeps those rows far out -- `get` at
@@ -2684,7 +2684,7 @@ from source.
   `array_find`, `array_sort_with`, `array_frequencies` and the rest all carry the prefix, verified
   by running them. Both "hard constraints" dissolved with the module: `collections.join` never
   needed to be able to move, because it became `array_join`. The removal also dragged along five of
-  the compiler's own suggestion strings, eight comments and two fixtures, recorded in `65591bf`.
+  the compiler's own suggestion strings, eight comments and two fixtures, recorded in `d4d3b3d`.
   The reasoning below is kept for why promoting names into a flat namespace is expensive, which is
   still the live argument whenever a new bare name is proposed.*
 

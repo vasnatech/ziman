@@ -424,7 +424,7 @@ in the table for exactly that reason, and they are where the effect reverses.
 Round 2 ran at n=1, and by the time variance was worth measuring the compiler had changed under it --
 F86 and F88 made two silently-wrong programs into diagnostics, F90 a third message. A second instance
 against today's binary would have mixed variance with those fixes, so **the round-2 compiler was
-rebuilt from its own commit** (`21f1d0c`) in a worktree and verified to behave as it did: it accepts a
+rebuilt from its own commit** (`7d9baa7`) in a worktree and verified to behave as it did: it accepts a
 discarded `push` silently, emits no interpolation warning, and self-checks 50/50 on the reference
 solutions. Both the attempts and the scoring use that binary.
 

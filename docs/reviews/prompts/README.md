@@ -19,6 +19,6 @@ Start each as a fresh general-purpose agent (they need no context), pasting the 
 
 Each prompt tells the reviewer to read the earlier reports last, and to re-run their reproductions to say what is fixed, what still holds and what it disagrees with. Keep old reports: they are the baseline for the next run.
 
-The reports so far: `language-design-review.md` and `developer-experience-code-review.md` (2026-09-26, commit `766d26c` of ziman), `pl-expert-review-2026-09-23.md` (an earlier one), and `code-style-and-colouring-2026-10-11.md` (commit `f71e4d9`).
+The reports so far: `language-design-review.md` and `developer-experience-code-review.md` (2026-09-26, commit `0345ba9` of ziman), `pl-expert-review-2026-09-23.md` (an earlier one), and `code-style-and-colouring-2026-10-11.md` (commit `5fff8a2`).
 
 The style prompt's first run corrected two of its own premises, which is the point of writing them down: `--fmt-width N` does not exist (the flag is `--width=N`) and `documentHighlightProvider` turned out to be a plain word match, so it is no evidence that occurrence resolution exists. Both are fixed in the prompt. Its headline finding is a formatter bug: three or more operator-continued lines get an alternating indent, idempotently, so `fmt-check` enforces the zigzag.

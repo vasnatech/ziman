@@ -11,7 +11,7 @@ could not verify something I say so rather than leaving it out.
 
 ## 0. Starting point
 
-**Commit:** `65591bf` — "The collections module is deleted (F120 stage 3 of 3)".
+**Commit:** `d4d3b3d` — "The collections module is deleted (F120 stage 3 of 3)".
 
 **`make check`: FAILS.** `[V]` 1m54s, exit 2. Everything passes except one assertion in
 `tests/run_api.sh:38`:
@@ -915,7 +915,7 @@ Makefile's recipes provide for.
 ### A. Baseline
 
 ```
-$ git rev-parse --short HEAD                                   → 65591bf
+$ git rev-parse --short HEAD                                   → d4d3b3d
 $ time make check                                              → exit 2, 1m54.741s
   1006 passed, 0 failed          (./ziman fixtures)
   1006 passed, 0 failed          (./ziman-nogc fixtures)
@@ -923,7 +923,7 @@ $ time make check                                              → exit 2, 1m54.
   18 passed, 1 failed            (api-check)
   FAIL a generic signature carries its type parameter and bound: no 'fn sort<T: Ord>(items: [T]) -> [T]'
 $ ./ziman --api collections      → "no bundled module or file named 'collections'", exit 1
-$ git log --oneline -1 -- lib/core/collections.zm → 65591bf (HEAD deleted it; run_api.sh:38 not updated)
+$ git log --oneline -1 -- lib/core/collections.zm → d4d3b3d (HEAD deleted it; run_api.sh:38 not updated)
 ```
 *Why it matters:* the gate works and was not run before the commit.
 

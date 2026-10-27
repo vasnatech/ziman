@@ -2,7 +2,7 @@
 
 ## 0. What I started from
 
-- **Commit:** `88dca78` ("A third review prompt: the implementation judged as C"). `git status` at the
+- **Commit:** `36ae6d2` ("A third review prompt: the implementation judged as C"). `git status` at the
   start showed one modified file, `logs/health-record.log`, a benchmark artifact that predates this
   review and that I left alone.
 - **`make check`:** re-run from scratch on this tree during the review. **Exit 0.** Both fixture
@@ -817,7 +817,7 @@ Scratch directory `/tmp/ziman_review_c`. Commands are as run; the repo is
 
 | # | command | result | why it matters |
 | --- | --- | --- | --- |
-| A1 | `git rev-parse --short HEAD` | `88dca78` | the tree every result below belongs to |
+| A1 | `git rev-parse --short HEAD` | `36ae6d2` | the tree every result below belongs to |
 | A2 | `make check` | `EXIT=0`, `make_check_run2.log` | every gate green before I touched anything |
 | A3 | `git status --porcelain` | ` M logs/health-record.log` | pre-existing benchmark artifact, not mine |
 | A4 | `for t in test-gc-* test-handles test-arena; do make -s $t x3; done` | 30 runs, all ok | intermittent failure is the GC bug signature; there is none |

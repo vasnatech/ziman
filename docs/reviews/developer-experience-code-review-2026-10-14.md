@@ -16,8 +16,8 @@ file lived under `/tmp/ziman_review_dev/`; nothing in either repository was modi
 
 | | |
 |---|---|
-| `ziman` | `07149ff` (*Fix api-check, which F122 left asking for a deleted module*) |
-| `ziman` binary under test | `./ziman --version` → `65591bf`; `make -q ziman` says up to date |
+| `ziman` | `80c8cb1` (*Fix api-check, which F122 left asking for a deleted module*) |
+| `ziman` binary under test | `./ziman --version` → `d4d3b3d`; `make -q ziman` says up to date |
 | `health-record` (both backends) | `4acd6e6` (*Move to the bare array helpers*) |
 | `make test` (ziman fixtures) | **1006 passed, 0 failed** (27 s wall) |
 | `src/test/other/run-all.sh --both`, SQLite | **49 suites, 2268 checks, 0 failed** (21 Python + 28 Ziman) |
@@ -27,10 +27,10 @@ file lived under `/tmp/ziman_review_dev/`; nothing in either repository was modi
 
 Both repositories were clean before and after. The suite started and removed its own throwaway
 `postgres:17` container; the pre-existing `health-record-db` container was left untouched, as were the
-two long-exited containers beside it. `ziman`'s HEAD moved while I worked (`ef8d46e`, `64d8ebd` landed
-the C review and its task list); all my measurements are against the tree as of `07149ff`.
+two long-exited containers beside it. `ziman`'s HEAD moved while I worked (`4deddb6`, `67675dd` landed
+the C review and its task list); all my measurements are against the tree as of `80c8cb1`.
 
-A small note on build identity [V]: `--version` reports `65591bf` while HEAD is three commits later.
+A small note on build identity [V]: `--version` reports `d4d3b3d` while HEAD is three commits later.
 Those three commits touch only documentation and `tools/`, so `make` correctly had nothing to do — but
 it means `--version` identifies *a build*, not *a tree*, and a reader comparing a bug report against a
 commit cannot tell which. Stamping the version from `git describe --dirty` at link time, or printing
@@ -837,9 +837,9 @@ Everything ran from `/tmp/ziman_review_dev/`. `$Z` is
 ### A. Baselines
 
 ```
-$ git -C ziman rev-parse --short HEAD                       → 07149ff  (clean)
+$ git -C ziman rev-parse --short HEAD                       → 80c8cb1  (clean)
 $ git -C health-record rev-parse --short HEAD               → 4acd6e6  (clean)
-$ ./ziman --version                                         → ziman 65591bf
+$ ./ziman --version                                         → ziman d4d3b3d
 $ make -q ziman; echo $?                                    → 0  (up to date)
 $ make test                                                 → 1006 passed, 0 failed   (27.5 s)
 $ $BK/src/test/other/run-all.sh --both
