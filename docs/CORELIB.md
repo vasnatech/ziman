@@ -1911,6 +1911,8 @@ pub fn one<E>(
 
 pub fn insert_one<E>(
 
+pub fn update_one<E>(
+
 pub fn find_by_key<E>(
 
 pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError>

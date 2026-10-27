@@ -288,3 +288,130 @@ fn a_key_of_the_wrong_width_is_refused_by_name() {
         "Read has a 2-column key (patient_id, broadcast_id) and 1 value(s) were given"
     )
 }
+
+// ---------------------------------------------------------------- writes
+
+// `Visit` is the shape a scope exists for: a row with a key of its own that also belongs to a
+// patient, which is `repository/vital_sign.zm` exactly.
+val visit = eql.keyed_entity("Visit", "visits", visit_columns, ["id"])
+
+#[test]
+fn a_row_is_stored_and_read_back() {
+    val conn = seeded()
+    val stored = test.assert_ok(eql.insert_one<Visit>(
+        conn,
+        visit,
+        visit_to_params(Visit { id: 9, patient_id: 2, reason: "x-ray", cost: 210.0 }),
+        visit_from_row
+    ))
+    // The read-back is a real row from the engine, not the argument handed back.
+    test.assert_eq(9, stored.id)
+    test.assert_eq("x-ray", stored.reason)
+    test.assert_eq(210.0, stored.cost)
+    test.assert_eq(4, test.assert_ok(eql.count(conn, visits_of, [eql.bind("pid", SqlValue.Int(2))])) + 2)
+}
+
+#[test]
+fn an_update_replaces_every_column_but_the_key() {
+    val conn = seeded()
+    val after = test.assert_ok(eql.update_one<Visit>(
+        conn,
+        visit,
+        visit_to_params(Visit { id: 1, patient_id: 1, reason: "rewritten", cost: 5.0 }),
+        [],
+        visit_from_row
+    ))
+    test.assert_eq(1, after.id)
+    test.assert_eq("rewritten", after.reason)
+    test.assert_eq(5.0, after.cost)
+}
+
+#[test]
+fn a_scope_column_refuses_an_update_that_would_move_the_row() {
+    // Visit 1 belongs to patient 1. An entity carrying patient 2 matches no row once the patient is
+    // in the predicate, so the update answers NotFound -- and, the part a read-back by key alone
+    // would get wrong, does *not* answer patient 1's row.
+    val conn = seeded()
+    val moved = Visit { id: 1, patient_id: 2, reason: "stolen", cost: 1.0 }
+    test.assert_err(eql.update_one<Visit>(conn, visit, visit_to_params(moved), ["patient_id"], visit_from_row))
+    // The row is where it was, with the values it had.
+    val still = test.assert_ok(eql.find_by_key<Visit>(conn, visit, [SqlValue.Int(1)], visit_from_row))
+    test.assert_eq(1, still.patient_id)
+    test.assert_eq("checkup", still.reason)
+}
+
+#[test]
+fn a_scope_column_lets_through_an_update_by_the_owner() {
+    val conn = seeded()
+    val same = Visit { id: 1, patient_id: 1, reason: "checkup, revised", cost: 130.0 }
+    val after = test.assert_ok(eql.update_one<Visit>(
+        conn,
+        visit,
+        visit_to_params(same),
+        ["patient_id"],
+        visit_from_row
+    ))
+    test.assert_eq("checkup, revised", after.reason)
+}
+
+#[test]
+fn an_update_that_changes_nothing_still_finds_its_row() {
+    // Not a tautology: the obvious way to tell a miss from a hit is the number of rows the UPDATE
+    // affected, and MySQL counts rows *changed*, so this case would be a spurious NotFound.
+    val conn = seeded()
+    val unchanged = Visit { id: 2, patient_id: 1, reason: "follow up", cost: 80.0 }
+    val after = test.assert_ok(eql.update_one<Visit>(
+        conn,
+        visit,
+        visit_to_params(unchanged),
+        ["patient_id"],
+        visit_from_row
+    ))
+    test.assert_eq(2, after.id)
+    test.assert_eq("follow up", after.reason)
+}
+
+#[test]
+fn an_update_of_an_all_key_entity_is_refused() {
+    // A join table whose every column is part of the key has nothing an update could set, so this
+    // refuses rather than sending `SET` with no assignments.
+    val e = eql.keyed_entity("Read", "reads", ["patient_id", "broadcast_id"], ["patient_id", "broadcast_id"])
+    val conn = test.assert_ok(datasource.open(drivers, "memdb:"))
+    val values: [SqlValue] = [SqlValue.Int(1), SqlValue.Int(2)]
+    test.assert_contains(
+        db.db_error_message(test.assert_err(
+            eql.update_one<string>(conn, e, values, [], fn(row: Row) -> Result<string, DbError> { return ok("") })
+        )),
+        "every column of Read belongs to its key"
+    )
+}
+
+#[test]
+fn a_scope_column_that_is_already_the_key_is_refused() {
+    val conn = test.assert_ok(datasource.open(drivers, "memdb:"))
+    test.assert_contains(
+        db.db_error_message(test.assert_err(eql.update_one<Visit>(
+            conn,
+            visit,
+            visit_to_params(Visit { id: 1, patient_id: 1, reason: "r", cost: 1.0 }),
+            ["id"],
+            visit_from_row
+        ))),
+        "id is already part of Visit's key"
+    )
+}
+
+#[test]
+fn a_scope_column_the_entity_does_not_have_is_refused_by_name() {
+    val conn = test.assert_ok(datasource.open(drivers, "memdb:"))
+    test.assert_contains(
+        db.db_error_message(test.assert_err(eql.update_one<Visit>(
+            conn,
+            visit,
+            visit_to_params(Visit { id: 1, patient_id: 1, reason: "r", cost: 1.0 }),
+            ["owner_id"],
+            visit_from_row
+        ))),
+        "Visit names owner_id and has no such column"
+    )
+}

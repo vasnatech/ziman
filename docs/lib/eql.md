@@ -300,6 +300,36 @@ pub fn insert_one<E>(
 and the values cannot disagree; the read-back is by the entity's key, which is what `#[pk]` is
 for.
 
+### `update_one`
+
+```
+pub fn update_one<E>(
+    conn: datasource.Connection,
+    e: Entity,
+    values: [SqlValue],
+    scope: [string],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<E, DbError>
+```
+
+**Every column of one row replaced by `values`, and the row read back.** The assignments are the
+entity's own non-key columns, so a `SET` list cannot drift out of step with the values the way a
+hand-written one can.
+
+`scope` names columns the stored row must match *as well as* the key -- for a table whose rows
+belong to someone, the owner. Their values come out of `values` like every other column's, so a
+scope costs no extra argument to keep aligned; `[]` is the plain shape, keyed and nothing else.
+
+**The read-back goes through the same predicate, not through the key alone**, and with a scope
+those differ exactly where it matters: an entity carrying a different owner matches no row, and a
+read-back by key would then answer *the other owner's row* -- the update correctly refused and
+its subject handed back anyway. Through the predicate it answers `NotFound`.
+
+That is also why this does not consult the number of rows the `UPDATE` affected, which is the
+obvious way to tell a miss from a hit: MySQL reports rows *changed* rather than matched unless
+`CLIENT_FOUND_ROWS` is set, and `lib/db/mysql.zm` does not set it, so storing the values a row
+already has would be indistinguishable from matching nothing.
+
 ### `find_by_key`
 
 ```
@@ -311,9 +341,7 @@ pub fn find_by_key<E>(
 ) -> Result<E, DbError>
 ```
 
-The one row a key addresses. **A second row is refused rather than taken**, which is what makes
-a mistake about the key loud: an entity whose `#[pk]` does not identify a row -- one column of a
-compound key, say -- answers an error here instead of plausibly-wrong data.
+The one row a key addresses.
 
 ### `rows`
 

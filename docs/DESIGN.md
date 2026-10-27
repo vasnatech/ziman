@@ -248,6 +248,8 @@ them against the code.
 - [The statement cache reaches SQLite, and finds that Nagle was never turned off (2026-10-26)](#the-statement-cache-reaches-sqlite-and-finds-that-nagle-was-never-turned-off-2026-10-26)
 - [The table name moves into the annotation, and an entity becomes a struct again (2026-10-26)](#the-table-name-moves-into-the-annotation-and-an-entity-becomes-a-struct-again-2026-10-26)
 - [Code generation moves out of the parser, and what sat between the old position and the new one (2026-10-26)](#code-generation-moves-out-of-the-parser-and-what-sat-between-the-old-position-and-the-new-one-2026-10-26)
+- [`eql` writes one row, and the column list stops being written twice (2026-10-26)](#eql-writes-one-row-and-the-column-list-stops-being-written-twice-2026-10-26)
+- [An update takes a scope column, and why the read-back does not go through the key (2026-10-26)](#an-update-takes-a-scope-column-and-why-the-read-back-does-not-go-through-the-key-2026-10-26)
 
 <!-- end index -->
 
@@ -9655,3 +9657,43 @@ fewer to keep right.
 
 Eight of the ten runtime writes are still to come. The order is set by what the repository actually
 hand-writes, not by what looks symmetric.
+
+## An update takes a scope column, and why the read-back does not go through the key (2026-10-26)
+
+`eql.update_one` replaces every non-key column of one row from one array of values in column order,
+which removes the second half of the `SET`-list problem `insert_one` removed the first half of: nine
+assignments in one place, nine values from `to_params` in another, agreeing by a convention nothing
+checked.
+
+**It takes a `scope`: columns the stored row must match as well as the key.** This exists because
+the repository it replaces needed it. `repository/vital_sign.zm`'s `WHERE` matched `id AND
+patient_id`, so an entity carrying a different owner moves no row -- the defence added earlier the
+same day, after running the key-only version and watching four rows become three and a stranger's
+none become one. A key-only `update_one` would have quietly undone it. The scope's values come out
+of the same `values` array by column position, so naming one adds no second argument to keep
+aligned, and `[]` is the plain keyed shape the generated repository will use.
+
+**The decision worth recording is the read-back.** The obvious implementation reads the row back by
+its key, since the key is what identifies it. With a scope that is wrong in the one direction that
+matters: an entity carrying a different owner matches no row, so the `UPDATE` correctly changes
+nothing -- and then a read-back by the key alone finds the row anyway and hands back *the other
+owner's data*. The update refused and its subject leaked, in one call. Going through the same
+predicate answers `NotFound`. Verified rather than argued: swapping the read-back to the key makes
+`a_scope_column_refuses_an_update_that_would_move_the_row` fail with
+`expected Err, got Ok(Visit { id: 1, patient_id: 1, .. })`.
+
+**The other obvious implementation is to count the rows the `UPDATE` affected**, and it is ruled out
+by an engine divergence rather than by taste: MySQL reports rows *changed* rather than rows matched
+unless `CLIENT_FOUND_ROWS` is set, and `lib/db/mysql.zm` does not set it. Storing the values a row
+already has would then be indistinguishable from matching nothing, so an idempotent update -- a
+retried request, a form submitted twice -- would answer `NotFound`. The predicate read-back has no
+such regime, which is why it does both jobs. `an_update_that_changes_nothing_still_finds_its_row`
+exists to hold that, and reads like a tautology only until this paragraph.
+
+Two refusals are new, both for mistakes about the entity rather than about the data: an entity whose
+every column belongs to its key has nothing an update could set, so it refuses rather than sending
+`SET` with no assignments; and a scope column that is already part of the key says nothing, so it is
+a caller error rather than a redundancy to absorb. `find_by_key` gained the no-key refusal it was
+missing -- it built `WHERE` out of an empty key list, which is not a statement.
+
+Seven of the ten runtime writes remain.

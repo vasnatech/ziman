@@ -788,45 +788,61 @@ pub fn one<E>(
 // from the struct, the two agreements are one fact.
 
 // The values at the entity's key columns, in key order.
-fn key_values(e: Entity, values: [SqlValue]) -> Result<[SqlValue], DbError> {
+// The position of `name` in `e.columns`, or a refusal naming what the entity does have.
+fn column_at(e: Entity, name: string) -> Result<int, DbError> {
+    for i in 0..prelude.len(e.columns) {
+        if e.columns[i] == name {
+            return ok(i)
+        }
+    }
+    return err(problem(prelude.format(
+        "{} names {} and has no such column (it has: {})",
+        e.name,
+        name,
+        join(separator: ", ", pieces: e.columns)
+    )))
+}
+
+// The values of `names`, picked out of one full row of values in column order. **One array in, so
+// naming extra columns adds no second order to keep right** -- which is the point of taking the
+// entity rather than a statement.
+fn values_of(e: Entity, names: [string], values: [SqlValue]) -> Result<[SqlValue], DbError> {
     val out = mutable_array_new<SqlValue>()
-    for key in e.keys {
-        var at = 0 - 1
-        for i in 0..prelude.len(e.columns) {
-            if e.columns[i] == key {
-                at = i
-            }
-        }
-        if at < 0 {
-            return err(problem(prelude.format(
-                "{} names {} as a key column and has no such column (it has: {})",
-                e.name,
-                key,
-                join(separator: ", ", pieces: e.columns)
-            )))
-        }
+    for name in names {
+        val at = try column_at(e, name)
         push(out, values[at])
     }
     return ok(snapshot(out))
 }
 
-// `WHERE k1 = $1 AND k2 = $2`, numbered from `from`.
-fn key_where(e: Entity, from: int) -> string {
+fn key_values(e: Entity, values: [SqlValue]) -> Result<[SqlValue], DbError> {
+    return values_of(e, e.keys, values)
+}
+
+// `c1 = $1 AND c2 = $2`, numbered from `from`.
+fn where_of(columns: [string], from: int) -> string {
     val parts = mutable_array_new<string>()
-    for i in 0..prelude.len(e.keys) {
-        push(parts, prelude.format("{} = ${}", e.keys[i], from + i))
+    for i in 0..prelude.len(columns) {
+        push(parts, prelude.format("{} = ${}", columns[i], from + i))
     }
     return join(separator: " AND ", pieces: snapshot(parts))
 }
 
-// The two refusals every one of these shares, so none of them can forget one.
-fn writable(e: Entity, values: [SqlValue]) -> Result<unit, DbError> {
+// Without a key there is no predicate that names one row, so every one of these refuses before it
+// can build a statement with an empty -- or missing -- `WHERE`.
+fn addressable(e: Entity) -> Result<unit, DbError> {
     if prelude.len(e.keys) == 0 {
         return err(problem(prelude.format(
             "{} declares no key, so one of its rows cannot be addressed -- mark a field #[pk]",
             e.name
         )))
     }
+    return ok(unit)
+}
+
+// The two refusals every write shares, so none of them can forget one.
+fn writable(e: Entity, values: [SqlValue]) -> Result<unit, DbError> {
+    try addressable(e)
     if prelude.len(values) != prelude.len(e.columns) {
         return err(problem(prelude.format(
             "{} takes {} values and {} were given ({})",
@@ -837,6 +853,37 @@ fn writable(e: Entity, values: [SqlValue]) -> Result<unit, DbError> {
         )))
     }
     return ok(unit)
+}
+
+// **The one row a predicate addresses, and a second one refused rather than taken.** That refusal
+// is what makes a mistake about the key loud: an entity whose `#[pk]` does not identify a row --
+// one column of a compound key, or a key marked on a column that is not unique -- otherwise returns
+// plausible data forever, picked by whatever order the engine happened to use.
+fn only_row<E>(
+    conn: datasource.Connection,
+    e: Entity,
+    predicate: [string],
+    values: [SqlValue],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<E, DbError> {
+    val found = try datasource.query(conn, prelude.format(
+        "SELECT {} FROM {} WHERE {}",
+        join(separator: ", ", pieces: e.columns),
+        e.table,
+        where_of(predicate, 1)
+    ), values)
+    if prelude.len(found) > 1 {
+        return err(problem(prelude.format(
+            "{} answered {} rows for one row's worth of values, so {} does not identify a row",
+            e.table,
+            prelude.len(found),
+            join(separator: ", ", pieces: predicate)
+        )))
+    }
+    if prelude.len(found) == 0 {
+        return err(DbError.NotFound(prelude.format("{} not found", e.name)))
+    }
+    return from_row(found[0])
 }
 
 // **One row stored, and read back.** The columns and their order are the entity's, so the statement
@@ -862,15 +909,77 @@ pub fn insert_one<E>(
     return find_by_key<E>(conn, e, try key_values(e, values), from_row)
 }
 
-// The one row a key addresses. **A second row is refused rather than taken**, which is what makes
-// a mistake about the key loud: an entity whose `#[pk]` does not identify a row -- one column of a
-// compound key, say -- answers an error here instead of plausibly-wrong data.
+// **Every column of one row replaced by `values`, and the row read back.** The assignments are the
+// entity's own non-key columns, so a `SET` list cannot drift out of step with the values the way a
+// hand-written one can.
+//
+// `scope` names columns the stored row must match *as well as* the key -- for a table whose rows
+// belong to someone, the owner. Their values come out of `values` like every other column's, so a
+// scope costs no extra argument to keep aligned; `[]` is the plain shape, keyed and nothing else.
+//
+// **The read-back goes through the same predicate, not through the key alone**, and with a scope
+// those differ exactly where it matters: an entity carrying a different owner matches no row, and a
+// read-back by key would then answer *the other owner's row* -- the update correctly refused and
+// its subject handed back anyway. Through the predicate it answers `NotFound`.
+//
+// That is also why this does not consult the number of rows the `UPDATE` affected, which is the
+// obvious way to tell a miss from a hit: MySQL reports rows *changed* rather than matched unless
+// `CLIENT_FOUND_ROWS` is set, and `lib/db/mysql.zm` does not set it, so storing the values a row
+// already has would be indistinguishable from matching nothing.
+pub fn update_one<E>(
+    conn: datasource.Connection,
+    e: Entity,
+    values: [SqlValue],
+    scope: [string],
+    from_row: fn(Row) -> Result<E, DbError>
+) -> Result<E, DbError> {
+    try writable(e, values)
+    val assigns = mutable_array_new<string>()
+    val sent = mutable_array_new<SqlValue>()
+    for i in 0..prelude.len(e.columns) {
+        if contains(e.keys, e.columns[i]) {
+            continue
+        }
+        push(assigns, prelude.format("{} = ${}", e.columns[i], prelude.len(sent) + 1))
+        push(sent, values[i])
+    }
+    if prelude.len(assigns) == 0 {
+        return err(problem(prelude.format(
+            "every column of {} belongs to its key, so an update could not change anything",
+            e.name
+        )))
+    }
+    for name in scope {
+        if contains(e.keys, name) {
+            return err(problem(prelude.format(
+                "{} is already part of {}'s key, so naming it as a scope column says nothing",
+                name,
+                e.name
+            )))
+        }
+    }
+    val predicate = concat(e.keys, scope)
+    val matched = try values_of(e, predicate, values)
+    for v in matched {
+        push(sent, v)
+    }
+    try datasource.execute(conn, prelude.format(
+        "UPDATE {} SET {} WHERE {}",
+        e.table,
+        join(separator: ", ", pieces: snapshot(assigns)),
+        where_of(predicate, prelude.len(assigns) + 1)
+    ), snapshot(sent))
+    return only_row<E>(conn, e, predicate, matched, from_row)
+}
+
+// The one row a key addresses.
 pub fn find_by_key<E>(
     conn: datasource.Connection,
     e: Entity,
     keys: [SqlValue],
     from_row: fn(Row) -> Result<E, DbError>
 ) -> Result<E, DbError> {
+    try addressable(e)
     if prelude.len(keys) != prelude.len(e.keys) {
         return err(problem(prelude.format(
             "{} has a {}-column key ({}) and {} value(s) were given",
@@ -880,24 +989,7 @@ pub fn find_by_key<E>(
             prelude.len(keys)
         )))
     }
-    val found = try datasource.query(conn, prelude.format(
-        "SELECT {} FROM {} WHERE {}",
-        join(separator: ", ", pieces: e.columns),
-        e.table,
-        key_where(e, 1)
-    ), keys)
-    if prelude.len(found) > 1 {
-        return err(problem(prelude.format(
-            "{} answered {} rows for one key, so {} does not identify a row",
-            e.table,
-            prelude.len(found),
-            join(separator: ", ", pieces: e.keys)
-        )))
-    }
-    if prelude.len(found) == 0 {
-        return err(DbError.NotFound(prelude.format("{} not found", e.name)))
-    }
-    return from_row(found[0])
+    return only_row<E>(conn, e, e.keys, keys, from_row)
 }
 
 pub fn rows(conn: datasource.Connection, query: Translated, bound: [Binding]) -> Result<[Row], DbError> {
