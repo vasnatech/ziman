@@ -1186,6 +1186,68 @@ from source.
 
 ## Larger, needs its own design pass
 
+- **Code generation from annotations needs a mechanism, not a series of exceptions. Not started;
+  this is the design talk.**
+  Raised 2026-10-26, from the conversation that added `#[derive(Entity("table"))]` and then tried
+  to design a `#![repository(..)]` that generates the ten CRUD functions a repository writes by
+  hand. The annotation is not the point of this entry -- **the point is that designing it kept
+  hitting the same wall from different directions**, and each time the answer was a workaround
+  rather than a mechanism.
+
+  **The wall is one line**: `generate_derived_functions(module)` is called from `parser.c`, at the
+  end of parsing **one file**, before any import is resolved. A generator therefore sees the
+  declaration it is attached to and nothing else -- not the imported type, not the schema, not the
+  module it would like to write into. Every awkward part of the current derives is downstream of
+  that:
+
+  * **A generator cannot read a type it does not own.** `#![repository(VitalSign)]` in
+    `repository/vital_sign.zm` cannot see `VitalSign`'s fields: the entity module may not be parsed
+    yet. So the design had to become "emit thin typed wrappers over runtime functions that take the
+    metamodel as a value" -- which is a good design, but it was forced rather than chosen, and it
+    puts a runtime cost and a runtime failure mode where a compile-time one belonged.
+  * **A generator cannot emit into another module.** The attribute must sit where the code should
+    land, so the choice was between putting repository code in the entity (inverting the layering:
+    entities are data, `datasource` is four layers up) and a module attribute that cannot see the
+    entity. Neither is a good answer to "generate this module's functions from that module's type".
+  * **Compound keys fall out of reach for a reason that is purely mechanical.** With `#[pk]` on
+    fields the metamodel knows the key columns, and a two-column key is expressible -- but the
+    repository-side generator still cannot emit a two-argument `find`, because it does not know how
+    many there are. The feature is blocked by the file boundary, not by the design.
+  * **Collisions are undefined.** A hand-written function whose name a generator would emit is a
+    duplicate declaration. There is no `skip:`/`only:`, and silently not emitting is the
+    parse-and-do-nothing failure this project refuses elsewhere (see `#[deprecated]`'s own history).
+  * **Generated code is invisible.** Twenty-one entities now carry three generated vals each that
+    appear in no file; `--emit-derived` is the only way to see them. That is tolerable for three
+    vals and not for ten functions.
+  * **The names are strings.** `pascal_to_snake(name) + "_columns"`, and `compare`/`error_message`
+    find `<type>_compare`/`<type>_message` by name at run time. Nothing checks that a generator's
+    output and its consumer agree on a spelling; `tools/check_builtins.py` checks the rename hints
+    and cannot check this.
+
+  **What a solution has to decide**, in rough order of how much it changes:
+
+  1. **When generation runs.** Moving it after import resolution is the change that dissolves four
+     of the six bullets above -- and it touches every existing derive, so it wants its own
+     measurement (how many of the 7 targets depend on running before anything else is known).
+  2. **Whether a generator may write into a module it is not declared in**, and if so how that is
+     spelled and how a reader finds out it happened.
+  3. **What happens on a collision**: refused with the name, or overridden by the hand-written one
+     with a report. Silence is not on the list.
+  4. **Whether generated declarations are visible in the source** -- a `--emit-derived --write`
+     that materialises them, a generated sibling file, or nothing beyond the current flag.
+  5. **Whether the name contract can be checked** rather than conventional.
+
+  **Why it is worth doing rather than working around again.** The four derives that exist (`Json`,
+  `Row`, `Ord`, `Properties`, `Entity`) each stayed inside one declaration, so the wall never came
+  up. The first generator that wants to span two declarations hit all six bullets in one afternoon,
+  and the design that came out is shaped by the mechanism rather than by the problem. The next one
+  will be too.
+
+  **What not to do first**: build `#![repository(..)]` on the current mechanism. It is possible --
+  thin wrappers over runtime functions keyed off the metamodel -- and `eql`'s runtime CRUD half is
+  worth building on its own merits, since it is callable without any annotation. But the wrapper
+  layer should wait for this design pass, or it becomes the seventh exception.
+
 - **Relaxing the no-overloading rule: let a *declaration* carry the dispatch the arms hand-code.
   Shipped 2026-10-19 (F174-F184), and built on the same day (F185-F201).**
   Raised 2026-10-18, at the end of the collection-pairing pass (F149-F162), from the question
