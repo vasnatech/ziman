@@ -128,11 +128,31 @@ pub fn keyed_entity(name: string, table: string, columns: [string], keys: [strin
 // `datasource.registry`, and for the same reason: this module names no entity, so an application
 // that has three hands over three.
 pub struct Registry {
-    entities: [Entity]
+    // **Keyed on the folded name**, because SQL identifiers are case-insensitive and every lookup
+    // folds what it was given. Folding happens once per entity here instead of once per entity per
+    // comparison, which is what a linear scan over this was doing.
+    by_name: Map<string, Entity>
+    // The names as they were registered, in order, for the refusal message. The keys above are
+    // folded and a map has no order, so "registered: vitalsign, bodymeasurement" is neither what
+    // the caller wrote nor the order they wrote it in.
+    names: [string]
 }
 
 pub fn registry(entities: [Entity]) -> Registry {
-    return Registry { entities: entities }
+    val by_name = mutable_map_new<string, Entity>()
+    val names = mutable_array_new<string>()
+    for e in entities {
+        val key = sql.fold_name(e.name)
+        // **The first of a repeated name wins, as the scan did.** Registering two entities under
+        // one name is a caller mistake and this cannot refuse it -- `registry` answers a `Registry`
+        // and not a `Result` -- so the one thing it can do is not quietly change *which* of them a
+        // query resolves to.
+        if !contains(by_name, key) {
+            set(by_name, key, e)
+            push(names, e.name)
+        }
+    }
+    return Registry { by_name: snapshot(by_name), names: snapshot(names) }
 }
 
 // A named parameter's value, or the values of a collection one.
@@ -323,23 +343,16 @@ struct Bound {
 }
 
 fn entity_named(reg: Registry, name: string) -> Result<Entity, DbError> {
-    val want = sql.fold_name(name)
-    for e in reg.entities {
-        if sql.fold_name(e.name) == want {
-            return ok(e)
-        }
+    if Some(e) = get(reg.by_name, sql.fold_name(name)) {
+        return e
     }
-    val names = mutable_array_new<string>()
-    for e in reg.entities {
-        push(names, e.name)
-    }
-    if prelude.len(names) == 0 {
+    if prelude.len(reg.names) == 0 {
         return err(problem(concat("no entities are registered, so '", name, "' cannot be resolved")))
     }
     return err(problem(prelude.format(
         "no registered entity is called '{}' (registered: {})",
         name,
-        join(separator: ", ", pieces: snapshot(names))
+        join(separator: ", ", pieces: reg.names)
     )))
 }
 

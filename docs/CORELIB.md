@@ -1867,7 +1867,14 @@ pub fn entity(name: string, table: string, columns: [string]) -> Entity
 pub fn keyed_entity(name: string, table: string, columns: [string], keys: [string]) -> Entity
 
 pub struct Registry {
-    entities: [Entity]
+    // **Keyed on the folded name**, because SQL identifiers are case-insensitive and every lookup
+    // folds what it was given. Folding happens once per entity here instead of once per entity per
+    // comparison, which is what a linear scan over this was doing.
+    by_name: Map<string, Entity>
+    // The names as they were registered, in order, for the refusal message. The keys above are
+    // folded and a map has no order, so "registered: vitalsign, bodymeasurement" is neither what
+    // the caller wrote nor the order they wrote it in.
+    names: [string]
 }
 
 pub fn registry(entities: [Entity]) -> Registry

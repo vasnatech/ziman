@@ -255,6 +255,7 @@ them against the code.
 - [`eql.bind` converts its own value, and the thirteen-against-three asymmetry (2026-10-26)](#eqlbind-converts-its-own-value-and-the-thirteen-against-three-asymmetry-2026-10-26)
 - [`DELETE` joins the entity query language, and `UPDATE` does not (2026-10-26)](#delete-joins-the-entity-query-language-and-update-does-not-2026-10-26)
 - [Reading a module val before its initialiser has run is an error now, not a crash (2026-10-26)](#reading-a-module-val-before-its-initialiser-has-run-is-an-error-now-not-a-crash-2026-10-26)
+- [`Registry` becomes a map keyed on the folded name (2026-10-26)](#registry-becomes-a-map-keyed-on-the-folded-name-2026-10-26)
 
 <!-- end index -->
 
@@ -9958,3 +9959,35 @@ mechanism, and the second one's diagnostic is legible because of the first one's
 a module-level `fn` closing over a module-level `val`, and the first thing worth checking about that
 shape is whether the order matters. It does, it was undiagnosable, and now it is one line of
 message.
+
+## `Registry` becomes a map keyed on the folded name (2026-10-26)
+
+`Registry` was `{ entities: [Entity] }` and `entity_named` walked it, calling `sql.fold_name` on
+**both** sides of every comparison. It is now `Map<string, Entity>` keyed on the folded name, so
+folding happens once per entity at construction instead of once per entity per probe.
+
+**This is a data-structure correction, not a measured win, and the entry says so because the
+measurement does not support one.** Every registry read happens during module load, before `main`:
+`bindings_of` resolves each `FROM`/`JOIN` entity, the rewriter resolves it again to write the table,
+and `translate` re-runs the whole pass once per pre-computed collection size (`eager_sizes = 8`, plus
+the base). So the worst case is about 18 probes per query, against a registry holding one entity in
+every repository that exists today. Nothing reads a registry per request -- `prepare` and `execute`
+work from the translated SQL string -- and that is the property worth protecting, not the scan.
+
+What it does buy is that a *shared* registry stops being a different performance question from a
+per-module one, which is the shape the sample backend keeps asking about.
+
+**Two properties the list had and a map does not, both kept deliberately.**
+
+The keys are folded, and a map has no order, so the refusal would have read
+*"registered: vitalsign, bodymeasurement"* -- neither what the caller wrote nor the order they wrote
+it in. `Registry` therefore carries `names: [string]` beside the map, for the message alone. That is
+a field whose only reader is an error path, which is worth the line: the message names what you
+asked for *and* what is available, and both halves are what makes a mistyped entity name a
+five-second fix.
+
+And a repeated name resolved to the *first* registered under a scan, where `set` into a map would
+have made it the last. `registry` answers a `Registry` rather than a `Result`, so it cannot refuse
+the duplicate -- changing that would put an `unwrap` at every call site for a mistake nothing has
+made -- so it keeps first-wins with a `contains` check. Silently changing which of two entities a
+query resolves to is the one outcome worse than either.

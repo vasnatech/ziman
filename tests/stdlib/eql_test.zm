@@ -524,3 +524,36 @@ fn an_update_still_says_where_to_go() {
         "a one-row INSERT or UPDATE is `eql.insert_one` / `eql.update_one`"
     )
 }
+
+// ---------------------------------------------------------------- the registry as a map
+
+#[test]
+fn the_refusal_names_the_entities_as_they_were_registered() {
+    // The registry is keyed on the folded name, so its keys are lowercased and a map has no order.
+    // The message must still read back what the caller wrote, in the order they wrote it -- which
+    // is why `Registry` carries the names beside the map rather than deriving them from its keys.
+    test.assert_contains(refusal("SELECT x.id FROM Nope x"), "no registered entity is called 'Nope'")
+    test.assert_contains(refusal("SELECT x.id FROM Nope x"), "(registered: Patient, Visit)")
+}
+
+#[test]
+fn an_empty_registry_says_so_rather_than_naming_nothing() {
+    val empty = eql.registry([])
+    test.assert_contains(
+        db.db_error_message(test.assert_err(eql.translate(empty, "SELECT x.id FROM Nope x"))),
+        "no entities are registered"
+    )
+}
+
+#[test]
+fn the_first_of_a_repeated_name_wins() {
+    // Two entities whose names fold to one key is a caller mistake, and `registry` answers a
+    // `Registry` rather than a `Result`, so it cannot refuse one. What it can do is keep the
+    // resolution the linear scan had: the first registered. The table is what proves which.
+    val shadow = eql.entity("patient", "SHOULD_NOT_WIN", ["id"])
+    val dup = eql.registry([patient, shadow])
+    test.assert_eq(
+        "SELECT p.id FROM patients AS p",
+        test.assert_ok(eql.translate(dup, "SELECT p.id FROM Patient p")).sql
+    )
+}
