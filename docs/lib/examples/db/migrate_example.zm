@@ -1,0 +1,72 @@
+use datasource
+use db.DbError
+use db.db_error_message
+use fs
+use memdb
+use migrate
+
+// Versioned schema migrations: a directory of plain `.sql` files, applied in order, once each. A
+// file is named `V<version>__<name>.sql`, the versions run 1, 2, 3 with no gap and no repeat, and
+// what has already been applied is recorded in the database -- so running twice is not running
+// twice.
+val drivers = datasource.registry([memdb.driver()])
+
+fn write_migrations(dir: string) -> Result<unit, string> {
+    if Err(e) = fs.make_dirs(dir) {
+        return err(fs.fs_error_message(e))
+    }
+    if Err(e) = fs.write_text(
+        fs.path_join(dir, "V001__create_people.sql"),
+        """
+        -- Two statements in one file, separated by `;`.
+        CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+        INSERT INTO people (id, name) VALUES (1, 'Ada');
+        """
+    ) {
+        return err(fs.fs_error_message(e))
+    }
+    if Err(e) = fs.write_text(
+        fs.path_join(dir, "V002__add_city.sql"),
+        "ALTER TABLE people ADD COLUMN city TEXT"
+    ) {
+        return err(fs.fs_error_message(e))
+    }
+    return unit
+}
+
+fn demo(dir: string) -> Result<unit, DbError> {
+    val conn = try datasource.open(drivers, "memdb:")
+
+    // The answer is how many ran, so a deploy can say what it did.
+    print(try migrate.run(conn, dir))
+
+    // Running again applies nothing: each version is recorded as it is applied.
+    print(try migrate.run(conn, dir))
+
+    print(len(try datasource.query(conn, "SELECT id, name, city FROM people")))
+
+    // The directory can be read without a database, which is what a check in CI does.
+    for m in try migrate.load(dir) {
+        printf("V{} {}\n", m.version, m.name)
+    }
+
+    // A checksum over the text, so an edit to a file that has already run can be detected.
+    print(migrate.checksum("CREATE TABLE a (b INT)") == migrate.checksum("CREATE TABLE a (b INT)"))
+    print(migrate.checksum("CREATE TABLE a (b INT)") == migrate.checksum("CREATE TABLE a (c INT)"))
+    datasource.close(conn)
+    return unit
+}
+
+fn main() {
+    val dir = "/tmp/ziman_manual_migrate_example"
+    if Err(e) = write_migrations(dir) {
+        printf("migrate example failed: {}\n", e)
+        return
+    }
+    if Err(e) = demo(dir) {
+        printf("migrate example failed: {}\n", db_error_message(e))
+    }
+    if Err(e) = fs.remove_all(dir) {
+        printf("could not remove {}: {}\n", dir, fs.fs_error_message(e))
+    }
+}

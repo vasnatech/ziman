@@ -1,0 +1,67 @@
+use fs
+use process
+
+// Starting, waiting for and signalling a child process. A `Process` is a handle to something
+// outside this program, so every operation on it answers a Result -- the child may already have
+// gone -- and its output goes to files rather than to a pipe, which is what keeps a slow reader
+// from deadlocking a chatty child.
+fn demo(out_path: string) -> Result<unit, string> {
+    // Arguments are a list, not a line to be re-parsed, so a space or a quote in one is just a
+    // character and there is no shell to escape for.
+    val hello = try process.start(
+        "/bin/echo",
+        ["a b", "c'd"],
+        None,
+        Some(out_path),
+        None,
+        None
+    )
+    print(try process.wait(hello))
+    // Reading the file answers an fs.FsError, not this function's string, so it converts here.
+    switch fs.read_text(out_path) {
+        Ok(text) { print(trim(text)) }
+        Err(e) { return err(fs.fs_error_message(e)) }
+    }
+
+    // The environment is given explicitly, so a child sees what it was handed.
+    val printenv = try process.start(
+        "/usr/bin/env",
+        [],
+        Some([process.env("ZIMAN_EXAMPLE", "set-by-the-parent")]),
+        Some(out_path),
+        None,
+        None
+    )
+    try process.wait(printenv)
+    val lines = switch fs.lines(out_path) {
+        Ok(it) { it }
+        Err(e) { return err(fs.fs_error_message(e)) }
+    }
+    for line in lines {
+        if Ok(text) = line && starts_with(text, "ZIMAN_EXAMPLE=") {
+            print(text)
+        }
+    }
+
+    // A failing child is not an error of this call: the exit status is the answer.
+    val failing = try process.start("/bin/false", [], None, None, None, None)
+    print(try process.wait(failing))
+
+    // Waiting with a timeout answers None while the child is still running, so a supervisor can
+    // decide to signal it rather than block for ever.
+    val sleeper = try process.start("/bin/sleep", ["5"], None, None, None, None)
+    print(Option.is_None(try process.wait_for(sleeper, 50)))
+    try process.terminate(sleeper)
+    print(is_ok(process.wait(sleeper)))
+    return unit
+}
+
+fn main() {
+    val out_path = "/tmp/ziman_manual_process_example.out"
+    if Err(e) = demo(out_path) {
+        printf("process example failed: {}\n", e)
+    }
+    if Err(e) = fs.remove(out_path) {
+        printf("could not remove {}: {}\n", out_path, fs.fs_error_message(e))
+    }
+}

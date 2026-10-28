@@ -1,0 +1,19 @@
+true
+# HELP requests_total Requests served
+# TYPE requests_total counter
+requests_total 5
+# HELP queue_depth Items waiting
+# TYPE queue_depth gauge
+queue_depth 7
+# HELP request_seconds Request duration
+# TYPE request_seconds histogram
+request_seconds_bucket{le="0.1"} 1
+request_seconds_bucket{le="0.5"} 2
+request_seconds_bucket{le="1"} 2
+request_seconds_bucket{le="+Inf"} 3
+request_seconds_sum 2.35
+request_seconds_count 3
+# HELP ziman_metrics_dropped_series_total Writes dropped because a metric was at its series cap.
+# TYPE ziman_metrics_dropped_series_total counter
+ziman_metrics_dropped_series_total 0
+

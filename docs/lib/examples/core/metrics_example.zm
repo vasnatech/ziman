@@ -1,0 +1,32 @@
+use metrics
+
+// Counters, gauges and histograms in the Prometheus text format, so a scrape endpoint is a few
+// lines rather than a dependency. A metric is registered once with the help text that explains it,
+// and incremented from anywhere after that -- the registry is the process's, not a value to thread
+// through every call.
+fn demo() -> Result<unit, string> {
+    // Registration answers false only when the registry is full (64 names) -- a start-up mistake
+    // rather than something to handle per call, which is why it is a bool and not a Result.
+    print(metrics.counter("requests_total", "Requests served"))
+    metrics.gauge("queue_depth", "Items waiting")
+    metrics.histogram("request_seconds", "Request duration", [0.1, 0.5, 1.0])
+
+    metrics.increment("requests_total")
+    metrics.increment("requests_total")
+    metrics.add("requests_total", 3.0)
+
+    metrics.set("queue_depth", 7.0)
+
+    metrics.observe("request_seconds", 0.05)
+    metrics.observe("request_seconds", 0.3)
+    metrics.observe("request_seconds", 2.0)
+
+    print(metrics.render())
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("metrics example failed: {}\n", e)
+    }
+}

@@ -31,6 +31,77 @@ jwt.verify_claims(token: t, key: key, issuer: "health-record", audience: "web")
 
 `use jwt` -- or `use jwt.Name` to bring one item in bare.
 
+## Example
+
+```
+use json
+use json.Json
+use json.int_to_json
+use jwt
+
+// Signed tokens: a set of claims, an HMAC over them, and a verification that answers what the
+// claims were. Every check takes the time as an argument rather than reading the clock, so an
+// expiry can be tested rather than waited for.
+fn demo() -> Result<unit, string> {
+    val key = to_bytes("a-secret-of-at-least-32-bytes-long!!")
+    print(jwt.algorithm_for_key(key))
+
+    // `jwt.claims(subject, expires_in_seconds)` reads the clock; building the object by hand keeps
+    // this example the same on every run.
+    val claims = Json.JObject(Map<string, Json> {
+        "sub": Json.JString("ada"),
+        "iat": int_to_json(1700000000),
+        "exp": int_to_json(1700003600)
+    })
+    val token = try jwt.sign(claims, key)
+    print(len(split(token, ".")))
+
+    // Verified well inside the lifetime: the claims come back as they went in.
+    switch jwt.verify_at(token, key, 1700000100, 0) {
+        Ok(back) { print(json.format(back)) }
+        Err(e) { print(jwt.jwt_error_message(e)) }
+    }
+
+    // After `exp`, it is refused -- and the refusal says which check failed.
+    if Err(e) = jwt.verify_at(token, key, 1700009999, 0) {
+        print(jwt.jwt_error_message(e))
+    }
+
+    // Leeway covers two clocks that disagree slightly, rather than rejecting on a second.
+    print(is_ok(jwt.verify_at(token, key, 1700003630, 60)))
+
+    // A different key is a different signature, which is the whole point.
+    if Err(e) = jwt.verify_at(token, to_bytes("a-different-secret-of-32-bytes-ok!!!"), 1700000100, 0) {
+        print(jwt.jwt_error_message(e))
+    }
+
+    // So is an altered payload: the signature covers it.
+    val tampered = concat(substring(token, 0, len(token) - 4), "AAAA")
+    if Err(e) = jwt.verify_at(tampered, key, 1700000100, 0) {
+        print(jwt.jwt_error_message(e))
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("jwt example failed: {}\n", e)
+    }
+}
+```
+
+Output:
+
+```
+HS256
+3
+{"sub":"ada","iat":1700000000,"exp":1700003600}
+the token has expired
+true
+the signature does not match
+the signature does not match
+```
+
 ### `JwtError`
 
 ```

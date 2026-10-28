@@ -35,6 +35,66 @@ names sorted, so the same labels given in a different order are the same series.
 
 `use metrics` -- or `use metrics.Name` to bring one item in bare.
 
+## Example
+
+```
+use metrics
+
+// Counters, gauges and histograms in the Prometheus text format, so a scrape endpoint is a few
+// lines rather than a dependency. A metric is registered once with the help text that explains it,
+// and incremented from anywhere after that -- the registry is the process's, not a value to thread
+// through every call.
+fn demo() -> Result<unit, string> {
+    // Registration answers false only when the registry is full (64 names) -- a start-up mistake
+    // rather than something to handle per call, which is why it is a bool and not a Result.
+    print(metrics.counter("requests_total", "Requests served"))
+    metrics.gauge("queue_depth", "Items waiting")
+    metrics.histogram("request_seconds", "Request duration", [0.1, 0.5, 1.0])
+
+    metrics.increment("requests_total")
+    metrics.increment("requests_total")
+    metrics.add("requests_total", 3.0)
+
+    metrics.set("queue_depth", 7.0)
+
+    metrics.observe("request_seconds", 0.05)
+    metrics.observe("request_seconds", 0.3)
+    metrics.observe("request_seconds", 2.0)
+
+    print(metrics.render())
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("metrics example failed: {}\n", e)
+    }
+}
+```
+
+Output:
+
+```
+true
+# HELP requests_total Requests served
+# TYPE requests_total counter
+requests_total 5
+# HELP queue_depth Items waiting
+# TYPE queue_depth gauge
+queue_depth 7
+# HELP request_seconds Request duration
+# TYPE request_seconds histogram
+request_seconds_bucket{le="0.1"} 1
+request_seconds_bucket{le="0.5"} 2
+request_seconds_bucket{le="1"} 2
+request_seconds_bucket{le="+Inf"} 3
+request_seconds_sum 2.35
+request_seconds_count 3
+# HELP ziman_metrics_dropped_series_total Writes dropped because a metric was at its series cap.
+# TYPE ziman_metrics_dropped_series_total counter
+ziman_metrics_dropped_series_total 0
+```
+
 ### `counter`
 
 ```
