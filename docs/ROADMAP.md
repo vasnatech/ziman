@@ -1184,6 +1184,30 @@ from source.
   structurally obvious change measured worse than doing nothing (the `Type` union, and three separate
   attempts at (2)), so measure each step.
 
+- **Colour Ziman as Ziman, outside the editor.** The TextMate grammar
+  (`editors/vscode/syntaxes/ziman.tmLanguage.json`, 15 patterns over 14 scope groups) serves VS
+  Code and nothing else. Everywhere else the language renders as plain text: GitHub highlights by
+  a name Linguist knows, so both the 78 ` ```ziman ` fences in the docs and every `.zm` file in
+  the file view are colourless, and so is Ziman code shown in a terminal.
+
+  **Borrowing another language's grammar was measured and declined (2026-10-28).** Over the 46,000
+  lines of `lib/` and the examples, Rust would colour 70.9% of keyword tokens, Kotlin 70.7%, Swift
+  58.5% -- Rust's blind spots being `val` (3,184 uses), `var` (1,013) and `try` (1,001). Rejected
+  not on the numbers but on the label: tagging a fence ` ```rust `, or mapping `*.zm` to Rust in
+  `.gitattributes`, says Ziman is a language it is not. The `.gitattributes` form would at least
+  change no source -- it only picks the grammar GitHub renders with -- and is parked with this
+  entry rather than ruled out forever.
+
+  **What to build is a tokenizer of our own**: `tools/gen_highlight.py`, emitting `<span>` classes
+  from Ziman's own 25 keywords, strings, text blocks, numbers, comments, attributes, type names
+  and builtins, run at publish time the way `gen_lib_map.py` already is. That colours ziman.dev
+  honestly, with no JavaScript and no CDN, and replaces the hand-written `<b>` tags on the one
+  example the page shows today -- which do not scale to the 30 examples and can drift from the
+  syntax.
+
+  **Linguist itself is the real fix and is out of reach**: it wants the grammar (we have one) plus
+  the language in use across hundreds of repositories (we have one). Revisit if that changes.
+
 ## Larger, needs its own design pass
 
 - **Derived queries: a repository function's name is its query. Design written, nothing built --
