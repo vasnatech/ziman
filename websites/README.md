@@ -9,36 +9,42 @@ site -- no build step, no dependencies, no generator.
 
 ## Deploying
 
-`ziman.dev/` is deployed by **`.github/workflows/pages.yml`** on every push to `main` that touches
-`websites/ziman.dev/**` (or the workflow itself), and on demand through *Actions -> Deploy
-ziman.dev -> Run workflow*.
+**Cloudflare Pages is where this is going**, because Cloudflare already holds the DNS for
+`vasna.tech` and will hold `ziman.dev`: on the same account the custom domain needs no apex
+workaround (Cloudflare flattens it), the certificate is Cloudflare's, and the Pages project creates
+the DNS record itself.
 
-The workflow exists because **GitHub Pages serves the repository root or `docs/`, not a nested
-directory**: it uploads `websites/ziman.dev/` alone as the Pages artifact. Before uploading it
-checks the things nothing else would catch in a site with no build step -- that `index.html` and
-`logo.svg` are present, that `CNAME` still says `ziman.dev`, that the title is intact, and that
-`index.html` parses with no unclosed or stray tags.
+| workflow | host | state |
+| --- | --- | --- |
+| `.github/workflows/cloudflare-pages.yml` | Cloudflare Pages (Direct Upload) | the target; deploys as soon as the account's secrets exist |
+| `.github/workflows/pages.yml` | GitHub Pages | serving <https://vasnatech.github.io/ziman/> today; **to be removed once Cloudflare serves `ziman.dev`** |
 
-`actions/configure-pages` runs with `enablement: true`, so the workflow turns Pages on by itself;
-there is no setting to remember in the web interface.
+Both run on a push to `main` touching `websites/ziman.dev/**`, and both begin by running
+`python3 tools/check_site.py websites/ziman.dev` -- the same check you can run locally. It asserts
+the files are present, the title survived, `CNAME` still names the directory's domain, and
+`index.html` has no unclosed or stray tags. Nothing else in the repository looks at `websites/`;
+`make check` does not.
 
-**The site is live at <https://vasnatech.github.io/ziman/>** and `ziman.dev` is not yet pointed at
-it. Two separate things are still missing, in this order:
+The Cloudflare workflow **skips its deploy step while the credentials are absent** rather than
+failing, so it is committed before the account is set up without turning every push red. It says so
+in the run's annotations.
 
-1. **DNS.** `ziman.dev` is an apex domain, so it needs four `A` records and four `AAAA` records at
-   the registrar pointing at GitHub's Pages addresses (185.199.108-111.153 and
-   2606:50c0:8000-8003::153), plus a `CNAME` on `www` to `vasnatech.github.io` if that host is
-   wanted.
-2. **The custom domain, which is a repository setting and not the `CNAME` file**:
-   `gh api -X PUT repos/vasnatech/ziman/pages -f cname=ziman.dev`. Setting it before the records
-   resolve parks it in a failed DNS check, so it goes second.
+### What is still needed, in order
 
-**`CNAME` in this directory does not set the domain.** It ships in the artifact, and a
-workflow-published site ignores it: after the first successful deployment (run 40627116782) the
-repository's Pages `cname` was still `null` and nothing redirected. The file is kept because it
-records which domain the directory is for -- the workflow asserts it still reads `ziman.dev` -- and
-because it *would* be the mechanism if this site ever moved to branch-based publishing. It is not
-the mechanism today.
+1. **Move the zone.** `ziman.dev` is on Squarespace's nameservers (`nsb1-4.squarespacedns.com`) and
+   resolves to Squarespace parking addresses. Add it as a site in Cloudflare, then change the
+   nameservers at Squarespace to the two Cloudflare gives. Nothing is served from the domain yet, so
+   there is nothing to break.
+2. **Create the Pages project**, named `ziman-dev` (the name the workflow passes), as a Direct
+   Upload project with no build command: `wrangler pages project create ziman-dev
+   --production-branch=main`, or the same in the dashboard.
+3. **Give this repository the credentials.** A custom API token with *Account -> Cloudflare Pages ->
+   Edit*, and the account id, as the repository secrets `CLOUDFLARE_API_TOKEN` and
+   `CLOUDFLARE_ACCOUNT_ID`.
+4. **Add the custom domain** `ziman.dev` to the Pages project. With the zone on the same account
+   Cloudflare writes the DNS record and issues the certificate itself.
+5. **Then remove GitHub Pages**: delete `.github/workflows/pages.yml` and disable the Pages site
+   (`gh api -X DELETE repos/vasnatech/ziman/pages`), so there is one live copy and not two.
 
 ## Keeping the page true
 

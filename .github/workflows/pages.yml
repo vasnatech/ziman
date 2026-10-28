@@ -10,6 +10,7 @@ on:
     branches: [main]
     paths:
       - websites/ziman.dev/**
+      - tools/check_site.py
       - .github/workflows/pages.yml
   workflow_dispatch:
 
@@ -34,48 +35,10 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      # The site is handwritten and has no build step, so nothing else would notice a page that
-      # stopped parsing or lost its title. These are the checks that are cheap and worth having
-      # before something is served to the public.
-      - name: Check the site is intact
-        run: |
-          cd websites/ziman.dev
-          test -f index.html
-          test -f logo.svg
-          test "$(cat CNAME)" = "ziman.dev"
-          grep -q "<title>Ziman</title>" index.html
-          python3 - <<'PY'
-          from html.parser import HTMLParser
-          import io, sys
-          VOID = {"area", "base", "br", "col", "embed", "hr", "img",
-                  "input", "link", "meta", "source", "track", "wbr"}
-          class Check(HTMLParser):
-              def __init__(self):
-                  super().__init__(convert_charrefs=True)
-                  self.stack = []
-                  self.errors = []
-              def handle_starttag(self, tag, attrs):
-                  if tag not in VOID:
-                      self.stack.append((tag, self.getpos()))
-              def handle_endtag(self, tag):
-                  if tag in VOID:
-                      return
-                  if self.stack and self.stack[-1][0] == tag:
-                      self.stack.pop()
-                  else:
-                      self.errors.append((tag, self.getpos()))
-          c = Check()
-          c.feed(io.open("index.html", encoding="utf-8").read())
-          if c.stack or c.errors:
-              print("index.html does not parse cleanly")
-              print("  unclosed:", c.stack)
-              print("  stray closing tags:", c.errors)
-              sys.exit(1)
-          print("index.html parses cleanly")
-          PY
+      # The same check the Cloudflare workflow runs, and the same one you can run locally.
+      - name: Check the site is fit to publish
+        run: python3 tools/check_site.py websites/ziman.dev
 
-      # `enablement` turns Pages on for the repository if it is off, so this workflow is the whole
-      # setup -- there is no step in the web interface to remember or to document.
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:

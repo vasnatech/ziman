@@ -1,0 +1,59 @@
+# Publishes websites/ziman.dev/ to Cloudflare Pages.
+#
+# Cloudflare holds the DNS for vasna.tech and will hold ziman.dev, so the site is hosted on the same
+# account: the custom domain needs no apex workaround (Cloudflare flattens it), the certificate is
+# Cloudflare's, and the DNS record is created by the Pages project rather than by hand.
+#
+# This is a Direct Upload project -- the directory is uploaded as-is, with no build step, because the
+# site is three static files.
+name: Deploy ziman.dev (Cloudflare)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - websites/ziman.dev/**
+      - tools/check_site.py
+      - .github/workflows/cloudflare-pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  deployments: write
+
+concurrency:
+  group: cloudflare-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      # Whether this repository has been given the account's credentials yet. The deploy step is
+      # skipped while they are absent, so committing this workflow before Cloudflare is set up does
+      # not turn every push red -- the site check still runs, which is the half that needs no
+      # account. (A job-level `if` cannot read the secrets context; a job-level `env` can, and a
+      # step-level `if` can read that.)
+      HAS_CLOUDFLARE: ${{ secrets.CLOUDFLARE_API_TOKEN != '' && secrets.CLOUDFLARE_ACCOUNT_ID != '' }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Check the site is fit to publish
+        run: python3 tools/check_site.py websites/ziman.dev
+
+      - name: Deploy to Cloudflare Pages
+        if: env.HAS_CLOUDFLARE == 'true'
+        uses: cloudflare/wrangler-action@v4
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # `--branch=main` names the project's production branch explicitly, so a deployment from
+          # here is a production one rather than a preview.
+          command: pages deploy websites/ziman.dev --project-name=ziman-dev --branch=main
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Say what is still missing
+        if: env.HAS_CLOUDFLARE != 'true'
+        run: |
+          echo "::notice title=Cloudflare not configured::The site passed its checks but was not deployed. Add the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets, and create the Pages project 'ziman-dev'. See websites/README.md."
