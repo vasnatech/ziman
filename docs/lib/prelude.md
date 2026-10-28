@@ -2452,9 +2452,9 @@ fn main() {
     xs[0] = 99
     print(xs[0])
     reverse(xs)
-    print(snapshot(xs))
+    print(xs)
     sort(xs)
-    print(snapshot(xs))
+    print(xs)
 
     // A Mutable<T> cell is the same idea for a single value: something a closure can update,
     // where a plain `var` could not be shared.
@@ -3064,7 +3064,7 @@ fn main() {
     for word in ["ada", "grace", "ada", "alan"] {
         add(seen, word)
     }
-    print(len(snapshot(seen)))
+    print(len(seen))
     print(add(seen, "ada"))
     print(add(seen, "hedy"))
 }

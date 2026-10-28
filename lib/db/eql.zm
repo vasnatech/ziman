@@ -747,7 +747,7 @@ fn translate_sized(reg: Registry, query: string, sizes: Map<string, int>) -> Res
                 if Some(n) = get(sizes, name) {
                     width = n
                 }
-                if !contains(snapshot(lists), name) {
+                if !contains(lists, name) {
                     push(lists, name)
                 }
             }

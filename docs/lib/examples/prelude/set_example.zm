@@ -30,7 +30,7 @@ fn main() {
     for word in ["ada", "grace", "ada", "alan"] {
         add(seen, word)
     }
-    print(len(snapshot(seen)))
+    print(len(seen))
     print(add(seen, "ada"))
     print(add(seen, "hedy"))
 }

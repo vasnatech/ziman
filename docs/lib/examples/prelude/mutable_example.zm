@@ -18,9 +18,9 @@ fn main() {
     xs[0] = 99
     print(xs[0])
     reverse(xs)
-    print(snapshot(xs))
+    print(xs)
     sort(xs)
-    print(snapshot(xs))
+    print(xs)
 
     // A Mutable<T> cell is the same idea for a single value: something a closure can update,
     // where a plain `var` could not be shared.
