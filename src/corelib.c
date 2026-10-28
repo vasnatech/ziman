@@ -10,6 +10,7 @@
 #include "meta_source.h"
 #include "template_source.h"
 #include "derive_ord_source.h"
+#include "derive_row_source.h"
 #include "url_source.h"
 #include "fs_source.h"
 #include "log_source.h"
@@ -85,6 +86,7 @@ static const CoreModule CORE_MODULES[] = {
     {"meta", META_SOURCE},
     {"template", TEMPLATE_SOURCE},
     {"derive_ord", DERIVE_ORD_SOURCE},
+    {"derive_row", DERIVE_ROW_SOURCE},
     {"url", URL_SOURCE},
     {"fs", FS_SOURCE},
     {"log", LOG_SOURCE},

@@ -427,3 +427,55 @@ What the build confirmed and what it corrected:
 
 Still open, unchanged: whether templates pay at scale. `derive_row` and `derive_json` are where
 that is answered, and where `@if` is first used in anger.
+
+## 14. `derive_row`: the scale question, answered and narrower than expected
+
+§13 left one thing open -- whether templates pay for a generator bigger than `Ord`. `Row` is
+that generator: two functions, every scalar kind, the short-spelled bundled types, and `Option`.
+It was ported on 2026-10-28 and is **byte-identical to the C on the first run**, over a ten-field
+struct covering a `Uuid`, all six scalars, an `Instant` and three shapes of `Option` (over a
+string, over a flat-named type, over a user type).
+
+### The answer: templates pay where there is a shape, and `Row` is half shape
+
+| | C | Ziman |
+|---|---|---|
+| the two function bodies | 42 lines of `cb_appendf` | **23 lines of template** + 37 of marshalling |
+| the per-field conversions | 86 lines | 78 lines of `concat`, **no template** |
+
+**The bodies are templates and the conversions are not, and that is not a compromise -- it is
+what the two things are.** A function body has a fixed shape: a signature, a loop over fields, a
+struct literal. A conversion does not. `Option<U>` emits a `var`, a null test and *U's own
+conversion inside it*, so the text is **recursive** and its depth is a property of the type, not
+of the template. A template can hold a fixed shape with holes in it; it cannot hold a shape that
+contains itself.
+
+So the conversions stayed `concat`, and the honest reading is that they are **no worse than the
+C** -- 78 lines against 86, doing the same dispatch -- while being Ziman the type checker, the
+formatter and `ziman test` can all see. The template's win is confined to the half that had a
+shape, and there it is the same win §12 measured on `Ord`'s enum: the two generated functions are
+visible as two functions.
+
+### The correction: `@if` is still unused, and §4's own example was wrong about why
+
+§4 argued the no-expressions rule using `derive(Row)`'s `Option` column, and §13 predicted that
+`derive_row` was where `@if` would finally be exercised. **It was not, and the reason is worth
+recording**: the `Option` case is recursive, so it cannot be a branch *inside* a template at all.
+It is not "two readings of a field, pick one" -- it is "a conversion wrapping another
+conversion", which is code. The example in §4 is a fair picture of the *output* and a misleading
+picture of where the decision lives.
+
+**Two generators in, `@if` and `@else` have no users.** They are not thereby wrong -- a generator
+whose output varies without recursing is an ordinary thing to expect, and `Properties` with its
+required-versus-optional keys is the next candidate -- but the construct is currently paid for
+and unused, which is the kind of thing that should be said out loud rather than discovered later.
+If `derive_json` and `derive_properties` also come back without using it, that is an argument for
+taking it out, not for finding it a user.
+
+### What `meta` learned
+
+`Member.type_name: string` was replaced by `Member.type: MetaType`. The string had been
+speculative -- §1's "a field nobody reads is a promise that cannot be taken back" -- and the
+first generator to read a type at all proved it the wrong shape: a conversion switches on the
+kind, asks whether it is an `Option`, and then needs the element. Keeping `meta` small is what
+made that a one-fixture change rather than a migration.

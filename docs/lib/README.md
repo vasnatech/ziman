@@ -101,6 +101,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`meta`](meta.md) | A declaration, as a generator sees it. |
 | [`template`](template.md) | Templates for generated code: the shape of the output, visible in the source. |
 | [`derive_ord`](derive_ord.md) | `#[derive(Ord)]`, written in Ziman. |
+| [`derive_row`](derive_row.md) | `#[derive(Row)]`, written in Ziman. |
 
 ## Graphics
 

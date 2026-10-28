@@ -12,11 +12,11 @@ use derive_ord
 use meta
 
 fn member(name: string) -> meta.Member {
-    return meta.Member { name: name, type_name: "int", has_payload: false }
+    return meta.Member { name: name, type: meta.scalar("int"), has_payload: false }
 }
 
 fn variant(name: string, payload: bool) -> meta.Member {
-    return meta.Member { name: name, type_name: "int", has_payload: payload }
+    return meta.Member { name: name, type: meta.scalar("int"), has_payload: payload }
 }
 
 fn main() {

@@ -1,0 +1,281 @@
+// `#[derive(Row)]`, written in Ziman: `<name>_from_row` and `<name>_to_params`, which map a
+// struct to and from one SQL result row.
+//
+// **The second generator ported out of `src/derive.c`, and the one that answers whether
+// templates pay.** `Ord`'s two halves were a wash and a win; this one is bigger, nests, and has
+// to handle `Option`. What it found is in docs/design/templates.md §14, and the short version is
+// in this file: **the two function bodies are templates and the per-field conversions are not**,
+// because a conversion is recursive and a template can only show a fixed shape.
+//
+// Column names are the struct's own field names, as written -- already snake_case, which is also
+// how SQL columns are conventionally named, so unlike Json's camelCase keys there is no transform
+// here.
+#![experimental]
+
+use meta
+use template
+
+// The bundled types whose converters are spelled short -- `to_sql(d)` and `to_localdate(v)`
+// rather than `local_date_to_sql` and `local_date_from_sql`. `Uuid` is deliberately absent: its
+// name has nothing to shorten, so it keeps `uuid_to_sql`. See `standard_flat_type_name` in
+// src/derive.c for why the short form stops at these seven.
+val flat_names = Map<string, string> {
+    "Instant": "instant",
+    "LocalDate": "localdate",
+    "LocalTime": "localtime",
+    "LocalDateTime": "localdatetime",
+    "Duration": "duration",
+    "ZoneOffset": "zoneoffset",
+    "ZoneId": "zoneid"
+}
+
+// What it writes, for `#[derive(Row)] struct Note { id: int  body: Option<string> }`:
+//
+//     pub fn note_from_row(row: Row) -> Result<Note, DbError> {
+//         val field_id_raw = try row_get(row, "id")
+//         val field_id = try sql_as_int(field_id_raw)
+//         val field_body_raw = try row_get(row, "body")
+//         var field_body = Option<string>.None
+//         if !SqlValue.is_Null(field_body_raw) {
+//         val __derive_opt_inner_0 = try sql_as_text(field_body_raw)
+//         field_body = Option<string>.Some(__derive_opt_inner_0)
+//         }
+//         return Note {
+//             id: field_id,
+//             body: field_body
+//         }
+//     }
+//
+// The flat indentation inside the `if` is the C generator's, kept rather than improved: this port
+// is checked by emitting the same bytes, and tidying it is a separate change with its own fixture
+// churn.
+val from_row_body = template.must_parse("""
+pub fn @{snake}_from_row(row: Row) -> Result<@{name}, DbError> {
+@for f in fields
+    val field_@{f.name}_raw = try row_get(row, "@{f.name}")
+@{f.read}
+@end
+    return @{name} {
+@for f in fields
+        @{f.name}: field_@{f.name}@{f.comma}
+@end
+    }
+}
+
+
+""")
+
+// What it writes, for the same struct:
+//
+//     pub fn note_to_params(v: Note) -> [SqlValue] {
+//         val __derive_params = mutable_array_new<SqlValue>()
+//         val field_id_sql = SqlValue.Int(v.id)
+//         push<SqlValue>(__derive_params, field_id_sql)
+//         var field_body_sql = SqlValue.Null
+//         if Option.is_Some(v.body) {
+//         val __derive_opt_inner_0 = SqlValue.Text(Option.unwrap_Some(v.body))
+//         field_body_sql = __derive_opt_inner_0
+//         }
+//         push<SqlValue>(__derive_params, field_body_sql)
+//         return snapshot(__derive_params)
+//     }
+//
+// The parameters come back in field declaration order -- the order a hand-written
+// `INSERT INTO t (col1, col2, ..) VALUES ($1, $2, ..)` lists its columns in.
+val to_params_body = template.must_parse("""
+pub fn @{snake}_to_params(v: @{name}) -> [SqlValue] {
+    val __derive_params = mutable_array_new<SqlValue>()
+@for f in fields
+@{f.write}
+    push<SqlValue>(__derive_params, field_@{f.name}_sql)
+@end
+    return snapshot(__derive_params)
+}
+
+
+""")
+
+// A conversion's text and the temporary counter after it. **Threaded rather than held**: the
+// recursion below needs a fresh `__derive_opt_inner_N` per nesting level, and returning the next
+// value keeps these functions pure, where a mutable cell would make the order of two calls part
+// of their meaning.
+struct Emitted {
+    text: string
+    next_tmp: int
+}
+
+fn tmp_name(n: int) -> string {
+    return concat("__derive_opt_inner_", str(n))
+}
+
+fn reader_for(kind: string) -> string {
+    if kind == "int" {
+        return "sql_as_int"
+    }
+    if kind == "float" {
+        return "sql_as_float"
+    }
+    if kind == "decimal" {
+        return "sql_as_decimal"
+    }
+    if kind == "bool" {
+        return "sql_as_bool"
+    }
+    return "sql_as_text"
+}
+
+fn is_scalar(kind: string) -> bool {
+    return kind == "int" || kind == "float" || kind == "decimal" || kind == "bool" || kind == "string"
+}
+
+// **Reading a column back, recursively.** `Option<U>` is NULL-or-value, so it emits a `var`, a
+// null test and `U`'s own conversion inside it; everything else is one line. A kind with no
+// conversion is refused by name, which is where `derive(Row) does not support field type ..`
+// comes from.
+fn emit_from_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result<Emitted, string> {
+    if is_scalar(t.kind) {
+        return ok(Emitted {
+            text: concat("    val ", dst, " = try ", reader_for(t.kind), "(", src, ")\n"),
+            next_tmp: tmp
+        })
+    }
+    if t.kind != "struct" && t.kind != "enum" {
+        return err(concat("derive(Row) does not support field type '", meta.type_text(t), "'"))
+    }
+    if meta.is_option(t) {
+        val elem = t.args[0]
+        val elem_text = meta.type_text(elem)
+        val inner = tmp_name(tmp)
+        val nested = try emit_from_sql(elem, src, inner, tmp + 1)
+        return ok(Emitted {
+            text: concat(
+                "    var ",
+                dst,
+                " = Option<",
+                elem_text,
+                ">.None\n",
+                "    if !SqlValue.is_Null(",
+                src,
+                ") {\n",
+                nested.text,
+                "    ",
+                dst,
+                " = Option<",
+                elem_text,
+                ">.Some(",
+                inner,
+                ")\n",
+                "    }\n"
+            ),
+            next_tmp: nested.next_tmp
+        })
+    }
+    if Some(flat) = get(flat_names, t.name) {
+        return ok(Emitted {
+            text: concat("    val ", dst, " = try to_", flat, "(", src, ")\n"),
+            next_tmp: tmp
+        })
+    }
+    return ok(Emitted {
+        text: concat("    val ", dst, " = try ", meta.snake_case(t.name), "_from_sql(", src, ")\n"),
+        next_tmp: tmp
+    })
+}
+
+// The same the other way: a value to a `SqlValue`. An absent `Option` is `SqlValue.Null`, which
+// is why this one opens with a `var` rather than returning the inner conversion directly.
+fn emit_to_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result<Emitted, string> {
+    if t.kind == "int" {
+        return ok(Emitted { text: concat("    val ", dst, " = SqlValue.Int(", src, ")\n"), next_tmp: tmp })
+    }
+    if t.kind == "float" {
+        return ok(Emitted { text: concat("    val ", dst, " = SqlValue.Float(", src, ")\n"), next_tmp: tmp })
+    }
+    if t.kind == "decimal" {
+        return ok(Emitted { text: concat("    val ", dst, " = SqlValue.Text(str(", src, "))\n"), next_tmp: tmp })
+    }
+    if t.kind == "bool" {
+        return ok(Emitted { text: concat("    val ", dst, " = SqlValue.Bool(", src, ")\n"), next_tmp: tmp })
+    }
+    if t.kind == "string" {
+        return ok(Emitted { text: concat("    val ", dst, " = SqlValue.Text(", src, ")\n"), next_tmp: tmp })
+    }
+    if t.kind != "struct" && t.kind != "enum" {
+        return err(concat("derive(Row) does not support field type '", meta.type_text(t), "'"))
+    }
+    if meta.is_option(t) {
+        val inner = tmp_name(tmp)
+        val nested = try emit_to_sql(t.args[0], concat("Option.unwrap_Some(", src, ")"), inner, tmp + 1)
+        return ok(Emitted {
+            text: concat(
+                "    var ",
+                dst,
+                " = SqlValue.Null\n",
+                "    if Option.is_Some(",
+                src,
+                ") {\n",
+                nested.text,
+                "    ",
+                dst,
+                " = ",
+                inner,
+                "\n",
+                "    }\n"
+            ),
+            next_tmp: nested.next_tmp
+        })
+    }
+    if contains(flat_names, t.name) {
+        return ok(Emitted { text: concat("    val ", dst, " = to_sql(", src, ")\n"), next_tmp: tmp })
+    }
+    return ok(Emitted {
+        text: concat("    val ", dst, " = ", meta.snake_case(t.name), "_to_sql(", src, ")\n"),
+        next_tmp: tmp
+    })
+}
+
+// Both functions, in the order `src/derive.c` splices them.
+pub fn derive_row(d: meta.Decl) -> Result<string, string> {
+    return ok(concat(try from_row(d), try to_params(d)))
+}
+
+fn from_row(d: meta.Decl) -> Result<string, string> {
+    val fields = mutable_array_new<template.Row>()
+    var tmp = 0
+    val last = prelude.len(d.members) - 1
+    for i in 0..prelude.len(d.members) {
+        val m = d.members[i]
+        val read = try emit_from_sql(m.type, concat("field_", m.name, "_raw"), concat("field_", m.name), tmp)
+        tmp = read.next_tmp
+        push(fields, template.row([
+            template.text("name", m.name),
+            // The block ends with its own newline and the template line supplies one too, so the
+            // trailing one is dropped here rather than leaving a blank line per field.
+            template.text("read", substring(read.text, 0, prelude.len(read.text) - 1)),
+            template.text("comma", if i < last { "," } else { "" })
+        ]))
+    }
+    return template.render(from_row_body, [
+        template.text("snake", d.snake_name),
+        template.text("name", d.name),
+        template.rows("fields", snapshot(fields))
+    ])
+}
+
+fn to_params(d: meta.Decl) -> Result<string, string> {
+    val fields = mutable_array_new<template.Row>()
+    var tmp = 0
+    for m in d.members {
+        val write = try emit_to_sql(m.type, concat("v.", m.name), concat("field_", m.name, "_sql"), tmp)
+        tmp = write.next_tmp
+        push(fields, template.row([
+            template.text("name", m.name),
+            template.text("write", substring(write.text, 0, prelude.len(write.text) - 1))
+        ]))
+    }
+    return template.render(to_params_body, [
+        template.text("snake", d.snake_name),
+        template.text("name", d.name),
+        template.rows("fields", snapshot(fields))
+    ])
+}

@@ -295,6 +295,19 @@ pub fn derive_ord(d: meta.Decl) -> Result<string, string>
 
 ```
 
+## `derive_row`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub fn @{snake}_from_row(row: Row) -> Result<@{name}, DbError>
+
+pub fn @{snake}_to_params(v: @{name}) -> [SqlValue]
+
+pub fn derive_row(d: meta.Decl) -> Result<string, string>
+
+```
+
 ## `encoding`
 
 ```
@@ -813,14 +826,37 @@ pub fn is_finite(x: float) -> bool
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
+pub struct MetaType {
+    // `int`, `float`, `bool`, `string`, `decimal`, `bigint`, `byte`, `unit`, `array`, `struct`,
+    // `enum`, `map`, `set`, `channel`, `func`. The spelling the compiler's own `TypeKind` uses,
+    // lowercased and without its prefix.
+    kind: string
+    // `struct` and `enum` only: the type's bare name, with no module qualifier. Empty otherwise.
+    name: string
+    // The type arguments, in order: one for `Option<T>` and `[T]`, two for `Map<K, V>`, none for
+    // a scalar.
+    args: [MetaType]
+}
+
 pub struct Member {
     name: string
-    // The member's type as the compiler renders it -- `int`, `[string]`, `Option<Uuid>`. For an
-    // enum variant it is the payload's type, and is empty when there is no payload.
-    type_name: string
+    // For an enum variant, the payload's type; `unit` when it carries none.
+    type: MetaType
     // Enum variants only: whether this one carries a payload. Always false for a struct's field.
     has_payload: bool
 }
+
+pub fn scalar(kind: string) -> MetaType
+
+pub fn named(kind: string, name: string) -> MetaType
+
+pub fn generic(kind: string, name: string, args: [MetaType]) -> MetaType
+
+pub fn is_option(t: MetaType) -> bool
+
+pub fn type_text(t: MetaType) -> string
+
+pub fn snake_case(name: string) -> string
 
 pub struct Decl {
     // The declaration's own name, as written: `LocalDate`.

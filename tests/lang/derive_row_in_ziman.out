@@ -1,0 +1,114 @@
+pub fn note_from_row(row: Row) -> Result<Note, DbError> {
+    val field_id_raw = try row_get(row, "id")
+    val field_id = try sql_as_int(field_id_raw)
+    val field_body_raw = try row_get(row, "body")
+    var field_body = Option<string>.None
+    if !SqlValue.is_Null(field_body_raw) {
+    val __derive_opt_inner_0 = try sql_as_text(field_body_raw)
+    field_body = Option<string>.Some(__derive_opt_inner_0)
+    }
+    return Note {
+        id: field_id,
+        body: field_body
+    }
+}
+
+pub fn note_to_params(v: Note) -> [SqlValue] {
+    val __derive_params = mutable_array_new<SqlValue>()
+    val field_id_sql = SqlValue.Int(v.id)
+    push<SqlValue>(__derive_params, field_id_sql)
+    var field_body_sql = SqlValue.Null
+    if Option.is_Some(v.body) {
+    val __derive_opt_inner_0 = SqlValue.Text(Option.unwrap_Some(v.body))
+    field_body_sql = __derive_opt_inner_0
+    }
+    push<SqlValue>(__derive_params, field_body_sql)
+    return snapshot(__derive_params)
+}
+
+
+pub fn wide_from_row(row: Row) -> Result<Wide, DbError> {
+    val field_id_raw = try row_get(row, "id")
+    val field_id = try uuid_from_sql(field_id_raw)
+    val field_count_raw = try row_get(row, "count")
+    val field_count = try sql_as_int(field_count_raw)
+    val field_ratio_raw = try row_get(row, "ratio")
+    val field_ratio = try sql_as_float(field_ratio_raw)
+    val field_ok_raw = try row_get(row, "ok")
+    val field_ok = try sql_as_bool(field_ok_raw)
+    val field_label_raw = try row_get(row, "label")
+    val field_label = try sql_as_text(field_label_raw)
+    val field_amount_raw = try row_get(row, "amount")
+    val field_amount = try sql_as_decimal(field_amount_raw)
+    val field_at_raw = try row_get(row, "at")
+    val field_at = try to_instant(field_at_raw)
+    val field_note_raw = try row_get(row, "note")
+    var field_note = Option<string>.None
+    if !SqlValue.is_Null(field_note_raw) {
+    val __derive_opt_inner_0 = try sql_as_text(field_note_raw)
+    field_note = Option<string>.Some(__derive_opt_inner_0)
+    }
+    val field_seen_at_raw = try row_get(row, "seen_at")
+    var field_seen_at = Option<Instant>.None
+    if !SqlValue.is_Null(field_seen_at_raw) {
+    val __derive_opt_inner_1 = try to_instant(field_seen_at_raw)
+    field_seen_at = Option<Instant>.Some(__derive_opt_inner_1)
+    }
+    val field_owner_raw = try row_get(row, "owner")
+    var field_owner = Option<Uuid>.None
+    if !SqlValue.is_Null(field_owner_raw) {
+    val __derive_opt_inner_2 = try uuid_from_sql(field_owner_raw)
+    field_owner = Option<Uuid>.Some(__derive_opt_inner_2)
+    }
+    return Wide {
+        id: field_id,
+        count: field_count,
+        ratio: field_ratio,
+        ok: field_ok,
+        label: field_label,
+        amount: field_amount,
+        at: field_at,
+        note: field_note,
+        seen_at: field_seen_at,
+        owner: field_owner
+    }
+}
+
+pub fn wide_to_params(v: Wide) -> [SqlValue] {
+    val __derive_params = mutable_array_new<SqlValue>()
+    val field_id_sql = uuid_to_sql(v.id)
+    push<SqlValue>(__derive_params, field_id_sql)
+    val field_count_sql = SqlValue.Int(v.count)
+    push<SqlValue>(__derive_params, field_count_sql)
+    val field_ratio_sql = SqlValue.Float(v.ratio)
+    push<SqlValue>(__derive_params, field_ratio_sql)
+    val field_ok_sql = SqlValue.Bool(v.ok)
+    push<SqlValue>(__derive_params, field_ok_sql)
+    val field_label_sql = SqlValue.Text(v.label)
+    push<SqlValue>(__derive_params, field_label_sql)
+    val field_amount_sql = SqlValue.Text(str(v.amount))
+    push<SqlValue>(__derive_params, field_amount_sql)
+    val field_at_sql = to_sql(v.at)
+    push<SqlValue>(__derive_params, field_at_sql)
+    var field_note_sql = SqlValue.Null
+    if Option.is_Some(v.note) {
+    val __derive_opt_inner_0 = SqlValue.Text(Option.unwrap_Some(v.note))
+    field_note_sql = __derive_opt_inner_0
+    }
+    push<SqlValue>(__derive_params, field_note_sql)
+    var field_seen_at_sql = SqlValue.Null
+    if Option.is_Some(v.seen_at) {
+    val __derive_opt_inner_1 = to_sql(Option.unwrap_Some(v.seen_at))
+    field_seen_at_sql = __derive_opt_inner_1
+    }
+    push<SqlValue>(__derive_params, field_seen_at_sql)
+    var field_owner_sql = SqlValue.Null
+    if Option.is_Some(v.owner) {
+    val __derive_opt_inner_2 = uuid_to_sql(Option.unwrap_Some(v.owner))
+    field_owner_sql = __derive_opt_inner_2
+    }
+    push<SqlValue>(__derive_params, field_owner_sql)
+    return snapshot(__derive_params)
+}
+
+

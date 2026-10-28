@@ -3723,3 +3723,36 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `tests/lang/lint_snapshot_into_builder_reader` pins both findings *and* the three silent calls,
   which are the half that can regress quietly. 1,287 fixtures, `make check` exit 0 with the North
   Star.
+
+- [x] **F221** **`derive(Row)` ported to Ziman, and the scale question answered more narrowly than
+  predicted.** (user-raised, "port derive_row"; done 2026-10-28.)
+
+  `lib/core/derive_row.zm` writes `<name>_from_row` and `<name>_to_params`, and is
+  **byte-identical to `src/derive.c` on the first run** -- a ten-field struct covering a `Uuid`,
+  all six scalar kinds, an `Instant` (whose converters are spelled short) and three shapes of
+  `Option`: over a string, over a flat-named type, over a user type. `tests/lang/derive_row_in_ziman`
+  pins it.
+
+  **The answer on templates: they pay where there is a shape, and `Row` is half shape.** The two
+  function bodies are templates -- 23 lines against the C's 42 `cb_appendf` calls -- and the
+  per-field conversions are not. A conversion cannot be a template, and the reason is structural
+  rather than a matter of taste: `Option<U>` emits a `var`, a null test and **U's own conversion
+  inside it**, so the text is recursive and its depth is a property of the type. A template holds
+  a fixed shape with holes in it; it cannot hold a shape that contains itself. Those conversions
+  stayed `concat`, 78 lines against the C's 86 -- no worse, and now Ziman that `--fmt`, `--lint`
+  and `ziman test` can see.
+
+  **`@if` is still unused, and the design's own example of it was wrong about why.**
+  docs/design/templates.md §4 argued the no-expressions rule using `derive(Row)`'s `Option`
+  column, and §13 predicted this port was where `@if` would finally be exercised. It was not: the
+  `Option` case is recursion, not a branch, so it cannot sit inside a template at all. **Two
+  generators in, `@if` and `@else` have no users** -- said out loud here rather than left to be
+  discovered, because if `derive_json` and `derive_properties` also come back without them that is
+  an argument for removing the construct, not for finding it a user.
+
+  **`meta.Member.type_name: string` became `Member.type: MetaType`.** The string was speculative
+  and the first generator to read a type at all proved it the wrong shape: a conversion switches
+  on the kind, asks whether it is an `Option`, then needs the element. Keeping `meta` to what is
+  actually read -- §1 of its own header -- is what made that a one-fixture change.
+
+  1,288 fixtures, `make check` exit 0 with the North Star.
