@@ -9,42 +9,38 @@ site -- no build step, no dependencies, no generator.
 
 ## Deploying
 
-**Cloudflare Pages is where this is going**, because Cloudflare already holds the DNS for
-`vasna.tech` and will hold `ziman.dev`: on the same account the custom domain needs no apex
-workaround (Cloudflare flattens it), the certificate is Cloudflare's, and the Pages project creates
-the DNS record itself.
+`ziman.dev/` is deployed to **Cloudflare Pages** by `.github/workflows/cloudflare-pages.yml`, on
+every push to `main` that touches `websites/ziman.dev/**`, and on demand through *Actions -> Deploy
+ziman.dev (Cloudflare) -> Run workflow*. It is a Direct Upload of the directory: no build step,
+because the site is three static files.
 
-| workflow | host | state |
-| --- | --- | --- |
-| `.github/workflows/cloudflare-pages.yml` | Cloudflare Pages (Direct Upload) | the target; deploys as soon as the account's secrets exist |
-| `.github/workflows/pages.yml` | GitHub Pages | serving <https://vasnatech.github.io/ziman/> today; **to be removed once Cloudflare serves `ziman.dev`** |
+The job first runs `python3 tools/check_site.py websites/ziman.dev` -- the same check you can run
+locally, and the only thing in the repository that looks at `websites/` at all (`make check` does
+not). It asserts the files are present, the title survived, `CNAME` still names the directory's
+domain, and `index.html` has no unclosed or stray tags. Then `cloudflare/wrangler-action` uploads
+the directory with the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` repository secrets.
 
-Both run on a push to `main` touching `websites/ziman.dev/**`, and both begin by running
-`python3 tools/check_site.py websites/ziman.dev` -- the same check you can run locally. It asserts
-the files are present, the title survived, `CNAME` still names the directory's domain, and
-`index.html` has no unclosed or stray tags. Nothing else in the repository looks at `websites/`;
-`make check` does not.
+**Live at <https://ziman.dev> and <https://www.ziman.dev>.** Both are `CNAME` records to
+`ziman-dev.pages.dev`, proxied, written by Cloudflare itself when the custom domains were added to
+the Pages project -- the apex needs no `A`/`AAAA` workaround because Cloudflare flattens it.
+Certificates are Cloudflare's and renew themselves. The project also keeps its own
+`ziman-dev.pages.dev` address, and each deployment gets a permanent preview URL of its own.
 
-The Cloudflare workflow **skips its deploy step while the credentials are absent** rather than
-failing, so it is committed before the account is set up without turning every push red. It says so
-in the run's annotations.
+`CNAME` in the site directory sets nothing -- neither host reads it -- but the check asserts it
+still names the directory's domain, so it stays as a record of what the directory is for.
 
-### What is still needed, in order
+**A missing path returns the page with a 200, not a 404**, which is Cloudflare Pages' default for a
+site with no `404.html`. Harmless for one page; add a `404.html` to the directory if that ever
+matters.
 
-1. **Move the zone.** `ziman.dev` is on Squarespace's nameservers (`nsb1-4.squarespacedns.com`) and
-   resolves to Squarespace parking addresses. Add it as a site in Cloudflare, then change the
-   nameservers at Squarespace to the two Cloudflare gives. Nothing is served from the domain yet, so
-   there is nothing to break.
-2. **Create the Pages project**, named `ziman-dev` (the name the workflow passes), as a Direct
-   Upload project with no build command: `wrangler pages project create ziman-dev
-   --production-branch=main`, or the same in the dashboard.
-3. **Give this repository the credentials.** A custom API token with *Account -> Cloudflare Pages ->
-   Edit*, and the account id, as the repository secrets `CLOUDFLARE_API_TOKEN` and
-   `CLOUDFLARE_ACCOUNT_ID`.
-4. **Add the custom domain** `ziman.dev` to the Pages project. With the zone on the same account
-   Cloudflare writes the DNS record and issues the certificate itself.
-5. **Then remove GitHub Pages**: delete `.github/workflows/pages.yml` and disable the Pages site
-   (`gh api -X DELETE repos/vasnatech/ziman/pages`), so there is one live copy and not two.
+### Known for next time
+
+`wrangler pages project create` now delegates to "the latest version of Cloudflare Pages, now part
+of Cloudflare Workers", and that delegation fails unless it is run where it can find static files.
+This project was created with `--force`, which uses Cloudflare Pages directly; wrangler says that is
+needed once only. Cloudflare is folding Pages into Workers, so moving this to a Worker with static
+assets is a likely future change -- cheap for three files, but it would mean a different workflow
+(`wrangler deploy` with an `assets` block rather than `wrangler pages deploy`).
 
 ## Keeping the page true
 
