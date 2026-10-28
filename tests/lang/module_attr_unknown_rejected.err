@@ -1,1 +1,1 @@
-unknown module attribute 'nonsense' (the three are 'experimental', 'deprecated' and 'repository')
+unknown module attribute 'nonsense' (the four are 'experimental', 'deprecated', 'repository' and 'generator')

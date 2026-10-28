@@ -1828,6 +1828,25 @@ static void canonicalize_use_path(Loader *ldr, UseDecl *u) {
  * which is the requirement that moved generation out of the parser in the first place.
  *
  * A struct in the module's own file is allowed and needs no imports, which `NULL` says. */
+/* `#![generator(X)]` claims a derive target, and the claim is checked here rather than taken on
+ * trust: a module saying it generates `X` with no `generate` to call is a mistake that would
+ * otherwise surface as a missing function at the first `#[derive(X)]`, in another file.
+ *
+ * **This is the whole argument for the attribute over the `derive_<snake(x)>` convention** -- a
+ * declared link can be checked where a concatenated name can only be looked up and missed. See
+ * docs/design/user-generators.md §4. */
+static void check_generator(Module *mod) {
+    if (mod->generator_target == NULL) return;
+    for (int i = 0; i < mod->functions.count; i++) {
+        FunctionDecl *f = mod->functions.items[i];
+        if (f->name != NULL && strcmp(f->name, "generate") == 0 && f->visibility == VIS_PUBLIC) return;
+    }
+    ziman_error("module", mod->generator_line, mod->generator_col,
+                "#![generator(%s)] says this module generates '%s', and it declares no "
+                "'pub fn generate' for the compiler to call",
+                mod->generator_target, mod->generator_target);
+}
+
 static void resolve_repository(Loader *ldr, Module *mod) {
     if (mod->repository_entity == NULL) {
         /* No entity, so nothing to generate -- except that a `#[repository]` function in such a
@@ -1945,6 +1964,7 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
      * attempt: `#[derive(Entity("t"))]` ensures a `use eql`, appended after the loop above had
      * already run, so nothing loaded `eql` and resolving the generated call dereferenced a module
      * that was never there. The loop below picks up exactly the uses generation appended. */
+    check_generator(mod);
     int uses_before_derive = mod->uses.count;
     generate_derived_functions(mod);
     resolve_repository(ldr, mod);
@@ -2067,6 +2087,7 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
     /* The entry module's own generation, for `load_module`'s reason: its dependencies are loaded
      * and its imports are not yet resolved -- and, as there, whatever generation imports has to be
      * loaded after it. */
+    check_generator(entry_mod);
     int entry_uses_before_derive = entry_mod->uses.count;
     generate_derived_functions(entry_mod);
     resolve_repository(&ldr, entry_mod);

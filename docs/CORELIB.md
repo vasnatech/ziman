@@ -291,7 +291,7 @@ pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int
 
 pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int
 
-pub fn derive_ord(d: meta.Decl) -> Result<string, string>
+pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
 
@@ -304,7 +304,7 @@ pub fn @{snake}_from_properties(props: properties.Properties, prefix: string) ->
 
 pub fn @{snake}_keys(prefix: string) -> [string]
 
-pub fn derive_properties(d: meta.Decl) -> Result<string, string>
+pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
 
@@ -317,7 +317,7 @@ pub fn @{snake}_from_row(row: Row) -> Result<@{name}, DbError>
 
 pub fn @{snake}_to_params(v: @{name}) -> [SqlValue]
 
-pub fn derive_row(d: meta.Decl) -> Result<string, string>
+pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
 

@@ -12,6 +12,7 @@
 // it pays, its control flow having been eleven string fragments. Neither needs an `@if` -- every
 // decision is made here, in Ziman, where the type checker reads it.
 #![experimental]
+#![generator(Ord)]
 
 use meta
 use template
@@ -143,7 +144,7 @@ pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
 // The `Result` is the shape a generator owes the compiler: a refusal it can report at the
 // declaration. This one cannot fail on any input `meta` can build, so what the `Result` carries
 // today is a mistake in the templates above, caught by `tests/lang/derive_ord_in_ziman`.
-pub fn derive_ord(d: meta.Decl) -> Result<string, string> {
+pub fn generate(d: meta.Decl) -> Result<string, string> {
     if d.is_enum {
         return enum_compare(d)
     }

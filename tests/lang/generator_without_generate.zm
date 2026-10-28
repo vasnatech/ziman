@@ -1,0 +1,16 @@
+// `#![generator(X)]` claims a derive target, and the claim is checked: a module saying it
+// generates `Csv` with no `generate` to call is refused where it is written, rather than
+// surfacing as a missing function at the first `#[derive(Csv)]` in some other file.
+//
+// That check is the whole argument for the attribute over the `derive_<snake(x)>` naming
+// convention the bundled generators fell into -- a declared link can be checked, a concatenated
+// name can only be looked up and missed. See docs/design/user-generators.md §4.
+#![generator(Csv)]
+
+fn generate(x: int) -> int {
+    return x
+}
+
+fn main() {
+    print(generate(1))
+}

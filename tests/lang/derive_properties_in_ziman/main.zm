@@ -28,13 +28,13 @@ fn decl(name: string, snake: string, members: [meta.Member]) -> meta.Decl {
 fn main() {
     // `Server` is the small case the generator's own comments show, so the two must agree --
     // `tools/check_template_examples.py` holds them to it.
-    print(unwrap(derive_properties.derive_properties(decl("Server", "server", [
+    print(unwrap(derive_properties.generate(decl("Server", "server", [
         f("port", meta.scalar("int")),
         f("host", opt(meta.scalar("string")))
     ]))))
     // `Wide` is the one that matters: every supported kind, required and optional, and a field
     // whose name kebab-cases.
-    print(unwrap(derive_properties.derive_properties(decl("Wide", "wide", [
+    print(unwrap(derive_properties.generate(decl("Wide", "wide", [
         f("port", meta.scalar("int")),
         f("host", opt(meta.scalar("string"))),
         f("idle_timeout_ms", meta.scalar("int")),
@@ -42,7 +42,7 @@ fn main() {
         f("load_factor", meta.scalar("float"))
     ]))))
     // A type this derive does not reach, refused by name rather than generated wrongly.
-    if Err(e) = derive_properties.derive_properties(decl("Bad", "bad", [
+    if Err(e) = derive_properties.generate(decl("Bad", "bad", [
         f("when", meta.named("struct", "Instant"))
     ])) {
         print(e)

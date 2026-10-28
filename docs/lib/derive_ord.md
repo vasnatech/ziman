@@ -19,10 +19,10 @@ decision is made here, in Ziman, where the type checker reads it.
 
 `use derive_ord` -- or `use derive_ord.Name` to bring one item in bare.
 
-### `derive_ord`
+### `generate`
 
 ```
-pub fn derive_ord(d: meta.Decl) -> Result<string, string>
+pub fn generate(d: meta.Decl) -> Result<string, string>
 ```
 
 A struct compares field by field in declaration order, the first difference deciding; an enum

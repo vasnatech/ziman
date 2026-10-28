@@ -18,10 +18,10 @@ here.
 
 `use derive_row` -- or `use derive_row.Name` to bring one item in bare.
 
-### `derive_row`
+### `generate`
 
 ```
-pub fn derive_row(d: meta.Decl) -> Result<string, string>
+pub fn generate(d: meta.Decl) -> Result<string, string>
 ```
 
 Both functions, in the order `src/derive.c` splices them.

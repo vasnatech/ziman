@@ -123,8 +123,16 @@ for which is which; two files is the same thing without the rule.
 ## 5. What a generator is given and answers
 
 ```ziman
-pub fn generate(d: meta.Decl, arg: Option<string>) -> Result<string, string>
+pub fn generate(d: meta.Decl) -> Result<string, string>
 ```
+
+**Built as one parameter, not two.** The signature above read `generate(d, arg: Option<string>)`
+when this was written, for `#[derive(Entity("table"))]`'s string -- and `Entity` is the one of
+the five not yet ported, so every generator that exists would carry a parameter none of them
+reads. That is the mistake `meta.Member.type_name` already made once in this same work
+(templates §14): a field nobody reads is a promise about the shape that is usually wrong anyway.
+The parameter arrives with `derive_entity`, which is the first thing that can say what it should
+be.
 
 `d` is `lib/core/meta.zm`'s reified declaration -- name, snake name, struct-or-enum, type
 parameters, and the members with their types. `arg` carries the string a target may take:
@@ -225,7 +233,19 @@ per declaration carrying the attribute, and the sample backend has 140 of them.
 4. **Generators run during `--check` and `--lsp`.** Given up: an execution-free check. Taken
    because a check that skips generation cannot report what the program compiles to.
 
-## 11. What is left before building
+## 11. Partly built, 2026-10-28
+
+`#![generator(X)]` is parsed, checked and carried by all three ported generators, whose entry
+points are now `generate`. What that buys today is the *declaration* half of §4: a module
+claiming a target with no `pub fn generate` is refused at the attribute, and a second
+`#![generator(..)]` in one file is refused as "one module, one target".
+
+**Nothing dispatches on it.** `#[derive(X)]` is still a `strcmp` over five names in
+`src/derive.c`; the attribute is a claim the compiler checks and does not yet use. That is
+deliberate -- the claim is cheap and checkable now, and the bridge below is what makes it
+load-bearing.
+
+## 12. What is left before building
 
 1. **The bridge, which this shares with the bundled five** and which is the larger half: a C
    function building a `meta.Decl` value (`struct_obj_new` is the primitive, and no native builds

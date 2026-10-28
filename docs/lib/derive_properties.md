@@ -18,8 +18,8 @@ the removed `@if` was designed for. `@choose` serves it and reads better: `@when
 
 `use derive_properties` -- or `use derive_properties.Name` to bring one item in bare.
 
-### `derive_properties`
+### `generate`
 
 ```
-pub fn derive_properties(d: meta.Decl) -> Result<string, string>
+pub fn generate(d: meta.Decl) -> Result<string, string>
 ```

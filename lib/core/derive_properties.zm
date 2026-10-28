@@ -11,6 +11,7 @@
 // the removed `@if` was designed for. `@choose` serves it and reads better: `@when required` and
 // `@when optional` name the two shapes where `@if optional` only said *whether*.
 #![experimental]
+#![generator(Properties)]
 
 use meta
 use properties
@@ -94,7 +95,7 @@ fn getter_for(t: meta.MetaType) -> Result<string, string> {
     ))
 }
 
-pub fn derive_properties(d: meta.Decl) -> Result<string, string> {
+pub fn generate(d: meta.Decl) -> Result<string, string> {
     return ok(concat(try from_properties(d), try keys(d)))
 }
 

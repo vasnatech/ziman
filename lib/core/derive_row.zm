@@ -11,6 +11,7 @@
 // how SQL columns are conventionally named, so unlike Json's camelCase keys there is no transform
 // here.
 #![experimental]
+#![generator(Row)]
 
 use meta
 use template
@@ -267,7 +268,7 @@ fn emit_to_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result<E
 }
 
 // Both functions, in the order `src/derive.c` splices them.
-pub fn derive_row(d: meta.Decl) -> Result<string, string> {
+pub fn generate(d: meta.Decl) -> Result<string, string> {
     return ok(concat(try from_row(d), try to_params(d)))
 }
 

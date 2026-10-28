@@ -1065,6 +1065,26 @@ typedef struct {
      * **Per module, not per function**, for the same reason the entity is: it is one fact about
      * the module's entity, and a message written once per query would be a place for two of them
      * to disagree. See docs/design/derived-queries.md §11. */
+    /* `#![generator(Row)]` at the top of this module's own file: the module *is* the generator
+     * for `#[derive(Row)]`, and `generate` is the function the compiler calls with the reified
+     * declaration.
+     *
+     * **A declaration rather than a spelling.** The convention the bundled generators fell into
+     * is `derive(X)` -> module `derive_<snake(X)>` -> a function of the same name, which is a
+     * name built by string concatenation and checked by nothing -- the shape F168 found in
+     * `src/lsp.c`'s hand-kept builtin list and F212 found in two name lists that asserted
+     * nothing at all. A claimed target can be checked: a module claiming one with no `generate`
+     * is refused here, where a missing concatenated name could only be looked up and missed.
+     *
+     * **One module, one target**, as `#![repository(..)]` is one module, one entity: two targets
+     * in one file would need two entry points and a rule for which is which.
+     *
+     * See docs/design/user-generators.md. The attribute is declared and checked; **nothing
+     * dispatches on it yet** -- `#[derive(X)]` is still a `strcmp` in src/derive.c, and closing
+     * that is the bridge the design's §11 describes. */
+    const char *generator_target;
+    int generator_line;
+    int generator_col;
     const char *repository_label;
     /* `#![repository(Notification, crud: false)]`: name the entity and **do not** generate the
      * nine CRUD functions. A derived query needs only the first half of what this attribute does,

@@ -1,0 +1,11 @@
+// One module, one target -- as `#![repository(..)]` is one module, one entity.
+#![generator(Csv)]
+#![generator(Tsv)]
+
+pub fn generate(x: int) -> int {
+    return x
+}
+
+fn main() {
+    print(1)
+}

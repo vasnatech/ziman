@@ -25,11 +25,11 @@ fn decl(name: string, snake: string, members: [meta.Member]) -> meta.Decl {
 }
 
 fn main() {
-    print(unwrap(derive_row.derive_row(decl("Note", "note", [
+    print(unwrap(derive_row.generate(decl("Note", "note", [
         f("id", meta.scalar("int")),
         f("body", opt(meta.scalar("string")))
     ]))))
-    print(unwrap(derive_row.derive_row(decl("Wide", "wide", [
+    print(unwrap(derive_row.generate(decl("Wide", "wide", [
         f("id", meta.named("struct", "Uuid")),
         f("count", meta.scalar("int")),
         f("ratio", meta.scalar("float")),

@@ -3832,3 +3832,32 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   fixture. `derive_ord` and `derive_row` were checked and were never shadowed.
 
   1,289 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F224** **`#![generator(X)]`: the link from a derive target to its generator, declared and
+  checked.** (user-raised, "update derive_*.zm with #![generator(X)]"; done 2026-10-28.)
+
+  The three ported generators carry it and their entry points are now `generate`. What the
+  attribute replaces is the convention they had fallen into -- `derive(X)` -> module
+  `derive_<snake(X)>` -> a function of the same name -- which is **a name built by string
+  concatenation and checked by nothing**, the shape F168 found in `src/lsp.c`'s hand-kept builtin
+  list and F212 found in two name lists that asserted nothing at all.
+
+  **A declared link can be checked, and is**: a module claiming a target with no `pub fn
+  generate` is refused at the attribute, where a missing concatenated name could only be looked
+  up and missed in another file. A second `#![generator(..)]` is refused as "one module, one
+  target", mirroring `#![repository(..)]`'s one module, one entity.
+
+  **Nothing dispatches on it yet**, and saying so matters more than the attribute does:
+  `#[derive(X)]` is still a `strcmp` over five names in `src/derive.c`, so this is a claim the
+  compiler checks and does not use. The claim is cheap and checkable now; the bridge
+  (docs/design/user-generators.md §12) is what makes it load-bearing.
+
+  **Built with one parameter, not two.** The design wrote
+  `generate(d: meta.Decl, arg: Option<string>)` for `#[derive(Entity("table"))]`'s string --
+  and `Entity` is the one of the five not yet ported, so every generator that exists would carry
+  a parameter none of them reads. That is the mistake `meta.Member.type_name` already made in
+  this same work; the parameter arrives with `derive_entity`, which is the first thing that can
+  say what it should be.
+
+  All three fixtures byte-identical after the rename. 1,291 fixtures, `make check` exit 0 with
+  the North Star.

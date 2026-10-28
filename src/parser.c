@@ -2835,6 +2835,21 @@ static void parse_module_attributes(Parser *p, Module *module) {
                     module->deprecated_message = (const char *)msg->start;
                     expect(p, TOK_RPAREN, "')'");
                 }
+            } else if (name->length == 9 && strncmp(name->start, "generator", 9) == 0) {
+                /* Takes the derive target, required: a generator that does not say what it
+                 * generates would have to be found by its module's name, which is the
+                 * concatenation this attribute exists to replace. */
+                expect(p, TOK_LPAREN, "'(' and the derive target this module generates");
+                Token *target = expect(p, TOK_IDENT, "the target's name, as '#[derive(..)]' writes it");
+                if (module->generator_target != NULL) {
+                    ziman_error("syntax", target->line, target->col,
+                                "this module is already the generator for '%s' -- one module, one target",
+                                module->generator_target);
+                }
+                module->generator_target = dup_token_text(target);
+                module->generator_line = target->line;
+                module->generator_col = target->col;
+                expect(p, TOK_RPAREN, "')'");
             } else if (name->length == 10 && strncmp(name->start, "repository", 10) == 0) {
                 /* Takes the entity, required: `#![repository]` alone would have nothing to
                  * generate from, and guessing from the file name is the kind of convention that
@@ -2881,7 +2896,8 @@ static void parse_module_attributes(Parser *p, Module *module) {
                 expect(p, TOK_RPAREN, "')'");
             } else {
                 ziman_error("syntax", name->line, name->col,
-                            "unknown module attribute '%.*s' (the three are 'experimental', 'deprecated' and 'repository')", name->length, name->start);
+                            "unknown module attribute '%.*s' (the four are 'experimental', 'deprecated', "
+                            "'repository' and 'generator')", name->length, name->start);
             }
         } while (match(p, TOK_COMMA));
         expect(p, TOK_RBRACKET, "']'");

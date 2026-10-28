@@ -1846,6 +1846,17 @@ app.zm:8:1: warning: module 'oldmod' is deprecated: use newmod instead
 app.zm:9:1: warning: module 'oldmod' is deprecated: use newmod instead
 ```
 
+`#![generator(Target)]` says the module **is** the generator for `#[derive(Target)]`, and that
+its `pub fn generate` is what the compiler calls with the reified declaration. The target is
+required: a generator that does not say what it generates could only be found by its module's
+name, which is the string concatenation the attribute replaces -- and a claimed target is
+checked, so a module declaring none is refused where it is written rather than at the first
+`#[derive(Target)]` in another file. One module, one target.
+
+The bundled generators carry it -- `lib/core/derive_ord.zm` is `#![generator(Ord)]` -- and
+**nothing dispatches on it yet**: `#[derive(X)]` is still a fixed set of names in the compiler,
+and closing that is the work `docs/design/user-generators.md` describes.
+
 `#![repository(Entity)]` says the module is a repository over that entity, and generates the CRUD
 functions whose body the entity decides: `insert`, `update`, `find`, `find_or_error`, `exists`,
 `delete`, `find_all`, `count_all` and `delete_all`. The entity is required, and the only other
