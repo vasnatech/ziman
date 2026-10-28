@@ -231,7 +231,9 @@ def page(name, path, kind):
         out += ["*This module is never imported: everything it declares is available bare in every program.*", ""]
     else:
         out += ["`use %s` -- or `use %s.Name` to bring one item in bare." % (name, name), ""]
-    example = os.path.join(OUT, "examples", name + "_example.zm")
+    # Examples are grouped by the folder their module lives in, mirroring lib/. `kind` is that
+    # folder; it is empty only for the prelude, which has a folder of its own.
+    example = os.path.join(OUT, "examples", kind or "prelude", name + "_example.zm")
     if os.path.exists(example):
         with open(example) as f:
             out += ["## Example", "", "```", f.read().rstrip("\n"), "```", ""]
