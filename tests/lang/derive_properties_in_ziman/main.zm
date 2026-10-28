@@ -1,0 +1,50 @@
+// `#[derive(Properties)]`'s generator, written in Ziman and called as an ordinary function.
+//
+// The third generator ported, and the one docs/design/templates.md §15 named as the test of
+// `@choose`: its two field shapes are a genuine either/or with no recursion under them, which is
+// the case the removed `@if` was designed for. The expected text is what `src/derive.c` emits
+// today, byte for byte.
+// **In a directory of its own, deliberately.** `tests/lang/derive_properties.zm` is the C
+// derive's own fixture, and a file beside the entry point shadows a bundled module of the same
+// name -- so run flat, this file's `use derive_properties` found that fixture and reported
+// "module 'derive_properties' has no function 'derive_properties'". The shadowing is documented
+// behaviour, not a bug; a subdirectory is the way around it.
+use derive_properties
+use meta
+
+fn f(name: string, t: meta.MetaType) -> meta.Member {
+    return meta.Member { name: name, type: t, has_payload: false }
+}
+
+fn opt(t: meta.MetaType) -> meta.MetaType {
+    return meta.generic("enum", "Option", [t])
+}
+
+fn decl(name: string, snake: string, members: [meta.Member]) -> meta.Decl {
+    val none: [string] = []
+    return meta.Decl { name: name, snake_name: snake, is_enum: false, type_params: none, members: members }
+}
+
+fn main() {
+    // `Server` is the small case the generator's own comments show, so the two must agree --
+    // `tools/check_template_examples.py` holds them to it.
+    print(unwrap(derive_properties.derive_properties(decl("Server", "server", [
+        f("port", meta.scalar("int")),
+        f("host", opt(meta.scalar("string")))
+    ]))))
+    // `Wide` is the one that matters: every supported kind, required and optional, and a field
+    // whose name kebab-cases.
+    print(unwrap(derive_properties.derive_properties(decl("Wide", "wide", [
+        f("port", meta.scalar("int")),
+        f("host", opt(meta.scalar("string"))),
+        f("idle_timeout_ms", meta.scalar("int")),
+        f("verbose", opt(meta.scalar("bool"))),
+        f("load_factor", meta.scalar("float"))
+    ]))))
+    // A type this derive does not reach, refused by name rather than generated wrongly.
+    if Err(e) = derive_properties.derive_properties(decl("Bad", "bad", [
+        f("when", meta.named("struct", "Instant"))
+    ])) {
+        print(e)
+    }
+}

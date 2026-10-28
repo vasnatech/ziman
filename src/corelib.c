@@ -11,6 +11,7 @@
 #include "template_source.h"
 #include "derive_ord_source.h"
 #include "derive_row_source.h"
+#include "derive_properties_source.h"
 #include "url_source.h"
 #include "fs_source.h"
 #include "log_source.h"
@@ -87,6 +88,7 @@ static const CoreModule CORE_MODULES[] = {
     {"template", TEMPLATE_SOURCE},
     {"derive_ord", DERIVE_ORD_SOURCE},
     {"derive_row", DERIVE_ROW_SOURCE},
+    {"derive_properties", DERIVE_PROPERTIES_SOURCE},
     {"url", URL_SOURCE},
     {"fs", FS_SOURCE},
     {"log", LOG_SOURCE},

@@ -687,9 +687,41 @@ template's `@end` is reported as *the template* being unclosed, not the `@for`. 
 honest diagnosis -- the `@end` did close the `@for` -- and the fixture pins it so the next
 reader does not try to "fix" it.
 
+## 16. `derive_properties`: `@choose` holds, and `@for` cannot build a list
+
+The third generator, ported 2026-10-28 and byte-identical to the C. §15 named it as the test of
+`@choose`, because its two field shapes are a **genuine either/or with no recursion under them**
+-- a required key reads in one line, an optional one tests and then reads -- which is precisely
+the case the removed `@if` was designed for.
+
+**`@choose` serves it, and reads better than `@if` would have.** `@when required` and
+`@when optional` *name* the two shapes; `@if optional` / `@else` only said whether. Removing
+`@if` was the right call, and this is the generator that could have argued otherwise.
+
+### The new limit: a directive owns its whole line
+
+`<name>_keys` returns its list on one line:
+
+```ziman
+pub fn server_keys(prefix: string) -> [string] {
+    return [properties.key(prefix, "port"), properties.key(prefix, "host")]
+}
+```
+
+**`@for` cannot build that.** A directive occupies its whole line -- which is what keeps the
+grammar line-oriented and readable -- so a loop emits whole lines and never a comma-separated run
+inside one. The generator joins the entries in Ziman and binds the result as a single
+`@{entries}` hole, so the list's *shape* is the one thing in this generator a reader cannot see
+in the template.
+
+That is a real gap, and the obvious fix is an inline form -- `@{join entries with ", "}` or a
+`@list` directive. **Not proposed yet**: one occurrence across three generators is not enough to
+design against, and the wrong inline construct is how a line-oriented grammar stops being one.
+Worth revisiting when a second generator wants it; `derive_json`'s object literal is the likely
+candidate.
+
 ### What is left
 
-**`derive_json` or `derive_properties`**: the first generator *written* against this model rather
-than ported to it, and the one that says whether `@choose` is enough dispatch or whether
-something is still missing. `Properties` is the more interesting of the two -- its required and
-optional keys are the closest thing left to a case `@if` would have served.
+**`derive_json`**, the last and largest of the five, and the one that will say whether the inline
+list above is a one-off. After that the C generators are all replaced in Ziman and only the
+bridge stands between them and being the ones that actually run.

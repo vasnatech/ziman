@@ -14,6 +14,7 @@ flowchart LR
         crypto["crypto"]
         csv["csv"]
         derive_ord["derive_ord"]
+        derive_properties["derive_properties"]
         derive_row["derive_row"]
         encoding["encoding"]
         fs["fs"]
@@ -87,6 +88,9 @@ flowchart LR
     db --> url
     derive_ord --> meta
     derive_ord --> template
+    derive_properties --> meta
+    derive_properties --> properties
+    derive_properties --> template
     derive_row --> meta
     derive_row --> template
     encoding --> locale
@@ -251,7 +255,7 @@ otherwise: everything on a layer depends only on lower layers.
 | 1 | `derive_ord`, `derive_row`, `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `xml` |
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
-| 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sql`, `sqlite`, `time`, `uuid` |
+| 4 | `datasource`, `derive_properties`, `font`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sql`, `sqlite`, `time`, `uuid` |
 | 5 | `client`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
 
 ## Each module
@@ -267,6 +271,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `datasource` | `clock`, `db` | `eql`, `migrate` |
 | `db` | `net`, `number`, `url` | `datasource`, `eql`, `memdb`, `migrate`, `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
 | `derive_ord` | `meta`, `template` | - |
+| `derive_properties` | `meta`, `properties`, `template` | - |
 | `derive_row` | `meta`, `template` | - |
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
@@ -283,7 +288,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `markdown` | `math` | - |
 | `math` | - | `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
 | `memdb` | `db`, `locale`, `sql` | - |
-| `meta` | - | `derive_ord`, `derive_row` |
+| `meta` | - | `derive_ord`, `derive_properties`, `derive_row` |
 | `metrics` | `os` | `server` |
 | `migrate` | `crypto`, `datasource`, `db`, `encoding`, `fs`, `os`, `time` | - |
 | `mime` | `locale` | `client`, `http`, `server` |
@@ -298,7 +303,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `pdfobj` | `compress` | `pdf` |
 | `pg` | `crypto`, `db`, `encoding`, `locale`, `net`, `number`, `random` | - |
 | `process` | `encoding`, `fs`, `os`, `random` | - |
-| `properties` | `fs`, `locale`, `math`, `os` | - |
+| `properties` | `fs`, `locale`, `math`, `os` | `derive_properties` |
 | `random` | - | `crypto`, `http`, `otp`, `pg`, `process`, `uuid` |
 | `raster` | `font`, `geom`, `image`, `math`, `paint`, `scene`, `shape`, `stroker`, `truetype` | - |
 | `regex` | - | `test` |
@@ -309,7 +314,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
-| `template` | - | `derive_ord`, `derive_row` |
+| `template` | - | `derive_ord`, `derive_properties`, `derive_row` |
 | `test` | `regex` | - |
 | `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `eql`, `migrate`, `schedule`, `toml` |

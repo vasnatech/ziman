@@ -3803,3 +3803,32 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   blank" -- correct about the grammar, silent about the mistake.
 
   1,288 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F223** **`derive(Properties)` in Ziman: `@choose` holds, and `@for` cannot build a list.**
+  (done 2026-10-28, continuing F222.)
+
+  The third generator, byte-identical to the C. §15 named it as the test of `@choose` because its
+  two field shapes are a **genuine either/or with no recursion under them** -- a required key
+  reads in one line, an optional one tests and then reads -- which is exactly the case the removed
+  `@if` was designed for. **`@choose` serves it and reads better**: `@when required` and
+  `@when optional` name the two shapes where `@if optional` only said *whether*. This is the
+  generator that could have argued for keeping `@if`, and it argues the other way.
+
+  **The new limit, and it is real.** `<name>_keys` returns its list on one line --
+  `return [properties.key(prefix, "port"), properties.key(prefix, "host")]` -- and **`@for`
+  cannot build that**, because a directive owns its whole line. The generator joins the entries
+  in Ziman and binds one `@{entries}` hole, so that list's shape is the one thing here a reader
+  cannot see in the template. The obvious fix is an inline form (`@{join entries with ", "}`, or
+  a `@list` directive) and it is **deliberately not proposed**: one occurrence across three
+  generators is not enough to design against, and the wrong inline construct is how a
+  line-oriented grammar stops being one. Revisit if `derive_json`'s object literal wants it too.
+
+  **A fixture had to move into a directory of its own, and the reason is worth knowing**:
+  `tests/lang/derive_properties.zm` is the *C* derive's fixture, and a file beside the entry
+  point shadows a bundled module of the same name -- so run flat, the new fixture's
+  `use derive_properties` found that one and reported "module 'derive_properties' has no function
+  'derive_properties'". Documented behaviour rather than a bug (a project's own module shadows a
+  corelib one), but it will catch the next generator whose name collides with an existing
+  fixture. `derive_ord` and `derive_row` were checked and were never shadowed.
+
+  1,289 fixtures, `make check` exit 0 with the North Star.

@@ -1367,6 +1367,15 @@ from source.
   newline deleted a helper -- and the first implementation kept the old "last line carries none"
   habit and was off by a blank line per function, caught by the fixtures at once.
 
+  **`derive_properties` ported next** (design §16), byte-identical, and it settles `@choose`: its
+  two field shapes are a genuine either/or with no recursion, the case `@if` was designed for,
+  and `@when required`/`@when optional` read better than `@if optional`/`@else` because they
+  name the shapes. It also found the model's first real gap -- **`@for` cannot build an inline
+  list**, since a directive owns its whole line, so `<name>_keys`'s one-line array is joined in
+  Ziman and bound as a single hole. Not fixed: one occurrence across three generators is not
+  enough to design an inline construct against. `derive_json` is the last of the five and says
+  whether it is a one-off.
+
   This is the continuation of "Code generation from annotations needs a mechanism" below, whose
   questions 2 (writing into another module), 4 (materialising generated declarations) and 5
   (checking the name contract) are all easier to answer once the generator is Ziman.

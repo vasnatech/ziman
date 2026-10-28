@@ -1,0 +1,50 @@
+pub fn server_from_properties(props: properties.Properties, prefix: string) -> Result<Server, string> {
+    val field_port = try properties.get_int(props, properties.key(prefix, "port"))
+    var field_host = Option<string>.None
+    val found_host = properties.lookup(props, properties.key(prefix, "host"))
+    if Option.is_Some(found_host) {
+        val value_host = try properties.get_string(Option.unwrap_Some(found_host))
+        field_host = Option<string>.Some(value_host)
+    }
+    return Server {
+        port: field_port,
+        host: field_host
+    }
+}
+
+pub fn server_keys(prefix: string) -> [string] {
+    return [properties.key(prefix, "port"), properties.key(prefix, "host")]
+}
+
+
+pub fn wide_from_properties(props: properties.Properties, prefix: string) -> Result<Wide, string> {
+    val field_port = try properties.get_int(props, properties.key(prefix, "port"))
+    var field_host = Option<string>.None
+    val found_host = properties.lookup(props, properties.key(prefix, "host"))
+    if Option.is_Some(found_host) {
+        val value_host = try properties.get_string(Option.unwrap_Some(found_host))
+        field_host = Option<string>.Some(value_host)
+    }
+    val field_idle_timeout_ms = try properties.get_int(props, properties.key(prefix, "idle-timeout-ms"))
+    var field_verbose = Option<bool>.None
+    val found_verbose = properties.lookup(props, properties.key(prefix, "verbose"))
+    if Option.is_Some(found_verbose) {
+        val value_verbose = try properties.get_bool(Option.unwrap_Some(found_verbose))
+        field_verbose = Option<bool>.Some(value_verbose)
+    }
+    val field_load_factor = try properties.get_float(props, properties.key(prefix, "load-factor"))
+    return Wide {
+        port: field_port,
+        host: field_host,
+        idle_timeout_ms: field_idle_timeout_ms,
+        verbose: field_verbose,
+        load_factor: field_load_factor
+    }
+}
+
+pub fn wide_keys(prefix: string) -> [string] {
+    return [properties.key(prefix, "port"), properties.key(prefix, "host"), properties.key(prefix, "idle-timeout-ms"), properties.key(prefix, "verbose"), properties.key(prefix, "load-factor")]
+}
+
+
+derive(Properties) supports only int, float, bool, string and Option of those, not 'Instant'

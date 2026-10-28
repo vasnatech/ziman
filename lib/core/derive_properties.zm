@@ -1,0 +1,138 @@
+// `#[derive(Properties)]`, written in Ziman: `<name>_from_properties` and `<name>_keys`, which
+// bind a struct to the keys under a prefix in `lib/core/properties.zm`'s `Properties`.
+//
+// Field `idle_timeout_ms` reads key `<prefix>.idle-timeout-ms`: the name is kebab-cased, which is
+// the one transform in this generator and the reason `snake_to_kebab` exists. An `Option<T>`
+// field is an optional key; every other field is required, and a missing one is the `Result`'s
+// error.
+//
+// **The third generator ported, and the one §15 named as the test of `@choose`** -- its two
+// field shapes are a genuine either/or with no recursion under them, which is exactly the case
+// the removed `@if` was designed for. `@choose` serves it and reads better: `@when required` and
+// `@when optional` name the two shapes where `@if optional` only said *whether*.
+#![experimental]
+
+use meta
+use properties
+use template
+
+// Everything this generator writes. For
+// `#[derive(Properties)] struct Server { port: int  host: Option<string> }`:
+//
+//     pub fn server_from_properties(props: properties.Properties, prefix: string) -> Result<Server, string> {
+//         val field_port = try properties.get_int(props, properties.key(prefix, "port"))
+//         var field_host = Option<string>.None
+//         val found_host = properties.lookup(props, properties.key(prefix, "host"))
+//         if Option.is_Some(found_host) {
+//             val value_host = try properties.get_string(Option.unwrap_Some(found_host))
+//             field_host = Option<string>.Some(value_host)
+//         }
+//         return Server {
+//             port: field_port,
+//             host: field_host
+//         }
+//     }
+//
+//     pub fn server_keys(prefix: string) -> [string] {
+//         return [properties.key(prefix, "port"), properties.key(prefix, "host")]
+//     }
+//
+// **`keys` takes its list as one hole**, not a `@for`: a directive owns its whole line, so a
+// loop cannot build `[a, b, c]` inline. See docs/design/templates.md §16.
+val sheet = template.must_parse("""
+@template from_properties
+pub fn @{snake}_from_properties(props: properties.Properties, prefix: string) -> Result<@{name}, string> {
+@for f in fields
+@yield f.read
+@end
+    return @{name} {
+@for f in fields
+        @{f.name}: field_@{f.name}@{f.comma}
+@end
+    }
+}
+
+@end
+
+@template read
+@choose shape
+@when required
+    val field_@{name} = try properties.get_@{getter}(props, properties.key(prefix, "@{key}"))
+@when optional
+    var field_@{name} = Option<@{getter}>.None
+    val found_@{name} = properties.lookup(props, properties.key(prefix, "@{key}"))
+    if Option.is_Some(found_@{name}) {
+        val value_@{name} = try properties.get_@{getter}(Option.unwrap_Some(found_@{name}))
+        field_@{name} = Option<@{getter}>.Some(value_@{name})
+    }
+@end
+@end
+
+@template keys
+pub fn @{snake}_keys(prefix: string) -> [string] {
+    return [@{entries}]
+}
+
+@end
+""")
+
+// `idle_timeout_ms` -> `idle-timeout-ms`. The only transform here, and the reason a reader of a
+// generated key does not find the field name in it.
+fn kebab(name: string) -> string {
+    return replace(name, Map<string, string> { "_": "-" })
+}
+
+// The `properties.get_*` a type reads through, or a refusal naming what this derive supports.
+fn getter_for(t: meta.MetaType) -> Result<string, string> {
+    if t.kind == "int" || t.kind == "float" || t.kind == "bool" || t.kind == "string" {
+        return ok(t.kind)
+    }
+    return err(concat(
+        "derive(Properties) supports only int, float, bool, string and Option of those, not '",
+        meta.type_text(t),
+        "'"
+    ))
+}
+
+pub fn derive_properties(d: meta.Decl) -> Result<string, string> {
+    return ok(concat(try from_properties(d), try keys(d)))
+}
+
+fn from_properties(d: meta.Decl) -> Result<string, string> {
+    val fields = mutable_array_new<template.Row>()
+    val last = prelude.len(d.members) - 1
+    for i in 0..prelude.len(d.members) {
+        val m = d.members[i]
+        val optional = meta.is_option(m.type)
+        val inner = if optional { m.type.args[0] } else { m.type }
+        val read = try template.render(sheet, "read", [
+            template.text("shape", if optional { "optional" } else { "required" }),
+            template.text("name", m.name),
+            template.text("key", kebab(m.name)),
+            template.text("getter", try getter_for(inner))
+        ])
+        push(fields, template.row([
+            template.text("name", m.name),
+            // The block ends with its own newline and `@yield` supplies one, so the trailing one
+            // is dropped here rather than leaving a blank line per field.
+            template.text("read", substring(read, 0, prelude.len(read) - 1)),
+            template.text("comma", if i < last { "," } else { "" })
+        ]))
+    }
+    return template.render(sheet, "from_properties", [
+        template.text("snake", d.snake_name),
+        template.text("name", d.name),
+        template.rows("fields", snapshot(fields))
+    ])
+}
+
+fn keys(d: meta.Decl) -> Result<string, string> {
+    val entries = mutable_array_new<string>()
+    for m in d.members {
+        push(entries, concat("properties.key(prefix, \"", kebab(m.name), "\")"))
+    }
+    return template.render(sheet, "keys", [
+        template.text("snake", d.snake_name),
+        template.text("entries", join(separator: ", ", pieces: snapshot(entries)))
+    ])
+}

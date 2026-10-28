@@ -295,6 +295,19 @@ pub fn derive_ord(d: meta.Decl) -> Result<string, string>
 
 ```
 
+## `derive_properties`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub fn @{snake}_from_properties(props: properties.Properties, prefix: string) -> Result<@{name}, string>
+
+pub fn @{snake}_keys(prefix: string) -> [string]
+
+pub fn derive_properties(d: meta.Decl) -> Result<string, string>
+
+```
+
 ## `derive_row`
 
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
