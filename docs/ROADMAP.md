@@ -1210,6 +1210,82 @@ from source.
 
 ## Larger, needs its own design pass
 
+- **Derives should be written in Ziman, not in C. Not started; this is the problem statement.**
+  Raised 2026-10-28, immediately after shipping derived queries (F217), from the observation that
+  the generator keeps growing: *"ziman's derived functionality is getting bigger. We need to find a
+  scaleable way to implement derived content within ziman and not C."*
+
+  **Measured, because the growth is the argument.** `src/derive.c` was **463 lines** on 2026-09-23,
+  the day the first derive landed; **1,090** by 2026-09-25 with `Row` and `Properties`; **1,340** on
+  2026-10-24; and **2,419** today. Over a thousand of those lines arrived in four days, from
+  `#![repository(..)]` and `#[repository]` alone. It now holds nine generators over five derive
+  targets and two repository forms, **240 `cb_appendf` calls and 37 `ziman_error` refusals**.
+
+  **The reason this is portable at all, and the thing to notice first: every generator is a string
+  builder.** Each one's type is `declaration -> char *`, and the result goes through the ordinary
+  lexer and parser (`parse_and_splice`). Not one of them constructs an AST node by hand. A Ziman
+  function that takes a declaration and answers a `string` is *the same function* -- this is a port,
+  not a redesign.
+
+  **What the C costs today**, concretely rather than as a feeling:
+
+  * **A project cannot add a derive.** Adding one means editing `derive.c` and `parse_attributes`,
+    rebuilding the compiler, and shipping a binary. So `#[derive(Entity("table"))]` exists because
+    *this* repository's sample backend wanted it, and an application with its own repeated shape
+    has no way to write the equivalent.
+  * **None of the language's own tools can see the generators.** `--fmt`, `--lint`, `--coverage`,
+    the fixture suite and `--api` all apply to Ziman. 2,419 lines of C that write Ziman are outside
+    every one of them.
+  * **A generator can only be tested end to end** -- run a program, compare its output. There is no
+    way to call `generate_struct_to_json` on a declaration and diff the text, which is the obvious
+    unit test and is free the moment the generator is a Ziman function.
+
+  **The bootstrap objection does not apply here, and that is measured rather than assumed**: `lib/`
+  contains **zero** `#[derive(..)]` and **zero** `#![repository(..)]` sites. Every greppable hit in
+  the prelude and the bundled modules is a *comment* about a derive. So a generator written in
+  Ziman needs nothing that a generator produces, and loads as an ordinary module. The 140 derive
+  sites and 20 repository attributes in the sample backend, and the 103 in this repository's own
+  fixtures, are all user code -- none of it on the path a generator would load through.
+
+  **What a design has to decide:**
+
+  1. **How a declaration reaches Ziman.** A reified `Decl`/`Field` value -- name, visibility,
+     fields with their names, types and attributes. This is the one piece of C that stays, and it
+     is a data conversion rather than a code generator. It is also the real cost: that shape
+     becomes a public API pinning compiler internals, where today `StructDecl` is free to change.
+  2. **How a generator is found.** DESIGN.md's 2026-10-28 rule generalises -- *a bodyless `fn`
+     carrying attribute X is filled by X's generator* -- to `#[derive(X)]` looking for
+     `derive_<x>(decl) -> Result<string, string>`. **Where the project names that module is
+     undecided and is the hard half**: there is no manifest file in this language today, and
+     inventing one for this is a larger change than the port.
+  3. **When it runs, and re-entrancy.** Generation already happens at one point in `load_module`,
+     between dependency loading and import resolution. Running the *interpreter* there, inside the
+     load of a module that is itself mid-load, is a new path through the loader. The generator's
+     own module must be loaded to completion first, and a generator module that transitively uses
+     the attribute it implements is a cycle to refuse by name.
+  4. **Refusals, which are most of the value.** Those 37 `ziman_error` calls are why a mistyped
+     derived query is a type error at the author's own line instead of three frames of library code
+     at startup. `Result<string, string>` keeps that with the C side attaching the position -- but
+     the refusals that list an entity's columns, or show two readings of a name, need the message
+     to carry structure, or they degrade into one flat string.
+  5. **Cost.** Generation becomes interpreted work, per module, per compile, where today it is
+     string building at memcpy speed. The number to measure first is the North Star's 140 derive
+     sites.
+  6. **Trust.** A generator is code the compiler runs at build time. This project has not had to
+     answer that question yet.
+
+  **How to stage it**: port **one** generator end to end before designing the rest. `Ord` is the
+  smallest -- two functions, about 40 lines, no imports to ensure, no `Option` handling -- and it
+  exercises the struct *and* the enum shape. **Delete the C version rather than keeping it as a
+  fallback**: two implementations of one generator is the failure this should not buy.
+
+  **What this is not**: a macro system. The input is a declaration and the output is source text,
+  exactly as today. Nothing here proposes running user code over expressions or statements.
+
+  This is the continuation of "Code generation from annotations needs a mechanism" below, whose
+  questions 2 (writing into another module), 4 (materialising generated declarations) and 5
+  (checking the name contract) are all easier to answer once the generator is Ziman.
+
 - **Derived queries: a repository function's name is its query. Shipped 2026-10-28 (F217);
   designed in full first, in `docs/design/derived-queries.md`.**
   Raised 2026-10-27, after converting all 26 repositories of the sample backend to `eql`. The
