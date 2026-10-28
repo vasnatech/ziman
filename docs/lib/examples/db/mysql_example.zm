@@ -1,0 +1,33 @@
+use datasource
+use db.DbError
+use db.SqlValue
+use db.db_error_message
+use mysql
+
+// The MySQL driver. Like `pg`, it is registered rather than called: `datasource` is the API, and
+// the driver decides what the SQL it is given turns into on the wire. Everything past a connection
+// needs a live server, so that half is in `tests/integration/mysql/`; this is the half that is not.
+val drivers = datasource.registry([mysql.driver()])
+
+fn demo() -> Result<unit, DbError> {
+    // A registry can hold several drivers at once, and the URL scheme picks between them -- which
+    // is how one program talks to two engines without knowing it does.
+    print(len([mysql.driver()]))
+
+    if Err(e) = datasource.open(drivers, "mysql://nobody@127.0.0.1:1/none") {
+        print(db_error_message(e))
+    }
+
+    // A URL whose scheme no registered driver claims is refused by `datasource`, before any
+    // network call is attempted -- a configuration mistake, named as one.
+    if Err(e) = datasource.open(drivers, "postgres://nobody@127.0.0.1:1/none") {
+        print(db_error_message(e))
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("mysql example failed: {}\n", db_error_message(e))
+    }
+}

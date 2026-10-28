@@ -1,0 +1,36 @@
+use datasource
+use db.DbError
+use db.db_error_message
+use pg
+
+// The PostgreSQL driver. Most programs never name it: they register it and reach Postgres through
+// `datasource`, so the same code runs against SQLite in a test and Postgres in production with
+// only the URL changing. What is here is what is specific to Postgres.
+//
+// Everything past a connection needs a live server, so that half lives in
+// `tests/integration/pg/`, which the suite runs when one is available. This example is the half
+// that does not: the registration, the URL, the value formatting, and what a failure looks like.
+val drivers = datasource.registry([pg.driver()])
+
+fn demo() -> Result<unit, DbError> {
+    // Postgres writes a float with enough digits to read back the same value, which is why this
+    // is not the shortest text that looks right: 0.1 is not 0.1.
+    print(pg.float_to_text(0.1))
+    print(pg.float_to_text(1.0))
+    print(pg.float_to_text(1.0 / 3.0))
+
+    // A URL carries the host, the database and the options; `db.parse_url` is what reads one, and
+    // `datasource.open` is what hands it to this driver.
+    if Err(e) = datasource.open(drivers, "postgres://nobody@127.0.0.1:1/none") {
+        // A connection failure is a DbError like any other, so a caller handles it the same way
+        // it handles a constraint violation -- there is nothing driver-shaped to catch.
+        print(db_error_message(e))
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("pg example failed: {}\n", db_error_message(e))
+    }
+}

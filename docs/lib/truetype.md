@@ -13,6 +13,61 @@ glyphs). Everything else in the file is ignored.
 
 `use truetype` -- or `use truetype.Name` to bring one item in bare.
 
+## Example
+
+```
+use truetype
+
+// Reading a TrueType font file. The parser's job is to turn 400 KB of binary into tables a
+// renderer can ask questions of -- and, just as much, to refuse the files that are not what they
+// claim. Those refusals are what a caller actually meets, so they are what this shows: every one
+// below is built from a few bytes, with no font file involved.
+//
+// The other half -- parsing a real face, embedding it, and checking the text survives a round trip
+// through a PDF reader -- is in `tests/run_pdf_tests.sh`, which takes a font from the system. A
+// real face is 400 KB of binary that every clone would otherwise carry for ever.
+
+// A four-byte big-endian tag, as a font file's header carries it.
+fn tagged(a: int, b: int, c: int, d: int) -> [byte] {
+    return [a as byte, b as byte, c as byte, d as byte]
+}
+
+fn refusal(r: Result<truetype.Face, string>) -> string {
+    return switch r {
+        Ok(f) { concat("unexpectedly parsed: ", str(f.glyph_count)) }
+        Err(why) { why }
+    }
+}
+
+fn main() {
+    val empty: [byte] = []
+    print(refusal(truetype.parse(empty)))
+
+    // A valid sfnt version, and then nothing to read.
+    print(refusal(truetype.parse(tagged(0, 1, 0, 0))))
+
+    // `OTTO` is an OpenType font whose outlines are CFF rather than TrueType -- a different format
+    // inside the same container, which is worth naming rather than failing obscurely later.
+    print(refusal(truetype.parse(concat(tagged(79, 84, 84, 79), tagged(0, 0, 0, 0), tagged(0, 0, 0, 0)))))
+
+    // `ttcf` is a collection holding several faces, which needs a face chosen before it is parsed.
+    print(refusal(truetype.parse(concat(tagged(116, 116, 99, 102), tagged(0, 0, 0, 0), tagged(0, 0, 0, 0)))))
+
+    // And something that is simply not a font.
+    print(refusal(truetype.parse(concat(tagged(1, 2, 3, 4), tagged(0, 0, 0, 0), tagged(0, 0, 0, 0)))))
+}
+```
+
+Output:
+
+```
+truetype: not a font (fewer than 12 bytes)
+truetype: not a font (fewer than 12 bytes)
+truetype: this is an OpenType/CFF font ('OTTO'); only TrueType outlines are read
+truetype: this is a font collection ('ttcf'); extract a single face first
+truetype: unrecognised sfnt version 0x01020304
+```
+
 ### `Face`
 
 ```
