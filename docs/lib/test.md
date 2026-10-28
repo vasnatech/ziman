@@ -23,6 +23,73 @@ already need.
 
 `use test` -- or `use test.Name` to bring one item in bare.
 
+## Example
+
+```
+use test
+
+// The assertions a `#[test]` function is written with. `ziman test` finds every `#[test]` function
+// in the files it is given and runs them, and a failed assertion here is what makes one fail --
+// reported at **the line that asserted**, not inside this module, which took a change in the
+// runner rather than in the assertions.
+//
+// Run this file two ways and both work: `ziman <file>` runs `main` below, and `ziman test <file>`
+// runs the `#[test]` functions.
+
+#[test]
+fn arithmetic_holds() {
+    test.assert_eq(4, 2 + 2)
+    test.assert_ne(5, 2 + 2)
+    test.assert_lt(2 + 2, 5)
+    // Floats are compared with a tolerance, because exact equality is the wrong question to ask
+    // of them.
+    test.assert_near(0.3, 0.1 + 0.2, 0.000001)
+}
+
+#[test]
+fn collections_are_asserted_about_directly() {
+    val names = ["ada", "grace", "alan"]
+    test.assert_len(3, names)
+    test.assert_contains(names, "grace")
+    test.assert_not_contains(names, "hedy")
+    test.assert_not_empty(names)
+    test.assert_all_match(names, fn(n: string) -> bool { return len(n) > 2 })
+}
+
+#[test]
+fn option_and_result_have_their_own() {
+    // These say what is meant, and -- more usefully -- what failed: `assert_ok` on an Err reports
+    // the error it found rather than only that the value was not Ok.
+    test.assert_some(first(["ada"]))
+    test.assert_none(first<string>([]))
+    test.assert_ok(parse_int("12"))
+    test.assert_err(parse_int("twelve"))
+}
+
+fn main() {
+    // An assertion that holds produces nothing at all: no output is the passing case, which is
+    // why a test run's output is a list of names rather than a transcript.
+    test.assert_eq(4, 2 + 2)
+    test.assert(true)
+    test.assert_false(false)
+    test.assert_starts_with("ziman.dev", "ziman")
+    test.assert_entry(Map<string, int> { "ada": 36 }, "ada", 36)
+    print("every assertion above held, which is why nothing was printed by them")
+
+    // A failure goes through `fail`, which is `unwrap` on a manufactured Err -- the same opt-in
+    // route to a fatal error every Ziman program already has. `ziman test` catches it per test,
+    // so one failing assertion fails its own test and not the whole run.
+    print(len(["this line is reached"]))
+}
+```
+
+Output:
+
+```
+every assertion above held, which is why nothing was printed by them
+1
+```
+
 ### `fail`
 
 ```
