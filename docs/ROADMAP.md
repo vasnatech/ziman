@@ -1334,14 +1334,17 @@ from source.
 
   **`derive_row` ported 2026-10-28** (design doc §14), byte-identical to the C on the first run
   over a ten-field struct with every scalar, two short-spelled bundled types and three shapes of
-  `Option`. It answers the scale question **narrowly**: the two function bodies are templates (23
-  lines, against 42 of `cb_appendf`) and the per-field conversions are not, because `Option<U>`
-  wraps *U's own conversion* -- the text is recursive, and a template can hold a shape with holes
-  but not a shape containing itself. Those stayed `concat`, 78 lines against the C's 86, no worse
-  and now visible to the checker and the formatter. **And `@if` is still unused**: §4's own
-  example of it was `Row`'s `Option` column, which turns out to be recursion rather than a
-  branch, so two generators in the conditional has no users. `derive_json` and `derive_properties`
-  decide whether it keeps its place.
+  `Option`. It answers the scale question **without qualification, after one wrong
+  turn**: the first port left the conversions as `concat` on the argument that `Option<U>` wraps
+  *U's own conversion* and a template cannot contain itself. The second half does not follow --
+  the recursion is in the *call*, and each level has a fixed shape with a hole for the nested
+  text. All six emitted shapes are templates now: 41 lines of template against the C's 128, with
+  60 lines of ordinary Ziman for dispatch, recursion and temporary names. The rule the port found
+  is sharper than the design guessed: **every line of output comes from a template, and `concat`
+  builds only the values that go into the holes.** **`@if` is still unused** -- an `Option` field
+  and a required one are two shapes, so they are two templates chosen by an `if` in Ziman, not
+  one template with a branch. `derive_json` and `derive_properties` decide whether it keeps its
+  place.
 
   This is the continuation of "Code generation from annotations needs a mechanism" below, whose
   questions 2 (writing into another module), 4 (materialising generated declarations) and 5

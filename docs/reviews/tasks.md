@@ -3733,19 +3733,27 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `Option`: over a string, over a flat-named type, over a user type. `tests/lang/derive_row_in_ziman`
   pins it.
 
-  **The answer on templates: they pay where there is a shape, and `Row` is half shape.** The two
-  function bodies are templates -- 23 lines against the C's 42 `cb_appendf` calls -- and the
-  per-field conversions are not. A conversion cannot be a template, and the reason is structural
-  rather than a matter of taste: `Option<U>` emits a `var`, a null test and **U's own conversion
-  inside it**, so the text is recursive and its depth is a property of the type. A template holds
-  a fixed shape with holes in it; it cannot hold a shape that contains itself. Those conversions
-  stayed `concat`, 78 lines against the C's 86 -- no worse, and now Ziman that `--fmt`, `--lint`
-  and `ziman test` can see.
+  **The answer on templates, after one wrong turn: all of it, not half.** The port first left the
+  conversions as `concat`, arguing that `Option<U>` wraps *U's own conversion* so the text is
+  recursive and a template cannot hold a shape containing itself. **The second half does not
+  follow from the first**, and the user found it by asking why there was code in a string: the
+  recursion is in the *call*. Each level has a fixed shape with a hole where the nested text
+  goes -- the same arrangement `from_row_body` already used per field. The mistake was visible in
+  the file and unlooked at: `--fmt` had exploded the `Option` branch into a sixteen-line `concat`
+  of fragments, which is exactly the shape templates exist to remove.
+
+  All six emitted shapes are templates now -- **41 lines of template against the C's 128**, with
+  60 lines of ordinary Ziman for dispatch, recursion and temporary names. Thirteen `concat` calls
+  remain and every one builds an *expression* for a hole (a function name, a `str(..)` wrapper,
+  a qualified `Option.unwrap_Some(..)`), never a line of output. That is the rule the port
+  actually found: **every line of generated output comes from a template; `concat` builds the
+  values that go into the holes and nothing else.**
 
   **`@if` is still unused, and the design's own example of it was wrong about why.**
   docs/design/templates.md §4 argued the no-expressions rule using `derive(Row)`'s `Option`
-  column, and §13 predicted this port was where `@if` would finally be exercised. It was not: the
-  `Option` case is recursion, not a branch, so it cannot sit inside a template at all. **Two
+  column, and §13 predicted this port was where `@if` would finally be exercised. It was not: an
+  `Option` field and a required one are two *shapes*, so they are two templates chosen by an `if`
+  in Ziman rather than one template with a branch in it. **Two
   generators in, `@if` and `@else` have no users** -- said out loud here rather than left to be
   discovered, because if `derive_json` and `derive_properties` also come back without them that is
   an argument for removing the construct, not for finding it a user.

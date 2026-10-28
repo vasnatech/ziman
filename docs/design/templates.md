@@ -436,34 +436,55 @@ It was ported on 2026-10-28 and is **byte-identical to the C on the first run**,
 struct covering a `Uuid`, all six scalars, an `Instant` and three shapes of `Option` (over a
 string, over a flat-named type, over a user type).
 
-### The answer: templates pay where there is a shape, and `Row` is half shape
+### The answer: every emitted shape is a template, including the recursive ones
+
+**The first version of this section said the conversions could not be templates, and it was
+wrong.** It argued that `Option<U>` emits *U's own conversion inside it*, so the text is
+recursive and a template cannot hold a shape that contains itself. The second half of that does
+not follow from the first: **the recursion is in the call, not in the shape.** Each level of an
+`Option` has a perfectly fixed shape --
+
+```
+    var @{dst} = Option<@{elem}>.None
+    if !SqlValue.is_Null(@{src}) {
+@{nested}
+    @{dst} = Option<@{elem}>.Some(@{inner})
+    }
+```
+
+-- with a hole where the nested conversion's text goes, which is the same arrangement
+`from_row_body` already used for `@{f.read}`. The recursive call happens in Ziman and hands its
+result in as a string.
+
+The mistake was visible in the file and I did not look: the `Option` branch was a sixteen-line
+`concat` of fragments after `--fmt` broke it up, which is precisely the shape this module exists
+to remove. It took a reader asking *"why is there code in a string?"*.
 
 | | C | Ziman |
 |---|---|---|
-| the two function bodies | 42 lines of `cb_appendf` | **23 lines of template** + 37 of marshalling |
-| the per-field conversions | 86 lines | 78 lines of `concat`, **no template** |
+| the two function bodies | 42 lines of `cb_appendf` | 23 lines of template |
+| the five conversion shapes | 86 lines | **18 lines of template** |
+| dispatch, recursion, temp names | included above | 60 lines of ordinary Ziman |
 
-**The bodies are templates and the conversions are not, and that is not a compromise -- it is
-what the two things are.** A function body has a fixed shape: a signature, a loop over fields, a
-struct literal. A conversion does not. `Option<U>` emits a `var`, a null test and *U's own
-conversion inside it*, so the text is **recursive** and its depth is a property of the type, not
-of the template. A template can hold a fixed shape with holes in it; it cannot hold a shape that
-contains itself.
+So `derive_row` holds **six templates and thirteen `concat` calls**, and all thirteen build an
+*expression* -- a function name, a `str(..)` wrapper, a qualified `Option.unwrap_Some(..)` --
+never a line of output. That is the rule the port actually found, and it is sharper than the one
+§4 guessed at:
 
-So the conversions stayed `concat`, and the honest reading is that they are **no worse than the
-C** -- 78 lines against 86, doing the same dispatch -- while being Ziman the type checker, the
-formatter and `ziman test` can all see. The template's win is confined to the half that had a
-shape, and there it is the same win §12 measured on `Ord`'s enum: the two generated functions are
-visible as two functions.
+> **Every line of generated output comes from a template. `concat` builds the values that go into
+> the holes, and nothing else.**
 
-### The correction: `@if` is still unused, and §4's own example was wrong about why
+Which also answers the scale question without qualification: templates paid for the whole of
+`Row`, not half of it.
+
+### `@if` is still unused, and §4's own example was wrong about why
 
 §4 argued the no-expressions rule using `derive(Row)`'s `Option` column, and §13 predicted that
-`derive_row` was where `@if` would finally be exercised. **It was not, and the reason is worth
-recording**: the `Option` case is recursive, so it cannot be a branch *inside* a template at all.
-It is not "two readings of a field, pick one" -- it is "a conversion wrapping another
-conversion", which is code. The example in §4 is a fair picture of the *output* and a misleading
-picture of where the decision lives.
+`derive_row` was where `@if` would finally be exercised. **It was not.** An `Option` field and a
+required one do not share a template with a branch in it: they are two different shapes, so they
+are two templates, chosen by an `if` in Ziman. The example in §4 is a fair picture of the
+*output* and a misleading picture of where the choice lives -- the same confusion, in a smaller
+form, as the one corrected above.
 
 **Two generators in, `@if` and `@else` have no users.** They are not thereby wrong -- a generator
 whose output varies without recursing is an ordinary thing to expect, and `Properties` with its

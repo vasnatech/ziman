@@ -95,6 +95,65 @@ pub fn @{snake}_to_params(v: @{name}) -> [SqlValue] {
 
 """)
 
+// **Every emitted shape is a template, including the conversions.** The first version of this
+// file built them with `concat` and the design doc argued they could not be templates because a
+// conversion recurses -- which confused the recursion with the shape. The recursion is in the
+// *call*: each level has a fixed shape with a hole where the nested conversion goes, exactly as
+// the two function bodies have one per field. See docs/design/templates.md §14.
+
+// `    val field_id = try sql_as_int(field_id_raw)` -- every read but an `Option`, the three
+// kinds differing only in which function is named.
+val read_one = template.must_parse("""
+    val @{dst} = try @{call}(@{src})
+
+""")
+
+// A nullable column is NULL-or-value, so it tests and then does the element's own read:
+//
+//         var field_body = Option<string>.None
+//         if !SqlValue.is_Null(field_body_raw) {
+//         val __derive_opt_inner_0 = try sql_as_text(field_body_raw)
+//         field_body = Option<string>.Some(__derive_opt_inner_0)
+//         }
+val read_option = template.must_parse("""
+    var @{dst} = Option<@{elem}>.None
+    if !SqlValue.is_Null(@{src}) {
+@{nested}
+    @{dst} = Option<@{elem}>.Some(@{inner})
+    }
+
+""")
+
+// `    val field_count_sql = SqlValue.Int(v.count)` -- a scalar going out, the kinds differing
+// only in the variant named. `decimal` reaches it too, as `SqlValue.Text(str(v.amount))`, by
+// passing `str(..)` as the source.
+val write_value = template.must_parse("""
+    val @{dst} = SqlValue.@{ctor}(@{src})
+
+""")
+
+// `    val field_id_sql = uuid_to_sql(v.id)` -- a type with a converter of its own.
+val write_converted = template.must_parse("""
+    val @{dst} = @{call}(@{src})
+
+""")
+
+// An absent `Option` is `SqlValue.Null`, which is why this opens with a `var`:
+//
+//         var field_body_sql = SqlValue.Null
+//         if Option.is_Some(v.body) {
+//         val __derive_opt_inner_0 = SqlValue.Text(Option.unwrap_Some(v.body))
+//         field_body_sql = __derive_opt_inner_0
+//         }
+val write_option = template.must_parse("""
+    var @{dst} = SqlValue.Null
+    if Option.is_Some(@{src}) {
+@{nested}
+    @{dst} = @{inner}
+    }
+
+""")
+
 // A conversion's text and the temporary counter after it. **Threaded rather than held**: the
 // recursion below needs a fresh `__derive_opt_inner_N` per nesting level, and returning the next
 // value keeps these functions pure, where a mutable cell would make the order of two calls part
@@ -124,6 +183,29 @@ fn reader_for(kind: string) -> string {
     return "sql_as_text"
 }
 
+// The `SqlValue` variant a scalar goes out as, or None for a kind that needs a converter.
+fn writer_for(kind: string) -> Option<string> {
+    if kind == "int" {
+        return Option<string>.Some("Int")
+    }
+    if kind == "float" {
+        return Option<string>.Some("Float")
+    }
+    if kind == "bool" {
+        return Option<string>.Some("Bool")
+    }
+    if kind == "string" || kind == "decimal" {
+        return Option<string>.Some("Text")
+    }
+    return Option<string>.None
+}
+
+// A conversion's text ends with the newline its own template put there, and the line that holds
+// `@{nested}` supplies one too -- so the inner text is handed over without it.
+fn without_newline(text: string) -> string {
+    return substring(text, 0, prelude.len(text) - 1)
+}
+
 fn is_scalar(kind: string) -> bool {
     return kind == "int" || kind == "float" || kind == "decimal" || kind == "bool" || kind == "string"
 }
@@ -135,7 +217,11 @@ fn is_scalar(kind: string) -> bool {
 fn emit_from_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result<Emitted, string> {
     if is_scalar(t.kind) {
         return ok(Emitted {
-            text: concat("    val ", dst, " = try ", reader_for(t.kind), "(", src, ")\n"),
+            text: try template.render(read_one, [
+                template.text("dst", dst),
+                template.text("call", reader_for(t.kind)),
+                template.text("src", src)
+            ]),
             next_tmp: tmp
         })
     }
@@ -143,41 +229,30 @@ fn emit_from_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result
         return err(concat("derive(Row) does not support field type '", meta.type_text(t), "'"))
     }
     if meta.is_option(t) {
-        val elem = t.args[0]
-        val elem_text = meta.type_text(elem)
+        val elem_text = meta.type_text(t.args[0])
         val inner = tmp_name(tmp)
-        val nested = try emit_from_sql(elem, src, inner, tmp + 1)
+        val nested = try emit_from_sql(t.args[0], src, inner, tmp + 1)
         return ok(Emitted {
-            text: concat(
-                "    var ",
-                dst,
-                " = Option<",
-                elem_text,
-                ">.None\n",
-                "    if !SqlValue.is_Null(",
-                src,
-                ") {\n",
-                nested.text,
-                "    ",
-                dst,
-                " = Option<",
-                elem_text,
-                ">.Some(",
-                inner,
-                ")\n",
-                "    }\n"
-            ),
+            text: try template.render(read_option, [
+                template.text("dst", dst),
+                template.text("elem", elem_text),
+                template.text("src", src),
+                template.text("nested", without_newline(nested.text)),
+                template.text("inner", inner)
+            ]),
             next_tmp: nested.next_tmp
         })
     }
+    var call = concat(meta.snake_case(t.name), "_from_sql")
     if Some(flat) = get(flat_names, t.name) {
-        return ok(Emitted {
-            text: concat("    val ", dst, " = try to_", flat, "(", src, ")\n"),
-            next_tmp: tmp
-        })
+        call = concat("to_", flat)
     }
     return ok(Emitted {
-        text: concat("    val ", dst, " = try ", meta.snake_case(t.name), "_from_sql(", src, ")\n"),
+        text: try template.render(read_one, [
+            template.text("dst", dst),
+            template.text("call", call),
+            template.text("src", src)
+        ]),
         next_tmp: tmp
     })
 }
@@ -185,20 +260,21 @@ fn emit_from_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result
 // The same the other way: a value to a `SqlValue`. An absent `Option` is `SqlValue.Null`, which
 // is why this one opens with a `var` rather than returning the inner conversion directly.
 fn emit_to_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result<Emitted, string> {
-    if t.kind == "int" {
-        return ok(Emitted { text: concat("    val ", dst, " = SqlValue.Int(", src, ")\n"), next_tmp: tmp })
-    }
-    if t.kind == "float" {
-        return ok(Emitted { text: concat("    val ", dst, " = SqlValue.Float(", src, ")\n"), next_tmp: tmp })
-    }
-    if t.kind == "decimal" {
-        return ok(Emitted { text: concat("    val ", dst, " = SqlValue.Text(str(", src, "))\n"), next_tmp: tmp })
-    }
-    if t.kind == "bool" {
-        return ok(Emitted { text: concat("    val ", dst, " = SqlValue.Bool(", src, ")\n"), next_tmp: tmp })
-    }
-    if t.kind == "string" {
-        return ok(Emitted { text: concat("    val ", dst, " = SqlValue.Text(", src, ")\n"), next_tmp: tmp })
+    if Some(ctor) = writer_for(t.kind) {
+        // `decimal` is the one scalar whose value is converted on the way in rather than named
+        // by a different variant, so it is the source that changes and not the template.
+        var value = src
+        if t.kind == "decimal" {
+            value = concat("str(", src, ")")
+        }
+        return ok(Emitted {
+            text: try template.render(write_value, [
+                template.text("dst", dst),
+                template.text("ctor", ctor),
+                template.text("src", value)
+            ]),
+            next_tmp: tmp
+        })
     }
     if t.kind != "struct" && t.kind != "enum" {
         return err(concat("derive(Row) does not support field type '", meta.type_text(t), "'"))
@@ -207,29 +283,25 @@ fn emit_to_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result<E
         val inner = tmp_name(tmp)
         val nested = try emit_to_sql(t.args[0], concat("Option.unwrap_Some(", src, ")"), inner, tmp + 1)
         return ok(Emitted {
-            text: concat(
-                "    var ",
-                dst,
-                " = SqlValue.Null\n",
-                "    if Option.is_Some(",
-                src,
-                ") {\n",
-                nested.text,
-                "    ",
-                dst,
-                " = ",
-                inner,
-                "\n",
-                "    }\n"
-            ),
+            text: try template.render(write_option, [
+                template.text("dst", dst),
+                template.text("src", src),
+                template.text("nested", without_newline(nested.text)),
+                template.text("inner", inner)
+            ]),
             next_tmp: nested.next_tmp
         })
     }
+    var call = concat(meta.snake_case(t.name), "_to_sql")
     if contains(flat_names, t.name) {
-        return ok(Emitted { text: concat("    val ", dst, " = to_sql(", src, ")\n"), next_tmp: tmp })
+        call = "to_sql"
     }
     return ok(Emitted {
-        text: concat("    val ", dst, " = ", meta.snake_case(t.name), "_to_sql(", src, ")\n"),
+        text: try template.render(write_converted, [
+            template.text("dst", dst),
+            template.text("call", call),
+            template.text("src", src)
+        ]),
         next_tmp: tmp
     })
 }
@@ -251,7 +323,7 @@ fn from_row(d: meta.Decl) -> Result<string, string> {
             template.text("name", m.name),
             // The block ends with its own newline and the template line supplies one too, so the
             // trailing one is dropped here rather than leaving a blank line per field.
-            template.text("read", substring(read.text, 0, prelude.len(read.text) - 1)),
+            template.text("read", without_newline(read.text)),
             template.text("comma", if i < last { "," } else { "" })
         ]))
     }
@@ -270,7 +342,7 @@ fn to_params(d: meta.Decl) -> Result<string, string> {
         tmp = write.next_tmp
         push(fields, template.row([
             template.text("name", m.name),
-            template.text("write", substring(write.text, 0, prelude.len(write.text) - 1))
+            template.text("write", without_newline(write.text))
         ]))
     }
     return template.render(to_params_body, [
