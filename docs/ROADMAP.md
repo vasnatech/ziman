@@ -1319,6 +1319,20 @@ from source.
   non-column groupings stay hand-written under the rule that a hand-written body wins. Paging is
   the one of those that could become a design question later; the rest are not meant to be reached.
 
+  **Adopted the same day, and adoption found a real limit** -- `docs/design/derived-queries.md`
+  §11, and DESIGN.md's 2026-10-28 entry. 30 functions in 19 repositories of the sample backend,
+  121 `repository.query` vals down to 97. But `find -> Result<E, DbError>` and
+  `delete -> Result<unit, DbError>` are **unused there**, because they raise `DbError.NotFound`
+  and the generator has to write its message -- and the message that reaches a 404 body needs the
+  entity's *label* ("Vital sign"), which the application had already decided is not derivable from
+  the struct's name, plus the row id, which the generator never sees. Two suites assert the exact
+  wording. That costs the two most repeated shapes in §2's table (`find_by_id_and_patient_id` x12,
+  the scoped `delete` x15).
+
+  **The next move on this is one optional argument**: `#![repository(Medication, label:
+  "Medication")]`, a fact about the module's entity rather than per-function configuration, which
+  would make both forms usable and finish the adoption. Measured but not built.
+
 
 - **Code generation from annotations needs a mechanism, not a series of exceptions. Not started;
   this is the design talk.**

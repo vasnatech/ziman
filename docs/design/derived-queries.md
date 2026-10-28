@@ -316,3 +316,67 @@ Nine questions the design did not reach, each settled while building and each ch
    only in who fills it. What that cost elsewhere is one line: `fn_has_body` now asks whether the
    body is there instead of listing the kinds that never have one, because a derived query is the
    first kind that *acquires* one, and no flag can answer the question at both times.
+
+## 11. What adoption found: a derived query cannot write the application's error message
+
+Adopted across the sample backend on 2026-10-28, the day after it was built. **30 functions in 19
+repositories**, 121 `repository.query` vals down to 97. What the exercise found is one limit, and
+it is sharper than §7's list of things the grammar cannot express -- those are queries this
+deliberately does not reach, and this is a query it reaches and then cannot *answer* properly.
+
+**Two of the seven verb/return pairs in §5 raise `DbError.NotFound`, and the generator has to
+write its message.** It writes `"no Medication matching find_by_id_and_patient_id"`, from the
+entity's name and the function's. The application writes `"Medication not found: <uuid>"`.
+
+Those are not two spellings of one thing:
+
+* **The id is gone.** `repository.not_found`'s own comment says why it is there: *"a 404 in a log
+  with no id cannot be matched to a request."*
+* **The entity's name is not its label.** The same comment: *"`label` is the entity as a person
+  says it ("Vital sign", "Medication refill log"), not as the struct spells it: these messages
+  reach API responses, where `VitalSign` would be the first time a reader met the internal name.
+  That is why it is an argument rather than derived from the entity."* The application reached
+  that conclusion independently, before any of this existed, and it is the reason the generator
+  cannot do better: **the label is not a fact about the struct.**
+* **The wording is a contract.** Two of the backend's suites assert it, in a check named *"a 404 is
+  worded exactly as Spring words it"*. The application exists to match a Spring implementation;
+  the message is part of what is being matched.
+
+So `find -> Result<E, DbError>` and `delete -> Result<unit, DbError>` were **reverted** after the
+first attempt and are not used anywhere in the backend. Everything derived there is a form that
+answers no message: `delete -> Result<int>`, `count`, `exists`, `find -> Result<Option<E>>`,
+`find -> Result<[E]>`.
+
+### What that costs, counted
+
+This is most of the headline. §2 counted 91 of 144 functions derivable, with
+`find_by_id_and_patient_id` (12 instances) and the scoped `delete` (15) among the six repeated
+shapes. **Both of those are message-answering forms**, so 27 of the 69 in that table are out on
+this ground alone, and what converted is the other kind: `delete_by_patient_id` (19),
+`count_by_patient_id`, `delete_by_medication_id`, `delete_by_panel_id`, `find_by_user_id`.
+
+### Three ways out, none built
+
+1. **The label on the module attribute** -- `#![repository(Medication, label: "Medication")]`. One
+   place per module, which is where a label naturally lives, and it is a fact about the module's
+   entity rather than about any one query. The generator would then write
+   `"Medication not found: <id>"` and the forms become usable. **This is the recommendation**: it
+   adds one optional argument and no per-function configuration.
+2. **The message on the function** -- `#[repository(not_found: "...")]`. Rejected on sight: it is
+   the per-function configuration §8.4 and the module attribute's own design both refused, and the
+   text would be written once per query instead of once per entity.
+3. **Drop the two forms** and let `find` answer `Result<Option<E>>` with the caller wording its
+   own error. Honest, and it moves three lines back into every call site that wanted one.
+
+### The other two things adoption found
+
+* **A name and its column had drifted.** `activity_calorie_rate.find_by_patient_id_and_type`
+  queried `exercise_type`; the SQL was right and the name had said `type` for as long as it
+  existed. Deriving it forced the rename, which is the whole claim of §4.1 arriving unprompted.
+* **The ordering grammar did not pay for itself.** Of the 12 "every row of this patient" queries
+  with an `ORDER BY`, **3 begin with `CASE WHEN .. IS NULL THEN 1 ELSE 0 END`** (the two engines
+  disagree on where NULLs sort under `DESC`) and are not expressible at all; most of the rest are
+  two or three columns, giving names like
+  `find_by_patient_id_order_by_effective_date_time_desc_and_created_at_desc_and_id` -- 78
+  characters. None were converted. §8.1's "16 names lose six characters" counted the `_all` and
+  not the ordering that comes with it.

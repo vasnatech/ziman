@@ -10248,3 +10248,39 @@ The cost in the compiler was one line outside the generator. `fn_has_body` used 
 query is bodyless between parsing and generation and has a body afterwards, so it now asks whether
 the body is there. The same question, asked about the property rather than about the kinds -- which
 is the fix that comment already recommended the first time a third bodyless kind arrived.
+
+### Adoption found the one thing the design could not: the generator writes the error message
+
+Adopted across the sample backend the same day: **30 functions in 19 repositories**, 121
+`repository.query` vals down to 97. The first attempt converted more than that and was reverted,
+which is the finding.
+
+Two of §5's seven verb/return pairs raise `DbError.NotFound`, so the generator has to write its
+text, and it writes `"no Medication matching find_by_id_and_patient_id"` -- the entity's name and
+the function's, which is all it has. The application writes `"Medication not found: <uuid>"`, and
+that difference is three separate problems: the id is gone (`repository.not_found`'s own comment:
+*"a 404 in a log with no id cannot be matched to a request"*), the struct's name is not the
+entity's label, and two of the backend's suites assert the exact wording in a check named *"a 404
+is worded exactly as Spring words it"*.
+
+**The second of those is the one that matters, because the application had already decided it.**
+From the same comment, written long before any of this existed: *"`label` is the entity as a
+person says it ("Vital sign", "Medication refill log"), not as the struct spells it … That is why
+it is an argument rather than derived from the entity."* A generator reading a `StructDecl` cannot
+produce a label that is, by the application's own reasoning, not a fact about the struct.
+
+So `find -> Result<E, DbError>` and `delete -> Result<unit, DbError>` are unused in the backend,
+and what converted is the message-free half: `delete -> Result<int>`, `count`, `exists`,
+`find -> Result<Option<E>>`, `find -> Result<[E]>`. That is expensive --
+`find_by_id_and_patient_id` (12 instances) and the scoped `delete` (15) are two of the six repeated
+shapes the feature was counted on.
+
+**The fix is one optional argument on the module attribute**, `#![repository(Medication, label:
+"Medication")]`, where a label is a fact about the module's entity rather than about any one
+query. Not built. The alternative -- a message per function -- is the per-function configuration
+both the module attribute and the derived-query design refused, and it would write the text once
+per query instead of once per entity.
+
+The general lesson is the one the `eql` adoption already recorded in a different shape: a
+generator can write a query from a declaration, and it cannot write anything the declaration does
+not contain. Prose aimed at a person is the obvious example and was not obvious in advance.
