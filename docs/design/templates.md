@@ -97,43 +97,22 @@ has one reading and `@m.name_compare` has none.
 ## 4. Logic lives in Ziman; the template holds shape
 
 **A template interpolates, repeats, and chooses. It does not compute.** No expressions, no
-comparisons, no arithmetic, no `len`, no filters, no function calls. `@if` takes a **bound boolean
-and nothing else**.
+comparisons, no arithmetic, no `len`, no filters, no function calls. A choice reads a **bound
+value and nothing else**.
 
 The alternative was measured against the generator that needs the most: `derive_ord`'s enum half
 emits a rank block for every variant **but the last**, each with its index as a literal, then a
 `count - 1`, then payload arms **only** for variants that carry one. Four kinds of variability. A
-template language able to express them needs a loop index, `len()`, `-`, `<` and `@if` with
-operands -- an expression language, invisible to the type checker because it lives inside a
-string, and one that never stops growing (`@elif`, then `@{name|upper}`, then whitespace control,
-then macros).
+template language able to express them needs a loop index, `len()`, `-`, `<` and a conditional
+with operands -- an expression language, invisible to the type checker because it lives inside a
+string, and one that never stops growing (filters, then whitespace control, then macros).
 
-> **`@if` and `@else` do not exist.** They were built, went unused by two generators, and were
-> replaced by `@choose`/`@when`/`@otherwise` in §15 -- which §16 then confirmed was the better
-> shape on the one generator that could have argued otherwise. The rest of this section is the
-> live rule and reads unchanged if you substitute `@choose`: **no expressions, ever**; the
-> template shows which shapes exist and Ziman decides between them. The example below is kept as
-> written, and is also wrong about *why* in a second way, corrected in §14.
-
-`@if` and `@else` pair with each other and nothing else. The case that wants them is a field
-whose two readings are genuinely different text -- `derive(Row)`'s `Option` column against a
-required one, which `emit_from_sql` writes by hand today:
-
-```
-@if optional
-    var @{dst} = Option<@{elem}>.None
-    if !SqlValue.is_Null(@{src}) {
-        @{dst} = Option<@{elem}>.Some(@{inner})
-    }
-@else
-    val @{dst} = try sql_as_@{kind}(@{src})
-@end
-```
-
-**There is no `@elif`**, and that is the line rather than an omission: a second condition is a
-second flag, and a template needing three of them is a template that should have been two
-templates chosen in Ziman. `@elif` is also the first construct that cannot be read without
-scanning upward, which is the property `@if`/`@else`/`@end` on their own lines exists to keep.
+> The construct this section originally named was `@if`/`@else`, which no longer exists: it was
+> built, went unused by two generators, and was replaced by `@choose`/`@when`/`@otherwise` in
+> §15, which §16 then confirmed on the one generator that could have argued otherwise. **The
+> rule below is unchanged by that** -- what varies is which construct shows the alternatives,
+> not whether the template may compute. §14 corrects a second thing this section got wrong: the
+> example it reached for, `derive(Row)`'s `Option` column, is recursion rather than a branch.
 
 So Ziman computes and the template repeats:
 
@@ -149,8 +128,8 @@ for i in 0..prelude.len(d.members) - 1 {
 
 **What this costs, stated plainly**: the marshalling above is four lines to say "a row per variant
 but the last", and *"this chunk appears only sometimes"* becomes *"this list is empty"* -- an
-indirection a reader follows to a second place. `@if` on a bound flag is what keeps that cost
-bounded; everything past it is the slope.
+indirection a reader follows to a second place. A conditional over a bound value is what keeps
+that cost bounded; everything past it is the slope.
 
 ## 5. The data model
 
