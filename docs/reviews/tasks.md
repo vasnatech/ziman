@@ -3680,3 +3680,46 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   Three fixtures (`derived_query_no_crud`, `derived_query_no_crud_has_no_crud`, and the re-worded
   unknown-argument refusal). 1,284 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F220** **A lint for `f(.., snapshot(b), ..)` when `f` reads the builder directly, and the
+  false positive that made it precise.** (user-raised, "add the lint", after asking whether `join`
+  has a MutableArray overload; done 2026-10-28.)
+
+  The redundant-`snapshot` rule has been parked since the day the user caught `len(snapshot(x))` by
+  reading code: measuring it found 358 raw `snapshot` hits of which almost all were the *correct*
+  `ok(snapshot(out))`, and the conclusion was "needs a type-driven rule". A question about `join`
+  is what produced the rule: **a `snapshot` whose result is handed straight to a call that has a
+  free overload reading the builder.**
+
+  **The question also found three live instances**, all in `lib/core/template.zm` written the same
+  day: `contains(snapshot(into), ..)` inside a walk over every node, so each call copied the whole
+  accumulated array. Not a style finding -- measured, 200 snapshots of a 200,000-element
+  `MutableArray` cost **8.7 seconds** against **0 ms** for reading it in place, so the shape is
+  quadratic wherever it sits in a loop.
+
+  **And the answer to the question that prompted it was "no, and the snapshot there is
+  required"**: `join`'s `pieces` is `variadic string`, whose array form is a calling convention
+  rather than a parameter type, so there is no builder form to drop to. The rule skips a variadic
+  parameter for exactly that reason, which is also why it stays quiet on the `names_of` helper
+  that raised the question.
+
+  **The rule is derived from the declarations, never a list of names** -- a hand-kept list of
+  "functions that read a builder" is the shape F168 and F212 both found already wrong here.
+
+  **The first version was wrong, and the corpus said so.** "Some declaration of `f` takes a
+  builder at that position" fired once on the sample backend, on
+  `concat(snapshot(older), snapshot(newer))` -- and `concat<T>(items: MutableArray<T>, parts:
+  variadic [T])` appends **in place** and answers nothing, where the call wants the pure
+  `concat<T>(parts: variadic [T]) -> [T]`. Advising that drop would have advised a behaviour
+  change. So a builder declaration now counts only when a **sibling** declaration of the same name
+  takes a plain sequence at the same position with the same parameter count and the same return
+  type: one operation written for two worlds, which `len` and `contains` are and `concat`'s four
+  declarations are not. **Zero findings on the backend after the fix**, and the two true ones still
+  caught.
+
+  That sequence is the whole value of the exercise: a lint that had only ever been reasoned about
+  produced exactly one finding on real code, and it was wrong.
+
+  `tests/lang/lint_snapshot_into_builder_reader` pins both findings *and* the three silent calls,
+  which are the half that can regress quietly. 1,287 fixtures, `make check` exit 0 with the North
+  Star.

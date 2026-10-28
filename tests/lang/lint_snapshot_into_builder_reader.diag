@@ -1,0 +1,5 @@
+# Exactly two, and the three silent calls below them are as load-bearing as the two findings:
+# `concat`'s MutableArray form appends in place and answers nothing, `join`'s `pieces` is variadic,
+# and a snapshot bound to a `val` is a conversion rather than a wasted copy.
+lint 16:20 and 'contains' reads one directly -- drop the snapshot
+lint 17:15 and 'len' reads one directly -- drop the snapshot

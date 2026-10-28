@@ -238,18 +238,18 @@ fn collect_refs(nodes: [Node], into: MutableArray<string>) {
                 val ignored = s
             }
             Hole(h) {
-                if h.binder == "" && !contains(snapshot(into), h.name) {
+                if h.binder == "" && !contains(into, h.name) {
                     push(into, h.name)
                 }
             }
             Repeat(l) {
-                if !contains(snapshot(into), l.source) {
+                if !contains(into, l.source) {
                     push(into, l.source)
                 }
                 collect_refs(l.body, into)
             }
             Choose(b) {
-                if !contains(snapshot(into), b.flag) {
+                if !contains(into, b.flag) {
                     push(into, b.flag)
                 }
                 collect_refs(b.then_body, into)

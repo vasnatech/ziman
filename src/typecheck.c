@@ -3617,9 +3617,101 @@ static void verify_prelude_qualified(Module *module, const Expr *e, const char *
                 fn != NULL ? ", though this file does (drop the 'prelude.' to call it)" : "");
 }
 
+/* The builder kind a type is, or NULL for anything else. Four names rather than a flag, because
+ * the warning says which one the reader is holding. */
+static const char *builder_kind_of(Type t) {
+    if (t.kind != TY_STRUCT || t.struct_name == NULL) return NULL;
+    static const char *const KINDS[] = {"MutableArray", "MutableMap", "MutableSet", "MutableString"};
+    for (size_t i = 0; i < sizeof KINDS / sizeof KINDS[0]; i++) {
+        if (strcmp(t.struct_name, KINDS[i]) == 0) return KINDS[i];
+    }
+    return NULL;
+}
+
+/* Whether dropping the `snapshot` in `f(.., snapshot(b), ..)` reaches **the same operation** on
+ * the builder -- which is a stronger question than whether some declaration of `f` takes one
+ * there, and the difference is not academic.
+ *
+ * **`concat` is why.** `concat<T>(parts: variadic [T]) -> [T]` builds a new array;
+ * `concat<T>(items: MutableArray<T>, parts: variadic [T])` appends into `items` and answers
+ * nothing. Both take a sequence first, so the weaker test fired on the sample backend's
+ * `concat(snapshot(older), snapshot(newer))` and advised dropping a snapshot that would have
+ * selected an in-place write of a different shape. One finding in the whole corpus, and it was
+ * wrong -- which is the argument for running a lint over real code before shipping it.
+ *
+ * So a builder declaration counts only when a **sibling** declaration of the same name takes a
+ * plain sequence at that position, with the same parameter count and the same return type: the
+ * pair is then one operation written for two worlds, which is exactly what `len` and `contains`
+ * are and what `concat`'s four declarations are not.
+ *
+ * **Derived from the declarations, not from a list of names.** A hand-kept list of "functions
+ * that read a builder" is the shape F168 and F212 both found already wrong in this repository,
+ * and it would go wrong again the first time an overload is added. A **variadic** parameter is
+ * skipped deliberately: its array form is a calling convention rather than a parameter type, so
+ * `join(pieces: snapshot(b))` has no builder form to drop to and this must stay quiet about it. */
+static int reads_sequence_at(const FunctionDecl *f, int at) {
+    if (at >= f->params.count || f->params.items[at].is_variadic) return 0;
+    Type t = f->params.items[at].type;
+    return t.kind == TY_ARRAY || t.kind == TY_MAP || t.kind == TY_SET || t.kind == TY_STRING;
+}
+
+static int name_reads_builder_at(Module *module, const char *name, int at, const char *kind) {
+    for (int i = 0; i < module->functions.count; i++) {
+        const FunctionDecl *b = module->functions.items[i];
+        if (b->name == NULL || strcmp(b->name, name) != 0) continue;
+        if (at >= b->params.count || b->params.items[at].is_variadic) continue;
+        const char *takes = builder_kind_of(b->params.items[at].type);
+        if (takes == NULL || strcmp(takes, kind) != 0) continue;
+        for (int j = 0; j < module->functions.count; j++) {
+            const FunctionDecl *a = module->functions.items[j];
+            if (a == b || a->name == NULL || strcmp(a->name, name) != 0) continue;
+            if (a->params.count != b->params.count) continue;
+            if (!reads_sequence_at(a, at)) continue;
+            if (type_equals(a->return_type, b->return_type)) return 1;
+        }
+    }
+    return 0;
+}
+
+/* `f(.., snapshot(b), ..)` where `f` has an overload reading the builder directly: the snapshot
+ * is a full copy of `b` and nothing needs it.
+ *
+ * **Not a style finding.** `snapshot` on a MutableArray copies -- measured at 8.7 seconds for 200
+ * snapshots of a 200,000-element array against 0 ms for reading it directly -- so one inside a
+ * loop is quadratic. All three instances this rule was written for were
+ * `contains(snapshot(seen), x)` inside a walk, in this repository's own `lib/core/template.zm`.
+ *
+ * Only a direct identifier counts, as `finds_builder_conversion` also requires: a snapshot of
+ * some other expression is not a builder a reader can see being copied. */
+static void lint_redundant_snapshot(Module *module, Env *env, const Expr *e) {
+    const char *name = callee_tail(e);
+    if (name == NULL) return;
+    for (int i = 0; i < e->as.call.args.count; i++) {
+        const Expr *arg = e->as.call.args.items[i];
+        if (arg->kind != EXPR_CALL || arg->as.call.args.count != 1) continue;
+        const char *inner = callee_tail(arg);
+        if (inner == NULL || strcmp(inner, "snapshot") != 0) continue;
+        const Expr *src = arg->as.call.args.items[0];
+        if (src->kind != EXPR_IDENT) continue;
+        const Binding *b = env_lookup(env, src->as.ident_name);
+        if (b == NULL) continue;
+        const char *kind = builder_kind_of(b->type);
+        if (kind == NULL) continue;
+        if (!name_reads_builder_at(module, name, i, kind)) continue;
+        /* No rewritten call in the message: spelling one means reproducing the other arguments,
+         * and the first draft printed `contains(seen)` for `contains(snapshot(seen), x)`. "Drop
+         * the snapshot" is the whole fix and cannot be got wrong. */
+        ziman_warning(g_lint_file, arg->line, arg->col,
+                      "'snapshot(%s)' copies the whole %s, and '%s' reads one directly -- drop the snapshot",
+                      src->as.ident_name, kind, name);
+        g_lint_count++;
+    }
+}
+
 static Type check_call(Module *module, Env *env, Expr *e) {
     const char *name = e->as.call.callee;
     verify_prelude_qualified(module, e, name);
+    if (g_lint_active) lint_redundant_snapshot(module, env, e);
 
     /* A call the checker has already rewritten onto one of its own `$` names is finished: the
      * `mutable` arm replaces the callee, replaces the arguments with the literal's elements, and

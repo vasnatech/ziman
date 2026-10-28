@@ -1,0 +1,30 @@
+// `f(.., snapshot(b), ..)` where `f` reads a builder directly: the snapshot copies the whole
+// buffer and nothing needs it. Measured before the rule was written -- 200 snapshots of a
+// 200,000-element MutableArray cost 8.7 seconds against 0 ms for reading it in place -- so one of
+// these inside a walk is quadratic, which is what all three instances in lib/core/template.zm
+// were when this found them.
+//
+// **The silent cases are the point of the fixture.** `concat` takes a MutableArray first in its
+// in-place form, which does a different thing and answers nothing; `join`'s `pieces` is variadic,
+// so its array form is a calling convention and there is no builder form to drop to. A rule that
+// fired on either would be advising a behaviour change.
+fn main() {
+    val seen = mutable_array_new<string>()
+    push(seen, "a")
+    push(seen, "b")
+
+    print(contains(snapshot(seen), "a"))
+    print(len(snapshot(seen)))
+
+    // Silent: concat's MutableArray overload appends in place and returns nothing.
+    val other = mutable_array_new<string>()
+    push(other, "c")
+    print(len(concat(snapshot(seen), snapshot(other))))
+
+    // Silent: `pieces` is variadic, so there is no MutableArray form of it.
+    print(join(separator: ", ", pieces: snapshot(seen)))
+
+    // Silent: a snapshot that is kept is a conversion, not a wasted copy.
+    val frozen = snapshot(seen)
+    print(len(frozen))
+}

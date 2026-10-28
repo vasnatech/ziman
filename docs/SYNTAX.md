@@ -335,8 +335,9 @@ print(nums)                // [-1, 999, 1, 4, 9, 16]
   comparison, which is worth far more than two memcpys. A comparator of your own always went
   through the interpreter, so `sort_with` had no such trade to make. It
   reads back in place: `len(xs)`, `xs[i]` and `for x in xs` cost nothing, where
-  `snapshot` copies the whole buffer every call (`--lint` flags that in a loop). See
-  "Builtins" for exact signatures.
+  `snapshot` copies the whole buffer every call (`--lint` flags that in a loop, and also flags
+  `f(.., snapshot(b), ..)` when `f` has an overload reading the builder directly -- `contains`,
+  `len` and the rest). See "Builtins" for exact signatures.
 
 ## Maps and sets
 
