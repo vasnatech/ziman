@@ -16,6 +16,22 @@
 use meta
 use template
 
+// What it writes, for `#[derive(Ord)] struct Point { x: int  y: int }`:
+//
+//     pub fn point_compare(a: Point, b: Point) -> int {
+//         val c_x = compare(a.x, b.x)
+//         if c_x != 0 {
+//             return c_x
+//         }
+//         val c_y = compare(a.y, b.y)
+//         if c_y != 0 {
+//             return c_y
+//         }
+//         return 0
+//     }
+//
+// A generic declaration carries its own parameters with an `Ord` bound on each, so
+// `struct Box<T, U>` gives `pub fn box_compare<T: Ord, U: Ord>(a: Box<T, U>, b: Box<T, U>)`.
 val struct_body = template.must_parse("""
 pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
 @for m in members
@@ -33,6 +49,43 @@ pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
 // **The ranks are computed, not matched on**, because a generated `switch` would have to name
 // every variant's payload binder and an enum's variants may carry none. `ra`/`rb` start at 0, so
 // the last variant is the one left to the `!is_<first>` test rather than given its own `if`.
+// What it writes, for `#[derive(Ord)] enum Shape { Dot  Line(int)  Area }`:
+//
+//     pub fn shape_compare(a: Shape, b: Shape) -> int {
+//         var ra = 0
+//         var rb = 0
+//         if Shape.is_Dot(a) {
+//             ra = 0
+//         }
+//         if Shape.is_Dot(b) {
+//             rb = 0
+//         }
+//         if Shape.is_Line(a) {
+//             ra = 1
+//         }
+//         if Shape.is_Line(b) {
+//             rb = 1
+//         }
+//         if ra == 0 && !Shape.is_Dot(a) {
+//             ra = 2
+//         }
+//         if rb == 0 && !Shape.is_Dot(b) {
+//             rb = 2
+//         }
+//         if ra < rb {
+//             return -1
+//         }
+//         if ra > rb {
+//             return 1
+//         }
+//         if Shape.is_Line(a) {
+//             return compare(Shape.unwrap_Line(a), Shape.unwrap_Line(b))
+//         }
+//         return 0
+//     }
+//
+// `Area` gets no rank block of its own -- it is the last variant, and `ra`/`rb` starting at 0 is
+// what the `!is_Dot` test turns into "the last one". Only `Line` gets a payload arm.
 val enum_body = template.must_parse("""
 pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
     var ra = 0
