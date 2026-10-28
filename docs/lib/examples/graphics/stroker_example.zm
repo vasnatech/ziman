@@ -1,0 +1,39 @@
+use geom
+use paint
+use shape
+use stroker
+
+// Turning a stroke into a fill. A stroked line is conceptually a thick line; to a renderer that
+// has only fills -- and to PDF, which has its own stroking but not every dash and join we allow --
+// it has to become an outline: the closed path that encloses the thick line. That is this module.
+fn demo() -> Result<unit, string> {
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(10.0, 50.0))
+    shape.line_to(b, geom.point_of(90.0, 50.0))
+    val line = shape.built(b, shape.Winding.NonZero)
+    print(len(line.segments))
+
+    // A 10-wide stroke of a horizontal line is a rectangle 10 tall, so the outline's bounds say
+    // the width was applied to both sides of the line, not one.
+    val outlined = try stroker.outline(line, paint.stroke_of(10.0))
+    val box = shape.path_bounds(outlined)
+    printf("{} {} {} {}\n", box.x, box.y, box.width, box.height)
+
+    // Caps extend the ends; a square cap makes the outline longer than the line by half a width
+    // at each end, where a butt cap does not.
+    val butt = shape.path_bounds(try stroker.outline(line, with paint.stroke_of(10.0) { cap: paint.Cap.Butt }))
+    val square = shape.path_bounds(try stroker.outline(line, with paint.stroke_of(10.0) { cap: paint.Cap.Square }))
+    printf("{} {}\n", butt.width, square.width)
+
+    // A dashed stroke outlines each dash separately, so the result is several subpaths rather than
+    // one -- which is exactly why a backend without dashes can still draw it.
+    val dashed = try stroker.outline(line, paint.dashed(10.0, [10.0, 10.0]))
+    print(len(dashed.segments) > len(outlined.segments))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("stroker example failed: {}\n", e)
+    }
+}

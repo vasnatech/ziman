@@ -8,6 +8,79 @@ See docs/graphics/phase-2-pdf-backend.md for the operator table and the reasonin
 
 `use pdf` -- or `use pdf.Name` to bring one item in bare.
 
+## Example
+
+```
+use geom
+use paint
+use pdf
+use scene
+use shape
+
+// The PDF backend: the same `Scene` the raster backend draws, written as a document instead. A
+// page is a scene, a document is a list of them, and the answer is the bytes -- so a report can be
+// built, tested and handed back without a file ever being involved.
+fn page(label: float) -> scene.Scene {
+    return scene.with_ops(scene.scene_of(200.0, 100.0), [
+        scene.fill(
+            shape.rect_path(geom.rect_of(10.0, 10.0, label, 40.0)),
+            paint.solid(paint.rgb(0.2, 0.4, 0.8))
+        ),
+        scene.text_of("Ziman", geom.point_of(10.0, 70.0), 12.0, 0, paint.solid(paint.black()))
+    ])
+}
+
+fn demo() -> Result<unit, string> {
+    val bytes = try pdf.render(page(50.0), pdf.options())
+
+    // A PDF is bytes, and these are the bytes every PDF starts and ends with.
+    print(try bytes_to_string(slice(bytes, 0, 8)))
+    print(contains(try bytes_to_string(slice(bytes, len(bytes) - 6, len(bytes))), "%%EOF"))
+
+    // Several scenes make several pages, which is the only difference between a page and a
+    // document.
+    val one = try pdf.render_pages([page(50.0)], pdf.options())
+    val three = try pdf.render_pages([page(50.0), page(60.0), page(70.0)], pdf.options())
+    print(len(three) > len(one))
+
+    // The page size is a value, so the same drawing can be placed on A4 or Letter without the
+    // drawing knowing which.
+    val a4 = pdf.a4()
+    val letter = pdf.letter()
+    printf("{} {}\n", a4.width, letter.width)
+
+    // Compression is off by default so the output can be read while developing, and on when it
+    // matters -- the same drawing, fewer bytes.
+    val plain = try pdf.render(page(50.0), with pdf.options() { compress: false })
+    val packed = try pdf.render(page(50.0), with pdf.options() { compress: true })
+    print(len(packed) < len(plain))
+
+    // Text in a standard font is encoded in WinAnsi, and a character that encoding has no room
+    // for is refused rather than silently replaced.
+    print(is_ok(pdf.win_ansi("Ziman")))
+    print(is_ok(pdf.win_ansi("Zimān")))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("pdf example failed: {}\n", e)
+    }
+}
+```
+
+Output:
+
+```
+%PDF-1.7
+true
+true
+595.276 612.0
+true
+true
+false
+```
+
 ### `PageSize`
 
 ```

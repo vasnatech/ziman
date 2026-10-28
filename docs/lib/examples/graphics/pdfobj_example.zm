@@ -1,0 +1,58 @@
+use pdfobj
+
+// The PDF file format itself: objects, a cross-reference table and a trailer. `pdf` is written on
+// this, and anything that needs to emit a PDF structure the drawing model does not cover can be
+// too -- the writer handles numbering, offsets and the xref, which are the parts that are tedious
+// to get right and invisible when wrong.
+fn demo() -> Result<unit, string> {
+    val w = pdfobj.writer()
+
+    // Every object the writer takes is given a number, and that number is how other objects point
+    // at it -- so references are a value rather than a string you have to keep consistent.
+    val font = pdfobj.add(w, pdfobj.Obj.Dict([
+        pdfobj.entry("Type", pdfobj.Obj.Name("Font")),
+        pdfobj.entry("Subtype", pdfobj.Obj.Name("Type1")),
+        pdfobj.entry("BaseFont", pdfobj.Obj.Name("Helvetica"))
+    ]))
+    printf("font is object {}\n", font)
+
+    // A page has to name its parent and the parent has to list its pages, so one of the two must
+    // be promised before it is written. `reserve` takes a number now and `put` fills it later.
+    val pages = pdfobj.reserve(w)
+    val content = pdfobj.add(w, pdfobj.stream([], to_bytes("BT /F1 12 Tf 72 720 Td (Ziman) Tj ET")))
+    val page = pdfobj.add(w, pdfobj.Obj.Dict([
+        pdfobj.entry("Type", pdfobj.Obj.Name("Page")),
+        pdfobj.entry("Parent", pdfobj.Obj.Ref(pages)),
+        pdfobj.entry("Contents", pdfobj.Obj.Ref(content))
+    ]))
+    try pdfobj.put(w, pages, pdfobj.Obj.Dict([
+        pdfobj.entry("Type", pdfobj.Obj.Name("Pages")),
+        pdfobj.entry("Kids", pdfobj.Obj.Array([pdfobj.Obj.Ref(page)])),
+        pdfobj.entry("Count", pdfobj.Obj.Int(1))
+    ]))
+
+    val catalog = pdfobj.add(w, pdfobj.Obj.Dict([
+        pdfobj.entry("Type", pdfobj.Obj.Name("Catalog")),
+        pdfobj.entry("Pages", pdfobj.Obj.Ref(pages))
+    ]))
+
+    val bytes = try pdfobj.finish(w, catalog, [pdfobj.entry("Producer", pdfobj.Obj.Str("Ziman"))])
+    // The header and the trailer are ASCII; the body is not, which is why only the ends are read
+    // back as text -- a PDF is a binary file with readable scaffolding, not a text file.
+    print(try bytes_to_string(slice(bytes, 0, 8)))
+    print(contains(try bytes_to_string(slice(bytes, len(bytes) - 32, len(bytes))), "%%EOF"))
+    print(len(bytes) > 300)
+
+    // A reserved number never filled in is a broken file, so it is refused rather than written.
+    val broken = pdfobj.writer()
+    val never = pdfobj.reserve(broken)
+    val root = pdfobj.add(broken, pdfobj.Obj.Dict([pdfobj.entry("Pages", pdfobj.Obj.Ref(never))]))
+    print(is_ok(pdfobj.finish(broken, root, [])))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("pdfobj example failed: {}\n", e)
+    }
+}
