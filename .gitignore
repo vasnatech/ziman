@@ -45,3 +45,6 @@ logs/*.log.*
 # repository tooling -- so this ignores the state beside them rather than the directory.
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+
+# npx wrangler writes here when deploying websites/ (see websites/README.md)
+.wrangler/
