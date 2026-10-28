@@ -1314,9 +1314,14 @@ from source.
   source a fragment at a time. `@{name}` holes, `@for`/`@if`/`@else`/`@end` on their own lines, bindings
   in `eql.bind`'s shape, parsed at module load like `repository.query`. **No expressions of any
   kind**: `@if` takes a bound boolean, `@elif` does not exist, and anything that needs computing
-  is computed in Ziman where the type checker can see it. The open question the design defers to evidence is whether
-  that holds up for a generator larger than `Ord` -- so `derive_row` gets written both ways
-  before either is committed to.
+  is computed in Ziman where the type checker can see it. §12 then does the comparison, on `derive_ord`
+  rather than `derive_row`, because that generator already exists both in C and in Ziman and its
+  output is pinned byte for byte -- so the rewrite changes one variable instead of comparing two
+  pieces of new code. It settles one question and not the other: **the no-expressions rule holds
+  comfortably** (neither half of `Ord` needs `@if` at all, once the logic is in Ziman), while
+  **whether templates pay at scale is still open** -- the struct half is a wash at 17 lines
+  against 10, and the enum half's 36 lines of fragments are one readable block. `derive_row` is
+  where that second answer is, and where `@if` finally gets exercised.
 
   This is the continuation of "Code generation from annotations needs a mechanism" below, whose
   questions 2 (writing into another module), 4 (materialising generated declarations) and 5

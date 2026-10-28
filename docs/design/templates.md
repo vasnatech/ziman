@@ -251,8 +251,153 @@ design, and worth a check rather than a comment.
 
 ## 11. What is left before building
 
-1. **Write `derive_row` both ways** -- `push`/`concat` and template -- before committing to either.
-   `Row` emits far more shape than `Ord`, with nesting and `Option` handling, and it is the
-   generator that will say whether §4's marshalling holds up or whether `@if` has to widen. This
-   is the measurement the rest of the design should wait for.
+1. **Superseded by §12**, which does the comparison on `derive_ord` instead and reaches a
+   narrower answer: the no-expressions rule holds, and whether templates pay at scale is still
+   open. The order it recommends is to build the module against `derive_ord` -- whose output is
+   already pinned byte for byte by `tests/lang/derive_ord_in_ziman.out` -- and port `derive_row`
+   after, with that fixture as the guard.
 2. **Then port the generators**, and delete each C version as its Ziman replacement lands.
+
+## 12. The same generator, both ways
+
+§11 originally said to write `derive_row` both ways and judge from that. **That was the wrong
+experiment**, and `derive_ord` is the right one: it already exists in `push`/`concat` form *and*
+`tests/lang/derive_ord_in_ziman.out` pins its exact output, so rewriting it changes one variable
+and the answer is checkable. Two fresh implementations of `derive_row` would compare two pieces
+of new code, written by someone who wants one of them to win.
+
+What follows is the rewrite on paper. It has not been built.
+
+### The struct half
+
+Today, 10 lines:
+
+```ziman
+fn struct_compare(d: meta.Decl) -> string {
+    val out = mutable_array_new<string>()
+    push(out, signature(d))
+    for m in d.members {
+        push(out, concat("    val c_", m.name, " = compare(a.", m.name, ", b.", m.name, ")\n"))
+        push(out, concat("    if c_", m.name, " != 0 {\n        return c_", m.name, "\n    }\n"))
+    }
+    push(out, "    return 0\n}\n\n")
+    return concat(pieces: snapshot(out))
+}
+```
+
+With a template, 9 lines of template and 8 of marshalling:
+
+```
+pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
+@for m in members
+    val c_@{m.name} = compare(a.@{m.name}, b.@{m.name})
+    if c_@{m.name} != 0 {
+        return c_@{m.name}
+    }
+@end
+    return 0
+}
+```
+
+```ziman
+fn struct_compare(d: meta.Decl) -> Result<string, string> {
+    val members = mutable_array_new<template.Row>()
+    for m in d.members {
+        push(members, template.row([template.text("name", m.name)]))
+    }
+    return template.render(struct_body, [
+        template.text("snake", d.snake_name),
+        template.text("bounds", meta.type_params_bounded(d, ": Ord")),
+        template.text("self", meta.type_text(d)),
+        template.rows("members", snapshot(members))
+    ])
+}
+```
+
+**The template version is longer.** 17 lines against 10, and it gives the function a `Result` the
+caller has to thread. What it buys is that the eight lines of generated code are visible as eight
+lines. For a shape this small that is close to a wash, and pretending otherwise would be the
+easiest way to get this decision wrong.
+
+### The enum half, which is where it pays
+
+Today: **36 lines** of `push`/`concat`, the generated control flow spread across eleven string
+fragments. With a template the shape is one block:
+
+```
+pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
+    var ra = 0
+    var rb = 0
+@for r in ranked
+    if @{name}.is_@{r.variant}(a) {
+        ra = @{r.rank}
+    }
+    if @{name}.is_@{r.variant}(b) {
+        rb = @{r.rank}
+    }
+@end
+    if ra == 0 && !@{name}.is_@{first}(a) {
+        ra = @{last}
+    }
+    if rb == 0 && !@{name}.is_@{first}(b) {
+        rb = @{last}
+    }
+    if ra < rb {
+        return -1
+    }
+    if ra > rb {
+        return 1
+    }
+@for p in payloaded
+    if @{name}.is_@{p.variant}(a) {
+        return compare(@{name}.unwrap_@{p.variant}(a), @{name}.unwrap_@{p.variant}(b))
+    }
+@end
+    return 0
+}
+```
+
+with marshalling that is all list-building and no text:
+
+```ziman
+val ranked = mutable_array_new<template.Row>()
+for i in 0..prelude.len(d.members) - 1 {
+    push(ranked, template.row([
+        template.text("variant", d.members[i].name),
+        template.text("rank", str(i))
+    ]))
+}
+val payloaded = mutable_array_new<template.Row>()
+for m in d.members {
+    if m.has_payload {
+        push(payloaded, template.row([template.text("variant", m.name)]))
+    }
+}
+```
+
+That is the comparison the decision should rest on: **the half with real shape is the half that
+wins**, and it wins on readability before it wins on size. A reader of the template sees the
+function `compare` will dispatch to; a reader of the 36 lines sees eleven fragments and has to
+run it.
+
+### What the exercise actually settled
+
+**Neither half of `derive_ord` needs `@if`.** Not one conditional, in the generator that §4 used
+to argue the no-expressions rule. That is worth being precise about, because it is easy to
+misread as the rule being untested: §4's argument is about what *the template* would need **if
+the logic lived there** -- an index, `len()`, a subtraction, a filter. With the logic in Ziman,
+`@{...}` and `@for` are the whole of it, and `@if` is not reached.
+
+So `derive_ord` answers one of the two questions and not the other:
+
+* **Does the no-expressions rule survive?** Yes, comfortably, on the generator chosen as its
+  hardest case. The index, the `count - 1` and the `has_payload` filter are four lines of
+  ordinary Ziman that the type checker reads.
+* **Do templates pay for themselves?** Not proven. The struct half is a wash and the enum half is
+  one data point. `derive_row` and `derive_json` are where the answer is, and they are also where
+  `@if` finally gets exercised -- an `Option` column reads differently from a required one, which
+  is §4's example and is not hypothetical.
+
+**The revised order**: build the module against `derive_ord`, whose expected output is already
+pinned byte for byte, and only then port `derive_row` -- with the fixture as the guard rather
+than the judgement.
