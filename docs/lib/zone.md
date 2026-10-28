@@ -16,6 +16,62 @@ Leap-second tables in the files are skipped: times here are Unix time, which has
 
 `use zone` -- or `use zone.Name` to bring one item in bare.
 
+## Example
+
+```
+use time
+use zone
+
+// The IANA time zone database, read from the operating system's own compiled zone files (TZif, as
+// in `/usr/share/zoneinfo/America/New_York`). Most programs never touch this module -- they use
+// `time.zoneid_of` and let it do the reading -- but it is here for the ones that need the rules
+// themselves, and it is what makes a named zone an answer rather than a guess.
+fn demo() -> Result<unit, string> {
+    // A zone's rules are its past transitions plus the POSIX rule covering every year after the
+    // last one listed. `type_at` answers which applies at a given Unix second.
+    val rules = try zone.load_rules("America/New_York")
+
+    // 2026-01-15 12:00:00Z -- winter, so Eastern Standard Time, five hours behind UTC.
+    val winter = zone.type_at(rules, 1768478400)
+    printf("{} {} dst={}\n", winter.name, winter.utoff, winter.dst)
+
+    // 2026-07-15 12:00:00Z -- summer, so the daylight rule applies instead.
+    val summer = zone.type_at(rules, 1784289600)
+    printf("{} {} dst={}\n", summer.name, summer.utoff, summer.dst)
+
+    // The POSIX string at the end of a file is what covers the far future, and it can be read on
+    // its own: "EST, five hours west; EDT from the second Sunday in March to the first in November".
+    val posix = try zone.parse_posix_rule("EST5EDT,M3.2.0,M11.1.0")
+    print(posix.standard.name)
+    print(posix.daylight.name)
+    print(posix.has_dst)
+
+    // A system with no zone files answers Err rather than a wrong time -- and `UTC` needs none.
+    print(is_ok(zone.load_rules("Mars/Olympus_Mons")))
+    val utc = try time.zoneid_of("UTC")
+    print(utc.name)
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("zone example failed: {}\n", e)
+    }
+}
+```
+
+Output:
+
+```
+EST -18000 dst=false
+EDT -14400 dst=true
+EST
+EDT
+true
+false
+UTC
+```
+
 ### `ZoneType`
 
 ```

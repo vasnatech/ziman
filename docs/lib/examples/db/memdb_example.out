@@ -1,0 +1,6 @@
+1 Ada
+2 Grace
+constraint violation: UNIQUE constraint failed: people.id
+constraint violation: NOT NULL constraint failed: people.name
+2
+1

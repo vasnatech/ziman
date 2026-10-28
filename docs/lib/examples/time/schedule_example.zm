@@ -1,0 +1,54 @@
+use schedule
+
+// Periodic background work inside a long-running process. `server.serve` owns the accept loop and
+// never returns, so work that has to happen *on a clock* -- a nightly scan, a cache refresh, an
+// expiry sweep -- needs somewhere else to live. One scheduler thread holds every job's next-due
+// time and spawns each job as it falls due; `spawn` it beside the server and the two run apart.
+fn demo() -> Result<unit, string> {
+    // A schedule is checked when it is built, so a bad one fails here and not at midnight.
+    val fast = try schedule.every_millis(20)
+    val nightly = try schedule.daily_at_utc(2, 30)
+    // Six fields, seconds first -- not the five-field crontab form, which is refused rather than
+    // guessed at because the dialects collide: `0 8 * * *` is 08:00 daily to crontab and every
+    // hour at eight minutes past here.
+    val weekday_mornings = try schedule.cron("0 0 9 * * 1-5")
+    print(is_ok(schedule.every_millis(0)))
+    print(is_ok(schedule.cron("0 9 * * 1-5")))
+
+    // Each job carries its name, so the error handler can say which one failed without the job
+    // having to repeat itself.
+    val ticks: Channel<int> = channel_new()
+    val jobs = [
+        schedule.job("tick", fast, fn() -> Result<unit, string> {
+            send(ticks, 1)
+            return unit
+        }),
+        schedule.job("sweep", nightly, fn() -> Result<unit, string> {
+            return unit
+        }),
+        schedule.job("report", weekday_mornings, fn() -> Result<unit, string> {
+            return unit
+        })
+    ]
+
+    // The scheduler runs until the stop channel is closed, so the caller decides when to end it.
+    val stop: Channel<unit> = channel_new()
+    spawn schedule.run_until(jobs, stop, fn(name: string, message: string) {
+        printf("job {} failed: {}\n", name, message)
+    })
+
+    var seen = 0
+    while seen < 3 {
+        receive(ticks)
+        seen = seen + 1
+    }
+    channel_close(stop)
+    print(seen)
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("schedule example failed: {}\n", e)
+    }
+}

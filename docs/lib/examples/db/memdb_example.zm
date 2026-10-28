@@ -1,0 +1,69 @@
+use datasource
+use db.DbError
+use db.SqlValue
+use db.db_error_message
+use db.row_get
+use db.sql_as_int
+use db.sql_as_text
+use memdb
+
+// A small SQL engine in pure Ziman, holding its tables in memory. It is a `db.Driver` like
+// `sqlite`, `pg` and `mysql`, so `datasource` reaches it the same way and the code above it cannot
+// tell the difference -- which is the point: a test runs against this, production runs against the
+// real engine, and only the URL changes.
+val drivers = datasource.registry([memdb.driver()])
+
+fn demo() -> Result<unit, DbError> {
+    val conn = try datasource.open(drivers, "memdb:")
+    try datasource.execute(conn, "CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+    try datasource.execute(conn, "INSERT INTO people (id, name) VALUES (?, ?)", SqlValue.Int(1), SqlValue.Text("Ada"))
+    try datasource.execute(conn, "INSERT INTO people (id, name) VALUES (?, ?)", SqlValue.Int(2), SqlValue.Text("Grace"))
+
+    val rows = try datasource.query(conn, "SELECT id, name FROM people ORDER BY name")
+    for row in rows {
+        print(format("{} {}", try sql_as_int(try row_get(row, "id")), try sql_as_text(try row_get(row, "name"))))
+    }
+
+    // It enforces what a real engine enforces, so a test fails here for the same reason it would
+    // fail there rather than passing by accident.
+    if Err(e) = datasource.execute(
+        conn,
+        "INSERT INTO people (id, name) VALUES (?, ?)",
+        SqlValue.Int(1),
+        SqlValue.Text("Alan")
+    ) {
+        print(db_error_message(e))
+    }
+    if Err(e) = datasource.execute(
+        conn,
+        "INSERT INTO people (id, name) VALUES (?, ?)",
+        SqlValue.Int(3),
+        SqlValue.Null
+    ) {
+        print(db_error_message(e))
+    }
+    datasource.close(conn)
+
+    // A template runs its setup once and hands every connection its own copy, so one test cannot
+    // see what another wrote.
+    val fixture = try memdb.template("memdb:", [
+        "CREATE TABLE city (name TEXT PRIMARY KEY)",
+        "INSERT INTO city (name) VALUES ('London')"
+    ])
+    val seeded = datasource.registry([memdb.seeded(fixture)])
+    val first = try datasource.open(seeded, "memdb:")
+    try datasource.execute(first, "INSERT INTO city (name) VALUES ('Paris')")
+    print(len(try datasource.query(first, "SELECT name FROM city")))
+    datasource.close(first)
+
+    val second = try datasource.open(seeded, "memdb:")
+    print(len(try datasource.query(second, "SELECT name FROM city")))
+    datasource.close(second)
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("memdb example failed: {}\n", db_error_message(e))
+    }
+}

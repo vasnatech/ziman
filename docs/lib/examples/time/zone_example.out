@@ -1,0 +1,7 @@
+EST -18000 dst=false
+EDT -14400 dst=true
+EST
+EDT
+true
+false
+UTC

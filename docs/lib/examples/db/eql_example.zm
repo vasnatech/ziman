@@ -1,0 +1,89 @@
+use datasource
+use db.DbError
+use db.SqlValue
+use db.db_error_message
+use eql
+use sqlite
+
+// An entity query names a struct and its fields; eql turns those names into the table and columns
+// they stand for. `#[derive(Entity(..))]` writes the description it needs -- `person_meta` below --
+// from the struct itself, so the field names in a query are checked against the same list the
+// struct declares rather than against a SQL string nobody can type-check.
+#[derive(Row, Entity("people"))]
+struct Person {
+    #[pk]
+    id: int
+    name: string
+    city: string
+}
+
+val drivers = datasource.registry([sqlite.driver()])
+
+// One registry names every entity a query may mention.
+val people = eql.registry([person_meta])
+
+fn demo() -> Result<unit, DbError> {
+    val conn = try datasource.open(drivers, "sqlite::memory:")
+    try datasource.execute(
+        conn,
+        "CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT NOT NULL, city TEXT NOT NULL)"
+    )
+
+    // Translation happens once, not per request: the result holds the SQL and the names it expects
+    // to be given. A mistyped field fails here rather than on the first request that reads it.
+    val in_city = try eql.translate(
+        people,
+        "SELECT p FROM Person p WHERE p.city = :city ORDER BY p.name"
+    )
+    print(in_city.sql)
+    print(in_city.bindings)
+
+    // The entity is enough for the ordinary writes; no SQL is written for them at all.
+    try eql.insert_one<Person>(
+        conn,
+        person_meta,
+        person_to_params(Person { id: 1, name: "Ada", city: "London" }),
+        person_from_row
+    )
+    try eql.insert_one<Person>(
+        conn,
+        person_meta,
+        person_to_params(Person { id: 2, name: "Grace", city: "New York" }),
+        person_from_row
+    )
+    try eql.insert_one<Person>(
+        conn,
+        person_meta,
+        person_to_params(Person { id: 3, name: "Alan", city: "London" }),
+        person_from_row
+    )
+    print(try eql.count_all(conn, person_meta))
+
+    // Running the translated query: the binding is named, so the order of the SQL parameters is
+    // eql's problem rather than the caller's.
+    for found in try eql.list<Person>(conn, in_city, [eql.bind("city", "London")], person_from_row) {
+        print(format("{} of {}", found.name, found.city))
+    }
+
+    // The primary key is declared by `#[pk]`, so reading one row needs no query at all.
+    val grace = try eql.find_by_key<Person>(conn, person_meta, [SqlValue.Int(2)], person_from_row)
+    print(grace.name)
+    print(try eql.exists(conn, person_meta, [SqlValue.Int(9)]))
+
+    // A mistyped field is caught by translation, against the struct's own column list.
+    switch eql.translate(people, "SELECT p FROM Person p WHERE p.citty = :city") {
+        Ok(_) { print("unexpected: a misspelled field translated") }
+        Err(e) { print(db_error_message(e)) }
+    }
+
+    print(try eql.delete_where(conn, person_meta, [eql.bind("city", "London")]))
+    print(try eql.count_all(conn, person_meta))
+    datasource.close(conn)
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("eql example failed: {}\n", db_error_message(e))
+    }
+}

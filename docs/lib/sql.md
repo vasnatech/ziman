@@ -98,6 +98,77 @@ there to start from.
 
 `use sql` -- or `use sql.Name` to bring one item in bare.
 
+## Example
+
+```
+use db.DbError
+use db.db_error_message
+use sql
+
+// SQL as a value: a parser, a statement tree, and a formatter that writes the tree back. No
+// database and no connection are involved -- `memdb` is built on this, and so is anything that
+// needs to read, rewrite or generate SQL rather than merely send it.
+fn demo() -> Result<unit, DbError> {
+    // Parsing normalises the spelling: keywords, spacing and punctuation come back the same way
+    // however they were written, which is what makes two statements comparable.
+    val messy = try sql.parse("select   name,age from   people where age>=$1   order by name desc")
+    print(sql.format(messy))
+
+    // The tree is a value, so a statement can be examined rather than string-matched.
+    // `if Select(q) =` both tests the variant and names its payload; a `switch` would have to be
+    // exhaustive over all twelve kinds of statement, which is not what this is asking.
+    val stmt = try sql.parse("SELECT id, name FROM people WHERE city = $1")
+    if Select(q) = stmt {
+        print(len(q.items))
+        print(q.from[0].name)
+        print(Option.is_Some(q.filter))
+    }
+
+    // A whole file of statements, the way a migration is read.
+    for one in try sql.parse_many(
+        """
+        CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT NOT NULL);
+        CREATE INDEX people_name ON people (name);
+        INSERT INTO people (id, name) VALUES (1, 'Ada');
+        """
+    ) {
+        print(sql.format(one))
+    }
+
+    // An unquoted name is compared folded, which is how the engines compare one: the standard folds
+    // to upper case and PostgreSQL to lower, and either way two spellings of one name must match.
+    print(sql.fold_name("People") == sql.fold_name("PEOPLE"))
+    print(sql.fold_name("People"))
+
+    // A syntax error is a value that says what it wanted instead.
+    if Err(e) = sql.parse("SELECT a FROM b WHERE") {
+        print(db_error_message(e))
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("sql example failed: {}\n", db_error_message(e))
+    }
+}
+```
+
+Output:
+
+```
+SELECT name, age FROM people WHERE age >= $1 ORDER BY name DESC
+2
+people
+true
+CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT NOT NULL)
+CREATE INDEX people_name ON people (name)
+INSERT INTO people (id, name) VALUES (1, 'Ada')
+true
+people
+database error: expected a value, found the end of the statement
+```
+
 ### `fold_name`
 
 ```

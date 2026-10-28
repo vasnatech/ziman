@@ -1,0 +1,10 @@
+SELECT name, age FROM people WHERE age >= $1 ORDER BY name DESC
+2
+people
+true
+CREATE TABLE people (id INTEGER PRIMARY KEY, name TEXT NOT NULL)
+CREATE INDEX people_name ON people (name)
+INSERT INTO people (id, name) VALUES (1, 'Ada')
+true
+people
+database error: expected a value, found the end of the statement

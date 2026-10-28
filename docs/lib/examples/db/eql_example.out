@@ -1,0 +1,10 @@
+SELECT p.id AS id, p.name AS name, p.city AS city FROM people AS p WHERE p.city = $1 ORDER BY p.name
+[city]
+3
+Ada of London
+Alan of London
+Grace
+false
+database error: entity Person has no field 'citty' (it has: id, name, city)
+2
+1
