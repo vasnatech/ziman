@@ -662,13 +662,34 @@ refusal listing what the sheet holds -- the same shape as every other refusal he
 * `@choose` or `@yield` over a name bound to the wrong kind
 * `@template` inside a `@template`; two templates sharing a name; text outside any `@template`
 
-### What is left before building
+### Built, 2026-10-28
 
-1. **Decide whether `@yield`'s re-indentation is on from the first version** or lands with the
-   first generator that wants corrected output. Recommended: build it, use it at column 0
-   everywhere, so byte-identity holds and the improvement is one edit later.
-2. **Port `derive_ord` and `derive_row` to sheets in the same change**, since both prove
-   themselves against fixtures that pin their output byte for byte.
-3. **Then `derive_json` or `derive_properties`**, which is the first generator to be *written*
-   against this rather than ported to it -- and the one that says whether `@choose` is enough
-   dispatch or whether something was still missing.
+All three, with both generators ported in the same change and both fixtures unchanged byte for
+byte. `derive_ord` is one sheet of two templates, `derive_row` one sheet of four; seven
+`must_parse` vals across the two files became two.
+
+Three things the build settled that the design above left open or got wrong:
+
+* **`@yield`'s re-indentation shipped**, and is used at column 0 everywhere, so the generated
+  code is byte-for-byte what the C writes and the mis-indentation inside the `if` is one edit
+  away rather than a rewrite. Indenting the directive is the whole change.
+* **Every body line carries its newline, including the last** -- which is what the section above
+  said, and is simpler than it sounds: `@end` is a terminator rather than a string delimiter, so
+  the rule needs no exception. It also deleted a helper. The *first implementation* kept the old
+  "last line carries none" rule out of habit and was off by a blank line per generated function,
+  which the fixtures caught immediately.
+* **A bare `@template` with no name needed its own refusal.** Without one it fell through to
+  "every line outside a '@template' must be blank", which is true and unhelpful -- the kind of
+  message that is correct about the grammar and silent about the mistake.
+
+And one thing worth recording because it reads like a bug and is not: an `@for` that swallows its
+template's `@end` is reported as *the template* being unclosed, not the `@for`. That is the
+honest diagnosis -- the `@end` did close the `@for` -- and the fixture pins it so the next
+reader does not try to "fix" it.
+
+### What is left
+
+**`derive_json` or `derive_properties`**: the first generator *written* against this model rather
+than ported to it, and the one that says whether `@choose` is enough dispatch or whether
+something is still missing. `Properties` is the more interesting of the two -- its required and
+optional keys are the closest thing left to a case `@if` would have served.

@@ -1487,13 +1487,8 @@ pub fn escape(text: string) -> string
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
-pub struct Template {
-    nodes: [Node]
-    // Every top-level name the text mentions -- holes, `@for` sources and `@if` flags. Collected
-    // at parse time so that `render` can refuse an unused binding, which is a *static* question
-    // about the text: counting what a render touched would call a binding unused whenever its
-    // loop ran zero times.
-    refs: [string]
+pub struct Sheet {
+    templates: [Named]
 }
 
 pub struct Row {
@@ -1507,17 +1502,15 @@ pub struct Binding {
 
 pub fn text(name: string, value: string) -> Binding
 
-pub fn flag(name: string, value: bool) -> Binding
-
 pub fn rows(name: string, value: [Row]) -> Binding
 
 pub fn row(cells: [Binding]) -> Row
 
-pub fn parse(source: string) -> Result<Template, string>
+pub fn parse(source: string) -> Result<Sheet, string>
 
-pub fn must_parse(source: string) -> Template
+pub fn must_parse(source: string) -> Sheet
 
-pub fn render(t: Template, bindings: [Binding]) -> Result<string, string>
+pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string>
 
 ```
 

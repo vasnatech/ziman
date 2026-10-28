@@ -3764,3 +3764,42 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   actually read -- §1 of its own header -- is what made that a one-fixture change.
 
   1,288 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F222** **Sheets, `@choose` and `@yield`; `@if` removed.** (user-raised, "I really don't
+  like this minimal template definitions ... extend template model to create a more complicated
+  but readable templates", then "drop @if, add @choose and @yield"; done 2026-10-28.)
+
+  F221 left every line of generated output coming from a template and the file still hard to
+  read: `derive_row` held **seven `must_parse` vals over a hundred lines** with helpers between
+  them, the composition between them was invisible (`@{f.read}` says *something* goes here, not
+  what can), and the dispatch picking one of five shapes lived 150 lines away. **The tell was the
+  file's own comments**, which paste the assembled output under a guard -- if a file has to show
+  what its templates produce, the templates are not showing it.
+
+  Three changes, designed as §15 and built the same day:
+
+  * **`@template name` … `@end`.** A source is a *sheet* of named templates, never one anonymous
+    one, and `render` names the template it wants. Seven vals across two generators became two.
+  * **`@choose tag` / `@when value` / `@otherwise`.** Dispatch on a bound string, which keeps
+    §4's no-expressions rule exactly -- no operators, no arithmetic, no calls, Ziman still
+    decides -- while putting every shape *and the choice between them* in one place. That is the
+    fault the complaint was actually about.
+  * **`@yield name`.** A block hole that prefixes the block with its own indentation. Used at
+    column 0 everywhere, so output stays byte-identical to the C; indenting the directive is the
+    whole fix for the mis-indentation inside the generated `if`, taken once the bridge lands.
+
+  **`@if`/`@else` removed**, with zero users after two generators, and **`template.flag` with
+  them** -- nothing else reads a boolean binding, so the binding kinds drop to `text` and `rows`.
+  A simplification of the data model, not only of the grammar.
+
+  **Both generators ported in the same change, both fixtures unchanged byte for byte**, which is
+  the only reason a rewrite of this size is checkable at all.
+
+  Two things the build corrected. **Every body line carries its newline, including the last** --
+  `@end` is a terminator rather than a string delimiter, so the rule needs no exception and a
+  helper disappeared; the first implementation kept the old "last line carries none" habit and
+  was off by a blank line per generated function. And **a bare `@template` needed its own
+  refusal**, since without one it fell through to "every line outside a '@template' must be
+  blank" -- correct about the grammar, silent about the mistake.
+
+  1,288 fixtures, `make check` exit 0 with the North Star.

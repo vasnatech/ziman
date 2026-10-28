@@ -1,18 +1,22 @@
-a lone @: template line 1: a lone '@' -- write '@@' for a literal one, or '@{name}' for a hole
-an unclosed hole: template line 1: '@{' with no closing '}'
-an empty hole: template line 1: '@{}' names nothing
-an unknown directive: template line 1: unknown directive -- the four are '@for', '@if', '@else' and '@end'
-@end with nothing open: template: an '@end' with nothing open
-@else with no @if: template: an '@else' with no '@if' open
-an unclosed @for: template line 1: this '@for' is never closed by an '@end'
+text outside a template: template line 1: every line outside a '@template' must be blank -- a source is a sheet of named templates
+a template with no name: template line 1: '@template' needs a name
+two templates of one name: template line 4: this sheet already has a template called 't'
+a template never closed: template line 1: template 't' is never closed by an '@end'
+a nested template: template line 2: a '@template' cannot sit inside another one
+a lone @: template line 2: a lone '@' -- write '@@' for a literal one, or '@{name}' for a hole
+an unclosed hole: template line 2: '@{' with no closing '}'
+an empty hole: template line 2: '@{}' names nothing
+an unknown directive: template line 2: unknown directive -- the six are '@template', '@for', '@choose', '@when', '@otherwise', '@yield' and '@end'
+an @for that eats the template @end: template line 1: template 't' is never closed by an '@end'
+@choose with no @when: template line 2: a '@choose' with no '@when' chooses nothing
+text before the first @when: template line 2: a '@when' has to follow '@choose' immediately -- there is text between them
+two @otherwise: template line 2: this '@choose' has two '@otherwise' sections
+an unknown template: this sheet has no template called 'nope' (it has: greet, pick, over)
 an unbound hole: '@{name}' is not bound (bound: greeting)
-a binding nothing uses: 'extra' is bound and the template never mentions it (it uses: greeting, name)
-the right bindings: ok -> hello, Ada
+a binding nothing uses: 'extra' is bound and template 'greet' never mentions it (it uses: greeting, name)
+a tag no @when names: '@choose kind' is 'shouty', which no '@when' names (it has: loud, quiet)
+a tag one does: ok -> quiet
+
+@choose over rows: '@choose kind' is bound to a list of rows, and it holds a string
 @for over a string: '@for .. in rows' needs rows, and 'rows' is bound to a string
 a cell that is not there: '@{r.cell}' names no cell of that row (it has: other)
-@if over rows: '@if on' needs a flag, and 'on' is bound to a list of rows
-@if true: ok -> yes
-
-@if false: ok -> no
-
-@@ is a literal: ok -> an @ sign and a hole

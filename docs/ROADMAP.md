@@ -1360,6 +1360,13 @@ from source.
   the binding kinds drop to `text` and `rows`. `derive_row`'s seven vals become one sheet of four
   templates, forty lines, in the order a reader meets them.
 
+  **Built the same day**, both generators ported in the change and both fixtures unchanged byte
+  for byte: seven `must_parse` vals across the two files became two. `@yield`'s re-indentation
+  shipped and is used at column 0 everywhere, so the generated code still matches the C and the
+  mis-indentation inside its `if` is one edit away. The rule that every body line carries its
+  newline deleted a helper -- and the first implementation kept the old "last line carries none"
+  habit and was off by a blank line per function, caught by the fixtures at once.
+
   This is the continuation of "Code generation from annotations needs a mechanism" below, whose
   questions 2 (writing into another module), 4 (materialising generated declarations) and 5
   (checking the name contract) are all easier to answer once the generator is Ziman.

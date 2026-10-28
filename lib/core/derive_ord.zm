@@ -32,24 +32,24 @@ use template
 //
 // A generic declaration carries its own parameters with an `Ord` bound on each, so
 // `struct Box<T, U>` gives `pub fn box_compare<T: Ord, U: Ord>(a: Box<T, U>, b: Box<T, U>)`.
-val struct_body = template.must_parse("""
-pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
-@for m in members
-    val c_@{m.name} = compare(a.@{m.name}, b.@{m.name})
-    if c_@{m.name} != 0 {
-        return c_@{m.name}
-    }
-@end
-    return 0
-}
-
-
-""")
-
-// **The ranks are computed, not matched on**, because a generated `switch` would have to name
-// every variant's payload binder and an enum's variants may carry none. `ra`/`rb` start at 0, so
-// the last variant is the one left to the `!is_<first>` test rather than given its own `if`.
-// What it writes, for `#[derive(Ord)] enum Shape { Dot  Line(int)  Area }`:
+// Everything this generator writes, in one sheet. `--emit-derived` prints the result; what
+// follows is the shape of it.
+//
+// For `#[derive(Ord)] struct Point { x: int  y: int }`:
+//
+//     pub fn point_compare(a: Point, b: Point) -> int {
+//         val c_x = compare(a.x, b.x)
+//         if c_x != 0 {
+//             return c_x
+//         }
+//         val c_y = compare(a.y, b.y)
+//         if c_y != 0 {
+//             return c_y
+//         }
+//         return 0
+//     }
+//
+// and for `#[derive(Ord)] enum Shape { Dot  Line(int)  Area }`:
 //
 //     pub fn shape_compare(a: Shape, b: Shape) -> int {
 //         var ra = 0
@@ -86,7 +86,21 @@ pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
 //
 // `Area` gets no rank block of its own -- it is the last variant, and `ra`/`rb` starting at 0 is
 // what the `!is_Dot` test turns into "the last one". Only `Line` gets a payload arm.
-val enum_body = template.must_parse("""
+val sheet = template.must_parse("""
+@template struct_compare
+pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
+@for m in members
+    val c_@{m.name} = compare(a.@{m.name}, b.@{m.name})
+    if c_@{m.name} != 0 {
+        return c_@{m.name}
+    }
+@end
+    return 0
+}
+
+@end
+
+@template enum_compare
 pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
     var ra = 0
     var rb = 0
@@ -118,7 +132,7 @@ pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
     return 0
 }
 
-
+@end
 """)
 
 // A struct compares field by field in declaration order, the first difference deciding; an enum
@@ -141,7 +155,7 @@ fn struct_compare(d: meta.Decl) -> Result<string, string> {
     for m in d.members {
         push(members, template.row([template.text("name", m.name)]))
     }
-    return template.render(struct_body, [
+    return template.render(sheet, "struct_compare", [
         template.text("snake", d.snake_name),
         template.text("bounds", meta.type_params_bounded(d, ": Ord")),
         template.text("self", meta.type_text(d)),
@@ -164,7 +178,7 @@ fn enum_compare(d: meta.Decl) -> Result<string, string> {
             push(payloaded, template.row([template.text("variant", m.name)]))
         }
     }
-    return template.render(enum_body, [
+    return template.render(sheet, "enum_compare", [
         template.text("name", d.name),
         template.text("snake", d.snake_name),
         template.text("bounds", meta.type_params_bounded(d, ": Ord")),

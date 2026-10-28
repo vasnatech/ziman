@@ -1,34 +1,45 @@
 // Templates for generated code: the shape of the output, visible in the source.
 //
 // Written for the derive generators (`lib/core/derive_*.zm`), which assemble Ziman source. A
-// generator built from `push`/`concat` hides the thing it exists to produce; the same generator
-// built from a template shows it. See docs/design/templates.md for the design, and its §12 for
-// the comparison this module was built on.
+// generator built from `push`/`concat` hides the thing it exists to produce. See
+// docs/design/templates.md -- §12 for the comparison this module was built on, §15 for why a
+// source is a *sheet* of named templates rather than one anonymous one.
 //
 // ```
-// pub fn @{snake}_compare(a: @{self}, b: @{self}) -> int {
-// @for m in members
-//     val c_@{m.name} = compare(a.@{m.name}, b.@{m.name})
+// @template from_row
+// pub fn @{snake}_from_row(row: Row) -> Result<@{name}, DbError> {
+// @for f in fields
+//     val field_@{f.name}_raw = try row_get(row, "@{f.name}")
+// @yield f.read
 // @end
-//     return 0
 // }
+// @end
+//
+// @template read
+// @choose shape
+// @when simple
+//     val @{dst} = try @{call}(@{src})
+// @when option
+//     var @{dst} = Option<@{elem}>.None
+// @end
+// @end
 // ```
 //
 // **`@` and not `{}`**, which is where this parts company with `format`: a code template's output
 // is mostly braces, and under `format`'s `{{`/`}}` rule every literal brace would double -- the
 // common case paying for the rare one. `@` is not a token in Ziman's grammar at all.
 //
-// **There are no expressions.** `@if` takes a bound boolean; a loop runs over bound rows; a hole
-// holds a bound string. Anything that needs computing is computed in Ziman, where the type
-// checker reads it. That rule is the whole design and the reason this is 300 lines rather than a
-// second language -- docs/design/templates.md §4 argues it against the generator that wants the
-// most.
+// **There are no expressions.** `@choose` reads a bound string and `@when` compares it to a
+// literal tag; a loop runs over bound rows; a hole holds a bound string. Anything that needs
+// computing is computed in Ziman, where the type checker reads it. That rule is the whole design
+// -- docs/design/templates.md §4 argues it against the generator that wants the most, and §15
+// keeps it while making the alternatives visible.
 //
 // **This module carries no `#[derive(..)]` and uses no generated code, deliberately**: a
 // generator that needs a generator cannot be loaded. See the design's §8.
 #![experimental]
 
-// ------------------------------------------------------------------ the parsed template
+// ------------------------------------------------------------------ the parsed sheet
 
 // `@{name}`, or `@{binder.name}` for a cell of the row a `@for` is on. `binder` is empty for the
 // first form.
@@ -43,29 +54,50 @@ struct Loop {
     body: [Node]
 }
 
-struct Branch {
-    flag: string
-    then_body: [Node]
-    else_body: [Node]
+// One `@when <tag>` of a `@choose`, or its `@otherwise` with an empty tag.
+struct Case {
+    tag: string
+    is_otherwise: bool
+    body: [Node]
+}
+
+struct Choice {
+    source: string
+    cases: [Case]
+}
+
+// `@yield name`, a hole holding a *block*. `indent` is the whitespace the directive itself sat
+// behind, which every line of the block is prefixed with -- so a `@yield` at column 0 splices
+// the block verbatim and an indented one produces indented output.
+struct Block {
+    binder: string
+    name: string
+    indent: string
 }
 
 enum Node {
     Literal(string)
     Hole(HoleRef)
     Repeat(Loop)
-    Choose(Branch)
+    Choose(Choice)
+    Yield(Block)
 }
 
-// A template, parsed. **Parse once, in a module-level `val`** -- `repository.query`'s pattern, and
-// the same gain: a malformed template fails when the module loads rather than on the first call
-// that happens to reach it.
-pub struct Template {
+struct Named {
+    name: string
     nodes: [Node]
-    // Every top-level name the text mentions -- holes, `@for` sources and `@if` flags. Collected
-    // at parse time so that `render` can refuse an unused binding, which is a *static* question
-    // about the text: counting what a render touched would call a binding unused whenever its
-    // loop ran zero times.
+    // Every top-level name this template mentions -- holes, `@for` sources, `@choose` subjects
+    // and `@yield` names. Collected at parse time so that `render` can refuse an unused binding,
+    // which is a *static* question about the text: counting what a render touched would call a
+    // binding unused whenever its loop ran zero times or its case was not the one chosen.
     refs: [string]
+}
+
+// A source's templates, by name. **A source is always a sheet**, never one anonymous template:
+// a generator's output vocabulary belongs in one literal, read top to bottom, which is what §15
+// of the design is about.
+pub struct Sheet {
+    templates: [Named]
 }
 
 // ------------------------------------------------------------------ what a template is given
@@ -76,7 +108,6 @@ pub struct Row {
 
 enum Bound {
     Text(string)
-    Flag(bool)
     Rows([Row])
 }
 
@@ -86,15 +117,11 @@ pub struct Binding {
     value: Bound
 }
 
-// A string for `@{name}`. **Everything a hole can hold is already a string**, so there is no
-// number to format and no question about how one is formatted.
+// A string for `@{name}`, for `@yield name`, and for the tag a `@choose` reads. **Everything a
+// template can hold is a string or a list of rows**, so there is no number to format and no
+// question about how one is formatted.
 pub fn text(name: string, value: string) -> Binding {
     return Binding { name: name, value: Bound.Text(value) }
-}
-
-// A boolean for `@if name`, and nothing else reads it.
-pub fn flag(name: string, value: bool) -> Binding {
-    return Binding { name: name, value: Bound.Flag(value) }
 }
 
 // The rows a `@for name` repeats over.
@@ -111,6 +138,15 @@ pub fn row(cells: [Binding]) -> Row {
 
 fn problem(line_no: int, message: string) -> string {
     return concat("template line ", str(line_no), ": ", message)
+}
+
+fn leading_space(line: string) -> string {
+    var n = 0
+    val cs = chars(line)
+    while n < prelude.len(cs) && (cs[n] == " " || cs[n] == "\t") {
+        n = n + 1
+    }
+    return substring(line, 0, n)
 }
 
 // One line's text, as literals and holes. A line is scanned between `@`s rather than character by
@@ -154,19 +190,24 @@ fn parse_line(text: string, line_no: int) -> Result<[Node], string> {
     return snapshot(out)
 }
 
-// What a nested `parse_block` hands back: the nodes it read, the line after it, and which
-// directive stopped it ("end", "else", or "" for the end of the template).
-struct Block {
+// What a nested `parse_block` hands back: the nodes it read, the line after the directive that
+// stopped it, which directive that was ("end", "when", "otherwise", or "" for the end of the
+// source), and the tag when it was a `@when`.
+struct Section {
     nodes: [Node]
     next: int
     closer: string
+    tag: string
 }
 
-fn is_directive(t: string) -> bool {
-    return starts_with(t, "@for ") || starts_with(t, "@if ") || t == "@else" || t == "@end"
+fn qualified(name: string) -> HoleRef {
+    if Some(parts) = split_once(name, ".") {
+        return HoleRef { binder: parts[0], name: parts[1] }
+    }
+    return HoleRef { binder: "", name: name }
 }
 
-fn parse_block(lines: [string], start: int) -> Result<Block, string> {
+fn parse_block(lines: [string], start: int) -> Result<Section, string> {
     val out = mutable_array_new<Node>()
     var i = start
     while i < len(lines) {
@@ -174,10 +215,18 @@ fn parse_block(lines: [string], start: int) -> Result<Block, string> {
         val t = trim(raw)
         val line_no = i + 1
         if t == "@end" {
-            return Block { nodes: snapshot(out), next: i + 1, closer: "end" }
+            return Section { nodes: snapshot(out), next: i + 1, closer: "end", tag: "" }
         }
-        if t == "@else" {
-            return Block { nodes: snapshot(out), next: i + 1, closer: "else" }
+        if t == "@otherwise" {
+            return Section { nodes: snapshot(out), next: i + 1, closer: "otherwise", tag: "" }
+        }
+        if starts_with(t, "@when ") {
+            return Section {
+                nodes: snapshot(out),
+                next: i + 1,
+                closer: "when",
+                tag: trim(substring(t, 6, len(t)))
+            }
         }
         if starts_with(t, "@for ") {
             val head = split(trim(substring(t, 5, len(t))), " ")
@@ -192,43 +241,75 @@ fn parse_block(lines: [string], start: int) -> Result<Block, string> {
             i = inner.next
             continue
         }
-        if starts_with(t, "@if ") {
-            val flag_name = trim(substring(t, 4, len(t)))
-            val taken = try parse_block(lines, i + 1)
-            var otherwise: [Node] = []
-            var after = taken.next
-            if taken.closer == "else" {
-                val rest = try parse_block(lines, taken.next)
-                if rest.closer != "end" {
-                    return err(problem(line_no, "this '@else' is never closed by an '@end'"))
+        if starts_with(t, "@choose ") {
+            val subject = trim(substring(t, 8, len(t)))
+            val lead = try parse_block(lines, i + 1)
+            if prelude.len(lead.nodes) > 0 {
+                return err(problem(
+                    line_no,
+                    "a '@when' has to follow '@choose' immediately -- there is text between them"
+                ))
+            }
+            val cases = mutable_array_new<Case>()
+            var section = lead
+            var seen_otherwise = false
+            while section.closer == "when" || section.closer == "otherwise" {
+                val is_otherwise = section.closer == "otherwise"
+                if is_otherwise && seen_otherwise {
+                    return err(problem(line_no, "this '@choose' has two '@otherwise' sections"))
                 }
-                otherwise = rest.nodes
-                after = rest.next
+                if is_otherwise {
+                    seen_otherwise = true
+                }
+                val tag = section.tag
+                val body = try parse_block(lines, section.next)
+                push(cases, Case { tag: tag, is_otherwise: is_otherwise, body: body.nodes })
+                section = body
             }
-            if taken.closer == "" {
-                return err(problem(line_no, "this '@if' is never closed by an '@end'"))
+            if section.closer != "end" {
+                return err(problem(line_no, "this '@choose' is never closed by an '@end'"))
             }
-            push(out, Node.Choose(Branch { flag: flag_name, then_body: taken.nodes, else_body: otherwise }))
-            i = after
+            if prelude.len(snapshot(cases)) == 0 {
+                return err(problem(line_no, "a '@choose' with no '@when' chooses nothing"))
+            }
+            push(out, Node.Choose(Choice { source: subject, cases: snapshot(cases) }))
+            i = section.next
             continue
+        }
+        if starts_with(t, "@yield ") {
+            val named = qualified(trim(substring(t, 7, len(t))))
+            push(out, Node.Yield(Block {
+                binder: named.binder,
+                name: named.name,
+                indent: leading_space(raw)
+            }))
+            i = i + 1
+            continue
+        }
+        if starts_with(t, "@template ") {
+            return err(problem(line_no, "a '@template' cannot sit inside another one"))
         }
         // Not a directive, so it is text -- but a line opening with `@` and not `@@` or `@{` is a
         // misspelled directive far more often than it is literal text, and saying so beats the
         // lone-'@' message parse_line would give it.
         if starts_with(t, "@") && !starts_with(t, "@@") && !starts_with(t, "@{") {
-            return err(problem(line_no, "unknown directive -- the four are '@for', '@if', '@else' and '@end'"))
+            return err(problem(
+                line_no,
+                "unknown directive -- the six are '@template', '@for', '@choose', '@when', '@otherwise', '@yield' and '@end'"
+            ))
         }
         for n in try parse_line(raw, line_no) {
             push(out, n)
         }
-        // Every line but the last carries its newline; a directive line carries none, which is
-        // what lets `@for` sit on its own line without opening a gap in the output.
-        if i + 1 < len(lines) {
-            push(out, Node.Literal("\n"))
-        }
+        // **Every body line carries its newline, including the last**, and a directive line
+        // carries none -- which is what lets `@for` sit on its own line without opening a gap.
+        // `@end` being a terminator rather than a string delimiter is what makes this statable:
+        // a text block drops the newline before its closing `\"\"\"`, so the old anonymous form
+        // needed two blank lines to end a function with one, and that cost a bug (design §13).
+        push(out, Node.Literal("\n"))
         i = i + 1
     }
-    return Block { nodes: snapshot(out), next: i, closer: "" }
+    return Section { nodes: snapshot(out), next: i, closer: "", tag: "" }
 }
 
 fn collect_refs(nodes: [Node], into: MutableArray<string>) {
@@ -242,42 +323,79 @@ fn collect_refs(nodes: [Node], into: MutableArray<string>) {
                     push(into, h.name)
                 }
             }
+            Yield(b) {
+                if b.binder == "" && !contains(into, b.name) {
+                    push(into, b.name)
+                }
+            }
             Repeat(l) {
                 if !contains(into, l.source) {
                     push(into, l.source)
                 }
                 collect_refs(l.body, into)
             }
-            Choose(b) {
-                if !contains(into, b.flag) {
-                    push(into, b.flag)
+            Choose(c) {
+                if !contains(into, c.source) {
+                    push(into, c.source)
                 }
-                collect_refs(b.then_body, into)
-                collect_refs(b.else_body, into)
+                for one in c.cases {
+                    collect_refs(one.body, into)
+                }
             }
         }
     }
 }
 
-// Reads a template, or says what is wrong with it and where.
-pub fn parse(source: string) -> Result<Template, string> {
+// Reads a sheet, or says what is wrong with it and where.
+pub fn parse(source: string) -> Result<Sheet, string> {
     val lines = split(source, "\n")
-    val block = try parse_block(lines, 0)
-    if block.closer == "end" {
-        return err("template: an '@end' with nothing open")
+    val out = mutable_array_new<Named>()
+    var i = 0
+    while i < len(lines) {
+        val t = trim(lines[i])
+        if t == "" {
+            i = i + 1
+            continue
+        }
+        // A bare `@template` is matched here rather than left to the catch-all below, so that
+        // forgetting the name says so instead of "every line outside a '@template' must be
+        // blank", which is true and unhelpful.
+        if t == "@template" {
+            return err(problem(i + 1, "'@template' needs a name"))
+        }
+        if !starts_with(t, "@template ") {
+            return err(problem(
+                i + 1,
+                "every line outside a '@template' must be blank -- a source is a sheet of named templates"
+            ))
+        }
+        val name = trim(substring(t, 10, len(t)))
+        if len(name) == 0 {
+            return err(problem(i + 1, "'@template' needs a name"))
+        }
+        for already in snapshot(out) {
+            if already.name == name {
+                return err(problem(i + 1, concat("this sheet already has a template called '", name, "'")))
+            }
+        }
+        // The body's last line is the one before the closing `@end`, which is what decides where
+        // the trailing newline stops. Found by scanning forward for the `@end` at this level.
+        val body = try parse_block(lines, i + 1)
+        if body.closer != "end" {
+            return err(problem(i + 1, concat("template '", name, "' is never closed by an '@end'")))
+        }
+        val refs = mutable_array_new<string>()
+        collect_refs(body.nodes, refs)
+        push(out, Named { name: name, nodes: body.nodes, refs: snapshot(refs) })
+        i = body.next
     }
-    if block.closer == "else" {
-        return err("template: an '@else' with no '@if' open")
-    }
-    val refs = mutable_array_new<string>()
-    collect_refs(block.nodes, refs)
-    return Template { nodes: block.nodes, refs: snapshot(refs) }
+    return Sheet { templates: snapshot(out) }
 }
 
-// `parse` for a module-level `val`, where a broken template is a mistake in a string literal in
-// the source rather than a condition any caller could act on -- the same reasoning
+// `parse` for a module-level `val`, where a broken sheet is a mistake in a string literal in the
+// source rather than a condition any caller could act on -- the same reasoning
 // `repository.query` records for its own `unwrap`.
-pub fn must_parse(source: string) -> Template {
+pub fn must_parse(source: string) -> Sheet {
     return unwrap(parse(source))
 }
 
@@ -305,6 +423,59 @@ fn lookup(bindings: [Binding], name: string) -> Option<Bound> {
     return Option<Bound>.None
 }
 
+fn kind_of(v: Bound) -> string {
+    if Bound.is_Text(v) {
+        return "string"
+    }
+    return "list of rows"
+}
+
+// A `@{hole}` or a `@yield`'s subject: a string, wherever it is bound.
+fn string_at(h: HoleRef, globals: [Binding], frames: [Frame], what: string) -> Result<string, string> {
+    if h.binder == "" {
+        val bound = lookup(globals, h.name)
+        if None = bound {
+            return err(concat("'", what, "' is not bound (bound: ", names_of(globals), ")"))
+        }
+        val value = unwrap(bound)
+        if !Bound.is_Text(value) {
+            return err(concat("'", what, "' is bound to a ", kind_of(value), ", and it holds a string"))
+        }
+        return ok(Bound.unwrap_Text(value))
+    }
+    for f in frames {
+        if f.binder == h.binder {
+            val cell = lookup(f.cells, h.name)
+            if None = cell {
+                return err(concat("'", what, "' names no cell of that row (it has: ", names_of(f.cells), ")"))
+            }
+            val value = unwrap(cell)
+            if !Bound.is_Text(value) {
+                return err(concat("'", what, "' is bound to a ", kind_of(value), ", and it holds a string"))
+            }
+            return ok(Bound.unwrap_Text(value))
+        }
+    }
+    return err(concat("'", what, "' -- '", h.binder, "' is not a '@for' binder in scope here"))
+}
+
+// Every line of `block` behind `indent`. A blank line is left blank rather than padded with
+// trailing spaces, which `--fmt` would strip from the generated source anyway.
+fn indented(block: string, indent: string) -> string {
+    if indent == "" {
+        return block
+    }
+    val out = mutable_array_new<string>()
+    for line in split(block, "\n") {
+        if line == "" {
+            push(out, line)
+        } else {
+            push(out, concat(indent, line))
+        }
+    }
+    return join(separator: "\n", pieces: snapshot(out))
+}
+
 fn emit(nodes: [Node], globals: [Binding], frames: [Frame], out: MutableArray<string>) -> Result<unit, string> {
     for n in nodes {
         switch n {
@@ -312,7 +483,21 @@ fn emit(nodes: [Node], globals: [Binding], frames: [Frame], out: MutableArray<st
                 push(out, s)
             }
             Hole(h) {
-                push(out, try hole_text(h, globals, frames))
+                push(
+                    out,
+                    try string_at(
+                        h,
+                        globals,
+                        frames,
+                        concat("@{", h.binder, if h.binder == "" { "" } else { "." }, h.name, "}")
+                    )
+                )
+            }
+            Yield(b) {
+                val named = concat("@yield ", b.binder, if b.binder == "" { "" } else { "." }, b.name)
+                val block = try string_at(HoleRef { binder: b.binder, name: b.name }, globals, frames, named)
+                push(out, indented(block, b.indent))
+                push(out, "\n")
             }
             Repeat(l) {
                 val bound = lookup(globals, l.source)
@@ -334,26 +519,31 @@ fn emit(nodes: [Node], globals: [Binding], frames: [Frame], out: MutableArray<st
                     try emit(l.body, globals, push(frames, Frame { binder: l.binder, cells: r.cells }), out)
                 }
             }
-            Choose(b) {
-                val bound = lookup(globals, b.flag)
-                if None = bound {
-                    return err(concat("'@if ", b.flag, "' is not bound (bound: ", names_of(globals), ")"))
+            Choose(c) {
+                val tag = try string_at(qualified(c.source), globals, frames, concat("@choose ", c.source))
+                var chosen = false
+                for one in c.cases {
+                    if !chosen && !one.is_otherwise && one.tag == tag {
+                        chosen = true
+                        try emit(one.body, globals, frames, out)
+                    }
                 }
-                val value = unwrap(bound)
-                if !Bound.is_Flag(value) {
+                for one in c.cases {
+                    if !chosen && one.is_otherwise {
+                        chosen = true
+                        try emit(one.body, globals, frames, out)
+                    }
+                }
+                if !chosen {
                     return err(concat(
-                        "'@if ",
-                        b.flag,
-                        "' needs a flag, and '",
-                        b.flag,
-                        "' is bound to a ",
-                        kind_of(value)
+                        "'@choose ",
+                        c.source,
+                        "' is '",
+                        tag,
+                        "', which no '@when' names (it has: ",
+                        tags_of(c),
+                        ")"
                     ))
-                }
-                if Bound.unwrap_Flag(value) {
-                    try emit(b.then_body, globals, frames, out)
-                } else {
-                    try emit(b.else_body, globals, frames, out)
                 }
             }
         }
@@ -361,73 +551,53 @@ fn emit(nodes: [Node], globals: [Binding], frames: [Frame], out: MutableArray<st
     return unit
 }
 
-fn kind_of(v: Bound) -> string {
-    if Bound.is_Text(v) {
-        return "string"
+fn tags_of(c: Choice) -> string {
+    val out = mutable_array_new<string>()
+    for one in c.cases {
+        if !one.is_otherwise {
+            push(out, one.tag)
+        }
     }
-    if Bound.is_Flag(v) {
-        return "flag"
-    }
-    return "list of rows"
+    return join(separator: ", ", pieces: snapshot(out))
 }
 
-fn hole_text(h: HoleRef, globals: [Binding], frames: [Frame]) -> Result<string, string> {
-    if h.binder == "" {
-        val bound = lookup(globals, h.name)
-        if None = bound {
-            return err(concat("'@{", h.name, "}' is not bound (bound: ", names_of(globals), ")"))
-        }
-        val value = unwrap(bound)
-        if !Bound.is_Text(value) {
-            return err(concat("'@{", h.name, "}' is bound to a ", kind_of(value), ", and a hole holds a string"))
-        }
-        return ok(Bound.unwrap_Text(value))
-    }
-    for f in frames {
-        if f.binder == h.binder {
-            val cell = lookup(f.cells, h.name)
-            if None = cell {
-                return err(concat(
-                    "'@{",
-                    h.binder,
-                    ".",
-                    h.name,
-                    "}' names no cell of that row (it has: ",
-                    names_of(f.cells),
-                    ")"
-                ))
-            }
-            val value = unwrap(cell)
-            if !Bound.is_Text(value) {
-                return err(concat(
-                    "'@{",
-                    h.binder,
-                    ".",
-                    h.name,
-                    "}' is bound to a ",
-                    kind_of(value),
-                    ", and a hole holds a string"
-                ))
-            }
-            return ok(Bound.unwrap_Text(value))
+fn named_in(sheet: Sheet, name: string) -> Option<Named> {
+    for t in sheet.templates {
+        if t.name == name {
+            return Option<Named>.Some(t)
         }
     }
-    return err(concat("'@{", h.binder, ".", h.name, "}' -- '", h.binder, "' is not a '@for' binder in scope here"))
+    return Option<Named>.None
 }
 
-// The template's text with its holes filled.
+fn sheet_names(sheet: Sheet) -> string {
+    val out = mutable_array_new<string>()
+    for t in sheet.templates {
+        push(out, t.name)
+    }
+    return join(separator: ", ", pieces: snapshot(out))
+}
+
+// One of the sheet's templates, with its holes filled.
 //
-// **Both directions are checked**: a hole naming nothing bound, and a binding the text never
+// **Both directions are checked**: a hole naming nothing bound, and a binding the template never
 // mentions. The second is the more likely one after a template is edited, and it is a question
 // about the text rather than about this render -- so an unused binding is reported even when the
-// loop that would have read it has no rows.
-pub fn render(t: Template, bindings: [Binding]) -> Result<string, string> {
+// loop that would have read it has no rows, or the `@when` that would have is not the one chosen.
+pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string> {
+    val found = named_in(sheet, name)
+    if None = found {
+        return err(concat("this sheet has no template called '", name, "' (it has: ", sheet_names(sheet), ")"))
+    }
+    val t = unwrap(found)
     for b in bindings {
         if !contains(t.refs, b.name) {
             return err(concat(
                 "'",
                 b.name,
-                "' is bound and the template never mentions it (it uses: ",
+                "' is bound and template '",
+                name,
+                "' never mentions it (it uses: ",
                 join(separator: ", ", pieces: t.refs),
                 ")"
             ))

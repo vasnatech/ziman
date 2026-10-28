@@ -1,6 +1,8 @@
-// What the template module refuses, and what it says. Both directions are checked -- a hole
-// naming nothing bound, and a binding the template never mentions -- because the second is the
-// more likely mistake once a template has been edited.
+// What the template module refuses, and what it says. Both directions of binding are checked --
+// a hole naming nothing bound, and a binding the template never mentions -- because the second
+// is the more likely mistake once a template has been edited.
+//
+// A source is a *sheet* of named templates (design §15), so everything here names one.
 use template
 
 fn show(what: string, r: Result<string, string>) {
@@ -21,38 +23,59 @@ fn parsed(what: string, source: string) {
     }
 }
 
-fn main() {
-    parsed("a lone @", "x @ y")
-    parsed("an unclosed hole", "x @{name y")
-    parsed("an empty hole", "x @{} y")
-    parsed("an unknown directive", "@foreach x in xs")
-    parsed("@end with nothing open", "x\n@end")
-    parsed("@else with no @if", "x\n@else\ny")
-    parsed("an unclosed @for", "@for m in xs\nx")
+fn wrap(body: string) -> string {
+    return concat("@template t\n", body, "\n@end\n")
+}
 
-    val t = template.must_parse("@{greeting}, @{name}")
-    show("an unbound hole", template.render(t, [template.text("greeting", "hello")]))
-    show("a binding nothing uses", template.render(t, [
+fn main() {
+    parsed("text outside a template", "hello\n@template t\nx\n@end")
+    parsed("a template with no name", "@template\nx\n@end")
+    parsed("two templates of one name", "@template t\nx\n@end\n@template t\ny\n@end")
+    parsed("a template never closed", "@template t\nx")
+    parsed("a nested template", wrap("@template u\nx\n@end"))
+    parsed("a lone @", wrap("x @ y"))
+    parsed("an unclosed hole", wrap("x @{name y"))
+    parsed("an empty hole", wrap("x @{} y"))
+    parsed("an unknown directive", wrap("@foreach x in xs"))
+    // The inner `@for` swallows the template's own `@end`, so what is left unclosed is the
+    // template -- which is what it says, rather than guessing at the `@for`.
+    parsed("an @for that eats the template @end", wrap("@for m in xs\nx"))
+    parsed("@choose with no @when", wrap("@choose k\n@end"))
+    parsed("text before the first @when", wrap("@choose k\nstray\n@when a\nx\n@end"))
+    parsed("two @otherwise", wrap("@choose k\n@when a\nx\n@otherwise\ny\n@otherwise\nz\n@end"))
+
+    val sheet = template.must_parse("""
+@template greet
+@{greeting}, @{name}
+@end
+
+@template pick
+@choose kind
+@when loud
+LOUD
+@when quiet
+quiet
+@end
+@end
+
+@template over
+@for r in rows
+- @{r.cell}
+@end
+@end
+""")
+    show("an unknown template", template.render(sheet, "nope", []))
+    show("an unbound hole", template.render(sheet, "greet", [template.text("greeting", "hello")]))
+    show("a binding nothing uses", template.render(sheet, "greet", [
         template.text("greeting", "hello"),
         template.text("name", "Ada"),
         template.text("extra", "unused")
     ]))
-    show("the right bindings", template.render(t, [
-        template.text("greeting", "hello"),
-        template.text("name", "Ada")
-    ]))
-
-    val loop = template.must_parse("@for r in rows\n@{r.cell}\n@end")
-    show("@for over a string", template.render(loop, [template.text("rows", "not rows")]))
-    show("a cell that is not there", template.render(loop, [
+    show("a tag no @when names", template.render(sheet, "pick", [template.text("kind", "shouty")]))
+    show("a tag one does", template.render(sheet, "pick", [template.text("kind", "quiet")]))
+    show("@choose over rows", template.render(sheet, "pick", [template.rows("kind", [])]))
+    show("@for over a string", template.render(sheet, "over", [template.text("rows", "not rows")]))
+    show("a cell that is not there", template.render(sheet, "over", [
         template.rows("rows", [template.row([template.text("other", "x")])])
     ]))
-
-    val branch = template.must_parse("@if on\nyes\n@else\nno\n@end")
-    show("@if over rows", template.render(branch, [template.rows("on", [])]))
-    show("@if true", template.render(branch, [template.flag("on", true)]))
-    show("@if false", template.render(branch, [template.flag("on", false)]))
-
-    val lit = template.must_parse("an @@ sign and a @{thing}")
-    show("@@ is a literal", template.render(lit, [template.text("thing", "hole")]))
 }

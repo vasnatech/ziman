@@ -29,7 +29,8 @@ val flat_names = Map<string, string> {
     "ZoneId": "zoneid"
 }
 
-// What it writes, for `#[derive(Row)] struct Note { id: int  body: Option<string> }`:
+// Everything this generator writes, in one sheet, in the order a reader meets it. For
+// `#[derive(Row)] struct Note { id: int  body: Option<string> }`:
 //
 //     pub fn note_from_row(row: Row) -> Result<Note, DbError> {
 //         val field_id_raw = try row_get(row, "id")
@@ -46,14 +47,16 @@ val flat_names = Map<string, string> {
 //         }
 //     }
 //
-// The flat indentation inside the `if` is the C generator's, kept rather than improved: this port
-// is checked by emitting the same bytes, and tidying it is a separate change with its own fixture
-// churn.
-val from_row_body = template.must_parse("""
+// The flat indentation inside the `if` is the C generator's, kept because this port is checked
+// by emitting the same bytes. **`@yield` is what will fix it**: it prefixes the block with its
+// own indentation, so indenting the directive is the whole change -- taken once the bridge lands
+// and the fixtures can move.
+val sheet = template.must_parse("""
+@template from_row
 pub fn @{snake}_from_row(row: Row) -> Result<@{name}, DbError> {
 @for f in fields
     val field_@{f.name}_raw = try row_get(row, "@{f.name}")
-@{f.read}
+@yield f.read
 @end
     return @{name} {
 @for f in fields
@@ -62,96 +65,47 @@ pub fn @{snake}_from_row(row: Row) -> Result<@{name}, DbError> {
     }
 }
 
+@end
 
-""")
+@template read
+@choose shape
+@when simple
+    val @{dst} = try @{call}(@{src})
+@when option
+    var @{dst} = Option<@{elem}>.None
+    if !SqlValue.is_Null(@{src}) {
+@yield nested
+    @{dst} = Option<@{elem}>.Some(@{inner})
+    }
+@end
+@end
 
-// What it writes, for the same struct:
-//
-//     pub fn note_to_params(v: Note) -> [SqlValue] {
-//         val __derive_params = mutable_array_new<SqlValue>()
-//         val field_id_sql = SqlValue.Int(v.id)
-//         push<SqlValue>(__derive_params, field_id_sql)
-//         var field_body_sql = SqlValue.Null
-//         if Option.is_Some(v.body) {
-//         val __derive_opt_inner_0 = SqlValue.Text(Option.unwrap_Some(v.body))
-//         field_body_sql = __derive_opt_inner_0
-//         }
-//         push<SqlValue>(__derive_params, field_body_sql)
-//         return snapshot(__derive_params)
-//     }
-//
-// The parameters come back in field declaration order -- the order a hand-written
-// `INSERT INTO t (col1, col2, ..) VALUES ($1, $2, ..)` lists its columns in.
-val to_params_body = template.must_parse("""
+@template to_params
 pub fn @{snake}_to_params(v: @{name}) -> [SqlValue] {
     val __derive_params = mutable_array_new<SqlValue>()
 @for f in fields
-@{f.write}
+@yield f.write
     push<SqlValue>(__derive_params, field_@{f.name}_sql)
 @end
     return snapshot(__derive_params)
 }
 
+@end
 
-""")
-
-// **Every emitted shape is a template, including the conversions.** The first version of this
-// file built them with `concat` and the design doc argued they could not be templates because a
-// conversion recurses -- which confused the recursion with the shape. The recursion is in the
-// *call*: each level has a fixed shape with a hole where the nested conversion goes, exactly as
-// the two function bodies have one per field. See docs/design/templates.md §14.
-
-// `    val field_id = try sql_as_int(field_id_raw)` -- every read but an `Option`, the three
-// kinds differing only in which function is named.
-val read_one = template.must_parse("""
-    val @{dst} = try @{call}(@{src})
-
-""")
-
-// A nullable column is NULL-or-value, so it tests and then does the element's own read:
-//
-//         var field_body = Option<string>.None
-//         if !SqlValue.is_Null(field_body_raw) {
-//         val __derive_opt_inner_0 = try sql_as_text(field_body_raw)
-//         field_body = Option<string>.Some(__derive_opt_inner_0)
-//         }
-val read_option = template.must_parse("""
-    var @{dst} = Option<@{elem}>.None
-    if !SqlValue.is_Null(@{src}) {
-@{nested}
-    @{dst} = Option<@{elem}>.Some(@{inner})
-    }
-
-""")
-
-// `    val field_count_sql = SqlValue.Int(v.count)` -- a scalar going out, the kinds differing
-// only in the variant named. `decimal` reaches it too, as `SqlValue.Text(str(v.amount))`, by
-// passing `str(..)` as the source.
-val write_value = template.must_parse("""
+@template write
+@choose shape
+@when value
     val @{dst} = SqlValue.@{ctor}(@{src})
-
-""")
-
-// `    val field_id_sql = uuid_to_sql(v.id)` -- a type with a converter of its own.
-val write_converted = template.must_parse("""
+@when converted
     val @{dst} = @{call}(@{src})
-
-""")
-
-// An absent `Option` is `SqlValue.Null`, which is why this opens with a `var`:
-//
-//         var field_body_sql = SqlValue.Null
-//         if Option.is_Some(v.body) {
-//         val __derive_opt_inner_0 = SqlValue.Text(Option.unwrap_Some(v.body))
-//         field_body_sql = __derive_opt_inner_0
-//         }
-val write_option = template.must_parse("""
+@when option
     var @{dst} = SqlValue.Null
     if Option.is_Some(@{src}) {
-@{nested}
+@yield nested
     @{dst} = @{inner}
     }
-
+@end
+@end
 """)
 
 // A conversion's text and the temporary counter after it. **Threaded rather than held**: the
@@ -217,7 +171,8 @@ fn is_scalar(kind: string) -> bool {
 fn emit_from_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result<Emitted, string> {
     if is_scalar(t.kind) {
         return ok(Emitted {
-            text: try template.render(read_one, [
+            text: try template.render(sheet, "read", [
+                template.text("shape", "simple"),
                 template.text("dst", dst),
                 template.text("call", reader_for(t.kind)),
                 template.text("src", src)
@@ -233,7 +188,8 @@ fn emit_from_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result
         val inner = tmp_name(tmp)
         val nested = try emit_from_sql(t.args[0], src, inner, tmp + 1)
         return ok(Emitted {
-            text: try template.render(read_option, [
+            text: try template.render(sheet, "read", [
+                template.text("shape", "option"),
                 template.text("dst", dst),
                 template.text("elem", elem_text),
                 template.text("src", src),
@@ -248,7 +204,8 @@ fn emit_from_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result
         call = concat("to_", flat)
     }
     return ok(Emitted {
-        text: try template.render(read_one, [
+        text: try template.render(sheet, "read", [
+            template.text("shape", "simple"),
             template.text("dst", dst),
             template.text("call", call),
             template.text("src", src)
@@ -268,7 +225,8 @@ fn emit_to_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result<E
             value = concat("str(", src, ")")
         }
         return ok(Emitted {
-            text: try template.render(write_value, [
+            text: try template.render(sheet, "write", [
+                template.text("shape", "value"),
                 template.text("dst", dst),
                 template.text("ctor", ctor),
                 template.text("src", value)
@@ -283,7 +241,8 @@ fn emit_to_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result<E
         val inner = tmp_name(tmp)
         val nested = try emit_to_sql(t.args[0], concat("Option.unwrap_Some(", src, ")"), inner, tmp + 1)
         return ok(Emitted {
-            text: try template.render(write_option, [
+            text: try template.render(sheet, "write", [
+                template.text("shape", "option"),
                 template.text("dst", dst),
                 template.text("src", src),
                 template.text("nested", without_newline(nested.text)),
@@ -297,7 +256,8 @@ fn emit_to_sql(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result<E
         call = "to_sql"
     }
     return ok(Emitted {
-        text: try template.render(write_converted, [
+        text: try template.render(sheet, "write", [
+            template.text("shape", "converted"),
             template.text("dst", dst),
             template.text("call", call),
             template.text("src", src)
@@ -327,7 +287,7 @@ fn from_row(d: meta.Decl) -> Result<string, string> {
             template.text("comma", if i < last { "," } else { "" })
         ]))
     }
-    return template.render(from_row_body, [
+    return template.render(sheet, "from_row", [
         template.text("snake", d.snake_name),
         template.text("name", d.name),
         template.rows("fields", snapshot(fields))
@@ -345,7 +305,7 @@ fn to_params(d: meta.Decl) -> Result<string, string> {
             template.text("write", without_newline(write.text))
         ]))
     }
-    return template.render(to_params_body, [
+    return template.render(sheet, "to_params", [
         template.text("snake", d.snake_name),
         template.text("name", d.name),
         template.rows("fields", snapshot(fields))
