@@ -22,12 +22,23 @@ checks the things nothing else would catch in a site with no build step -- that 
 `actions/configure-pages` runs with `enablement: true`, so the workflow turns Pages on by itself;
 there is no setting to remember in the web interface.
 
-**DNS is separate.** `ziman.dev` is an apex domain, so it needs four `A` records and four `AAAA`
-records at the registrar pointing at GitHub's Pages addresses (185.199.108-111.153 and
-2606:50c0:8000-8003::153), plus a `CNAME` on `www` to `vasnatech.github.io` if that host is wanted.
-Until those exist the deployment still succeeds, but `ziman.dev` does not resolve -- and because
-`CNAME` ships in the artifact, the `vasnatech.github.io/ziman` address redirects to the custom
-domain rather than serving the site itself.
+**The site is live at <https://vasnatech.github.io/ziman/>** and `ziman.dev` is not yet pointed at
+it. Two separate things are still missing, in this order:
+
+1. **DNS.** `ziman.dev` is an apex domain, so it needs four `A` records and four `AAAA` records at
+   the registrar pointing at GitHub's Pages addresses (185.199.108-111.153 and
+   2606:50c0:8000-8003::153), plus a `CNAME` on `www` to `vasnatech.github.io` if that host is
+   wanted.
+2. **The custom domain, which is a repository setting and not the `CNAME` file**:
+   `gh api -X PUT repos/vasnatech/ziman/pages -f cname=ziman.dev`. Setting it before the records
+   resolve parks it in a failed DNS check, so it goes second.
+
+**`CNAME` in this directory does not set the domain.** It ships in the artifact, and a
+workflow-published site ignores it: after the first successful deployment (run 40627116782) the
+repository's Pages `cname` was still `null` and nothing redirected. The file is kept because it
+records which domain the directory is for -- the workflow asserts it still reads `ziman.dev` -- and
+because it *would* be the mechanism if this site ever moved to branch-based publishing. It is not
+the mechanism today.
 
 ## Keeping the page true
 
