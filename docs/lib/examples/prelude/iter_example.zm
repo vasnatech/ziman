@@ -1,0 +1,46 @@
+// `Iter<T>` is a stream of values produced one at a time. It is what `fs.lines`, `csv.records`
+// and `datasource.rows` answer: a file or a result set too large to build as an array, read as far
+// as the reader needs and no further.
+fn counting_to(limit: int) -> Iter<int> {
+    // An iterator is a `next` that answers None when it is done, plus a `close` for whatever the
+    // source has to release. Writing one is this and nothing more.
+    val n = mutable(0)
+    return iter_from(
+        fn() -> Option<int> {
+            val next = update(n, fn(v: int) -> int { return v + 1 })
+            if next > limit {
+                return None
+            }
+            return next
+        },
+        fn() {}
+    )
+}
+
+fn main() {
+    // `for` consumes an iterator the same way it consumes an array, which is why a caller rarely
+    // needs to know which it has.
+    var total = 0
+    for i in counting_to(5) {
+        total = total + i
+    }
+    print(total)
+
+    // By hand, the loop `for` is doing: pull until None.
+    val it = counting_to(3)
+    print(iter_next(it))
+    print(iter_next(it))
+    print(iter_next(it))
+    print(iter_next(it))
+    iter_close(it)
+
+    // Laziness is the point: this stops after two values rather than producing a thousand.
+    var seen = 0
+    for i in counting_to(1000) {
+        seen = seen + 1
+        if seen == 2 {
+            break
+        }
+    }
+    print(seen)
+}

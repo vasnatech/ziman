@@ -1611,6 +1611,67 @@ Allocates its Map either way; last key wins, as in the array form.
 
 ## `channel.zm`
 
+### Example
+
+```
+// `Channel<T>` is how threads hand values to each other. Ziman's concurrency is real OS threads
+// with no shared mutable state between them: a value goes through a channel, which is the one
+// place the handover happens, so there is nothing to lock and nothing to forget to lock.
+fn produce(out: Channel<int>, upto: int) {
+    for i in 1..upto + 1 {
+        send(out, i)
+    }
+    // Closing says "no more", which is what lets the reader's loop end rather than block.
+    channel_close(out)
+}
+
+fn main() {
+    val numbers: Channel<int> = channel_new()
+    spawn produce(numbers, 5)
+
+    // `receive_option` answers None once the channel is closed and drained, so the loop ends
+    // without a sentinel value or a count agreed in advance.
+    var total = 0
+    var taken = 0
+    while true {
+        switch receive_option(numbers) {
+            Some(n) {
+                total = total + n
+                taken = taken + 1
+            }
+            None { break }
+        }
+    }
+    printf("{} {}\n", taken, total)
+
+    // A channel is also an ordinary queue within one thread, which is what makes it testable
+    // without concurrency.
+    val box: Channel<string> = channel_new()
+    send(box, "first")
+    send(box, "second")
+    print(channel_len(box))
+    print(receive(box))
+
+    // `try_receive` never blocks: it answers what is there, or None.
+    print(try_receive(box))
+    print(try_receive(box))
+
+    // `receive_timeout` waits, but only so long -- the shape a supervisor needs.
+    print(receive_timeout(box, 10))
+}
+```
+
+Output:
+
+```
+5 15
+2
+first
+Some(second)
+None
+None
+```
+
 ### `channel_new`
 
 ```
@@ -1713,6 +1774,68 @@ pub native fn guard_new<T>(channel: Channel<T>, message: T) -> Guard
 A guard that sends `message` on `channel` when it is collected.
 
 ## `iter.zm`
+
+### Example
+
+```
+// `Iter<T>` is a stream of values produced one at a time. It is what `fs.lines`, `csv.records`
+// and `datasource.rows` answer: a file or a result set too large to build as an array, read as far
+// as the reader needs and no further.
+fn counting_to(limit: int) -> Iter<int> {
+    // An iterator is a `next` that answers None when it is done, plus a `close` for whatever the
+    // source has to release. Writing one is this and nothing more.
+    val n = mutable(0)
+    return iter_from(
+        fn() -> Option<int> {
+            val next = update(n, fn(v: int) -> int { return v + 1 })
+            if next > limit {
+                return None
+            }
+            return next
+        },
+        fn() {}
+    )
+}
+
+fn main() {
+    // `for` consumes an iterator the same way it consumes an array, which is why a caller rarely
+    // needs to know which it has.
+    var total = 0
+    for i in counting_to(5) {
+        total = total + i
+    }
+    print(total)
+
+    // By hand, the loop `for` is doing: pull until None.
+    val it = counting_to(3)
+    print(iter_next(it))
+    print(iter_next(it))
+    print(iter_next(it))
+    print(iter_next(it))
+    iter_close(it)
+
+    // Laziness is the point: this stops after two values rather than producing a thousand.
+    var seen = 0
+    for i in counting_to(1000) {
+        seen = seen + 1
+        if seen == 2 {
+            break
+        }
+    }
+    print(seen)
+}
+```
+
+Output:
+
+```
+15
+Some(1)
+Some(2)
+Some(3)
+None
+2
+```
 
 ### `iter_from`
 
@@ -2305,6 +2428,60 @@ pub native fn clear<K: Eq + Hash, V>(m: MutableMap<K, V>)
 Empties the builder in place, keeping the handle.
 
 ## `mutable.zm`
+
+### Example
+
+```
+// The mutable collections, and the single-value cell. Everything else in the prelude is
+// immutable, which is the right default; these are for the loop where copying per step is the
+// cost that matters. The pattern is always the same -- build mutably, `snapshot` once, hand the
+// immutable value on -- so mutability stays inside the function that needs it.
+fn main() {
+    // A MutableArray grows in place; the snapshot is an ordinary immutable array.
+    val xs = mutable_array_new<int>(None, None)
+    for i in 0..5 {
+        push(xs, i * i)
+    }
+    print(len(xs))
+    print(snapshot(xs))
+
+    // Reading and writing by index, and in-place sorting -- the operations that would each copy
+    // the whole array if it were immutable.
+    // An element is assigned, not `set`: `set` on an array copies it, and a MutableArray is the
+    // thing you reached for precisely so that it would not be copied.
+    xs[0] = 99
+    print(xs[0])
+    reverse(xs)
+    print(snapshot(xs))
+    sort(xs)
+    print(snapshot(xs))
+
+    // A Mutable<T> cell is the same idea for a single value: something a closure can update,
+    // where a plain `var` could not be shared.
+    val total = mutable(0)
+    for x in [1, 2, 3, 4] {
+        set(total, get(total) + x)
+    }
+    print(get(total))
+
+    // `update` reads, applies and writes in one step, which is what a counter wants.
+    print(update(total, fn(n: int) -> int { return n * 2 }))
+    print(get(total))
+}
+```
+
+Output:
+
+```
+5
+[0, 1, 4, 9, 16]
+99
+[16, 9, 4, 1, 99]
+[1, 4, 9, 16, 99]
+10
+20
+20
+```
 
 ### `mutable_new`
 

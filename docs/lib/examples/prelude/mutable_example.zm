@@ -1,0 +1,36 @@
+// The mutable collections, and the single-value cell. Everything else in the prelude is
+// immutable, which is the right default; these are for the loop where copying per step is the
+// cost that matters. The pattern is always the same -- build mutably, `snapshot` once, hand the
+// immutable value on -- so mutability stays inside the function that needs it.
+fn main() {
+    // A MutableArray grows in place; the snapshot is an ordinary immutable array.
+    val xs = mutable_array_new<int>(None, None)
+    for i in 0..5 {
+        push(xs, i * i)
+    }
+    print(len(xs))
+    print(snapshot(xs))
+
+    // Reading and writing by index, and in-place sorting -- the operations that would each copy
+    // the whole array if it were immutable.
+    // An element is assigned, not `set`: `set` on an array copies it, and a MutableArray is the
+    // thing you reached for precisely so that it would not be copied.
+    xs[0] = 99
+    print(xs[0])
+    reverse(xs)
+    print(snapshot(xs))
+    sort(xs)
+    print(snapshot(xs))
+
+    // A Mutable<T> cell is the same idea for a single value: something a closure can update,
+    // where a plain `var` could not be shared.
+    val total = mutable(0)
+    for x in [1, 2, 3, 4] {
+        set(total, get(total) + x)
+    }
+    print(get(total))
+
+    // `update` reads, applies and writes in one step, which is what a counter wants.
+    print(update(total, fn(n: int) -> int { return n * 2 }))
+    print(get(total))
+}
