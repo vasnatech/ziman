@@ -2438,7 +2438,7 @@ Empties the builder in place, keeping the handle.
 // immutable value on -- so mutability stays inside the function that needs it.
 fn main() {
     // A MutableArray grows in place; the snapshot is an ordinary immutable array.
-    val xs = mutable_array_new<int>(None, None)
+    val xs = mutable_array_new<int>()
     for i in 0..5 {
         push(xs, i * i)
     }

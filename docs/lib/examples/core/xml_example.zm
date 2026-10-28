@@ -43,7 +43,7 @@ fn demo() -> Result<unit, string> {
     val missing = Option<string>.None
     val built = xml.document(xml.element(xml.name("visit"), [xml.attribute("id", "7")], filter_present<xml.Node>(
         xml.req_element("reason", "cough & fever"),
-        xml.opt_element("temperature", Option<string>.Some("38.1")),
+        xml.opt_element("temperature", "38.1"),
         xml.opt_element("notes", missing)
     )))
     print(trim(try xml.format(built)))

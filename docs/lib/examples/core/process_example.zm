@@ -8,13 +8,14 @@ use process
 fn demo(out_path: string) -> Result<unit, string> {
     // Arguments are a list, not a line to be re-parsed, so a space or a quote in one is just a
     // character and there is no shell to escape for.
+    // Two things keep a call this short. An Option parameter can be left out entirely -- but only
+    // in a named call, since a positional one must give every argument, and a call is all
+    // positional or all named, never a mix. And a bare value auto-wraps where an Option is
+    // expected, so it is `out_path: out_path` rather than `out_path: Some(out_path)`.
     val hello = try process.start(
-        "/bin/echo",
-        ["a b", "c'd"],
-        None,
-        Some(out_path),
-        None,
-        None
+        program: "/bin/echo",
+        args: ["a b", "c'd"],
+        out_path: out_path
     )
     print(try process.wait(hello))
     // Reading the file answers an fs.FsError, not this function's string, so it converts here.
@@ -25,12 +26,10 @@ fn demo(out_path: string) -> Result<unit, string> {
 
     // The environment is given explicitly, so a child sees what it was handed.
     val printenv = try process.start(
-        "/usr/bin/env",
-        [],
-        Some([process.env("ZIMAN_EXAMPLE", "set-by-the-parent")]),
-        Some(out_path),
-        None,
-        None
+        program: "/usr/bin/env",
+        args: [],
+        vars: [process.env("ZIMAN_EXAMPLE", "set-by-the-parent")],
+        out_path: out_path
     )
     try process.wait(printenv)
     val lines = switch fs.lines(out_path) {
@@ -44,12 +43,12 @@ fn demo(out_path: string) -> Result<unit, string> {
     }
 
     // A failing child is not an error of this call: the exit status is the answer.
-    val failing = try process.start("/bin/false", [], None, None, None, None)
+    val failing = try process.start(program: "/bin/false", args: [])
     print(try process.wait(failing))
 
     // Waiting with a timeout answers None while the child is still running, so a supervisor can
     // decide to signal it rather than block for ever.
-    val sleeper = try process.start("/bin/sleep", ["5"], None, None, None, None)
+    val sleeper = try process.start(program: "/bin/sleep", args: ["5"])
     print(Option.is_None(try process.wait_for(sleeper, 50)))
     try process.terminate(sleeper)
     print(is_ok(process.wait(sleeper)))
