@@ -93,6 +93,26 @@ operands -- an expression language, invisible to the type checker because it liv
 string, and one that never stops growing (`@elif`, then `@{name|upper}`, then whitespace control,
 then macros).
 
+`@if` and `@else` pair with each other and nothing else. The case that wants them is a field
+whose two readings are genuinely different text -- `derive(Row)`'s `Option` column against a
+required one, which `emit_from_sql` writes by hand today:
+
+```
+@if optional
+    var @{dst} = Option<@{elem}>.None
+    if !SqlValue.is_Null(@{src}) {
+        @{dst} = Option<@{elem}>.Some(@{inner})
+    }
+@else
+    val @{dst} = try sql_as_@{kind}(@{src})
+@end
+```
+
+**There is no `@elif`**, and that is the line rather than an omission: a second condition is a
+second flag, and a template needing three of them is a template that should have been two
+templates chosen in Ziman. `@elif` is also the first construct that cannot be read without
+scanning upward, which is the property `@if`/`@else`/`@end` on their own lines exists to keep.
+
 So Ziman computes and the template repeats:
 
 ```ziman
@@ -174,6 +194,7 @@ Each names what was wrong and what was available, as `eql` does for a mistyped f
 * `@for` over a name bound to text, or `@if` over a name bound to rows
 * `@{r.cell}` where `r` is not a loop binder, or `cell` is not in the row
 * `@end` with nothing open, or a template ending with something open
+* `@else` with no `@if` open, a second `@else` for one `@if`, or an `@else` closing a `@for`
 * a directive line with trailing text after it
 
 The first two are the reason `render` answers a `Result` rather than a `string`.
@@ -216,19 +237,22 @@ design, and worth a check rather than a comment.
    Given up: consistency with `format`'s `{}`. Taken because the output is brace-dense code.
 2. **`@if` takes a bound boolean, never an expression.** Given up: conditions written where they
    are read. Taken because the alternative is an unchecked language inside a string.
-3. **Bindings are an array of constructor calls, not a map.** Given up: map-literal brevity for
+3. **`@else` exists; `@elif` does not.** Given up: a three-way choice written in one place.
+   Taken because `@else` adds no expression grammar and removes the `@if flag` / `@if not_flag`
+   pair, which is two bindings and two chances for them to disagree -- where `@elif` is the first
+   construct a reader cannot understand without scanning upward for what it continues. A third
+   branch is two templates, chosen in Ziman.
+4. **Bindings are an array of constructor calls, not a map.** Given up: map-literal brevity for
    the simplest case. Taken for nesting, for the three kinds, and because `eql` already answers
    this question the same way.
-4. **Parsed at load, rendered to a `Result`.** Given up: compile-time checking of holes, which a
+5. **Parsed at load, rendered to a `Result`.** Given up: compile-time checking of holes, which a
    module cannot have. Taken because load time is where `repository.query`'s mistakes already
    surface.
 
 ## 11. What is left before building
 
-1. **Decide `@else`.** It adds no expression grammar and removes the `@if a` / `@if not_a` pair,
-   and it is still one more construct. Recommended: yes.
-2. **Write `derive_row` both ways** -- `push`/`concat` and template -- before committing to either.
+1. **Write `derive_row` both ways** -- `push`/`concat` and template -- before committing to either.
    `Row` emits far more shape than `Ord`, with nesting and `Option` handling, and it is the
    generator that will say whether §4's marshalling holds up or whether `@if` has to widen. This
    is the measurement the rest of the design should wait for.
-3. **Then port the generators**, and delete each C version as its Ziman replacement lands.
+2. **Then port the generators**, and delete each C version as its Ziman replacement lands.

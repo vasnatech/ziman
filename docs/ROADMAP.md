@@ -1311,10 +1311,10 @@ from source.
   **A template module is designed and not built** -- `docs/design/templates.md`, 2026-10-28. The
   port made the case for it visible: a generator written as `push`/`concat` hides the thing it
   exists to produce, and `derive.c` is 240 `cb_appendf` calls and 291 `\n` escapes assembling
-  source a fragment at a time. `@{name}` holes, `@for`/`@if`/`@end` on their own lines, bindings
+  source a fragment at a time. `@{name}` holes, `@for`/`@if`/`@else`/`@end` on their own lines, bindings
   in `eql.bind`'s shape, parsed at module load like `repository.query`. **No expressions of any
-  kind**: `@if` takes a bound boolean, and anything that needs computing is computed in Ziman,
-  where the type checker can see it. The open question the design defers to evidence is whether
+  kind**: `@if` takes a bound boolean, `@elif` does not exist, and anything that needs computing
+  is computed in Ziman where the type checker can see it. The open question the design defers to evidence is whether
   that holds up for a generator larger than `Ord` -- so `derive_row` gets written both ways
   before either is committed to.
 
