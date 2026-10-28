@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Not found — Ziman</title>
+<meta name="robots" content="noindex">
+<link rel="icon" href="/logo.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata:opsz,wght@7..72,400;7..72,600&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;700&display=swap">
+<style>
+/* The same tokens as index.html, kept to the few this page uses. */
+:root {
+  --paper:    #faf8f4;
+  --ink:      #1d2420;
+  --ink-soft: #55605a;
+  --rule:     #e2ddd3;
+  --accent:   #a8701a;
+  --structure:#2e6b4f;
+  --code-bg:  #15201b;
+  --code-fg:  #e8e4da;
+  --code-dim: #8fa096;
+  --display: "Literata", Georgia, "Times New Roman", serif;
+  --body:    "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #121714; --ink: #e6e9e5; --ink-soft: #9aa8a0; --rule: #26302a;
+    --accent: #e0a63c; --structure: #6fbf96; --code-bg: #0c110e; --code-dim: #7d8d84;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #121714; --ink: #e6e9e5; --ink-soft: #9aa8a0; --rule: #26302a;
+  --accent: #e0a63c; --structure: #6fbf96; --code-bg: #0c110e; --code-dim: #7d8d84;
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box }
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--paper);
+  color: var(--ink);
+  font: 400 17px/1.65 var(--body);
+}
+.wrap {
+  width: 100%;
+  max-width: 62ch;
+  margin: auto;
+  padding-block: 56px;
+  padding-left: max(20px, env(safe-area-inset-left, 0px));
+  padding-right: max(20px, env(safe-area-inset-right, 0px));
+}
+a { color: var(--accent); text-underline-offset: 3px }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px }
+
+.brand { display: flex; align-items: center; gap: 11px; margin-bottom: 36px; font-family: var(--display); font-weight: 600; font-size: 1.1rem; text-decoration: none; color: var(--ink) }
+.brand svg { width: 28px; height: 28px; flex: none }
+
+h1 { font-family: var(--display); font-weight: 600; font-size: clamp(1.6rem, 5vw, 2.1rem); margin: 0 0 .5em; text-wrap: balance }
+p { margin: 0 0 1em; color: var(--ink-soft) }
+p.plain { color: var(--ink) }
+
+pre {
+  margin: 0 0 28px;
+  background: var(--code-bg);
+  color: var(--code-fg);
+  font: 400 14px/1.6 var(--mono);
+  padding: 18px 20px;
+  border-radius: 6px;
+  overflow-x: auto;
+}
+pre .dim { color: var(--code-dim) }
+pre b { color: var(--accent); font-weight: 700 }
+
+ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 10px 22px; border-top: 1px solid var(--rule); padding-top: 22px }
+ul a { font-weight: 600; text-decoration: none }
+ul a:hover { text-decoration: underline }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <a class="brand" href="/">
+      <svg viewBox="0 0 128 128" role="img" aria-label="Ziman logo">
+        <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M38 26 C27 26 27 33 27 42 L27 54 C27 60 24 64 18 64 C24 64 27 68 27 74 L27 86 C27 95 27 102 38 102" stroke="#d9992b" stroke-width="7"/>
+          <path d="M90 26 C101 26 101 33 101 42 L101 54 C101 60 104 64 110 64 C104 64 101 68 101 74 L101 86 C101 95 101 102 90 102" stroke="#d9992b" stroke-width="7"/>
+          <path d="M47 40 L81 40 L47 88 L81 88" stroke="#2e6b4f" stroke-width="10"/>
+        </g>
+      </svg>
+      Ziman
+    </a>
+
+    <h1>There is no page here.</h1>
+
+<pre><span class="dim">// A missing thing is a value you can test, not a crash.</span>
+<b>if</b> Some(page) = site.find(<span class="dim">"/the-url-you-tried"</span>) {
+    show(page)
+}
+<span class="dim">// None. So: this page instead.</span></pre>
+
+    <p class="plain">The address may be mistyped, or it may have moved. The pages that do exist:</p>
+
+    <ul>
+      <li><a href="/">Home</a></li>
+      <li><a href="/#taste">A taste</a></li>
+      <li><a href="/#library">Standard library</a></li>
+      <li><a href="/#manuals">Manuals</a></li>
+      <li><a href="https://github.com/vasnatech/ziman">Source</a></li>
+    </ul>
+  </div>
+</body>
+</html>

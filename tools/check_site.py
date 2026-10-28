@@ -51,27 +51,32 @@ def check(directory):
             return None
         return io.open(path, encoding="utf-8").read()
 
-    page = require_file("index.html")
+    require_file("index.html")
     require_file("logo.svg")
 
     cname = os.path.join(directory, "CNAME")
     if os.path.isfile(cname):
-        # The file does not set a Pages custom domain (see websites/README.md), but it records which
-        # domain the directory is for, so a silent change to it should still be caught.
+        # The file sets no custom domain on either host (see websites/README.md), but it records
+        # which domain the directory is for, so a silent change to it should still be caught.
         want = os.path.basename(directory)
         got = io.open(cname, encoding="utf-8").read().strip()
         if got != want:
             problems.append("CNAME says %r, expected %r (the directory's own name)" % (got, want))
 
-    if page is not None:
+    # Every page, not just index.html: 404.html is served to real visitors too, and nothing else
+    # would notice if it stopped parsing.
+    for name in sorted(os.listdir(directory)):
+        if not name.endswith(".html"):
+            continue
+        page = io.open(os.path.join(directory, name), encoding="utf-8").read()
         if "<title>" not in page:
-            problems.append("index.html has no <title>")
+            problems.append("%s has no <title>" % name)
         walk = Walk()
         walk.feed(page)
         for tag, (line, col) in walk.open_tags:
-            problems.append("index.html: <%s> at line %d col %d is never closed" % (tag, line, col))
+            problems.append("%s: <%s> at line %d col %d is never closed" % (name, tag, line, col))
         for tag, (line, col) in walk.stray:
-            problems.append("index.html: </%s> at line %d col %d closes nothing" % (tag, line, col))
+            problems.append("%s: </%s> at line %d col %d closes nothing" % (name, tag, line, col))
 
     return problems
 
