@@ -9,16 +9,25 @@ site -- no build step, no dependencies, no generator.
 
 ## Deploying
 
-**Nothing deploys these automatically yet.** The `CNAME` file in each directory names its domain, so
-a site is ready for GitHub Pages or for any static host pointed at the directory:
+`ziman.dev/` is deployed by **`.github/workflows/pages.yml`** on every push to `main` that touches
+`websites/ziman.dev/**` (or the workflow itself), and on demand through *Actions -> Deploy
+ziman.dev -> Run workflow*.
 
-- **GitHub Pages** serves the repository root or `docs/`, not a nested directory, so publishing
-  `ziman.dev/` needs a workflow that uploads just that directory as the Pages artifact.
-- **Any other static host** (a bucket, a CDN, a plain web server) can be pointed straight at the
-  directory.
+The workflow exists because **GitHub Pages serves the repository root or `docs/`, not a nested
+directory**: it uploads `websites/ziman.dev/` alone as the Pages artifact. Before uploading it
+checks the things nothing else would catch in a site with no build step -- that `index.html` and
+`logo.svg` are present, that `CNAME` still says `ziman.dev`, that the title is intact, and that
+`index.html` parses with no unclosed or stray tags.
 
-Either way the DNS for `ziman.dev` has to point at the host, and the `CNAME` file has to match the
-domain configured there.
+`actions/configure-pages` runs with `enablement: true`, so the workflow turns Pages on by itself;
+there is no setting to remember in the web interface.
+
+**DNS is separate.** `ziman.dev` is an apex domain, so it needs four `A` records and four `AAAA`
+records at the registrar pointing at GitHub's Pages addresses (185.199.108-111.153 and
+2606:50c0:8000-8003::153), plus a `CNAME` on `www` to `vasnatech.github.io` if that host is wanted.
+Until those exist the deployment still succeeds, but `ziman.dev` does not resolve -- and because
+`CNAME` ships in the artifact, the `vasnatech.github.io/ziman` address redirects to the custom
+domain rather than serving the site itself.
 
 ## Keeping the page true
 
