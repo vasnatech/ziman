@@ -1,0 +1,21 @@
+#![repository(Note)]
+
+use datasource
+use db.DbError
+use eql
+use memdb
+
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: int
+    owner: int
+    body: string
+}
+
+#[repository]
+pub fn find_by_id_between(conn: datasource.Connection, id_from: int) -> Result<[Note], DbError>
+
+fn main() {
+    print(1)
+}

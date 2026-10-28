@@ -1,0 +1,1 @@
+'count_by_owner' answers Result<[Note], DbError>, which 'count' does not pair with -- it pairs with Result<int, DbError>

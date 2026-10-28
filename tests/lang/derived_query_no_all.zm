@@ -1,0 +1,22 @@
+#![repository(Note)]
+
+use datasource
+use db.DbError
+use eql
+use memdb
+
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: int
+    owner: int
+    body: string
+}
+
+// There is no `_all` in the grammar: how many rows a query answers is its return type's business.
+#[repository]
+pub fn find_all_by_owner(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
+
+fn main() {
+    print(1)
+}

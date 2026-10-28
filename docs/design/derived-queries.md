@@ -1,8 +1,10 @@
 # Derived queries: a repository function's name is its query
 
-Status: **design only.** Nothing below is built. Written because the name grammar is the part that
-has to be right before any of it is worth writing, and because the corpus that decides the grammar
-already exists and can be counted rather than guessed at.
+Status: **built, 2026-10-28.** Everything below is implemented as written; §10 records the
+handful of decisions the design left to the implementation and what each one chose. Written first
+because the name grammar is the part that has to be right before any of it is worth writing, and
+because the corpus that decides the grammar already exists and can be counted rather than guessed
+at -- which is also why nothing in §§1-8 needed revising once it was built.
 
 ## 1. What exists today
 
@@ -253,15 +255,64 @@ sections above, so that a reader can see what was chosen *and* what was given up
    `when_unmatched`, `deprecated`, `thread_bound`, `at_least_one`, `thread_key`), so this needs no
    new grammar -- where a keyword would.
 
-## 9. What is left before building
+## 9. What was left before building, and what it became
 
-Nothing in the design. The open work is implementation, in this order:
+Nothing in the design. The open work was implementation, in this order, and all three are done:
 
 1. The name parser and its refusals, against a `StructDecl` -- all of §6, checkable without running
-   anything.
+   anything. **Done**, `src/derive.c`: `split_verb`, `enum_terms`/`enum_orders`, `refuse_unreadable`.
 2. Parameter matching by name and type (§4.2), which is the reason to build this rather than copy
-   Spring Data.
+   Spring Data. **Done**: `expected_params` and `check_query_params`.
 3. Emission: one query val plus one body per function, spliced at the function's own `fn->line` so
    that anything which does reach a runtime error names the right line. The current repository
    generator splices everything at the *module attribute's* position, which is worse than the val
-   and should be fixed with this.
+   and should be fixed with this. **Done, and the fix turned out to be structural rather than a
+   changed argument**: a derived query is the author's own `FunctionDecl`, so there is nothing to
+   splice *at* -- `parse_and_splice_into` fills in its `body` and the declaration keeps its own
+   position, name, parameters and return type. The keyed CRUD still uses the module attribute's
+   position, and that is now right rather than lazy: those nine functions appear nowhere in the
+   source, so the attribute is the only line they can honestly point at.
+
+## 10. What the implementation decided
+
+Nine questions the design did not reach, each settled while building and each cheap to revisit.
+
+1. **The query val is `<function>_query`, private, built from an inline one-entity registry**:
+   `val find_by_owner_query: eql.Translated = unwrap(eql.translate(eql.registry([note_meta]), ".."))`.
+   A module-level registry val shared by the file's queries was the alternative; inlining keeps
+   §8.3's promise of exactly *one* generated name per derived function, and a single-entity
+   `Registry` is a one-entry map built once when the module loads.
+
+2. **A hand-written val of that name is a refusal**, reported at the val rather than at the
+   function -- §8.3 asked for it and this is where it landed.
+
+3. **Those vals are appended to `module->vals`, where every other derived val is prepended.** The
+   prepend exists so a hand-written val may read a derived one; this is the same ordering fact read
+   backwards. A query val calls `eql.translate(.., <entity>_meta)`, and when the entity is declared
+   in the same module that `_meta` is *itself* a prepended derived val -- so prepending here would
+   put the query ahead of the metamodel it reads and fail at load. Nothing hand-written can name a
+   query val, so last is safe.
+
+4. **`ignore_case` is `upper(e.col) = upper(:col)`, not a collation.** A collation is per column and
+   per engine; this has to mean the same thing on memdb, SQLite, Postgres and MySQL.
+
+5. **An `Option<T>` column's parameter is `T`.** `col = NULL` matches no row in any engine, so a
+   parameter of `Option<T>` binding None would be a query that silently answers nothing. The None
+   side of a nullable column is what `_is_null` is for, and it takes no parameter at all.
+
+6. **`exists` is `eql.count(..) > 0`.** `eql.exists` takes an entity and a *key*; there is no
+   predicate form of it, and adding one would duplicate `count`'s translation for no round trip
+   saved.
+
+7. **An ordering on anything but `find` is refused.** `count_by_owner_order_by_id` sorts rows it
+   then does not answer; `DELETE .. ORDER BY` is not portable SQL either.
+
+8. **The generated EQL aliases the entity `e`** (`SELECT e FROM VitalSign e WHERE e.id = :id`). The
+   alias never reaches the author, and a one-letter name keeps the `--emit-derived` output on one
+   line for the common two-term query.
+
+9. **The bodyless form is a third kind in `parse_signature_only_function`**, beside `native fn` and
+   `builtin fn`, rather than a parse of its own -- all three are a signature and no body, differing
+   only in who fills it. What that cost elsewhere is one line: `fn_has_body` now asks whether the
+   body is there instead of listing the kinds that never have one, because a derived query is the
+   first kind that *acquires* one, and no flag can answer the question at both times.

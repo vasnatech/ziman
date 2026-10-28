@@ -1,0 +1,103 @@
+// derive(Row) for 'Note'
+pub fn note_from_row(row: Row) -> Result<Note, DbError> {
+    val field_id_raw = try row_get(row, "id")
+    val field_id = try sql_as_int(field_id_raw)
+    val field_owner_raw = try row_get(row, "owner")
+    val field_owner = try sql_as_int(field_owner_raw)
+    val field_body_raw = try row_get(row, "body")
+    val field_body = try sql_as_text(field_body_raw)
+    return Note {
+        id: field_id,
+        owner: field_owner,
+        body: field_body
+    }
+}
+
+// derive(Row) for 'Note'
+pub fn note_to_params(v: Note) -> [SqlValue] {
+    val __derive_params = mutable_array_new<SqlValue>()
+    val field_id_sql = SqlValue.Int(v.id)
+    push<SqlValue>(__derive_params, field_id_sql)
+    val field_owner_sql = SqlValue.Int(v.owner)
+    push<SqlValue>(__derive_params, field_owner_sql)
+    val field_body_sql = SqlValue.Text(v.body)
+    push<SqlValue>(__derive_params, field_body_sql)
+    return snapshot(__derive_params)
+}
+
+// derive(Entity) for 'Note'
+pub val note_columns: [string] = ["id", "owner", "body"]
+
+pub val note_table: string = "notes"
+
+pub val note_meta: eql.Entity = eql.keyed_entity("Note", "notes", note_columns, ["id"])
+
+// repository(Note)
+pub fn insert(conn: datasource.Connection, a: Note) -> Result<Note, DbError> {
+    return eql.insert_one<Note>(conn, note_meta, note_to_params(a), note_from_row)
+}
+
+pub fn update(conn: datasource.Connection, a: Note) -> Result<Note, DbError> {
+    val unscoped: [string] = []
+    return eql.update_one<Note>(conn, note_meta, note_to_params(a), unscoped, note_from_row)
+}
+
+pub fn find(conn: datasource.Connection, id: int) -> Result<Option<Note>, DbError> {
+    val __derive_key_0 = SqlValue.Int(id)
+    val keys: [SqlValue] = [__derive_key_0]
+    return eql.find_maybe<Note>(conn, note_meta, keys, note_from_row)
+}
+
+pub fn find_or_error(conn: datasource.Connection, id: int) -> Result<Note, DbError> {
+    val __derive_key_0 = SqlValue.Int(id)
+    val keys: [SqlValue] = [__derive_key_0]
+    return eql.find_by_key<Note>(conn, note_meta, keys, note_from_row)
+}
+
+pub fn exists(conn: datasource.Connection, id: int) -> Result<bool, DbError> {
+    val __derive_key_0 = SqlValue.Int(id)
+    val keys: [SqlValue] = [__derive_key_0]
+    return eql.exists(conn, note_meta, keys)
+}
+
+pub fn delete(conn: datasource.Connection, id: int) -> Result<unit, DbError> {
+    val __derive_key_0 = SqlValue.Int(id)
+    val keys: [SqlValue] = [__derive_key_0]
+    val unscoped: [eql.Binding] = []
+    return eql.delete_one(conn, note_meta, keys, unscoped)
+}
+
+pub fn find_all(conn: datasource.Connection) -> Result<[Note], DbError> {
+    return eql.find_all<Note>(conn, note_meta, note_from_row)
+}
+
+pub fn count_all(conn: datasource.Connection) -> Result<int, DbError> {
+    return eql.count_all(conn, note_meta)
+}
+
+pub fn delete_all(conn: datasource.Connection) -> Result<int, DbError> {
+    return eql.delete_all(conn, note_meta)
+}
+
+// derived query 'find_by_owner_and_body_ignore_case_order_by_id_desc'
+val find_by_owner_and_body_ignore_case_order_by_id_desc_query: eql.Translated = unwrap(eql.translate(eql.registry([note_meta]), "SELECT e FROM Note e WHERE e.owner = :owner AND upper(e.body) = upper(:body) ORDER BY e.id DESC"))
+
+fn find_by_owner_and_body_ignore_case_order_by_id_desc(conn: datasource.Connection, owner: int, body: string) -> Result<[Note], DbError> {
+    val __value_owner = SqlValue.Int(owner)
+    val __value_body = SqlValue.Text(body)
+    val __bindings: [eql.Binding] = [eql.bind("owner", __value_owner), eql.bind("body", __value_body)]
+    return eql.list<Note>(conn, find_by_owner_and_body_ignore_case_order_by_id_desc_query, __bindings, note_from_row)
+}
+// derived query 'delete_by_id_and_owner'
+val delete_by_id_and_owner_query: eql.Translated = unwrap(eql.translate(eql.registry([note_meta]), "DELETE FROM Note e WHERE e.id = :id AND e.owner = :owner"))
+
+fn delete_by_id_and_owner(conn: datasource.Connection, id: int, owner: int) -> Result<unit, DbError> {
+    val __value_id = SqlValue.Int(id)
+    val __value_owner = SqlValue.Int(owner)
+    val __bindings: [eql.Binding] = [eql.bind("id", __value_id), eql.bind("owner", __value_owner)]
+    val __deleted = try eql.execute(conn, delete_by_id_and_owner_query, __bindings)
+    if __deleted == 0 {
+        return err(DbError.NotFound("no Note matching delete_by_id_and_owner"))
+    }
+    return unit
+}

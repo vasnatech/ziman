@@ -1,6 +1,7 @@
 #ifndef ZIMAN_AST_H
 #define ZIMAN_AST_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "bignum.h"
@@ -745,6 +746,17 @@ typedef struct {
      * empty one", and F186 established that those clauses are why the arms could not simply be
      * replaced by derived text. Written on any one member; the set shares it. NULL when absent. */
     const char *when_unmatched;
+    /* `#[repository]` on a bodyless `pub fn`: a **derived query**, whose name is its predicate
+     * (`find_by_id_and_patient_id`) and whose body src/derive.c writes from the module's
+     * `#![repository(Entity)]` entity -- see docs/design/derived-queries.md.
+     *
+     * The declaration is the author's, not a generator's: it keeps its own `line`/`col`,
+     * parameters and return type, and only `body` is filled in, at the point every other
+     * generator runs (loader.c, after dependencies are loaded and before imports resolve). So
+     * `body` is NULL between parsing and generation, which is why `fn_has_body` asks about the
+     * body rather than about the kinds that used to be the only bodyless ones. A file read for
+     * its text alone -- the formatter, `--api` -- never generates, and must not walk one. */
+    int derived_query;
     /* `#[test]`: `ziman test` runs this function (see docs/SYNTAX.md
      * "Testing"). Must take no parameters (or, with `test_cases` set,
      * exactly one) and return nothing or `Result<unit, E>`. */
@@ -779,7 +791,10 @@ typedef struct {
  * first `builtin fn` declared, dereferencing a NULL `body`. The name says which property is
  * actually wanted, so the next bodiless kind is one edit here rather than five crashes. */
 static inline int fn_has_body(const FunctionDecl *fn) {
-    return !fn->is_native && !fn->is_builtin;
+    /* `body != NULL` as well as the two flags, because a `#[repository]` derived query is a third
+     * bodyless kind for the span between parsing and generation -- and, unlike the other two, one
+     * that *acquires* a body, so a flag could not answer this for it at both times. */
+    return !fn->is_native && !fn->is_builtin && fn->body != NULL;
 }
 
 /* Whether a **prelude** declaration belongs to the language's own vocabulary rather than to a

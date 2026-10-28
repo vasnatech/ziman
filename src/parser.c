@@ -2149,6 +2149,8 @@ static FunctionDecl *parse_function(Parser *p) {
     return fn;
 }
 
+typedef enum { SIG_NATIVE, SIG_BUILTIN, SIG_DERIVED_QUERY } SignatureOnlyKind;
+
 /* `native fn name[<TypeParams>](params) -> type`, no body at all -- its
  * implementation is a C function registered by module path + name,
  * looked up at call time. The type checker treats its signature exactly
@@ -2170,16 +2172,25 @@ static FunctionDecl *parse_function(Parser *p) {
  * difference is which flag is set and therefore who owns the type rule -- the ordinary call path
  * for a native, a hand-written arm in typecheck.c for a builtin. Parsing them twice would be two
  * copies of the generic/variadic/default-argument handling below. */
-static FunctionDecl *parse_signature_only_function(Parser *p, int is_builtin) {
-    Token *kw = is_builtin ? expect(p, TOK_BUILTIN, "'builtin'") : expect(p, TOK_NATIVE, "'native'");
+/* And `#[repository]` shares it too, for a third reason: a derived query is also a signature with
+ * no body, and the body it gets is written from that signature (see src/derive.c). The difference
+ * is only *when* -- a native's implementation is registered C, a builtin's rule is in typecheck.c,
+ * and a derived query's body is generated during loading -- so the parsing is the same parsing. */
+static FunctionDecl *parse_signature_only_function(Parser *p, SignatureOnlyKind kind) {
+    /* A derived query has no keyword of its own: the attribute above it is what says it has no
+     * body, so the `fn` is both the start of the declaration and the position errors name. */
+    Token *kw = kind == SIG_DERIVED_QUERY ? cur(p)
+                : kind == SIG_BUILTIN     ? expect(p, TOK_BUILTIN, "'builtin'")
+                                          : expect(p, TOK_NATIVE, "'native'");
     expect(p, TOK_FN, "'fn'");
     Token *name_tok = expect(p, TOK_IDENT, "a function name");
     require_lower_start(name_tok, "a function name");
 
     FunctionDecl *fn = ziman_xcalloc(1, sizeof(FunctionDecl));
     fn->name = dup_token_text(name_tok);
-    fn->is_native = !is_builtin;
-    fn->is_builtin = is_builtin;
+    fn->is_native = kind == SIG_NATIVE;
+    fn->is_builtin = kind == SIG_BUILTIN;
+    fn->derived_query = kind == SIG_DERIVED_QUERY;
     fn->line = kw->line;
     fn->col = kw->col;
 
@@ -2646,6 +2657,7 @@ typedef struct {
     int at_least_one;                /* `#[at_least_one]` was among them */
     int effectful;                   /* `#[effectful]` was among them */
     int compiler_resolved;           /* `#[compiler_resolved]` was among them */
+    int repository;                  /* `#[repository]` was among them: a derived query (src/derive.c) */
     char **args;                     /* parallel to `names`: a target's string argument, or NULL */
 } DeriveList;
 
@@ -2745,6 +2757,12 @@ static DeriveList parse_attributes(Parser *p) {
                 /* No argument: it is a fact about the whole declaration, and about the set it
                  * belongs to rather than about any one parameter. */
                 derives.compiler_resolved = 1;
+            } else if (item_name->length == 10 && strncmp(item_name->start, "repository", 10) == 0) {
+                /* No argument: the entity is the module's, named once by `#![repository(E)]`, and
+                 * everything else about the query is in the function's own name and signature.
+                 * `#[repository(E)]` per function would be a second place for the entity to be
+                 * written and a second place for it to be wrong. */
+                derives.repository = 1;
             } else if (item_name->length == 14 && strncmp(item_name->start, "when_unmatched", 14) == 0) {
                 /* Takes a string for the same reason `deprecated` does: it is prose for whoever
                  * hits the error, not a name the compiler resolves. Unlike `deprecated` the
@@ -2895,6 +2913,12 @@ Module *parse(TokenList tokens) {
             if (derives.is_test) {
                 ziman_error("syntax", sd->line, sd->col, "#[test] applies to a function, not to struct '%s'", sd->name);
             }
+            if (derives.repository) {
+                ziman_error("syntax", sd->line, sd->col,
+                            "#[repository] applies to a function, not to struct '%s' -- the module attribute "
+                            "'#![repository(%s)]' is what says a module is a repository over an entity",
+                            sd->name, sd->name);
+            }
             sd->deprecated = derives.deprecated;
             sd->deprecated_message = derives.deprecated_message;
             struct_list_push(&module->structs, sd);
@@ -2913,15 +2937,44 @@ Module *parse(TokenList tokens) {
             if (derives.is_test) {
                 ziman_error("syntax", ed->line, ed->col, "#[test] applies to a function, not to enum '%s'", ed->name);
             }
+            if (derives.repository) {
+                ziman_error("syntax", ed->line, ed->col, "#[repository] applies to a function, not to enum '%s'", ed->name);
+            }
             ed->deprecated = derives.deprecated;
             ed->deprecated_message = derives.deprecated_message;
             enum_list_push(&module->enums, ed);
+        } else if (derives.repository) {
+            /* `#[repository] pub fn find_by_patient_id(conn: .., patient_id: Uuid) -> Result<[E], DbError>`
+             * -- a **derived query**: the name is the predicate and there is no body to write. What
+             * fills it is src/derive.c, during loading, from the module's own
+             * `#![repository(Entity)]`; the parser's whole part is to accept the bodyless form and
+             * say which attribute asked for it. See docs/design/derived-queries.md. */
+            if (!check(&p, TOK_FN)) {
+                ziman_error("syntax", cur(&p)->line, cur(&p)->col,
+                            "#[repository] applies to a function -- a derived query is a 'pub fn' with a "
+                            "name, a signature and no body");
+            }
+            FunctionDecl *fn = parse_signature_only_function(&p, SIG_DERIVED_QUERY);
+            if (check(&p, TOK_LBRACE)) {
+                ziman_error("syntax", cur(&p)->line, cur(&p)->col,
+                            "a derived query has no body -- '%s' is read as its own query and the body is "
+                            "generated from it, so either remove the block or remove the #[repository] and "
+                            "keep the body (a function the module writes itself always wins)",
+                            fn->name);
+            }
+            fn->visibility = vis;
+            fn->deprecated = derives.deprecated;
+            fn->deprecated_message = derives.deprecated_message;
+            if (derives.is_test) {
+                ziman_error("syntax", fn->line, fn->col, "#[test] cannot apply to a derived query ('%s')", fn->name);
+            }
+            function_list_push(&module->functions, fn);
         } else if (derives.count > 0 || derives.thread_bound || derives.thread_key) {
             ziman_error("syntax", cur(&p)->line, cur(&p)->col,
                         "an attribute must be followed by a struct or enum declaration");
         } else if (check(&p, TOK_NATIVE) || check(&p, TOK_BUILTIN)) {
             int is_builtin = cur(&p)->type == TOK_BUILTIN;
-            FunctionDecl *fn = parse_signature_only_function(&p, is_builtin);
+            FunctionDecl *fn = parse_signature_only_function(&p, is_builtin ? SIG_BUILTIN : SIG_NATIVE);
             fn->visibility = vis;
             fn->deprecated = derives.deprecated;
             fn->deprecated_message = derives.deprecated_message;

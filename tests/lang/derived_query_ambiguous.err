@@ -1,0 +1,1 @@
+reads 2 ways against Thing and this will not choose between them: 'name' and 'type', or 'name_and_type'

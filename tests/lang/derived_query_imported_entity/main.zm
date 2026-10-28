@@ -1,0 +1,20 @@
+use datasource
+use entity/note.Note
+use memdb
+use repository/note
+
+fn main() {
+    val drivers = datasource.registry([memdb.driver()])
+    val conn = unwrap(datasource.open(drivers, "memdb:"))
+    unwrap(datasource.execute(conn, "CREATE TABLE notes (id INTEGER PRIMARY KEY, owner INTEGER NOT NULL, body TEXT)"))
+    unwrap(note.insert(conn, Note { id: 1, owner: 7, body: "first" }))
+    unwrap(note.insert(conn, Note { id: 2, owner: 8, body: "second" }))
+    unwrap(note.insert(conn, Note { id: 3, owner: 7, body: "third" }))
+
+    for n in unwrap(note.find_by_owner_order_by_id_desc(conn, 7)) {
+        print(n.id)
+    }
+    print(unwrap(note.count_by_owner(conn, 8)))
+    print(unwrap(note.delete_by_owner(conn, 7)))
+    print(unwrap(note.count_all(conn)))
+}

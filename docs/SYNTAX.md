@@ -1865,6 +1865,91 @@ An entity with no `#[pk]` field is an error: every one of the keyed functions ad
 without a key nothing does. So is a `#[pk]` field of an `Option` type, and a second
 `#![repository(..)]` in the same file -- one module, one entity.
 
+`#[repository]`, the declaration-level form, goes on a **bodyless `pub fn` whose name is its
+query**. The keyed CRUD above is every query an entity decides on its own; this is for the rest,
+and the name is the whole specification:
+
+```ziman
+#![repository(VitalSign)]
+
+use datasource
+use db.DbError
+use uuid.Uuid
+
+#[derive(Row, Entity("vital_signs"))]
+pub struct VitalSign {
+    #[pk]
+    id: Uuid
+    patient_id: Uuid
+    type: string
+    reading: int
+}
+
+// Every vital sign of one patient, highest reading first.
+#[repository]
+pub fn find_by_patient_id_order_by_reading_desc(conn: datasource.Connection, patient_id: Uuid) -> Result<[VitalSign], DbError>
+
+// One row, scoped by its owner: another patient's row is DbError.NotFound, not forbidden.
+#[repository]
+pub fn find_by_id_and_patient_id(conn: datasource.Connection, id: Uuid, patient_id: Uuid) -> Result<VitalSign, DbError>
+
+#[repository]
+pub fn count_by_patient_id(conn: datasource.Connection, patient_id: Uuid) -> Result<int, DbError>
+
+#[repository]
+pub fn delete_by_patient_id(conn: datasource.Connection, patient_id: Uuid) -> Result<int, DbError>
+```
+
+The grammar is
+
+```
+name       := verb [ "_by_" predicate ] [ "_order_by_" ordering ]
+verb       := "find" | "count" | "exists" | "delete"
+predicate  := term { "_and_" term }
+term       := column [ "_" op ]
+op         := "between" | "in" | "not" | "is_null" | "is_not_null" | "ignore_case"
+ordering   := column [ "_" dir ] { "_and_" column [ "_" dir ] }
+dir        := "asc" | "desc"
+```
+
+where every `column` is a field of the module's entity. **There is no `_all`**: how many rows a
+query answers is its return type's business and nothing else says it, so `find_by_patient_id`
+returning `[VitalSign]` is every match and returning `VitalSign` is one. No `_by_` means no
+predicate at all -- `find(conn) -> Result<[VitalSign], DbError>` is every row.
+
+| verb | return type | what it does |
+|---|---|---|
+| `find` | `Result<E, DbError>` | one row; `NotFound` when there is none |
+| `find` | `Result<Option<E>, DbError>` | one row; absence is the answer |
+| `find` | `Result<[E], DbError>` | every matching row |
+| `count` | `Result<int, DbError>` | how many match |
+| `exists` | `Result<bool, DbError>` | whether any match |
+| `delete` | `Result<unit, DbError>` | the row this addresses; `NotFound` when none matched |
+| `delete` | `Result<int, DbError>` | every matching row, answering how many |
+
+**Parameters bind by name, not by position**, and this is the point of the whole thing. After the
+connection, the parameters are the predicate's terms, named for their columns and in that order; a
+parameter named for the wrong one is a compile error naming both. The same written against a
+positional binder -- `find_by_id_and_patient_id(patient_id, id)`, two `Uuid`s the wrong way round
+-- compiles, boots, and answers another patient's rows forever. The parameter's *type* is checked
+against the field's too.
+
+An operator changes what the term asks for: `in` takes one parameter of `[T]`, `between` takes
+`<column>_from` and `<column>_to`, `is_null` and `is_not_null` take none, and `not` and
+`ignore_case` take what the plain term would. A column declared `Option<T>` asks for a `T`, not an
+`Option<T>`: `col = NULL` matches no row in any engine, so the None side of a nullable column is
+what `_is_null` is for.
+
+Everything else about the function is checked before any SQL exists, and reported at the line the
+function was written on: a term naming no column (listing the ones the entity has), a name with
+two readings (showing both, rather than preferring one), a verb and return type that do not pair,
+and `#[repository]` in a module with no `#![repository(..)]`. A name the grammar cannot read --
+`find_recent_by_patient_id`, `find_page_by_patient_id`, anything whose words are about the
+application rather than about the table -- is written out by hand, where a hand-written body wins
+as it does over the keyed CRUD. `--emit-derived` prints what each one became: one private
+`Translated` val per function, translated once when the module loads, plus the body that binds to
+it.
+
 A `use` from inside a bundled module is silent, the same same-source rule the declaration-level
 attribute follows. On the program's own entry file the attribute warns nowhere, because nothing
 imports an entry file -- there is no line for a warning to point at.

@@ -1,0 +1,10 @@
+// The entity in its own module, which is where a real application puts it: the repository below
+// reaches it through a `use`, and the generated bodies name `note_meta` and `note_from_row` --
+// both of them derived in *this* file -- without the repository importing either by hand.
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: int
+    owner: int
+    body: string
+}

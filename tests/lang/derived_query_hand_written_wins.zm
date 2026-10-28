@@ -1,0 +1,46 @@
+// A derived query is not the only way a repository gets a function, and it loses to the other two
+// when a name is taken: `#![repository(Note)]`'s own keyed CRUD is skipped for a name the module
+// writes, and so is a derived query -- `delete` here is written out, scoped by the owner, and
+// neither generator touches it.
+#![repository(Note)]
+
+use datasource
+use db.DbError
+use db.SqlValue
+use eql
+use memdb
+
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: int
+    owner: int
+    body: string
+}
+
+// Written out, so no keyed `delete` is generated: another owner's note is not found.
+pub fn delete(conn: datasource.Connection, id: int, owner: int) -> Result<unit, DbError> {
+    return eql.delete_one(conn, note_meta, [SqlValue.Int(id)], [eql.bind("owner", SqlValue.Int(owner))])
+}
+
+// The derived form of the same thing, under its own name, which says what it is scoped by.
+#[repository]
+pub fn delete_by_id_and_owner(conn: datasource.Connection, id: int, owner: int) -> Result<unit, DbError>
+
+fn main() {
+    val drivers = datasource.registry([memdb.driver()])
+    val conn = unwrap(datasource.open(drivers, "memdb:"))
+    unwrap(datasource.execute(conn, "CREATE TABLE notes (id INTEGER PRIMARY KEY, owner INTEGER NOT NULL, body TEXT)"))
+    unwrap(insert(conn, Note { id: 1, owner: 7, body: "first" }))
+    unwrap(insert(conn, Note { id: 2, owner: 7, body: "second" }))
+
+    if Err(_) = delete(conn, 1, 8) {
+        print("the hand-written delete is scoped")
+    }
+    if Err(_) = delete_by_id_and_owner(conn, 2, 8) {
+        print("so is the derived one")
+    }
+    unwrap(delete(conn, 1, 7))
+    unwrap(delete_by_id_and_owner(conn, 2, 7))
+    print(unwrap(count_all(conn)))
+}

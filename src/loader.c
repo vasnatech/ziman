@@ -1829,10 +1829,17 @@ static void canonicalize_use_path(Loader *ldr, UseDecl *u) {
  *
  * A struct in the module's own file is allowed and needs no imports, which `NULL` says. */
 static void resolve_repository(Loader *ldr, Module *mod) {
-    if (mod->repository_entity == NULL) return;
+    if (mod->repository_entity == NULL) {
+        /* No entity, so nothing to generate -- except that a `#[repository]` function in such a
+         * module is a body nobody will ever write, which `generate_derived_queries` refuses by
+         * name. A module with neither is the overwhelmingly common case and does nothing here. */
+        generate_derived_queries(mod, NULL);
+        return;
+    }
     for (int s = 0; s < mod->structs.count; s++) {
         if (strcmp(mod->structs.items[s]->name, mod->repository_entity) == 0) {
             generate_repository_functions(mod, mod->structs.items[s], NULL);
+            generate_derived_queries(mod, mod->structs.items[s]);
             return;
         }
     }
@@ -1848,6 +1855,7 @@ static void resolve_repository(Loader *ldr, Module *mod) {
             const char *bare = sep != NULL ? sep + 2 : name;
             if (strcmp(bare, mod->repository_entity) == 0) {
                 generate_repository_functions(mod, target->structs.items[s], mod->uses.items[i].path);
+                generate_derived_queries(mod, target->structs.items[s]);
                 return;
             }
         }

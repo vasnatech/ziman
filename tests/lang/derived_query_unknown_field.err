@@ -1,0 +1,1 @@
+nothing in 'ownr' names a field of Note -- a derived query's predicate is made of the entity's own field names (it has: id, owner, body)

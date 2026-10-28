@@ -1,0 +1,11 @@
+// `#[repository]` fills a body from the module's entity, and a module with no `#![repository(..)]`
+// has none to fill it from.
+use datasource
+use db.DbError
+
+#[repository]
+pub fn find_by_owner(conn: datasource.Connection, owner: int) -> Result<[int], DbError>
+
+fn main() {
+    print(1)
+}

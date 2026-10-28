@@ -1210,8 +1210,8 @@ from source.
 
 ## Larger, needs its own design pass
 
-- **Derived queries: a repository function's name is its query. Design written, nothing built --
-  `docs/design/derived-queries.md`.**
+- **Derived queries: a repository function's name is its query. Shipped 2026-10-28 (F217);
+  designed in full first, in `docs/design/derived-queries.md`.**
   Raised 2026-10-27, after converting all 26 repositories of the sample backend to `eql`. The
   bodies written during that conversion are derivable from the names they sit under, because the
   repositories are hand-ports of Spring Data interfaces and their own comments cite fourteen of the
@@ -1230,6 +1230,18 @@ from source.
   compiles, boots and answers the wrong rows forever. Matching parameters by *name* against the
   predicate's terms makes that a compile error, and it is the same failure mode `#[pk]` and
   `insert_one` were built to remove.
+
+  **What shipped** is §§1-8 exactly as designed -- the design needed no revision once it met the
+  compiler, which is the whole argument for writing the grammar down first. The nine questions the
+  implementation settled on its own are the design doc's new §10, and the three decisions that are
+  about the *language* rather than about the feature are in docs/DESIGN.md's 2026-10-28 entry.
+  Seventeen fixtures (`tests/lang/derived_query*` and `cli_emit_derived_query`), twelve of them
+  refusals.
+
+  **Not shipped, and not a gap**: the 49 non-derivable instances. Every write but the keyed ones,
+  the domain words (`find_current_by_..`, `find_recent_by_..`), projections, paging and the
+  non-column groupings stay hand-written under the rule that a hand-written body wins. Paging is
+  the one of those that could become a design question later; the rest are not meant to be reached.
 
 
 - **Code generation from annotations needs a mechanism, not a series of exceptions. Not started;
@@ -1310,6 +1322,17 @@ from source.
   thin wrappers over runtime functions keyed off the metamodel -- and `eql`'s runtime CRUD half is
   worth building on its own merits, since it is callable without any annotation. But the wrapper
   layer should wait for this design pass, or it becomes the seventh exception.
+
+  **The warning was followed and two more of the five are now answered.** The design pass happened
+  first (`docs/design/derived-queries.md`, 2026-10-27) and `#![repository(..)]` was built on the
+  moved generation point rather than on the old one, so there was no seventh exception. Question 3
+  is settled: **a collision is overridden by the hand-written declaration**, reported by
+  `--emit-derived`, which adoption then turned into a deliberate mechanism rather than a
+  grandfather clause (DESIGN.md, 2026-10-27). And the mechanism this entry asked for has a shape:
+  **a bodyless `fn` carrying attribute X is filled by X's generator** -- no registry, no owner, no
+  what-if-two rule -- which is what `#[repository]` is (DESIGN.md, 2026-10-28). Still open:
+  question 2, writing into another module; question 4, materialising generated declarations; and
+  question 5, checking the name contract.
 
 - **Relaxing the no-overloading rule: let a *declaration* carry the dispatch the arms hand-code.
   Shipped 2026-10-19 (F174-F184), and built on the same day (F185-F201).**

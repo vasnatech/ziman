@@ -1126,7 +1126,19 @@ static char *generate_struct_properties(StructDecl *sd) {
  * can say what it was reading. */
 int g_emit_derived = 0;
 
-static void parse_and_splice(Module *module, char *source, int line, int col, const char *label) {
+/* `target` is the one caller that does not want a *new* declaration: a `#[repository]` derived
+ * query is already declared, by the author, with its own name, parameters, return type and
+ * position -- all that is missing is the body. So the snippet's single function is read for its
+ * body alone and the author's declaration keeps everything else, which is what makes a refusal
+ * inside it land on the line the query was written at.
+ *
+ * Its vals are **appended** where every other caller's are prepended, and the reason is the same
+ * ordering fact read the other way: a derived query's val calls `eql.translate(.., <entity>_meta)`,
+ * and when the entity is declared in this very module that `_meta` is itself a prepended derived
+ * val. Prepending here would put the query ahead of the metamodel it reads. Nothing hand-written
+ * can refer to a query val -- it is private and named for a generated body -- so last is safe. */
+static void parse_and_splice_into(Module *module, char *source, int line, int col, const char *label,
+                                  FunctionDecl *target) {
     if (g_emit_derived) printf("// %s\n%s", label, source);
     ziman_set_error_context(label);
     TokenList tokens = lex(source);
@@ -1138,6 +1150,11 @@ static void parse_and_splice(Module *module, char *source, int line, int col, co
     ziman_set_error_context(NULL);
     for (int i = 0; i < snippet->functions.count; i++) {
         snippet->functions.items[i]->derived_from = label;
+        if (target != NULL) {
+            target->body = snippet->functions.items[i]->body;
+            target->derived_from = label;
+            continue;
+        }
         function_list_push(&module->functions, snippet->functions.items[i]);
     }
     /* A derive may emit a module-level `val` as well as functions -- `Entity`'s column list is a
@@ -1151,7 +1168,11 @@ static void parse_and_splice(Module *module, char *source, int line, int col, co
      * file was being checked. A derived val's initialiser is a literal, referencing no other val,
      * so putting them all first is safe and makes the derived name available to every hand-written
      * val whatever order the file is in. */
-    if (snippet->vals.count > 0) {
+    if (snippet->vals.count > 0 && target != NULL) {
+        for (int i = 0; i < snippet->vals.count; i++) {
+            global_val_list_push(&module->vals, snippet->vals.items[i]);
+        }
+    } else if (snippet->vals.count > 0) {
         GlobalValList combined;
         memset(&combined, 0, sizeof combined);
         for (int i = 0; i < snippet->vals.count; i++) {
@@ -1168,6 +1189,10 @@ static void parse_and_splice(Module *module, char *source, int line, int col, co
      * by dup_token_text at parse time, so nothing depends on `source`
      * staying alive past this point either; leaving it allocated is
      * simplest and matches the rest of the codebase's policy. */
+}
+
+static void parse_and_splice(Module *module, char *source, int line, int col, const char *label) {
+    parse_and_splice_into(module, source, line, col, label, NULL);
 }
 
 /* ---------------------------------------------------------------------
@@ -1568,6 +1593,712 @@ void generate_repository_functions(Module *module, StructDecl *sd, const char *e
 
     if (cb.data == NULL || cb.data[0] == '\0') return;
     parse_and_splice(module, cb.data, line, col, fmt_str("repository(%s)", entity));
+}
+
+/* ---------------------------------------------------------------------
+ * Derived queries: `#[repository]` on a bodyless `pub fn`, whose **name is
+ * its query**.
+ *
+ * `find_by_id_and_patient_id(conn, id, patient_id) -> Result<VitalSign, DbError>` is read as a
+ * verb, a predicate over the entity's own columns, and a cardinality taken from the return type,
+ * and the body that answers it is written here. The full design, including the counted evidence
+ * that six name shapes cover 69 of the sample backend's 144 repository functions, is in
+ * docs/design/derived-queries.md.
+ *
+ * **Two things set this apart from Spring Data's version, and both are checks rather than
+ * features.** Parameters bind *by name*: `find_by_id_and_patient_id(patient_id, id)` -- two
+ * transposed `Uuid`s -- is a compile error here and answers the wrong rows forever there. And a
+ * name with two readings is refused rather than resolved by precedence, which is why the search
+ * below enumerates every parse instead of committing to the longest match at each step.
+ *
+ * **Every refusal is reported at the function's own line, before any SQL exists**, from the
+ * entity's `StructDecl` and the signature as written. The alternative -- letting the generated
+ * `eql.translate` fail at module initialisation -- was measured on a real mistake during the
+ * `eql` adoption and arrived with three frames of library code and not one line of the repository
+ * that caused it.
+ * --------------------------------------------------------------------- */
+
+typedef enum { QV_FIND, QV_COUNT, QV_EXISTS, QV_DELETE } QueryVerb;
+
+static const struct { const char *word; QueryVerb verb; } QUERY_VERBS[] = {
+    {"find", QV_FIND}, {"count", QV_COUNT}, {"exists", QV_EXISTS}, {"delete", QV_DELETE},
+};
+
+typedef enum { QO_EQ, QO_NOT, QO_IN, QO_BETWEEN, QO_IS_NULL, QO_IS_NOT_NULL, QO_IGNORE_CASE } TermOp;
+
+/* The operator suffix a term may carry. Longest first, so that the *greedy* walk the refusal
+ * messages use reads `_is_not_null` rather than stopping at a column plus `_is_not`; the search
+ * itself tries all of them at every position, because choosing is what produces the surprises
+ * this exists to avoid. The empty suffix -- a plain equality -- is last for the same reason. */
+static const struct { const char *suffix; TermOp op; } TERM_OPS[] = {
+    {"_is_not_null", QO_IS_NOT_NULL},
+    {"_ignore_case", QO_IGNORE_CASE},
+    {"_is_null", QO_IS_NULL},
+    {"_between", QO_BETWEEN},
+    {"_not", QO_NOT},
+    {"_in", QO_IN},
+    {"", QO_EQ},
+};
+
+static const struct { const char *suffix; int descending; } ORDER_DIRS[] = {
+    {"_desc", 1}, {"_asc", 0}, {"", 0},
+};
+
+#define BY_SEP "_by_"
+#define AND_SEP "_and_"
+#define ORDER_SEP "_order_by_"
+
+typedef struct { const char *column; TermOp op; } QTerm;
+typedef struct { const char *column; int descending; } QOrder;
+
+/* One reading of a name: the predicate's terms in order, then the ordering's columns in order.
+ * Both grow rather than sitting in a fixed array -- docs/design/derived-queries.md §8 decided
+ * against a cap on term count, and a buffer limit would be one by another name. */
+typedef struct {
+    QTerm *terms;
+    int term_count, term_cap;
+    QOrder *orders;
+    int order_count, order_cap;
+} QShape;
+
+static void qshape_push_term(QShape *s, const char *column, TermOp op) {
+    if (s->term_count == s->term_cap) {
+        s->term_cap = s->term_cap == 0 ? 4 : s->term_cap * 2;
+        s->terms = ziman_xrealloc(s->terms, sizeof(QTerm) * (size_t)s->term_cap);
+    }
+    s->terms[s->term_count].column = column;
+    s->terms[s->term_count++].op = op;
+}
+
+static void qshape_push_order(QShape *s, const char *column, int descending) {
+    if (s->order_count == s->order_cap) {
+        s->order_cap = s->order_cap == 0 ? 4 : s->order_cap * 2;
+        s->orders = ziman_xrealloc(s->orders, sizeof(QOrder) * (size_t)s->order_cap);
+    }
+    s->orders[s->order_count].column = column;
+    s->orders[s->order_count++].descending = descending;
+}
+
+static QShape qshape_copy(const QShape *s) {
+    QShape out = {0};
+    for (int i = 0; i < s->term_count; i++) qshape_push_term(&out, s->terms[i].column, s->terms[i].op);
+    for (int i = 0; i < s->order_count; i++) qshape_push_order(&out, s->orders[i].column, s->orders[i].descending);
+    return out;
+}
+
+/* The enumeration of a name's readings. `total` counts every one; `found` keeps the first two,
+ * which is all a refusal needs to show that there is more than one. */
+typedef struct {
+    StructDecl *sd;
+    QShape cur;
+    QShape found[2];
+    int stored;
+    int total;
+} QSearch;
+
+static int starts_with(const char *s, const char *prefix) {
+    return strncmp(s, prefix, strlen(prefix)) == 0;
+}
+
+static void qsearch_record(QSearch *q) {
+    if (q->stored < 2) q->found[q->stored++] = qshape_copy(&q->cur);
+    q->total++;
+}
+
+static void enum_orders(QSearch *q, const char *text) {
+    for (int i = 0; i < q->sd->fields.count; i++) {
+        const char *col = q->sd->fields.items[i].name;
+        if (!starts_with(text, col)) continue;
+        const char *rest = text + strlen(col);
+        for (size_t d = 0; d < sizeof ORDER_DIRS / sizeof ORDER_DIRS[0]; d++) {
+            if (!starts_with(rest, ORDER_DIRS[d].suffix)) continue;
+            const char *after = rest + strlen(ORDER_DIRS[d].suffix);
+            if (*after != '\0' && !starts_with(after, AND_SEP)) continue;
+            qshape_push_order(&q->cur, col, ORDER_DIRS[d].descending);
+            if (*after == '\0') {
+                qsearch_record(q);
+            } else {
+                enum_orders(q, after + strlen(AND_SEP));
+            }
+            q->cur.order_count--;
+        }
+    }
+}
+
+static void enum_terms(QSearch *q, const char *text) {
+    for (int i = 0; i < q->sd->fields.count; i++) {
+        const char *col = q->sd->fields.items[i].name;
+        if (!starts_with(text, col)) continue;
+        const char *rest = text + strlen(col);
+        for (size_t o = 0; o < sizeof TERM_OPS / sizeof TERM_OPS[0]; o++) {
+            if (!starts_with(rest, TERM_OPS[o].suffix)) continue;
+            const char *after = rest + strlen(TERM_OPS[o].suffix);
+            int at_end = *after == '\0';
+            int another = starts_with(after, AND_SEP);
+            int ordered = starts_with(after, ORDER_SEP);
+            if (!at_end && !another && !ordered) continue;
+            qshape_push_term(&q->cur, col, TERM_OPS[o].op);
+            if (at_end) {
+                qsearch_record(q);
+            } else if (ordered) {
+                enum_orders(q, after + strlen(ORDER_SEP));
+            } else {
+                enum_terms(q, after + strlen(AND_SEP));
+            }
+            q->cur.term_count--;
+        }
+    }
+}
+
+/* `find_by_id_and_patient_id` -> QV_FIND and `_by_id_and_patient_id`. The word has to end at a
+ * `_` or at the end of the name, so `finder_by_x` is not a `find`. */
+static int split_verb(const char *name, QueryVerb *verb, const char **after) {
+    for (size_t i = 0; i < sizeof QUERY_VERBS / sizeof QUERY_VERBS[0]; i++) {
+        size_t n = strlen(QUERY_VERBS[i].word);
+        if (strncmp(name, QUERY_VERBS[i].word, n) != 0) continue;
+        if (name[n] != '\0' && name[n] != '_') continue;
+        *verb = QUERY_VERBS[i].verb;
+        *after = name + n;
+        return 1;
+    }
+    return 0;
+}
+
+static const char *longest_column(StructDecl *sd, const char *text) {
+    const char *best = NULL;
+    for (int i = 0; i < sd->fields.count; i++) {
+        const char *col = sd->fields.items[i].name;
+        if (!starts_with(text, col)) continue;
+        if (best == NULL || strlen(col) > strlen(best)) best = col;
+    }
+    return best;
+}
+
+static char *entity_field_list(StructDecl *sd) {
+    CodeBuf cb;
+    cb_init(&cb);
+    for (int i = 0; i < sd->fields.count; i++) {
+        cb_appendf(&cb, "%s%s", i > 0 ? ", " : "", sd->fields.items[i].name);
+    }
+    return cb.data;
+}
+
+static const char *op_word(TermOp op) {
+    switch (op) {
+        case QO_EQ: return "";
+        case QO_NOT: return " not";
+        case QO_IN: return " in";
+        case QO_BETWEEN: return " between";
+        case QO_IS_NULL: return " is null";
+        case QO_IS_NOT_NULL: return " is not null";
+        case QO_IGNORE_CASE: return " ignore case";
+    }
+    return "";
+}
+
+/* One reading, written out the way a reader can compare two of them: "'name' and 'type'". */
+static char *render_shape(const QShape *s) {
+    CodeBuf cb;
+    cb_init(&cb);
+    if (s->term_count == 0) cb_appendf(&cb, "no predicate");
+    for (int i = 0; i < s->term_count; i++) {
+        cb_appendf(&cb, "%s'%s'%s", i > 0 ? " and " : "", s->terms[i].column, op_word(s->terms[i].op));
+    }
+    for (int i = 0; i < s->order_count; i++) {
+        cb_appendf(&cb, "%s'%s'%s", i == 0 ? ", ordered by " : " then ", s->orders[i].column,
+                   s->orders[i].descending ? " descending" : "");
+    }
+    return cb.data;
+}
+
+/* Why a name could not be read at all. The search above answers "no parse" and nothing more, so
+ * this walks the same text greedily -- longest column, then longest operator -- and reports the
+ * first position where nothing fits. A greedy walk that reached the end would itself have been a
+ * parse, so exactly one of these always fires. `ordering` starts the walk in the `_order_by_`
+ * grammar, and the walk switches into it on its own when the predicate runs into one. */
+static _Noreturn void refuse_unreadable(FunctionDecl *fn, StructDecl *sd, const char *entity,
+                                        const char *text, int ordering) {
+    const char *at = text;
+    int read = 0;
+    for (;;) {
+        const char *part = ordering ? "ordering" : "predicate";
+        const char *col = longest_column(sd, at);
+        if (col == NULL) {
+            if (read == 0) {
+                ziman_error("type", fn->line, fn->col,
+                            "nothing in '%s' names a field of %s -- a derived query's %s is made of the "
+                            "entity's own field names (it has: %s)",
+                            at, entity, part, entity_field_list(sd));
+            }
+            ziman_error("type", fn->line, fn->col,
+                        "nothing in '%s' names a field of %s, and the %s needs one after '%s' (it has: %s)",
+                        at, entity, part, AND_SEP, entity_field_list(sd));
+        }
+        at += strlen(col);
+        if (ordering) {
+            for (size_t d = 0; d < sizeof ORDER_DIRS / sizeof ORDER_DIRS[0]; d++) {
+                if (starts_with(at, ORDER_DIRS[d].suffix)) { at += strlen(ORDER_DIRS[d].suffix); break; }
+            }
+        } else {
+            for (size_t o = 0; o < sizeof TERM_OPS / sizeof TERM_OPS[0]; o++) {
+                if (starts_with(at, TERM_OPS[o].suffix)) { at += strlen(TERM_OPS[o].suffix); break; }
+            }
+        }
+        read++;
+        if (starts_with(at, AND_SEP)) { at += strlen(AND_SEP); continue; }
+        if (!ordering && starts_with(at, ORDER_SEP)) {
+            at += strlen(ORDER_SEP);
+            ordering = 1;
+            read = 0;
+            continue;
+        }
+        ziman_error("type", fn->line, fn->col,
+                    "'%s' is left over after reading '%s' -- a derived query's %s is one field name per "
+                    "term, joined by '%s' (%s has: %s)",
+                    at, col, part, AND_SEP, entity, entity_field_list(sd));
+    }
+}
+
+/* ------------------------------------------------- the signature, checked against the name */
+
+typedef enum { RK_ENTITY, RK_OPTION_ENTITY, RK_LIST_ENTITY, RK_INT, RK_BOOL, RK_UNIT, RK_OTHER } ReturnKind;
+
+/* A type name with both qualifiers stripped: the loader's own `uuid::Uuid` and the source's
+ * `uuid.Uuid` both answer `Uuid`. The entity's fields come from an already-loaded module and the
+ * signature's parameters are as the author wrote them, so a comparison between the two sees both
+ * spellings of the same type. */
+static const char *plain_type_name_of(const char *name) {
+    if (name == NULL) return NULL;
+    const char *sep = strstr(name, "::");
+    const char *bare = sep != NULL ? sep + 2 : name;
+    const char *dot = strrchr(bare, '.');
+    return dot != NULL ? dot + 1 : bare;
+}
+
+static int type_is_named(Type t, const char *name) {
+    const char *n = t.kind == TY_STRUCT ? t.struct_name : t.kind == TY_ENUM ? t.enum_name : NULL;
+    return n != NULL && strcmp(plain_type_name_of(n), name) == 0;
+}
+
+static int same_column_type(Type a, Type b) {
+    if (a.kind != b.kind) return 0;
+    switch (a.kind) {
+        case TY_ARRAY:
+            return a.elem != NULL && b.elem != NULL && same_column_type(*a.elem, *b.elem);
+        case TY_STRUCT:
+        case TY_ENUM: {
+            const char *an = a.kind == TY_STRUCT ? a.struct_name : a.enum_name;
+            const char *bn = b.kind == TY_STRUCT ? b.struct_name : b.enum_name;
+            if (an == NULL || bn == NULL) return an == bn;
+            if (strcmp(plain_type_name_of(an), plain_type_name_of(bn)) != 0) return 0;
+            if (a.type_args.count != b.type_args.count) return 0;
+            for (int i = 0; i < a.type_args.count; i++) {
+                if (!same_column_type(a.type_args.items[i], b.type_args.items[i])) return 0;
+            }
+            return 1;
+        }
+        default:
+            return 1;
+    }
+}
+
+static ReturnKind classify_return(Type ret, const char *entity) {
+    if (ret.kind != TY_RESULT || ret.elem == NULL) return RK_OTHER;
+    Type ok = *ret.elem;
+    if (type_is_named(ok, entity)) return RK_ENTITY;
+    if (is_option_type_here(ok) && type_is_named(ok.type_args.items[0], entity)) return RK_OPTION_ENTITY;
+    if (ok.kind == TY_ARRAY && ok.elem != NULL && type_is_named(*ok.elem, entity)) return RK_LIST_ENTITY;
+    if (ok.kind == TY_INT) return RK_INT;
+    if (ok.kind == TY_BOOL) return RK_BOOL;
+    if (ok.kind == TY_UNIT) return RK_UNIT;
+    return RK_OTHER;
+}
+
+/* **What a term asks of the parameter list.** An `is_null` term asks for nothing, a `between` for
+ * two, an `in` for an array; everything else for one parameter of the column's own type.
+ *
+ * An `Option` column asks for its *inner* type, not for an `Option`: `find_by_note(conn, note:
+ * string)` reads rows whose nullable `note` is that text, and the None side of such a column is
+ * what `_is_null` is for. A parameter of `Option<string>` would bind NULL on None, and `col =
+ * NULL` matches no row in any engine -- a query that silently answers nothing. */
+typedef struct {
+    const char *name;
+    const char *column; /* the entity field the term named, which is not `name` for a `between` */
+    Type type;
+    int is_list;
+} Expected;
+
+static Type column_param_type(Param *f) {
+    return is_option_type_here(f->type) ? f->type.type_args.items[0] : f->type;
+}
+
+static Param *entity_field(StructDecl *sd, const char *name) {
+    for (int i = 0; i < sd->fields.count; i++) {
+        if (strcmp(sd->fields.items[i].name, name) == 0) return &sd->fields.items[i];
+    }
+    return NULL;
+}
+
+static Type *type_box(Type t) {
+    Type *p = ziman_xmalloc(sizeof(Type));
+    *p = t;
+    return p;
+}
+
+static Expected *expected_params(StructDecl *sd, const QShape *shape, int *count_out) {
+    Expected *xs = ziman_xmalloc(sizeof(Expected) * (size_t)(shape->term_count * 2 + 1));
+    int n = 0;
+    for (int i = 0; i < shape->term_count; i++) {
+        Param *f = entity_field(sd, shape->terms[i].column);
+        Type base = column_param_type(f);
+        switch (shape->terms[i].op) {
+            case QO_IS_NULL:
+            case QO_IS_NOT_NULL:
+                break;
+            case QO_BETWEEN:
+                xs[n].name = fmt_str("%s_from", f->name);
+                xs[n].column = f->name;
+                xs[n].type = base;
+                xs[n++].is_list = 0;
+                xs[n].name = fmt_str("%s_to", f->name);
+                xs[n].column = f->name;
+                xs[n].type = base;
+                xs[n++].is_list = 0;
+                break;
+            case QO_IN: {
+                Type arr = {0};
+                arr.kind = TY_ARRAY;
+                arr.elem = type_box(base);
+                xs[n].name = f->name;
+                xs[n].column = f->name;
+                xs[n].type = arr;
+                xs[n++].is_list = 1;
+                break;
+            }
+            default:
+                xs[n].name = f->name;
+                xs[n].column = f->name;
+                xs[n].type = base;
+                xs[n++].is_list = 0;
+                break;
+        }
+    }
+    *count_out = n;
+    return xs;
+}
+
+/* The signature a name asks for, written as a reader would: `(conn, id: Uuid, patient_id: Uuid)`. */
+static char *render_expected_signature(FunctionDecl *fn, const Expected *xs, int n) {
+    CodeBuf cb;
+    cb_init(&cb);
+    /* The connection's own name when the signature has one, and `conn` when it does not -- this
+     * renders the signature a name *asks for*, and the parameter the author put first is only its
+     * connection when it is typed like one. */
+    int has_conn = fn->params.count > 0 && type_is_named(fn->params.items[0].type, "Connection");
+    cb_appendf(&cb, "(%s: datasource.Connection", has_conn ? fn->params.items[0].name : "conn");
+    for (int i = 0; i < n; i++) cb_appendf(&cb, ", %s: %s", xs[i].name, type_name(xs[i].type));
+    cb_appendf(&cb, ")");
+    return cb.data;
+}
+
+/* **Parameters bind by name, which is the whole reason this exists rather than a copy of Spring
+ * Data.** There, `findByIdAndPatientId(patientId, id)` compiles, boots, and answers another
+ * patient's rows forever; here the mismatch is a compile error naming both sides. The type is
+ * checked against the entity's field as well, which catches the other half -- a `string`
+ * parameter for a `Uuid` column. */
+static void check_query_params(FunctionDecl *fn, const char *entity, const Expected *xs, int n) {
+    if (fn->params.count == 0 || !type_is_named(fn->params.items[0].type, "Connection")) {
+        ziman_error("type", fn->line, fn->col,
+                    "a derived query's first parameter is the connection it runs on "
+                    "(conn: datasource.Connection), and the rest are its predicate's terms: %s",
+                    render_expected_signature(fn, xs, n));
+    }
+    int given = fn->params.count - 1;
+    if (given != n) {
+        ziman_error("type", fn->line, fn->col,
+                    "the name asks for %d parameter%s after the connection and the signature has %d -- %s",
+                    n, n == 1 ? "" : "s", given, render_expected_signature(fn, xs, n));
+    }
+    for (int i = 0; i < n; i++) {
+        Param *p = &fn->params.items[i + 1];
+        if (strcmp(p->name, xs[i].name) != 0) {
+            ziman_error("type", fn->line, fn->col,
+                        "parameter %d is named '%s' and the name's term %d is '%s' -- a derived query binds "
+                        "its parameters by name, not by position, so two transposed arguments are this error "
+                        "rather than the wrong rows: %s",
+                        i + 1, p->name, i + 1, xs[i].name, render_expected_signature(fn, xs, n));
+        }
+        if (!same_column_type(p->type, xs[i].type)) {
+            /* `column` rather than `name`, because a `between` term's two parameters are
+             * `<column>_from` and `<column>_to` and neither is a field of anything. */
+            ziman_error("type", fn->line, fn->col,
+                        "parameter '%s' is %s, and the name's term reads %s's field '%s', so it must be %s",
+                        p->name, type_name(p->type), entity, xs[i].column, type_name(xs[i].type));
+        }
+    }
+}
+
+/* ------------------------------------------------- the SQL, and the body that runs it */
+
+static char *build_query_sql(const char *entity, QueryVerb verb, const QShape *shape) {
+    CodeBuf cb;
+    cb_init(&cb);
+    switch (verb) {
+        case QV_FIND: cb_appendf(&cb, "SELECT e FROM %s e", entity); break;
+        case QV_COUNT:
+        case QV_EXISTS: cb_appendf(&cb, "SELECT count(*) AS n FROM %s e", entity); break;
+        case QV_DELETE: cb_appendf(&cb, "DELETE FROM %s e", entity); break;
+    }
+    for (int i = 0; i < shape->term_count; i++) {
+        const char *col = shape->terms[i].column;
+        cb_appendf(&cb, "%s", i == 0 ? " WHERE " : " AND ");
+        switch (shape->terms[i].op) {
+            case QO_EQ: cb_appendf(&cb, "e.%s = :%s", col, col); break;
+            case QO_NOT: cb_appendf(&cb, "e.%s <> :%s", col, col); break;
+            case QO_IN: cb_appendf(&cb, "e.%s IN :%s", col, col); break;
+            case QO_BETWEEN: cb_appendf(&cb, "e.%s BETWEEN :%s_from AND :%s_to", col, col, col); break;
+            case QO_IS_NULL: cb_appendf(&cb, "e.%s IS NULL", col); break;
+            case QO_IS_NOT_NULL: cb_appendf(&cb, "e.%s IS NOT NULL", col); break;
+            /* `upper` on both sides rather than a collation: a collation is per-column and per
+             * engine, and this has to mean the same thing on memdb, SQLite, Postgres and MySQL. */
+            case QO_IGNORE_CASE: cb_appendf(&cb, "upper(e.%s) = upper(:%s)", col, col); break;
+        }
+    }
+    for (int i = 0; i < shape->order_count; i++) {
+        cb_appendf(&cb, "%se.%s%s", i == 0 ? " ORDER BY " : ", ", shape->orders[i].column,
+                   shape->orders[i].descending ? " DESC" : "");
+    }
+    return cb.data;
+}
+
+/* The `[eql.Binding]` the body hands to `eql`, built from the parameters the name asked for.
+ * Each value goes through `emit_to_sql` -- the same conversion `<name>_to_params` is built from --
+ * so a parameter reaches SQL by exactly the route its column does. */
+static void emit_bindings(CodeBuf *cb, const Expected *xs, int n, int *tmp, int line, int col) {
+    for (int i = 0; i < n; i++) {
+        if (!xs[i].is_list) {
+            emit_to_sql(xs[i].type, xs[i].name, fmt_str("__value_%s", xs[i].name), cb, tmp, line, col);
+            continue;
+        }
+        cb_appendf(cb, "    val __values_%s = mutable_array_new<SqlValue>()\n", xs[i].name);
+        cb_appendf(cb, "    for __item_%s in %s {\n", xs[i].name, xs[i].name);
+        emit_to_sql(*xs[i].type.elem, fmt_str("__item_%s", xs[i].name), fmt_str("__item_%s_sql", xs[i].name), cb, tmp, line, col);
+        cb_appendf(cb, "    push<SqlValue>(__values_%s, __item_%s_sql)\n", xs[i].name, xs[i].name);
+        cb_appendf(cb, "    }\n");
+    }
+    cb_appendf(cb, "    val __bindings: [eql.Binding] = [");
+    for (int i = 0; i < n; i++) {
+        if (xs[i].is_list) {
+            cb_appendf(cb, "%seql.bind_list(\"%s\", snapshot(__values_%s))", i > 0 ? ", " : "", xs[i].name, xs[i].name);
+        } else {
+            cb_appendf(cb, "%seql.bind(\"%s\", __value_%s)", i > 0 ? ", " : "", xs[i].name, xs[i].name);
+        }
+    }
+    cb_appendf(cb, "]\n");
+}
+
+static const char *verb_returns(QueryVerb verb) {
+    switch (verb) {
+        case QV_FIND:
+            return "Result<E, DbError> (one row, NotFound when there is none), "
+                   "Result<Option<E>, DbError> (one row, absence being the answer) or "
+                   "Result<[E], DbError> (every matching row)";
+        case QV_COUNT: return "Result<int, DbError>";
+        case QV_EXISTS: return "Result<bool, DbError>";
+        case QV_DELETE:
+            return "Result<unit, DbError> (the one row this addresses, NotFound when none matched) or "
+                   "Result<int, DbError> (every matching row, answering how many)";
+    }
+    return "";
+}
+
+/* One `#[repository]` function: its name read against the entity, its signature checked against
+ * the name, and then the query val and the body it was declared without. */
+static void generate_one_derived_query(Module *module, StructDecl *sd, FunctionDecl *fn) {
+    const char *entity = module->repository_entity;
+    char *snake = pascal_to_snake(entity);
+    const char *label = fmt_str("derived query '%s'", fn->name);
+    ziman_set_error_context(label);
+
+    if (fn->type_params.count > 0) {
+        ziman_error("type", fn->line, fn->col,
+                    "a derived query is a query over one entity, so it has no type parameters of its own");
+    }
+
+    QueryVerb verb;
+    const char *after;
+    if (!split_verb(fn->name, &verb, &after)) {
+        ziman_error("type", fn->line, fn->col,
+                    "a derived query's name begins with 'find', 'count', 'exists' or 'delete', and '%s' "
+                    "begins with none of them",
+                    fn->name);
+    }
+    if (*after != '\0' && !starts_with(after, BY_SEP) && !starts_with(after, ORDER_SEP)) {
+        if (starts_with(after, "_all_by_") || strcmp(after, "_all") == 0) {
+            ziman_error("type", fn->line, fn->col,
+                        "there is no '_all' in a derived query's name: how many rows it answers comes from "
+                        "its return type and nowhere else, so this is '%s%s' answering a [%s]",
+                        QUERY_VERBS[verb].word, after + strlen("_all"), entity);
+        }
+        ziman_error("type", fn->line, fn->col,
+                    "after '%s' a derived query's name has '%s<predicate>', '%s<ordering>' or nothing, and "
+                    "'%s' is none of them -- a name about the application rather than about %s (a 'current' "
+                    "or a 'recent') is written out by hand, and a hand-written body wins",
+                    QUERY_VERBS[verb].word, BY_SEP, ORDER_SEP, after, entity);
+    }
+
+    QSearch q = {0};
+    q.sd = sd;
+    int only_ordering = starts_with(after, ORDER_SEP);
+    const char *grammar_text = *after == '\0' ? after : after + strlen(only_ordering ? ORDER_SEP : BY_SEP);
+    if (*after == '\0') {
+        qsearch_record(&q);
+    } else if (only_ordering) {
+        enum_orders(&q, grammar_text);
+    } else {
+        enum_terms(&q, grammar_text);
+    }
+    if (q.total == 0) refuse_unreadable(fn, sd, entity, grammar_text, only_ordering);
+    if (q.total > 1) {
+        /* **Two readings is a refusal, not a preference** (docs/design/derived-queries.md §4.1).
+         * No column in the sample backend's 36 entities contains '_and_', '_in', '_not',
+         * '_between', '_asc' or '_desc', so this cannot fire there -- but a column named
+         * `name_and_type` makes `find_by_name_and_type` genuinely two-ways readable, and guessing
+         * is how the resolution of the thing this is modelled on surprises people. */
+        ziman_error("type", fn->line, fn->col,
+                    "'%s' reads %d ways against %s and this will not choose between them: %s, or %s. "
+                    "Rename the function, or write the query out (a hand-written body wins)",
+                    fn->name, q.total, entity, render_shape(&q.found[0]), render_shape(&q.found[1]));
+    }
+    QShape *shape = &q.found[0];
+    if (shape->order_count > 0 && verb != QV_FIND) {
+        ziman_error("type", fn->line, fn->col,
+                    "'%s' orders its rows and then does not answer any of them -- an ordering belongs to a "
+                    "'find'",
+                    fn->name);
+    }
+
+    if (fn->return_type.kind != TY_RESULT || fn->return_type.elem_err == NULL ||
+        !type_is_named(*fn->return_type.elem_err, "DbError")) {
+        ziman_error("type", fn->line, fn->col,
+                    "a derived query answers a Result<.., DbError>, and '%s' answers %s -- '%s' pairs with %s",
+                    fn->name, type_name(fn->return_type), QUERY_VERBS[verb].word, verb_returns(verb));
+    }
+    ReturnKind rk = classify_return(fn->return_type, entity);
+    int paired = (verb == QV_FIND && (rk == RK_ENTITY || rk == RK_OPTION_ENTITY || rk == RK_LIST_ENTITY)) ||
+                 (verb == QV_COUNT && rk == RK_INT) || (verb == QV_EXISTS && rk == RK_BOOL) ||
+                 (verb == QV_DELETE && (rk == RK_UNIT || rk == RK_INT));
+    if (!paired) {
+        ziman_error("type", fn->line, fn->col,
+                    "'%s' answers %s, which '%s' does not pair with -- it pairs with %s",
+                    fn->name, type_name(fn->return_type), QUERY_VERBS[verb].word, verb_returns(verb));
+    }
+
+    int expected_count = 0;
+    Expected *expected = expected_params(sd, shape, &expected_count);
+    check_query_params(fn, entity, expected, expected_count);
+
+    /* Everything the generated body names. The entity's own imports are the repository
+     * attribute's doing (it runs first, over the same struct); what is left is a converter for a
+     * column this query binds and the keyed CRUD never touched. */
+    ensure_module_import(module, "eql", fn->line, fn->col);
+    ensure_module_import(module, "datasource", fn->line, fn->col);
+    ensure_named_import(module, "db", "DbError", fn->line, fn->col);
+    ensure_named_import(module, "db", "SqlValue", fn->line, fn->col);
+    for (int i = 0; i < shape->term_count; i++) {
+        Param *f = entity_field(sd, shape->terms[i].column);
+        import_field_converters(module, "sql", f->type, fn->line, fn->col);
+    }
+
+    /* **One private `Translated` val per derived function, named for it** (§8.3). Translating
+     * costs 140-300 microseconds against 300-3,000 for a round trip, so a repository translates
+     * once when it loads -- and a query the generator emitted badly then fails at startup rather
+     * than on the first request that happens to read that column. */
+    char *val_name = fmt_str("%s_query", fn->name);
+    for (int i = 0; i < module->vals.count; i++) {
+        if (strcmp(module->vals.items[i]->name, val_name) != 0) continue;
+        ziman_error("type", module->vals.items[i]->line, module->vals.items[i]->col,
+                    "'%s' is the name of the query val the derived query '%s' generates -- rename one of "
+                    "the two",
+                    val_name, fn->name);
+    }
+
+    char *sql = build_query_sql(entity, verb, shape);
+    const char *conn = fn->params.items[0].name;
+
+    CodeBuf cb;
+    cb_init(&cb);
+    cb_appendf(&cb, "val %s: eql.Translated = unwrap(eql.translate(eql.registry([%s_meta]), \"%s\"))\n\n",
+               val_name, snake, sql);
+    /* **The snippet repeats the author's own signature**, although only the body is taken out of
+     * it (see `parse_and_splice_into`). It costs nothing and it is what makes `--emit-derived`
+     * output a function a reader can compare with the declaration, rather than a bare block under
+     * a placeholder name. The types are rendered from the signature as parsed, which is still the
+     * source's own spelling: self-qualification runs after generation. */
+    cb_appendf(&cb, "fn %s(", fn->name);
+    for (int i = 0; i < fn->params.count; i++) {
+        cb_appendf(&cb, "%s%s: %s", i > 0 ? ", " : "", fn->params.items[i].name, type_name(fn->params.items[i].type));
+    }
+    cb_appendf(&cb, ") -> %s {\n", type_name(fn->return_type));
+    int tmp = 0;
+    emit_bindings(&cb, expected, expected_count, &tmp, fn->line, fn->col);
+    switch (rk) {
+        case RK_LIST_ENTITY:
+            cb_appendf(&cb, "    return eql.list<%s>(%s, %s, __bindings, %s_from_row)\n", entity, conn, val_name, snake);
+            break;
+        case RK_OPTION_ENTITY:
+            cb_appendf(&cb, "    return eql.one<%s>(%s, %s, __bindings, %s_from_row)\n", entity, conn, val_name, snake);
+            break;
+        case RK_ENTITY:
+            cb_appendf(&cb, "    val __found = try eql.one<%s>(%s, %s, __bindings, %s_from_row)\n", entity, conn, val_name, snake);
+            cb_appendf(&cb, "    if Some(__row) = __found {\n        return __row\n    }\n");
+            cb_appendf(&cb, "    return err(DbError.NotFound(\"no %s matching %s\"))\n", entity, fn->name);
+            break;
+        case RK_INT:
+            if (verb == QV_COUNT) {
+                cb_appendf(&cb, "    return eql.count(%s, %s, __bindings)\n", conn, val_name);
+            } else {
+                cb_appendf(&cb, "    return eql.execute(%s, %s, __bindings)\n", conn, val_name);
+            }
+            break;
+        case RK_BOOL:
+            cb_appendf(&cb, "    val __matching = try eql.count(%s, %s, __bindings)\n", conn, val_name);
+            cb_appendf(&cb, "    return __matching > 0\n");
+            break;
+        case RK_UNIT:
+            cb_appendf(&cb, "    val __deleted = try eql.execute(%s, %s, __bindings)\n", conn, val_name);
+            cb_appendf(&cb, "    if __deleted == 0 {\n");
+            cb_appendf(&cb, "        return err(DbError.NotFound(\"no %s matching %s\"))\n", entity, fn->name);
+            cb_appendf(&cb, "    }\n    return unit\n");
+            break;
+        case RK_OTHER:
+            break;
+    }
+    cb_appendf(&cb, "}\n");
+
+    parse_and_splice_into(module, cb.data, fn->line, fn->col, label, fn);
+    ziman_set_error_context(NULL);
+}
+
+void generate_derived_queries(Module *module, StructDecl *sd) {
+    for (volatile int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *fn = module->functions.items[i];
+        if (!fn->derived_query) continue;
+        jmp_buf recover;
+        ziman_recovery_push(&recover);
+        if (setjmp(recover) != 0) {
+            ziman_set_error_context(NULL);
+            continue;
+        }
+        if (sd == NULL) {
+            ziman_error("type", fn->line, fn->col,
+                        "#[repository] fills a function's body from the module's entity, and this module "
+                        "declares none -- a repository says which entity it is over with the module "
+                        "attribute '#![repository(Entity)]', before its first declaration");
+        }
+        generate_one_derived_query(module, sd, fn);
+        ziman_recovery_pop();
+    }
 }
 
 void generate_derived_functions(Module *module) {

@@ -1,0 +1,71 @@
+// A derived query is a `#[repository]` function with no body: its **name is its query**, read
+// against the entity the module is a repository over, and its return type says how many rows it
+// answers. See docs/design/derived-queries.md.
+#![repository(Note)]
+
+use datasource
+use db.DbError
+use eql
+use memdb
+
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: int
+    owner: int
+    body: string
+}
+
+#[repository]
+pub fn find_by_owner(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
+
+// The same predicate answering one row rather than many: the cardinality is the return type's and
+// nothing in the name changes.
+#[repository]
+pub fn find_by_owner_order_by_id_desc(conn: datasource.Connection, owner: int) -> Result<Option<Note>, DbError>
+
+// `Result<E, DbError>` instead: absent is `DbError.NotFound` rather than an answer.
+#[repository]
+pub fn find_by_id_and_owner(conn: datasource.Connection, id: int, owner: int) -> Result<Note, DbError>
+
+#[repository]
+pub fn count_by_owner(conn: datasource.Connection, owner: int) -> Result<int, DbError>
+
+#[repository]
+pub fn exists_by_body(conn: datasource.Connection, body: string) -> Result<bool, DbError>
+
+// `Result<unit, ..>` deletes the one row this addresses and reports a miss; `Result<int, ..>`
+// deletes every matching row and answers how many.
+#[repository]
+pub fn delete_by_id_and_owner(conn: datasource.Connection, id: int, owner: int) -> Result<unit, DbError>
+
+#[repository]
+pub fn delete_by_owner(conn: datasource.Connection, owner: int) -> Result<int, DbError>
+
+fn main() {
+    val drivers = datasource.registry([memdb.driver()])
+    val conn = unwrap(datasource.open(drivers, "memdb:"))
+    unwrap(datasource.execute(conn, "CREATE TABLE notes (id INTEGER PRIMARY KEY, owner INTEGER NOT NULL, body TEXT)"))
+    unwrap(insert(conn, Note { id: 1, owner: 7, body: "first" }))
+    unwrap(insert(conn, Note { id: 2, owner: 8, body: "second" }))
+    unwrap(insert(conn, Note { id: 3, owner: 7, body: "third" }))
+
+    print(prelude.len(unwrap(find_by_owner(conn, 7))))
+    if Some(newest) = unwrap(find_by_owner_order_by_id_desc(conn, 7)) {
+        print(newest.id)
+    }
+    print(unwrap(find_by_id_and_owner(conn, 2, 8)).body)
+    // Another owner's note is not found, not forbidden -- the predicate is the whole scope.
+    if Err(_) = find_by_id_and_owner(conn, 2, 7) {
+        print("another owner's note is not found")
+    }
+    print(unwrap(count_by_owner(conn, 7)))
+    print(unwrap(exists_by_body(conn, "second")))
+    print(unwrap(exists_by_body(conn, "missing")))
+    unwrap(delete_by_id_and_owner(conn, 1, 7))
+    if Err(_) = delete_by_id_and_owner(conn, 1, 7) {
+        print("deleting it twice is not found")
+    }
+    print(unwrap(delete_by_owner(conn, 7)))
+    print(unwrap(count_all(conn)))
+}

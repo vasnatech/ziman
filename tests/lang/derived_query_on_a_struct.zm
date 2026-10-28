@@ -1,0 +1,8 @@
+#[repository]
+pub struct Note {
+    id: int
+}
+
+fn main() {
+    print(1)
+}

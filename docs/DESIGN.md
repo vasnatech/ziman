@@ -260,6 +260,7 @@ them against the code.
 - [A parameter named after a clause keyword is a parameter (2026-10-27)](#a-parameter-named-after-a-clause-keyword-is-a-parameter-2026-10-27)
 - [A name after `AS` is a label, not an alias (2026-10-27)](#a-name-after-as-is-a-label-not-an-alias-2026-10-27)
 - [What adopting `eql` across 26 repositories taught, and what it did not remove (2026-10-27)](#what-adopting-eql-across-26-repositories-taught-and-what-it-did-not-remove-2026-10-27)
+- [A repository function's name is its query (2026-10-28)](#a-repository-functions-name-is-its-query-2026-10-28)
 
 <!-- end index -->
 
@@ -10175,3 +10176,75 @@ query can express them; ten entities are served through `crud.zm` and have no re
 And `recipe_ingredient.save` now pays for a read-back it discards -- accepted, because the
 alternative keeps a twenty-column `INSERT` whose silent failure mode is worse than a keyed `SELECT`
 inside a transaction that was already writing the whole list.
+
+## A repository function's name is its query (2026-10-28)
+
+`#[repository]` on a bodyless `pub fn` reads the function's own name as its predicate and writes
+the body:
+
+```ziman ignore: a signature with no body, which is the whole of what the author writes
+#[repository]
+pub fn find_by_id_and_patient_id(conn: datasource.Connection, id: Uuid, patient_id: Uuid)
+    -> Result<VitalSign, DbError>
+```
+
+The full design, written before any of it was built and unchanged by building it, is
+[docs/design/derived-queries.md](design/derived-queries.md); its §10 holds the nine questions the
+implementation settled. What belongs here is the three decisions that are about the *language*
+rather than about the feature.
+
+### Binding by name is the reason to build this rather than copy it
+
+Spring Data binds a derived query's parameters positionally against the predicate's terms. So
+`findByIdAndPatientId(patientId, id)` -- two `UUID`s the wrong way round -- compiles, boots, and
+answers another patient's rows for as long as the application lives. There is no test that is
+obviously missing, because the signature is satisfied.
+
+Here the parameters after the connection **must be named for their columns, in that order**, and
+the type is checked against the entity's field as well. The transposition is this instead:
+
+```
+parameter 1 is named 'owner' and the name's term 1 is 'id' -- a derived query binds its
+parameters by name, not by position, so two transposed arguments are this error rather than
+the wrong rows
+```
+
+It is the same defect `insert_one` and `#[pk]` exist to remove -- a list that agrees with another
+list by convention and is checked by nothing -- caught at the one place the two lists are both
+visible. 91 of the sample backend's 144 repository functions are derivable, and six name shapes
+cover 69 of them, so this is not a rare shape being hardened.
+
+### Two readings is a refusal, not a precedence rule
+
+The tokeniser's dictionary is the entity's own column list, and the obvious implementation takes
+the longest column that is a prefix of the remaining text at each position. That is what makes
+`find_by_patient_id_and_type` read `patient_id` then `type` rather than `patient` then
+`id_and_type` -- and it is also how a resolver surprises people, because a column named
+`name_and_type` beside columns `name` and `type` makes `find_by_name_and_type` genuinely two
+queries and longest-match silently picks one.
+
+So the implementation **enumerates every parse** rather than committing at each step, and a name
+with two of them is refused showing both. It costs nothing measurable (the search is over a
+handful of terms against a few dozen columns, once per function at load) and it removes a class of
+bug that cannot be found by reading the call site. No column in the sample backend's 36 entities
+contains `_and_`, `_in`, `_not`, `_between`, `_asc` or `_desc`, so the refusal cannot fire there
+today; the point is what happens to the first schema where it can.
+
+### A bodyless `fn` carrying attribute X is filled by X's generator
+
+The marker is `#[repository]` and not a `derived` keyword, and the reason generalises past this
+feature. A bare `derived` never answers *derived from what?*, and it would be the first bodyless
+form in the language that does not say what fills it -- `native fn` names the runtime, `builtin fn`
+names the type checker. An attribute names the mechanism, and reads against the module attribute as
+the inner/outer split already works: `#![repository(VitalSign)]` says *this module is a repository
+over VitalSign*, `#[repository]` says *this function is one of its queries*.
+
+That is general by construction without a registry, an owner, a what-if-nobody rule or a
+what-if-two rule, which is what docs/ROADMAP.md's code-generation entry asked for and what a
+generic `derived` hole would have needed. One consumer exists; a second costs no new grammar.
+
+The cost in the compiler was one line outside the generator. `fn_has_body` used to ask
+`!is_native && !is_builtin`, which is a list of the kinds that are bodyless *forever*; a derived
+query is bodyless between parsing and generation and has a body afterwards, so it now asks whether
+the body is there. The same question, asked about the property rather than about the kinds -- which
+is the fix that comment already recommended the first time a third bodyless kind arrived.

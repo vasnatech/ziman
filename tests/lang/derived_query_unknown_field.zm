@@ -1,0 +1,23 @@
+#![repository(Note)]
+
+use datasource
+use db.DbError
+use eql
+use memdb
+
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: int
+    owner: int
+    body: string
+}
+
+// A term that names no column of the entity, reported where it was written rather than when the
+// generated SQL reaches `eql.translate` at module initialisation.
+#[repository]
+pub fn find_by_ownr(conn: datasource.Connection, ownr: int) -> Result<[Note], DbError>
+
+fn main() {
+    print(1)
+}

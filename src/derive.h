@@ -21,6 +21,17 @@ void generate_derived_functions(Module *module);
  * module defines itself is not generated; see the comment on the implementation. */
 void generate_repository_functions(Module *module, StructDecl *sd, const char *entity_module);
 
+/* `#[repository]` on a bodyless `pub fn`: fills in the body of every **derived query** in
+ * `module` from `sd`, the `#![repository(Entity)]` entity's struct -- the function's own name is
+ * its predicate (`find_by_id_and_patient_id`) and its return type is its cardinality. See
+ * docs/design/derived-queries.md, and `generate_one_derived_query` for the refusals.
+ *
+ * Called right after `generate_repository_functions`, over the same struct, because the imports
+ * and the `<entity>_meta` val it depends on are that one's doing. `sd` is NULL when the module
+ * has no `#![repository(..)]` at all, which is exactly what a `#[repository]` function there is
+ * refused for. */
+void generate_derived_queries(Module *module, StructDecl *sd);
+
 /* "LocalDate" -> "local_date": the naming rule a derive's generated
  * functions use, and that `Ord` dispatch uses to find a type's
  * `<snake>_compare`. The caller owns the result. */

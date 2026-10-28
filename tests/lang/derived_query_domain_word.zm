@@ -1,0 +1,22 @@
+#![repository(Note)]
+
+use datasource
+use db.DbError
+use eql
+use memdb
+
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: int
+    owner: int
+    body: string
+}
+
+// `recent` is a fact about the application, not about the table. It stays hand-written.
+#[repository]
+pub fn find_recent_by_owner(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
+
+fn main() {
+    print(1)
+}

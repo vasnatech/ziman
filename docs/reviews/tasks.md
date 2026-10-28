@@ -3558,3 +3558,50 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   collections.zm stays organised by question rather than by world; this did not change that, it
   moved one name into the question it belongs to. 1,116 fixtures, `make check` exit 0 with the
   North Star.
+
+- [x] **F217** **Derived queries: a repository function's name is its query, built from the design
+  written the day before.** (user-raised, "lets resume our derived repository functions work";
+  done 2026-10-28.)
+
+  `#[repository]` on a bodyless `pub fn` now reads the function's own name against the module's
+  `#![repository(Entity)]` entity and writes the body. `docs/design/derived-queries.md` was written
+  2026-10-27 as design only; **§§1-8 needed no revision once they met the compiler**, which is the
+  whole argument for settling the name grammar on paper first. The nine questions the
+  implementation had to answer for itself are that document's new §10; the three that are about the
+  language rather than about the feature are docs/DESIGN.md's 2026-10-28 entry.
+
+  **The grammar, and the two refusals that are the point of it.** `verb [_by_ predicate]
+  [_order_by_ ordering]`, where every column is a field of the entity; `find`/`count`/`exists`/
+  `delete`; `between`/`in`/`not`/`is_null`/`is_not_null`/`ignore_case`. Cardinality comes from the
+  return type and nowhere else, so there is no `_all`.
+
+  * **Parameters bind by name.** After the connection they are the predicate's terms, named for
+    their columns in that order, and the type is checked against the entity's field too. The same
+    query written against a positional binder -- `findByIdAndPatientId(patientId, id)`, two UUIDs
+    transposed -- compiles, boots and answers another patient's rows forever.
+  * **Two readings of a name is a refusal, not a precedence rule.** The search enumerates every
+    parse instead of taking the longest column at each position, so `find_by_name_and_type` against
+    an entity that has `name`, `type` *and* `name_and_type` is refused showing both readings. It
+    cannot fire on the sample backend's 36 entities (no column there contains `_and_`, `_in`,
+    `_not`, `_between`, `_asc` or `_desc`); the point is the first schema where it can.
+
+  Every refusal is checked from the `StructDecl` and the signature before any SQL exists, and
+  reported at the function's own line -- which the design committed to in §6 after measuring the
+  alternative during the `eql` adoption, where a real mistake arrived with three frames of library
+  code and not one line of the repository that caused it.
+
+  **Three structural things, each cheap and none predicted.** A derived query is the *author's*
+  `FunctionDecl`, so there is nothing to splice at: `parse_and_splice_into` fills in its `body` and
+  the declaration keeps its own position, name, parameters and return type. That makes §9's
+  "splices at the module attribute's position" complaint structural rather than an argument to
+  change -- and leaves the keyed CRUD rightly at the attribute, since those nine functions appear
+  nowhere in the source. Its query val is **appended** where every other derived val is prepended,
+  because it reads `<entity>_meta`, itself a prepended derived val when the entity is in the same
+  module. And `fn_has_body` now asks whether the body is there rather than listing the kinds that
+  never have one, because a derived query is the first bodyless kind that *acquires* a body -- the
+  fix that function's own comment recommended for the next such kind.
+
+  **Seventeen fixtures, twelve of them refusals.** One of the five that run,
+  `cli_emit_derived_query`, asserts the generated text itself: one private `Translated` val per
+  function, translated when the module loads, and the body that binds to it.
+  1,280 fixtures, `make check` exit 0 with the North Star.
