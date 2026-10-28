@@ -1376,6 +1376,20 @@ from source.
   enough to design an inline construct against. `derive_json` is the last of the five and says
   whether it is a one-off.
 
+  **And the question the port cannot answer by itself** -- *what links `#[derive(Properties)]` to
+  `derive_properties.zm`?* -- is designed in `docs/design/user-generators.md` (2026-10-28, design
+  only). Nothing links them: the five targets are a `strcmp` in `derive.c` and the Ziman modules
+  are referenced by no C at all. The proposal answers it for a project's own derive and for the
+  bundled five at once: **discovery is the importing module's own `use` list**, which
+  `resolve_repository` already proves as a mechanism and which invents no manifest;
+  **`#![generator(X)]` declares the link** where the `derive_<snake(x)>` convention would have
+  concatenated a name and checked nothing (question 5 above); and the entry point is a fixed
+  `generate(d: meta.Decl, arg: Option<string>) -> Result<string, string>`. Two things it makes
+  explicit rather than discovering later: generator globals need **per-module initialisation in
+  dependency order**, which is what `use`-based discovery costs instead of a manifest, and
+  **`--check` and `--lsp` stop being execution-free**, which is a real change and is argued for
+  rather than assumed.
+
   This is the continuation of "Code generation from annotations needs a mechanism" below, whose
   questions 2 (writing into another module), 4 (materialising generated declarations) and 5
   (checking the name contract) are all easier to answer once the generator is Ziman.
