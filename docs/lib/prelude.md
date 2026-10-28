@@ -2427,6 +2427,60 @@ auditing every prelude declaration that writes an argument and answers a value, 
 
 ## `option.zm`
 
+### Example
+
+```
+// `Option<T>` is a value that may be absent, and the absence is in the type rather than in a
+// convention. There is no null to forget to check: a function that may have nothing to give says
+// so in its signature, and the compiler makes the caller say what happens then.
+fn first_even(xs: [int]) -> Option<int> {
+    return find(xs, fn(x: int) -> bool { return x % 2 == 0 })
+}
+
+fn main() {
+    print(first_even([1, 3, 4, 5]))
+    print(first_even([1, 3, 5]))
+
+    // `if Some(x) =` tests and names in one step, which is the ordinary way to read one.
+    if Some(found) = first_even([1, 3, 4, 5]) {
+        print(found)
+    }
+
+    // `switch` is for when both outcomes do work, and it is exhaustive -- forgetting None is a
+    // compile error rather than a crash later.
+    val described = switch first_even([1, 3, 5]) {
+        Some(n) { format("found {}", n) }
+        None { "nothing even here" }
+    }
+    print(described)
+
+    // `unwrap` is the deliberate "this cannot be absent, and if I am wrong, stop here" -- an
+    // assertion, not a default.
+    print(unwrap(first_even([2])))
+
+    // The predicates, for the places a bool is all that is wanted.
+    print(Option.is_Some(first_even([2])))
+    print(Option.is_None(first_even([1])))
+
+    // A bare value auto-wraps where an Option is expected, so the common case stays short.
+    val given: Option<int> = 7
+    print(given)
+}
+```
+
+Output:
+
+```
+Some(4)
+None
+4
+nothing even here
+2
+true
+true
+Some(7)
+```
+
 ### `get_or`
 
 ```
@@ -2571,6 +2625,68 @@ shape of the argument, which its type already gives.
 had been doing this since long before.
 
 ## `result.zm`
+
+### Example
+
+```
+// `Result<T, E>` is how Ziman reports failure: there are no exceptions, so a function that can
+// fail says so in its return type and the caller cannot walk past it. `try` propagates, `switch`
+// decides, and `unwrap` is the deliberate stop-here.
+fn halved(text: string) -> Result<int, string> {
+    // `try` unwraps an Ok and returns the Err from this function, which is the whole of error
+    // propagation -- no `throw`, no stack unwinding, no hidden path out.
+    val n = try parse_int(text)
+    if n % 2 != 0 {
+        return err(format("{} is odd", n))
+    }
+    // A bare value auto-wraps to Ok where a Result is expected.
+    return n / 2
+}
+
+fn main() {
+    print(halved("8"))
+    print(halved("7"))
+    print(halved("eight"))
+
+    // `switch` over a Result is exhaustive: the failing arm cannot be forgotten.
+    val said = switch halved("8") {
+        Ok(n) { format("half is {}", n) }
+        Err(e) { format("no: {}", e) }
+    }
+    print(said)
+
+    // `if Err(e) =` is for when only the failure is interesting, and `if Ok(v) =` for the reverse.
+    if Err(why) = halved("7") {
+        print(why)
+    }
+
+    print(is_ok(halved("8")))
+    print(is_ok(halved("7")))
+    print(unwrap(halved("10")))
+    print(unwrap_err(halved("3")))
+
+    // `map` transforms the Ok and leaves an Err alone, so a chain of steps does not need an `if`
+    // between each one.
+    print(map(halved("8"), fn(n: int) -> int { return n * 10 }))
+    print(map(halved("3"), fn(n: int) -> int { return n * 10 }))
+}
+```
+
+Output:
+
+```
+Ok(4)
+Err(7 is odd)
+Err(cannot parse 'eight' as int)
+half is 4
+7 is odd
+true
+false
+5
+3 is odd
+Ok(40)
+Err(3 is odd)
+```
 
 ### `ok`
 
@@ -2735,6 +2851,65 @@ from. `to_set` refutes it and predates all of this -- prefix-free in array.zm, n
 target, taking `[T]` or `MutableArray<T>`. The source was never in the name.
 
 ## `set.zm`
+
+### Example
+
+```
+// `Set<T>` holds each element once, and like the other collections it is immutable: adding answers
+// a new set. Its element type needs `Eq + Hash`, which is the compiler's way of saying a set can
+// only hold what it can compare and hash.
+fn main() {
+    val primes = Set<int> { 2, 3, 5, 7 }
+    print(len(primes))
+    print(contains(primes, 5))
+    print(contains(primes, 4))
+
+    // Adding an element already there changes nothing, which is the definition rather than a
+    // special case.
+    print(len(add(primes, 11)))
+    print(len(add(primes, 3)))
+
+    // The set operations are the reason to reach for a Set at all: they say what is meant in one
+    // word where loops would take several lines and get the edge cases wrong.
+    val odds = Set<int> { 1, 3, 5, 7, 9 }
+    print(sort(to_array(intersect(primes, odds))))
+    print(sort(to_array(union(primes, odds))))
+    print(sort(to_array(difference(primes, odds))))
+    print(is_subset(Set<int> { 3, 5 }, primes))
+
+    // Printed sorted, because a set has no order of its own -- an example that printed an
+    // arbitrary one would be an example that sometimes fails.
+    print(sort(to_array(primes)))
+
+    // A MutableSet for the loop, with `snapshot` to hand the finished immutable one on. `add`
+    // answers whether the element was new, which is often the question being asked.
+    val seen = mutable_set_new<string>()
+    for word in ["ada", "grace", "ada", "alan"] {
+        add(seen, word)
+    }
+    print(len(snapshot(seen)))
+    print(add(seen, "ada"))
+    print(add(seen, "hedy"))
+}
+```
+
+Output:
+
+```
+4
+true
+false
+5
+4
+[3, 5, 7]
+[1, 2, 3, 5, 7, 9]
+[2]
+true
+[2, 3, 5, 7]
+3
+false
+true
+```
 
 ### `mutable_set_new`
 

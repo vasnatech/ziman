@@ -1,0 +1,36 @@
+// `Set<T>` holds each element once, and like the other collections it is immutable: adding answers
+// a new set. Its element type needs `Eq + Hash`, which is the compiler's way of saying a set can
+// only hold what it can compare and hash.
+fn main() {
+    val primes = Set<int> { 2, 3, 5, 7 }
+    print(len(primes))
+    print(contains(primes, 5))
+    print(contains(primes, 4))
+
+    // Adding an element already there changes nothing, which is the definition rather than a
+    // special case.
+    print(len(add(primes, 11)))
+    print(len(add(primes, 3)))
+
+    // The set operations are the reason to reach for a Set at all: they say what is meant in one
+    // word where loops would take several lines and get the edge cases wrong.
+    val odds = Set<int> { 1, 3, 5, 7, 9 }
+    print(sort(to_array(intersect(primes, odds))))
+    print(sort(to_array(union(primes, odds))))
+    print(sort(to_array(difference(primes, odds))))
+    print(is_subset(Set<int> { 3, 5 }, primes))
+
+    // Printed sorted, because a set has no order of its own -- an example that printed an
+    // arbitrary one would be an example that sometimes fails.
+    print(sort(to_array(primes)))
+
+    // A MutableSet for the loop, with `snapshot` to hand the finished immutable one on. `add`
+    // answers whether the element was new, which is often the question being asked.
+    val seen = mutable_set_new<string>()
+    for word in ["ada", "grace", "ada", "alan"] {
+        add(seen, word)
+    }
+    print(len(snapshot(seen)))
+    print(add(seen, "ada"))
+    print(add(seen, "hedy"))
+}

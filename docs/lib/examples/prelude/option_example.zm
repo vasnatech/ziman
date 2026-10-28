@@ -1,0 +1,36 @@
+// `Option<T>` is a value that may be absent, and the absence is in the type rather than in a
+// convention. There is no null to forget to check: a function that may have nothing to give says
+// so in its signature, and the compiler makes the caller say what happens then.
+fn first_even(xs: [int]) -> Option<int> {
+    return find(xs, fn(x: int) -> bool { return x % 2 == 0 })
+}
+
+fn main() {
+    print(first_even([1, 3, 4, 5]))
+    print(first_even([1, 3, 5]))
+
+    // `if Some(x) =` tests and names in one step, which is the ordinary way to read one.
+    if Some(found) = first_even([1, 3, 4, 5]) {
+        print(found)
+    }
+
+    // `switch` is for when both outcomes do work, and it is exhaustive -- forgetting None is a
+    // compile error rather than a crash later.
+    val described = switch first_even([1, 3, 5]) {
+        Some(n) { format("found {}", n) }
+        None { "nothing even here" }
+    }
+    print(described)
+
+    // `unwrap` is the deliberate "this cannot be absent, and if I am wrong, stop here" -- an
+    // assertion, not a default.
+    print(unwrap(first_even([2])))
+
+    // The predicates, for the places a bool is all that is wanted.
+    print(Option.is_Some(first_even([2])))
+    print(Option.is_None(first_even([1])))
+
+    // A bare value auto-wraps where an Option is expected, so the common case stays short.
+    val given: Option<int> = 7
+    print(given)
+}

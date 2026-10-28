@@ -1,0 +1,11 @@
+Ok(4)
+Err(7 is odd)
+Err(cannot parse 'eight' as int)
+half is 4
+7 is odd
+true
+false
+5
+3 is odd
+Ok(40)
+Err(3 is odd)

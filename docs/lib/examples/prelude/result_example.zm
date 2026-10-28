@@ -1,0 +1,41 @@
+// `Result<T, E>` is how Ziman reports failure: there are no exceptions, so a function that can
+// fail says so in its return type and the caller cannot walk past it. `try` propagates, `switch`
+// decides, and `unwrap` is the deliberate stop-here.
+fn halved(text: string) -> Result<int, string> {
+    // `try` unwraps an Ok and returns the Err from this function, which is the whole of error
+    // propagation -- no `throw`, no stack unwinding, no hidden path out.
+    val n = try parse_int(text)
+    if n % 2 != 0 {
+        return err(format("{} is odd", n))
+    }
+    // A bare value auto-wraps to Ok where a Result is expected.
+    return n / 2
+}
+
+fn main() {
+    print(halved("8"))
+    print(halved("7"))
+    print(halved("eight"))
+
+    // `switch` over a Result is exhaustive: the failing arm cannot be forgotten.
+    val said = switch halved("8") {
+        Ok(n) { format("half is {}", n) }
+        Err(e) { format("no: {}", e) }
+    }
+    print(said)
+
+    // `if Err(e) =` is for when only the failure is interesting, and `if Ok(v) =` for the reverse.
+    if Err(why) = halved("7") {
+        print(why)
+    }
+
+    print(is_ok(halved("8")))
+    print(is_ok(halved("7")))
+    print(unwrap(halved("10")))
+    print(unwrap_err(halved("3")))
+
+    // `map` transforms the Ok and leaves an Err alone, so a chain of steps does not need an `if`
+    // between each one.
+    print(map(halved("8"), fn(n: int) -> int { return n * 10 }))
+    print(map(halved("3"), fn(n: int) -> int { return n * 10 }))
+}
