@@ -287,7 +287,11 @@ pub fn format(rows: Json, sep: string) -> Result<string, string>
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
-pub fn derive_ord(d: meta.Decl) -> string
+pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int
+
+pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int
+
+pub fn derive_ord(d: meta.Decl) -> Result<string, string>
 
 ```
 
@@ -1439,6 +1443,45 @@ pub fn replace_all(re: Regex, text: string, replacement: string) -> string
 pub fn split(re: Regex, text: string) -> [string]
 
 pub fn escape(text: string) -> string
+
+```
+
+## `template`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub struct Template {
+    nodes: [Node]
+    // Every top-level name the text mentions -- holes, `@for` sources and `@if` flags. Collected
+    // at parse time so that `render` can refuse an unused binding, which is a *static* question
+    // about the text: counting what a render touched would call a binding unused whenever its
+    // loop ran zero times.
+    refs: [string]
+}
+
+pub struct Row {
+    cells: [Binding]
+}
+
+pub struct Binding {
+    name: string
+    value: Bound
+}
+
+pub fn text(name: string, value: string) -> Binding
+
+pub fn flag(name: string, value: bool) -> Binding
+
+pub fn rows(name: string, value: [Row]) -> Binding
+
+pub fn row(cells: [Binding]) -> Row
+
+pub fn parse(source: string) -> Result<Template, string>
+
+pub fn must_parse(source: string) -> Template
+
+pub fn render(t: Template, bindings: [Binding]) -> Result<string, string>
 
 ```
 

@@ -34,7 +34,7 @@ GROUPS = [
     # `src/derive.c` hands a generator, and `derive_ord` is the first generator to be written in
     # Ziman rather than C. A reader reaches these through `#[derive(Ord)]`, not by importing them,
     # which is why they are their own group rather than filed under Data.
-    ("Deriving", "core", ["meta", "derive_ord"]),
+    ("Deriving", "core", ["meta", "template", "derive_ord"]),
     ("Graphics", "graphics", ["geom", "shape", "paint", "scene", "pdfobj", "pdf", "truetype", "font", "image", "stroker", "raster", "layout"]),
 ]
 
@@ -159,8 +159,25 @@ def parse_one(path, decl, fixed_section):
     entries = []  # (section, comment lines, signature)
     section = fixed_section
     pending = []
+    # **Text blocks are skipped, because a string may contain Ziman.** This scanner reads
+    # declarations off raw lines, which was safe while no module's strings looked like code --
+    # and `lib/core/derive_ord.zm` holds code templates, so `pub fn @{snake}_compare..` inside a
+    # `"""` block was read as a declaration and crashed the name regex. A module whose output is
+    # Ziman source is the first thing to break the assumption; the fix is to honour the one rule
+    # the syntax gives (a `"""` ending a line opens a block, the next `"""` closes it) rather
+    # than to loosen the regex, which would have put the template's text in the manual.
+    in_text_block = False
     while i < len(lines):
         l = lines[i]
+        if in_text_block:
+            if '"""' in l:
+                in_text_block = False
+            i += 1
+            continue
+        if l.rstrip().endswith('"""'):
+            in_text_block = True
+            i += 1
+            continue
         if l.startswith("//"):
             m = re.match(r"// -{3,}\s*(.*?)\s*-*$", l)
             if m and (m.group(1) or l.strip("/ -") == ""):

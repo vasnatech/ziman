@@ -1,0 +1,18 @@
+a lone @: template line 1: a lone '@' -- write '@@' for a literal one, or '@{name}' for a hole
+an unclosed hole: template line 1: '@{' with no closing '}'
+an empty hole: template line 1: '@{}' names nothing
+an unknown directive: template line 1: unknown directive -- the four are '@for', '@if', '@else' and '@end'
+@end with nothing open: template: an '@end' with nothing open
+@else with no @if: template: an '@else' with no '@if' open
+an unclosed @for: template line 1: this '@for' is never closed by an '@end'
+an unbound hole: '@{name}' is not bound (bound: greeting)
+a binding nothing uses: 'extra' is bound and the template never mentions it (it uses: greeting, name)
+the right bindings: ok -> hello, Ada
+@for over a string: '@for .. in rows' needs rows, and 'rows' is bound to a string
+a cell that is not there: '@{r.cell}' names no cell of that row (it has: other)
+@if over rows: '@if on' needs a flag, and 'on' is bound to a list of rows
+@if true: ok -> yes
+
+@if false: ok -> no
+
+@@ is a literal: ok -> an @ sign and a hole

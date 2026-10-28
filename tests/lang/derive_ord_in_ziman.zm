@@ -28,7 +28,7 @@ fn main() {
         type_params: none,
         members: [member("x"), member("y")]
     }
-    print(derive_ord.derive_ord(point))
+    print(unwrap(derive_ord.derive_ord(point)))
     val boxed = meta.Decl {
         name: "Box",
         snake_name: "box",
@@ -36,7 +36,7 @@ fn main() {
         type_params: ["T", "U"],
         members: [member("first"), member("second")]
     }
-    print(derive_ord.derive_ord(boxed))
+    print(unwrap(derive_ord.derive_ord(boxed)))
     val shape = meta.Decl {
         name: "Shape",
         snake_name: "shape",
@@ -44,5 +44,5 @@ fn main() {
         type_params: none,
         members: [variant("Dot", false), variant("Line", true), variant("Area", false)]
     }
-    print(derive_ord.derive_ord(shape))
+    print(unwrap(derive_ord.derive_ord(shape)))
 }

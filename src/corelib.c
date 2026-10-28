@@ -8,6 +8,7 @@
  * the Makefile's CORELIB_MODULES list, #include-ing the header it
  * generates here, and adding one line to CORE_MODULES below. */
 #include "meta_source.h"
+#include "template_source.h"
 #include "derive_ord_source.h"
 #include "url_source.h"
 #include "fs_source.h"
@@ -82,6 +83,7 @@ typedef struct {
 #pragma GCC diagnostic ignored "-Woverlength-strings"
 static const CoreModule CORE_MODULES[] = {
     {"meta", META_SOURCE},
+    {"template", TEMPLATE_SOURCE},
     {"derive_ord", DERIVE_ORD_SOURCE},
     {"url", URL_SOURCE},
     {"fs", FS_SOURCE},

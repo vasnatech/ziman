@@ -1323,6 +1323,15 @@ from source.
   against 10, and the enum half's 36 lines of fragments are one readable block. `derive_row` is
   where that second answer is, and where `@if` finally gets exercised.
 
+  **Built 2026-10-28** (design doc §13): `lib/core/template.zm`, with `derive_ord` rewritten on
+  it and the pinned fixture unchanged byte for byte. Two things the build taught that the design
+  had not: a text block drops the newline before its closing delimiter, so the blank line every
+  generated function ends with needs *two* in the source -- the first attempt was off by one
+  blank line per function and the fixture caught it; and a module whose strings contain Ziman
+  broke `tools/gen_lib_manual.py`, which reads declarations off raw lines and found
+  `pub fn @{snake}_compare..` inside a template. Both are the generators' problem now rather than
+  one-offs.
+
   This is the continuation of "Code generation from annotations needs a mechanism" below, whose
   questions 2 (writing into another module), 4 (materialising generated declarations) and 5
   (checking the name contract) are all easier to answer once the generator is Ziman.

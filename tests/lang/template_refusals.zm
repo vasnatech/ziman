@@ -1,0 +1,58 @@
+// What the template module refuses, and what it says. Both directions are checked -- a hole
+// naming nothing bound, and a binding the template never mentions -- because the second is the
+// more likely mistake once a template has been edited.
+use template
+
+fn show(what: string, r: Result<string, string>) {
+    if Err(e) = r {
+        print(concat(what, ": ", e))
+    }
+    if Ok(text) = r {
+        print(concat(what, ": ok -> ", text))
+    }
+}
+
+fn parsed(what: string, source: string) {
+    if Err(e) = template.parse(source) {
+        print(concat(what, ": ", e))
+    }
+    if Ok(_) = template.parse(source) {
+        print(concat(what, ": ok"))
+    }
+}
+
+fn main() {
+    parsed("a lone @", "x @ y")
+    parsed("an unclosed hole", "x @{name y")
+    parsed("an empty hole", "x @{} y")
+    parsed("an unknown directive", "@foreach x in xs")
+    parsed("@end with nothing open", "x\n@end")
+    parsed("@else with no @if", "x\n@else\ny")
+    parsed("an unclosed @for", "@for m in xs\nx")
+
+    val t = template.must_parse("@{greeting}, @{name}")
+    show("an unbound hole", template.render(t, [template.text("greeting", "hello")]))
+    show("a binding nothing uses", template.render(t, [
+        template.text("greeting", "hello"),
+        template.text("name", "Ada"),
+        template.text("extra", "unused")
+    ]))
+    show("the right bindings", template.render(t, [
+        template.text("greeting", "hello"),
+        template.text("name", "Ada")
+    ]))
+
+    val loop = template.must_parse("@for r in rows\n@{r.cell}\n@end")
+    show("@for over a string", template.render(loop, [template.text("rows", "not rows")]))
+    show("a cell that is not there", template.render(loop, [
+        template.rows("rows", [template.row([template.text("other", "x")])])
+    ]))
+
+    val branch = template.must_parse("@if on\nyes\n@else\nno\n@end")
+    show("@if over rows", template.render(branch, [template.rows("on", [])]))
+    show("@if true", template.render(branch, [template.flag("on", true)]))
+    show("@if false", template.render(branch, [template.flag("on", false)]))
+
+    val lit = template.must_parse("an @@ sign and a @{thing}")
+    show("@@ is a literal", template.render(lit, [template.text("thing", "hole")]))
+}

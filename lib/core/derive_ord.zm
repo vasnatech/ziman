@@ -5,83 +5,120 @@
 // a declaration to source, and `meta.Decl` is what makes that expressible here -- so this file is
 // ordinary Ziman that `--fmt`, `--lint` and `ziman test` can all see, where the C was outside
 // every one of them. See docs/ROADMAP.md's "Derives should be written in Ziman, not in C".
+//
+// **The bodies are templates**, so the shape of what this writes is the shape of what you read.
+// The two it needs were measured against the `push`/`concat` version first
+// (docs/design/templates.md §12): the struct half is close to a wash and the enum half is where
+// it pays, its control flow having been eleven string fragments. Neither needs an `@if` -- every
+// decision is made here, in Ziman, where the type checker reads it.
 #![experimental]
 
 use meta
+use template
+
+val struct_body = template.must_parse("""
+pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
+@for m in members
+    val c_@{m.name} = compare(a.@{m.name}, b.@{m.name})
+    if c_@{m.name} != 0 {
+        return c_@{m.name}
+    }
+@end
+    return 0
+}
+
+
+""")
+
+// **The ranks are computed, not matched on**, because a generated `switch` would have to name
+// every variant's payload binder and an enum's variants may carry none. `ra`/`rb` start at 0, so
+// the last variant is the one left to the `!is_<first>` test rather than given its own `if`.
+val enum_body = template.must_parse("""
+pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int {
+    var ra = 0
+    var rb = 0
+@for r in ranked
+    if @{name}.is_@{r.variant}(a) {
+        ra = @{r.rank}
+    }
+    if @{name}.is_@{r.variant}(b) {
+        rb = @{r.rank}
+    }
+@end
+    if ra == 0 && !@{name}.is_@{first}(a) {
+        ra = @{last}
+    }
+    if rb == 0 && !@{name}.is_@{first}(b) {
+        rb = @{last}
+    }
+    if ra < rb {
+        return -1
+    }
+    if ra > rb {
+        return 1
+    }
+@for p in payloaded
+    if @{name}.is_@{p.variant}(a) {
+        return compare(@{name}.unwrap_@{p.variant}(a), @{name}.unwrap_@{p.variant}(b))
+    }
+@end
+    return 0
+}
+
+
+""")
 
 // A struct compares field by field in declaration order, the first difference deciding; an enum
 // compares by variant position first and then by payload when both are the same variant. Each
 // member goes through the `compare` builtin, so a member whose own type is not `Ord` is reported
 // by the type checker against the generated text -- which is the same place the C version put it.
-pub fn derive_ord(d: meta.Decl) -> string {
+//
+// The `Result` is the shape a generator owes the compiler: a refusal it can report at the
+// declaration. This one cannot fail on any input `meta` can build, so what the `Result` carries
+// today is a mistake in the templates above, caught by `tests/lang/derive_ord_in_ziman`.
+pub fn derive_ord(d: meta.Decl) -> Result<string, string> {
     if d.is_enum {
         return enum_compare(d)
     }
     return struct_compare(d)
 }
 
-fn signature(d: meta.Decl) -> string {
-    val self = meta.type_text(d)
-    return concat(
-        "pub fn ",
-        d.snake_name,
-        "_compare",
-        meta.type_params_bounded(d, ": Ord"),
-        "(a: ",
-        self,
-        ", b: ",
-        self,
-        ") -> int {\n"
-    )
-}
-
-fn struct_compare(d: meta.Decl) -> string {
-    val out = mutable_array_new<string>()
-    push(out, signature(d))
+fn struct_compare(d: meta.Decl) -> Result<string, string> {
+    val members = mutable_array_new<template.Row>()
     for m in d.members {
-        push(out, concat("    val c_", m.name, " = compare(a.", m.name, ", b.", m.name, ")\n"))
-        push(out, concat("    if c_", m.name, " != 0 {\n        return c_", m.name, "\n    }\n"))
+        push(members, template.row([template.text("name", m.name)]))
     }
-    push(out, "    return 0\n}\n\n")
-    return concat(pieces: snapshot(out))
+    return template.render(struct_body, [
+        template.text("snake", d.snake_name),
+        template.text("bounds", meta.type_params_bounded(d, ": Ord")),
+        template.text("self", meta.type_text(d)),
+        template.rows("members", snapshot(members))
+    ])
 }
 
-// **The ranks are computed, not matched on**, because a generated `switch` would have to name
-// every variant's payload binder and an enum's variants may carry none. `ra`/`rb` start at 0, so
-// the last variant is the one left to the `!is_<first>` test rather than given its own `if`.
-fn enum_compare(d: meta.Decl) -> string {
-    val out = mutable_array_new<string>()
-    push(out, signature(d))
-    push(out, "    var ra = 0\n    var rb = 0\n")
-    val last = prelude.len(d.members) - 1
+fn enum_compare(d: meta.Decl) -> Result<string, string> {
+    val last = len(d.members) - 1
+    val ranked = mutable_array_new<template.Row>()
     for i in 0..last {
-        val v = d.members[i].name
-        push(out, concat("    if ", d.name, ".is_", v, "(a) {\n        ra = ", str(i), "\n    }\n"))
-        push(out, concat("    if ", d.name, ".is_", v, "(b) {\n        rb = ", str(i), "\n    }\n"))
+        push(ranked, template.row([
+            template.text("variant", d.members[i].name),
+            template.text("rank", str(i))
+        ]))
     }
-    val first = d.members[0].name
-    push(out, concat("    if ra == 0 && !", d.name, ".is_", first, "(a) {\n        ra = ", str(last), "\n    }\n"))
-    push(out, concat("    if rb == 0 && !", d.name, ".is_", first, "(b) {\n        rb = ", str(last), "\n    }\n"))
-    push(out, "    if ra < rb {\n        return -1\n    }\n    if ra > rb {\n        return 1\n    }\n")
+    val payloaded = mutable_array_new<template.Row>()
     for m in d.members {
         if m.has_payload {
-            push(out, concat(
-                "    if ",
-                d.name,
-                ".is_",
-                m.name,
-                "(a) {\n        return compare(",
-                d.name,
-                ".unwrap_",
-                m.name,
-                "(a), ",
-                d.name,
-                ".unwrap_",
-                m.name,
-                "(b))\n    }\n"
-            ))
+            push(payloaded, template.row([template.text("variant", m.name)]))
         }
     }
-    push(out, "    return 0\n}\n\n")
-    return concat(pieces: snapshot(out))
+    return template.render(enum_body, [
+        template.text("name", d.name),
+        template.text("snake", d.snake_name),
+        template.text("bounds", meta.type_params_bounded(d, ": Ord")),
+        template.text("self", meta.type_text(d)),
+        template.text("first", d.members[0].name),
+        template.text("last", str(last)),
+        template.rows("ranked", snapshot(ranked)),
+        template.rows("payloaded", snapshot(payloaded))
+    ])
 }

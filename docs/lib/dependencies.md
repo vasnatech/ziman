@@ -34,6 +34,7 @@ flowchart LR
         properties["properties"]
         random["random"]
         regex["regex"]
+        template["template"]
         test["test"]
         thread["thread"]
         toml["toml"]
@@ -84,6 +85,7 @@ flowchart LR
     db --> number
     db --> url
     derive_ord --> meta
+    derive_ord --> template
     encoding --> locale
     encoding --> number
     eql --> datasource
@@ -242,7 +244,7 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
+| 0 | `bits`, `clock`, `compress`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `template`, `thread` |
 | 1 | `derive_ord`, `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `xml` |
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
@@ -261,7 +263,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db` | `eql`, `migrate` |
 | `db` | `net`, `number`, `url` | `datasource`, `eql`, `memdb`, `migrate`, `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
-| `derive_ord` | `meta` | - |
+| `derive_ord` | `meta`, `template` | - |
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `font` | `truetype` | `layout`, `pdf`, `raster` |
@@ -303,6 +305,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
+| `template` | - | `derive_ord` |
 | `test` | `regex` | - |
 | `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `eql`, `migrate`, `schedule`, `toml` |

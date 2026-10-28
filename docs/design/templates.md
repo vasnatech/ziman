@@ -401,3 +401,29 @@ So `derive_ord` answers one of the two questions and not the other:
 **The revised order**: build the module against `derive_ord`, whose expected output is already
 pinned byte for byte, and only then port `derive_row` -- with the fixture as the guard rather
 than the judgement.
+
+## 13. Built, 2026-10-28
+
+`lib/core/template.zm`, and `lib/core/derive_ord.zm` rewritten on it. The guard is the one §12
+asked for: `tests/lang/derive_ord_in_ziman.out` pinned the generator's output byte for byte
+before the rewrite, and it is unchanged after -- both halves, struct and enum, generic and plain,
+with and without payloads.
+
+What the build confirmed and what it corrected:
+
+* **§12's measurements held.** The struct half is 17 lines against 10 and the enum half's eleven
+  string fragments are one readable block. Neither needs `@if`, so the construct ships unused by
+  its first client and exercised only by `tests/lang/template_refusals`.
+* **The trailing newline is the template's**, and it is easy to get wrong: a text block drops the
+  newline before its closing `"""`, so the `}\n\n` every generated function ends with needs
+  *two* blank lines in the source. The first attempt had one and differed from the C by a blank
+  line per function -- caught by the fixture, which is the whole reason it was written first.
+* **A module whose strings contain Ziman broke `tools/gen_lib_manual.py`.** It reads declarations
+  off raw lines, which was safe while no module's strings looked like code, and
+  `pub fn @{snake}_compare..` inside a template was read as a declaration. Fixed by honouring the
+  one rule the syntax gives -- a `"""` ending a line opens a block, the next closes it -- rather
+  than by loosening the regex, which would have put template text in the manual. **Any module
+  holding a code template will hit this**, so it is the generators' problem and not this one's.
+
+Still open, unchanged: whether templates pay at scale. `derive_row` and `derive_json` are where
+that is answered, and where `@if` is first used in anger.

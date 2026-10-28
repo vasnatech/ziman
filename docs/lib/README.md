@@ -99,6 +99,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | Module | What it is |
 |---|---|
 | [`meta`](meta.md) | A declaration, as a generator sees it. |
+| [`template`](template.md) | Templates for generated code: the shape of the output, visible in the source. |
 | [`derive_ord`](derive_ord.md) | `#[derive(Ord)]`, written in Ziman. |
 
 ## Graphics
