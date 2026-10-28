@@ -1346,6 +1346,20 @@ from source.
   one template with a branch. `derive_json` and `derive_properties` decide whether it keeps its
   place.
 
+  **§15 then redesigns the template model, on a complaint the port earned** (2026-10-28, user:
+  *"I really don't like this minimal template definitions"*). Every line of output coming from a
+  template was not enough: `derive_row` holds seven `must_parse` vals over a hundred lines, the
+  composition between them is invisible, and the dispatch that picks one lives 150 lines away.
+  The tell was the file's own comments, which paste the assembled output because the templates
+  cannot show it. Designed, not built: **`@template name` … `@end`** so a source is a *sheet* of
+  named templates and a generator has one `val`; **`@choose tag` / `@when` / `@otherwise`**, a
+  switch on a bound string that keeps the no-expressions rule while putting every shape and the
+  choice between them in one place; and **`@yield`**, a block hole that re-indents, which is how
+  the generated code's mis-indentation gets fixed opt-in. **`@if`/`@else` are removed** -- zero
+  users after two generators, and `@choose` covers them -- taking `template.flag` with them, so
+  the binding kinds drop to `text` and `rows`. `derive_row`'s seven vals become one sheet of four
+  templates, forty lines, in the order a reader meets them.
+
   This is the continuation of "Code generation from annotations needs a mechanism" below, whose
   questions 2 (writing into another module), 4 (materialising generated declarations) and 5
   (checking the name contract) are all easier to answer once the generator is Ziman.

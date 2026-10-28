@@ -500,3 +500,175 @@ speculative -- §1's "a field nobody reads is a promise that cannot be taken bac
 first generator to read a type at all proved it the wrong shape: a conversion switches on the
 kind, asks whether it is an `Option`, and then needs the element. Keeping `meta` small is what
 made that a one-fixture change rather than a migration.
+
+## 15. Sheets, `@choose` and `@yield`: making a generator's templates one document
+
+Status within this document: **design only.** §§1-14 are built; nothing in this section is.
+
+### What is wrong now
+
+`lib/core/derive_row.zm` holds **seven `must_parse` vals scattered over a hundred lines**, with
+helper functions between them. Every line of output comes from a template, which §14 was pleased
+about, and the file is still hard to read. Three separate faults, which want three different
+answers:
+
+1. **Scatter.** Seven `val`s, none adjacent to the others, so the output vocabulary is assembled
+   in a reader's head.
+2. **Composition is invisible.** `@{f.read}` says *something* goes here; it does not say what can.
+3. **Dispatch is invisible.** Which of the five shapes applies is decided in `emit_from_sql`, 150
+   lines away from any of them.
+
+**The tell is in the file's own comments.** Each template carries a pasted copy of the assembled
+output, guarded by `tools/check_template_examples.py`. That guard is worth keeping, but needing
+the comment at all is the admission: *if a file has to show what its templates produce, the
+templates are not showing it.*
+
+### Three changes
+
+```
+sheet      := { template }
+template   := "@template" name NEWLINE { line } "@end" NEWLINE
+directive  := "@for" ident "in" name | "@choose" name | "@when" tag | "@otherwise"
+            | "@yield" name | "@end"
+hole       := "@{" name { "." name } "}"
+```
+
+**`@template name` … `@end`** -- a source is a **sheet** of named templates, never a lone
+anonymous one. One `must_parse` per generator, and the vocabulary reads top to bottom as a
+document.
+
+**`@choose tag` / `@when value` / `@otherwise`** -- dispatch on a bound **string**. This is the
+one that answers fault 3, and it keeps the rule §4 holds: `@choose` reads a bound value and
+`@when` compares it to a literal tag. No operators, no arithmetic, no calls. Ziman still decides;
+the template shows **what the alternatives are**, which is the half a reader wants and the half
+that was missing.
+
+**`@yield name`** -- a hole holding a *block* rather than a value, and the difference is not only
+documentation: **`@yield` prefixes every line of the block with its own indentation.** Written at
+column 0 it is exactly what `@{name}` does today; written indented it produces correctly indented
+output, which is how the mis-indentation inside the generated `if` gets fixed -- opt-in, so
+byte-identity with the C survives until the bridge lands and the improvement is taken
+deliberately.
+
+### `derive_row`, whole
+
+Seven vals and a hundred lines become **one sheet of four templates**:
+
+```
+@template from_row
+pub fn @{snake}_from_row(row: Row) -> Result<@{name}, DbError> {
+@for f in fields
+    val field_@{f.name}_raw = try row_get(row, "@{f.name}")
+@yield f.read
+@end
+    return @{name} {
+@for f in fields
+        @{f.name}: field_@{f.name}@{f.comma}
+@end
+    }
+}
+
+@end
+
+@template read
+@choose shape
+@when simple
+    val @{dst} = try @{call}(@{src})
+@when option
+    var @{dst} = Option<@{elem}>.None
+    if !SqlValue.is_Null(@{src}) {
+@yield nested
+    @{dst} = Option<@{elem}>.Some(@{inner})
+    }
+@end
+@end
+
+@template to_params
+pub fn @{snake}_to_params(v: @{name}) -> [SqlValue] {
+    val __derive_params = mutable_array_new<SqlValue>()
+@for f in fields
+@yield f.write
+    push<SqlValue>(__derive_params, field_@{f.name}_sql)
+@end
+    return snapshot(__derive_params)
+}
+
+@end
+
+@template write
+@choose shape
+@when value
+    val @{dst} = SqlValue.@{ctor}(@{src})
+@when converted
+    val @{dst} = @{call}(@{src})
+@when option
+    var @{dst} = SqlValue.Null
+    if Option.is_Some(@{src}) {
+@yield nested
+    @{dst} = @{inner}
+    }
+@end
+@end
+```
+
+That is the whole of what `derive_row` writes, in forty lines, in the order a reader meets it.
+The Ziman beside it keeps exactly what it had: the recursion, the temporary names, the per-kind
+tag, and the `flat_names` table. **What moves is not logic -- it is the five shapes, out of five
+separate `val`s and into one place.**
+
+Two things fall out that were not the point:
+
+* **The comments showing assembled output stop being necessary**, because the sheet shows it.
+  They can go, and `check_template_examples.py` with them -- though keeping one worked example
+  per *generator* (rather than per template) is probably still worth it.
+* **The trailing-newline trap disappears.** A text block drops the newline before its closing
+  `"""`, so `}\n\n` needs two blank lines in the source today -- a bug I shipped and the fixture
+  caught (§13). With `@end` as the terminator the body is simply the lines between, each with its
+  newline, and the rule is one a reader can see.
+
+### `@if` and `@else` are removed
+
+They have **no users after two generators**, and `@choose` covers them: a boolean condition
+becomes a tag the generator computes (`"option"` against `"simple"` above, rather than a flag).
+Carrying two dispatch constructs when one is unused is how a language accretes, and the honest
+reading of zero users is that `@if` was the wrong shape rather than an unlucky one.
+
+**`template.flag` goes with it.** Nothing else reads a boolean binding, so the binding kinds drop
+to **`text` and `rows`**, which is a simplification of the data model and not only of the grammar.
+
+What this gives up: `@if optional` / `@else` reads better at a single site than `@choose shape` /
+`@when option` / `@when simple`. The trade is one construct instead of two, and a tag that says
+*which* shape rather than merely *whether*.
+
+### The API
+
+A source is always a sheet, so the entry points change shape:
+
+```ziman
+pub fn parse(source: string) -> Result<Sheet, string>
+pub fn must_parse(source: string) -> Sheet
+pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string>
+```
+
+`render` naming its template is what lets one `val` serve a whole generator. An unknown name is a
+refusal listing what the sheet holds -- the same shape as every other refusal here.
+
+### Refusals the new constructs bring
+
+* `@when` or `@otherwise` outside a `@choose`; a second `@otherwise` for one `@choose`
+* a `@choose` with no `@when` at all
+* **a tag matching no `@when`, with no `@otherwise`** -- at render, naming the tag and listing the
+  cases the template has. This one cannot be a parse-time check: the tag is a value.
+* `@choose` or `@yield` over a name bound to the wrong kind
+* `@template` inside a `@template`; two templates sharing a name; text outside any `@template`
+
+### What is left before building
+
+1. **Decide whether `@yield`'s re-indentation is on from the first version** or lands with the
+   first generator that wants corrected output. Recommended: build it, use it at column 0
+   everywhere, so byte-identity holds and the improvement is one edit later.
+2. **Port `derive_ord` and `derive_row` to sheets in the same change**, since both prove
+   themselves against fixtures that pin their output byte for byte.
+3. **Then `derive_json` or `derive_properties`**, which is the first generator to be *written*
+   against this rather than ported to it -- and the one that says whether `@choose` is enough
+   dispatch or whether something was still missing.
