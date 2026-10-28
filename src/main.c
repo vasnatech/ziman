@@ -404,7 +404,15 @@ static void print_api_module(const char *name, Module *m) {
      * another: `#![repository(X)]` generates from X's own fields, X is in the module this one
      * imports, and nothing here has loaded it. Saying so is the point -- a reader who sees only
      * the hand-written half and no mention of the rest would conclude the rest does not exist. */
-    if (m->repository_entity != NULL) {
+    if (m->repository_entity != NULL && m->repository_no_crud) {
+        /* `crud: false` generates none of the nine, so saying it does would be the exact error
+         * this note exists to prevent, pointed the other way. The attribute still matters to a
+         * reader: it is what lets the `#[repository]` functions above have no body. */
+        printf("\n  #![repository(%s, crud: false)] names this module's entity and generates none of\n"
+               "  the keyed CRUD. Every function above is either written here or derived from its\n"
+               "  own name.\n",
+               m->repository_entity);
+    } else if (m->repository_entity != NULL) {
         printf("\n  #![repository(%s)] also generates insert, update, find, find_or_error, exists,\n"
                "  delete, find_all, count_all and delete_all -- minus any this module writes itself,\n"
                "  which win. Their key parameters are %s's #[pk] fields, so the signatures are in\n"

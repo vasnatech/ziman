@@ -1,0 +1,42 @@
+// `crud: false` names the module's entity and generates none of the nine keyed CRUD functions.
+//
+// A derived query needs only the naming half, and seven of the sample backend's repositories
+// refused the attribute outright over the other half -- a generated `delete_all(conn)` over every
+// account, an `update` on an audit row, a keyed `delete` for rows never addressed by id. This is
+// the per-module opt-out that lets them name their entity anyway; it is not a per-function one,
+// which docs/design/derived-queries.md §8.4 refused and still refuses.
+#![repository(Note, label: "Note", crud: false)]
+
+use datasource
+use db.DbError
+use memdb
+
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: int
+    owner: int
+    body: string
+}
+
+#[repository]
+pub fn find_by_owner(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
+
+#[repository]
+pub fn find_by_id_and_owner(conn: datasource.Connection, id: int, owner: int) -> Result<Note, DbError>
+
+#[repository]
+pub fn delete_by_owner(conn: datasource.Connection, owner: int) -> Result<int, DbError>
+
+fn main() {
+    val drivers = datasource.registry([memdb.driver()])
+    val conn = unwrap(datasource.open(drivers, "memdb:"))
+    unwrap(datasource.execute(conn, "CREATE TABLE notes (id INTEGER PRIMARY KEY, owner INTEGER NOT NULL, body TEXT)"))
+    unwrap(datasource.execute(conn, "INSERT INTO notes (id, owner, body) VALUES (1, 7, 'first')"))
+    print(prelude.len(unwrap(find_by_owner(conn, 7))))
+    print(unwrap(find_by_id_and_owner(conn, 1, 7)).body)
+    if Err(e) = find_by_id_and_owner(conn, 9, 7) {
+        print(error_message(e))
+    }
+    print(unwrap(delete_by_owner(conn, 7)))
+}

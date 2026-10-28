@@ -1066,6 +1066,20 @@ typedef struct {
      * the module's entity, and a message written once per query would be a place for two of them
      * to disagree. See docs/design/derived-queries.md §11. */
     const char *repository_label;
+    /* `#![repository(Notification, crud: false)]`: name the entity and **do not** generate the
+     * nine CRUD functions. A derived query needs only the first half of what this attribute does,
+     * and seven of the sample backend's repositories refused the attribute entirely over the
+     * second -- `patient` and `user` because a generated `delete_all(conn)` over every account
+     * would be callable, `audit_event` because an audit row is neither updated nor deleted,
+     * `recipe_ingredient` because its rows are never addressed by id. See §12 of the design doc
+     * for the count: 13 derivable functions sat behind that coupling.
+     *
+     * **Per module and not per function**, which is what keeps it clear of the per-function
+     * opt-out §8.4 refused: it is one statement about this module's relationship to its entity,
+     * not a list of which generated names are wanted.
+     *
+     * Spelled negatively because a `Module` is zeroed and generating is the default. */
+    int repository_no_crud;
     int repository_line;
     int repository_col;
 } Module;

@@ -1344,9 +1344,11 @@ from source.
   id, `notification` because `eql.insert_one` is the only one of the nine it wants. Four of them
   have **13 derivable functions** between them, each a shape already derived elsewhere.
 
-  The shape of a fix is `#![repository(Notification, label: "..", crud: false)]`: a per-module
-  opt-out, which is what keeps it clear of the per-function configuration §8.4 refused. Measured,
-  written up, not built.
+  **Built as `crud: false`** (F219): `#![repository(Notification, label: "..", crud: false)]`
+  names the entity and generates none of the nine. A per-module opt-out, which keeps it clear of
+  the per-function configuration §8.4 refused. The four modules took it and the count came back
+  12 rather than 13 -- `notification.count_by_patient_id` takes an `Option<string>` and branches
+  on it, so it is a function with a predicate rather than a predicate with a name.
 
 
 - **Code generation from annotations needs a mechanism, not a series of exceptions. Not started;

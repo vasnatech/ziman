@@ -1869,8 +1869,15 @@ no rule gets both right from the type name. Without it the entity's own name is 
 is `"<label> not found: <id>"` when the query's predicate addresses the entity's key and that key
 renders as text (a `Uuid`, a number, a string), and `"<label> not found"` when it does not.
 
+`#![repository(Notification, crud: false)]` names the module's entity and generates **none** of the
+nine. A derived query (below) needs only the naming half of this attribute, and a module whose
+table should not have a generated `delete_all(conn)` -- an audit log, a users table -- can now say
+so and still derive its queries. It is a per-module statement, not a list of which generated names
+are wanted: the entity's own decisions stay beside the struct.
+
 An entity with no `#[pk]` field is an error: every one of the keyed functions addresses one row, and
-without a key nothing does. So is a `#[pk]` field of an `Option` type, and a second
+without a key nothing does -- unless `crud: false`, where none of them is generated and so none
+needs a key. So is a `#[pk]` field of an `Option` type, and a second
 `#![repository(..)]` in the same file -- one module, one entity.
 
 `#[repository]`, the declaration-level form, goes on a **bodyless `pub fn` whose name is its

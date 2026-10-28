@@ -2849,23 +2849,34 @@ static void parse_module_attributes(Parser *p, Module *module) {
                 module->repository_entity = dup_token_text(entity);
                 module->repository_line = entity->line;
                 module->repository_col = entity->col;
-                /* `, label: "Medication"` -- optional, and the only other thing the attribute
-                 * takes. Written `label:` rather than as a second bare string so that a reader
-                 * seeing `#![repository(Medication, "Medication")]` never has to guess which
-                 * argument is which, and so a third fact (if one is ever justified) does not
-                 * depend on position. */
-                if (match(p, TOK_COMMA)) {
-                    Token *key = expect(p, TOK_IDENT, "'label'");
-                    if (key->length != 5 || strncmp(key->start, "label", 5) != 0) {
+                /* `, label: "Medication"` and `, crud: false`, in any order -- the two things
+                 * the attribute takes beyond the entity, each written `key:` rather than as a
+                 * positional argument so that a reader never has to guess which is which. Both
+                 * are facts about this module's relationship to its entity; nothing here
+                 * configures an individual generated function (see docs/design/derived-queries.md
+                 * §8.4 for why that line is held). */
+                while (match(p, TOK_COMMA)) {
+                    Token *key = expect(p, TOK_IDENT, "'label' or 'crud'");
+                    if (key->length == 5 && strncmp(key->start, "label", 5) == 0) {
+                        expect(p, TOK_COLON, "':'");
+                        Token *text = expect(p, TOK_STRING_LIT, "the label in quotes, as a person says it");
+                        module->repository_label = (const char *)text->start;
+                    } else if (key->length == 4 && strncmp(key->start, "crud", 4) == 0) {
+                        expect(p, TOK_COLON, "':'");
+                        if (match(p, TOK_FALSE)) {
+                            module->repository_no_crud = 1;
+                        } else {
+                            expect(p, TOK_TRUE, "'true' or 'false'");
+                            module->repository_no_crud = 0;
+                        }
+                    } else {
                         ziman_error("syntax", key->line, key->col,
-                                    "unknown #![repository(..)] argument '%.*s' (the only one is 'label', "
-                                    "the entity as a person says it -- everything else a generated function "
-                                    "needs is written beside the struct)",
+                                    "unknown #![repository(..)] argument '%.*s' (the two are 'label', the "
+                                    "entity as a person says it, and 'crud', whether to generate the keyed "
+                                    "CRUD -- everything else a generated function needs is written beside "
+                                    "the struct)",
                                     key->length, key->start);
                     }
-                    expect(p, TOK_COLON, "':'");
-                    Token *text = expect(p, TOK_STRING_LIT, "the label in quotes, as a person says it");
-                    module->repository_label = (const char *)text->start;
                 }
                 expect(p, TOK_RPAREN, "')'");
             } else {

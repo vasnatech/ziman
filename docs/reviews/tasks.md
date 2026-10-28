@@ -3647,3 +3647,36 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   Three fixtures (`derived_query_label`, `derived_query_unknown_attribute_argument`, and
   `cli_emit_derived_query`'s re-recorded output). 1,282 fixtures, `make check` exit 0 with the
   North Star.
+
+- [x] **F219** **`crud: false`: naming an entity and generating its CRUD stop being one decision.**
+  (user-raised, "add crud: false"; done 2026-10-28.)
+
+  `#[repository]` is only accepted in a module carrying `#![repository(E)]`, and that attribute did
+  two jobs at once: it named the module's entity, which is all a derived query needs, and it
+  generated the nine keyed CRUD functions. **Seven of the sample backend's repositories had refused
+  the attribute outright, and every one of their written reasons was about the second job** --
+  `patient` and `user` because a generated `delete_all(conn)` over every account would be callable,
+  `audit_event` because an audit entry that can be edited is not one, `recipe_ingredient` because
+  its rows are never addressed by id, `notification` because `eql.insert_one` is the only one of the
+  nine it wants. So the grammar was not what kept derived queries out of those files; the coupling
+  was.
+
+  `#![repository(Notification, label: "Notification", crud: false)]` separates them. **Per module
+  and not per function**, which is what keeps it clear of the per-function opt-out §8.4 refused: it
+  is one statement about this module's relationship to its entity, not a list of which generated
+  names are wanted. The generator stops after the imports, which every derived query in the module
+  needs anyway, and the `#[pk]` requirement relaxes with the nine that needed it -- a module
+  generating none of them may have an entity with no key at all.
+
+  **Adopted in the four repositories that had something to gain: 12 functions**, not the 13 the
+  measurement predicted. `notification.count_by_patient_id` takes an `Option<string>` and branches
+  on it, so it is a function with a predicate rather than a predicate with a name -- the second of
+  those in this adoption, after `count_by_patient_id_and_statuses`, which returns 0 for an empty
+  list before reaching the database. Reading a name is not reading a body, and both were caught by
+  reading the body.
+
+  Backend totals after it: **80 functions derived in 23 repositories**, 121 `repository.query` vals
+  down to 54.
+
+  Three fixtures (`derived_query_no_crud`, `derived_query_no_crud_has_no_crud`, and the re-worded
+  unknown-argument refusal). 1,284 fixtures, `make check` exit 0 with the North Star.

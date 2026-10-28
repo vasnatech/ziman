@@ -1,0 +1,24 @@
+// The other half of what `crud: false` says: the nine are not there. `delete_all` is generated
+// for an ordinary `#![repository(Note)]` and is exactly the one `patient` and `user` refused the
+// attribute over -- every row of the table, in one call.
+#![repository(Note, crud: false)]
+
+use datasource
+use db.DbError
+use memdb
+
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: int
+    owner: int
+}
+
+#[repository]
+pub fn delete_by_owner(conn: datasource.Connection, owner: int) -> Result<int, DbError>
+
+fn main() {
+    val drivers = datasource.registry([memdb.driver()])
+    val conn = unwrap(datasource.open(drivers, "memdb:"))
+    print(unwrap(delete_all(conn)))
+}

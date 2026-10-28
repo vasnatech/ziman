@@ -433,20 +433,32 @@ a derivable `count_by_patient_id_and_status_in`, and is not, because its body re
 empty list before reaching the database -- `eql.bind_list` refuses an empty collection rather than
 guessing. A name can describe a query and still not describe the function.
 
-### The shape of a fix, not built
+### The fix, built
 
 **`#![repository(Notification, label: "Notification", crud: false)]`** -- the module is a
 repository over that entity, and the nine are not generated. It is a **per-module** opt-out, which
 is what keeps it clear of §8.4's rejection of per-function configuration, and it is one more
 argument on an attribute that already takes two.
 
-The alternatives considered and set aside:
+The generator stops after the imports: those are what every derived query in the module needs too
+(`eql`, `datasource`, `DbError`, `SqlValue`, the entity's `_meta` and `_from_row`), and they are
+the attribute's work whether or not the nine are wanted. The `#[pk]` requirement relaxes with
+them -- a key is what the nine address a row by, and a module that generates none of them may have
+an entity with no key at all.
+
+**Adopted, and the count came back 12 rather than 13**: `notification.count_by_patient_id` takes
+an `Option<string>` and branches on it, so it is a function with a predicate rather than a
+predicate with a name. That is the second one of those in this section, after
+`count_by_patient_id_and_statuses` -- a useful reminder that reading a name is not reading a
+body.
+
+The alternatives set aside:
 
 * **A list of what to generate** (`crud: [insert, find]`). This is the per-function opt-out under
   another name, and the thing §8.4 refused: it puts the entity's own decisions in the attribute
   instead of beside the struct.
 * **A second attribute** (`#![entity(E)]` for the naming, `#![repository(E)]` for naming plus
   CRUD). Honest, and it costs a second name in the language for a distinction one boolean states.
-* **Nothing**, and the four keep writing those 13 by hand. Defensible: they are 13 of 144, and
-  every one of them works. What it gives up is that `notification` and `patient` are exactly the
-  files where a hand-written predicate is most worth checking against the entity's fields.
+* **Nothing**, and the four keep writing those by hand. Defensible, and rejected: `notification`
+  and `patient` are exactly the files where a hand-written predicate is most worth checking
+  against the entity's fields.

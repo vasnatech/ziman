@@ -1463,11 +1463,15 @@ void generate_repository_functions(Module *module, StructDecl *sd, const char *e
     for (int i = 0; i < sd->fields.count; i++) {
         if (sd->fields.items[i].is_pk) key_count++;
     }
-    if (key_count == 0) {
+    /* **The key is what the nine generated functions need, so `crud: false` does not need one.**
+     * Each of them addresses one row by it; a module that generates none of them has only derived
+     * queries, whose predicates come from their own names and may never mention the key. */
+    if (key_count == 0 && !module->repository_no_crud) {
         ziman_error("syntax", line, col,
                     "#![repository(%s)] needs '%s' to mark at least one field #[pk] -- a repository's "
                     "find, update and delete each address one row, and without a key there is nothing "
-                    "that addresses one",
+                    "that addresses one (a module that wants the entity named without those nine says "
+                    "'crud: false')",
                     entity, entity);
         return;
     }
@@ -1513,6 +1517,15 @@ void generate_repository_functions(Module *module, StructDecl *sd, const char *e
                 }
             }
         }
+    }
+
+    /* **`crud: false` stops here, having done the imports and not the emitting.** The imports are
+     * what every derived query in the module needs too -- `eql`, `datasource`, `DbError`,
+     * `SqlValue`, the entity and its `_meta`/`_from_row` -- and they are this function's work
+     * whether or not the nine are wanted. Everything below builds the nine. */
+    if (module->repository_no_crud) {
+        if (g_emit_derived) printf("// repository(%s): 'crud: false', so none of the nine is generated\n", entity);
+        return;
     }
 
     /* `, id: Uuid` for each key field, and the block that turns them into a `[SqlValue]`. The
