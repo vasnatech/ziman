@@ -14,6 +14,9 @@ on:
     paths:
       - websites/ziman.dev/**
       - tools/check_site.py
+      - tools/gen_lib_map.py
+      # the library map is drawn from these, so a change to them changes the published site
+      - lib/**
       - .github/workflows/cloudflare-pages.yml
   workflow_dispatch:
 
@@ -38,6 +41,13 @@ jobs:
     steps:
       - name: Check out the repository
         uses: actions/checkout@v6
+
+      # The library map is drawn from lib/**/*.zm rather than committed, so it cannot fall out of
+      # step with the library. The generator is plain Python and reads the sources directly, so
+      # this needs no interpreter build. It runs before the check, which validates every page in
+      # the directory -- the map included.
+      - name: Draw the library map
+        run: python3 tools/gen_lib_map.py websites/ziman.dev/library-map.html
 
       - name: Check the site is fit to publish
         run: python3 tools/check_site.py websites/ziman.dev

@@ -48,3 +48,6 @@ logs/*.log.*
 
 # npx wrangler writes here when deploying websites/ (see websites/README.md)
 .wrangler/
+
+# drawn by tools/gen_lib_map.py at publish time, never committed
+websites/ziman.dev/library-map.html
