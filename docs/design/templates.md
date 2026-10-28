@@ -1,8 +1,15 @@
 # A template module: the shape of generated code, visible in the source
 
-Status: **design only.** Nothing below is built. Written because `#[derive(Ord)]` has just been
-ported out of C (`lib/core/derive_ord.zm`) and the port made the real problem visible: a generator
-written as `push`/`concat` hides the thing it exists to produce.
+Status: **built** (`lib/core/template.zm`), and in use by three generators. Written because
+`#[derive(Ord)]` had just been ported out of C and the port made the real problem visible: a
+generator written as `push`/`concat` hides the thing it exists to produce.
+
+**How to read this.** §§1-11 are the design as first written, kept as written. §§12-16 are what
+building it changed, in the order it changed them -- including two conclusions that were wrong
+(§14's "conversions cannot be templates", §15's seven scattered vals) and are corrected there
+rather than quietly edited above. The three sections a reader wants *current* rather than
+historical -- the syntax, the data model and the API -- have been brought up to date in place,
+each saying what moved and where the reasoning for the move lives.
 
 ## 1. The problem, in one comparison
 
@@ -56,13 +63,21 @@ That is the same problem as binding values to holes in a parsed template.
 ## 3. The syntax
 
 ```
+sheet      := { template }
+template   := "@template" name NEWLINE { line } "@end" NEWLINE
 hole       := "@{" name { "." name } "}"
-directive  := "@for" ident "in" name | "@if" name | "@else" | "@end"
+directive  := "@for" ident "in" name | "@choose" name | "@when" tag | "@otherwise"
+            | "@yield" name | "@end"
 escape     := "@@"
 ```
 
-A directive **occupies its whole line** and emits nothing, not even the newline. Everything else
-is literal text.
+A directive **occupies its whole line** and emits nothing, not even the newline; every other line
+of a template's body carries its own, including the last. Everything else is literal text.
+
+**This is the grammar as built.** The first version had no `@template` (a source was one
+anonymous template), no `@choose`/`@when`/`@otherwise` and no `@yield`, and it had `@if`/`@else`
+in their place -- which were built, went unused by two generators, and were removed. §15 has the
+argument and §16 the evidence that removing them was right.
 
 **`@` and not `{}`, which is the one place this parts company with `format`.** A code template's
 output is mostly braces:
@@ -137,10 +152,13 @@ shape, for `eql.bind`'s reason:
 
 ```ziman
 pub fn text(name: string, value: string) -> Binding
-pub fn flag(name: string, value: bool) -> Binding
 pub fn rows(name: string, value: [Row]) -> Binding
 pub fn row(cells: [Binding]) -> Row
 ```
+
+There was a `flag(name, value: bool)` too, read only by `@if`, and it went when `@if` did (§15):
+a `@choose` reads a *tag*, which is a `text`. **The binding kinds are `text` and `rows`**, which
+is a simplification of the data model and not only of the grammar.
 
 ```ziman
 val out = try template.render(compare_template, [
@@ -167,12 +185,20 @@ nesting two loops is unambiguous and shadowing is impossible by construction.
 
 ## 6. Parsed once, at module load
 
-`template.parse(text) -> Result<Template, string>` and `template.render(t, bindings) ->
-Result<string, string>`, with the parse living in a module-level `val`:
+```ziman
+pub fn parse(source: string) -> Result<Sheet, string>
+pub fn must_parse(source: string) -> Sheet
+pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string>
+```
+
+with the parse living in a module-level `val`:
 
 ```ziman
-val compare_template = template.must_parse("""...""")
+val sheet = template.must_parse("""...""")
 ```
+
+`render` naming its template is what lets one `val` serve a whole generator; §15 is why a source
+is a *sheet* rather than one anonymous template.
 
 This is `repository.query`'s pattern exactly, and it buys the same thing: **a malformed template
 fails when the module loads, not on the first call that happens to reach it.** A generator's
@@ -191,13 +217,19 @@ Each names what was wrong and what was available, as `eql` does for a mistyped f
 * a hole naming nothing bound -- listing what is bound
 * a binding nothing uses -- the same mistake from the other side, and the more likely one after a
   template is edited
-* `@for` over a name bound to text, or `@if` over a name bound to rows
+* `@for` over a name bound to text, or `@choose` over one bound to rows
 * `@{r.cell}` where `r` is not a loop binder, or `cell` is not in the row
 * `@end` with nothing open, or a template ending with something open
-* `@else` with no `@if` open, a second `@else` for one `@if`, or an `@else` closing a `@for`
-* a directive line with trailing text after it
+* a name the sheet has no template for -- listing the ones it has
+* **a tag matching no `@when`, with no `@otherwise`** -- at render, naming the tag and the cases.
+  This one cannot be a parse-time check: the tag is a value.
+* `@when` or `@otherwise` outside a `@choose`; a second `@otherwise`; a `@choose` with no `@when`
+* text between `@choose` and its first `@when`
+* `@template` inside a `@template`; two templates sharing a name; a bare `@template` with no
+  name; text outside any `@template`
 
-The first two are the reason `render` answers a `Result` rather than a `string`.
+The first two are the reason `render` answers a `Result` rather than a `string`. The last group
+arrived with sheets (§15); `@if`'s own refusals went with it.
 
 ## 8. Where this sits relative to the generators
 
@@ -257,6 +289,8 @@ design, and worth a check rather than a comment.
    already pinned byte for byte by `tests/lang/derive_ord_in_ziman.out` -- and port `derive_row`
    after, with that fixture as the guard.
 2. **Then port the generators**, and delete each C version as its Ziman replacement lands.
+   Three of five are ported (§§13, 14, 16) and **none of the C is deleted yet**, because nothing
+   calls the Ziman ones -- see §17.
 
 ## 12. The same generator, both ways
 
@@ -720,8 +754,25 @@ design against, and the wrong inline construct is how a line-oriented grammar st
 Worth revisiting when a second generator wants it; `derive_json`'s object literal is the likely
 candidate.
 
-### What is left
+## 17. Where this leaves the generators
 
-**`derive_json`**, the last and largest of the five, and the one that will say whether the inline
-list above is a one-off. After that the C generators are all replaced in Ziman and only the
-bridge stands between them and being the ones that actually run.
+Three of the five are Ziman and byte-identical to the C: `Ord` (§13), `Row` (§14),
+`Properties` (§16). Each carries **`#![generator(X)]`** and exports **`generate`**, so the link
+from a derive target to its generator is a declaration the compiler checks rather than a name it
+concatenates -- see `docs/design/user-generators.md`, and note that the attribute is *checked*
+and not yet *dispatched on*.
+
+**Nothing calls any of them.** `#[derive(X)]` is still a `strcmp` over five names in
+`src/derive.c`, and no C references `lib/core/derive_*.zm`. The templates and these three
+generators are a verified replacement waiting for one thing, and it is worth being plain that
+until it lands they are three bundled modules of dead weight whose only consumer is their own
+fixtures.
+
+What is left, in order:
+
+1. **`derive_json`**, the last and largest of the five, and the one that says whether §16's
+   inline-list gap is a one-off or wants a construct.
+2. **The bridge** -- `docs/design/user-generators.md` §12: a C function building a `meta.Decl`
+   value, and per-generator-module initialisation. It is shared with user-defined derives, which
+   is why it is written up there rather than here.
+3. **Then delete the C**, one generator at a time, each as its replacement starts running.
