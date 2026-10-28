@@ -1308,6 +1308,16 @@ from source.
   **What this is not**: a macro system. The input is a declaration and the output is source text,
   exactly as today. Nothing here proposes running user code over expressions or statements.
 
+  **A template module is designed and not built** -- `docs/design/templates.md`, 2026-10-28. The
+  port made the case for it visible: a generator written as `push`/`concat` hides the thing it
+  exists to produce, and `derive.c` is 240 `cb_appendf` calls and 291 `\n` escapes assembling
+  source a fragment at a time. `@{name}` holes, `@for`/`@if`/`@end` on their own lines, bindings
+  in `eql.bind`'s shape, parsed at module load like `repository.query`. **No expressions of any
+  kind**: `@if` takes a bound boolean, and anything that needs computing is computed in Ziman,
+  where the type checker can see it. The open question the design defers to evidence is whether
+  that holds up for a generator larger than `Ord` -- so `derive_row` gets written both ways
+  before either is committed to.
+
   This is the continuation of "Code generation from annotations needs a mechanism" below, whose
   questions 2 (writing into another module), 4 (materialising generated declarations) and 5
   (checking the name contract) are all easier to answer once the generator is Ziman.
