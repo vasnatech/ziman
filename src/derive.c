@@ -2071,6 +2071,60 @@ static char *build_query_sql(const char *entity, QueryVerb verb, const QShape *s
     return cb.data;
 }
 
+/* The key's value as a person reads it, for the `NotFound` message -- `uuid.format(id)` for a
+ * `Uuid`, `str(n)` for a number, the string itself for a string. NULL for every other type, and
+ * then the message carries the label alone rather than a rendering nobody asked for: `format`
+ * prints a struct as its fields (`uuid::Uuid { bytes: [17, 17, ..] }`), which in a 404 body would
+ * be worse than saying nothing. */
+static char *key_text_expr(Module *module, Type t, const char *expr, int line, int col) {
+    switch (t.kind) {
+        case TY_STRING:
+            return fmt_str("%s", expr);
+        case TY_INT:
+        case TY_FLOAT:
+        case TY_BOOL:
+        case TY_BIGINT:
+        case TY_DECIMAL:
+            return fmt_str("str(%s)", expr);
+        case TY_STRUCT:
+        case TY_ENUM:
+            if (type_is_named(t, "Uuid")) {
+                ensure_module_import(module, "uuid", line, col);
+                return fmt_str("uuid.format(%s)", expr);
+            }
+            return NULL;
+        default:
+            return NULL;
+    }
+}
+
+/* The message a derived query's `NotFound` carries: `"Medication not found: <id>"` when the
+ * predicate addresses the entity's key and the key renders, `"Medication not found"` when it does
+ * not. The label is `#![repository(E, label: "..")]`'s, or the entity's own name when none was
+ * given -- see ast.h's `repository_label` for why a generator cannot work it out.
+ *
+ * The shape is `<label> not found: <id>` because that is what the application this was adopted in
+ * already wrote, by hand, in 31 places, and its own comment says why the id is in it: a 404 in a
+ * log with no id cannot be matched to a request. */
+static char *not_found_expr(Module *module, StructDecl *sd, const QShape *shape, FunctionDecl *fn) {
+    const char *label = module->repository_label != NULL ? module->repository_label : module->repository_entity;
+    int keys = 0;
+    for (int i = 0; i < sd->fields.count; i++) {
+        if (sd->fields.items[i].is_pk) keys++;
+    }
+    if (keys == 1) {
+        for (int i = 0; i < shape->term_count; i++) {
+            if (shape->terms[i].op != QO_EQ) continue;
+            Param *f = entity_field(sd, shape->terms[i].column);
+            if (f == NULL || !f->is_pk) continue;
+            char *text = key_text_expr(module, column_param_type(f), f->name, fn->line, fn->col);
+            if (text == NULL) break;
+            return fmt_str("DbError.NotFound(concat(\"%s not found: \", %s))", label, text);
+        }
+    }
+    return fmt_str("DbError.NotFound(\"%s not found\")", label);
+}
+
 /* The `[eql.Binding]` the body hands to `eql`, built from the parameters the name asked for.
  * Each value goes through `emit_to_sql` -- the same conversion `<name>_to_params` is built from --
  * so a parameter reaches SQL by exactly the route its column does. */
@@ -2252,7 +2306,7 @@ static void generate_one_derived_query(Module *module, StructDecl *sd, FunctionD
         case RK_ENTITY:
             cb_appendf(&cb, "    val __found = try eql.one<%s>(%s, %s, __bindings, %s_from_row)\n", entity, conn, val_name, snake);
             cb_appendf(&cb, "    if Some(__row) = __found {\n        return __row\n    }\n");
-            cb_appendf(&cb, "    return err(DbError.NotFound(\"no %s matching %s\"))\n", entity, fn->name);
+            cb_appendf(&cb, "    return err(%s)\n", not_found_expr(module, sd, shape, fn));
             break;
         case RK_INT:
             if (verb == QV_COUNT) {
@@ -2268,7 +2322,7 @@ static void generate_one_derived_query(Module *module, StructDecl *sd, FunctionD
         case RK_UNIT:
             cb_appendf(&cb, "    val __deleted = try eql.execute(%s, %s, __bindings)\n", conn, val_name);
             cb_appendf(&cb, "    if __deleted == 0 {\n");
-            cb_appendf(&cb, "        return err(DbError.NotFound(\"no %s matching %s\"))\n", entity, fn->name);
+            cb_appendf(&cb, "        return err(%s)\n", not_found_expr(module, sd, shape, fn));
             cb_appendf(&cb, "    }\n    return unit\n");
             break;
         case RK_OTHER:

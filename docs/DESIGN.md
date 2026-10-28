@@ -10277,9 +10277,17 @@ shapes the feature was counted on.
 
 **The fix is one optional argument on the module attribute**, `#![repository(Medication, label:
 "Medication")]`, where a label is a fact about the module's entity rather than about any one
-query. Not built. The alternative -- a message per function -- is the per-function configuration
-both the module attribute and the derived-query design refused, and it would write the text once
-per query instead of once per entity.
+query. Built the same day, in about forty lines: the parser takes `label:`, and the generator
+writes `DbError.NotFound(concat("Medication not found: ", uuid.format(id)))` -- the text the
+application had written by hand in 31 places. The alternative, a message per function, is the
+per-function configuration both the module attribute and the derived-query design refused, and it
+would write the text once per query instead of once per entity.
+
+The id is in the message when the predicate has a plain-equality term on the entity's single
+`#[pk]` column and that column renders as text (`uuid.format`, `str`, or a string as itself).
+Deliberately **not** `format`, which prints a struct as its fields -- `uuid::Uuid { bytes: [17,
+17, ..] }` in a 404 body is worse than the label alone, which is what a type with no rendering
+gets.
 
 The general lesson is the one the `eql` adoption already recorded in a different shape: a
 generator can write a query from a declaration, and it cannot write anything the declaration does

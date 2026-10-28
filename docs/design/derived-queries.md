@@ -343,7 +343,8 @@ Those are not two spellings of one thing:
   the message is part of what is being matched.
 
 So `find -> Result<E, DbError>` and `delete -> Result<unit, DbError>` were **reverted** after the
-first attempt and are not used anywhere in the backend. Everything derived there is a form that
+first attempt -- and then made usable by the fix below, which is the whole value of having
+adopted it. Everything derived there is a form that
 answers no message: `delete -> Result<int>`, `count`, `exists`, `find -> Result<Option<E>>`,
 `find -> Result<[E]>`.
 
@@ -355,13 +356,24 @@ shapes. **Both of those are message-answering forms**, so 27 of the 69 in that t
 this ground alone, and what converted is the other kind: `delete_by_patient_id` (19),
 `count_by_patient_id`, `delete_by_medication_id`, `delete_by_panel_id`, `find_by_user_id`.
 
-### Three ways out, none built
+### Three ways out; the first was built the same day
 
-1. **The label on the module attribute** -- `#![repository(Medication, label: "Medication")]`. One
-   place per module, which is where a label naturally lives, and it is a fact about the module's
-   entity rather than about any one query. The generator would then write
-   `"Medication not found: <id>"` and the forms become usable. **This is the recommendation**: it
-   adds one optional argument and no per-function configuration.
+1. **The label on the module attribute** -- `#![repository(Medication, label: "Medication")]`.
+   One place per module, which is where a label naturally lives, and it is a fact about the
+   module's entity rather than about any one query. **Built**, as one optional argument and no
+   per-function configuration. The generator now writes
+   `DbError.NotFound(concat("Medication not found: ", uuid.format(id)))` -- the same text the
+   application wrote by hand in 31 places.
+
+   The id is in it when the predicate has a plain-equality term on the entity's single `#[pk]`
+   column and that column's type renders as text: `uuid.format` for a `Uuid`, `str` for a number,
+   the value itself for a string. Otherwise the message is the label alone. **Not `format`**,
+   which prints a struct as its fields (`uuid::Uuid { bytes: [17, 17, ..] }`) and would put that
+   in a 404 body.
+
+   Without the argument the entity's own name is the label, so `"Note not found: 42"`. That is
+   better than the first attempt's `"no Note matching delete_by_id_and_owner"` whether or not a
+   project gives the label, which is why the fallback changed too.
 2. **The message on the function** -- `#[repository(not_found: "...")]`. Rejected on sight: it is
    the per-function configuration §8.4 and the module attribute's own design both refused, and the
    text would be written once per query instead of once per entity.

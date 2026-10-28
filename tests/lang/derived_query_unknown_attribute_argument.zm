@@ -1,0 +1,16 @@
+// `label` is the only argument beside the entity, and an unknown one is refused by name rather
+// than ignored: everything else a generated function needs is written beside the struct.
+#![repository(Note, table: "notes")]
+
+use datasource
+use db.DbError
+
+#[derive(Row, Entity("notes"))]
+pub struct Note {
+    #[pk]
+    id: int
+}
+
+fn main() {
+    print(1)
+}

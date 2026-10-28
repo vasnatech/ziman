@@ -1,0 +1,65 @@
+// `#![repository(E, label: "..")]` gives the entity its name **as a person says it**, which is
+// the one thing a derived query needs and the struct cannot supply: `MedicationRefillLog` is
+// "Medication refill log" to a reader, no rule recovers that, and the text reaches a 404 body.
+//
+// It is read by the two forms that answer `DbError.NotFound` -- `find` returning `Result<E, ..>`
+// and `delete` returning `Result<unit, ..>` -- and by nothing else.
+#![repository(VitalSign, label: "Vital sign")]
+
+use datasource
+use db.DbError
+use memdb
+use uuid
+
+#[derive(Row, Entity("vital_signs"))]
+pub struct VitalSign {
+    #[pk]
+    id: uuid.Uuid
+    patient_id: uuid.Uuid
+    reading: int
+}
+
+#[repository]
+pub fn find_by_id_and_patient_id(
+    conn: datasource.Connection,
+    id: uuid.Uuid,
+    patient_id: uuid.Uuid
+) -> Result<VitalSign, DbError>
+
+#[repository]
+pub fn delete_by_id_and_patient_id(
+    conn: datasource.Connection,
+    id: uuid.Uuid,
+    patient_id: uuid.Uuid
+) -> Result<unit, DbError>
+
+// No term addresses the key, so there is no id to name and the message is the label alone.
+#[repository]
+pub fn find_by_patient_id_and_reading(
+    conn: datasource.Connection,
+    patient_id: uuid.Uuid,
+    reading: int
+) -> Result<VitalSign, DbError>
+
+fn main() {
+    val drivers = datasource.registry([memdb.driver()])
+    val conn = unwrap(datasource.open(drivers, "memdb:"))
+    unwrap(datasource.execute(
+        conn,
+        "CREATE TABLE vital_signs (id TEXT PRIMARY KEY, patient_id TEXT NOT NULL, reading INTEGER NOT NULL)"
+    ))
+    val missing = unwrap(uuid.parse("00000000-0000-0000-0000-000000000000"))
+    val patient = unwrap(uuid.parse("11111111-1111-1111-1111-111111111111"))
+    unwrap(insert(conn, VitalSign { id: patient, patient_id: patient, reading: 70 }))
+
+    if Err(e) = find_by_id_and_patient_id(conn, missing, patient) {
+        print(error_message(e))
+    }
+    if Err(e) = delete_by_id_and_patient_id(conn, missing, patient) {
+        print(error_message(e))
+    }
+    if Err(e) = find_by_patient_id_and_reading(conn, patient, 99) {
+        print(error_message(e))
+    }
+    print(unwrap(find_by_patient_id_and_reading(conn, patient, 70)).reading)
+}

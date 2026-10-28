@@ -97,7 +97,7 @@ fn delete_by_id_and_owner(conn: datasource.Connection, id: int, owner: int) -> R
     val __bindings: [eql.Binding] = [eql.bind("id", __value_id), eql.bind("owner", __value_owner)]
     val __deleted = try eql.execute(conn, delete_by_id_and_owner_query, __bindings)
     if __deleted == 0 {
-        return err(DbError.NotFound("no Note matching delete_by_id_and_owner"))
+        return err(DbError.NotFound(concat("Note not found: ", str(id))))
     }
     return unit
 }

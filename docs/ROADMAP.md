@@ -1329,9 +1329,10 @@ from source.
   wording. That costs the two most repeated shapes in §2's table (`find_by_id_and_patient_id` x12,
   the scoped `delete` x15).
 
-  **The next move on this is one optional argument**: `#![repository(Medication, label:
-  "Medication")]`, a fact about the module's entity rather than per-function configuration, which
-  would make both forms usable and finish the adoption. Measured but not built.
+  **That was fixed the same day with one optional argument** (F218): `#![repository(Medication,
+  label: "Medication")]`, a fact about the module's entity rather than per-function configuration.
+  The generator writes `"Medication not found: <id>"`, the text the application had by hand, so
+  both forms are usable and the adoption can finish.
 
 
 - **Code generation from annotations needs a mechanism, not a series of exceptions. Not started;

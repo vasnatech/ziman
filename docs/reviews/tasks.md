@@ -3605,3 +3605,45 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `cli_emit_derived_query`, asserts the generated text itself: one private `Translated` val per
   function, translated when the module loads, and the body that binds to it.
   1,280 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F218** **`#![repository(E, label: "..")]`: the one fact about an entity a generator cannot
+  work out.** (user-raised, "add the label argument to the repository attribute"; done 2026-10-28.)
+
+  F217's derived queries were adopted across the sample backend the same day, and the adoption
+  found one limit: the two forms that answer `DbError.NotFound` -- `find` returning
+  `Result<E, DbError>` and `delete` returning `Result<unit, DbError>` -- make the *generator* write
+  the message, and it wrote `"no Medication matching find_by_id_and_patient_id"` from the only two
+  things it had. The application writes `"Medication not found: <uuid>"`, two of its suites assert
+  that wording in a check named *"a 404 is worded exactly as Spring words it"*, and the first
+  conversion pass was reverted on it. So those two forms -- `find_by_id_and_patient_id` x12 and the
+  scoped `delete` x15, two of the six repeated shapes the whole feature was counted on -- were
+  unusable.
+
+  **The missing fact is the entity's label, and the application had already proved it is not
+  derivable.** From `repository.not_found`'s own comment, written long before any of this:
+  *"`label` is the entity as a person says it ("Vital sign", "Medication refill log"), not as the
+  struct spells it: these messages reach API responses, where `VitalSign` would be the first time a
+  reader met the internal name. That is why it is an argument rather than derived from the
+  entity."* No word-splitting rule recovers "Medication refill log" from `MedicationRefillLog` and
+  gets "Vital sign" right too, and a generator that guesses wrong puts the guess in a 404 body.
+
+  So the attribute takes it: `#![repository(Medication, label: "Medication")]`, **per module and
+  not per function**, because it is one fact about the module's entity and a message written once
+  per query would be a place for two of them to disagree -- the same reasoning that kept everything
+  else off the attribute. Written `label:` rather than as a second bare string so that a reader
+  never has to guess which argument is which. An unknown argument is refused by name.
+
+  The generator writes `DbError.NotFound(concat("Medication not found: ", uuid.format(id)))`. The
+  id is in it -- the application's comment says why: *a 404 in a log with no id cannot be matched
+  to a request* -- when the predicate has a plain-equality term on the entity's single `#[pk]`
+  column and that column renders as text: `uuid.format` for a `Uuid`, `str` for a number, the
+  string itself. **Deliberately not `format`**, which prints a struct as its fields
+  (`uuid::Uuid { bytes: [17, 17, ..] }`); a type with no rendering gets the label alone instead.
+
+  Without the argument the entity's own name is the label, so `"Note not found: 42"`. The fallback
+  changed too, because it is better than the first attempt's wording whether or not a project gives
+  a label.
+
+  Three fixtures (`derived_query_label`, `derived_query_unknown_attribute_argument`, and
+  `cli_emit_derived_query`'s re-recorded output). 1,282 fixtures, `make check` exit 0 with the
+  North Star.

@@ -1042,13 +1042,30 @@ typedef struct {
     /* `#![repository(Entity)]` at the top of this module's own file: the module is a repository
      * over that entity, and the CRUD functions it does not write by hand are generated from the
      * entity's own metamodel -- its columns, and the `#[pk]` fields that address one of its rows.
-     * The attribute names the entity and nothing else on purpose: every other fact a generated
-     * function needs is already written beside the struct, and repeating one here would be a
-     * second place for it to be wrong.
+     * The attribute names the entity and **one thing the entity cannot say**: every other fact a
+     * generated function needs is already written beside the struct, and repeating one here would
+     * be a second place for it to be wrong.
      *
      * Resolved in loader.c rather than in the parser, because the struct is in another file: see
      * the comment at the generation point in `load_module`. */
     const char *repository_entity;
+    /* `#![repository(Medication, label: "Medication")]`'s label: the entity **as a person says
+     * it**, for the `DbError.NotFound` a derived query raises when it answers one row and finds
+     * none. NULL when the attribute did not give one, and the entity's own name is used instead.
+     *
+     * **It is here rather than derived because it is not a fact about the struct.** The sample
+     * backend reached that conclusion on its own, before any of this existed, in the comment on
+     * its `repository.not_found`: *"`label` is the entity as a person says it ("Vital sign",
+     * "Medication refill log"), not as the struct spells it: these messages reach API responses,
+     * where `VitalSign` would be the first time a reader met the internal name."* No
+     * pluralisation or word-splitting rule recovers "Medication refill log" from
+     * `MedicationRefillLog` and gets "Vital sign" right too -- and a generator that guesses wrong
+     * puts the guess in a 404 body.
+     *
+     * **Per module, not per function**, for the same reason the entity is: it is one fact about
+     * the module's entity, and a message written once per query would be a place for two of them
+     * to disagree. See docs/design/derived-queries.md §11. */
+    const char *repository_label;
     int repository_line;
     int repository_col;
 } Module;

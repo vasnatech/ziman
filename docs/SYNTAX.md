@@ -1847,9 +1847,9 @@ app.zm:9:1: warning: module 'oldmod' is deprecated: use newmod instead
 
 `#![repository(Entity)]` says the module is a repository over that entity, and generates the CRUD
 functions whose body the entity decides: `insert`, `update`, `find`, `find_or_error`, `exists`,
-`delete`, `find_all`, `count_all` and `delete_all`. The entity is required and is the only argument
--- everything else a generated function needs is already written beside the struct, and repeating
-one here would be a second place for it to be wrong. The table and column list come from
+`delete`, `find_all`, `count_all` and `delete_all`. The entity is required, and the only other
+thing the attribute takes is `label:` -- everything else a generated function needs is already
+written beside the struct, and repeating one here would be a second place for it to be wrong. The table and column list come from
 `#[derive(Entity("table"))]`, and the parameters of the keyed functions come from its `#[pk]`
 fields, so `delete(conn, id: Uuid)` takes that name and that type because the entity's key is
 `#[pk] id: Uuid`; a compound key makes it `delete(conn, patient_id: Uuid, broadcast_id: Uuid)`.
@@ -1860,6 +1860,14 @@ as well as an id keeps it, where a generated keyed version replacing it would si
 guarantee. The trade is that the file does not say which of its functions are generated --
 `--emit-derived` prints them and names each one it skipped, and `--api` on the module names the
 attribute, since reading one file cannot reach the entity in another.
+
+`#![repository(Medication, label: "Medication")]` adds the entity's name **as a person says it**,
+and nothing else reads it: the `DbError.NotFound` a derived query raises when it answers one row
+and finds none. It is an argument because it is not a fact about the struct --
+`MedicationRefillLog` is "Medication refill log" to a reader and `VitalSign` is "Vital sign", and
+no rule gets both right from the type name. Without it the entity's own name is used. The message
+is `"<label> not found: <id>"` when the query's predicate addresses the entity's key and that key
+renders as text (a `Uuid`, a number, a string), and `"<label> not found"` when it does not.
 
 An entity with no `#[pk]` field is an error: every one of the keyed functions addresses one row, and
 without a key nothing does. So is a `#[pk]` field of an `Option` type, and a second
@@ -1939,6 +1947,11 @@ An operator changes what the term asks for: `in` takes one parameter of `[T]`, `
 `ignore_case` take what the plain term would. A column declared `Option<T>` asks for a `T`, not an
 `Option<T>`: `col = NULL` matches no row in any engine, so the None side of a nullable column is
 what `_is_null` is for.
+
+The two forms that can answer `NotFound` -- `find` returning `Result<E, DbError>` and `delete`
+returning `Result<unit, DbError>` -- word it from the module attribute's `label:`, as above. A
+repository whose error text is part of its interface wants that argument; without it the message
+names the struct.
 
 Everything else about the function is checked before any SQL exists, and reported at the line the
 function was written on: a term naming no column (listing the ones the entity has), a name with
