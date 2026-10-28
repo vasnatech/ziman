@@ -15,6 +15,87 @@ a block its height, which it answers by doing the same wrapping it would have dr
 
 `use layout` -- or `use layout.Name` to bring one item in bare.
 
+## Example
+
+```
+use font
+use geom
+use layout
+use paint
+use scene
+
+// Flows, wrapping, tables and pagination: the layer that turns headings, paragraphs and tables
+// into coordinates. The rest of `lib/graphics` puts a path or a glyph at a point, and this exists
+// because that is not enough -- a caller doing its own layout cannot ask how tall the next block
+// will be, so it guesses, and a hand-made export once printed 17pt past its own bottom margin on
+// three pages of five.
+//
+// The answer is three functions over one closed set of blocks: `measure` says how tall, `split`
+// divides one that does not fit, and `draw` places it. A page break is then decided by asking,
+// not by guessing.
+fn demo() -> Result<unit, string> {
+    // Courier, because measuring needs widths: the standard fonts ship no width table here, and
+    // Courier is monospaced so its advances are arithmetic. An embedded face is the other way.
+    val body = font.standard(font.StandardFont.Courier)
+    val heading = font.standard(font.StandardFont.CourierBold)
+    val ink = paint.solid(paint.black())
+
+    val prose = layout.text_block(
+        concat(
+            "Ziman is a small, statically-typed language whose syntax and semantics are designed ",
+            "to be cheap for an LLM to generate correctly and cheap for a human to read."
+        ),
+        0,
+        11.0,
+        ink,
+        layout.para_style()
+    )
+    val doc = layout.document([
+        layout.text_block("The language", 1, 18.0, ink, layout.para_style()),
+        layout.spacer(6.0),
+        prose
+    ], [body, heading])
+
+    // Measuring is the whole point: the same wrapping the drawing would do, answered as a height
+    // before anything is drawn. Narrower means taller, because the words have to go somewhere.
+    val wide = try layout.measure(prose, 400.0, doc)
+    val narrow = try layout.measure(prose, 200.0, doc)
+    print(narrow > wide)
+
+    // `split` divides a block that does not fit the room left on the page, and answers both
+    // halves -- so the break is where the text allows rather than where the loop noticed.
+    val split = try layout.split_block(prose, 200.0, 20.0, doc)
+    print(Option.is_Some(split.rest))
+
+    // `draw` places a block at a point and answers the scene operations for it.
+    val ops = try layout.draw(prose, geom.point_of(0.0, 0.0), 400.0, doc)
+    print(len(ops) > 0)
+
+    // Pagination runs the three over a whole document: one Scene per page, each ready for the PDF
+    // or the raster backend without either knowing anything about paragraphs.
+    val pages = try layout.paginate(doc, layout.page_template(300.0, 120.0, 20.0))
+    print(len(pages) > 1)
+    printf("{} {}\n", pages[0].width, pages[0].height)
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("layout example failed: {}\n", e)
+    }
+}
+```
+
+Output:
+
+```
+true
+true
+true
+true
+300.0 120.0
+```
+
 ## The model
 
 ### `Align`

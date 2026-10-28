@@ -1,0 +1,41 @@
+use font
+
+// Fonts as the drawing layers see them: a face to name, metrics to lay text out with, and a
+// coverage test. A `FontRef` is either one of the PDF standard fourteen -- which a reader already
+// has, so nothing is embedded -- or a face loaded from a TrueType file and embedded in the output.
+fn demo() -> Result<unit, string> {
+    val courier = font.standard(font.StandardFont.Courier)
+    print(font.base_font_name(font.StandardFont.Courier))
+    print(font.base_font_name(font.StandardFont.TimesBoldItalic))
+
+    // Vertical metrics scale with the size, which is what a line of text needs to be placed.
+    printf("{} {} {}\n", font.ascent(courier, 10.0), font.descent(courier, 10.0), font.line_height(courier, 10.0))
+    print(font.line_height(courier, 20.0) == font.line_height(courier, 10.0) * 2.0)
+
+    // Courier is monospaced, so an advance is arithmetic: ten characters are ten times one.
+    val one = try font.advance(courier, "x", 10.0)
+    val ten = try font.advance(courier, "xxxxxxxxxx", 10.0)
+    print(ten == one * 10.0)
+
+    // The standard fonts carry no width table here, so measuring a proportional one is refused
+    // rather than guessed -- the message says to embed a face or use Courier.
+    print(is_ok(font.advance(font.standard(font.StandardFont.Helvetica), "x", 10.0)))
+
+    // `covers` answers None when the face can draw every character, and otherwise the code point
+    // of the first one it cannot -- so a caller can name the character that was the problem
+    // rather than reporting that something, somewhere, was.
+    print(try font.covers(courier, "Ziman"))
+    print(try font.covers(courier, "Ziman 中"))
+
+    // Text to code points, and the hex a PDF writes them as.
+    print(font.codepoints_of("Zi"))
+    print(font.codepoint_of("Z"))
+    print(font.hex4(90))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("font example failed: {}\n", e)
+    }
+}
