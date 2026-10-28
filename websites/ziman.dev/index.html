@@ -158,6 +158,8 @@ td:first-child { white-space: nowrap; font-family: var(--mono); font-size: .85re
 .links a:hover { text-decoration: underline }
 .links span { display: block; color: var(--ink-soft); font-size: .92rem }
 
+.example-group h3 { font-family: var(--display); font-size: .95rem; margin: 26px 0 9px }
+.example-group h3 span { font-family: var(--body); font-weight: 400; font-size: .82rem; color: var(--ink-soft); margin-left: 8px }
 .chips { display: flex; flex-wrap: wrap; gap: 7px; margin: 0; padding: 0; list-style: none }
 .chips a {
   display: inline-block;
@@ -418,42 +420,108 @@ hello, ziman</pre>
   <div class="wrap wrap--wide">
     <p class="eyebrow">Examples</p>
     <p style="max-width:68ch">
-      One runnable program per library module, each stored with its expected output and checked by
-      the suite &mdash; so an example that drifts from the library fails the build rather than
-      misleading you.
+      One runnable program per library module &mdash; 67 of the 68 &mdash; each stored with its
+      expected output and run by the test suite, so an example that drifts from the library fails
+      the build rather than misleading you. They are grouped here the way they are grouped in the
+      repository, mirroring <code>lib/</code>.
     </p>
-    <ul class="chips">
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/http/client_example.zm">client</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/clock_example.zm">clock</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/compress_example.zm">compress</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/crypto_example.zm">crypto</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/csv_example.zm">csv</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db/datasource_example.zm">datasource</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db/db_example.zm">db</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/fs_example.zm">fs</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/http/http_example.zm">http</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/json_example.zm">json</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/log_example.zm">log</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/markdown_example.zm">markdown</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/math_example.zm">math</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/mime_example.zm">mime</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/ndjson_example.zm">ndjson</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/net_example.zm">net</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/number_example.zm">number</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/os_example.zm">os</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/prelude/prelude_example.zm">prelude</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/properties_example.zm">properties</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/random_example.zm">random</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/regex_example.zm">regex</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/http/server_example.zm">server</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db/sqlite_example.zm">sqlite</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/thread_example.zm">thread</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/time/time_example.zm">time</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/toml_example.zm">toml</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/uuid_example.zm">uuid</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/xml_example.zm">xml</a></li>
-      <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/yaml_example.zm">yaml</a></li>
-    </ul>
+      <div class="example-group">
+        <h3>Prelude <span>always available, no import</span></h3>
+      </div>
+      <ul class="chips">
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/prelude/array_example.zm">array</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/prelude/channel_example.zm">channel</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/prelude/iter_example.zm">iter</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/prelude/map_example.zm">map</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/prelude/mutable_example.zm">mutable</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/prelude/option_example.zm">option</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/prelude/prelude_example.zm">prelude</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/prelude/result_example.zm">result</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/prelude/set_example.zm">set</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/prelude/string_example.zm">string</a></li>
+      </ul>
+      <div class="example-group">
+        <h3>Core <span>formats, files, text, crypto, network</span></h3>
+      </div>
+      <ul class="chips">
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/bits_example.zm">bits</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/clock_example.zm">clock</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/compress_example.zm">compress</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/crypto_example.zm">crypto</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/csv_example.zm">csv</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/encoding_example.zm">encoding</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/fs_example.zm">fs</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/json_example.zm">json</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/jwt_example.zm">jwt</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/log_example.zm">log</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/markdown_example.zm">markdown</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/math_example.zm">math</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/metrics_example.zm">metrics</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/mime_example.zm">mime</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/ndjson_example.zm">ndjson</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/net_example.zm">net</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/number_example.zm">number</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/os_example.zm">os</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/otp_example.zm">otp</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/process_example.zm">process</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/properties_example.zm">properties</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/random_example.zm">random</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/regex_example.zm">regex</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/test_example.zm">test</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/thread_example.zm">thread</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/toml_example.zm">toml</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/url_example.zm">url</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/uuid_example.zm">uuid</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/xml_example.zm">xml</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/core/yaml_example.zm">yaml</a></li>
+      </ul>
+      <div class="example-group">
+        <h3>Databases <span>one API over three engines</span></h3>
+      </div>
+      <ul class="chips">
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db/datasource_example.zm">datasource</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db/db_example.zm">db</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db/eql_example.zm">eql</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db/memdb_example.zm">memdb</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db/migrate_example.zm">migrate</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db/mysql_example.zm">mysql</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db/pg_example.zm">pg</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db/sql_example.zm">sql</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/db/sqlite_example.zm">sqlite</a></li>
+      </ul>
+      <div class="example-group">
+        <h3>HTTP <span>server and client</span></h3>
+      </div>
+      <ul class="chips">
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/http/client_example.zm">client</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/http/http_example.zm">http</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/http/server_example.zm">server</a></li>
+      </ul>
+      <div class="example-group">
+        <h3>Time <span>dates, zones, scheduling</span></h3>
+      </div>
+      <ul class="chips">
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/time/schedule_example.zm">schedule</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/time/time_example.zm">time</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/time/zone_example.zm">zone</a></li>
+      </ul>
+      <div class="example-group">
+        <h3>Graphics <span>a 2D model with PDF and raster backends</span></h3>
+      </div>
+      <ul class="chips">
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/graphics/font_example.zm">font</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/graphics/geom_example.zm">geom</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/graphics/image_example.zm">image</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/graphics/layout_example.zm">layout</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/graphics/paint_example.zm">paint</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/graphics/pdf_example.zm">pdf</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/graphics/pdfobj_example.zm">pdfobj</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/graphics/raster_example.zm">raster</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/graphics/scene_example.zm">scene</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/graphics/shape_example.zm">shape</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/graphics/stroker_example.zm">stroker</a></li>
+        <li><a href="https://github.com/vasnatech/ziman/blob/main/docs/lib/examples/graphics/truetype_example.zm">truetype</a></li>
+      </ul>
     <p class="caption" style="margin-top:18px">
       Beyond the examples there is a whole application: <strong>health-record-backend-ziman</strong>,
       an HTTP backend with 27 repositories over SQLite and PostgreSQL, used as the language&rsquo;s

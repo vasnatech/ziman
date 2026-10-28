@@ -14,6 +14,8 @@ on:
     paths:
       - websites/ziman.dev/**
       - tools/check_site.py
+      # the page lists every worked example, and the check above proves it still does
+      - docs/lib/examples/**
       - tools/gen_lib_map.py
       # the library map is drawn from these, so a change to them changes the published site
       - lib/**
@@ -50,7 +52,7 @@ jobs:
         run: python3 tools/gen_lib_map.py websites/ziman.dev/library-map.html
 
       - name: Check the site is fit to publish
-        run: python3 tools/check_site.py websites/ziman.dev
+        run: python3 tools/check_site.py websites/ziman.dev --examples docs/lib/examples
 
       - name: Deploy to Cloudflare Pages
         if: env.HAS_CLOUDFLARE == 'true'

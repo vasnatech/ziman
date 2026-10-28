@@ -6,6 +6,7 @@ stopped parsing, lost its title or lost a file: `make check` does not look at we
 workflows run this, and so can you:
 
     python3 tools/check_site.py websites/ziman.dev
+    python3 tools/check_site.py websites/ziman.dev --examples docs/lib/examples
 
 It checks only what is cheap and certain -- presence, the title, the CNAME text, and that the HTML
 has no unclosed or stray tags. It deliberately does not try to validate the page's claims; the
@@ -14,6 +15,7 @@ things that can drift are listed in websites/README.md under "Keeping the page t
 
 import io
 import os
+import re
 import sys
 from html.parser import HTMLParser
 
@@ -41,7 +43,29 @@ class Walk(HTMLParser):
             self.stray.append((tag, self.getpos()))
 
 
-def check(directory):
+def check_examples(page, examples_dir, problems):
+    """Every worked example is linked from the page, and every link points at one that exists.
+
+    The list on ziman.dev is hand-written HTML, so it drifts the moment a module gains an example
+    -- silently, because a stale list still renders perfectly well. This makes the drift fail the
+    deploy instead: the page is checked against the directory rather than against someone's
+    memory."""
+    on_disk = set()
+    for folder in sorted(os.listdir(examples_dir)):
+        d = os.path.join(examples_dir, folder)
+        if not os.path.isdir(d):
+            continue
+        for fn in sorted(os.listdir(d)):
+            if fn.endswith("_example.zm"):
+                on_disk.add("%s/%s" % (folder, fn))
+    linked = set(re.findall(r"examples/([a-z]+/[a-z_]+_example\.zm)", page))
+    for missing in sorted(on_disk - linked):
+        problems.append("index.html does not link docs/lib/examples/%s" % missing)
+    for stale in sorted(linked - on_disk):
+        problems.append("index.html links docs/lib/examples/%s, which does not exist" % stale)
+
+
+def check(directory, examples_dir=None):
     problems = []
 
     def require_file(name):
@@ -51,8 +75,11 @@ def check(directory):
             return None
         return io.open(path, encoding="utf-8").read()
 
-    require_file("index.html")
+    index = require_file("index.html")
     require_file("logo.svg")
+
+    if examples_dir is not None and index is not None:
+        check_examples(index, examples_dir, problems)
 
     cname = os.path.join(directory, "CNAME")
     if os.path.isfile(cname):
@@ -82,14 +109,19 @@ def check(directory):
 
 
 def main(argv):
+    examples_dir = None
+    if len(argv) == 4 and argv[2] == "--examples":
+        examples_dir = argv[3].rstrip("/")
+        argv = argv[:2]
     if len(argv) != 2:
-        print("usage: check_site.py <site directory>", file=sys.stderr)
+        print("usage: check_site.py <site directory> [--examples <examples directory>]",
+              file=sys.stderr)
         return 2
     directory = argv[1].rstrip("/")
     if not os.path.isdir(directory):
         print("check_site.py: %s is not a directory" % directory, file=sys.stderr)
         return 2
-    problems = check(directory)
+    problems = check(directory, examples_dir)
     for p in problems:
         print("check_site.py: %s" % p, file=sys.stderr)
     if problems:
