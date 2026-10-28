@@ -30,6 +30,11 @@ GROUPS = [
     ("HTTP", "http", ["http", "server", "client"]),
     ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql", "memdb", "sql", "eql"]),
     ("Testing", "core", ["test"]),
+    # The compiler's own metamodel and the generators written against it -- `meta` is what
+    # `src/derive.c` hands a generator, and `derive_ord` is the first generator to be written in
+    # Ziman rather than C. A reader reaches these through `#[derive(Ord)]`, not by importing them,
+    # which is why they are their own group rather than filed under Data.
+    ("Deriving", "core", ["meta", "derive_ord"]),
     ("Graphics", "graphics", ["geom", "shape", "paint", "scene", "pdfobj", "pdf", "truetype", "font", "image", "stroker", "raster", "layout"]),
 ]
 

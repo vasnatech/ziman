@@ -103,6 +103,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | `url` | percent-encoding, shared by `http` and `db` |
 | `locale`\* | a `Locale` from the operating system's own locale data, and the process-wide default that locale-aware functions use when given none; the invariant `root()` is what protocol and identifier code folds case with |
 | `db`, `sql`\*, `eql`\*, `sqlite`, `pg`\*, `mysql`\*, `memdb`\* | one database API over SQLite, PostgreSQL, MySQL and an in-memory SQL engine written in Ziman, with pooling, a SQL statement tree and an entity query language over it |
+| `meta`\*, `derive_ord`\* | a declaration as a generator sees it, and `#[derive(Ord)]`'s generator written in Ziman rather than in the compiler's C -- see [docs/ROADMAP.md](docs/ROADMAP.md) |
 
 \* Experimental: less real-world use than the rest of the library, so treat a gap or a
 protocol-conformance bug as more likely here. See [docs/DESIGN.md](docs/DESIGN.md)

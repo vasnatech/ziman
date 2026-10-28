@@ -1,0 +1,87 @@
+// `#[derive(Ord)]`, written in Ziman.
+//
+// **The first generator to move out of `src/derive.c`**, and the port is meant to be read against
+// the C it replaced: same input, same output text, byte for byte. A generator is a function from
+// a declaration to source, and `meta.Decl` is what makes that expressible here -- so this file is
+// ordinary Ziman that `--fmt`, `--lint` and `ziman test` can all see, where the C was outside
+// every one of them. See docs/ROADMAP.md's "Derives should be written in Ziman, not in C".
+#![experimental]
+
+use meta
+
+// A struct compares field by field in declaration order, the first difference deciding; an enum
+// compares by variant position first and then by payload when both are the same variant. Each
+// member goes through the `compare` builtin, so a member whose own type is not `Ord` is reported
+// by the type checker against the generated text -- which is the same place the C version put it.
+pub fn derive_ord(d: meta.Decl) -> string {
+    if d.is_enum {
+        return enum_compare(d)
+    }
+    return struct_compare(d)
+}
+
+fn signature(d: meta.Decl) -> string {
+    val self = meta.type_text(d)
+    return concat(
+        "pub fn ",
+        d.snake_name,
+        "_compare",
+        meta.type_params_bounded(d, ": Ord"),
+        "(a: ",
+        self,
+        ", b: ",
+        self,
+        ") -> int {\n"
+    )
+}
+
+fn struct_compare(d: meta.Decl) -> string {
+    val out = mutable_array_new<string>()
+    push(out, signature(d))
+    for m in d.members {
+        push(out, concat("    val c_", m.name, " = compare(a.", m.name, ", b.", m.name, ")\n"))
+        push(out, concat("    if c_", m.name, " != 0 {\n        return c_", m.name, "\n    }\n"))
+    }
+    push(out, "    return 0\n}\n\n")
+    return concat(pieces: snapshot(out))
+}
+
+// **The ranks are computed, not matched on**, because a generated `switch` would have to name
+// every variant's payload binder and an enum's variants may carry none. `ra`/`rb` start at 0, so
+// the last variant is the one left to the `!is_<first>` test rather than given its own `if`.
+fn enum_compare(d: meta.Decl) -> string {
+    val out = mutable_array_new<string>()
+    push(out, signature(d))
+    push(out, "    var ra = 0\n    var rb = 0\n")
+    val last = prelude.len(d.members) - 1
+    for i in 0..last {
+        val v = d.members[i].name
+        push(out, concat("    if ", d.name, ".is_", v, "(a) {\n        ra = ", str(i), "\n    }\n"))
+        push(out, concat("    if ", d.name, ".is_", v, "(b) {\n        rb = ", str(i), "\n    }\n"))
+    }
+    val first = d.members[0].name
+    push(out, concat("    if ra == 0 && !", d.name, ".is_", first, "(a) {\n        ra = ", str(last), "\n    }\n"))
+    push(out, concat("    if rb == 0 && !", d.name, ".is_", first, "(b) {\n        rb = ", str(last), "\n    }\n"))
+    push(out, "    if ra < rb {\n        return -1\n    }\n    if ra > rb {\n        return 1\n    }\n")
+    for m in d.members {
+        if m.has_payload {
+            push(out, concat(
+                "    if ",
+                d.name,
+                ".is_",
+                m.name,
+                "(a) {\n        return compare(",
+                d.name,
+                ".unwrap_",
+                m.name,
+                "(a), ",
+                d.name,
+                ".unwrap_",
+                m.name,
+                "(b))\n    }\n"
+            ))
+        }
+    }
+    push(out, "    return 0\n}\n\n")
+    return concat(pieces: snapshot(out))
+}

@@ -94,6 +94,13 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 |---|---|
 | [`test`](test.md) | Assertions for #[test] functions. |
 
+## Deriving
+
+| Module | What it is |
+|---|---|
+| [`meta`](meta.md) | A declaration, as a generator sees it. |
+| [`derive_ord`](derive_ord.md) | `#[derive(Ord)]`, written in Ziman. |
+
 ## Graphics
 
 | Module | What it is |

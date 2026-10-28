@@ -13,6 +13,7 @@ flowchart LR
         compress["compress"]
         crypto["crypto"]
         csv["csv"]
+        derive_ord["derive_ord"]
         encoding["encoding"]
         fs["fs"]
         json["json"]
@@ -21,6 +22,7 @@ flowchart LR
         log["log"]
         markdown["markdown"]
         math["math"]
+        meta["meta"]
         metrics["metrics"]
         mime["mime"]
         ndjson["ndjson"]
@@ -81,6 +83,7 @@ flowchart LR
     db --> net
     db --> number
     db --> url
+    derive_ord --> meta
     encoding --> locale
     encoding --> number
     eql --> datasource
@@ -239,8 +242,8 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `locale`, `math`, `net`, `random`, `regex`, `thread` |
-| 1 | `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `xml` |
+| 0 | `bits`, `clock`, `compress`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
+| 1 | `derive_ord`, `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `xml` |
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
 | 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sql`, `sqlite`, `time`, `uuid` |
@@ -258,6 +261,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `csv` | `fs`, `json`, `number` | - |
 | `datasource` | `clock`, `db` | `eql`, `migrate` |
 | `db` | `net`, `number`, `url` | `datasource`, `eql`, `memdb`, `migrate`, `mysql`, `pg`, `sql`, `sqlite`, `time`, `uuid` |
+| `derive_ord` | `meta` | - |
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `font` | `truetype` | `layout`, `pdf`, `raster` |
@@ -273,6 +277,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `markdown` | `math` | - |
 | `math` | - | `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
 | `memdb` | `db`, `locale`, `sql` | - |
+| `meta` | - | `derive_ord` |
 | `metrics` | `os` | `server` |
 | `migrate` | `crypto`, `datasource`, `db`, `encoding`, `fs`, `os`, `time` | - |
 | `mime` | `locale` | `client`, `http`, `server` |

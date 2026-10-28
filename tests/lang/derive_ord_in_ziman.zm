@@ -1,0 +1,48 @@
+// `#[derive(Ord)]`'s generator, written in Ziman and called as an ordinary function.
+//
+// **This is the test the C version could not have.** A generator in `src/derive.c` can only be
+// exercised end to end -- run a program, compare its output -- because there is no way to call
+// `generate_struct_ord` on a declaration and read the text back. Here the generator is a function
+// from a `meta.Decl` to a string, so its output is just a value to compare, and the three shapes
+// that matter (a struct, a generic struct, an enum with and without payloads) are three calls.
+//
+// The expected text is what `src/derive.c` emits today, byte for byte. See docs/ROADMAP.md's
+// "Derives should be written in Ziman, not in C".
+use derive_ord
+use meta
+
+fn member(name: string) -> meta.Member {
+    return meta.Member { name: name, type_name: "int", has_payload: false }
+}
+
+fn variant(name: string, payload: bool) -> meta.Member {
+    return meta.Member { name: name, type_name: "int", has_payload: payload }
+}
+
+fn main() {
+    val none: [string] = []
+    val point = meta.Decl {
+        name: "Point",
+        snake_name: "point",
+        is_enum: false,
+        type_params: none,
+        members: [member("x"), member("y")]
+    }
+    print(derive_ord.derive_ord(point))
+    val boxed = meta.Decl {
+        name: "Box",
+        snake_name: "box",
+        is_enum: false,
+        type_params: ["T", "U"],
+        members: [member("first"), member("second")]
+    }
+    print(derive_ord.derive_ord(boxed))
+    val shape = meta.Decl {
+        name: "Shape",
+        snake_name: "shape",
+        is_enum: true,
+        type_params: none,
+        members: [variant("Dot", false), variant("Line", true), variant("Area", false)]
+    }
+    print(derive_ord.derive_ord(shape))
+}

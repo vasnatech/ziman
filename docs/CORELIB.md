@@ -282,6 +282,15 @@ pub fn format(rows: Json, sep: string) -> Result<string, string>
 
 ```
 
+## `derive_ord`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub fn derive_ord(d: meta.Decl) -> string
+
+```
+
 ## `encoding`
 
 ```
@@ -792,6 +801,42 @@ pub fn is_nan(x: float) -> bool
 pub fn is_infinite(x: float) -> bool
 
 pub fn is_finite(x: float) -> bool
+
+```
+
+## `meta`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub struct Member {
+    name: string
+    // The member's type as the compiler renders it -- `int`, `[string]`, `Option<Uuid>`. For an
+    // enum variant it is the payload's type, and is empty when there is no payload.
+    type_name: string
+    // Enum variants only: whether this one carries a payload. Always false for a struct's field.
+    has_payload: bool
+}
+
+pub struct Decl {
+    // The declaration's own name, as written: `LocalDate`.
+    name: string
+    // The same name in the spelling generated functions use: `local_date`, so a generator writes
+    // `local_date_compare` without repeating the compiler's conversion rule.
+    snake_name: string
+    // `true` for an `enum`, `false` for a `struct`. Two kinds, so a bool rather than a tag -- a
+    // third kind would be a reason to change this, and there is no third kind.
+    is_enum: bool
+    // The declaration's own type parameters, bare: `["T", "U"]` for `struct Box<T, U>`, empty for
+    // a declaration that is not generic.
+    type_params: [string]
+    // A struct's fields in declaration order, or an enum's variants in declaration order.
+    members: [Member]
+}
+
+pub fn type_params_bounded(d: Decl, bound: string) -> string
+
+pub fn type_text(d: Decl) -> string
 
 ```
 

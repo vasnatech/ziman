@@ -1279,6 +1279,32 @@ from source.
   exercises the struct *and* the enum shape. **Delete the C version rather than keeping it as a
   fallback**: two implementations of one generator is the failure this should not buy.
 
+  **Started 2026-10-28. The generator exists and is proved equivalent; the bridge is not built.**
+  `lib/core/meta.zm` is the reified declaration (`Decl`, `Member`, and the two helpers a signature
+  needs) and `lib/core/derive_ord.zm` is `#[derive(Ord)]` written in Ziman. Its output is
+  **byte-identical** to `src/derive.c`'s over a struct, a generic struct and an enum with and
+  without payloads, which `tests/lang/derive_ord_in_ziman` asserts -- and that fixture is itself
+  the argument for the port, being a test the C version could not have: a generator in C can only
+  be exercised end to end, where this one is a function from a declaration to a string.
+
+  **What the C still does, and what is left.** `derive.c` runs its own `generate_struct_ord` on
+  every real `#[derive(Ord)]`; nothing calls the Ziman generator yet. The missing piece is the
+  bridge, and the architecture for it is now known rather than guessed:
+
+  * **It is sequential, not re-entrant.** `ziman test` already loads, type-checks and runs several
+    independent programs in one process, so a generator program loaded *before* the user program
+    is the same shape, not a new one. `interpret_tests` is the harness to copy: set `g_program`
+    and `g_global_env`, push a `<module initialisation>` frame, `init_param_defaults` and
+    `init_global_vals`, then `call_function` under a `ThreadBoundary`.
+  * **Two things have to be built**: a loader entry point that makes a program out of a *bundled*
+    module (`load_module_graph` only takes a disk path, and a generator must ship in the binary),
+    and a C function that builds a `Decl` value -- `struct_obj_new` is the primitive, and no
+    native builds a struct today, so this would be the first.
+  * **`g_program` and `g_global_env` are single globals**, which is what makes the ordering
+    load-bearing: the generator must be fully initialised before the user program's load begins,
+    and `interpret(user)` reclaims both afterwards. `--lsp`, which loads repeatedly, needs its own
+    look.
+
   **What this is not**: a macro system. The input is a declaration and the output is source text,
   exactly as today. Nothing here proposes running user code over expressions or statements.
 

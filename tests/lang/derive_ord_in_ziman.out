@@ -1,0 +1,60 @@
+pub fn point_compare(a: Point, b: Point) -> int {
+    val c_x = compare(a.x, b.x)
+    if c_x != 0 {
+        return c_x
+    }
+    val c_y = compare(a.y, b.y)
+    if c_y != 0 {
+        return c_y
+    }
+    return 0
+}
+
+
+pub fn box_compare<T: Ord, U: Ord>(a: Box<T, U>, b: Box<T, U>) -> int {
+    val c_first = compare(a.first, b.first)
+    if c_first != 0 {
+        return c_first
+    }
+    val c_second = compare(a.second, b.second)
+    if c_second != 0 {
+        return c_second
+    }
+    return 0
+}
+
+
+pub fn shape_compare(a: Shape, b: Shape) -> int {
+    var ra = 0
+    var rb = 0
+    if Shape.is_Dot(a) {
+        ra = 0
+    }
+    if Shape.is_Dot(b) {
+        rb = 0
+    }
+    if Shape.is_Line(a) {
+        ra = 1
+    }
+    if Shape.is_Line(b) {
+        rb = 1
+    }
+    if ra == 0 && !Shape.is_Dot(a) {
+        ra = 2
+    }
+    if rb == 0 && !Shape.is_Dot(b) {
+        rb = 2
+    }
+    if ra < rb {
+        return -1
+    }
+    if ra > rb {
+        return 1
+    }
+    if Shape.is_Line(a) {
+        return compare(Shape.unwrap_Line(a), Shape.unwrap_Line(b))
+    }
+    return 0
+}
+
+
