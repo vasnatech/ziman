@@ -1,23 +1,31 @@
 use time
 
-// Dates, times, durations and instants. Constructors check their fields and return a Result.
-fn main() {
-    val d = unwrap(time.localdate_of(2026, 1, 31))
+// Dates, times, durations and instants. Constructors check their fields and return a Result, so
+// the work propagates with `try` and a bad field is reported once rather than asserted away.
+fn demo() -> Result<unit, string> {
+    val d = try time.localdate_of(2026, 1, 31)
     print(time.format(d))
     print(time.format(time.add_months(d, 1)))  // clamped to the month's length
     print(is_ok(time.localdate_of(2026, 2, 30)))
-    print(time.diff_days(unwrap(time.localdate_of(2026, 12, 25)), d))
+    print(time.diff_days(try time.localdate_of(2026, 12, 25), d))
 
-    val dt = time.localdatetime_of(d, unwrap(time.localtime_of(23, 30, 0, 0)))
+    val dt = time.localdatetime_of(d, try time.localtime_of(23, 30, 0, 0))
     print(time.format(time.add_minutes(dt, 45)))  // carries into the next day
 
     // An instant is a point on the timeline; an offset says how a clock reads it.
-    val at = time.to_instant(dt, unwrap(time.zoneoffset_of_hours_minutes(5, 30)))
+    val at = time.to_instant(dt, try time.zoneoffset_of_hours_minutes(5, 30))
     print(time.format(at))
     print(time.format(time.add(at, time.duration_of_seconds(90, 0))))
 
     // Any type reads back its own text form; a pattern is compiled once and reused.
-    print(time.format(unwrap(time.parse_duration("PT1.5S"))))
+    print(time.format(try time.parse_duration("PT1.5S")))
     val fmt = time.datetime_format_of("dd/MM/yyyy HH:mm")
     print(time.format(dt, fmt))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("time example failed: {}\n", e)
+    }
 }

@@ -1,24 +1,38 @@
 use mime
 
-fn main() {
+// Parsing a media type answers a Result; looking one up by file extension answers an Option, since
+// a path simply may not have a known type.
+fn demo() -> Result<unit, string> {
     // Parse the text form; type, subtype and parameter names are lower-cased.
-    val m = unwrap(mime.parse("Text/HTML; Charset=UTF-8"))
+    val m = try mime.parse("Text/HTML; Charset=UTF-8")
     print(mime.essence(m))
     print(mime.charset(m))
     print(mime.format(mime.with_param(m, "charset", "iso-8859-1")))
 
-    // A malformed type is an Err that says what is wrong.
-    print(unwrap_err(mime.parse("json")))
+    // A malformed type is an Err that says what is wrong -- this one is meant to fail, so it is
+    // taken apart here instead of propagating.
+    if Err(e) = mime.parse("json") {
+        print(e)
+    }
 
     // Match against a range, ignoring parameters.
-    val texts = unwrap(mime.parse("text/*"))
+    val texts = try mime.parse("text/*")
     print(mime.matches(texts, m))
     print(mime.matches(texts, mime.application_json()))
 
     // A `+json` suffix counts as JSON.
-    print(mime.is_json(unwrap(mime.parse("application/vnd.api+json"))))
+    print(mime.is_json(try mime.parse("application/vnd.api+json")))
 
     // The type of a file, by its extension.
-    print(mime.essence(Option.unwrap_Some(mime.of_path("/srv/report.csv"))))
+    if Some(by_path) = mime.of_path("/srv/report.csv") {
+        print(mime.essence(by_path))
+    }
     print(Option.is_None(mime.of_path("Makefile")))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("mime example failed: {}\n", e)
+    }
 }

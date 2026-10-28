@@ -75,9 +75,12 @@ val drivers = datasource.registry([sqlite.driver()])
 
 // Bound parameters, rows, and a transaction that rolls back on an error. `sqlite::memory:` is a
 // private in-memory database; `postgres://...` and `mysql://...` URLs work the same way.
-fn main() {
-    val conn = unwrap(datasource.open(drivers, "sqlite::memory:"))
-    unwrap(datasource.execute(
+//
+// Every call here answers the same DbError, so the work propagates with `try` and `main` reports
+// once at the end.
+fn demo() -> Result<unit, DbError> {
+    val conn = try datasource.open(drivers, "sqlite::memory:")
+    try datasource.execute(
         conn,
         """
         CREATE TABLE person (
@@ -85,22 +88,26 @@ fn main() {
             name TEXT NOT NULL
         )
         """
-    ))
-    unwrap(datasource.execute(conn, "INSERT INTO person (name) VALUES (?)", SqlValue.Text("Ada")))
+    )
+    try datasource.execute(conn, "INSERT INTO person (name) VALUES (?)", SqlValue.Text("Ada"))
 
-    val rows = unwrap(datasource.query(conn, "SELECT id, name FROM person"))
+    val rows = try datasource.query(conn, "SELECT id, name FROM person")
     print(len(rows))
-    print(unwrap(sql_as_text(unwrap(row_get(rows[0], "name")))))
+    print(try sql_as_text(try row_get(rows[0], "name")))
 
     // A large result is read one row at a time with rows, instead of building the whole array.
-    val cursor = unwrap(datasource.rows(conn, "SELECT id, name FROM person"))
-    for row in cursor {
-        print(unwrap(sql_as_text(unwrap(row_get(unwrap(row), "name")))))
+    // Each row arrives as a Result, since the read can fail after the first one has been handed out.
+    for row in try datasource.rows(conn, "SELECT id, name FROM person") {
+        if Ok(found) = row {
+            print(try sql_as_text(try row_get(found, "name")))
+        }
     }
 
-    // A constraint violation is its own kind of error.
-    val bad = datasource.execute(conn, "INSERT INTO person (name) VALUES (NULL)")
-    print(db_error_message(unwrap_err(bad)))
+    // A constraint violation is its own kind of error, and switch names the kinds apart from the
+    // statements that succeed.
+    if Err(e) = datasource.execute(conn, "INSERT INTO person (name) VALUES (NULL)") {
+        print(db_error_message(e))
+    }
 
     // with_transaction commits when the work returns Ok and rolls back when it returns Err.
     val failed = datasource.with_transaction<int>(conn, fn(tx: datasource.Connection) -> Result<int, DbError> {
@@ -108,8 +115,15 @@ fn main() {
         return err(DbError.Sql("changed my mind"))
     })
     print(is_ok(failed))
-    print(len(unwrap(datasource.query(conn, "SELECT id FROM person"))))
+    print(len(try datasource.query(conn, "SELECT id FROM person")))
     datasource.close(conn)
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("datasource example failed: {}\n", db_error_message(e))
+    }
 }
 ```
 

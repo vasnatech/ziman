@@ -3,7 +3,9 @@ use uuid
 fn main() {
     val id = uuid.uuid_new()
     print(byte_len(uuid.format(id)))
-    val again = unwrap(uuid.parse(uuid.format(id)))
-    print(id == again)
+    // Parsing answers a Result, so the comparison happens where the parse succeeded.
+    if Ok(again) = uuid.parse(uuid.format(id)) {
+        print(id == again)
+    }
     print(is_ok(uuid.parse("not-a-uuid")))
 }

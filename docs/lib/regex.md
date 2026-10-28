@@ -38,7 +38,15 @@ alternatives.
 use regex
 
 fn main() {
-    val re = unwrap(regex.compile("(\\w+)@(\\w+)\\.com"))
+    // A pattern is compiled once. Both arms do work here, so this is a switch rather than an `if`:
+    // one names the compiled regex, the other reports why the pattern was refused.
+    val re = switch regex.compile("(\\w+)@(\\w+)\\.com") {
+        Ok(compiled) { compiled }
+        Err(e) {
+            printf("regex example failed: {}\n", e)
+            return
+        }
+    }
     print(Option.is_Some(regex.find(re, "mail bob@site.com now")))
     print(regex.replace_all(re, "bob@site.com, amy@corp.com", "$2: $1"))
     print(is_ok(regex.compile("(unclosed")))

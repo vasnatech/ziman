@@ -57,17 +57,36 @@ use server
 
 // Routes with path parameters, a JSON reply, and a 404 for everything else. The client module's
 // example shows the same server from the other side.
+//
+// `route` answers Some only when method and pattern both match, and the match carries the path
+// parameters -- so one `if` both tests the route and names what it captured.
 fn handle(req: http.Request) -> http.Response {
-    val user = server.route(req, HttpMethod.Get, "/users/{id}")
-    if Option.is_Some(user) {
-        val id = server.param(Option.unwrap_Some(user), "id")
+    if Some(user) = server.route(req, HttpMethod.Get, "/users/{id}") {
+        val id = server.param(user, "id")
         return server.json_response(200, concat(concat("{\"id\":\"", id), "\"}"))
     }
     return server.not_found_or_method_not_allowed(req, ["GET /users/{id}"])
 }
 
+// The two requests, which answer the same ClientError; decoding the body answers a plain string.
+fn exchanges(base: string) -> Result<unit, client.ClientError> {
+    val found = try client.get(concat(base, "/users/42"))
+    if Ok(body) = bytes_to_string(found.body) {
+        print(body)
+    }
+    val other = try client.get(concat(base, "/other"))
+    print(other.status)
+    return unit
+}
+
 fn main() {
-    val listener = unwrap(net.listen("127.0.0.1", 0))
+    val listener = switch net.listen("127.0.0.1", 0) {
+        Ok(l) { l }
+        Err(e) {
+            printf("listen failed: {}\n", net.net_error_message(e))
+            return
+        }
+    }
     val options = with server.serve_options() {
         idle_timeout_ms: 2000,
         header_timeout_ms: 2000,
@@ -78,10 +97,10 @@ fn main() {
         max_connections_per_client: 0
     }
     spawn server.serve(listener, handle, options)
-    val base = format("http://127.0.0.1:{}", net.listener_port(listener))
 
-    print(unwrap(bytes_to_string(unwrap(client.get(concat(base, "/users/42"))).body)))
-    print(unwrap(client.get(concat(base, "/other"))).status)
+    if Err(e) = exchanges(format("http://127.0.0.1:{}", net.listener_port(listener))) {
+        printf("server example failed: {}\n", client.client_error_message(e))
+    }
 }
 ```
 

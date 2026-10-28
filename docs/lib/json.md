@@ -42,18 +42,19 @@ use json
 use json.Json
 use json.int_to_json
 
-// Parse text into a tree, read from it, build a new tree and print it.
-fn main() {
-    val doc = unwrap(json.parse("""
+// Parse text into a tree, read from it, build a new tree and print it. Parsing and the `require_*`
+// readers all answer a plain string on failure, so one `try` chain covers the reading.
+fn demo() -> Result<unit, string> {
+    val doc = try json.parse("""
         {
           "name": "Ada",
           "langs": ["en", "fr"],
           "age": 36
         }
-        """))
+        """)
 
-    print(unwrap(json.require_string(doc, "name")))
-    print(unwrap(json.require_int(doc, "age")))
+    print(try json.require_string(doc, "name"))
+    print(try json.require_int(doc, "age"))
 
     // A missing field is a value you can test, not a crash.
     print(Option.is_None(json.get(doc, "email")))
@@ -70,6 +71,13 @@ fn main() {
 
     // Bad input is an Err carrying where it went wrong.
     print(is_ok(json.parse("{\"a\": ")))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("json example failed: {}\n", e)
+    }
 }
 ```
 

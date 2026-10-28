@@ -1,17 +1,29 @@
+use db.DbError
 use db.SqlValue
+use db.db_error_message
 use db.row_get
 use db.sql_as_int
 use fs
 use sqlite
 
 // The SQLite driver on its own. Most programs use it through `datasource.open("sqlite:...")` instead.
+fn demo(path: string) -> Result<unit, DbError> {
+    val conn = try sqlite.open(path)
+    try sqlite.execute(conn, "CREATE TABLE t (n INTEGER, label TEXT)")
+    try sqlite.execute(conn, "INSERT INTO t VALUES (?, ?)", SqlValue.Int(7), SqlValue.Text("seven"))
+    val rows = try sqlite.query(conn, "SELECT n FROM t")
+    print(try sql_as_int(try row_get(rows[0], "n")))
+    sqlite.close(conn)
+    return unit
+}
+
 fn main() {
     val path = "/tmp/ziman_manual_sqlite_example.db"
-    val conn = unwrap(sqlite.open(path))
-    unwrap(sqlite.execute(conn, "CREATE TABLE t (n INTEGER, label TEXT)"))
-    unwrap(sqlite.execute(conn, "INSERT INTO t VALUES (?, ?)", SqlValue.Int(7), SqlValue.Text("seven")))
-    val rows = unwrap(sqlite.query(conn, "SELECT n FROM t"))
-    print(unwrap(sql_as_int(unwrap(row_get(rows[0], "n")))))
-    sqlite.close(conn)
-    unwrap(fs.remove(path))
+    if Err(e) = demo(path) {
+        printf("sqlite example failed: {}\n", db_error_message(e))
+    }
+    // Removing the file answers an fs.FsError rather than a DbError, so it is taken on its own.
+    if Err(e) = fs.remove(path) {
+        printf("could not remove {}: {}\n", path, fs.fs_error_message(e))
+    }
 }

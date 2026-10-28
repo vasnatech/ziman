@@ -2,8 +2,10 @@ use xml
 
 // XML is a tree of its own, not a Json tree: text and elements interleave, attributes are not
 // children, and a name is identified by its namespace rather than its prefix.
-fn main() {
-    val doc = unwrap(xml.parse("""
+//
+// Navigation answers Option, because any step can be absent; parsing and writing answer Result.
+fn demo() -> Result<unit, string> {
+    val doc = try xml.parse("""
         <?xml version="1.0" encoding="UTF-8"?>
         <record xmlns="urn:hl7-org:v3">
           <patient><name>Ann Lee</name></patient>
@@ -13,21 +15,26 @@ fn main() {
           </section>
           <note>Take <em>2</em> tablets &amp; rest.</note>
         </record>
-        """))
+        """)
 
     // `find` follows child names; namespaces are resolved but do not have to be spelled out.
+    // Two attributes, two Options, one `if` -- a later part of the condition sees the earlier binds.
     for entry in xml.find(doc.root, "section/entry") {
-        print(format(
-            "{}: {}",
-            unwrap(xml.attr(entry, "substance")),
-            unwrap(xml.attr(entry, "severity"))
-        ))
+        if Some(substance) = xml.attr(entry, "substance") && Some(severity) = xml.attr(entry, "severity") {
+            print(format("{}: {}", substance, severity))
+        }
     }
-    print(unwrap(xml.attr(unwrap(xml.find_first(doc.root, "section")), "code")))
+    if Some(section) = xml.find_first(doc.root, "section") && Some(code) = xml.attr(section, "code") {
+        print(code)
+    }
 
     // Mixed content keeps its order, and `text_of` flattens it.
-    print(xml.text_of(unwrap(xml.child(doc.root, "note"))))
-    print(unwrap(doc.root.name.namespace))
+    if Some(note) = xml.child(doc.root, "note") {
+        print(xml.text_of(note))
+    }
+    if Some(namespace) = doc.root.name.namespace {
+        print(namespace)
+    }
 
     // Building and writing. Most fields of a record are optional, so `opt_element` makes one
     // that may be absent, `req_element` one that is always there, and `filter_present` keeps
@@ -39,7 +46,7 @@ fn main() {
         xml.opt_element("temperature", Option<string>.Some("38.1")),
         xml.opt_element("notes", missing)
     )))
-    print(trim(unwrap(xml.format(built))))
+    print(trim(try xml.format(built)))
 
     // There is no DTD, so the shapes that make XML dangerous simply do not parse.
     print(is_ok(xml.parse("<!DOCTYPE x [<!ENTITY e SYSTEM \"file:///etc/passwd\">]><x>&e;</x>")))
@@ -47,4 +54,11 @@ fn main() {
     // The limits are a value you can tighten for input you do not control.
     val strict = xml.XmlLimits { max_bytes: 4096, max_depth: 8, max_attributes: 16 }
     print(is_ok(xml.parse("<a><b><c/></b></a>", strict)))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("xml example failed: {}\n", e)
+    }
 }

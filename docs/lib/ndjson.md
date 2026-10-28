@@ -14,28 +14,38 @@ use json.Json
 use ndjson
 
 // One JSON value per line: a format for logs and streams.
-fn main() {
-    val items = unwrap(ndjson.parse("""
+fn demo(path: string) -> Result<unit, string> {
+    val items = try ndjson.parse("""
         {"id": 1, "ok": true}
         {"id": 2, "ok": false}
-        """))
+        """)
     print(len(items))
     print(json.format(items[1]))
     print(trim(ndjson.format(items)))
     print(is_ok(ndjson.parse("{\"id\": 1}\nnot json")))
 
-    // A large file is read one record at a time instead of all at once.
-    val path = "/tmp/ziman_manual_ndjson_example.ndjson"
-    unwrap(fs.write_text(path, ndjson.format(items)))
+    // A large file is read one record at a time instead of all at once. A record is a Result,
+    // because a line partway down the file can be malformed.
+    if Err(e) = fs.write_text(path, ndjson.format(items)) {
+        return err(fs.fs_error_message(e))
+    }
     var ok_records = 0
-    val records = unwrap(ndjson.records(path))
-    for record in records {
-        if unwrap(json.require_bool(unwrap(record), "ok")) {
+    for record in try ndjson.records(path) {
+        if Ok(item) = record && Ok(flag) = json.require_bool(item, "ok") && flag {
             ok_records = ok_records + 1
         }
     }
     print(ok_records)
-    unwrap(fs.remove(path))
+    if Err(e) = fs.remove(path) {
+        return err(fs.fs_error_message(e))
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo("/tmp/ziman_manual_ndjson_example.ndjson") {
+        printf("ndjson example failed: {}\n", e)
+    }
 }
 ```
 

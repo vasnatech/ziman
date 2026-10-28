@@ -7,21 +7,29 @@
 ```
 use number
 
-fn main() {
+// A pattern and a hex read can both be rejected, so they answer Result and `try` carries them.
+fn demo() -> Result<unit, string> {
     // Formatting with a pattern: thousands separators and fixed decimals.
-    val fmt = unwrap(number.parse_pattern("#,##0.00"))
+    val fmt = try number.parse_pattern("#,##0.00")
     print(number.format(1234567, fmt))
     print(number.format(3.14159, fmt))
 
     // Hex, both ways, and shortest-text floats.
     print(number.to_hex(255))
-    print(unwrap(number.int_from_hex("ff")))
+    print(try number.int_from_hex("ff"))
     print(number.to_hex([1b, 171b, 255b]))
     print(number.float_to_text(0.1))
 
     // Fixed-width big-endian integers, as binary protocols use them.
     print(number.u32_to_bytes(258))
     print(number.u16_from_bytes([1b, 2b], 0))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("number example failed: {}\n", e)
+    }
 }
 ```
 

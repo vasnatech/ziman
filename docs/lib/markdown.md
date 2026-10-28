@@ -48,31 +48,40 @@ use markdown
 
 // Markdown is a tree here, not a string being pasted together, because pasting is how a table
 // breaks: one `|` in a note and every column after it shifts.
-fn main() {
+fn demo() -> Result<unit, string> {
     val notes = "2 puffs | as needed\nmorning only"
     val doc = markdown.document([
         markdown.heading(1, "Health record"),
         markdown.paragraph("Exported for Ann Lee."),
         markdown.heading(2, "Medications"),
-        unwrap(markdown.text_table(
+        try markdown.text_table(
             ["Name", "Dose", "Notes"],
             [markdown.Align.AlignLeft, markdown.Align.AlignRight, markdown.Align.AlignNone],
             [["Salbutamol", "100 mcg", markdown.flatten_cell(notes)]]
-        )),
+        ),
         markdown.text_list(false, ["bring inhaler", "book review"]),
         markdown.paragraph("# not a heading, because it is text")
     ])
-    print(unwrap(markdown.format(doc)))
+    print(try markdown.format(doc))
 
     // Reading. The subset is in the module header; anything outside it is text, as Markdown says.
-    val read = unwrap(markdown.parse("# Title\n\nA *word* and a [link](http://x.test).\n"))
+    val read = try markdown.parse("# Title\n\nA *word* and a [link](http://x.test).\n")
     print(format("blocks: {}", len(read.blocks)))
     print(markdown.text_of(read))
 
     // Markdown has no syntax errors, so only the strict reader can say it was given something
-    // it would have misread.
+    // it would have misread -- and that refusal is the point here, so switch names it.
     print(is_ok(markdown.parse("Title\n=====\n")))
-    print(unwrap_err(markdown.parse_strict("Title\n=====\n")))
+    if Err(e) = markdown.parse_strict("Title\n=====\n") {
+        print(e)
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("markdown example failed: {}\n", e)
+    }
 }
 ```
 

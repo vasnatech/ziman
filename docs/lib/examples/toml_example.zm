@@ -2,9 +2,10 @@ use json
 use json.Json
 use toml
 
-// A TOML document becomes a Json tree, so the json helpers read it.
-fn main() {
-    val config = unwrap(toml.parse("""
+// A TOML document becomes a Json tree, so the json helpers read it. Parsing, reading a required
+// key and writing back all answer a plain string on failure, so one `try` chain covers the lot.
+fn demo() -> Result<unit, string> {
+    val config = try toml.parse("""
         title = "demo"
 
         [server]
@@ -16,13 +17,20 @@ fn main() {
 
         [[job]]
         name = "report"
-        """))
+        """)
 
-    val server = unwrap(json.require(config, "server"))
-    print(unwrap(json.require_int(server, "port")))
-    print(json.format(unwrap(json.require(config, "job"))))
+    val server = try json.require(config, "server")
+    print(try json.require_int(server, "port"))
+    print(json.format(try json.require(config, "job")))
 
     // An error says where the text went wrong.
     print(is_ok(toml.parse("port = ")))
-    print(trim(unwrap(toml.format(server))))
+    print(trim(try toml.format(server)))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("toml example failed: {}\n", e)
+    }
 }

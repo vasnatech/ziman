@@ -45,16 +45,51 @@ use net
 use server
 
 // A tiny server and a client in one program, talking over the loopback interface.
+
+// `route` answers Some only when the method and the pattern both match, and the match carries the
+// path parameters -- so one `if` tests the route and names the parameters.
 fn handle(req: http.Request) -> http.Response {
-    val hit = server.route(req, HttpMethod.Get, "/hello/{name}")
-    if Option.is_Some(hit) {
-        return server.text_response(200, concat("hello ", server.param(Option.unwrap_Some(hit), "name")))
+    if Some(hit) = server.route(req, HttpMethod.Get, "/hello/{name}") {
+        return server.text_response(200, concat("hello ", server.param(hit, "name")))
     }
     return server.not_found()
 }
 
+// The exchanges, which all answer the same ClientError. The body decode answers a plain string
+// instead, so it is destructured where it happens.
+fn exchanges(base: string) -> Result<unit, client.ClientError> {
+    val ok = try client.get(concat(base, "/hello/ada"))
+    print(ok.status)
+    if Ok(body) = bytes_to_string(ok.body) {
+        print(body)
+    }
+
+    // Any status is Ok; only a failed exchange is an Err.
+    val nowhere = try client.get(concat(base, "/nowhere"))
+    print(nowhere.status)
+    print(is_ok(client.get("http://127.0.0.1:1/")))
+
+    // A response read as a stream, block by block, instead of all at once. Each block is a Result,
+    // because the connection can drop partway through the body.
+    val streamed = try client.stream(method: HttpMethod.Get, url: concat(base, "/hello/ada"))
+    var bytes = 0
+    for block in streamed.body {
+        if Ok(chunk) = block {
+            bytes = bytes + len(chunk)
+        }
+    }
+    print(bytes)
+    return unit
+}
+
 fn main() {
-    val listener = unwrap(net.listen("127.0.0.1", 0))
+    val listener = switch net.listen("127.0.0.1", 0) {
+        Ok(l) { l }
+        Err(e) {
+            printf("listen failed: {}\n", net.net_error_message(e))
+            return
+        }
+    }
     val port = net.listener_port(listener)
     val options = with server.serve_options() {
         idle_timeout_ms: 2000,
@@ -67,21 +102,9 @@ fn main() {
     }
     spawn server.serve(listener, handle, options)
 
-    val base = format("http://127.0.0.1:{}", port)
-    val ok = unwrap(client.get(concat(base, "/hello/ada")))
-    print(ok.status)
-    print(unwrap(bytes_to_string(ok.body)))
-    // Any status is Ok; only a failed exchange is an Err.
-    print(unwrap(client.get(concat(base, "/nowhere"))).status)
-    print(is_ok(client.get("http://127.0.0.1:1/")))
-
-    // A response read as a stream, block by block, instead of all at once.
-    val streamed = unwrap(client.stream(method: HttpMethod.Get, url: concat(base, "/hello/ada")))
-    var bytes = 0
-    for block in streamed.body {
-        bytes = bytes + len(unwrap(block))
+    if Err(e) = exchanges(format("http://127.0.0.1:{}", port)) {
+        printf("client example failed: {}\n", client.client_error_message(e))
     }
-    print(bytes)
 }
 ```
 

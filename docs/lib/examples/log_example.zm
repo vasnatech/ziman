@@ -9,8 +9,20 @@ fn main() {
     log.debug(logger, "not written")
     log.info(logger, "started")
     log.error(log.with_prefix(logger, "db: "), "connection lost")
-    print(trim(unwrap(fs.read_text(path))))
-    unwrap(fs.remove(path))
+
+    // Reading the file back can fail, so the arm that succeeds names the text it got.
+    switch fs.read_text(path) {
+        Ok(written) { print(trim(written)) }
+        Err(e) {
+            printf("could not read {}: {}\n", path, fs.fs_error_message(e))
+        }
+    }
+    if Err(e) = fs.remove(path) {
+        printf("could not remove {}: {}\n", path, fs.fs_error_message(e))
+    }
+
     print(log.enabled(logger, Level.Debug))
-    print(unwrap(log.parse_level("warn")) == Level.Warn)
+    if Ok(level) = log.parse_level("warn") {
+        print(level == Level.Warn)
+    }
 }

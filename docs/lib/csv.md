@@ -34,27 +34,41 @@ use fs
 use json
 use json.Json
 
-fn main() {
-    val table = unwrap(csv.parse("""
+// Every csv failure is a plain string, so the work propagates with `try`. The two file calls answer
+// an fs.FsError instead, and `switch` turns one into the other at the boundary.
+fn demo() -> Result<unit, string> {
+    val table = try csv.parse("""
         name,age
         Ada,36
         Grace,45
-        """))
+        """)
     print(json.format(table))
 
     // Typed parsing reads 36 as a number; writing it back gives the same text.
-    val typed = unwrap(csv.parse_typed("name,age\nAda,36\n"))
+    val typed = try csv.parse_typed("name,age\nAda,36\n")
     print(json.format(typed))
-    print(trim(unwrap(csv.format(typed))))
+    print(trim(try csv.format(typed)))
 
     // A big file is read one record at a time.
     val path = "/tmp/ziman_manual_csv_example.csv"
-    unwrap(fs.write_text(path, "name,note\nAda,\"likes maths\"\nGrace,\"two\nlines\"\n"))
-    val records = unwrap(csv.records(path))
-    for record in records {
-        print(json.format(unwrap(record)))
+    if Err(e) = fs.write_text(path, "name,note\nAda,\"likes maths\"\nGrace,\"two\nlines\"\n") {
+        return err(fs.fs_error_message(e))
     }
-    unwrap(fs.remove(path))
+    for record in try csv.records(path) {
+        if Ok(row) = record {
+            print(json.format(row))
+        }
+    }
+    if Err(e) = fs.remove(path) {
+        return err(fs.fs_error_message(e))
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("csv example failed: {}\n", e)
+    }
 }
 ```
 

@@ -23,5 +23,8 @@ fn main() {
     print(status_not_found)
 
     print(http.percent_encode("a b&c/é", false))
-    print(unwrap(http.percent_decode("a+b%26c", true)))
+    // Decoding can be given a malformed escape, so it answers a Result.
+    if Ok(decoded) = http.percent_decode("a+b%26c", true) {
+        print(decoded)
+    }
 }

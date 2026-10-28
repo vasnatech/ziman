@@ -11,7 +11,11 @@ fn main() {
     print(crypto.bytes_equal(crypto.sha256(data), crypto.sha256(data)))
 
     print(encoding.base64_encode(data))
-    print(unwrap(bytes_to_string(unwrap(encoding.base64_decode("YWJj")))))
+    // Two steps that can each fail -- the decode and the UTF-8 check -- in one condition, because
+    // a later part of the chain sees what the earlier part bound.
+    if Ok(raw) = encoding.base64_decode("YWJj") && Ok(text) = bytes_to_string(raw) {
+        print(text)
+    }
     print(is_ok(encoding.base64_decode("***")))
 
     // A password hash: many iterations, a salt, a fixed output length.

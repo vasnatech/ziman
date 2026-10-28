@@ -3,7 +3,10 @@ use os
 fn main() {
     print(Option.is_None(os.get_env("ZIMAN_SURELY_NOT_SET")))
     print(os.pid() > 0)
-    print(byte_len(unwrap(os.cwd())) > 0)
+    // The working directory can be gone by the time it is asked for, so it answers a Result.
+    if Ok(cwd) = os.cwd() {
+        print(byte_len(cwd) > 0)
+    }
     print(len(os.args()))
     print(os.shutdown_requested())
 }

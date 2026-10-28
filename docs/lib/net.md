@@ -55,42 +55,71 @@ this module follows is the project's: add it when a concrete program cannot be w
 use net
 
 // An echo server and a client in one program, over the loopback interface.
+
+// The exchange on one accepted socket. It propagates with `try`, so its caller closes the socket
+// exactly once whether the exchange worked or not.
+fn serve(s: net.Socket) -> Result<unit, net.NetError> {
+    val got = try net.read_text(s, 100)
+    try net.write_text(s, concat("echo: ", got))
+    return unit
+}
+
+// A spawned function answers to nobody, so it reports a failure itself rather than propagating.
 fn echo(l: net.Listener) {
-    val s = unwrap(net.accept(l))
-    val got = unwrap(net.read_text(s, 100))
-    unwrap(net.write_text(s, concat("echo: ", got)))
-    net.close(s)
+    if Ok(s) = net.accept(l) {
+        if Err(e) = serve(s) {
+            printf("echo: {}\n", net.net_error_message(e))
+        }
+        net.close(s)
+    }
 }
 
 fn sender(l: net.Listener) {
-    val c = unwrap(net.accept(l))
-    unwrap(net.write_text(c, "first\r\nsecond\nthird"))
-    net.close(c)
+    if Ok(c) = net.accept(l) {
+        if Err(e) = net.write_text(c, "first\r\nsecond\nthird") {
+            printf("sender: {}\n", net.net_error_message(e))
+        }
+        net.close(c)
+    }
 }
 
-fn main() {
-    val listener = unwrap(net.listen("127.0.0.1", 0))
+fn demo() -> Result<unit, net.NetError> {
+    val listener = try net.listen("127.0.0.1", 0)
     spawn echo(listener)
 
-    val s = unwrap(net.connect("127.0.0.1", net.listener_port(listener)))
-    unwrap(net.set_timeout(s, 2000))
-    unwrap(net.write_text(s, "hi"))
-    print(unwrap(net.read_text(s, 100)))
+    val s = try net.connect("127.0.0.1", net.listener_port(listener))
+    try net.set_timeout(s, 2000)
+    try net.write_text(s, "hi")
+    print(try net.read_text(s, 100))
     net.close(s)
 
-    // Lines from a peer, read lazily until it closes.
-    val again = unwrap(net.listen("127.0.0.1", 0))
+    // Lines from a peer, read lazily until it closes. A line is itself a Result, because the
+    // connection can fail halfway through the stream.
+    val again = try net.listen("127.0.0.1", 0)
     spawn sender(again)
-    val t = unwrap(net.connect("127.0.0.1", net.listener_port(again)))
+    val t = try net.connect("127.0.0.1", net.listener_port(again))
     for line in net.lines(t) {
-        print(unwrap(line))
+        if Ok(text) = line {
+            print(text)
+        }
     }
     net.close(t)
 
-    // A failure is a NetError saying what kind, and net_error_message turns it into text.
+    // A failure is a NetError saying what kind, and net_error_message turns it into text. Taking
+    // both arms means the socket is closed in the case that is not supposed to happen.
     val refused = net.connect("127.0.0.1", 1)
     print(is_ok(refused))
-    print(net.net_error_message(unwrap_err(refused)))
+    switch refused {
+        Ok(open) { net.close(open) }
+        Err(e) { print(net.net_error_message(e)) }
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("net example failed: {}\n", net.net_error_message(e))
+    }
 }
 ```
 

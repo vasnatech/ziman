@@ -1,8 +1,9 @@
 use properties
 
-// Configuration as `key=value` lines. An error names the key and where its value came from.
-fn main() {
-    val props = unwrap(properties.parse(
+// Configuration as `key=value` lines. An error names the key and where its value came from, and
+// every one of these calls answers the same plain string, so `try` carries them all.
+fn demo() -> Result<unit, string> {
+    val props = try properties.parse(
         """
         server.port=8080
         server.address=127.0.0.1
@@ -10,13 +11,20 @@ fn main() {
         debug=true
         """,
         "example"
-    ))
+    )
 
-    print(unwrap(properties.get_int(props, "server.port")))
-    print(unwrap(properties.get_string(props, "greeting")))
-    print(unwrap(properties.get_bool(props, "debug")))
+    print(try properties.get_int(props, "server.port"))
+    print(try properties.get_string(props, "greeting"))
+    print(try properties.get_bool(props, "debug"))
 
     // A missing key, or a value of the wrong type, is an Err that says which.
     print(is_ok(properties.get_int(props, "server.threads")))
     print(properties.get_int(props, "server.address"))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("properties example failed: {}\n", e)
+    }
 }

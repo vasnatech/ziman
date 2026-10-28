@@ -20,45 +20,58 @@ files that might contain NUL -- is read and written as `[byte]`.
 ```
 use fs
 
-// Every call that can fail returns a Result carrying the operating system's message.
-fn main() {
-    val dir = "/tmp/ziman_manual_fs_example"
-    unwrap(fs.make_dirs(fs.path_join(dir, "notes")))
+// Every call that can fail returns a Result carrying the operating system's message. The work lives
+// in a function that propagates with `try`, so `main` reports a failure once instead of each call
+// asserting it cannot happen.
+fn demo(dir: string) -> Result<unit, fs.FsError> {
+    try fs.make_dirs(fs.path_join(dir, "notes"))
     val path = fs.path_join(dir, "notes", "todo.txt")
 
-    unwrap(fs.write_text(path, "buy milk\n"))
-    unwrap(fs.append_text(path, "call Ada\n"))
-    print(trim(unwrap(fs.read_text(path))))
+    try fs.write_text(path, "buy milk\n")
+    try fs.append_text(path, "call Ada\n")
+    print(trim(try fs.read_text(path)))
     print(fs.file_name(path))
     print(fs.extension(path))
-    print(unwrap(fs.list_dir(fs.parent_dir(path))))
+    print(try fs.list_dir(fs.parent_dir(path)))
 
-    // Read a big file one line at a time instead of all at once.
-    val lines = unwrap(fs.lines(path))
+    // Read a big file one line at a time instead of all at once. A line is itself a Result -- the
+    // file can fail halfway through -- so `if Ok(..) =` tests it and names the text in one step.
     var count = 0
-    for line in lines {
-        if contains(unwrap(line), "milk") {
+    for line in try fs.lines(path) {
+        if Ok(text) = line && contains(text, "milk") {
             count = count + 1
         }
     }
     print(count)
 
-    // Walk a directory tree, and read a file in blocks.
-    for file in unwrap(fs.walk(dir)) {
-        print(unwrap(file))
+    // Walk a directory tree, and read a file in blocks. Both iterators yield Results for the same
+    // reason, and their error is a plain string rather than this function's FsError.
+    for file in try fs.walk(dir) {
+        if Ok(name) = file {
+            print(name)
+        }
     }
     var bytes = 0
-    for chunk in unwrap(fs.chunks(path, 4)) {
-        bytes = bytes + len(unwrap(chunk))
+    for chunk in try fs.chunks(path, 4) {
+        if Ok(block) = chunk {
+            bytes = bytes + len(block)
+        }
     }
     print(bytes)
 
     print(is_ok(fs.read_text(fs.path_join(dir, "missing.txt"))))
 
-    unwrap(fs.remove(path))
-    unwrap(fs.remove(fs.parent_dir(path)))
-    unwrap(fs.remove(dir))
+    try fs.remove(path)
+    try fs.remove(fs.parent_dir(path))
+    try fs.remove(dir)
     print(fs.exists(dir))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo("/tmp/ziman_manual_fs_example") {
+        printf("fs example failed: {}\n", fs.fs_error_message(e))
+    }
 }
 ```
 
