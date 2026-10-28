@@ -15,6 +15,64 @@ Only the parameters every authenticator app supports: HMAC-SHA-1, six digits, a 
 
 `use otp` -- or `use otp.Name` to bring one item in bare.
 
+## Example
+
+```
+use encoding
+use otp
+
+// Time-based one-time passwords, the second factor an authenticator app shows. Every function here
+// takes the time as an argument rather than reading the clock, which is what makes a login flow
+// testable: the same key and the same second always give the same code.
+fn demo() -> Result<unit, string> {
+    // A shared secret is exchanged in base32, because that is what a QR code and a phone agree on.
+    val key = try encoding.base32_decode("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ")
+    print(encoding.base32_encode(key))
+
+    // HOTP counts events: the counter is whatever the two sides agree it is.
+    print(otp.hotp(key, 0, 6))
+    print(otp.hotp(key, 1, 6))
+    print(otp.hotp(key, 1, 8))
+
+    // TOTP is HOTP over a counter derived from the clock, in thirty-second steps -- so these two
+    // seconds fall in the same step and give the same code, and the third does not.
+    print(otp.totp(key, 1700000000))
+    print(otp.totp(key, 1700000005) == otp.totp(key, 1700000000))
+    print(otp.totp(key, 1700000010) == otp.totp(key, 1700000000))
+
+    // Verification allows a window of steps either side, because the two clocks are never exactly
+    // together. The matching step says how far out the other side was, which is worth logging.
+    val code = otp.totp(key, 1700000000)
+    print(otp.totp_valid(key, code, 1700000000, 1))
+    print(otp.totp_valid(key, code, 1700000025, 1))
+    print(otp.totp_valid(key, code, 1700000600, 1))
+    print(otp.totp_matching_step(key, code, 1700000025, 1))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("otp example failed: {}\n", e)
+    }
+}
+```
+
+Output:
+
+```
+GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ
+755224
+287082
+94287082
+921300
+true
+false
+true
+true
+false
+Some(56666666)
+```
+
 ### `generate_secret`
 
 ```

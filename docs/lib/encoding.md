@@ -26,6 +26,64 @@ and anything else that puts bytes in a URL uses.
 
 `use encoding` -- or `use encoding.Name` to bring one item in bare.
 
+## Example
+
+```
+use encoding
+
+// Binary as text, in the five bases a protocol is likely to ask for. Every `*_encode` has a
+// `*_decode` that answers a Result, because text from outside is the one place a byte array can
+// arrive malformed.
+fn demo() -> Result<unit, string> {
+    val data = to_bytes("Ziman")
+
+    print(encoding.base2_encode(data))
+    print(encoding.base8_encode(data))
+    print(encoding.base16_encode(data))
+    print(encoding.base32_encode(data))
+    print(encoding.base64_encode(data))
+
+    // Each decodes back to exactly what went in -- the property worth asserting, rather than the
+    // spelling of any one encoding.
+    print(try bytes_to_string(try encoding.base16_decode(encoding.base16_encode(data))) == "Ziman")
+    print(try bytes_to_string(try encoding.base32_decode(encoding.base32_encode(data))) == "Ziman")
+    print(try bytes_to_string(try encoding.base64_decode(encoding.base64_encode(data))) == "Ziman")
+
+    // Base64 pads to a multiple of four characters with `=`; base32 here does not pad at all, so a
+    // decoder that demands padding needs it added.
+    print(encoding.base64_encode(to_bytes("Z")))
+    print(encoding.base32_encode(to_bytes("Z")))
+
+    // A character outside the alphabet is an Err rather than a silently shorter answer.
+    if Err(e) = encoding.base64_decode("not base64!") {
+        print(e)
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("encoding example failed: {}\n", e)
+    }
+}
+```
+
+Output:
+
+```
+0101101001101001011011010110000101101110
+132151155141156
+5a696d616e
+LJUW2YLO
+WmltYW4=
+true
+true
+true
+Wg==
+LI
+invalid base64: length is not a multiple of 4
+```
+
 ## Fixed width per byte
 
 ### `base2_encode`

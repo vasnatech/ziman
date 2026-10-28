@@ -18,6 +18,58 @@ both to specialise, which is a design change rather than a de-duplication.
 
 `use url` -- or `use url.Name` to bring one item in bare.
 
+## Example
+
+```
+use url
+
+// Percent-encoding, both directions. The pair matters more than either half: text that survives a
+// round trip through a URL is text the other side reads back unchanged, and the two rules that
+// differ between a path and a query string -- whether `+` means a space -- are a parameter here
+// rather than something each caller remembers differently.
+fn demo() -> Result<unit, string> {
+    // In a path segment, a space is `%20` and `+` is a literal plus.
+    print(url.percent_encode("a b&c/e", false))
+    print(try url.percent_decode("a%20b%26c%2Fe", false))
+
+    // In a query string it is `+`, which is why decoding has to be told which it is reading.
+    print(url.percent_encode("a b&c/e", true))
+    print(try url.percent_decode("a+b%26c", true))
+    print(try url.percent_decode("a+b%26c", false))
+
+    // Non-ASCII goes through as its UTF-8 bytes, so the round trip is the text it started as.
+    val accented = "naïve café"
+    val encoded = url.percent_encode(accented, false)
+    print(encoded)
+    print(try url.percent_decode(encoded, false) == accented)
+
+    // A malformed escape is an Err, not a guess at what was meant.
+    if Err(e) = url.percent_decode("100%zz", false) {
+        print(e)
+    }
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("url example failed: {}\n", e)
+    }
+}
+```
+
+Output:
+
+```
+a%20b%26c%2Fe
+a b&c/e
+a+b%26c%2Fe
+a b&c
+a+b&c
+na%C3%AFve%20caf%C3%A9
+true
+bad %-escape
+```
+
 ### `percent_decode`
 
 ```

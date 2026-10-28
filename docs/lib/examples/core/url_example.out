@@ -1,0 +1,8 @@
+a%20b%26c%2Fe
+a b&c/e
+a+b%26c%2Fe
+a b&c
+a+b&c
+na%C3%AFve%20caf%C3%A9
+true
+bad %-escape

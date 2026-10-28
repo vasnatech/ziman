@@ -33,6 +33,75 @@ preserve), so floor vs. truncate doesn't apply to it.
 
 `use bits` -- or `use bits.Name` to bring one item in bare.
 
+## Example
+
+```
+use bits
+
+// Bitwise operations, and a bit set built on them. Ziman has no `&`, `|`, `^`, `<<` or `>>`
+// operators: the operations are named functions instead, so a line that manipulates bits reads as
+// one and cannot be confused with the logical operators it resembles in other languages.
+fn demo() -> Result<unit, string> {
+    // The same four names work on `byte`, `int` and `bigint`.
+    print(bits.and(12, 10))
+    print(bits.or(12, 10))
+    print(bits.xor(12, 10))
+    print(bits.and(255b, 15b))
+
+    // A shift amount outside 0..63 is a runtime error rather than the undefined behaviour C gives
+    // a shift by the operand's own width or more.
+    print(bits.shift_left(1, 10))
+    print(bits.shift_right(1024, 3))
+    print(bits.popcount(255))
+    print(bits.bit_length(1024n))
+
+    // A bit set over the bits of an int, for flags that would otherwise be a handful of booleans.
+    var flags = bits.bitset_new()
+    flags = bits.set(flags, 0)
+    flags = bits.set(flags, 3)
+    flags = bits.set(flags, 7)
+    print(bits.format(flags))
+    print(bits.get(flags, 3))
+    print(bits.len(flags))
+    print(bits.to_array(flags))
+    print(bits.bitset_to_int(flags))
+
+    // Sets combine the way sets do, so a mask is an intersection rather than an `&` to decode.
+    val low = bits.bitset_of_int(15)
+    print(bits.to_array(bits.intersect(flags, low)))
+    print(bits.to_array(bits.difference(flags, low)))
+    print(bits.is_subset(bits.bitset_of_int(9), flags))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("bits example failed: {}\n", e)
+    }
+}
+```
+
+Output:
+
+```
+8
+14
+6
+15
+1024
+128
+8
+11
+{0, 3, 7}
+true
+3
+[0, 3, 7]
+137
+[0, 3]
+[7]
+true
+```
+
 ### `and`
 
 ```
