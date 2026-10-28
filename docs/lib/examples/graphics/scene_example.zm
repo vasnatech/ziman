@@ -1,0 +1,43 @@
+use geom
+use paint
+use scene
+use shape
+
+// A drawing as a value. A `Scene` is a size and a list of operations -- fill this path, stroke
+// that one, place this group under that transform -- and it renders the same whether the backend
+// is PDF or a raster image. Nothing is drawn while the scene is built; it is a description.
+fn demo() -> Result<unit, string> {
+    val square = shape.rect_path(geom.rect_of(10.0, 10.0, 80.0, 80.0))
+
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(20.0, 20.0))
+    shape.line_to(b, geom.point_of(80.0, 80.0))
+    val diagonal = shape.built(b, shape.Winding.NonZero)
+
+    // Operations are values in a list, so a drawing can be assembled, passed around and inspected
+    // before anything renders it.
+    val ops = [
+        scene.fill(square, paint.solid(paint.rgb(0.9, 0.9, 0.2))),
+        scene.stroke(diagonal, paint.solid(paint.black()), paint.stroke_of(3.0)),
+        // A group applies one transform to everything inside it, which is how a drawing is reused
+        // at another size or place without rebuilding its paths.
+        scene.group(geom.scaling(0.25, 0.25), [
+            scene.fill(square, paint.solid(paint.rgb(0.2, 0.4, 0.8)))
+        ])
+    ]
+    val s = scene.with_background(scene.with_ops(scene.scene_of(100.0, 100.0), ops), paint.solid(paint.white()))
+
+    printf("{} {} {}\n", s.width, s.height, len(s.ops))
+    print(Option.is_Some(s.background))
+
+    // `op_count` walks into groups, so it counts the drawing's real work rather than the three
+    // entries at the top -- which is what a backend budgets against.
+    print(scene.op_count(s))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("scene example failed: {}\n", e)
+    }
+}

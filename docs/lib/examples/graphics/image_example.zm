@@ -1,0 +1,43 @@
+use image
+use paint
+
+// Pixels: a width, a height, a format and the bytes. An `Image` is the raster backend's output
+// and the pattern paint's input, and it is a plain value -- so it can be built by hand, read back
+// a pixel at a time, and asserted on.
+fn demo() -> Result<unit, string> {
+    // A canvas is the mutable way in; an Image is the immutable snapshot of one.
+    val c = try image.canvas(4, 3, image.Pixels.Rgba8)
+    try image.set(c, 0, 0, paint.rgb(1.0, 0.0, 0.0))
+    try image.set(c, 3, 2, paint.rgba(0.0, 0.0, 1.0, 0.5))
+    val img = image.snapshot_image(c)
+    printf("{} {} {}\n", img.width, img.height, image.channels_of(img.format))
+
+    // Four bytes a pixel, twelve pixels.
+    print(len(img.data))
+
+    val corner = try image.pixel_at(img, 0, 0)
+    printf("{} {} {} {}\n", corner.red, corner.green, corner.blue, corner.alpha)
+    print((try image.pixel_at(img, 3, 2)).alpha)
+
+    // A pixel outside the image is an Err rather than a wrap-around or a zero, because reading
+    // past an edge is a bug in the caller and should say so.
+    print(is_ok(image.pixel_at(img, 4, 0)))
+
+    // Alpha can be split off or dropped -- the two things a backend that has no alpha needs.
+    print(Option.is_Some(image.alpha_channel(img)))
+    val flat = image.without_alpha(img)
+    print(image.channels_of(flat.format))
+    print(Option.is_None(image.alpha_channel(flat)))
+
+    // Building an Image from bytes checks that the bytes match the size, so a truncated buffer is
+    // refused here rather than read past later.
+    print(is_ok(image.image_of(2, 2, image.Pixels.Gray8, [0b, 1b, 2b, 3b])))
+    print(is_ok(image.image_of(2, 2, image.Pixels.Gray8, [0b, 1b, 2b])))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("image example failed: {}\n", e)
+    }
+}

@@ -1,0 +1,44 @@
+use geom
+use math
+use math.pi
+
+// Points, rectangles and the affine matrix every other graphics module is positioned by. Nothing
+// here draws: these are the coordinates a drawing is expressed in, kept in one place so `shape`,
+// `scene`, `pdf` and `raster` all mean the same thing by a point.
+fn demo() -> Result<unit, string> {
+    val r = geom.rect_of(10.0, 20.0, 100.0, 50.0)
+    printf("{} {} {} {}\n", r.x, r.y, geom.right(r), geom.bottom(r))
+    print(geom.rect_contains(r, geom.point_of(50.0, 40.0)))
+    print(geom.rect_contains(r, geom.point_of(5.0, 40.0)))
+
+    // A rectangle given by two corners does not care which corner came first.
+    val between = geom.rect_between(geom.point_of(30.0, 40.0), geom.point_of(10.0, 20.0))
+    printf("{} {} {} {}\n", between.x, between.y, between.width, between.height)
+
+    // Transforms compose, and `matrix_concat` applies the inner one first -- the order that reads
+    // as the sentence "scale it, then move it".
+    val grow = geom.scaling(2.0, 2.0)
+    val both = geom.matrix_concat(geom.translation(5.0, 5.0), grow)
+    val p = geom.transform_point(both, geom.point_of(10.0, 10.0))
+    printf("{} {}\n", p.x, p.y)
+
+    // A matrix can be asked what it is, which is how a backend decides what it can do natively.
+    print(geom.scale_x_of(grow))
+    print(geom.determinant(grow))
+
+    // Inversion is a Result: a matrix that collapses space has no inverse, and saying so beats
+    // returning an identity nobody asked for.
+    print(is_ok(geom.invert(grow)))
+    print(is_ok(geom.invert(geom.scaling(0.0, 1.0))))
+
+    // A quarter turn, rounded to the precision worth printing.
+    val turned = geom.transform_point(geom.rotation(pi / 2.0), geom.point_of(1.0, 0.0))
+    printf("{} {}\n", math.round(turned.x), math.round(turned.y))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("geom example failed: {}\n", e)
+    }
+}

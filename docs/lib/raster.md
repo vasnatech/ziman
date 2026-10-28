@@ -26,6 +26,74 @@ text, which is the workload with the most edges and does not exist yet.
 
 `use raster` -- or `use raster.Name` to bring one item in bare.
 
+## Example
+
+```
+use geom
+use image
+use paint
+use raster
+use scene
+use shape
+
+// Rendering a scene to pixels. This is where a drawing stops being a description and becomes an
+// image -- and where a graphics example becomes checkable, because the answer is a value whose
+// pixels can be read back rather than a file somebody has to look at.
+fn demo() -> Result<unit, string> {
+    val red_square = scene.fill(
+        shape.rect_path(geom.rect_of(20.5, 20.5, 59.0, 59.0)),
+        paint.solid(paint.rgb(1.0, 0.0, 0.0))
+    )
+    val drawing = scene.with_background(
+        scene.with_ops(scene.scene_of(100.0, 100.0), [red_square]),
+        paint.solid(paint.white())
+    )
+
+    val out = try raster.render(drawing, raster.options())
+    printf("{} {}\n", out.width, out.height)
+
+    // Inside the square is the fill; outside it is the background. Asserting the pixels is what
+    // makes this a test rather than a picture.
+    val inside = try image.pixel_at(out, 50, 50)
+    printf("{} {} {}\n", inside.red, inside.green, inside.blue)
+    val outside = try image.pixel_at(out, 5, 5)
+    printf("{} {} {}\n", outside.red, outside.green, outside.blue)
+
+    // The square's left edge is at x=20.5, so pixel 20 is half covered -- and the renderer says so
+    // rather than rounding it in or out. That is anti-aliasing, and `samples` is how much of it
+    // you pay for.
+    val edge = try image.pixel_at(out, 20, 50)
+    print(edge.green > 0.0 && edge.green < 1.0)
+    val smoother = try raster.render(drawing, with raster.options() { samples: 4 })
+    val edge4 = try image.pixel_at(smoother, 20, 50)
+    print(edge4.green > 0.0 && edge4.green < 1.0)
+
+    // The format is asked for, not guessed: a grayscale render of the same scene is one channel.
+    val grey = try raster.render(drawing, with raster.options() { format: image.Pixels.Gray8 })
+    print(image.channels_of(grey.format))
+    print(len(grey.data))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("raster example failed: {}\n", e)
+    }
+}
+```
+
+Output:
+
+```
+100 100
+1.0 0.0 0.0
+1.0 1.0 1.0
+true
+true
+1
+10000
+```
+
 ### `Options`
 
 ```

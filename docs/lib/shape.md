@@ -8,6 +8,60 @@ backend is a serialiser over them and the raster backend a scan-converter over t
 
 `use shape` -- or `use shape.Name` to bring one item in bare.
 
+## Example
+
+```
+use geom
+use shape
+
+// Paths: the outlines everything else fills, strokes or clips with. A path is built by moving and
+// drawing, then frozen with a winding rule -- the rule that decides what "inside" means where the
+// outline crosses itself, which is why it belongs to the path rather than to whoever fills it.
+fn demo() -> Result<unit, string> {
+    val b = shape.path_builder()
+    shape.move_to(b, geom.point_of(10.0, 10.0))
+    shape.line_to(b, geom.point_of(90.0, 10.0))
+    shape.line_to(b, geom.point_of(90.0, 60.0))
+    shape.close_path(b)
+    val triangle = shape.built(b, shape.Winding.NonZero)
+    print(len(triangle.segments))
+
+    // The bounds of a path are the box a renderer can clip against before it does any work.
+    val box = shape.path_bounds(triangle)
+    printf("{} {} {} {}\n", box.x, box.y, box.width, box.height)
+
+    // Curves are segments like any other, and there are two kinds of bounds for them on purpose:
+    // `path_bounds` is the control-point hull -- cheap, and always encloses the curve, which is
+    // all a clip test or a page-fit check needs -- while `path_tight_bounds` finds the real
+    // extrema. This cubic is pulled toward y=100 but never reaches it.
+    val c = shape.path_builder()
+    shape.move_to(c, geom.point_of(0.0, 0.0))
+    shape.cubic_to(c, geom.point_of(0.0, 100.0), geom.point_of(100.0, 100.0), geom.point_of(100.0, 0.0))
+    val curve = shape.built(c, shape.Winding.NonZero)
+    printf("{} {}\n", shape.path_bounds(curve).height, shape.path_tight_bounds(curve).height)
+
+    // A rectangle is a path too, so there is one kind of thing to fill rather than two.
+    val rect = shape.rect_path(geom.rect_of(0.0, 0.0, 10.0, 10.0))
+    print(len(rect.segments))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("shape example failed: {}\n", e)
+    }
+}
+```
+
+Output:
+
+```
+4
+10.0 10.0 80.0 50.0
+100.0 75.0
+5
+```
+
 ### `Quad`
 
 ```

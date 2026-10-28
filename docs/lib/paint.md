@@ -14,6 +14,70 @@ as vectors in both backends. Adding a fifth means adding it to both, on purpose.
 
 `use paint` -- or `use paint.Name` to bring one item in bare.
 
+## Example
+
+```
+use geom
+use paint
+
+// Colour and the things a shape can be filled with. A `Paint` is solid, a gradient or a pattern,
+// and which of those a backend can honour differs -- PDF has gradients and no patterns -- so the
+// kind is a value the backend can refuse rather than something it must approximate.
+fn demo() -> Result<unit, string> {
+    // Components are 0..1 floats, not bytes, because that is the space blending happens in.
+    val red = paint.rgb(1.0, 0.0, 0.0)
+    printf("{} {} {} {}\n", red.red, red.green, red.blue, red.alpha)
+    print(paint.gray(0.5).red)
+    print(paint.transparent().alpha)
+
+    // Hex is for the places colour arrives as text -- a config file, a stylesheet, a CSV.
+    val from_text = try paint.hex("#3366cc")
+    printf("{} {} {}\n", from_text.red, from_text.green, from_text.blue)
+    print(is_ok(paint.hex("#zzz")))
+
+    // A gradient is a list of stops: an offset along the axis and the colour there.
+    val stops = [paint.stop_of(0.0, paint.white()), paint.stop_of(1.0, red)]
+    print(len(stops))
+    printf("{} {}\n", stops[0].offset, stops[1].offset)
+
+    // The three kinds of Paint, which is what a backend inspects to decide whether it can draw a
+    // fill natively or must refuse it: `pattern` is the one PDF has no answer for.
+    val flat = paint.solid(red)
+    val gradient = paint.linear(geom.point_of(0.0, 0.0), geom.point_of(100.0, 0.0), stops)
+    print(paint.Paint.is_Solid(flat))
+    print(paint.Paint.is_LinearGradient(gradient))
+
+    // A stroke is width plus the joins and caps, and dashes are part of it rather than a separate
+    // pass, so one value says everything about how a line is drawn.
+    val line = paint.stroke_of(2.0)
+    printf("{} {}\n", line.width, len(line.dash))
+    print(len(paint.dashed(2.0, [4.0, 2.0]).dash))
+    return unit
+}
+
+fn main() {
+    if Err(e) = demo() {
+        printf("paint example failed: {}\n", e)
+    }
+}
+```
+
+Output:
+
+```
+1.0 0.0 0.0 1.0
+0.5
+0.0
+0.2 0.4 0.8
+false
+2
+0.0 1.0
+true
+true
+2.0 0
+2
+```
+
 ### `Color`
 
 ```
