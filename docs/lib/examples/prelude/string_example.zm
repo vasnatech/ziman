@@ -1,0 +1,35 @@
+// Strings are immutable text, and their integer positions are **character** positions, not byte
+// offsets: `len` counts characters and `byte_len` counts bytes, so the two differ exactly where
+// the text is not ASCII. That is the whole reason both names exist.
+fn main() {
+    val s = "näme=wert"
+    printf("{} {}\n", len(s), byte_len(s))
+
+    // Cutting at a found position therefore cannot split a character in half.
+    val at = index_of(s, "=", 0)
+    printf("{} {}\n", substring(s, 0, at), substring(s, at + 1, len(s)))
+
+    print(char_at(s, 1))
+    print(contains(s, "wert"))
+    print(starts_with(s, "nä"))
+    print(ends_with(s, "wert"))
+
+    print(to_upper("ziman"))
+    print(trim("  padded  "))
+    print(replace("a-b-c", "-", "+"))
+    print(split("a,b,,c", ","))
+    print(concat("Zi", "man"))
+
+    // Text goes to bytes and back explicitly, because that conversion can fail in one direction:
+    // not every byte sequence is text.
+    val bytes = to_bytes("Ziman")
+    printf("{} {}\n", len(bytes), is_ok(bytes_to_string(bytes)))
+    print(is_ok(bytes_to_string([255b, 254b])))
+
+    // A MutableString for the loop that builds text piece by piece, with `snapshot` to finish.
+    val b = mutable_string_new()
+    for part in ["Zi", "man", ".dev"] {
+        append(b, part)
+    }
+    print(snapshot(b))
+}

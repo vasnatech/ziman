@@ -1,0 +1,33 @@
+// Arrays are immutable: every operation answers a new array and leaves the old one as it was. That
+// is what makes one safe to hand to another function, or another thread, without wondering what it
+// will do with it -- and `MutableArray` exists for the loop where copying would cost too much.
+fn main() {
+    val xs = [3, 1, 4, 1, 5]
+    print(len(xs))
+    print(xs[2])
+    print(contains(xs, 4))
+
+    // `push` answers a new array; `xs` still has five elements afterwards.
+    val more = push(xs, 9)
+    printf("{} {}\n", len(xs), len(more))
+
+    print(slice(xs, 1, 4))
+    print(reverse(xs))
+    print(sort(xs))
+    print(sort_desc(xs))
+
+    // The higher-order three, which between them replace most hand-written loops.
+    print(map(xs, fn(x: int) -> int { return x * 2 }))
+    print(filter(xs, fn(x: int) -> bool { return x > 2 }))
+    print(fold(xs, 0, fn(acc: int, x: int) -> int { return acc + x }))
+
+    // `first` and `last` answer an Option rather than a value, because an empty array has neither
+    // -- so the empty case is something the type makes you handle.
+    print(first(xs))
+    val empty: [int] = []
+    print(first(empty))
+
+    // An array literal with no elements cannot say what it holds, so the type comes from the
+    // annotation: the one place an array needs one.
+    print(len(empty))
+}

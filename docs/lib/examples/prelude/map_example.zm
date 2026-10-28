@@ -1,0 +1,39 @@
+// `Map` is immutable: inserting answers a new map and leaves the old one alone. `MutableMap` and
+// `MapBuilder` are for building one in a loop, where copying per insert would be the cost that
+// matters -- the usual shape is build with a builder, then hand the finished immutable map on.
+fn main() {
+    val ages = Map<string, int> { "ada": 36, "grace": 45 }
+    print(len(ages))
+
+    // Reading answers an Option, because a key that is not there is an ordinary outcome rather
+    // than an error -- and the type makes you say what happens then.
+    print(get(ages, "ada"))
+    print(get(ages, "alan"))
+    if Some(age) = get(ages, "grace") {
+        print(age)
+    }
+    print(contains(ages, "ada"))
+
+    // Inserting leaves the original as it was.
+    val with_alan = set(ages, "alan", 41)
+    printf("{} {}\n", len(ages), len(with_alan))
+    print(len(remove(with_alan, "ada")))
+
+    // Keys and values come out as arrays; sorted here because a map has no order of its own and
+    // an example that printed an arbitrary one would be a example that sometimes fails.
+    print(sort(keys(ages)))
+    print(sort(values(ages)))
+
+    // The higher-order forms answer maps, so a transformation does not have to be a loop.
+    print(len(filter(ages, fn(k: string, v: int) -> bool { return v > 40 })))
+
+    // A MutableMap for the loop -- one map at the end rather than one per insert -- and `snapshot`
+    // to hand the finished immutable one on.
+    val m = mutable_map_new<string, int>()
+    for name in ["ada", "grace", "alan"] {
+        set(m, name, len(name))
+    }
+    val built = snapshot(m)
+    print(len(built))
+    print(get(built, "grace"))
+}

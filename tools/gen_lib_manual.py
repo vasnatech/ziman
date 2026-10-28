@@ -214,6 +214,24 @@ def summary_of(text):
     return s.rstrip(",;: ").rstrip(".") + "."
 
 
+def example_block(folder, name, heading):
+    """The worked example for one module, as manual lines -- empty when there is none.
+
+    The prelude needs this per *part*: its ten parts are one page, so `array`'s example belongs in
+    the `array.zm` section rather than at the top, where it would claim to be the prelude's. Every
+    other module has one page and calls this once."""
+    example = os.path.join(OUT, "examples", folder, name + "_example.zm")
+    if not os.path.exists(example):
+        return []
+    with open(example) as f:
+        out = [heading, "", "```", f.read().rstrip("\n"), "```", ""]
+    expected = example[:-3] + ".out"
+    if os.path.exists(expected):
+        with open(expected) as f:
+            out += ["Output:", "", "```", f.read().rstrip("\n"), "```", ""]
+    return out
+
+
 def page(name, path, kind):
     header, entries = parse(path)
     text = intro(header, name)
@@ -233,14 +251,7 @@ def page(name, path, kind):
         out += ["`use %s` -- or `use %s.Name` to bring one item in bare." % (name, name), ""]
     # Examples are grouped by the folder their module lives in, mirroring lib/. `kind` is that
     # folder; it is empty only for the prelude, which has a folder of its own.
-    example = os.path.join(OUT, "examples", kind or "prelude", name + "_example.zm")
-    if os.path.exists(example):
-        with open(example) as f:
-            out += ["## Example", "", "```", f.read().rstrip("\n"), "```", ""]
-        expected = example[:-3] + ".out"
-        if os.path.exists(expected):
-            with open(expected) as f:
-                out += ["Output:", "", "```", f.read().rstrip("\n"), "```", ""]
+    out += example_block(kind or "prelude", name, "## Example")
     current = object()
     last_name = None
     for section, comment, sig in entries:
@@ -253,6 +264,10 @@ def page(name, path, kind):
                 title = ("`%s`" % section if section.endswith(".zm")
                          else section[:1].upper() + section[1:])
                 out += ["## %s" % title, ""]
+                # A prelude part can carry its own example, under its own section -- except the
+                # part sharing the page's name, whose example is already at the top of the page.
+                if section.endswith(".zm") and section[:-3] != name:
+                    out += example_block("prelude", section[:-3], "### Example")
         name_m = re.match(r"(?:pub )?(?:native fn|builtin fn|fn|struct|enum|val) (\w+)", sig)
         # `decl_name`, not `name`: `name` is this function's own parameter, the *module's* name,
         # and the last line uses it to strip the `<module>.zm --` prefix off the header comment.

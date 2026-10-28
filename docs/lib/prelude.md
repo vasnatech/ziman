@@ -331,6 +331,63 @@ how a list of names gets sorted for a reader.
 
 ## `array.zm`
 
+### Example
+
+```
+// Arrays are immutable: every operation answers a new array and leaves the old one as it was. That
+// is what makes one safe to hand to another function, or another thread, without wondering what it
+// will do with it -- and `MutableArray` exists for the loop where copying would cost too much.
+fn main() {
+    val xs = [3, 1, 4, 1, 5]
+    print(len(xs))
+    print(xs[2])
+    print(contains(xs, 4))
+
+    // `push` answers a new array; `xs` still has five elements afterwards.
+    val more = push(xs, 9)
+    printf("{} {}\n", len(xs), len(more))
+
+    print(slice(xs, 1, 4))
+    print(reverse(xs))
+    print(sort(xs))
+    print(sort_desc(xs))
+
+    // The higher-order three, which between them replace most hand-written loops.
+    print(map(xs, fn(x: int) -> int { return x * 2 }))
+    print(filter(xs, fn(x: int) -> bool { return x > 2 }))
+    print(fold(xs, 0, fn(acc: int, x: int) -> int { return acc + x }))
+
+    // `first` and `last` answer an Option rather than a value, because an empty array has neither
+    // -- so the empty case is something the type makes you handle.
+    print(first(xs))
+    val empty: [int] = []
+    print(first(empty))
+
+    // An array literal with no elements cannot say what it holds, so the type comes from the
+    // annotation: the one place an array needs one.
+    print(len(empty))
+}
+```
+
+Output:
+
+```
+5
+4
+true
+5 6
+[1, 4, 1]
+[5, 1, 4, 1, 3]
+[1, 1, 3, 4, 5]
+[5, 4, 3, 1, 1]
+[6, 2, 8, 2, 10]
+[3, 4, 5]
+14
+Some(3)
+None
+0
+```
+
 ### `bytes_to_string`
 
 ```
@@ -1691,6 +1748,67 @@ on one that is finished or already closed.
 
 ## `map.zm`
 
+### Example
+
+```
+// `Map` is immutable: inserting answers a new map and leaves the old one alone. `MutableMap` and
+// `MapBuilder` are for building one in a loop, where copying per insert would be the cost that
+// matters -- the usual shape is build with a builder, then hand the finished immutable map on.
+fn main() {
+    val ages = Map<string, int> { "ada": 36, "grace": 45 }
+    print(len(ages))
+
+    // Reading answers an Option, because a key that is not there is an ordinary outcome rather
+    // than an error -- and the type makes you say what happens then.
+    print(get(ages, "ada"))
+    print(get(ages, "alan"))
+    if Some(age) = get(ages, "grace") {
+        print(age)
+    }
+    print(contains(ages, "ada"))
+
+    // Inserting leaves the original as it was.
+    val with_alan = set(ages, "alan", 41)
+    printf("{} {}\n", len(ages), len(with_alan))
+    print(len(remove(with_alan, "ada")))
+
+    // Keys and values come out as arrays; sorted here because a map has no order of its own and
+    // an example that printed an arbitrary one would be a example that sometimes fails.
+    print(sort(keys(ages)))
+    print(sort(values(ages)))
+
+    // The higher-order forms answer maps, so a transformation does not have to be a loop.
+    print(len(filter(ages, fn(k: string, v: int) -> bool { return v > 40 })))
+
+    // A MutableMap for the loop -- one map at the end rather than one per insert -- and `snapshot`
+    // to hand the finished immutable one on.
+    val m = mutable_map_new<string, int>()
+    for name in ["ada", "grace", "alan"] {
+        set(m, name, len(name))
+    }
+    val built = snapshot(m)
+    print(len(built))
+    print(get(built, "grace"))
+}
+```
+
+Output:
+
+```
+2
+Some(36)
+None
+45
+true
+2 3
+2
+[ada, grace]
+[36, 45]
+1
+3
+Some(5)
+```
+
 ### `mutable_map_new`
 
 ```
@@ -2979,6 +3097,65 @@ pub native fn clear<T: Eq + Hash>(s: MutableSet<T>)
 Empties the builder in place, keeping the handle.
 
 ## `string.zm`
+
+### Example
+
+```
+// Strings are immutable text, and their integer positions are **character** positions, not byte
+// offsets: `len` counts characters and `byte_len` counts bytes, so the two differ exactly where
+// the text is not ASCII. That is the whole reason both names exist.
+fn main() {
+    val s = "näme=wert"
+    printf("{} {}\n", len(s), byte_len(s))
+
+    // Cutting at a found position therefore cannot split a character in half.
+    val at = index_of(s, "=", 0)
+    printf("{} {}\n", substring(s, 0, at), substring(s, at + 1, len(s)))
+
+    print(char_at(s, 1))
+    print(contains(s, "wert"))
+    print(starts_with(s, "nä"))
+    print(ends_with(s, "wert"))
+
+    print(to_upper("ziman"))
+    print(trim("  padded  "))
+    print(replace("a-b-c", "-", "+"))
+    print(split("a,b,,c", ","))
+    print(concat("Zi", "man"))
+
+    // Text goes to bytes and back explicitly, because that conversion can fail in one direction:
+    // not every byte sequence is text.
+    val bytes = to_bytes("Ziman")
+    printf("{} {}\n", len(bytes), is_ok(bytes_to_string(bytes)))
+    print(is_ok(bytes_to_string([255b, 254b])))
+
+    // A MutableString for the loop that builds text piece by piece, with `snapshot` to finish.
+    val b = mutable_string_new()
+    for part in ["Zi", "man", ".dev"] {
+        append(b, part)
+    }
+    print(snapshot(b))
+}
+```
+
+Output:
+
+```
+9 10
+näme wert
+ä
+true
+true
+true
+ZIMAN
+padded
+a+b+c
+[a, b, , c]
+Ziman
+5 true
+false
+Ziman.dev
+```
 
 ### `to_bytes`
 
