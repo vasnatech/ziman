@@ -1332,7 +1332,21 @@ from source.
   **That was fixed the same day with one optional argument** (F218): `#![repository(Medication,
   label: "Medication")]`, a fact about the module's entity rather than per-function configuration.
   The generator writes `"Medication not found: <id>"`, the text the application had by hand, so
-  both forms are usable and the adoption can finish.
+  both forms are usable and the adoption finished at **68 functions in 19 repositories**, 121
+  `repository.query` vals down to 59.
+
+  **One thing is left, and it is a coupling rather than a gap** -- design doc §12. `#[repository]`
+  is only accepted in a module carrying `#![repository(E)]`, and that attribute both *names the
+  entity* (all a derived query needs) and *generates the nine CRUD functions*. **Seven
+  repositories refused the attribute, every one of them over the CRUD** -- `patient` and `user`
+  because it would make `delete_all(conn)` over every account callable, `audit_event` because an
+  audit row is not updated or deleted, `recipe_ingredient` because its rows are never addressed by
+  id, `notification` because `eql.insert_one` is the only one of the nine it wants. Four of them
+  have **13 derivable functions** between them, each a shape already derived elsewhere.
+
+  The shape of a fix is `#![repository(Notification, label: "..", crud: false)]`: a per-module
+  opt-out, which is what keeps it clear of the per-function configuration §8.4 refused. Measured,
+  written up, not built.
 
 
 - **Code generation from annotations needs a mechanism, not a series of exceptions. Not started;

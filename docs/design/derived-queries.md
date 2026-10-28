@@ -392,3 +392,61 @@ this ground alone, and what converted is the other kind: `delete_by_patient_id` 
   `find_by_patient_id_order_by_effective_date_time_desc_and_created_at_desc_and_id` -- 78
   characters. None were converted. §8.1's "16 names lose six characters" counted the `_all` and
   not the ordering that comes with it.
+
+## 12. The attribute couples two things, and four repositories want only one
+
+Adoption stopped at 68 functions in 19 repositories. **Seven repositories derived nothing, and
+not one of them refused the grammar** -- `#[repository]` is only accepted in a module that carries
+`#![repository(E)]`, and that attribute does two separate jobs:
+
+1. it says **this module's queries are over E**, which is all a derived query needs; and
+2. it **generates the nine CRUD functions**, which is what those seven refused.
+
+Each wrote its reason down when it refused, and every one of them is about (2):
+
+* `patient` and `user` -- *"the annotation would generate `delete_all(conn)` and `find_all(conn)`
+  over the patients table -- every account in the system, deletable in one call."*
+* `audit_event` -- *"nothing here updates or deletes a row, because an audit entry that can be
+  edited is not an audit entry."*
+* `recipe_ingredient` -- *"these rows are never addressed on their own, and every function the
+  annotation generates addresses one by its `id`."*
+* `notification` -- *"the only generated function this file would use is `insert`, and
+  `eql.insert_one` is that one without the other eight."*
+
+### What it costs, counted
+
+**13 functions across four of the seven**, each a shape already derived elsewhere:
+
+| module | derivable today if the entity could be named without the CRUD |
+|---|---|
+| `user` | `find_by_id`, `find_by_email`, `exists_by_email`, `delete` → `delete_by_id` |
+| `patient` | `find_by_id`, `find_by_user_id`, `delete_by_user_id` |
+| `notification` | `find_by_id_and_patient_id`, `count_by_patient_id`, `delete_by_patient_id` |
+| `recipe_ingredient` | `find_by_recipe_id_order_by_created_at_and_id`, `delete_by_recipe_id`, `delete_by_patient_id` |
+
+The other three are honestly empty: `encounter`'s one query is an `IS NOT NULL` and a range on the
+same column, `audit_event`'s two are a domain word with a `LIMIT` and a `GROUP BY` projection, and
+`stats` has no entity at all -- it builds SQL from runtime table and column names.
+
+Worth noting what is *not* on that list: `notification.count_by_patient_id_and_statuses` reads as
+a derivable `count_by_patient_id_and_status_in`, and is not, because its body returns 0 for an
+empty list before reaching the database -- `eql.bind_list` refuses an empty collection rather than
+guessing. A name can describe a query and still not describe the function.
+
+### The shape of a fix, not built
+
+**`#![repository(Notification, label: "Notification", crud: false)]`** -- the module is a
+repository over that entity, and the nine are not generated. It is a **per-module** opt-out, which
+is what keeps it clear of §8.4's rejection of per-function configuration, and it is one more
+argument on an attribute that already takes two.
+
+The alternatives considered and set aside:
+
+* **A list of what to generate** (`crud: [insert, find]`). This is the per-function opt-out under
+  another name, and the thing §8.4 refused: it puts the entity's own decisions in the attribute
+  instead of beside the struct.
+* **A second attribute** (`#![entity(E)]` for the naming, `#![repository(E)]` for naming plus
+  CRUD). Honest, and it costs a second name in the language for a distinction one boolean states.
+* **Nothing**, and the four keep writing those 13 by hand. Defensible: they are 13 of 144, and
+  every one of them works. What it gives up is that `notification` and `patient` are exactly the
+  files where a hand-written predicate is most worth checking against the entity's fields.
