@@ -33,7 +33,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: Check out the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       # The same check the Cloudflare workflow runs, and the same one you can run locally.
       - name: Check the site is fit to publish
