@@ -108,6 +108,13 @@ operands -- an expression language, invisible to the type checker because it liv
 string, and one that never stops growing (`@elif`, then `@{name|upper}`, then whitespace control,
 then macros).
 
+> **`@if` and `@else` do not exist.** They were built, went unused by two generators, and were
+> replaced by `@choose`/`@when`/`@otherwise` in §15 -- which §16 then confirmed was the better
+> shape on the one generator that could have argued otherwise. The rest of this section is the
+> live rule and reads unchanged if you substitute `@choose`: **no expressions, ever**; the
+> template shows which shapes exist and Ziman decides between them. The example below is kept as
+> written, and is also wrong about *why* in a second way, corrected in §14.
+
 `@if` and `@else` pair with each other and nothing else. The case that wants them is a field
 whose two readings are genuinely different text -- `derive(Row)`'s `Option` column against a
 required one, which `emit_from_sql` writes by hand today:
@@ -264,6 +271,11 @@ design, and worth a check rather than a comment.
   where they are checked.
 
 ## 10. Decisions
+
+> Decisions 1-3 are the first design's. **§15 supersedes the parts naming `@if`/`@else`**, which
+> are gone, and adds `@template` and `@yield`; its own decision list is the current one. What
+> survives unchanged is the reasoning in 2 and 4 -- no expressions in a template, and parse at
+> load with a `Result` from render.
 
 1. **`@{name}` for a hole, `@for`/`@if`/`@else`/`@end` on their own lines, `@@` for a literal.**
    Given up: consistency with `format`'s `{}`. Taken because the output is brace-dense code.
