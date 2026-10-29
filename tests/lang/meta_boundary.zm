@@ -1,0 +1,84 @@
+// **What `src/generators.c` actually hands a generator.** The one test the C-to-Ziman boundary
+// has never had, and the reason three bugs shipped through it in a week: every other fixture
+// builds its `meta.Decl` with `meta.generic(..)` by hand, so it asserts what a *generator* does
+// with a type and cannot see what *reification* produced.
+//
+// `#[derive(Reflect)]` (lib/core/derive_reflect.zm) prints the declaration and generates
+// nothing, so the expected output below is reification's own answer, byte for byte.
+//
+// **Some of what it records is wrong, deliberately.** `Result`, `Channel` and `fn` arrive with
+// `args=0` and the whole type stuffed into `name`; `Option` arrives as `kind=struct` here and
+// as `kind=enum` elsewhere. Those are the defects docs/design/meta.md §3 names and §5 fixes --
+// pinned now so that the fix shows up as a diff in this file rather than as a claim.
+//
+// Covers every kind in that §5 table: the nine scalars, array, set, map, the three flat ones, a
+// type variable, a generic struct, a qualified name inside an `Option` (the stripped-qualifier
+// bug), and an enum with and without payloads.
+use time
+use uuid.Uuid
+
+#[derive(Reflect)]
+struct Scalars {
+    a: int
+    b: float
+    c: bool
+    d: string
+    e: bigint
+    f: decimal
+    g: byte
+}
+
+#[derive(Reflect)]
+struct Collections {
+    items: [string]
+    names: Set<string>
+    scores: Map<string, int>
+    nested: Map<string, [Option<int>]>
+}
+
+// The three the model still flattens, and a type variable.
+#[derive(Reflect)]
+struct Flat<T> {
+    r: Result<int, string>
+    f: fn(int) -> string
+    c: Channel<int>
+    v: T
+}
+
+// A module-qualified name, written both ways: `time.Instant` with `use time`, and `Uuid`
+// imported by name. The qualifier each one keeps is the thing the 2026-10-28 bug got wrong, and
+// it only reaches generated text through a wrapper like `Option`.
+#[derive(Reflect)]
+struct Qualified {
+    bare: Uuid
+    qualified: time.Instant
+    wrapped: Option<time.Instant>
+    listed: [time.LocalDate]
+}
+
+// A **bounded** type parameter too: `type_params` is a list of bare names, so the `: Hash` is
+// dropped. docs/design/meta.md §9 says that is deliberate -- this is where it is visible.
+#[derive(Reflect)]
+struct Generic<T: Hash, U> {
+    one: T
+    pair: Map<T, U>
+}
+
+#[derive(Reflect)]
+enum Mixed {
+    None
+    Int(int)
+    Text(string)
+    Items([Uuid])
+}
+
+#[derive(Reflect)]
+enum Wrapper<T> {
+    Empty
+    Held(T)
+    Many([T])
+}
+
+fn main() {
+    print("ok")
+}

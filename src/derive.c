@@ -1639,6 +1639,17 @@ void generate_derived_functions(Module *module) {
             int is_props = strcmp(sd->derives[d], "Properties") == 0;
             int is_ord = strcmp(sd->derives[d], "Ord") == 0;
             int is_entity = strcmp(sd->derives[d], "Entity") == 0;
+            /* `Reflect` prints the reified declaration and generates nothing -- the test
+             * instrument for this boundary, see lib/core/derive_reflect.zm. It takes no part in
+             * the restrictions below because its whole job is to accept whatever arrives:
+             * a generic struct, a field type another target refuses, an enum. */
+            int is_reflect = strcmp(sd->derives[d], "Reflect") == 0;
+            if (is_reflect) {
+                parse_and_splice(module, generated_in_ziman("Reflect", sd, NULL, sd->line, sd->col),
+                                 sd->line, sd->col, fmt_str("derive(Reflect) for '%s'", sd->name));
+                ziman_recovery_pop();
+                continue;
+            }
             if (!is_json && !is_row && !is_props && !is_ord && !is_entity) {
                 ziman_error("syntax", sd->line, sd->col, "unknown derive target '%s' on struct '%s'", sd->derives[d], sd->name);
             }
@@ -1719,6 +1730,12 @@ void generate_derived_functions(Module *module) {
             }
             if (strcmp(ed->derives[d], "Row") == 0) {
                 ziman_error("syntax", ed->line, ed->col, "derive(Row) does not support an enum ('%s') -- a SQL row is a struct", ed->name);
+            }
+            if (strcmp(ed->derives[d], "Reflect") == 0) {
+                parse_and_splice(module, generated_in_ziman("Reflect", NULL, ed, ed->line, ed->col),
+                                 ed->line, ed->col, fmt_str("derive(Reflect) for '%s'", ed->name));
+                ziman_recovery_pop();
+                continue;
             }
             if (strcmp(ed->derives[d], "Properties") == 0) {
                 ziman_error("syntax", ed->line, ed->col, "derive(Properties) does not support an enum ('%s') -- configuration binds to a struct", ed->name);

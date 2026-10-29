@@ -319,6 +319,15 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
 
+## `derive_reflect`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub fn generate(d: meta.Decl) -> Result<string, string>
+
+```
+
 ## `derive_row`
 
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 

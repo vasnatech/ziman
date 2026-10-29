@@ -13,6 +13,7 @@
 #include "derive_row_source.h"
 #include "derive_properties_source.h"
 #include "derive_json_source.h"
+#include "derive_reflect_source.h"
 #include "url_source.h"
 #include "fs_source.h"
 #include "log_source.h"
@@ -91,6 +92,7 @@ static const CoreModule CORE_MODULES[] = {
     {"derive_row", DERIVE_ROW_SOURCE},
     {"derive_properties", DERIVE_PROPERTIES_SOURCE},
     {"derive_json", DERIVE_JSON_SOURCE},
+    {"derive_reflect", DERIVE_REFLECT_SOURCE},
     {"url", URL_SOURCE},
     {"fs", FS_SOURCE},
     {"log", LOG_SOURCE},

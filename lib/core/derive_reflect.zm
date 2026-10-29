@@ -1,0 +1,73 @@
+// `#[derive(Reflect)]`: prints the declaration a generator was handed, and generates nothing.
+//
+// **This is a test instrument, not a feature.** Every fixture that exercises a generator builds
+// its own `meta.Decl` by hand, which means it asserts what the *generator* does with a type and
+// can say nothing about what *reification* produced -- it is the thing standing in for
+// reification. So the C-to-Ziman boundary, the one piece of the derive mechanism still written
+// in C, has never had a test. Three bugs shipped through it in one week: a stripped module
+// qualifier, a map and a set arriving with no element types, and a `Decl` built where the
+// collector could not see it. None was caught by 1,293 fixtures and all three were found by
+// hand, late.
+//
+// This generator closes that. Write `#[derive(Reflect)]` on a real declaration, run
+// `ziman --emit-derived`, and the output is exactly what `src/generators.c` built -- pinned by
+// `tests/lang/derive_reflect`. See docs/design/meta.md §10.
+//
+// **It emits only comments**, so a declaration that derives it is unchanged. That is deliberate:
+// the instrument must not be able to break the program it is measuring.
+#![experimental]
+#![generator(Reflect)]
+
+use meta
+
+// `kind=.. name=.. args=N` for one type node, with no recursion: the caller walks.
+//
+// **One flat line per node, prefixed by its path** (`type.args[0].args[1]`) rather than a nested
+// block. A dump is read by `diff` more often than by a person, and a flat line means a change to
+// one nested type is one changed line instead of a reindented block.
+fn line(path: string, t: meta.MetaType) -> string {
+    return concat(
+        "//   ",
+        path,
+        " kind=",
+        t.kind,
+        " name='",
+        t.name,
+        "' args=",
+        str(prelude.len(t.args)),
+        "\n"
+    )
+}
+
+// One node and everything under it, depth first, in argument order.
+fn walk(path: string, t: meta.MetaType) -> string {
+    val out = mutable_array_new<string>()
+    push(out, line(path, t))
+    for i in 0..prelude.len(t.args) {
+        push(out, walk(concat(path, ".args[", str(i), "]"), t.args[i]))
+    }
+    return concat(pieces: snapshot(out))
+}
+
+pub fn generate(d: meta.Decl) -> Result<string, string> {
+    val out = mutable_array_new<string>()
+    push(out, concat("// reflect ", d.name, "\n"))
+    push(out, concat("//   snake_name='", d.snake_name, "'\n"))
+    push(out, concat("//   is_enum=", if d.is_enum { "true" } else { "false" }, "\n"))
+    push(out, concat("//   type_params=[", join(separator: ", ", pieces: d.type_params), "]\n"))
+    push(out, concat("//   members=", str(prelude.len(d.members)), "\n"))
+    for i in 0..prelude.len(d.members) {
+        val m = d.members[i]
+        push(out, concat(
+            "//   member[",
+            str(i),
+            "] name='",
+            m.name,
+            "' has_payload=",
+            if m.has_payload { "true" } else { "false" },
+            "\n"
+        ))
+        push(out, walk(concat("member[", str(i), "].type"), m.type))
+    }
+    return ok(concat(pieces: snapshot(out)))
+}
