@@ -682,6 +682,61 @@ pub fn render(sheet: Sheet, name: string, ctx: Json) -> Result<string, string> {
     return ok(concat(pieces: snapshot(out)))
 }
 
+// One anonymous template, parsed and rendered against `ctx` -- the runtime half of this module
+// (docs/design/expressions.md §13). Same parser, same directives, same `expr`; no `@template`
+// wrapper and no sheet.
+//
+// **A separate entry point rather than a flag on `parse`**, so that a notification template cannot
+// accidentally reach the sheet machinery, and so that the two differ where they should:
+//
+// * **A sheet is parsed once** at module load, in a `val`, and a malformed one stops the module.
+//   This parses on every call, because the source *is* a runtime value -- out of a config file or
+//   a database row -- and answers an `Err` instead of raising.
+// * **An unused key is not refused here.** For a sheet it is a mistake worth reporting (a binding
+//   a template never mentions is usually a template that was edited), and for runtime text it is
+//   ordinary: a notification is handed the whole of something and uses three fields of it. That
+//   asymmetry is the reason this is not simply `render` with a one-template sheet.
+// * **The output ends where the source does.** Every body line carries its newline, so a source
+//   with no trailing newline would otherwise gain one -- which matters because the first thing a
+//   runtime template is used for is a one-line subject.
+pub fn render_text(source: string, ctx: Json) -> Result<string, string> {
+    if !Json.is_JObject(ctx) {
+        return err(prelude.format("a template's context is a JSON object, and this one is {}", kind_of(ctx)))
+    }
+    // **A source that ends in a newline splits with an empty last element**, and every body line
+    // carries its own newline -- so parsing that element would add a second one. Dropping it is
+    // what makes `render_text("x\n")` answer `"x\n"` and not `"x\n\n"`, while a deliberate blank
+    // last line (`"x\n\n"`) still renders as one.
+    val split_lines = split(source, "\n")
+    val lines = if ends_with(source, "\n") {
+        slice(split_lines, 0, prelude.len(split_lines) - 1)
+    } else {
+        split_lines
+    }
+    for i in 0..prelude.len(lines) {
+        if starts_with(trim(lines[i]), "@template") {
+            return err(problem(
+                i + 1,
+                "'@template' belongs to a sheet -- runtime text is one template, with no sections"
+            ))
+        }
+    }
+    val body = try parse_block(lines, 0)
+    if body.closer != "" {
+        return err(problem(
+            body.next,
+            concat("a stray '@", body.closer, "' -- runtime text is one template, so there is nothing to close")
+        ))
+    }
+    val out = mutable_array_new<string>()
+    try emit(body.nodes, ctx, out)
+    val text = concat(pieces: snapshot(out))
+    if ends_with(source, "\n") || text == "" {
+        return ok(text)
+    }
+    return ok(substring(text, 0, prelude.len(text) - 1))
+}
+
 // The same with the three constructors' sugar, which is what every bundled generator passes.
 // **Kept rather than migrated**: the generators declare `template.Row` and build binding lists in
 // about 1,100 lines, and their output is pinned byte for byte -- so leaving those call sites alone

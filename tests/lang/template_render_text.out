@@ -1,0 +1,19 @@
+a subject line: [A shared link expires 2026-11-05.]
+a line that ends in a newline: [A shared link.
+]
+a deliberate blank last line: [A shared link.
+
+]
+a body: [Hello Ada,
+Please read this now.
+You have 3 items:
+- INSULIN
+- METFORMIN]
+an unused key: [Ada]
+a missing key: '@{nope}': no 'nope' here; this object has name, what, expires, count, urgent, items, unused
+a malformed expression: template line 1: 'a +' is not an expression: expression:4: expected a value, found the end of the expression
+an unclosed @if: template line 1: this '@if' is never closed by an '@end'
+a @template section: template line 1: '@template' belongs to a sheet -- runtime text is one template, with no sections
+a stray @end: template line 2: a stray '@end' -- runtime text is one template, so there is nothing to close
+a context that is a number: a template's context is a JSON object, and this one is a number
+an empty source: []

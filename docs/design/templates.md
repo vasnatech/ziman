@@ -204,6 +204,7 @@ pub fn must_parse(source: string) -> Sheet
 pub fn render(sheet: Sheet, name: string, ctx: Json) -> Result<string, string>
 pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string>
 pub fn context(bindings: [Binding]) -> Json
+pub fn render_text(source: string, ctx: Json) -> Result<string, string>
 ```
 
 with the parse living in a module-level `val`:
@@ -710,6 +711,7 @@ pub fn must_parse(source: string) -> Sheet
 pub fn render(sheet: Sheet, name: string, ctx: Json) -> Result<string, string>
 pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string>
 pub fn context(bindings: [Binding]) -> Json
+pub fn render_text(source: string, ctx: Json) -> Result<string, string>
 ```
 
 `render` naming its template is what lets one `val` serve a whole generator. An unknown name is a

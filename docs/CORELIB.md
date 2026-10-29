@@ -1790,6 +1790,8 @@ pub fn must_parse(source: string) -> Sheet
 
 pub fn render(sheet: Sheet, name: string, ctx: Json) -> Result<string, string>
 
+pub fn render_text(source: string, ctx: Json) -> Result<string, string>
+
 pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string>
 
 ```

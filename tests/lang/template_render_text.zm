@@ -1,0 +1,72 @@
+// `template.render_text`: one anonymous template, parsed and rendered at run time -- the runtime
+// half of the module (docs/design/expressions.md §13), where everything else in it serves a code
+// generator's sheet.
+//
+// **It is a separate entry point so the two can differ where they should**, and this fixture is
+// mostly about those differences: a sheet is parsed once at module load and a malformed one stops
+// the module, while this parses per call and answers an `Err`; a sheet refuses a binding its text
+// never mentions, and this does not, because a notification is handed the whole of something and
+// uses three fields of it.
+use json
+use template
+
+fn show(what: string, r: Result<string, string>) {
+    if Err(e) = r {
+        print(concat(what, ": ", e))
+    }
+    if Ok(text) = r {
+        print(concat(what, ": [", text, "]"))
+    }
+}
+
+fn ctx(body: string) -> json.Json {
+    return unwrap(json.parse(body))
+}
+
+fn main() {
+    val patient = ctx(concat(
+        "{\"name\": \"Ada\", \"what\": \"A shared link\", \"expires\": \"2026-11-05\",",
+        "\"count\": 3, \"urgent\": true, \"items\": [{\"label\": \"insulin\"}, {\"label\": \"metformin\"}],",
+        "\"unused\": \"ignored\"}"
+    ))
+
+    // **The output ends where the source does.** A one-line subject has no trailing newline to
+    // gain, which is the first thing a runtime template is used for.
+    show("a subject line", template.render_text("@{what} expires @{expires}.", patient))
+    show("a line that ends in a newline", template.render_text("@{what}.\n", patient))
+    show("a deliberate blank last line", template.render_text("@{what}.\n\n", patient))
+
+    // The directives are the same ones, against the same expression language.
+    show("a body", template.render_text(concat(
+        "Hello @{name},\n",
+        "@if urgent\n",
+        "Please read this now.\n",
+        "@end\n",
+        "You have @{count} item@{count == 1 ? '' : 's'}:\n",
+        "@for i in items\n",
+        "- @{upper(i.label)}\n",
+        "@end"
+    ), patient))
+
+    // **An unused key is not refused**, where a sheet's `render` refuses one. `unused` is in the
+    // context above and no template here mentions it.
+    show("an unused key", template.render_text("@{name}", patient))
+
+    // A missing one is still a refusal, from `expr`, as everywhere else.
+    show("a missing key", template.render_text("@{nope}", patient))
+
+    // A malformed template is an `Err` rather than a raise: the source is a runtime value, so it
+    // can be wrong in a way a sheet in a `val` cannot be.
+    show("a malformed expression", template.render_text("@{a +}", patient))
+    show("an unclosed @if", template.render_text("@if urgent\nx\n", patient))
+
+    // `@template` and a stray `@end` are refused by name: runtime text is one template.
+    show("a @template section", template.render_text("@template t\nx\n@end\n", patient))
+    show("a stray @end", template.render_text("x\n@end\n", patient))
+
+    // The context still has to be an object.
+    show("a context that is a number", template.render_text("@{name}", ctx("7")))
+
+    // Nothing at all renders as nothing, rather than as a newline.
+    show("an empty source", template.render_text("", patient))
+}

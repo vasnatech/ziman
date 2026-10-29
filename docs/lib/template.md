@@ -160,6 +160,32 @@ mentions. The second is the more likely one after a template is edited, and it i
 about the text rather than about this render -- so an unused binding is reported even when the
 loop that would have read it has no rows, or the `@when` that would have is not the one chosen.
 
+### `render_text`
+
+```
+pub fn render_text(source: string, ctx: Json) -> Result<string, string>
+```
+
+One anonymous template, parsed and rendered against `ctx` -- the runtime half of this module
+(docs/design/expressions.md §13). Same parser, same directives, same `expr`; no `@template`
+wrapper and no sheet.
+
+**A separate entry point rather than a flag on `parse`**, so that a notification template cannot
+accidentally reach the sheet machinery, and so that the two differ where they should:
+
+* **A sheet is parsed once** at module load, in a `val`, and a malformed one stops the module.
+  This parses on every call, because the source *is* a runtime value -- out of a config file or
+  a database row -- and answers an `Err` instead of raising.
+* **An unused key is not refused here.** For a sheet it is a mistake worth reporting (a binding
+  a template never mentions is usually a template that was edited), and for runtime text it is
+  ordinary: a notification is handed the whole of something and uses three fields of it. That
+  asymmetry is the reason this is not simply `render` with a one-template sheet.
+* **The output ends where the source does.** Every body line carries its newline, so a source
+  with no trailing newline would otherwise gain one -- which matters because the first thing a
+  runtime template is used for is a one-line subject.
+
+### `render`
+
 ```
 pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string>
 ```

@@ -300,6 +300,21 @@ Same parser, same directives, same `expr`, no `@template` wrapper. This is what 
 and keeping it a separate entry point means a notification template cannot accidentally depend on
 the sheet machinery.
 
+**Built 2026-10-29 (F235), with three things decided in the building** -- each of them a place the
+two entry points *should* differ, which is the argument for them being two:
+
+* **An unused key is not refused here**, where a sheet's `render` refuses one. For a sheet that is
+  a real mistake (a binding no template mentions is usually a template that was edited); for
+  runtime text it is ordinary, because a notification is handed the whole of something and uses
+  three fields of it. This asymmetry is the strongest reason this is not `render` over a
+  one-template sheet.
+* **It parses on every call and answers an `Err`.** A sheet is a `val` parsed once at module load,
+  so a malformed one stops the module; this source is a runtime value and can be wrong in a way
+  that must be handled rather than raised.
+* **The output ends where the source does.** Every body line carries its own newline, so a source
+  with no trailing newline would otherwise gain one -- which matters because the first thing this
+  is used for is a one-line subject. A deliberate blank last line still renders as one.
+
 ## 14. The cost: generator logic stops being typechecked, unless a rule holds
 
 This is the real objection to putting expressions in `template.zm`, and it does not go away by
@@ -394,7 +409,16 @@ Each step is useful alone and provable before the next:
    access, the frame stack is gone, and every "no such path" message comes from the evaluator that
    owns paths. A loop binder that would shadow a bound name is refused, which keeps templates.md
    §5's "shadowing is impossible by construction" through the change.
-5. **`render_text`** (§12), and whatever the first real notification template needs.
+5. ~~**`render_text`** (§12)~~ **DONE 2026-10-29 (F235)**, with the three asymmetries §13 now
+   records. **"Whatever the first real notification template needs" is not done and is not
+   ziman's**: the North Star builds its notification text in Ziman code
+   (`concat(what, " expires ", time.format(expires_at), ".")` in `service/notification.zm`), and
+   moving that into templates is a health-record change *and* a product decision -- whether
+   message text lives in code or in configuration someone can edit. The language half it needs is
+   now there.
+
+**This document is complete.** Steps 1-5 are done: `expr` over `Json`, `json.snake_keys`, a `Json`
+context, `template` on `expr` with `@if`/`@elif`/`@else`, and `render_text`.
 
 Steps 3 and 4 are each a migration of about 1,100 lines of generator Ziman, done against
 byte-identical fixtures. That is the honest price of putting expressions in the template module,

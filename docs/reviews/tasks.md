@@ -4291,3 +4291,42 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   step 5 (`render_text`) is left in that document.
 
   1,303 fixtures.
+
+- [x] **F235** **`template.render_text`: step 5, and docs/design/expressions.md is complete.**
+  (§13 and §16 step 5; done 2026-10-29; S.)
+
+  One anonymous template, parsed and rendered against a `Json` context at run time -- the runtime
+  half of a module whose every other entry point serves a code generator's sheet. Same parser,
+  same directives, same `expr`.
+
+  **Three asymmetries decided in the building, and each is a reason the two entry points are
+  two** rather than one with a flag:
+
+  * **An unused key is not refused here.** A sheet's `render` refuses a binding its text never
+    mentions, and that check has earned itself twice this week. For runtime text it would be
+    wrong: a notification is handed the whole of something and uses three fields of it.
+  * **It parses per call and answers an `Err`.** A sheet is a `val` parsed at module load, so a
+    malformed one stops the module; this source is a runtime value -- a config file, a database
+    row -- and being wrong is a case to handle, not to raise.
+  * **The output ends where the source does.** Every body line carries its own newline, so
+    `render_text("x\n")` would answer `"x\n\n"` without care: a source ending in a newline splits
+    with an empty last element, and that element is dropped. `"x"` answers `"x"`, `"x\n"` answers
+    `"x\n"`, and a deliberate blank last line (`"x\n\n"`) still renders as one. This matters
+    because the first thing a runtime template is used for is a one-line subject.
+
+  `@template` and a stray `@end` are refused by name ("runtime text is one template, with no
+  sections"), so a sheet pasted into this entry point says so rather than failing obscurely.
+  `tests/lang/template_render_text` pins all of it, including a body that uses `@if`, `@for`, a
+  ternary and `upper(..)` together.
+
+  **The other half of step 5 is deliberately not done and is not ziman's.** "Whatever the first
+  real notification template needs" means the North Star, which builds its notification text in
+  Ziman code -- `concat(what, " expires ", time.format(expires_at), ".")` in
+  `service/notification.zm`. Moving that into templates is a health-record change *and* a product
+  decision: whether message text lives in code or in configuration someone can edit. The language
+  half it would need is now there.
+
+  **docs/design/expressions.md is complete**: `expr` over `Json`, `json.snake_keys`, a `Json`
+  context, `template` on `expr` with `@if`/`@elif`/`@else`, and `render_text`.
+
+  1,304 fixtures.
