@@ -480,6 +480,14 @@ three from shipping.
    `#[repository]`** -- the second generator kind, and the thing that takes the last generator out
    of `src/derive.c`.
 
+   **Done in two halves, because the feature is two.** The keyed CRUD landed first (2026-10-29,
+   F228): `lib/core/derive_repository.zm`'s `generate_module`, holding the nine functions, with
+   the C keeping the imports and the splice. The derived queries -- the name grammar, the
+   signature check, the SQL -- are the second half and are still C. Splitting them is the same
+   argument as splitting 4 from 5: the first half proves `Target` and the kind without the
+   second half being right as well, and the *proof* is that the backend's 23 repositories
+   generate 12,542 lines of identical text either way.
+
 Step 3 changes `src/generators.c`'s reification and the constructors in `meta.zm` without
 breaking a generator, because `meta`'s constructors are what the C calls and adding a field
 changes the constructor rather than every caller -- the property user-generators.md was designed
@@ -510,14 +518,30 @@ generator depends on it. Two guards: `Target` is one feature's type rather than 
 
 ## 13. Open decisions
 
-* **Is a second generator kind right, or should `#[repository]` stay in C?** §8 argues it needs
-  `generate_module` over a `Target`. The honest alternative is that one feature needing its own
-  entry point and its own input type is a sign it is not a derive and should not pretend to be --
-  in which case the ~1,000 lines stay in `src/derive.c` and `meta` stops at §7. This is the
-  decision the whole document turns on.
-* **How does `#![generator(X)]` say which kind it declares?** By which entry point the module
-  exports (`generate` vs `generate_module`), or by the attribute. Exporting both should be a
-  refusal either way.
+* ~~**Is a second generator kind right, or should `#[repository]` stay in C?**~~ **DECIDED
+  2026-10-29 (user): the second kind.** §8's reading stands, with two narrowings the port found
+  and one addition:
+
+  * **`Target` carries less than §8 proposed.** No `entity_module`: generated text spells the
+    entity's *bare* name and the import that puts it in scope is the compiler's own work, so the
+    `use` path is read by nothing. No `queries` list either -- a bodyless function is a parameter
+    to the second entry point instead. What is left is `entity`, `label`, `crud` and `defined`,
+    which is every field the port reads and no field it does not. §12's guard, applied.
+  * **Two entry points, not one returning a list.** `generate_module(t)` answers the declarations
+    the attribute itself generates; `generate_query(t, f)` is called once per bodyless `pub fn`
+    and answers that one body. A single entry point returning every piece would collapse every
+    refusal onto the module attribute's position, where today a broken derived query is reported
+    at its own line and three of them are three errors. The per-function loop stays in C for the
+    same reason.
+  * **The division is text against module.** A generator answers a string; the imports the
+    generated bodies name, the position a refusal lands at, and the splice itself stay in C --
+    exactly as `import_for_derive` is C beside all five declaration derives. That is the argument
+    for a second *kind* rather than a second mechanism.
+* ~~**How does `#![generator(X)]` say which kind it declares?**~~ **DECIDED 2026-10-29: by which
+  entry point the module exports.** The entry point has to exist either way, so a kind named in
+  the attribute as well would be a second source of truth that can disagree with it -- and the
+  disagreement would surface at the first use, in another file, which is the thing the attribute
+  exists to prevent. Exporting both kinds is refused (`tests/lang/generator_both_kinds`).
 * **Should `Optional` really be a variant** (§5), given that the compiler has no such kind and
   `meta` would be normalising two of its representations into one? This is the clearest case of
   `meta` being an interface rather than a mirror, and the clearest place to object to that.

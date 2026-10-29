@@ -1,0 +1,22 @@
+// There are two kinds of generator and **the entry point a module exports is which kind it is**
+// (docs/design/meta.md §13, decided 2026-10-29): `generate(d: Decl)` is called once per
+// `#[derive(X)]`, and `generate_module(t: Target)`/`generate_query(t, f)` once per
+// `#![repository(..)]`-style module attribute.
+//
+// The kind is read off the entry point rather than named in the attribute because the entry point
+// has to exist either way, so an attribute that also named the kind would be a second source of
+// truth that could disagree with it. The cost of that choice is this refusal: a module exporting
+// both says it is both, and nothing would say which one a target meant.
+#![generator(Csv)]
+
+pub fn generate(x: int) -> int {
+    return x
+}
+
+pub fn generate_module(x: int) -> int {
+    return x
+}
+
+fn main() {
+    print(generate(1))
+}

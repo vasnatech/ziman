@@ -337,11 +337,22 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
 
+## `derive_repository`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub fn generate_module(t: meta.Target) -> Result<string, string>
+
+```
+
 ## `derive_row`
 
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
+pub fn emit_to_sql(t: meta.Type, src: string, dst: string, n: Mutable<int>) -> Result<string, string>
+
 pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
@@ -1092,6 +1103,48 @@ pub fn fresh(n: Mutable<int>, hint: string) -> string
 pub fn type_params_bounded(d: Decl, bound: string) -> string
 
 pub fn type_text(d: Decl) -> string
+
+pub struct Param {
+    name: string
+    type: Type
+}
+
+pub struct Function {
+    name: string
+    params: [Param]
+    returns: Type
+}
+
+pub struct Target {
+    // The entity, reified from wherever it is declared: its fields are the columns, and the ones
+    // carrying `#[pk]` are what addresses one row.
+    entity: Decl
+    // `#![repository(Medication, label: "Medication")]`'s label -- the entity as a person says
+    // it, for a `NotFound` message that reaches an API response. `None` when none was given, and
+    // then the entity's own name is the label.
+    label: Option<string>
+    // `#![repository(Notification, crud: false)]` makes this false: name the entity, generate
+    // none of the nine CRUD functions. A module with only derived queries wants exactly that.
+    crud: bool
+    // The functions this module already defines, so a generator can decline to replace one.
+    // **A hand-written function wins**, which is what makes the attribute safe to add to a
+    // repository that has already been written.
+    defined: [string]
+}
+
+pub fn param(name: string, type: Type) -> Param
+
+pub fn function(name: string, params: [Param], returns: Type) -> Function
+
+pub fn target(entity: Decl, label: Option<string>, crud: bool, defined: [string]) -> Target
+
+pub fn label_of(t: Target) -> string
+
+pub fn fields_of(t: Target) -> [Field]
+
+pub fn keys_of(t: Target) -> [Field]
+
+pub fn defines(t: Target, name: string) -> bool
 
 ```
 

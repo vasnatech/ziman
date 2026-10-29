@@ -1,0 +1,1 @@
+#![generator(Csv)] declares both kinds of generator -- 'pub fn generate' takes one declaration and 'generate_module'/'generate_query' take a whole module, and nothing would say which one 'Csv' means

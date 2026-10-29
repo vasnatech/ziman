@@ -1835,15 +1835,41 @@ static void canonicalize_use_path(Loader *ldr, UseDecl *u) {
  * **This is the whole argument for the attribute over the `derive_<snake(x)>` convention** -- a
  * declared link can be checked where a concatenated name can only be looked up and missed. See
  * docs/design/user-generators.md §4. */
-static void check_generator(Module *mod) {
-    if (mod->generator_target == NULL) return;
+/* **The entry point a module exports is which kind of generator it is**, rather than a second
+ * argument to the attribute saying so (docs/design/meta.md §13, decided 2026-10-29). The entry
+ * point has to exist either way, so a kind named in the attribute would be a second source of
+ * truth that can disagree with it -- and the disagreement would be found at the first use, in
+ * another file, which is the thing this check exists to prevent.
+ *
+ * `generate(d: Decl)` is the declaration kind, one call per `#[derive(X)]`.
+ * `generate_module(t: Target)` and `generate_query(t: Target, f: Function)` are the module kind,
+ * over a whole `#![repository(..)]`. Exporting both kinds is refused: nothing would say which
+ * one a target meant. */
+static int exports_pub_fn(Module *mod, const char *name) {
     for (int i = 0; i < mod->functions.count; i++) {
         FunctionDecl *f = mod->functions.items[i];
-        if (f->name != NULL && strcmp(f->name, "generate") == 0 && f->visibility == VIS_PUBLIC) return;
+        if (f->name != NULL && strcmp(f->name, name) == 0 && f->visibility == VIS_PUBLIC) return 1;
     }
+    return 0;
+}
+
+static void check_generator(Module *mod) {
+    if (mod->generator_target == NULL) return;
+    int decl_kind = exports_pub_fn(mod, "generate");
+    int module_kind = exports_pub_fn(mod, "generate_module") || exports_pub_fn(mod, "generate_query");
+    if (decl_kind && module_kind) {
+        ziman_error("module", mod->generator_line, mod->generator_col,
+                    "#![generator(%s)] declares both kinds of generator -- 'pub fn generate' takes one "
+                    "declaration and 'generate_module'/'generate_query' take a whole module, and nothing "
+                    "would say which one '%s' means",
+                    mod->generator_target, mod->generator_target);
+        return;
+    }
+    if (decl_kind || module_kind) return;
     ziman_error("module", mod->generator_line, mod->generator_col,
                 "#![generator(%s)] says this module generates '%s', and it declares no "
-                "'pub fn generate' for the compiler to call",
+                "'pub fn generate' (one declaration) or 'pub fn generate_module' (a whole module) "
+                "for the compiler to call",
                 mod->generator_target, mod->generator_target);
 }
 

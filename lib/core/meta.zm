@@ -379,3 +379,112 @@ pub fn type_text(d: Decl) -> string {
     }
     return concat(d.name, "<", join(separator: ", ", pieces: d.type_params), ">")
 }
+
+// ---- a module generator's input -----------------------------------------------------------
+//
+// **The second generator kind** (docs/design/meta.md §8, decided 2026-10-29). The four shapes
+// above are everything a `generate(d: Decl)` generator sees, and `#[repository]` does not fit
+// any of them: it is a *module* attribute naming a struct declared in **another file**, and what
+// it generates depends on what the current module already defines. A `Decl` cannot say any of
+// that, and the draft that tried to -- `repository_*` fields on a `Module` reachable from `Decl`
+// -- would have read `None` at every real site, because the entity and the repository are never
+// the same file.
+//
+// So a module generator takes a `Target` and has its own entry points:
+//
+//     pub fn generate_module(t: meta.Target) -> Result<string, string>
+//     pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string>
+//
+// The first answers the declarations the attribute itself generates; the second is called once
+// per bodyless `pub fn` and answers that one function's body. **Two entry points rather than one
+// returning a list**, so that a refusal lands at the position of the thing refused: a broken
+// derived query is reported at its own line, and three broken ones are three errors rather than
+// the first one. The per-function loop stays in `src/derive.c` for the same reason.
+
+// A function's parameter, as the author wrote it.
+pub struct Param {
+    name: string
+    type: Type
+}
+
+// A signature without its body: what a generator checks a name against, and repeats when it
+// writes the body it was declared without.
+pub struct Function {
+    name: string
+    params: [Param]
+    returns: Type
+}
+
+// One `#![repository(Entity)]`, as its generator sees it.
+//
+// **Named for what it is rather than `Module`**, so that it cannot become the place every later
+// module attribute accretes: a second module-level feature gets its own type, or a reason is
+// written down for sharing this one.
+//
+// **It carries only what the port reads.** The design (§8) also proposed the entity's `use` path
+// and the list of bodyless functions: the first is read by nothing -- generated text spells the
+// entity's bare name, and the import that puts it in scope is the compiler's own work -- and the
+// second is a parameter to `generate_query` instead, which is how a refusal keeps its position.
+// A grant this wide is hard to take back once a generator depends on it, so it starts narrow.
+pub struct Target {
+    // The entity, reified from wherever it is declared: its fields are the columns, and the ones
+    // carrying `#[pk]` are what addresses one row.
+    entity: Decl
+    // `#![repository(Medication, label: "Medication")]`'s label -- the entity as a person says
+    // it, for a `NotFound` message that reaches an API response. `None` when none was given, and
+    // then the entity's own name is the label.
+    label: Option<string>
+    // `#![repository(Notification, crud: false)]` makes this false: name the entity, generate
+    // none of the nine CRUD functions. A module with only derived queries wants exactly that.
+    crud: bool
+    // The functions this module already defines, so a generator can decline to replace one.
+    // **A hand-written function wins**, which is what makes the attribute safe to add to a
+    // repository that has already been written.
+    defined: [string]
+}
+
+pub fn param(name: string, type: Type) -> Param {
+    return Param { name: name, type: type }
+}
+
+pub fn function(name: string, params: [Param], returns: Type) -> Function {
+    return Function { name: name, params: params, returns: returns }
+}
+
+pub fn target(entity: Decl, label: Option<string>, crud: bool, defined: [string]) -> Target {
+    return Target { entity: entity, label: label, crud: crud, defined: defined }
+}
+
+// The label a `NotFound` message carries: the attribute's, or the entity's own name.
+pub fn label_of(t: Target) -> string {
+    if Some(l) = t.label {
+        return l
+    }
+    return t.entity.name
+}
+
+// The entity's fields, or an empty list for an entity that is somehow an enum -- which
+// `src/derive.c` refuses before a generator runs, and a `switch` still has to answer.
+pub fn fields_of(t: Target) -> [Field] {
+    switch t.entity.body {
+        Struct(fields) { return fields }
+        Enum(ignored) { return [] }
+    }
+}
+
+// The fields carrying `#[pk]`, in declaration order: what addresses one row. More than one is a
+// compound key.
+pub fn keys_of(t: Target) -> [Field] {
+    val out = mutable_array_new<Field>()
+    for f in fields_of(t) {
+        if has_attr(f, "pk") {
+            push(out, f)
+        }
+    }
+    return snapshot(out)
+}
+
+// Whether this module writes `name` itself.
+pub fn defines(t: Target, name: string) -> bool {
+    return contains(t.defined, name)
+}

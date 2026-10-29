@@ -18,6 +18,7 @@ flowchart LR
         derive_ord["derive_ord"]
         derive_properties["derive_properties"]
         derive_reflect["derive_reflect"]
+        derive_repository["derive_repository"]
         derive_row["derive_row"]
         encoding["encoding"]
         expr["expr"]
@@ -100,6 +101,9 @@ flowchart LR
     derive_properties --> properties
     derive_properties --> template
     derive_reflect --> meta
+    derive_repository --> derive_row
+    derive_repository --> meta
+    derive_repository --> template
     derive_row --> meta
     derive_row --> template
     encoding --> locale
@@ -264,7 +268,7 @@ otherwise: everything on a layer depends only on lower layers.
 |---|---|
 | 0 | `bits`, `clock`, `compress`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `template`, `thread` |
 | 1 | `derive_entity`, `derive_json`, `derive_ord`, `derive_reflect`, `derive_row`, `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `xml` |
-| 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
+| 2 | `derive_repository`, `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
 | 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
 | 4 | `datasource`, `derive_properties`, `font`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sql`, `sqlite`, `time`, `uuid` |
 | 5 | `client`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
@@ -286,7 +290,8 @@ otherwise: everything on a layer depends only on lower layers.
 | `derive_ord` | `meta`, `template` | - |
 | `derive_properties` | `meta`, `properties`, `template` | - |
 | `derive_reflect` | `meta` | - |
-| `derive_row` | `meta`, `template` | - |
+| `derive_repository` | `derive_row`, `meta`, `template` | - |
+| `derive_row` | `meta`, `template` | `derive_repository` |
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
 | `expr` | `json`, `regex` | - |
@@ -303,7 +308,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `markdown` | `math` | - |
 | `math` | - | `geom`, `json`, `markdown`, `properties`, `raster`, `shape`, `stroker` |
 | `memdb` | `db`, `locale`, `sql` | - |
-| `meta` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_reflect`, `derive_row` |
+| `meta` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_reflect`, `derive_repository`, `derive_row` |
 | `metrics` | `os` | `server` |
 | `migrate` | `crypto`, `datasource`, `db`, `encoding`, `fs`, `os`, `time` | - |
 | `mime` | `locale` | `client`, `http`, `server` |
@@ -329,7 +334,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
-| `template` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_row` |
+| `template` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_row` |
 | `test` | `regex` | - |
 | `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `eql`, `migrate`, `schedule`, `toml` |

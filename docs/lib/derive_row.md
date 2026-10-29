@@ -18,6 +18,22 @@ here.
 
 `use derive_row` -- or `use derive_row.Name` to bring one item in bare.
 
+### `emit_to_sql`
+
+```
+pub fn emit_to_sql(t: meta.Type, src: string, dst: string, n: Mutable<int>) -> Result<string, string>
+```
+
+The same the other way: a value to a `SqlValue`. An absent `Option` is `SqlValue.Null`, which
+is why this one opens with a `var` rather than returning the inner conversion directly.
+
+**`pub`, and the only part of this file that is** (2026-10-29): `derive_repository` converts a
+repository's key columns and a derived query's bound parameters, and those have to reach SQL by
+exactly the route the entity's own `to_params` writes them. The C shared one `emit_to_sql` for
+that reason; two copies of this rule could disagree, and a key bound differently from the
+column it addresses finds no row and says nothing. If a third generator ever needs it, the
+conversion layer below is what moves into a `derive_sql` of its own.
+
 ### `generate`
 
 ```

@@ -261,6 +261,7 @@ them against the code.
 - [A name after `AS` is a label, not an alias (2026-10-27)](#a-name-after-as-is-a-label-not-an-alias-2026-10-27)
 - [What adopting `eql` across 26 repositories taught, and what it did not remove (2026-10-27)](#what-adopting-eql-across-26-repositories-taught-and-what-it-did-not-remove-2026-10-27)
 - [A repository function's name is its query (2026-10-28)](#a-repository-functions-name-is-its-query-2026-10-28)
+- [The second generator kind: a module generator (2026-10-29)](#the-second-generator-kind-a-module-generator-2026-10-29)
 
 <!-- end index -->
 
@@ -10294,3 +10295,73 @@ gets.
 The general lesson is the one the `eql` adoption already recorded in a different shape: a
 generator can write a query from a declaration, and it cannot write anything the declaration does
 not contain. Prose aimed at a person is the obvious example and was not obvious in advance.
+
+## The second generator kind: a module generator (2026-10-29)
+
+`#[derive(X)]` has one shape -- `generate(d: meta.Decl) -> Result<string, string>`, called once
+per declaration -- and all five bundled generators are written to it. `#![repository(Entity)]` is
+not that shape, and the attempt to make it one is what produced this entry.
+
+**Why a `Decl` cannot express it.** A repository is generated from three things: the entity, which
+is declared in *another file*; the entity's `use` path; and the set of functions the current
+module already defines, because a hand-written `find_by_id` must not be replaced by a generated
+one. The draft design put `repository_*` fields on a `Module` reachable from `Decl` and it did not
+merely read badly -- **it did not work**: in the North Star, `#![repository(VitalSign)]` lives in
+`repository/vital_sign.zm` and `#[derive(Entity("vital_signs"))]` in `entity/vital_sign.zm`, so
+`Decl.module` for the entity is the *entity's* module, which carries no repository attributes at
+all. Every one of those fields would have been `None` at every real site.
+
+So there are now two kinds, and **the entry point a module exports is which kind it is**:
+
+```ziman
+pub fn generate(d: meta.Decl) -> Result<string, string>                      // one declaration
+pub fn generate_module(t: meta.Target) -> Result<string, string>             // one module
+pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string>  // one function
+```
+
+The alternative was a second argument to `#![generator(X)]` naming the kind. It was rejected
+because the entry point has to exist either way, so the attribute would be a second source of
+truth that can disagree with it -- and a disagreement surfaces at the first *use*, in another
+file, which is the one thing the attribute exists to prevent (user-generators.md §4). Exporting
+both kinds is refused where it is written.
+
+**`meta.Target` is named for what it is and carries only what is read.** Not `Module`: a general
+name is where every later module attribute would accrete, and §6 had already taken the other road
+for members (`#[pk]` is an entry in `attrs`, not a `pk: bool`). The design proposed six fields and
+the port reads four -- `entity`, `label`, `crud`, `defined`. The entity's `use` path is read by
+nothing, because generated text spells the bare name and the import that puts it in scope is the
+compiler's own work; the list of bodyless functions is a parameter to `generate_query` instead.
+That matters more than it sounds: a `Target` hands a generator a declaration from another module
+and the current module's function names, which is a far wider grant than anything `meta` gave
+before, and a grant is hard to take back once a generator depends on it.
+
+**Two entry points rather than one returning a list of pieces.** A single call answering
+everything would collapse every refusal onto the module attribute's position. Today a derived
+query whose name cannot be read against the entity is refused *at its own line*, and three broken
+queries in one file are three errors rather than the first one -- which is a property of the
+per-function loop, so that loop stays in C and each call gets the function's own position.
+
+**What stays in C, and why that is the division rather than a shortfall.** A generator answers a
+string. The imports the generated bodies name (`eql`, `datasource`, `DbError`, the entity's own
+`_meta`/`_from_row`), the position a refusal is reported at, and the splice into the module's AST
+are all operations on the compiler's own data structures, which a function whose only output is
+text cannot perform. The five declaration derives are split in exactly the same place --
+`import_for_derive` is C beside every one of them. The code that *decides what the text says* is
+what moved.
+
+**The keyed CRUD moved first; the derived queries are the second half.** The two arrived in one
+design and are two jobs: nine functions whose bodies follow from the entity, and a name grammar
+with a signature check and a SQL builder. The first is `lib/core/derive_repository.zm` as of
+F228, and the measurement that it is a port rather than a rewrite is that the North Star's 23
+repositories generate **12,542 lines of byte-identical text** before and after -- the only
+difference being that a function the module writes by hand now has its "written by hand" note
+where the function would have been, rather than above the block, because the note is part of the
+text now instead of a `printf` beside it.
+
+**One trap worth recording, because it is the third time it has been paid.** The key parameter's
+type must be written as the *source* spells it, module qualifier and all: an entity field written
+`uuid.Uuid` generates `id: uuid.Uuid`, because that is what resolves where the text lands. The
+first version of the ported generator reached for `meta.bare_name` and generated `id: Uuid` --
+"unknown struct or enum type 'Uuid'". `bare_name` is for looking a name up in a table of bundled
+types, never for writing one out; `src/generators.c`'s `source_name` carries the same warning
+from the same mistake, made twice before this.

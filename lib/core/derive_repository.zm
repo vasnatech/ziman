@@ -1,0 +1,251 @@
+// `#![repository(Entity)]`, written in Ziman: the CRUD every repository writes the same way.
+//
+// **The first generator of the second kind** (docs/design/meta.md §8, decided 2026-10-29). The
+// five derives take a `meta.Decl` and are called once per declaration; this one takes a
+// `meta.Target` -- an entity declared in *another file*, plus what the current module already
+// defines -- and is called once per module. That is the whole reason the kind exists: none of
+// what it reads is a function of one declaration.
+//
+// The functions below are the ones whose body is decided entirely by the entity: its table, its
+// column list and the `#[pk]` fields that address one of its rows. A repository's *domain*
+// queries are not here -- "this patient's vital signs, newest first, page 3" is a fact about the
+// application, not about the entity. A query whose name says what it asks is a derived query and
+// is generated separately; one that does not is written out by hand.
+//
+// **A name the module already defines wins, and nothing is emitted for it.** That rule is what
+// makes the attribute safe to add to a repository that has already been written: the North Star's
+// `repository/vital_sign.zm` scopes its `update` and `delete` by the patient as well as the id --
+// the defence that makes another patient's row "not found" rather than moved -- and a generated
+// keyed version replacing it would silently remove a guarantee.
+#![experimental]
+#![generator(Repository)]
+
+use derive_row
+use meta
+use template
+
+// Everything this generator writes, in the order `src/derive.c` spliced it, and byte for byte
+// what the C emitted -- `tests/lang/repository_annotation` and the North Star's 23 repositories
+// are what hold it to that.
+//
+// **Nine templates rather than two with a `@choose`.** The four keyed ones differ by one call
+// and the five unkeyed by one line, so a merged pair would be a placeholder per difference: the
+// text would stop looking like what it generates, which is the one thing this file is read for.
+val sheet = template.must_parse("""
+@template insert
+pub fn insert(conn: datasource.Connection, a: @{name}) -> Result<@{name}, DbError> {
+    return eql.insert_one<@{name}>(conn, @{snake}_meta, @{snake}_to_params(a), @{snake}_from_row)
+}
+
+@end
+
+@template update
+pub fn update(conn: datasource.Connection, a: @{name}) -> Result<@{name}, DbError> {
+    val unscoped: [string] = []
+    return eql.update_one<@{name}>(conn, @{snake}_meta, @{snake}_to_params(a), unscoped, @{snake}_from_row)
+}
+
+@end
+
+@template find
+pub fn find(conn: datasource.Connection@{params}) -> Result<Option<@{name}>, DbError> {
+@yield keys
+    return eql.find_maybe<@{name}>(conn, @{snake}_meta, keys, @{snake}_from_row)
+}
+
+@end
+
+@template find_or_error
+pub fn find_or_error(conn: datasource.Connection@{params}) -> Result<@{name}, DbError> {
+@yield keys
+    return eql.find_by_key<@{name}>(conn, @{snake}_meta, keys, @{snake}_from_row)
+}
+
+@end
+
+@template exists
+pub fn exists(conn: datasource.Connection@{params}) -> Result<bool, DbError> {
+@yield keys
+    return eql.exists(conn, @{snake}_meta, keys)
+}
+
+@end
+
+@template delete
+pub fn delete(conn: datasource.Connection@{params}) -> Result<unit, DbError> {
+@yield keys
+    val unscoped: [eql.Binding] = []
+    return eql.delete_one(conn, @{snake}_meta, keys, unscoped)
+}
+
+@end
+
+@template find_all
+pub fn find_all(conn: datasource.Connection) -> Result<[@{name}], DbError> {
+    return eql.find_all<@{name}>(conn, @{snake}_meta, @{snake}_from_row)
+}
+
+@end
+
+@template count_all
+pub fn count_all(conn: datasource.Connection) -> Result<int, DbError> {
+    return eql.count_all(conn, @{snake}_meta)
+}
+
+@end
+
+@template delete_all
+pub fn delete_all(conn: datasource.Connection) -> Result<int, DbError> {
+    return eql.delete_all(conn, @{snake}_meta)
+}
+
+@end
+""")
+
+// The nine, in the order they are emitted.
+val all_nine = ["insert", "update", "find", "find_or_error", "exists", "delete", "find_all",
+    "count_all", "delete_all"]
+// The four that address one row: they take the key parameters and the key block.
+val keyed = ["find", "find_or_error", "exists", "delete"]
+// The five whose text names the entity type. **`exists`, `delete`, `count_all` and `delete_all`
+// do not** -- they answer a `bool`, a `unit` or an `int` -- and binding `name` for them is a
+// template error rather than a harmless extra, which is the unused-binding check doing its job
+// (it caught exactly this while this file was being written).
+val names_entity = ["insert", "update", "find", "find_or_error", "find_all"]
+
+// The type as the generated signature must spell it -- **the source's own spelling, module
+// qualifier and all**: a field written `uuid.Uuid` is written back as `uuid.Uuid`, because that
+// is what resolves where the text lands, and `Uuid` does not unless a named import happens to be
+// in scope. A field written `Uuid` stays `Uuid` for the same reason.
+//
+// `meta.type_text` is already that, which is why there is no function here. The first version of
+// this file reached for `meta.bare_name` and generated `id: Uuid` for an entity whose field said
+// `uuid.Uuid`: "unknown struct or enum type 'Uuid'", and the identical mistake is one of the
+// three the `meta` boundary shipped in a week (see `source_name` in src/generators.c). Reading a
+// name for a lookup and writing one out are different jobs; `bare_name` is only the first.
+
+// `, id: Uuid` for each key field, and the block that turns them into a `[SqlValue]`.
+//
+// **The conversion is `derive_row.emit_to_sql`, the same one `<name>_to_params` is built from**,
+// so a key's value reaches SQL by exactly the route its column does. The C shared one function
+// for this reason and the port keeps that: two copies of the rule could disagree, and a key
+// bound differently from the column it addresses finds no row and says nothing.
+struct Keys {
+    params: string
+    block: string
+}
+
+fn key_pieces(entity: string, keys: [meta.Field]) -> Result<Keys, string> {
+    val params = mutable_array_new<string>()
+    val lines = mutable_array_new<string>()
+    val names = mutable_array_new<string>()
+    val n = mutable(0)
+    for f in keys {
+        push(params, concat(", ", f.name, ": ", meta.type_text(f.type)))
+        val dst = meta.fresh(n, "key")
+        val line = derive_row.emit_to_sql(f.type, f.name, dst, n)
+        if Err(why) = line {
+            // The shared emitter's own refusal names `derive(Row)`, which is not what is being
+            // written here: a key column is refused as a key, at the attribute.
+            return err(concat(
+                "#![repository(",
+                entity,
+                ")] cannot use '",
+                f.name,
+                "' as a key column: there is no conversion to SQL for ",
+                meta.type_text(f.type),
+                " (",
+                why,
+                ")"
+            ))
+        }
+        push(lines, unwrap(line))
+        push(names, dst)
+    }
+    return ok(Keys {
+        params: concat(pieces: snapshot(params)),
+        block: concat(
+            concat(pieces: snapshot(lines)),
+            "    val keys: [SqlValue] = [",
+            join(separator: ", ", pieces: snapshot(names)),
+            "]\n"
+        )
+    })
+}
+
+// One of the nine, or "" when the module writes its own. The skipped ones are reported by
+// `--emit-derived` on the C side, which is where the printing was and where it stays: a
+// generator that printed would print while a refusal was still possible.
+fn one(t: meta.Target, which: string, keys: Keys) -> Result<string, string> {
+    if meta.defines(t, which) {
+        // `--emit-derived` is what says a function is missing because the module writes its own,
+        // and it reads the text: so the note is in the text. The C printed it beside the block
+        // and could only do so by holding its own copy of these nine names.
+        return ok(concat(
+            "// repository: '",
+            which,
+            "' is written by hand, so none is generated\n"
+        ))
+    }
+    val bindings = mutable_array_new<template.Binding>()
+    push(bindings, template.text("snake", t.entity.snake_name))
+    if contains(names_entity, which) {
+        push(bindings, template.text("name", t.entity.name))
+    }
+    if contains(keyed, which) {
+        push(bindings, template.text("params", keys.params))
+        push(bindings, template.text("keys", without_newline(keys.block)))
+    }
+    return template.render(sheet, which, snapshot(bindings))
+}
+
+// A block's text ends with the newline its own emitter put there, and the line holding `@yield`
+// supplies one too -- so it is handed over without it. `derive_row` has the same function for the
+// same reason, three lines of it, and sharing one would mean exporting it.
+fn without_newline(text: string) -> string {
+    return substring(text, 0, prelude.len(text) - 1)
+}
+
+pub fn generate_module(t: meta.Target) -> Result<string, string> {
+    val entity = t.entity.name
+    val keys = meta.keys_of(t)
+    // **The key is what the nine need, so `crud: false` does not need one.** Each of them
+    // addresses one row by it; a module that generates none of them has only derived queries,
+    // whose predicates come from their own names and may never mention the key.
+    if prelude.len(keys) == 0 && t.crud {
+        return err(concat(
+            "#![repository(",
+            entity,
+            ")] needs '",
+            entity,
+            "' to mark at least one field #[pk] -- a repository's find, update and ",
+            "delete each address one row, and without a key there is nothing that ",
+            "addresses one (a module that wants the entity named without those nine ",
+            "says 'crud: false')"
+        ))
+    }
+    for f in keys {
+        if Optional(ignored) = f.type {
+            return err(concat(
+                "#![repository(",
+                entity,
+                ")] cannot use '",
+                f.name,
+                "' as a key column: it is an Option, and a key that may be absent ",
+                "does not address a row"
+            ))
+        }
+    }
+    // `crud: false` generates none of the nine. The imports are still the attribute's work --
+    // every derived query in the module needs them too -- and they are `src/derive.c`'s, which
+    // is why this can answer nothing at all here.
+    if !t.crud {
+        return ok("")
+    }
+    val key_pieces_result = try key_pieces(entity, keys)
+    val out = mutable_array_new<string>()
+    for which in all_nine {
+        push(out, try one(t, which, key_pieces_result))
+    }
+    return ok(concat(pieces: snapshot(out)))
+}

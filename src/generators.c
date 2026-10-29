@@ -21,6 +21,11 @@
 static const char *const GENERATOR_MODULES[] = {"derive_ord", "derive_row", "derive_properties",
                                                 "derive_json", "derive_reflect", "derive_entity"};
 
+/* The module generators -- the second kind (docs/design/meta.md §8). One, so far, and the list
+ * exists anyway: `load_generators` has to import it, and a second module-level feature should
+ * change this line rather than that function. */
+static const char *const MODULE_GENERATOR_MODULES[] = {"derive_repository"};
+
 static Module *g_generators = NULL;
 static int g_tried = 0;
 
@@ -36,6 +41,12 @@ static void load_generators(void) {
     for (size_t i = 0; i < sizeof GENERATOR_MODULES / sizeof GENERATOR_MODULES[0]; i++) {
         char *next = ziman_xmalloc(strlen(src) + strlen(GENERATOR_MODULES[i]) + 8);
         sprintf(next, "%suse %s\n", src, GENERATOR_MODULES[i]);
+        free(src);
+        src = next;
+    }
+    for (size_t i = 0; i < sizeof MODULE_GENERATOR_MODULES / sizeof MODULE_GENERATOR_MODULES[0]; i++) {
+        char *next = ziman_xmalloc(strlen(src) + strlen(MODULE_GENERATOR_MODULES[i]) + 8);
+        sprintf(next, "%suse %s\n", src, MODULE_GENERATOR_MODULES[i]);
         free(src);
         src = next;
     }
@@ -267,6 +278,30 @@ static Value reify_decl(StructDecl *sd, EnumDecl *ed, const char *arg, int line,
     return call_meta(sd != NULL ? "struct_decl" : "enum_decl", args, 5, line, col);
 }
 
+/* Calls one generator entry point and answers the text it returned.
+ *
+ * **The error file is restored after the call as well as before it**: running a generator sets it
+ * to the generator's own module, and a refusal belongs to the user's file. `what` is the subject
+ * of the two messages this raises -- "the generator for 'Ord'", "the repository generator" --
+ * because the one thing a reader needs from either is which generator was running. */
+static char *run_generator(const char *fn, Value *args, int argc, const char *what,
+                           const char *caller_file, int line, int col) {
+    Value out;
+    const char *problem = NULL;
+    int ok = ziman_call_in_module(g_generators, fn, args, argc, &out, &problem);
+    ziman_set_error_file(caller_file);
+    if (!ok) {
+        ziman_error("module", line, col, "%s failed: %s", what, problem != NULL ? problem : "unknown");
+    }
+    /* A generator answers a `Result<string, string>`: an `Err` is it refusing, which is a mistake
+     * in the declaration (or the signature) and belongs at that position. */
+    int is_result = out.type != NULL && out.type->kind == TY_RESULT && out.as.res != NULL;
+    if (is_result && !out.as.res->is_ok) {
+        ziman_error("type", line, col, "%s", copy_string(out.as.res->value));
+    }
+    return copy_string(is_result ? out.as.res->value : out);
+}
+
 char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, const char *arg, int line, int col) {
     if (!ziman_has_ziman_generator(target)) return NULL;
     /* **Captured before anything else runs.** Loading the generator program and then running it
@@ -301,19 +336,55 @@ char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, 
     Value decl = reify_decl(sd, ed, arg, line, col);
     native_gc_unsafe_leave();
     char *fn = generate_name_for(target);
-    Value out;
-    const char *problem = NULL;
-    int ok = ziman_call_in_module(g_generators, fn, &decl, 1, &out, &problem);
+    char what[96];
+    snprintf(what, sizeof what, "the generator for '%s'", target);
+    return run_generator(fn, &decl, 1, what, caller_file, line, col);
+}
+
+/* ---- the second generator kind: a module generator ----------------------------------------
+ *
+ * `#![repository(Entity)]`, whose input is a `meta.Target` rather than a `meta.Decl`: see
+ * generators.h and docs/design/meta.md §8. Everything above this line is shared with the
+ * declaration kind -- the reified types, the one loaded generator program, the guard against a
+ * collection landing inside a reification -- which is the argument for a second *kind* rather
+ * than a second mechanism. */
+
+/* **The entity is reified by `reify_decl`, the same function the five derives go through.** A
+ * `Target` is the module's context around a declaration, not a second kind of declaration, so
+ * the part a generator reads most is the part that already had a fixture (`meta_boundary`). */
+static Value reify_target(const ZimanTarget *t, int line, int col) {
+    Value *defined = ziman_xmalloc(sizeof(Value) * (size_t)(t->defined_count > 0 ? t->defined_count : 1));
+    for (int i = 0; i < t->defined_count; i++) {
+        defined[i] = value_string(ziman_xstrdup(t->defined[i]));
+    }
+    Value label;
+    if (t->label != NULL) {
+        Value a[1] = {value_string(ziman_xstrdup(t->label))};
+        label = call_meta("some_arg", a, 1, line, col);
+    } else {
+        label = call_meta("no_arg", NULL, 0, line, col);
+    }
+    Value args[4] = {reify_decl(t->entity, NULL, NULL, line, col), label, value_bool(t->crud),
+                     array_of(defined, t->defined_count)};
+    return call_meta("target", args, 4, line, col);
+}
+
+/* Reification holds off collection for its whole run, for the reason
+ * `ziman_generate_in_ziman` records at length: a `Value` that exists only in this function's
+ * locals is not a root, and a `Target` is more allocation than a `Decl`, not less. */
+static Value reify_target_guarded(const ZimanTarget *t, int line, int col) {
+    native_gc_unsafe_enter();
+    Value v = reify_target(t, line, col);
+    native_gc_unsafe_leave();
+    return v;
+}
+
+char *ziman_generate_module_in_ziman(const ZimanTarget *t, int line, int col) {
+    const char *caller_file = ziman_error_file();
+    load_generators();
     ziman_set_error_file(caller_file);
-    if (!ok) {
-        ziman_error("module", line, col, "the generator for '%s' failed: %s", target,
-                    problem != NULL ? problem : "unknown");
-    }
-    /* `generate` answers a `Result<string, string>`: an `Err` is the generator refusing, which is
-     * a mistake in the declaration and belongs at the declaration. */
-    int is_result = out.type != NULL && out.type->kind == TY_RESULT && out.as.res != NULL;
-    if (is_result && !out.as.res->is_ok) {
-        ziman_error("type", line, col, "%s", copy_string(out.as.res->value));
-    }
-    return copy_string(is_result ? out.as.res->value : out);
+    if (g_generators == NULL) return NULL;
+    Value target = reify_target_guarded(t, line, col);
+    return run_generator("derive_repository::generate_module", &target, 1,
+                         "the repository generator", caller_file, line, col);
 }

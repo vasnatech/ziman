@@ -438,3 +438,114 @@ pub fn type_text(d: Decl) -> string
 
 `Box<T, U>` for a generic declaration and `Point` for a plain one: the type as a parameter list
 has to spell it.
+
+## A module generator's input
+
+### `Param`
+
+```
+pub struct Param {
+    name: string
+    type: Type
+}
+```
+
+A function's parameter, as the author wrote it.
+
+### `Function`
+
+```
+pub struct Function {
+    name: string
+    params: [Param]
+    returns: Type
+}
+```
+
+A signature without its body: what a generator checks a name against, and repeats when it
+writes the body it was declared without.
+
+### `Target`
+
+```
+pub struct Target {
+    // The entity, reified from wherever it is declared: its fields are the columns, and the ones
+    // carrying `#[pk]` are what addresses one row.
+    entity: Decl
+    // `#![repository(Medication, label: "Medication")]`'s label -- the entity as a person says
+    // it, for a `NotFound` message that reaches an API response. `None` when none was given, and
+    // then the entity's own name is the label.
+    label: Option<string>
+    // `#![repository(Notification, crud: false)]` makes this false: name the entity, generate
+    // none of the nine CRUD functions. A module with only derived queries wants exactly that.
+    crud: bool
+    // The functions this module already defines, so a generator can decline to replace one.
+    // **A hand-written function wins**, which is what makes the attribute safe to add to a
+    // repository that has already been written.
+    defined: [string]
+}
+```
+
+One `#![repository(Entity)]`, as its generator sees it.
+
+**Named for what it is rather than `Module`**, so that it cannot become the place every later
+module attribute accretes: a second module-level feature gets its own type, or a reason is
+written down for sharing this one.
+
+**It carries only what the port reads.** The design (§8) also proposed the entity's `use` path
+and the list of bodyless functions: the first is read by nothing -- generated text spells the
+entity's bare name, and the import that puts it in scope is the compiler's own work -- and the
+second is a parameter to `generate_query` instead, which is how a refusal keeps its position.
+A grant this wide is hard to take back once a generator depends on it, so it starts narrow.
+
+### `param`
+
+```
+pub fn param(name: string, type: Type) -> Param
+```
+
+### `function`
+
+```
+pub fn function(name: string, params: [Param], returns: Type) -> Function
+```
+
+### `target`
+
+```
+pub fn target(entity: Decl, label: Option<string>, crud: bool, defined: [string]) -> Target
+```
+
+### `label_of`
+
+```
+pub fn label_of(t: Target) -> string
+```
+
+The label a `NotFound` message carries: the attribute's, or the entity's own name.
+
+### `fields_of`
+
+```
+pub fn fields_of(t: Target) -> [Field]
+```
+
+The entity's fields, or an empty list for an entity that is somehow an enum -- which
+`src/derive.c` refuses before a generator runs, and a `switch` still has to answer.
+
+### `keys_of`
+
+```
+pub fn keys_of(t: Target) -> [Field]
+```
+
+The fields carrying `#[pk]`, in declaration order: what addresses one row. More than one is a
+compound key.
+
+### `defines`
+
+```
+pub fn defines(t: Target, name: string) -> bool
+```
+
+Whether this module writes `name` itself.

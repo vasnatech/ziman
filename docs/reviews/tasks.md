@@ -3971,3 +3971,55 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   corrected where it stands; docs/SYNTAX.md's "Testing" now lists the options this mode takes.
 
   1,299 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F228** **`#![repository]` is a generator in Ziman: the second kind, and the keyed CRUD
+  through it.** (meta step 5, the decision docs/design/meta.md §13 turned on; **the user chose the
+  second generator kind, 2026-10-29**; S-M.)
+
+  **The decision first.** `#[repository]` needs its own entry point and its own input type, which
+  is either evidence for a second generator kind or evidence that it is not a derive. Taken as the
+  first: the goal the port exists for is derived content in Ziman rather than in C, `src/derive.c`
+  was down to 1,716 lines of which essentially all were this one feature, and what remained was
+  the *hard* half -- a name grammar and a SQL builder, which is string and list work. Three
+  narrowings came out of building it, all recorded in §13 and docs/DESIGN.md: `Target` carries
+  four fields where the design proposed six (the entity's `use` path is read by nothing and the
+  bodyless functions are a parameter instead), the kind is read off the exported entry point
+  rather than named in the attribute, and there are two entry points rather than one returning a
+  list -- because one would collapse every refusal onto the module attribute's position, where a
+  broken derived query is reported at its own line today and three of them are three errors.
+
+  **What landed**: `lib/core/meta.zm` gains `Target`/`Function`/`Param` and five readers over
+  them; `src/generators.c` gains the reification and `ziman_generate_module_in_ziman`, sharing the
+  declaration kind's loaded program, its `reify_decl` and its collection guard; `src/loader.c`'s
+  `check_generator` reads the kind off `generate` vs `generate_module`/`generate_query` and
+  refuses a module exporting both (`tests/lang/generator_both_kinds`); and
+  `lib/core/derive_repository.zm` is the nine CRUD functions, with the two refusals that are facts
+  about the entity -- no `#[pk]`, an `Option` key -- as its own `Err`s.
+
+  **The measurement that says this is a port and not a rewrite: the North Star's 23 repositories
+  generate 12,542 lines of generated text, byte-identical before and after**, verified by building
+  HEAD in a throwaway worktree and diffing `--emit-derived` over the whole backend. The only
+  difference anywhere is that a function the module writes by hand has its "written by hand" note
+  *where the function would have been* rather than above the block: the note is part of the
+  generated text now instead of a `printf` beside it, which is also what stopped the C needing its
+  own copy of the nine names.
+
+  **`derive_row.emit_to_sql` is now `pub`** -- the one export that file has. A repository's key
+  columns must reach SQL by exactly the route the entity's own `to_params` writes them; the C
+  shared one `emit_to_sql` for that reason, and two copies of that rule could disagree, which
+  would bind a key differently from the column it addresses and find no row while saying nothing.
+  If a third generator needs it, the conversion layer is what moves into a `derive_sql` of its own.
+
+  **Two things the port found.** The template engine's unused-binding check fired on `exists` and
+  `delete`, which answer a `bool` and a `unit` and so never mention the entity type: the bindings
+  are built per template now, and the check earned itself for the second release running. And the
+  `bare_name` trap was paid a third time -- a key parameter has to be written as the source spells
+  it (`id: uuid.Uuid`), and `meta.bare_name` generated `id: Uuid`, which does not resolve.
+  `src/generators.c`'s `source_name` already carried that warning from the first two.
+
+  Still C, deliberately, as the second half of step 5: the derived queries (the name grammar, the
+  two-readings refusal, the signature check, the SQL and the bindings) -- about 700 lines, and
+  `generate_query` is not in the generator yet because an entry point with no generator behind it
+  is the unreachable C the fallbacks were deleted for.
+
+  1,300 fixtures, `make check` exit 0 with the North Star (63 suites, 2,658 checks).

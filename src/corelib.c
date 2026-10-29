@@ -15,6 +15,7 @@
 #include "derive_json_source.h"
 #include "derive_reflect_source.h"
 #include "derive_entity_source.h"
+#include "derive_repository_source.h"
 #include "expr_source.h"
 #include "url_source.h"
 #include "fs_source.h"
@@ -96,6 +97,7 @@ static const CoreModule CORE_MODULES[] = {
     {"derive_json", DERIVE_JSON_SOURCE},
     {"derive_reflect", DERIVE_REFLECT_SOURCE},
     {"derive_entity", DERIVE_ENTITY_SOURCE},
+    {"derive_repository", DERIVE_REPOSITORY_SOURCE},
     {"expr", EXPR_SOURCE},
     {"url", URL_SOURCE},
     {"fs", FS_SOURCE},

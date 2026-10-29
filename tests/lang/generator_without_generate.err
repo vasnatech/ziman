@@ -1,1 +1,1 @@
-#![generator(Csv)] says this module generates 'Csv', and it declares no 'pub fn generate' for the compiler to call
+#![generator(Csv)] says this module generates 'Csv', and it declares no 'pub fn generate' (one declaration) or 'pub fn generate_module' (a whole module) for the compiler to call
