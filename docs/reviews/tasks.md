@@ -3938,3 +3938,36 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   render was refused by name rather than ignored.
 
   1,293 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F227** **`--gc-stress` could not reach `ziman test`.** (done 2026-10-29; S.)
+
+  The flag that found both mark-phase segfaults (e31d59e5, 5468e8e3) reached every mode but the
+  one where a user's own `#[test]` functions run. `main.c` dispatched the subcommand on
+  `argv[1] == "test"` *before* any flag parsing, so **neither** way of writing it worked:
+  `ziman test --gc-stress f.zm` left the flag among the file names, to be opened as a source file
+  ("cannot open '--gc-stress'"), and `ziman --gc-stress test f.zm` set the flag and then read
+  `test` as a second source file ("more than one file given ('test' and 'f.zm')").
+
+  **Both positions now work, and the second is the one that matters.** `run_tests_main` strips
+  `--gc-stress` from anywhere among its arguments, exactly as it already did for `--coverage`;
+  and `test` is the subcommand wherever it is the first argument that is **not** an option, with
+  the options before it handed to the mode along with the file names. The second form is what a
+  whole-suite run under the flag needs -- prepending one flag to every fixture's command line is
+  how that run is done, and the 8 fixtures whose `.args` say `test` were the ones it could not
+  reach. `--coverage` gained the same freedom for nothing.
+
+  **`--api` and `--` stop the scan**, because each already takes what follows it: `ziman --api
+  test` asks the bundled `test` module for its API, and without that guard it would have become
+  an empty test run -- found by checking the siblings rather than by a failing fixture.
+
+  **An option `test` does not take is now a usage error rather than a path error.** It used to be
+  left as a file name, so `ziman test --lint f.zm` reported that it could not open '--lint'.
+
+  Measured, because "accepted" is not "in effect": a `#[test]` function allocating 20,000 strings
+  runs in 0.013 s without the flag and 0.119 s (after `test`) / 0.109 s (before it) with it -- the
+  collector firing at every safe point, in both positions. Three fixtures:
+  `test_gc_stress_flag_after_test`, `test_gc_stress_flag_before_test` (each pinning one position)
+  and `test_rejects_an_option_it_does_not_take`. docs/DESIGN.md's `argv[1] == "test"` sentence is
+  corrected where it stands; docs/SYNTAX.md's "Testing" now lists the options this mode takes.
+
+  1,299 fixtures, `make check` exit 0 with the North Star.

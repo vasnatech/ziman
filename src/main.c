@@ -48,11 +48,12 @@
 
 static void usage(FILE *out) {
     fputs("usage: ziman [options] <file.zm>\n"
-          "       ziman test <file.zm> [file2.zm ...]\n"
+          "       ziman test [options] <file.zm> [file2.zm ...]\n"
           "\n"
           "  test             run every #[test] function in the given files (see\n"
           "                   docs/SYNTAX.md \"Testing\"); PASS/FAIL per test, then a\n"
-          "                   summary; exit 1 if any failed\n"
+          "                   summary; exit 1 if any failed. Takes --coverage,\n"
+          "                   --coverage-lcov=F and --gc-stress, on either side of `test`\n"
           "  --api [module]   what a module offers: its `pub` types and function signatures, in\n"
         "                   the language's own notation. With no module, lists the bundled\n"
         "                   ones. Takes a bundled name (`--api fs`) or a path to a .zm file,\n"
@@ -651,22 +652,37 @@ static int run_api(const char *module_name) {
     return 0;
 }
 
+static const char *const TEST_USAGE =
+    "usage: ziman test [--coverage] [--coverage-lcov=F] [--gc-stress] <file.zm> [file2.zm ...]\n";
+
 static int run_tests_main(int argc, char **argv) {
-    /* Accept --coverage anywhere among the file names and strip it, so `ziman test --coverage a.zm`
-     * and `ziman test a.zm --coverage` both work and neither leaves the flag to be opened as a
-     * source file. */
+    /* Accept the options this mode takes anywhere among the file names and strip them, so
+     * `ziman test --coverage a.zm` and `ziman test a.zm --coverage` both work and neither leaves
+     * the flag to be opened as a source file. */
     int coverage = 0, n = 0;
     const char *coverage_lcov = NULL;
     for (int i = 0; i < argc; i++) {
-        if (strcmp(argv[i], "--coverage") == 0) coverage = 1;
-        else if (strncmp(argv[i], "--coverage-lcov=", 16) == 0) {
-            coverage_lcov = argv[i] + 16;
+        const char *a = argv[i];
+        if (strcmp(a, "--coverage") == 0) coverage = 1;
+        else if (strncmp(a, "--coverage-lcov=", 16) == 0) {
+            coverage_lcov = a + 16;
             coverage = 1;
-        } else argv[n++] = argv[i];
+        }
+        /* `--gc-stress` is most valuable here and reached everywhere but here: this is where a
+         * user's own `#[test]` functions run. */
+        else if (strcmp(a, "--gc-stress") == 0) ziman_set_gc_stress(1);
+        /* An option this mode does not take was a file name, so `ziman test --lint f.zm` reported
+         * that it could not open '--lint' -- a path error for what is a usage error. */
+        else if (a[0] == '-' && a[1] == '-') {
+            fprintf(stderr, "ziman: `test` does not take '%s'\n", a);
+            fputs(TEST_USAGE, stderr);
+            return 2;
+        }
+        else argv[n++] = argv[i];
     }
     argc = n;
     if (argc == 0) {
-        fprintf(stderr, "usage: ziman test [--coverage] [--coverage-lcov=F] <file.zm> [file2.zm ...]\n");
+        fputs(TEST_USAGE, stderr);
         return 2;
     }
     if (coverage) ziman_coverage_enable();
@@ -714,8 +730,30 @@ int main(int argc, char **argv) {
     (void)GC_expand_hp(32u * 1024 * 1024);
 #endif
     ziman_gc_install_boehm_root_hook();
-    if (argc >= 2 && strcmp(argv[1], "test") == 0) {
-        return run_tests_main(argc - 2, argv + 2);
+    /* `test` is a subcommand rather than a flag (docs/DESIGN.md, "#[test], ziman test, and the
+     * test module"), and it was recognised at argv[1] only -- so an option written before it,
+     * `ziman --gc-stress test f.zm`, read `test` as a second source file and died with "more than
+     * one file given". That position is the one that matters for a whole-suite run: prepending a
+     * flag to every fixture's command line is how the suite is run under one, and the 8 fixtures
+     * whose `.args` say `test` are the ones such a run could not reach.
+     *
+     * So `test` is now the subcommand wherever it is the first argument that is not an option, and
+     * the options before it are handed to the mode with the file names -- `run_tests_main` already
+     * accepts its own in any position. A file named exactly `test` is shadowed by this, as it
+     * already was at argv[1]. */
+    for (int i = 1; i < argc; i++) {
+        const char *a = argv[i];
+        /* `--api` takes the next argument and `--` hands the rest to the program, so neither can
+         * be followed by a subcommand: `ziman --api test` asks the bundled `test` module for its
+         * API and stays that. */
+        if (strcmp(a, "--api") == 0 || strcmp(a, "--") == 0) break;
+        if (a[0] == '-') continue;
+        if (strcmp(a, "test") == 0) {
+            /* Close the gap `test` itself leaves, so the mode gets argv[1..i-1] then argv[i+1..]. */
+            for (int j = i; j + 1 < argc; j++) argv[j] = argv[j + 1];
+            return run_tests_main(argc - 2, argv + 1);
+        }
+        break;
     }
     int check_only = 0, json = 0, lint = 0, fmt = 0, fmt_write = 0, fmt_width = 120, fmt_canonical = 0, lsp = 0, coverage = 0, profile = 0, locals = 0;
     const char *coverage_lcov = NULL;

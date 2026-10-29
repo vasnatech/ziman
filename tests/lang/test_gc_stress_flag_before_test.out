@@ -1,0 +1,2 @@
+PASS test_gc_stress_flag_before_test.zm::test_the_flag_before_the_subcommand_runs_the_tests
+1 passed, 0 failed

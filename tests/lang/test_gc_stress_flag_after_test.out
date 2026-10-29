@@ -1,0 +1,3 @@
+PASS test_gc_stress_flag_after_test.zm::test_an_allocating_test_runs_under_the_flag
+PASS test_gc_stress_flag_after_test.zm::test_the_second_test_also_runs
+2 passed, 0 failed

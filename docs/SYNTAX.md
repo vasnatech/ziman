@@ -2104,6 +2104,10 @@ fn main() {
 file.zm`) to run. It takes no parameters and returns nothing or `Result<unit, E>` for any `E`
 (so it can `try` freely); the file needs no `main`.
 
+`ziman test` takes `--coverage`, `--coverage-lcov=F` and `--gc-stress`, on either side of
+`test` (`ziman test --gc-stress f.zm` and `ziman --gc-stress test f.zm` are the same run); any
+other option is refused rather than read as a file name.
+
 `ziman test` loads and type-checks each file, finds every directly-declared `#[test]` function,
 and runs each inside its own per-thread runtime-error boundary (the mechanism `spawn` uses --
 see "Concurrency") so one failing test doesn't stop the run. A runtime error or an `Err` result

@@ -1,0 +1,9 @@
+// An option `test` does not take was left among the file names and opened as a source file, so
+// `ziman test --lint f.zm` reported that it could not open '--lint': a path error for what is a
+// usage error. Its `.args` is `test --lint`, and the file below is never reached.
+use test
+
+#[test]
+fn test_never_runs() {
+    test.assert_eq(1, 1)
+}

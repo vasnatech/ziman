@@ -1,0 +1,29 @@
+// `--gc-stress` reached every mode but this one. `main.c` dispatched `test` at argv[1] before any
+// flag parsing, so `ziman test --gc-stress f.zm` left `--gc-stress` among the file names, to be
+// opened as a source file -- and `ziman test` is where a user's own `#[test]` functions run, which
+// is the most valuable place to collect at every safe point and was the one place it could not.
+//
+// This fixture's `.args` is `test --gc-stress`; `test_gc_stress_flag_before_test` pins the other
+// position, which is the one a whole-suite run needs.
+use test
+
+// Allocates on every iteration, so under the flag a collection lands inside the loop rather than
+// on a growth threshold the test never reaches: 1,000 strings is not a large program.
+fn digit_bytes(n: int) -> int {
+    var total = 0
+    for i in 0..n {
+        total = total + byte_len(str(i))
+    }
+    return total
+}
+
+#[test]
+fn test_an_allocating_test_runs_under_the_flag() {
+    // 10 one-digit, 90 two-digit, 900 three-digit.
+    test.assert_eq(2890, digit_bytes(1000))
+}
+
+#[test]
+fn test_the_second_test_also_runs() {
+    test.assert_eq(10, digit_bytes(10))
+}

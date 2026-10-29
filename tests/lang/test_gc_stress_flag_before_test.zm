@@ -1,0 +1,22 @@
+// The other position: this fixture's `.args` is `--gc-stress test`, a global option written before
+// the subcommand. It is the position a whole-suite run under the flag needs -- prepending one flag
+// to every fixture's command line is how such a run is done, and the fixtures whose `.args` say
+// `test` are the ones it could not reach -- and it was the position that failed worst: `test` was
+// read as a second source file and the run died with "more than one file given ('test' and ..)".
+//
+// `test` is now the subcommand wherever it is the first argument that is not an option.
+// `test_gc_stress_flag_after_test` pins the form a person is more likely to type.
+use test
+
+fn digit_bytes(n: int) -> int {
+    var total = 0
+    for i in 0..n {
+        total = total + byte_len(str(i))
+    }
+    return total
+}
+
+#[test]
+fn test_the_flag_before_the_subcommand_runs_the_tests() {
+    test.assert_eq(2890, digit_bytes(1000))
+}
