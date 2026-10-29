@@ -20,31 +20,63 @@
 
 use meta
 
-// `kind=.. name=.. args=N` for one type node, with no recursion: the caller walks.
+// One flat line per type node, prefixed by its path.
 //
-// **One flat line per node, prefixed by its path** (`type.args[0].args[1]`) rather than a nested
-// block. A dump is read by `diff` more often than by a person, and a flat line means a change to
-// one nested type is one changed line instead of a reindented block.
-fn line(path: string, t: meta.MetaType) -> string {
-    return concat(
-        "//   ",
-        path,
-        " kind=",
-        t.kind,
-        " name='",
-        t.name,
-        "' args=",
-        str(prelude.len(t.args)),
-        "\n"
-    )
-}
-
-// One node and everything under it, depth first, in argument order.
-fn walk(path: string, t: meta.MetaType) -> string {
+// **The path names the part**, which is the change the enum bought: where this once printed
+// `args[0]` and `args[1]` for both a map and a result, it now prints `.key`/`.value` and
+// `.ok`/`.err`, and a reader no longer has to know which positional slot meant what.
+fn walk(path: string, t: meta.Type) -> string {
     val out = mutable_array_new<string>()
-    push(out, line(path, t))
-    for i in 0..prelude.len(t.args) {
-        push(out, walk(concat(path, ".args[", str(i), "]"), t.args[i]))
+    switch t {
+        Int { push(out, concat("//   ", path, " int\n")) }
+        Float { push(out, concat("//   ", path, " float\n")) }
+        Bool { push(out, concat("//   ", path, " bool\n")) }
+        String { push(out, concat("//   ", path, " string\n")) }
+        Bigint { push(out, concat("//   ", path, " bigint\n")) }
+        Decimal { push(out, concat("//   ", path, " decimal\n")) }
+        Byte { push(out, concat("//   ", path, " byte\n")) }
+        Unit { push(out, concat("//   ", path, " unit\n")) }
+        Void { push(out, concat("//   ", path, " void\n")) }
+        Array(e) {
+            push(out, concat("//   ", path, " array\n"))
+            push(out, walk(concat(path, ".elem"), e))
+        }
+        SetOf(e) {
+            push(out, concat("//   ", path, " set\n"))
+            push(out, walk(concat(path, ".elem"), e))
+        }
+        ChannelOf(e) {
+            push(out, concat("//   ", path, " channel\n"))
+            push(out, walk(concat(path, ".elem"), e))
+        }
+        Optional(e) {
+            push(out, concat("//   ", path, " optional\n"))
+            push(out, walk(concat(path, ".elem"), e))
+        }
+        MapOf(m) {
+            push(out, concat("//   ", path, " map\n"))
+            push(out, walk(concat(path, ".key"), m.key))
+            push(out, walk(concat(path, ".value"), m.value))
+        }
+        ResultOf(r) {
+            push(out, concat("//   ", path, " result\n"))
+            push(out, walk(concat(path, ".ok"), r.ok))
+            push(out, walk(concat(path, ".err"), r.err))
+        }
+        Func(f) {
+            push(out, concat("//   ", path, " func params=", str(prelude.len(f.params)), "\n"))
+            for i in 0..prelude.len(f.params) {
+                push(out, walk(concat(path, ".params[", str(i), "]"), f.params[i]))
+            }
+            push(out, walk(concat(path, ".returns"), f.returns))
+        }
+        Named(n) {
+            push(out, concat("//   ", path, " named name='", n.name, "' args=", str(prelude.len(n.args)), "\n"))
+            for i in 0..prelude.len(n.args) {
+                push(out, walk(concat(path, ".args[", str(i), "]"), n.args[i]))
+            }
+        }
+        Var(name) { push(out, concat("//   ", path, " var name='", name, "'\n")) }
     }
     return concat(pieces: snapshot(out))
 }
@@ -53,21 +85,25 @@ pub fn generate(d: meta.Decl) -> Result<string, string> {
     val out = mutable_array_new<string>()
     push(out, concat("// reflect ", d.name, "\n"))
     push(out, concat("//   snake_name='", d.snake_name, "'\n"))
-    push(out, concat("//   is_enum=", if d.is_enum { "true" } else { "false" }, "\n"))
     push(out, concat("//   type_params=[", join(separator: ", ", pieces: d.type_params), "]\n"))
-    push(out, concat("//   members=", str(prelude.len(d.members)), "\n"))
-    for i in 0..prelude.len(d.members) {
-        val m = d.members[i]
-        push(out, concat(
-            "//   member[",
-            str(i),
-            "] name='",
-            m.name,
-            "' has_payload=",
-            if m.has_payload { "true" } else { "false" },
-            "\n"
-        ))
-        push(out, walk(concat("member[", str(i), "].type"), m.type))
+    switch d.body {
+        Struct(fields) {
+            push(out, concat("//   struct, fields=", str(prelude.len(fields)), "\n"))
+            for i in 0..prelude.len(fields) {
+                push(out, concat("//   field[", str(i), "] name='", fields[i].name, "'\n"))
+                push(out, walk(concat("field[", str(i), "].type"), fields[i].type))
+            }
+        }
+        Enum(variants) {
+            push(out, concat("//   enum, variants=", str(prelude.len(variants)), "\n"))
+            for i in 0..prelude.len(variants) {
+                val v = variants[i]
+                push(out, concat("//   variant[", str(i), "] name='", v.name, "'\n"))
+                if Some(payload) = v.payload {
+                    push(out, walk(concat("variant[", str(i), "].payload"), payload))
+                }
+            }
+        }
     }
     return ok(concat(pieces: snapshot(out)))
 }

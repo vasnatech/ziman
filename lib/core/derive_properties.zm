@@ -84,10 +84,30 @@ fn kebab(name: string) -> string {
 }
 
 // The `properties.get_*` a type reads through, or a refusal naming what this derive supports.
-fn getter_for(t: meta.MetaType) -> Result<string, string> {
-    if t.kind == "int" || t.kind == "float" || t.kind == "bool" || t.kind == "string" {
-        return ok(t.kind)
+fn getter_for(t: meta.Type) -> Result<string, string> {
+    switch t {
+        Int { return ok("int") }
+        Float { return ok("float") }
+        Bool { return ok("bool") }
+        String { return ok("string") }
+        Bigint { return unsupported(t) }
+        Decimal { return unsupported(t) }
+        Byte { return unsupported(t) }
+        Unit { return unsupported(t) }
+        Void { return unsupported(t) }
+        Array(ignored) { return unsupported(t) }
+        SetOf(ignored) { return unsupported(t) }
+        ChannelOf(ignored) { return unsupported(t) }
+        MapOf(ignored) { return unsupported(t) }
+        ResultOf(ignored) { return unsupported(t) }
+        Func(ignored) { return unsupported(t) }
+        Optional(ignored) { return unsupported(t) }
+        Named(ignored) { return unsupported(t) }
+        Var(ignored) { return unsupported(t) }
     }
+}
+
+fn unsupported(t: meta.Type) -> Result<string, string> {
     return err(concat(
         "derive(Properties) supports only int, float, bool, string and Option of those, not '",
         meta.type_text(t),
@@ -96,16 +116,28 @@ fn getter_for(t: meta.MetaType) -> Result<string, string> {
 }
 
 pub fn generate(d: meta.Decl) -> Result<string, string> {
-    return ok(concat(try from_properties(d), try keys(d)))
+    switch d.body {
+        Struct(fields) { return ok(concat(try from_properties(d, fields), try keys(d, fields))) }
+        // Unreachable: `src/derive.c` refuses `derive(Properties)` on an enum before a generator
+        // is reached. Written as an arm rather than a check because the `switch` requires one,
+        // which is the point of `Body` being an enum.
+        Enum(ignored) {
+            return err(concat("derive(Properties) does not support an enum ('", d.name, "')"))
+        }
+    }
 }
 
-fn from_properties(d: meta.Decl) -> Result<string, string> {
+fn from_properties(d: meta.Decl, members: [meta.Field]) -> Result<string, string> {
     val fields = mutable_array_new<template.Row>()
-    val last = prelude.len(d.members) - 1
-    for i in 0..prelude.len(d.members) {
-        val m = d.members[i]
-        val optional = meta.is_option(m.type)
-        val inner = if optional { m.type.args[0] } else { m.type }
+    val last = prelude.len(members) - 1
+    for i in 0..prelude.len(members) {
+        val m = members[i]
+        var optional = false
+        var inner = m.type
+        if Optional(elem) = m.type {
+            optional = true
+            inner = elem
+        }
         val read = try template.render(sheet, "read", [
             template.text("shape", if optional { "optional" } else { "required" }),
             template.text("name", m.name),
@@ -127,9 +159,9 @@ fn from_properties(d: meta.Decl) -> Result<string, string> {
     ])
 }
 
-fn keys(d: meta.Decl) -> Result<string, string> {
+fn keys(d: meta.Decl, members: [meta.Field]) -> Result<string, string> {
     val entries = mutable_array_new<string>()
-    for m in d.members {
+    for m in members {
         push(entries, concat("properties.key(prefix, \"", kebab(m.name), "\")"))
     }
     return template.render(sheet, "keys", [

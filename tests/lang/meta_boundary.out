@@ -1,112 +1,108 @@
 // derive(Reflect) for 'Scalars'
 // reflect Scalars
 //   snake_name='scalars'
-//   is_enum=false
 //   type_params=[]
-//   members=7
-//   member[0] name='a' has_payload=false
-//   member[0].type kind=int name='' args=0
-//   member[1] name='b' has_payload=false
-//   member[1].type kind=float name='' args=0
-//   member[2] name='c' has_payload=false
-//   member[2].type kind=bool name='' args=0
-//   member[3] name='d' has_payload=false
-//   member[3].type kind=string name='' args=0
-//   member[4] name='e' has_payload=false
-//   member[4].type kind=bigint name='' args=0
-//   member[5] name='f' has_payload=false
-//   member[5].type kind=decimal name='' args=0
-//   member[6] name='g' has_payload=false
-//   member[6].type kind=byte name='' args=0
+//   struct, fields=7
+//   field[0] name='a'
+//   field[0].type int
+//   field[1] name='b'
+//   field[1].type float
+//   field[2] name='c'
+//   field[2].type bool
+//   field[3] name='d'
+//   field[3].type string
+//   field[4] name='e'
+//   field[4].type bigint
+//   field[5] name='f'
+//   field[5].type decimal
+//   field[6] name='g'
+//   field[6].type byte
 // derive(Reflect) for 'Collections'
 // reflect Collections
 //   snake_name='collections'
-//   is_enum=false
 //   type_params=[]
-//   members=4
-//   member[0] name='items' has_payload=false
-//   member[0].type kind=array name='' args=1
-//   member[0].type.args[0] kind=string name='' args=0
-//   member[1] name='names' has_payload=false
-//   member[1].type kind=set name='Set' args=1
-//   member[1].type.args[0] kind=string name='' args=0
-//   member[2] name='scores' has_payload=false
-//   member[2].type kind=map name='Map' args=2
-//   member[2].type.args[0] kind=string name='' args=0
-//   member[2].type.args[1] kind=int name='' args=0
-//   member[3] name='nested' has_payload=false
-//   member[3].type kind=map name='Map' args=2
-//   member[3].type.args[0] kind=string name='' args=0
-//   member[3].type.args[1] kind=array name='' args=1
-//   member[3].type.args[1].args[0] kind=struct name='Option' args=1
-//   member[3].type.args[1].args[0].args[0] kind=int name='' args=0
+//   struct, fields=4
+//   field[0] name='items'
+//   field[0].type array
+//   field[0].type.elem string
+//   field[1] name='names'
+//   field[1].type set
+//   field[1].type.elem string
+//   field[2] name='scores'
+//   field[2].type map
+//   field[2].type.key string
+//   field[2].type.value int
+//   field[3] name='nested'
+//   field[3].type map
+//   field[3].type.key string
+//   field[3].type.value array
+//   field[3].type.value.elem optional
+//   field[3].type.value.elem.elem int
 // derive(Reflect) for 'Flat'
 // reflect Flat
 //   snake_name='flat'
-//   is_enum=false
 //   type_params=[T]
-//   members=4
-//   member[0] name='r' has_payload=false
-//   member[0].type kind=result name='Result<int, string>' args=0
-//   member[1] name='f' has_payload=false
-//   member[1].type kind=func name='fn(int) -> string' args=0
-//   member[2] name='c' has_payload=false
-//   member[2].type kind=channel name='Channel<int>' args=0
-//   member[3] name='v' has_payload=false
-//   member[3].type kind=typevar name='T' args=0
+//   struct, fields=4
+//   field[0] name='r'
+//   field[0].type result
+//   field[0].type.ok int
+//   field[0].type.err string
+//   field[1] name='f'
+//   field[1].type func params=1
+//   field[1].type.params[0] int
+//   field[1].type.returns string
+//   field[2] name='c'
+//   field[2].type channel
+//   field[2].type.elem int
+//   field[3] name='v'
+//   field[3].type var name='T'
 // derive(Reflect) for 'Qualified'
 // reflect Qualified
 //   snake_name='qualified'
-//   is_enum=false
 //   type_params=[]
-//   members=4
-//   member[0] name='bare' has_payload=false
-//   member[0].type kind=struct name='Uuid' args=0
-//   member[1] name='qualified' has_payload=false
-//   member[1].type kind=struct name='time.Instant' args=0
-//   member[2] name='wrapped' has_payload=false
-//   member[2].type kind=struct name='Option' args=1
-//   member[2].type.args[0] kind=struct name='time.Instant' args=0
-//   member[3] name='listed' has_payload=false
-//   member[3].type kind=array name='' args=1
-//   member[3].type.args[0] kind=struct name='time.LocalDate' args=0
+//   struct, fields=4
+//   field[0] name='bare'
+//   field[0].type named name='Uuid' args=0
+//   field[1] name='qualified'
+//   field[1].type named name='time.Instant' args=0
+//   field[2] name='wrapped'
+//   field[2].type optional
+//   field[2].type.elem named name='time.Instant' args=0
+//   field[3] name='listed'
+//   field[3].type array
+//   field[3].type.elem named name='time.LocalDate' args=0
 // derive(Reflect) for 'Generic'
 // reflect Generic
 //   snake_name='generic'
-//   is_enum=false
 //   type_params=[T, U]
-//   members=2
-//   member[0] name='one' has_payload=false
-//   member[0].type kind=typevar name='T' args=0
-//   member[1] name='pair' has_payload=false
-//   member[1].type kind=map name='Map' args=2
-//   member[1].type.args[0] kind=typevar name='T' args=0
-//   member[1].type.args[1] kind=typevar name='U' args=0
+//   struct, fields=2
+//   field[0] name='one'
+//   field[0].type var name='T'
+//   field[1] name='pair'
+//   field[1].type map
+//   field[1].type.key var name='T'
+//   field[1].type.value var name='U'
 // derive(Reflect) for 'Mixed'
 // reflect Mixed
 //   snake_name='mixed'
-//   is_enum=true
 //   type_params=[]
-//   members=4
-//   member[0] name='None' has_payload=false
-//   member[0].type kind=unit name='' args=0
-//   member[1] name='Int' has_payload=true
-//   member[1].type kind=int name='' args=0
-//   member[2] name='Text' has_payload=true
-//   member[2].type kind=string name='' args=0
-//   member[3] name='Items' has_payload=true
-//   member[3].type kind=array name='' args=1
-//   member[3].type.args[0] kind=struct name='Uuid' args=0
+//   enum, variants=4
+//   variant[0] name='None'
+//   variant[1] name='Int'
+//   variant[1].payload int
+//   variant[2] name='Text'
+//   variant[2].payload string
+//   variant[3] name='Items'
+//   variant[3].payload array
+//   variant[3].payload.elem named name='Uuid' args=0
 // derive(Reflect) for 'Wrapper'
 // reflect Wrapper
 //   snake_name='wrapper'
-//   is_enum=true
 //   type_params=[T]
-//   members=3
-//   member[0] name='Empty' has_payload=false
-//   member[0].type kind=unit name='' args=0
-//   member[1] name='Held' has_payload=true
-//   member[1].type kind=typevar name='T' args=0
-//   member[2] name='Many' has_payload=true
-//   member[2].type kind=array name='' args=1
-//   member[2].type.args[0] kind=typevar name='T' args=0
+//   enum, variants=3
+//   variant[0] name='Empty'
+//   variant[1] name='Held'
+//   variant[1].payload var name='T'
+//   variant[2] name='Many'
+//   variant[2].payload array
+//   variant[2].payload.elem var name='T'

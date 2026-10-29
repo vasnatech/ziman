@@ -11,107 +11,338 @@ answers the source text to splice in. The conversion is data, not code generatio
 the whole point of the split, because everything on the other side of it can then be read by
 `--fmt`, `--lint`, `ziman test` and a person.
 
-**It is deliberately small.** What is here is what the generators ported so far actually read;
-a field nobody reads is a promise about the compiler's internals that cannot be taken back.
-
-**A redesign is written and not built: docs/design/meta.md.** It sharpens the rule above rather
-than repealing it -- *total over what the compiler can hand a generator, silent about
-everything else* -- and the central change is that `MetaType` becomes a **tagged enum**. A
-`switch` over a Ziman enum is exhaustive with no default arm, so a kind nobody handles becomes
-a compile error instead of the silent flattening that shipped three times (`Result`, `Channel`
-and `fn` are still flat here today). `Decl` follows: `is_enum` and `has_payload` both describe
-half their values, and `has_payload`'s own comment below says so. Its §10 is the other half:
-every fixture builds a `MetaType` by hand, so the boundary this file *is* has never been
-tested at all.
+**The rule is totality, not smallness.** An earlier version of this file said it was
+deliberately small, because a field nobody reads is a promise about the compiler's internals
+that cannot be taken back. That is still true of *data*. It was the wrong rule for *shape*:
+the type model was a `kind` string beside a flat argument list, faithful for five of the
+compiler's nineteen type kinds and silently flat for the rest, and three bugs shipped through
+the gap in one week. A `switch` over a Ziman enum is exhaustive and has no default arm, so a
+kind nobody handles is now a compile error in every generator rather than a wrong answer at
+run time. See docs/design/meta.md; `tests/lang/meta_boundary` is what this file's output
+actually looks like.
 
 `use meta` -- or `use meta.Name` to bring one item in bare.
 
-### `MetaType`
+### `Type`
 
 ```
-pub struct MetaType {
-    // `int`, `float`, `bool`, `string`, `decimal`, `bigint`, `byte`, `unit`, `array`, `struct`,
-    // `enum`, `map`, `set`, `channel`, `func`. The spelling the compiler's own `TypeKind` uses,
-    // lowercased and without its prefix.
-    kind: string
-    // `struct` and `enum` only: the type's bare name, with no module qualifier. Empty otherwise.
-    name: string
-    // The type arguments, in order: one for `Option<T>` and `[T]`, two for `Map<K, V>`, none for
-    // a scalar.
-    args: [MetaType]
+pub enum Type {
+    Int
+    Float
+    Bool
+    String
+    Bigint
+    Decimal
+    Byte
+    // `unit` is the type with one value; `void` is a function that declares no return type at
+    // all. Two variants because they are two things, even though most generators treat them
+    // alike.
+    Unit
+    Void
+    Array(Type)
+    // **`SetOf`/`MapOf`/`ResultOf`/`ChannelOf` carry the suffix because `Set`, `Map`, `Result`
+    // and `Channel` are builtin type names and the language will not take one as a variant
+    // name.** The four that collide are the four that are renamed; `Array`, `Func`, `Optional`
+    // and `Named` do not, and are left alone rather than renamed for symmetry.
+    SetOf(Type)
+    ChannelOf(Type)
+    MapOf(MapType)
+    ResultOf(ResultType)
+    Func(FuncType)
+    // `Option<T>`. **A variant of its own, which the compiler has no equivalent of**: it
+    // represents an `Option` as a struct in some positions and an enum in others, so the old
+    // model's `is_option` had to test name and arity and deliberately ignore kind. `meta` is an
+    // interface rather than a mirror and may normalise; every generator asks this question
+    // first, and now it is a pattern rather than a guess.
+    Optional(Type)
+    // A user-declared struct or enum. Which of the two it is, is not here: no generator reads
+    // the distinction for a type it merely *refers* to.
+    Named(NamedType)
+    // `T` in `struct Box<T>` -- a type parameter in the body of the declaration that binds it.
+    Var(string)
 }
 ```
 
-A member's type, as much of it as a generator needs to write a conversion for one.
+A type, as much of it as a generator needs to write a conversion for one.
 
-**It was a bare `type_name: string` until `derive_row` needed it**, and that is the argument
-for keeping this file small rather than guessing: a string was enough for nothing, because the
-first generator to read a type at all switches on its kind, asks whether it is an `Option` and
-then needs the element. A field nobody reads is a promise about the compiler's internals that
-cannot be taken back -- and, as here, is usually the wrong shape anyway.
+**Every kind the compiler can hand a generator is a variant, and each carries its own parts
+under their own names.** `Map`'s are `key`/`value` and `Result`'s are `ok`/`err`, where the
+flat list they replaced made both `args[1]` and left a reader to know which was which.
 
-### `Member`
+### `MapType`
 
 ```
-pub struct Member {
-    name: string
-    // For an enum variant, the payload's type; `unit` when it carries none.
-    type: MetaType
-    // Enum variants only: whether this one carries a payload. Always false for a struct's field.
-    has_payload: bool
+pub struct MapType {
+    key: Type
+    value: Type
 }
 ```
 
-One member of a declaration: a struct's field, or an enum's variant.
-
-### `scalar`
+### `ResultType`
 
 ```
-pub fn scalar(kind: string) -> MetaType
+pub struct ResultType {
+    ok: Type
+    err: Type
+}
 ```
 
-`int`, `string` -- a type with no name and no arguments of its own.
-
-### `named`
+### `FuncType`
 
 ```
-pub fn named(kind: string, name: string) -> MetaType
+pub struct FuncType {
+    params: [Type]
+    returns: Type
+}
 ```
 
-`Uuid`, `Instant` -- a struct or enum with no type arguments.
-
-### `generic`
+### `NamedType`
 
 ```
-pub fn generic(kind: string, name: string, args: [MetaType]) -> MetaType
+pub struct NamedType {
+    name: string
+    args: [Type]
+}
 ```
 
-`Option<string>`, `[int]` -- a type with arguments.
+**`name` is the name the source wrote**, module qualifier and all: `time.Instant`, not
+`Instant`. That is what resolves when a generator writes it back into the user's file, and
+stripping it was one of the three bugs. A generator that wants the bare name for a *lookup* --
+a table of bundled types keyed by `Instant` -- calls `bare_name`.
 
-### `is_option`
+## What the compiler calls to build one
+
+### `int_type`
 
 ```
-pub fn is_option(t: MetaType) -> bool
+pub fn int_type() -> Type { return Type.Int }
 ```
 
-Whether `t` is an `Option<T>`, which every generator that writes a conversion asks first: a
-nullable column, an absent JSON key and an omitted property are all this one question.
+### `float_type`
 
-**The kind is not consulted, deliberately.** The compiler represents `Option<T>` as a struct
-in some positions and an enum in others -- `is_option_type_here` in `src/derive.c` tests both
-for that reason -- so a generator that asked for `enum` would be right about hand-built
-declarations and wrong about the ones the compiler passes it. That gap was invisible until
-the bridge ran a generator for real: every fixture here builds `Option` as an enum and
-passed, while `#[derive(Row)]` on an `Option<string>` field generated `option_from_sql`.
-Name and arity are what the question is actually about.
+```
+pub fn float_type() -> Type { return Type.Float }
+```
+
+### `bool_type`
+
+```
+pub fn bool_type() -> Type { return Type.Bool }
+```
+
+### `string_type`
+
+```
+pub fn string_type() -> Type { return Type.String }
+```
+
+### `bigint_type`
+
+```
+pub fn bigint_type() -> Type { return Type.Bigint }
+```
+
+### `decimal_type`
+
+```
+pub fn decimal_type() -> Type { return Type.Decimal }
+```
+
+### `byte_type`
+
+```
+pub fn byte_type() -> Type { return Type.Byte }
+```
+
+### `unit_type`
+
+```
+pub fn unit_type() -> Type { return Type.Unit }
+```
+
+### `void_type`
+
+```
+pub fn void_type() -> Type { return Type.Void }
+```
+
+### `array_type`
+
+```
+pub fn array_type(elem: Type) -> Type { return Type.Array(elem) }
+```
+
+### `set_type`
+
+```
+pub fn set_type(elem: Type) -> Type { return Type.SetOf(elem) }
+```
+
+### `channel_type`
+
+```
+pub fn channel_type(elem: Type) -> Type { return Type.ChannelOf(elem) }
+```
+
+### `optional_type`
+
+```
+pub fn optional_type(elem: Type) -> Type { return Type.Optional(elem) }
+```
+
+### `var_type`
+
+```
+pub fn var_type(name: string) -> Type { return Type.Var(name) }
+```
+
+### `map_type`
+
+```
+pub fn map_type(key: Type, value: Type) -> Type
+```
+
+### `result_type`
+
+```
+pub fn result_type(ok: Type, err: Type) -> Type
+```
+
+### `func_type`
+
+```
+pub fn func_type(params: [Type], returns: Type) -> Type
+```
+
+### `named_type`
+
+```
+pub fn named_type(name: string, args: [Type]) -> Type
+```
+
+## The declaration
+
+### `Field`
+
+```
+pub struct Field {
+    name: string
+    type: Type
+}
+```
+
+A struct's field.
+
+### `Variant`
+
+```
+pub struct Variant {
+    name: string
+    payload: Option<Type>
+}
+```
+
+An enum's variant. **`payload` is an `Option<Type>`**, where the old model carried a
+`has_payload: bool` beside a `type` that was `unit` when there was none -- two spellings of
+absence, and a bool that was always false for a struct's field because a struct and an enum
+shared one `Member` type.
+
+### `Body`
+
+```
+pub enum Body {
+    Struct([Field])
+    Enum([Variant])
+}
+```
+
+What a declaration declares. A struct and an enum are different shapes, so a generator that
+handles one writes one arm and is refused the other by the type checker rather than by a
+runtime check it had to remember to write.
+
+### `Decl`
+
+```
+pub struct Decl {
+    // The declaration's own name, as written: `LocalDate`.
+    name: string
+    // The same name in the spelling generated functions use: `local_date`, so a generator writes
+    // `local_date_compare` without repeating the compiler's conversion rule.
+    snake_name: string
+    // The declaration's own type parameters, bare: `["T", "U"]` for `struct Box<T, U>`, empty
+    // for one that is not generic. A bound (`<T: Hash>`) is not here -- no generator reads one.
+    type_params: [string]
+    body: Body
+}
+```
+
+### `field`
+
+```
+pub fn field(name: string, type: Type) -> Field
+```
+
+### `unit_variant`
+
+```
+pub fn unit_variant(name: string) -> Variant
+```
+
+### `payload_variant`
+
+```
+pub fn payload_variant(name: string, payload: Type) -> Variant
+```
+
+### `struct_decl`
+
+```
+pub fn struct_decl(name: string, snake_name: string, type_params: [string], fields: [Field]) -> Decl
+```
+
+### `enum_decl`
+
+```
+pub fn enum_decl(name: string, snake_name: string, type_params: [string], variants: [Variant]) -> Decl
+```
+
+## Reading one
 
 ### `type_text`
 
 ```
-pub fn type_text(t: MetaType) -> string
+pub fn type_text(t: Type) -> string
 ```
 
-The type as source spells it: `Option<string>`, `[Uuid]`, `int`.
+The type as source spells it: `Option<string>`, `[Uuid]`, `Map<string, int>`, `int`.
+
+## Names
+
+### `bare_name`
+
+```
+pub fn bare_name(name: string) -> string
+```
+
+`time.Instant` -> `Instant`: a type name with its module qualifier dropped.
+
+**For looking a name up, never for writing one out.** A field's type reaches a generator as
+the source spells it, qualifier and all, because that is the text that resolves when it is
+written back into the user's file. But a table of bundled types -- the short-converter lists
+in `derive_row` and `derive_json` -- is keyed by the bare name, and `time.Instant` must find
+`Instant` in it. Writing `bare_name(..)` into generated code instead of looking up with it is
+the bug this exists to make unlikely.
+
+### `snake_case`
+
+```
+pub fn snake_case(name: string) -> string
+```
+
+`LocalDate` -> `local_date`: the spelling generated function names use, so a generator writing
+`<type>_to_sql` does not repeat the compiler's own conversion rule. A capital starts a new word
+when it follows a lower-case letter or a digit, or when it begins the last capital of a run
+(`HTTPServer` -> `http_server`).
 
 ### `camel_case`
 
@@ -140,72 +371,6 @@ the one part of those files that had to be exactly right and could not be read o
 The numbering depends on call order either way; a cell just stops restating it, and the order
 is now the order the `fresh` calls appear in. `src/derive.c` threads an `int *` for the same
 reason.
-
-### `bare_name`
-
-```
-pub fn bare_name(name: string) -> string
-```
-
-`time.Instant` -> `Instant`: a type name with its module qualifier dropped.
-
-**For looking a name up, never for writing one out.** A field's type reaches a generator as
-the source spells it, qualifier and all, because that is the text that resolves when it is
-written back into the user's file. But a table of bundled types -- the short-converter lists
-in `derive_row` and `derive_json` -- is keyed by the bare name, and `time.Instant` must find
-`Instant` in it. Writing `bare_name(..)` into generated code instead of looking up with it is
-the bug this exists to make unlikely.
-
-### `snake_case`
-
-```
-pub fn snake_case(name: string) -> string
-```
-
-`LocalDate` -> `local_date`: the spelling generated function names use, so a generator writing
-`<type>_to_sql` does not repeat the compiler's own conversion rule. A capital starts a new word
-when it follows a lower-case letter or a digit, or when it begins the last capital of a run
-(`HTTPServer` -> `http_server`).
-
-### `Decl`
-
-```
-pub struct Decl {
-    // The declaration's own name, as written: `LocalDate`.
-    name: string
-    // The same name in the spelling generated functions use: `local_date`, so a generator writes
-    // `local_date_compare` without repeating the compiler's conversion rule.
-    snake_name: string
-    // `true` for an `enum`, `false` for a `struct`. Two kinds, so a bool rather than a tag -- a
-    // third kind would be a reason to change this, and there is no third kind.
-    is_enum: bool
-    // The declaration's own type parameters, bare: `["T", "U"]` for `struct Box<T, U>`, empty for
-    // a declaration that is not generic.
-    type_params: [string]
-    // A struct's fields in declaration order, or an enum's variants in declaration order.
-    members: [Member]
-}
-```
-
-A `struct` or an `enum` that carries a `#[derive(..)]`.
-
-### `member`
-
-```
-pub fn member(name: string, type: MetaType, has_payload: bool) -> Member
-```
-
-One member, built by the compiler. **A constructor rather than a struct literal**, so that the
-C that reifies a declaration never knows this file's field order or field names: adding a
-field here changes this function and nothing in `src/`. See docs/design/user-generators.md.
-
-### `decl`
-
-```
-pub fn decl(name: string, snake_name: string, is_enum: bool, type_params: [string], members: [Member]) -> Decl
-```
-
-A declaration, built by the compiler, for the same reason.
 
 ### `type_params_bounded`
 

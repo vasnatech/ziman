@@ -79,32 +79,6 @@ int ziman_has_ziman_generator(const char *target) {
     return found;
 }
 
-/* The compiler's `TypeKind` as `meta.MetaType.kind` spells it. One table rather than a switch so
- * that a kind added to the language is a compile error here (the array is indexed by kind) rather
- * than a silent "struct". */
-static const char *kind_name(TypeKind k) {
-    switch (k) {
-        case TY_VOID: return "void";
-        case TY_UNIT: return "unit";
-        case TY_INT: return "int";
-        case TY_FLOAT: return "float";
-        case TY_STRING: return "string";
-        case TY_BIGINT: return "bigint";
-        case TY_DECIMAL: return "decimal";
-        case TY_BOOL: return "bool";
-        case TY_BYTE: return "byte";
-        case TY_ARRAY: return "array";
-        case TY_STRUCT: return "struct";
-        case TY_RESULT: return "result";
-        case TY_ENUM: return "enum";
-        case TY_CHANNEL: return "channel";
-        case TY_TYPEVAR: return "typevar";
-        case TY_FUNC: return "func";
-        case TY_MAP: return "map";
-        case TY_SET: return "set";
-    }
-    return "unknown";
-}
 
 /* The name of the declaration being derived, with both qualifiers stripped: the loader's
  * `uuid::Uuid` and a source's `uuid.Uuid` both answer `Uuid`. A declaration is derived in the
@@ -171,77 +145,89 @@ static Value call_meta(const char *name, Value *args, int argc, int line, int co
 }
 
 static Value reify_type(Type t, int line, int col) {
-    Value args[3];
-    if (t.kind == TY_ARRAY && t.elem != NULL) {
-        Value inner[1] = {reify_type(*t.elem, line, col)};
-        args[0] = value_string(ziman_xstrdup("array"));
-        args[1] = value_string(ziman_xstrdup(""));
-        args[2] = array_of(inner, 1);
-        return call_meta("generic", args, 3, line, col);
-    }
-    /* A set's element and a map's key and value live in `elem`/`elem_err`, not in `type_args`, so
-     * they need their own branches -- without them both fell through to the `scalar` tail below
-     * and arrived at the generator as a bare `map` or `set` with **no element types at all**.
-     * Every hand-built fixture passed, because a fixture builds its `MetaType` with
-     * `meta.generic(..)` directly and so cannot notice what reification drops; `map_json_derive`
-     * found it the moment `derive(Json)` was wired to this path for real. */
-    if (t.kind == TY_SET && t.elem != NULL) {
-        Value inner[1] = {reify_type(*t.elem, line, col)};
-        args[0] = value_string(ziman_xstrdup("set"));
-        args[1] = value_string(ziman_xstrdup("Set"));
-        args[2] = array_of(inner, 1);
-        return call_meta("generic", args, 3, line, col);
-    }
-    if (t.kind == TY_MAP && t.elem != NULL && t.elem_err != NULL) {
-        Value inner[2] = {reify_type(*t.elem, line, col), reify_type(*t.elem_err, line, col)};
-        args[0] = value_string(ziman_xstrdup("map"));
-        args[1] = value_string(ziman_xstrdup("Map"));
-        args[2] = array_of(inner, 2);
-        return call_meta("generic", args, 3, line, col);
-    }
-    if (t.kind == TY_STRUCT || t.kind == TY_ENUM) {
-        const char *name = source_name(t.kind == TY_STRUCT ? t.struct_name : t.enum_name);
-        if (t.type_args.count > 0) {
-            Value *inner = ziman_xmalloc(sizeof(Value) * (size_t)t.type_args.count);
-            for (int i = 0; i < t.type_args.count; i++) {
-                inner[i] = reify_type(t.type_args.items[i], line, col);
-            }
-            args[0] = value_string(ziman_xstrdup(kind_name(t.kind)));
-            args[1] = value_string(ziman_xstrdup(name));
-            args[2] = array_of(inner, t.type_args.count);
-            return call_meta("generic", args, 3, line, col);
+    /* **A total switch with no `default:`**, so `-Wswitch` makes a new `TypeKind` a build
+     * warning here rather than a type that silently arrives as something else. That is the
+     * producer half of the guarantee; the consumer half is that `meta.Type` is an enum, so a
+     * generator cannot ignore a variant either (docs/design/meta.md §5). */
+    switch (t.kind) {
+        case TY_INT: return call_meta("int_type", NULL, 0, line, col);
+        case TY_FLOAT: return call_meta("float_type", NULL, 0, line, col);
+        case TY_BOOL: return call_meta("bool_type", NULL, 0, line, col);
+        case TY_STRING: return call_meta("string_type", NULL, 0, line, col);
+        case TY_BIGINT: return call_meta("bigint_type", NULL, 0, line, col);
+        case TY_DECIMAL: return call_meta("decimal_type", NULL, 0, line, col);
+        case TY_BYTE: return call_meta("byte_type", NULL, 0, line, col);
+        case TY_UNIT: return call_meta("unit_type", NULL, 0, line, col);
+        case TY_VOID: return call_meta("void_type", NULL, 0, line, col);
+        case TY_ARRAY: {
+            Value a[1] = {reify_type(t.elem != NULL ? *t.elem : type_scalar(TY_UNIT), line, col)};
+            return call_meta("array_type", a, 1, line, col);
         }
-        args[0] = value_string(ziman_xstrdup(kind_name(t.kind)));
-        args[1] = value_string(ziman_xstrdup(name));
-        return call_meta("named", args, 2, line, col);
+        case TY_SET: {
+            Value a[1] = {reify_type(t.elem != NULL ? *t.elem : type_scalar(TY_UNIT), line, col)};
+            return call_meta("set_type", a, 1, line, col);
+        }
+        case TY_CHANNEL: {
+            Value a[1] = {reify_type(t.elem != NULL ? *t.elem : type_scalar(TY_UNIT), line, col)};
+            return call_meta("channel_type", a, 1, line, col);
+        }
+        case TY_MAP: {
+            Value a[2] = {reify_type(t.elem != NULL ? *t.elem : type_scalar(TY_UNIT), line, col),
+                          reify_type(t.elem_err != NULL ? *t.elem_err : type_scalar(TY_UNIT), line, col)};
+            return call_meta("map_type", a, 2, line, col);
+        }
+        case TY_RESULT: {
+            Value a[2] = {reify_type(t.elem != NULL ? *t.elem : type_scalar(TY_UNIT), line, col),
+                          reify_type(t.elem_err != NULL ? *t.elem_err : type_scalar(TY_UNIT), line, col)};
+            return call_meta("result_type", a, 2, line, col);
+        }
+        case TY_FUNC: {
+            Value *params = ziman_xmalloc(sizeof(Value) * (size_t)(t.type_args.count > 0 ? t.type_args.count : 1));
+            for (int i = 0; i < t.type_args.count; i++) params[i] = reify_type(t.type_args.items[i], line, col);
+            Value a[2] = {array_of(params, t.type_args.count),
+                          reify_type(t.elem != NULL ? *t.elem : type_scalar(TY_VOID), line, col)};
+            return call_meta("func_type", a, 2, line, col);
+        }
+        case TY_TYPEVAR: {
+            Value a[1] = {value_string(ziman_xstrdup(t.type_var_name != NULL ? t.type_var_name : ""))};
+            return call_meta("var_type", a, 1, line, col);
+        }
+        case TY_STRUCT:
+        case TY_ENUM: {
+            const char *name = source_name(t.kind == TY_STRUCT ? t.struct_name : t.enum_name);
+            /* `Option<T>` is a struct in some positions and an enum in others -- the ambiguity
+             * `is_option` used to apologise for. `meta` normalises it to one variant here, which
+             * is the whole reason a generator can now ask the question by pattern. */
+            if (strcmp(name, "Option") == 0 && t.type_args.count == 1) {
+                Value a[1] = {reify_type(t.type_args.items[0], line, col)};
+                return call_meta("optional_type", a, 1, line, col);
+            }
+            Value *inner = ziman_xmalloc(sizeof(Value) * (size_t)(t.type_args.count > 0 ? t.type_args.count : 1));
+            for (int i = 0; i < t.type_args.count; i++) inner[i] = reify_type(t.type_args.items[i], line, col);
+            Value a[2] = {value_string(ziman_xstrdup(name)), array_of(inner, t.type_args.count)};
+            return call_meta("named_type", a, 2, line, col);
+        }
     }
-    if (t.kind == TY_TYPEVAR) {
-        /* A type variable carries its name -- `T` -- which a generator needs both to spell the
-         * type and to name the converter parameter a generic `derive(Json)` threads through. */
-        args[0] = value_string(ziman_xstrdup("typevar"));
-        args[1] = value_string(ziman_xstrdup(t.type_var_name != NULL ? t.type_var_name : ""));
-        return call_meta("named", args, 2, line, col);
-    }
-    /* Anything else -- `int`, `bool`, a function type, a handle -- has no parts a generator can
-     * walk. A scalar is just its kind; a kind whose written form says more than its name does
-     * (`fn(int) -> int`, not `func`) keeps that text, so a generator refusing it can quote the
-     * type the user actually wrote. */
-    const char *written = type_name(t);
-    if (written != NULL && strcmp(written, kind_name(t.kind)) != 0) {
-        args[0] = value_string(ziman_xstrdup(kind_name(t.kind)));
-        args[1] = value_string(ziman_xstrdup(written));
-        return call_meta("named", args, 2, line, col);
-    }
-    args[0] = value_string(ziman_xstrdup(kind_name(t.kind)));
-    return call_meta("scalar", args, 1, line, col);
+    ziman_error("module", line, col, "a type kind that meta does not model reached a generator");
+    return call_meta("unit_type", NULL, 0, line, col);
 }
 
-static Value reify_member(const char *name, Type t, int has_payload, int line, int col) {
-    Value args[3];
+static Value reify_field(const char *name, Type t, int line, int col) {
+    Value args[2];
     args[0] = value_string(ziman_xstrdup(name));
     args[1] = reify_type(t, line, col);
-    args[2] = value_bool(has_payload);
-    return call_meta("member", args, 3, line, col);
+    return call_meta("field", args, 2, line, col);
+}
+
+/* A variant is one of two constructors rather than a name beside a `has_payload` flag and a
+ * `unit` standing in for absence -- the two spellings of "no payload" that `meta.Variant` now
+ * has one of. */
+static Value reify_variant(EnumVariant *v, int line, int col) {
+    Value args[2];
+    args[0] = value_string(ziman_xstrdup(v->name));
+    if (!v->has_payload) return call_meta("unit_variant", args, 1, line, col);
+    args[1] = reify_type(v->payload_type, line, col);
+    return call_meta("payload_variant", args, 2, line, col);
 }
 
 static Value reify_decl(StructDecl *sd, EnumDecl *ed, int line, int col) {
@@ -251,27 +237,20 @@ static Value reify_decl(StructDecl *sd, EnumDecl *ed, int line, int col) {
 
     Value *members = ziman_xmalloc(sizeof(Value) * (size_t)(count > 0 ? count : 1));
     for (int i = 0; i < count; i++) {
-        if (sd != NULL) {
-            members[i] = reify_member(sd->fields.items[i].name, sd->fields.items[i].type, 0, line, col);
-        } else {
-            EnumVariant *v = &ed->variants.items[i];
-            Type payload = v->has_payload ? v->payload_type : type_scalar(TY_UNIT);
-            members[i] = reify_member(v->name, payload, v->has_payload, line, col);
-        }
+        members[i] = sd != NULL ? reify_field(sd->fields.items[i].name, sd->fields.items[i].type, line, col)
+                                : reify_variant(&ed->variants.items[i], line, col);
     }
     Value *names = ziman_xmalloc(sizeof(Value) * (size_t)(params->count > 0 ? params->count : 1));
     for (int i = 0; i < params->count; i++) {
         names[i] = value_string(ziman_xstrdup(params->items[i].name));
     }
 
-    char *snake = ziman_pascal_to_snake(plain_name(name));
-    Value args[5];
+    Value args[4];
     args[0] = value_string(ziman_xstrdup(plain_name(name)));
-    args[1] = value_string(snake);
-    args[2] = value_bool(ed != NULL);
-    args[3] = array_of(names, params->count);
-    args[4] = array_of(members, count);
-    return call_meta("decl", args, 5, line, col);
+    args[1] = value_string(ziman_pascal_to_snake(plain_name(name)));
+    args[2] = array_of(names, params->count);
+    args[3] = array_of(members, count);
+    return call_meta(sd != NULL ? "struct_decl" : "enum_decl", args, 4, line, col);
 }
 
 char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, int line, int col) {

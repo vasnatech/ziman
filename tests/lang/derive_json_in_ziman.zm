@@ -11,34 +11,27 @@
 use derive_json
 use meta
 
-fn f(name: string, t: meta.MetaType) -> meta.Member {
-    return meta.Member { name: name, type: t, has_payload: false }
+fn f(name: string, t: meta.Type) -> meta.Field {
+    return meta.field(name, t)
 }
-fn opt(t: meta.MetaType) -> meta.MetaType {
-    return meta.generic("enum", "Option", [t])
+fn opt(t: meta.Type) -> meta.Type {
+    return meta.optional_type(t)
 }
 fn main() {
     val none: [string] = []
-    val d = meta.Decl {
-        name: "Wide",
-        snake_name: "wide",
-        is_enum: false,
-        type_params: none,
-        members: [
-            f("id", meta.named("struct", "uuid.Uuid")),
-            f("count", meta.scalar("int")),
-            f("ratio", meta.scalar("float")),
-            f("ok", meta.scalar("bool")),
-            f("label", meta.scalar("string")),
-            f("at", meta.named("struct", "time.Instant")),
-            f("tags", meta.generic("array", "", [meta.scalar("string")])),
-            f("scores", meta.generic("map", "Map", [meta.scalar("string"), meta.scalar("int")])),
-            f("middle_name", opt(meta.scalar("string"))),
-            f("seen", opt(meta.named("struct", "time.Instant")))
-        ]
-    }
-    print(concat(
-        unwrap(derive_json.to_json(d)),
-        unwrap(derive_json.from_json(d)),
-        unwrap(derive_json.from_json_all(d))))
+    val d = meta.struct_decl("Wide", "wide", none, [
+        f("id", meta.named_type("uuid.Uuid", [])),
+        f("count", meta.int_type()),
+        f("ratio", meta.float_type()),
+        f("ok", meta.bool_type()),
+        f("label", meta.string_type()),
+        f("at", meta.named_type("time.Instant", [])),
+        f("tags", meta.array_type(meta.string_type())),
+        f("scores", meta.map_type(meta.string_type(), meta.int_type())),
+        f("middle_name", opt(meta.string_type())),
+        f("seen", opt(meta.named_type("time.Instant", [])))
+    ])
+    // `generate` is exactly those three concatenated, and calling it rather than the three
+    // keeps this fixture from re-stating the order they are spliced in.
+    print(unwrap(derive_json.generate(d)))
 }

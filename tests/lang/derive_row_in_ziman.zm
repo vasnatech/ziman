@@ -11,34 +11,34 @@
 use derive_row
 use meta
 
-fn f(name: string, t: meta.MetaType) -> meta.Member {
-    return meta.Member { name: name, type: t, has_payload: false }
+fn f(name: string, t: meta.Type) -> meta.Field {
+    return meta.field(name, t)
 }
 
-fn opt(t: meta.MetaType) -> meta.MetaType {
-    return meta.generic("enum", "Option", [t])
+fn opt(t: meta.Type) -> meta.Type {
+    return meta.optional_type(t)
 }
 
-fn decl(name: string, snake: string, members: [meta.Member]) -> meta.Decl {
+fn decl(name: string, snake: string, members: [meta.Field]) -> meta.Decl {
     val none: [string] = []
-    return meta.Decl { name: name, snake_name: snake, is_enum: false, type_params: none, members: members }
+    return meta.struct_decl(name, snake, none, members)
 }
 
 fn main() {
     print(unwrap(derive_row.generate(decl("Note", "note", [
-        f("id", meta.scalar("int")),
-        f("body", opt(meta.scalar("string")))
+        f("id", meta.int_type()),
+        f("body", opt(meta.string_type()))
     ]))))
     print(unwrap(derive_row.generate(decl("Wide", "wide", [
-        f("id", meta.named("struct", "Uuid")),
-        f("count", meta.scalar("int")),
-        f("ratio", meta.scalar("float")),
-        f("ok", meta.scalar("bool")),
-        f("label", meta.scalar("string")),
-        f("amount", meta.scalar("decimal")),
-        f("at", meta.named("struct", "Instant")),
-        f("note", opt(meta.scalar("string"))),
-        f("seen_at", opt(meta.named("struct", "Instant"))),
-        f("owner", opt(meta.named("struct", "Uuid")))
+        f("id", meta.named_type("Uuid", [])),
+        f("count", meta.int_type()),
+        f("ratio", meta.float_type()),
+        f("ok", meta.bool_type()),
+        f("label", meta.string_type()),
+        f("amount", meta.decimal_type()),
+        f("at", meta.named_type("Instant", [])),
+        f("note", opt(meta.string_type())),
+        f("seen_at", opt(meta.named_type("Instant", []))),
+        f("owner", opt(meta.named_type("Uuid", [])))
     ]))))
 }

@@ -12,38 +12,38 @@
 use derive_properties
 use meta
 
-fn f(name: string, t: meta.MetaType) -> meta.Member {
-    return meta.Member { name: name, type: t, has_payload: false }
+fn f(name: string, t: meta.Type) -> meta.Field {
+    return meta.field(name, t)
 }
 
-fn opt(t: meta.MetaType) -> meta.MetaType {
-    return meta.generic("enum", "Option", [t])
+fn opt(t: meta.Type) -> meta.Type {
+    return meta.optional_type(t)
 }
 
-fn decl(name: string, snake: string, members: [meta.Member]) -> meta.Decl {
+fn decl(name: string, snake: string, members: [meta.Field]) -> meta.Decl {
     val none: [string] = []
-    return meta.Decl { name: name, snake_name: snake, is_enum: false, type_params: none, members: members }
+    return meta.struct_decl(name, snake, none, members)
 }
 
 fn main() {
     // `Server` is the small case the generator's own comments show, so the two must agree --
     // `tools/check_template_examples.py` holds them to it.
     print(unwrap(derive_properties.generate(decl("Server", "server", [
-        f("port", meta.scalar("int")),
-        f("host", opt(meta.scalar("string")))
+        f("port", meta.int_type()),
+        f("host", opt(meta.string_type()))
     ]))))
     // `Wide` is the one that matters: every supported kind, required and optional, and a field
     // whose name kebab-cases.
     print(unwrap(derive_properties.generate(decl("Wide", "wide", [
-        f("port", meta.scalar("int")),
-        f("host", opt(meta.scalar("string"))),
-        f("idle_timeout_ms", meta.scalar("int")),
-        f("verbose", opt(meta.scalar("bool"))),
-        f("load_factor", meta.scalar("float"))
+        f("port", meta.int_type()),
+        f("host", opt(meta.string_type())),
+        f("idle_timeout_ms", meta.int_type()),
+        f("verbose", opt(meta.bool_type())),
+        f("load_factor", meta.float_type())
     ]))))
     // A type this derive does not reach, refused by name rather than generated wrongly.
     if Err(e) = derive_properties.generate(decl("Bad", "bad", [
-        f("when", meta.named("struct", "Instant"))
+        f("when", meta.named_type("Instant", []))
     ])) {
         print(e)
     }

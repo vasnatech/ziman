@@ -287,17 +287,17 @@ pub fn format(rows: Json, sep: string) -> Result<string, string>
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
-pub fn from_json(d: meta.Decl) -> Result<string, string>
+pub fn from_json(d: meta.Decl, members: [meta.Field]) -> Result<string, string>
 
-pub fn from_json_all(d: meta.Decl) -> Result<string, string>
+pub fn from_json_all(d: meta.Decl, members: [meta.Field]) -> Result<string, string>
 
-pub fn enum_to_json(d: meta.Decl) -> Result<string, string>
+pub fn enum_to_json(d: meta.Decl, variants: [meta.Variant]) -> Result<string, string>
 
-pub fn enum_from_json(d: meta.Decl) -> Result<string, string>
+pub fn enum_from_json(d: meta.Decl, variants: [meta.Variant]) -> Result<string, string>
 
 pub fn generate(d: meta.Decl) -> Result<string, string>
 
-pub fn to_json(d: meta.Decl) -> Result<string, string>
+pub fn to_json(d: meta.Decl, members: [meta.Field]) -> Result<string, string>
 
 ```
 
@@ -855,43 +855,112 @@ pub fn is_finite(x: float) -> bool
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
-pub struct MetaType {
-    // `int`, `float`, `bool`, `string`, `decimal`, `bigint`, `byte`, `unit`, `array`, `struct`,
-    // `enum`, `map`, `set`, `channel`, `func`. The spelling the compiler's own `TypeKind` uses,
-    // lowercased and without its prefix.
-    kind: string
-    // `struct` and `enum` only: the type's bare name, with no module qualifier. Empty otherwise.
-    name: string
-    // The type arguments, in order: one for `Option<T>` and `[T]`, two for `Map<K, V>`, none for
-    // a scalar.
-    args: [MetaType]
+pub enum Type {
+    Int
+    Float
+    Bool
+    String
+    Bigint
+    Decimal
+    Byte
+    // `unit` is the type with one value; `void` is a function that declares no return type at
+    // all. Two variants because they are two things, even though most generators treat them
+    // alike.
+    Unit
+    Void
+    Array(Type)
+    // **`SetOf`/`MapOf`/`ResultOf`/`ChannelOf` carry the suffix because `Set`, `Map`, `Result`
+    // and `Channel` are builtin type names and the language will not take one as a variant
+    // name.** The four that collide are the four that are renamed; `Array`, `Func`, `Optional`
+    // and `Named` do not, and are left alone rather than renamed for symmetry.
+    SetOf(Type)
+    ChannelOf(Type)
+    MapOf(MapType)
+    ResultOf(ResultType)
+    Func(FuncType)
+    // `Option<T>`. **A variant of its own, which the compiler has no equivalent of**: it
+    // represents an `Option` as a struct in some positions and an enum in others, so the old
+    // model's `is_option` had to test name and arity and deliberately ignore kind. `meta` is an
+    // interface rather than a mirror and may normalise; every generator asks this question
+    // first, and now it is a pattern rather than a guess.
+    Optional(Type)
+    // A user-declared struct or enum. Which of the two it is, is not here: no generator reads
+    // the distinction for a type it merely *refers* to.
+    Named(NamedType)
+    // `T` in `struct Box<T>` -- a type parameter in the body of the declaration that binds it.
+    Var(string)
 }
 
-pub struct Member {
-    name: string
-    // For an enum variant, the payload's type; `unit` when it carries none.
-    type: MetaType
-    // Enum variants only: whether this one carries a payload. Always false for a struct's field.
-    has_payload: bool
+pub struct MapType {
+    key: Type
+    value: Type
 }
 
-pub fn scalar(kind: string) -> MetaType
+pub struct ResultType {
+    ok: Type
+    err: Type
+}
 
-pub fn named(kind: string, name: string) -> MetaType
+pub struct FuncType {
+    params: [Type]
+    returns: Type
+}
 
-pub fn generic(kind: string, name: string, args: [MetaType]) -> MetaType
+pub struct NamedType {
+    name: string
+    args: [Type]
+}
 
-pub fn is_option(t: MetaType) -> bool
+pub fn int_type() -> Type { return Type.Int }
 
-pub fn type_text(t: MetaType) -> string
+pub fn float_type() -> Type { return Type.Float }
 
-pub fn camel_case(name: string) -> string
+pub fn bool_type() -> Type { return Type.Bool }
 
-pub fn fresh(n: Mutable<int>, hint: string) -> string
+pub fn string_type() -> Type { return Type.String }
 
-pub fn bare_name(name: string) -> string
+pub fn bigint_type() -> Type { return Type.Bigint }
 
-pub fn snake_case(name: string) -> string
+pub fn decimal_type() -> Type { return Type.Decimal }
+
+pub fn byte_type() -> Type { return Type.Byte }
+
+pub fn unit_type() -> Type { return Type.Unit }
+
+pub fn void_type() -> Type { return Type.Void }
+
+pub fn array_type(elem: Type) -> Type { return Type.Array(elem) }
+
+pub fn set_type(elem: Type) -> Type { return Type.SetOf(elem) }
+
+pub fn channel_type(elem: Type) -> Type { return Type.ChannelOf(elem) }
+
+pub fn optional_type(elem: Type) -> Type { return Type.Optional(elem) }
+
+pub fn var_type(name: string) -> Type { return Type.Var(name) }
+
+pub fn map_type(key: Type, value: Type) -> Type
+
+pub fn result_type(ok: Type, err: Type) -> Type
+
+pub fn func_type(params: [Type], returns: Type) -> Type
+
+pub fn named_type(name: string, args: [Type]) -> Type
+
+pub struct Field {
+    name: string
+    type: Type
+}
+
+pub struct Variant {
+    name: string
+    payload: Option<Type>
+}
+
+pub enum Body {
+    Struct([Field])
+    Enum([Variant])
+}
 
 pub struct Decl {
     // The declaration's own name, as written: `LocalDate`.
@@ -899,19 +968,31 @@ pub struct Decl {
     // The same name in the spelling generated functions use: `local_date`, so a generator writes
     // `local_date_compare` without repeating the compiler's conversion rule.
     snake_name: string
-    // `true` for an `enum`, `false` for a `struct`. Two kinds, so a bool rather than a tag -- a
-    // third kind would be a reason to change this, and there is no third kind.
-    is_enum: bool
-    // The declaration's own type parameters, bare: `["T", "U"]` for `struct Box<T, U>`, empty for
-    // a declaration that is not generic.
+    // The declaration's own type parameters, bare: `["T", "U"]` for `struct Box<T, U>`, empty
+    // for one that is not generic. A bound (`<T: Hash>`) is not here -- no generator reads one.
     type_params: [string]
-    // A struct's fields in declaration order, or an enum's variants in declaration order.
-    members: [Member]
+    body: Body
 }
 
-pub fn member(name: string, type: MetaType, has_payload: bool) -> Member
+pub fn field(name: string, type: Type) -> Field
 
-pub fn decl(name: string, snake_name: string, is_enum: bool, type_params: [string], members: [Member]) -> Decl
+pub fn unit_variant(name: string) -> Variant
+
+pub fn payload_variant(name: string, payload: Type) -> Variant
+
+pub fn struct_decl(name: string, snake_name: string, type_params: [string], fields: [Field]) -> Decl
+
+pub fn enum_decl(name: string, snake_name: string, type_params: [string], variants: [Variant]) -> Decl
+
+pub fn type_text(t: Type) -> string
+
+pub fn bare_name(name: string) -> string
+
+pub fn snake_case(name: string) -> string
+
+pub fn camel_case(name: string) -> string
+
+pub fn fresh(n: Mutable<int>, hint: string) -> string
 
 pub fn type_params_bounded(d: Decl, bound: string) -> string
 

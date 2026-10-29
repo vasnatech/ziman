@@ -21,7 +21,7 @@ by other systems and a SQL column is not.
 ### `from_json`
 
 ```
-pub fn from_json(d: meta.Decl) -> Result<string, string>
+pub fn from_json(d: meta.Decl, members: [meta.Field]) -> Result<string, string>
 ```
 
 `<name>_from_json`: stops at the first bad field.
@@ -29,7 +29,7 @@ pub fn from_json(d: meta.Decl) -> Result<string, string>
 ### `from_json_all`
 
 ```
-pub fn from_json_all(d: meta.Decl) -> Result<string, string>
+pub fn from_json_all(d: meta.Decl, members: [meta.Field]) -> Result<string, string>
 ```
 
 `<name>_from_json_all`: reports every bad field, as `Result<T, [string]>`.
@@ -44,7 +44,7 @@ step with it. The cost is one closure per field, paid only by callers of this fu
 ### `enum_to_json`
 
 ```
-pub fn enum_to_json(d: meta.Decl) -> Result<string, string>
+pub fn enum_to_json(d: meta.Decl, variants: [meta.Variant]) -> Result<string, string>
 ```
 
 `<name>_to_json` for an enum: a chain of variant tests, each returning its own object.
@@ -55,7 +55,7 @@ The encoder tests variants and the decoder compares tags, so only the encoder ha
 ### `enum_from_json`
 
 ```
-pub fn enum_from_json(d: meta.Decl) -> Result<string, string>
+pub fn enum_from_json(d: meta.Decl, variants: [meta.Variant]) -> Result<string, string>
 ```
 
 `<name>_from_json` for an enum: read the tag, then build the variant it names.
@@ -71,7 +71,7 @@ Three functions for a struct, two for an enum -- the order `src/derive.c` splice
 ### `to_json`
 
 ```
-pub fn to_json(d: meta.Decl) -> Result<string, string>
+pub fn to_json(d: meta.Decl, members: [meta.Field]) -> Result<string, string>
 ```
 
 `<name>_to_json` for a struct. The five pieces are exported individually as well as through
