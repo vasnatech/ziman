@@ -1210,6 +1210,18 @@ from source.
 
 ## Larger, needs its own design pass
 
+- **`meta`, redesigned.** Designed in [docs/design/meta.md](design/meta.md), not built. The
+  derives-in-Ziman port is finished and what it left behind is `meta`, grown one field at a time
+  by whichever generator needed it next. Two halves. The **model** gains what `derive(Entity)` and
+  `#[repository]` actually read -- `#[pk]` as a member attribute, the derive's argument, the
+  module's repository attributes, and function signatures for the bodyless `pub fn`s a derived
+  query fills -- and `MetaType` stops claiming to be a tree for 5 of 19 kinds while being flat for
+  `Result`/`Channel`/`fn`. The **test** matters more: a `#[derive(Reflect)]` generator that dumps
+  what it was handed, pinned by a fixture over real declarations. Every fixture today builds its
+  `MetaType` by hand, so the C-to-Ziman boundary has never been tested at all -- which is why
+  three bugs shipped in the bridge and none was caught by 1,293 fixtures. Step 5 ports
+  `derive(Entity)`, taking the last generator out of `src/derive.c`.
+
 - **An expression language, and `template.zm` using it.** Designed in
   [docs/design/expressions.md](design/expressions.md), not built. **Two modules, one direction**:
   `lib/core/expr.zm` knows nothing about templates and `template.zm` depends on it, so `expr` is

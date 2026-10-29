@@ -12,8 +12,15 @@ the whole point of the split, because everything on the other side of it can the
 `--fmt`, `--lint`, `ziman test` and a person.
 
 **It is deliberately small.** What is here is what the generators ported so far actually read;
-a field nobody reads is a promise about the compiler's internals that cannot be taken back. See
-docs/ROADMAP.md's "Derives should be written in Ziman, not in C" for the shape of the rest.
+a field nobody reads is a promise about the compiler's internals that cannot be taken back.
+
+**A redesign is written and not built: docs/design/meta.md.** It keeps the rule above -- its §2
+is about why "cover most of the language" would be the wrong instruction to follow literally --
+and changes two things. `MetaType` is faithful for five of the nineteen type kinds and silently
+flat for `Result`, `Channel` and `fn`, which is the same shape as the map/set bug that shipped;
+and nothing here can hold a function signature, which `#[repository]` needs. Its §9 is the part
+that matters: every fixture builds a `MetaType` by hand, so the boundary this file *is* has
+never been tested.
 
 `use meta` -- or `use meta.Name` to bring one item in bare.
 
