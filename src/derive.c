@@ -221,41 +221,11 @@ static const char *standard_flat_type_name(const char *type_name) {
  *   page_from_json<T>(j: Json, t_from_json: fn(Json) -> Result<T, string>)
  * A field of type `T` calls that converter. */
 
-/* "<T, U>" (with `bound` after each name, e.g. ": Ord"), or "" for no params. */
-static char *type_param_decl_text(TypeParamList *params, const char *bound) {
-    if (params->count == 0) return fmt_str("%s", "");
-    char *out = fmt_str("%s", "<");
-    for (int i = 0; i < params->count; i++) {
-        out = fmt_str("%s%s%s%s", out, i > 0 ? ", " : "", params->items[i].name, bound);
-    }
-    return fmt_str("%s>", out);
-}
-
-/* "Page" or "Page<T, U>" -- the declaration's own type as written in a signature. */
-static char *decl_type_text(const char *name, TypeParamList *params) {
-    if (params->count == 0) return fmt_str("%s", name);
-    char *out = fmt_str("%s<", name);
-    for (int i = 0; i < params->count; i++) {
-        out = fmt_str("%s%s%s", out, i > 0 ? ", " : "", params->items[i].name);
-    }
-    return fmt_str("%s>", out);
-}
-
 
 /* ---------------------------------------------------------------------
  * Struct derive: <name>_to_json / <name>_from_json.
  * --------------------------------------------------------------------- */
 
-
-/* ---------------------------------------------------------------------
- * Enum derive: externally tagged -- {"type": "<Variant>"} for a unit
- * variant, {"type": "<Variant>", "value": ...} for a payload variant.
- * Option<T> never reaches here (it's excluded from this tagging by
- * emit_to_json/emit_from_json's own dedicated Option handling, which
- * intercepts it as a *field's* type before generic enum dispatch would
- * ever apply); this generator only ever runs for an ordinary
- * user-declared enum with #[derive(Json)] on it directly.
- * --------------------------------------------------------------------- */
 
 
 /* ---------------------------------------------------------------------
@@ -408,96 +378,6 @@ static void emit_to_sql(Type t, const char *src_expr, const char *dst_var, CodeB
     }
 }
 
-static void emit_from_sql(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col) {
-    switch (t.kind) {
-        case TY_INT:
-            cb_appendf(cb, "    val %s = try sql_as_int(%s)\n", dst_var, src_expr);
-            return;
-        case TY_FLOAT:
-            cb_appendf(cb, "    val %s = try sql_as_float(%s)\n", dst_var, src_expr);
-            return;
-        case TY_DECIMAL:
-            cb_appendf(cb, "    val %s = try sql_as_decimal(%s)\n", dst_var, src_expr);
-            return;
-        case TY_BOOL:
-            cb_appendf(cb, "    val %s = try sql_as_bool(%s)\n", dst_var, src_expr);
-            return;
-        case TY_STRING:
-            cb_appendf(cb, "    val %s = try sql_as_text(%s)\n", dst_var, src_expr);
-            return;
-        case TY_STRUCT:
-        case TY_ENUM:
-            if (is_option_type_here(t)) {
-                Type elem = t.type_args.items[0];
-                char *elem_type_name = type_name(elem);
-                char *inner = gen_tmp(tmp, "opt_inner");
-                cb_appendf(cb, "    var %s = Option<%s>.None\n", dst_var, elem_type_name);
-                cb_appendf(cb, "    if !SqlValue.is_Null(%s) {\n", src_expr);
-                emit_from_sql(elem, src_expr, inner, cb, tmp, line, col);
-                cb_appendf(cb, "    %s = Option<%s>.Some(%s)\n", dst_var, elem_type_name, inner);
-                cb_appendf(cb, "    }\n");
-                return;
-            } else {
-                const char *name = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
-                char *fn = pascal_to_snake(name);
-                if (standard_flat_type_name(name) != NULL) {
-                    cb_appendf(cb, "    val %s = try to_%s(%s)\n", dst_var, standard_flat_type_name(name), src_expr);
-                } else {
-                    cb_appendf(cb, "    val %s = try %s_from_sql(%s)\n", dst_var, fn, src_expr);
-                }
-                return;
-            }
-        default:
-            ziman_error("syntax", line, col, "derive(Row) does not support field type '%s'", type_name(t));
-    }
-}
-
-static char *generate_struct_from_row(StructDecl *sd) {
-    CodeBuf cb;
-    cb_init(&cb);
-    char *fn_name = pascal_to_snake(sd->name);
-    cb_appendf(&cb, "pub fn %s_from_row(row: Row) -> Result<%s, DbError> {\n", fn_name, sd->name);
-    int tmp = 0;
-    char **field_vars = ziman_xmalloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
-    for (int i = 0; i < sd->fields.count; i++) {
-        Param *f = &sd->fields.items[i];
-        char *raw = fmt_str("field_%s_raw", f->name);
-        char *dst = fmt_str("field_%s", f->name);
-        cb_appendf(&cb, "    val %s = try row_get(row, \"%s\")\n", raw, f->name);
-        emit_from_sql(f->type, raw, dst, &cb, &tmp, f->line, f->col);
-        field_vars[i] = dst;
-    }
-    cb_appendf(&cb, "    return %s {\n", sd->name);
-    for (int i = 0; i < sd->fields.count; i++) {
-        Param *f = &sd->fields.items[i];
-        cb_appendf(&cb, "        %s: %s%s\n", f->name, field_vars[i], i + 1 < sd->fields.count ? "," : "");
-    }
-    cb_appendf(&cb, "    }\n");
-    cb_appendf(&cb, "}\n\n");
-    return cb.data;
-}
-
-/* The parameters come back in field declaration order -- the order a
- * hand-written `INSERT INTO t (col1, col2, ...) VALUES ($1, $2, ...)`
- * lists its columns in, since repository SQL is written by hand. */
-static char *generate_struct_to_params(StructDecl *sd) {
-    CodeBuf cb;
-    cb_init(&cb);
-    char *fn_name = pascal_to_snake(sd->name);
-    cb_appendf(&cb, "pub fn %s_to_params(v: %s) -> [SqlValue] {\n", fn_name, sd->name);
-    cb_appendf(&cb, "    val __derive_params = mutable_array_new<SqlValue>()\n");
-    int tmp = 0;
-    for (int i = 0; i < sd->fields.count; i++) {
-        Param *f = &sd->fields.items[i];
-        char *src = fmt_str("v.%s", f->name);
-        char *dst = fmt_str("field_%s_sql", f->name);
-        emit_to_sql(f->type, src, dst, &cb, &tmp, f->line, f->col);
-        cb_appendf(&cb, "    push<SqlValue>(__derive_params, %s)\n", dst);
-    }
-    cb_appendf(&cb, "    return snapshot(__derive_params)\n");
-    cb_appendf(&cb, "}\n\n");
-    return cb.data;
-}
 
 /* ---------------------------------------------------------------------
  * Properties derive: <name>_from_properties / <name>_keys, binding a
@@ -508,63 +388,6 @@ static char *generate_struct_to_params(StructDecl *sd) {
  * every other field is required.
  * --------------------------------------------------------------------- */
 
-static char *snake_to_kebab(const char *name) {
-    size_t n = strlen(name);
-    char *out = ziman_xmalloc(n + 1);
-    memcpy(out, name, n + 1);
-    for (char *c = out; *c; c++) if (*c == '_') *c = '-';
-    return out;
-}
-
-static const char *properties_getter_suffix(Type t, int line, int col) {
-    switch (t.kind) {
-        case TY_INT: return "int";
-        case TY_FLOAT: return "float";
-        case TY_BOOL: return "bool";
-        case TY_STRING: return "string";
-        default:
-            ziman_error("syntax", line, col, "derive(Properties) supports only int, float, bool, string and Option of those, not '%s'", type_name(t));
-    }
-    return NULL;
-}
-
-static char *generate_struct_properties(StructDecl *sd) {
-    CodeBuf cb;
-    cb_init(&cb);
-    char *fn_name = pascal_to_snake(sd->name);
-    cb_appendf(&cb, "pub fn %s_from_properties(props: properties.Properties, prefix: string) -> Result<%s, string> {\n", fn_name, sd->name);
-    for (int i = 0; i < sd->fields.count; i++) {
-        Param *f = &sd->fields.items[i];
-        char *kebab = snake_to_kebab(f->name);
-        if (is_option_type_here(f->type)) {
-            const char *g = properties_getter_suffix(f->type.type_args.items[0], f->line, f->col);
-            cb_appendf(&cb, "    var field_%s = Option<%s>.None\n", f->name, g);
-            cb_appendf(&cb, "    val found_%s = properties.lookup(props, properties.key(prefix, \"%s\"))\n", f->name, kebab);
-            cb_appendf(&cb, "    if Option.is_Some(found_%s) {\n", f->name);
-            /* **`get_%s`, not `entry_%s`** (2026-10-24): `properties` folded the two families
-             * into one name per type, told apart by whether an `Entry` or a `Properties` plus a
-             * key is given -- which is exactly what the two emit sites here already pass. */
-            cb_appendf(&cb, "        val value_%s = try properties.get_%s(Option.unwrap_Some(found_%s))\n", f->name, g, f->name);
-            cb_appendf(&cb, "        field_%s = Option<%s>.Some(value_%s)\n    }\n", f->name, g, f->name);
-        } else {
-            const char *g = properties_getter_suffix(f->type, f->line, f->col);
-            cb_appendf(&cb, "    val field_%s = try properties.get_%s(props, properties.key(prefix, \"%s\"))\n", f->name, g, kebab);
-        }
-    }
-    cb_appendf(&cb, "    return %s {\n", sd->name);
-    for (int i = 0; i < sd->fields.count; i++) {
-        Param *f = &sd->fields.items[i];
-        cb_appendf(&cb, "        %s: field_%s%s\n", f->name, f->name, i + 1 < sd->fields.count ? "," : "");
-    }
-    cb_appendf(&cb, "    }\n}\n\n");
-    cb_appendf(&cb, "pub fn %s_keys(prefix: string) -> [string] {\n    return [", fn_name);
-    for (int i = 0; i < sd->fields.count; i++) {
-        char *kebab = snake_to_kebab(sd->fields.items[i].name);
-        cb_appendf(&cb, "%sproperties.key(prefix, \"%s\")", i ? ", " : "", kebab);
-    }
-    cb_appendf(&cb, "]\n}\n\n");
-    return cb.data;
-}
 
 /* ---------------------------------------------------------------------
  * Driver: lex+parse the generated snippet and splice its functions in.
@@ -654,43 +477,6 @@ static void parse_and_splice(Module *module, char *source, int line, int col, co
  * Ord type itself -- the checker reports one that isn't.
  * --------------------------------------------------------------------- */
 
-static char *generate_struct_ord(StructDecl *sd) {
-    CodeBuf cb;
-    cb_init(&cb);
-    char *fn_name = pascal_to_snake(sd->name);
-    cb_appendf(&cb, "pub fn %s_compare%s(a: %s, b: %s) -> int {\n", fn_name, type_param_decl_text(&sd->type_params, ": Ord"),
-               decl_type_text(sd->name, &sd->type_params), decl_type_text(sd->name, &sd->type_params));
-    for (int i = 0; i < sd->fields.count; i++) {
-        Param *f = &sd->fields.items[i];
-        cb_appendf(&cb, "    val c_%s = compare(a.%s, b.%s)\n", f->name, f->name, f->name);
-        cb_appendf(&cb, "    if c_%s != 0 {\n        return c_%s\n    }\n", f->name, f->name);
-    }
-    cb_appendf(&cb, "    return 0\n}\n\n");
-    return cb.data;
-}
-
-static char *generate_enum_ord(EnumDecl *ed) {
-    CodeBuf cb;
-    cb_init(&cb);
-    char *fn_name = pascal_to_snake(ed->name);
-    cb_appendf(&cb, "pub fn %s_compare%s(a: %s, b: %s) -> int {\n", fn_name, type_param_decl_text(&ed->type_params, ": Ord"),
-               decl_type_text(ed->name, &ed->type_params), decl_type_text(ed->name, &ed->type_params));
-    cb_appendf(&cb, "    var ra = 0\n    var rb = 0\n");
-    for (int i = 0; i + 1 < ed->variants.count; i++) {
-        cb_appendf(&cb, "    if %s.is_%s(a) {\n        ra = %d\n    }\n", ed->name, ed->variants.items[i].name, i);
-        cb_appendf(&cb, "    if %s.is_%s(b) {\n        rb = %d\n    }\n", ed->name, ed->variants.items[i].name, i);
-    }
-    cb_appendf(&cb, "    if ra == 0 && !%s.is_%s(a) {\n        ra = %d\n    }\n", ed->name, ed->variants.items[0].name, ed->variants.count - 1);
-    cb_appendf(&cb, "    if rb == 0 && !%s.is_%s(b) {\n        rb = %d\n    }\n", ed->name, ed->variants.items[0].name, ed->variants.count - 1);
-    cb_appendf(&cb, "    if ra < rb {\n        return -1\n    }\n    if ra > rb {\n        return 1\n    }\n");
-    for (int i = 0; i < ed->variants.count; i++) {
-        if (!ed->variants.items[i].has_payload) continue;
-        cb_appendf(&cb, "    if %s.is_%s(a) {\n        return compare(%s.unwrap_%s(a), %s.unwrap_%s(b))\n    }\n",
-                   ed->name, ed->variants.items[i].name, ed->name, ed->variants.items[i].name, ed->name, ed->variants.items[i].name);
-    }
-    cb_appendf(&cb, "    return 0\n}\n\n");
-    return cb.data;
-}
 
 /* ---------------------------------------------------------------------
  * Imports the generated code needs. The generator knows exactly which
@@ -1630,6 +1416,25 @@ static const char *verb_returns(QueryVerb verb) {
     return "";
 }
 
+/* The text a Ziman generator answered for this declaration.
+ *
+ * **There is no C fallback left for any target.** Each of the five used to have a C generator
+ * beside it, kept so a build whose bridge could not run still compiled, and held to the same
+ * bytes by a fixture. Once every target was ported the C became unreachable -- `derive_json`
+ * was the last, and with it in `GENERATOR_MODULES` no `ziman_generate_in_ziman` call can answer
+ * NULL any more. Unreachable code that no fixture can exercise is exactly what the C was there
+ * to avoid becoming, so it is gone and a NULL is now what it actually means: the compiler's own
+ * corelib did not load. */
+static char *generated_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, int line, int col) {
+    char *text = ziman_generate_in_ziman(target, sd, ed, line, col);
+    if (text == NULL) {
+        ziman_error("module", line, col,
+                    "derive(%s) is generated by lib/core/derive_%s.zm, which did not load",
+                    target, pascal_to_snake(target));
+    }
+    return text;
+}
+
 /* One `#[repository]` function: its name read against the entity, its signature checked against
  * the name, and then the query val and the body it was declared without. */
 static void generate_one_derived_query(Module *module, StructDecl *sd, FunctionDecl *fn) {
@@ -1881,39 +1686,21 @@ void generate_derived_functions(Module *module) {
                 if (sd->fields.count == 0) {
                     ziman_error("syntax", sd->line, sd->col, "derive(Ord) needs at least one field to compare ('%s' has none)", sd->name);
                 }
-                /* **The first derive answered by a generator written in Ziman** (F225). The C
-                 * `generate_struct_ord` below is the fallback for a build where the bridge
-                 * cannot run, and the two are held to the same bytes by
-                 * `tests/lang/derive_ord_in_ziman`. See src/generators.h. */
-                char *from_ziman = ziman_generate_in_ziman("Ord", sd, NULL, sd->line, sd->col);
-                parse_and_splice(module, from_ziman != NULL ? from_ziman : generate_struct_ord(sd),
+                /* **The first derive answered by a generator written in Ziman** (F225), and
+                 * still held to the bytes the C emitted by `tests/lang/derive_ord_in_ziman`. */
+                parse_and_splice(module, generated_in_ziman("Ord", sd, NULL, sd->line, sd->col),
                                  sd->line, sd->col, label);
             } else if (is_props) {
-                char *from_ziman = ziman_generate_in_ziman("Properties", sd, NULL, sd->line, sd->col);
-                parse_and_splice(module, from_ziman != NULL ? from_ziman : generate_struct_properties(sd),
+                parse_and_splice(module, generated_in_ziman("Properties", sd, NULL, sd->line, sd->col),
                                  sd->line, sd->col, label);
             } else if (is_json) {
-                /* **No C fallback.** `lib/core/derive_json.zm` is the whole of `derive(Json)`
-                 * now, for a struct and for an enum, so there is nothing here to fall back to.
-                 * A NULL means the generator module did not load, which is a fault in the
-                 * compiler's own corelib rather than anything about this declaration. */
-                char *from_ziman = ziman_generate_in_ziman("Json", sd, NULL, sd->line, sd->col);
-                if (from_ziman == NULL) {
-                    ziman_error("module", sd->line, sd->col,
-                                "derive(Json) is generated by lib/core/derive_json.zm, which did not load");
-                }
-                parse_and_splice(module, from_ziman, sd->line, sd->col, label);
+                parse_and_splice(module, generated_in_ziman("Json", sd, NULL, sd->line, sd->col),
+                                 sd->line, sd->col, label);
             } else {
-                /* The Ziman generator answers both functions at once, as `generate_struct_properties`
-                 * already did; the C pair below is the fallback and is held to the same bytes by
-                 * `tests/lang/derive_row_in_ziman`. */
-                char *from_ziman = ziman_generate_in_ziman("Row", sd, NULL, sd->line, sd->col);
-                if (from_ziman != NULL) {
-                    parse_and_splice(module, from_ziman, sd->line, sd->col, label);
-                } else {
-                    parse_and_splice(module, generate_struct_from_row(sd), sd->line, sd->col, label);
-                    parse_and_splice(module, generate_struct_to_params(sd), sd->line, sd->col, label);
-                }
+                /* One call for both functions, and `tests/lang/derive_row_in_ziman` still holds
+                 * them to the bytes the C pair emitted. */
+                parse_and_splice(module, generated_in_ziman("Row", sd, NULL, sd->line, sd->col),
+                                 sd->line, sd->col, label);
             }
                 ziman_recovery_pop();
 }
@@ -1938,8 +1725,7 @@ void generate_derived_functions(Module *module) {
             }
             if (strcmp(ed->derives[d], "Ord") == 0) {
                 const char *ord_label = fmt_str("derive(Ord) for '%s'", ed->name);
-                char *from_ziman = ziman_generate_in_ziman("Ord", NULL, ed, ed->line, ed->col);
-                parse_and_splice(module, from_ziman != NULL ? from_ziman : generate_enum_ord(ed),
+                parse_and_splice(module, generated_in_ziman("Ord", NULL, ed, ed->line, ed->col),
                                  ed->line, ed->col, ord_label);
                 ziman_recovery_pop();
                 continue;
@@ -1955,12 +1741,8 @@ void generate_derived_functions(Module *module) {
                     import_field_converters(module, "json", ed->variants.items[vi].payload_type, ed->line, ed->col);
                 }
             }
-            char *from_ziman = ziman_generate_in_ziman("Json", NULL, ed, ed->line, ed->col);
-            if (from_ziman == NULL) {
-                ziman_error("module", ed->line, ed->col,
-                            "derive(Json) is generated by lib/core/derive_json.zm, which did not load");
-            }
-            parse_and_splice(module, from_ziman, ed->line, ed->col, label);
+            parse_and_splice(module, generated_in_ziman("Json", NULL, ed, ed->line, ed->col),
+                             ed->line, ed->col, label);
                 ziman_recovery_pop();
 }
     }

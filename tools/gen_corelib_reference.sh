@@ -78,6 +78,16 @@ for f in lib/core/*.zm lib/db/*.zm lib/http/*.zm lib/time/*.zm; do
     fi
     echo '```'
     awk '
+        # A text block holds Ziman *source a generator writes*, not Ziman this module declares.
+        # `lib/core/derive_*.zm` keep their templates in one, and every `pub fn @{snake}_to_json`
+        # in there was scraped into this reference as though the corelib exported it -- eleven
+        # functions that do not exist, named with holes. `tools/gen_lib_manual.py` had the same
+        # bug and skips these the same way.
+        /"""/ {
+            if (gsub(/"""/, "&") % 2 == 1) in_text = !in_text
+            next
+        }
+        in_text { next }
         /^pub (struct|enum)/ { print; in_block=1; next }
         in_block && /^}/ { print; print ""; in_block=0; next }
         in_block { print; next }

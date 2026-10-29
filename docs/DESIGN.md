@@ -2712,10 +2712,12 @@ them against the code.
   wrong answer): a generic struct/enum (`derive` rejects
   `type_params.count > 0` outright); a field of type `bigint`/`decimal`/
   `byte`/`Result<T, E>`/`Channel<T>` (falls through `emit_to_json`/
-  `emit_from_json`'s default case with "derive(Json) does not support
+  `emit_from_json`'s last case with "derive(Json) does not support
   field type '...' yet" -- no current caller needed these, and adding
   them later is a localized addition to those two functions, not a
-  redesign). Verified against real, non-generic structs and enums
+  redesign). Those two live in `lib/core/derive_json.zm` now, not in
+  `src/derive.c`, but they are the same two functions and the same
+  localized addition. Verified against real, non-generic structs and enums
   including a `Uuid`/`LocalDate`/`Instant`-bearing struct shaped exactly
   like `health-record-backend-ziman`'s own `Patient`, and a
   `service.ValidationError`-shaped enum mixing unit and payload variants

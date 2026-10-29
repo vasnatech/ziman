@@ -1210,7 +1210,14 @@ from source.
 
 ## Larger, needs its own design pass
 
-- **Derives should be written in Ziman, not in C. Not started; this is the problem statement.**
+- ~~**Derives should be written in Ziman, not in C.**~~ **DONE 2026-10-28.** All five targets --
+  `Ord`, `Row`, `Properties`, `Json` and the struct half of `Entity` that `derive.c` still owns --
+  are answered by `lib/core/derive_*.zm` through `src/generators.c`, each proved byte-identical to
+  the C it replaced before the C was deleted. **`src/derive.c` is 2,505 -> 1,759 lines**, and
+  there is no C fallback for any target: a `ziman_generate_in_ziman` that answers NULL now means
+  the corelib did not load, not that the C should take over. What building it cost, and the three
+  bugs wiring `Json` found in the bridge, are in `docs/design/templates.md` and the commits. The
+  problem statement below is kept because the argument it makes is the reason the work was done.
   Raised 2026-10-28, immediately after shipping derived queries (F217), from the observation that
   the generator keeps growing: *"ziman's derived functionality is getting bigger. We need to find a
   scaleable way to implement derived content within ziman and not C."*
@@ -1287,9 +1294,10 @@ from source.
   the argument for the port, being a test the C version could not have: a generator in C can only
   be exercised end to end, where this one is a function from a declaration to a string.
 
-  **What the C still does, and what is left.** `derive.c` runs its own `generate_struct_ord` on
-  every real `#[derive(Ord)]`; nothing calls the Ziman generator yet. The missing piece is the
-  bridge, and the architecture for it is now known rather than guessed:
+  **What the C still did at that point, and what was left.** `derive.c` ran its own
+  `generate_struct_ord` on every real `#[derive(Ord)]`; nothing called the Ziman generator. The
+  missing piece was the bridge, and the architecture for it was known rather than guessed --
+  it was built as described:
 
   * **It is sequential, not re-entrant.** `ziman test` already loads, type-checks and runs several
     independent programs in one process, so a generator program loaded *before* the user program

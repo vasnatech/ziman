@@ -287,15 +287,13 @@ pub fn format(rows: Json, sep: string) -> Result<string, string>
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
-pub fn @{snake}_to_json@{params}(v: @{self}@{converters}) -> Json
-
-pub fn @{snake}_from_json@{params}(j: Json@{converters}) -> Result<@{self}, string>
-
-pub fn @{snake}_from_json_all@{params}(j: Json@{converters}) -> Result<@{self}, [string]>
-
 pub fn from_json(d: meta.Decl) -> Result<string, string>
 
 pub fn from_json_all(d: meta.Decl) -> Result<string, string>
+
+pub fn enum_to_json(d: meta.Decl) -> Result<string, string>
+
+pub fn enum_from_json(d: meta.Decl) -> Result<string, string>
 
 pub fn generate(d: meta.Decl) -> Result<string, string>
 
@@ -308,10 +306,6 @@ pub fn to_json(d: meta.Decl) -> Result<string, string>
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
-pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int
-
-pub fn @{snake}_compare@{bounds}(a: @{self}, b: @{self}) -> int
-
 pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
@@ -321,10 +315,6 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
-pub fn @{snake}_from_properties(props: properties.Properties, prefix: string) -> Result<@{name}, string>
-
-pub fn @{snake}_keys(prefix: string) -> [string]
-
 pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
@@ -334,10 +324,6 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
-pub fn @{snake}_from_row(row: Row) -> Result<@{name}, DbError>
-
-pub fn @{snake}_to_params(v: @{name}) -> [SqlValue]
-
 pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
