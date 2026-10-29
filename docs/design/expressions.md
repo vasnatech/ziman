@@ -2,13 +2,20 @@
 
 Status: **design, not built.** Written because two requests arrived together and turned out to be
 one: a SpEL-like expression module for configuration rules and dynamic output, and expressions
-inside `lib/core/template.zm`. They are designed here together because the second is not an
-addition to the first -- it is the same grammar pointed at a different value, and deciding them
-apart would produce two expression languages in one codebase.
+inside `lib/core/template.zm`. They are designed here together, and built as **two
+modules with one direction between them**: `lib/core/expr.zm` is the expression language and
+knows nothing about templates; `lib/core/template.zm` **uses** it. Designing them in one document
+is what keeps that boundary honest -- decided apart, the template module grows its own small
+expression language and the codebase ends up with two.
 
 **How to read this.** §§1-4 are the constraint and the observation that make the whole thing
-small. §§5-9 are the language. §§10-14 are what it does to `template.zm`, including the one real
-cost. §15 is the staging and §16 the decisions still open.
+small. §§5-9 are the language, which stands alone. §10 is the module boundary. §§11-15 are what
+it does to `template.zm`, including the one real cost. §16 is the staging and §17 the decisions
+still open.
+
+**The name.** `expr`, after what it is, rather than `spel` after the acronym of the Spring
+feature it resembles -- `template.zm` is not named `freemarker`. Trivially changed if the
+resemblance is worth naming.
 
 ## 1. What is being asked for
 
@@ -20,12 +27,13 @@ Two uses, named by the person asking:
 * **Dynamic output.** Text with values interpolated, rendered at runtime: messages, notifications,
   exported documents.
 
-And one placement: **inside `template.zm`**, rather than beside it.
+And one relationship: **`template.zm` uses the expression module**, rather than containing it or
+sitting beside it.
 
-That placement was argued against once -- `template.zm` is a compile-time code generator whose
-no-expressions rule was deliberate -- and the argument was overruled. §13 says what the rule was
-actually buying and what replaces it, because "the rule is gone" is not the same as "the reason
-for the rule is gone".
+Putting expressions into the template module at all was argued against once -- it is a
+compile-time code generator whose no-expressions rule was deliberate -- and the argument was
+overruled. §14 says what the rule was actually buying and what replaces it, because "the rule is
+gone" is not the same as "the reason for the rule is gone".
 
 ## 2. The constraint that decides everything: Ziman has no reflection
 
@@ -44,8 +52,8 @@ is a `Json` and nothing new is needed:
 
 ```ziman
 val ctx = user_to_json(user)
-val rule = try spel.parse("address.city == 'Ankara' && age >= 18")
-if try spel.eval_bool(rule, ctx) { .. }
+val rule = try expr.parse("address.city == 'Ankara' && age >= 18")
+if try expr.eval_bool(rule, ctx) { .. }
 ```
 
 No new value type, no reflection, no compiler work. The feature that makes this possible is the
@@ -198,7 +206,32 @@ mean one grammar with two incompatible halves of its semantics disabled dependin
 Noted here so the question is answered once. If `eql` ever wants richer predicates, the thing to
 share is the *parser*, as a second backend -- not this module.
 
-## 10. `template.zm`: the data model becomes `Json`
+## 10. The module boundary
+
+`expr` is a module in its own right and does not know templates exist. `template` depends on it.
+The dependency runs one way and there is no interface between them beyond the public API in §7:
+
+```
+json  <--  expr  <--  template  <--  derive_ord / derive_row / derive_properties / derive_json
+```
+
+**What this buys, concretely.** `expr` is usable without a template -- which is the whole of the
+config-and-validation use, where there is no template at all. And `template` holds no grammar: a
+directive's condition and a hole's contents are *expression source*, handed to `expr.parse` and
+kept as an `Expr`.
+
+**When each half runs.** A sheet is parsed once (templates.md §6), and the expressions inside it
+are parsed then too, by the same pass -- so a malformed expression in a generator's sheet is a
+module-load failure, exactly like a malformed directive is today. Rendering evaluates the
+already-parsed `Expr` against the context. `template` never parses an expression at render time
+and never evaluates one itself.
+
+**The one thing to watch** is that `template` must not acquire a private operator, a private
+coercion or a private built-in function "just for sheets". If a sheet needs something the
+language does not have, it goes in §6 and both halves get it. That is the rule the shared module
+exists to make cheap, and the reason this document covers both.
+
+## 11. `template.zm`: the data model becomes `Json`
 
 Today a render takes `[Binding]`, built with `text` and `rows`, with `Row` holding cells. Per §4,
 that is a degenerate `Json`:
@@ -224,10 +257,10 @@ asked now, and the answer is: a hole renders a `JString` as itself, a number the
 bool as `true`/`false`, and **refuses an array, an object or null** -- the last because a hole
 holding `null` is nearly always a mistake, and `@{x ?: ''}` says otherwise in four characters.
 
-## 11. The directives after the change
+## 12. The directives after the change
 
-`@{...}` holds an expression rather than a path. `@for` iterates an array. And the dispatch
-construct changes:
+`@{...}` holds an expression rather than a path -- `expr` source, parsed with the sheet and
+evaluated at render, per §10. `@for` iterates an array. And the dispatch construct changes:
 
 ```
 @if <expr>
@@ -247,7 +280,7 @@ computed, which is a worse `@choose`. The thing that changed is not the judgemen
 
 `@yield` is unaffected. `@@` is unaffected.
 
-## 12. A second entry point, for runtime text
+## 13. A second entry point, for runtime text
 
 A sheet with `@template` sections is a code generator's shape: several named outputs from one
 document. Runtime templating usually wants one anonymous template and a context:
@@ -256,11 +289,11 @@ document. Runtime templating usually wants one anonymous template and a context:
 pub fn render_text(source: string, ctx: Json) -> Result<string, string>
 ```
 
-Same parser, same directives, no `@template` wrapper. This is what the "dynamic output" use calls,
+Same parser, same directives, same `expr`, no `@template` wrapper. This is what the "dynamic output" use calls,
 and keeping it a separate entry point means a notification template cannot accidentally depend on
 the sheet machinery.
 
-## 13. The cost: generator logic stops being typechecked, unless a rule holds
+## 14. The cost: generator logic stops being typechecked, unless a rule holds
 
 This is the real objection to putting expressions in `template.zm`, and it does not go away by
 being overruled -- it changes from a reason not to, into a thing to manage.
@@ -285,7 +318,7 @@ The fixtures are what make this enforceable rather than aspirational: every gene
 pinned, so a migration that changes behaviour fails loudly, and a sheet that grows a program will
 show up as a sheet nobody can read.
 
-## 14. Limits, up front
+## 15. Limits, up front
 
 * **Converting a struct to `Json` allocates the whole tree.** Right for a request or a config;
   wrong in a loop.
@@ -293,34 +326,45 @@ show up as a sheet nobody can read.
 * **No user-defined functions in v1.** The fixed set in §6 is the whole vocabulary.
 * **Keys are the JSON keys.** `derive(Json)` writes camelCase, so a rule reads `user.middleName`
   unless the snake_case option in §15 is taken.
-* **One grammar, two evaluation sites** -- the module and the template module -- which must not
-  drift. They share a parser; that is the mechanism, not a convention.
+* **One grammar and one evaluator**, in `expr`. `template` calls it and implements none of it,
+  so there is nothing to drift (§10). The limit this leaves is the opposite one: a sheet cannot
+  have an operator the language lacks without the language gaining it.
 
-## 15. Staging
+## 16. Staging
 
 Each step is useful alone and provable before the next:
 
-1. **`lib/core/spel.zm` over `Json`**: parser, evaluator, the fixed function set, fixtures for
-   every operator and every refusal. Nothing else depends on it yet.
+1. **`lib/core/expr.zm` over `Json`**: parser, evaluator, the fixed function set, fixtures for
+   every operator and every refusal. Nothing depends on it yet, and it is independently useful --
+   the config-and-validation use needs no template and can be built on step 1 alone.
 2. **snake_case keys.** The person asked for the `json` module to support snake_case creation with
    a parameter. Two places it could live: a `#[derive(Json)]` option that generates a second
    function, or a runtime `json.snake_keys(j)` rekey. **The rekey is the recommendation** -- it
    works on any `Json`, including one parsed from the wire, and it does not touch a generator
    whose output is pinned by fixtures.
-3. **`template.zm` takes a `Json` context** (§10), with `text`/`rows`/`row` kept as sugar. The five
-   generators migrate mechanically and the fixtures prove the output is unchanged.
-4. **`@if`/`@elif`/`@else` replace `@choose`** (§11), and the generators migrate again. Same proof.
+3. **`template.zm` takes a `Json` context** (§11), with `text`/`rows`/`row` kept as sugar. The five
+   generators migrate mechanically and the fixtures prove the output is unchanged. No dependency
+   on `expr` yet: this step is the data model alone.
+4. **`template` starts using `expr`** -- holes and conditions become expression source, parsed
+   with the sheet -- and **`@if`/`@elif`/`@else` replace `@choose`** (§12). The generators migrate
+   again, against the same fixtures. This is the step that creates the dependency in §10, and it
+   is deliberately last among the template changes: everything before it is provable without the
+   expression language existing.
 5. **`render_text`** (§12), and whatever the first real notification template needs.
 
 Steps 3 and 4 are each a migration of about 1,100 lines of generator Ziman, done against
 byte-identical fixtures. That is the honest price of putting expressions in the template module,
 and it is payable precisely because those fixtures exist.
 
-## 16. Open decisions
+## 17. Open decisions
 
-* **Does `@if` take the same expression grammar as `@{...}`, or a boolean-only subset?** Same
+* **Does `@if` take the same expression grammar as `@{...}`, or a boolean-only subset?** A
+  subset would mean `template` passing a mode flag into `expr.parse`, which is the first crack in
+  §10's "`template` holds no grammar". Same
   grammar is simpler to specify; a subset would catch `@if user.name` at parse time rather than at
   render. Leaning: same grammar, refuse at render, consistent with §5.
+* **Is `expr` the right name** (see the header), and does it belong in `lib/core` beside
+  `json` and `template`, or is it large enough to be its own thing?
 * **Should `parse` be exposed on `template.zm` at all, or only `must_parse`?** A sheet is a
   literal in a generator; a runtime template is not.
 * **Is `matches` worth the dependency on `regex.zm`?** It is the one function in §6 that pulls in

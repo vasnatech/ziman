@@ -1210,8 +1210,11 @@ from source.
 
 ## Larger, needs its own design pass
 
-- **An expression language, and expressions in `template.zm`.** Designed in
-  [docs/design/expressions.md](design/expressions.md), not built. A SpEL-shaped language for
+- **An expression language, and `template.zm` using it.** Designed in
+  [docs/design/expressions.md](design/expressions.md), not built. **Two modules, one direction**:
+  `lib/core/expr.zm` knows nothing about templates and `template.zm` depends on it, so `expr` is
+  usable with no template at all -- which is the whole of the config-and-validation use -- and
+  `template` ends up holding no grammar of its own. A SpEL-shaped language for
   configuration and validation rules and for dynamic text, evaluated over `Json` -- which is
   forced rather than chosen, because Ziman has no runtime reflection and a `Json` is the only
   thing an interpreter can navigate. `#[derive(Json)]` is what makes any struct available to it.
