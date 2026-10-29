@@ -17,7 +17,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "docs", "lib")
 
 GROUPS = [
-    ("Data and formats", "core", ["json", "ndjson", "csv", "toml", "yaml", "xml", "markdown", "properties",
+    ("Data and formats", "core", ["json", "expr", "ndjson", "csv", "toml", "yaml", "xml", "markdown", "properties",
                                    "number", "math", "bits", "encoding", "uuid", "regex", "compress", "crypto", "jwt", "otp",
                                    "mime"]),
     # The group's directory is where the source is read from, so a module listed here lives in

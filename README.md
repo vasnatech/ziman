@@ -96,6 +96,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | `time` | `java.time`-shaped dates, times, durations, instants |
 | `uuid`, `number`, `encoding`, `crypto` | UUIDs, number formatting/parsing, base 2/8/16/32/64 over bytes, SHA-256/HMAC/PBKDF2 |
 | `json`, `ndjson`, `csv`, `toml`\*, `yaml`\* | JSON, and the other formats as converters to and from the same `Json` tree |
+| `expr`\* | an expression language over `Json`: rules and conditions that are data rather than source -- see [docs/design/expressions.md](docs/design/expressions.md) |
 | `xml`\* | XML 1.0 as a document tree of its own, not a `Json` tree, because text and elements interleave and attributes are not children; a reader with size, depth and attribute limits and no DTD at all, a writer, and a child-step path finder |
 | `markdown`\* | Markdown as a document tree: a reader over a declared subset, a writer that escapes for the position each piece sits in, and a strict mode that refuses what it would otherwise misread -- Markdown having no syntax errors of its own |
 | `properties`, `log`, `metrics`, `regex` | configuration files, levelled logging, counters/gauges/histograms in the Prometheus text format, regular expressions |

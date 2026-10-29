@@ -1,0 +1,84 @@
+-- literals and names
+42  =>  42
+1.5  =>  1.5
+'single'  =>  "single"
+"double"  =>  "double"
+true  =>  true
+null  =>  null
+age  =>  21
+-- navigation
+address.city  =>  "Ankara"
+address['zip']  =>  "06000"
+tags[1]  =>  "y"
+nothing?.city  =>  null
+address?.city  =>  "Ankara"
+-- arithmetic; '/' always answers a fraction
+age + 1  =>  22
+age - 1  =>  20
+age * 2  =>  42
+age / 2  =>  10.5
+age % 4  =>  1
+-age  =>  -21
+ratio * 2  =>  3.0
+(age + 1) * 2  =>  44
+-- strings: '+' concatenates when either side is one
+'hi ' + name  =>  "hi Ada"
+name + 1  =>  "Ada1"
+-- comparison and equality
+age > 18  =>  true
+age >= 21  =>  true
+name == 'Ada'  =>  true
+name != 'Bob'  =>  true
+'5' == 5  =>  false
+tags == tags  =>  true
+-- logic, which stops early
+ok && age > 18  =>  true
+false && missing  =>  false
+true || missing  =>  true
+!ok  =>  false
+age > 18 ? 'adult' : 'minor'  =>  "adult"
+-- membership
+'x' in tags  =>  true
+'z' in tags  =>  false
+'a' in counts  =>  true
+-- the fixed function set
+length(name)  =>  3
+length(tags)  =>  2
+length(counts)  =>  1
+empty(tags)  =>  false
+lower(name)  =>  "ada"
+upper(name)  =>  "ADA"
+trim('  x  ')  =>  "x"
+starts_with(name, 'A')  =>  true
+ends_with(name, 'a')  =>  true
+contains(name, 'd')  =>  true
+matches(name, '^A.a$')  =>  true
+str(age)  =>  "21"
+int('7')  =>  7
+int(ratio)  =>  1
+float('2.5')  =>  2.5
+-- refusals: a rule that is wrong says so
+missing  =>  error: no 'missing' here; this object has age, name, ratio, ok, nothing, tags, address, counts
+nothing.city  =>  error: 'city' was read on null
+age.city  =>  error: 'city' was read on a number
+name < 5  =>  error: '<' needs numbers, found a string
+age && true  =>  error: a condition has to be true or false, found a number
+'a' ? 1 : 2  =>  error: a condition has to be true or false, found a string
+tags['x']  =>  error: an array index has to be a whole number, found a string
+tags[9]  =>  error: index 9 is outside an array of 2
+age / 0  =>  error: '/' by zero
+ratio % 2  =>  error: '%' has to be a whole number, found a number
+length(age)  =>  error: length() needs a string, an array or an object, found a number
+upper(age)  =>  error: upper() needs a string, found a number
+nope(1)  =>  error: there is no function 'nope'. This language has a fixed set: length, empty, lower, upper, trim, starts_with, ends_with, contains, matches, str, int, float
+length(1, 2)  =>  error: length() takes 1 argument(s), found 2
+str(tags)  =>  error: an array has no text form -- index it, or test it with 'in'
+5 in age  =>  error: 'in' needs an array or an object on the right, found a number
+-- refusals: a rule that is malformed says where
+age +  =>  parse error: expression:6: expected a value, found the end of the expression
+(age  =>  parse error: expression:5: expected ')', found the end of the expression
+age ? 1  =>  parse error: expression:8: expected ':', found the end of the expression
+age $ 1  =>  parse error: expression:5: '$' is not part of any operator
+'unclosed  =>  parse error: expression:1: this ' string is never closed
+age 42  =>  parse error: expression:5: unexpected '42' after the expression
+address.  =>  parse error: expression:9: expected a field name, found the end of the expression

@@ -375,6 +375,72 @@ pub native fn base64url_decode(s: string) -> Result<[byte], string>
 
 ```
 
+## `expr`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub struct MemberNode {
+    target: Expr
+    name: string
+    // `?.` rather than `.`: a `null` target answers `null` instead of failing. §8 of the design
+    // is why absence is an error by default and this is how you say otherwise.
+    safe: bool
+}
+
+pub struct IndexNode {
+    target: Expr
+    key: Expr
+}
+
+pub struct UnaryNode {
+    op: string
+    operand: Expr
+}
+
+pub struct BinaryNode {
+    op: string
+    left: Expr
+    right: Expr
+}
+
+pub struct TernaryNode {
+    test: Expr
+    then: Expr
+    otherwise: Expr
+}
+
+pub struct CallNode {
+    name: string
+    args: [Expr]
+}
+
+pub enum Expr {
+    Lit(Json)
+    // A bare name, resolved against the context object's keys.
+    Root(string)
+    Member(MemberNode)
+    Index(IndexNode)
+    Unary(UnaryNode)
+    Binary(BinaryNode)
+    Ternary(TernaryNode)
+    Call(CallNode)
+}
+
+pub fn parse(source: string) -> Result<Expr, string>
+
+pub fn must_parse(source: string) -> Expr
+
+pub fn eval(e: Expr, ctx: Json) -> Result<Json, string>
+
+pub fn eval_bool(e: Expr, ctx: Json) -> Result<bool, string>
+
+pub fn eval_string(e: Expr, ctx: Json) -> Result<string, string>
+
+pub fn kind_of(v: Json) -> string
+
+```
+
 ## `fs`
 
 ```

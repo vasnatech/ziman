@@ -1,0 +1,889 @@
+// An expression language over `Json`, for rules and text that are *data* rather than source.
+//
+// A configuration constraint read from a properties file, a validation rule stored in a row, a
+// message template rendered at run time: each is a string the program did not compile, holding
+// a question about a value. `age >= 18`, `address?.city == 'Ankara'`, `length(tags) > 0`.
+//
+// **It evaluates over `Json` because it has no choice.** Ziman has no runtime reflection -- no
+// way to ask a value for a field by name -- so an interpreter cannot navigate a struct at all.
+// `Json` is the one dynamic value tree the language has, and `#[derive(Json)]` is what puts any
+// struct in reach of it:
+//
+//     val rule = try expr.parse("address?.city == 'Ankara' && age >= 18")
+//     if try expr.eval_bool(rule, user_to_json(user)) { .. }
+//
+// The cost of that is stated rather than hidden: converting a struct to `Json` allocates the
+// whole tree, which is right for one request or a config read at startup and wrong in a loop.
+//
+// Designed in docs/design/expressions.md. `template.zm` will use this module rather than grow
+// its own grammar (its §10), which is the reason the two were designed together.
+#![experimental]
+
+use json
+use json.Json
+use json.Number
+use regex
+
+// ---- the tree ----------------------------------------------------------------------------
+
+pub struct MemberNode {
+    target: Expr
+    name: string
+    // `?.` rather than `.`: a `null` target answers `null` instead of failing. §8 of the design
+    // is why absence is an error by default and this is how you say otherwise.
+    safe: bool
+}
+
+pub struct IndexNode {
+    target: Expr
+    key: Expr
+}
+
+pub struct UnaryNode {
+    op: string
+    operand: Expr
+}
+
+pub struct BinaryNode {
+    op: string
+    left: Expr
+    right: Expr
+}
+
+pub struct TernaryNode {
+    test: Expr
+    then: Expr
+    otherwise: Expr
+}
+
+pub struct CallNode {
+    name: string
+    args: [Expr]
+}
+
+pub enum Expr {
+    Lit(Json)
+    // A bare name, resolved against the context object's keys.
+    Root(string)
+    Member(MemberNode)
+    Index(IndexNode)
+    Unary(UnaryNode)
+    Binary(BinaryNode)
+    Ternary(TernaryNode)
+    Call(CallNode)
+}
+
+// ---- lexing ------------------------------------------------------------------------------
+
+struct Token {
+    // `name`, `number`, `string`, `op`, or `end`.
+    kind: string
+    text: string
+    // The character offset the token starts at, so a parse error can point at it.
+    at: int
+}
+
+val punctuation = ["?.", "==", "!=", "<=", ">=", "&&", "||",
+    "(", ")", "[", "]", ".", ",", "?", ":",
+    "<", ">", "!", "+", "-", "*", "/", "%"]
+
+fn is_digit(c: string) -> bool {
+    return c >= "0" && c <= "9"
+}
+
+fn is_name_start(c: string) -> bool {
+    return (c >= "a" && c <= "z") || (c >= "A" && c <= "Z") || c == "_"
+}
+
+fn is_name_char(c: string) -> bool {
+    return is_name_start(c) || is_digit(c)
+}
+
+fn lex(source: string) -> Result<[Token], string> {
+    val cs = chars(source)
+    val n = prelude.len(cs)
+    val out = mutable_array_new<Token>()
+    var i = 0
+    while i < n {
+        val c = cs[i]
+        if c == " " || c == "\t" || c == "\n" || c == "\r" {
+            i = i + 1
+            continue
+        }
+        // A string literal. Single quotes are the documented form because these live inside
+        // Ziman string literals and template sheets, where `"` needs escaping and `'` does not;
+        // double quotes are accepted so that JSON pasted into a rule still works.
+        if c == "'" || c == "\"" {
+            val quote = c
+            val start = i
+            var text = ""
+            i = i + 1
+            var closed = false
+            while i < n {
+                if cs[i] == quote {
+                    closed = true
+                    i = i + 1
+                    break
+                }
+                if cs[i] == "\\" && i + 1 < n {
+                    text = concat(text, unescape(cs[i + 1]))
+                    i = i + 2
+                    continue
+                }
+                text = concat(text, cs[i])
+                i = i + 1
+            }
+            if !closed {
+                return err(problem(start, concat("this ", quote, " string is never closed")))
+            }
+            push(out, Token { kind: "string", text: text, at: start })
+            continue
+        }
+        if is_digit(c) {
+            val start = i
+            while i < n && is_digit(cs[i]) {
+                i = i + 1
+            }
+            if i < n && cs[i] == "." && i + 1 < n && is_digit(cs[i + 1]) {
+                i = i + 1
+                while i < n && is_digit(cs[i]) {
+                    i = i + 1
+                }
+            }
+            push(out, Token { kind: "number", text: substring(source, start, i), at: start })
+            continue
+        }
+        if is_name_start(c) {
+            val start = i
+            while i < n && is_name_char(cs[i]) {
+                i = i + 1
+            }
+            push(out, Token { kind: "name", text: substring(source, start, i), at: start })
+            continue
+        }
+        // Longest match first, so `?.` beats `?` and `<=` beats `<`.
+        var matched = ""
+        for p in punctuation {
+            if matched == "" && starts_with(substring(source, i, n), p) {
+                matched = p
+            }
+        }
+        if matched == "" {
+            return err(problem(i, concat("'", c, "' is not part of any operator")))
+        }
+        push(out, Token { kind: "op", text: matched, at: i })
+        i = i + prelude.len(chars(matched))
+    }
+    push(out, Token { kind: "end", text: "", at: n })
+    return ok(snapshot(out))
+}
+
+fn unescape(c: string) -> string {
+    if c == "n" {
+        return "\n"
+    }
+    if c == "t" {
+        return "\t"
+    }
+    if c == "r" {
+        return "\r"
+    }
+    return c
+}
+
+fn problem(at: int, message: string) -> string {
+    return concat("expression:", str(at + 1), ": ", message)
+}
+
+// ---- parsing -----------------------------------------------------------------------------
+//
+// Recursive descent, one function per precedence level, in the order docs/design/expressions.md
+// §6 lists them. **The cursor is a cell**, as `meta.fresh`'s counter is: threading an index
+// through every level and returning it beside every node makes each function answer a pair and
+// every caller unpack one, for no gain over the order the calls already have.
+
+fn peek(ts: [Token], at: Mutable<int>) -> Token {
+    return ts[get(at)]
+}
+
+fn advance(ts: [Token], at: Mutable<int>) -> Token {
+    val t = ts[get(at)]
+    if t.kind != "end" {
+        set(at, get(at) + 1)
+    }
+    return t
+}
+
+// Whether the next token is this operator, consuming it if so.
+fn eat(ts: [Token], at: Mutable<int>, op: string) -> bool {
+    val t = peek(ts, at)
+    if t.kind == "op" && t.text == op {
+        set(at, get(at) + 1)
+        return true
+    }
+    return false
+}
+
+fn expect(ts: [Token], at: Mutable<int>, op: string) -> Result<unit, string> {
+    if eat(ts, at, op) {
+        return unit
+    }
+    val t = peek(ts, at)
+    return err(problem(t.at, concat("expected '", op, "', found ", describe(t))))
+}
+
+fn describe(t: Token) -> string {
+    if t.kind == "end" {
+        return "the end of the expression"
+    }
+    return concat("'", t.text, "'")
+}
+
+fn parse_expr(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
+    return parse_ternary(ts, at)
+}
+
+fn parse_ternary(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
+    val test = try parse_or(ts, at)
+    if !eat(ts, at, "?") {
+        return ok(test)
+    }
+    val then = try parse_expr(ts, at)
+    try expect(ts, at, ":")
+    val otherwise = try parse_expr(ts, at)
+    return ok(Expr.Ternary(TernaryNode { test: test, then: then, otherwise: otherwise }))
+}
+
+fn parse_or(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
+    var left = try parse_and(ts, at)
+    while eat(ts, at, "||") {
+        left = Expr.Binary(BinaryNode { op: "||", left: left, right: try parse_and(ts, at) })
+    }
+    return ok(left)
+}
+
+fn parse_and(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
+    var left = try parse_equality(ts, at)
+    while eat(ts, at, "&&") {
+        left = Expr.Binary(BinaryNode { op: "&&", left: left, right: try parse_equality(ts, at) })
+    }
+    return ok(left)
+}
+
+fn parse_equality(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
+    var left = try parse_compare(ts, at)
+    while true {
+        var op = ""
+        if eat(ts, at, "==") {
+            op = "=="
+        } else if eat(ts, at, "!=") {
+            op = "!="
+        }
+        if op == "" {
+            return ok(left)
+        }
+        left = Expr.Binary(BinaryNode { op: op, left: left, right: try parse_compare(ts, at) })
+    }
+    return ok(left)
+}
+
+// **Not chained**, deliberately: `a < b < c` reads as a comparison in every language that allows
+// it and means something different in most of them, so it is a parse error here.
+fn parse_compare(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
+    val left = try parse_additive(ts, at)
+    var op = ""
+    if eat(ts, at, "<=") {
+        op = "<="
+    } else if eat(ts, at, ">=") {
+        op = ">="
+    } else if eat(ts, at, "<") {
+        op = "<"
+    } else if eat(ts, at, ">") {
+        op = ">"
+    } else {
+        val t = peek(ts, at)
+        if t.kind == "name" && t.text == "in" {
+            val ignored = advance(ts, at)
+            op = "in"
+        }
+    }
+    if op == "" {
+        return ok(left)
+    }
+    return ok(Expr.Binary(BinaryNode { op: op, left: left, right: try parse_additive(ts, at) }))
+}
+
+fn parse_additive(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
+    var left = try parse_multiply(ts, at)
+    while true {
+        var op = ""
+        if eat(ts, at, "+") {
+            op = "+"
+        } else if eat(ts, at, "-") {
+            op = "-"
+        }
+        if op == "" {
+            return ok(left)
+        }
+        left = Expr.Binary(BinaryNode { op: op, left: left, right: try parse_multiply(ts, at) })
+    }
+    return ok(left)
+}
+
+fn parse_multiply(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
+    var left = try parse_unary(ts, at)
+    while true {
+        var op = ""
+        if eat(ts, at, "*") {
+            op = "*"
+        } else if eat(ts, at, "/") {
+            op = "/"
+        } else if eat(ts, at, "%") {
+            op = "%"
+        }
+        if op == "" {
+            return ok(left)
+        }
+        left = Expr.Binary(BinaryNode { op: op, left: left, right: try parse_unary(ts, at) })
+    }
+    return ok(left)
+}
+
+fn parse_unary(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
+    if eat(ts, at, "!") {
+        return ok(Expr.Unary(UnaryNode { op: "!", operand: try parse_unary(ts, at) }))
+    }
+    if eat(ts, at, "-") {
+        return ok(Expr.Unary(UnaryNode { op: "-", operand: try parse_unary(ts, at) }))
+    }
+    return parse_postfix(ts, at)
+}
+
+fn parse_postfix(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
+    var target = try parse_primary(ts, at)
+    while true {
+        if eat(ts, at, ".") {
+            target = Expr.Member(MemberNode { target: target, name: try parse_field_name(ts, at), safe: false })
+            continue
+        }
+        if eat(ts, at, "?.") {
+            target = Expr.Member(MemberNode { target: target, name: try parse_field_name(ts, at), safe: true })
+            continue
+        }
+        if eat(ts, at, "[") {
+            val key = try parse_expr(ts, at)
+            try expect(ts, at, "]")
+            target = Expr.Index(IndexNode { target: target, key: key })
+            continue
+        }
+        return ok(target)
+    }
+    return ok(target)
+}
+
+fn parse_field_name(ts: [Token], at: Mutable<int>) -> Result<string, string> {
+    val t = advance(ts, at)
+    if t.kind != "name" {
+        return err(problem(t.at, concat("expected a field name, found ", describe(t))))
+    }
+    return ok(t.text)
+}
+
+fn parse_primary(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
+    val t = advance(ts, at)
+    if t.kind == "string" {
+        return ok(Expr.Lit(Json.JString(t.text)))
+    }
+    if t.kind == "number" {
+        if contains(t.text, ".") {
+            return ok(Expr.Lit(Json.JNumber(Number.Float(try parse_float(t.text)))))
+        }
+        return ok(Expr.Lit(Json.JNumber(Number.Int(try parse_int(t.text)))))
+    }
+    if t.kind == "op" && t.text == "(" {
+        val inner = try parse_expr(ts, at)
+        try expect(ts, at, ")")
+        return ok(inner)
+    }
+    if t.kind == "name" {
+        if t.text == "true" {
+            return ok(Expr.Lit(Json.JBool(true)))
+        }
+        if t.text == "false" {
+            return ok(Expr.Lit(Json.JBool(false)))
+        }
+        if t.text == "null" {
+            return ok(Expr.Lit(Json.JNull))
+        }
+        if eat(ts, at, "(") {
+            val args = mutable_array_new<Expr>()
+            if !eat(ts, at, ")") {
+                push(args, try parse_expr(ts, at))
+                while eat(ts, at, ",") {
+                    push(args, try parse_expr(ts, at))
+                }
+                try expect(ts, at, ")")
+            }
+            return ok(Expr.Call(CallNode { name: t.text, args: snapshot(args) }))
+        }
+        return ok(Expr.Root(t.text))
+    }
+    return err(problem(t.at, concat("expected a value, found ", describe(t))))
+}
+
+// ---- the entry points --------------------------------------------------------------------
+
+// Parse once, evaluate many times. An expression in a module-level `val` is parsed at load, so
+// a malformed one is a load-time failure rather than a surprise on the first request; one that
+// arrives at run time, from a config file or a row, goes through here and handles the `Err`.
+pub fn parse(source: string) -> Result<Expr, string> {
+    val ts = try lex(source)
+    val at = mutable_new<int>(0)
+    val e = try parse_expr(ts, at)
+    val rest = peek(ts, at)
+    if rest.kind != "end" {
+        return err(problem(rest.at, concat("unexpected ", describe(rest), " after the expression")))
+    }
+    return ok(e)
+}
+
+pub fn must_parse(source: string) -> Expr {
+    return unwrap(parse(source))
+}
+
+// ---- evaluating --------------------------------------------------------------------------
+//
+// **No truthiness and no implicit coercion.** A condition must be a `JBool`; a string is not
+// "true when non-empty", and a rule that quietly means something else is worse than one that
+// refuses. Comparing different kinds answers `false`, because that is a real answer; *ordering*
+// different kinds is an error, because there is not one.
+
+pub fn eval(e: Expr, ctx: Json) -> Result<Json, string> {
+    switch e {
+        Lit(v) { return ok(v) }
+        Root(name) { return member(ctx, name, false, name) }
+        Member(m) { return member(try eval(m.target, ctx), m.name, m.safe, m.name) }
+        Index(ix) { return index(try eval(ix.target, ctx), try eval(ix.key, ctx)) }
+        Unary(u) { return unary(u.op, try eval(u.operand, ctx)) }
+        Ternary(t) {
+            if try truth(try eval(t.test, ctx)) {
+                return eval(t.then, ctx)
+            }
+            return eval(t.otherwise, ctx)
+        }
+        Call(c) { return call(c, ctx) }
+        Binary(b) {
+            // `&&` and `||` stop early, so they cannot evaluate their right side first.
+            if b.op == "&&" {
+                if !try truth(try eval(b.left, ctx)) {
+                    return ok(Json.JBool(false))
+                }
+                return ok(Json.JBool(try truth(try eval(b.right, ctx))))
+            }
+            if b.op == "||" {
+                if try truth(try eval(b.left, ctx)) {
+                    return ok(Json.JBool(true))
+                }
+                return ok(Json.JBool(try truth(try eval(b.right, ctx))))
+            }
+            return binary(b.op, try eval(b.left, ctx), try eval(b.right, ctx))
+        }
+    }
+}
+
+pub fn eval_bool(e: Expr, ctx: Json) -> Result<bool, string> {
+    return truth(try eval(e, ctx))
+}
+
+pub fn eval_string(e: Expr, ctx: Json) -> Result<string, string> {
+    val v = try eval(e, ctx)
+    if JString(s) = v {
+        return ok(s)
+    }
+    return err(concat("expected a string, found ", kind_of(v)))
+}
+
+// A condition is a `JBool` or it is a mistake.
+fn truth(v: Json) -> Result<bool, string> {
+    if JBool(b) = v {
+        return ok(b)
+    }
+    return err(concat("a condition has to be true or false, found ", kind_of(v)))
+}
+
+pub fn kind_of(v: Json) -> string {
+    switch v {
+        JNull { return "null" }
+        JBool(ignored) { return "a boolean" }
+        JNumber(ignored) { return "a number" }
+        JString(ignored) { return "a string" }
+        JArray(ignored) { return "an array" }
+        JObject(ignored) { return "an object" }
+    }
+}
+
+// A key on an object. **A missing key is an error unless `?.` asked otherwise** -- these are
+// validation rules, and one that reads `user.emial == null` and quietly passes because the key
+// is absent is a rule that does nothing while looking like it does something.
+fn member(target: Json, name: string, safe: bool, shown: string) -> Result<Json, string> {
+    if JNull = target {
+        if safe {
+            return ok(Json.JNull)
+        }
+        return err(concat("'", shown, "' was read on null"))
+    }
+    if JObject(fields) = target {
+        if Some(v) = get(fields, name) {
+            return ok(v)
+        }
+        if safe {
+            return ok(Json.JNull)
+        }
+        return err(concat("no '", shown, "' here; this object has ", key_list(fields)))
+    }
+    return err(concat("'", shown, "' was read on ", kind_of(target)))
+}
+
+fn key_list(fields: Map<string, Json>) -> string {
+    if prelude.len(fields) == 0 {
+        return "no keys"
+    }
+    val names = mutable_array_new<string>()
+    for k, ignored in fields {
+        push(names, k)
+    }
+    return join(separator: ", ", pieces: snapshot(names))
+}
+
+fn index(target: Json, key: Json) -> Result<Json, string> {
+    if JArray(items) = target {
+        val i = try whole(key, "an array index")
+        if i < 0 || i >= prelude.len(items) {
+            return err(concat("index ", str(i), " is outside an array of ", str(prelude.len(items))))
+        }
+        return ok(items[i])
+    }
+    if JObject(fields) = target {
+        if JString(k) = key {
+            return member(target, k, false, k)
+        }
+        return err(concat("an object is indexed by a string, found ", kind_of(key)))
+    }
+    return err(concat("cannot index ", kind_of(target)))
+}
+
+// ---- numbers -----------------------------------------------------------------------------
+//
+// `Json`'s `Number` has four shapes and an expression needs one answer, so arithmetic is done
+// in `float` and handed back as an `int` when both operands were whole and the operation keeps
+// them whole. That makes `2 + 2` an integer; division is the exception and always answers a
+// fraction, for the reason stated where it is done.
+
+fn number_of(v: Json) -> Option<float> {
+    if JNumber(n) = v {
+        switch n {
+            Int(i) { return Option<float>.Some(i as float) }
+            Float(f) { return Option<float>.Some(f) }
+            Bigint(b) { return Option<float>.Some(b as float) }
+            Decimal(d) { return Option<float>.Some(d as float) }
+        }
+    }
+    return Option<float>.None
+}
+
+fn is_whole_number(v: Json) -> bool {
+    if JNumber(n) = v {
+        if Int(ignored) = n {
+            return true
+        }
+        if Bigint(ignored) = n {
+            return true
+        }
+    }
+    return false
+}
+
+fn whole(v: Json, what: string) -> Result<int, string> {
+    if JNumber(n) = v {
+        if Int(i) = n {
+            return ok(i)
+        }
+    }
+    return err(concat(what, " has to be a whole number, found ", kind_of(v)))
+}
+
+fn number(f: float, whole_result: bool) -> Json {
+    if whole_result {
+        return Json.JNumber(Number.Int(f as int))
+    }
+    return Json.JNumber(Number.Float(f))
+}
+
+fn unary(op: string, v: Json) -> Result<Json, string> {
+    if op == "!" {
+        return ok(Json.JBool(!try truth(v)))
+    }
+    if Some(f) = number_of(v) {
+        return ok(number(0.0 - f, is_whole_number(v)))
+    }
+    return err(concat("cannot negate ", kind_of(v)))
+}
+
+// Equality is defined across every pair of kinds and answers `false` for a mismatch -- `'5' == 5`
+// is a legitimate question whose answer is no. **Ordering is not**: `'a' < 5` has no answer, so
+// it is an error rather than an invented one.
+fn binary(op: string, l: Json, r: Json) -> Result<Json, string> {
+    if op == "==" {
+        return ok(Json.JBool(same(l, r)))
+    }
+    if op == "!=" {
+        return ok(Json.JBool(!same(l, r)))
+    }
+    if op == "in" {
+        return within(l, r)
+    }
+    // `+` concatenates when either side is a string. The one overload, and it earns its place
+    // in a language whose other job is building text.
+    if op == "+" {
+        if JString(ignored) = l {
+            return ok(Json.JString(concat(try text(l), try text(r))))
+        }
+        if JString(ignored) = r {
+            return ok(Json.JString(concat(try text(l), try text(r))))
+        }
+    }
+    val lf = number_of(l)
+    val rf = number_of(r)
+    if None = lf {
+        return err(concat("'", op, "' needs numbers, found ", kind_of(l)))
+    }
+    if None = rf {
+        return err(concat("'", op, "' needs numbers, found ", kind_of(r)))
+    }
+    val a = unwrap(lf)
+    val b = unwrap(rf)
+    if op == "<" {
+        return ok(Json.JBool(a < b))
+    }
+    if op == "<=" {
+        return ok(Json.JBool(a <= b))
+    }
+    if op == ">" {
+        return ok(Json.JBool(a > b))
+    }
+    if op == ">=" {
+        return ok(Json.JBool(a >= b))
+    }
+    val whole_result = is_whole_number(l) && is_whole_number(r)
+    if op == "+" {
+        return ok(number(a + b, whole_result))
+    }
+    if op == "-" {
+        return ok(number(a - b, whole_result))
+    }
+    if op == "*" {
+        return ok(number(a * b, whole_result))
+    }
+    if b == 0.0 {
+        return err(concat("'", op, "' by zero"))
+    }
+    // **Division always answers a fraction**, where `+`/`-`/`*` keep two whole numbers whole.
+    // `21 / 2` is 10.5: truncating it would make a rule silently disagree with the arithmetic
+    // its author did in their head, and `int(a / b)` says the other thing in nine characters.
+    if op == "/" {
+        return ok(Json.JNumber(Number.Float(a / b)))
+    }
+    // `%` is whole-number only: a remainder of floats is a different operation with a different
+    // answer in every language that has one, so it is refused rather than guessed.
+    val li = try whole(l, "'%'")
+    val ri = try whole(r, "'%'")
+    return ok(Json.JNumber(Number.Int(li % ri)))
+}
+
+fn same(l: Json, r: Json) -> bool {
+    if JNull = l {
+        if JNull = r {
+            return true
+        }
+        return false
+    }
+    if JBool(a) = l {
+        if JBool(b) = r {
+            return a == b
+        }
+        return false
+    }
+    if JString(a) = l {
+        if JString(b) = r {
+            return a == b
+        }
+        return false
+    }
+    if Some(a) = number_of(l) {
+        if Some(b) = number_of(r) {
+            return a == b
+        }
+        return false
+    }
+    // Arrays and objects compare by their rendered form, which is structural equality for a
+    // tree whose leaves are all scalars -- the only values this language can build.
+    if JArray(ignored) = l {
+        return json.format(l) == json.format(r)
+    }
+    if JObject(ignored) = l {
+        return json.format(l) == json.format(r)
+    }
+    return false
+}
+
+fn within(needle: Json, haystack: Json) -> Result<Json, string> {
+    if JArray(items) = haystack {
+        for item in items {
+            if same(item, needle) {
+                return ok(Json.JBool(true))
+            }
+        }
+        return ok(Json.JBool(false))
+    }
+    if JObject(fields) = haystack {
+        if JString(k) = needle {
+            return ok(Json.JBool(contains(fields, k)))
+        }
+        return err(concat("'in' on an object tests a string key, found ", kind_of(needle)))
+    }
+    return err(concat("'in' needs an array or an object on the right, found ", kind_of(haystack)))
+}
+
+// The text of a scalar, for `+` and for `str(..)`. An array or an object has no text form worth
+// inventing, so it is refused.
+fn text(v: Json) -> Result<string, string> {
+    switch v {
+        JNull { return ok("null") }
+        JBool(b) { return ok(if b { "true" } else { "false" }) }
+        JString(s) { return ok(s) }
+        JNumber(n) {
+            switch n {
+                Int(i) { return ok(str(i)) }
+                Float(f) { return ok(str(f)) }
+                Bigint(b) { return ok(str(b)) }
+                Decimal(d) { return ok(str(d)) }
+            }
+        }
+        JArray(ignored) { return err("an array has no text form -- index it, or test it with 'in'") }
+        JObject(ignored) { return err("an object has no text form -- read a key off it") }
+    }
+}
+
+// ---- the fixed function set ---------------------------------------------------------------
+//
+// **Not user-extensible in v1**, deliberately: a user function needs a calling convention from
+// a `Json` argument list into a Ziman function and a story for its errors, and neither of the
+// two uses this module was written for needs one. Adding them later is additive; taking them
+// back would not be.
+
+fn call(c: CallNode, ctx: Json) -> Result<Json, string> {
+    val args = mutable_array_new<Json>()
+    for a in c.args {
+        push(args, try eval(a, ctx))
+    }
+    val vs = snapshot(args)
+    val n = prelude.len(vs)
+    if c.name == "length" {
+        try arity(c.name, n, 1)
+        return length_of(vs[0])
+    }
+    if c.name == "empty" {
+        try arity(c.name, n, 1)
+        val l = try length_of(vs[0])
+        return ok(Json.JBool(try whole(l, "a length") == 0))
+    }
+    if c.name == "lower" {
+        try arity(c.name, n, 1)
+        return ok(Json.JString(to_lower(try string_arg(c.name, vs[0]))))
+    }
+    if c.name == "upper" {
+        try arity(c.name, n, 1)
+        return ok(Json.JString(to_upper(try string_arg(c.name, vs[0]))))
+    }
+    if c.name == "trim" {
+        try arity(c.name, n, 1)
+        return ok(Json.JString(trim(try string_arg(c.name, vs[0]))))
+    }
+    if c.name == "starts_with" {
+        try arity(c.name, n, 2)
+        return ok(Json.JBool(starts_with(try string_arg(c.name, vs[0]), try string_arg(c.name, vs[1]))))
+    }
+    if c.name == "ends_with" {
+        try arity(c.name, n, 2)
+        return ok(Json.JBool(ends_with(try string_arg(c.name, vs[0]), try string_arg(c.name, vs[1]))))
+    }
+    if c.name == "contains" {
+        try arity(c.name, n, 2)
+        return ok(Json.JBool(contains(try string_arg(c.name, vs[0]), try string_arg(c.name, vs[1]))))
+    }
+    if c.name == "matches" {
+        try arity(c.name, n, 2)
+        val re = try regex.compile(try string_arg(c.name, vs[1]))
+        return ok(Json.JBool(regex.is_match(re, try string_arg(c.name, vs[0]))))
+    }
+    if c.name == "str" {
+        try arity(c.name, n, 1)
+        return ok(Json.JString(try text(vs[0])))
+    }
+    if c.name == "int" {
+        try arity(c.name, n, 1)
+        if Some(f) = number_of(vs[0]) {
+            return ok(Json.JNumber(Number.Int(f as int)))
+        }
+        if JString(s) = vs[0] {
+            return ok(Json.JNumber(Number.Int(try parse_int(s))))
+        }
+        return err(concat("int() needs a number or a string, found ", kind_of(vs[0])))
+    }
+    if c.name == "float" {
+        try arity(c.name, n, 1)
+        if Some(f) = number_of(vs[0]) {
+            return ok(Json.JNumber(Number.Float(f)))
+        }
+        if JString(s) = vs[0] {
+            return ok(Json.JNumber(Number.Float(try parse_float(s))))
+        }
+        return err(concat("float() needs a number or a string, found ", kind_of(vs[0])))
+    }
+    return err(concat(
+        "there is no function '",
+        c.name,
+        "'. This language has a fixed set: ",
+        "length, empty, lower, upper, trim, starts_with, ends_with, contains, matches, ",
+        "str, int, float"
+    ))
+}
+
+fn arity(name: string, got: int, want: int) -> Result<unit, string> {
+    if got == want {
+        return unit
+    }
+    return err(concat(name, "() takes ", str(want), " argument(s), found ", str(got)))
+}
+
+fn string_arg(name: string, v: Json) -> Result<string, string> {
+    if JString(s) = v {
+        return ok(s)
+    }
+    return err(concat(name, "() needs a string, found ", kind_of(v)))
+}
+
+// `length` is defined for the three kinds that have one and refused for the rest, rather than
+// answering 0 for a number and leaving a rule quietly wrong.
+fn length_of(v: Json) -> Result<Json, string> {
+    if JString(s) = v {
+        return ok(Json.JNumber(Number.Int(prelude.len(s))))
+    }
+    if JArray(items) = v {
+        return ok(Json.JNumber(Number.Int(prelude.len(items))))
+    }
+    if JObject(fields) = v {
+        return ok(Json.JNumber(Number.Int(prelude.len(fields))))
+    }
+    return err(concat("length() needs a string, an array or an object, found ", kind_of(v)))
+}

@@ -1231,7 +1231,11 @@ from source.
   `derive(Entity)`, taking the last generator out of `src/derive.c`.
 
 - **An expression language, and `template.zm` using it.** Designed in
-  [docs/design/expressions.md](design/expressions.md), not built. **Two modules, one direction**:
+  [docs/design/expressions.md](design/expressions.md). **Step 1 is built**: `lib/core/expr.zm`
+  parses and evaluates the whole grammar over `Json` -- navigation with `?.`, the operators,
+  `in`, the ternary, and the fixed function set -- with `tests/lang/expr_language` pinning every
+  operator and every refusal. Steps 2-5 (snake_case keys, `template.zm` on a `Json` context,
+  `template` adopting `expr` with `@if`/`@elif`/`@else`, and `render_text`) are not. **Two modules, one direction**:
   `lib/core/expr.zm` knows nothing about templates and `template.zm` depends on it, so `expr` is
   usable with no template at all -- which is the whole of the config-and-validation use -- and
   `template` ends up holding no grammar of its own. A SpEL-shaped language for

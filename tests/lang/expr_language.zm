@@ -1,0 +1,125 @@
+// `lib/core/expr.zm`, over the whole grammar and every refusal it has.
+//
+// A rule is **data**, so a wrong rule is found when it runs -- which makes the error messages
+// as much of the interface as the operators are, and worth pinning line by line. The design is
+// docs/design/expressions.md; its §5 and §8 are what the refusals below enforce: no truthiness,
+// no implicit coercion, ordering across kinds is an error where equality is merely `false`, and
+// a missing key fails unless `?.` asked otherwise.
+use expr
+use json
+
+fn show(src: string, ctx: json.Json) {
+    val parsed = expr.parse(src)
+    if Err(e) = parsed {
+        print(concat(src, "  =>  parse error: ", e))
+        return
+    }
+    val got = expr.eval(unwrap(parsed), ctx)
+    if Err(e) = got {
+        print(concat(src, "  =>  error: ", e))
+        return
+    }
+    print(concat(src, "  =>  ", json.format(unwrap(got))))
+}
+
+fn main() {
+    val ctx = unwrap(json.parse(concat(
+        "{\"age\": 21, \"name\": \"Ada\", \"ratio\": 1.5, \"ok\": true, \"nothing\": null,",
+        " \"tags\": [\"x\", \"y\"], \"address\": {\"city\": \"Ankara\", \"zip\": \"06000\"},",
+        " \"counts\": {\"a\": 1}}"
+    )))
+
+    print("-- literals and names")
+    show("42", ctx)
+    show("1.5", ctx)
+    show("'single'", ctx)
+    show("\"double\"", ctx)
+    show("true", ctx)
+    show("null", ctx)
+    show("age", ctx)
+
+    print("-- navigation")
+    show("address.city", ctx)
+    show("address['zip']", ctx)
+    show("tags[1]", ctx)
+    show("nothing?.city", ctx)
+    show("address?.city", ctx)
+
+    print("-- arithmetic; '/' always answers a fraction")
+    show("age + 1", ctx)
+    show("age - 1", ctx)
+    show("age * 2", ctx)
+    show("age / 2", ctx)
+    show("age % 4", ctx)
+    show("-age", ctx)
+    show("ratio * 2", ctx)
+    show("(age + 1) * 2", ctx)
+
+    print("-- strings: '+' concatenates when either side is one")
+    show("'hi ' + name", ctx)
+    show("name + 1", ctx)
+
+    print("-- comparison and equality")
+    show("age > 18", ctx)
+    show("age >= 21", ctx)
+    show("name == 'Ada'", ctx)
+    show("name != 'Bob'", ctx)
+    show("'5' == 5", ctx)
+    show("tags == tags", ctx)
+
+    print("-- logic, which stops early")
+    show("ok && age > 18", ctx)
+    show("false && missing", ctx)
+    show("true || missing", ctx)
+    show("!ok", ctx)
+    show("age > 18 ? 'adult' : 'minor'", ctx)
+
+    print("-- membership")
+    show("'x' in tags", ctx)
+    show("'z' in tags", ctx)
+    show("'a' in counts", ctx)
+
+    print("-- the fixed function set")
+    show("length(name)", ctx)
+    show("length(tags)", ctx)
+    show("length(counts)", ctx)
+    show("empty(tags)", ctx)
+    show("lower(name)", ctx)
+    show("upper(name)", ctx)
+    show("trim('  x  ')", ctx)
+    show("starts_with(name, 'A')", ctx)
+    show("ends_with(name, 'a')", ctx)
+    show("contains(name, 'd')", ctx)
+    show("matches(name, '^A.a$')", ctx)
+    show("str(age)", ctx)
+    show("int('7')", ctx)
+    show("int(ratio)", ctx)
+    show("float('2.5')", ctx)
+
+    print("-- refusals: a rule that is wrong says so")
+    show("missing", ctx)
+    show("nothing.city", ctx)
+    show("age.city", ctx)
+    show("name < 5", ctx)
+    show("age && true", ctx)
+    show("'a' ? 1 : 2", ctx)
+    show("tags['x']", ctx)
+    show("tags[9]", ctx)
+    show("age / 0", ctx)
+    show("ratio % 2", ctx)
+    show("length(age)", ctx)
+    show("upper(age)", ctx)
+    show("nope(1)", ctx)
+    show("length(1, 2)", ctx)
+    show("str(tags)", ctx)
+    show("5 in age", ctx)
+
+    print("-- refusals: a rule that is malformed says where")
+    show("age +", ctx)
+    show("(age", ctx)
+    show("age ? 1", ctx)
+    show("age $ 1", ctx)
+    show("'unclosed", ctx)
+    show("age 42", ctx)
+    show("address.", ctx)
+}
