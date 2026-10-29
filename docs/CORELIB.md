@@ -282,6 +282,19 @@ pub fn format(rows: Json, sep: string) -> Result<string, string>
 
 ```
 
+## `derive_json`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub fn @{snake}_to_json@{params}(v: @{self}@{converters}) -> Json
+
+pub fn generate(d: meta.Decl) -> Result<string, string>
+
+pub fn to_json(d: meta.Decl) -> Result<string, string>
+
+```
+
 ## `derive_ord`
 
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
@@ -868,6 +881,8 @@ pub fn generic(kind: string, name: string, args: [MetaType]) -> MetaType
 pub fn is_option(t: MetaType) -> bool
 
 pub fn type_text(t: MetaType) -> string
+
+pub fn camel_case(name: string) -> string
 
 pub fn snake_case(name: string) -> string
 

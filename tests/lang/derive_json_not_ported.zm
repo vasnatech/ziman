@@ -1,0 +1,19 @@
+// `derive_json.generate` refuses rather than answering the half of the port that exists. Wiring
+// it up before `from_json` is written would produce a module missing its decoder and look like
+// success; this is what makes that fail loudly instead.
+use derive_json
+use meta
+
+fn main() {
+    val none: [string] = []
+    val none_members: [meta.Member] = []
+    if Err(e) = derive_json.generate(meta.Decl {
+        name: "Thing",
+        snake_name: "thing",
+        is_enum: false,
+        type_params: none,
+        members: none_members
+    }) {
+        print(e)
+    }
+}

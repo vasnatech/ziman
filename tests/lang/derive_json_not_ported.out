@@ -1,0 +1,1 @@
+derive(Json) is not ported to Ziman yet -- only 'to_json' is written (lib/core/derive_json.zm). from_json, from_json_all and the two enum halves are still in src/derive.c

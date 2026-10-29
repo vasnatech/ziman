@@ -172,6 +172,13 @@ static Value reify_type(Type t, int line, int col) {
         args[1] = value_string(ziman_xstrdup(name));
         return call_meta("named", args, 2, line, col);
     }
+    if (t.kind == TY_TYPEVAR) {
+        /* A type variable carries its name -- `T` -- which a generator needs both to spell the
+         * type and to name the converter parameter a generic `derive(Json)` threads through. */
+        args[0] = value_string(ziman_xstrdup("typevar"));
+        args[1] = value_string(ziman_xstrdup(t.type_var_name != NULL ? t.type_var_name : ""));
+        return call_meta("named", args, 2, line, col);
+    }
     args[0] = value_string(ziman_xstrdup(kind_name(t.kind)));
     return call_meta("scalar", args, 1, line, col);
 }

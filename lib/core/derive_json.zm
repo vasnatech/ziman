@@ -1,0 +1,330 @@
+// `#[derive(Json)]`, written in Ziman: `<name>_to_json`, `<name>_from_json` and the accumulating
+// `<name>_from_json_all`.
+//
+// **The largest of the five and the last ported** -- 418 lines of C against `Row`'s 128 -- and
+// the only one that reaches arrays, maps, sets, generics and type variables. Struct declarations
+// are handled here; an enum still falls through to `src/derive.c`, which is what
+// `ziman_generate_in_ziman` answering NULL means.
+//
+// Keys are camelCase (`middle_name` -> `middleName`), which is the one transform here; `Row`'s
+// column names are the field names as written, and the difference is deliberate -- JSON is read
+// by other systems and a SQL column is not.
+#![experimental]
+#![generator(Json)]
+
+use meta
+use template
+
+// The bundled types whose converters are spelled short, as in `derive_row`: `to_json(d)` and
+// `to_localdate(j)` rather than `local_date_to_json`. `Uuid` is absent and keeps `uuid_to_json`.
+val flat_names = Map<string, string> {
+    "Instant": "instant",
+    "LocalDate": "localdate",
+    "LocalTime": "localtime",
+    "LocalDateTime": "localdatetime",
+    "Duration": "duration",
+    "ZoneOffset": "zoneoffset",
+    "ZoneId": "zoneid"
+}
+
+// Everything this generator writes. For `#[derive(Json)] struct P { x: int }`, which is
+// tests/lang/cli_emit_derived.zm:
+//
+//     pub fn p_to_json(v: P) -> Json {
+//         val field_x_json = int_to_json(v.x)
+//         return Json.JObject(Map<string, Json> {
+//             "x": field_x_json
+//         })
+//     }
+val sheet = template.must_parse("""
+@template to_json
+pub fn @{snake}_to_json@{params}(v: @{self}@{converters}) -> Json {
+@for f in fields
+@yield f.conv
+@end
+    return Json.JObject(Map<string, Json> {
+@for f in fields
+        "@{f.key}": field_@{f.name}_json@{f.comma}
+@end
+    })
+}
+
+@end
+
+@template to_one
+    val @{dst} = @{call}(@{src})
+@end
+
+@template to_seq
+    val @{acc} = mutable_array_new<Json>()
+    for @{item} in @{src} {
+@yield inner
+    push<Json>(@{acc}, @{item_json})
+    }
+    val @{dst} = Json.JArray(snapshot(@{acc}))
+@end
+
+@template to_map
+    val @{acc} = mutable_map_new<string, Json>()
+    for @{key}, @{entry} in @{src} {
+@yield inner
+    set<string, Json>(@{acc}, @{key_expr}, @{entry_json})
+    }
+    val @{dst} = Json.JObject(snapshot(@{acc}))
+@end
+
+@template to_option
+    var @{dst} = Json.JNull
+    if Option.is_Some(@{src}) {
+@yield inner
+    @{dst} = @{inner_var}
+    }
+@end
+""")
+
+struct Emitted {
+    text: string
+    next_tmp: int
+}
+
+fn tmp_name(hint: string, n: int) -> string {
+    return concat("__derive_", hint, "_", str(n))
+}
+
+fn is_scalar_call(kind: string) -> Option<string> {
+    if kind == "int" {
+        return Option<string>.Some("int_to_json")
+    }
+    if kind == "float" {
+        return Option<string>.Some("float_to_json")
+    }
+    if kind == "bigint" {
+        return Option<string>.Some("bigint_to_json")
+    }
+    if kind == "decimal" {
+        return Option<string>.Some("decimal_to_json")
+    }
+    if kind == "bool" {
+        return Option<string>.Some("Json.JBool")
+    }
+    if kind == "string" {
+        return Option<string>.Some("Json.JString")
+    }
+    return Option<string>.None
+}
+
+// `t_to_json` -- the converter parameter a generic declaration threads through for type `T`.
+fn converter_param(type_param: string, is_to: bool) -> string {
+    return concat(meta.snake_case(type_param), if is_to { "_to_json" } else { "_from_json" })
+}
+
+fn one(dst: string, call: string, src: string, tmp: int) -> Result<Emitted, string> {
+    return ok(Emitted {
+        text: try template.render(sheet, "to_one", [
+            template.text("dst", dst),
+            template.text("call", call),
+            template.text("src", src)
+        ]),
+        next_tmp: tmp
+    })
+}
+
+fn without_newline(text: string) -> string {
+    return substring(text, 0, prelude.len(text) - 1)
+}
+
+// A `Map` key becomes a JSON object key, so only a string or an int can be one.
+fn check_map_key(t: meta.MetaType) -> Result<unit, string> {
+    if t.kind == "string" || t.kind == "int" {
+        return unit
+    }
+    return err(concat(
+        "derive(Json) supports Map keys of type string or int (they become JSON object keys), found '",
+        meta.type_text(t),
+        "'"
+    ))
+}
+
+// The converter a generic type argument is given: a type variable passes the parameter it was
+// given, a scalar names its own function, a plain struct or enum names `<snake>_to_json`.
+fn converter_for(arg: meta.MetaType, is_to: bool) -> Result<string, string> {
+    val dir = if is_to { "to" } else { "from" }
+    if arg.kind == "typevar" {
+        return ok(converter_param(arg.name, is_to))
+    }
+    val scalars = ["int", "float", "bigint", "decimal", "bool", "string"]
+    if contains(scalars, arg.kind) {
+        return ok(concat(arg.kind, "_", dir, "_json"))
+    }
+    if (arg.kind == "struct" || arg.kind == "enum") && prelude.len(arg.args) == 0 && !meta.is_option(arg) {
+        return ok(concat(meta.snake_case(arg.name), "_", dir, "_json"))
+    }
+    return err(concat(
+        "derive(Json) cannot build a converter for type argument '",
+        meta.type_text(arg),
+        "' -- use a scalar, a type parameter or a plain struct/enum there"
+    ))
+}
+
+fn type_args_text(t: meta.MetaType) -> string {
+    val out = mutable_array_new<string>()
+    for a in t.args {
+        push(out, meta.type_text(a))
+    }
+    return concat("<", join(separator: ", ", pieces: snapshot(out)), ">")
+}
+
+// A value to `Json`, recursively. The shapes are the sheet's; the recursion, the temporary names
+// and the per-kind choice are here.
+fn emit_to_json(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result<Emitted, string> {
+    if Some(call) = is_scalar_call(t.kind) {
+        return one(dst, call, src, tmp)
+    }
+    if t.kind == "typevar" {
+        return one(dst, converter_param(t.name, true), src, tmp)
+    }
+    if t.kind == "array" || t.kind == "set" {
+        val item = tmp_name("item", tmp)
+        val item_json = tmp_name("item_json", tmp + 1)
+        val acc = tmp_name("ab", tmp + 2)
+        val inner = try emit_to_json(t.args[0], item, item_json, tmp + 3)
+        return ok(Emitted {
+            text: try template.render(sheet, "to_seq", [
+                template.text("acc", acc),
+                template.text("item", item),
+                template.text("src", src),
+                template.text("inner", without_newline(inner.text)),
+                template.text("item_json", item_json),
+                template.text("dst", dst)
+            ]),
+            next_tmp: inner.next_tmp
+        })
+    }
+    if t.kind == "map" {
+        try check_map_key(t.args[0])
+        val key = tmp_name("key", tmp)
+        val entry = tmp_name("entry", tmp + 1)
+        val entry_json = tmp_name("entry_json", tmp + 2)
+        val acc = tmp_name("fields", tmp + 3)
+        val inner = try emit_to_json(t.args[1], entry, entry_json, tmp + 4)
+        return ok(Emitted {
+            text: try template.render(sheet, "to_map", [
+                template.text("acc", acc),
+                template.text("key", key),
+                template.text("entry", entry),
+                template.text("src", src),
+                template.text("inner", without_newline(inner.text)),
+                template.text("key_expr", if t.args[0].kind == "int" { concat("str(", key, ")") } else { key }),
+                template.text("entry_json", entry_json),
+                template.text("dst", dst)
+            ]),
+            next_tmp: inner.next_tmp
+        })
+    }
+    if t.kind != "struct" && t.kind != "enum" {
+        return err(concat("derive(Json) does not support field type '", meta.type_text(t), "' yet"))
+    }
+    if meta.is_option(t) {
+        val inner_var = tmp_name("opt_inner", tmp)
+        val inner = try emit_to_json(t.args[0], concat("Option.unwrap_Some(", src, ")"), inner_var, tmp + 1)
+        return ok(Emitted {
+            text: try template.render(sheet, "to_option", [
+                template.text("dst", dst),
+                template.text("src", src),
+                template.text("inner", without_newline(inner.text)),
+                template.text("inner_var", inner_var)
+            ]),
+            next_tmp: inner.next_tmp
+        })
+    }
+    if prelude.len(t.args) > 0 {
+        val convs = mutable_array_new<string>()
+        for a in t.args {
+            push(convs, try converter_for(a, true))
+        }
+        val call = concat(meta.snake_case(t.name), "_to_json", type_args_text(t))
+        return ok(Emitted {
+            text: try template.render(sheet, "to_one", [
+                template.text("dst", dst),
+                template.text("call", call),
+                template.text("src", concat(src, ", ", join(separator: ", ", pieces: snapshot(convs))))
+            ]),
+            next_tmp: tmp
+        })
+    }
+    if contains(flat_names, t.name) {
+        return one(dst, "to_json", src, tmp)
+    }
+    return one(dst, concat(meta.snake_case(t.name), "_to_json"), src, tmp)
+}
+
+// `<T, U>` for a generic declaration, and the converter parameters its functions take.
+fn decl_params(d: meta.Decl) -> string {
+    if prelude.len(d.type_params) == 0 {
+        return ""
+    }
+    return concat("<", join(separator: ", ", pieces: d.type_params), ">")
+}
+
+fn converter_params(d: meta.Decl, is_to: bool) -> string {
+    val out = mutable_array_new<string>()
+    for p in d.type_params {
+        if is_to {
+            push(out, concat(", ", converter_param(p, true), ": fn(", p, ") -> Json"))
+        } else {
+            push(out, concat(", ", converter_param(p, false), ": fn(Json) -> Result<", p, ", string>"))
+        }
+    }
+    return concat(pieces: snapshot(out))
+}
+
+fn self_text(d: meta.Decl) -> string {
+    if prelude.len(d.type_params) == 0 {
+        return d.name
+    }
+    return concat(d.name, "<", join(separator: ", ", pieces: d.type_params), ">")
+}
+
+// **This port is not finished, and refuses rather than answering half of it.**
+//
+// `#[derive(Json)]` writes three functions for a struct -- `_to_json`, `_from_json` and the
+// accumulating `_from_json_all` -- and two for an enum. Only `to_json` is here. A `generate`
+// that answered it alone would look like success and produce a module missing its decoder, so
+// it refuses by name instead, and `src/generators.c` does not list this module: `#[derive(Json)]`
+// still goes to `src/derive.c`.
+//
+// Wiring it up means finishing `from_json` first. The refusal is what makes doing that in the
+// wrong order fail loudly.
+pub fn generate(d: meta.Decl) -> Result<string, string> {
+    val ignored = d
+    return err(concat(
+        "derive(Json) is not ported to Ziman yet -- only 'to_json' is written (lib/core/derive_json.zm). ",
+        "from_json, from_json_all and the two enum halves are still in src/derive.c"
+    ))
+}
+
+// The half that is written, exported so `tests/lang/derive_json_in_ziman` can hold it to the
+// bytes `src/derive.c` emits.
+pub fn to_json(d: meta.Decl) -> Result<string, string> {
+    val fields = mutable_array_new<template.Row>()
+    var tmp = 0
+    val last = prelude.len(d.members) - 1
+    for i in 0..prelude.len(d.members) {
+        val m = d.members[i]
+        val conv = try emit_to_json(m.type, concat("v.", m.name), concat("field_", m.name, "_json"), tmp)
+        tmp = conv.next_tmp
+        push(fields, template.row([
+            template.text("name", m.name),
+            template.text("key", meta.camel_case(m.name)),
+            template.text("conv", without_newline(conv.text)),
+            template.text("comma", if i < last { "," } else { "" })
+        ]))
+    }
+    return template.render(sheet, "to_json", [
+        template.text("snake", d.snake_name),
+        template.text("params", decl_params(d)),
+        template.text("self", self_text(d)),
+        template.text("converters", converter_params(d, true)),
+        template.rows("fields", snapshot(fields))
+    ])
+}

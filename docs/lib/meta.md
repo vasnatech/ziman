@@ -104,6 +104,16 @@ pub fn type_text(t: MetaType) -> string
 
 The type as source spells it: `Option<string>`, `[Uuid]`, `int`.
 
+### `camel_case`
+
+```
+pub fn camel_case(name: string) -> string
+```
+
+`middle_name` -> `middleName`: the spelling JSON keys use, so a generator writing one does not
+repeat the compiler's own conversion rule. An underscore is dropped and capitalises the letter
+after it; nothing else changes.
+
 ### `snake_case`
 
 ```

@@ -103,6 +103,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`derive_ord`](derive_ord.md) | `#[derive(Ord)]`, written in Ziman. |
 | [`derive_row`](derive_row.md) | `#[derive(Row)]`, written in Ziman. |
 | [`derive_properties`](derive_properties.md) | `#[derive(Properties)]`, written in Ziman. |
+| [`derive_json`](derive_json.md) | `#[derive(Json)]`, written in Ziman. |
 
 ## Graphics
 

@@ -3909,3 +3909,32 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   already did. Fixture re-recorded; one generator, one header is the more accurate label.
 
   1,291 fixtures, `make check` exit 0 with the North Star.
+
+- [x] **F226** **`derive(Json)`'s `to_json` in Ziman -- half a port, and it says so.** (continuing
+  F225's "1 and 2"; done 2026-10-28.)
+
+  **`derive_json` is three times the size of any other** -- 418 lines of C against `Row`'s 128 --
+  and the only one reaching arrays, maps with key-type checking, sets, generics that thread a
+  converter per type argument, and type variables. `to_json` for a struct is written and
+  **byte-identical to the C**, including the temporary names: those come from a counter, and
+  getting its order wrong is the easiest way to diverge invisibly, so the fixture pins them.
+
+  **What is not written**: `from_json`, the accumulating `from_json_all`, and both enum halves --
+  about 310 lines of C.
+
+  **`generate` refuses by name rather than answering the half that exists.** A `generate` that
+  returned `to_json` alone would look like success and produce a module with no decoder; the
+  refusal is what makes finishing this in the wrong order fail loudly. `src/generators.c` does
+  not list the module, so `#[derive(Json)]` still goes through C, and
+  `tests/lang/derive_json_not_ported` pins the refusal.
+
+  Two things needed by this and added for it: `meta.camel_case` (JSON keys are camelCase where
+  `Row`'s column names are the field names as written -- JSON is read by other systems and a SQL
+  column is not), and **type variables now survive reification** -- `reify_type` sent `TY_TYPEVAR`
+  down the scalar path and dropped its name, which a generic `derive(Json)` needs both to spell
+  the type and to name the converter parameter it threads through.
+
+  The unused-binding check earned itself again: a leftover `template.text("nested", "")` in a
+  render was refused by name rather than ignored.
+
+  1,293 fixtures, `make check` exit 0 with the North Star.

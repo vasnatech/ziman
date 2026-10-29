@@ -1,0 +1,44 @@
+pub fn wide_to_json(v: Wide) -> Json {
+    val field_id_json = uuid_to_json(v.id)
+    val field_count_json = int_to_json(v.count)
+    val field_ratio_json = float_to_json(v.ratio)
+    val field_ok_json = Json.JBool(v.ok)
+    val field_label_json = Json.JString(v.label)
+    val field_at_json = to_json(v.at)
+    val __derive_ab_2 = mutable_array_new<Json>()
+    for __derive_item_0 in v.tags {
+    val __derive_item_json_1 = Json.JString(__derive_item_0)
+    push<Json>(__derive_ab_2, __derive_item_json_1)
+    }
+    val field_tags_json = Json.JArray(snapshot(__derive_ab_2))
+    val __derive_fields_6 = mutable_map_new<string, Json>()
+    for __derive_key_3, __derive_entry_4 in v.scores {
+    val __derive_entry_json_5 = int_to_json(__derive_entry_4)
+    set<string, Json>(__derive_fields_6, __derive_key_3, __derive_entry_json_5)
+    }
+    val field_scores_json = Json.JObject(snapshot(__derive_fields_6))
+    var field_middle_name_json = Json.JNull
+    if Option.is_Some(v.middle_name) {
+    val __derive_opt_inner_7 = Json.JString(Option.unwrap_Some(v.middle_name))
+    field_middle_name_json = __derive_opt_inner_7
+    }
+    var field_seen_json = Json.JNull
+    if Option.is_Some(v.seen) {
+    val __derive_opt_inner_8 = to_json(Option.unwrap_Some(v.seen))
+    field_seen_json = __derive_opt_inner_8
+    }
+    return Json.JObject(Map<string, Json> {
+        "id": field_id_json,
+        "count": field_count_json,
+        "ratio": field_ratio_json,
+        "ok": field_ok_json,
+        "label": field_label_json,
+        "at": field_at_json,
+        "tags": field_tags_json,
+        "scores": field_scores_json,
+        "middleName": field_middle_name_json,
+        "seen": field_seen_json
+    })
+}
+
+

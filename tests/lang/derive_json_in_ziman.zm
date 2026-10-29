@@ -1,0 +1,39 @@
+// `#[derive(Json)]`'s `to_json`, written in Ziman. **Half a port**: `from_json`,
+// `from_json_all` and the two enum halves are still in `src/derive.c`, and `derive_json.generate`
+// refuses by name rather than answering the half that exists -- so nothing is wired and
+// `#[derive(Json)]` still goes through the C.
+//
+// The struct covers every shape `to_json` reaches: a `Uuid`, all the scalars, an `Instant`
+// (short-spelled converters), an array, a `Map<string, int>` and two `Option`s. The expected
+// text is what the C emits today, byte for byte, **including the temporary names** -- those come
+// from a counter and getting its order wrong is the easiest way to diverge invisibly.
+use derive_json
+use meta
+
+fn f(name: string, t: meta.MetaType) -> meta.Member {
+    return meta.Member { name: name, type: t, has_payload: false }
+}
+fn opt(t: meta.MetaType) -> meta.MetaType {
+    return meta.generic("enum", "Option", [t])
+}
+fn main() {
+    val none: [string] = []
+    print(unwrap(derive_json.to_json(meta.Decl {
+        name: "Wide",
+        snake_name: "wide",
+        is_enum: false,
+        type_params: none,
+        members: [
+            f("id", meta.named("struct", "Uuid")),
+            f("count", meta.scalar("int")),
+            f("ratio", meta.scalar("float")),
+            f("ok", meta.scalar("bool")),
+            f("label", meta.scalar("string")),
+            f("at", meta.named("struct", "Instant")),
+            f("tags", meta.generic("array", "", [meta.scalar("string")])),
+            f("scores", meta.generic("map", "Map", [meta.scalar("string"), meta.scalar("int")])),
+            f("middle_name", opt(meta.scalar("string"))),
+            f("seen", opt(meta.named("struct", "Instant")))
+        ]
+    })))
+}

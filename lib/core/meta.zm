@@ -88,6 +88,27 @@ pub fn type_text(t: MetaType) -> string {
     return concat(t.name, "<", join(separator: ", ", pieces: snapshot(rendered)), ">")
 }
 
+// `middle_name` -> `middleName`: the spelling JSON keys use, so a generator writing one does not
+// repeat the compiler's own conversion rule. An underscore is dropped and capitalises the letter
+// after it; nothing else changes.
+pub fn camel_case(name: string) -> string {
+    val out = mutable_array_new<string>()
+    var capitalise = false
+    for c in chars(name) {
+        if c == "_" {
+            capitalise = true
+            continue
+        }
+        if capitalise {
+            push(out, to_upper(c))
+        } else {
+            push(out, c)
+        }
+        capitalise = false
+    }
+    return concat(pieces: snapshot(out))
+}
+
 // `LocalDate` -> `local_date`: the spelling generated function names use, so a generator writing
 // `<type>_to_sql` does not repeat the compiler's own conversion rule. A capital starts a new word
 // when it follows a lower-case letter or a digit, or when it begins the last capital of a run
