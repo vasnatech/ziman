@@ -99,9 +99,14 @@ Read out of `src/derive.c` rather than imagined:
 * **Function declarations.** A derived query is a bodyless `pub fn` whose *name* is the query and
   whose parameters bind by name. To generate it in Ziman, a generator needs the function's name,
   parameters (name and type, in order) and return type.
+* **The names the module already defines**, because a repository that writes `find_by_id` by hand
+  must not also have one generated (`module_defines_function` in the C).
 
-That last one is the biggest change: today `meta` describes **types**, and `#[repository]`
-needs it to describe **a function signature**. Nothing in the current model can hold one.
+Two things to notice about that list, because they decide the shape rather than just lengthening
+it. **Function signatures are a new kind of thing**: `meta` describes types today and nothing in
+it can hold a signature. And **the last three entries are not properties of the declaration being
+derived at all** -- they belong to a *different module* from the entity struct. §8 is where that
+leads.
 
 ## 5. The model: `MetaType` becomes honest
 
@@ -157,9 +162,9 @@ pub fn has_attr(m: Member, name: string) -> bool
 
 A **list of bare names**, not a `pk: bool`. `#[pk]` is the only field attribute today, and a bool
 would mean this file changes shape for the second one. A list costs nothing extra and says what it
-is. An attribute with arguments is deferred until one exists (§12).
+is. An attribute with arguments is deferred until one exists (§13).
 
-## 7. The declaration gains its context
+## 7. The declaration gains its argument -- and nothing else
 
 ```ziman
 pub struct Decl {
@@ -170,43 +175,79 @@ pub struct Decl {
     members: [Member]
     // The argument the derive was written with: `#[derive(Entity("medications"))]` -> "medications".
     arg: Option<string>
-    // The module the declaration lives in, and its repository attributes when it has them.
-    module: Module
-}
-
-pub struct Module {
-    // `#![repository(Entity)]`: the entity's name, or None.
-    repository_entity: Option<string>
-    repository_label: Option<string>
-    repository_crud: bool
-    // Bodyless `pub fn`s awaiting a generated body, in declaration order.
-    queries: [Function]
-}
-
-pub struct Function {
-    name: string
-    params: [Param]
-    returns: MetaType
-}
-
-pub struct Param {
-    name: string
-    type: MetaType
 }
 ```
 
-`arg` is the second parameter the user-generators design specified, folded into `Decl` instead.
-Reason: `generate(d: meta.Decl)` is one parameter and four generators already have that signature,
-and an argument *about the declaration* belongs on the declaration rather than beside it. The
-alternative -- changing every generator's signature for the benefit of one -- is what §2's rule
-exists to prevent.
+`arg` is the second parameter the user-generators design specified, folded into `Decl` instead of
+sitting beside it. Reason: `generate(d: meta.Decl)` is one parameter, four generators already have
+that signature, and an argument *about the declaration* belongs on the declaration. The
+alternative -- changing five signatures for the benefit of one target -- is what §2's rule exists
+to prevent.
 
-`Module` is new and is the part to be most suspicious of: it is the first time a generator sees
-anything outside the declaration it was handed. It is here because `#[repository]` genuinely is a
-module-level feature -- the entity, the label and the CRUD flag are module attributes, and the
-queries are sibling declarations. A generator for it cannot work from a struct alone.
+That is the whole change to `Decl`. **An earlier draft of this section also gave it a `module`
+field carrying `repository_entity`, `repository_label`, `repository_crud` and the module's
+bodyless queries. That was wrong, and §8 is what replaced it.**
 
-## 8. What is still deliberately absent
+## 8. `#[repository]` is not a derive, and `meta` should stop pretending it could be
+
+The draft above put the repository attributes on `Decl.module` so that a generator for
+`#[repository]` could read them. Two things are wrong with it, and the second is fatal.
+
+**It is a general name holding one feature's fields.** `Module` with `repository_*` members is a
+dumping ground by construction: the next module attribute lands there too, and a *user-defined*
+generator -- the whole point of user-generators.md -- is handed four fields that mean nothing to
+it. §6 already took the other road for members, where `#[pk]` is an entry in `attrs: [string]`
+rather than a `pk: bool`, and the same argument applies here with more force.
+
+**And the fields would be empty anyway.** In the North Star, `#![repository(Entity)]` lives in
+`repository/medication.zm` and `#[derive(Entity("medications"))]` lives in
+`entity/medication.zm`. **Different modules.** `Decl.module` for an entity is the entity's module,
+which has no repository attributes at all, so every one of those fields would be `None` at every
+real site. The draft was not merely inelegant; it did not work.
+
+What the C actually does says why:
+
+```c
+void generate_repository_functions(Module *module, StructDecl *sd, const char *entity_module);
+```
+
+Three inputs -- the **repository** module, a struct declared **elsewhere**, and the path that
+struct was imported by -- plus `module_defines_function(module, name)`, because a repository that
+writes `find_by_id` by hand must not also have one generated. None of that is a function of one
+declaration, which is the only shape `generate(d: Decl)` has.
+
+So `#[repository]` wants a **second generator kind**, declared and dispatched separately:
+
+```ziman
+// `#![generator(Repository)]`, a module generator rather than a declaration generator.
+pub fn generate_module(m: meta.Target) -> Result<string, string>
+
+pub struct Target {
+    // The entity named by `#![repository(Entity)]`, reified from wherever it is declared.
+    entity: Decl
+    // The `use` path it was found at, which generated code needs in order to name its functions.
+    entity_module: string
+    label: Option<string>
+    crud: bool
+    // Bodyless `pub fn`s in this module awaiting a generated body, in declaration order.
+    queries: [Function]
+    // Functions this module already defines, so the generator can decline to replace one.
+    defined: [string]
+}
+
+pub struct Function { name: string  params: [Param]  returns: MetaType }
+pub struct Param    { name: string  type: MetaType }
+```
+
+`Target` is named for what it is -- the target of one `#![repository(..)]` -- rather than
+`Module`, precisely so that it cannot become the place other module attributes accrete. A second
+module-level feature gets its own type, or a reason is written down for sharing one.
+
+**This is the larger finding of the redesign.** `meta` has one shape because the first four
+generators had one shape, and the fifth does not. Discovering that by trying to force it into
+`Decl` is cheaper here than after it is built.
+
+## 9. What is still deliberately absent
 
 * **Visibility, doc comments, line and column.** Nothing generates from them. A refusal is
   reported at the declaration by the bridge, which already has the position.
@@ -217,7 +258,7 @@ queries are sibling declarations. A generator for it cannot work from a struct a
 * **Bounds on type parameters.** `type_params: [string]` stays bare. `derive_ord` is the only
   generator that writes bounds and it writes them unconditionally.
 
-## 9. The change that matters most: test the boundary, not the model
+## 10. The change that matters most: test the boundary, not the model
 
 A wider `MetaType` would not have caught any of §1's bugs. **This would:**
 
@@ -250,7 +291,7 @@ That fixture is the test the boundary has never had. It is cheap, it is pure dat
 **This is the actual deliverable.** The model changes in §§5-7 are what `derive(Entity)` needs;
 this is what keeps the next three bugs from shipping.
 
-## 10. Staging
+## 11. Staging
 
 1. **The `Reflect` generator and its fixture, against today's `meta`.** It will pin the current
    behaviour including whatever is still wrong, which is the point: the diff in step 2 is then the
@@ -258,30 +299,44 @@ this is what keeps the next three bugs from shipping.
 2. **`MetaType` gains `text` and the three missing kinds** (§5). The step-1 fixture changes, and
    every change in it is reviewable as a line.
 3. **`Member.attrs`** (§6) and `Decl.arg` (§7), both additive; no generator reads them yet.
-4. **`Module` and `Function`** (§7), likewise.
-5. **Port `derive(Entity)` and `#[repository]`**, which is the consumer that proves 2-4 were right
-   and the thing that takes the last generator out of `src/derive.c`.
+4. **Port `derive(Entity)`.** It needs only steps 2 and 3, and it is a `generate(d: Decl)` derive
+   like the four already done -- so it lands before any of §8's machinery exists and proves that
+   much of the model on its own.
+5. **`Target`, `Function`, `Param` and the `generate_module` entry point** (§8), then **port
+   `#[repository]`** -- the second generator kind, and the thing that takes the last generator out
+   of `src/derive.c`.
 
-Steps 2-4 each change `src/generators.c`'s reification and the constructors in `meta.zm`; no
+Steps 2 and 3 change `src/generators.c`'s reification and the constructors in `meta.zm`; no
 generator breaks, because `meta`'s constructors are what the C calls and adding a field changes
-the constructor rather than every caller -- the property §7 of user-generators.md was designed for
-and that step 3 of this plan is the first real use of.
+the constructor rather than every caller -- the property user-generators.md was designed for and
+that step 3 is the first real use of.
 
-## 11. Cost
+**Splitting 4 from 5 is the point of this ordering.** `derive(Entity)` and `#[repository]` arrived
+in this document as one job and are two: the first fits the existing mechanism, the second needs a
+new one. Shipping the first alone is what proves §§5-7 without §8 being right as well.
+
+## 12. Cost
 
 `meta.zm` roughly doubles, and `reify_*` in `src/generators.c` grows by about the same. Against
 that: `src/derive.c` loses the last ~1,000 lines it owns once step 5 lands, which is the whole
 derived-query machinery, and the boundary gets its first test.
 
-The risk worth naming is **step 4**. `Module` hands a generator sibling declarations, which is a
-larger grant than anything `meta` has given so far and is hard to take back. If `#[repository]`
-turns out not to need all of it, the parts it does not use should not ship.
+The risk worth naming is **step 5**. A `Target` hands a generator a declaration from another
+module, that module's `use` path, and the list of what the current module already defines --
+a far larger grant than anything `meta` gives today, and hard to take back once a user-written
+generator depends on it. Two guards: `Target` is one feature's type rather than a general
+`Module`, and nothing ships in it that the `#[repository]` port does not read.
 
-## 12. Open decisions
+## 13. Open decisions
 
-* **Does `Decl` carry `module`, or does `generate` take a second parameter?** §7 chose the field.
-  The counter-argument is that a `Decl` is then not self-contained and a test fixture has to build
-  a `Module` to build a `Decl`. A second parameter keeps `Decl` pure and changes five signatures.
+* **Is a second generator kind right, or should `#[repository]` stay in C?** §8 argues it needs
+  `generate_module` over a `Target`. The honest alternative is that one feature needing its own
+  entry point and its own input type is a sign it is not a derive and should not pretend to be --
+  in which case the ~1,000 lines stay in `src/derive.c` and `meta` stops at §7. This is the
+  decision the whole document turns on.
+* **How does `#![generator(X)]` say which kind it declares?** By which entry point the module
+  exports (`generate` vs `generate_module`), or by the attribute. Exporting both should be a
+  refusal either way.
 * **Should `text` on `MetaType` be authoritative, with `type_text` deleted?** Two ways to spell the
   same thing is how they drift. Keeping both and checking they agree (§9) is the proposal, but
   deleting `type_text` is tidier.

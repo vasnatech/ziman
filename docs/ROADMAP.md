@@ -1213,10 +1213,14 @@ from source.
 - **`meta`, redesigned.** Designed in [docs/design/meta.md](design/meta.md), not built. The
   derives-in-Ziman port is finished and what it left behind is `meta`, grown one field at a time
   by whichever generator needed it next. Two halves. The **model** gains what `derive(Entity)` and
-  `#[repository]` actually read -- `#[pk]` as a member attribute, the derive's argument, the
-  module's repository attributes, and function signatures for the bodyless `pub fn`s a derived
-  query fills -- and `MetaType` stops claiming to be a tree for 5 of 19 kinds while being flat for
-  `Result`/`Channel`/`fn`. The **test** matters more: a `#[derive(Reflect)]` generator that dumps
+  `#[repository]` actually read -- `#[pk]` as a member attribute and the derive's argument -- and
+  `MetaType` stops claiming to be a tree for 5 of 19 kinds while being flat for
+  `Result`/`Channel`/`fn`. **Its §8 is the finding**: `#[repository]` is not a derive. Its inputs
+  live in a *different module* from the entity struct, it reads what the module already defines,
+  and it is not a function of one declaration -- so it needs a second generator kind
+  (`generate_module` over a `Target`) rather than fields bolted onto `Decl`. Whether that is
+  worth having, or whether one feature needing its own entry point means it should stay in C, is
+  the decision the document turns on. The **test** matters more: a `#[derive(Reflect)]` generator that dumps
   what it was handed, pinned by a fixture over real declarations. Every fixture today builds its
   `MetaType` by hand, so the C-to-Ziman boundary has never been tested at all -- which is why
   three bugs shipped in the bridge and none was caught by 1,293 fixtures. Step 5 ports
