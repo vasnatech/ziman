@@ -227,7 +227,6 @@ static const char *standard_flat_type_name(const char *type_name) {
  * --------------------------------------------------------------------- */
 
 
-
 /* ---------------------------------------------------------------------
  * Entity derive: <name>_columns, the struct's field names in order.
  *
@@ -251,61 +250,6 @@ static const char *standard_flat_type_name(const char *type_name) {
  * cannot disagree.
  * --------------------------------------------------------------------- */
 
-/* `table` is the string the target was written with, or NULL for a bare `#[derive(Entity)]`.
- *
- * **With it, three hand-written lines per entity become none.** The North Star application wrote
- * the same table name twice -- once in a `pub val <snake>_table` its services import and once in
- * the `eql.entity(..)` call beside it -- and the entity's own name a third time, which is the
- * struct's name spelled again. All three are mechanical given the table, so the table is the only thing
- * worth writing, and `#[derive(Entity("patients"))]` is where it goes.
- *
- * Without it the target still writes the column list alone, which is what it did before and what
- * a struct whose table is decided elsewhere still wants.
- *
- * **The entity name is the struct's name**, not derived from the table: `eql` matches what a query
- * writes (`FROM Patient p`) against it, and a query names the type a reader has in hand. Taking it
- * from the table would make `FROM patients p` the spelling, which is SQL leaking back through the
- * layer whose job is to hide it. */
-static char *generate_struct_entity(StructDecl *sd, const char *table) {
-    CodeBuf cb;
-    cb_init(&cb);
-    char *val_name = pascal_to_snake(sd->name);
-    cb_appendf(&cb, "pub val %s_columns: [string] = [", val_name);
-    for (int i = 0; i < sd->fields.count; i++) {
-        cb_appendf(&cb, "%s\"%s\"", i > 0 ? ", " : "", sd->fields.items[i].name);
-    }
-    cb_appendf(&cb, "]\n\n");
-    if (table != NULL) {
-        /* `<snake>_table`, prefixed like `<snake>_columns` and `<snake>_meta` beside it. It was
-         * the bare name `table` until 2026-10-27, which was the one unprefixed thing this derive
-         * emitted -- and that made **two entities in one module impossible**: both emitted `table`,
-         * and the collision was reported as "'table' is already declared in this scope" pointing at
-         * the *struct*, because neither declaration appears in the source a reader is looking at.
-         * `entity/broadcast.zm` holds Broadcast and Dismissal and could have neither. */
-        cb_appendf(&cb, "pub val %s_table: string = \"%s\"\n\n", val_name, table);
-        /* The `#[pk]` fields, in field order. `keyed_entity` when there are any and `entity` when
-         * there are none, so an entity that declares no key says so in the call rather than
-         * carrying an empty list that reads like an oversight. */
-        int keys = 0;
-        for (int i = 0; i < sd->fields.count; i++) {
-            if (sd->fields.items[i].is_pk) keys++;
-        }
-        if (keys == 0) {
-            cb_appendf(&cb, "pub val %s_meta: eql.Entity = eql.entity(\"%s\", \"%s\", %s_columns)\n\n",
-                       val_name, sd->name, table, val_name);
-        } else {
-            cb_appendf(&cb, "pub val %s_meta: eql.Entity = eql.keyed_entity(\"%s\", \"%s\", %s_columns, [",
-                       val_name, sd->name, table, val_name);
-            int written = 0;
-            for (int i = 0; i < sd->fields.count; i++) {
-                if (!sd->fields.items[i].is_pk) continue;
-                cb_appendf(&cb, "%s\"%s\"", written++ > 0 ? ", " : "", sd->fields.items[i].name);
-            }
-            cb_appendf(&cb, "])\n\n");
-        }
-    }
-    return cb.data;
-}
 
 /* ---------------------------------------------------------------------
  * Row derive: <name>_from_row / <name>_to_params, for mapping a struct to
@@ -1697,7 +1641,7 @@ void generate_derived_functions(Module *module) {
                     ensure_module_import(module, "eql", sd->line, sd->col);
                 }
                 parse_and_splice(module,
-                                 generate_struct_entity(sd, sd->derive_args != NULL ? sd->derive_args[d] : NULL),
+                                 generated_in_ziman("Entity", sd, NULL, derive_arg(sd, d), sd->line, sd->col),
                                  sd->line, sd->col, label);
             } else if (is_ord) {
                 if (sd->fields.count == 0) {

@@ -282,6 +282,15 @@ pub fn format(rows: Json, sep: string) -> Result<string, string>
 
 ```
 
+## `derive_entity`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub fn generate(d: meta.Decl) -> Result<string, string>
+
+```
+
 ## `derive_json`
 
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 

@@ -1,0 +1,24 @@
+pub val note_columns: [string] = ["id", "body"]
+
+pub val note_table: string = "notes"
+
+pub val note_meta: eql.Entity = eql.keyed_entity("Note", "notes", note_columns, ["id"])
+
+
+pub val tenancy_columns: [string] = ["tenant", "id", "label"]
+
+pub val tenancy_table: string = "tenancies"
+
+pub val tenancy_meta: eql.Entity = eql.keyed_entity("Tenancy", "tenancies", tenancy_columns, ["tenant", "id"])
+
+
+pub val keyless_columns: [string] = ["a", "b"]
+
+pub val keyless_table: string = "keyless"
+
+pub val keyless_meta: eql.Entity = eql.entity("Keyless", "keyless", keyless_columns)
+
+
+pub val bare_columns: [string] = ["x"]
+
+

@@ -105,6 +105,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`derive_properties`](derive_properties.md) | `#[derive(Properties)]`, written in Ziman. |
 | [`derive_json`](derive_json.md) | `#[derive(Json)]`, written in Ziman. |
 | [`derive_reflect`](derive_reflect.md) | `#[derive(Reflect)]`: prints the declaration a generator was handed, and generates nothing. |
+| [`derive_entity`](derive_entity.md) | `#[derive(Entity)]`, written in Ziman. |
 
 ## Graphics
 

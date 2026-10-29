@@ -19,7 +19,7 @@
  * compiler's own; a project's generator is found through the importing module's `use` list,
  * which is docs/design/user-generators.md's design and is not built. */
 static const char *const GENERATOR_MODULES[] = {"derive_ord", "derive_row", "derive_properties",
-                                                "derive_json", "derive_reflect"};
+                                                "derive_json", "derive_reflect", "derive_entity"};
 
 static Module *g_generators = NULL;
 static int g_tried = 0;

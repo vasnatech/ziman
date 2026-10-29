@@ -101,7 +101,7 @@ install-hooks:
 # -MMD/-MP header tracking only kicks in from the second build onward,
 # once a .d file already mentions it. Add a new core module by adding
 # its name here and one line to corelib.c's CORE_MODULES table.
-CORELIB_MODULES := meta template derive_ord derive_row derive_properties derive_json derive_reflect process url fs log metrics regex client random uuid clock time schedule json number math bits encoding thread datasource sqlite mysql memdb sql eql db net crypto pg http server os properties ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp locale test geom shape paint scene pdfobj pdf truetype font image stroker raster layout
+CORELIB_MODULES := meta template derive_ord derive_row derive_properties derive_json derive_reflect derive_entity process url fs log metrics regex client random uuid clock time schedule json number math bits encoding thread datasource sqlite mysql memdb sql eql db net crypto pg http server os properties ndjson csv toml yaml xml markdown compress zone mime jwt migrate otp locale test geom shape paint scene pdfobj pdf truetype font image stroker raster layout
 
 # The prelude is not a module and is deliberately NOT in CORELIB_MODULES: it has
 # no line in corelib.c's CORE_MODULES table, nothing can `use` it, and

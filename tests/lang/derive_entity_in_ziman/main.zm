@@ -1,0 +1,41 @@
+// `#[derive(Entity)]`'s generator, written in Ziman and called as an ordinary function.
+//
+// **The first generator to read `Decl.arg` and a field attribute**, which is what steps 3 of
+// docs/design/meta.md added and what nothing before it needed. The four shapes are the four the
+// attribute can take: a single `#[pk]`, a compound key of two, no key at all, and no table.
+//
+// The expected text is what `src/derive.c`'s `generate_struct_entity` emitted before it was
+// deleted, byte for byte.
+//
+// **In a directory of its own, deliberately.** `tests/lang/derive_entity.zm` is the C derive's
+// own fixture, and a file beside the entry point shadows a bundled module of the same name --
+// so run flat, this file's `use derive_entity` found that fixture and reported "module
+// 'derive_entity' has no function 'generate'". `derive_properties_in_ziman` is in a directory
+// for the same reason; the shadowing is documented behaviour, not a bug.
+use derive_entity
+use meta
+
+val no_attrs: [string] = []
+val key: [string] = ["pk"]
+val none: [string] = []
+
+fn f(name: string) -> meta.Field {
+    return meta.field(name, meta.named_type("Uuid", []), no_attrs)
+}
+
+fn pk(name: string) -> meta.Field {
+    return meta.field(name, meta.named_type("Uuid", []), key)
+}
+
+fn main() {
+    print(unwrap(derive_entity.generate(
+        meta.struct_decl("Note", "note", meta.some_arg("notes"), none, [pk("id"), f("body")]))))
+    print(unwrap(derive_entity.generate(
+        meta.struct_decl("Tenancy", "tenancy", meta.some_arg("tenancies"), none,
+            [pk("tenant"), pk("id"), f("label")]))))
+    print(unwrap(derive_entity.generate(
+        meta.struct_decl("Keyless", "keyless", meta.some_arg("keyless"), none, [f("a"), f("b")]))))
+    // Written bare: the column list is the whole output.
+    print(unwrap(derive_entity.generate(
+        meta.struct_decl("Bare", "bare", meta.no_arg(), none, [f("x")]))))
+}
