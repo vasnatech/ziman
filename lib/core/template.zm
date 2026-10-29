@@ -39,6 +39,10 @@
 // generator that needs a generator cannot be loaded. See the design's §8.
 #![experimental]
 
+use json
+use json.Json
+use json.Number
+
 // ------------------------------------------------------------------ the parsed sheet
 
 // `@{name}`, or `@{binder.name}` for a cell of the row a `@for` is on. `binder` is empty for the
@@ -101,37 +105,58 @@ pub struct Sheet {
 }
 
 // ------------------------------------------------------------------ what a template is given
+//
+// **A context is a `Json` object, and the three constructors below are sugar for building one**
+// (docs/design/expressions.md §11, step 3 of 5). The old model -- a `[Binding]` with a `Bound`
+// that was either a string or a list of rows -- was a degenerate `Json` by construction: a string
+// is a `JString`, a row is a `JObject`, rows are a `JArray` of them. So this is one type where
+// there were three, and docs/design/templates.md §5's "why not a `Map`" is answered by the
+// recursive type that comparison was missing.
+//
+// **What is given up** is templates.md §5's guarantee that every value a hole can hold is already
+// a `string`, which made "how is a number formatted" a question that could not be asked. It can be
+// asked now and the answer is in `hole_text`: a string renders as itself, a number as `str` writes
+// it, a bool as `true`/`false`, and an array, an object or null is refused.
 
 pub struct Row {
     cells: [Binding]
 }
 
-enum Bound {
-    Text(string)
-    Rows([Row])
-}
-
-// A value under a name, as `eql.bind` is -- the same problem, so the same shape.
+// A value under a name, as `eql.bind` is -- the same problem, so the same shape. The value is a
+// `Json` now, which is what makes the three constructors sugar rather than a second model.
 pub struct Binding {
     name: string
-    value: Bound
+    value: Json
 }
 
-// A string for `@{name}`, for `@yield name`, and for the tag a `@choose` reads. **Everything a
-// template can hold is a string or a list of rows**, so there is no number to format and no
-// question about how one is formatted.
+// A string for `@{name}`, for `@yield name`, and for the tag a `@choose` reads.
 pub fn text(name: string, value: string) -> Binding {
-    return Binding { name: name, value: Bound.Text(value) }
+    return Binding { name: name, value: Json.JString(value) }
 }
 
 // The rows a `@for name` repeats over.
 pub fn rows(name: string, value: [Row]) -> Binding {
-    return Binding { name: name, value: Bound.Rows(value) }
+    val items = mutable_array_new<Json>()
+    for r in value {
+        push(items, context(r.cells))
+    }
+    return Binding { name: name, value: Json.JArray(snapshot(items)) }
 }
 
 // One row of a `@for`: its cells are reached qualified, as `@{binder.cell}`.
 pub fn row(cells: [Binding]) -> Row {
     return Row { cells: cells }
+}
+
+// The object a binding list means. Public because a caller that wants to see what it is passing --
+// or to pass a tree a generator did not build, which is the point of the change -- should not have
+// to guess the mapping.
+pub fn context(bindings: [Binding]) -> Json {
+    val out = mutable_map_new<string, Json>()
+    for b in bindings {
+        set(out, b.name, b.value)
+    }
+    return Json.JObject(snapshot(out))
 }
 
 // ------------------------------------------------------------------ parsing
@@ -403,60 +428,84 @@ pub fn must_parse(source: string) -> Sheet {
 
 struct Frame {
     binder: string
-    cells: [Binding]
+    // One row, which is one `JObject`.
+    cells: Json
 }
 
-fn names_of(bindings: [Binding]) -> string {
+// The keys of a context object, in the order they were bound: an object is a `Map`, which keeps
+// insertion order, so an error still lists them the way the caller wrote them.
+fn names_of(ctx: Json) -> string {
     val out = mutable_array_new<string>()
-    for b in bindings {
-        push(out, b.name)
+    if JObject(fields) = ctx {
+        for key, ignored in fields {
+            push(out, key)
+        }
     }
     return join(separator: ", ", pieces: snapshot(out))
 }
 
-fn lookup(bindings: [Binding], name: string) -> Option<Bound> {
-    for b in bindings {
-        if b.name == name {
-            return Option<Bound>.Some(b.value)
+// A kind with its article, because every message that uses it reads "is bound to <kind>".
+fn kind_of(v: Json) -> string {
+    switch v {
+        JString(ignored) { return "a string" }
+        JNumber(ignored) { return "a number" }
+        JBool(ignored) { return "a bool" }
+        JArray(ignored) { return "an array" }
+        JObject(ignored) { return "an object" }
+        JNull { return "null" }
+    }
+}
+
+// **What a hole may hold.** A string is itself; a number is what `str` writes, so `19.90` as a
+// `decimal` keeps its scale and an `int` has no point; a bool is `true`/`false`.
+//
+// An array, an object and **null** are refused. Null is the interesting one: a hole holding it is
+// nearly always a mistake rather than a request for the empty string, and the alternative -- a
+// silent "" -- is the shape of bug that reaches a reader as a missing word in generated code.
+fn hole_text(v: Json) -> Option<string> {
+    if JString(s) = v {
+        return Option<string>.Some(s)
+    }
+    if JBool(b) = v {
+        return Option<string>.Some(if b { "true" } else { "false" })
+    }
+    if JNumber(n) = v {
+        switch n {
+            Int(i) { return Option<string>.Some(str(i)) }
+            Bigint(b) { return Option<string>.Some(str(b)) }
+            Float(f) { return Option<string>.Some(str(f)) }
+            Decimal(d) { return Option<string>.Some(str(d)) }
         }
     }
-    return Option<Bound>.None
+    return Option<string>.None
 }
 
-fn kind_of(v: Bound) -> string {
-    if Bound.is_Text(v) {
-        return "string"
-    }
-    return "list of rows"
-}
-
-// A `@{hole}` or a `@yield`'s subject: a string, wherever it is bound.
-fn string_at(h: HoleRef, globals: [Binding], frames: [Frame], what: string) -> Result<string, string> {
+// A `@{hole}` or a `@yield`'s subject: text, wherever it is bound.
+fn string_at(h: HoleRef, ctx: Json, frames: [Frame], what: string) -> Result<string, string> {
     if h.binder == "" {
-        val bound = lookup(globals, h.name)
+        val bound = json.get(ctx, h.name)
         if None = bound {
-            return err(concat("'", what, "' is not bound (bound: ", names_of(globals), ")"))
+            return err(concat("'", what, "' is not bound (bound: ", names_of(ctx), ")"))
         }
-        val value = unwrap(bound)
-        if !Bound.is_Text(value) {
-            return err(concat("'", what, "' is bound to a ", kind_of(value), ", and it holds a string"))
-        }
-        return ok(Bound.unwrap_Text(value))
+        return as_text(unwrap(bound), what)
     }
     for f in frames {
         if f.binder == h.binder {
-            val cell = lookup(f.cells, h.name)
+            val cell = json.get(f.cells, h.name)
             if None = cell {
                 return err(concat("'", what, "' names no cell of that row (it has: ", names_of(f.cells), ")"))
             }
-            val value = unwrap(cell)
-            if !Bound.is_Text(value) {
-                return err(concat("'", what, "' is bound to a ", kind_of(value), ", and it holds a string"))
-            }
-            return ok(Bound.unwrap_Text(value))
+            return as_text(unwrap(cell), what)
         }
     }
     return err(concat("'", what, "' -- '", h.binder, "' is not a '@for' binder in scope here"))
+}
+
+fn as_text(value: Json, what: string) -> Result<string, string> {
+    if Some(s) = hole_text(value) {
+        return ok(s)
+    }
+    return err(concat("'", what, "' is bound to ", kind_of(value), ", and it holds a string"))
 }
 
 // Every line of `block` behind `indent`. A blank line is left blank rather than padded with
@@ -476,7 +525,7 @@ fn indented(block: string, indent: string) -> string {
     return join(separator: "\n", pieces: snapshot(out))
 }
 
-fn emit(nodes: [Node], globals: [Binding], frames: [Frame], out: MutableArray<string>) -> Result<unit, string> {
+fn emit(nodes: [Node], ctx: Json, frames: [Frame], out: MutableArray<string>) -> Result<unit, string> {
     for n in nodes {
         switch n {
             Literal(s) {
@@ -487,7 +536,7 @@ fn emit(nodes: [Node], globals: [Binding], frames: [Frame], out: MutableArray<st
                     out,
                     try string_at(
                         h,
-                        globals,
+                        ctx,
                         frames,
                         concat("@{", h.binder, if h.binder == "" { "" } else { "." }, h.name, "}")
                     )
@@ -495,43 +544,58 @@ fn emit(nodes: [Node], globals: [Binding], frames: [Frame], out: MutableArray<st
             }
             Yield(b) {
                 val named = concat("@yield ", b.binder, if b.binder == "" { "" } else { "." }, b.name)
-                val block = try string_at(HoleRef { binder: b.binder, name: b.name }, globals, frames, named)
+                val block = try string_at(HoleRef { binder: b.binder, name: b.name }, ctx, frames, named)
                 push(out, indented(block, b.indent))
                 push(out, "\n")
             }
             Repeat(l) {
-                val bound = lookup(globals, l.source)
+                val bound = json.get(ctx, l.source)
                 if None = bound {
-                    return err(concat("'@for .. in ", l.source, "' is not bound (bound: ", names_of(globals), ")"))
+                    return err(concat("'@for .. in ", l.source, "' is not bound (bound: ", names_of(ctx), ")"))
                 }
                 val value = unwrap(bound)
-                if !Bound.is_Rows(value) {
+                if !Json.is_JArray(value) {
                     return err(concat(
                         "'@for .. in ",
                         l.source,
-                        "' needs rows, and '",
+                        "' needs an array, and '",
                         l.source,
-                        "' is bound to a ",
+                        "' is bound to ",
                         kind_of(value)
                     ))
                 }
-                for r in Bound.unwrap_Rows(value) {
-                    try emit(l.body, globals, push(frames, Frame { binder: l.binder, cells: r.cells }), out)
+                val items = Json.unwrap_JArray(value)
+                for i in 0..prelude.len(items) {
+                    val r = items[i]
+                    // A row is addressed as `@{binder.cell}`, so an element that is not an object
+                    // has no cell to name. Refused by position, since one bad element in a long
+                    // array is otherwise a hunt.
+                    if !Json.is_JObject(r) {
+                        return err(concat(
+                            "'@for .. in ",
+                            l.source,
+                            "' needs an array of objects, and element ",
+                            str(i),
+                            " is ",
+                            kind_of(r)
+                        ))
+                    }
+                    try emit(l.body, ctx, push(frames, Frame { binder: l.binder, cells: r }), out)
                 }
             }
             Choose(c) {
-                val tag = try string_at(qualified(c.source), globals, frames, concat("@choose ", c.source))
+                val tag = try string_at(qualified(c.source), ctx, frames, concat("@choose ", c.source))
                 var chosen = false
                 for one in c.cases {
                     if !chosen && !one.is_otherwise && one.tag == tag {
                         chosen = true
-                        try emit(one.body, globals, frames, out)
+                        try emit(one.body, ctx, frames, out)
                     }
                 }
                 for one in c.cases {
                     if !chosen && one.is_otherwise {
                         chosen = true
-                        try emit(one.body, globals, frames, out)
+                        try emit(one.body, ctx, frames, out)
                     }
                 }
                 if !chosen {
@@ -584,26 +648,41 @@ fn sheet_names(sheet: Sheet) -> string {
 // mentions. The second is the more likely one after a template is edited, and it is a question
 // about the text rather than about this render -- so an unused binding is reported even when the
 // loop that would have read it has no rows, or the `@when` that would have is not the one chosen.
-pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string> {
+pub fn render(sheet: Sheet, name: string, ctx: Json) -> Result<string, string> {
     val found = named_in(sheet, name)
     if None = found {
         return err(concat("this sheet has no template called '", name, "' (it has: ", sheet_names(sheet), ")"))
     }
+    if !Json.is_JObject(ctx) {
+        return err(concat("a template's context is a JSON object, and this one is ", kind_of(ctx)))
+    }
     val t = unwrap(found)
-    for b in bindings {
-        if !contains(t.refs, b.name) {
-            return err(concat(
-                "'",
-                b.name,
-                "' is bound and template '",
-                name,
-                "' never mentions it (it uses: ",
-                join(separator: ", ", pieces: t.refs),
-                ")"
-            ))
+    if JObject(fields) = ctx {
+        for key, ignored in fields {
+            if !contains(t.refs, key) {
+                return err(concat(
+                    "'",
+                    key,
+                    "' is bound and template '",
+                    name,
+                    "' never mentions it (it uses: ",
+                    join(separator: ", ", pieces: t.refs),
+                    ")"
+                ))
+            }
         }
     }
     val out = mutable_array_new<string>()
-    try emit(t.nodes, bindings, [], out)
+    val no_frames: [Frame] = []
+    try emit(t.nodes, ctx, no_frames, out)
     return ok(concat(pieces: snapshot(out)))
+}
+
+// The same with the three constructors' sugar, which is what every bundled generator passes.
+// **Kept rather than migrated**: the generators declare `template.Row` and build binding lists in
+// about 1,100 lines, and their output is pinned byte for byte -- so leaving those call sites alone
+// while the engine underneath changes is what makes the fixtures evidence that the new model
+// renders the same text, rather than two changes proving each other.
+pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string> {
+    return render(sheet, name, context(bindings))
 }

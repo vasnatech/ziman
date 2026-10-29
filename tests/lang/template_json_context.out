@@ -1,0 +1,27 @@
+{"v":"sugar","rows":[{"cell":"a"}]}
+a string: ok -> value: text
+
+an int: ok -> value: 7
+
+a float: ok -> value: 1.5
+
+a big integer: ok -> value: 123456789012345678901
+
+a true: ok -> value: true
+
+a false: ok -> value: false
+
+a decimal: ok -> value: 19.90
+
+null: '@{v}' is bound to null, and it holds a string
+an array: '@{v}' is bound to an array, and it holds a string
+an object: '@{v}' is bound to an object, and it holds a string
+rows from json: ok -> - x
+- y
+
+a row that is not an object: '@for .. in rows' needs an array of objects, and element 1 is a number
+a for over an object: '@for .. in rows' needs an array, and 'rows' is bound to an object
+a context that is an array: a template's context is a JSON object, and this one is an array
+a context that is a string: a template's context is a JSON object, and this one is a string
+an empty context: '@{v}' is not bound (bound: )
+a key nothing uses: 'extra' is bound and template 'one' never mentions it (it uses: v)

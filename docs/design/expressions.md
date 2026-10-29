@@ -353,9 +353,17 @@ Each step is useful alone and provable before the next:
    vanishes quietly reads, in the validation use, as a rule that passed. The error names both keys
    and the path. A run of capitals (`userID`) is deliberately out of scope: `camel_case` cannot
    produce one from a field name.
-3. **`template.zm` takes a `Json` context** (§11), with `text`/`rows`/`row` kept as sugar. The five
-   generators migrate mechanically and the fixtures prove the output is unchanged. No dependency
-   on `expr` yet: this step is the data model alone.
+3. ~~**`template.zm` takes a `Json` context** (§11), with `text`/`rows`/`row` kept as sugar.~~
+   **DONE 2026-10-29 (F232)** -- and **the generators did not migrate at all**, which is a better
+   outcome than the one planned here. This step said they would "migrate mechanically and the
+   fixtures prove the output is unchanged"; that would have changed the engine and its 1,100 lines
+   of callers in one commit, so the fixtures would have been proving two changes against each
+   other. Keeping `render(sheet, name, [Binding])` as a second entry point over
+   `context(bindings)` leaves every call site untouched, and then the fixtures are evidence about
+   the engine alone: six generators, byte-identical output, 1,303 fixtures.
+
+   The migration is still available and is now optional rather than owed -- a generator moves to a
+   `Json` context when it wants one, not because the engine changed underneath it.
 4. **`template` starts using `expr`** -- holes and conditions become expression source, parsed
    with the sheet -- and **`@if`/`@elif`/`@else` replace `@choose`** (§12). The generators migrate
    again, against the same fixtures. This is the step that creates the dependency in §10, and it

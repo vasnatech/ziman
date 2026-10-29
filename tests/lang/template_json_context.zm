@@ -1,0 +1,78 @@
+// A template's context is a `Json` object (docs/design/expressions.md §11, step 3 of 5), and the
+// three constructors -- `text`, `rows`, `row` -- are sugar for building one. Everything the
+// bundled generators pass still goes through that sugar, which is why their fixtures did not move;
+// this one is about the model underneath, which they do not reach.
+//
+// **What is new, and what it costs.** templates.md §5 guaranteed that every value a hole can hold
+// is already a `string`, so "how is a number formatted" was a question that could not be asked.
+// It can be asked now. The answers: a string is itself, a number is what `str` writes, a bool is
+// `true`/`false`, and an array, an object and **null** are refused -- null because a hole holding
+// it is nearly always a mistake rather than a request for the empty string, and a silent "" is
+// the kind of bug that reaches a reader as a missing word in generated code.
+use json
+use template
+
+val sheet = template.must_parse("""
+@template one
+value: @{v}
+@end
+
+@template over
+@for r in rows
+- @{r.cell}
+@end
+@end
+""")
+
+fn show(what: string, r: Result<string, string>) {
+    if Err(e) = r {
+        print(concat(what, ": ", e))
+    }
+    if Ok(text) = r {
+        print(concat(what, ": ok -> ", text))
+    }
+}
+
+fn ctx(body: string) -> json.Json {
+    return unwrap(json.parse(body))
+}
+
+fn main() {
+    // The sugar and a hand-built object are the same context, which is the claim this step makes.
+    print(json.format(template.context([
+        template.text("v", "sugar"),
+        template.rows("rows", [template.row([template.text("cell", "a")])])
+    ])))
+
+    show("a string", template.render(sheet, "one", ctx("{\"v\": \"text\"}")))
+    show("an int", template.render(sheet, "one", ctx("{\"v\": 7}")))
+    show("a float", template.render(sheet, "one", ctx("{\"v\": 1.5}")))
+    show("a big integer", template.render(sheet, "one", ctx("{\"v\": 123456789012345678901}")))
+    show("a true", template.render(sheet, "one", ctx("{\"v\": true}")))
+    show("a false", template.render(sheet, "one", ctx("{\"v\": false}")))
+
+    // An exact decimal keeps its scale, because `str` does: the whole reason `parse_exact` exists.
+    show("a decimal", template.render(sheet, "one", unwrap(json.parse_exact("{\"v\": 19.90}"))))
+
+    show("null", template.render(sheet, "one", ctx("{\"v\": null}")))
+    show("an array", template.render(sheet, "one", ctx("{\"v\": [1]}")))
+    show("an object", template.render(sheet, "one", ctx("{\"v\": {\"a\": 1}}")))
+
+    // A `@for` walks an array of objects; a row is addressed as `@{binder.cell}`, so an element
+    // with no cells to name is refused -- by position, since one bad element in a long array is
+    // otherwise a hunt.
+    show("rows from json", template.render(sheet, "over", ctx("{\"rows\": [{\"cell\": \"x\"}, {\"cell\": \"y\"}]}")))
+    show("a row that is not an object", template.render(sheet, "over", ctx("{\"rows\": [{\"cell\": \"x\"}, 7]}")))
+    show("a for over an object", template.render(sheet, "over", ctx("{\"rows\": {\"cell\": \"x\"}}")))
+
+    // The context itself has to be an object: there is nothing to bind a name to otherwise.
+    show("a context that is an array", template.render(sheet, "one", ctx("[1, 2]")))
+    show("a context that is a string", template.render(sheet, "one", ctx("\"v\"")))
+
+    // Both directions of binding still hold over a `Json` context: a hole naming nothing bound,
+    // and a key the template never mentions.
+    // An empty context reaches the hole, where a context with the *wrong* key is caught one step
+    // earlier by the unused-key check -- which is the more likely mistake and so runs first.
+    show("an empty context", template.render(sheet, "one", ctx("{}")))
+    show("a key nothing uses", template.render(sheet, "one", ctx("{\"v\": \"a\", \"extra\": 1}")))
+}

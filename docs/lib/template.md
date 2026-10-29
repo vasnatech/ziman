@@ -74,11 +74,12 @@ pub struct Row {
 ```
 pub struct Binding {
     name: string
-    value: Bound
+    value: Json
 }
 ```
 
-A value under a name, as `eql.bind` is -- the same problem, so the same shape.
+A value under a name, as `eql.bind` is -- the same problem, so the same shape. The value is a
+`Json` now, which is what makes the three constructors sugar rather than a second model.
 
 ### `text`
 
@@ -86,9 +87,7 @@ A value under a name, as `eql.bind` is -- the same problem, so the same shape.
 pub fn text(name: string, value: string) -> Binding
 ```
 
-A string for `@{name}`, for `@yield name`, and for the tag a `@choose` reads. **Everything a
-template can hold is a string or a list of rows**, so there is no number to format and no
-question about how one is formatted.
+A string for `@{name}`, for `@yield name`, and for the tag a `@choose` reads.
 
 ### `rows`
 
@@ -105,6 +104,16 @@ pub fn row(cells: [Binding]) -> Row
 ```
 
 One row of a `@for`: its cells are reached qualified, as `@{binder.cell}`.
+
+### `context`
+
+```
+pub fn context(bindings: [Binding]) -> Json
+```
+
+The object a binding list means. Public because a caller that wants to see what it is passing --
+or to pass a tree a generator did not build, which is the point of the change -- should not have
+to guess the mapping.
 
 ## Parsing
 
@@ -131,7 +140,7 @@ source rather than a condition any caller could act on -- the same reasoning
 ### `render`
 
 ```
-pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string>
+pub fn render(sheet: Sheet, name: string, ctx: Json) -> Result<string, string>
 ```
 
 One of the sheet's templates, with its holes filled.
@@ -140,3 +149,13 @@ One of the sheet's templates, with its holes filled.
 mentions. The second is the more likely one after a template is edited, and it is a question
 about the text rather than about this render -- so an unused binding is reported even when the
 loop that would have read it has no rows, or the `@when` that would have is not the one chosen.
+
+```
+pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string>
+```
+
+The same with the three constructors' sugar, which is what every bundled generator passes.
+**Kept rather than migrated**: the generators declare `template.Row` and build binding lists in
+about 1,100 lines, and their output is pinned byte for byte -- so leaving those call sites alone
+while the engine underneath changes is what makes the fixtures evidence that the new model
+renders the same text, rather than two changes proving each other.

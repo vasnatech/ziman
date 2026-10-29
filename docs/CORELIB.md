@@ -1769,7 +1769,7 @@ pub struct Row {
 
 pub struct Binding {
     name: string
-    value: Bound
+    value: Json
 }
 
 pub fn text(name: string, value: string) -> Binding
@@ -1778,9 +1778,13 @@ pub fn rows(name: string, value: [Row]) -> Binding
 
 pub fn row(cells: [Binding]) -> Row
 
+pub fn context(bindings: [Binding]) -> Json
+
 pub fn parse(source: string) -> Result<Sheet, string>
 
 pub fn must_parse(source: string) -> Sheet
+
+pub fn render(sheet: Sheet, name: string, ctx: Json) -> Result<string, string>
 
 pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string>
 

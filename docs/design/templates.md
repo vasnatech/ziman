@@ -165,11 +165,28 @@ val out = try template.render(compare_template, [
 runtime refusal: there is no number to format, so there is no question about how a number is
 formatted.
 
+**Both paragraphs here were overtaken on 2026-10-29** (F232, docs/design/expressions.md §11): a
+context is a `Json` object now, and `text`/`rows`/`row` are sugar for building one. The guarantee
+above is the thing that was given up, deliberately -- a hole renders a string as itself, a number
+as `str` writes it and a bool as `true`/`false`, and refuses an array, an object or **null**. Null
+is the one worth naming: a hole holding it is nearly always a mistake rather than a request for
+the empty string, and a silent `""` is the shape of bug that reaches a reader as a missing word in
+generated code.
+
 **Why not a `Map`.** `Map<string, string>` is a fine *row* and real syntax today. It cannot be the
 whole binding set: those need scalars, booleans and lists of rows at once, so a map forces either
 three maps and a three-argument `render`, or one recursive `enum Value` in front of every caller.
 A `Row` holding `Binding`s gives nesting for free and keeps both out of sight. (Ziman has no tuple
 type, so `("variant", x)` is not an option at all.)
+
+**And that comparison was missing a type.** The recursive `enum Value` it rejected putting "in
+front of every caller" already existed, in `json.zm`, with a parser, a serializer, an indenting
+formatter and `#[derive(Json)]` feeding it -- so the choice was never "one map or three" but
+"invent a recursive value or reuse the one the language already has". The old model was a
+degenerate `Json` either way: a `text` is a `JString`, a `Row` is a `JObject`, `rows` is a
+`JArray` of them. What keeps it from landing "in front of every caller" is that the three
+constructors stay, so a generator still writes `template.text("name", m.name)` and never mentions
+`Json` at all.
 
 **Scoping inside `@for`.** Cells are reached **qualified** -- `@for r in ranked` binds `r`, and the
 row's cells are `@{r.variant}`. Unqualified cells would shadow an outer binding silently; this way
@@ -180,7 +197,9 @@ nesting two loops is unambiguous and shadowing is impossible by construction.
 ```ziman
 pub fn parse(source: string) -> Result<Sheet, string>
 pub fn must_parse(source: string) -> Sheet
+pub fn render(sheet: Sheet, name: string, ctx: Json) -> Result<string, string>
 pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string>
+pub fn context(bindings: [Binding]) -> Json
 ```
 
 with the parse living in a module-level `val`:
@@ -684,7 +703,9 @@ A source is always a sheet, so the entry points change shape:
 ```ziman
 pub fn parse(source: string) -> Result<Sheet, string>
 pub fn must_parse(source: string) -> Sheet
+pub fn render(sheet: Sheet, name: string, ctx: Json) -> Result<string, string>
 pub fn render(sheet: Sheet, name: string, bindings: [Binding]) -> Result<string, string>
+pub fn context(bindings: [Binding]) -> Json
 ```
 
 `render` naming its template is what lets one `val` serve a whole generator. An unknown name is a

@@ -4147,3 +4147,55 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `prelude.len` already needs.
 
   1,302 fixtures.
+
+- [x] **F232** **A template's context is a `Json` object: step 3 of the expression language, and
+  the generators did not have to move.** (docs/design/expressions.md §16 step 3; done 2026-10-29;
+  S-M.)
+
+  `template.render` took a `[Binding]` whose values were either a string or a list of rows. That
+  was **a degenerate `Json` by construction** -- a `text` is a `JString`, a `Row` is a `JObject`,
+  `rows` is a `JArray` of them -- so the model is now `Json` itself: one type where there were
+  three, with `text`/`rows`/`row` kept as sugar and a new `template.context(bindings)` that says
+  what a binding list means.
+
+  **The planned migration did not happen, and not happening is the better outcome.** The staging
+  budgeted "the five generators migrate mechanically and the fixtures prove the output is
+  unchanged" -- about 1,100 lines of generator Ziman, now six generators rather than five. But
+  changing the engine *and* its callers in one commit would make those byte-identical fixtures
+  evidence about two changes at once. Keeping `render(sheet, name, [Binding])` as a second entry
+  point over `context(bindings)` leaves every call site untouched, and then the fixtures say
+  exactly one thing: **the new engine renders the same text**. Six generators, byte-identical,
+  1,303 fixtures. The migration is now optional rather than owed.
+
+  **What was given up, deliberately**: templates.md §5's guarantee that every value a hole can
+  hold is already a `string`, which made "how is a number formatted" unaskable. It is askable now:
+  a string renders as itself, a number as `str` writes it (so a `decimal` parsed by `parse_exact`
+  keeps `19.90`, and a bigint stays exact), a bool as `true`/`false`. An array, an object and
+  **null** are refused -- null because a hole holding it is nearly always a mistake rather than a
+  request for the empty string, and a silent `""` is the shape of bug that reaches a reader as a
+  missing word in generated code.
+
+  **templates.md §5's "why not a `Map`" was missing a type, which is worth recording rather than
+  just correcting.** It rejected "one recursive `enum Value` in front of every caller" -- and that
+  value already existed in `json.zm`, with a parser, a serializer, a formatter and
+  `#[derive(Json)]` feeding it. The real choice was never "one map or three"; it was "invent a
+  recursive value or reuse the language's own". What keeps it out of callers' faces is the sugar.
+
+  **One claim checked rather than assumed before importing anything.** `template.zm`'s header says
+  a generator that needs a generator cannot be loaded, and `template` is part of the generator
+  program -- so `use json` is only safe if `json` and everything under it are derive-free. They
+  are: `json`, `math`, `number` and `locale` have **zero** derive sites. (A first grep said four,
+  because `json.zm` mentions `#[derive(Json)]` in four comments. Count attributes, not words.)
+
+  Two new refusals that have no equivalent in the old model, both pinned in
+  `tests/lang/template_json_context`: a `@for` element that is not an object, refused **by
+  position** since one bad element in a long array is otherwise a hunt; and a context that is not
+  an object at all. `tests/lang/template_refusals` moved by exactly two lines -- "a list of rows"
+  is "an array" and "needs rows" is "needs an array" -- which is the whole visible cost.
+
+  Also seen, not caused by this: `stack_depth_trace_bounded` failed once in a suite run started
+  immediately after a build and passed on an idle machine. It exhausts a 512 MB stack inside the
+  harness's 5s timeout, so it is load-sensitive in the same way the three `--gc-stress` fixtures
+  are (F230).
+
+  1,303 fixtures.

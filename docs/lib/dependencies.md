@@ -231,6 +231,7 @@ flowchart LR
     stroker --> math
     stroker --> paint
     stroker --> shape
+    template --> json
     test --> regex
     time --> clock
     time --> db
@@ -266,12 +267,12 @@ otherwise: everything on a layer depends only on lower layers.
 
 | Layer | Modules |
 |---|---|
-| 0 | `bits`, `clock`, `compress`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `template`, `thread` |
-| 1 | `derive_entity`, `derive_json`, `derive_ord`, `derive_reflect`, `derive_row`, `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `xml` |
-| 2 | `derive_repository`, `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
-| 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
-| 4 | `datasource`, `derive_properties`, `font`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sql`, `sqlite`, `time`, `uuid` |
-| 5 | `client`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
+| 0 | `bits`, `clock`, `compress`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
+| 1 | `derive_reflect`, `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `xml` |
+| 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
+| 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `template`, `truetype`, `yaml`, `zone` |
+| 4 | `datasource`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_row`, `font`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sql`, `sqlite`, `time`, `uuid` |
+| 5 | `client`, `derive_repository`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
 
 ## Each module
 
@@ -300,7 +301,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |
 | `http` | `locale`, `mime`, `number`, `random`, `url` | `client`, `server` |
 | `image` | `bits`, `compress`, `paint` | `pdf`, `raster` |
-| `json` | `math`, `number` | `csv`, `expr`, `jwt`, `log`, `ndjson`, `server`, `time`, `toml`, `uuid`, `yaml` |
+| `json` | `math`, `number` | `csv`, `expr`, `jwt`, `log`, `ndjson`, `server`, `template`, `time`, `toml`, `uuid`, `yaml` |
 | `jwt` | `clock`, `crypto`, `encoding`, `json`, `number` | - |
 | `layout` | `font`, `geom`, `paint`, `scene`, `shape` | - |
 | `locale` | - | `client`, `encoding`, `eql`, `http`, `log`, `memdb`, `mime`, `number`, `paint`, `pg`, `properties`, `schedule`, `server`, `sql`, `time`, `toml`, `url`, `xml`, `yaml` |
@@ -334,7 +335,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
-| `template` | - | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_row` |
+| `template` | `json` | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_row` |
 | `test` | `regex` | - |
 | `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `eql`, `migrate`, `schedule`, `toml` |

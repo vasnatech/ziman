@@ -17,6 +17,6 @@ a binding nothing uses: 'extra' is bound and template 'greet' never mentions it 
 a tag no @when names: '@choose kind' is 'shouty', which no '@when' names (it has: loud, quiet)
 a tag one does: ok -> quiet
 
-@choose over rows: '@choose kind' is bound to a list of rows, and it holds a string
-@for over a string: '@for .. in rows' needs rows, and 'rows' is bound to a string
+@choose over rows: '@choose kind' is bound to an array, and it holds a string
+@for over a string: '@for .. in rows' needs an array, and 'rows' is bound to a string
 a cell that is not there: '@{r.cell}' names no cell of that row (it has: other)
