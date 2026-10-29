@@ -22,11 +22,11 @@ none caught by 1,293 fixtures:
    tail, so `Map<string, int>` arrived as a bare `map` with no arguments and the generator
    indexed `args[0]` of an empty array.
 3. **The reified `Decl` was built where the collector could not see it**, so a collection partway
-   through freed a finished `Member`. This one is not about the model -- it is in §9 anyway,
+   through freed a finished member. This one is not about the model -- it is in §9 anyway,
    because the reason it survived is the same.
 
 The cause they share is not carelessness about any one kind. It is that **a fixture builds its
-`MetaType` by hand**:
+a type by hand**, with today's `meta.generic(..)`:
 
 ```ziman
 f("scores", meta.generic("map", "Map", [meta.scalar("string"), meta.scalar("int")]))
@@ -66,11 +66,11 @@ compiler can hand a generator, and silent about everything else.**
 The rule says *a field nobody reads is a promise*. The three bugs were not about extra fields.
 They were about fields that **exist and lie**.
 
-`MetaType` has `kind`, `name` and `args`. For 5 of the 19 `TypeKind`s those three are faithful.
-For the rest, `args` is empty whether or not the type has parts, and until the fix on 2026-10-28
-`name` was empty too. Today:
+Today's type model is one struct -- a `kind` string, a `name`, and a flat list of arguments --
+and it is faithful for 5 of the compiler's 19 `TypeKind`s. For the rest the argument list is
+empty whether or not the type has parts, and until the fix on 2026-10-28 the name was empty too:
 
-| kind                                  | parts in the compiler        | in `MetaType`                  |
+| kind                                  | parts in the compiler        | in today's model               |
 | ------------------------------------- | ---------------------------- | ------------------------------ |
 | `array`, `set`                        | `elem`                       | `args[0]` ✓                    |
 | `map`                                 | `elem`, `elem_err`           | `args[0]`, `args[1]` ✓         |
@@ -86,12 +86,12 @@ same shape as the map/set bug, still present, and it is why `derive(Json)` refus
 field with "does not support field type" rather than handling it: the generator could not see
 inside one if it wanted to.
 
-**The failure was not that `meta` was small. It was that `MetaType` claimed to be a tree and was
-one only sometimes.** A model that is faithful for 5 of 19 kinds and silently flat for the rest is
+**The failure was not that `meta` was small. It was that the type model claimed to be a tree and
+was one only sometimes.** A model that is faithful for 5 of 19 kinds and silently flat for the rest is
 worse than one that is honestly partial, because nothing in the shape says which you have.
 
-A wider struct would fix this table and not the cause: `kind: string` with `args: [MetaType]` can
-always be given a kind it has no arguments for, and nothing complains. §5's enum cannot represent
+A wider struct would fix this table and not the cause: a `kind: string` beside a flat `args` list
+can always be given a kind it has no arguments for, and nothing complains. §5's enum cannot represent
 that state at all, which is why the fix is the shape rather than the contents.
 
 ## 4. What `derive(Entity)` and `#[repository]` need that is not there
@@ -121,7 +121,7 @@ leads.
 
 ## 5. The model: a `Type` is an enum, and that is the whole argument
 
-Replace `MetaType { kind: string, name: string, args: [MetaType] }` with a tagged enum:
+Replace today's `kind`/`name`/`args` struct with a tagged enum:
 
 ```ziman
 pub enum Type {
@@ -225,8 +225,8 @@ That is the whole of its job: spell the `<..>` and supply a converter per elemen
 
 **And `Named` covers only user-declared structs and enums.** `[T]`, `Map<K, V>`, `Option<T>` and
 `Result<T, E>` each have their own variant with named parts, so none of them is ever a `Named`
-with positional `args`. Under today's `MetaType` they all share one `args` list and a reader has
-to know by convention that `args[1]` is a map's *value* but a result's *error* -- which is the
+with positional `args`. Today they all share one `args` list and a reader has to know by
+convention that `args[1]` is a map's *value* but a result's *error* -- which is the
 §5 change in one sentence.
 
 ### Why this is better than a wider struct, and it is not "more fields"
@@ -278,7 +278,7 @@ byte for byte, so the rewrite is provable.
 
 ## 6. A declaration is an enum too, for the same reason
 
-`Decl` carries `is_enum: bool`, and `Member` carries `has_payload: bool` whose own comment says
+`Decl` carries `is_enum: bool`, and a member carries `has_payload: bool` whose own comment says
 *"Always false for a struct's field."* That is the same shape as §3's complaint: a field that is
 meaningless in half the values it appears in.
 
@@ -379,8 +379,8 @@ pub struct Target {
     defined: [string]
 }
 
-pub struct Function { name: string  params: [Param]  returns: MetaType }
-pub struct Param    { name: string  type: MetaType }
+pub struct Function { name: string  params: [Param]  returns: Type }
+pub struct Param    { name: string  type: Type }
 ```
 
 `Target` is named for what it is -- the target of one `#![repository(..)]` -- rather than
@@ -404,7 +404,7 @@ generators had one shape, and the fifth does not. Discovering that by trying to 
 
 ## 10. The change that matters most: test the boundary, not the model
 
-A wider `MetaType` would not have caught any of §1's bugs. **This would:**
+A wider struct would not have caught any of §1's bugs. **This would:**
 
 > A fixture that declares real types, runs a real `#[derive(..)]`, and asserts what the generator
 > was handed.
@@ -441,7 +441,7 @@ this is what keeps the next three bugs from shipping.
    behaviour including whatever is still wrong, which is the point: the diff in step 2 is then the
    proof.
 2. **`Type` becomes an enum** (§5) and `Decl` follows (§6). This is **not additive** -- it
-   replaces `MetaType`, rewrites `reify_type`, and turns all five generators' `if t.kind == ".."`
+   replaces the type struct, rewrites `reify_type`, and turns all five generators' `if t.kind == ".."`
    ladders into exhaustive `switch`es. The step-1 fixture changes, every change in it is
    reviewable as a line, and the generators' own fixtures must not change at all.
 3. **`Field.attrs`** (§7), additive; no generator reads it yet.
@@ -490,9 +490,6 @@ generator depends on it. Two guards: `Target` is one feature's type rather than 
 * **How does `#![generator(X)]` say which kind it declares?** By which entry point the module
   exports (`generate` vs `generate_module`), or by the attribute. Exporting both should be a
   refusal either way.
-* **Should `text` on `MetaType` be authoritative, with `type_text` deleted?** Two ways to spell the
-  same thing is how they drift. Keeping both and checking they agree (§9) is the proposal, but
-  deleting `type_text` is tidier.
 * **Should `Optional` really be a variant** (§5), given that the compiler has no such kind and
   `meta` would be normalising two of its representations into one? This is the clearest case of
   `meta` being an interface rather than a mirror, and the clearest place to object to that.
