@@ -349,6 +349,21 @@ char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, 
  * collection landing inside a reification -- which is the argument for a second *kind* rather
  * than a second mechanism. */
 
+/* A signature without its body, as `meta.Function`. The types are the source's own spelling,
+ * which is what a generated body has to repeat: self-qualification runs after generation. */
+static Value reify_function(FunctionDecl *fn, int line, int col) {
+    Value *params = ziman_xmalloc(sizeof(Value) * (size_t)(fn->params.count > 0 ? fn->params.count : 1));
+    for (int i = 0; i < fn->params.count; i++) {
+        Value a[2] = {value_string(ziman_xstrdup(fn->params.items[i].name)),
+                      reify_type(fn->params.items[i].type, line, col)};
+        params[i] = call_meta("param", a, 2, line, col);
+    }
+    Value args[3] = {value_string(ziman_xstrdup(fn->name != NULL ? fn->name : "")),
+                     array_of(params, fn->params.count),
+                     reify_type(fn->return_type, line, col)};
+    return call_meta("function", args, 3, line, col);
+}
+
 /* **The entity is reified by `reify_decl`, the same function the five derives go through.** A
  * `Target` is the module's context around a declaration, not a second kind of declaration, so
  * the part a generator reads most is the part that already had a fixture (`meta_boundary`). */
@@ -387,4 +402,20 @@ char *ziman_generate_module_in_ziman(const ZimanTarget *t, int line, int col) {
     Value target = reify_target_guarded(t, line, col);
     return run_generator("derive_repository::generate_module", &target, 1,
                          "the repository generator", caller_file, line, col);
+}
+
+char *ziman_generate_query_in_ziman(const ZimanTarget *t, FunctionDecl *fn, int line, int col) {
+    const char *caller_file = ziman_error_file();
+    load_generators();
+    ziman_set_error_file(caller_file);
+    if (g_generators == NULL) return NULL;
+    /* **One guard over both values**: the `Function` is the second argument of the same call, and
+     * a collection landing between the two would sweep whichever was finished first -- the bug
+     * `--gc-stress` exists for, in the one shape this file had not had yet. */
+    native_gc_unsafe_enter();
+    Value args[2] = {reify_target(t, line, col), reify_function(fn, line, col)};
+    native_gc_unsafe_leave();
+    char what[128];
+    snprintf(what, sizeof what, "the repository generator, for '%s'", fn->name != NULL ? fn->name : "");
+    return run_generator("derive_repository::generate_query", args, 2, what, caller_file, line, col);
 }

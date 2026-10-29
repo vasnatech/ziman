@@ -30,3 +30,11 @@ keyed version replacing it would silently remove a guarantee.
 ```
 pub fn generate_module(t: meta.Target) -> Result<string, string>
 ```
+
+## The SQL, and the body that runs it
+
+### `generate_query`
+
+```
+pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string>
+```

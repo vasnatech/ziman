@@ -10349,14 +10349,37 @@ text cannot perform. The five declaration derives are split in exactly the same 
 `import_for_derive` is C beside every one of them. The code that *decides what the text says* is
 what moved.
 
-**The keyed CRUD moved first; the derived queries are the second half.** The two arrived in one
-design and are two jobs: nine functions whose bodies follow from the entity, and a name grammar
-with a signature check and a SQL builder. The first is `lib/core/derive_repository.zm` as of
-F228, and the measurement that it is a port rather than a rewrite is that the North Star's 23
-repositories generate **12,542 lines of byte-identical text** before and after -- the only
-difference being that a function the module writes by hand now has its "written by hand" note
-where the function would have been, rather than above the block, because the note is part of the
-text now instead of a `printf` beside it.
+**The keyed CRUD moved first, then the derived queries -- both on the same day.** The two arrived
+in one design and are two jobs: nine functions whose bodies follow from the entity (F228), and a
+name grammar with a signature check and a SQL builder (F229). The measurement that each is a port
+rather than a rewrite is the same one twice: the North Star's 23 repositories and 80 derived
+queries generate **12,542 lines of byte-identical text** before and after, and all thirteen
+refusal fixtures print byte-identical messages. The only difference anywhere is that a function
+the module writes by hand now has its "written by hand" note where the function would have been,
+rather than above the block, because the note is part of the text now instead of a `printf`
+beside it.
+
+**What that leaves in `src/derive.c`: 947 lines, down from 1,716, and no code generation at all.**
+The growable buffer the file opened with existed because every generator was a string builder;
+with the last of them in Ziman, the file finds declarations, ensures imports and splices. Two
+things stayed that are worth naming because they look like leftovers and are not. The
+type-parameter refusal on a derived query is a fact about the declaration's own shape, needs no
+entity, and `meta.Function` deliberately carries no type parameters -- a field for the sake of one
+check is what §12's guard is against. And the `<fn>_query` val-name collision is a fact about the
+*module*, not the entity, so it is checked where the module is.
+
+**One duplication was accepted on purpose.** `standard_flat_type_name` in the C and `flat_names`
+in `derive_row.zm` are the same seven-entry table: the generator writes `to_sql(x)` for those
+types and the C has to import exactly the name that text calls. They have to agree. It is
+survivable because a disagreement is a *missing import*, which is an error at the deriving
+declaration -- not a wrong answer at run time -- and the alternative was letting a generator
+dictate the module's imports, a wider grant than text.
+
+**A superset where the exact set is no longer known.** The C used to import a SQL converter for
+each column a query actually bound, which it knew because it did the name reading. It no longer
+does, so it imports one per entity field instead. That is a superset of what any query can bind,
+every field of an entity is a column anyway, and an unused `use` costs a load and nothing else --
+which is a better trade than keeping a name grammar in C for the sake of an import list.
 
 **One trap worth recording, because it is the third time it has been paid.** The key parameter's
 type must be written as the *source* spells it, module qualifier and all: an entity field written

@@ -344,6 +344,8 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 ```
 pub fn generate_module(t: meta.Target) -> Result<string, string>
 
+pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string>
+
 ```
 
 ## `derive_row`

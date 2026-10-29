@@ -1,0 +1,36 @@
+// **Three broken derived queries are three errors, each at its own line.** That is the property
+// the second generator kind was shaped around (docs/design/meta.md §13): `generate_query` is
+// called once per bodyless `pub fn` rather than once for the module, so a refusal carries the
+// position of the function it refused and the next function still gets its turn. A single entry
+// point answering every body at once would have reported the first of these and stopped, at the
+// module attribute's line.
+//
+// The three are deliberately different kinds of wrong -- an unreadable name, a return type the
+// verb does not pair with, and a parameter bound by the wrong name -- because they are produced at
+// three different points of the generator and all three have to come back as `Err` rather than as
+// a failure.
+#![repository(Note)]
+
+use datasource
+use db.DbError
+
+#[derive(Row, Entity("notes"))]
+struct Note {
+    #[pk]
+    id: int
+    owner: int
+    body: string
+}
+
+#[repository]
+pub fn find_by_nothing_like_a_field(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
+
+#[repository]
+pub fn count_by_owner(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
+
+#[repository]
+pub fn find_by_owner(conn: datasource.Connection, holder: int) -> Result<[Note], DbError>
+
+fn main() {
+    print("unreachable")
+}

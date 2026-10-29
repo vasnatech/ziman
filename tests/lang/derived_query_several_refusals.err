@@ -1,0 +1,13 @@
+ziman: type error at 26:5 in tests/lang/derived_query_several_refusals.zm (in derived query 'find_by_nothing_like_a_field'): nothing in 'nothing_like_a_field' names a field of Note -- a derived query's predicate is made of the entity's own field names (it has: id, owner, body)
+   |
+26 | pub fn find_by_nothing_like_a_field(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
+   |     ^
+ziman: type error at 29:5 in tests/lang/derived_query_several_refusals.zm (in derived query 'count_by_owner'): 'count_by_owner' answers Result<[Note], DbError>, which 'count' does not pair with -- it pairs with Result<int, DbError>
+   |
+29 | pub fn count_by_owner(conn: datasource.Connection, owner: int) -> Result<[Note], DbError>
+   |     ^
+ziman: type error at 32:5 in tests/lang/derived_query_several_refusals.zm (in derived query 'find_by_owner'): parameter 1 is named 'holder' and the name's term 1 is 'owner' -- a derived query binds its parameters by name, not by position, so two transposed arguments are this error rather than the wrong rows: (conn: datasource.Connection, owner: int)
+   |
+32 | pub fn find_by_owner(conn: datasource.Connection, holder: int) -> Result<[Note], DbError>
+   |     ^
+ziman: 3 errors

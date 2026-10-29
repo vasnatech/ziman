@@ -480,13 +480,21 @@ three from shipping.
    `#[repository]`** -- the second generator kind, and the thing that takes the last generator out
    of `src/derive.c`.
 
-   **Done in two halves, because the feature is two.** The keyed CRUD landed first (2026-10-29,
-   F228): `lib/core/derive_repository.zm`'s `generate_module`, holding the nine functions, with
-   the C keeping the imports and the splice. The derived queries -- the name grammar, the
-   signature check, the SQL -- are the second half and are still C. Splitting them is the same
-   argument as splitting 4 from 5: the first half proves `Target` and the kind without the
-   second half being right as well, and the *proof* is that the backend's 23 repositories
-   generate 12,542 lines of identical text either way.
+   **Done in two halves, because the feature is two, and both landed 2026-10-29.** The keyed CRUD
+   first (F228): `generate_module`, holding the nine functions. Then the derived queries (F229):
+   `generate_query`, holding the verb split, the enumeration of every reading of a name, the
+   greedy walk that says where an unreadable one stopped making sense, the signature check, the
+   SQL and the bindings. Splitting them was the same argument as splitting 4 from 5 -- the first
+   half proved `Target` and the kind without the second half having to be right as well.
+
+   **`src/derive.c` is 1,716 -> 947 lines and generates no code at all.** The growable buffer
+   every generator was built on is gone with the last of them; what the file does now is find the
+   declaration a generator needs, ensure the imports its text names, and splice what comes back.
+   The *proof* that both halves are ports rather than rewrites is the same measurement twice: the
+   North Star's 23 repositories and 80 derived queries generate **12,542 lines of byte-identical
+   text**, and all thirteen refusal fixtures print byte-identical messages.
+
+   **This closes §11, and with it the document.** Steps 1-5 are done.
 
 Step 3 changes `src/generators.c`'s reification and the constructors in `meta.zm` without
 breaking a generator, because `meta`'s constructors are what the C calls and adding a field

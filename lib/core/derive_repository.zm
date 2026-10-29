@@ -139,7 +139,7 @@ fn key_pieces(entity: string, keys: [meta.Field]) -> Result<Keys, string> {
     val params = mutable_array_new<string>()
     val lines = mutable_array_new<string>()
     val names = mutable_array_new<string>()
-    val n = mutable(0)
+    val n = mutable_new<int>(0)
     for f in keys {
         push(params, concat(", ", f.name, ": ", meta.type_text(f.type)))
         val dst = meta.fresh(n, "key")
@@ -248,4 +248,1022 @@ pub fn generate_module(t: meta.Target) -> Result<string, string> {
         push(out, try one(t, which, key_pieces_result))
     }
     return ok(concat(pieces: snapshot(out)))
+}
+
+// ---- derived queries: a function's name read as its query ----------------------------------
+//
+// `find_by_id_and_patient_id(conn, id, patient_id) -> Result<VitalSign, DbError>` is read as a
+// verb, a predicate over the entity's own columns and a cardinality taken from the return type,
+// and the body that answers it is written here. The full design, including the counted evidence
+// that six name shapes cover 69 of the North Star's 144 repository functions, is in
+// docs/design/derived-queries.md.
+//
+// **Two things set this apart from the Spring Data feature it is modelled on, and both are checks
+// rather than features.** Parameters bind *by name*, so `find_by_id_and_patient_id(patient_id,
+// id)` -- two transposed `Uuid`s -- is a compile error here and answers the wrong rows forever
+// there. And a name with two readings is refused rather than resolved by precedence, which is why
+// the search below enumerates every parse instead of committing to the longest match at each step.
+//
+// **Every refusal is a returned `Err`, reported at the function's own line.** That is what the
+// second entry point is for: `src/derive.c` calls this once per bodyless `pub fn` and reports what
+// comes back at that function's position, so three unreadable names in one file are three errors.
+
+val by_sep = "_by_"
+val and_sep = "_and_"
+val order_sep = "_order_by_"
+
+enum Verb {
+    Find
+    Count
+    Exists
+    Delete
+}
+
+val all_verbs = [Verb.Find, Verb.Count, Verb.Exists, Verb.Delete]
+
+fn verb_word(v: Verb) -> string {
+    switch v {
+        Find { return "find" }
+        Count { return "count" }
+        Exists { return "exists" }
+        Delete { return "delete" }
+    }
+}
+
+// What each verb's return type may be, for the message a mismatch gets.
+fn verb_returns(v: Verb) -> string {
+    switch v {
+        Find {
+            return concat(
+                "Result<E, DbError> (one row, NotFound when there is none), ",
+                "Result<Option<E>, DbError> (one row, absence being the answer) or ",
+                "Result<[E], DbError> (every matching row)"
+            )
+        }
+        Count { return "Result<int, DbError>" }
+        Exists { return "Result<bool, DbError>" }
+        Delete {
+            return concat(
+                "Result<unit, DbError> (the one row this addresses, NotFound when none ",
+                "matched) or Result<int, DbError> (every matching row, answering how many)"
+            )
+        }
+    }
+}
+
+enum Op {
+    Eq
+    Not
+    In
+    Between
+    IsNull
+    IsNotNull
+    IgnoreCase
+}
+
+struct OpSuffix {
+    suffix: string
+    op: Op
+}
+
+// The operator suffix a term may carry. **Longest first**, so that the greedy walk the refusal
+// messages use reads `_is_not_null` rather than stopping at a column plus `_is_not`. The search
+// itself tries all of them at every position, because choosing is what produces the surprises
+// this exists to avoid. The empty suffix -- a plain equality -- is last for the same reason.
+val term_ops = [
+    OpSuffix { suffix: "_is_not_null", op: Op.IsNotNull },
+    OpSuffix { suffix: "_ignore_case", op: Op.IgnoreCase },
+    OpSuffix { suffix: "_is_null", op: Op.IsNull },
+    OpSuffix { suffix: "_between", op: Op.Between },
+    OpSuffix { suffix: "_not", op: Op.Not },
+    OpSuffix { suffix: "_in", op: Op.In },
+    OpSuffix { suffix: "", op: Op.Eq }
+]
+
+struct OrderDir {
+    suffix: string
+    descending: bool
+}
+
+val order_dirs = [
+    OrderDir { suffix: "_desc", descending: true },
+    OrderDir { suffix: "_asc", descending: false },
+    OrderDir { suffix: "", descending: false }
+]
+
+struct Term {
+    column: string
+    op: Op
+}
+
+struct Order {
+    column: string
+    descending: bool
+}
+
+// One reading of a name: the predicate's terms in order, then the ordering's columns in order.
+struct Shape {
+    terms: [Term]
+    orders: [Order]
+}
+
+struct Split {
+    verb: Verb
+    rest: string
+}
+
+fn after(text: string, prefix: string) -> string {
+    return substring(text, prelude.len(prefix), prelude.len(text))
+}
+
+// `find_by_id_and_patient_id` -> Find and `_by_id_and_patient_id`. The word has to end at a `_`
+// or at the end of the name, so `finder_by_x` is not a `find`.
+fn split_verb(name: string) -> Option<Split> {
+    for v in all_verbs {
+        val word = verb_word(v)
+        if !starts_with(name, word) {
+            continue
+        }
+        val rest = after(name, word)
+        if rest != "" && !starts_with(rest, "_") {
+            continue
+        }
+        return Option<Split>.Some(Split { verb: v, rest: rest })
+    }
+    return Option<Split>.None
+}
+
+// **Every reading of an ordering, not the first.** Accumulating into immutable arrays is what
+// replaces the C's push-recurse-pop: a reading that fails simply contributes no shape, and the
+// arrays it grew are not shared with the next attempt.
+fn read_orders(fields: [meta.Field], text: string, terms: [Term], orders: [Order]) -> [Shape] {
+    val out = mutable_array_new<Shape>()
+    for f in fields {
+        if !starts_with(text, f.name) {
+            continue
+        }
+        val rest = after(text, f.name)
+        for d in order_dirs {
+            if !starts_with(rest, d.suffix) {
+                continue
+            }
+            val tail = after(rest, d.suffix)
+            if tail != "" && !starts_with(tail, and_sep) {
+                continue
+            }
+            val grown = push(orders, Order { column: f.name, descending: d.descending })
+            if tail == "" {
+                push(out, Shape { terms: terms, orders: grown })
+            } else {
+                concat(out, read_orders(fields, after(tail, and_sep), terms, grown))
+            }
+        }
+    }
+    return snapshot(out)
+}
+
+// The same for a predicate, which may hand over to an ordering at `_order_by_`.
+fn read_terms(fields: [meta.Field], text: string, terms: [Term]) -> [Shape] {
+    val out = mutable_array_new<Shape>()
+    val no_orders: [Order] = []
+    for f in fields {
+        if !starts_with(text, f.name) {
+            continue
+        }
+        val rest = after(text, f.name)
+        for o in term_ops {
+            if !starts_with(rest, o.suffix) {
+                continue
+            }
+            val tail = after(rest, o.suffix)
+            val at_end = tail == ""
+            val another = starts_with(tail, and_sep)
+            val ordered = starts_with(tail, order_sep)
+            if !at_end && !another && !ordered {
+                continue
+            }
+            val grown = push(terms, Term { column: f.name, op: o.op })
+            if at_end {
+                push(out, Shape { terms: grown, orders: no_orders })
+            } else if ordered {
+                concat(out, read_orders(fields, after(tail, order_sep), grown, no_orders))
+            } else {
+                concat(out, read_terms(fields, after(tail, and_sep), grown))
+            }
+        }
+    }
+    return snapshot(out)
+}
+
+fn field_list(fields: [meta.Field]) -> string {
+    val names = mutable_array_new<string>()
+    for f in fields {
+        push(names, f.name)
+    }
+    return join(separator: ", ", pieces: snapshot(names))
+}
+
+fn longest_column(fields: [meta.Field], text: string) -> Option<string> {
+    var best = ""
+    for f in fields {
+        if !starts_with(text, f.name) {
+            continue
+        }
+        if prelude.len(f.name) > prelude.len(best) {
+            best = f.name
+        }
+    }
+    if best == "" {
+        return Option<string>.None
+    }
+    return Option<string>.Some(best)
+}
+
+// **Why a name could not be read at all.** The search answers "no parse" and nothing more, so
+// this walks the same text greedily -- longest column, then longest operator -- and reports the
+// first position where nothing fits. A greedy walk that reached the end would itself have been a
+// parse, so exactly one of these always fires; recursion rather than the C's `for (;;)` makes
+// that obvious, since every step consumes at least one column.
+fn why_unreadable(fields: [meta.Field], entity: string, at: string, ordering: bool, read: int) -> string {
+    val part = if ordering { "ordering" } else { "predicate" }
+    if None = longest_column(fields, at) {
+        if read == 0 {
+            return concat(
+                "nothing in '",
+                at,
+                "' names a field of ",
+                entity,
+                " -- a derived query's ",
+                part,
+                " is made of the entity's own field names (it has: ",
+                field_list(fields),
+                ")"
+            )
+        }
+        return concat(
+            "nothing in '",
+            at,
+            "' names a field of ",
+            entity,
+            ", and the ",
+            part,
+            " needs one after '",
+            and_sep,
+            "' (it has: ",
+            field_list(fields),
+            ")"
+        )
+    }
+    val col = unwrap(longest_column(fields, at))
+    var rest = after(at, col)
+    if ordering {
+        for d in order_dirs {
+            if starts_with(rest, d.suffix) {
+                rest = after(rest, d.suffix)
+                break
+            }
+        }
+    } else {
+        for o in term_ops {
+            if starts_with(rest, o.suffix) {
+                rest = after(rest, o.suffix)
+                break
+            }
+        }
+    }
+    if starts_with(rest, and_sep) {
+        return why_unreadable(fields, entity, after(rest, and_sep), ordering, read + 1)
+    }
+    if !ordering && starts_with(rest, order_sep) {
+        return why_unreadable(fields, entity, after(rest, order_sep), true, 0)
+    }
+    return concat(
+        "'",
+        rest,
+        "' is left over after reading '",
+        col,
+        "' -- a derived query's ",
+        part,
+        " is one field name per term, joined by '",
+        and_sep,
+        "' (",
+        entity,
+        " has: ",
+        field_list(fields),
+        ")"
+    )
+}
+
+fn op_word(op: Op) -> string {
+    switch op {
+        Eq { return "" }
+        Not { return " not" }
+        In { return " in" }
+        Between { return " between" }
+        IsNull { return " is null" }
+        IsNotNull { return " is not null" }
+        IgnoreCase { return " ignore case" }
+    }
+}
+
+// One reading, written out the way a reader can compare two of them: "'name' and 'type'".
+fn render_shape(s: Shape) -> string {
+    val out = mutable_array_new<string>()
+    if prelude.len(s.terms) == 0 {
+        push(out, "no predicate")
+    }
+    for i in 0..prelude.len(s.terms) {
+        val t = s.terms[i]
+        push(out, concat(if i > 0 { " and " } else { "" }, "'", t.column, "'", op_word(t.op)))
+    }
+    for i in 0..prelude.len(s.orders) {
+        val o = s.orders[i]
+        push(out, concat(
+            if i == 0 { ", ordered by " } else { " then " },
+            "'",
+            o.column,
+            "'",
+            if o.descending { " descending" } else { "" }
+        ))
+    }
+    return concat(pieces: snapshot(out))
+}
+
+// ---- the signature, checked against the name -----------------------------------------------
+
+// **What a term asks of the parameter list.** An `is_null` term asks for nothing, a `between` for
+// two, an `in` for an array; everything else for one parameter of the column's own type.
+//
+// An `Option` column asks for its *inner* type, not for an `Option`: `find_by_note(conn, note:
+// string)` reads rows whose nullable `note` is that text, and the None side of such a column is
+// what `_is_null` is for. A parameter of `Option<string>` would bind NULL on None, and
+// `col = NULL` matches no row in any engine -- a query that silently answers nothing.
+struct Expected {
+    name: string
+    // The entity field the term named, which is not `name` for a `between`.
+    column: string
+    type: meta.Type
+    is_list: bool
+}
+
+fn column_param_type(f: meta.Field) -> meta.Type {
+    if Optional(inner) = f.type {
+        return inner
+    }
+    return f.type
+}
+
+fn entity_field(fields: [meta.Field], name: string) -> Option<meta.Field> {
+    for f in fields {
+        if f.name == name {
+            return Option<meta.Field>.Some(f)
+        }
+    }
+    return Option<meta.Field>.None
+}
+
+fn expected_params(fields: [meta.Field], shape: Shape) -> [Expected] {
+    val out = mutable_array_new<Expected>()
+    for term in shape.terms {
+        if Some(f) = entity_field(fields, term.column) {
+            val base = column_param_type(f)
+            if IsNull = term.op {
+                continue
+            }
+            if IsNotNull = term.op {
+                continue
+            }
+            if Between = term.op {
+                push(out, Expected { name: concat(f.name, "_from"), column: f.name, type: base, is_list: false })
+                push(out, Expected { name: concat(f.name, "_to"), column: f.name, type: base, is_list: false })
+                continue
+            }
+            if In = term.op {
+                push(out, Expected { name: f.name, column: f.name, type: meta.array_type(base), is_list: true })
+                continue
+            }
+            push(out, Expected { name: f.name, column: f.name, type: base, is_list: false })
+        }
+    }
+    return snapshot(out)
+}
+
+fn is_named(t: meta.Type, name: string) -> bool {
+    if Named(n) = t {
+        return meta.bare_name(n.name) == name
+    }
+    return false
+}
+
+// Whether a parameter's type is the column's. The entity's fields come from an already-loaded
+// module and the signature's parameters are as the author wrote them, so a comparison between the
+// two sees both spellings of the same type -- `bare_name` is the right tool here, where this is a
+// lookup rather than text being written out.
+fn same_column_type(a: meta.Type, b: meta.Type) -> bool {
+    if Array(ae) = a {
+        if Array(be) = b {
+            return same_column_type(ae, be)
+        }
+        return false
+    }
+    if Optional(ae) = a {
+        if Optional(be) = b {
+            return same_column_type(ae, be)
+        }
+        return false
+    }
+    if Named(an) = a {
+        if Named(bn) = b {
+            if meta.bare_name(an.name) != meta.bare_name(bn.name) {
+                return false
+            }
+            if prelude.len(an.args) != prelude.len(bn.args) {
+                return false
+            }
+            for i in 0..prelude.len(an.args) {
+                if !same_column_type(an.args[i], bn.args[i]) {
+                    return false
+                }
+            }
+            return true
+        }
+        return false
+    }
+    // Everything else is a scalar with nothing inside it to differ, where the C compared kinds and
+    // answered yes. Comparing the rendered type is the same answer for every type a column can
+    // have, and a stricter one for the types a column cannot (`Map<string, int>` against
+    // `Map<int, string>` was "the same kind" there).
+    return meta.type_text(a) == meta.type_text(b)
+}
+
+enum ReturnKind {
+    OneEntity
+    MaybeEntity
+    ManyEntities
+    // `Number` rather than `Count`, which is already a `Verb`: the two enums meet in
+    // `verb_pairs_with`, and one name for two things there would be a puzzle to read.
+    Number
+    Flag
+    Nothing
+    Other
+}
+
+fn classify_return(ret: meta.Type, entity: string) -> ReturnKind {
+    if ResultOf(r) = ret {
+        if is_named(r.ok, entity) {
+            return ReturnKind.OneEntity
+        }
+        if Optional(inner) = r.ok {
+            if is_named(inner, entity) {
+                return ReturnKind.MaybeEntity
+            }
+        }
+        if Array(elem) = r.ok {
+            if is_named(elem, entity) {
+                return ReturnKind.ManyEntities
+            }
+        }
+        if Int = r.ok {
+            return ReturnKind.Number
+        }
+        if Bool = r.ok {
+            return ReturnKind.Flag
+        }
+        if Unit = r.ok {
+            return ReturnKind.Nothing
+        }
+    }
+    return ReturnKind.Other
+}
+
+fn verb_pairs_with(v: Verb, rk: ReturnKind) -> bool {
+    switch v {
+        Find {
+            if OneEntity = rk {
+                return true
+            }
+            if MaybeEntity = rk {
+                return true
+            }
+            if ManyEntities = rk {
+                return true
+            }
+            return false
+        }
+        Count {
+            if Number = rk {
+                return true
+            }
+            return false
+        }
+        Exists {
+            if Flag = rk {
+                return true
+            }
+            return false
+        }
+        Delete {
+            if Nothing = rk {
+                return true
+            }
+            if Number = rk {
+                return true
+            }
+            return false
+        }
+    }
+}
+
+// The signature a name asks for, written as a reader would: `(conn, id: Uuid, patient_id: Uuid)`.
+// The connection's own name when the signature has one, and `conn` when it does not -- this
+// renders the signature a name *asks for*, and the parameter the author put first is only its
+// connection when it is typed like one.
+fn render_expected_signature(f: meta.Function, expected: [Expected]) -> string {
+    var conn = "conn"
+    if prelude.len(f.params) > 0 && is_named(f.params[0].type, "Connection") {
+        conn = f.params[0].name
+    }
+    val out = mutable_array_new<string>()
+    push(out, concat("(", conn, ": datasource.Connection"))
+    for x in expected {
+        push(out, concat(", ", x.name, ": ", meta.type_text(x.type)))
+    }
+    push(out, ")")
+    return concat(pieces: snapshot(out))
+}
+
+// **Parameters bind by name, which is the whole reason this exists rather than a copy of Spring
+// Data.** There, `findByIdAndPatientId(patientId, id)` compiles, boots, and answers another
+// patient's rows forever; here the mismatch is a compile error naming both sides. The type is
+// checked against the entity's field as well, which catches the other half -- a `string`
+// parameter for a `Uuid` column.
+fn check_query_params(f: meta.Function, entity: string, expected: [Expected]) -> Result<unit, string> {
+    val asked = render_expected_signature(f, expected)
+    if prelude.len(f.params) == 0 || !is_named(f.params[0].type, "Connection") {
+        return err(concat(
+            "a derived query's first parameter is the connection it runs on ",
+            "(conn: datasource.Connection), and the rest are its predicate's terms: ",
+            asked
+        ))
+    }
+    val given = prelude.len(f.params) - 1
+    val wanted = prelude.len(expected)
+    if given != wanted {
+        return err(concat(
+            "the name asks for ",
+            str(wanted),
+            " parameter",
+            if wanted == 1 { "" } else { "s" },
+            " after the connection and the signature has ",
+            str(given),
+            " -- ",
+            asked
+        ))
+    }
+    for i in 0..wanted {
+        val p = f.params[i + 1]
+        val x = expected[i]
+        if p.name != x.name {
+            return err(concat(
+                "parameter ",
+                str(i + 1),
+                " is named '",
+                p.name,
+                "' and the name's term ",
+                str(i + 1),
+                " is '",
+                x.name,
+                "' -- a derived query binds its parameters by name, not by position, so two ",
+                "transposed arguments are this error rather than the wrong rows: ",
+                asked
+            ))
+        }
+        if !same_column_type(p.type, x.type) {
+            // `column` rather than `name`, because a `between` term's two parameters are
+            // `<column>_from` and `<column>_to` and neither is a field of anything.
+            return err(concat(
+                "parameter '",
+                p.name,
+                "' is ",
+                meta.type_text(p.type),
+                ", and the name's term reads ",
+                entity,
+                "'s field '",
+                x.column,
+                "', so it must be ",
+                meta.type_text(x.type)
+            ))
+        }
+    }
+    return ok(unit)
+}
+
+// ---- the SQL, and the body that runs it ----------------------------------------------------
+
+fn build_sql(entity: string, verb: Verb, shape: Shape) -> string {
+    val out = mutable_array_new<string>()
+    switch verb {
+        Find { push(out, concat("SELECT e FROM ", entity, " e")) }
+        Count { push(out, concat("SELECT count(*) AS n FROM ", entity, " e")) }
+        Exists { push(out, concat("SELECT count(*) AS n FROM ", entity, " e")) }
+        Delete { push(out, concat("DELETE FROM ", entity, " e")) }
+    }
+    for i in 0..prelude.len(shape.terms) {
+        val t = shape.terms[i]
+        val col = t.column
+        push(out, if i == 0 { " WHERE " } else { " AND " })
+        switch t.op {
+            Eq { push(out, concat("e.", col, " = :", col)) }
+            Not { push(out, concat("e.", col, " <> :", col)) }
+            In { push(out, concat("e.", col, " IN :", col)) }
+            Between { push(out, concat("e.", col, " BETWEEN :", col, "_from AND :", col, "_to")) }
+            IsNull { push(out, concat("e.", col, " IS NULL")) }
+            IsNotNull { push(out, concat("e.", col, " IS NOT NULL")) }
+            // `upper` on both sides rather than a collation: a collation is per-column and per
+            // engine, and this has to mean the same thing on memdb, SQLite, Postgres and MySQL.
+            IgnoreCase { push(out, concat("upper(e.", col, ") = upper(:", col, ")")) }
+        }
+    }
+    for i in 0..prelude.len(shape.orders) {
+        val o = shape.orders[i]
+        push(out, concat(
+            if i == 0 { " ORDER BY " } else { ", " },
+            "e.",
+            o.column,
+            if o.descending { " DESC" } else { "" }
+        ))
+    }
+    return concat(pieces: snapshot(out))
+}
+
+// The key's value as a person reads it, for the `NotFound` message -- `uuid.format(id)` for a
+// `Uuid`, `str(n)` for a number, the string itself for a string. None for every other type, and
+// then the message carries the label alone rather than a rendering nobody asked for: `format`
+// prints a struct as its fields (`uuid::Uuid { bytes: [17, 17, ..] }`), which in a 404 body would
+// be worse than saying nothing.
+fn key_text_expr(t: meta.Type, expr: string) -> Option<string> {
+    if String = t {
+        return Option<string>.Some(expr)
+    }
+    if Int = t {
+        return Option<string>.Some(concat("str(", expr, ")"))
+    }
+    if Float = t {
+        return Option<string>.Some(concat("str(", expr, ")"))
+    }
+    if Bool = t {
+        return Option<string>.Some(concat("str(", expr, ")"))
+    }
+    if Bigint = t {
+        return Option<string>.Some(concat("str(", expr, ")"))
+    }
+    if Decimal = t {
+        return Option<string>.Some(concat("str(", expr, ")"))
+    }
+    if is_named(t, "Uuid") {
+        return Option<string>.Some(concat("uuid.format(", expr, ")"))
+    }
+    return Option<string>.None
+}
+
+// The message a derived query's `NotFound` carries: `"Medication not found: <id>"` when the
+// predicate addresses the entity's key and the key renders, `"Medication not found"` when it does
+// not. The label is `#![repository(E, label: "..")]`'s, or the entity's own name when none was
+// given -- a generator cannot work it out, which is the whole reason the attribute takes one.
+//
+// The shape is `<label> not found: <id>` because that is what the application this was adopted in
+// already wrote, by hand, in 31 places, and its own comment says why the id is in it: a 404 in a
+// log with no id cannot be matched to a request.
+fn not_found_expr(t: meta.Target, shape: Shape) -> string {
+    val label = meta.label_of(t)
+    val fields = meta.fields_of(t)
+    if prelude.len(meta.keys_of(t)) == 1 {
+        for term in shape.terms {
+            if Eq = term.op {
+                if Some(f) = entity_field(fields, term.column) {
+                    if meta.has_attr(f, "pk") {
+                        if Some(text) = key_text_expr(column_param_type(f), f.name) {
+                            return concat(
+                                "DbError.NotFound(concat(\"",
+                                label,
+                                " not found: \", ",
+                                text,
+                                "))"
+                            )
+                        }
+                        // A key column that does not render means the label alone, rather than
+                        // reaching past it for some other term's value.
+                        break
+                    }
+                }
+            }
+        }
+    }
+    return concat("DbError.NotFound(\"", label, " not found\")")
+}
+
+fn list_elem(t: meta.Type) -> meta.Type {
+    if Array(e) = t {
+        return e
+    }
+    return t
+}
+
+// The `[eql.Binding]` the body hands to `eql`, built from the parameters the name asked for.
+// Each value goes through `derive_row.emit_to_sql` -- the same conversion `<name>_to_params` is
+// built from -- so a parameter reaches SQL by exactly the route its column does.
+fn bindings_text(expected: [Expected]) -> Result<string, string> {
+    val out = mutable_array_new<string>()
+    val n = mutable_new<int>(0)
+    for x in expected {
+        if !x.is_list {
+            push(out, try derive_row.emit_to_sql(x.type, x.name, concat("__value_", x.name), n))
+            continue
+        }
+        push(out, concat("    val __values_", x.name, " = mutable_array_new<SqlValue>()\n"))
+        push(out, concat("    for __item_", x.name, " in ", x.name, " {\n"))
+        push(out, try derive_row.emit_to_sql(
+            list_elem(x.type),
+            concat("__item_", x.name),
+            concat("__item_", x.name, "_sql"),
+            n
+        ))
+        push(out, concat("    push<SqlValue>(__values_", x.name, ", __item_", x.name, "_sql)\n"))
+        push(out, "    }\n")
+    }
+    val binds = mutable_array_new<string>()
+    for x in expected {
+        if x.is_list {
+            push(binds, concat("eql.bind_list(\"", x.name, "\", snapshot(__values_", x.name, "))"))
+        } else {
+            push(binds, concat("eql.bind(\"", x.name, "\", __value_", x.name, ")"))
+        }
+    }
+    push(out, concat(
+        "    val __bindings: [eql.Binding] = [",
+        join(separator: ", ", pieces: snapshot(binds)),
+        "]\n"
+    ))
+    return ok(concat(pieces: snapshot(out)))
+}
+
+// **One private `Translated` val per derived function, named for it** (derived-queries.md §8.3).
+// Translating costs 140-300 microseconds against 300-3,000 for a round trip, so a repository
+// translates once when it loads -- and a query the generator emitted badly then fails at startup
+// rather than on the first request that happens to read that column.
+//
+// The snippet repeats the author's own signature although only the body is taken out of it (see
+// `parse_and_splice_into` in src/derive.c). It costs nothing and it is what makes
+// `--emit-derived` print a function a reader can compare with the declaration.
+val query_sheet = template.must_parse("""
+@template query
+val @{val_name}: eql.Translated = unwrap(eql.translate(eql.registry([@{snake}_meta]), "@{sql}"))
+
+fn @{fname}(@{params}) -> @{returns} {
+@yield bindings
+@yield tail
+}
+@end
+
+@template tail_many
+    return eql.list<@{name}>(@{conn}, @{val_name}, __bindings, @{snake}_from_row)
+@end
+
+@template tail_maybe
+    return eql.one<@{name}>(@{conn}, @{val_name}, __bindings, @{snake}_from_row)
+@end
+
+@template tail_one
+    val __found = try eql.one<@{name}>(@{conn}, @{val_name}, __bindings, @{snake}_from_row)
+    if Some(__row) = __found {
+        return __row
+    }
+    return err(@{not_found})
+@end
+
+@template tail_count
+    return eql.count(@{conn}, @{val_name}, __bindings)
+@end
+
+@template tail_execute
+    return eql.execute(@{conn}, @{val_name}, __bindings)
+@end
+
+@template tail_flag
+    val __matching = try eql.count(@{conn}, @{val_name}, __bindings)
+    return __matching > 0
+@end
+
+@template tail_nothing
+    val __deleted = try eql.execute(@{conn}, @{val_name}, __bindings)
+    if __deleted == 0 {
+        return err(@{not_found})
+    }
+    return unit
+@end
+""")
+
+fn tail_text(
+    t: meta.Target,
+    shape: Shape,
+    verb: Verb,
+    rk: ReturnKind,
+    conn: string,
+    val_name: string
+) -> Result<string, string> {
+    val entity = t.entity.name
+    val snake = t.entity.snake_name
+    val rows = [
+        template.text("name", entity),
+        template.text("conn", conn),
+        template.text("val_name", val_name),
+        template.text("snake", snake)
+    ]
+    val plain = [template.text("conn", conn), template.text("val_name", val_name)]
+    switch rk {
+        ManyEntities { return template.render(query_sheet, "tail_many", rows) }
+        MaybeEntity { return template.render(query_sheet, "tail_maybe", rows) }
+        OneEntity {
+            return template.render(
+                query_sheet,
+                "tail_one",
+                push(rows, template.text("not_found", not_found_expr(t, shape)))
+            )
+        }
+        Number {
+            if Count = verb {
+                return template.render(query_sheet, "tail_count", plain)
+            }
+            return template.render(query_sheet, "tail_execute", plain)
+        }
+        Flag { return template.render(query_sheet, "tail_flag", plain) }
+        Nothing {
+            return template.render(
+                query_sheet,
+                "tail_nothing",
+                push(plain, template.text("not_found", not_found_expr(t, shape)))
+            )
+        }
+        // Refused by the pairing check above, which runs first and names both halves. The arm is
+        // here because the `switch` requires one, which is what makes that refusal unforgettable.
+        Other {
+            return err(concat(
+                "a derived query over ",
+                entity,
+                " answers a type this cannot write a body for, which the pairing check above ",
+                "should have refused first"
+            ))
+        }
+    }
+}
+
+pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string> {
+    val entity = t.entity.name
+    val snake = t.entity.snake_name
+    val fields = meta.fields_of(t)
+    val no_terms: [Term] = []
+    val no_orders: [Order] = []
+
+    if None = split_verb(f.name) {
+        return err(concat(
+            "a derived query's name begins with 'find', 'count', 'exists' or ",
+            "'delete', and '",
+            f.name,
+            "' begins with none of them"
+        ))
+    }
+    val split = unwrap(split_verb(f.name))
+    val verb = split.verb
+    val word = verb_word(verb)
+    val rest = split.rest
+    if rest != "" && !starts_with(rest, by_sep) && !starts_with(rest, order_sep) {
+        if starts_with(rest, "_all_by_") || rest == "_all" {
+            return err(concat(
+                "there is no '_all' in a derived query's name: how many rows it ",
+                "answers comes from its return type and nowhere else, so this is '",
+                word,
+                after(rest, "_all"),
+                "' answering a [",
+                entity,
+                "]"
+            ))
+        }
+        return err(concat(
+            "after '",
+            word,
+            "' a derived query's name has '",
+            by_sep,
+            "<predicate>', '",
+            order_sep,
+            "<ordering>' or nothing, and '",
+            rest,
+            "' is none of them -- a name about the application rather than about ",
+            entity,
+            " (a 'current' or a 'recent') is written out by hand, and a hand-written body wins"
+        ))
+    }
+
+    val only_ordering = starts_with(rest, order_sep)
+    var readings: [Shape] = []
+    if rest == "" {
+        readings = [Shape { terms: no_terms, orders: no_orders }]
+    } else if only_ordering {
+        readings = read_orders(fields, after(rest, order_sep), no_terms, no_orders)
+    } else {
+        readings = read_terms(fields, after(rest, by_sep), no_terms)
+    }
+    val grammar_text = if rest == "" {
+        rest
+    } else {
+        after(rest, if only_ordering { order_sep } else { by_sep })
+    }
+    if prelude.len(readings) == 0 {
+        return err(why_unreadable(fields, entity, grammar_text, only_ordering, 0))
+    }
+    // **Two readings is a refusal, not a preference** (derived-queries.md §4.1). No column in the
+    // North Star's 36 entities contains '_and_', '_in', '_not', '_between', '_asc' or '_desc', so
+    // this cannot fire there -- but a column named `name_and_type` makes `find_by_name_and_type`
+    // genuinely two-ways readable, and guessing is how the resolution of the thing this is
+    // modelled on surprises people.
+    if prelude.len(readings) > 1 {
+        return err(concat(
+            "'",
+            f.name,
+            "' reads ",
+            str(prelude.len(readings)),
+            " ways against ",
+            entity,
+            " and this will not choose between them: ",
+            render_shape(readings[0]),
+            ", or ",
+            render_shape(readings[1]),
+            ". Rename the function, or write the query out (a hand-written body wins)"
+        ))
+    }
+    val shape = readings[0]
+    if prelude.len(shape.orders) > 0 {
+        var is_find = false
+        if Find = verb {
+            is_find = true
+        }
+        if !is_find {
+            return err(concat(
+                "'",
+                f.name,
+                "' orders its rows and then does not answer any of ",
+                "them -- an ordering belongs to a 'find'"
+            ))
+        }
+    }
+
+    var answers_db_error = false
+    if ResultOf(r) = f.returns {
+        if is_named(r.err, "DbError") {
+            answers_db_error = true
+        }
+    }
+    if !answers_db_error {
+        return err(concat(
+            "a derived query answers a Result<.., DbError>, and '",
+            f.name,
+            "' answers ",
+            meta.type_text(f.returns),
+            " -- '",
+            word,
+            "' pairs with ",
+            verb_returns(verb)
+        ))
+    }
+    val rk = classify_return(f.returns, entity)
+    if !verb_pairs_with(verb, rk) {
+        return err(concat(
+            "'",
+            f.name,
+            "' answers ",
+            meta.type_text(f.returns),
+            ", which '",
+            word,
+            "' does not pair with -- it pairs with ",
+            verb_returns(verb)
+        ))
+    }
+    val expected = expected_params(fields, shape)
+    try check_query_params(f, entity, expected)
+
+    val val_name = concat(f.name, "_query")
+    val conn = f.params[0].name
+    val params = mutable_array_new<string>()
+    for p in f.params {
+        push(params, concat(p.name, ": ", meta.type_text(p.type)))
+    }
+    return template.render(query_sheet, "query", [
+        template.text("val_name", val_name),
+        template.text("snake", snake),
+        template.text("sql", build_sql(entity, verb, shape)),
+        template.text("fname", f.name),
+        template.text("params", join(separator: ", ", pieces: snapshot(params))),
+        template.text("returns", meta.type_text(f.returns)),
+        template.text("bindings", without_newline(try bindings_text(expected))),
+        template.text("tail", without_newline(try tail_text(t, shape, verb, rk, conn, val_name)))
+    ])
 }

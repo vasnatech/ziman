@@ -4023,3 +4023,54 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   is the unreachable C the fallbacks were deleted for.
 
   1,300 fixtures, `make check` exit 0 with the North Star (63 suites, 2,658 checks).
+
+- [x] **F229** **The derived queries are in Ziman too: `src/derive.c` generates no code at all.**
+  (the second half of meta step 5, continuing F228; done 2026-10-29; M.)
+
+  `generate_query(t: meta.Target, f: meta.Function)` -- the second entry point of the module
+  generator -- now holds the whole of what a derived query is: the verb split, the **enumeration
+  of every reading** of a name (not the first, which is what makes an ambiguous name a refusal
+  rather than a guess), the greedy walk that says where an unreadable one stopped making sense,
+  the return-type pairing, the by-name parameter check, the SQL and the bindings. About 700 lines
+  of C deleted.
+
+  **`src/derive.c` is 1,716 -> 947 lines and no longer generates anything.** The growable buffer
+  the file opened with existed because every generator was a string builder (`declaration -> char
+  *`); with the last of them in Ziman it is gone, along with `emit_to_sql` and `gen_tmp`. What the
+  file does now is find the declaration a generator needs, ensure the imports its text names, and
+  splice what comes back.
+
+  **Equivalence, measured the same way twice.** The North Star's **23 repositories and 80 derived
+  queries generate 12,542 lines of byte-identical text**, and all **thirteen refusal fixtures
+  print byte-identical messages** -- the ambiguity refusal with its two rendered readings, the
+  three greedy-walk diagnostics, the pairing text, the transposed-parameter text. A diff of
+  `--emit-derived` over the whole backend, against a binary built from the previous commit in a
+  throwaway worktree.
+
+  **The property the two-entry-point decision was made for is now pinned**:
+  `tests/lang/derived_query_several_refusals` has three broken queries of three different kinds
+  (unreadable name, wrong return type, wrong parameter name) and asserts **three errors, each at
+  its own function's line**. One entry point answering every body at once would have reported the
+  first of them, at the module attribute.
+
+  **Three things stayed in C and each is a decision, not a leftover.** The type-parameter refusal
+  is a fact about the declaration's own shape and needs no entity, and `meta.Function`
+  deliberately carries no type parameters -- a field for the sake of one check is what §12's guard
+  is against. The `<fn>_query` val-name collision is a fact about the *module*. And
+  `standard_flat_type_name` survives its emitter because `import_field_converters` must import
+  exactly the names the generated text calls: it and `derive_row.zm`'s `flat_names` are the same
+  seven-entry table, duplicated on purpose, survivable because a disagreement is a missing import
+  reported at the declaration rather than a wrong answer at run time.
+
+  **One deliberate widening.** The C imported a SQL converter per column a query bound, which it
+  knew because it read the name. It no longer reads the name, so it imports one per entity field:
+  a superset, every field of an entity being a column anyway, and an unused `use` costs a load and
+  nothing else. The alternative was keeping a name grammar in C for the sake of an import list, or
+  letting a generator dictate imports -- a wider grant than text.
+
+  Also found: `return <Pattern> = x` is not an expression in Ziman (a variant test is a statement
+  form), and `Count` as both a `Verb` and a `ReturnKind` variant makes `if Count = rk` a puzzle
+  where the two enums meet -- renamed to `Number`.
+
+  1,301 fixtures, `make check` exit 0 with the North Star. **This closes docs/design/meta.md**:
+  steps 1-5 all done, and no generator is written in C.
