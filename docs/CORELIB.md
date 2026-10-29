@@ -887,6 +887,10 @@ pub struct Decl {
     members: [Member]
 }
 
+pub fn member(name: string, type: MetaType, has_payload: bool) -> Member
+
+pub fn decl(name: string, snake_name: string, is_enum: bool, type_params: [string], members: [Member]) -> Decl
+
 pub fn type_params_bounded(d: Decl, bound: string) -> string
 
 pub fn type_text(d: Decl) -> string

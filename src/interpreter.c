@@ -2428,6 +2428,55 @@ Value native_call_closure(Value fn, Value *args, int argc, int line, int col) {
     return result;
 }
 
+/* ------------------------------------------------------------------ calling into a second program
+ *
+ * The generator bridge (src/generators.c) needs to run Ziman *during* the user program's load:
+ * a `#[derive(X)]` is answered by a Ziman function, and the answer is source text spliced into
+ * the module carrying the attribute.
+ *
+ * **Sequential, not re-entrant**, which is what makes it safe with one `g_program` and one
+ * `g_global_env`: the generator program is loaded, checked and initialised *before* the user
+ * program's load begins, and `interpret` replaces both when the user program finally runs.
+ * `ziman test` already proves the shape -- it loads, checks and runs several independent
+ * programs in one process (main.c's run_tests_program).
+ *
+ * The two functions below are `interpret` split in half: everything it does before `main`, and a
+ * call. */
+void ziman_init_module_globals(Module *module) {
+    g_program = module;
+    g_global_env = env_new(NULL);
+    /* The frame `interpret` gives module initialisation, for the two reasons recorded there. */
+    ziman_push_frame("<module initialisation>", NULL, 0, 0);
+    ziman_set_frame_env(g_global_env);
+    init_param_defaults(module);
+    init_global_vals(module);
+    ziman_pop_frame();
+}
+
+/* Calls `name` in `module` with `args`, answering 0 and writing `*out_error` when the call fails
+ * at run time rather than taking the process down -- a generator is code and code has bugs, and
+ * the compiler has to be able to say which declaration it was working on. */
+int ziman_call_in_module(Module *module, const char *name, Value *args, int argc, Value *out,
+                         const char **out_error) {
+    FunctionDecl *volatile fn = find_function(module, name);
+    if (fn == NULL) {
+        *out_error = "no such function";
+        return 0;
+    }
+    ThreadBoundary boundary;
+    ziman_thread_boundary_enter(&boundary);
+    if (setjmp(boundary.jb) != 0) {
+        *out_error = boundary.raw != NULL ? boundary.raw : boundary.message;
+        return 0;
+    }
+    Module *saved = g_program;
+    g_program = module;
+    *out = call_function(module, fn, args, argc, 0, fn->line, fn->col);
+    g_program = saved;
+    ziman_thread_boundary_leave();
+    return 1;
+}
+
 void interpret(Module *module) {
     g_program = module;
     g_global_env = env_new(NULL);

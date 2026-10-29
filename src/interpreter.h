@@ -3,11 +3,27 @@
 
 #include "ast.h"
 #include "error.h"
+#include "value.h"
 
 /* Runs `main()`. Assumes `module` already passed typecheck(). Exits the
  * process with a runtime error (line:col + message) on things the type
  * checker can't catch statically (division by zero, etc). */
 void interpret(Module *module);
+
+/* Initialises `module`'s parameter defaults and global vals into a fresh environment, the way
+ * `interpret` does before calling `main` -- for a program that is loaded to be *called into*
+ * rather than run. See the comment at the definition for why one `g_global_env` is enough.
+ *
+ * Used by the generator bridge: a generator program is initialised before the user program's
+ * load begins, and `interpret` replaces its environment when the user program runs. */
+void ziman_init_module_globals(Module *module);
+
+/* Calls `name` in `module`, which must already have been through `ziman_init_module_globals`.
+ * Answers 1 and writes `*out`, or 0 and `*out_error` when the function is missing or the call
+ * fails at run time -- caught rather than fatal, because a generator's bug must be reported
+ * against the declaration it was generating for. */
+int ziman_call_in_module(Module *module, const char *name, Value *args, int argc, Value *out,
+                         const char **out_error);
 
 /* Runs every `#[test]` function in `module` (see ast.h's
  * FunctionDecl.is_test/test_cases); see interpreter.c for the full

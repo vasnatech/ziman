@@ -88,6 +88,14 @@ pub fn is_option(t: MetaType) -> bool
 Whether `t` is an `Option<T>`, which every generator that writes a conversion asks first: a
 nullable column, an absent JSON key and an omitted property are all this one question.
 
+**The kind is not consulted, deliberately.** The compiler represents `Option<T>` as a struct
+in some positions and an enum in others -- `is_option_type_here` in `src/derive.c` tests both
+for that reason -- so a generator that asked for `enum` would be right about hand-built
+declarations and wrong about the ones the compiler passes it. That gap was invisible until
+the bridge ran a generator for real: every fixture here builds `Option` as an enum and
+passed, while `#[derive(Row)]` on an `Option<string>` field generated `option_from_sql`.
+Name and arity are what the question is actually about.
+
 ### `type_text`
 
 ```
@@ -128,6 +136,24 @@ pub struct Decl {
 ```
 
 A `struct` or an `enum` that carries a `#[derive(..)]`.
+
+### `member`
+
+```
+pub fn member(name: string, type: MetaType, has_payload: bool) -> Member
+```
+
+One member, built by the compiler. **A constructor rather than a struct literal**, so that the
+C that reifies a declaration never knows this file's field order or field names: adding a
+field here changes this function and nothing in `src/`. See docs/design/user-generators.md.
+
+### `decl`
+
+```
+pub fn decl(name: string, snake_name: string, is_enum: bool, type_params: [string], members: [Member]) -> Decl
+```
+
+A declaration, built by the compiler, for the same reason.
 
 ### `type_params_bounded`
 

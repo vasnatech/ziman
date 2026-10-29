@@ -1,4 +1,5 @@
 #include "derive.h"
+#include "generators.h"
 
 #include <ctype.h>
 #include <stdarg.h>
@@ -2430,15 +2431,31 @@ void generate_derived_functions(Module *module) {
                 if (sd->fields.count == 0) {
                     ziman_error("syntax", sd->line, sd->col, "derive(Ord) needs at least one field to compare ('%s' has none)", sd->name);
                 }
-                parse_and_splice(module, generate_struct_ord(sd), sd->line, sd->col, label);
+                /* **The first derive answered by a generator written in Ziman** (F225). The C
+                 * `generate_struct_ord` below is the fallback for a build where the bridge
+                 * cannot run, and the two are held to the same bytes by
+                 * `tests/lang/derive_ord_in_ziman`. See src/generators.h. */
+                char *from_ziman = ziman_generate_in_ziman("Ord", sd, NULL, sd->line, sd->col);
+                parse_and_splice(module, from_ziman != NULL ? from_ziman : generate_struct_ord(sd),
+                                 sd->line, sd->col, label);
             } else if (is_props) {
-                parse_and_splice(module, generate_struct_properties(sd), sd->line, sd->col, label);
+                char *from_ziman = ziman_generate_in_ziman("Properties", sd, NULL, sd->line, sd->col);
+                parse_and_splice(module, from_ziman != NULL ? from_ziman : generate_struct_properties(sd),
+                                 sd->line, sd->col, label);
             } else if (is_json) {
                 parse_and_splice(module, generate_struct_to_json(sd), sd->line, sd->col, label);
                 parse_and_splice(module, generate_struct_from_json(sd), sd->line, sd->col, label);
             } else {
-                parse_and_splice(module, generate_struct_from_row(sd), sd->line, sd->col, label);
-                parse_and_splice(module, generate_struct_to_params(sd), sd->line, sd->col, label);
+                /* The Ziman generator answers both functions at once, as `generate_struct_properties`
+                 * already did; the C pair below is the fallback and is held to the same bytes by
+                 * `tests/lang/derive_row_in_ziman`. */
+                char *from_ziman = ziman_generate_in_ziman("Row", sd, NULL, sd->line, sd->col);
+                if (from_ziman != NULL) {
+                    parse_and_splice(module, from_ziman, sd->line, sd->col, label);
+                } else {
+                    parse_and_splice(module, generate_struct_from_row(sd), sd->line, sd->col, label);
+                    parse_and_splice(module, generate_struct_to_params(sd), sd->line, sd->col, label);
+                }
             }
                 ziman_recovery_pop();
 }
@@ -2463,7 +2480,9 @@ void generate_derived_functions(Module *module) {
             }
             if (strcmp(ed->derives[d], "Ord") == 0) {
                 const char *ord_label = fmt_str("derive(Ord) for '%s'", ed->name);
-                parse_and_splice(module, generate_enum_ord(ed), ed->line, ed->col, ord_label);
+                char *from_ziman = ziman_generate_in_ziman("Ord", NULL, ed, ed->line, ed->col);
+                parse_and_splice(module, from_ziman != NULL ? from_ziman : generate_enum_ord(ed),
+                                 ed->line, ed->col, ord_label);
                 ziman_recovery_pop();
                 continue;
             }
