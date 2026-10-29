@@ -48,6 +48,8 @@ void ziman_recovery_pop(void);
  * statement that depends on one that already failed). */
 _Noreturn void ziman_abort_quietly(void);
 int ziman_error_count(void);
+int ziman_errors_begin_nested(void);
+void ziman_errors_end_nested(int saved);
 /* If any error was recorded: prints "ziman: N errors" (when more than one) and
  * exits 1. Call after a phase that may have recovered. */
 void ziman_finish_errors(void);

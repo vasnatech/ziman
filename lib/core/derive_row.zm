@@ -212,7 +212,8 @@ fn emit_to_sql(t: meta.MetaType, src: string, dst: string, n: Mutable<int>) -> R
             template.text("dst", dst),
             template.text("src", src),
             template.text("nested", without_newline(
-                try emit_to_sql(t.args[0], concat("Option.unwrap_Some(", src, ")"), inner, n))),
+                try emit_to_sql(t.args[0], concat("Option.unwrap_Some(", src, ")"), inner, n)
+            )),
             template.text("inner", inner)
         ])
     }
@@ -244,7 +245,8 @@ fn from_row(d: meta.Decl) -> Result<string, string> {
             // The block ends with its own newline and the template line supplies one too, so the
             // trailing one is dropped here rather than leaving a blank line per field.
             template.text("read", without_newline(
-                try emit_from_sql(m.type, concat("field_", m.name, "_raw"), concat("field_", m.name), n))),
+                try emit_from_sql(m.type, concat("field_", m.name, "_raw"), concat("field_", m.name), n)
+            )),
             template.text("comma", if i < last { "," } else { "" })
         ]))
     }
@@ -262,7 +264,8 @@ fn to_params(d: meta.Decl) -> Result<string, string> {
         push(fields, template.row([
             template.text("name", m.name),
             template.text("write", without_newline(
-                try emit_to_sql(m.type, concat("v.", m.name), concat("field_", m.name, "_sql"), n)))
+                try emit_to_sql(m.type, concat("v.", m.name), concat("field_", m.name, "_sql"), n)
+            ))
         ]))
     }
     return template.render(sheet, "to_params", [

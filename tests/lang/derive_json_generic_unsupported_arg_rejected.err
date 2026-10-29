@@ -1,1 +1,4 @@
-ziman: syntax error at 8:5 in tests/lang/derive_json_generic_unsupported_arg_rejected.zm: derive(Json) cannot build a converter for type argument '[int]' -- use a scalar, a type parameter or a plain struct/enum there
+ziman: type error at 7:5 in tests/lang/derive_json_generic_unsupported_arg_rejected.zm: derive(Json) cannot build a converter for type argument '[int]' -- use a scalar, a type parameter or a plain struct/enum there
+  |
+7 | pub struct Holder {
+  |     ^

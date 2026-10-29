@@ -2,10 +2,10 @@ ziman: syntax error at 2:1 in tests/lang/errors_derive_several.zm: unknown deriv
   |
 2 | struct A { x: int }
   | ^
-ziman: syntax error at 5:12 in tests/lang/errors_derive_several.zm: derive(Json) does not support field type 'fn(int) -> int' yet
+ziman: type error at 5:1 in tests/lang/errors_derive_several.zm: derive(Json) does not support field type 'fn(int) -> int' yet
   |
 5 | struct B { f: fn(int) -> int }
-  |            ^
+  | ^
 ziman: syntax error at 8:1 in tests/lang/errors_derive_several.zm: derive(Ord) needs at least one field to compare ('C' has none)
   |
 8 | struct C { }

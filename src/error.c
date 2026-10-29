@@ -43,6 +43,27 @@ void ziman_reset_errors(void) {
     g_error_context = NULL;
 }
 
+/* Run a *nested* compilation without the enclosing one's errors counting against it.
+ *
+ * `ziman_finish_errors` ends a parse by exiting when anything has been recorded, and the tally
+ * is global. Loading the Ziman derive generators parses a second program in the middle of the
+ * first (see src/generators.c), so a user program that had already recorded one error exited
+ * the moment a declaration asked for a generated function -- `errors_derive_several` reported
+ * one error where it expects three, and the derive itself silently produced nothing.
+ *
+ * **Only the tally moves.** The recovery depth deliberately stays: `g_recovery` is indexed by
+ * depth, so zeroing it makes the nested load's own recovery points overwrite slot 0, and the
+ * enclosing program then longjmps into a frame that has returned. That is a segfault, and it is
+ * how the first version of this failed. The nested pushes belong *above* the current depth,
+ * which is what leaving it alone already does. */
+int ziman_errors_begin_nested(void) {
+    int saved = g_error_count;
+    g_error_count = 0;
+    return saved;
+}
+
+void ziman_errors_end_nested(int saved) { g_error_count += saved; }
+
 void ziman_set_error_file(const char *file) { g_error_file = file; }
 const char *ziman_error_file(void) { return g_error_file; }
 int ziman_error_count(void) { return g_error_count; }

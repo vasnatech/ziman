@@ -151,23 +151,6 @@ char *ziman_compare_function_name_flat(const char *type_name) {
     return out;
 }
 
-/* "date_of_birth" -> "dateOfBirth" -- the JSON key a struct field maps
- * to. Fixed and unconfigurable; a documented shortcoming, not solved
- * here -- see docs/ROADMAP.md's derive entry. */
-static char *snake_to_camel(const char *name) {
-    size_t len = strlen(name);
-    char *out = ziman_xmalloc(len + 1);
-    size_t oi = 0;
-    int capitalize_next = 0;
-    for (size_t i = 0; i < len; i++) {
-        char c = name[i];
-        if (c == '_') { capitalize_next = 1; continue; }
-        out[oi++] = capitalize_next ? (char)toupper((unsigned char)c) : c;
-        capitalize_next = 0;
-    }
-    out[oi] = '\0';
-    return out;
-}
 
 static char *gen_tmp(int *counter, const char *hint) {
     return fmt_str("__derive_%s_%d", hint, (*counter)++);
@@ -223,37 +206,6 @@ static const char *standard_flat_type_name(const char *type_name) {
     return NULL;
 }
 
-static void emit_to_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col);
-static void emit_from_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col, const char *field_ctx);
-
-/* A shape check whose failure message is known at codegen time (`"expected a string"`):
- * named with the JSON key when `field_ctx` is the struct field this check is for (the direct
- * field of the struct being decoded, never a recursive element/entry a level down, so an error
- * never names more than one field), plain otherwise. */
-static void emit_type_check(CodeBuf *cb, const char *cond_expr, const char *field_ctx, const char *msg) {
-    if (field_ctx != NULL) {
-        cb_appendf(cb, "    if !%s { return err(\"%s: %s\") }\n", cond_expr, field_ctx, msg);
-    } else {
-        cb_appendf(cb, "    if !%s { return err(\"%s\") }\n", cond_expr, msg);
-    }
-}
-
-/* A `try`-shaped call (`int_from_json(x)`, `<type>_from_json(x)`, a generic converter) whose
- * failure message is only known at run time: named the same way as emit_type_check, by catching
- * the `Err` and prefixing it (`concat`, the same device already used for an unknown enum tag)
- * rather than propagating it bare through `try`. */
-static void emit_try_call(CodeBuf *cb, int *tmp, const char *dst_var, const char *call_expr, const char *field_ctx) {
-    if (field_ctx == NULL) {
-        cb_appendf(cb, "    val %s = try %s\n", dst_var, call_expr);
-        return;
-    }
-    char *ok_v = gen_tmp(tmp, "ok");
-    char *err_v = gen_tmp(tmp, "err");
-    cb_appendf(cb, "    val %s = switch %s {\n", dst_var, call_expr);
-    cb_appendf(cb, "        Ok(%s) { %s }\n", ok_v, ok_v);
-    cb_appendf(cb, "        Err(%s) { return err(concat(\"%s: \", %s)) }\n", err_v, field_ctx, err_v);
-    cb_appendf(cb, "    }\n");
-}
 
 /* ---- generic declarations ------------------------------------------------
  * `struct Page<T> { ... }` / `enum Either<L, R> { ... }` derive too. `params`
@@ -289,444 +241,11 @@ static char *decl_type_text(const char *name, TypeParamList *params) {
     return fmt_str("%s>", out);
 }
 
-/* The converter parameter for type parameter `T`: "t_to_json" / "t_from_json". */
-static char *converter_param_name(const char *type_param, int is_to) {
-    char *snake = pascal_to_snake(type_param);
-    return fmt_str("%s_%s_json", snake, is_to ? "to" : "from");
-}
-
-/* ", t_to_json: fn(T) -> Json, u_to_json: fn(U) -> Json" appended to a parameter list. */
-static char *converter_params_text(TypeParamList *params, int is_to) {
-    char *out = fmt_str("%s", "");
-    for (int i = 0; i < params->count; i++) {
-        char *name = converter_param_name(params->items[i].name, is_to);
-        if (is_to) out = fmt_str("%s, %s: fn(%s) -> Json", out, name, params->items[i].name);
-        else out = fmt_str("%s, %s: fn(Json) -> Result<%s, string>", out, name, params->items[i].name);
-    }
-    return out;
-}
-
-/* The function value that converts one type argument of a generic field type
- * (`Page<Patient>`'s `Patient`): the enclosing declaration's own converter for a
- * type parameter, a `json` helper for a scalar, `<type>_to_json` for a plain
- * struct/enum. Anything else (an array, an Option) has no named converter to
- * pass. */
-static char *converter_for_type_arg(Type arg, int is_to, int line, int col) {
-    const char *dir = is_to ? "to" : "from";
-    switch (arg.kind) {
-        case TY_TYPEVAR: return converter_param_name(arg.type_var_name, is_to);
-        case TY_INT: return fmt_str("int_%s_json", dir);
-        case TY_FLOAT: return fmt_str("float_%s_json", dir);
-        case TY_BIGINT: return fmt_str("bigint_%s_json", dir);
-        case TY_DECIMAL: return fmt_str("decimal_%s_json", dir);
-        case TY_BOOL: return fmt_str("bool_%s_json", dir);
-        case TY_STRING: return fmt_str("string_%s_json", dir);
-        case TY_STRUCT:
-        case TY_ENUM: {
-            if (arg.type_args.count == 0 && !is_option_type_here(arg)) {
-                const char *name = arg.kind == TY_STRUCT ? arg.struct_name : arg.enum_name;
-                char *snake = pascal_to_snake(name);
-                return fmt_str("%s_%s_json", snake, dir);
-            }
-            break;
-        }
-        default: break;
-    }
-    ziman_error("syntax", line, col,
-                "derive(Json) cannot build a converter for type argument '%s' -- use a scalar, a type parameter or a plain struct/enum there",
-                type_name(arg));
-    return NULL;
-}
-
-/* "<A, B>" from a concrete type's type arguments, for an explicit-type-argument call. */
-static char *type_args_text(Type t) {
-    char *out = fmt_str("%s", "<");
-    for (int i = 0; i < t.type_args.count; i++) {
-        out = fmt_str("%s%s%s", out, i > 0 ? ", " : "", type_name(t.type_args.items[i]));
-    }
-    return fmt_str("%s>", out);
-}
-
-/* A Map's key as a JSON object key: a string as is, an int through str(). Nothing else
- * has an obvious text form. */
-static void check_json_map_key(Type key, int line, int col) {
-    if (key.kind != TY_STRING && key.kind != TY_INT) {
-        ziman_error("syntax", line, col, "derive(Json) supports Map keys of type string or int (they become JSON object keys), found '%s'",
-                    type_name(key));
-    }
-}
-
-/* Appends statements to `cb` that bind `dst_var` (a `val`, freshly
- * declared) to a `Json` value built from `src_expr` (an already-valid
- * Ziman expression of type `t`). Priority order, matching the design:
- * struct/enum types (other than Option) dispatch by naming convention
- * to their own <name>_to_json (hand-written or itself derived); scalars
- * map directly; Option<U>/[U] recurse into U. */
-static void emit_to_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col) {
-    switch (t.kind) {
-        case TY_INT:
-            cb_appendf(cb, "    val %s = int_to_json(%s)\n", dst_var, src_expr);
-            return;
-        case TY_FLOAT:
-            cb_appendf(cb, "    val %s = float_to_json(%s)\n", dst_var, src_expr);
-            return;
-        case TY_BIGINT:
-            cb_appendf(cb, "    val %s = bigint_to_json(%s)\n", dst_var, src_expr);
-            return;
-        case TY_DECIMAL:
-            cb_appendf(cb, "    val %s = decimal_to_json(%s)\n", dst_var, src_expr);
-            return;
-        case TY_BOOL:
-            cb_appendf(cb, "    val %s = Json.JBool(%s)\n", dst_var, src_expr);
-            return;
-        case TY_STRING:
-            cb_appendf(cb, "    val %s = Json.JString(%s)\n", dst_var, src_expr);
-            return;
-        case TY_ARRAY: {
-            char *item = gen_tmp(tmp, "item");
-            char *item_json = gen_tmp(tmp, "item_json");
-            char *ab = gen_tmp(tmp, "ab");
-            cb_appendf(cb, "    val %s = mutable_array_new<Json>()\n", ab);
-            cb_appendf(cb, "    for %s in %s {\n", item, src_expr);
-            emit_to_json(*t.elem, item, item_json, cb, tmp, line, col);
-            cb_appendf(cb, "    push<Json>(%s, %s)\n", ab, item_json);
-            cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = Json.JArray(snapshot(%s))\n", dst_var, ab);
-            return;
-        }
-        case TY_MAP: {
-            check_json_map_key(*t.elem, line, col);
-            char *k = gen_tmp(tmp, "key");
-            char *v = gen_tmp(tmp, "entry");
-            char *v_json = gen_tmp(tmp, "entry_json");
-            char *acc = gen_tmp(tmp, "fields");
-            cb_appendf(cb, "    val %s = mutable_map_new<string, Json>()\n", acc);
-            cb_appendf(cb, "    for %s, %s in %s {\n", k, v, src_expr);
-            emit_to_json(*t.elem_err, v, v_json, cb, tmp, line, col);
-            cb_appendf(cb, "    set<string, Json>(%s, %s, %s)\n", acc, t.elem->kind == TY_INT ? fmt_str("str(%s)", k) : k, v_json);
-            cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = Json.JObject(snapshot(%s))\n", dst_var, acc);
-            return;
-        }
-        case TY_SET: {
-            char *item = gen_tmp(tmp, "item");
-            char *item_json = gen_tmp(tmp, "item_json");
-            char *ab = gen_tmp(tmp, "ab");
-            cb_appendf(cb, "    val %s = mutable_array_new<Json>()\n", ab);
-            cb_appendf(cb, "    for %s in %s {\n", item, src_expr);
-            emit_to_json(*t.elem, item, item_json, cb, tmp, line, col);
-            cb_appendf(cb, "    push<Json>(%s, %s)\n", ab, item_json);
-            cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = Json.JArray(snapshot(%s))\n", dst_var, ab);
-            return;
-        }
-        case TY_STRUCT:
-        case TY_ENUM:
-            if (is_option_type_here(t)) {
-                Type elem = t.type_args.items[0];
-                char *inner = gen_tmp(tmp, "opt_inner");
-                char *unwrap_expr = fmt_str("Option.unwrap_Some(%s)", src_expr);
-                cb_appendf(cb, "    var %s = Json.JNull\n", dst_var);
-                cb_appendf(cb, "    if Option.is_Some(%s) {\n", src_expr);
-                emit_to_json(elem, unwrap_expr, inner, cb, tmp, line, col);
-                cb_appendf(cb, "    %s = %s\n", dst_var, inner);
-                cb_appendf(cb, "    }\n");
-                return;
-            } else {
-                const char *name = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
-                char *fn = pascal_to_snake(name);
-                if (t.type_args.count > 0) {
-                    /* A generic type: its own converters take one converter per type argument. */
-                    char *convs = fmt_str("%s", "");
-                    for (int i = 0; i < t.type_args.count; i++) {
-                        convs = fmt_str("%s, %s", convs, converter_for_type_arg(t.type_args.items[i], 1, line, col));
-                    }
-                    cb_appendf(cb, "    val %s = %s_to_json%s(%s%s)\n", dst_var, fn, type_args_text(t), src_expr, convs);
-                } else if (standard_flat_type_name(name) != NULL) {
-                    cb_appendf(cb, "    val %s = to_json(%s)\n", dst_var, src_expr);
-                } else {
-                    cb_appendf(cb, "    val %s = %s_to_json(%s)\n", dst_var, fn, src_expr);
-                }
-                return;
-            }
-        case TY_TYPEVAR:
-            cb_appendf(cb, "    val %s = %s(%s)\n", dst_var, converter_param_name(t.type_var_name, 1), src_expr);
-            return;
-        default:
-            ziman_error("syntax", line, col, "derive(Json) does not support field type '%s' yet", type_name(t));
-    }
-}
-
-/* Mirror of emit_to_json: appends statements binding `dst_var` (a
- * `val`) to a Ziman value of type `t`, decoded from `src_expr` (an
- * already-valid Ziman expression of type `Json`). Every branch either
- * binds `dst_var` or returns an `err(...)`/propagates via `try` -- never
- * falls through -- so the emitted code always leaves `dst_var` usable
- * afterward. Lenient by construction: nothing here ever inspects a
- * JObject's *other* keys, so unrecognized extra fields are silently
- * ignored, matching the design's lenient-deserialization decision. */
-static void emit_from_json(Type t, const char *src_expr, const char *dst_var, CodeBuf *cb, int *tmp, int line, int col, const char *field_ctx) {
-    switch (t.kind) {
-        case TY_INT:
-            emit_try_call(cb, tmp, dst_var, fmt_str("int_from_json(%s)", src_expr), field_ctx);
-            return;
-        case TY_FLOAT:
-            emit_try_call(cb, tmp, dst_var, fmt_str("float_from_json(%s)", src_expr), field_ctx);
-            return;
-        case TY_BIGINT:
-            emit_try_call(cb, tmp, dst_var, fmt_str("bigint_from_json(%s)", src_expr), field_ctx);
-            return;
-        case TY_DECIMAL:
-            emit_try_call(cb, tmp, dst_var, fmt_str("decimal_from_json(%s)", src_expr), field_ctx);
-            return;
-        case TY_BOOL:
-            emit_type_check(cb, fmt_str("Json.is_JBool(%s)", src_expr), field_ctx, "expected a boolean");
-            cb_appendf(cb, "    val %s = Json.unwrap_JBool(%s)\n", dst_var, src_expr);
-            return;
-        case TY_STRING:
-            emit_type_check(cb, fmt_str("Json.is_JString(%s)", src_expr), field_ctx, "expected a string");
-            cb_appendf(cb, "    val %s = Json.unwrap_JString(%s)\n", dst_var, src_expr);
-            return;
-        case TY_ARRAY: {
-            char *ab = gen_tmp(tmp, "ab");
-            char *item = gen_tmp(tmp, "item");
-            char *item_val = gen_tmp(tmp, "item_val");
-            char *elem_type_name = type_name(*t.elem);
-            emit_type_check(cb, fmt_str("Json.is_JArray(%s)", src_expr), field_ctx, "expected an array");
-            cb_appendf(cb, "    val %s = mutable_array_new<%s>()\n", ab, elem_type_name);
-            cb_appendf(cb, "    for %s in Json.unwrap_JArray(%s) {\n", item, src_expr);
-            emit_from_json(*t.elem, item, item_val, cb, tmp, line, col, NULL);
-            cb_appendf(cb, "    push<%s>(%s, %s)\n", elem_type_name, ab, item_val);
-            cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = snapshot(%s)\n", dst_var, ab);
-            return;
-        }
-        case TY_MAP: {
-            check_json_map_key(*t.elem, line, col);
-            char *k = gen_tmp(tmp, "key");
-            char *v = gen_tmp(tmp, "raw");
-            char *entry = gen_tmp(tmp, "entry");
-            char *key_n = gen_tmp(tmp, "key_n");
-            char *bld = gen_tmp(tmp, "builder");
-            char *kt = type_name(*t.elem);
-            char *vt = type_name(*t.elem_err);
-            emit_type_check(cb, fmt_str("Json.is_JObject(%s)", src_expr), field_ctx, "expected an object");
-            cb_appendf(cb, "    val %s = mutable_map_new<%s, %s>()\n", bld, kt, vt);
-            cb_appendf(cb, "    for %s, %s in Json.unwrap_JObject(%s) {\n", k, v, src_expr);
-            emit_from_json(*t.elem_err, v, entry, cb, tmp, line, col, NULL);
-            if (t.elem->kind == TY_INT) {
-                cb_appendf(cb, "    val %s = try parse_int(%s)\n", key_n, k);
-                cb_appendf(cb, "    set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, key_n, entry);
-            } else {
-                cb_appendf(cb, "    set<%s, %s>(%s, %s, %s)\n", kt, vt, bld, k, entry);
-            }
-            cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = snapshot(%s)\n", dst_var, bld);
-            return;
-        }
-        case TY_SET: {
-            char *item = gen_tmp(tmp, "item");
-            char *item_val = gen_tmp(tmp, "item_val");
-            char *bld = gen_tmp(tmp, "builder");
-            char *et = type_name(*t.elem);
-            emit_type_check(cb, fmt_str("Json.is_JArray(%s)", src_expr), field_ctx, "expected an array");
-            cb_appendf(cb, "    val %s = mutable_set_new<%s>()\n", bld, et);
-            cb_appendf(cb, "    for %s in Json.unwrap_JArray(%s) {\n", item, src_expr);
-            emit_from_json(*t.elem, item, item_val, cb, tmp, line, col, NULL);
-            /* `add`, not `mutable_set_add`: F199 made that the word in both set worlds and left
-             * the prefixed one `internal`, which only mattered once a non-`pub` prelude name
-             * stopped being reachable from outside the prelude (2026-10-22) -- generated code is
-             * attributed to the user's file, so it is outside. Emitting the internal name failed
-             * `map_json_derive` the moment that rule went in, which is the third time this
-             * generator has been the blast radius of a prelude rename.
-             *
-             * The prefixed name is not merely `internal` now but gone: `add`'s builder member
-             * became a `native fn` later the same day and took its job, so there is no second
-             * spelling left to emit by mistake. */
-            cb_appendf(cb, "    add<%s>(%s, %s)\n", et, bld, item_val);
-            cb_appendf(cb, "    }\n");
-            cb_appendf(cb, "    val %s = snapshot(%s)\n", dst_var, bld);
-            return;
-        }
-        case TY_STRUCT:
-        case TY_ENUM:
-            if (is_option_type_here(t)) {
-                Type elem = t.type_args.items[0];
-                char *elem_type_name = type_name(elem);
-                char *inner = gen_tmp(tmp, "opt_inner");
-                cb_appendf(cb, "    var %s = Option<%s>.None\n", dst_var, elem_type_name);
-                cb_appendf(cb, "    if !Json.is_JNull(%s) {\n", src_expr);
-                emit_from_json(elem, src_expr, inner, cb, tmp, line, col, NULL);
-                cb_appendf(cb, "    %s = Option<%s>.Some(%s)\n", dst_var, elem_type_name, inner);
-                cb_appendf(cb, "    }\n");
-                return;
-            } else {
-                const char *name = t.kind == TY_STRUCT ? t.struct_name : t.enum_name;
-                char *fn = pascal_to_snake(name);
-                if (t.type_args.count > 0) {
-                    char *convs = fmt_str("%s", "");
-                    for (int i = 0; i < t.type_args.count; i++) {
-                        convs = fmt_str("%s, %s", convs, converter_for_type_arg(t.type_args.items[i], 0, line, col));
-                    }
-                    emit_try_call(cb, tmp, dst_var, fmt_str("%s_from_json%s(%s%s)", fn, type_args_text(t), src_expr, convs), field_ctx);
-                } else if (standard_flat_type_name(name) != NULL) {
-                    emit_try_call(cb, tmp, dst_var, fmt_str("to_%s(%s)", standard_flat_type_name(name), src_expr), field_ctx);
-                } else {
-                    emit_try_call(cb, tmp, dst_var, fmt_str("%s_from_json(%s)", fn, src_expr), field_ctx);
-                }
-                return;
-            }
-        case TY_TYPEVAR:
-            emit_try_call(cb, tmp, dst_var, fmt_str("%s(%s)", converter_param_name(t.type_var_name, 0), src_expr), field_ctx);
-            return;
-        default:
-            ziman_error("syntax", line, col, "derive(Json) does not support field type '%s' yet", type_name(t));
-    }
-}
 
 /* ---------------------------------------------------------------------
  * Struct derive: <name>_to_json / <name>_from_json.
  * --------------------------------------------------------------------- */
 
-static char *generate_struct_to_json(StructDecl *sd) {
-    CodeBuf cb;
-    cb_init(&cb);
-    char *fn_name = pascal_to_snake(sd->name);
-    cb_appendf(&cb, "pub fn %s_to_json%s(v: %s%s) -> Json {\n", fn_name, type_param_decl_text(&sd->type_params, ""),
-               decl_type_text(sd->name, &sd->type_params), converter_params_text(&sd->type_params, 1));
-
-    int tmp = 0;
-    char **dst_vars = ziman_xmalloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
-    char **camel_keys = ziman_xmalloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
-    for (int i = 0; i < sd->fields.count; i++) {
-        Param *f = &sd->fields.items[i];
-        char *dst = fmt_str("field_%s_json", f->name);
-        char *src = fmt_str("v.%s", f->name);
-        emit_to_json(f->type, src, dst, &cb, &tmp, f->line, f->col);
-        dst_vars[i] = dst;
-        camel_keys[i] = snake_to_camel(f->name);
-    }
-
-    cb_appendf(&cb, "    return Json.JObject(Map<string, Json> {\n");
-    for (int i = 0; i < sd->fields.count; i++) {
-        cb_appendf(&cb, "        \"%s\": %s%s\n", camel_keys[i], dst_vars[i], i + 1 < sd->fields.count ? "," : "");
-    }
-    cb_appendf(&cb, "    })\n");
-    cb_appendf(&cb, "}\n\n");
-    return cb.data;
-}
-
-static char *generate_struct_from_json(StructDecl *sd) {
-    CodeBuf cb;
-    cb_init(&cb);
-    char *fn_name = pascal_to_snake(sd->name);
-    cb_appendf(&cb, "pub fn %s_from_json%s(j: Json%s) -> Result<%s, string> {\n", fn_name, type_param_decl_text(&sd->type_params, ""),
-               converter_params_text(&sd->type_params, 0), decl_type_text(sd->name, &sd->type_params));
-    cb_appendf(&cb, "    if !Json.is_JObject(j) { return err(\"expected a JSON object for %s\") }\n", sd->name);
-
-    int tmp = 0;
-    char **field_vars = ziman_xmalloc(sizeof(char *) * (size_t)(sd->fields.count > 0 ? sd->fields.count : 1));
-    for (int i = 0; i < sd->fields.count; i++) {
-        Param *f = &sd->fields.items[i];
-        char *camel = snake_to_camel(f->name);
-        char *dst = fmt_str("field_%s", f->name);
-        if (is_option_type_here(f->type)) {
-            /* Tolerant: an absent key *or* an explicit JSON null both
-             * decode to None -- mirrors the exact hand-written pattern
-             * health-record-backend-ziman's own request.zm used for its
-             * `middleName` field before this mechanism existed. */
-            Type elem = f->type.type_args.items[0];
-            char *elem_type_name = type_name(elem);
-            char *found = fmt_str("field_%s_found", f->name);
-            char *raw = fmt_str("field_%s_raw", f->name);
-            char *inner = fmt_str("field_%s_inner", f->name);
-            cb_appendf(&cb, "    val %s = json.get(j, \"%s\")\n", found, camel);
-            cb_appendf(&cb, "    var %s = Option<%s>.None\n", dst, elem_type_name);
-            cb_appendf(&cb, "    if Option.is_Some(%s) {\n", found);
-            cb_appendf(&cb, "    val %s = Option.unwrap_Some(%s)\n", raw, found);
-            cb_appendf(&cb, "    if !Json.is_JNull(%s) {\n", raw);
-            emit_from_json(elem, raw, inner, &cb, &tmp, f->line, f->col, camel);
-            cb_appendf(&cb, "    %s = Option<%s>.Some(%s)\n", dst, elem_type_name, inner);
-            cb_appendf(&cb, "    }\n");
-            cb_appendf(&cb, "    }\n");
-        } else {
-            char *raw = fmt_str("field_%s_raw", f->name);
-            cb_appendf(&cb, "    val %s = try json.require(j, \"%s\")\n", raw, camel);
-            emit_from_json(f->type, raw, dst, &cb, &tmp, f->line, f->col, camel);
-        }
-        field_vars[i] = dst;
-    }
-
-    cb_appendf(&cb, "    return %s {\n", decl_type_text(sd->name, &sd->type_params));
-    for (int i = 0; i < sd->fields.count; i++) {
-        Param *f = &sd->fields.items[i];
-        cb_appendf(&cb, "        %s: %s%s\n", f->name, field_vars[i], i + 1 < sd->fields.count ? "," : "");
-    }
-    cb_appendf(&cb, "    }\n");
-    cb_appendf(&cb, "}\n\n");
-
-    /* ---- the accumulating companion ----
-     *
-     * `<type>_from_json` stops at the first bad field, so a request with three wrong types reports one of
-     * them. `<type>_from_json_all` reports all of them, as `Result<T, [string]>`.
-     *
-     * A companion rather than a change to the decoder above: that one keeps its signature, so nothing
-     * breaks and nothing it already does gets slower, and a caller opts in by name.
-     *
-     * Each field is decoded inside a *lambda*, which is what makes this cheap to generate. The emitters
-     * above end a failing field with `return err(...)`, and inside a lambda that returns from the lambda --
-     * so the existing per-field emission is reused verbatim, including its "skip the rest of this field"
-     * behaviour, with no second recording mode to keep in step with it. `field_ctx` is passed as NULL there
-     * and the key is prefixed once here, or the message would name the field twice.
-     *
-     * The cost is one closure per field, paid only by callers of this function. Known limit: a nested
-     * struct contributes one message, its own first, because its decoder is the single-error one. */
-    cb_appendf(&cb, "pub fn %s_from_json_all%s(j: Json%s) -> Result<%s, [string]> {\n", fn_name,
-               type_param_decl_text(&sd->type_params, ""), converter_params_text(&sd->type_params, 0),
-               decl_type_text(sd->name, &sd->type_params));
-    cb_appendf(&cb, "    if !Json.is_JObject(j) { return err([\"expected a JSON object for %s\"]) }\n", sd->name);
-    cb_appendf(&cb, "    val problems = mutable_array_new<string>()\n");
-    tmp = 0;
-    for (int i = 0; i < sd->fields.count; i++) {
-        Param *f = &sd->fields.items[i];
-        char *camel = snake_to_camel(f->name);
-        char *dst = fmt_str("field_%s", f->name);
-        char *raw = fmt_str("field_%s_raw", f->name);
-        cb_appendf(&cb, "    val get_%s = fn() -> Result<%s, string> {\n", f->name, type_name(f->type));
-        if (is_option_type_here(f->type)) {
-            Type elem = f->type.type_args.items[0];
-            char *elem_type_name = type_name(elem);
-            char *found = fmt_str("field_%s_found", f->name);
-            char *inner = fmt_str("field_%s_inner", f->name);
-            cb_appendf(&cb, "    val %s = json.get(j, \"%s\")\n", found, camel);
-            cb_appendf(&cb, "    var %s = Option<%s>.None\n", dst, elem_type_name);
-            cb_appendf(&cb, "    if Option.is_Some(%s) {\n", found);
-            cb_appendf(&cb, "    val %s = Option.unwrap_Some(%s)\n", raw, found);
-            cb_appendf(&cb, "    if !Json.is_JNull(%s) {\n", raw);
-            emit_from_json(elem, raw, inner, &cb, &tmp, f->line, f->col, NULL);
-            cb_appendf(&cb, "    %s = Option<%s>.Some(%s)\n", dst, elem_type_name, inner);
-            cb_appendf(&cb, "    }\n");
-            cb_appendf(&cb, "    }\n");
-        } else {
-            cb_appendf(&cb, "    val %s = try json.require(j, \"%s\")\n", raw, camel);
-            emit_from_json(f->type, raw, dst, &cb, &tmp, f->line, f->col, NULL);
-        }
-        cb_appendf(&cb, "    return ok(%s)\n", dst);
-        cb_appendf(&cb, "    }\n");
-        cb_appendf(&cb, "    val got_%s = get_%s()\n", f->name, f->name);
-        cb_appendf(&cb, "    if Err(problem_%s) = got_%s { push(problems, concat(\"%s: \", problem_%s)) }\n",
-                   f->name, f->name, camel, f->name);
-    }
-    cb_appendf(&cb, "    if len(problems) > 0 { return err(snapshot(problems)) }\n");
-    cb_appendf(&cb, "    return ok(%s {\n", decl_type_text(sd->name, &sd->type_params));
-    for (int i = 0; i < sd->fields.count; i++) {
-        Param *f = &sd->fields.items[i];
-        cb_appendf(&cb, "        %s: unwrap(got_%s)%s\n", f->name, f->name, i + 1 < sd->fields.count ? "," : "");
-    }
-    cb_appendf(&cb, "    })\n");
-    cb_appendf(&cb, "}\n\n");
-    return cb.data;
-}
 
 /* ---------------------------------------------------------------------
  * Enum derive: externally tagged -- {"type": "<Variant>"} for a unit
@@ -738,75 +257,6 @@ static char *generate_struct_from_json(StructDecl *sd) {
  * user-declared enum with #[derive(Json)] on it directly.
  * --------------------------------------------------------------------- */
 
-static char *generate_enum_to_json(EnumDecl *ed) {
-    CodeBuf cb;
-    cb_init(&cb);
-    char *fn_name = pascal_to_snake(ed->name);
-    cb_appendf(&cb, "pub fn %s_to_json%s(v: %s%s) -> Json {\n", fn_name, type_param_decl_text(&ed->type_params, ""),
-               decl_type_text(ed->name, &ed->type_params), converter_params_text(&ed->type_params, 1));
-
-    int tmp = 0;
-    int n = ed->variants.count;
-    for (int i = 0; i < n; i++) {
-        EnumVariant *variant = &ed->variants.items[i];
-        int is_last = (i == n - 1);
-        if (n == 1) {
-            /* the only variant -- unconditional, no need to check */
-        } else if (i == 0) {
-            cb_appendf(&cb, "    if %s.is_%s(v) {\n", ed->name, variant->name);
-        } else if (!is_last) {
-            cb_appendf(&cb, "    } else if %s.is_%s(v) {\n", ed->name, variant->name);
-        } else {
-            cb_appendf(&cb, "    } else {\n");
-        }
-        if (!variant->has_payload) {
-            cb_appendf(&cb, "        return Json.JObject(Map<string, Json> { \"type\": Json.JString(\"%s\") })\n", variant->name);
-        } else {
-            char *unwrap_expr = fmt_str("%s.unwrap_%s(v)", ed->name, variant->name);
-            char *dst = fmt_str("payload_json_%d", i);
-            emit_to_json(variant->payload_type, unwrap_expr, dst, &cb, &tmp, variant->line, variant->col);
-            cb_appendf(&cb, "        return Json.JObject(Map<string, Json> {\n");
-            cb_appendf(&cb, "            \"type\": Json.JString(\"%s\"),\n", variant->name);
-            cb_appendf(&cb, "            \"value\": %s\n", dst);
-            cb_appendf(&cb, "        })\n");
-        }
-    }
-    if (n > 1) cb_appendf(&cb, "    }\n");
-    cb_appendf(&cb, "}\n\n");
-    return cb.data;
-}
-
-static char *generate_enum_from_json(EnumDecl *ed) {
-    CodeBuf cb;
-    cb_init(&cb);
-    char *fn_name = pascal_to_snake(ed->name);
-    cb_appendf(&cb, "pub fn %s_from_json%s(j: Json%s) -> Result<%s, string> {\n", fn_name, type_param_decl_text(&ed->type_params, ""),
-               converter_params_text(&ed->type_params, 0), decl_type_text(ed->name, &ed->type_params));
-    cb_appendf(&cb, "    if !Json.is_JObject(j) { return err(\"expected a JSON object for %s\") }\n", ed->name);
-    cb_appendf(&cb, "    val __derive_tag = try json.require_string(j, \"type\")\n");
-
-    int tmp = 0;
-    int n = ed->variants.count;
-    for (int i = 0; i < n; i++) {
-        EnumVariant *variant = &ed->variants.items[i];
-        const char *kw = i == 0 ? "if" : "} else if";
-        cb_appendf(&cb, "    %s __derive_tag == \"%s\" {\n", kw, variant->name);
-        if (!variant->has_payload) {
-            if (ed->type_params.count > 0) cb_appendf(&cb, "        return %s.%s\n", decl_type_text(ed->name, &ed->type_params), variant->name);
-            else cb_appendf(&cb, "        return %s.%s\n", ed->name, variant->name);
-        } else {
-            cb_appendf(&cb, "        val __derive_payload_raw = try json.require(j, \"value\")\n");
-            char *dst = fmt_str("payload_%d", i);
-            emit_from_json(variant->payload_type, "__derive_payload_raw", dst, &cb, &tmp, variant->line, variant->col, NULL);
-            cb_appendf(&cb, "        return %s.%s(%s)\n", decl_type_text(ed->name, &ed->type_params), variant->name, dst);
-        }
-    }
-    cb_appendf(&cb, "    } else {\n");
-    cb_appendf(&cb, "        return err(concat(\"unknown variant tag for %s: \", __derive_tag))\n", ed->name);
-    cb_appendf(&cb, "    }\n");
-    cb_appendf(&cb, "}\n\n");
-    return cb.data;
-}
 
 /* ---------------------------------------------------------------------
  * Entity derive: <name>_columns, the struct's field names in order.
@@ -2443,8 +1893,16 @@ void generate_derived_functions(Module *module) {
                 parse_and_splice(module, from_ziman != NULL ? from_ziman : generate_struct_properties(sd),
                                  sd->line, sd->col, label);
             } else if (is_json) {
-                parse_and_splice(module, generate_struct_to_json(sd), sd->line, sd->col, label);
-                parse_and_splice(module, generate_struct_from_json(sd), sd->line, sd->col, label);
+                /* **No C fallback.** `lib/core/derive_json.zm` is the whole of `derive(Json)`
+                 * now, for a struct and for an enum, so there is nothing here to fall back to.
+                 * A NULL means the generator module did not load, which is a fault in the
+                 * compiler's own corelib rather than anything about this declaration. */
+                char *from_ziman = ziman_generate_in_ziman("Json", sd, NULL, sd->line, sd->col);
+                if (from_ziman == NULL) {
+                    ziman_error("module", sd->line, sd->col,
+                                "derive(Json) is generated by lib/core/derive_json.zm, which did not load");
+                }
+                parse_and_splice(module, from_ziman, sd->line, sd->col, label);
             } else {
                 /* The Ziman generator answers both functions at once, as `generate_struct_properties`
                  * already did; the C pair below is the fallback and is held to the same bytes by
@@ -2497,8 +1955,12 @@ void generate_derived_functions(Module *module) {
                     import_field_converters(module, "json", ed->variants.items[vi].payload_type, ed->line, ed->col);
                 }
             }
-            parse_and_splice(module, generate_enum_to_json(ed), ed->line, ed->col, label);
-            parse_and_splice(module, generate_enum_from_json(ed), ed->line, ed->col, label);
+            char *from_ziman = ziman_generate_in_ziman("Json", NULL, ed, ed->line, ed->col);
+            if (from_ziman == NULL) {
+                ziman_error("module", ed->line, ed->col,
+                            "derive(Json) is generated by lib/core/derive_json.zm, which did not load");
+            }
+            parse_and_splice(module, from_ziman, ed->line, ed->col, label);
                 ziman_recovery_pop();
 }
     }

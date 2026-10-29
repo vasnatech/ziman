@@ -17,7 +17,8 @@
 /* The generators, as one program. Named here rather than discovered, because these five are the
  * compiler's own; a project's generator is found through the importing module's `use` list,
  * which is docs/design/user-generators.md's design and is not built. */
-static const char *const GENERATOR_MODULES[] = {"derive_ord", "derive_row", "derive_properties"};
+static const char *const GENERATOR_MODULES[] = {"derive_ord", "derive_row", "derive_properties",
+                                                "derive_json"};
 
 static Module *g_generators = NULL;
 static int g_tried = 0;
@@ -43,11 +44,15 @@ static void load_generators(void) {
 
     const char *path = "<generators>";
     const char *text = whole;
+    /* The user's program may already have recorded errors; they are not this program's, and
+     * parsing ends by exiting when the tally is non-empty. */
+    int outer_errors = ziman_errors_begin_nested();
     loader_set_overrides(&path, &text, 1);
     Module *m = load_module_graph(path, "/nonexistent-generator-root");
     loader_set_overrides(NULL, NULL, 0);
     typecheck(m);
     ziman_init_module_globals(m);
+    ziman_errors_end_nested(outer_errors);
     g_generators = m;
 }
 
@@ -173,6 +178,26 @@ static Value reify_type(Type t, int line, int col) {
         args[2] = array_of(inner, 1);
         return call_meta("generic", args, 3, line, col);
     }
+    /* A set's element and a map's key and value live in `elem`/`elem_err`, not in `type_args`, so
+     * they need their own branches -- without them both fell through to the `scalar` tail below
+     * and arrived at the generator as a bare `map` or `set` with **no element types at all**.
+     * Every hand-built fixture passed, because a fixture builds its `MetaType` with
+     * `meta.generic(..)` directly and so cannot notice what reification drops; `map_json_derive`
+     * found it the moment `derive(Json)` was wired to this path for real. */
+    if (t.kind == TY_SET && t.elem != NULL) {
+        Value inner[1] = {reify_type(*t.elem, line, col)};
+        args[0] = value_string(ziman_xstrdup("set"));
+        args[1] = value_string(ziman_xstrdup("Set"));
+        args[2] = array_of(inner, 1);
+        return call_meta("generic", args, 3, line, col);
+    }
+    if (t.kind == TY_MAP && t.elem != NULL && t.elem_err != NULL) {
+        Value inner[2] = {reify_type(*t.elem, line, col), reify_type(*t.elem_err, line, col)};
+        args[0] = value_string(ziman_xstrdup("map"));
+        args[1] = value_string(ziman_xstrdup("Map"));
+        args[2] = array_of(inner, 2);
+        return call_meta("generic", args, 3, line, col);
+    }
     if (t.kind == TY_STRUCT || t.kind == TY_ENUM) {
         const char *name = source_name(t.kind == TY_STRUCT ? t.struct_name : t.enum_name);
         if (t.type_args.count > 0) {
@@ -194,6 +219,16 @@ static Value reify_type(Type t, int line, int col) {
          * type and to name the converter parameter a generic `derive(Json)` threads through. */
         args[0] = value_string(ziman_xstrdup("typevar"));
         args[1] = value_string(ziman_xstrdup(t.type_var_name != NULL ? t.type_var_name : ""));
+        return call_meta("named", args, 2, line, col);
+    }
+    /* Anything else -- `int`, `bool`, a function type, a handle -- has no parts a generator can
+     * walk. A scalar is just its kind; a kind whose written form says more than its name does
+     * (`fn(int) -> int`, not `func`) keeps that text, so a generator refusing it can quote the
+     * type the user actually wrote. */
+    const char *written = type_name(t);
+    if (written != NULL && strcmp(written, kind_name(t.kind)) != 0) {
+        args[0] = value_string(ziman_xstrdup(kind_name(t.kind)));
+        args[1] = value_string(ziman_xstrdup(written));
         return call_meta("named", args, 2, line, col);
     }
     args[0] = value_string(ziman_xstrdup(kind_name(t.kind)));
@@ -240,7 +275,15 @@ static Value reify_decl(StructDecl *sd, EnumDecl *ed, int line, int col) {
 
 char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, int line, int col) {
     if (!ziman_has_ziman_generator(target)) return NULL;
+    /* **Captured before anything else runs.** Loading the generator program and then running it
+     * both set the error file to a generator's own module, and the declaration being derived is
+     * in the *user's* file -- so a refusal reported below would name the wrong file, or none.
+     * Worse, the first version restored a value read *after* `load_generators()`, which had
+     * already overwritten it: `errors_derive_several` then reported one error where it expects
+     * three, because the later ones were raised against a file the run was no longer in. */
+    const char *caller_file = ziman_error_file();
     load_generators();
+    ziman_set_error_file(caller_file);
     if (g_generators == NULL) return NULL;
 
     Value decl = reify_decl(sd, ed, line, col);
@@ -248,6 +291,7 @@ char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, 
     Value out;
     const char *problem = NULL;
     int ok = ziman_call_in_module(g_generators, fn, &decl, 1, &out, &problem);
+    ziman_set_error_file(caller_file);
     if (!ok) {
         ziman_error("module", line, col, "the generator for '%s' failed: %s", target,
                     problem != NULL ? problem : "unknown");

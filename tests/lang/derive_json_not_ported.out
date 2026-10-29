@@ -1,1 +1,0 @@
-derive(Json) is not fully ported to Ziman yet -- the three struct functions are written (lib/core/derive_json.zm), the two enum halves are still in src/derive.c
