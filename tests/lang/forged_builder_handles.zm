@@ -10,6 +10,14 @@
 //
 // One fixture for all five, using A2's per-thread error boundary: each forged use ends its own
 // thread and the `on_error` handler reports the message, so the program survives to try the next.
+//
+// **Runs under `--gc-stress`** (its `.args`), because A50's fix was not the whole of it. Use
+// sites validate; the **mark phase did not** -- so a collection landing between the struct
+// literal and the use still dereferenced `handle: 1` as a pointer and segfaulted, which is the
+// very thing this fixture exists to prove cannot happen. An ordinary growth-triggered
+// collection almost never lands in that window, so this passed for as long as it existed and
+// failed the first time the suite was run under stress (2026-10-29). The marker now asks
+// `handleset_has` first and marks nothing when the answer is no.
 fn use_array(done: Channel<string>) {
     val b = MutableArray<int> { handle: 1 }
     push(b, 1)

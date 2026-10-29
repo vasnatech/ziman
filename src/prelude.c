@@ -1954,8 +1954,27 @@ static Value native_mutable_array_to_array(Value *args, int argc, int line, int 
  * scalar) that no longer has any other live reference once the loop that built it has moved on.
  * `st` is the MutableArray's own wrapper StructObj, not a Value -- its `fields[0]` is the same
  * disguised handle `mutable_array_handle_of` reads off a Value, just reached a different way. */
+/* The buffer a builder's handle names, or NULL if the handle is not one this process issued.
+ *
+ * **Every use site already validates** -- `mutable_array_get_buf` and the three beside it call
+ * `handleset_has` and raise "not a valid MutableArray handle". The mark phase did not, and a
+ * builder wrapper is an ordinary struct literal a program may write: `MutableArray<int> {
+ * handle: 1 }` is the forgery `tests/lang/forged_builder_handles` exists to prove is refused.
+ * A50 closed that on use; a collection landing between the literal and the use still reached
+ * here and dereferenced 1 as a pointer. Found by running the suite under `--gc-stress`.
+ *
+ * **Silently, not as an error.** This runs inside `gc_heap_collect`, where `ziman_error` would
+ * longjmp out of a half-finished mark phase. A forged handle points at nothing to mark, so
+ * there is nothing to do and the refusal happens at the use site a moment later, which is where
+ * a program can see it. */
+static void *mark_phase_buf(HandleSet *set, StructObj *st) {
+    void *buf = (void *)(intptr_t)st->fields[0].as.i;
+    return handleset_has(set, buf) ? buf : NULL;
+}
+
 static void mutable_array_mark_contents(const Arena *a, StructObj *st) {
-    MutableArrayBuf *buf = (MutableArrayBuf *)(intptr_t)st->fields[0].as.i;
+    MutableArrayBuf *buf = mark_phase_buf(&g_array_builders, st);
+    if (buf == NULL) return;
     if (buf->pkind != PK_NONE) return; /* packed elements are raw scalar bytes, nothing to mark */
     for (size_t i = 0; i < buf->length; i++) gc_mark_value(a, buf->items[i]);
 }
@@ -2011,7 +2030,8 @@ static void mark_table_entry(Value key, Value val, void *ctx) {
  * private trie so that gc_mark_map would walk its leaves; a table has no leaves to mark, only
  * entries to visit. */
 static void mutable_map_mark_contents(const Arena *a, StructObj *st) {
-    MutableMapBuf *buf = (MutableMapBuf *)(intptr_t)st->fields[0].as.i;
+    MutableMapBuf *buf = mark_phase_buf(&g_map_builders, st);
+    if (buf == NULL) return; /* see mark_phase_buf */
     maptable_visit(&buf->t, mark_table_entry, (void *)a);
 }
 
@@ -2985,7 +3005,8 @@ static Value native_mutable_set(Value *args, int argc, int line, int col) {
 /* See mutable_array_mark_contents: the one Value a cell holds is reachable only through the handle, so a
  * collection landing while a cell is the sole reference to it would sweep it. */
 static void cell_mark_contents(const Arena *a, StructObj *st) {
-    MutableCellBuf *buf = (MutableCellBuf *)(intptr_t)st->fields[0].as.i;
+    MutableCellBuf *buf = mark_phase_buf(&g_cells, st);
+    if (buf == NULL) return; /* see mark_phase_buf */
     gc_mark_value(a, buf->value);
 }
 
