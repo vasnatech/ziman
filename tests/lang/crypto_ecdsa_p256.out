@@ -1,0 +1,17 @@
+a private key is PKCS#8 PEM: true
+a public key is PEM: true
+a signature is 64 bytes (r || s): 64
+it verifies under the public key: true
+another message does not verify: false
+another key does not verify it: false
+two signatures of one message differ: true
+and both verify: true
+a truncated signature does not verify: false
+a public point is 64 bytes (x || y): 64
+a private PEM carries the same point: true
+a JWK's x and y are 43 characters each: 43 43
+Err(ecdsa_p256_sign: not a PEM private key)
+Err(ecdsa_p256_public_pem: not a PEM private key)
+Err(ecdsa_p256_public_point: not a PEM key)
+Err(ecdsa_p256_sign: not a PEM private key)
+verifying with a non-key is false: false

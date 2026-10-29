@@ -257,6 +257,66 @@ The plaintext `aes_gcm_encrypt` sealed into `blob` under `key`. An `Err` for a w
 `blob` too short to hold a nonce and a tag, or a tag that does not match -- the wrong key, or `blob`
 was altered.
 
+## Signing with a key pair
+
+### `ecdsa_p256_generate`
+
+```
+pub native fn ecdsa_p256_generate() -> Result<string, string>
+```
+
+A fresh P-256 private key, as PKCS#8 PEM text -- what `openssl ecparam` writes and what a
+deployment keeps in a file or a secret.
+
+### `ecdsa_p256_public_pem`
+
+```
+pub native fn ecdsa_p256_public_pem(private_key_pem: string) -> Result<string, string>
+```
+
+The public key matching a PEM private key, as PEM text: what to publish, and what
+`ecdsa_p256_verify` takes.
+
+### `ecdsa_p256_public_point`
+
+```
+pub native fn ecdsa_p256_public_point(key_pem: string) -> Result<[byte], string>
+```
+
+The public point as `x || y`, 64 bytes -- a JWK's `x` and `y` are each the base64url of one half
+(`encoding.base64url_encode(slice(point, 0, 32))`). Takes a private or a public PEM, since a
+private key carries its point.
+
+**The JWK itself is not here**: it is a `Json` object and belongs in Ziman, so the C holds no
+JSON and a JWK's spelling can change without touching it. The leading `0x04` of the uncompressed
+form is dropped -- it says "uncompressed", which a fixed-width pair already says.
+
+### `ecdsa_p256_sign`
+
+```
+pub native fn ecdsa_p256_sign(private_key_pem: string, data: [byte]) -> Result<[byte], string>
+```
+
+SHA-256 of `data`, signed with the PEM private key: **ES256**, and the signature is the raw
+`r || s` of 64 bytes.
+
+**Raw rather than DER**, because that is what JWS requires (RFC 7515 §3.3) and because the two
+cannot be mistaken for one another: a DER signature's length varies with its integers, so a
+caller holding the wrong form finds out at the far end instead of here. An `Err` for a key that
+is not a P-256 PEM private key.
+
+### `ecdsa_p256_verify`
+
+```
+pub native fn ecdsa_p256_verify(public_key_pem: string, data: [byte], signature: [byte]) -> bool
+```
+
+Whether `signature` (raw `r || s`) signs `data` under the PEM public key.
+
+**A bool, not a `Result`**: a wrong signature, the wrong key, a malformed key and a signature of
+the wrong length all mean one thing to a caller -- these bytes are not to be trusted -- and a
+`Result` would invite distinguishing cases that must not change the decision.
+
 ## Byte arrays
 
 ### `bytes_xor`

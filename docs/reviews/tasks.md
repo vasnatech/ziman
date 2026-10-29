@@ -4330,3 +4330,50 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   context, `template` on `expr` with `@if`/`@elif`/`@else`, and `render_text`.
 
   1,304 fixtures.
+
+- [x] **F236** **ECDSA over P-256: the first asymmetric signing in the language.** (the primitive
+  ES256 needs, and the one thing SMART Health Cards were blocked on; done 2026-10-29; M.)
+
+  Everything `crypto` had was symmetric -- a MAC or a cipher under a shared key, where anyone who
+  can check a signature can also make one. A verifiable credential needs the other thing, and
+  `jwt` was HMAC-only (HS256/384/512) with no public-key signing anywhere in the module. Five
+  natives on OpenSSL, which was already linked: `ecdsa_p256_generate`, `ecdsa_p256_public_pem`,
+  `ecdsa_p256_public_point`, `ecdsa_p256_sign`, `ecdsa_p256_verify`.
+
+  **Three decisions, each visible in a signature:**
+
+  * **Keys are PEM text.** It is what `openssl ecparam` writes and what a deployment keeps in a
+    file or a secret. A JWK is a `Json` object and belongs in Ziman, built from
+    `ecdsa_p256_public_point` -- so the C holds no JSON and a JWK's spelling can change without
+    touching it.
+  * **A signature is raw `r || s`, 64 bytes, not DER**, because that is what JWS requires
+    (RFC 7515 §3.3) and because the two cannot be confused: a DER signature's length varies with
+    its integers, so a caller holding the wrong form finds out at the far end instead of at the
+    call. The conversion both ways is done in the one place that knows both.
+  * **`verify` answers a `bool`, not a `Result`.** A wrong signature, the wrong key, a malformed
+    key and a signature of the wrong length all mean one thing -- these bytes are not to be
+    trusted -- and a `Result` would invite distinguishing cases that must not change the decision.
+
+  **The curve is checked rather than assumed.** A P-384 key signs happily and produces 96 bytes;
+  taking the first 64 would be a valid-looking signature of nothing. A key on another curve is
+  refused by name.
+
+  **Interoperability was tested against an implementation that is not this one**, which is the
+  only check that means anything here -- a round trip through my own code proves self-consistency
+  and nothing else. Python's `cryptography` (46.0.7) loads ziman's PEM public key and verifies
+  ziman's signature after converting `r || s` to DER, and refuses it against a tampered message;
+  in the other direction ziman verified **200 signatures python made of one message, 2 of which
+  had a short `r` or `s`** -- the leading-zero case a DER-to-raw conversion gets wrong by dropping
+  the pad, and the reason the count is 200 rather than one.
+
+  `tests/lang/crypto_ecdsa_p256` **generates its key pair rather than carrying one**: a committed
+  PEM private key is a key in a public repository forever, however harmless, and generating also
+  proves two of the five natives. It asserts what holds for every key -- a 64-byte signature, a
+  verify that holds and three that must not, two signatures of one message differing (ECDSA is
+  randomised, so a fixture asserting signature bytes would be asserting the nonce), a truncated
+  signature refused, and a public point whose halves are a JWK's 43-character `x` and `y`.
+
+  Next, and not in this entry: `jwt` ES256 on top of it, which needs its own entry point because
+  `jwt.sign` is keyed on `[byte]` and an EC key is PEM text.
+
+  1,305 fixtures.

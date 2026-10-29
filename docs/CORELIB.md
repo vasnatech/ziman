@@ -225,6 +225,16 @@ pub native fn aes_gcm_encrypt(key: [byte], plaintext: [byte]) -> Result<[byte], 
 
 pub native fn aes_gcm_decrypt(key: [byte], blob: [byte]) -> Result<[byte], string>
 
+pub native fn ecdsa_p256_generate() -> Result<string, string>
+
+pub native fn ecdsa_p256_public_pem(private_key_pem: string) -> Result<string, string>
+
+pub native fn ecdsa_p256_public_point(key_pem: string) -> Result<[byte], string>
+
+pub native fn ecdsa_p256_sign(private_key_pem: string, data: [byte]) -> Result<[byte], string>
+
+pub native fn ecdsa_p256_verify(public_key_pem: string, data: [byte], signature: [byte]) -> bool
+
 pub native fn bytes_xor(a: [byte], b: [byte]) -> [byte]
 
 pub native fn bytes_equal(a: [byte], b: [byte]) -> bool

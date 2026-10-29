@@ -1,0 +1,62 @@
+// ECDSA over P-256 -- the first asymmetric signing in the language, and the primitive ES256 needs.
+//
+// **The key pair is generated here rather than committed.** A fixture that carries a PEM private
+// key is a key in a public repository forever, however harmless, and a generated one also proves
+// `ecdsa_p256_generate` and `ecdsa_p256_public_pem` work -- which a committed key would not.
+// Nothing here prints a key, since a generated key differs every run; what is printed is what must
+// hold for every key.
+use crypto
+use encoding
+
+fn main() {
+    val private_pem = unwrap(crypto.ecdsa_p256_generate())
+    val public_pem = unwrap(crypto.ecdsa_p256_public_pem(private_pem))
+    print(concat("a private key is PKCS#8 PEM: ", str(starts_with(private_pem, "-----BEGIN PRIVATE KEY-----"))))
+    print(concat("a public key is PEM: ", str(starts_with(public_pem, "-----BEGIN PUBLIC KEY-----"))))
+
+    val message = to_bytes("the bytes a credential signs")
+    val signature = unwrap(crypto.ecdsa_p256_sign(private_pem, message))
+    print(concat("a signature is 64 bytes (r || s): ", str(prelude.len(signature))))
+    print(concat("it verifies under the public key: ", str(crypto.ecdsa_p256_verify(public_pem, message, signature))))
+
+    // **The point of asymmetry**: verifying needs only the public key, and nothing about this
+    // signature can be produced from it.
+    print(concat("another message does not verify: ", str(
+        crypto.ecdsa_p256_verify(public_pem, to_bytes("other bytes"), signature)
+    )))
+    val other_public = unwrap(crypto.ecdsa_p256_public_pem(unwrap(crypto.ecdsa_p256_generate())))
+    print(concat("another key does not verify it: ", str(
+        crypto.ecdsa_p256_verify(other_public, message, signature)
+    )))
+
+    // ECDSA is randomised: two signatures of one message differ, and both verify. A fixture that
+    // asserted a signature's bytes would be asserting the nonce.
+    val again = unwrap(crypto.ecdsa_p256_sign(private_pem, message))
+    print(concat("two signatures of one message differ: ", str(!crypto.bytes_equal(signature, again))))
+    val first_holds = crypto.ecdsa_p256_verify(public_pem, message, signature)
+    val second_holds = crypto.ecdsa_p256_verify(public_pem, message, again)
+    print(concat("and both verify: ", str(first_holds && second_holds)))
+
+    // A signature of the wrong length is refused rather than read as far as it goes.
+    print(concat("a truncated signature does not verify: ", str(
+        crypto.ecdsa_p256_verify(public_pem, message, slice(signature, 0, 63))
+    )))
+
+    // The public point is what a JWK carries: `x` and `y`, each the base64url of 32 bytes.
+    val point = unwrap(crypto.ecdsa_p256_public_point(public_pem))
+    print(concat("a public point is 64 bytes (x || y): ", str(prelude.len(point))))
+    print(concat("a private PEM carries the same point: ", str(
+        crypto.bytes_equal(point, unwrap(crypto.ecdsa_p256_public_point(private_pem)))
+    )))
+    val x = encoding.base64url_encode(slice(point, 0, 32))
+    val y = encoding.base64url_encode(slice(point, 32, 64))
+    print(concat("a JWK's x and y are 43 characters each: ", str(prelude.len(x)), " ", str(prelude.len(y))))
+
+    // Refusals: the text has to be a key, a public key cannot sign, and verifying with anything
+    // that is not a key is false rather than an error -- see `ecdsa_p256_verify`.
+    print(crypto.ecdsa_p256_sign("not a key", message))
+    print(crypto.ecdsa_p256_public_pem("not a key"))
+    print(crypto.ecdsa_p256_public_point("not a key"))
+    print(crypto.ecdsa_p256_sign(public_pem, message))
+    print(concat("verifying with a non-key is false: ", str(crypto.ecdsa_p256_verify("not a key", message, signature))))
+}
