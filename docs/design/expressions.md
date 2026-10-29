@@ -325,7 +325,10 @@ show up as a sheet nobody can read.
 * **Expressions are not typechecked.** A rule is data; a wrong rule is found when it runs.
 * **No user-defined functions in v1.** The fixed set in §6 is the whole vocabulary.
 * **Keys are the JSON keys.** `derive(Json)` writes camelCase, so a rule reads `user.middleName`
-  unless the snake_case option in §15 is taken.
+  unless the tree is rekeyed. ~~unless the snake_case option in §15 is taken~~ -- which was a
+  self-reference to this very section, and the option was §16's step 2. **Taken 2026-10-29
+  (F231): `json.snake_keys(j)`**, so a rule reads `user.middle_name` over
+  `snake_keys(patient_to_json(p))`.
 * **One grammar and one evaluator**, in `expr`. `template` calls it and implements none of it,
   so there is nothing to drift (§10). The limit this leaves is the opposite one: a sheet cannot
   have an operator the language lacks without the language gaining it.
@@ -337,11 +340,19 @@ Each step is useful alone and provable before the next:
 1. **`lib/core/expr.zm` over `Json`**: parser, evaluator, the fixed function set, fixtures for
    every operator and every refusal. Nothing depends on it yet, and it is independently useful --
    the config-and-validation use needs no template and can be built on step 1 alone.
-2. **snake_case keys.** The person asked for the `json` module to support snake_case creation with
-   a parameter. Two places it could live: a `#[derive(Json)]` option that generates a second
-   function, or a runtime `json.snake_keys(j)` rekey. **The rekey is the recommendation** -- it
-   works on any `Json`, including one parsed from the wire, and it does not touch a generator
-   whose output is pinned by fixtures.
+2. ~~**snake_case keys.**~~ **DONE 2026-10-29 (F231), as the recommended rekey**:
+   `json.snake_keys(j) -> Result<Json, string>`, recursive through objects and through objects
+   inside arrays. The alternative -- a `#[derive(Json)]` option generating a second encoder --
+   would have covered only declarations this program compiled, where the rekey also works on a
+   document parsed off the wire, and it would have touched a generator whose output is pinned.
+
+   Two things decided while building it. **It serves both directions of the one problem**: the
+   original ask was for snake_case *output*, and the expression use needs snake_case *addressing*;
+   `snake_keys(patient_to_json(p))` is both. And **a collision is refused rather than resolved**
+   (`userName` beside `user_name`), because a `Map` keeps the last of the two and a field that
+   vanishes quietly reads, in the validation use, as a rule that passed. The error names both keys
+   and the path. A run of capitals (`userID`) is deliberately out of scope: `camel_case` cannot
+   produce one from a field name.
 3. **`template.zm` takes a `Json` context** (§11), with `text`/`rows`/`row` kept as sugar. The five
    generators migrate mechanically and the fixtures prove the output is unchanged. No dependency
    on `expr` yet: this step is the data model alone.

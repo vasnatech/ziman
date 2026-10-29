@@ -1,0 +1,9 @@
+round trip over 20 field names, broken: 0
+{"middle_name":"R","patient_id":1,"already_snake":true,"line1_address":"a","vital_signs":[{"taken_at":"t","is_active":false}]}
+{"name":1,"a_b":2}
+[1,{"a_b":2}]
+7
+{"user_i_d":1}
+Err(snake_keys: 'userName' and 'user_name' both become 'user_name')
+Err(snake_keys: at 'user', 'zipCode' and 'zip_code' both become 'zip_code')
+Err(snake_keys: at 'rows[1]', 'aB' and 'a_b' both become 'a_b')

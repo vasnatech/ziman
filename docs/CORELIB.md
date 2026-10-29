@@ -587,6 +587,8 @@ pub fn from_map<V>(m: Map<string, V>, encode: fn(V) -> Json) -> Json
 
 pub fn to_string_map(j: Json) -> Result<Map<string, string>, string>
 
+pub fn snake_keys(j: Json) -> Result<Json, string>
+
 pub fn format(j: Json, indent: int) -> string
 
 pub fn json_to_json(j: Json) -> Json

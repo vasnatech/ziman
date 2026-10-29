@@ -1,0 +1,90 @@
+// `json.snake_keys`: a camelCase tree rekeyed to the spelling a Ziman field has.
+//
+// **The first half of this fixture pins a claim the doc comment makes**: that the rule is the
+// exact inverse of `meta.camel_case` *for what that function produces*. The two live in different
+// modules and must not import each other -- `json` cannot depend on the derive model -- so they
+// are a pair that can drift, and the only thing that stops the drift being silent is a test that
+// runs both. The names below are real field names from the North Star's entities, including the
+// shapes that look like they might break it: a digit inside a name, a three-word name, a name that
+// is a single word, and names already in snake_case.
+//
+// The second half is the collision refusal, which is the whole reason this answers a `Result`: a
+// `Map` would keep the last of two keys that want to be one, and a field that vanishes quietly is
+// exactly the wrong failure for validating a document against rules.
+use json
+use meta
+
+val field_names = [
+    "id",
+    "patient_id",
+    "created_at",
+    "updated_at",
+    "middle_name",
+    "blood_type",
+    "date_of_birth",
+    "preferred_language",
+    "taken_at",
+    "is_active",
+    "systolic_mm_hg",
+    "diastolic_mm_hg",
+    "line1",
+    "line2",
+    "zip_code",
+    "medication_id",
+    "recorded_by",
+    "note",
+    "family_history",
+    "user_notification_prefs"
+]
+
+fn main() {
+    var broken = 0
+    for name in field_names {
+        val camel = meta.camel_case(name)
+        val doc = unwrap(json.parse(concat("{\"", camel, "\": 1}")))
+        val back = unwrap(json.snake_keys(doc))
+        if None = json.get(back, name) {
+            print(concat(
+                "round trip lost: ",
+                name,
+                " -> ",
+                camel,
+                " -> ",
+                json.format(back)
+            ))
+            broken = broken + 1
+        }
+    }
+    print(concat(
+        "round trip over ",
+        str(prelude.len(field_names)),
+        " field names, broken: ",
+        str(broken)
+    ))
+
+    // Recursive, through objects and through objects inside arrays, and key order is the order
+    // the keys first appeared -- an object is a `Map` that keeps insertion order.
+    val tree = unwrap(json.parse(concat(
+        "{\"middleName\":\"R\",\"patientId\":1,",
+        "\"already_snake\":true,\"line1Address\":\"a\",",
+        "\"vitalSigns\":[{\"takenAt\":\"t\",\"isActive\":false}]}"
+    )))
+    print(json.format(unwrap(json.snake_keys(tree))))
+
+    // A leading capital has nothing to separate it from, so it only lower-cases. A key already in
+    // snake_case has no capitals and is untouched by construction.
+    print(json.format(unwrap(json.snake_keys(unwrap(json.parse("{\"Name\":1,\"a_b\":2}"))))))
+
+    // Not an object: returned unchanged, at any depth.
+    print(json.format(unwrap(json.snake_keys(unwrap(json.parse("[1,{\"aB\":2}]"))))))
+    print(json.format(unwrap(json.snake_keys(unwrap(json.parse("7"))))))
+
+    // A run of capitals is deliberately out of scope: `camel_case` cannot produce one from a
+    // field name, so this is the honest answer rather than a guess at an acronym.
+    print(json.format(unwrap(json.snake_keys(unwrap(json.parse("{\"userID\":1}"))))))
+
+    // Two keys that want to be one: refused, naming both and where they are.
+    print(json.snake_keys(unwrap(json.parse("{\"userName\":1,\"user_name\":2}"))))
+    print(json.snake_keys(unwrap(json.parse("{\"user\":{\"zipCode\":1,\"zip_code\":2}}"))))
+    print(json.snake_keys(unwrap(json.parse("{\"rows\":[{\"ok\":1},{\"aB\":1,\"a_b\":2}]}"))))
+}

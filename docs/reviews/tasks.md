@@ -4109,3 +4109,41 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   Found while measuring: `tests/run_tests.sh` reported "timed out after 5s" whatever `TIMEOUT`
   was set to, which is how a 60-second limit announced itself as five. Fixed; it prints the limit
   it used.
+
+- [x] **F231** **`json.snake_keys`: the snake_case rekey, step 2 of the expression language.**
+  (docs/design/expressions.md §16 step 2; the user chose the collision rule, 2026-10-29; S.)
+
+  `#[derive(Json)]` writes camelCase keys, because JSON is read by other systems and that is their
+  convention. That leaves the same problem at both ends: building a document a *Ziman* reader
+  addresses, and writing a rule or a template hole that walks a derived tree with the spelling the
+  struct uses. `snake_keys(j)` is one answer to both -- `snake_keys(patient_to_json(p))` for the
+  first, `user.middle_name` instead of `user.middleName` for the second.
+
+  **Chosen over a `#[derive(Json)]` option** (the design's own recommendation, confirmed in
+  building it): a generated second encoder covers only declarations this program compiled, where a
+  rekey also works on a document parsed off the wire -- and it leaves a generator whose output is
+  pinned by fixtures alone.
+
+  **A collision is refused, not resolved** -- the user's call between three options. `{"userName":
+  1, "user_name": 2}` has two keys that want to be one, and a `Map` keeps the last: a field that
+  vanishes quietly reads, in the one use this exists for, as a rule that passed. So it answers a
+  `Result`, and the error names both keys and the path they are at: `snake_keys: at 'rows[1]',
+  'aB' and 'a_b' both become 'a_b'`. A key already in snake_case has no capitals and so is
+  untouched by construction, which is why the refusal fires essentially never in practice.
+
+  **The rule is the inverse of `meta.camel_case` and the fixture proves it rather than claiming
+  it.** The two cannot import each other -- `json` must not depend on the derive model -- so they
+  are a pair that can drift, exactly like `standard_flat_type_name`/`flat_names` (F229). The guard
+  is `tests/lang/json_snake_keys`, which runs **both** functions over 20 real field names from the
+  North Star's entities, including a digit inside a name (`line1` -> `line1Address` ->
+  `line1_address`), a three-word name and names already in snake_case: 0 broken.
+
+  Deliberately out of scope: a **run** of capitals. `userID` becomes `user_i_d`, and that is the
+  honest answer rather than a guess at an acronym, because `camel_case("user_id")` is `userId` --
+  a run is not a shape the function being inverted can produce.
+
+  Found while writing it: inside `json.zm` the module's own `get(j: Json, key: string)` shadows the
+  builtin `get` for a `Map`, so a map lookup there needs `prelude.get` -- the same disambiguation
+  `prelude.len` already needs.
+
+  1,302 fixtures.

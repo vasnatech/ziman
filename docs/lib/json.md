@@ -340,6 +340,37 @@ pub fn to_string_map(j: Json) -> Result<Map<string, string>, string>
 
 A JSON object of strings as a Map<string, string>.
 
+### `snake_keys`
+
+```
+pub fn snake_keys(j: Json) -> Result<Json, string>
+```
+
+`{"middleName": ..}` -> `{"middle_name": ..}`, recursively, through objects and through objects
+inside arrays. Anything that is not an object is returned unchanged.
+
+**It serves both directions of one problem.** `#[derive(Json)]` writes camelCase keys, because
+JSON is read by other systems and that is their convention. So building a document a *Ziman*
+reader addresses means rekeying the output -- `snake_keys(patient_to_json(p))` -- and writing a
+rule or a template hole that walks a derived tree means the rule has to say `user.middleName`
+where the struct says `middle_name` (docs/design/expressions.md §15). One rekey answers both,
+and it works on any `Json`, including one parsed off the wire, where a second generated encoder
+would only ever cover a declaration this program compiled.
+
+**The rule is the exact inverse of `meta.camel_case`, and only of what that produces.** A
+capital becomes `_` plus its lower case, except at the start, where there is nothing to
+separate: `middleName` -> `middle_name`, `Name` -> `name`, `line1Address` ->
+`line1_address`, and a key already in snake_case has no capitals and so is returned untouched.
+A *run* of capitals is out of scope on purpose: `userID` becomes `user_i_d`, which is not
+wrong so much as not a shape `camel_case` can produce -- its input is a Ziman field name, and
+`camel_case("user_id")` is `userId`. `tests/lang/json_snake_keys` pins the round trip over a
+table of real field names rather than trusting that claim.
+
+**A collision is refused rather than resolved.** `{"userName": 1, "user_name": 2}` has two keys
+that want to be one, and a `Map` would simply keep the last -- losing a field silently, inside
+the one use (validating a document against rules) where a field that is quietly absent reads as
+a rule that passed. The error names both keys and the path they are at.
+
 ### `format`
 
 ```

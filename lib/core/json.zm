@@ -295,6 +295,101 @@ pub fn to_string_map(j: Json) -> Result<Map<string, string>, string> {
     return to_map(j, string_from_json)
 }
 
+// `{"middleName": ..}` -> `{"middle_name": ..}`, recursively, through objects and through objects
+// inside arrays. Anything that is not an object is returned unchanged.
+//
+// **It serves both directions of one problem.** `#[derive(Json)]` writes camelCase keys, because
+// JSON is read by other systems and that is their convention. So building a document a *Ziman*
+// reader addresses means rekeying the output -- `snake_keys(patient_to_json(p))` -- and writing a
+// rule or a template hole that walks a derived tree means the rule has to say `user.middleName`
+// where the struct says `middle_name` (docs/design/expressions.md §15). One rekey answers both,
+// and it works on any `Json`, including one parsed off the wire, where a second generated encoder
+// would only ever cover a declaration this program compiled.
+//
+// **The rule is the exact inverse of `meta.camel_case`, and only of what that produces.** A
+// capital becomes `_` plus its lower case, except at the start, where there is nothing to
+// separate: `middleName` -> `middle_name`, `Name` -> `name`, `line1Address` ->
+// `line1_address`, and a key already in snake_case has no capitals and so is returned untouched.
+// A *run* of capitals is out of scope on purpose: `userID` becomes `user_i_d`, which is not
+// wrong so much as not a shape `camel_case` can produce -- its input is a Ziman field name, and
+// `camel_case("user_id")` is `userId`. `tests/lang/json_snake_keys` pins the round trip over a
+// table of real field names rather than trusting that claim.
+//
+// **A collision is refused rather than resolved.** `{"userName": 1, "user_name": 2}` has two keys
+// that want to be one, and a `Map` would simply keep the last -- losing a field silently, inside
+// the one use (validating a document against rules) where a field that is quietly absent reads as
+// a rule that passed. The error names both keys and the path they are at.
+pub fn snake_keys(j: Json) -> Result<Json, string> {
+    return rekey(j, "")
+}
+
+// `path` is where the recursion is, for a collision's message: "" at the root, then `user`,
+// `user.address`, `items[2]`.
+fn rekey(j: Json, path: string) -> Result<Json, string> {
+    if JObject(fields) = j {
+        val out = mutable_map_new<string, Json>()
+        val claimed = mutable_map_new<string, string>()
+        for key, value in fields {
+            val snaked = snake_key(key)
+            // `prelude.get`, because this module's own `get(j: Json, key: string)` shadows the
+            // builtin for a `Map` -- the same disambiguation `prelude.len` needs elsewhere.
+            if Some(first) = prelude.get(claimed, snaked) {
+                return err(prelude.format(
+                    "snake_keys: {}'{}' and '{}' both become '{}'",
+                    at_path(path),
+                    first,
+                    key,
+                    snaked
+                ))
+            }
+            set(claimed, snaked, key)
+            set(out, snaked, try rekey(value, join_path(path, snaked)))
+        }
+        return ok(Json.JObject(snapshot(out)))
+    }
+    if JArray(items) = j {
+        val out = mutable_array_new<Json>()
+        for i in 0..prelude.len(items) {
+            push(out, try rekey(items[i], concat(path, "[", str(i), "]")))
+        }
+        return ok(Json.JArray(snapshot(out)))
+    }
+    return ok(j)
+}
+
+fn at_path(path: string) -> string {
+    if path == "" {
+        return ""
+    }
+    return concat("at '", path, "', ")
+}
+
+fn join_path(path: string, key: string) -> string {
+    if path == "" {
+        return key
+    }
+    return concat(path, ".", key)
+}
+
+// One key. See `snake_keys` for the rule and for what is deliberately not in it.
+fn snake_key(key: string) -> string {
+    val out = mutable_array_new<string>()
+    val letters = chars(key)
+    for i in 0..prelude.len(letters) {
+        val c = letters[i]
+        val lower = to_lower(c)
+        if c == lower {
+            push(out, c)
+            continue
+        }
+        if i > 0 {
+            push(out, "_")
+        }
+        push(out, lower)
+    }
+    return concat(pieces: snapshot(out))
+}
+
 // Indented output: `indent` spaces per level, one array element or object field per
 // line; an empty array or object stays `[]` / `{}`.
 pub fn format(j: Json, indent: int) -> string {
