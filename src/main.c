@@ -85,6 +85,9 @@ static void usage(FILE *out) {
           "                   --canonical also moves an opening brace onto the line of what it\n"
           "                   opens, and `else` onto the line of the brace that closed its `if`\n"
           "  --emit-derived   print the code each #[derive] generates, then continue\n"
+          "  --gc-stress      collect at every safe point instead of on a growth threshold:\n"
+          "                   turns a value the collector cannot see into an immediate failure\n"
+          "                   rather than one that needs a large program to show up\n"
           "  --stack-mb=N     the main thread's stack in MB (1-768; default: computed from the memory available)\n"
           "  --thread-stack-mb=N  the stack of each `spawn`ed thread in MB (default: computed)\n"
           "  --threads=N      how many threads to plan stacks for (default 64)\n"
@@ -748,6 +751,7 @@ int main(int argc, char **argv) {
         else if (strncmp(a, "--width=", 8) == 0) fmt_width = atoi(a + 8);
         else if (strcmp(a, "--canonical") == 0) fmt_canonical = 1;
         else if (strcmp(a, "--emit-derived") == 0) g_emit_derived = 1;
+        else if (strcmp(a, "--gc-stress") == 0) ziman_set_gc_stress(1);
         else if (strncmp(a, "--stack-mb=", 11) == 0) stack_main_mb = atol(a + 11);
         else if (strncmp(a, "--thread-stack-mb=", 18) == 0) stack_thread_mb = atol(a + 18);
         else if (strncmp(a, "--threads=", 10) == 0) stack_threads = atol(a + 10);

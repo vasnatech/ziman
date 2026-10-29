@@ -428,18 +428,46 @@ That fixture is the test the boundary has never had. It is cheap, it is pure dat
 
 * bug 1 would show `Instant` where the source wrote `time.Instant`;
 * bug 2 would show `map` with `args: []`;
-* bug 3 is an allocation bug and needs volume -- so the fixture declares **enough members to force
-  a collection**, which is the cheapest way to put the one failure mode that fixtures structurally
-  missed inside a fixture.
+* bug 3 would not. **This was measured, and the first version of this section was wrong about
+  it** -- see below.
+
+### Size does not reach the GC bug; `--gc-stress` does
+
+This section first claimed the fixture could catch bug 3 by declaring "enough members to force a
+collection". It cannot, and the claim was checked rather than left standing:
+
+* with the `gc_unsafe` guard removed, the boundary fixture **passes**;
+* so does a generated file with **300** `#[derive(..)]` declarations of eight fields each.
+
+Derive volume is not what triggers it. The collector fires on heap *growth*, and the real failure
+needed a whole application's allocation -- loading its modules, running its program -- to cross
+the threshold while a reification happened to be in flight. A fixture is a small program by
+construction, so it never gets there, and making it big enough is not a thing a fixture can be.
+
+What does work is removing the threshold. With `maybe_collect` collecting at **every** safe point
+and the guard removed, the fixture fails on the first declaration with exactly the production
+signature:
+
+    the generator for 'Reflect' failed: internal error: field 'has_payload' not found at runtime
+
+So the instrument is a **flag**, `--gc-stress`, and the fixture runs under it. Under that flag
+every safe point is the wrong window, and a `Value` that C holds without rooting is freed
+immediately rather than on the one run in a thousand where the heap crosses a threshold at the
+wrong moment.
+
+This generalises past `meta`: **any** future C that builds a Ziman value across more than one
+call has the same failure mode, and `gc_unsafe_enter`/`leave` is the rule it has to remember.
+`--gc-stress` is how forgetting becomes a test failure instead of a field report.
 
 **This is the actual deliverable.** The model changes in §§5-7 are what `derive(Entity)` needs;
-this is what keeps the next three bugs from shipping.
+this -- the dump, and the flag that makes the third bug reproducible -- is what keeps the next
+three from shipping.
 
 ## 11. Staging
 
-1. **The `Reflect` generator and its fixture, against today's `meta`.** It will pin the current
-   behaviour including whatever is still wrong, which is the point: the diff in step 2 is then the
-   proof.
+1. **The `Reflect` generator and its fixture, against today's `meta`, plus `--gc-stress`.** The
+   fixture pins the current behaviour including whatever is still wrong, which is the point: the
+   diff in step 2 is then the proof. The flag is what makes the third bug reproducible at all.
 2. **`Type` becomes an enum** (§5) and `Decl` follows (§6). This is **not additive** -- it
    replaces the type struct, rewrites `reify_type`, and turns all five generators' `if t.kind == ".."`
    ladders into exhaustive `switch`es. The step-1 fixture changes, every change in it is

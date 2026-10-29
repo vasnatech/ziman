@@ -1,1 +1,1 @@
---emit-derived --check
+--gc-stress --emit-derived --check

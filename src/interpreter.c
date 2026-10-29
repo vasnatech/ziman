@@ -1914,8 +1914,27 @@ static size_t gc_growth_before_next_collect(size_t reserved_now) {
  * whenever any such buffer is in progress anywhere on this thread's call stack -- see
  * gc_unsafe_enter/leave's own comment -- is what makes this safe; "exec_stmt's own entry" alone
  * was not (see docs/DESIGN.md's own entry on the bug this fixes). */
+/* `--gc-stress`: collect at **every** safe point rather than on a growth threshold.
+ *
+ * A `Value` held only by C -- in a local, or in a buffer C is still filling -- is not a root,
+ * and the mark phase will free what it points at. `gc_unsafe_enter`/`leave` is how a caller says
+ * "not yet"; forgetting it is a bug that needs a collection to land in exactly the wrong window,
+ * so it hides until a program allocates enough. `ziman_generate_in_ziman` forgot it and the
+ * failure took 140 derive sites in a real application to appear, while 1,293 fixtures and a
+ * generated file with 300 derive sites all passed.
+ *
+ * Under this flag the wrong window is every window, and that bug reproduces on the first
+ * declaration. Off by default and read once; the cost when off is one predictable branch. */
+static int g_gc_stress = 0;
+void ziman_set_gc_stress(int on) { g_gc_stress = on; }
+
 static void maybe_collect(void) {
     if (t_gc_unsafe_depth > 0) return;
+    if (g_gc_stress) {
+        gc_heap_collect(ziman_thread_heap(), mark_this_threads_roots, NULL);
+        t_reserved_at_last_collect = ziman_thread_heap_reserved();
+        return;
+    }
     size_t reserved = ziman_thread_heap_reserved();
     if (reserved - t_reserved_at_last_collect < gc_growth_before_next_collect(t_reserved_at_last_collect)) return;
     gc_heap_collect(ziman_thread_heap(), mark_this_threads_roots, NULL);

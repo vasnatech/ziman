@@ -43,6 +43,9 @@ void interpret_tests(Module *module, const char *file_label, int *out_run, int *
  * being assumed away. */
 void ziman_force_collect(void);
 
+/* `--gc-stress`: collect at every safe point. See interpreter.c. */
+void ziman_set_gc_stress(int on);
+
 /* This thread's own per-thread root-source addresses (t_defer_envs, t_env_pool, t_active_iters,
  * t_pending_handler/t_has_pending_handler) -- addresses, not values, for the same reason
  * ZimanFramesRootAddrs (error.h) is: each array is reallocated as it grows, so
