@@ -54,6 +54,13 @@ So the proposal below adds **what a named, concrete generator needs** and nothin
 named generator is `derive(Entity)` plus `#[repository]`, which is the last thing `src/derive.c`
 owns and the only derive target not yet ported. §4 is that list, derived from reading the C.
 
+**§5 then revises this rule rather than obeying it.** The rule is about *data*: a field nobody
+reads is a speculative promise. It says nothing against a *shape* that is total over what the
+compiler can actually produce -- and §5 makes the model an enum, where totality is enforced by
+exhaustive `switch` and a missing kind is a compile error rather than a silent flattening. The
+rule survives in a sharper form, stated at the end of §6: **`meta` is total over what the
+compiler can hand a generator, and silent about everything else.**
+
 ## 3. Where "small" actually failed
 
 The rule says *a field nobody reads is a promise*. The three bugs were not about extra fields.
@@ -83,6 +90,10 @@ inside one if it wanted to.
 one only sometimes.** A model that is faithful for 5 of 19 kinds and silently flat for the rest is
 worse than one that is honestly partial, because nothing in the shape says which you have.
 
+A wider struct would fix this table and not the cause: `kind: string` with `args: [MetaType]` can
+always be given a kind it has no arguments for, and nothing complains. §5's enum cannot represent
+that state at all, which is why the fix is the shape rather than the contents.
+
 ## 4. What `derive(Entity)` and `#[repository]` need that is not there
 
 Read out of `src/derive.c` rather than imagined:
@@ -108,85 +119,136 @@ it can hold a signature. And **the last three entries are not properties of the 
 derived at all** -- they belong to a *different module* from the entity struct. §8 is where that
 leads.
 
-## 5. The model: `MetaType` becomes honest
+## 5. The model: a `Type` is an enum, and that is the whole argument
 
-Keep `kind`/`name`/`args`, and make `args` mean the same thing for every kind that has parts:
-
-| kind      | `name`              | `args`                                   |
-| --------- | ------------------- | ---------------------------------------- |
-| `array`   | `""`                | `[elem]`                                 |
-| `set`     | `"Set"`             | `[elem]`                                 |
-| `map`     | `"Map"`             | `[key, value]`                           |
-| `result`  | `"Result"`          | `[ok, err]`                              |
-| `channel` | `"Channel"`         | `[elem]`                                 |
-| `func`    | `""`                | `[param.., ret]` -- **return type last** |
-| `struct`  | the name as written | the type arguments                       |
-| `enum`    | the name as written | the type arguments                       |
-| `typevar` | the variable        | empty                                    |
-| scalars   | `""`                | empty                                    |
-
-`func` putting its return type last is the one arbitrary choice; the alternative is a separate
-field that only one kind uses. Last is where the source writes it.
-
-**And one new field**, which is what makes the model honest rather than merely wider:
+Replace `MetaType { kind: string, name: string, args: [MetaType] }` with a tagged enum:
 
 ```ziman
-pub struct MetaType {
-    kind: string
-    name: string
-    args: [MetaType]
-    // The type exactly as the source spelled it. Set for every kind.
-    text: string
-}
-```
-
-`text` is what `meta.type_text` reconstructs today. Reconstruction is why bug 1 existed: the
-generator rebuilt `Option<time.Instant>` out of parts after the qualifier had been dropped from
-one of them. **Carrying the written form removes a whole class of bug** -- a generator that wants
-the type as written never recomputes it -- and leaves `type_text` as a convenience that must
-agree with it, which is a thing a test can check on every real declaration (§9).
-
-## 6. Members gain their attributes
-
-```ziman
-pub struct Member {
-    name: string
-    type: MetaType
-    has_payload: bool
-    // The attributes written on this member, bare names, in source order: `["pk"]`.
-    attrs: [string]
+pub enum Type {
+    Int  Float  Bool  String  Bigint  Decimal  Byte  Unit  Void
+    Array(Type)
+    Set(Type)
+    Channel(Type)
+    Map(MapType)
+    Result(ResultType)
+    Func(FuncType)
+    Optional(Type)
+    Named(NamedType)
+    Var(string)
 }
 
-pub fn has_attr(m: Member, name: string) -> bool
+pub struct MapType    { key: Type     value: Type }
+pub struct ResultType { ok: Type      err: Type }
+pub struct FuncType   { params: [Type]  returns: Type }
+pub struct NamedType  { name: string  args: [Type] }
 ```
 
-A **list of bare names**, not a `pk: bool`. `#[pk]` is the only field attribute today, and a bool
-would mean this file changes shape for the second one. A list costs nothing extra and says what it
-is. An attribute with arguments is deferred until one exists (§13).
+A variant carries one payload, so the three multi-part kinds take a small struct each, named for
+their own parts -- `key`/`value` and `ok`/`err` rather than one shared `Pair` whose field names
+would be wrong half the time. Recursion is direct: `Array(Type)` works, as does `switch` over it.
 
-## 7. The declaration gains its argument -- and nothing else
+### Why this is better than a wider struct, and it is not "more fields"
+
+**A `switch` over an enum is exhaustive and has no default arm.** That is the compiler's rule, not
+a convention:
+
+> this 'switch' over T is not exhaustive: missing Str (add an arm for each variant; there is no
+> default arm on purpose, so a new variant is a compile error here)
+
+So **adding a kind to `meta` becomes a compile error in every generator that does not handle it.**
+Set against §1: the map/set bug was a kind falling through a scalar tail in the C and then through
+an `if` ladder in the generator, visible to nothing. Under this model the C cannot produce a
+`Type` without choosing a variant, and a generator cannot ignore one. The failure mode that
+shipped three times stops being possible rather than becoming better tested.
+
+That is a different argument from §2's, and it is why §2 does not block this. §2 is about *data*:
+a field nobody reads is a promise about internals. An enum variant for a kind the compiler can
+actually produce is not a speculative promise -- it is the truth about what can arrive, and
+leaving it out is the lie. **Totality is cheap to maintain precisely because it is enforced.**
+
+### Three things the enum settles that the struct could not
+
+**`Optional(Type)` is its own variant.** Today `is_option` must test name *and* arity and
+deliberately ignore kind, because the compiler represents `Option<T>` as a struct in some
+positions and an enum in others -- the comment in `meta.zm` is an apology for an ambiguity
+inherited from the C. `meta` is an **interface, not a mirror**: it can normalise. Every generator
+asks "is this an Option" first; making it a variant means asking it by pattern-matching and never
+getting it wrong.
+
+**A named type keeps the name the source wrote.** `NamedType.name` is `time.Instant`, qualifier
+and all -- which is where bug 1 was, and the reason the draft of this section proposed a separate
+`text: string` on every type. No longer needed: a primitive has no spelling to vary, an array and
+a map are spelled structurally, and the **only** place a written form can differ from a
+reconstruction is a named type's qualifier. One field in one variant replaces a field on all of
+them, and `type_text` becomes a faithful reconstruction rather than a lossy one.
+
+**`is_enum` is dropped.** The current `kind` distinguishes `struct` from `enum` for a *referenced*
+type, and no generator reads the distinction -- `derive_row` and `derive_json` both test
+`struct || enum` only to reject everything else, which `Named` now does by being a variant. §2's
+rule applies and the field goes.
+
+### What it costs
+
+Every generator's dispatch stops being an `if t.kind == ".."` ladder and becomes a `switch`. That
+is a rewrite of the five emitters, and it makes them **shorter and total** rather than longer --
+`emit_to_json`'s nine `if`s become nine arms the compiler counts. The fixtures pin the output
+byte for byte, so the rewrite is provable.
+
+## 6. A declaration is an enum too, for the same reason
+
+`Decl` carries `is_enum: bool`, and `Member` carries `has_payload: bool` whose own comment says
+*"Always false for a struct's field."* That is the same shape as §3's complaint: a field that is
+meaningless in half the values it appears in.
 
 ```ziman
+pub enum Body {
+    Struct([Field])
+    Enum([Variant])
+}
+
 pub struct Decl {
     name: string
     snake_name: string
-    is_enum: bool
     type_params: [string]
-    members: [Member]
-    // The argument the derive was written with: `#[derive(Entity("medications"))]` -> "medications".
+    body: Body
+    // The argument the derive was written with: `#[derive(Entity("medications"))]`.
     arg: Option<string>
 }
+
+pub struct Field   { name: string  type: Type  attrs: [string] }
+pub struct Variant { name: string  payload: Option<Type> }
 ```
 
-`arg` is the second parameter the user-generators design specified, folded into `Decl` instead of
-sitting beside it. Reason: `generate(d: meta.Decl)` is one parameter, four generators already have
+`Variant.payload` as an `Option<Type>` replaces `has_payload` plus a `unit` type standing in for
+absence -- two representations of "no payload" collapse to one. `Field.attrs` is §7.
+
+`arg` is the second parameter the user-generators design specified, folded into `Decl` rather
+than sitting beside it: `generate(d: meta.Decl)` is one parameter, four generators already have
 that signature, and an argument *about the declaration* belongs on the declaration. The
 alternative -- changing five signatures for the benefit of one target -- is what §2's rule exists
-to prevent.
+to prevent. **An earlier draft also gave `Decl` a `module` field carrying the repository
+attributes. That was wrong; §8 is what replaced it.**
 
-That is the whole change to `Decl`. **An earlier draft of this section also gave it a `module`
-field carrying `repository_entity`, `repository_label`, `repository_crud` and the module's
-bodyless queries. That was wrong, and §8 is what replaced it.**
+A generator that handles only structs writes one arm and is refused for an enum by the type
+checker rather than by a runtime check it had to remember to write. `derive_properties`, which
+refuses enums today with a hand-written message, gets that for free.
+
+**This is where the "more complete" instruction stops**, and §9 says what is still left out. The
+line is: *`meta` is total over what the compiler can hand a generator, and silent about everything
+else.* Totality is the new rule; it replaces "deliberately small" without contradicting it,
+because every variant above corresponds to something that can actually arrive.
+
+## 7. Members gain their attributes
+
+```ziman
+pub struct Field { name: string  type: Type  attrs: [string] }
+
+pub fn has_attr(f: Field, name: string) -> bool
+```
+
+A **list of bare names**, not a `pk: bool`. `#[pk]` is the only field attribute today, and a bool
+would mean this file changes shape for the second one. A list costs nothing extra and says what
+it is. An attribute with arguments is deferred until one exists (§13).
 
 ## 8. `#[repository]` is not a derive, and `meta` should stop pretending it could be
 
@@ -296,9 +358,11 @@ this is what keeps the next three bugs from shipping.
 1. **The `Reflect` generator and its fixture, against today's `meta`.** It will pin the current
    behaviour including whatever is still wrong, which is the point: the diff in step 2 is then the
    proof.
-2. **`MetaType` gains `text` and the three missing kinds** (§5). The step-1 fixture changes, and
-   every change in it is reviewable as a line.
-3. **`Member.attrs`** (§6) and `Decl.arg` (§7), both additive; no generator reads them yet.
+2. **`Type` becomes an enum** (§5) and `Decl` follows (§6). This is **not additive** -- it
+   replaces `MetaType`, rewrites `reify_type`, and turns all five generators' `if t.kind == ".."`
+   ladders into exhaustive `switch`es. The step-1 fixture changes, every change in it is
+   reviewable as a line, and the generators' own fixtures must not change at all.
+3. **`Field.attrs`** (§7), additive; no generator reads it yet.
 4. **Port `derive(Entity)`.** It needs only steps 2 and 3, and it is a `generate(d: Decl)` derive
    like the four already done -- so it lands before any of §8's machinery exists and proves that
    much of the model on its own.
@@ -306,10 +370,15 @@ this is what keeps the next three bugs from shipping.
    `#[repository]`** -- the second generator kind, and the thing that takes the last generator out
    of `src/derive.c`.
 
-Steps 2 and 3 change `src/generators.c`'s reification and the constructors in `meta.zm`; no
-generator breaks, because `meta`'s constructors are what the C calls and adding a field changes
-the constructor rather than every caller -- the property user-generators.md was designed for and
-that step 3 is the first real use of.
+Step 3 changes `src/generators.c`'s reification and the constructors in `meta.zm` without
+breaking a generator, because `meta`'s constructors are what the C calls and adding a field
+changes the constructor rather than every caller -- the property user-generators.md was designed
+for, and step 3 is its first real use.
+
+**Step 2 does not get that protection and should not pretend to.** Replacing the type model
+changes every consumer at once. What makes it safe is not the shape of the change but the
+fixtures: five generators whose output is pinned byte for byte, plus step 1's dump of the
+boundary. If step 2 is right, the generator fixtures do not move at all.
 
 **Splitting 4 from 5 is the point of this ordering.** `derive(Entity)` and `#[repository]` arrived
 in this document as one job and are two: the first fits the existing mechanism, the second needs a
@@ -317,9 +386,11 @@ new one. Shipping the first alone is what proves §§5-7 without §8 being right
 
 ## 12. Cost
 
-`meta.zm` roughly doubles, and `reify_*` in `src/generators.c` grows by about the same. Against
-that: `src/derive.c` loses the last ~1,000 lines it owns once step 5 lands, which is the whole
-derived-query machinery, and the boundary gets its first test.
+`meta.zm` roughly doubles and `reify_*` grows with it. The five generators are **rewritten, not
+adjusted** -- every type dispatch becomes a `switch` -- which is the real bill, though the result
+is shorter than the `if` ladders it replaces and is checked for exhaustiveness. Against that:
+`src/derive.c` loses the last ~1,000 lines it owns once step 5 lands, the boundary gets its first
+test, and the class of bug in §1 stops being expressible.
 
 The risk worth naming is **step 5**. A `Target` hands a generator a declaration from another
 module, that module's `use` path, and the list of what the current module already defines --
@@ -340,8 +411,14 @@ generator depends on it. Two guards: `Target` is one feature's type rather than 
 * **Should `text` on `MetaType` be authoritative, with `type_text` deleted?** Two ways to spell the
   same thing is how they drift. Keeping both and checking they agree (§9) is the proposal, but
   deleting `type_text` is tidier.
-* **Does `func` really need its parts**, or is text enough? No generator handles a function-typed
-  field today and `derive(Json)` refuses one. Including it is for the model's honesty, which is an
-  argument §2 is suspicious of.
+* **Should `Optional` really be a variant** (§5), given that the compiler has no such kind and
+  `meta` would be normalising two of its representations into one? This is the clearest case of
+  `meta` being an interface rather than a mirror, and the clearest place to object to that.
+* **`Void` and `Unit` as separate variants.** `Void` is "no return type written" and `Unit` is a
+  real type with one value. Both can arrive; a generator almost certainly wants to treat them
+  alike, which is an argument for one variant and a lie.
+* **Does `Func` really need its parts**, or would `Named` do? No generator handles a
+  function-typed field today and `derive(Json)` refuses one. Including it is for totality, which
+  §5 argues is the point and §2 would have argued against.
 * **Attribute arguments** (§8): deferred, but `#[pk]` is unlikely to stay the only field
   attribute, and `#[column("name")]` is the obvious next one.

@@ -1214,8 +1214,12 @@ from source.
   derives-in-Ziman port is finished and what it left behind is `meta`, grown one field at a time
   by whichever generator needed it next. Two halves. The **model** gains what `derive(Entity)` and
   `#[repository]` actually read -- `#[pk]` as a member attribute and the derive's argument -- and
-  `MetaType` stops claiming to be a tree for 5 of 19 kinds while being flat for
-  `Result`/`Channel`/`fn`. **Its §8 is the finding**: `#[repository]` is not a derive. Its inputs
+  **`MetaType` becomes a tagged `enum`** rather than `kind: string` + `args`, which is the change
+  that matters: a `switch` over a Ziman enum is exhaustive with no default arm, so adding a type
+  kind becomes a compile error in every generator that ignores it. The three bugs in question
+  were all a kind flattening silently; under an enum that state cannot be represented. `Decl`
+  follows, losing `is_enum` and `has_payload` -- the latter's own comment says it is always false
+  for a struct field. **Its §8 is the finding**: `#[repository]` is not a derive. Its inputs
   live in a *different module* from the entity struct, it reads what the module already defines,
   and it is not a function of one declaration -- so it needs a second generator kind
   (`generate_module` over a `Target`) rather than fields bolted onto `Decl`. Whether that is
