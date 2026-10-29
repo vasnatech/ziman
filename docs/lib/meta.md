@@ -214,6 +214,21 @@ pub fn result_type(ok: Type, err: Type) -> Type
 pub fn func_type(params: [Type], returns: Type) -> Type
 ```
 
+### `no_arg`
+
+```
+pub fn no_arg() -> Option<string> { return Option<string>.None }
+```
+
+The derive's argument, or its absence. Two constructors because the C cannot build an
+`Option` without knowing its layout, which is the thing this boundary exists to avoid.
+
+### `some_arg`
+
+```
+pub fn some_arg(value: string) -> Option<string> { return Option<string>.Some(value) }
+```
+
 ### `named_type`
 
 ```
@@ -228,6 +243,13 @@ pub fn named_type(name: string, args: [Type]) -> Type
 pub struct Field {
     name: string
     type: Type
+    // The attributes written on this field, bare names, in source order: `["pk"]`.
+    //
+    // **A list of names, not a `pk: bool`.** `#[pk]` is the only field attribute today and a
+    // bool would mean this file changes shape for the second one. An attribute that takes an
+    // argument -- `#[column("patient_id")]` is the obvious next -- is not modelled yet, and
+    // will be when one exists rather than guessed at now.
+    attrs: [string]
 }
 ```
 
@@ -264,6 +286,13 @@ runtime check it had to remember to write.
 
 ```
 pub struct Decl {
+    // The argument the derive was written with: `#[derive(Entity("medications"))]` gives
+    // `Some("medications")`, and a target written bare gives `None`.
+    //
+    // **On the declaration rather than a second parameter to `generate`.** Four generators
+    // already take one parameter and exactly one target takes an argument; an argument *about*
+    // the declaration belongs on it rather than beside it.
+    arg: Option<string>
     // The declaration's own name, as written: `LocalDate`.
     name: string
     // The same name in the spelling generated functions use: `local_date`, so a generator writes
@@ -279,8 +308,16 @@ pub struct Decl {
 ### `field`
 
 ```
-pub fn field(name: string, type: Type) -> Field
+pub fn field(name: string, type: Type, attrs: [string]) -> Field
 ```
+
+### `has_attr`
+
+```
+pub fn has_attr(f: Field, name: string) -> bool
+```
+
+Whether `f` carries `#[<name>]`.
 
 ### `unit_variant`
 
@@ -297,13 +334,25 @@ pub fn payload_variant(name: string, payload: Type) -> Variant
 ### `struct_decl`
 
 ```
-pub fn struct_decl(name: string, snake_name: string, type_params: [string], fields: [Field]) -> Decl
+pub fn struct_decl(
+    name: string,
+    snake_name: string,
+    arg: Option<string>,
+    type_params: [string],
+    fields: [Field]
+) -> Decl
 ```
 
 ### `enum_decl`
 
 ```
-pub fn enum_decl(name: string, snake_name: string, type_params: [string], variants: [Variant]) -> Decl
+pub fn enum_decl(
+    name: string,
+    snake_name: string,
+    arg: Option<string>,
+    type_params: [string],
+    variants: [Variant]
+) -> Decl
 ```
 
 ## Reading one

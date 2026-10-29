@@ -11,15 +11,17 @@
 use derive_json
 use meta
 
+val no_attrs: [string] = []
+
 fn f(name: string, t: meta.Type) -> meta.Field {
-    return meta.field(name, t)
+    return meta.field(name, t, no_attrs)
 }
 fn opt(t: meta.Type) -> meta.Type {
     return meta.optional_type(t)
 }
 fn main() {
     val none: [string] = []
-    val d = meta.struct_decl("Wide", "wide", none, [
+    val d = meta.struct_decl("Wide", "wide", meta.no_arg(), none, [
         f("id", meta.named_type("uuid.Uuid", [])),
         f("count", meta.int_type()),
         f("ratio", meta.float_type()),

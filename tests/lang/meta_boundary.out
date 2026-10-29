@@ -2,37 +2,39 @@
 // reflect Scalars
 //   snake_name='scalars'
 //   type_params=[]
+//   arg=none
 //   struct, fields=7
-//   field[0] name='a'
+//   field[0] name='a' attrs=[]
 //   field[0].type int
-//   field[1] name='b'
+//   field[1] name='b' attrs=[]
 //   field[1].type float
-//   field[2] name='c'
+//   field[2] name='c' attrs=[]
 //   field[2].type bool
-//   field[3] name='d'
+//   field[3] name='d' attrs=[]
 //   field[3].type string
-//   field[4] name='e'
+//   field[4] name='e' attrs=[]
 //   field[4].type bigint
-//   field[5] name='f'
+//   field[5] name='f' attrs=[]
 //   field[5].type decimal
-//   field[6] name='g'
+//   field[6] name='g' attrs=[]
 //   field[6].type byte
 // derive(Reflect) for 'Collections'
 // reflect Collections
 //   snake_name='collections'
 //   type_params=[]
+//   arg=none
 //   struct, fields=4
-//   field[0] name='items'
+//   field[0] name='items' attrs=[]
 //   field[0].type array
 //   field[0].type.elem string
-//   field[1] name='names'
+//   field[1] name='names' attrs=[]
 //   field[1].type set
 //   field[1].type.elem string
-//   field[2] name='scores'
+//   field[2] name='scores' attrs=[]
 //   field[2].type map
 //   field[2].type.key string
 //   field[2].type.value int
-//   field[3] name='nested'
+//   field[3] name='nested' attrs=[]
 //   field[3].type map
 //   field[3].type.key string
 //   field[3].type.value array
@@ -42,50 +44,66 @@
 // reflect Flat
 //   snake_name='flat'
 //   type_params=[T]
+//   arg=none
 //   struct, fields=4
-//   field[0] name='r'
+//   field[0] name='r' attrs=[]
 //   field[0].type result
 //   field[0].type.ok int
 //   field[0].type.err string
-//   field[1] name='f'
+//   field[1] name='f' attrs=[]
 //   field[1].type func params=1
 //   field[1].type.params[0] int
 //   field[1].type.returns string
-//   field[2] name='c'
+//   field[2] name='c' attrs=[]
 //   field[2].type channel
 //   field[2].type.elem int
-//   field[3] name='v'
+//   field[3] name='v' attrs=[]
 //   field[3].type var name='T'
 // derive(Reflect) for 'Qualified'
 // reflect Qualified
 //   snake_name='qualified'
 //   type_params=[]
+//   arg=none
 //   struct, fields=4
-//   field[0] name='bare'
+//   field[0] name='bare' attrs=[]
 //   field[0].type named name='Uuid' args=0
-//   field[1] name='qualified'
+//   field[1] name='qualified' attrs=[]
 //   field[1].type named name='time.Instant' args=0
-//   field[2] name='wrapped'
+//   field[2] name='wrapped' attrs=[]
 //   field[2].type optional
 //   field[2].type.elem named name='time.Instant' args=0
-//   field[3] name='listed'
+//   field[3] name='listed' attrs=[]
 //   field[3].type array
 //   field[3].type.elem named name='time.LocalDate' args=0
 // derive(Reflect) for 'Generic'
 // reflect Generic
 //   snake_name='generic'
 //   type_params=[T, U]
+//   arg=none
 //   struct, fields=2
-//   field[0] name='one'
+//   field[0] name='one' attrs=[]
 //   field[0].type var name='T'
-//   field[1] name='pair'
+//   field[1] name='pair' attrs=[]
 //   field[1].type map
 //   field[1].type.key var name='T'
 //   field[1].type.value var name='U'
+// derive(Reflect) for 'Keyed'
+// reflect Keyed
+//   snake_name='keyed'
+//   type_params=[]
+//   arg='widgets'
+//   struct, fields=3
+//   field[0] name='tenant' attrs=[pk]
+//   field[0].type named name='Uuid' args=0
+//   field[1] name='id' attrs=[pk]
+//   field[1].type named name='Uuid' args=0
+//   field[2] name='label' attrs=[]
+//   field[2].type string
 // derive(Reflect) for 'Mixed'
 // reflect Mixed
 //   snake_name='mixed'
 //   type_params=[]
+//   arg=none
 //   enum, variants=4
 //   variant[0] name='None'
 //   variant[1] name='Int'
@@ -99,6 +117,7 @@
 // reflect Wrapper
 //   snake_name='wrapper'
 //   type_params=[T]
+//   arg=none
 //   enum, variants=3
 //   variant[0] name='Empty'
 //   variant[1] name='Held'

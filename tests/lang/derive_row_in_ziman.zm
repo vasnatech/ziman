@@ -11,8 +11,10 @@
 use derive_row
 use meta
 
+val no_attrs: [string] = []
+
 fn f(name: string, t: meta.Type) -> meta.Field {
-    return meta.field(name, t)
+    return meta.field(name, t, no_attrs)
 }
 
 fn opt(t: meta.Type) -> meta.Type {
@@ -21,7 +23,7 @@ fn opt(t: meta.Type) -> meta.Type {
 
 fn decl(name: string, snake: string, members: [meta.Field]) -> meta.Decl {
     val none: [string] = []
-    return meta.struct_decl(name, snake, none, members)
+    return meta.struct_decl(name, snake, meta.no_arg(), none, members)
 }
 
 fn main() {

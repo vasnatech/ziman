@@ -11,8 +11,10 @@
 use derive_ord
 use meta
 
+val no_attrs: [string] = []
+
 fn member(name: string) -> meta.Field {
-    return meta.field(name, meta.int_type())
+    return meta.field(name, meta.int_type(), no_attrs)
 }
 
 fn variant(name: string, payload: bool) -> meta.Variant {
@@ -24,11 +26,16 @@ fn variant(name: string, payload: bool) -> meta.Variant {
 
 fn main() {
     val none: [string] = []
-    val point = meta.struct_decl("Point", "point", none, [member("x"), member("y")])
+    val point = meta.struct_decl("Point", "point", meta.no_arg(), none, [member("x"), member("y")])
     print(unwrap(derive_ord.generate(point)))
-    val boxed = meta.struct_decl("Box", "box", ["T", "U"], [member("first"), member("second")])
+    val boxed = meta.struct_decl("Box", "box", meta.no_arg(), ["T", "U"], [member("first"), member("second")])
     print(unwrap(derive_ord.generate(boxed)))
-    val shape = meta.enum_decl("Shape", "shape", none,
-        [variant("Dot", false), variant("Line", true), variant("Area", false)])
+    val shape = meta.enum_decl(
+        "Shape",
+        "shape",
+        meta.no_arg(),
+        none,
+        [variant("Dot", false), variant("Line", true), variant("Area", false)]
+    )
     print(unwrap(derive_ord.generate(shape)))
 }

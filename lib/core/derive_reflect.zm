@@ -86,11 +86,24 @@ pub fn generate(d: meta.Decl) -> Result<string, string> {
     push(out, concat("// reflect ", d.name, "\n"))
     push(out, concat("//   snake_name='", d.snake_name, "'\n"))
     push(out, concat("//   type_params=[", join(separator: ", ", pieces: d.type_params), "]\n"))
+    if Some(arg) = d.arg {
+        push(out, concat("//   arg='", arg, "'\n"))
+    } else {
+        push(out, concat("//   arg=none\n"))
+    }
     switch d.body {
         Struct(fields) {
             push(out, concat("//   struct, fields=", str(prelude.len(fields)), "\n"))
             for i in 0..prelude.len(fields) {
-                push(out, concat("//   field[", str(i), "] name='", fields[i].name, "'\n"))
+                push(out, concat(
+                    "//   field[",
+                    str(i),
+                    "] name='",
+                    fields[i].name,
+                    "' attrs=[",
+                    join(separator: ", ", pieces: fields[i].attrs),
+                    "]\n"
+                ))
                 push(out, walk(concat("field[", str(i), "].type"), fields[i].type))
             }
         }

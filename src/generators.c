@@ -212,11 +212,19 @@ static Value reify_type(Type t, int line, int col) {
     return call_meta("unit_type", NULL, 0, line, col);
 }
 
-static Value reify_field(const char *name, Type t, int line, int col) {
-    Value args[2];
-    args[0] = value_string(ziman_xstrdup(name));
-    args[1] = reify_type(t, line, col);
-    return call_meta("field", args, 2, line, col);
+/* A field's attributes, as bare names. `#[pk]` is the only one the parser records on a field
+ * today -- `is_pk` on `Param` -- so this list is at most one long, and is a list anyway because
+ * the second attribute should not change the shape of `meta.Field`. */
+static Value reify_field(const Param *f, int line, int col) {
+    Value attrs[1];
+    int n = 0;
+    if (f->is_pk) attrs[n++] = value_string(ziman_xstrdup("pk"));
+
+    Value args[3];
+    args[0] = value_string(ziman_xstrdup(f->name));
+    args[1] = reify_type(f->type, line, col);
+    args[2] = array_of(attrs, n);
+    return call_meta("field", args, 3, line, col);
 }
 
 /* A variant is one of two constructors rather than a name beside a `has_payload` flag and a
@@ -230,14 +238,14 @@ static Value reify_variant(EnumVariant *v, int line, int col) {
     return call_meta("payload_variant", args, 2, line, col);
 }
 
-static Value reify_decl(StructDecl *sd, EnumDecl *ed, int line, int col) {
+static Value reify_decl(StructDecl *sd, EnumDecl *ed, const char *arg, int line, int col) {
     const char *name = sd != NULL ? sd->name : ed->name;
     TypeParamList *params = sd != NULL ? &sd->type_params : &ed->type_params;
     int count = sd != NULL ? sd->fields.count : ed->variants.count;
 
     Value *members = ziman_xmalloc(sizeof(Value) * (size_t)(count > 0 ? count : 1));
     for (int i = 0; i < count; i++) {
-        members[i] = sd != NULL ? reify_field(sd->fields.items[i].name, sd->fields.items[i].type, line, col)
+        members[i] = sd != NULL ? reify_field(&sd->fields.items[i], line, col)
                                 : reify_variant(&ed->variants.items[i], line, col);
     }
     Value *names = ziman_xmalloc(sizeof(Value) * (size_t)(params->count > 0 ? params->count : 1));
@@ -245,15 +253,21 @@ static Value reify_decl(StructDecl *sd, EnumDecl *ed, int line, int col) {
         names[i] = value_string(ziman_xstrdup(params->items[i].name));
     }
 
-    Value args[4];
+    Value args[5];
     args[0] = value_string(ziman_xstrdup(plain_name(name)));
     args[1] = value_string(ziman_pascal_to_snake(plain_name(name)));
-    args[2] = array_of(names, params->count);
-    args[3] = array_of(members, count);
-    return call_meta(sd != NULL ? "struct_decl" : "enum_decl", args, 4, line, col);
+    if (arg != NULL) {
+        Value a[1] = {value_string(ziman_xstrdup(arg))};
+        args[2] = call_meta("some_arg", a, 1, line, col);
+    } else {
+        args[2] = call_meta("no_arg", NULL, 0, line, col);
+    }
+    args[3] = array_of(names, params->count);
+    args[4] = array_of(members, count);
+    return call_meta(sd != NULL ? "struct_decl" : "enum_decl", args, 5, line, col);
 }
 
-char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, int line, int col) {
+char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, const char *arg, int line, int col) {
     if (!ziman_has_ziman_generator(target)) return NULL;
     /* **Captured before anything else runs.** Loading the generator program and then running it
      * both set the error file to a generator's own module, and the declaration being derived is
@@ -284,7 +298,7 @@ char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, 
      * The guard ends before the generator runs: `decl` is that call's argument, so from there it
      * is a parameter in the callee's environment and a root like any other. */
     native_gc_unsafe_enter();
-    Value decl = reify_decl(sd, ed, line, col);
+    Value decl = reify_decl(sd, ed, arg, line, col);
     native_gc_unsafe_leave();
     char *fn = generate_name_for(target);
     Value out;

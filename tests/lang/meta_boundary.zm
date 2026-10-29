@@ -64,6 +64,19 @@ struct Generic<T: Hash, U> {
     pair: Map<T, U>
 }
 
+// **A field attribute and a derive argument**, the two things step 3 added. `#[pk]` is the only
+// field attribute the parser records, and more than one field may carry it -- that is how a
+// compound key is written. The argument is what `#[derive(Entity("medications"))]` puts in
+// `Decl.arg`, shown here on `Reflect` because `Entity` is not ported yet and requires `Row`.
+#[derive(Reflect("widgets"))]
+struct Keyed {
+    #[pk]
+    tenant: Uuid
+    #[pk]
+    id: Uuid
+    label: string
+}
+
 #[derive(Reflect)]
 enum Mixed {
     None

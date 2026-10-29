@@ -945,11 +945,22 @@ pub fn result_type(ok: Type, err: Type) -> Type
 
 pub fn func_type(params: [Type], returns: Type) -> Type
 
+pub fn no_arg() -> Option<string> { return Option<string>.None }
+
+pub fn some_arg(value: string) -> Option<string> { return Option<string>.Some(value) }
+
 pub fn named_type(name: string, args: [Type]) -> Type
 
 pub struct Field {
     name: string
     type: Type
+    // The attributes written on this field, bare names, in source order: `["pk"]`.
+    //
+    // **A list of names, not a `pk: bool`.** `#[pk]` is the only field attribute today and a
+    // bool would mean this file changes shape for the second one. An attribute that takes an
+    // argument -- `#[column("patient_id")]` is the obvious next -- is not modelled yet, and
+    // will be when one exists rather than guessed at now.
+    attrs: [string]
 }
 
 pub struct Variant {
@@ -963,6 +974,13 @@ pub enum Body {
 }
 
 pub struct Decl {
+    // The argument the derive was written with: `#[derive(Entity("medications"))]` gives
+    // `Some("medications")`, and a target written bare gives `None`.
+    //
+    // **On the declaration rather than a second parameter to `generate`.** Four generators
+    // already take one parameter and exactly one target takes an argument; an argument *about*
+    // the declaration belongs on it rather than beside it.
+    arg: Option<string>
     // The declaration's own name, as written: `LocalDate`.
     name: string
     // The same name in the spelling generated functions use: `local_date`, so a generator writes
@@ -974,15 +992,17 @@ pub struct Decl {
     body: Body
 }
 
-pub fn field(name: string, type: Type) -> Field
+pub fn field(name: string, type: Type, attrs: [string]) -> Field
+
+pub fn has_attr(f: Field, name: string) -> bool
 
 pub fn unit_variant(name: string) -> Variant
 
 pub fn payload_variant(name: string, payload: Type) -> Variant
 
-pub fn struct_decl(name: string, snake_name: string, type_params: [string], fields: [Field]) -> Decl
+pub fn struct_decl(
 
-pub fn enum_decl(name: string, snake_name: string, type_params: [string], variants: [Variant]) -> Decl
+pub fn enum_decl(
 
 pub fn type_text(t: Type) -> string
 
