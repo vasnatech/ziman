@@ -12,4 +12,8 @@ void native_thread_register(void);
 void ziman_thread_begin(const char *function_name);
 void ziman_thread_end(void);
 
+/* This thread's thread-local values, as gc_heap roots. See the definition in native_thread.c. */
+struct Arena;
+void ziman_thread_mark_slots(const struct Arena *a);
+
 #endif

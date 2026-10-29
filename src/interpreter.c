@@ -1819,6 +1819,9 @@ static void mark_this_threads_roots(const Arena *a, void *ctx) {
      * its own `message` for as long as Boehm might still get around to finalizing it, independent
      * of whether any Ziman-visible value still points at the guard at all. */
     gc_mark_live_guards(ziman_thread_heap(), a);
+    /* See ziman_thread_mark_slots' own comment: this thread's `thread.local` values, which are
+     * reachable only from a slot array Boehm scans and this collector did not know about. */
+    ziman_thread_mark_slots(a);
 }
 
 /* The Boehm-visible counterpart of mark_this_threads_roots just above -- same four root sources

@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "error.h"
+#include "gc_mark.h"
 #include "native.h"
 #include "stack.h"
 #include "value.h"
@@ -85,6 +86,28 @@ static Slot *find_slot(ThreadInfo *t, int64_t key) {
         if (t->slots[i].key == key) return &t->slots[i];
     }
     return NULL;
+}
+
+/* This thread's thread-local values, for `mark_this_threads_roots` (interpreter.c).
+ *
+ * **A slot is a root the gc_heap collector had no other way to reach.** The comment at the top
+ * of this file is about Boehm: the records and their slot arrays are `ziman_xmalloc`'d and hang
+ * off `g_threads`, so Boehm scans them conservatively and the values stay alive. The per-thread
+ * `gc_heap` is a second collector with its own root set, and nothing told it about any of this
+ * -- so a value whose only reference was a slot was swept while the slot still pointed at it.
+ *
+ * It took `--gc-stress` to see: the window is between `slot_set` storing a value and the next
+ * statement binding it to a name, which an ordinary growth-triggered collection almost never
+ * lands in. `thread.local<MutableMap<..>>` is the shape that shows it, because a builder's
+ * wrapper is a `gc_heap` object whose freed memory reads back as a zero handle, and marking
+ * that dereferences NULL.
+ *
+ * `t_info` directly rather than `info()`: this runs during a collection, and `info()` allocates
+ * a record and takes a lock when the thread has none yet. A thread with no record has no slots. */
+void ziman_thread_mark_slots(const Arena *a) {
+    ThreadInfo *t = t_info;
+    if (t == NULL) return;
+    for (int i = 0; i < t->count; i++) gc_mark_value(a, t->slots[i].value);
 }
 
 static Value native_thread_id(Value *args, int argc, int line, int col) {

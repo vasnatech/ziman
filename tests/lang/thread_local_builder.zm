@@ -1,3 +1,12 @@
+// **Runs under `--gc-stress`** (its `.args`), because that is the only way this fixture has ever
+// failed. A value whose single reference was a `thread.local` slot was invisible to the per-thread
+// `gc_heap` collector -- Boehm scans the slot arrays, that collector did not -- so a collection
+// landing between `slot_set` storing the value and the next statement binding it swept the value
+// while the slot still pointed at it. A builder is the shape that shows it: its wrapper is a
+// gc_heap object whose freed memory reads back as a zero handle, and marking that dereferences
+// NULL. An ordinary growth-triggered collection almost never lands in that window, so the fixture
+// passed for as long as it existed and segfaulted the first time the whole suite was run under
+// stress. The fix is one more root source in `mark_this_threads_roots`.
 use thread
 
 // A builder is thread-bound, but a ThreadLocal holding one may still be a module-level val: the key is
