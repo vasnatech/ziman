@@ -1210,6 +1210,18 @@ from source.
 
 ## Larger, needs its own design pass
 
+- **An expression language, and expressions in `template.zm`.** Designed in
+  [docs/design/expressions.md](design/expressions.md), not built. A SpEL-shaped language for
+  configuration and validation rules and for dynamic text, evaluated over `Json` -- which is
+  forced rather than chosen, because Ziman has no runtime reflection and a `Json` is the only
+  thing an interpreter can navigate. `#[derive(Json)]` is what makes any struct available to it.
+  The same grammar then replaces `template.zm`'s one-segment paths and its `@choose`, which §4
+  of that doc argues are already a restricted expression language rather than an absence of one.
+  **The cost is named in its §13**: generator logic in a template is invisible to the type
+  checker, so the port keeps computation in Ziman and allows expressions only to read data. Five
+  staged steps, two of which migrate ~1,100 lines of generator Ziman against byte-identical
+  fixtures.
+
 - ~~**Derives should be written in Ziman, not in C.**~~ **DONE 2026-10-28.** All five targets --
   `Ord`, `Row`, `Properties`, `Json` and the struct half of `Entity` that `derive.c` still owns --
   are answered by `lib/core/derive_*.zm` through `src/generators.c`, each proved byte-identical to

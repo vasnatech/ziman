@@ -96,6 +96,12 @@ has one reading and `@m.name_compare` has none.
 
 ## 4. Logic lives in Ziman; the template holds shape
 
+> **This rule is proposed to change**, in docs/design/expressions.md, which puts an expression
+> language in the holes and the conditions. Its §13 is about what this section was buying -- the
+> type checker seeing every branch of a generator -- and what replaces the guarantee once the
+> engine stops enforcing it: *an expression may read the data, it may not encode the generator's
+> decisions.* The argument below is the reason that line has to exist.
+
 **A template interpolates, repeats, and chooses. It does not compute.** No expressions, no
 comparisons, no arithmetic, no `len`, no filters, no function calls. A choice reads a **bound
 value and nothing else**.
@@ -652,6 +658,12 @@ Two things fall out that were not the point:
   newline, and the rule is one a reader can see.
 
 ### `@if` and `@else` are removed
+
+> **Proposed to be reversed**, in docs/design/expressions.md §11. Not because this section was
+> wrong -- `@if` with no expression language can only read a boolean someone else computed, which
+> is a worse `@choose` -- but because the premise changes: with expressions,
+> `@choose tag`/`@when 'x'` *is* `@if tag == 'x'` in more words, and this section's own argument
+> against carrying two dispatch constructs then points the other way.
 
 They have **no users after two generators**, and `@choose` covers them: a boolean condition
 becomes a tag the generator computes (`"option"` against `"simple"` above, rather than a flag).
