@@ -380,7 +380,14 @@ Each step is useful alone and provable before the next:
    a hole, a `@for` source and a `@choose` subject become `expr` source, `@choose` still works, no
    sheet changes -- so the six generators' byte-identical fixtures are evidence about the engine
    alone. **4a done 2026-10-29 (F233).** 4b is the grammar swap: `@if`/`@elif`/`@else` in, the
-   sheets migrated, `@choose` out.
+   sheets migrated, `@choose` out -- **done 2026-10-29 (F234)**, twelve blocks and 36 arms across
+   five generators, every one of the six emitting byte-identical text. `template.flag` returns with
+   `@if`, since six of those subjects were a `yes`/`no` string standing in for a bool.
+
+   **Step 4 is complete, and so is the dependency §10 describes**: `json <- expr <- template <-
+   the six generators`, with `template` holding no grammar, no resolution and no coercion of its
+   own. The one thing the swap gives up is `@choose`'s refusal of an unmatched tag; see
+   templates.md §18.
 
    What 4a removed is worth naming: `template` had **two** lookup mechanisms, a global binding and
    a frame's cell, and a `@for` binder is now an ordinary context key -- so `r.cell` is a member

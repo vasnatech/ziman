@@ -13,8 +13,13 @@ error.
 
 **The third generator ported, and the one §15 named as the test of `@choose`** -- its two
 field shapes are a genuine either/or with no recursion under them, which is exactly the case
-the removed `@if` was designed for. `@choose` serves it and reads better: `@when required` and
-`@when optional` name the two shapes where `@if optional` only said *whether*.
+the removed `@if` was designed for. `@choose` served it and read better: `@when required` and
+`@when optional` named the two shapes where `@if optional` only said *whether*.
+
+**That objection is answered rather than overruled** (2026-10-29, F234): with an expression
+language the arm is `@if shape == 'required'`, which still *names* the shape -- the thing
+`@if optional` lost. What the objection was really about was a condition that can only be a
+bare boolean, and that is no longer what `@if` is.
 
 `use derive_properties` -- or `use derive_properties.Name` to bring one item in bare.
 

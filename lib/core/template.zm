@@ -65,17 +65,22 @@ struct Loop {
     body: [Node]
 }
 
-// One `@when <tag>` of a `@choose`, or its `@otherwise` with an empty tag.
-struct Case {
-    tag: string
-    is_otherwise: bool
+// One `@if` or `@elif` of a conditional: the condition as written, for messages, and parsed.
+struct Arm {
+    source: string
+    cond: Expr
     body: [Node]
 }
 
-struct Choice {
-    source: string
-    subject: Expr
-    cases: [Case]
+// `@if` / `@elif`* / `@else`? / `@end`. **No arm matching and no `@else` emits nothing**, which
+// is what `@if` means everywhere -- and is the one thing `@choose` did differently: it refused a
+// tag no `@when` named. That refusal is given up with the construct (see docs/design/templates.md
+// §15's reversal), so a dispatch that must be exhaustive ends with an `@else` holding whatever is
+// right for it rather than relying on the renderer to complain.
+struct Conditional {
+    arms: [Arm]
+    otherwise: [Node]
+    has_otherwise: bool
 }
 
 // `@yield name`, a hole holding a *block*. `indent` is the whitespace the directive itself sat
@@ -91,7 +96,7 @@ enum Node {
     Literal(string)
     Hole(HoleNode)
     Repeat(Loop)
-    Choose(Choice)
+    Branch(Conditional)
     Yield(Block)
 }
 
@@ -141,6 +146,13 @@ pub struct Binding {
 // A string for `@{name}`, for `@yield name`, and for the tag a `@choose` reads.
 pub fn text(name: string, value: string) -> Binding {
     return Binding { name: name, value: Json.JString(value) }
+}
+
+// A `bool` for an `@if`. **This existed, went when `@if` went (templates.md §5), and returns with
+// it**: a condition over a real boolean is what the construct is for, and `text("keyed", "yes")`
+// with `@if keyed == 'yes'` is the stringly-typed dance the swap exists to remove.
+pub fn flag(name: string, value: bool) -> Binding {
+    return Binding { name: name, value: Json.JBool(value) }
 }
 
 // The rows a `@for name` repeats over.
@@ -250,14 +262,14 @@ fn parse_block(lines: [string], start: int) -> Result<Section, string> {
         if t == "@end" {
             return Section { nodes: snapshot(out), next: i + 1, closer: "end", tag: "" }
         }
-        if t == "@otherwise" {
-            return Section { nodes: snapshot(out), next: i + 1, closer: "otherwise", tag: "" }
+        if t == "@else" {
+            return Section { nodes: snapshot(out), next: i + 1, closer: "else", tag: "" }
         }
-        if starts_with(t, "@when ") {
+        if starts_with(t, "@elif ") {
             return Section {
                 nodes: snapshot(out),
                 next: i + 1,
-                closer: "when",
+                closer: "elif",
                 tag: trim(substring(t, 6, len(t)))
             }
         }
@@ -288,42 +300,39 @@ fn parse_block(lines: [string], start: int) -> Result<Section, string> {
             i = inner.next
             continue
         }
-        if starts_with(t, "@choose ") {
-            val subject = trim(substring(t, 8, len(t)))
-            val subject_expr = try expression(subject, line_no)
-            val lead = try parse_block(lines, i + 1)
-            if prelude.len(lead.nodes) > 0 {
-                return err(problem(
-                    line_no,
-                    "a '@when' has to follow '@choose' immediately -- there is text between them"
-                ))
+        if starts_with(t, "@if ") {
+            val arms = mutable_array_new<Arm>()
+            val otherwise = mutable_array_new<Node>()
+            var cond_text = trim(substring(t, 4, len(t)))
+            var cond = try expression(cond_text, line_no)
+            var section = try parse_block(lines, i + 1)
+            var more = true
+            while more {
+                push(arms, Arm { source: cond_text, cond: cond, body: section.nodes })
+                if section.closer == "elif" {
+                    cond_text = section.tag
+                    cond = try expression(cond_text, line_no)
+                    section = try parse_block(lines, section.next)
+                } else {
+                    more = false
+                }
             }
-            val cases = mutable_array_new<Case>()
-            var section = lead
-            var seen_otherwise = false
-            while section.closer == "when" || section.closer == "otherwise" {
-                val is_otherwise = section.closer == "otherwise"
-                if is_otherwise && seen_otherwise {
-                    return err(problem(line_no, "this '@choose' has two '@otherwise' sections"))
+            var has_else = false
+            if section.closer == "else" {
+                val tail = try parse_block(lines, section.next)
+                for n in tail.nodes {
+                    push(otherwise, n)
                 }
-                if is_otherwise {
-                    seen_otherwise = true
-                }
-                val tag = section.tag
-                val body = try parse_block(lines, section.next)
-                push(cases, Case { tag: tag, is_otherwise: is_otherwise, body: body.nodes })
-                section = body
+                has_else = true
+                section = tail
             }
             if section.closer != "end" {
-                return err(problem(line_no, "this '@choose' is never closed by an '@end'"))
+                return err(problem(line_no, "this '@if' is never closed by an '@end'"))
             }
-            if prelude.len(snapshot(cases)) == 0 {
-                return err(problem(line_no, "a '@choose' with no '@when' chooses nothing"))
-            }
-            push(out, Node.Choose(Choice {
-                source: subject,
-                subject: subject_expr,
-                cases: snapshot(cases)
+            push(out, Node.Branch(Conditional {
+                arms: snapshot(arms),
+                otherwise: snapshot(otherwise),
+                has_otherwise: has_else
             }))
             i = section.next
             continue
@@ -347,7 +356,7 @@ fn parse_block(lines: [string], start: int) -> Result<Section, string> {
         if starts_with(t, "@") && !starts_with(t, "@@") && !starts_with(t, "@{") {
             return err(problem(
                 line_no,
-                "unknown directive -- the six are '@template', '@for', '@choose', '@when', '@otherwise', '@yield' and '@end'"
+                "unknown directive -- the seven are '@template', '@for', '@if', '@elif', '@else', '@yield' and '@end'"
             ))
         }
         for n in try parse_line(raw, line_no) {
@@ -379,11 +388,12 @@ fn collect_refs(nodes: [Node], into: MutableArray<string>, bound: [string]) {
                 add_names(l.over, into, bound)
                 collect_refs(l.body, into, push(bound, l.binder))
             }
-            Choose(c) {
-                add_names(c.subject, into, bound)
-                for one in c.cases {
-                    collect_refs(one.body, into, bound)
+            Branch(c) {
+                for arm in c.arms {
+                    add_names(arm.cond, into, bound)
+                    collect_refs(arm.body, into, bound)
                 }
+                collect_refs(c.otherwise, into, bound)
             }
         }
     }
@@ -594,46 +604,30 @@ fn emit(nodes: [Node], ctx: Json, out: MutableArray<string>) -> Result<unit, str
                     try emit(l.body, with_key(ctx, l.binder, item), out)
                 }
             }
-            Choose(c) {
-                val tag = try string_at(c.subject, ctx, concat("@choose ", c.source))
+            Branch(c) {
                 var chosen = false
-                for one in c.cases {
-                    if !chosen && !one.is_otherwise && one.tag == tag {
-                        chosen = true
-                        try emit(one.body, ctx, out)
+                for arm in c.arms {
+                    if !chosen {
+                        val holds = expr.eval_bool(arm.cond, ctx)
+                        if Err(why) = holds {
+                            return err(prelude.format("'@if {}': {}", arm.source, why))
+                        }
+                        if unwrap(holds) {
+                            chosen = true
+                            try emit(arm.body, ctx, out)
+                        }
                     }
                 }
-                for one in c.cases {
-                    if !chosen && one.is_otherwise {
-                        chosen = true
-                        try emit(one.body, ctx, out)
-                    }
-                }
-                if !chosen {
-                    return err(concat(
-                        "'@choose ",
-                        c.source,
-                        "' is '",
-                        tag,
-                        "', which no '@when' names (it has: ",
-                        tags_of(c),
-                        ")"
-                    ))
+                // Nothing matched and there is no `@else`: nothing is emitted, which is what an
+                // `@if` means. `@choose` refused instead, and that difference is the reason a
+                // dispatch that has to be exhaustive now writes its last case as `@else`.
+                if !chosen && c.has_otherwise {
+                    try emit(c.otherwise, ctx, out)
                 }
             }
         }
     }
     return unit
-}
-
-fn tags_of(c: Choice) -> string {
-    val out = mutable_array_new<string>()
-    for one in c.cases {
-        if !one.is_otherwise {
-            push(out, one.tag)
-        }
-    }
-    return join(separator: ", ", pieces: snapshot(out))
 }
 
 fn named_in(sheet: Sheet, name: string) -> Option<Named> {

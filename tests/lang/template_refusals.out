@@ -6,17 +6,24 @@ a nested template: template line 2: a '@template' cannot sit inside another one
 a lone @: template line 2: a lone '@' -- write '@@' for a literal one, or '@{name}' for a hole
 an unclosed hole: template line 2: '@{' with no closing '}'
 an empty hole: template line 2: '@{}' names nothing
-an unknown directive: template line 2: unknown directive -- the six are '@template', '@for', '@choose', '@when', '@otherwise', '@yield' and '@end'
+an unknown directive: template line 2: unknown directive -- the seven are '@template', '@for', '@if', '@elif', '@else', '@yield' and '@end'
 an @for that eats the template @end: template line 1: template 't' is never closed by an '@end'
-@choose with no @when: template line 2: a '@choose' with no '@when' chooses nothing
-text before the first @when: template line 2: a '@when' has to follow '@choose' immediately -- there is text between them
-two @otherwise: template line 2: this '@choose' has two '@otherwise' sections
-an unknown template: this sheet has no template called 'nope' (it has: greet, pick, over)
+@choose is gone: template line 2: unknown directive -- the seven are '@template', '@for', '@if', '@elif', '@else', '@yield' and '@end'
+@when is gone: template line 2: unknown directive -- the seven are '@template', '@for', '@if', '@elif', '@else', '@yield' and '@end'
+an @if never closed: template line 1: template 't' is never closed by an '@end'
+a malformed condition: template line 2: 'k ==' is not an expression: expression:5: expected a value, found the end of the expression
+an @elif with no condition: template line 4: unknown directive -- the seven are '@template', '@for', '@if', '@elif', '@else', '@yield' and '@end'
+an unknown template: this sheet has no template called 'nope' (it has: greet, pick, pick_else, plain, over)
 an unbound hole: '@{name}': no 'name' here; this object has greeting
 a binding nothing uses: 'extra' is bound and template 'greet' never mentions it (it uses: greeting, name)
-a tag no @when names: '@choose kind' is 'shouty', which no '@when' names (it has: loud, quiet)
-a tag one does: ok -> quiet
+no arm matches: ok -> 
+an arm matches: ok -> quiet
 
-@choose over rows: '@choose kind' is an array, and a hole holds text
+no arm matches, with an @else: ok -> something else
+
+a comparison against an array: ok -> 
+a bare condition that is a bool: ok -> on
+
+a bare condition that is a string: '@if on': a condition has to be true or false, found a string
 @for over a string: '@for r in rows' needs an array, and that is a string
 a cell that is not there: '@{r.cell}': no 'cell' here; this object has other

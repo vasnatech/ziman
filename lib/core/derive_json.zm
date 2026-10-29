@@ -145,25 +145,24 @@ pub fn @{snake}_from_json_all@{params}(j: Json@{converters}) -> Result<@{self}, 
 @end
 
 @template from_check
-@choose ctx
-@when yes
+@if ctx
     if !@{cond} { return err("@{label}: @{msg}") }
-@when no
+@else
     if !@{cond} { return err("@{msg}") }
 @end
 @end
 
 @template from_try
-@choose ctx
-@when no
-    val @{dst} = try @{call}
-@when yes
+@if ctx
     val @{dst} = switch @{call} {
         Ok(@{ok_v}) { @{ok_v} }
         Err(@{err_v}) { return err(concat("@{label}: ", @{err_v})) }
     }
+@else
+    val @{dst} = try @{call}
 @end
 @end
+
 
 @template from_unwrap
 @yield check
@@ -195,11 +194,10 @@ pub fn @{snake}_from_json_all@{params}(j: Json@{converters}) -> Result<@{self}, 
     val @{acc} = mutable_map_new<@{kt}, @{vt}>()
     for @{key}, @{raw} in Json.unwrap_JObject(@{src}) {
 @yield inner
-@choose key_kind
-@when int
+@if key_kind == 'int'
     val @{key_n} = try parse_int(@{key})
     set<@{kt}, @{vt}>(@{acc}, @{key_n}, @{entry})
-@when text
+@else
     set<@{kt}, @{vt}>(@{acc}, @{key}, @{entry})
 @end
     }
@@ -219,34 +217,29 @@ pub fn @{snake}_to_json@{params}(v: @{self}@{converters}) -> Json {
 @for v in variants
 @yield v.block
 @end
-@choose closed
-@when yes
+@if closed
     }
-@when no
 @end
 }
 
 @end
 
 @template enum_to_variant
-@choose opener
-@when first
+@if opener == 'first'
     if @{enum}.is_@{variant}(v) {
-@when middle
+@elif opener == 'middle'
     } else if @{enum}.is_@{variant}(v) {
-@when last
+@elif opener == 'last'
     } else {
-@when only
 @end
-@choose payload
-@when no
-        return Json.JObject(Map<string, Json> { "type": Json.JString("@{variant}") })
-@when yes
+@if payload
 @yield conv
         return Json.JObject(Map<string, Json> {
             "type": Json.JString("@{variant}"),
             "value": @{dst}
         })
+@else
+        return Json.JObject(Map<string, Json> { "type": Json.JString("@{variant}") })
 @end
 @end
 
@@ -265,19 +258,17 @@ pub fn @{snake}_from_json@{params}(j: Json@{converters}) -> Result<@{self}, stri
 @end
 
 @template enum_from_variant
-@choose first
-@when yes
+@if first
     if __derive_tag == "@{variant}" {
-@when no
+@else
     } else if __derive_tag == "@{variant}" {
 @end
-@choose payload
-@when no
-        return @{self}.@{variant}
-@when yes
+@if payload
         val __derive_payload_raw = try json.require(j, "value")
 @yield conv
         return @{self}.@{variant}(@{dst})
+@else
+        return @{self}.@{variant}
 @end
 @end
 """)
@@ -544,14 +535,14 @@ fn from_reader(t: meta.Type) -> Option<string> {
 fn from_check(cond: string, ctx: Option<string>, msg: string) -> Result<string, string> {
     if Some(label) = ctx {
         return template.render(sheet, "from_check", [
-            template.text("ctx", "yes"),
+            template.flag("ctx", true),
             template.text("cond", cond),
             template.text("label", label),
             template.text("msg", msg)
         ])
     }
     return template.render(sheet, "from_check", [
-        template.text("ctx", "no"),
+        template.flag("ctx", false),
         template.text("cond", cond),
         template.text("msg", msg)
     ])
@@ -564,7 +555,7 @@ fn from_try(dst: string, call: string, ctx: Option<string>, n: Mutable<int>) -> 
         val ok_v = meta.fresh(n, "ok")
         val err_v = meta.fresh(n, "err")
         return template.render(sheet, "from_try", [
-            template.text("ctx", "yes"),
+            template.flag("ctx", true),
             template.text("dst", dst),
             template.text("call", call),
             template.text("ok_v", ok_v),
@@ -573,7 +564,7 @@ fn from_try(dst: string, call: string, ctx: Option<string>, n: Mutable<int>) -> 
         ])
     }
     return template.render(sheet, "from_try", [
-        template.text("ctx", "no"),
+        template.flag("ctx", false),
         template.text("dst", dst),
         template.text("call", call)
     ])
@@ -840,9 +831,9 @@ pub fn enum_to_json(d: meta.Decl, variants: [meta.Variant]) -> Result<string, st
         val m = variants[i]
         val dst = concat("payload_json_", str(i))
         var conv = ""
-        var carries = "no"
+        var carries = false
         if Some(payload) = m.payload {
-            carries = "yes"
+            carries = true
             conv = without_newline(
                 try emit_to_json(payload, concat(d.name, ".unwrap_", m.name, "(v)"), dst, n)
             )
@@ -852,7 +843,7 @@ pub fn enum_to_json(d: meta.Decl, variants: [meta.Variant]) -> Result<string, st
                 template.text("opener", opener_shape(i, last)),
                 template.text("enum", d.name),
                 template.text("variant", m.name),
-                template.text("payload", carries),
+                template.flag("payload", carries),
                 template.text("conv", conv),
                 template.text("dst", dst)
             ])))
@@ -863,7 +854,7 @@ pub fn enum_to_json(d: meta.Decl, variants: [meta.Variant]) -> Result<string, st
         template.text("params", decl_params(d)),
         template.text("self", self_text(d)),
         template.text("converters", converter_params(d, true)),
-        template.text("closed", if last > 0 { "yes" } else { "no" }),
+        template.flag("closed", last > 0),
         template.rows("variants", snapshot(rows))
     ])
 }
@@ -876,19 +867,19 @@ pub fn enum_from_json(d: meta.Decl, variants: [meta.Variant]) -> Result<string, 
         val m = variants[i]
         val dst = concat("payload_", str(i))
         var conv = ""
-        var carries = "no"
+        var carries = false
         if Some(payload) = m.payload {
-            carries = "yes"
+            carries = true
             conv = without_newline(
                 try emit_from_json(payload, "__derive_payload_raw", dst, Option<string>.None, n)
             )
         }
         push(rows, template.row([
             template.text("block", without_newline(try template.render(sheet, "enum_from_variant", [
-                template.text("first", if i == 0 { "yes" } else { "no" }),
+                template.flag("first", i == 0),
                 template.text("self", self_text(d)),
                 template.text("variant", m.name),
-                template.text("payload", carries),
+                template.flag("payload", carries),
                 template.text("conv", conv),
                 template.text("dst", dst)
             ])))

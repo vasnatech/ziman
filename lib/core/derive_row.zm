@@ -69,10 +69,9 @@ pub fn @{snake}_from_row(row: Row) -> Result<@{name}, DbError> {
 @end
 
 @template read
-@choose shape
-@when simple
+@if shape == 'simple'
     val @{dst} = try @{call}(@{src})
-@when option
+@else
     var @{dst} = Option<@{elem}>.None
     if !SqlValue.is_Null(@{src}) {
 @yield nested
@@ -94,12 +93,11 @@ pub fn @{snake}_to_params(v: @{name}) -> [SqlValue] {
 @end
 
 @template write
-@choose shape
-@when value
+@if shape == 'value'
     val @{dst} = SqlValue.@{ctor}(@{src})
-@when converted
+@elif shape == 'converted'
     val @{dst} = @{call}(@{src})
-@when option
+@else
     var @{dst} = SqlValue.Null
     if Option.is_Some(@{src}) {
 @yield nested

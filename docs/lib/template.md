@@ -89,6 +89,16 @@ pub fn text(name: string, value: string) -> Binding
 
 A string for `@{name}`, for `@yield name`, and for the tag a `@choose` reads.
 
+### `flag`
+
+```
+pub fn flag(name: string, value: bool) -> Binding
+```
+
+A `bool` for an `@if`. **This existed, went when `@if` went (templates.md §5), and returns with
+it**: a condition over a real boolean is what the construct is for, and `text("keyed", "yes")`
+with `@if keyed == 'yes'` is the stringly-typed dance the swap exists to remove.
+
 ### `rows`
 
 ```

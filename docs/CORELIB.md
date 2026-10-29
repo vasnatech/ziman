@@ -1776,6 +1776,8 @@ pub struct Binding {
 
 pub fn text(name: string, value: string) -> Binding
 
+pub fn flag(name: string, value: bool) -> Binding
+
 pub fn rows(name: string, value: [Row]) -> Binding
 
 pub fn row(cells: [Binding]) -> Row

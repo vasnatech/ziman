@@ -40,9 +40,14 @@ fn main() {
     // The inner `@for` swallows the template's own `@end`, so what is left unclosed is the
     // template -- which is what it says, rather than guessing at the `@for`.
     parsed("an @for that eats the template @end", wrap("@for m in xs\nx"))
-    parsed("@choose with no @when", wrap("@choose k\n@end"))
-    parsed("text before the first @when", wrap("@choose k\nstray\n@when a\nx\n@end"))
-    parsed("two @otherwise", wrap("@choose k\n@when a\nx\n@otherwise\ny\n@otherwise\nz\n@end"))
+    // `@choose`/`@when`/`@otherwise` were removed with step 4b of the expression language: with
+    // expressions they are `@if k == 'a'` written in more words and one more concept, so an
+    // `@choose` is now an unknown directive like any other misspelling.
+    parsed("@choose is gone", wrap("@choose k\n@when a\nx\n@end"))
+    parsed("@when is gone", wrap("@when a\nx"))
+    parsed("an @if never closed", wrap("@if k\nx"))
+    parsed("a malformed condition", wrap("@if k ==\nx\n@end"))
+    parsed("an @elif with no condition", wrap("@if k\nx\n@elif\ny\n@end"))
 
     val sheet = template.must_parse("""
 @template greet
@@ -50,11 +55,24 @@ fn main() {
 @end
 
 @template pick
-@choose kind
-@when loud
+@if kind == 'loud'
 LOUD
-@when quiet
+@elif kind == 'quiet'
 quiet
+@end
+@end
+
+@template pick_else
+@if kind == 'loud'
+LOUD
+@else
+something else
+@end
+@end
+
+@template plain
+@if on
+on
 @end
 @end
 
@@ -71,9 +89,26 @@ quiet
         template.text("name", "Ada"),
         template.text("extra", "unused")
     ]))
-    show("a tag no @when names", template.render(sheet, "pick", [template.text("kind", "shouty")]))
-    show("a tag one does", template.render(sheet, "pick", [template.text("kind", "quiet")]))
-    show("@choose over rows", template.render(sheet, "pick", [template.rows("kind", [])]))
+    // **No arm matching and no `@else` emits nothing**, where `@choose` refused the tag. That is
+    // what `@if` means everywhere, and it is the safety `@choose` had that the swap gives up: a
+    // dispatch that must be exhaustive writes its last case as `@else`, as `pick_else` does.
+    show("no arm matches", template.render(sheet, "pick", [template.text("kind", "shouty")]))
+    show("an arm matches", template.render(sheet, "pick", [template.text("kind", "quiet")]))
+    show("no arm matches, with an @else", template.render(sheet, "pick_else", [
+        template.text("kind", "shouty")
+    ]))
+    // A comparison is a bool whatever it compares, so an array against a string is simply
+    // `false` and the arm does not match. A *bare* condition is where the type shows: a bool
+    // holds, and anything else is refused rather than being judged truthy.
+    show("a comparison against an array", template.render(sheet, "pick", [
+        template.rows("kind", [])
+    ]))
+    show("a bare condition that is a bool", template.render(sheet, "plain", [
+        template.flag("on", true)
+    ]))
+    show("a bare condition that is a string", template.render(sheet, "plain", [
+        template.text("on", "truthy")
+    ]))
     show("@for over a string", template.render(sheet, "over", [template.text("rows", "not rows")]))
     show("a cell that is not there", template.render(sheet, "over", [
         template.rows("rows", [template.row([template.text("other", "x")])])

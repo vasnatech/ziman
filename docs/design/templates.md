@@ -148,7 +148,11 @@ pub fn rows(name: string, value: [Row]) -> Binding
 pub fn row(cells: [Binding]) -> Row
 ```
 
-There was a `flag(name, value: bool)` too, read only by `@if`, and it went when `@if` did (§15):
+There was a `flag(name, value: bool)` too, read only by `@if`, and it went when `@if` did (§15)
+-- **and came back with it on 2026-10-29** (F234), because that is exactly what it is for: a
+condition over a real boolean, where `text("keyed", "yes")` with `@if keyed == 'yes'` is the
+stringly-typed dance the swap exists to remove. Six of the twelve `@choose`s in the bundled
+generators were a `yes`/`no` subject and are now a `flag` and a bare `@if`:
 a `@choose` reads a *tag*, which is a `text`. **The binding kinds are `text` and `rows`**, which
 is a simplification of the data model and not only of the grammar.
 
@@ -800,3 +804,35 @@ What is left, in order:
    value, and per-generator-module initialisation. It is shared with user-defined derives, which
    is why it is written up there rather than here.
 3. **Then delete the C**, one generator at a time, each as its replacement starts running.
+
+## 18. `@if`/`@elif`/`@else` replace `@choose`, 2026-10-29 (F234)
+
+**This reverses §15, and the reason is that §15's premise is gone rather than its reasoning being
+wrong.** §15 removed `@if` and kept `@choose` on the evidence then: with no expression language a
+condition could only be a boolean someone else had computed, so `@if generic` said *whether*
+without saying *what*, and `@choose shape` / `@when required` named the cases. The expression
+language (docs/design/expressions.md) changes the premise -- a condition can now be
+`shape == 'required'`, which **names the case and tests it in one line** -- so the thing §15 was
+protecting is no longer at risk, and carrying two dispatch constructs when one is a longer spelling
+of the other is the accretion §15 itself warned about.
+
+§16's conclusion is answered the same way and is left in place with a note: its "`@choose` holds"
+was about `@if optional` losing the name, not about `@choose` being the better construct.
+
+**What the swap gives up, and it is a real thing.** `@choose` *refused* a tag no `@when` named --
+so a generator that computed `shape = "valeu"` was told so at render. An `@if` chain with no
+matching arm and no `@else` emits nothing, which is what `@if` means everywhere and what makes the
+common "emit this only when x" case possible at all. A dispatch that must be exhaustive therefore
+writes its last case as `@else` rather than relying on the renderer to complain, and the
+migration did exactly that: every three-way `@choose` became `@if`/`@elif`/`@else` with the final
+case as the `@else`, so a wrong tag now produces the last arm instead of a refusal.
+
+**The migration, and what proves it.** Twelve `@choose` blocks with 36 arms across five bundled
+generators. Six subjects were `yes`/`no` and became `flag` plus a bare `@if`; the others compare a
+string against a literal. **Every one of the six generators emits byte-identical text**, which is
+what the fixtures are for, and `tests/lang/template_refusals` now pins the new grammar's refusals
+including the two that are new: a malformed condition at parse time, and a bare condition that is
+not a bool (*"a condition has to be true or false, found a string"*).
+
+One stale message was found and fixed on the way: the unknown-directive refusal said "the six are"
+and then listed seven. It says "the seven are" and lists the seven there now.

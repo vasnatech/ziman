@@ -42,11 +42,10 @@ pub val @{snake}_table: string = "@{table}"
 @end
 
 @template meta
-@choose keyed
-@when no
-pub val @{snake}_meta: eql.Entity = eql.entity("@{name}", "@{table}", @{snake}_columns)
-@when yes
+@if keyed
 pub val @{snake}_meta: eql.Entity = eql.keyed_entity("@{name}", "@{table}", @{snake}_columns, [@{keys}])
+@else
+pub val @{snake}_meta: eql.Entity = eql.entity("@{name}", "@{table}", @{snake}_columns)
 @end
 
 @end
@@ -106,7 +105,7 @@ fn entity(d: meta.Decl, fields: [meta.Field]) -> Result<string, string> {
             template.text("snake", d.snake_name),
             template.text("name", d.name),
             template.text("table", table),
-            template.text("keyed", if prelude.len(keys) > 0 { "yes" } else { "no" }),
+            template.flag("keyed", prelude.len(keys) > 0),
             template.text("keys", quoted(snapshot(keys)))
         ])
     ))

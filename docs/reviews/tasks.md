@@ -4247,3 +4247,47 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `{{`/`}}` there and read worse.
 
   1,303 fixtures.
+
+- [x] **F234** **`@if`/`@elif`/`@else` replace `@choose`: step 4b, and `template` is done.**
+  (docs/design/expressions.md §12 and §16 step 4, second half; done 2026-10-29; M.)
+
+  With expressions, `@choose k` / `@when a` is `@if k == 'a'` written in more words and one more
+  concept, so the construct is gone. Twelve `@choose` blocks with **36 arms** across five bundled
+  generators were migrated and **every one of the six generators emits byte-identical text** --
+  which is the whole proof, and the reason step 4 was split so that the engine (F233) and the
+  grammar (this) are two commits with the fixtures held still across each.
+
+  **`template.flag` is back, because `@if` is what it was for.** templates.md §5 records that it
+  "went when `@if` did"; six of the twelve subjects were a `yes`/`no` string standing in for a
+  bool (`ctx`, `closed`, `payload` x2, `first`, `keyed`), and those are a `flag` and a bare `@if`
+  now. The other six compare a string against a literal, which keeps the case *named* --
+  `@if shape == 'required'` -- and that is what answers §16's objection rather than overruling it:
+  `@choose` was better than `@if optional`, which said *whether* without saying *what*, and a
+  condition is no longer limited to a bare boolean.
+
+  **This reverses templates.md §15, written down there as §18 rather than quietly.** §15 removed
+  `@if` and kept `@choose`, and it was right on its evidence; the premise changed, not the
+  reasoning.
+
+  **What the swap gives up is real and is recorded**: `@choose` refused a tag no `@when` named, so
+  a generator computing `shape = "valeu"` heard about it. An `@if` chain with no matching arm and
+  no `@else` emits nothing -- which is what `@if` means everywhere, and what makes "emit this only
+  when x" expressible at all. So a dispatch that must be exhaustive now writes its last case as
+  `@else`, and the migration did that throughout: a wrong tag produces the last arm instead of a
+  refusal. The fixture pins both halves of that trade.
+
+  Two new refusals, both in `tests/lang/template_refusals`: a malformed condition is a **parse**
+  failure carrying the template line and the expression's own column, and a bare condition that is
+  not a bool is refused at render -- *"a condition has to be true or false, found a string"* --
+  rather than being judged truthy. Also pinned: an `@if` whose arms all fail with no `@else`
+  renders empty, and a comparison against an array is simply `false` (a comparison is a bool
+  whatever it compares, which is why the bare condition is where the type shows).
+
+  Found on the way: the unknown-directive message said "the six are" and listed **seven**. It now
+  says "the seven are" and lists the seven that exist.
+
+  **Step 4 completes the dependency §10 describes**: `json <- expr <- template <- the six
+  generators`, with `template` holding no grammar, no resolution and no coercion of its own. Only
+  step 5 (`render_text`) is left in that document.
+
+  1,303 fixtures.
