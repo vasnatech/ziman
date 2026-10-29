@@ -4074,3 +4074,38 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   1,301 fixtures, `make check` exit 0 with the North Star. **This closes docs/design/meta.md**:
   steps 1-5 all done, and no generator is written in C.
+
+- [x] **F230** **The suite under `--gc-stress`: clean, except three fixtures whose own time budget
+  the flag exceeds.** (the gate F227 made possible; measured 2026-10-29; S.)
+
+  The whole suite can now be run under the flag, because `ziman test` can reach it and because the
+  harness takes a `BIN`:
+
+      printf '#!/usr/bin/env bash\nexec "$PWD/ziman" --gc-stress "$@"\n' > /tmp/zs && chmod +x /tmp/zs
+      BIN=/tmp/zs TIMEOUT=60 tests/run_tests.sh
+
+  **1,298 of 1,301 pass. The three that do not are the flag's cost, not defects**, and each was
+  run by hand to say which:
+
+  * `gc_mark_deep_chain_on_thread` -- a 300,000-link chain. Collecting at *every* safe point makes
+    marking it quadratic; over 60s, exit 124.
+  * `graphics_pdf` -- 400 rects and a deflate pass. Same shape, over 60s.
+  * `httpclient_stream` -- not a timeout of the harness but of the fixture's **own** HTTP client,
+    reading a chunked body: `unwrap called on an Err value: Timeout`. A ~9x slower interpreter
+    trips a wall-clock assumption the fixture is entitled to make.
+
+  **Every repository, derived-query and `meta` fixture passes under the flag**, which is the check
+  the second generator kind needed: `ziman_generate_query_in_ziman` builds a `Target` and a
+  `Function` across dozens of allocating calls and hands both to one call, which is exactly the
+  shape of the two mark-phase segfaults this flag found (e31d59e5, 5468e8e3). The guard over both
+  values is now tested rather than asserted in a comment.
+
+  **The lesson is the one `--gc-stress` arrived with, read the other way.** That commit found that
+  fixture *size* cannot reach the bug class, so the flag exists; this run finds that the flag
+  cannot reach the three *largest* fixtures. They are complementary and the overlap is the whole
+  suite minus three files -- so a stress gate wants those three skipped by name rather than a
+  longer timeout: `SKIP="gc_mark_deep_chain_on_thread graphics_pdf httpclient_stream"`.
+
+  Found while measuring: `tests/run_tests.sh` reported "timed out after 5s" whatever `TIMEOUT`
+  was set to, which is how a 60-second limit announced itself as five. Fixed; it prints the limit
+  it used.

@@ -103,7 +103,7 @@ check_fixture() {
     stderr=$(cat /tmp/ziman_test_stderr.$$)
     rm -f /tmp/ziman_test_stderr.$$
     if [ "$status" -eq 124 ]; then
-        stderr="$stderr"$'\n'"(timed out after 5s -- possible deadlock)"
+        stderr="$stderr"$'\n'"(timed out after ${TIMEOUT}s -- possible deadlock)"
     fi
 
     if [ -f "$out_file" ]; then
