@@ -114,6 +114,39 @@ pub fn camel_case(name: string) -> string
 repeat the compiler's own conversion rule. An underscore is dropped and capitalises the letter
 after it; nothing else changes.
 
+### `fresh`
+
+```
+pub fn fresh(n: Mutable<int>, hint: string) -> string
+```
+
+A fresh `__derive_<hint>_<n>`, from a counter a whole generation shares. The `__derive_`
+prefix is the convention `src/derive.c` writes too, so a generated temporary is recognisable
+as one wherever it turns up.
+
+**A cell, not a value threaded through every call.** The first generators returned the next
+counter alongside every piece of text, so each emitter answered a pair, every caller unpacked
+one, and the offsets -- `tmp + 3` here, `tmp + 5` there -- were written out by hand. That was
+the one part of those files that had to be exactly right and could not be read off the page.
+The numbering depends on call order either way; a cell just stops restating it, and the order
+is now the order the `fresh` calls appear in. `src/derive.c` threads an `int *` for the same
+reason.
+
+### `bare_name`
+
+```
+pub fn bare_name(name: string) -> string
+```
+
+`time.Instant` -> `Instant`: a type name with its module qualifier dropped.
+
+**For looking a name up, never for writing one out.** A field's type reaches a generator as
+the source spells it, qualifier and all, because that is the text that resolves when it is
+written back into the user's file. But a table of bundled types -- the short-converter lists
+in `derive_row` and `derive_json` -- is keyed by the bare name, and `time.Instant` must find
+`Instant` in it. Writing `bare_name(..)` into generated code instead of looking up with it is
+the bug this exists to make unlikely.
+
 ### `snake_case`
 
 ```

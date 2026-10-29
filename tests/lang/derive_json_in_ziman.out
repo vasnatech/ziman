@@ -1,5 +1,5 @@
 pub fn wide_to_json(v: Wide) -> Json {
-    val field_id_json = uuid_to_json(v.id)
+    val field_id_json = uuid.uuid_to_json(v.id)
     val field_count_json = int_to_json(v.count)
     val field_ratio_json = float_to_json(v.ratio)
     val field_ok_json = Json.JBool(v.ok)
@@ -38,6 +38,205 @@ pub fn wide_to_json(v: Wide) -> Json {
         "scores": field_scores_json,
         "middleName": field_middle_name_json,
         "seen": field_seen_json
+    })
+}
+
+pub fn wide_from_json(j: Json) -> Result<Wide, string> {
+    if !Json.is_JObject(j) { return err("expected a JSON object for Wide") }
+    val field_id_raw = try json.require(j, "id")
+    val field_id = switch uuid.uuid_from_json(field_id_raw) {
+        Ok(__derive_ok_0) { __derive_ok_0 }
+        Err(__derive_err_1) { return err(concat("id: ", __derive_err_1)) }
+    }
+    val field_count_raw = try json.require(j, "count")
+    val field_count = switch int_from_json(field_count_raw) {
+        Ok(__derive_ok_2) { __derive_ok_2 }
+        Err(__derive_err_3) { return err(concat("count: ", __derive_err_3)) }
+    }
+    val field_ratio_raw = try json.require(j, "ratio")
+    val field_ratio = switch float_from_json(field_ratio_raw) {
+        Ok(__derive_ok_4) { __derive_ok_4 }
+        Err(__derive_err_5) { return err(concat("ratio: ", __derive_err_5)) }
+    }
+    val field_ok_raw = try json.require(j, "ok")
+    if !Json.is_JBool(field_ok_raw) { return err("ok: expected a boolean") }
+    val field_ok = Json.unwrap_JBool(field_ok_raw)
+    val field_label_raw = try json.require(j, "label")
+    if !Json.is_JString(field_label_raw) { return err("label: expected a string") }
+    val field_label = Json.unwrap_JString(field_label_raw)
+    val field_at_raw = try json.require(j, "at")
+    val field_at = switch to_instant(field_at_raw) {
+        Ok(__derive_ok_6) { __derive_ok_6 }
+        Err(__derive_err_7) { return err(concat("at: ", __derive_err_7)) }
+    }
+    val field_tags_raw = try json.require(j, "tags")
+    if !Json.is_JArray(field_tags_raw) { return err("tags: expected an array") }
+    val __derive_ab_8 = mutable_array_new<string>()
+    for __derive_item_9 in Json.unwrap_JArray(field_tags_raw) {
+    if !Json.is_JString(__derive_item_9) { return err("expected a string") }
+    val __derive_item_val_10 = Json.unwrap_JString(__derive_item_9)
+    push<string>(__derive_ab_8, __derive_item_val_10)
+    }
+    val field_tags = snapshot(__derive_ab_8)
+    val field_scores_raw = try json.require(j, "scores")
+    if !Json.is_JObject(field_scores_raw) { return err("scores: expected an object") }
+    val __derive_builder_15 = mutable_map_new<string, int>()
+    for __derive_key_11, __derive_raw_12 in Json.unwrap_JObject(field_scores_raw) {
+    val __derive_entry_13 = try int_from_json(__derive_raw_12)
+    set<string, int>(__derive_builder_15, __derive_key_11, __derive_entry_13)
+    }
+    val field_scores = snapshot(__derive_builder_15)
+    val field_middle_name_found = json.get(j, "middleName")
+    var field_middle_name = Option<string>.None
+    if Option.is_Some(field_middle_name_found) {
+    val field_middle_name_raw = Option.unwrap_Some(field_middle_name_found)
+    if !Json.is_JNull(field_middle_name_raw) {
+    if !Json.is_JString(field_middle_name_raw) { return err("middleName: expected a string") }
+    val field_middle_name_inner = Json.unwrap_JString(field_middle_name_raw)
+    field_middle_name = Option<string>.Some(field_middle_name_inner)
+    }
+    }
+    val field_seen_found = json.get(j, "seen")
+    var field_seen = Option<time.Instant>.None
+    if Option.is_Some(field_seen_found) {
+    val field_seen_raw = Option.unwrap_Some(field_seen_found)
+    if !Json.is_JNull(field_seen_raw) {
+    val field_seen_inner = switch to_instant(field_seen_raw) {
+        Ok(__derive_ok_16) { __derive_ok_16 }
+        Err(__derive_err_17) { return err(concat("seen: ", __derive_err_17)) }
+    }
+    field_seen = Option<time.Instant>.Some(field_seen_inner)
+    }
+    }
+    return Wide {
+        id: field_id,
+        count: field_count,
+        ratio: field_ratio,
+        ok: field_ok,
+        label: field_label,
+        at: field_at,
+        tags: field_tags,
+        scores: field_scores,
+        middle_name: field_middle_name,
+        seen: field_seen
+    }
+}
+
+pub fn wide_from_json_all(j: Json) -> Result<Wide, [string]> {
+    if !Json.is_JObject(j) { return err(["expected a JSON object for Wide"]) }
+    val problems = mutable_array_new<string>()
+    val get_id = fn() -> Result<uuid.Uuid, string> {
+    val field_id_raw = try json.require(j, "id")
+    val field_id = try uuid.uuid_from_json(field_id_raw)
+    return ok(field_id)
+    }
+    val got_id = get_id()
+    if Err(problem_id) = got_id { push(problems, concat("id: ", problem_id)) }
+    val get_count = fn() -> Result<int, string> {
+    val field_count_raw = try json.require(j, "count")
+    val field_count = try int_from_json(field_count_raw)
+    return ok(field_count)
+    }
+    val got_count = get_count()
+    if Err(problem_count) = got_count { push(problems, concat("count: ", problem_count)) }
+    val get_ratio = fn() -> Result<float, string> {
+    val field_ratio_raw = try json.require(j, "ratio")
+    val field_ratio = try float_from_json(field_ratio_raw)
+    return ok(field_ratio)
+    }
+    val got_ratio = get_ratio()
+    if Err(problem_ratio) = got_ratio { push(problems, concat("ratio: ", problem_ratio)) }
+    val get_ok = fn() -> Result<bool, string> {
+    val field_ok_raw = try json.require(j, "ok")
+    if !Json.is_JBool(field_ok_raw) { return err("expected a boolean") }
+    val field_ok = Json.unwrap_JBool(field_ok_raw)
+    return ok(field_ok)
+    }
+    val got_ok = get_ok()
+    if Err(problem_ok) = got_ok { push(problems, concat("ok: ", problem_ok)) }
+    val get_label = fn() -> Result<string, string> {
+    val field_label_raw = try json.require(j, "label")
+    if !Json.is_JString(field_label_raw) { return err("expected a string") }
+    val field_label = Json.unwrap_JString(field_label_raw)
+    return ok(field_label)
+    }
+    val got_label = get_label()
+    if Err(problem_label) = got_label { push(problems, concat("label: ", problem_label)) }
+    val get_at = fn() -> Result<time.Instant, string> {
+    val field_at_raw = try json.require(j, "at")
+    val field_at = try to_instant(field_at_raw)
+    return ok(field_at)
+    }
+    val got_at = get_at()
+    if Err(problem_at) = got_at { push(problems, concat("at: ", problem_at)) }
+    val get_tags = fn() -> Result<[string], string> {
+    val field_tags_raw = try json.require(j, "tags")
+    if !Json.is_JArray(field_tags_raw) { return err("expected an array") }
+    val __derive_ab_0 = mutable_array_new<string>()
+    for __derive_item_1 in Json.unwrap_JArray(field_tags_raw) {
+    if !Json.is_JString(__derive_item_1) { return err("expected a string") }
+    val __derive_item_val_2 = Json.unwrap_JString(__derive_item_1)
+    push<string>(__derive_ab_0, __derive_item_val_2)
+    }
+    val field_tags = snapshot(__derive_ab_0)
+    return ok(field_tags)
+    }
+    val got_tags = get_tags()
+    if Err(problem_tags) = got_tags { push(problems, concat("tags: ", problem_tags)) }
+    val get_scores = fn() -> Result<Map<string, int>, string> {
+    val field_scores_raw = try json.require(j, "scores")
+    if !Json.is_JObject(field_scores_raw) { return err("expected an object") }
+    val __derive_builder_7 = mutable_map_new<string, int>()
+    for __derive_key_3, __derive_raw_4 in Json.unwrap_JObject(field_scores_raw) {
+    val __derive_entry_5 = try int_from_json(__derive_raw_4)
+    set<string, int>(__derive_builder_7, __derive_key_3, __derive_entry_5)
+    }
+    val field_scores = snapshot(__derive_builder_7)
+    return ok(field_scores)
+    }
+    val got_scores = get_scores()
+    if Err(problem_scores) = got_scores { push(problems, concat("scores: ", problem_scores)) }
+    val get_middle_name = fn() -> Result<Option<string>, string> {
+    val field_middle_name_found = json.get(j, "middleName")
+    var field_middle_name = Option<string>.None
+    if Option.is_Some(field_middle_name_found) {
+    val field_middle_name_raw = Option.unwrap_Some(field_middle_name_found)
+    if !Json.is_JNull(field_middle_name_raw) {
+    if !Json.is_JString(field_middle_name_raw) { return err("expected a string") }
+    val field_middle_name_inner = Json.unwrap_JString(field_middle_name_raw)
+    field_middle_name = Option<string>.Some(field_middle_name_inner)
+    }
+    }
+    return ok(field_middle_name)
+    }
+    val got_middle_name = get_middle_name()
+    if Err(problem_middle_name) = got_middle_name { push(problems, concat("middleName: ", problem_middle_name)) }
+    val get_seen = fn() -> Result<Option<time.Instant>, string> {
+    val field_seen_found = json.get(j, "seen")
+    var field_seen = Option<time.Instant>.None
+    if Option.is_Some(field_seen_found) {
+    val field_seen_raw = Option.unwrap_Some(field_seen_found)
+    if !Json.is_JNull(field_seen_raw) {
+    val field_seen_inner = try to_instant(field_seen_raw)
+    field_seen = Option<time.Instant>.Some(field_seen_inner)
+    }
+    }
+    return ok(field_seen)
+    }
+    val got_seen = get_seen()
+    if Err(problem_seen) = got_seen { push(problems, concat("seen: ", problem_seen)) }
+    if len(problems) > 0 { return err(snapshot(problems)) }
+    return ok(Wide {
+        id: unwrap(got_id),
+        count: unwrap(got_count),
+        ratio: unwrap(got_ratio),
+        ok: unwrap(got_ok),
+        label: unwrap(got_label),
+        at: unwrap(got_at),
+        tags: unwrap(got_tags),
+        scores: unwrap(got_scores),
+        middle_name: unwrap(got_middle_name),
+        seen: unwrap(got_seen)
     })
 }
 

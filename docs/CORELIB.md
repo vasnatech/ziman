@@ -289,6 +289,14 @@ pub fn format(rows: Json, sep: string) -> Result<string, string>
 ```
 pub fn @{snake}_to_json@{params}(v: @{self}@{converters}) -> Json
 
+pub fn @{snake}_from_json@{params}(j: Json@{converters}) -> Result<@{self}, string>
+
+pub fn @{snake}_from_json_all@{params}(j: Json@{converters}) -> Result<@{self}, [string]>
+
+pub fn from_json(d: meta.Decl) -> Result<string, string>
+
+pub fn from_json_all(d: meta.Decl) -> Result<string, string>
+
 pub fn generate(d: meta.Decl) -> Result<string, string>
 
 pub fn to_json(d: meta.Decl) -> Result<string, string>
@@ -883,6 +891,10 @@ pub fn is_option(t: MetaType) -> bool
 pub fn type_text(t: MetaType) -> string
 
 pub fn camel_case(name: string) -> string
+
+pub fn fresh(n: Mutable<int>, hint: string) -> string
+
+pub fn bare_name(name: string) -> string
 
 pub fn snake_case(name: string) -> string
 

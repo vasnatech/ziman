@@ -100,14 +100,31 @@ static const char *kind_name(TypeKind k) {
     return "unknown";
 }
 
-/* A struct or enum name with both qualifiers stripped: the loader's `uuid::Uuid` and a source's
- * `uuid.Uuid` both answer `Uuid`, which is what a generator writes. */
+/* The name of the declaration being derived, with both qualifiers stripped: the loader's
+ * `uuid::Uuid` and a source's `uuid.Uuid` both answer `Uuid`. A declaration is derived in the
+ * module that declares it, so its own name is written bare in the code generated beside it. */
 static const char *plain_name(const char *name) {
     if (name == NULL) return "";
     const char *sep = strstr(name, "::");
     const char *bare = sep != NULL ? sep + 2 : name;
     const char *dot = strrchr(bare, '.');
     return dot != NULL ? dot + 1 : bare;
+}
+
+/* A *field's* type name as the source spells it: the loader's internal `uuid::Uuid` answers
+ * `uuid.Uuid`, and a name already written that way is passed through.
+ *
+ * **The module qualifier is kept, and that is the whole point.** This text is written into the
+ * user's file, where `Option<time.Instant>` resolves and a bare `Option<Instant>` does not. The
+ * first version of this used `plain_name` here too, which type-checked for every field whose
+ * type name never reaches the output -- a flat `at: time.Instant` goes through `to_instant(..)`
+ * and names no type -- and broke the moment one did, as `Option<time.Instant>`. A generator that
+ * wants the bare name for a *lookup* strips it itself, which is what `meta.bare_name` is for and
+ * what `standard_flat_type_name` has always done on the C side. */
+static const char *source_name(const char *name) {
+    if (name == NULL) return "";
+    const char *sep = strstr(name, "::");
+    return sep != NULL ? sep + 2 : name;
 }
 
 /* A `[T]` holding `items`. **The items are copied onto the heap**, because `array_obj_new`
@@ -157,7 +174,7 @@ static Value reify_type(Type t, int line, int col) {
         return call_meta("generic", args, 3, line, col);
     }
     if (t.kind == TY_STRUCT || t.kind == TY_ENUM) {
-        const char *name = plain_name(t.kind == TY_STRUCT ? t.struct_name : t.enum_name);
+        const char *name = source_name(t.kind == TY_STRUCT ? t.struct_name : t.enum_name);
         if (t.type_args.count > 0) {
             Value *inner = ziman_xmalloc(sizeof(Value) * (size_t)t.type_args.count);
             for (int i = 0; i < t.type_args.count; i++) {

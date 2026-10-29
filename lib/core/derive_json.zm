@@ -2,8 +2,8 @@
 // `<name>_from_json_all`.
 //
 // **The largest of the five and the last ported** -- 418 lines of C against `Row`'s 128 -- and
-// the only one that reaches arrays, maps, sets, generics and type variables. Struct declarations
-// are handled here; an enum still falls through to `src/derive.c`, which is what
+// the only one that reaches arrays, maps, sets, generics and type variables. All three struct
+// functions are here; an enum still falls through to `src/derive.c`, which is what
 // `ziman_generate_in_ziman` answering NULL means.
 //
 // Keys are camelCase (`middle_name` -> `middleName`), which is the one transform here; `Row`'s
@@ -28,14 +28,24 @@ val flat_names = Map<string, string> {
 }
 
 // Everything this generator writes. For `#[derive(Json)] struct P { x: int }`, which is
-// tests/lang/cli_emit_derived.zm:
+// tests/lang/cli_emit_derived.zm, the encoder is `p_to_json(v: P) -> Json` building one
+// `Json.JObject`; the decoder is the half worth showing, because the error handling is its
+// whole shape:
 //
-//     pub fn p_to_json(v: P) -> Json {
-//         val field_x_json = int_to_json(v.x)
-//         return Json.JObject(Map<string, Json> {
-//             "x": field_x_json
-//         })
+//     pub fn p_from_json(j: Json) -> Result<P, string> {
+//         if !Json.is_JObject(j) { return err("expected a JSON object for P") }
+//         val field_x_raw = try json.require(j, "x")
+//         val field_x = switch int_from_json(field_x_raw) {
+//             Ok(__derive_ok_0) { __derive_ok_0 }
+//             Err(__derive_err_1) { return err(concat("x: ", __derive_err_1)) }
+//         }
+//         return P {
+//             x: field_x
+//         }
 //     }
+//
+// `p_from_json_all` follows it, same fields inside one lambda each, collecting into `problems`.
+// The full shape of both, over every type this reaches, is tests/lang/derive_json_in_ziman.out.
 val sheet = template.must_parse("""
 @template to_json
 pub fn @{snake}_to_json@{params}(v: @{self}@{converters}) -> Json {
@@ -80,16 +90,131 @@ pub fn @{snake}_to_json@{params}(v: @{self}@{converters}) -> Json {
     @{dst} = @{inner_var}
     }
 @end
+
+@template from_json
+pub fn @{snake}_from_json@{params}(j: Json@{converters}) -> Result<@{self}, string> {
+    if !Json.is_JObject(j) { return err("expected a JSON object for @{name}") }
+@for f in fields
+@yield f.read
+@end
+    return @{self} {
+@for f in fields
+        @{f.name}: field_@{f.name}@{f.comma}
+@end
+    }
+}
+
+@end
+
+@template from_json_all
+pub fn @{snake}_from_json_all@{params}(j: Json@{converters}) -> Result<@{self}, [string]> {
+    if !Json.is_JObject(j) { return err(["expected a JSON object for @{name}"]) }
+    val problems = mutable_array_new<string>()
+@for f in fields
+    val get_@{f.name} = fn() -> Result<@{f.type}, string> {
+@yield f.read
+    return ok(field_@{f.name})
+    }
+    val got_@{f.name} = get_@{f.name}()
+    if Err(problem_@{f.name}) = got_@{f.name} { push(problems, concat("@{f.key}: ", problem_@{f.name})) }
+@end
+    if len(problems) > 0 { return err(snapshot(problems)) }
+    return ok(@{self} {
+@for f in fields
+        @{f.name}: unwrap(got_@{f.name})@{f.comma}
+@end
+    })
+}
+
+@end
+
+@template from_required_field
+    val field_@{name}_raw = try json.require(j, "@{key}")
+@yield body
+@end
+
+@template from_optional_field
+    val field_@{name}_found = json.get(j, "@{key}")
+    var field_@{name} = Option<@{elem}>.None
+    if Option.is_Some(field_@{name}_found) {
+    val field_@{name}_raw = Option.unwrap_Some(field_@{name}_found)
+    if !Json.is_JNull(field_@{name}_raw) {
+@yield body
+    field_@{name} = Option<@{elem}>.Some(field_@{name}_inner)
+    }
+    }
+@end
+
+@template from_check
+@choose ctx
+@when yes
+    if !@{cond} { return err("@{label}: @{msg}") }
+@when no
+    if !@{cond} { return err("@{msg}") }
+@end
+@end
+
+@template from_try
+@choose ctx
+@when no
+    val @{dst} = try @{call}
+@when yes
+    val @{dst} = switch @{call} {
+        Ok(@{ok_v}) { @{ok_v} }
+        Err(@{err_v}) { return err(concat("@{label}: ", @{err_v})) }
+    }
+@end
+@end
+
+@template from_unwrap
+@yield check
+    val @{dst} = Json.unwrap_@{variant}(@{src})
+@end
+
+@template from_seq
+@yield check
+    val @{acc} = mutable_array_new<@{elem}>()
+    for @{item} in Json.unwrap_JArray(@{src}) {
+@yield inner
+    push<@{elem}>(@{acc}, @{item_val})
+    }
+    val @{dst} = snapshot(@{acc})
+@end
+
+@template from_set
+@yield check
+    val @{acc} = mutable_set_new<@{elem}>()
+    for @{item} in Json.unwrap_JArray(@{src}) {
+@yield inner
+    add<@{elem}>(@{acc}, @{item_val})
+    }
+    val @{dst} = snapshot(@{acc})
+@end
+
+@template from_map
+@yield check
+    val @{acc} = mutable_map_new<@{kt}, @{vt}>()
+    for @{key}, @{raw} in Json.unwrap_JObject(@{src}) {
+@yield inner
+@choose key_kind
+@when int
+    val @{key_n} = try parse_int(@{key})
+    set<@{kt}, @{vt}>(@{acc}, @{key_n}, @{entry})
+@when text
+    set<@{kt}, @{vt}>(@{acc}, @{key}, @{entry})
+@end
+    }
+    val @{dst} = snapshot(@{acc})
+@end
+
+@template from_option
+    var @{dst} = Option<@{elem}>.None
+    if !Json.is_JNull(@{src}) {
+@yield inner
+    @{dst} = Option<@{elem}>.Some(@{inner_var})
+    }
+@end
 """)
-
-struct Emitted {
-    text: string
-    next_tmp: int
-}
-
-fn tmp_name(hint: string, n: int) -> string {
-    return concat("__derive_", hint, "_", str(n))
-}
 
 fn is_scalar_call(kind: string) -> Option<string> {
     if kind == "int" {
@@ -118,15 +243,12 @@ fn converter_param(type_param: string, is_to: bool) -> string {
     return concat(meta.snake_case(type_param), if is_to { "_to_json" } else { "_from_json" })
 }
 
-fn one(dst: string, call: string, src: string, tmp: int) -> Result<Emitted, string> {
-    return ok(Emitted {
-        text: try template.render(sheet, "to_one", [
-            template.text("dst", dst),
-            template.text("call", call),
-            template.text("src", src)
-        ]),
-        next_tmp: tmp
-    })
+fn one(dst: string, call: string, src: string) -> Result<string, string> {
+    return template.render(sheet, "to_one", [
+        template.text("dst", dst),
+        template.text("call", call),
+        template.text("src", src)
+    ])
 }
 
 fn without_newline(text: string) -> string {
@@ -174,88 +296,72 @@ fn type_args_text(t: meta.MetaType) -> string {
     return concat("<", join(separator: ", ", pieces: snapshot(out)), ">")
 }
 
-// A value to `Json`, recursively. The shapes are the sheet's; the recursion, the temporary names
-// and the per-kind choice are here.
-fn emit_to_json(t: meta.MetaType, src: string, dst: string, tmp: int) -> Result<Emitted, string> {
+// A value to `Json`, recursively. The shapes are the sheet's; the recursion, the temporary
+// names and the per-kind choice are here.
+fn emit_to_json(t: meta.MetaType, src: string, dst: string, n: Mutable<int>) -> Result<string, string> {
     if Some(call) = is_scalar_call(t.kind) {
-        return one(dst, call, src, tmp)
+        return one(dst, call, src)
     }
     if t.kind == "typevar" {
-        return one(dst, converter_param(t.name, true), src, tmp)
+        return one(dst, converter_param(t.name, true), src)
     }
     if t.kind == "array" || t.kind == "set" {
-        val item = tmp_name("item", tmp)
-        val item_json = tmp_name("item_json", tmp + 1)
-        val acc = tmp_name("ab", tmp + 2)
-        val inner = try emit_to_json(t.args[0], item, item_json, tmp + 3)
-        return ok(Emitted {
-            text: try template.render(sheet, "to_seq", [
-                template.text("acc", acc),
-                template.text("item", item),
-                template.text("src", src),
-                template.text("inner", without_newline(inner.text)),
-                template.text("item_json", item_json),
-                template.text("dst", dst)
-            ]),
-            next_tmp: inner.next_tmp
-        })
+        val item = meta.fresh(n, "item")
+        val item_json = meta.fresh(n, "item_json")
+        val acc = meta.fresh(n, "ab")
+        return template.render(sheet, "to_seq", [
+            template.text("acc", acc),
+            template.text("item", item),
+            template.text("src", src),
+            template.text("inner", without_newline(try emit_to_json(t.args[0], item, item_json, n))),
+            template.text("item_json", item_json),
+            template.text("dst", dst)
+        ])
     }
     if t.kind == "map" {
         try check_map_key(t.args[0])
-        val key = tmp_name("key", tmp)
-        val entry = tmp_name("entry", tmp + 1)
-        val entry_json = tmp_name("entry_json", tmp + 2)
-        val acc = tmp_name("fields", tmp + 3)
-        val inner = try emit_to_json(t.args[1], entry, entry_json, tmp + 4)
-        return ok(Emitted {
-            text: try template.render(sheet, "to_map", [
-                template.text("acc", acc),
-                template.text("key", key),
-                template.text("entry", entry),
-                template.text("src", src),
-                template.text("inner", without_newline(inner.text)),
-                template.text("key_expr", if t.args[0].kind == "int" { concat("str(", key, ")") } else { key }),
-                template.text("entry_json", entry_json),
-                template.text("dst", dst)
-            ]),
-            next_tmp: inner.next_tmp
-        })
+        val key = meta.fresh(n, "key")
+        val entry = meta.fresh(n, "entry")
+        val entry_json = meta.fresh(n, "entry_json")
+        val acc = meta.fresh(n, "fields")
+        return template.render(sheet, "to_map", [
+            template.text("acc", acc),
+            template.text("key", key),
+            template.text("entry", entry),
+            template.text("src", src),
+            template.text("inner", without_newline(try emit_to_json(t.args[1], entry, entry_json, n))),
+            template.text("key_expr", if t.args[0].kind == "int" { concat("str(", key, ")") } else { key }),
+            template.text("entry_json", entry_json),
+            template.text("dst", dst)
+        ])
     }
     if t.kind != "struct" && t.kind != "enum" {
         return err(concat("derive(Json) does not support field type '", meta.type_text(t), "' yet"))
     }
     if meta.is_option(t) {
-        val inner_var = tmp_name("opt_inner", tmp)
-        val inner = try emit_to_json(t.args[0], concat("Option.unwrap_Some(", src, ")"), inner_var, tmp + 1)
-        return ok(Emitted {
-            text: try template.render(sheet, "to_option", [
-                template.text("dst", dst),
-                template.text("src", src),
-                template.text("inner", without_newline(inner.text)),
-                template.text("inner_var", inner_var)
-            ]),
-            next_tmp: inner.next_tmp
-        })
+        val inner_var = meta.fresh(n, "opt_inner")
+        return template.render(sheet, "to_option", [
+            template.text("dst", dst),
+            template.text("src", src),
+            template.text("inner", without_newline(
+                try emit_to_json(t.args[0], concat("Option.unwrap_Some(", src, ")"), inner_var, n))),
+            template.text("inner_var", inner_var)
+        ])
     }
     if prelude.len(t.args) > 0 {
         val convs = mutable_array_new<string>()
         for a in t.args {
             push(convs, try converter_for(a, true))
         }
-        val call = concat(meta.snake_case(t.name), "_to_json", type_args_text(t))
-        return ok(Emitted {
-            text: try template.render(sheet, "to_one", [
-                template.text("dst", dst),
-                template.text("call", call),
-                template.text("src", concat(src, ", ", join(separator: ", ", pieces: snapshot(convs))))
-            ]),
-            next_tmp: tmp
-        })
+        return one(
+            dst,
+            concat(meta.snake_case(t.name), "_to_json", type_args_text(t)),
+            concat(src, ", ", join(separator: ", ", pieces: snapshot(convs))))
     }
-    if contains(flat_names, t.name) {
-        return one(dst, "to_json", src, tmp)
+    if contains(flat_names, meta.bare_name(t.name)) {
+        return one(dst, "to_json", src)
     }
-    return one(dst, concat(meta.snake_case(t.name), "_to_json"), src, tmp)
+    return one(dst, concat(meta.snake_case(t.name), "_to_json"), src)
 }
 
 // `<T, U>` for a generic declaration, and the converter parameters its functions take.
@@ -285,38 +391,291 @@ fn self_text(d: meta.Decl) -> string {
     return concat(d.name, "<", join(separator: ", ", pieces: d.type_params), ">")
 }
 
-// **This port is not finished, and refuses rather than answering half of it.**
+// ---- the decoder ------------------------------------------------------------------------
 //
-// `#[derive(Json)]` writes three functions for a struct -- `_to_json`, `_from_json` and the
-// accumulating `_from_json_all` -- and two for an enum. Only `to_json` is here. A `generate`
-// that answered it alone would look like success and produce a module missing its decoder, so
-// it refuses by name instead, and `src/generators.c` does not list this module: `#[derive(Json)]`
-// still goes to `src/derive.c`.
-//
-// Wiring it up means finishing `from_json` first. The refusal is what makes doing that in the
-// wrong order fail loudly.
-pub fn generate(d: meta.Decl) -> Result<string, string> {
-    val ignored = d
-    return err(concat(
-        "derive(Json) is not ported to Ziman yet -- only 'to_json' is written (lib/core/derive_json.zm). ",
-        "from_json, from_json_all and the two enum halves are still in src/derive.c"
-    ))
+// `from_json` is the mirror of `to_json` and has two things its counterpart does not. **A
+// decode can fail**, so every conversion either tests the JSON shape first or catches an `Err`
+// and prefixes it with the field's key -- `ctx` threaded through below, `Option<string>.None`
+// where the key is already named by the caller. And **an absent key is not an error for an
+// `Option` field**: a missing key and an explicit `null` both decode to `None`, which is the
+// hand-written tolerance the backend's `request.zm` had before this mechanism existed.
+
+// `int_from_json` and the three other scalars that answer a `Result`; `bool` and `string` are
+// tested and unwrapped instead, so they are not here.
+fn from_reader(kind: string) -> Option<string> {
+    if kind == "int" {
+        return Option<string>.Some("int_from_json")
+    }
+    if kind == "float" {
+        return Option<string>.Some("float_from_json")
+    }
+    if kind == "bigint" {
+        return Option<string>.Some("bigint_from_json")
+    }
+    if kind == "decimal" {
+        return Option<string>.Some("decimal_from_json")
+    }
+    return Option<string>.None
 }
 
-// The half that is written, exported so `tests/lang/derive_json_in_ziman` can hold it to the
-// bytes `src/derive.c` emits.
-pub fn to_json(d: meta.Decl) -> Result<string, string> {
+// A shape test whose failure message is known here. Consumes no temporary.
+fn from_check(cond: string, ctx: Option<string>, msg: string) -> Result<string, string> {
+    if Some(label) = ctx {
+        return template.render(sheet, "from_check", [
+            template.text("ctx", "yes"),
+            template.text("cond", cond),
+            template.text("label", label),
+            template.text("msg", msg)
+        ])
+    }
+    return template.render(sheet, "from_check", [
+        template.text("ctx", "no"),
+        template.text("cond", cond),
+        template.text("msg", msg)
+    ])
+}
+
+// A call whose failure message is only known at run time. Without a key to name it is a bare
+// `try`; with one the `Err` is caught and prefixed, which costs two temporaries.
+fn from_try(dst: string, call: string, ctx: Option<string>, n: Mutable<int>) -> Result<string, string> {
+    if Some(label) = ctx {
+        val ok_v = meta.fresh(n, "ok")
+        val err_v = meta.fresh(n, "err")
+        return template.render(sheet, "from_try", [
+            template.text("ctx", "yes"),
+            template.text("dst", dst),
+            template.text("call", call),
+            template.text("ok_v", ok_v),
+            template.text("err_v", err_v),
+            template.text("label", label)
+        ])
+    }
+    return template.render(sheet, "from_try", [
+        template.text("ctx", "no"),
+        template.text("dst", dst),
+        template.text("call", call)
+    ])
+}
+
+// `Json` to a value, recursively. **The temporary numbering is part of the contract** -- the
+// fixture holds this to the bytes `src/derive.c` emits -- and it is simply the order the `fresh`
+// calls below appear in.
+fn emit_from_json(t: meta.MetaType, src: string, dst: string, ctx: Option<string>, n: Mutable<int>) -> Result<string, string> {
+    if Some(call) = from_reader(t.kind) {
+        return from_try(dst, concat(call, "(", src, ")"), ctx, n)
+    }
+    if t.kind == "bool" || t.kind == "string" {
+        val variant = if t.kind == "bool" { "JBool" } else { "JString" }
+        val msg = if t.kind == "bool" { "expected a boolean" } else { "expected a string" }
+        return template.render(sheet, "from_unwrap", [
+            template.text("check", without_newline(
+                try from_check(concat("Json.is_", variant, "(", src, ")"), ctx, msg))),
+            template.text("dst", dst),
+            template.text("variant", variant),
+            template.text("src", src)
+        ])
+    }
+    if t.kind == "typevar" {
+        return from_try(dst, concat(converter_param(t.name, false), "(", src, ")"), ctx, n)
+    }
+    // An array and a set differ only in which name the accumulator takes and in `push` vs `add`
+    // -- but they take their temporaries in a **different order**, which is the C's doing and
+    // the reason these are two branches rather than one with a flag in it.
+    if t.kind == "array" {
+        val acc = meta.fresh(n, "ab")
+        val item = meta.fresh(n, "item")
+        val item_val = meta.fresh(n, "item_val")
+        return template.render(sheet, "from_seq", [
+            template.text("check", without_newline(
+                try from_check(concat("Json.is_JArray(", src, ")"), ctx, "expected an array"))),
+            template.text("acc", acc),
+            template.text("elem", meta.type_text(t.args[0])),
+            template.text("item", item),
+            template.text("src", src),
+            template.text("inner", without_newline(
+                try emit_from_json(t.args[0], item, item_val, Option<string>.None, n))),
+            template.text("item_val", item_val),
+            template.text("dst", dst)
+        ])
+    }
+    if t.kind == "set" {
+        val item = meta.fresh(n, "item")
+        val item_val = meta.fresh(n, "item_val")
+        val acc = meta.fresh(n, "builder")
+        return template.render(sheet, "from_set", [
+            template.text("check", without_newline(
+                try from_check(concat("Json.is_JArray(", src, ")"), ctx, "expected an array"))),
+            template.text("acc", acc),
+            template.text("elem", meta.type_text(t.args[0])),
+            template.text("item", item),
+            template.text("src", src),
+            template.text("inner", without_newline(
+                try emit_from_json(t.args[0], item, item_val, Option<string>.None, n))),
+            template.text("item_val", item_val),
+            template.text("dst", dst)
+        ])
+    }
+    if t.kind == "map" {
+        try check_map_key(t.args[0])
+        val key = meta.fresh(n, "key")
+        val raw = meta.fresh(n, "raw")
+        val entry = meta.fresh(n, "entry")
+        val key_n = meta.fresh(n, "key_n")
+        val acc = meta.fresh(n, "builder")
+        return template.render(sheet, "from_map", [
+            template.text("check", without_newline(
+                try from_check(concat("Json.is_JObject(", src, ")"), ctx, "expected an object"))),
+            template.text("acc", acc),
+            template.text("kt", meta.type_text(t.args[0])),
+            template.text("vt", meta.type_text(t.args[1])),
+            template.text("key", key),
+            template.text("raw", raw),
+            template.text("src", src),
+            template.text("inner", without_newline(
+                try emit_from_json(t.args[1], raw, entry, Option<string>.None, n))),
+            template.text("key_kind", if t.args[0].kind == "int" { "int" } else { "text" }),
+            template.text("key_n", key_n),
+            template.text("entry", entry),
+            template.text("dst", dst)
+        ])
+    }
+    if t.kind != "struct" && t.kind != "enum" {
+        return err(concat("derive(Json) does not support field type '", meta.type_text(t), "' yet"))
+    }
+    if meta.is_option(t) {
+        val inner_var = meta.fresh(n, "opt_inner")
+        return template.render(sheet, "from_option", [
+            template.text("dst", dst),
+            template.text("elem", meta.type_text(t.args[0])),
+            template.text("src", src),
+            template.text("inner", without_newline(
+                try emit_from_json(t.args[0], src, inner_var, Option<string>.None, n))),
+            template.text("inner_var", inner_var)
+        ])
+    }
+    if prelude.len(t.args) > 0 {
+        val convs = mutable_array_new<string>()
+        for a in t.args {
+            push(convs, try converter_for(a, false))
+        }
+        return from_try(dst, concat(
+            meta.snake_case(t.name), "_from_json", type_args_text(t),
+            "(", src, ", ", join(separator: ", ", pieces: snapshot(convs)), ")"), ctx, n)
+    }
+    if contains(flat_names, meta.bare_name(t.name)) {
+        return from_try(dst, concat("to_", unwrap(get(flat_names, meta.bare_name(t.name))), "(", src, ")"), ctx, n)
+    }
+    return from_try(dst, concat(meta.snake_case(t.name), "_from_json(", src, ")"), ctx, n)
+}
+
+// One field's decode block. **Shared by both decoders** -- the single-error one names the key in
+// every message, the accumulating one leaves `ctx` empty because it prefixes the key once
+// itself, and that is the whole difference between them.
+fn field_read(m: meta.Member, key: string, ctx: Option<string>, n: Mutable<int>) -> Result<string, string> {
+    val dst = concat("field_", m.name)
+    if meta.is_option(m.type) {
+        return template.render(sheet, "from_optional_field", [
+            template.text("name", m.name),
+            template.text("key", key),
+            template.text("elem", meta.type_text(m.type.args[0])),
+            template.text("body", without_newline(
+                try emit_from_json(m.type.args[0], concat(dst, "_raw"), concat(dst, "_inner"), ctx, n)))
+        ])
+    }
+    return template.render(sheet, "from_required_field", [
+        template.text("name", m.name),
+        template.text("key", key),
+        template.text("body", without_newline(
+            try emit_from_json(m.type, concat(dst, "_raw"), dst, ctx, n)))
+    ])
+}
+
+// `<name>_from_json`: stops at the first bad field.
+pub fn from_json(d: meta.Decl) -> Result<string, string> {
+    val n = mutable_new<int>(0)
     val fields = mutable_array_new<template.Row>()
-    var tmp = 0
     val last = prelude.len(d.members) - 1
     for i in 0..prelude.len(d.members) {
         val m = d.members[i]
-        val conv = try emit_to_json(m.type, concat("v.", m.name), concat("field_", m.name, "_json"), tmp)
-        tmp = conv.next_tmp
+        val key = meta.camel_case(m.name)
+        push(fields, template.row([
+            template.text("name", m.name),
+            template.text("read", without_newline(try field_read(m, key, Option<string>.Some(key), n))),
+            template.text("comma", if i < last { "," } else { "" })
+        ]))
+    }
+    return template.render(sheet, "from_json", [
+        template.text("snake", d.snake_name),
+        template.text("params", decl_params(d)),
+        template.text("self", self_text(d)),
+        template.text("name", d.name),
+        template.text("converters", converter_params(d, false)),
+        template.rows("fields", snapshot(fields))
+    ])
+}
+
+// `<name>_from_json_all`: reports every bad field, as `Result<T, [string]>`.
+//
+// Each field decodes inside a **lambda**, which is what makes this cheap to generate: the
+// emitters above end a failing field with `return err(..)`, and inside a lambda that returns
+// from the lambda -- so `field_read` is reused exactly, with no second recording mode to keep in
+// step with it. The cost is one closure per field, paid only by callers of this function.
+pub fn from_json_all(d: meta.Decl) -> Result<string, string> {
+    val n = mutable_new<int>(0)
+    val fields = mutable_array_new<template.Row>()
+    val last = prelude.len(d.members) - 1
+    for i in 0..prelude.len(d.members) {
+        val m = d.members[i]
         push(fields, template.row([
             template.text("name", m.name),
             template.text("key", meta.camel_case(m.name)),
-            template.text("conv", without_newline(conv.text)),
+            template.text("type", meta.type_text(m.type)),
+            template.text("read", without_newline(
+                try field_read(m, meta.camel_case(m.name), Option<string>.None, n))),
+            template.text("comma", if i < last { "," } else { "" })
+        ]))
+    }
+    return template.render(sheet, "from_json_all", [
+        template.text("snake", d.snake_name),
+        template.text("params", decl_params(d)),
+        template.text("self", self_text(d)),
+        template.text("name", d.name),
+        template.text("converters", converter_params(d, false)),
+        template.rows("fields", snapshot(fields))
+    ])
+}
+
+// **This port is not finished, and refuses rather than answering half of it.**
+//
+// `#[derive(Json)]` writes three functions for a struct -- all three are above -- and two for an
+// enum, which are not. A `generate` that answered a struct and failed an enum would wire up
+// cleanly and then break on the first `#[derive(Json)] enum`, so it refuses by name for both
+// instead, and `src/generators.c` does not list this module: `#[derive(Json)]` still goes to
+// `src/derive.c`.
+//
+// The refusal is what makes wiring this up before the enum halves exist fail loudly.
+pub fn generate(d: meta.Decl) -> Result<string, string> {
+    val ignored = d
+    return err(concat(
+        "derive(Json) is not fully ported to Ziman yet -- the three struct functions are written ",
+        "(lib/core/derive_json.zm), the two enum halves are still in src/derive.c"
+    ))
+}
+
+// `<name>_to_json`, exported -- as `from_json` and `from_json_all` are -- so
+// `tests/lang/derive_json_in_ziman` can hold each to the bytes `src/derive.c` emits while
+// `generate` still refuses.
+pub fn to_json(d: meta.Decl) -> Result<string, string> {
+    val n = mutable_new<int>(0)
+    val fields = mutable_array_new<template.Row>()
+    val last = prelude.len(d.members) - 1
+    for i in 0..prelude.len(d.members) {
+        val m = d.members[i]
+        push(fields, template.row([
+            template.text("name", m.name),
+            template.text("key", meta.camel_case(m.name)),
+            template.text("conv", without_newline(
+                try emit_to_json(m.type, concat("v.", m.name), concat("field_", m.name, "_json"), n))),
             template.text("comma", if i < last { "," } else { "" })
         ]))
     }

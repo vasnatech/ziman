@@ -1,0 +1,21 @@
+// A `#[derive(Row)]` field whose type is **module-qualified**, which is the one shape that puts a
+// type name into generated text: a flat `at: time.Instant` is converted by `to_instant(..)` and
+// names no type at all, but `Option<time.Instant>` writes the type out twice.
+//
+// The bridge's first version stripped the module qualifier when reifying a field's type, so this
+// generated `Option<Instant>` -- a name that does not resolve in the user's file. Every existing
+// fixture passed, because none of them had a qualified type inside an `Option`. The generator is
+// handed the name as the source spells it now, and strips it only to look `Instant` up in the
+// short-converter table.
+use time
+use db
+
+#[derive(Row)]
+struct Ev {
+    at: time.Instant
+    maybe: Option<time.Instant>
+}
+
+fn main() {
+    print("ok")
+}
