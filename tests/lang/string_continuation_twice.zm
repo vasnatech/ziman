@@ -1,0 +1,7 @@
+// One `\` continues one string; a second says the author meant something else.
+fn main() {
+    val x = "one " \
+        \
+        "two"
+    print(x)
+}

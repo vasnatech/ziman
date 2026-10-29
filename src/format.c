@@ -371,7 +371,13 @@ static void emit_pass(const Items *items, Buf *out, ItemPos *pos) {
             }
             before_last_code = last_code;
             last_code = it;
-            prev_line_continues = is_binary_op(it) && !is(it, "->") ? 1 : is(it, "->");
+            /* A `\` ending a line continues a string literal onto the next one (2026-10-29), so the
+             * continuation is indented a level past the line it continues -- the same treatment a
+             * line ending in a binary operator gets, and for the same reason: at the statement's
+             * own level it would read as a new statement. */
+            prev_line_continues = is_binary_op(it) && !is(it, "->") ? 1
+                                : is(it, "\\") ? 1
+                                : is(it, "->");
             line_ends_with_open = opens(it);
         } else if (it->nl_before > 0 || idx == 0) {
             prev_line_continues = 0;

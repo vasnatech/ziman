@@ -1,0 +1,11 @@
+Result<E, DbError> (one row, NotFound when there is none), Result<Option<E>, DbError> (one row, absence being the answer) or Result<[E], DbError> (every matching row)
+166
+#![repository(Note)] needs 'Note' to mark at least one field #[pk] -- a repository's find, update and delete each address one row, and without a key there is nothing that addresses one.
+[a
+b]
+[nospace]
+[empty first piece]
+2
+1
+first line
+second lineand a continuation

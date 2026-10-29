@@ -1,0 +1,1 @@
+a '\' continues a string literal, and what follows is not a string literal

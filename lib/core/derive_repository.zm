@@ -148,7 +148,8 @@ fn key_pieces(entity: string, keys: [meta.Field]) -> Result<Keys, string> {
             // The shared emitter's own refusal names `derive(Row)`, which is not what is being
             // written here: a key column is refused as a key, at the attribute.
             return err(prelude.format(
-                "#![repository({})] cannot use '{}' as a key column: there is no conversion to SQL for {} ({})",
+                "#![repository({})] cannot use '{}' as a key column: there is no conversion to SQL " \
+                    "for {} ({})",
                 entity,
                 f.name,
                 meta.type_text(f.type),
@@ -210,7 +211,10 @@ pub fn generate_module(t: meta.Target) -> Result<string, string> {
     // whose predicates come from their own names and may never mention the key.
     if prelude.len(keys) == 0 && t.crud {
         return err(prelude.format(
-            "#![repository({})] needs '{}' to mark at least one field #[pk] -- a repository's find, update and delete each address one row, and without a key there is nothing that addresses one (a module that wants the entity named without those nine says 'crud: false')",
+            "#![repository({})] needs '{}' to mark at least one field #[pk] -- a repository's " \
+                "find, update and delete each address one row, and without a key there is nothing that " \
+                "addresses one (a module that wants the entity named without those nine says 'crud: " \
+                "false')",
             entity,
             entity
         ))
@@ -218,7 +222,8 @@ pub fn generate_module(t: meta.Target) -> Result<string, string> {
     for f in keys {
         if Optional(ignored) = f.type {
             return err(prelude.format(
-                "#![repository({})] cannot use '{}' as a key column: it is an Option, and a key that may be absent does not address a row",
+                "#![repository({})] cannot use '{}' as a key column: it is an Option, and a key " \
+                    "that may be absent does not address a row",
                 entity,
                 f.name
             ))
@@ -282,19 +287,15 @@ fn verb_word(v: Verb) -> string {
 fn verb_returns(v: Verb) -> string {
     switch v {
         Find {
-            return concat(
-                "Result<E, DbError> (one row, NotFound when there is none), ",
-                "Result<Option<E>, DbError> (one row, absence being the answer) or ",
+            return "Result<E, DbError> (one row, NotFound when there is none), " \
+                "Result<Option<E>, DbError> (one row, absence being the answer) or " \
                 "Result<[E], DbError> (every matching row)"
-            )
         }
         Count { return "Result<int, DbError>" }
         Exists { return "Result<bool, DbError>" }
         Delete {
-            return concat(
-                "Result<unit, DbError> (the one row this addresses, NotFound when none ",
+            return "Result<unit, DbError> (the one row this addresses, NotFound when none " \
                 "matched) or Result<int, DbError> (every matching row, answering how many)"
-            )
         }
     }
 }
@@ -477,7 +478,8 @@ fn why_unreadable(fields: [meta.Field], entity: string, at: string, ordering: bo
     if None = longest_column(fields, at) {
         if read == 0 {
             return prelude.format(
-                "nothing in '{}' names a field of {} -- a derived query's {} is made of the entity's own field names (it has: {})",
+                "nothing in '{}' names a field of {} -- a derived query's {} is made of the " \
+                    "entity's own field names (it has: {})",
                 at,
                 entity,
                 part,
@@ -517,7 +519,8 @@ fn why_unreadable(fields: [meta.Field], entity: string, at: string, ordering: bo
         return why_unreadable(fields, entity, after(rest, order_sep), true, 0)
     }
     return prelude.format(
-        "'{}' is left over after reading '{}' -- a derived query's {} is one field name per term, joined by '{}' ({} has: {})",
+        "'{}' is left over after reading '{}' -- a derived query's {} is one field name per term, " \
+            "joined by '{}' ({} has: {})",
         rest,
         col,
         part,
@@ -774,7 +777,8 @@ fn check_query_params(f: meta.Function, entity: string, expected: [Expected]) ->
     val asked = render_expected_signature(f, expected)
     if prelude.len(f.params) == 0 || !is_named(f.params[0].type, "Connection") {
         return err(prelude.format(
-            "a derived query's first parameter is the connection it runs on (conn: datasource.Connection), and the rest are its predicate's terms: {}",
+            "a derived query's first parameter is the connection it runs on (conn: " \
+                "datasource.Connection), and the rest are its predicate's terms: {}",
             asked
         ))
     }
@@ -794,7 +798,9 @@ fn check_query_params(f: meta.Function, entity: string, expected: [Expected]) ->
         val x = expected[i]
         if p.name != x.name {
             return err(prelude.format(
-                "parameter {} is named '{}' and the name's term {} is '{}' -- a derived query binds its parameters by name, not by position, so two transposed arguments are this error rather than the wrong rows: {}",
+                "parameter {} is named '{}' and the name's term {} is '{}' -- a derived query " \
+                    "binds its parameters by name, not by position, so two transposed arguments are " \
+                    "this error rather than the wrong rows: {}",
                 i + 1,
                 p.name,
                 i + 1,
@@ -1068,7 +1074,8 @@ fn tail_text(
         // here because the `switch` requires one, which is what makes that refusal unforgettable.
         Other {
             return err(prelude.format(
-                "a derived query over {} answers a type this cannot write a body for, which the pairing check above should have refused first",
+                "a derived query over {} answers a type this cannot write a body for, which the " \
+                    "pairing check above should have refused first",
                 entity
             ))
         }
@@ -1084,7 +1091,8 @@ pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string
 
     if None = split_verb(f.name) {
         return err(prelude.format(
-            "a derived query's name begins with 'find', 'count', 'exists' or 'delete', and '{}' begins with none of them",
+            "a derived query's name begins with 'find', 'count', 'exists' or 'delete', and '{}' " \
+                "begins with none of them",
             f.name
         ))
     }
@@ -1095,14 +1103,17 @@ pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string
     if rest != "" && !starts_with(rest, by_sep) && !starts_with(rest, order_sep) {
         if starts_with(rest, "_all_by_") || rest == "_all" {
             return err(prelude.format(
-                "there is no '_all' in a derived query's name: how many rows it answers comes from its return type and nowhere else, so this is '{}{}' answering a [{}]",
+                "there is no '_all' in a derived query's name: how many rows it answers comes from " \
+                    "its return type and nowhere else, so this is '{}{}' answering a [{}]",
                 word,
                 after(rest, "_all"),
                 entity
             ))
         }
         return err(prelude.format(
-            "after '{}' a derived query's name has '{}<predicate>', '{}<ordering>' or nothing, and '{}' is none of them -- a name about the application rather than about {} (a 'current' or a 'recent') is written out by hand, and a hand-written body wins",
+            "after '{}' a derived query's name has '{}<predicate>', '{}<ordering>' or nothing, and " \
+                "'{}' is none of them -- a name about the application rather than about {} (a " \
+                "'current' or a 'recent') is written out by hand, and a hand-written body wins",
             word,
             by_sep,
             order_sep,
@@ -1135,7 +1146,8 @@ pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string
     // modelled on surprises people.
     if prelude.len(readings) > 1 {
         return err(prelude.format(
-            "'{}' reads {} ways against {} and this will not choose between them: {}, or {}. Rename the function, or write the query out (a hand-written body wins)",
+            "'{}' reads {} ways against {} and this will not choose between them: {}, or {}. " \
+                "Rename the function, or write the query out (a hand-written body wins)",
             f.name,
             prelude.len(readings),
             entity,
@@ -1151,7 +1163,8 @@ pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string
         }
         if !is_find {
             return err(prelude.format(
-                "'{}' orders its rows and then does not answer any of them -- an ordering belongs to a 'find'",
+                "'{}' orders its rows and then does not answer any of them -- an ordering belongs " \
+                    "to a 'find'",
                 f.name
             ))
         }

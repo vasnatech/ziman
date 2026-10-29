@@ -18,7 +18,25 @@ File extension: `.zm`.
   exponent literal takes no `n`/`d`/`b` suffix (`1e3d` is a lexical error): write
   a decimal as `15000d` or `1500.5d`.
 - String literals: `"..."` with escapes `\n`, `\t`, `\r`, `\"`, `\\`. No
-  interpolation in v0. A plain string cannot span lines.
+  interpolation in v0. A plain string cannot span lines -- but one **literal** can be written over
+  several lines, with a `\` after each piece but the last:
+
+  ```
+  return "Result<E, DbError> (one row, NotFound when there is none), " \
+      "Result<Option<E>, DbError> (one row, absence being the answer) or " \
+      "Result<[E], DbError> (every matching row)"
+  ```
+
+  The pieces are joined end to end, in the lexer, with nothing added between them -- a space at a
+  seam is written by whoever wants one. **The result is one literal**, which is what `format`
+  needs: its first argument must be a literal, so a long format string had no way to be wrapped
+  before this, and `concat` of constant pieces is a call and an allocation to build a constant.
+  A text block continues the same way, since the rule is about literals and not about quoting.
+
+  **The `\` is required rather than inferred from adjacency**, which is what C and Python do. There
+  two string literals on separate lines are one string, so a forgotten comma in a vertical list of
+  strings silently joins two of them; here that is a syntax error and stays one. A `\` that follows
+  anything but a string literal, or that is not followed by one, is refused where it is written.
 - Text blocks: `"""` at the end of a line opens a multi-line string, and the next `"""` closes it.
 
   ```

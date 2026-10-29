@@ -1,0 +1,1 @@
+a '\' here continues a string literal, so it comes after one

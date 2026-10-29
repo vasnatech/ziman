@@ -1,0 +1,6 @@
+// A `\` continues a string literal, so it has to come after one.
+fn main() {
+    val x = 1 \
+        "two"
+    print(x)
+}

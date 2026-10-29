@@ -4377,3 +4377,56 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   `jwt.sign` is keyed on `[byte]` and an EC key is PEM text.
 
   1,305 fixtures.
+
+- [x] **F237** **A string literal written over several lines: `"a " \` and the rest on the next.**
+  (user-raised, 2026-10-29: "We need to build something better to use in such cases instead of
+  concat"; S-M.)
+
+  Two cases came out of F233's message cleanup and only one of them `format` could answer. A
+  sentence **with** insertions became `prelude.format`. A sentence **without** any -- `verb_returns`
+  in `derive_repository.zm`, three constant pieces -- had nowhere to go: `concat` is a call and an
+  allocation to build a constant, and `format` could not take it either, because its first argument
+  must be a *literal* (that is what lets its placeholders be counted at compile time). The same
+  gap made a long format string unwrappable: this file carried **11 lines over 120 columns, the
+  longest 272**, every one a literal with nowhere to break.
+
+  A `\` at the end of a line now continues a string literal onto the next. The pieces are joined
+  **in the lexer**, end to end with nothing added, so the parser and the type checker see one
+  `TOK_STRING_LIT` -- which is the whole point: a wrapped `format` string is legal and still
+  checked.
+
+  **The first design was bare adjacency -- two literals in a row are one string, as in C and
+  Python -- and it was withdrawn after being tested against this repository's own code.** The
+  user had chosen it on a comparison that said "the C footgun does not arrive", which was true
+  only of two literals on *one* line. Then:
+
+      val all_nine = ["insert", "update", "find", "find_or_error", "exists", "delete", "find_all",
+                      "count_all", "delete_all"]
+
+  Drop the comma after `"find_all"` and adjacency compiles it to a five-element array holding
+  `"find_allcount_all"` -- a generator that emits eight CRUD functions and hunts for one nobody
+  wrote. **That is a syntax error today**, and the newline restriction does not save it: a
+  forgotten comma in a vertical list is exactly one newline apart, and a vertical list of strings
+  is the commonest shape there is. A language that refuses an ambiguous derived-query name rather
+  than resolving it by precedence should not accept a silent join here, so the fold is explicit and
+  costs one character, paid by whoever wants it.
+
+  **What it took**, which was more than the "one lexer rule" first estimated: the fold itself; a
+  `\` case in the lexer that clears `prev_can_end_stmt` so the newline after it is swallowed (the
+  mechanism a trailing comma already uses); a check in `emit`, the one place every non-string token
+  goes through, for a continuation nothing followed; an end-of-file check; and **one rule in the
+  formatter**, which has its own scanner and so sees the pieces rather than the folded literal --
+  it indents a continuation one level past the line it continues, the same treatment a line ending
+  in a binary operator gets, and it never re-joins or re-breaks them, because where a sentence
+  breaks is a judgement about reading rather than about width.
+
+  Five fixtures: `string_continuation` (the fold, a wrapped `format`, escapes at a seam, a comma
+  still separating two elements, a continued text block) and four refusals, of which
+  `string_continuation_missing_comma` is the one that pins what the `\` was chosen for.
+
+  Adopted where it came from: `verb_returns` and one other constant `concat` are literals now, and
+  **13 long literals were wrapped -- `derive_repository.zm` has no line over 120 columns left**.
+  All 13 derived-query refusal fixtures still pass, which is what proves the messages are
+  byte-identical.
+
+  1,310 fixtures.

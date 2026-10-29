@@ -1,0 +1,52 @@
+// A string literal continued on the next line with a trailing `\`.
+//
+// **The pieces are one literal, joined in the lexer.** That is the point rather than a detail: a
+// `format` string must be a *literal* (its placeholders are counted at compile time against the
+// arguments), so a long one could not be wrapped at all before this, and `concat` of pieces is a
+// call and an allocation to build a constant.
+//
+// **Explicit, where C and Python fold bare adjacency.** There, a forgotten comma in a vertical
+// list of strings silently joins two of them; here that is a syntax error and stays one --
+// `tests/lang/string_continuation_missing_comma` is that case, pinned.
+fn main() {
+    val sentence = "Result<E, DbError> (one row, NotFound when there is none), " \
+        "Result<Option<E>, DbError> (one row, absence being the answer) or " \
+        "Result<[E], DbError> (every matching row)"
+    print(sentence)
+    print(prelude.len(sentence))
+
+    // A wrapped `format` string: the placeholders are still counted across the fold, at compile
+    // time, which is the thing a runtime concatenation cannot offer.
+    print(prelude.format(
+        "#![repository({})] needs '{}' to mark at least one field #[pk] -- " \
+            "a repository's find, update and delete each address one row, and " \
+            "without a key there is nothing that addresses one.",
+        "Note",
+        "Note"
+    ))
+
+    // Escapes belong to their own piece, and the join adds nothing of its own: two pieces are
+    // joined exactly end to end, so a space at the seam is written by whoever wants one.
+    print(concat("[", "a\n" \
+            "b", "]"))
+    print(concat("[", "no" \
+            "space", "]"))
+    print(concat("[", "" \
+            "empty first piece", "]"))
+
+    // A comma still separates: these are two elements, not one.
+    val two = ["first ", "second"]
+    print(prelude.len(two))
+    val one = ["first " \
+            "second"]
+    print(prelude.len(one))
+
+    // A text block continues the same way, since the rule is about literals rather than about
+    // quoting: the block keeps its own newlines and the next piece is joined to its end.
+    val block = """
+first line
+second line
+""" \
+        "and a continuation"
+    print(block)
+}

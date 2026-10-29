@@ -19,6 +19,11 @@ typedef struct {
      * lexical rule (like Go's automatic semicolon insertion), never an
      * indentation rule -- see docs/DESIGN.md. */
     int prev_can_end_stmt;
+    /* A `\` outside a string: the string literal before it continues with the one after it. See
+     * `lex_backslash`. Set when the `\` is read, cleared by the string that follows, and an error
+     * if anything else follows -- including the end of the file. */
+    int string_continues;
+    int continue_line, continue_col;
 } Lexer;
 
 static void push_token(Lexer *lx, TokenType type, const char *start, int length, int line, int col) {
@@ -134,12 +139,26 @@ static int line_opens_type_decl(Lexer *lx, const char *at) {
     return strncmp(p, "type", 4) == 0 && (p[4] == ' ' || p[4] == '\t');
 }
 
+/* What a dangling continuation says, from the one place every token but a string literal is
+ * emitted. A `\` promises a string on the next line and this is the only thing that can tell it
+ * there is not one. */
+static _Noreturn void refuse_dangling_continuation(Lexer *lx, const char *found) {
+    ziman_error("lexical", lx->continue_line, lx->continue_col,
+                "a '\\' continues a string literal, and what follows is %s -- write the rest of "
+                "the string on the next line, or drop the '\\'",
+                found);
+}
+
 static void emit(Lexer *lx, TokenType type, const char *start, int length, int line, int col) {
+    if (lx->string_continues && type != TOK_NEWLINE) refuse_dangling_continuation(lx, "not a string literal");
     push_token(lx, type, start, length, line, col);
     if (type != TOK_NEWLINE) {
         lx->prev_can_end_stmt = can_end_statement(type);
     }
 }
+
+/* Defined below, beside `lex_string`: the text-block lexer above it pushes through this too. */
+static void push_string_token(Lexer *lx, char *buf, int len, int line, int col);
 
 static void emit_newline_if_significant(Lexer *lx, int line, int col) {
     if (lx->prev_can_end_stmt) {
@@ -280,8 +299,34 @@ static void lex_text_block(Lexer *lx) {
     }
     buf[len] = '\0';
     free(raw); free(ls); free(ln);
-    push_token(lx, TOK_STRING_LIT, buf, (int)len, line, col);
+    push_string_token(lx, buf, (int)len, line, col);
     lx->prev_can_end_stmt = 1;
+}
+
+/* A string literal, folded into the one before it when a `\` said to.
+ *
+ * **One literal, not a concatenation**: the pieces are joined here, in the lexer, so what the
+ * parser and the type checker see is a single `TOK_STRING_LIT`. That is what makes a wrapped
+ * `format` string legal -- its first argument must be a *literal*, and its placeholder count is
+ * checked at compile time against the arguments, which a runtime `concat` of pieces cannot be.
+ *
+ * The old buffers are not freed, as nothing in this file's allocations is: a token's text outlives
+ * the lexer by design (see `dup_token_text`). */
+static void push_string_token(Lexer *lx, char *buf, int len, int line, int col) {
+    TokenList *list = &lx->tokens;
+    if (lx->string_continues && list->count > 0) {
+        Token *prev = &list->items[list->count - 1];
+        size_t total = (size_t)prev->length + (size_t)len;
+        char *joined = ziman_xmalloc(total + 1);
+        memcpy(joined, prev->start, (size_t)prev->length);
+        memcpy(joined + prev->length, buf, (size_t)len);
+        joined[total] = '\0';
+        prev->start = joined;
+        prev->length = (int)total;
+        lx->string_continues = 0;
+        return;
+    }
+    push_token(lx, TOK_STRING_LIT, buf, len, line, col);
 }
 
 static void lex_string(Lexer *lx) {
@@ -325,7 +370,7 @@ static void lex_string(Lexer *lx) {
         buf[len++] = out;
     }
     buf[len] = '\0';
-    push_token(lx, TOK_STRING_LIT, buf, (int)len, line, col);
+    push_string_token(lx, buf, (int)len, line, col);
     lx->prev_can_end_stmt = 1;
 }
 
@@ -410,6 +455,7 @@ TokenList lex(const char *source) {
 
         if (c == '\0') {
             emit_newline_if_significant(&lx, lx.line, lx.col);
+            if (lx.string_continues) refuse_dangling_continuation(&lx, "the end of the file");
             push_token(&lx, TOK_EOF, lx.src + lx.pos, 0, lx.line, lx.col);
             break;
         }
@@ -586,6 +632,35 @@ TokenList lex(const char *source) {
                             "bigint), a variant type "
                             "is 'enum Name { A, B }', and there is no '|>' pipeline");
                 continue;
+            case '\\': {
+                /* **A string literal continued on the next line** (2026-10-29). A long constant --
+                 * a refusal message, a `format` string -- has to be one literal and does not fit
+                 * one line, and `concat` of pieces is a call and an allocation to build a constant
+                 * (and is refused outright where a literal is required, as `format`'s first
+                 * argument is).
+                 *
+                 * **Explicit rather than bare adjacency**, which is what C and Python do: there, a
+                 * forgotten comma in a vertical list of strings joins two of them silently, and in
+                 * this language that is a syntax error today and stays one. The cost is this
+                 * character; the gain is that nothing folds unless it was asked to.
+                 *
+                 * `prev_can_end_stmt` is cleared so the newline that follows is swallowed, which
+                 * is the same mechanism a trailing comma or operator already uses. */
+                advance(&lx);
+                if (lx.tokens.count == 0 || lx.tokens.items[lx.tokens.count - 1].type != TOK_STRING_LIT) {
+                    ziman_error("lexical", line, col,
+                                "a '\\' here continues a string literal, so it comes after one: "
+                                "a string, then '\\', then the rest of it on the next line");
+                }
+                if (lx.string_continues) {
+                    ziman_error("lexical", line, col, "two '\\' in a row -- one continues one string");
+                }
+                lx.string_continues = 1;
+                lx.continue_line = line;
+                lx.continue_col = col;
+                lx.prev_can_end_stmt = 0;
+                continue;
+            }
             default:
                 if (c == ';') {
                     ziman_error("lexical", line, col, "unexpected character ';' -- Ziman statements end at a newline; loops are 'for i in 0..n' (which stops before n) and 'while cond'");

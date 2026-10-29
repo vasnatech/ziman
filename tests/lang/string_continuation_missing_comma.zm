@@ -1,0 +1,13 @@
+// **The reason the continuation is explicit.** In C and Python two adjacent string literals are
+// one string, so a forgotten comma in a vertical list of strings joins two of them and compiles.
+// Here it is a syntax error, and this fixture is what keeps it one: it is the case the design
+// chose `\` over bare adjacency to protect, and nothing else would notice if that changed.
+fn main() {
+    val names = [
+        "insert",
+        "update",
+        "find"
+        "find_all"
+    ]
+    print(prelude.len(names))
+}

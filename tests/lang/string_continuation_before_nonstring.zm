@@ -1,0 +1,6 @@
+// A `\` promises a string literal on the next line, and this is what it says when there is none.
+fn main() {
+    val x = "one " \
+        42
+    print(x)
+}

@@ -262,6 +262,7 @@ them against the code.
 - [What adopting `eql` across 26 repositories taught, and what it did not remove (2026-10-27)](#what-adopting-eql-across-26-repositories-taught-and-what-it-did-not-remove-2026-10-27)
 - [A repository function's name is its query (2026-10-28)](#a-repository-functions-name-is-its-query-2026-10-28)
 - [The second generator kind: a module generator (2026-10-29)](#the-second-generator-kind-a-module-generator-2026-10-29)
+- [A string literal written over several lines (2026-10-29)](#a-string-literal-written-over-several-lines-2026-10-29)
 
 <!-- end index -->
 
@@ -10388,3 +10389,61 @@ first version of the ported generator reached for `meta.bare_name` and generated
 "unknown struct or enum type 'Uuid'". `bare_name` is for looking a name up in a table of bundled
 types, never for writing one out; `src/generators.c`'s `source_name` carries the same warning
 from the same mistake, made twice before this.
+
+## A string literal written over several lines (2026-10-29)
+
+A long constant -- a refusal message, a `format` string -- has to be one literal and does not fit
+one line. Before this there were two ways to write one and both were wrong in a different way:
+
+* **`concat` of pieces**, which is a call and an allocation at run time to produce something that
+  was constant at compile time. It is also *refused* where a literal is required, and `format`'s
+  first argument is exactly that: its placeholders are counted against its arguments at compile
+  time, which a runtime concatenation cannot support.
+* **One very long line**, which is what the alternative forced: `lib/core/derive_repository.zm`
+  carried **11 lines over 120 columns, the longest 272**, every one of them a `format` literal
+  that had nowhere to break.
+
+So a `\` at the end of a line continues a string literal onto the next:
+
+```ziman
+return err(prelude.format(
+    "#![repository({})] needs '{}' to mark at least one field #[pk] -- " \
+        "a repository's find, update and delete each address one row, and " \
+        "without a key there is nothing that addresses one.",
+    entity,
+    entity
+))
+```
+
+The pieces are joined **in the lexer**, end to end, with nothing added between them, so what the
+parser and the type checker see is a single `TOK_STRING_LIT` -- which is what makes the wrapped
+`format` string above legal and keeps its placeholder count checked.
+
+**Why the `\` rather than bare adjacency, which is what C and Python have.** Adjacency reads
+better and costs nothing to specify: two literals in a row are one string. It was the first
+choice, and it was wrong for one reason found by testing it against this language's own code
+rather than by reasoning:
+
+```ziman
+val all_nine = ["insert", "update", "find", "find_or_error", "exists", "delete", "find_all",
+                "count_all", "delete_all"]
+```
+
+Drop the comma after `"find_all"` and bare adjacency compiles it to a five-element array holding
+`"find_allcount_all"` -- a generator that emits eight CRUD functions and then looks for one nobody
+wrote. **Today that is a syntax error**, and a language that refuses an ambiguous derived-query
+name rather than resolving it by precedence (see "A repository function's name is its query")
+should not take a silent join here. The restriction that was considered first -- fold only across a
+newline -- does not help: a forgotten comma in a *vertical* list is exactly a newline apart, and a
+vertical list of strings is the commonest shape there is.
+
+So the cost is one character, paid by the person who wants the fold, and
+`tests/lang/string_continuation_missing_comma` pins the error that character buys. Four refusals
+are pinned beside it: a `\` after something that is not a string, a `\` with no string after it,
+two in a row, and one at the end of the file.
+
+`ziman --fmt` indents a continuation one level past the line it continues, which is the treatment
+a line ending in a binary operator already gets and for the same reason -- at the statement's own
+level it reads as a new statement. The formatter's own scanner is separate from the lexer, so it
+sees the pieces rather than the folded literal, and it never re-joins or re-breaks them: where a
+sentence breaks is a judgement about reading, not about width.
