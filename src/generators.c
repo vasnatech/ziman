@@ -6,6 +6,7 @@
 #include "error.h"
 #include "interpreter.h"
 #include "loader.h"
+#include "native.h"
 #include "typecheck.h"
 #include "value.h"
 #include "xalloc.h"
@@ -286,7 +287,26 @@ char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, 
     ziman_set_error_file(caller_file);
     if (g_generators == NULL) return NULL;
 
+    /* **Collection is held off while the declaration is reified.**
+     *
+     * `reify_decl` builds a `meta.Decl` out of dozens of `call_meta` calls -- a `MetaType` per
+     * field, a `Member` wrapping each, an array of those -- and every one of them can allocate.
+     * The wrappers come from the per-thread `GcHeap`, whose mark phase roots from the
+     * interpreter's own frames, and a `Value` that exists only in this C function's locals and
+     * in a buffer it malloc'd is not one of those roots. So a collection partway through the
+     * build frees a `Member` that is finished but not yet referenced from anywhere Ziman can
+     * see, and the generator later reads a field off it: *"field 'name' not found at runtime"*.
+     *
+     * It needs enough allocation to reach a collection, so every fixture passed and every small
+     * file passed; `health-record`'s 140 derive sites hit it, and reported it against whichever
+     * declaration happened to be live when the collector ran. `struct_obj_new`'s own comment
+     * names this guard as the rule for callers that build a buffer across more than one call.
+     *
+     * The guard ends before the generator runs: `decl` is that call's argument, so from there it
+     * is a parameter in the callee's environment and a root like any other. */
+    native_gc_unsafe_enter();
     Value decl = reify_decl(sd, ed, line, col);
+    native_gc_unsafe_leave();
     char *fn = generate_name_for(target);
     Value out;
     const char *problem = NULL;
