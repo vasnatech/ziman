@@ -147,6 +147,88 @@ A variant carries one payload, so the three multi-part kinds take a small struct
 their own parts -- `key`/`value` and `ok`/`err` rather than one shared `Pair` whose field names
 would be wrong half the time. Recursion is direct: `Array(Type)` works, as does `switch` over it.
 
+### A worked example, because three fields here look alike
+
+`NamedType.args` is the one field whose meaning is easy to guess wrong. It is **the type
+arguments a *use* supplies**, and the thing to hold on to is that a declaration and a reference
+to one are different values with different fields.
+
+The North Star has both next to each other (`model/paging.zm`):
+
+```ziman
+pub struct Page<T> {
+    content: [T]
+    page: int
+}
+
+pub enum Listing<T> {
+    All([T])
+    Paged(Page<T>)
+}
+```
+
+`Page` reified contains **no `NamedType` at all** -- it is the thing being declared, not
+referenced:
+
+```ziman
+Decl {
+    name: "Page"
+    snake_name: "page"
+    type_params: ["T"]                 // the declaration BINDS T
+    arg: Option<string>.None
+    body: Body.Struct([
+        Field { name: "content", type: Type.Array(Type.Var("T")), attrs: [] },
+        Field { name: "page",    type: Type.Int,                  attrs: [] }
+    ])
+}
+```
+
+`Listing` references it, and that is where `args` appears:
+
+```ziman
+Decl {
+    name: "Listing"
+    type_params: ["T"]
+    body: Body.Enum([
+        Variant { name: "All",
+                  payload: Some(Type.Array(Type.Var("T"))) },
+        Variant { name: "Paged",
+                  payload: Some(Type.Named(NamedType {
+                      name: "Page"               // the type referred to
+                      args: [Type.Var("T")]      // what it SUPPLIES for Page's own T
+                  })) }
+    ])
+}
+```
+
+At a concrete use, `Listing<Patient>` is
+`Named(NamedType { name: "Listing", args: [Named(NamedType { name: "Patient", args: [] })] })`.
+**`args` is empty for every non-generic named type**, which is the common case: `Uuid` is
+`Named(NamedType { name: "uuid.Uuid", args: [] })`.
+
+| field                | holds                                   | in the example               |
+| -------------------- | --------------------------------------- | ---------------------------- |
+| `Decl.type_params`   | the names a declaration **binds**       | `["T"]`                      |
+| `NamedType.args`     | the types a use **supplies**            | `[Var("T")]`, `[Named Patient]` |
+| `Type.Var(name)`     | a bound parameter **referred to**       | `Var("T")` in `content: [T]` |
+
+**What reads it.** `derive_json` emits, for a generic field, a call carrying one converter per
+type argument:
+
+```ziman
+val field_page_json = page_to_json<Patient>(v.page, patient_to_json)
+//                                 ^^^^^^^^^          ^^^^^^^^^^^^^^^
+//                                 from args          one per args entry
+```
+
+That is the whole of its job: spell the `<..>` and supply a converter per element.
+
+**And `Named` covers only user-declared structs and enums.** `[T]`, `Map<K, V>`, `Option<T>` and
+`Result<T, E>` each have their own variant with named parts, so none of them is ever a `Named`
+with positional `args`. Under today's `MetaType` they all share one `args` list and a reader has
+to know by convention that `args[1]` is a map's *value* but a result's *error* -- which is the
+§5 change in one sentence.
+
 ### Why this is better than a wider struct, and it is not "more fields"
 
 **A `switch` over an enum is exhaustive and has no default arm.** That is the compiler's rule, not
