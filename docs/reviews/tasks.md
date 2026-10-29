@@ -4199,3 +4199,51 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   are (F230).
 
   1,303 fixtures.
+
+- [x] **F233** **A hole holds an expression: step 4a of the expression language, and the `?:` the
+  design was already promising.** (docs/design/expressions.md §16 step 4, first half; done
+  2026-10-29; M.)
+
+  `@{...}`, a `@for`'s source and a `@choose`'s subject are `expr` source now, parsed with the
+  sheet and evaluated against the context. **`@choose` still works and no sheet changed**, which
+  is the same split that made step 3 safe: the six generators' byte-identical fixtures are
+  evidence about the engine alone. `@if`/`@elif`/`@else` and the removal of `@choose` are 4b.
+
+  **`template` had two lookup mechanisms and now has none of its own.** A global binding and a
+  frame's cell were separate paths through `string_at`; a `@for` binder is an ordinary context key
+  now, so `r.cell` is a member access, **the frame stack is gone**, and every "no such path"
+  message comes from the evaluator that owns paths. One shape of message, everywhere, and
+  `template` holds no resolution either -- which is what §10's boundary is for.
+
+  Three things this removed or improved without being asked to:
+
+  * **Step 3's "needs an array of objects" refusal has dissolved.** It existed because a row's
+    cell was a second lookup, so a non-object element had nothing to look up. An element may now
+    be anything a hole can hold -- `@{n}` over `[1, 2, 3]` renders -- and `@{r.cell}` over a number
+    is reported precisely: *"'cell' was read on a number"*.
+  * **The awkward `(bound: )`** an empty context produced an hour earlier (F232) is now *"no 'v'
+    here; this object has no keys"*, because the message is `expr`'s.
+  * **A loop binder that would shadow a bound name is refused**, which keeps templates.md §5's
+    "shadowing is impossible by construction" now that a binder is a context key. Worth noting
+    that the unused-key check catches most of these first: a binder is subtracted from a
+    template's `refs`, so a context key of the same name is usually reported as unmentioned.
+
+  **`expr.names` is new and is on `expr`'s side of the boundary on purpose.** `template` needs the
+  roots an expression reads, to refuse a binding the text never mentions -- and the `Expr` enum is
+  public, so it *could* walk it. It must not: a new node kind would then be two files' problem.
+
+  **`?:` was added because §11 depended on it and §6 did not have it.** The design justifies a hole
+  refusing `null` with "`@{x ?: ''}` says otherwise in four characters"; step 1 implemented §6's
+  three-part ternary only, and nothing noticed until a hole was written that way. It stops early on
+  the left like `&&`, and it answers a **null, not an absence** -- a root that is not a key at all
+  is an error before `?:` or `?.` applies, which is §8's decision. `tests/lang/expr_language` pins
+  five cases including the chain and the short circuit.
+
+  **A style change the user asked for mid-task**: the 15 refusal messages in
+  `derive_repository.zm` were multi-piece `concat` calls and are now `prelude.format` with
+  placeholders -- one that ran to nine pieces for a single sentence. All 13 refusal fixtures still
+  pass, which is what makes the rewrite provably text-identical. `concat` is kept where the string
+  is *code* being assembled or where it quotes a hole (`@{..}`), since a format literal would need
+  `{{`/`}}` there and read worse.
+
+  1,303 fixtures.

@@ -147,16 +147,12 @@ fn key_pieces(entity: string, keys: [meta.Field]) -> Result<Keys, string> {
         if Err(why) = line {
             // The shared emitter's own refusal names `derive(Row)`, which is not what is being
             // written here: a key column is refused as a key, at the attribute.
-            return err(concat(
-                "#![repository(",
+            return err(prelude.format(
+                "#![repository({})] cannot use '{}' as a key column: there is no conversion to SQL for {} ({})",
                 entity,
-                ")] cannot use '",
                 f.name,
-                "' as a key column: there is no conversion to SQL for ",
                 meta.type_text(f.type),
-                " (",
-                why,
-                ")"
+                why
             ))
         }
         push(lines, unwrap(line))
@@ -213,26 +209,18 @@ pub fn generate_module(t: meta.Target) -> Result<string, string> {
     // addresses one row by it; a module that generates none of them has only derived queries,
     // whose predicates come from their own names and may never mention the key.
     if prelude.len(keys) == 0 && t.crud {
-        return err(concat(
-            "#![repository(",
+        return err(prelude.format(
+            "#![repository({})] needs '{}' to mark at least one field #[pk] -- a repository's find, update and delete each address one row, and without a key there is nothing that addresses one (a module that wants the entity named without those nine says 'crud: false')",
             entity,
-            ")] needs '",
-            entity,
-            "' to mark at least one field #[pk] -- a repository's find, update and ",
-            "delete each address one row, and without a key there is nothing that ",
-            "addresses one (a module that wants the entity named without those nine ",
-            "says 'crud: false')"
+            entity
         ))
     }
     for f in keys {
         if Optional(ignored) = f.type {
-            return err(concat(
-                "#![repository(",
+            return err(prelude.format(
+                "#![repository({})] cannot use '{}' as a key column: it is an Option, and a key that may be absent does not address a row",
                 entity,
-                ")] cannot use '",
-                f.name,
-                "' as a key column: it is an Option, and a key that may be absent ",
-                "does not address a row"
+                f.name
             ))
         }
     }
@@ -488,30 +476,21 @@ fn why_unreadable(fields: [meta.Field], entity: string, at: string, ordering: bo
     val part = if ordering { "ordering" } else { "predicate" }
     if None = longest_column(fields, at) {
         if read == 0 {
-            return concat(
-                "nothing in '",
+            return prelude.format(
+                "nothing in '{}' names a field of {} -- a derived query's {} is made of the entity's own field names (it has: {})",
                 at,
-                "' names a field of ",
                 entity,
-                " -- a derived query's ",
                 part,
-                " is made of the entity's own field names (it has: ",
-                field_list(fields),
-                ")"
+                field_list(fields)
             )
         }
-        return concat(
-            "nothing in '",
+        return prelude.format(
+            "nothing in '{}' names a field of {}, and the {} needs one after '{}' (it has: {})",
             at,
-            "' names a field of ",
             entity,
-            ", and the ",
             part,
-            " needs one after '",
             and_sep,
-            "' (it has: ",
-            field_list(fields),
-            ")"
+            field_list(fields)
         )
     }
     val col = unwrap(longest_column(fields, at))
@@ -537,20 +516,14 @@ fn why_unreadable(fields: [meta.Field], entity: string, at: string, ordering: bo
     if !ordering && starts_with(rest, order_sep) {
         return why_unreadable(fields, entity, after(rest, order_sep), true, 0)
     }
-    return concat(
-        "'",
+    return prelude.format(
+        "'{}' is left over after reading '{}' -- a derived query's {} is one field name per term, joined by '{}' ({} has: {})",
         rest,
-        "' is left over after reading '",
         col,
-        "' -- a derived query's ",
         part,
-        " is one field name per term, joined by '",
         and_sep,
-        "' (",
         entity,
-        " has: ",
-        field_list(fields),
-        ")"
+        field_list(fields)
     )
 }
 
@@ -800,23 +773,19 @@ fn render_expected_signature(f: meta.Function, expected: [Expected]) -> string {
 fn check_query_params(f: meta.Function, entity: string, expected: [Expected]) -> Result<unit, string> {
     val asked = render_expected_signature(f, expected)
     if prelude.len(f.params) == 0 || !is_named(f.params[0].type, "Connection") {
-        return err(concat(
-            "a derived query's first parameter is the connection it runs on ",
-            "(conn: datasource.Connection), and the rest are its predicate's terms: ",
+        return err(prelude.format(
+            "a derived query's first parameter is the connection it runs on (conn: datasource.Connection), and the rest are its predicate's terms: {}",
             asked
         ))
     }
     val given = prelude.len(f.params) - 1
     val wanted = prelude.len(expected)
     if given != wanted {
-        return err(concat(
-            "the name asks for ",
-            str(wanted),
-            " parameter",
+        return err(prelude.format(
+            "the name asks for {} parameter{} after the connection and the signature has {} -- {}",
+            wanted,
             if wanted == 1 { "" } else { "s" },
-            " after the connection and the signature has ",
-            str(given),
-            " -- ",
+            given,
             asked
         ))
     }
@@ -824,33 +793,24 @@ fn check_query_params(f: meta.Function, entity: string, expected: [Expected]) ->
         val p = f.params[i + 1]
         val x = expected[i]
         if p.name != x.name {
-            return err(concat(
-                "parameter ",
-                str(i + 1),
-                " is named '",
+            return err(prelude.format(
+                "parameter {} is named '{}' and the name's term {} is '{}' -- a derived query binds its parameters by name, not by position, so two transposed arguments are this error rather than the wrong rows: {}",
+                i + 1,
                 p.name,
-                "' and the name's term ",
-                str(i + 1),
-                " is '",
+                i + 1,
                 x.name,
-                "' -- a derived query binds its parameters by name, not by position, so two ",
-                "transposed arguments are this error rather than the wrong rows: ",
                 asked
             ))
         }
         if !same_column_type(p.type, x.type) {
             // `column` rather than `name`, because a `between` term's two parameters are
             // `<column>_from` and `<column>_to` and neither is a field of anything.
-            return err(concat(
-                "parameter '",
+            return err(prelude.format(
+                "parameter '{}' is {}, and the name's term reads {}'s field '{}', so it must be {}",
                 p.name,
-                "' is ",
                 meta.type_text(p.type),
-                ", and the name's term reads ",
                 entity,
-                "'s field '",
                 x.column,
-                "', so it must be ",
                 meta.type_text(x.type)
             ))
         }
@@ -1107,11 +1067,9 @@ fn tail_text(
         // Refused by the pairing check above, which runs first and names both halves. The arm is
         // here because the `switch` requires one, which is what makes that refusal unforgettable.
         Other {
-            return err(concat(
-                "a derived query over ",
-                entity,
-                " answers a type this cannot write a body for, which the pairing check above ",
-                "should have refused first"
+            return err(prelude.format(
+                "a derived query over {} answers a type this cannot write a body for, which the pairing check above should have refused first",
+                entity
             ))
         }
     }
@@ -1125,11 +1083,9 @@ pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string
     val no_orders: [Order] = []
 
     if None = split_verb(f.name) {
-        return err(concat(
-            "a derived query's name begins with 'find', 'count', 'exists' or ",
-            "'delete', and '",
-            f.name,
-            "' begins with none of them"
+        return err(prelude.format(
+            "a derived query's name begins with 'find', 'count', 'exists' or 'delete', and '{}' begins with none of them",
+            f.name
         ))
     }
     val split = unwrap(split_verb(f.name))
@@ -1138,28 +1094,20 @@ pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string
     val rest = split.rest
     if rest != "" && !starts_with(rest, by_sep) && !starts_with(rest, order_sep) {
         if starts_with(rest, "_all_by_") || rest == "_all" {
-            return err(concat(
-                "there is no '_all' in a derived query's name: how many rows it ",
-                "answers comes from its return type and nowhere else, so this is '",
+            return err(prelude.format(
+                "there is no '_all' in a derived query's name: how many rows it answers comes from its return type and nowhere else, so this is '{}{}' answering a [{}]",
                 word,
                 after(rest, "_all"),
-                "' answering a [",
-                entity,
-                "]"
+                entity
             ))
         }
-        return err(concat(
-            "after '",
+        return err(prelude.format(
+            "after '{}' a derived query's name has '{}<predicate>', '{}<ordering>' or nothing, and '{}' is none of them -- a name about the application rather than about {} (a 'current' or a 'recent') is written out by hand, and a hand-written body wins",
             word,
-            "' a derived query's name has '",
             by_sep,
-            "<predicate>', '",
             order_sep,
-            "<ordering>' or nothing, and '",
             rest,
-            "' is none of them -- a name about the application rather than about ",
-            entity,
-            " (a 'current' or a 'recent') is written out by hand, and a hand-written body wins"
+            entity
         ))
     }
 
@@ -1186,18 +1134,13 @@ pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string
     // genuinely two-ways readable, and guessing is how the resolution of the thing this is
     // modelled on surprises people.
     if prelude.len(readings) > 1 {
-        return err(concat(
-            "'",
+        return err(prelude.format(
+            "'{}' reads {} ways against {} and this will not choose between them: {}, or {}. Rename the function, or write the query out (a hand-written body wins)",
             f.name,
-            "' reads ",
-            str(prelude.len(readings)),
-            " ways against ",
+            prelude.len(readings),
             entity,
-            " and this will not choose between them: ",
             render_shape(readings[0]),
-            ", or ",
-            render_shape(readings[1]),
-            ". Rename the function, or write the query out (a hand-written body wins)"
+            render_shape(readings[1])
         ))
     }
     val shape = readings[0]
@@ -1207,11 +1150,9 @@ pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string
             is_find = true
         }
         if !is_find {
-            return err(concat(
-                "'",
-                f.name,
-                "' orders its rows and then does not answer any of ",
-                "them -- an ordering belongs to a 'find'"
+            return err(prelude.format(
+                "'{}' orders its rows and then does not answer any of them -- an ordering belongs to a 'find'",
+                f.name
             ))
         }
     }
@@ -1223,27 +1164,21 @@ pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string
         }
     }
     if !answers_db_error {
-        return err(concat(
-            "a derived query answers a Result<.., DbError>, and '",
+        return err(prelude.format(
+            "a derived query answers a Result<.., DbError>, and '{}' answers {} -- '{}' pairs with {}",
             f.name,
-            "' answers ",
             meta.type_text(f.returns),
-            " -- '",
             word,
-            "' pairs with ",
             verb_returns(verb)
         ))
     }
     val rk = classify_return(f.returns, entity)
     if !verb_pairs_with(verb, rk) {
-        return err(concat(
-            "'",
+        return err(prelude.format(
+            "'{}' answers {}, which '{}' does not pair with -- it pairs with {}",
             f.name,
-            "' answers ",
             meta.type_text(f.returns),
-            ", which '",
             word,
-            "' does not pair with -- it pairs with ",
             verb_returns(verb)
         ))
     }

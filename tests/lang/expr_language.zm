@@ -74,6 +74,18 @@ fn main() {
     show("!ok", ctx)
     show("age > 18 ? 'adult' : 'minor'", ctx)
 
+    // **`a ?: b` -- the value unless it is null**, added 2026-10-29 when step 4 of the
+    // expression language found §11 justifying a hole's refusal of `null` with "`@{x ?: ''}`
+    // says otherwise in four characters", which §6's grammar did not have. It stops early on the
+    // left for the same reason `&&` does, so the fallback is not evaluated when the value stands
+    // -- `nothing ?: missing` would otherwise be an error about `missing`.
+    print("-- the value or a fallback")
+    show("nothing ?: 'fallback'", ctx)
+    show("name ?: 'fallback'", ctx)
+    show("name ?: missing", ctx)
+    show("nothing?.city ?: 'nowhere'", ctx)
+    show("nothing ?: nothing ?: 'last'", ctx)
+
     print("-- membership")
     show("'x' in tags", ctx)
     show("'z' in tags", ctx)

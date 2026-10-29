@@ -248,6 +248,18 @@ fn parse_ternary(ts: [Token], at: Mutable<int>) -> Result<Expr, string> {
     if !eat(ts, at, "?") {
         return ok(test)
     }
+    // **`a ?: b` -- the value unless it is null, and `b` when it is.** `?` and `:` lex as two
+    // tokens (the lexer's three-character operator is `?.`), so the two forms are told apart by
+    // what follows the `?` rather than by a token of their own.
+    //
+    // **Added 2026-10-29, because §11 of the design was already promising it**: it justifies a
+    // hole refusing `null` with "`@{x ?: ''}` says otherwise in four characters", and §6's
+    // grammar had only the three-part ternary. Step 4 found the gap by writing that very hole.
+    // `a == null ? b : a` is not a substitute -- it names `a` twice, and the common case is a
+    // path, so the second mention is a second walk of it.
+    if eat(ts, at, ":") {
+        return ok(Expr.Binary(BinaryNode { op: "?:", left: test, right: try parse_expr(ts, at) }))
+    }
     val then = try parse_expr(ts, at)
     try expect(ts, at, ":")
     val otherwise = try parse_expr(ts, at)
@@ -473,6 +485,15 @@ pub fn eval(e: Expr, ctx: Json) -> Result<Json, string> {
         }
         Call(c) { return call(c, ctx) }
         Binary(b) {
+            // `?:` stops early for the same reason `&&` does, and on the same side: the right is
+            // the fallback and must not be evaluated when the left stands.
+            if b.op == "?:" {
+                val left = try eval(b.left, ctx)
+                if Json.is_JNull(left) {
+                    return eval(b.right, ctx)
+                }
+                return ok(left)
+            }
             // `&&` and `||` stop early, so they cannot evaluate their right side first.
             if b.op == "&&" {
                 if !try truth(try eval(b.left, ctx)) {
@@ -501,6 +522,54 @@ pub fn eval_string(e: Expr, ctx: Json) -> Result<string, string> {
         return ok(s)
     }
     return err(concat("expected a string, found ", kind_of(v)))
+}
+
+// Every name an expression reads from the context, in the order it meets them: the **root** of a
+// path, never a segment under it, so `user.address.city` is `["user"]` and
+// `length(rows) + offset` is `["rows", "offset"]`.
+//
+// **This walk lives here rather than in `template`, and that is the module boundary** (see
+// docs/design/expressions.md §10): the `Expr` enum is public, so a caller *could* walk it, and
+// the one caller that needs to -- `template`, to refuse a binding its text never mentions -- must
+// not learn the grammar to do it. A new node kind is then this function's problem alone.
+//
+// A loop binder is not special here; a caller that binds names of its own subtracts them.
+pub fn names(e: Expr) -> [string] {
+    val out = mutable_array_new<string>()
+    collect_names(e, out)
+    return snapshot(out)
+}
+
+fn collect_names(e: Expr, out: MutableArray<string>) {
+    switch e {
+        Lit(ignored) {}
+        Root(name) {
+            if !contains(out, name) {
+                push(out, name)
+            }
+        }
+        Member(m) { collect_names(m.target, out) }
+        Index(ix) {
+            collect_names(ix.target, out)
+            collect_names(ix.key, out)
+        }
+        Unary(u) { collect_names(u.operand, out) }
+        Binary(b) {
+            collect_names(b.left, out)
+            collect_names(b.right, out)
+        }
+        Ternary(t) {
+            collect_names(t.test, out)
+            collect_names(t.then, out)
+            collect_names(t.otherwise, out)
+        }
+        // A call's own name is a function from the fixed set in §6, not a context key.
+        Call(c) {
+            for a in c.args {
+                collect_names(a, out)
+            }
+        }
+    }
 }
 
 // A condition is a `JBool` or it is a mistake.

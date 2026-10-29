@@ -13,15 +13,26 @@ a false: ok -> value: false
 
 a decimal: ok -> value: 19.90
 
-null: '@{v}' is bound to null, and it holds a string
-an array: '@{v}' is bound to an array, and it holds a string
-an object: '@{v}' is bound to an object, and it holds a string
+null: '@{v}' is null, and a hole holds text
+an array: '@{v}' is an array, and a hole holds text
+an object: '@{v}' is an object, and a hole holds text
 rows from json: ok -> - x
 - y
 
-a row that is not an object: '@for .. in rows' needs an array of objects, and element 1 is a number
-a for over an object: '@for .. in rows' needs an array, and 'rows' is bound to an object
+a row that is not an object: '@{r.cell}': 'cell' was read on a number
+a for over an object: '@for r in rows' needs an array, and that is an object
 a context that is an array: a template's context is a JSON object, and this one is an array
 a context that is a string: a template's context is a JSON object, and this one is a string
-an empty context: '@{v}' is not bound (bound: )
+expressions in holes: ok -> ADA L: 3 items
+fallback nowhere
+- 2
+- 4
+- 6
+
+a hole over an absent key: '@{absent?.city ?: 'nowhere'}': no 'absent' here; this object has first, last, count, nothing, numbers
+a cell read on a number: '@{r.cell}': 'cell' was read on a number
+a binder shadowing a binding: '@for v in rows' would shadow the bound 'v'
+a malformed hole: template line 2: 'a +' is not an expression: expression:4: expected a value, found the end of the expression
+a @for with no source: template line 2: '@for' reads '@for <binder> in <expression>'
+an empty context: '@{v}': no 'v' here; this object has no keys
 a key nothing uses: 'extra' is bound and template 'one' never mentions it (it uses: v)

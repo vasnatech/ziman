@@ -37,6 +37,12 @@ false && missing  =>  false
 true || missing  =>  true
 !ok  =>  false
 age > 18 ? 'adult' : 'minor'  =>  "adult"
+-- the value or a fallback
+nothing ?: 'fallback'  =>  "fallback"
+name ?: 'fallback'  =>  "Ada"
+name ?: missing  =>  "Ada"
+nothing?.city ?: 'nowhere'  =>  "nowhere"
+nothing ?: nothing ?: 'last'  =>  "last"
 -- membership
 'x' in tags  =>  true
 'z' in tags  =>  false

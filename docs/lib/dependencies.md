@@ -231,6 +231,7 @@ flowchart LR
     stroker --> math
     stroker --> paint
     stroker --> shape
+    template --> expr
     template --> json
     test --> regex
     time --> clock
@@ -270,9 +271,10 @@ otherwise: everything on a layer depends only on lower layers.
 | 0 | `bits`, `clock`, `compress`, `locale`, `math`, `meta`, `net`, `random`, `regex`, `thread` |
 | 1 | `derive_reflect`, `geom`, `markdown`, `mime`, `number`, `os`, `pdfobj`, `test`, `xml` |
 | 2 | `encoding`, `fs`, `json`, `metrics`, `paint`, `shape`, `url` |
-| 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `template`, `truetype`, `yaml`, `zone` |
-| 4 | `datasource`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_row`, `font`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sql`, `sqlite`, `time`, `uuid` |
-| 5 | `client`, `derive_repository`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
+| 3 | `crypto`, `csv`, `db`, `expr`, `http`, `image`, `log`, `ndjson`, `process`, `properties`, `scene`, `stroker`, `truetype`, `yaml`, `zone` |
+| 4 | `datasource`, `font`, `jwt`, `mysql`, `otp`, `pg`, `server`, `sql`, `sqlite`, `template`, `time`, `uuid` |
+| 5 | `client`, `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_row`, `eql`, `layout`, `memdb`, `migrate`, `pdf`, `raster`, `schedule`, `toml` |
+| 6 | `derive_repository` |
 
 ## Each module
 
@@ -295,7 +297,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `derive_row` | `meta`, `template` | `derive_repository` |
 | `encoding` | `locale`, `number` | `client`, `crypto`, `jwt`, `migrate`, `otp`, `pg`, `process` |
 | `eql` | `datasource`, `db`, `locale`, `sql`, `time`, `uuid` | - |
-| `expr` | `json`, `regex` | - |
+| `expr` | `json`, `regex` | `template` |
 | `font` | `truetype` | `layout`, `pdf`, `raster` |
 | `fs` | `os` | `csv`, `log`, `migrate`, `process`, `properties`, `sql`, `zone` |
 | `geom` | `math` | `layout`, `paint`, `pdf`, `raster`, `scene`, `shape`, `stroker`, `truetype` |
@@ -335,7 +337,7 @@ otherwise: everything on a layer depends only on lower layers.
 | `sql` | `db`, `fs`, `locale`, `number` | `eql`, `memdb` |
 | `sqlite` | `db`, `number` | - |
 | `stroker` | `geom`, `math`, `paint`, `shape` | `raster` |
-| `template` | `json` | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_row` |
+| `template` | `expr`, `json` | `derive_entity`, `derive_json`, `derive_ord`, `derive_properties`, `derive_repository`, `derive_row` |
 | `test` | `regex` | - |
 | `thread` | - | - |
 | `time` | `clock`, `db`, `json`, `locale`, `zone` | `client`, `eql`, `migrate`, `schedule`, `toml` |

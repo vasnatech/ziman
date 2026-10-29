@@ -39,22 +39,29 @@
 // generator that needs a generator cannot be loaded. See the design's §8.
 #![experimental]
 
+use expr
+use expr.Expr
 use json
 use json.Json
 use json.Number
 
 // ------------------------------------------------------------------ the parsed sheet
 
-// `@{name}`, or `@{binder.name}` for a cell of the row a `@for` is on. `binder` is empty for the
-// first form.
-struct HoleRef {
-    binder: string
-    name: string
+// `@{<expression>}`. **The text is kept beside the parsed form**, because every message about a
+// hole quotes the hole as it was written -- `'@{r.cell}' is bound to an array` reads as the
+// author's own line, where a rendering of the parse tree would not.
+struct HoleNode {
+    source: string
+    e: Expr
 }
 
+// `@for <binder> in <expression>`. The binder enters the context for the body, so a row's field
+// is an ordinary member access (`@{r.cell}`) rather than a second lookup mechanism -- which is
+// what let the frame stack go.
 struct Loop {
     binder: string
     source: string
+    over: Expr
     body: [Node]
 }
 
@@ -67,6 +74,7 @@ struct Case {
 
 struct Choice {
     source: string
+    subject: Expr
     cases: [Case]
 }
 
@@ -74,14 +82,14 @@ struct Choice {
 // behind, which every line of the block is prefixed with -- so a `@yield` at column 0 splices
 // the block verbatim and an indented one produces indented output.
 struct Block {
-    binder: string
-    name: string
+    source: string
+    e: Expr
     indent: string
 }
 
 enum Node {
     Literal(string)
-    Hole(HoleRef)
+    Hole(HoleNode)
     Repeat(Loop)
     Choose(Choice)
     Yield(Block)
@@ -90,10 +98,11 @@ enum Node {
 struct Named {
     name: string
     nodes: [Node]
-    // Every top-level name this template mentions -- holes, `@for` sources, `@choose` subjects
-    // and `@yield` names. Collected at parse time so that `render` can refuse an unused binding,
-    // which is a *static* question about the text: counting what a render touched would call a
-    // binding unused whenever its loop ran zero times or its case was not the one chosen.
+    // Every context key this template reads: the **root** of each expression in it, from
+    // `expr.names`, minus the binders its own `@for`s introduce. Collected at parse time so that
+    // `render` can refuse an unused binding, which is a *static* question about the text --
+    // counting what a render touched would call a binding unused whenever its loop ran zero times
+    // or its case was not the one chosen.
     refs: [string]
 }
 
@@ -205,11 +214,7 @@ fn parse_line(text: string, line_no: int) -> Result<[Node], string> {
         if len(trim(inside)) == 0 {
             return err(problem(line_no, "'@{}' names nothing"))
         }
-        if Some(parts) = split_once(inside, ".") {
-            push(out, Node.Hole(HoleRef { binder: parts[0], name: parts[1] }))
-        } else {
-            push(out, Node.Hole(HoleRef { binder: "", name: inside }))
-        }
+        push(out, Node.Hole(HoleNode { source: trim(inside), e: try expression(inside, line_no) }))
         at = close + 1
     }
     return snapshot(out)
@@ -225,11 +230,14 @@ struct Section {
     tag: string
 }
 
-fn qualified(name: string) -> HoleRef {
-    if Some(parts) = split_once(name, ".") {
-        return HoleRef { binder: parts[0], name: parts[1] }
+// An expression, parsed with the sheet. **A malformed one is a load-time failure**, exactly as a
+// malformed directive is: a generator's sheet is a module-level `val`, so a sheet that cannot be
+// read stops the module rather than the first render (docs/design/expressions.md §10).
+fn expression(source: string, line_no: int) -> Result<Expr, string> {
+    if Err(why) = expr.parse(source) {
+        return err(problem(line_no, prelude.format("'{}' is not an expression: {}", trim(source), why)))
     }
-    return HoleRef { binder: "", name: name }
+    return ok(unwrap(expr.parse(source)))
 }
 
 fn parse_block(lines: [string], start: int) -> Result<Section, string> {
@@ -254,20 +262,35 @@ fn parse_block(lines: [string], start: int) -> Result<Section, string> {
             }
         }
         if starts_with(t, "@for ") {
-            val head = split(trim(substring(t, 5, len(t))), " ")
-            if len(head) != 3 || head[1] != "in" {
-                return err(problem(line_no, "'@for' reads '@for <binder> in <name>'"))
+            // The source is an expression now, which may hold spaces, so the split is on the
+            // first ` in ` rather than on every space.
+            val rest = trim(substring(t, 5, len(t)))
+            val sep = index_of(rest, " in ", 0)
+            if sep < 0 {
+                return err(problem(line_no, "'@for' reads '@for <binder> in <expression>'"))
             }
+            val binder = trim(substring(rest, 0, sep))
+            val over = trim(substring(rest, sep + 4, len(rest)))
+            if len(binder) == 0 || len(over) == 0 || contains(binder, " ") {
+                return err(problem(line_no, "'@for' reads '@for <binder> in <expression>'"))
+            }
+            val parsed = try expression(over, line_no)
             val inner = try parse_block(lines, i + 1)
             if inner.closer != "end" {
                 return err(problem(line_no, "this '@for' is never closed by an '@end'"))
             }
-            push(out, Node.Repeat(Loop { binder: head[0], source: head[2], body: inner.nodes }))
+            push(out, Node.Repeat(Loop {
+                binder: binder,
+                source: over,
+                over: parsed,
+                body: inner.nodes
+            }))
             i = inner.next
             continue
         }
         if starts_with(t, "@choose ") {
             val subject = trim(substring(t, 8, len(t)))
+            val subject_expr = try expression(subject, line_no)
             val lead = try parse_block(lines, i + 1)
             if prelude.len(lead.nodes) > 0 {
                 return err(problem(
@@ -297,15 +320,19 @@ fn parse_block(lines: [string], start: int) -> Result<Section, string> {
             if prelude.len(snapshot(cases)) == 0 {
                 return err(problem(line_no, "a '@choose' with no '@when' chooses nothing"))
             }
-            push(out, Node.Choose(Choice { source: subject, cases: snapshot(cases) }))
+            push(out, Node.Choose(Choice {
+                source: subject,
+                subject: subject_expr,
+                cases: snapshot(cases)
+            }))
             i = section.next
             continue
         }
         if starts_with(t, "@yield ") {
-            val named = qualified(trim(substring(t, 7, len(t))))
+            val subject = trim(substring(t, 7, len(t)))
             push(out, Node.Yield(Block {
-                binder: named.binder,
-                name: named.name,
+                source: subject,
+                e: try expression(subject, line_no),
                 indent: leading_space(raw)
             }))
             i = i + 1
@@ -337,36 +364,35 @@ fn parse_block(lines: [string], start: int) -> Result<Section, string> {
     return Section { nodes: snapshot(out), next: i, closer: "", tag: "" }
 }
 
-fn collect_refs(nodes: [Node], into: MutableArray<string>) {
+// The context keys a template reads. `bound` is the `@for` binders in scope, which are bound by
+// the text itself and so are not asked of the caller -- the one place this needs to know anything
+// about scope, and the reason it is not simply `expr.names` over every node.
+fn collect_refs(nodes: [Node], into: MutableArray<string>, bound: [string]) {
     for n in nodes {
         switch n {
             Literal(s) {
                 val ignored = s
             }
-            Hole(h) {
-                if h.binder == "" && !contains(into, h.name) {
-                    push(into, h.name)
-                }
-            }
-            Yield(b) {
-                if b.binder == "" && !contains(into, b.name) {
-                    push(into, b.name)
-                }
-            }
+            Hole(h) { add_names(h.e, into, bound) }
+            Yield(b) { add_names(b.e, into, bound) }
             Repeat(l) {
-                if !contains(into, l.source) {
-                    push(into, l.source)
-                }
-                collect_refs(l.body, into)
+                add_names(l.over, into, bound)
+                collect_refs(l.body, into, push(bound, l.binder))
             }
             Choose(c) {
-                if !contains(into, c.source) {
-                    push(into, c.source)
-                }
+                add_names(c.subject, into, bound)
                 for one in c.cases {
-                    collect_refs(one.body, into)
+                    collect_refs(one.body, into, bound)
                 }
             }
+        }
+    }
+}
+
+fn add_names(e: Expr, into: MutableArray<string>, bound: [string]) {
+    for name in expr.names(e) {
+        if !contains(bound, name) && !contains(into, name) {
+            push(into, name)
         }
     }
 }
@@ -410,7 +436,8 @@ pub fn parse(source: string) -> Result<Sheet, string> {
             return err(problem(i + 1, concat("template '", name, "' is never closed by an '@end'")))
         }
         val refs = mutable_array_new<string>()
-        collect_refs(body.nodes, refs)
+        val no_binders: [string] = []
+        collect_refs(body.nodes, refs, no_binders)
         push(out, Named { name: name, nodes: body.nodes, refs: snapshot(refs) })
         i = body.next
     }
@@ -425,12 +452,6 @@ pub fn must_parse(source: string) -> Sheet {
 }
 
 // ------------------------------------------------------------------ rendering
-
-struct Frame {
-    binder: string
-    // One row, which is one `JObject`.
-    cells: Json
-}
 
 // The keys of a context object, in the order they were bound: an object is a `Map`, which keeps
 // insertion order, so an error still lists them the way the caller wrote them.
@@ -480,32 +501,34 @@ fn hole_text(v: Json) -> Option<string> {
     return Option<string>.None
 }
 
-// A `@{hole}` or a `@yield`'s subject: text, wherever it is bound.
-fn string_at(h: HoleRef, ctx: Json, frames: [Frame], what: string) -> Result<string, string> {
-    if h.binder == "" {
-        val bound = json.get(ctx, h.name)
-        if None = bound {
-            return err(concat("'", what, "' is not bound (bound: ", names_of(ctx), ")"))
-        }
-        return as_text(unwrap(bound), what)
+// A `@{hole}` or a `@yield`'s subject, as text.
+//
+// **The lookup is `expr`'s now**, which is where the two mechanisms this module used to have --
+// a global binding and a frame's cell -- became one: a `@for` binder is a context key, so
+// `r.cell` is a member access and a missing one is reported by the evaluator that owns paths
+// ("no 'cell' here; this object has other"). What stays here is what a *hole* additionally
+// requires: that the value be renderable as text.
+fn string_at(e: Expr, ctx: Json, what: string) -> Result<string, string> {
+    val value = expr.eval(e, ctx)
+    if Err(why) = value {
+        return err(prelude.format("'{}': {}", what, why))
     }
-    for f in frames {
-        if f.binder == h.binder {
-            val cell = json.get(f.cells, h.name)
-            if None = cell {
-                return err(concat("'", what, "' names no cell of that row (it has: ", names_of(f.cells), ")"))
-            }
-            return as_text(unwrap(cell), what)
-        }
+    if Some(text) = hole_text(unwrap(value)) {
+        return ok(text)
     }
-    return err(concat("'", what, "' -- '", h.binder, "' is not a '@for' binder in scope here"))
+    return err(prelude.format("'{}' is {}, and a hole holds text", what, kind_of(unwrap(value))))
 }
 
-fn as_text(value: Json, what: string) -> Result<string, string> {
-    if Some(s) = hole_text(value) {
-        return ok(s)
+// A context with one more key: what a `@for` hands its body.
+fn with_key(ctx: Json, key: string, value: Json) -> Json {
+    val out = mutable_map_new<string, Json>()
+    if JObject(fields) = ctx {
+        for k, v in fields {
+            set(out, k, v)
+        }
     }
-    return err(concat("'", what, "' is bound to ", kind_of(value), ", and it holds a string"))
+    set(out, key, value)
+    return Json.JObject(snapshot(out))
 }
 
 // Every line of `block` behind `indent`. A blank line is left blank rather than padded with
@@ -525,77 +548,65 @@ fn indented(block: string, indent: string) -> string {
     return join(separator: "\n", pieces: snapshot(out))
 }
 
-fn emit(nodes: [Node], ctx: Json, frames: [Frame], out: MutableArray<string>) -> Result<unit, string> {
+fn emit(nodes: [Node], ctx: Json, out: MutableArray<string>) -> Result<unit, string> {
     for n in nodes {
         switch n {
             Literal(s) {
                 push(out, s)
             }
             Hole(h) {
-                push(
-                    out,
-                    try string_at(
-                        h,
-                        ctx,
-                        frames,
-                        concat("@{", h.binder, if h.binder == "" { "" } else { "." }, h.name, "}")
-                    )
-                )
+                push(out, try string_at(h.e, ctx, concat("@{", h.source, "}")))
             }
             Yield(b) {
-                val named = concat("@yield ", b.binder, if b.binder == "" { "" } else { "." }, b.name)
-                val block = try string_at(HoleRef { binder: b.binder, name: b.name }, ctx, frames, named)
+                val block = try string_at(b.e, ctx, concat("@yield ", b.source))
                 push(out, indented(block, b.indent))
                 push(out, "\n")
             }
             Repeat(l) {
-                val bound = json.get(ctx, l.source)
-                if None = bound {
-                    return err(concat("'@for .. in ", l.source, "' is not bound (bound: ", names_of(ctx), ")"))
+                val over = expr.eval(l.over, ctx)
+                if Err(why) = over {
+                    return err(prelude.format("'@for {} in {}': {}", l.binder, l.source, why))
                 }
-                val value = unwrap(bound)
+                val value = unwrap(over)
                 if !Json.is_JArray(value) {
-                    return err(concat(
-                        "'@for .. in ",
+                    return err(prelude.format(
+                        "'@for {} in {}' needs an array, and that is {}",
+                        l.binder,
                         l.source,
-                        "' needs an array, and '",
-                        l.source,
-                        "' is bound to ",
                         kind_of(value)
                     ))
                 }
-                val items = Json.unwrap_JArray(value)
-                for i in 0..prelude.len(items) {
-                    val r = items[i]
-                    // A row is addressed as `@{binder.cell}`, so an element that is not an object
-                    // has no cell to name. Refused by position, since one bad element in a long
-                    // array is otherwise a hunt.
-                    if !Json.is_JObject(r) {
-                        return err(concat(
-                            "'@for .. in ",
-                            l.source,
-                            "' needs an array of objects, and element ",
-                            str(i),
-                            " is ",
-                            kind_of(r)
-                        ))
-                    }
-                    try emit(l.body, ctx, push(frames, Frame { binder: l.binder, cells: r }), out)
+                // **The binder shadowing a bound name is refused**, which keeps templates.md §5's
+                // "shadowing is impossible by construction" now that a binder is an ordinary
+                // context key rather than a separate frame.
+                if Some(ignored) = json.get(ctx, l.binder) {
+                    return err(prelude.format(
+                        "'@for {} in {}' would shadow the bound '{}'",
+                        l.binder,
+                        l.source,
+                        l.binder
+                    ))
+                }
+                // An element may be anything a hole can hold: `@{n}` over an array of numbers is
+                // as good as `@{r.cell}` over an array of objects. The old model needed objects
+                // because a cell was a second lookup; an expression needs no such promise.
+                for item in Json.unwrap_JArray(value) {
+                    try emit(l.body, with_key(ctx, l.binder, item), out)
                 }
             }
             Choose(c) {
-                val tag = try string_at(qualified(c.source), ctx, frames, concat("@choose ", c.source))
+                val tag = try string_at(c.subject, ctx, concat("@choose ", c.source))
                 var chosen = false
                 for one in c.cases {
                     if !chosen && !one.is_otherwise && one.tag == tag {
                         chosen = true
-                        try emit(one.body, ctx, frames, out)
+                        try emit(one.body, ctx, out)
                     }
                 }
                 for one in c.cases {
                     if !chosen && one.is_otherwise {
                         chosen = true
-                        try emit(one.body, ctx, frames, out)
+                        try emit(one.body, ctx, out)
                     }
                 }
                 if !chosen {
@@ -673,8 +684,7 @@ pub fn render(sheet: Sheet, name: string, ctx: Json) -> Result<string, string> {
         }
     }
     val out = mutable_array_new<string>()
-    val no_frames: [Frame] = []
-    try emit(t.nodes, ctx, no_frames, out)
+    try emit(t.nodes, ctx, out)
     return ok(concat(pieces: snapshot(out)))
 }
 

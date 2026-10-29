@@ -12,11 +12,11 @@ an @for that eats the template @end: template line 1: template 't' is never clos
 text before the first @when: template line 2: a '@when' has to follow '@choose' immediately -- there is text between them
 two @otherwise: template line 2: this '@choose' has two '@otherwise' sections
 an unknown template: this sheet has no template called 'nope' (it has: greet, pick, over)
-an unbound hole: '@{name}' is not bound (bound: greeting)
+an unbound hole: '@{name}': no 'name' here; this object has greeting
 a binding nothing uses: 'extra' is bound and template 'greet' never mentions it (it uses: greeting, name)
 a tag no @when names: '@choose kind' is 'shouty', which no '@when' names (it has: loud, quiet)
 a tag one does: ok -> quiet
 
-@choose over rows: '@choose kind' is bound to an array, and it holds a string
-@for over a string: '@for .. in rows' needs an array, and 'rows' is bound to a string
-a cell that is not there: '@{r.cell}' names no cell of that row (it has: other)
+@choose over rows: '@choose kind' is an array, and a hole holds text
+@for over a string: '@for r in rows' needs an array, and that is a string
+a cell that is not there: '@{r.cell}': no 'cell' here; this object has other

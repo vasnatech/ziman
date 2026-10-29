@@ -112,7 +112,7 @@ Small on purpose, and listed in full so that what is absent is visible.
 
 ```
 expr      := ternary
-ternary   := or ( '?' expr ':' expr )?            -- a ? b : c
+ternary   := or ( '?' expr ':' expr | '?:' expr )?  -- a ? b : c, and a ?: b
 or        := and ( '||' and )*
 and       := equality ( '&&' equality )*
 equality  := compare ( ('==' | '!=') compare )*
@@ -134,6 +134,13 @@ call      := name '(' ( expr ( ',' expr )* )? ')'
 * **`+` concatenates** when either side is a string, and adds when both are numbers. This is the
   one piece of overloading, and it earns its place in a language whose main job is building text.
 * **`in` tests membership** in an array or a key in an object.
+* **`a ?: b` is the value unless it is null**, and `b` when it is -- added 2026-10-29 (F233),
+  because §11 was already promising it: it justifies a hole refusing `null` with "`@{x ?: ''}`
+  says otherwise in four characters", and this grammar had only the three-part ternary. Step 4
+  found the gap by writing that very hole. It stops early on the left, as `&&` does, so the
+  fallback is not evaluated when the value stands. **It answers a null, not an absence**: a root
+  that is not a key at all is an error before `?:` or `?.` can apply, which is §8's decision and
+  not an oversight -- there is deliberately no escape for a missing key.
 
 ### Function calls
 
@@ -365,10 +372,21 @@ Each step is useful alone and provable before the next:
    The migration is still available and is now optional rather than owed -- a generator moves to a
    `Json` context when it wants one, not because the engine changed underneath it.
 4. **`template` starts using `expr`** -- holes and conditions become expression source, parsed
-   with the sheet -- and **`@if`/`@elif`/`@else` replace `@choose`** (§12). The generators migrate
-   again, against the same fixtures. This is the step that creates the dependency in §10, and it
-   is deliberately last among the template changes: everything before it is provable without the
-   expression language existing.
+   with the sheet -- and **`@if`/`@elif`/`@else` replace `@choose`** (§12). This is the step that
+   creates the dependency in §10, and it is deliberately last among the template changes:
+   everything before it is provable without the expression language existing.
+
+   **Split in two while building it, for the same reason step 3 kept its sugar.** 4a is the engine:
+   a hole, a `@for` source and a `@choose` subject become `expr` source, `@choose` still works, no
+   sheet changes -- so the six generators' byte-identical fixtures are evidence about the engine
+   alone. **4a done 2026-10-29 (F233).** 4b is the grammar swap: `@if`/`@elif`/`@else` in, the
+   sheets migrated, `@choose` out.
+
+   What 4a removed is worth naming: `template` had **two** lookup mechanisms, a global binding and
+   a frame's cell, and a `@for` binder is now an ordinary context key -- so `r.cell` is a member
+   access, the frame stack is gone, and every "no such path" message comes from the evaluator that
+   owns paths. A loop binder that would shadow a bound name is refused, which keeps templates.md
+   §5's "shadowing is impossible by construction" through the change.
 5. **`render_text`** (§12), and whatever the first real notification template needs.
 
 Steps 3 and 4 are each a migration of about 1,100 lines of generator Ziman, done against

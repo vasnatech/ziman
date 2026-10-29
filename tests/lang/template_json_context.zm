@@ -69,6 +69,68 @@ fn main() {
     show("a context that is an array", template.render(sheet, "one", ctx("[1, 2]")))
     show("a context that is a string", template.render(sheet, "one", ctx("\"v\"")))
 
+    // ---- what step 4 adds: a hole holds an *expression*, not a path -------------------------
+    //
+    // The engine holds no grammar of its own (docs/design/expressions.md §10): the text inside
+    // `@{..}` is parsed by `expr` with the sheet and evaluated against the context, so everything
+    // in §6's grammar is available in a hole without `template` knowing any of it.
+    val calc = template.must_parse("""
+@template t
+@{upper(first)} @{last}: @{count + 1} item@{count == 0 ? '' : 's'}
+@{nothing ?: 'fallback'} @{absent?.city ?: 'nowhere'}
+@for n in numbers
+- @{n * 2}
+@end
+@end
+""")
+    show("expressions in holes", template.render(calc, "t", ctx(concat(
+        "{\"first\": \"ada\", \"last\": \"L\", \"count\": 2, \"nothing\": null,",
+        "\"absent\": null, \"numbers\": [1, 2, 3]}"
+    ))))
+
+    // **`?:` and `?.` answer a `null`, not an absence.** A root that is not a key at all is an
+    // error before either can apply, which is docs/design/expressions.md §8's decision and the
+    // reason a rule reading `user.emial` does not quietly pass. So there is no escape for a
+    // missing key, by design, and this is what it looks like.
+    show("a hole over an absent key", template.render(calc, "t", ctx(concat(
+        "{\"first\": \"ada\", \"last\": \"L\", \"count\": 2, \"nothing\": null,",
+        "\"numbers\": [1, 2, 3]}"
+    ))))
+
+    // **A `@for` element may be anything a hole can hold.** The old model needed an array of
+    // *objects*, because a row's cell was a second lookup mechanism; a binder is an ordinary
+    // context key now, so `@{n}` over an array of numbers needs no promise about its elements --
+    // and `@{n.cell}` over one is reported by the evaluator that owns paths.
+    val over = template.must_parse("""
+@template t
+@for r in rows
+- @{r.cell}
+@end
+@end
+""")
+    show("a cell read on a number", template.render(over, "t", ctx("{\"rows\": [{\"cell\": \"x\"}, 7]}")))
+
+    // A binder that shadows a bound name is refused, which is how templates.md §5's "shadowing is
+    // impossible by construction" survives the binder becoming a context key.
+    val shadow = template.must_parse("""
+@template t
+outer: @{v}
+@for v in rows
+- @{v}
+@end
+@end
+""")
+    show("a binder shadowing a binding", template.render(shadow, "t", ctx("{\"rows\": [1], \"v\": 2}")))
+
+    // A malformed expression is a *parse* failure, with the sheet, not a surprise at render: a
+    // generator's sheet is a module-level `val`, so this stops the module.
+    if Err(e) = template.parse("@template t\n@{a +}\n@end\n") {
+        print(concat("a malformed hole: ", e))
+    }
+    if Err(e) = template.parse("@template t\n@for x in\n@end\n@end\n") {
+        print(concat("a @for with no source: ", e))
+    }
+
     // Both directions of binding still hold over a `Json` context: a hole naming nothing bound,
     // and a key the template never mentions.
     // An empty context reaches the hole, where a context with the *wrong* key is caught one step

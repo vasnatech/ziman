@@ -143,6 +143,23 @@ pub fn eval_bool(e: Expr, ctx: Json) -> Result<bool, string>
 pub fn eval_string(e: Expr, ctx: Json) -> Result<string, string>
 ```
 
+### `names`
+
+```
+pub fn names(e: Expr) -> [string]
+```
+
+Every name an expression reads from the context, in the order it meets them: the **root** of a
+path, never a segment under it, so `user.address.city` is `["user"]` and
+`length(rows) + offset` is `["rows", "offset"]`.
+
+**This walk lives here rather than in `template`, and that is the module boundary** (see
+docs/design/expressions.md §10): the `Expr` enum is public, so a caller *could* walk it, and
+the one caller that needs to -- `template`, to refuse a binding its text never mentions -- must
+not learn the grammar to do it. A new node kind is then this function's problem alone.
+
+A loop binder is not special here; a caller that binds names of its own subtracts them.
+
 ### `kind_of`
 
 ```

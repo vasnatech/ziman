@@ -450,6 +450,8 @@ pub fn eval_bool(e: Expr, ctx: Json) -> Result<bool, string>
 
 pub fn eval_string(e: Expr, ctx: Json) -> Result<string, string>
 
+pub fn names(e: Expr) -> [string]
+
 pub fn kind_of(v: Json) -> string
 
 ```
