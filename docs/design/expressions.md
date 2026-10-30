@@ -1,6 +1,8 @@
 # An expression language, and what it does to the template module
 
-Status: **design, not built.** Written because two requests arrived together and turned out to be
+Status: **built and closed, 2026-10-30.** All five steps of §16 shipped on 2026-10-29 (F231-F235)
+and §17's last decision closed the next day. The status line said "design, not built" until then,
+which it had not been for a day. Written because two requests arrived together and turned out to be
 one: a SpEL-like expression module for configuration rules and dynamic output, and expressions
 inside `lib/core/template.zm`. They are designed here together, and built as **two
 modules with one direction between them**: `lib/core/expr.zm` is the expression language and
@@ -10,8 +12,9 @@ expression language and the codebase ends up with two.
 
 **How to read this.** §§1-4 are the constraint and the observation that make the whole thing
 small. §§5-9 are the language, which stands alone. §10 is the module boundary. §§11-15 are what
-it does to `template.zm`, including the one real cost. §16 is the staging and §17 the decisions
-still open.
+it does to `template.zm`, including the one real cost. §16 is the staging, every step of it done,
+and §17 the decisions -- all five closed, the last of them in a way that took `expr` out of the use
+case this document was proposed for. Read that one if you read nothing else.
 
 **The name.** `expr`, after what it is, rather than `spel` after the acronym of the Spring
 feature it resembles -- `template.zm` is not named `freemarker`. Trivially changed if the
@@ -427,7 +430,8 @@ and it is payable precisely because those fixtures exist.
 ## 17. Open decisions
 
 Four of these were closed on 2026-10-29, three of them by building the thing and one by measuring
-it. The fifth is the user's and is still open.
+it. **The fifth closed on 2026-10-30, also by building the thing** -- and the answer took `expr`
+out of the use case it was proposed for, which the entry says rather than implies.
 
 * ~~**Does `@if` take the same expression grammar as `@{...}`, or a boolean-only subset?**~~
   **CLOSED: the same grammar, refused at render.** The leaning held, and the alternative would have
@@ -453,8 +457,39 @@ it. The fifth is the user's and is still open.
   inside the run-to-run variance of the measurement itself** (46 vs 49 ms over 20 runs; single
   5-run samples ranged 42-47 either way). A documented function in §6's fixed set is worth more
   than an unmeasurable load.
-* **Where do rules live for the validation use** -- a properties file read by `properties.zm`, an
-  attribute on a struct, or a database row? This changes nothing about the language and everything
-  about the ergonomics, and it is the next thing to decide. **Still open: it is the one decision in
-  this document that is the user's rather than the implementation's**, and it is what `expr` step 1
-  was built for.
+* ~~**Where do rules live for the validation use** -- a properties file read by `properties.zm`, an
+  attribute on a struct, or a database row?~~ **CLOSED 2026-10-30: an attribute on a struct --
+  and the attribute turned out not to need an expression language at all.**
+
+  The user answered it by building the thing (F246, `docs/design/validation.md`): rules are field
+  attributes, `#[not_blank]`, `#[one_of(values: type_words)]`, `#[size(min: 8)]`,
+  `#[pattern(regex: "..")]`. Ten of them, read by `derive_validate.zm`, which compiles each to a
+  **direct call** into `lib/core/validate.zm`.
+
+  **So nothing in the validation feature parses or evaluates an expression.** `#[one_of]`'s
+  `values:` names a module `val` the generated code reads; `#[size]`'s bounds are ints;
+  `#[pattern]` uses `regex`. `validate.zm`'s only import is `regex`, and `expr` is imported by
+  exactly one module in the library -- `template.zm`.
+
+  That is worth stating plainly rather than leaving as an inference: **`expr`'s motivating use case
+  chose a form that does not use `expr`.** Step 1 of §16 said "the config-and-validation use needs
+  no template and can be built on step 1 alone", and the validation use needed neither. What
+  justifies the module today is §10's dependency -- `json <- expr <- template <- the six
+  generators` -- and `render_text`, which are real and load-bearing; what does not is the use it
+  was proposed for.
+
+  Two reasons the attribute won, both of which are arguments *against* a rule being data here:
+
+  * **A rule as data is a rule the type checker cannot see.** §14 already names this cost for
+    generator logic. An attribute is checked against the generator's own spec at compile time, on
+    its own line, and a field it cannot apply to is refused there (`'#[not_blank]' needs a string
+    and 'count' is int`). A properties-file rule is a string until the moment it runs.
+  * **The messages are asserted byte for byte** by two test suites, because the North Star is a
+    port of a Spring backend. A rule that is data makes its message data too, which is a second
+    place for `"must not be blank"` to live and disagree.
+
+  **What is left of the idea, honestly: nothing asks for it.** A rule in a properties file or a
+  database row is the case where rules change without a rebuild, and no use in this repository or
+  the sample backend wants that. If one appears, `expr` is built, tested and documented, and the
+  wiring is `expr.parse` plus a `Json` of the value under test -- which is what step 1 delivered
+  and is the reason this is a closed decision rather than an abandoned one.
