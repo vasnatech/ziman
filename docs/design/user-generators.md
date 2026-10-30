@@ -531,5 +531,20 @@ load-bearing.
    takes the last domain name out of the compiler. It is last because it is a migration of a
    working feature rather than a new one, and because it is the proof that the mechanism carries
    the harder of the two generator kinds.
+
+   **Three steps, not one** (F256 is the first). `#![repository(..)]` and `#[repository]` are
+   written in **116 places** -- 69 and 47 -- across the sample backend and these fixtures, so the
+   spelling cannot change in one commit without the migration riding along unverified:
+
+   1. ✅ **Accept both** (F256, 2026-10-30). `#![derive(Repository(E, label:, crud:))]` and
+      `#[derive(Repository)]` parse and fill in exactly the state the old spelling filled in, so
+      everything downstream is untouched and `tests/lang/derived_query_module_derive` is
+      `derived_query_label` with the two spellings changed and the **same output file**.
+      `parse_attr_args` reads the arguments, so the entity is the lone positional `value` and
+      `label:`/`crud:` are named -- which is how the old spelling already read.
+   2. **Migrate the call sites**, with the North Star's derived output byte-identical as the proof.
+   3. **Remove `#![repository]` and `#[repository]` from the parser**, which is the step that
+      actually shrinks what the compiler knows. Until it lands, C knows *both* -- one name more
+      than the end state, which is worth saying rather than implying step 1 finished anything.
 5. **Measure `--lsp`** before deciding §8 for good. One generator call per declaration, 140
    declarations in the sample backend, an interpreter rather than C.

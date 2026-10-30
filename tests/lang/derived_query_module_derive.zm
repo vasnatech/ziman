@@ -1,0 +1,72 @@
+// `#![derive(Repository(E, ..))]` and `#[derive(Repository)]`: the **same module generator, named
+// through the one mechanism**. `#![repository(E)]` and `#[repository]` are words of the compiler's
+// own, and `derive` is the word every other target already uses -- user-generators.md §5b, which
+// the user decided after asking which annotations `src/` knows by name.
+//
+// **This fixture is the equivalence**, not the feature: it is `derived_query_label` with both
+// spellings changed and nothing else, so its output file is that fixture's output file. The old
+// spelling still works and goes once the 116 call sites in the sample backend and these fixtures
+// have moved; until then the compiler knows both, which is one name more than the end state.
+//
+// The entity is the lone positional argument and `label:`/`crud:` are named, which is how the old
+// spelling already read -- the difference is that `parse_attr_args` reads them now, the same
+// reader a field attribute and a declaration-level target go through.
+#![derive(Repository(VitalSign, label: "Vital sign"))]
+
+use datasource
+use db.DbError
+use memdb
+use uuid
+
+#[derive(Row, Entity("vital_signs"))]
+pub struct VitalSign {
+    #[pk]
+    id: uuid.Uuid
+    patient_id: uuid.Uuid
+    reading: int
+}
+
+#[derive(Repository)]
+pub fn find_by_id_and_patient_id(
+    conn: datasource.Connection,
+    id: uuid.Uuid,
+    patient_id: uuid.Uuid
+) -> Result<VitalSign, DbError>
+
+#[derive(Repository)]
+pub fn delete_by_id_and_patient_id(
+    conn: datasource.Connection,
+    id: uuid.Uuid,
+    patient_id: uuid.Uuid
+) -> Result<unit, DbError>
+
+// No term addresses the key, so there is no id to name and the message is the label alone.
+#[derive(Repository)]
+pub fn find_by_patient_id_and_reading(
+    conn: datasource.Connection,
+    patient_id: uuid.Uuid,
+    reading: int
+) -> Result<VitalSign, DbError>
+
+fn main() {
+    val drivers = datasource.registry([memdb.driver()])
+    val conn = unwrap(datasource.open(drivers, "memdb:"))
+    unwrap(datasource.execute(
+        conn,
+        "CREATE TABLE vital_signs (id TEXT PRIMARY KEY, patient_id TEXT NOT NULL, reading INTEGER NOT NULL)"
+    ))
+    val missing = unwrap(uuid.parse("00000000-0000-0000-0000-000000000000"))
+    val patient = unwrap(uuid.parse("11111111-1111-1111-1111-111111111111"))
+    unwrap(insert(conn, VitalSign { id: patient, patient_id: patient, reading: 70 }))
+
+    if Err(e) = find_by_id_and_patient_id(conn, missing, patient) {
+        print(error_message(e))
+    }
+    if Err(e) = delete_by_id_and_patient_id(conn, missing, patient) {
+        print(error_message(e))
+    }
+    if Err(e) = find_by_patient_id_and_reading(conn, patient, 99) {
+        print(error_message(e))
+    }
+    print(unwrap(find_by_patient_id_and_reading(conn, patient, 70)).reading)
+}

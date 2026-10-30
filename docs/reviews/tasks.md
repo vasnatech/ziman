@@ -5104,3 +5104,34 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   Evidence the move preserved behaviour rather than my reading of two algorithms: the North Star's
   derived output is **byte-identical at 34,800 lines**, and `json_snake_keys`' own output is
   unchanged. 1,338 fixtures.
+
+- [x] **F256** **`#![derive(Repository(E))]` and `#[derive(Repository)]` parse, beside the old
+  spelling.** (user-raised 2026-10-30: "do 1" -- step 1 of three for
+  docs/design/user-generators.md §12.4; S.)
+
+      #![derive(Repository(VitalSign, label: "Vital sign"))]   // was #![repository(VitalSign, ..)]
+      #[derive(Repository)]                                     // was #[repository]
+
+  §5b's rule is that **C knows `derive` and nothing about any target**, and `repository` is the
+  last domain name it knows -- in two positions, a module attribute and a function attribute.
+
+  **Three steps, and this is the first; the compiler now knows one name *more*, not fewer.** That
+  is worth stating rather than letting this read as the job done. `#![repository(..)]` and
+  `#[repository]` are written in **116 places** (69 and 47) across the sample backend and these
+  fixtures, so the spelling cannot change in one commit without dragging an unverified migration
+  with it. Step 2 migrates the call sites with the North Star's derived output as the proof; step 3
+  deletes the old names, which is the step that shrinks what the compiler knows.
+
+  **The new form fills in exactly the state the old one filled in**, so everything downstream is
+  untouched -- and the fixture is the evidence rather than my reading of it:
+  `tests/lang/derived_query_module_derive` is `derived_query_label` with both spellings changed and
+  nothing else, sharing that fixture's **output file**.
+
+  The arguments go through `parse_attr_args`, the reader a field attribute and a declaration-level
+  target already use (F253), so the entity is the lone positional `value` and `label:`/`crud:` are
+  named -- which is how the old spelling read anyway. Four refusals come out of that: a missing
+  entity, an argument that is neither `label:` nor `crud:`, a target this compiler cannot seat
+  (`#![derive(Csv(Note))]` -- discovery for *module* generators is step 2's business, not step 1's),
+  and a second `#![derive(..)]` in one file.
+
+  1,339 fixtures; the North Star byte-identical at 34,800 lines.
