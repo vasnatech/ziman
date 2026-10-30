@@ -109,6 +109,28 @@ showcase-check: $(BIN)
 	$(BIN) --check editors/vscode/showcase.zm
 	$(BIN) --fmt --check editors/vscode/showcase.zm
 
+# Fails when any **program** this repository ships does not pass `--lint`: the 67 worked examples
+# the library manual prints, and `showcase.zm`.
+#
+# **Why programs and not `lib/`.** `--lint` reports findings in your own code, and a library module
+# is not a program: `ziman --lint lib/core/uuid.zm` loads it as an *entry*, where its own
+# declarations go unqualified -- so `pub fn format(u: Uuid)` shadows the builtin `format` for every
+# other module in the graph and `lib/core/net.zm` is reported as calling it with two arguments.
+# `--check` on the same path says the same thing plus "no 'main' function found", so this is not a
+# `--lint` fault; linting a bundled module in place is a thing the compiler cannot do yet, and
+# `lib/db/eql.zm`'s real unused `val d` is only visible in the broken mode. That gap is recorded in
+# docs/ROADMAP.md rather than worked around here.
+#
+# **It found five real things on the first run**, which is the argument for having it: three
+# `spawn` without `on_error` holding a Channel -- the deadlock the rule exists for -- and three
+# unused vals in `showcase.zm`, the file the extension's README sends a reader to as exemplary.
+# `showcase-check` already argues that such a file should be formatted the way the formatter
+# formats it; passing the linter is the same argument.
+lint-check: $(BIN)
+	@set -e; for f in docs/lib/examples/*/*_example.zm editors/vscode/showcase.zm; do \
+		./$(BIN) --lint "$$f" || { echo "lint-check: $$f has findings" >&2; exit 1; }; \
+	done; echo "lint-check: $$(ls docs/lib/examples/*/*_example.zm | wc -l) examples and showcase.zm, no findings"
+
 # Fails when a design doc has no `Status:` and when one claiming nothing is built sits above a
 # dated "this shipped" marker in its own body. Three documents drifted that way before this
 # existed -- see the script's own header.
@@ -121,4 +143,4 @@ design-status-check:
 template-example-check:
 	python3 tools/check_template_examples.py
 
-docs-check: lib-manual-check corelib-reference-check not-yet-check experimental-check doc-module-check syntax-check design-index-check design-status-check vscode-grammar-check showcase-check lib-map-check template-example-check
+docs-check: lint-check lib-manual-check corelib-reference-check not-yet-check experimental-check doc-module-check syntax-check design-index-check design-status-check vscode-grammar-check showcase-check lib-map-check template-example-check

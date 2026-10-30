@@ -1,3 +1,4 @@
+use os
 use schedule
 
 // Periodic background work inside a long-running process. `server.serve` owns the accept loop and
@@ -33,9 +34,12 @@ fn demo() -> Result<unit, string> {
 
     // The scheduler runs until the stop channel is closed, so the caller decides when to end it.
     val stop: Channel<unit> = channel_new()
+    // `on_error os.fatal` because the code below waits on this channel: a thread that fails
+    // without a handler leaves whoever is waiting waiting for ever, which `--lint` reports and
+    // which an example shown as exemplary should not demonstrate.
     spawn schedule.run_until(jobs, stop, fn(name: string, message: string) {
         printf("job {} failed: {}\n", name, message)
-    })
+    }) on_error os.fatal
 
     var seen = 0
     while seen < 3 {

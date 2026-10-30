@@ -1272,6 +1272,36 @@ from source.
   Nothing in the North Star carries an uninterpreted declaration attribute, so the migration cost
   of (1) is currently zero — which argues for doing it before that stops being true.
 
+- **`--lint` cannot read a library module, so `lib/`'s own findings are invisible.** (Found
+  2026-10-30 while gating the linter.)
+
+  `--lint` reports findings in *your own code*, and a bundled library module is not a program.
+  Linting one by path loads it as an **entry**, where its declarations go unqualified:
+
+  ```
+  $ ziman --lint lib/core/uuid.zm
+  ziman: type error at 447:65 in lib/core/net.zm: function 'format' expects 1 argument(s), found 2
+  ```
+
+  `lib/core/uuid.zm:166` declares `pub fn format(u: Uuid) -> string`. As an entry module that name
+  is bare, so it shadows the **builtin** `format` for every other module in the graph, and
+  `net.zm`'s perfectly good `format("line longer than {} bytes", max)` is reported against a
+  one-argument function. `ziman --check` on the same path says the same thing plus *"no 'main'
+  function found"*, so this is not a `--lint` fault -- it is what loading a library module as a
+  program means.
+
+  **What it costs: the library is unlinted.** `make lint-check` gates the 67 worked examples and
+  `showcase.zm`, which are real programs, and that found five real things on its first run. But
+  `--lint` over `lib/` would need a mode that treats a module as "own code" **without** making it
+  an entry -- and there is at least one real finding waiting there, `lib/db/eql.zm`'s `val d` that
+  is never read, visible only in the broken mode.
+
+  Two shapes to choose between: a flag that lints a named module within a program's graph
+  (`ziman --lint-module eql prog.zm`), or linting every non-corelib module of whatever program is
+  given, which costs nothing new at the command line and would lint the North Star's own 150 files
+  as a side effect of checking it. The second is probably right and is a change to what `--lint`
+  means, which is why this is an entry rather than a commit.
+
 ## Larger, needs its own design pass
 
 - **Module-level vals are initialised in file order, and that is a constraint on the program.**

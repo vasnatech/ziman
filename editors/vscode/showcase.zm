@@ -11,6 +11,7 @@
 // is a rule nobody will notice breaking.
 
 use models/user as u
+use os
 
 native fn read_file(path: string) -> string
 
@@ -172,6 +173,14 @@ fn main() {
     val flag = true
     val ratio = (pi / 2.0) as int
 
+    // These four are here to show a float, an escaped string, a bool and a cast to the
+    // highlighter, and they are printed because a file shown off as exemplary should pass
+    // `--lint` too -- which said all four were "never read" for as long as nothing ran the
+    // linter over it.
+    print(greeting)
+    print(flag)
+    print(ratio)
+
     val account = u.User { id: 1, name: "Ada" }
     print(u.greet(account))
 
@@ -190,7 +199,9 @@ fn main() {
 
     val work_in: Channel<int> = channel_new()
     val work_out: Channel<int> = channel_new()
-    spawn double_worker(work_in, work_out)
+    // `on_error os.fatal` because `receive(work_out)` below waits on that channel: a worker that
+    // fails without a handler leaves the receive waiting for ever, which is what `--lint` says.
+    spawn double_worker(work_in, work_out) on_error os.fatal
     send(work_in, 21)
     print(receive(work_out))
 }

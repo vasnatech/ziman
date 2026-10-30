@@ -38,6 +38,7 @@ the cache, reached over a channel, is the tool for that).
 ## Example
 
 ```
+use os
 use thread
 
 // A key for a value that is separate on every thread; each thread's first `get` runs the function.
@@ -54,7 +55,10 @@ fn main() {
 
     thread.set(request_count, 10)
     val done: Channel<string> = channel_new()
-    spawn worker(done)
+    // `on_error os.fatal` because the code below waits on this channel: a thread that fails
+    // without a handler leaves whoever is waiting waiting for ever, which `--lint` reports and
+    // which an example shown as exemplary should not demonstrate.
+    spawn worker(done) on_error os.fatal
     print(receive(done))
 
     // The worker's count started from 0 and never touched this thread's.

@@ -1,6 +1,8 @@
 // `Channel<T>` is how threads hand values to each other. Ziman's concurrency is real OS threads
 // with no shared mutable state between them: a value goes through a channel, which is the one
 // place the handover happens, so there is nothing to lock and nothing to forget to lock.
+use os
+
 fn produce(out: Channel<int>, upto: int) {
     for i in 1..upto + 1 {
         send(out, i)
@@ -11,7 +13,10 @@ fn produce(out: Channel<int>, upto: int) {
 
 fn main() {
     val numbers: Channel<int> = channel_new()
-    spawn produce(numbers, 5)
+    // `on_error os.fatal` because the code below waits on this channel: a thread that fails
+    // without a handler leaves whoever is waiting waiting for ever, which `--lint` reports and
+    // which an example shown as exemplary should not demonstrate.
+    spawn produce(numbers, 5) on_error os.fatal
 
     // `receive_option` answers None once the channel is closed and drained, so the loop ends
     // without a sentinel value or a count agreed in advance.
