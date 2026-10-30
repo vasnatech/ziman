@@ -1,0 +1,4 @@
+ziman: type error at 5:1 in tests/lang/derive_validate_cascade_wrong_type.zm: '#[valid]' needs a struct, a list of structs, or an Option of either, and 'name' is string
+  |
+5 | struct E {
+  | ^

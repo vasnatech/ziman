@@ -173,3 +173,15 @@ fn with_message_replaces_the_text_and_not_the_rule() {
     test.assert_eq("name, please", message(validate.with_message(validate.not_blank(""), "name, please")))
     test.assert_none(validate.with_message(validate.not_blank("x"), "name, please"))
 }
+
+// ---------------------------------------------------------------- cascading
+//
+// `#[valid]`'s tests are **not here**, and that is F247's fault rather than a choice: `make
+// lib-tests` runs every file in this directory in one `ziman test` invocation, and a
+// `#[derive(..)]` struct in the second program loaded fails with "'capacity$default$16' is read
+// before it is initialised". So this directory cannot hold a deriving declaration at all today.
+//
+// They live in tests/lang/derive_validate_cascade (the generated text) and
+// tests/lang/derive_validate_cascade_runs (the paths, the per-element indices, the camelCase of a
+// nested field name, and that an empty list breaks the outer rule and cascades into nothing),
+// where each fixture is its own program.

@@ -2381,7 +2381,8 @@ fn main() {
 ```
 
 - **Eight constraints**: `#[not_blank]`, `#[not_empty]`, `#[email]`, `#[positive]`,
-  `#[one_of(values: <name>)]`, `#[size(min: <n>, max: <n>)]`, `#[min(<n>)]` and `#[max(<n>)]`.
+  `#[one_of(values: <name>)]`, `#[size(min: <n>, max: <n>)]`, `#[min(<n>)]` and `#[max(<n>)]`,
+  plus `#[valid]` below.
   They are named after Jakarta Validation's where the two coincide, so a reader who knows Bean
   Validation needs no table. `#[one_of]`'s `values:` is **a name** -- a `val` of the module's own,
   which the generated code reads -- because a word list is not something an attribute can hold.
@@ -2405,6 +2406,15 @@ fn main() {
   than Java's `"size must be between 8 and 2147483647"`, which is an annotation default leaking;
   and `#[one_of]` has no Jakarta counterpart at all, where Java reaches for an enum type or a
   `@Pattern`. Every constraint takes `message:` to override its own text.
+- **`#[valid]` cascades** into a field whose own type is validated, producing a dotted path:
+  `#[valid] ingredients: [IngredientRequest]` reports `ingredients[0].name`. It takes a struct, a
+  list of structs, or an `Option` of either, and finds the nested function **by name** --
+  `<snake>_violations` of the field's type -- so a type in another module needs that imported, as
+  `#[derive(Json)]` needs its `_to_json`. Explicit rather than automatic, as Jakarta's `@Valid` is:
+  a nested struct validated silently would surprise a reader of the outer one, and a dotted path
+  becomes a key the client sees. A cascade reports a *different* field, so it sits outside the
+  one-message-per-field rule -- three bad elements are three violations, and `#[not_empty]` and
+  `#[valid]` on the same list do not collide.
 - **`validate` is callable on its own**: `validate.email(address)`, `validate.size_at_least(s, 8)`
   and the rest answer `Option<string>` -- the message, or `None`. `validate.is_email` answers a
   `bool` for a caller who wants the question rather than the message. See

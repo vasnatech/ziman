@@ -4801,5 +4801,11 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   **It predates F246** -- it reproduces on the commit before it, on files that have nothing to do
   with validation -- and the North Star's own runner hides it by giving `ziman test` one file per
-  invocation, which is also why `make check` has never seen it. Worth a fixture of two files run
-  together.
+  invocation. Worth a fixture of two files run together.
+
+  **It is not a curiosity: it blocks a `#[derive(..)]` declaration in `tests/stdlib/` entirely**
+  (found 2026-10-30 adding `#[valid]`'s tests). `make lib-tests` -- which `make check-fast` runs --
+  passes every file in that directory to one `ziman test`, so the first deriving struct there fails
+  with `'capacity$default$16' is read before it is initialised`. Those tests had to move to
+  `tests/lang`, one program per fixture. So `make check` *does* see this now, by way of what it
+  refuses to let anyone write.

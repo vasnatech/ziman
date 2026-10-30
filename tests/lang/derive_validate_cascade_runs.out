@@ -1,0 +1,8 @@
+no violations
+--
+name: must not be blank
+ingredients[0].name: must not be blank
+ingredients[0].quantityMultiplier: must be greater than 0
+ingredients[2].quantityMultiplier: must be greater than 0
+--
+ingredients: must not be empty

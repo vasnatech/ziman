@@ -1,0 +1,48 @@
+// `#[valid]`, the four shapes it takes and the paths they produce -- docs/design/validation.md §6.
+//
+// **Explicit, as Jakarta's `@Valid` is.** A nested struct that happens to derive `Validate` being
+// validated silently would surprise a reader of the outer struct, and a dotted path becomes a
+// *key* in the response map, which the client sees. So the attribute is written, not inferred.
+//
+// The nested function is found **by name** -- `<snake>_violations` -- which is how
+// `#[derive(Json)]` finds `<snake>_to_json` for a field of another module's type.
+#[derive(Validate)]
+struct Ingredient {
+    #[not_blank]
+    name: string
+
+    #[positive]
+    quantity_multiplier: float
+}
+
+#[derive(Validate)]
+struct Address {
+    #[not_blank]
+    city: string
+}
+
+#[derive(Validate)]
+struct Recipe {
+    #[not_blank]
+    name: string
+
+    // Both at once: the list must not be empty *and* each element must be valid. They do not
+    // collide, because a cascade reports a different field -- `ingredients[0].name`, not
+    // `ingredients` -- so it is not part of the one-message-per-field rule.
+    #[not_empty]
+    #[valid]
+    ingredients: [Ingredient]
+
+    #[valid]
+    kitchen: Address
+
+    #[valid]
+    billing: Option<Address>
+
+    #[valid]
+    extras: Option<[Ingredient]>
+}
+
+fn main() {
+    print(1)
+}

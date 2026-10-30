@@ -1,0 +1,20 @@
+// `#[valid]` finds the nested function **by name** -- `<snake>_violations` of the field's own type
+// -- which is the rule F243 settled for every generator dependency: a function written by hand will
+// do, and a type from another module needs its `_violations` imported, exactly as
+// `#[derive(Json)]` needs its `_to_json`.
+//
+// Checked in `src/derive.c` rather than left to the generated call, which would be reported as
+// "call to undefined function 'plain_violations'" -- the symptom, not the cause.
+struct Plain {
+    city: string
+}
+
+#[derive(Validate)]
+struct E {
+    #[valid]
+    home: Plain
+}
+
+fn main() {
+    print(1)
+}

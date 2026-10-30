@@ -1,1 +1,4 @@
-ziman: syntax error at 9:7 in tests/lang/derive_field_attribute_unknown.zm: unknown field attribute 'key' -- a struct field takes one of: pk, column, one_of, not_blank, not_empty, email, positive, min, max, size
+ziman: syntax error at 9:7 in tests/lang/derive_field_attribute_unknown.zm: unknown field attribute 'key' -- a struct field takes one of: pk, column, one_of, not_blank, not_empty, email, positive, min, max, size, valid
+  |
+9 |     #[key]
+  |       ^

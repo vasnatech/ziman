@@ -505,6 +505,57 @@ static void import_field_converters(Module *module, const char *suffix, Type t, 
     for (int i = 0; i < t.type_args.count; i++) import_field_converters(module, suffix, t.type_args.items[i], line, col);
 }
 
+/* The struct a `#[valid]` field cascades into: `Ingredient` for `[Ingredient]`,
+ * `Option<Ingredient>` and `Option<[Ingredient]>` alike. NULL for a type that is not one, which
+ * `derive_validate.zm` refuses by name with the field's type in the message. */
+static const char *cascade_struct_name(Type t) {
+    /* **The `Option` test comes first**, and tries both kinds: a field type is provisionally a
+     * TY_STRUCT until the loader reclassifies it (see ast.h), so `Option<Address>` reaches here
+     * named "Option" with one type argument and would otherwise cascade into `option_violations`. */
+    for (int guard = 0; guard < 3; guard++) {
+        const char *name = t.kind == TY_STRUCT ? t.struct_name : t.kind == TY_ENUM ? t.enum_name : NULL;
+        if (name != NULL && strcmp(bare_name_of(name), "Option") == 0 && t.type_args.count == 1) {
+            t = t.type_args.items[0];
+            continue;
+        }
+        if (t.kind == TY_STRUCT) return bare_name_of(t.struct_name);
+        if (t.kind == TY_ARRAY && t.elem != NULL) {
+            t = *t.elem;
+            continue;
+        }
+        return NULL;
+    }
+    return NULL;
+}
+
+/* `#[valid]` on a field whose type has no `<snake>_violations` in scope.
+ *
+ * **By name, not by derive** -- the rule F243 settled: a nested type whose function is written by
+ * hand will do, and a type in another module needs its `_violations` imported exactly as
+ * `#[derive(Json)]` needs its `_to_json`. Without this the generated call is reported as
+ * "call to undefined function 'plain_violations'", which names the symptom and not the cause. */
+static void check_cascade_targets(Module *module, StructDecl *sd) {
+    for (int fi = 0; fi < sd->fields.count; fi++) {
+        const Param *f = &sd->fields.items[fi];
+        int cascades = 0;
+        for (int ai = 0; ai < f->attrs.count; ai++) {
+            if (strcmp(f->attrs.items[ai].name, "valid") == 0) cascades = 1;
+        }
+        if (!cascades) continue;
+        const char *nested = cascade_struct_name(f->type);
+        if (nested == NULL) continue; /* the generator's own refusal says what the type must be */
+        char *fn = fmt_str("%s_violations", pascal_to_snake(nested));
+        if (module_binds_name(module, fn)) continue;
+        /* Deriving it on this same declaration cannot happen -- a field's type is another
+         * declaration -- so the only fix is on that type or an import. */
+        ziman_error("syntax", sd->line, sd->col,
+                    "'#[valid]' on '%s.%s' needs `%s` -- it validates the nested value by calling it: "
+                    "add derive(Validate) to '%s', write `%s` yourself, or import it if '%s' is "
+                    "another module's",
+                    sd->name, f->name, fn, nested, fn, nested);
+    }
+}
+
 static void import_for_derive(Module *module, const char *target, int line, int col) {
     if (strcmp(target, "Json") == 0) {
         /* The scalar converters keep their `<type>_to_json` names -- that is the derive naming
@@ -900,8 +951,9 @@ void generate_derived_functions(Module *module) {
                                  sd->line, sd->col, label);
             } else if (is_validate) {
                 /* A struct with no field has no constraint either, so the generator's own refusal
-                 * ("no constrained field") covers it and there is nothing to check here: unlike
-                 * `Entity`, `Validate` needs no other name in scope and no module beyond its own. */
+                 * ("no constrained field") covers that. What `Validate` does need in scope is one
+                 * name per `#[valid]` field -- the nested type's own `_violations`. */
+                check_cascade_targets(module, sd);
                 parse_and_splice(module, generated_in_ziman("Validate", sd, NULL, derive_arg(sd, d), sd->line, sd->col),
                                  sd->line, sd->col, label);
             } else if (is_ord) {

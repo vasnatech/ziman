@@ -158,6 +158,9 @@ static const FieldAttrSpec FIELD_ATTRS[] = {
     {"min", "value:int,message:string?"},
     {"max", "value:int,message:string?"},
     {"size", "min:int?,max:int?,message:string?"},
+    /* Cascading (validation.md §6). Not a rule and so no `message:`: it answers violations about
+     * the *nested* struct's fields, under a dotted path, rather than about this one. */
+    {"valid", ""},
 };
 
 static void field_attr_list_push(FieldAttrList *list, FieldAttr one) {

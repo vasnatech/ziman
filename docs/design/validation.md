@@ -165,8 +165,25 @@ dotted path — `ingredients[0].name`.
 **Explicit rather than automatic**, as in Jakarta: a nested struct that happens to derive `Validate`
 being validated silently is the kind of thing that surprises a reader of the outer struct. And the
 flat wire map (§4) means a dotted path becomes a key, which is a *behaviour change the client sees*
-— so the first use of `#[valid]` should be a deliberate one, and until there is one, **this is
-designed and not built**. The corpus has no cascading case today.
+— so the first use of `#[valid]` should be a deliberate one.
+
+**Built 2026-10-30.** This section said "designed and not built — the corpus has no cascading case
+today", and that was simply wrong: `recipes` validates every ingredient of a `RecipeRequest` and
+reports `ingredients[0].name`. It was hand-written, which is why a survey of *attributes* did not
+see it, and the user found it by reading the model: `RecipeIngredientRequest` is used by
+`RecipeRequest`, `RecipeRequest` is validated, so why not the ingredient? **A deferral justified by
+"no case exists" is only as good as the search for one.**
+
+Four shapes, because the generated code differs: `[T]` and `Option<[T]>` walk with an index,
+`T` and `Option<T>` do not, and an absent `Option` has nothing to walk. The nested function is
+found **by name** (`<snake>_violations`), which is F243's rule and means a hand-written one will do
+and another module's needs importing — checked in `src/derive.c`, so a missing one reads
+"add derive(Validate) to 'Plain'" rather than "call to undefined function 'plain_violations'".
+
+**A cascade reports a different field**, so §4's one-message-per-field rule is untouched by it:
+three bad elements are three violations, and `#[not_empty]` and `#[valid]` on the same list do not
+compete. It also satisfies `derive(Validate)` on its own — a struct whose only attribute is
+`#[valid]` has something to do.
 
 ## 7. Cross-field rules are not an attribute
 

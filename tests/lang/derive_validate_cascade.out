@@ -1,0 +1,53 @@
+// derive(Validate) for 'Ingredient'
+pub fn ingredient_violations(v: Ingredient) -> [validate.Violation] {
+    val found = mutable_array_new<validate.Violation>()
+    if Some(message) = validate.not_blank(v.name) {
+        push(found, validate.violation("name", message))
+    }
+    if Some(message) = validate.positive(v.quantity_multiplier) {
+        push(found, validate.violation("quantityMultiplier", message))
+    }
+    return snapshot(found)
+}
+
+// derive(Validate) for 'Address'
+pub fn address_violations(v: Address) -> [validate.Violation] {
+    val found = mutable_array_new<validate.Violation>()
+    if Some(message) = validate.not_blank(v.city) {
+        push(found, validate.violation("city", message))
+    }
+    return snapshot(found)
+}
+
+// derive(Validate) for 'Recipe'
+pub fn recipe_violations(v: Recipe) -> [validate.Violation] {
+    val found = mutable_array_new<validate.Violation>()
+    if Some(message) = validate.not_blank(v.name) {
+        push(found, validate.violation("name", message))
+    }
+    if Some(message) = validate.not_empty(v.ingredients) {
+        push(found, validate.violation("ingredients", message))
+    }
+    for i, one in v.ingredients {
+        for nested in ingredient_violations(one) {
+            push(found, validate.violation(concat("ingredients[", str(i), "].", nested.field), nested.message))
+        }
+    }
+    for nested in address_violations(v.kitchen) {
+        push(found, validate.violation(concat("kitchen.", nested.field), nested.message))
+    }
+    if Some(one) = v.billing {
+        for nested in address_violations(one) {
+            push(found, validate.violation(concat("billing.", nested.field), nested.message))
+        }
+    }
+    if Some(items) = v.extras {
+        for i, one in items {
+            for nested in ingredient_violations(one) {
+                push(found, validate.violation(concat("extras[", str(i), "].", nested.field), nested.message))
+            }
+        }
+    }
+    return snapshot(found)
+}
+

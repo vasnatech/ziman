@@ -1,6 +1,9 @@
 // `#[derive(Validate)]` on a struct with no constraint would write a function that answers an
 // empty list whatever it is given -- a validation that cannot fail, which is worse than no
 // validation because the call site reads as though something were checked.
+//
+// `#[valid]` satisfies it too, since a field that cascades gives the function something to do
+// without the struct carrying a rule of its own.
 #[derive(Validate)]
 struct E {
     name: string

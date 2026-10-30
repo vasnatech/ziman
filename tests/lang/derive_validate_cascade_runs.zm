@@ -1,0 +1,56 @@
+// `#[valid]` run: the dotted and indexed paths a client actually receives, and the order they
+// arrive in -- the outer struct's own fields first, then each cascade in field order.
+//
+// **One message per field still holds**, and a cascade does not break it: `ingredients[0].name`
+// and `ingredients[1].name` are different fields, so a list of three bad ingredients is three
+// violations rather than one. The wire map (docs/design/validation.md §4) keys them apart.
+use validate
+
+#[derive(Validate)]
+struct Ingredient {
+    #[not_blank]
+    name: string
+
+    #[positive]
+    quantity_multiplier: float
+}
+
+#[derive(Validate)]
+struct Recipe {
+    #[not_blank]
+    name: string
+
+    #[not_empty]
+    #[valid]
+    ingredients: [Ingredient]
+}
+
+fn report(r: Recipe) {
+    val found = recipe_violations(r)
+    if len(found) == 0 {
+        print("no violations")
+        return
+    }
+    for v in found {
+        printf("{}: {}\n", v.field, v.message)
+    }
+}
+
+fn main() {
+    val good = Ingredient { name: "flour", quantity_multiplier: 1.5 }
+    report(Recipe { name: "Bread", ingredients: [good] })
+    print("--")
+    // Every element reported, by index, and the element's own two rules in its own field order.
+    report(Recipe {
+        name: "  ",
+        ingredients: [
+            Ingredient { name: "", quantity_multiplier: 0.0 },
+            good,
+            Ingredient { name: "salt", quantity_multiplier: 0.0 - 1.0 }
+        ]
+    })
+    print("--")
+    // An empty list breaks the outer rule and has nothing to cascade into.
+    val none: [Ingredient] = []
+    report(Recipe { name: "Bread", ingredients: none })
+}

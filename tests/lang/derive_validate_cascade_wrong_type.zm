@@ -1,0 +1,12 @@
+// `#[valid]` needs something with fields to cascade into. On a scalar there is no nested value and
+// no nested function, so the attribute cannot mean anything -- refused with the type it was given,
+// as every other constraint-on-the-wrong-type is.
+#[derive(Validate)]
+struct E {
+    #[valid]
+    name: string
+}
+
+fn main() {
+    print(1)
+}

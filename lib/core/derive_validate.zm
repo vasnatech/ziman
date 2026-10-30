@@ -49,6 +49,33 @@ pub fn @{snake}_violations(v: @{self}) -> [validate.Violation] {
         push(found, validate.violation("@{c.key}", message))
     }
 @end
+@for c in cascades
+@if c.kind == 'list'
+    for i, one in @{c.read} {
+        for nested in @{c.fn}(one) {
+            push(found, validate.violation(concat("@{c.key}[", str(i), "].", nested.field), nested.message))
+        }
+    }
+@elif c.kind == 'optional_list'
+    if Some(items) = @{c.read} {
+        for i, one in items {
+            for nested in @{c.fn}(one) {
+                push(found, validate.violation(concat("@{c.key}[", str(i), "].", nested.field), nested.message))
+            }
+        }
+    }
+@elif c.kind == 'optional'
+    if Some(one) = @{c.read} {
+        for nested in @{c.fn}(one) {
+            push(found, validate.violation(concat("@{c.key}.", nested.field), nested.message))
+        }
+    }
+@else
+    for nested in @{c.fn}(@{c.read}) {
+        push(found, validate.violation(concat("@{c.key}.", nested.field), nested.message))
+    }
+@end
+@end
     return snapshot(found)
 }
 
@@ -215,6 +242,115 @@ fn sized(a: meta.Attr, f: meta.Field, read: string) -> Result<string, string> {
     ))
 }
 
+// `#[valid]` on one field, as the row the cascade template reads -- or None when the field does not
+// carry it.
+//
+// **Cascading is explicit**, as Jakarta's `@Valid` is: a nested struct that happens to derive
+// `Validate` being validated silently is the kind of thing that surprises a reader of the outer
+// struct, and a dotted path becomes a *key* in the response map, which is a behaviour its clients
+// see (docs/design/validation.md §4, §6).
+//
+// The nested function is found **by name** -- `<snake>_violations` of the field's own type -- which
+// is how `#[derive(Json)]` finds `<snake>_to_json` for a field of another module's type, and means
+// the author imports it the same way. A type that does not have one is reported against the
+// generated call.
+fn cascade_for(f: meta.Field) -> Result<Option<template.Row>, string> {
+    if !meta.has_attr(f, "valid") {
+        return ok(Option<template.Row>.None)
+    }
+    val shape = cascade_shape(f.type)
+    if Some(pair) = shape {
+        return ok(Option<template.Row>.Some(template.row([
+            template.text("kind", pair.kind),
+            template.text("key", meta.camel_case(f.name)),
+            template.text("read", concat("v.", f.name)),
+            template.text("fn", concat(meta.snake_case(pair.type), "_violations"))
+        ])))
+    }
+    return err(prelude.format(
+        "'#[valid]' needs a struct, a list of structs, or an Option of either, and '{}' is {}",
+        f.name,
+        meta.type_text(f.type)
+    ))
+}
+
+// Which of the four shapes a `#[valid]` field is, and the type whose violations it reads. An
+// `Option` is a shape of its own rather than a rule about absence, because the *generated code*
+// differs: there is nothing to walk when the value is not there.
+struct Cascade {
+    kind: string
+    type: string
+}
+
+fn cascade_shape(t: meta.Type) -> Option<Cascade> {
+    switch t {
+        Named(n) { return Option<Cascade>.Some(Cascade { kind: "one", type: n.name }) }
+        Array(elem) { return list_cascade(elem, "list") }
+        Optional(inner) { return optional_cascade(inner) }
+        String { return Option<Cascade>.None }
+        Int { return Option<Cascade>.None }
+        Float { return Option<Cascade>.None }
+        Bool { return Option<Cascade>.None }
+        Bigint { return Option<Cascade>.None }
+        Decimal { return Option<Cascade>.None }
+        Byte { return Option<Cascade>.None }
+        Unit { return Option<Cascade>.None }
+        Void { return Option<Cascade>.None }
+        SetOf(_) { return Option<Cascade>.None }
+        ChannelOf(_) { return Option<Cascade>.None }
+        MapOf(_) { return Option<Cascade>.None }
+        ResultOf(_) { return Option<Cascade>.None }
+        Func(_) { return Option<Cascade>.None }
+        Var(_) { return Option<Cascade>.None }
+    }
+}
+
+fn list_cascade(elem: meta.Type, kind: string) -> Option<Cascade> {
+    switch elem {
+        Named(n) { return Option<Cascade>.Some(Cascade { kind: kind, type: n.name }) }
+        Int { return Option<Cascade>.None }
+        Float { return Option<Cascade>.None }
+        Bool { return Option<Cascade>.None }
+        String { return Option<Cascade>.None }
+        Bigint { return Option<Cascade>.None }
+        Decimal { return Option<Cascade>.None }
+        Byte { return Option<Cascade>.None }
+        Unit { return Option<Cascade>.None }
+        Void { return Option<Cascade>.None }
+        Array(_) { return Option<Cascade>.None }
+        SetOf(_) { return Option<Cascade>.None }
+        ChannelOf(_) { return Option<Cascade>.None }
+        MapOf(_) { return Option<Cascade>.None }
+        ResultOf(_) { return Option<Cascade>.None }
+        Func(_) { return Option<Cascade>.None }
+        Optional(_) { return Option<Cascade>.None }
+        Var(_) { return Option<Cascade>.None }
+    }
+}
+
+fn optional_cascade(inner: meta.Type) -> Option<Cascade> {
+    switch inner {
+        Named(n) { return Option<Cascade>.Some(Cascade { kind: "optional", type: n.name }) }
+        Array(elem) { return list_cascade(elem, "optional_list") }
+        Int { return Option<Cascade>.None }
+        Float { return Option<Cascade>.None }
+        Bool { return Option<Cascade>.None }
+        String { return Option<Cascade>.None }
+        Bigint { return Option<Cascade>.None }
+        Decimal { return Option<Cascade>.None }
+        Byte { return Option<Cascade>.None }
+        Unit { return Option<Cascade>.None }
+        Void { return Option<Cascade>.None }
+        SetOf(_) { return Option<Cascade>.None }
+        ChannelOf(_) { return Option<Cascade>.None }
+        MapOf(_) { return Option<Cascade>.None }
+        ResultOf(_) { return Option<Cascade>.None }
+        Func(_) { return Option<Cascade>.None }
+        Optional(_) { return Option<Cascade>.None }
+        Var(_) { return Option<Cascade>.None }
+    }
+}
+
 // Every constraint on one field, as the single expression the `if` tests. One rule reads as
 // itself; several go through `validate.first`, one to a line, because that is the shape the
 // generated source is read in.
@@ -261,6 +397,7 @@ pub fn generate(d: meta.Decl) -> Result<string, string> {
 
 fn violations(d: meta.Decl, fields: [meta.Field]) -> Result<string, string> {
     val checks = mutable_array_new<template.Row>()
+    val cascades = mutable_array_new<template.Row>()
     for f in fields {
         if Some(rule) = try checks_for(f) {
             push(checks, template.row([
@@ -268,18 +405,22 @@ fn violations(d: meta.Decl, fields: [meta.Field]) -> Result<string, string> {
                 template.text("key", meta.camel_case(f.name))
             ]))
         }
+        if Some(cascade) = try cascade_for(f) {
+            push(cascades, cascade)
+        }
     }
-    if len(checks) == 0 {
+    if len(checks) == 0 && len(cascades) == 0 {
         return err(prelude.format(
             "derive(Validate) on '{}' has no constrained field -- it would answer an empty list " \
-                "whatever it was given; write a constraint such as '#[not_blank]' on a field, or drop " \
-                "the derive",
+                "whatever it was given; write a constraint such as '#[not_blank]' on a field, or " \
+                "'#[valid]' on a field whose own type is validated, or drop the derive",
             d.name
         ))
     }
     return template.render(sheet, "violations", [
         template.text("snake", d.snake_name),
         template.text("self", meta.type_text(d)),
-        template.rows("checks", snapshot(checks))
+        template.rows("checks", snapshot(checks)),
+        template.rows("cascades", snapshot(cascades))
     ])
 }
