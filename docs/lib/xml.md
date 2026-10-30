@@ -1,6 +1,6 @@
 # `xml`
 
-> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> **Experimental** -- see docs/design/journal/'s "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 XML 1.0 as a document tree: a reader, a writer, and a small path finder.

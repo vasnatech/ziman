@@ -307,7 +307,7 @@ pub fn record_runtime()
 
 Samples the runtime's own numbers into gauges, so they render alongside an application's: the
 collector's heap bytes and collection count, the live thread count, and the open file
-descriptors (ROADMAP.md's metrics item 3). Call it immediately before `render()` -- these are
+descriptors (docs/roadmap/'s metrics item 3). Call it immediately before `render()` -- these are
 sampled, not accumulated, so a value is only as fresh as the last call. `server.metrics_response`
 does it for you.
 

@@ -7,7 +7,7 @@ The first: a `HandleSet` declared without its initialiser.
 leaves it off gets zero-initialised static storage instead, and POSIX does not define what locking
 such a mutex does. `src/native_process.c` shipped that way and worked, because glibc's own
 initialiser for a default mutex happens to be 40 bytes of zero -- measured, not assumed -- which is
-an implementation detail of one libc and not a promise (docs/reviews/tasks.md A45).
+an implementation detail of one libc and not a promise (docs/reviews/tasks/ A45).
 
 So the bug is invisible by construction: it cannot fail a test on the machine that has it. Only a
 check like this one keeps the next one out, which is the same argument as check_xalloc.py's.

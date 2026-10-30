@@ -13,7 +13,7 @@
  * Makefile). Domain errors (sqrt of a negative number, log of zero or a negative number)
  * return NaN, the same as the C, Java and JavaScript standard libraries do, and the same
  * value `parse_float("nan")` already produces -- `compare<T: Ord>` already gives NaN a total
- * order (see "Ordering" in docs/SYNTAX.md), so it is an ordinary, well-supported float value
+ * order (see "Ordering" in docs/syntax/), so it is an ordinary, well-supported float value
  * here, not a special case that needs a Result instead. See lib/core/math.zm. */
 
 /* `abs`, `min` and `max`, which were the prelude's until 2026-10-22 and are the `math` module's
@@ -44,7 +44,7 @@ static Value native_math_abs(Value *args, int argc, int line, int col) {
 }
 
 /* `min`/`max`: variadic and `Ord`-bounded, not just the four numeric scalars these were once
- * limited to -- see docs/DESIGN.md's "Variadic, Ord-bounded min/max" entry. One linear scan
+ * limited to -- see docs/design/journal/'s "Variadic, Ord-bounded min/max" entry. One linear scan
  * calling `compare` per candidate, which for int/float/bigint/decimal/byte/string is already a
  * direct C comparison, so this needs no separate fast path for them the way `sort` gives a packed
  * array its own routine: a single comparison per element is not where sorting's O(n log n) cost
@@ -194,7 +194,7 @@ static Value native_math_round_float(Value *args, int argc, int line, int col) {
 }
 
 /* The int-returning roundings and `decimal`'s directional roundings and integer power. They lived in
- * the prelude (bare, no `use`) before this module; see docs/DESIGN.md. */
+ * the prelude (bare, no `use`) before this module; see docs/design/journal/. */
 static Value native_math_floor(Value *args, int argc, int line, int col) {
     (void)argc; (void)line; (void)col;
     return value_int((int64_t)floor(args[0].as.f));

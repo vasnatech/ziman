@@ -2,7 +2,7 @@
 // places the two readings part.
 //
 // **The point is a portability check, not a better engine.** The sample application ships on
-// SQLite *and* PostgreSQL, and SQL that works on one and not the other is a live risk -- DESIGN.md
+// SQLite *and* PostgreSQL, and SQL that works on one and not the other is a live risk -- docs/design/journal/
 // records a two-commit PostgreSQL outage from exactly that. Where SQLite departs from the standard,
 // PostgreSQL does not, so a query that passes on `memdb:` and fails on `memdb-ansi:` is leaning on
 // SQLite and will break when it meets Postgres. Finding that costs a second local run instead of a

@@ -16,7 +16,7 @@ static uintptr_t round_up(uintptr_t v, uintptr_t unit) {
  * returned. ASan therefore calls the loop below a stack-buffer-overflow on the first collection of
  * *any* program, which made `make asan` useless until this attribute existed -- not a bug and not
  * suppressible at run time, since stack-buffer-overflow has no runtime suppression (see the
- * Makefile's `asan` target, and docs/reviews/tasks.md F14). Excluding this one function from
+ * Makefile's `asan` target, and docs/reviews/tasks/ F14). Excluding this one function from
  * instrumentation leaves the rest of the binary checked, which is the point.
  *
  * Valgrind objects to the same reads for its own reason -- the words are uninitialised, reported
@@ -25,7 +25,7 @@ static uintptr_t round_up(uintptr_t v, uintptr_t unit) {
 /* The reads themselves, and nothing else. The exemption sits here rather than on the whole function
  * so that only the loop is uninstrumented: `gc_scan_stack_roots`'s own frame keeps its redzones, so
  * an out-of-bounds write *into* it from instrumented code is still reported -- with the attribute
- * one level up it was not reported at all (docs/reviews/tasks.md F21). `noinline` because inlining
+ * one level up it was not reported at all (docs/reviews/tasks/ F21). `noinline` because inlining
  * this back into an instrumented caller would instrument the loop again; GCC already declines to
  * inline across the mismatch, but the attribute says so rather than relying on that.
  *

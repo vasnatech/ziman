@@ -1,6 +1,6 @@
 # The twenty things
 
-[docs/SYNTAX.md](SYNTAX.md) is the reference: 308 rules over 38 sections and 25,000 words, and
+[docs/syntax/README.md](syntax/README.md) is the reference: 308 rules over 38 sections and 25,000 words, and
 the right page to be reading when you have a specific question. This page is the other thing --
 what you need *before* you have a specific question, in one pass.
 
@@ -259,7 +259,7 @@ fn main() {
 
 There are four: `#[derive(Json)]` for JSON in and out, `#[derive(Row)]` for a database row,
 `#[derive(Properties)]` for a config file, and `#[derive(Ord)]` for sorting and comparison. Look
-here before hand-writing a serializer -- SYNTAX.md's "Attributes and derive" has the rules.
+here before hand-writing a serializer -- docs/syntax/'s "Attributes and derive" has the rules.
 
 ## 17. Tests are `#[test]` functions
 
@@ -303,6 +303,6 @@ freely.
 | | |
 | --- | --- |
 | [docs/TUTORIAL.md](TUTORIAL.md) | one small program, built up feature by feature |
-| [docs/SYNTAX.md](SYNTAX.md) | the full rules, when you have a specific question |
+| [docs/syntax/README.md](syntax/README.md) | the full rules, when you have a specific question |
 | [docs/CORELIB.md](CORELIB.md) | every module and every function in it |
-| [docs/DESIGN.md](DESIGN.md) | why it is this way |
+| [docs/design/journal/README.md](design/journal/README.md) | why it is this way |

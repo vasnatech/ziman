@@ -25,7 +25,7 @@
 // as structural whitespace between tokens, so a CRLF body parses.
 //
 // `Json` does NOT support `==`/`!=` -- array equality requires a scalar element type
-// (see docs/SYNTAX.md "Arrays"), and `[Json]`'s element is an enum. A known limitation.
+// (see docs/syntax/ "Arrays"), and `[Json]`'s element is an enum. A known limitation.
 //
 // This is the general engine; a schema-specific parser for one request shape is
 // expected to be built on top of it (see `get`, `get_path` and the

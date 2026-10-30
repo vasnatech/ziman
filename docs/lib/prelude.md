@@ -116,7 +116,7 @@ splits, however many files that means**: `len` and `contains` across five each, 
 `clear` across four, `filter`, `remove`, `mutable`, `set` and `map` across three, `concat`,
 `get_or`, `update` and `flat_map` across two or one. Nothing is exempt and nothing is left over.
 `remove_all` was in this list until 2026-10-22, when `remove` went variadic and absorbed it --
-a set can leave the list by being merged into another, not only by being filed. See docs/DESIGN.md's "Overloading available to a declaration",
+a set can leave the list by being merged into another, not only by being filed. See docs/design/journal/'s "Overloading available to a declaration",
 and prelude.zm's header for what collections.zm's own header carried.
 
 **result.zm was added the same day, and is the rule read forwards rather than backwards.**
@@ -398,7 +398,7 @@ The text of `b`, or an Err when `b` is not valid UTF-8 (naming the byte offset o
 invalid sequence) or holds a 0 byte (a string cannot) -- the one real boundary where untrusted
 bytes (a socket, a file, an HTTP body) become a `string`, so it's the one place this is
 checked; every other string function keeps working on whatever bytes a `string` already holds,
-same as always. See docs/DESIGN.md's UTF-8 correctness entry.
+same as always. See docs/design/journal/'s UTF-8 correctness entry.
 
 ### `slice`
 
@@ -524,7 +524,7 @@ set.zm and mutable.zm, two per file but for the cell's one; `--api builtins` pri
 one block.
 
 **Nine declarations over one implementation is not a layer**, and the note that used to stand
-over all of them said it better than this can: SYNTAX.md's "asking a collection its size never
+over all of them said it better than this can: docs/syntax/'s "asking a collection its size never
 needs a per-type name or a conversion". There is no ranking, no implicit conversion and no
 return-type-directed choice -- each member is picked by what argument one is, which is the
 dispatch the interpreter already had.
@@ -797,7 +797,7 @@ first-argument dispatch cannot tell those apart.
 It earns a name rather than being spelled `mutable(to_set(xs))`, which is **two** passes and two
 allocations where this is one. That is the rule for a fused conversion in this library: a name
 when composing costs an extra full copy, and not otherwise -- which is why there is no
-`mutable_array_from_set` (see docs/DESIGN.md).
+`mutable_array_from_set` (see docs/design/journal/).
 
 Four declarations across the two names, each taking either world in its one argument that has
 the choice -- the handle is always a handle. That is what `either_world()` in the type checker
@@ -3671,7 +3671,7 @@ four carry `#[compiler_resolved]` and why this entry is long. Three calls choose
    declaration's variadic parameter has **one** type, so the two builder declarations each state
    half of what the call may pass, and the rule routes the whole tail to one C function that
    reads either world per element. A single declaration would need a union type, which
-   docs/DESIGN.md refuses outright ("a language that refuses general bounds should not acquire
+   docs/design/journal/ refuses outright ("a language that refuses general bounds should not acquire
    general unions for them"). `concat(b)` with an empty tail likewise fits both.
 
 For three sessions this was recorded here as the conversion that *could not* be done, and the
@@ -4015,7 +4015,7 @@ tr)` is `İ` and `to_lower("I", tr)` is `ı`.
 **Simple case mapping, not full.** One code point in, one out -- the POSIX interface underneath
 (`towupper_l`) is shaped that way -- so German `ß` does not become `SS`, `ﬁ` does not become
 `FI`, and the Greek final sigma is not contextual. lib/core/locale.zm's header says this once
-and docs/ROADMAP.md carries what it would take to fix.
+and docs/roadmap/ carries what it would take to fix.
 
 ### `to_lower`
 
@@ -4203,7 +4203,7 @@ The lines of `text`, without their terminators. Written because a cold model rea
 leaves a `\r` on every line of CRLF text and leaves a trailing empty string after a final
 newline, so "a\nb\n" splits into three pieces where it has two lines. Both of those are the
 kind of difference that shows up as an off-by-one in someone's line count rather than as an
-error (docs/reviews/tasks.md F35).
+error (docs/reviews/tasks/ F35).
 
 A final newline is a terminator, not a separator -- "a\nb\n" and "a\nb" both have two lines --
 which is how every line-oriented tool reads a text file. An empty string has no lines.

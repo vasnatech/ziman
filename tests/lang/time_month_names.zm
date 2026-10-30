@@ -15,7 +15,7 @@
 //   * **Parsing month names is longest-first too**, so "June" is not read as "Jun" with a stray
 //     "e" left over, and case-insensitive, because a reader handed "12 OCT 2026" means October.
 //
-// The names are English only. That is a stated limit, not a design -- see ROADMAP.md's "Locale
+// The names are English only. That is a stated limit, not a design -- see docs/roadmap/'s "Locale
 // support" entry, which this half-closes.
 use time
 

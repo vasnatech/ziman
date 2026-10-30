@@ -234,7 +234,7 @@ static int is_tchar(unsigned char c) {
 /* `server::bound_malloc_arenas(n)`: caps how many malloc arenas glibc will create, called once by
  * `server.serve`. Lives in this file because it serves lib/http, which `server` belongs to.
  *
- * Why a server wants this (docs/reviews/tasks.md B9, measured 2026-10-06 and again 2026-10-07). glibc
+ * Why a server wants this (docs/reviews/tasks/ B9, measured 2026-10-06 and again 2026-10-07). glibc
  * gives each thread its own malloc arena and keeps what that thread allocated in it. The server is
  * thread-per-connection, and a password hash asks OpenSSL for a ~19 MiB Argon2id buffer, so every
  * connection that ever authenticated left 19 MiB of free-but-retained memory behind: 48 registrations

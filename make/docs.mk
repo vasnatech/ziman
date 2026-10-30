@@ -1,6 +1,6 @@
 # make/docs.mk -- generating the documentation and checking it has not drifted.
 #
-# docs/lib/ and docs/CORELIB.md are generated from lib/'s own declarations, docs/DESIGN.md carries
+# docs/lib/ and docs/CORELIB.md are generated from lib/'s own declarations, docs/design/journal/ carries
 # a generated section index, and the rest of these read the hand-written pages looking for a claim
 # the sources no longer support -- a module that was deleted, a "not yet" that shipped, an example
 # that stopped compiling.
@@ -53,7 +53,7 @@ lib-map-check:
 grammar-check:
 	python3 tools/check_grammar.py
 
-# Fails when docs/SYNTAX.md or a lib/**/*.zm doc comment claims some `pub` name is "not yet"
+# Fails when docs/syntax/ or a lib/**/*.zm doc comment claims some `pub` name is "not yet"
 # supported when it's already declared -- see tools/check_not_yet.py's own header comment.
 not-yet-check:
 	python3 tools/check_not_yet.py
@@ -63,24 +63,25 @@ not-yet-check:
 experimental-check:
 	python3 tools/check_experimental.py
 
-# Fails when README.md, docs/TUTORIAL.md, docs/SYNTAX.md or docs/CHEATSHEET.md names a module that
+# Fails when README.md, docs/TUTORIAL.md, docs/syntax/ or docs/CHEATSHEET.md names a module that
 # lib/ no longer has, or a function a module no longer exports -- see tools/check_doc_modules.py's
 # own header comment. The generated docs (docs/lib/, docs/CORELIB.md) cannot go stale; these four
 # can, and F138 was one that did, for months, in the first file a newcomer reads.
 doc-module-check:
 	python3 tools/check_doc_modules.py
 
-# Regenerates docs/DESIGN.md's section index in place -- see tools/gen_design_index.py.
+# Regenerates the design journal's index, docs/design/journal/README.md -- see
+# tools/gen_design_index.py.
 design-index:
 	python3 tools/gen_design_index.py
 
-# Fails when the committed index is not what the sections now are: the same `git diff` shape
-# lib-manual-check uses, because a hand-kept index of a file that size is wrong within a month.
+# Fails when the committed index is not what the journal's entries now are: the same `git diff`
+# shape lib-manual-check uses, because a hand-kept index of that much text is wrong within a month.
 design-index-check:
 	python3 tools/gen_design_index.py
-	git diff --exit-code --stat -- docs/DESIGN.md
+	git diff --exit-code --stat -- docs/design/journal/README.md
 
-# Fails when a Ziman example in docs/SYNTAX.md no longer compiles (or, if it is tagged `fails`,
+# Fails when a Ziman example in docs/syntax/ no longer compiles (or, if it is tagged `fails`,
 # when it starts compiling) -- see tools/check_syntax_examples.py's own header comment. Needs the
 # binary, since it compiles every example with it.
 syntax-check: $(BIN)
@@ -119,7 +120,7 @@ showcase-check: $(BIN)
 # `--check` on the same path says the same thing plus "no 'main' function found", so this is not a
 # `--lint` fault; linting a bundled module in place is a thing the compiler cannot do yet, and
 # `lib/db/eql.zm`'s real unused `val d` is only visible in the broken mode. That gap is recorded in
-# docs/ROADMAP.md rather than worked around here.
+# docs/roadmap/ rather than worked around here.
 #
 # **It found five real things on the first run**, which is the argument for having it: three
 # `spawn` without `on_error` holding a Channel -- the deadlock the rule exists for -- and three

@@ -1,5 +1,5 @@
 // channel.zm -- `Channel<T>` and the `select2` machinery. A channel is how two threads share
-// anything at all; see docs/DESIGN.md's "Closures" and the actor entry.
+// anything at all; see docs/design/journal/'s "Closures" and the actor entry.
 //
 // Part of Ziman's prelude: every file in lib/prelude/ is merged bare into every program by the
 // loader, so everything here is callable with no `use` and `use prelude` does not resolve. In this
@@ -55,7 +55,7 @@
 // `clear` across four, `filter`, `remove`, `mutable`, `set` and `map` across three, `concat`,
 // `get_or`, `update` and `flat_map` across two or one. Nothing is exempt and nothing is left over.
 // `remove_all` was in this list until 2026-10-22, when `remove` went variadic and absorbed it --
-// a set can leave the list by being merged into another, not only by being filed. See docs/DESIGN.md's "Overloading available to a declaration",
+// a set can leave the list by being merged into another, not only by being filed. See docs/design/journal/'s "Overloading available to a declaration",
 // and prelude.zm's header for what collections.zm's own header carried.
 //
 // **result.zm was added the same day, and is the rule read forwards rather than backwards.**

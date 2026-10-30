@@ -22,7 +22,7 @@
 // lambda missing an annotation and nothing looked at one again. A second pass does now: the
 // bindings the first pass made are substituted into the declared parameter type, and a lambda
 // whose parameters have all become concrete is checked on its own, its final expression answering
-// the result. `Point::x` inherited the gap and the fix; see DESIGN.md's "A lambda argument can
+// the result. `Point::x` inherited the gap and the fix; see docs/design/journal/'s "A lambda argument can
 // answer a type parameter".
 struct Row {
     dept: string

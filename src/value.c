@@ -82,7 +82,7 @@ Value value_string(char *s) { return value_string_view(s, strlen(s), 1); }
 
 /* Routed through the calling thread's own GcHeap (src/gc_thread_heap.c), not zalloc_atomic --
  * deliberately the first, narrowest allocation site Phase 3's real collector was wired to
- * (docs/DESIGN.md's "narrowest possible slice" entry), before any other constructor moves. Every
+ * (docs/design/journal/'s "narrowest possible slice" entry), before any other constructor moves. Every
  * other TY_STRING-producing site in this file (value_string_view, value_string) still uses
  * zalloc_atomic or takes over an existing buffer -- not yet migrated. */
 Value value_string_copy(const char *ptr, size_t len) {
@@ -364,7 +364,7 @@ Value value_struct(const Type *struct_type, StructObj *st) {
 
 /* The wrapper alone is routed through the calling thread's own GcHeap -- `fields` (built by every
  * caller before this runs) is not yet migrated, deliberately: the next narrow slice after
- * value_string_copy (docs/DESIGN.md), not the whole of "array/struct construction" at once. Mixing
+ * value_string_copy (docs/design/journal/), not the whole of "array/struct construction" at once. Mixing
  * a gc_heap-allocated wrapper with a not-yet-migrated fields buffer is exactly the shape
  * gc_mark.c's is_gc_heap_object fix exists to handle correctly (see its own incident writeup);
  * every caller that builds `fields` via more than one call is also now guarded by
@@ -685,7 +685,7 @@ static int equals_inner(Value a, Value b, int nan_reflexive) {
         case TY_FLOAT:
             /* `nan_reflexive` is the whole reason this function is shared. For `==` the answer is
              * IEEE's: NaN equals nothing, itself included, which is what every float-having language
-             * means by `==` and what docs/SYNTAX.md promises. For a collection key it has to be the
+             * means by `==` and what docs/syntax/ promises. For a collection key it has to be the
              * other answer, because a key that is not equal to itself cannot be found again: the
              * trie files the second NaN as a distinct key (same hash, unequal), so a Set<float> ends
              * up holding two of them while `contains` denies both, and a Map<float, _> grows without

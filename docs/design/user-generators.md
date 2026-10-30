@@ -529,7 +529,7 @@ per declaration carrying the attribute, and the sample backend has 140 of them.
 * **Generating into another module.** A generator writes declarations into the module carrying
   the attribute, as all five do today. Roadmap question 2 stays open.
 * **Ordering between two generators on one declaration.** `#[derive(Json, Csv)]` runs them in the
-  order written and they may not read each other's output, which is the existing rule (DESIGN.md,
+  order written and they may not read each other's output, which is the existing rule (docs/design/journal/,
   2026-10-28) and the reason ordering has not mattered so far.
 
 ## 10. Decisions

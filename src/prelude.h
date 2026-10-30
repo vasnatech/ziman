@@ -23,7 +23,7 @@
  * ordinary Ziman source (an enum + one helper function) rather than
  * native code -- see lib/prelude/prelude.zm's own header comment for
  * why these are the files in corelib that are never `use`-able, and
- * docs/DESIGN.md's "Prelude" entry for the fuller reasoning.
+ * docs/design/journal/'s "Prelude" entry for the fuller reasoning.
  *
  * Mechanically, this is not a new loading concept -- each part's
  * source is parsed exactly like any other module and the declarations

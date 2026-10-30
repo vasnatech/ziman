@@ -211,7 +211,7 @@ static __thread int t_frame_capacity = 0;
  * reads the old array, which is still allocated and still correct, and after it the new one, which
  * is a complete copy. The window was one `memset` long and needed --profile to be observed at all,
  * which is why it was never seen -- it is still the one function here whose own comments promise
- * signal safety (docs/reviews/tasks.md A23).
+ * signal safety (docs/reviews/tasks/ A23).
  *
  * The nogc path therefore cannot use `realloc`, which frees the old block before returning and so
  * has the same window built into it. malloc-and-copy costs an extra copy on a path that runs

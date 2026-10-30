@@ -1,6 +1,6 @@
 # `toml`
 
-> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> **Experimental** -- see docs/design/journal/'s "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 TOML 1.0 on top of `json`: a document is a `Json` object, so any

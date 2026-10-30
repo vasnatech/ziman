@@ -59,7 +59,7 @@ void gc_mark_object(const Arena *a, const void *obj);
  * own Value.type.kind, and an int carries nothing further to trace). Whatever a builder holds is
  * therefore only as safe as whatever *else* independently references it -- true for the *previous*
  * loop iteration's own local once the loop moves on, which is false the moment nothing else does
- * (found via docs/reviews/tasks.md's F2, the real health-record-backend-ziman app: lib/http/server.zm's
+ * (found via docs/reviews/tasks/'s F2, the real health-record-backend-ziman app: lib/http/server.zm's
  * `routes<C>` builds a `MutableArray<Pattern>` across ~100+ loop iterations, and once `Pattern`'s
  * own StructObj wrapper was migrated to gc_heap allocation, a real collection landing mid-loop swept
  * every earlier-appended Pattern still sitting only in the builder's own buffer).

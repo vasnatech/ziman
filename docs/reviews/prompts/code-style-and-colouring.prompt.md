@@ -26,8 +26,8 @@ If you think a formatter decision is wrong, that is a **finding** — a question
 
 - The Ziman repo: `/home/mfg/workspace/vasna.tech/repos/ziman`. Build with `make` (the binary is `./ziman`); `make -j8 ziman` is enough and takes under a minute.
 - **Start by recording the commit (`git rev-parse --short HEAD`) and the result of `make fmt-check` and `make test`.** Put both at the top of your report. If `fmt-check` is not clean on a fresh checkout, stop and say so — it means the oracle disagrees with the committed tree and nothing else you conclude is trustworthy.
-- Language reference: `docs/SYNTAX.md` (very long; read it thoroughly — it is the normative description and the single most important file for this task). `docs/TUTORIAL.md` is the language as a newcomer meets it.
-- `docs/DESIGN.md` is a dated decision log. Find these entries through the index at the top and read them in full, because they say what the formatter deliberately refuses to do and why:
+- Language reference: `docs/syntax/` (very long; read it thoroughly — it is the normative description and the single most important file for this task). `docs/TUTORIAL.md` is the language as a newcomer meets it.
+- `docs/design/journal/` is a dated decision log. Find these entries through the index at the top and read them in full, because they say what the formatter deliberately refuses to do and why:
   - "The formatter (`ziman --fmt`, R17)"
   - "Formatter: wrapping, comment alignment, sorted `use`, stdin" (F11)
   - "`--fmt --canonical`: settling brace placement, which plain `--fmt` will not" (F12)
@@ -41,7 +41,7 @@ If you think a formatter decision is wrong, that is a **finding** — a question
 
 ## Learning the language first
 
-Do not skip this and do not skim. Read `docs/SYNTAX.md`, then write and run several programs of your own. Ziman has decisions that will surprise you and several bear directly on how code is laid out. Confirm each of these by experiment rather than assuming the shape you are used to:
+Do not skip this and do not skim. Read `docs/syntax/`, then write and run several programs of your own. Ziman has decisions that will surprise you and several bear directly on how code is laid out. Confirm each of these by experiment rather than assuming the shape you are used to:
 
 - struct fields are newline-separated, not comma-separated
 - `with` is a **prefix** form: `with base { field: value }`
@@ -69,13 +69,13 @@ Write it so that a programmer could read it front to back and then format Ziman 
 9. **Blank lines**: where they are preserved, collapsed, or inserted.
 10. **Operators and spacing**: binary and unary operators, `:` in annotations, `->`, generic `<>`, ranges `a..b`.
 11. **What `--fmt --canonical` changes that plain `--fmt` does not**, and why that split exists at all.
-12. **The limits**: the formatter refuses input nested deeper than 200 brackets and bounds its output at 16 MB. Both have arithmetic reasons given in `DESIGN.md`. State them — a style guide that pretends its tool has no limits is one somebody will walk into.
+12. **The limits**: the formatter refuses input nested deeper than 200 brackets and bounds its output at 16 MB. Both have arithmetic reasons given in `docs/design/journal/`. State them — a style guide that pretends its tool has no limits is one somebody will walk into.
 
 ## Part 2 — the colouring strategy
 
 The deliverable is not a palette. It is **what the colours mean** and **which distinctions are worth making**. Keep three layers separate, because they have different capabilities:
 
-1. **What the TextMate grammar already does.** Enumerate the scopes in `ziman.tmLanguage.json`, say what each matches, and group them into a small number of semantic categories a theme author can reason about. Justify each mapping. Then find the gaps: name any construct in `SYNTAX.md` that has **no scope at all**. Finding those is the work, not a formality.
+1. **What the TextMate grammar already does.** Enumerate the scopes in `ziman.tmLanguage.json`, say what each matches, and group them into a small number of semantic categories a theme author can reason about. Justify each mapping. Then find the gaps: name any construct in `docs/syntax/` that has **no scope at all**. Finding those is the work, not a formality.
 2. **What a regex grammar structurally cannot do.** Be concrete and verify each claim against the grammar file. A TextMate grammar cannot tell a type parameter from a struct name, a `var` from a `val` at its use site, a deprecated symbol from a live one, an imported name from a locally declared one, or a shadowed binding from what it shadows. For each distinction: is it worth colouring, and why?
 3. **The semantic-token layer.** Check what `src/lsp.c` advertises in its initialize response before relying on it — at the time this prompt was written it offered `documentHighlightProvider` and **no semantic tokens**, which you should confirm or correct. Do not read `documentHighlightProvider` as evidence that occurrence resolution already exists: establish by experiment whether it resolves a binding or merely matches the word, because the answer decides whether a token layer is new work or a re-export of something already computed. Propose the token types and modifiers Ziman should emit, mapped onto the LSP's standard set where one fits and named explicitly where none does, and say what each buys that layer 1 cannot.
 

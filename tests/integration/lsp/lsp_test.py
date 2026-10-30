@@ -84,7 +84,7 @@ check("go to definition crosses files", r["result"] and r["result"]["uri"] == ut
 r = request("textDocument/hover", {"textDocument": {"uri": main_uri}, "position": {"line": 4, "character": 16}})
 check("hover shows the signature", r["result"] and "fn double(n: int) -> int" in r["result"]["contents"]["value"], r)
 
-# The keyword, not the `...` this rendered until 2026-10-12 (docs/reviews/tasks.md F94). Hover is
+# The keyword, not the `...` this rendered until 2026-10-12 (docs/reviews/tasks/ F94). Hover is
 # how the editor answers "what does a caller write here", which for a variadic parameter is the one
 # thing its declared (element) type does not say.
 r = request("textDocument/hover", {"textDocument": {"uri": main_uri}, "position": {"line": 5, "character": 16}})
@@ -215,7 +215,7 @@ check("workspace symbols by name", any(x["name"] == "double" and x["location"]["
 r = request("textDocument/documentHighlight", {"textDocument": {"uri": main_uri}, "position": {"line": 9, "character": 8}})
 # Exactly five, not "at least": `val a = 21` and its four uses. The `>= 5` this replaces passed
 # just as happily on the textual version, which answered with every word that matched -- so the
-# assertion sanctioned the defect it was meant to cover (docs/reviews/tasks.md F77).
+# assertion sanctioned the defect it was meant to cover (docs/reviews/tasks/ F77).
 check("document highlight finds every use of a name", len(r["result"]) == 5, r)
 
 # The shape that showed the old handler was textual: a field declaration, a struct-literal field
@@ -235,7 +235,7 @@ check("document highlight sees the inner binding from inside the shadow", lines 
 
 # Semantic tokens. The point of the layer is `mutable` on a `var`'s *uses*, which no regex grammar
 # can mark because it would have to resolve the name to its declaration -- and the use site is
-# where a one-character val/var typo does its damage (docs/DESIGN.md's own note, F76, F78).
+# where a one-character val/var typo does its damage (docs/design/journal/'s own note, F76, F78).
 legend = init["result"]["capabilities"]["semanticTokensProvider"]["legend"]
 types, mods = legend["tokenTypes"], legend["tokenModifiers"]
 check("semantic tokens are advertised with a legend", "variable" in types and "mutable" in mods, legend)

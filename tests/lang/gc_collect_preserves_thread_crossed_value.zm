@@ -10,7 +10,7 @@ use clock
 // of the struct's own adjacent field -- here, a bool -- flipping it from false to true the moment
 // a real collection ran. `fs.lines` is what forces one: it is the one place in this interpreter
 // that already allocates through the real collector (value_string_copy, src/value.c), so reading
-// enough lines crosses the collection trigger's own threshold reliably. See docs/DESIGN.md's own
+// enough lines crosses the collection trigger's own threshold reliably. See docs/design/journal/'s own
 // entry on this incident for the full story.
 struct Opts {
     flag: bool

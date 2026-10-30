@@ -44,7 +44,7 @@ their `alpn` field, Unix-domain sockets `connect_unix`/`listen_unix`, and a conn
 **Not here, and not planned: UDP.** Nothing in this library or the reference backend has wanted a
 datagram, and the one place that might look like a consumer is not one -- HTTP/3's QUIC is its own
 UDP transport rather than a framing layer over these sockets, so it would not be built on a
-`net.udp` even if HTTP/3 were started (docs/ROADMAP.md, and docs/reviews/tasks.md F81). The rule
+`net.udp` even if HTTP/3 were started (docs/roadmap/, and docs/reviews/tasks/ F81). The rule
 this module follows is the project's: add it when a concrete program cannot be written without it.
 
 `use net` -- or `use net.Name` to bring one item in bare.
@@ -370,7 +370,7 @@ This is what lets a server hold more connections than it has threads. A connecti
 its next keep-alive request needs no thread of its own: park it here, and spend a thread only
 when a request actually arrives. Without it, `serve`'s one-thread-per-connection shape makes
 `max_connections` a ceiling on concurrent *clients*, so a client past the cap waits for an
-occupant's `idle_timeout_ms` rather than for a request to finish (docs/reviews/tasks.md F139).
+occupant's `idle_timeout_ms` rather than for a request to finish (docs/reviews/tasks/ F139).
 
 `timeout_ms` must be bounded, and a negative value counts as zero. There is no way to interrupt
 a wait that was told to last forever, so poll in slices and check whatever you need to check
@@ -602,7 +602,7 @@ Closes the socket (and, for TLS, sends close_notify first). Safe to call once; a
 this gives a runtime error. Another thread blocked reading it is woken with `NetError.Closed` --
 closing from a different thread than the reader is supported, not merely tolerated: the socket
 holds a reference while a read is in flight, so the descriptor cannot be closed and its number
-handed to something else underneath it (docs/reviews/tasks.md A31).
+handed to something else underneath it (docs/reviews/tasks/ A31).
 
 ```
 pub fn close(l: Listener)

@@ -42,7 +42,7 @@ fi
 # 36aa350, task B11: it answers identically whether or not the email is taken, so it cannot be used
 # to find out which addresses exist), which broke this script silently -- it extracted an empty
 # token and exited before running a single benchmark. Found on 2026-10-08 by a review that was
-# asked to measure with it; see docs/reviews/tasks.md F20.
+# asked to measure with it; see docs/reviews/tasks/ F20.
 EMAIL="bench-$$@example.com"
 PASSWORD="bench runner password"
 curl -s -o /dev/null -X POST "$BASE_URL/api/auth/register" -H 'Content-Type: application/json' \

@@ -1,6 +1,6 @@
 # `derive_ord`
 
-> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> **Experimental** -- see docs/design/journal/'s "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 `#[derive(Ord)]`, written in Ziman.
@@ -9,7 +9,7 @@
 the C it replaced: same input, same output text, byte for byte. A generator is a function from
 a declaration to source, and `meta.Decl` is what makes that expressible here -- so this file is
 ordinary Ziman that `--fmt`, `--lint` and `ziman test` can all see, where the C was outside
-every one of them. See docs/ROADMAP.md's "Derives should be written in Ziman, not in C".
+every one of them. See docs/roadmap/'s "Derives should be written in Ziman, not in C".
 
 **The bodies are templates**, so the shape of what this writes is the shape of what you read.
 The two it needs were measured against the `push`/`concat` version first

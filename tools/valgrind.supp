@@ -7,7 +7,7 @@
 # candidate is carried along. The entries are therefore keyed on `gc_scan_stack_roots`, the one
 # frame every context shares, rather than on the innermost one, which varies.
 #
-# Two things to know before editing this file (docs/reviews/tasks.md F23):
+# Two things to know before editing this file (docs/reviews/tasks/ F23):
 #   * It only works with frame pointers. At -O2 without -fno-omit-frame-pointer, several contexts
 #     unwind as `??? / ???` and `gc_scan_stack_roots` never appears in them, so they escape these
 #     entries. `make valgrind` passes that flag for exactly this reason.

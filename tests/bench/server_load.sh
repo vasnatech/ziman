@@ -14,7 +14,7 @@
 # `p50=0.0002s`. Three phases of plausible sub-millisecond numbers and exit 0,
 # measuring nothing -- `set -uo pipefail` has no `-e`, and awk over an empty file
 # prints zeroes rather than complaining. A benchmark that cannot fail is worse
-# than no benchmark, because DESIGN.md quoted it.
+# than no benchmark, because docs/design/journal/ quoted it.
 set -uo pipefail
 BIN=${1:?usage: server_load.sh <ziman-binary> [N] [port]}; N=${2:-200}; PORT=${3:-18391}
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"

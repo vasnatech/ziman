@@ -33,7 +33,7 @@
  * so a cap that is being hit is visible in the output rather than silent.
  *
  * Two: the lock is per metric, not one for the registry. The problem this module exists to
- * diagnose (docs/reviews/tasks.md F7) is that throughput does not scale with concurrent clients,
+ * diagnose (docs/reviews/tasks/ F7) is that throughput does not scale with concurrent clients,
  * and a single mutex taken on every request would add to exactly that. Metrics are declared at
  * start-up and never removed, so a declared metric's name, kind and buckets never change again:
  * a lookup reads the published count with an acquire load and walks immutable entries without
@@ -58,7 +58,7 @@ typedef struct {
      * rather than as a double, which is what lets the three helpers below update it atomically
      * without ever accessing one object through the other's type. It was a `double` written through
      * an `unsigned long long *` cast, which is undefined by C11 6.5p7 in a build that carries no
-     * -fno-strict-aliasing (docs/reviews/tasks.md A19). Read it with bits_load_double. */
+     * -fno-strict-aliasing (docs/reviews/tasks/ A19). Read it with bits_load_double. */
     unsigned long long value_bits;
     unsigned long long count;
     unsigned long long bucket[METRICS_BUCKETS_MAX]; /* cumulative, histogram only */
@@ -497,7 +497,7 @@ static Value native_reset(Value *args, int argc, int line, int col) {
     return value_unit();
 }
 
-/* The collector's own numbers, for item 3 of ROADMAP.md's metrics plan (runtime metrics through the
+/* The collector's own numbers, for item 3 of docs/roadmap/'s metrics plan (runtime metrics through the
  * same module). The two builds answer differently, and both answer honestly.
  *
  * Under the default build these come straight from Boehm: `GC_get_heap_size` is the heap it has

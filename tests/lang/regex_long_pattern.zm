@@ -5,7 +5,7 @@ use regex
 // emitting a single instruction, so MAX_INSTRUCTIONS never got the chance to refuse and the
 // post-compile memory budget was unreachable because the process was already dead. 20,000
 // characters died on a 1 MB stack, and a spawned worker at ZIMAN_THREAD_STACK_MB=1 took the whole
-// process with it (docs/reviews/tasks.md A25). `gen` and `free_node` now walk the chain in a loop,
+// process with it (docs/reviews/tasks/ A25). `gen` and `free_node` now walk the chain in a loop,
 // so recursion is bounded by the pattern's *nesting*, which the parser caps at 200.
 //
 // Run on a 1 MB stack deliberately: that is the size src/stack.c picks by itself for a spawned

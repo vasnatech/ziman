@@ -57,7 +57,7 @@ accident.
 
 **Hand the prompt over by path or by file, never by retyping it.** On 2026-10-10 a ten-task wave was
 discarded because four prompts had been hand-transcribed and diverged from their source
-(docs/reviews/tasks.md F49) -- and discarding only the four would have left a tainted comparison, so
+(docs/reviews/tasks/ F49) -- and discarding only the four would have left a tainted comparison, so
 all ten were re-run. The prompts are files for this reason.
 
 ## Running it

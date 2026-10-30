@@ -101,7 +101,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e);
  * collection while the earlier elements are completely unprotected. `maybe_collect` (below) skips
  * entirely whenever this depth is nonzero, so a collection can never run partway through building
  * such a buffer. Every site that builds one wraps it with `gc_unsafe_enter`/`gc_unsafe_leave`; see
- * docs/DESIGN.md's own entry on the bug this closes (found in `struct_obj_new`'s own first real
+ * docs/design/journal/'s own entry on the bug this closes (found in `struct_obj_new`'s own first real
  * migration attempt) for the full incident and the audit that produced this list. */
 static __thread int t_gc_unsafe_depth = 0;
 static void gc_unsafe_enter(void) { t_gc_unsafe_depth++; }
@@ -413,7 +413,7 @@ static Env *env_pool_acquire(Env *parent) {
  * parentless and empty while it waits. This was a real use-after-free, invisible in a `make gc`
  * build only because `free` is a no-op there (zgc.h) and the stale `parent` kept the scope
  * *reachable*, so Boehm never reclaimed it -- correct by accident. In a `nogc` build, where `free`
- * is real, it segfaulted roughly every other run of any non-trivial program (docs/DESIGN.md). */
+ * is real, it segfaulted roughly every other run of any non-trivial program (docs/design/journal/). */
 static void env_pool_release(Env *env) {
     env_reset(env);
     env->parent = NULL;
@@ -981,7 +981,7 @@ static Value value_error_message(Module *module, Value e, int line, int col) {
 }
 
 /* push/insert/set never mutate their `arr` argument -- they always build a
- * brand new ArrayObj and return a Value wrapping it, per docs/DESIGN.md's
+ * brand new ArrayObj and return a Value wrapping it, per docs/design/journal/'s
  * value-semantics decision for arrays. Sharing `old->items[k]` Values by
  * plain struct copy into the new buffer is safe precisely because ArrayObj
  * is immutable once built (see value.h) -- there's nothing to alias into. */
@@ -1423,7 +1423,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                      * declared never-null whatever the length is, so the zero-length copy is
                      * undefined by the letter of C11 7.24.1p2 -- UBSan reports it, harmlessly, on
                      * 12 of the fixtures, which is enough noise to bury a real report
-                     * (docs/reviews/tasks.md A22). */
+                     * (docs/reviews/tasks/ A22). */
                     if (argc > 0) memcpy(all + clo->ncaptured, args, (size_t)argc * sizeof(Value));
                     result = call_function(module, clo->fn, all, clo->ncaptured + argc, 0, e->line, e->col);
                     free(all);
@@ -1438,7 +1438,7 @@ static Value eval_expr(Module *module, Env *env, Expr *e) {
                  * every time" idea call_fn's own doc comment (ast.h) describes for `find_function`
                  * itself. The `else` chain below is left completely unreached for this case, not
                  * removed, as a fallback with zero cost if this branch is ever wrong about a
-                 * name it hasn't seen before. See docs/DESIGN.md's interpreter-speed entry. */
+                 * name it hasn't seen before. See docs/design/journal/'s interpreter-speed entry. */
                 FunctionDecl *fn = (FunctionDecl *)e->call_fn;
                 result = call_function(module, fn, args, argc, e->as.call.variadic_tail_is_array_spread, e->line, e->col);
                 if (fn->is_native && fn->type_params.count > 0 && e->resolved_type.kind != TY_TYPEVAR) {
@@ -1942,7 +1942,7 @@ static size_t gc_growth_before_next_collect(size_t reserved_now) {
  * can have earlier elements sitting completely unrooted at that exact moment. Skipping entirely
  * whenever any such buffer is in progress anywhere on this thread's call stack -- see
  * gc_unsafe_enter/leave's own comment -- is what makes this safe; "exec_stmt's own entry" alone
- * was not (see docs/DESIGN.md's own entry on the bug this fixes). */
+ * was not (see docs/design/journal/'s own entry on the bug this fixes). */
 /* `--gc-stress`: collect at **every** safe point rather than on a growth threshold.
  *
  * A `Value` held only by C -- in a local, or in a buffer C is still filling -- is not a root,
@@ -1983,7 +1983,7 @@ void ziman_force_collect(void) {
  *
  * Also the one place that updates the current frame's own recorded Env (error.c's frame tracking,
  * ziman_set_frame_env) for the duration of this nested scope, restoring it before returning --
- * found necessary the hard way (docs/MEMORY.md, docs/DESIGN.md's own entry on the incident): every
+ * found necessary the hard way (docs/MEMORY.md, docs/design/journal/'s own entry on the incident): every
  * call to this function is handed a *child* of whatever Env the frame had recorded, but
  * ziman_set_frame_env is otherwise only ever called once, by call_function, for a call's own
  * top-level scope. Without this, gc_mark_env_chain's root walk -- which only ever walks a
@@ -2091,13 +2091,13 @@ static ExecResult exec_stmt(Module *module, Env *env, Stmt *s) {
             /* One scope for the whole loop, not one per iteration: `env_reset` clears last
              * iteration's bindings without freeing the scope itself or its `items` buffer, so after
              * the first iteration a loop with a stable declaration count allocates nothing at all for
-             * its own bookkeeping. This was most of a tight loop's cost -- see docs/DESIGN.md's
+             * its own bookkeeping. This was most of a tight loop's cost -- see docs/design/journal/'s
              * interpreter-speed entry.
              *
              * And the scope itself comes from the pool, as `exec_block` and `call_function` already
              * took theirs: one allocation per loop *entry* is still 234K calloc'd Envs and 209K
              * reallocs of their `items` across a 2,000-request workload, which was the largest
-             * remaining source of allocated bytes once the three sites in DESIGN.md's "Three
+             * remaining source of allocated bytes once the three sites in docs/design/journal/'s "Three
              * allocation sites" entry were gone. A pooled Env arrives with its `items` buffer already
              * grown, so the reallocs go with the callocs. `env_pool_release` assumes `defer_count` is
              * already 0, which holds here for exactly the reason it holds for `exec_block`: every path

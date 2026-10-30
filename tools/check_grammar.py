@@ -4,7 +4,7 @@ r"""Checks that editors/vscode/syntaxes/ziman.tmLanguage.json gives the scopes i
 The grammar had no test of any kind. Nothing loaded it, nothing asserted a scope, and three real
 gaps sat in it unnoticed until the 2026-10-11 style review read it by hand: `internal` matched
 nothing, `#![...]` was not an attribute, and `val`/`var` shared one scope so no theme could tell
-them apart (docs/reviews/tasks.md F75, F76). A grammar is a program; this is its test.
+them apart (docs/reviews/tasks/ F75, F76). A grammar is a program; this is its test.
 
 How faithful this is. TextMate tries a scope's `patterns` in order and takes the leftmost match,
 earliest pattern winning a tie, then continues after it, and a rule may scope its capture groups

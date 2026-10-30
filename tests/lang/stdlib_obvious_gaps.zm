@@ -22,7 +22,7 @@ fn main() {
     print(join(separator: "-", pieces: ["2026", "10", "09"]))
     print(join(separator: "-", pieces: ["solo"]))
     // `array_join([], "-")` gave `[]` its element type from the parameter; `join`'s `pieces` is a
-    // variadic, where an empty literal cannot be inferred (SYNTAX.md says so), so this is the one
+    // variadic, where an empty literal cannot be inferred (docs/syntax/ says so), so this is the one
     // place removing the wrapper costs a line.
     val no_pieces: [string] = []
     print(join(separator: "-", pieces: no_pieces) == "")

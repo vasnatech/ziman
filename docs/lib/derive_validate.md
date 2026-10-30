@@ -1,6 +1,6 @@
 # `derive_validate`
 
-> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> **Experimental** -- see docs/design/journal/'s "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 `#[derive(Validate)]`, written in Ziman.

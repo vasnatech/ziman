@@ -1,4 +1,4 @@
-// R: ROADMAP.md's metrics item 3, runtime metrics through the same module. The values themselves
+// R: docs/roadmap/'s metrics item 3, runtime metrics through the same module. The values themselves
 // are machine- and moment-dependent, so this pins the shape instead: the four gauges are declared,
 // rendered with their help text, and carry a number. The one value that is fixed is the collection
 // count under `nogc`, which is -1 because that build keeps no count -- and this fixture runs on

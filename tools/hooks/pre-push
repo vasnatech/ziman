@@ -3,7 +3,7 @@
 #
 # This exists because HEAD was pushed red and nothing noticed: the 2026-10-14 C review's first act
 # was to record a baseline `make check`, and it failed -- `tests/run_api.sh` was asking for a module
-# the commit before had deleted (docs/reviews/tasks.md A46, fixed in 07149ff). The gate was
+# the commit before had deleted (docs/reviews/tasks/ A46, fixed in 07149ff). The gate was
 # complete and correct and simply never ran.
 #
 # **pre-push, not pre-commit**, deliberately. What went wrong was a pushed red HEAD, not a local

@@ -5,7 +5,7 @@
 # all 889 of them is tens of minutes against `make asan`'s 42 seconds, and it collides with
 # run_tests.sh's 5-second per-fixture timeout. What it buys that the sanitizer targets cannot is
 # memcheck's uninitialised-value checking -- ASan does not do it and MSan is not in use -- plus a
-# leak checker, which is what found A26 (docs/reviews/tasks.md F23).
+# leak checker, which is what found A26 (docs/reviews/tasks/ F23).
 #
 # The three fixtures here are the ones that exercise the conservative stack scanner hardest: each
 # builds a stack trace, so the scan runs over a deep stack full of live roots. The unit tests are
@@ -30,7 +30,7 @@ fi
 # $1 = name, $2 = "leaks" or "noleaks", rest = the command.
 #
 # Leak checking is on for the unit tests and off for a whole `ziman` run, and that is not timidity:
-# this interpreter never frees an AST, a Value or a module graph, by design (docs/DESIGN.md's
+# this interpreter never frees an AST, a Value or a module graph, by design (docs/design/journal/'s
 # "Memory reclamation"), so a leak check over a program run reports the design -- 555 loss records
 # on a three-line fixture -- and drowns the thing worth looking at. The same conclusion F24 reached
 # for LeakSanitizer. Uninitialised-value checking, which is why this target exists, is on for both.

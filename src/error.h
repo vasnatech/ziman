@@ -6,7 +6,7 @@
 /*
  * All compile/runtime errors funnel through here. v0 just prints a
  * human-readable line to stderr and exits(1) -- structured/machine-parseable
- * diagnostics are deferred (see docs/DESIGN.md).
+ * diagnostics are deferred (see docs/design/journal/).
  */
 /* `_Noreturn` because it never does: it either exits, or longjmps to a thread boundary or a
  * recovery point. Saying so lets the compiler stop warning about the code after a call to it, and
@@ -58,7 +58,7 @@ void ziman_finish_errors(void);
  * every file is named the same way, so which file an error is in never depends on
  * which one happened to be given on the command line). NULL when unknown (a
  * bundled core-library module has no real file of its own, so its errors stay
- * unnamed on purpose -- see docs/DESIGN.md). */
+ * unnamed on purpose -- see docs/design/journal/). */
 void ziman_set_error_file(const char *file);
 /* The file set above, for a diagnostic that must name it explicitly (ziman_warning takes one). */
 const char *ziman_error_file(void);

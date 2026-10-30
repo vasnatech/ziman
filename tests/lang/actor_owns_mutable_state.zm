@@ -4,8 +4,8 @@
 // argument or a module-level val), and those refusals are the reason this shape is the one that
 // works: the state is created inside the actor, so it never crosses a thread at all.
 //
-// Named in docs/DESIGN.md's mutability discussion as the thing that "shows the thread-bound story
-// working rather than asserting it", and in docs/ROADMAP.md's `Mutable<T>` entry.
+// Named in docs/design/journal/'s mutability discussion as the thing that "shows the thread-bound story
+// working rather than asserting it", and in docs/roadmap/'s `Mutable<T>` entry.
 //
 // Two things worth copying from here. First, the state is three different Mutable* types held
 // together (a map, a counter, a log) -- an actor owns a little world, not one cell, and none of it

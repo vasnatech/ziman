@@ -31,7 +31,7 @@ Not yet: request bodies streamed from a file, HTTP/2, and mutual TLS.
 
 Mutual TLS is absent here rather than in `net`, which has the client-certificate surface: this
 module threads a lone `ca_file` through six call layers and would have to carry that options
-struct instead, which is mechanical but wide (docs/reviews/tasks.md F64).
+struct instead, which is mechanical but wide (docs/reviews/tasks/ F64).
 
 `use client` -- or `use client.Name` to bring one item in bare.
 
@@ -142,7 +142,7 @@ pub fn client_error_message(e: ClientError) -> string
 The error as one line of text, for logging or showing to a user. Named `client_error_message`,
 matching `net_error_message`/`db_error_message`/`jwt_error_message`'s own convention (and
 freeing the bare `error_message` name for the builtin of that name, which dispatches to this
-exact function for a `ClientError` -- see docs/DESIGN.md's "A unified error_message builtin").
+exact function for a `ClientError` -- see docs/design/journal/'s "A unified error_message builtin").
 
 ### `Url`
 

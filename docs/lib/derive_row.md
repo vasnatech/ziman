@@ -1,6 +1,6 @@
 # `derive_row`
 
-> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> **Experimental** -- see docs/design/journal/'s "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 `#[derive(Row)]`, written in Ziman: `<name>_from_row` and `<name>_to_params`, which map a

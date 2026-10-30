@@ -78,9 +78,9 @@ static Module *one_function(const char *file, int ran_first, int ran_second) {
 }
 
 /* Releases what one_function built. The real interpreter never frees a Module -- nothing in it has
- * a free function, by design (docs/DESIGN.md's "Memory reclamation") -- but this test built the
+ * a free function, by design (docs/design/journal/'s "Memory reclamation") -- but this test built the
  * tree itself with calloc, so it owns it, and freeing it is what lets `make valgrind` leak-check
- * this test rather than skip it (docs/reviews/tasks.md F24). `ziman_coverage_accumulate` only reads
+ * this test rather than skip it (docs/reviews/tasks/ F24). `ziman_coverage_accumulate` only reads
  * the tree, so this is safe once the last check that depends on it has run. */
 static void free_one_function(Module *m) {
     FunctionDecl *fn = m->functions.items[0];

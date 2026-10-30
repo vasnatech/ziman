@@ -1,6 +1,6 @@
 # `test`
 
-Assertions for #[test] functions (see docs/SYNTAX.md "Testing"): `ziman test`
+Assertions for #[test] functions (see docs/syntax/ "Testing"): `ziman test`
 runs every #[test] function it finds, and a failed assertion here is what makes one fail.
 
 **Every failure names the line that asserted**, and that took a change in the runner rather
@@ -121,7 +121,7 @@ pub fn assert_eq<T: Eq>(expected: T, actual: T)
 ```
 
 Fails unless `actual` equals `expected` (structural equality -- see "Equality" in
-docs/SYNTAX.md), showing both values on failure.
+docs/syntax/), showing both values on failure.
 
 ### `assert_ne`
 

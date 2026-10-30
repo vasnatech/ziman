@@ -3,7 +3,7 @@
  * both about size rather than about matching, and neither is reachable from a fixture without making
  * the fixture huge.
  *
- * What it pins down (docs/reviews/tasks.md A16):
+ * What it pins down (docs/reviews/tasks/ A16):
  *   - the epsilon-closure walk does not recurse: a pattern with 1,000 capture groups used to need
  *     about 32 MB of C stack and now needs none, so this runs in a unit test's ordinary stack;
  *   - a pattern too big to match is refused at compile time with a message that names the size;

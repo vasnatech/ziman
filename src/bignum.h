@@ -12,7 +12,7 @@
  * least significant) so string conversion is nearly free and the
  * arithmetic stays easy to read/verify by hand, at some cost to raw
  * speed for very large numbers -- matching the project's own "not
- * chasing performance" stance (docs/DESIGN.md non-goals).
+ * chasing performance" stance (docs/design/journal/ non-goals).
  *
  * `sign` is -1/0/1; `count == 0` always means exactly zero (with
  * sign == 0), and every operation normalizes away any leading
@@ -62,7 +62,7 @@ BigNum bignum_pow10(int n);
 
 /* Clamps to INT64_MIN/INT64_MAX if `a` doesn't fit -- used by `hash()`
  * and by an explicit `as int` cast, which is itself defined as
- * saturating rather than wrapping (see docs/SYNTAX.md's cast rules). */
+ * saturating rather than wrapping (see docs/syntax/'s cast rules). */
 int64_t bignum_to_i64_saturating(BigNum a);
 double bignum_to_double(BigNum a);      /* used by `as float`; via the text, so any magnitude survives */
 

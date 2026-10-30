@@ -1,6 +1,6 @@
 # `yaml`
 
-> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> **Experimental** -- see docs/design/journal/'s "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 A strict YAML 1.2 subset on top of `json`: a document is a `Json` tree, so any

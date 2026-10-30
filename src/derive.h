@@ -11,7 +11,7 @@
  * loader's self-qualify/cross-reference passes, typecheck, the
  * interpreter) sees a derived function exactly like a hand-written one,
  * with zero special-casing needed anywhere else. Called once, from
- * parse(), right before it returns -- see docs/DESIGN.md's "Attributes
+ * parse(), right before it returns -- see docs/design/journal/'s "Attributes
  * and derive" entry for the full design. */
 void generate_derived_functions(Module *module);
 

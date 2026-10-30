@@ -5,19 +5,19 @@ Auto-generated from each `lib/core/*.zm` or `lib/db/*.zm` file's own `pub` decla
 blocks below**; regenerate with `make corelib-reference` after changing
 any core module (adding, removing, or renaming a `pub struct`/`pub enum`/
 `pub fn`/`pub native fn`/`pub val`). This is a signature lookup, not an
-explanation -- see the manual in docs/lib/ for how to use each module, docs/SYNTAX.md for full semantics and docs/DESIGN.md
+explanation -- see the manual in docs/lib/ for how to use each module, docs/syntax/ for full semantics and docs/design/journal/
 for why each module is shaped the way it is.
 
 `use <module>` resolves any of these with no local file needed (see
-docs/SYNTAX.md's "Modules" -- "Bundled core module"); a per-name import
+docs/syntax/'s "Modules" -- "Bundled core module"); a per-name import
 (`use <module>.Name`) binds one item bare instead of qualified.
 
 One exception, not listed below: `lib/prelude/` -- unlike every
 module here, it's never `use`-able at all (see its own header comment
-and docs/DESIGN.md's "Prelude" entry), since everything it declares
+and docs/design/journal/'s "Prelude" entry), since everything it declares
 (`Option<T>`, plus a handful of native functions) is already bare and
 unqualified in every program, the same way `print`/`str`/`parse_int`
-are. See docs/SYNTAX.md's "Modules" section for what it contains.
+are. See docs/syntax/'s "Modules" section for what it contains.
 
 ## `bits`
 
@@ -294,7 +294,7 @@ pub fn format(rows: Json, sep: string) -> Result<string, string>
 
 ## `derive_json`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub fn from_json(d: meta.Decl, members: [meta.Field]) -> Result<string, string>
@@ -313,7 +313,7 @@ pub fn to_json(d: meta.Decl, members: [meta.Field]) -> Result<string, string>
 
 ## `derive_ord`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub fn generate(d: meta.Decl) -> Result<string, string>
@@ -322,7 +322,7 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ## `derive_properties`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub fn generate(d: meta.Decl) -> Result<string, string>
@@ -331,7 +331,7 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ## `derive_reflect`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub fn generate(d: meta.Decl) -> Result<string, string>
@@ -340,7 +340,7 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ## `derive_validate`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub fn attributes() -> [meta.AttrSpec]
@@ -380,7 +380,7 @@ pub native fn base64url_decode(s: string) -> Result<[byte], string>
 
 ## `expr`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub struct MemberNode {
@@ -669,7 +669,7 @@ pub fn audience(claims: Json) -> [string]
 
 ## `locale`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub fn of(asked: string) -> Locale
@@ -753,7 +753,7 @@ pub fn error(l: Logger, message: string) { write(l, Level.Error, message) }
 
 ## `markdown`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). Markdown as a document tree: a reader over a declared subset, a writer, and the escaping that makes a generated document safe. The writer is the point -- `|` in a table cell, the `*_[]` family in text, a leading `#` or `1.`, a code span fenced longer than whatever is inside it -- so nothing a caller puts in a string can change the structure of the output. Markdown has no syntax errors, so a reader cannot refuse what it does not handle: `parse_markdown` reads anything unsupported as text, and `parse_markdown_strict` returns an Err naming the line instead.
+**Experimental** (see docs/design/journal/ "Experimental modules"). Markdown as a document tree: a reader over a declared subset, a writer, and the escaping that makes a generated document safe. The writer is the point -- `|` in a table cell, the `*_[]` family in text, a leading `#` or `1.`, a code span fenced longer than whatever is inside it -- so nothing a caller puts in a string can change the structure of the output. Markdown has no syntax errors, so a reader cannot refuse what it does not handle: `parse_markdown` reads anything unsupported as text, and `parse_markdown_strict` returns an Err naming the line instead.
 
 ```
 pub enum Align {
@@ -944,7 +944,7 @@ pub fn is_finite(x: float) -> bool
 
 ## `meta`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub enum Type {
@@ -1808,7 +1808,7 @@ pub fn escape(text: string) -> string
 
 ## `template`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub struct Sheet {
@@ -1971,7 +1971,7 @@ pub fn reset<T>(key: ThreadLocal<T>)
 
 ## `toml`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). TOML 1.0 to and from a `Json` tree. Dates stay strings; `inf`/`nan` are rejected.
+**Experimental** (see docs/design/journal/ "Experimental modules"). TOML 1.0 to and from a `Json` tree. Dates stay strings; `inf`/`nan` are rejected.
 
 ```
 pub fn parse(text: string) -> Result<Json, string>
@@ -2032,7 +2032,7 @@ pub fn uuid_compare(a: Uuid, b: Uuid) -> int
 
 ## `validate`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub struct Violation {
@@ -2106,7 +2106,7 @@ pub fn matches(value: Option<string>, pattern: string) -> Option<string>
 
 ## `xml`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). XML 1.0 as a document tree: a reader, a writer and a small path finder, in pure Ziman. Not a `Json` tree -- XML interleaves text with elements, separates attributes from children and identifies a name by its namespace URI, none of which survive a map. There is no DTD at all, so `<!DOCTYPE>` is a parse error and entity-expansion and external-entity attacks have nowhere to stand; size, depth and attribute-count limits are in `XmlLimits`.
+**Experimental** (see docs/design/journal/ "Experimental modules"). XML 1.0 as a document tree: a reader, a writer and a small path finder, in pure Ziman. Not a `Json` tree -- XML interleaves text with elements, separates attributes from children and identifies a name by its namespace URI, none of which survive a map. There is no DTD at all, so `<!DOCTYPE>` is a parse error and entity-expansion and external-entity attacks have nowhere to stand; size, depth and attribute-count limits are in `XmlLimits`.
 
 ```
 pub struct Name {
@@ -2220,7 +2220,7 @@ pub fn format(e: Element) -> Result<string, string>
 
 ## `yaml`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). A strict YAML 1.2 subset to and from a `Json` tree: block and flow collections, quoted/plain/block scalars. Anchors, tags, merge keys and multiple documents are errors.
+**Experimental** (see docs/design/journal/ "Experimental modules"). A strict YAML 1.2 subset to and from a `Json` tree: block and flow collections, quoted/plain/block scalars. Anchors, tags, merge keys and multiple documents are errors.
 
 ```
 pub fn parse(text: string) -> Result<Json, string>
@@ -2366,7 +2366,7 @@ pub fn open_rows(
 
 ## `derive_entity`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub fn attributes() -> [meta.AttrSpec]
@@ -2377,7 +2377,7 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ## `derive_repository`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub fn generate_module(t: meta.Target) -> Result<string, string>
@@ -2388,7 +2388,7 @@ pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string
 
 ## `derive_row`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub fn emit_to_sql(t: meta.Type, src: string, dst: string, n: Mutable<int>) -> Result<string, string>
@@ -2399,7 +2399,7 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ## `eql`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub struct Entity {
@@ -2551,7 +2551,7 @@ pub fn count(conn: datasource.Connection, query: Translated, bound: [Binding]) -
 
 ## `memdb`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub fn driver() -> Driver
@@ -2617,7 +2617,7 @@ pub fn run(conn: Connection, dir: string) -> Result<int, DbError>
 
 ## `mysql`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). A MySQL/MariaDB client, the third engine behind `datasource`: the text and binary protocols, `mysql_native_password`/`caching_sha2_password` authentication, TLS. No compressed protocol, LOCAL INFILE, the RSA key exchange, or prepared-statement reuse.
+**Experimental** (see docs/design/journal/ "Experimental modules"). A MySQL/MariaDB client, the third engine behind `datasource`: the text and binary protocols, `mysql_native_password`/`caching_sha2_password` authentication, TLS. No compressed protocol, LOCAL INFILE, the RSA key exchange, or prepared-statement reuse.
 
 ```
 pub struct Connection {
@@ -2641,7 +2641,7 @@ pub fn driver() -> Driver
 
 ## `pg`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). A PostgreSQL client, the second engine behind `datasource`: the simple and extended query protocols, trust/cleartext/SCRAM-SHA-256 authentication, TLS. No MD5 auth, Kerberos, client certificates, COPY or LISTEN/NOTIFY.
+**Experimental** (see docs/design/journal/ "Experimental modules"). A PostgreSQL client, the second engine behind `datasource`: the simple and extended query protocols, trust/cleartext/SCRAM-SHA-256 authentication, TLS. No MD5 auth, Kerberos, client certificates, COPY or LISTEN/NOTIFY.
 
 ```
 pub native fn float_to_text(f: float) -> string
@@ -2688,7 +2688,7 @@ pub fn driver() -> Driver
 
 ## `sql`
 
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+**Experimental** (see docs/design/journal/ "Experimental modules"). 
 
 ```
 pub fn fold_name(name: string) -> string
@@ -3517,7 +3517,7 @@ pub struct ServeOptions {
     // kept one through `idle_timeout_ms` of doing nothing and a 65th client against a cap of 64
     // waited for a *timeout* rather than for a request. 256 keep-alive clients against a cap of 64
     // took one full idle timeout whatever the request count -- 31.5s -- where they now take
-    // 1.5-2.0s and a cap of 64 measures the same as a cap of 256 (docs/reviews/tasks.md F139).
+    // 1.5-2.0s and a cap of 64 measures the same as a cap of 256 (docs/reviews/tasks/ F139).
     //
     // So size it by the concurrency of *work* you want to admit, which is what a thread-per-request
     // server can usefully run at once, and let the client count follow from sockets.

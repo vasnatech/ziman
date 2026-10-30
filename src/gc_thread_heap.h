@@ -5,7 +5,7 @@
 
 /* The calling thread's own `GcHeap` (docs/MEMORY.md, "one heap per thread") -- created lazily on
  * first use, one per thread, never shared. This is the allocator `value.c`'s own constructors will
- * route through (starting with one, deliberately -- see docs/DESIGN.md's "narrowest possible slice"
+ * route through (starting with one, deliberately -- see docs/design/journal/'s "narrowest possible slice"
  * entry), kept in its own small module rather than owned by `value.c` or `interpreter.c` directly:
  * `value.c` is lower-level than `interpreter.c` and must not depend on it (a layering inversion),
  * but both need access to "the current thread's heap" -- `value.c` to allocate into it,

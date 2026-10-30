@@ -4,7 +4,7 @@
 #include "value.h"
 
 /* Every native function has this one fixed C shape, regardless of what
- * its `native fn` declaration says in Ziman -- see docs/DESIGN.md for why
+ * its `native fn` declaration says in Ziman -- see docs/design/journal/ for why
  * that's deliberate. `line`/`col` are the call site, so a native function
  * can raise a ziman_error() that reads like any other runtime error. */
 typedef Value (*NativeFn)(Value *args, int argc, int line, int col);

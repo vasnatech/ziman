@@ -11,7 +11,7 @@
 // character would make every scanner quadratic, so a string Value carries a known-ASCII bit
 // (ZSTR_ASCII, src/value.h) and each of these functions is two implementations: with no high byte
 // anywhere a character index *is* a byte index and the code is the arithmetic it always was. Text
-// with real multi-byte characters takes the walk. See docs/DESIGN.md's entry for the measurements.
+// with real multi-byte characters takes the walk. See docs/design/journal/'s entry for the measurements.
 //
 // `to_upper`, `to_lower` and `equals_ignore_case` change only the ASCII letters A-Z.
 //
@@ -69,7 +69,7 @@
 // `clear` across four, `filter`, `remove`, `mutable`, `set` and `map` across three, `concat`,
 // `get_or`, `update` and `flat_map` across two or one. Nothing is exempt and nothing is left over.
 // `remove_all` was in this list until 2026-10-22, when `remove` went variadic and absorbed it --
-// a set can leave the list by being merged into another, not only by being filed. See docs/DESIGN.md's "Overloading available to a declaration",
+// a set can leave the list by being merged into another, not only by being filed. See docs/design/journal/'s "Overloading available to a declaration",
 // and prelude.zm's header for what collections.zm's own header carried.
 //
 // **result.zm was added the same day, and is the rule read forwards rather than backwards.**
@@ -197,7 +197,7 @@ pub native fn substring(s: string, start: int, end: int) -> string
 //    declaration's variadic parameter has **one** type, so the two builder declarations each state
 //    half of what the call may pass, and the rule routes the whole tail to one C function that
 //    reads either world per element. A single declaration would need a union type, which
-//    docs/DESIGN.md refuses outright ("a language that refuses general bounds should not acquire
+//    docs/design/journal/ refuses outright ("a language that refuses general bounds should not acquire
 //    general unions for them"). `concat(b)` with an empty tail likewise fits both.
 //
 // For three sessions this was recorded here as the conversion that *could not* be done, and the
@@ -330,7 +330,7 @@ pub native fn is_char_at(s: string, i: int, c: string) -> bool
 // code-point-aware alternative to a byte-oriented family, because there is no byte-oriented family
 // left. What they still are is the *shape*-changing three: `chars` hands back every character at
 // once where `char_at` hands back one, `truncate` clamps where `substring` raises, and `reverse`
-// turns the whole string around. See docs/DESIGN.md's UTF-8 entry for the measurements that made
+// turns the whole string around. See docs/design/journal/'s UTF-8 entry for the measurements that made
 // the unit affordable.
 
 // `s` split into its individual code points, each its own one-character string:
@@ -461,7 +461,7 @@ pub native fn to_upper(s: string) -> string
 // **Simple case mapping, not full.** One code point in, one out -- the POSIX interface underneath
 // (`towupper_l`) is shaped that way -- so German `ß` does not become `SS`, `ﬁ` does not become
 // `FI`, and the Greek final sigma is not contextual. lib/core/locale.zm's header says this once
-// and docs/ROADMAP.md carries what it would take to fix.
+// and docs/roadmap/ carries what it would take to fix.
 pub native fn to_upper(s: string, with_locale: Locale) -> string
 
 // `s` with the ASCII letters A-Z made lower case; other bytes are unchanged.
@@ -611,7 +611,7 @@ pub native fn clear(s: MutableString)
 // leaves a `\r` on every line of CRLF text and leaves a trailing empty string after a final
 // newline, so "a\nb\n" splits into three pieces where it has two lines. Both of those are the
 // kind of difference that shows up as an off-by-one in someone's line count rather than as an
-// error (docs/reviews/tasks.md F35).
+// error (docs/reviews/tasks/ F35).
 //
 // A final newline is a terminator, not a separator -- "a\nb\n" and "a\nb" both have two lines --
 // which is how every line-oriented tool reads a text file. An empty string has no lines.

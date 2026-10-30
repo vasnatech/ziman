@@ -7,7 +7,7 @@ happened -- a staging step struck through, a decision closed, a section headed "
 never touched. `docs/design/expressions.md` said "design, not built" for a day after all five of
 its steps shipped; `meta.md` and `user-generators.md` said the same with their own bodies
 recording otherwise. Nothing caught any of it, because `check_not_yet.py` reads `lib/` and
-ROADMAP.md and never looks at a design doc's header.
+docs/roadmap/ and never looks at a design doc's header.
 
 The rule is a **contradiction inside one file**, which is the only thing a script can honestly
 decide here -- it cannot know whether a document describes something built:

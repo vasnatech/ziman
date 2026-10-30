@@ -1,5 +1,5 @@
 // Per-operation cost of `Map`, `Set`, `MutableMap` and `MutableSet` against a 100,000-entry
-// container, which is the table in docs/ROADMAP.md's "Make `Map`/`Set` operations faster" entry.
+// container, which is the table in docs/roadmap/'s "Make `Map`/`Set` operations faster" entry.
 //
 // That table was measured ad hoc on 2026-10-05 and had no checked-in source, so it could not be
 // retaken -- and three changes that bear on exactly this workload landed after it: the per-arena

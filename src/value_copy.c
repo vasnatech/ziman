@@ -65,7 +65,7 @@ static Value value_deep_copy_crossing(Value v);
 static Value crossing_array_copy(ArrayObj *a, const Type *array_type) {
     /* Copied element by element into a plain boxed array regardless of whether `a` was packed --
      * packed-vs-boxed is purely an internal storage optimisation, invisible to any program (see
-     * docs/SYNTAX.md's Builtins section), so a value that crosses a thread coming back boxed is not
+     * docs/syntax/'s Builtins section), so a value that crosses a thread coming back boxed is not
      * a correctness change, only a missed optimisation for the rare (thread-crossing) case. `store`
      * (the spare capacity `push` shares between snapshots of the same growing array) is deliberately
      * dropped: it is tied to one thread's own compare-and-swap sequence of pushes, and a copy on

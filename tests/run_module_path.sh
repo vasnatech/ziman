@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # How `use` finds a module that is not beside the importing file: ZIMAN_MODULE_PATH, and a
-# `ziman.toml` marking the project root (ROADMAP.md's `ziman test` entry).
+# `ziman.toml` marking the project root (docs/roadmap/'s `ziman test` entry).
 #
 # Why this is a script and not a fixture: tests/run_tests.sh runs a directory fixture's entry at
 # `name/main.zm`, which is the top of that directory -- so the marker's directory and the entry's
@@ -93,7 +93,7 @@ rm "$work/ziman.toml"
 # exist for -- "letting tests live in a directory of their own", as the manual puts it -- so every
 # directory module in a project was unreachable from a test directory. Found while writing the
 # health-record backend's first `#[test]` units, where `use common` is exactly this shape
-# (docs/reviews/tasks.md F134).
+# (docs/reviews/tasks/ F134).
 mkdir -p "$work/src/common"
 cat > "$work/src/common/common.zm" <<'ZM'
 pub fn greet() -> string {

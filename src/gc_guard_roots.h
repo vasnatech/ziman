@@ -5,7 +5,7 @@
 #include "value.h"
 
 /* Closes a gap found directly, the hard way, via a fake Postgres-protocol listener driving the
- * real interpreter under sustained load (docs/DESIGN.md's own long GC-roots investigation): a
+ * real interpreter under sustained load (docs/design/journal/'s own long GC-roots investigation): a
  * `Guard` (`prelude.c`'s `GuardBuf`, the mechanism a database connection uses to tell its owning
  * thread to close if the connection itself is ever dropped without an explicit `close`) is a plain
  * `malloc`/`GC_MALLOC`'d block, outside every root source Ziman's own Phase 3 collector

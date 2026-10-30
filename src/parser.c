@@ -1067,7 +1067,7 @@ static Expr *parse_primary(Parser *p) {
     /* An `else` that starts a line. In most C-family languages `}` and `else` may be on separate
      * lines; here a statement ends at the newline, so the `}` already closed the `if` and this
      * `else` begins a statement of its own -- which is why the bare message named the token rather
-     * than the habit (docs/reviews/tasks.md C19). */
+     * than the habit (docs/reviews/tasks/ C19). */
     if (t->type == TOK_ELSE) {
         ziman_error("syntax", t->line, t->col,
                     "an 'else' has to be on the same line as the brace that closes its 'if' ('} else {') -- a "
@@ -1598,7 +1598,7 @@ static Stmt *parse_decl(Parser *p, StmtKind kind) {
 
 /* `[pub] val NAME[: Type] = <expr>` at module top level -- same grammar as
  * parse_decl's local `val`, minus `var` (no mutable globals, see
- * docs/DESIGN.md's "Global val" entry) and minus being wrapped in a Stmt,
+ * docs/design/journal/'s "Global val" entry) and minus being wrapped in a Stmt,
  * since a top-level declaration lives in Module.vals, not a function
  * body's statement list. */
 static GlobalValDecl *parse_global_val_decl(Parser *p, Visibility vis) {
@@ -1990,7 +1990,7 @@ static Stmt *parse_spawn(Parser *p) {
 
 /* `defer <call>` -- a single function call, its result (if any) thrown
  * away. Only a plain call is accepted: not `x?`, not a block. See
- * docs/DESIGN.md's "defer" entry for why the form is this narrow. */
+ * docs/design/journal/'s "defer" entry for why the form is this narrow. */
 static Stmt *parse_defer(Parser *p) {
     Token *kw = previous(p);
     Expr *call = parse_expr(p);
@@ -2122,7 +2122,7 @@ static char *param_default_key(const char *param_name, int name_len) {
 
 /* `variadic` before the last parameter's type marks it variadic (`xs:
  * variadic int`). It was a trailing `...` on the type until 2026-10-12
- * (docs/DESIGN.md's two variadic entries carry the reversal); both of
+ * (docs/design/journal/'s two variadic entries carry the reversal); both of
  * that spelling's forms are still recognised here, only to be refused
  * with the keyword spelled out -- see reject_ellipsis_variadic.
  * Only the last parameter may be variadic -- checked here, not left
@@ -2246,7 +2246,7 @@ typedef enum { SIG_NATIVE, SIG_BUILTIN, SIG_DERIVED_QUERY } SignatureOnlyKind;
  * -- minus the body-specific step, since a native fn has none to walk. A
  * generic native fn's C implementation never needs to know which
  * concrete type a call instantiated it with to do its own job: Value is
- * already runtime-type-erased regardless (see docs/DESIGN.md's
+ * already runtime-type-erased regardless (see docs/design/journal/'s
  * "Generics" entry), the same reason ordinary generic structs/enums
  * need no monomorphization either. */
 /* `builtin fn` shares every line of this: both are a signature and no body, and the only
@@ -2585,7 +2585,7 @@ static StructDecl *parse_struct_decl(Parser *p) {
  * always referenced qualified as `Name.Variant`); its optional payload is a
  * single TYPE in parens, never a param list or a struct-literal-shaped
  * block -- Ziman has no tuple type, so a variant carries at most one value,
- * same as `Result<T, E>`'s `Ok`/`Err`. See docs/SYNTAX.md "Enums". */
+ * same as `Result<T, E>`'s `Ok`/`Err`. See docs/syntax/ "Enums". */
 static EnumDecl *parse_enum_decl(Parser *p) {
     Token *kw = expect(p, TOK_ENUM, "'enum'");
     Token *name_tok = expect(p, TOK_IDENT, "an enum name");
@@ -2734,7 +2734,7 @@ static UseDecl parse_use_decl(Parser *p) {
  * now (`derive` by src/derive.c, which reads `StructDecl.derives`/
  * `EnumDecl.derives`; `deprecated` by typecheck.c's own
  * `lint_deprecated_use`); any other item name is parsed (so the grammar
- * doesn't need to change later) but silently has no effect yet. See docs/DESIGN.md's
+ * doesn't need to change later) but silently has no effect yet. See docs/design/journal/'s
  * "Attributes and derive" entry. */
 typedef struct {
     char **names;
@@ -3230,7 +3230,7 @@ Module *parse(TokenList tokens) {
     /* **Derives no longer run here.** They ran at the end of parsing one file from the first
      * derive until 2026-10-26, which meant a generator could see the declaration it was attached
      * to and nothing else -- not an imported type, not the module it would like to write into.
-     * That is the wall docs/ROADMAP.md's "Code generation from annotations" entry is about: it
+     * That is the wall docs/roadmap/'s "Code generation from annotations" entry is about: it
      * forced the table name into `#[derive(Entity("t"))]`, and it is why a generator cannot write
      * `delete(conn, id: Uuid)` from a `#[pk]` field in another module.
      *

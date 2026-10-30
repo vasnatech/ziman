@@ -140,7 +140,7 @@ static Value native_os_write_stderr(Value *args, int argc, int line, int col) {
  * cannot see that guarantee -- there is nothing in the program text that says this object is
  * shared, only a type whose meaning lives in the standard -- so it reported the handler's write
  * against `accept`'s read as a data race on three fixtures, and a tool that cries wolf on correct
- * code is a tool nobody runs (docs/reviews/tasks.md A24). Relaxed ordering: this is a flag whose
+ * code is a tool nobody runs (docs/reviews/tasks/ A24). Relaxed ordering: this is a flag whose
  * only transition is 0 -> 1 and nothing is published with it, and `sig_atomic_t` is lock-free, so
  * the handler stays signal-safe. */
 static volatile sig_atomic_t g_shutdown_requested = 0;

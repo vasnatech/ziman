@@ -4,7 +4,7 @@ use net
 // One thread inside a TLS read while another closes that same connection. The project's other TLS
 // tests never make this interleaving, which is why `release_handle` freeing the `SSL` out from
 // under `io_read`'s plain read of `h->ssl` went unseen: a use-after-free on an OpenSSL object, not
-// on a descriptor number (docs/reviews/tasks.md A32). Under TSan this program reported three races
+// on a descriptor number (docs/reviews/tasks/ A32). Under TSan this program reported three races
 // before the fix, in three runs out of three, and none after.
 //
 // The output is deliberately a classification rather than the messages themselves: the two channel

@@ -5,7 +5,7 @@
 
 /* Allocation that does not return NULL, because almost nothing in this interpreter can do anything
  * useful with a NULL and almost nothing checked for one: 13 checks across 283 malloc/calloc sites
- * and 3 across 80 reallocs, before 2026-10-08 (docs/reviews/tasks.md A20). That is defensible for a
+ * and 3 across 80 reallocs, before 2026-10-08 (docs/reviews/tasks/ A20). That is defensible for a
  * CLI that the OS is about to reclaim anyway, and not for the always-on backend this is meant to
  * become -- and the worst case was not the missing check but `src/lsp.c`'s `sb_grow`, which did
  * `p = realloc(p, n)` and so lost the old pointer *and* then wrote through the NULL, in the one

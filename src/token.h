@@ -101,7 +101,7 @@ const char *token_type_name(TokenType type);
  * canonical word (`"let"`, `"const"`, `"mut"`, `"auto"`) for a `name` of `length` bytes, else NULL.
  * One list with two callers, each catching a different position: parser.c rewrites `let x = 1` into
  * the `val` it meant, so one wrong word does not fan out into an error per mention of the name
- * (docs/reviews/tasks.md F95), and typecheck.c answers a bare `let` reaching an expression. */
+ * (docs/reviews/tasks/ F95), and typecheck.c answers a bare `let` reaching an expression. */
 const char *ziman_foreign_decl_keyword(const char *name, int length);
 
 #endif

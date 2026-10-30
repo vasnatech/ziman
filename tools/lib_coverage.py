@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """A line-coverage figure for lib/, merged across the whole fixture suite.
 
-Two things make this possible, and neither is obvious (docs/reviews/tasks.md F135).
+Two things make this possible, and neither is obvious (docs/reviews/tasks/ F135).
 
 A module reached through `use` is normally the copy bundled into the binary, and a bundled
 declaration carries a NULL `source_file` -- which `src/coverage.c` uses to decide what to count, so

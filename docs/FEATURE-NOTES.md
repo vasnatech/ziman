@@ -2,9 +2,9 @@
 
 Long-form notes on what Ziman has today and why, moved out of the README so
 that the README can stay a short introduction. Nothing here is normative:
-[SYNTAX.md](SYNTAX.md) is the language reference, [DESIGN.md](DESIGN.md) the
+[syntax/README.md](syntax/README.md) is the language reference, [design/journal/README.md](design/journal/README.md) the
 reasoning behind each decision, [CORELIB.md](CORELIB.md) the generated
-signature reference, and [ROADMAP.md](ROADMAP.md) what is still open. Some
+signature reference, and [roadmap/README.md](roadmap/README.md) what is still open. Some
 passages describe the state at the time they were written (module counts,
 "new" types); when they disagree with those documents, those win.
 
@@ -40,7 +40,7 @@ same-shaped local `val` is; no global `var`, since a mutable global
 would be exactly the shared, lock-free mutable state Ziman's actor-
 style concurrency (below) already exists to avoid, and unlike a local
 `val`, a global one can never be shadowed by a same-named local (a
-compile-time error, not silent shadowing) — see docs/DESIGN.md's
+compile-time error, not silent shadowing) — see docs/design/journal/'s
 "Global val" entry for why, `native fn` for calling into
 C (the `fs` module proves it
 end to end), `Result<T, E>` for recoverable errors (`fs.read_text`
@@ -65,14 +65,14 @@ body (`hash` is structural, so a `Uuid`, an enum or a struct of hashable
 fields works as a `Map` key) (`array_sort<T: Ord>` is a stable merge sort, and
 `#[derive(Ord)]` writes a struct's or enum's order); these are the only
 three bounds Ziman has — there's no general
-trait/interface system (see docs/DESIGN.md's Generics entry for why,
+trait/interface system (see docs/design/journal/'s Generics entry for why,
 and what's deliberately left undecided). The array library is built on
 this -- `array_sort`, `array_fold`, `array_group_by` and the rest, bare in
 `lib/prelude/array.zm` since 2026-10-14 (one `lib/prelude.zm` until the prelude was split by
 type), where they were a `collections` module
 needing a `use` before that. (`Map<K, V>` and `Set<T>` were `HashMap`/`HashSet`
 there, bucket arrays with O(bucket_count) writes; they are now built-in types on
-a persistent hash trie -- see docs/SYNTAX.md "Maps and sets".)
+a persistent hash trie -- see docs/syntax/ "Maps and sets".)
 (`Option<T>` used to live here too — see the prelude paragraph below for
 where it moved and why. `Box<T>` also used to live here — removed
 outright, not moved, since nothing ever actually used it beyond being
@@ -128,7 +128,7 @@ pure Ziman: `Json` is a genuinely recursive enum
 (`JArray([Json])`/`JObject(Map<string, Json>)`) that works with no new language
 feature, since the recursion goes through an array (a natural finite
 base case, `[]`) rather than a bare self-reference — verified directly
-before the module was written, given an old, since-resolved ROADMAP.md
+before the module was written, given an old, since-resolved docs/roadmap/
 note suggesting self-referential types couldn't be constructed at all.
 `JNumber` holds a `float`, matching virtually every other JSON
 implementation. `parse_json`/`json_to_string` are a real
@@ -232,7 +232,7 @@ first use of a *variadic parameter* — `join(pieces: "a", "b")`/
 `join(pieces: arr)` (an already-built `[string]`) both work for the
 trailing pieces, and it exists specifically so that joining many
 strings is a single native, O(N) buffer build instead of the O(N²) a
-pure-Ziman loop of `concat` calls would be (see docs/DESIGN.md's
+pure-Ziman loop of `concat` calls would be (see docs/design/journal/'s
 "Variadic parameters" entry). Its own leading three parameters are the
 first real caller of `Option<T>` parameter omission (below): the common
 case, `join(pieces: arr)`, leaves all three out, each falling back to
@@ -250,7 +250,7 @@ arguments instead of listing them positionally
 (`localtime_of(hour: 1, minute: 2, second: 3, nano: 4)`, in any order),
 reusing struct-literal `name: value` syntax; a call must be entirely
 positional or entirely named, and the label must match the parameter's
-own declared name (see docs/DESIGN.md's "Named arguments" entry). A
+own declared name (see docs/design/journal/'s "Named arguments" entry). A
 named call may also leave out an `Option<T>`-typed parameter entirely
 (never a required one, and never in a positional call) — it becomes
 `None`, or whatever the declaration's own `= expr` default says instead
@@ -261,7 +261,7 @@ expression, a `val`/`var`'s own declared type, a struct literal field,
 a `with` override, or a function's returned value — a bare `T` works
 too, auto-wrapped to `Some(T)` — a deliberate, narrow exception to "no
 implicit coercion," modeled on Rust's own `impl<T> From<T> for
-Option<T>` (see docs/DESIGN.md's "Option\<T\> parameter omission and
+Option<T>` (see docs/design/journal/'s "Option\<T\> parameter omission and
 defaults" entry). `Result<T, E>` gets the same bare-value auto-wrap, in
 all of those same positions except a default (`Result<T, E>` can't have
 one): a bare `T` becomes `Ok(T)`, a bare `E` becomes `Err(E)`, and when
@@ -270,13 +270,13 @@ explicitly for that one case). Unlike `Option<T>`, a `Result<T, E>`
 parameter can never be omitted — there's no natural "absent" state an
 outcome type could fall back to — so this sugar is only ever about
 what a supplied value looks like, never about leaving one out (see
-docs/DESIGN.md's "Result\<T, E\> bare-value auto-wrap" entry). A
+docs/design/journal/'s "Result\<T, E\> bare-value auto-wrap" entry). A
 prefix `try expr` unwraps a `Result<T, E>`/`Option<T>` success value and
 keeps going, or immediately returns the failure from the enclosing
 function (`Ok`/`Some` → the value; `Err`/`None` → an early `return`).
 The interpreter only knows it as a `val`/`var`'s entire initializer or a
 bare statement; the parser hoists a `try` written inside a larger
-expression into such a statement (see docs/DESIGN.md's "try" entries).
+expression into such a statement (see docs/design/journal/'s "try" entries).
 It was first a postfix `expr?`, replaced by `try` (2026-09) so that the
 early exit is written where it is hard to miss.
 
@@ -289,7 +289,7 @@ merged bare into every program the same way the entry file's own
 top-level names are. So does `MutableString` — a general fix for the
 O(N²)-allocation, O(N)-leaked-garbage pattern of building a string via
 repeated `concat` in a loop (`uuid.format` used to be exactly this,
-and now isn't — see docs/DESIGN.md's "StringBuilder" entry, which the
+and now isn't — see docs/design/journal/'s "StringBuilder" entry, which the
 2026-10-13 rename supersedes in part). It's a plain, one-field struct
 (`MutableString { handle: int }`), not a new built-in type the way
 `Channel<T>` is: the `handle` is an opaque index into a native-side table
@@ -315,4 +315,4 @@ module (`fs`, `json`, ...), `lib/prelude/` is never
 reachable through `use` at all — everything it declares is already
 unqualified everywhere, so
 there'd be nothing to gain and a redundant path to create. See
-[docs/ROADMAP.md](docs/ROADMAP.md) for what's deliberately not here yet.
+[roadmap/README.md](roadmap/README.md) for what's deliberately not here yet.

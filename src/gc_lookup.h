@@ -38,7 +38,7 @@
  * this: "a real, deliberate cost, not overlooked ... measured before optimized"). It then became
  * the single largest cost in the interpreter under concurrent load: 827 objects walked per answer,
  * 115 million object steps in one cursor-streaming benchmark run, 37% of all CPU time in it --
- * which the bitmap removes entirely, cutting that run's CPU from 5.6s to 3.5s. See docs/DESIGN.md
+ * which the bitmap removes entirely, cutting that run's CPU from 5.6s to 3.5s. See docs/design/journal/
  * for why its *elapsed* time does not move (that benchmark waits on a database, not on CPU). */
 const void *gc_lookup(const Arena *a, const void *candidate);
 

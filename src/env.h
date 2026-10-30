@@ -7,7 +7,7 @@ struct Expr;
 
 /* A generic scope chain of (name -> slot) bindings, reused by both the
  * type checker (slot holds a Type only) and the interpreter (slot holds a
- * Value). Templated by hand since C has no generics -- see docs/DESIGN.md
+ * Value). Templated by hand since C has no generics -- see docs/design/journal/
  * on keeping the implementation itself boring and explicit. */
 
 typedef struct {
@@ -16,7 +16,7 @@ typedef struct {
      * outlives every environment built from it -- nothing frees it in either build. It used to be
      * strdup'd here, which measured as the single hottest allocation in the interpreter: 25.7% of all
      * allocation calls across a server workload and 99.7% of them in a call-heavy benchmark, one copy
-     * per binding per call. See docs/DESIGN.md, "Binding names are borrowed". */
+     * per binding per call. See docs/design/journal/, "Binding names are borrowed". */
     const char *name;
     int is_mutable;
     int lint_id; /* type checker only: 1-based index into its `var` lint table, 0 = none */
@@ -62,7 +62,7 @@ void env_free(Env *env); /* frees just this scope's binding array, not values/pa
 /* Clears every binding out of `env` (freeing each one's own strdup'd name) without freeing
  * `env` itself or its `items` buffer -- for a loop that re-executes the same scope's worth of
  * declarations every iteration (a fresh `env_new`/`env_free` pair per iteration was most of a
- * tight loop's cost; see docs/DESIGN.md's interpreter-speed entry). `items`' capacity survives
+ * tight loop's cost; see docs/design/journal/'s interpreter-speed entry). `items`' capacity survives
  * the reset, so after the first iteration there is no more allocation at all for a loop body
  * whose declaration count doesn't grow. Leaves `defer_count`, `defers_tracked` and `caps`
  * untouched -- `run_defers` (called once per iteration before this) already drains

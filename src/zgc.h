@@ -64,7 +64,7 @@ void ziman_alloc_note_enum(const char *enum_name, const char *variant_name, int 
 /* `calloc` goes through this rather than straight to the allocator, because `GC_MALLOC((a) * (b))`
  * -- what this header used to expand to -- silently dropped the overflow check libc's calloc makes:
  * the product wraps, a small block comes back, and the caller fills it as though it were the size it
- * asked for (docs/reviews/tasks.md F15). A function, so each argument is evaluated exactly once, for
+ * asked for (docs/reviews/tasks/ F15). A function, so each argument is evaluated exactly once, for
  * the reason the comment above this one records. It zeroes, as both allocators underneath already do,
  * and reports and exits on failure like the rest of src/xalloc.h. */
 void *ziman_gc_calloc_at(const char *file, int line, size_t count, size_t size);

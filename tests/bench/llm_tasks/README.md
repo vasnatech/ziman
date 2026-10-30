@@ -4,7 +4,7 @@
 11-50 were added to reach the scope the review asked for, because ten tasks cannot separate a real
 effect from which error a given run happened to hit first.
 
-A fixed task set to measure, empirically, the claim DESIGN.md makes throughout ("cheap for an
+A fixed task set to measure, empirically, the claim docs/design/journal/ makes throughout ("cheap for an
 LLM to generate correctly") instead of only asserting it. The review named this gap directly:
 "'Cheap for an LLM to generate' is asserted, not measured. No experiment in the repo measures
 generation accuracy."
@@ -18,7 +18,7 @@ Two rounds:
 1. **Cold generation.** A fresh model instance (no memory of any other run, no Ziman
    documentation shown -- only that the target language is called "Ziman") writes its best
    attempt for each task and saves it, without compiling or running it. This measures the
-   language's *training-distribution cost* directly (see DESIGN.md's "What the AI-first goal
+   language's *training-distribution cost* directly (see docs/design/journal/'s "What the AI-first goal
    does and does not justify"): what a model's untouched habits produce when told to write in a
    language it has seen little or nothing of.
 2. **Iterate against the compiler, given nothing but its own diagnostics.** For every task that
@@ -30,7 +30,7 @@ Two rounds:
    retry at exactly one look, the original plan, would have undercounted a diagnostic chain that
    actually resolves a file in three or four short hops.) This is the sharper, more direct test
    of the language's own stated mitigation for the training-distribution cost: "a model's habit
-   should fail at compile time with the sentence that fixes it" (same DESIGN.md entry). A flat
+   should fail at compile time with the sentence that fixes it" (same docs/design/journal/ entry). A flat
    "does it work with the docs in context" number would mostly just measure how good the model is
    at reading a spec; this measures whether Ziman's specific diagnostics, followed the way a
    model would actually follow them, are the thing doing the work.

@@ -20,7 +20,7 @@ fn main() {
     print(add(ms, 3, 4))
     print(snapshot(ms))
 
-    // The ambiguity docs/DESIGN.md's `_all` paragraph guards against -- one element or two? --
+    // The ambiguity docs/design/journal/'s `_all` paragraph guards against -- one element or two? --
     // on the collection where it is actually constructible. The checker compares the argument
     // against the *element type* first, so a lone `[int]` is one member of a `Set<[int]>` and a
     // `[[int]]` is a spread of several.

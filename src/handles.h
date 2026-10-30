@@ -15,7 +15,7 @@
  * accept in the process went through it: measured at 21.6 ns per operation on one thread and
  * **248.0 ns on sixteen** -- the only thing on that path that got *worse* as threads were added,
  * which is the shape F7 and A19 are about, and it was already in the tree rather than proposed
- * (docs/reviews/tasks.md A34). Each handle belongs to one shard, chosen from bits of its hash that
+ * (docs/reviews/tasks/ A34). Each handle belongs to one shard, chosen from bits of its hash that
  * the slot index does not use, so the shards fill evenly and a lock is only contended by the
  * handles that share it.
  *

@@ -623,7 +623,7 @@ Promoted out of the reference backend rather than invented here: it had written 
 below used to spell these out, **105 times** between them", with the list form running to seven
 lines each, "which is 105 places for the media type or the JSON writing to drift apart". Any
 second JSON service would have written the same three functions, which is what makes them the
-library's job (ROADMAP.md's content-types entry, tasks.md F43).
+library's job (docs/roadmap/'s content-types entry, tasks.md F43).
 
 `media` is `application/json` and not an argument: an endpoint that answers some other media type
 wants `encoder`/`decoder` directly, and offering a media parameter here would only let these two
@@ -1121,7 +1121,7 @@ pub struct ServeOptions {
     // kept one through `idle_timeout_ms` of doing nothing and a 65th client against a cap of 64
     // waited for a *timeout* rather than for a request. 256 keep-alive clients against a cap of 64
     // took one full idle timeout whatever the request count -- 31.5s -- where they now take
-    // 1.5-2.0s and a cap of 64 measures the same as a cap of 256 (docs/reviews/tasks.md F139).
+    // 1.5-2.0s and a cap of 64 measures the same as a cap of 256 (docs/reviews/tasks/ F139).
     //
     // So size it by the concurrency of *work* you want to admit, which is what a thread-per-request
     // server can usefully run at once, and let the client count follow from sockets.

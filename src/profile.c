@@ -108,7 +108,7 @@ static void on_sigprof(int sig) {
      * buffer was full -- about nine minutes of CPU at 1000 Hz -- and `sig_atomic_t` is `int`, so
      * after roughly 25 days of profiled CPU time it wrapped negative, at which point `idx >=
      * SAMPLE_CAPACITY` is false for a negative index and the store below went outside the buffer
-     * (docs/reviews/tasks.md F15). Not reachable in a short run, and this is a handler that a
+     * (docs/reviews/tasks/ F15). Not reachable in a short run, and this is a handler that a
      * long-lived server can have installed for days. */
     sig_atomic_t idx;
     for (;;) {

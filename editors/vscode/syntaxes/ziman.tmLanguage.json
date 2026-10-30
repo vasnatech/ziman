@@ -78,7 +78,7 @@
       "match": "\\b(int|float|bool|string|bigint|decimal|byte|unit)\\b"
     },
     "attributes": {
-      "comment": "#[derive(Json, Ord, ...)] and the module-level #![experimental] / #![deprecated(\"...\")]. The `!` is optional: without it this rule did not match the module form at all, so the `!` coloured as logical-not and the attribute name was left bare (docs/reviews/tasks.md F75). A begin/end pair rather than one `match` since 2026-10-22: the old `#!?\\[[^\\]]*\\]` could not see past a `]` inside the attribute's own string, and `clear`'s `#[when_unmatched(\"... an empty one ('[]', 'Map<K, V> {}') ...\")]` has one. The match ended inside `'[]'`, the rest of the line coloured as code, and its closing quote opened a string that ran to the end of the file. Including `#strings` is what fixes it: the quoted text is consumed before `end` is tried, so a `]` inside it is never seen -- leftmost-match wins in TextMate, and the opening quote comes before that `]`.",
+      "comment": "#[derive(Json, Ord, ...)] and the module-level #![experimental] / #![deprecated(\"...\")]. The `!` is optional: without it this rule did not match the module form at all, so the `!` coloured as logical-not and the attribute name was left bare (docs/reviews/tasks/ F75). A begin/end pair rather than one `match` since 2026-10-22: the old `#!?\\[[^\\]]*\\]` could not see past a `]` inside the attribute's own string, and `clear`'s `#[when_unmatched(\"... an empty one ('[]', 'Map<K, V> {}') ...\")]` has one. The match ended inside `'[]'`, the rest of the line coloured as code, and its closing quote opened a string that ran to the end of the file. Including `#strings` is what fixes it: the quoted text is consumed before `end` is tried, so a `]` inside it is never seen -- leftmost-match wins in TextMate, and the opening quote comes before that `]`.",
       "name": "meta.attribute.ziman",
       "begin": "#!?\\[",
       "end": "\\]",
@@ -145,12 +145,12 @@
           "match": "\\b(with)\\b"
         },
         {
-          "comment": "All three visibility levels, plus `variadic`, which modifies a parameter's type (`xs: variadic int`) rather than a declaration but belongs to the same family and is a hard keyword, so unlike `internal` it cannot be miscoloured. `internal` was missing, so one of exactly three was invisible; it is a soft keyword, so `val internal = 1` miscolours it -- the same trade the grammar already accepts for `unit` (docs/reviews/tasks.md F75).",
+          "comment": "All three visibility levels, plus `variadic`, which modifies a parameter's type (`xs: variadic int`) rather than a declaration but belongs to the same family and is a hard keyword, so unlike `internal` it cannot be miscoloured. `internal` was missing, so one of exactly three was invisible; it is a soft keyword, so `val internal = 1` miscolours it -- the same trade the grammar already accepts for `unit` (docs/reviews/tasks/ F75).",
           "name": "storage.modifier.ziman",
           "match": "\\b(pub|internal|native|builtin|variadic)\\b"
         },
         {
-          "comment": "val and var are separate scopes so a theme can tell them apart. They differ by one character and that character flips mutability, which DESIGN.md's own \"val/var differ by one character\" entry names as a hazard and names colour as the answer; sharing one scope made that impossible. A use site still has no scope -- that needs semantic tokens (docs/reviews/tasks.md F76).",
+          "comment": "val and var are separate scopes so a theme can tell them apart. They differ by one character and that character flips mutability, which docs/design/journal/'s own \"val/var differ by one character\" entry names as a hazard and names colour as the answer; sharing one scope made that impossible. A use site still has no scope -- that needs semantic tokens (docs/reviews/tasks/ F76).",
           "name": "storage.modifier.immutable.ziman",
           "match": "\\b(val)\\b"
         },

@@ -26,7 +26,7 @@
  * glibc answers correct month and day names, decimal and grouping separators, per-locale case
  * mapping (including the Turkish dotted/dotless `i`) and real collation (German sorts `ärger`
  * beside `apple`, Swedish after `Zulu`) for every locale the host has generated. See
- * docs/ROADMAP.md's Locale entry for the numbers and for what this cannot do -- chiefly
+ * docs/roadmap/'s Locale entry for the numbers and for what this cannot do -- chiefly
  * one-to-many case mapping, since `towupper_l` maps one character to one character and so cannot
  * turn `ß` into `SS`.
  *
@@ -247,7 +247,7 @@ static Value native_locale_default_raw(Value *args, int argc, int line, int col)
  * wide character, so this is *simple* case mapping and not *full*: German `ß` stays `ß` where the
  * language wants `SS`, the Greek final sigma is not contextual, and `ﬁ` does not become `FI`. That
  * is a real limit of the POSIX interface rather than of this code, stated in locale.zm's header and
- * in docs/ROADMAP.md, and the thing ICU would buy. What it *does* get right is the mapping that
+ * in docs/roadmap/, and the thing ICU would buy. What it *does* get right is the mapping that
  * actually bites: `towupper_l('i')` is `İ` and `towlower_l('I')` is `ı` under `tr_TR`, measured.
  *
  * A code point that has no mapping comes back unchanged, which is `towupper_l`'s own contract, so

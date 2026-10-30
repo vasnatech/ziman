@@ -11,7 +11,7 @@ ZIMAN_VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || ech
 # vendored (vendor/bdwgc, MIT-style license) and built here with the options
 # Ziman needs, so building needs no network and no other tools. `make nogc`
 # builds ./ziman-nogc without it (nothing is ever freed) -- for measuring, or a
-# platform the collector does not support. See docs/DESIGN.md, "Memory reclamation".
+# platform the collector does not support. See docs/design/journal/, "Memory reclamation".
 GC_DIR := vendor/bdwgc
 GC_LIB := $(GC_DIR)/libgc.a
 GC_FLAGS := -DZIMAN_GC -DGC_THREADS -include src/zgc.h -I$(GC_DIR)/include -D_GNU_SOURCE
@@ -30,7 +30,7 @@ GC_BUILD_FLAGS := -O2 -DNDEBUG -I$(GC_DIR)/include -DGC_THREADS -DGC_BUILTIN_ATO
 # interpreter therefore compiled all of them out, so TSan's signal interception met Boehm's
 # signal-based stop-the-world unprepared: `GC_stop_world` resends its suspend signals and aborts
 # with "Signals delivery fails constantly at GC #N", which failed `spawn_defer_gc_stress` in roughly
-# one `make tsan` run in three. See docs/DESIGN.md's entry for the measurement.
+# one `make tsan` run in three. See docs/design/journal/'s entry for the measurement.
 GC_LIB_TSAN := $(GC_DIR)/libgc-tsan.a
 
 # -fwrapv: signed overflow in the C code itself is well defined (wraps) instead of
@@ -38,7 +38,7 @@ GC_LIB_TSAN := $(GC_DIR)/libgc-tsan.a
 # does not rely on it -- it traps on overflow explicitly (see interpreter.c).
 # -Wvla and -Wshadow earn their place; the rest of a much higher warning level was triaged and
 # rejected as noise (414 -Wswitch-enum by design, -Wlogical-op on the correct EAGAIN||EWOULDBLOCK
-# idiom, and so on -- docs/reviews/tasks.md F14). -Wvla had exactly one hit in the tree and it was
+# idiom, and so on -- docs/reviews/tasks/ F14). -Wvla had exactly one hit in the tree and it was
 # a real bug: the 96 KB variable-length array inside the regex matcher's recursion (A16).
 # Objects, dependency files and the generated corelib headers all live under build/ rather than
 # beside the sources. Before 2026-10-14 they sat in src/, so a built tree showed 322 entries there
@@ -156,7 +156,7 @@ preflight: $(BIN)
 #
 # Until 2026-10-14 all three built the plain configuration only, and the comment here told you to
 # add $(GC_FLAGS) and $(GC_LIB) by hand for the other one. Nobody did. That is the whole of
-# docs/reviews/tasks.md F123, and the size of the hole is measurable: 218 non-blank lines across 17
+# docs/reviews/tasks/ F123, and the size of the hole is measurable: 218 non-blank lines across 17
 # files sit inside `#ifdef ZIMAN_GC` and were never once compiled by these targets, the largest
 # being gc_boehm_roots.c (47), arena.c (32) and native_sqlite.c (29). Both of the concurrency bugs
 # the last review raised are in there -- A41 in native_net.c and A42's finalizer deadlock in
@@ -171,14 +171,14 @@ preflight: $(BIN)
 #
 # There was no such target until 2026-10-08, so every review built its own -- and a standing one
 # would have caught A19's data race and A22's undefined memcpy without a review at all
-# (docs/reviews/tasks.md F14). Three things these targets know that a fresh attempt would have to
+# (docs/reviews/tasks/ F14). Three things these targets know that a fresh attempt would have to
 # rediscover:
 #
 #   * halt_on_error=1 everywhere. A sanitizer report goes to stderr, and a fixture checked against a
 #     .out file passes regardless of what lands on stderr -- so without halting, the suite reports
 #     "888 passed" while printing undefined behaviour.
 #   * detect_stack_use_after_return=0 for ASan -- and the reason is the collector, not the depth
-#     guard, which is what this comment used to say (docs/reviews/tasks.md F22). The guard does
+#     guard, which is what this comment used to say (docs/reviews/tasks/ F22). The guard does
 #     break: its probe is a local's address, and the fake stack moves locals, so with the option on
 #     nothing runs. But that part is fixable -- taking the probe from __builtin_frame_address(0)
 #     under __SANITIZE_ADDRESS__ works, because the fake stack moves locals and not the frame
@@ -199,7 +199,7 @@ preflight: $(BIN)
 #
 # On its first run `make tsan` found two real races -- one on a socket handle's descriptor and one
 # TSan was right to flag and wrong about (a signal handler writing a `volatile sig_atomic_t`, which
-# the standard permits and a sanitizer cannot see). Both are fixed, A24 in docs/reviews/tasks.md, and
+# the standard permits and a sanitizer cannot see). Both are fixed, A24 in docs/reviews/tasks/, and
 # all six builds are green on this tree. That is the argument for having them: nothing else here
 # could have found either.
 #

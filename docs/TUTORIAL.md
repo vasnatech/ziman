@@ -2,9 +2,9 @@
 
 This is a guided walkthrough, not a reference — it builds one small program up
 piece by piece, introducing a feature exactly when the program needs it. For
-the full rules see [docs/SYNTAX.md](SYNTAX.md); for the standard library see
+the full rules see [docs/syntax/README.md](syntax/README.md); for the standard library see
 [docs/CORELIB.md](CORELIB.md); for the reasoning behind a design choice see
-[docs/DESIGN.md](DESIGN.md). Every snippet below is real Ziman, checked
+[docs/design/journal/README.md](design/journal/README.md). Every snippet below is real Ziman, checked
 against the interpreter while this page was written.
 
 ## Hello, ziman
@@ -30,7 +30,7 @@ fn main() {
 }
 ```
 
-`val` and `var` differ by one letter on purpose — see DESIGN.md if you want
+`val` and `var` differ by one letter on purpose — see docs/design/journal/ if you want
 the reasoning — so pick the one you mean. Types are inferred here (`name` is
 `string`, `count` is `int`), but there is no coercion between them anywhere:
 `1 + 1.0` is a compile-time error, not a silent `2.0`. `str(count)` converts a
@@ -79,7 +79,7 @@ fn main() {
 An array is a value, like everything else in Ziman — there is no
 `nums[i] = x` and no in-place `.push`. `push(arr, x)` returns a *new* array
 with `x` appended; the idiom `arr = push(arr, x)` is amortised O(1) per call,
-not a copy every time (see SYNTAX.md's "Other limits" if you want the exact
+not a copy every time (see docs/syntax/'s "Other limits" if you want the exact
 cost of `push` versus `insert`/`set`/`remove`, which do always copy). `for n
 in nums` binds each element in turn; `for i in 0..len(nums)` binds an index
 into a range instead — the two are deliberately different syntax, so a model
@@ -243,7 +243,7 @@ whole language, all the way up to the multi-thousand-line reference backend
 (`health-record-backend-ziman`) that exercises every module in the standard
 library. What you *will* outgrow in your first hour: `if`/`switch` can also
 be used as expressions in a restricted set of positions (see "`if` and
-`switch` as values" in SYNTAX.md), generic types and functions exist
+`switch` as values" in docs/syntax/), generic types and functions exist
 (`Option<T>`, `Map<K, V>`, `map`/`filter`/`fold`), and there's a
 standard library for JSON, files, HTTP, databases, time, crypto and more —
 [README.md](../README.md)'s module table is the map.
@@ -260,11 +260,11 @@ standard library for JSON, files, HTTP, databases, time, crypto and more —
   trace, which is usually the fastest way to see what a failure was holding;
   **`ziman --fmt --write file.zm`**
   formats it.
-- **[docs/SYNTAX.md](SYNTAX.md)** is the normative reference: every construct,
+- **[docs/syntax/README.md](syntax/README.md)** is the normative reference: every construct,
   every builtin, every operator, with the exact rules.
 - **[docs/CORELIB.md](CORELIB.md)** and **docs/lib/*.md** document the
   bundled standard library, generated from its own source so they can't drift.
-- **[docs/DESIGN.md](DESIGN.md)** is a dated decision log — read an entry
+- **[docs/design/journal/README.md](design/journal/README.md)** is a dated decision log — read an entry
   when you want to know *why* something works the way it does, including the
   designs that were tried and rejected.
 - **`health-record-backend-ziman`** is a real, multi-thousand-line

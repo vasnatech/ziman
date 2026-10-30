@@ -10,7 +10,7 @@ Asked for on 2026-10-29: *"let add a new annotation. `[column(name: "start_date"
 override."*
 
 Shipped: `name:`. `required:` was left out, with a reason (§4). Everything below is the reasoning
-the implementation rests on; the attribute itself is one line in `docs/SYNTAX.md`.
+the implementation rests on; the attribute itself is one line in `docs/syntax/`.
 
 ## 1. What it is for
 

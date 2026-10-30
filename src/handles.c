@@ -17,7 +17,7 @@ static size_t hash_ptr(void *p) {
 }
 
 /* What roots a handle, written down because the answer is not this table and the table looks like it
- * (docs/reviews/tasks.md F16).
+ * (docs/reviews/tasks/ F16).
  *
  * The slots are `zalloc_atomic`, which means the collector never scans them, and that is deliberate:
  * a set that kept every handle it had ever seen alive would be a leak with a membership test on top,

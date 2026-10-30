@@ -44,19 +44,19 @@ Auto-generated from each `lib/core/*.zm` or `lib/db/*.zm` file's own `pub` decla
 blocks below**; regenerate with `make corelib-reference` after changing
 any core module (adding, removing, or renaming a `pub struct`/`pub enum`/
 `pub fn`/`pub native fn`/`pub val`). This is a signature lookup, not an
-explanation -- see the manual in docs/lib/ for how to use each module, docs/SYNTAX.md for full semantics and docs/DESIGN.md
+explanation -- see the manual in docs/lib/ for how to use each module, docs/syntax/ for full semantics and docs/design/journal/
 for why each module is shaped the way it is.
 
 `use <module>` resolves any of these with no local file needed (see
-docs/SYNTAX.md's "Modules" -- "Bundled core module"); a per-name import
+docs/syntax/'s "Modules" -- "Bundled core module"); a per-name import
 (`use <module>.Name`) binds one item bare instead of qualified.
 
 One exception, not listed below: `lib/prelude/` -- unlike every
 module here, it's never `use`-able at all (see its own header comment
-and docs/DESIGN.md's "Prelude" entry), since everything it declares
+and docs/design/journal/'s "Prelude" entry), since everything it declares
 (`Option<T>`, plus a handful of native functions) is already bare and
 unqualified in every program, the same way `print`/`str`/`parse_int`
-are. See docs/SYNTAX.md's "Modules" section for what it contains.
+are. See docs/syntax/'s "Modules" section for what it contains.
 EOF
 
 for f in lib/core/*.zm lib/db/*.zm lib/http/*.zm lib/time/*.zm; do
@@ -65,9 +65,9 @@ for f in lib/core/*.zm lib/db/*.zm lib/http/*.zm lib/time/*.zm; do
     desc=$(describe "$name")
     # The "Experimental" label comes from the module's own `#![experimental]` attribute, not from a
     # hand-written prefix in `describe` above -- one source of truth, so the reference, the manual
-    # (tools/gen_lib_manual.py) and the module itself cannot drift apart. See docs/ROADMAP.md.
+    # (tools/gen_lib_manual.py) and the module itself cannot drift apart. See docs/roadmap/.
     if grep -q '^#!\[experimental\]' "$f"; then
-        desc="**Experimental** (see docs/DESIGN.md \"Experimental modules\"). $desc"
+        desc="**Experimental** (see docs/design/journal/ \"Experimental modules\"). $desc"
     fi
     echo
     echo "## \`$name\`"

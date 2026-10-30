@@ -46,7 +46,7 @@
  * program should only close a socket from the thread that owns it.
  *
  * What that costs, exactly, since this is the one part of this module two
- * threads touch at once (docs/reviews/tasks.md A24). The descriptor is
+ * threads touch at once (docs/reviews/tasks/ A24). The descriptor is
  * read and cleared atomically, so there is no data race on the field and
  * exactly one thread ever hands it to close(2) -- the clear is an
  * exchange, and `handleset_remove` already decides which thread gets
@@ -151,7 +151,7 @@ static int alpn_select(SSL *ssl, const unsigned char **out, unsigned char *outle
 typedef struct {
     /* Read and cleared with the __atomic builtins, never plainly: one thread can close a handle
      * while another is reading or accepting on it, which is how a server shuts down, and that made
-     * this field a data race TSan reported on six fixtures (docs/reviews/tasks.md A24). The clear is
+     * this field a data race TSan reported on six fixtures (docs/reviews/tasks/ A24). The clear is
      * an exchange, so exactly one thread ever passes the descriptor to close(2). */
     int fd;
     /* Whether this handle has ever carried TLS. Set once, released, and never cleared -- it exists
@@ -165,7 +165,7 @@ typedef struct {
      * while another thread still holds it: `accept_raw` in particular holds the number across an
      * unbounded series of 250 ms poll waits, and that window was demonstrable, not theoretical
      * (10 runs out of 10 produced ENOTSOCK from a pure-Ziman program; 6 out of 6 of another got
-     * accept(2) to consume a connection meant for a different listener -- docs/reviews/tasks.md
+     * accept(2) to consume a connection meant for a different listener -- docs/reviews/tasks/
      * A31). `refs` is incremented while `g_live`'s lock is held, so it cannot race the removal that
      * decides a close, and atomically, because the decrement does not take that lock; it is
      * decremented by whichever thread finishes last. */
@@ -175,7 +175,7 @@ typedef struct {
      * release_handle with nothing between them, which is a use-after-free on an OpenSSL object --
      * worse than A24's recycled descriptor, because the memory is freed heap rather than a number.
      * It stayed invisible because `test-tls` is not in `make check`, so no TLS path has ever run
-     * under a sanitizer (docs/reviews/tasks.md A32). */
+     * under a sanitizer (docs/reviews/tasks/ A32). */
     SSL *ssl;
     SSL_CTX *server_ctx; /* non-NULL on a TLS listener: accept() completes a handshake with it */
     /* The ALPN protocols a TLS listener offers, in wire format. The select callback is registered on
@@ -582,7 +582,7 @@ static int connect_with_deadline(int fd, const struct sockaddr *addr, socklen_t 
  * because the driver's old path ended each one with an unreplied COM_STMT_CLOSE, leaving the next
  * call's prepare waiting on an ACK the server was holding; with this one line it cost 0.5. The
  * statement cache that found it hides the stall for the statements it keeps and leaves it for the
- * rest, so caching was never the fix. See docs/DESIGN.md, 2026-10-26.
+ * rest, so caching was never the fix. See docs/design/journal/, 2026-10-26.
  *
  * Failure is ignored on purpose: a Unix-domain socket answers ENOPROTOOPT, and has no Nagle to
  * turn off, so attempting it everywhere and ignoring the answer is both correct and the shortest
@@ -659,7 +659,7 @@ static Value open_socket(const char *host, int64_t port, int listener) {
 }
 
 /* A Unix-domain socket, which `open_socket` above cannot reach: getaddrinfo resolves host and port
- * and there is neither here, only a filesystem path (ROADMAP.md's `net` follow-ups -- local
+ * and there is neither here, only a filesystem path (docs/roadmap/'s `net` follow-ups -- local
  * Postgres usually listens on one, which is the concrete consumer).
  *
  * Two things a caller has to know, and both are reported rather than papered over. The path has a
@@ -793,7 +793,7 @@ static Value native_net_peer_address_raw(Value *args, int argc, int line, int co
  * error -- or an empty array if `timeout_ms` passed with none of them ready. The primitive
  * `serve` needs to hold more connections than it has threads: an idle keep-alive connection can
  * wait here with no thread of its own, and only costs one when a request actually arrives
- * (docs/reviews/tasks.md F139).
+ * (docs/reviews/tasks/ F139).
  *
  * Indices rather than handles, so the caller can index whatever it is keeping alongside the socket
  * (a deadline, a connection key) without this having to construct anything.

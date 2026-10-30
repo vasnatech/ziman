@@ -1,4 +1,4 @@
-// R: ROADMAP.md's `net` follow-ups asked for Unix-domain sockets, local Postgres being the concrete
+// R: docs/roadmap/'s `net` follow-ups asked for Unix-domain sockets, local Postgres being the concrete
 // consumer. The path is per-process so two runs of the suite cannot collide, and the fixture covers
 // the two things that differ from a TCP listener: binding a path that exists is refused (a stale
 // socket and a live one are indistinguishable, so it is not removed for you), and a path past the

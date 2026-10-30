@@ -59,7 +59,7 @@
 // `clear` across four, `filter`, `remove`, `mutable`, `set` and `map` across three, `concat`,
 // `get_or`, `update` and `flat_map` across two or one. Nothing is exempt and nothing is left over.
 // `remove_all` was in this list until 2026-10-22, when `remove` went variadic and absorbed it --
-// a set can leave the list by being merged into another, not only by being filed. See docs/DESIGN.md's "Overloading available to a declaration",
+// a set can leave the list by being merged into another, not only by being filed. See docs/design/journal/'s "Overloading available to a declaration",
 // and prelude.zm's header for what collections.zm's own header carried.
 //
 // **result.zm was added the same day, and is the rule read forwards rather than backwards.**

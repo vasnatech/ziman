@@ -17,7 +17,7 @@ fn area(s: Shape) -> int {
 // Regression: a multi-part (2+ `&&`-joined) condition followed by `else if` (not `else { ... }`)
 // -- the parser's synthesized "did every part hold" check used to hand that bare `if` straight to
 // `then_block`, which the type checker always assumes is a real block; crashed reading garbage
-// through the union (docs/DESIGN.md).
+// through the union (docs/design/journal/).
 fn multi_part_else_if(flag: bool, o: Option<int>) -> int {
     if flag && Some(x) = o {
         return x

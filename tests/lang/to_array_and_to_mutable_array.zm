@@ -6,7 +6,7 @@
 //     to_array         Set<T> or MutableSet<T> ->  [T]
 //     to_mutable_array Set<T> or MutableSet<T> ->  MutableArray<T>
 //
-// `to_array` was `items` until 2026-10-22 and `to_mutable_array` is new that day. DESIGN.md's
+// `to_array` was `items` until 2026-10-22 and `to_mutable_array` is new that day. docs/design/journal/'s
 // "A fused conversion earns a name only when composition costs an extra full copy" had declined
 // the fourth row, and the reversal is in that rule's *second* clause rather than its first:
 // `mutable(to_array(s))` costs the same one extra copy `mutable(to_set(xs))` does, so the cost

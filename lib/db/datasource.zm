@@ -60,7 +60,7 @@ use db.SqlValue
 // statement, and `acquire` hands one out exclusively. `Connection` is recursive through this
 // `Channel`, like `Json` is through an array. `internal`, not `pub`: a `Connection.Pool`
 // payload's own representation, never something a caller of `datasource` names directly (see
-// docs/DESIGN.md's visibility entry).
+// docs/design/journal/'s visibility entry).
 internal struct PoolState {
     idle: Channel<IdleConnection>
     size: int

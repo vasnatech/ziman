@@ -12,7 +12,7 @@ it did not allocate -- so such a block, released through that macro, stays for t
 process. `src/iter.c:133` did exactly that with getline's line buffer: 20,000 iterations over a
 file of 60 KB lines cost **1.23 GB** of RSS under `ziman` against 12 MB after the fix, and 27 MB
 under `ziman-nogc`, whose `free` is real. The build whose own comment says "nothing is ever freed"
-was the one that did not leak (docs/reviews/tasks.md A17).
+was the one that did not leak (docs/reviews/tasks/ A17).
 
 Nothing in the compiler can see this: both spellings type-check, both run, and the leak shows up
 only as RSS in a long-lived process, which is the North Star goal. So the rule is checked here

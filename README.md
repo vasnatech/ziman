@@ -81,8 +81,8 @@ This program is `tests/lang/readme_example.zm`, run by the test suite, so it sta
 - **Modules:** `use path/to/mod` (qualified) or `use mod.Name [as alias]`;
   a small bundled standard library needs no installation.
 
-The full grammar and rules are in [docs/SYNTAX.md](docs/SYNTAX.md); the
-reasoning is in [docs/DESIGN.md](docs/DESIGN.md).
+The full grammar and rules are in [docs/syntax/README.md](docs/syntax/README.md); the
+reasoning is in [docs/design/journal/README.md](docs/design/journal/README.md).
 
 ## Standard library
 
@@ -105,10 +105,10 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | `locale`\* | a `Locale` from the operating system's own locale data, and the process-wide default that locale-aware functions use when given none; the invariant `root()` is what protocol and identifier code folds case with |
 | `db`, `sql`\*, `eql`\*, `sqlite`, `pg`\*, `mysql`\*, `memdb`\* | one database API over SQLite, PostgreSQL, MySQL and an in-memory SQL engine written in Ziman, with pooling, a SQL statement tree and an entity query language over it |
 | `validate`\*, `derive_validate`\* | Jakarta-Validation-shaped constraints as field attributes -- `#[not_blank]`, `#[one_of(values:)]`, `#[size(min:, max:)]` -- where the rule is an ordinary function, the message is Hibernate Validator's, and `Option<T>` is how a field says absence is allowed; see [docs/design/validation.md](docs/design/validation.md) |
-| `meta`\*, `template`\*, `derive_ord`\*, `derive_row`\*, `derive_properties`\*, `derive_json`\*, `derive_reflect`\*, `derive_entity`\*, `derive_repository`\* | a declaration as a generator sees it, and every `#[derive(..)]` written in Ziman rather than in the compiler's C; `derive_reflect` prints what a generator was handed and generates nothing; `derive_repository` is the second generator kind, over a whole module -- see [docs/ROADMAP.md](docs/ROADMAP.md) |
+| `meta`\*, `template`\*, `derive_ord`\*, `derive_row`\*, `derive_properties`\*, `derive_json`\*, `derive_reflect`\*, `derive_entity`\*, `derive_repository`\* | a declaration as a generator sees it, and every `#[derive(..)]` written in Ziman rather than in the compiler's C; `derive_reflect` prints what a generator was handed and generates nothing; `derive_repository` is the second generator kind, over a whole module -- see [docs/roadmap/README.md](docs/roadmap/README.md) |
 
 \* Experimental: less real-world use than the rest of the library, so treat a gap or a
-protocol-conformance bug as more likely here. See [docs/DESIGN.md](docs/DESIGN.md)
+protocol-conformance bug as more likely here. See [docs/design/journal/README.md](docs/design/journal/README.md)
 "Experimental modules".
 
 Builtins available without `use`: `print`, `printf`, `format`, `str`, `len`,
@@ -134,7 +134,7 @@ suite has been run on. It needs a C11 compiler, `make`, and the development file
 and will probably build, but nobody has tried, so treat them as untested. Windows does not build natively
 (threads, sockets, directories and signals use POSIX calls directly); use WSL or a Linux container. The
 named time zones in `time` read the operating system's zone files (`/usr/share/zoneinfo`, or `$TZDIR`),
-so they also need a system that has them. See docs/ROADMAP.md, "Platform support".
+so they also need a system that has them. See docs/roadmap/, "Platform support".
 
 Options: `--check` loads and type-checks without running; `--json` reports each
 error as one JSON object on stderr (`{"severity":"error","phase":"type","file":"a.zm",
@@ -198,7 +198,7 @@ output would be quadratic -- real code reaches about 10 -- and so is anything th
 more than 16 MB, which is the same cost measured on the axis the depth limit cannot see, about 180x
 the largest file here; a refused file is printed back unchanged so filtering a buffer through
 `--fmt -` never empties it); `--stack-mb=N`, `--thread-stack-mb=N` and `--threads=N` size the thread stacks
-(recursion is limited by stack, see docs/SYNTAX.md "Stack depth"); `--version`; `--help`. A function's parameter list, or a call's argument list, that is too wide or already wrapped between its
+(recursion is limited by stack, see docs/syntax/ "Stack depth"); `--version`; `--help`. A function's parameter list, or a call's argument list, that is too wide or already wrapped between its
 arguments is laid out one to a line with the parentheses on lines of their own (`fn name(` / `    a: A,` /
 `    b: B` / `) -> R {`, and likewise `call(` / `    x: 1,` / `    y: 2` / `)`); the body is indented one level from
 `fn`. A struct or map literal (`Point { x: 1 }`, `Map<K, V> { "a": 1 }`) that is too wide or already wrapped between
@@ -283,11 +283,11 @@ and an `rpm2cpio` into a scratch directory is enough, and needs no root.
 | --- | --- |
 | [docs/CHEATSHEET.md](docs/CHEATSHEET.md) | the twenty things, on one page -- start here, and read it before writing a helper that already exists |
 | [docs/TUTORIAL.md](docs/TUTORIAL.md) | a guided first hour: one small program, built up feature by feature |
-| [docs/SYNTAX.md](docs/SYNTAX.md) | the language reference: grammar and semantic rules |
-| [docs/DESIGN.md](docs/DESIGN.md) | the principles and the reasoning behind each decision |
+| [docs/syntax/README.md](docs/syntax/README.md) | the language reference: grammar and semantic rules |
+| [docs/design/journal/README.md](docs/design/journal/README.md) | the principles and the reasoning behind each decision |
 | [docs/lib/](docs/lib/README.md) | the library manual: one page per bundled module (generated from the source, with runnable examples) |
 | [docs/CORELIB.md](docs/CORELIB.md) | every bundled module's `pub` signatures (generated by `make corelib-reference`) |
-| [docs/ROADMAP.md](docs/ROADMAP.md) | what is done and what is deliberately not here yet |
+| [docs/roadmap/README.md](docs/roadmap/README.md) | what is done and what is deliberately not here yet |
 | [docs/FEATURE-NOTES.md](docs/FEATURE-NOTES.md) | long-form notes on the implemented features |
 | [docs/MEMORY.md](docs/MEMORY.md) | the memory-management/GC diagnosis and the thread-owned-heap design not yet built |
 

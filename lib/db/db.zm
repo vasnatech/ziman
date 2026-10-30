@@ -444,7 +444,7 @@ pub struct QueryResult {
 // A statement sent to the thread that owns the connection, with the channel to answer on.
 // `internal`, not `pub`, from here through `run_request` below: the driver-thread wire protocol
 // between a `Connection` and the thread that owns it, not something a caller of `db`/`datasource`
-// ever constructs directly -- see docs/DESIGN.md's visibility entry. `mysql.zm`/`pg.zm` can
+// ever constructs directly -- see docs/design/journal/'s visibility entry. `mysql.zm`/`pg.zm` can
 // still reach it, since both are bundled core modules, the same package as `db.zm`.
 internal struct RunRequest {
     sql: string
@@ -581,7 +581,7 @@ struct CursorHandle {
 
 // Ends the cursor on the connection, and -- first -- gives back every row its own page buffer is
 // still holding. That buffer is a channel, and a value left queued on a channel keeps the dedicated
-// copy `send` made of it alive for as long as the channel itself lives (docs/DESIGN.md): a cursor
+// copy `send` made of it alive for as long as the channel itself lives (docs/design/journal/): a cursor
 // left early strands up to a whole page of rows that way, each one holding its own copy, so the
 // drain is what actually releases them rather than waiting for the channel to be collected.
 fn end_cursor(handle: CursorHandle, buffer: Channel<Option<Row>>) {

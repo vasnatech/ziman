@@ -1,6 +1,6 @@
 # `memdb`
 
-> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> **Experimental** -- see docs/design/journal/'s "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 A small SQL engine in pure Ziman, holding its tables in memory, for tests.

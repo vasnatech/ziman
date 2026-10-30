@@ -9,7 +9,7 @@ namespaced and load cleanly, so this generates one throwaway entry that imports 
 ZIMAN_MODULE_PATH points at the sources on purpose. Without it the imports resolve to the copies
 bundled into the binary, whose declarations carry a NULL `source_file` -- the very flag the lint
 uses to tell a user's code from the standard library -- and every finding in lib/ is discarded
-before it is printed (docs/reviews/tasks.md F133).
+before it is printed (docs/reviews/tasks/ F133).
 
 Exits 1 if any finding is reported, 0 otherwise.
 """

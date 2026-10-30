@@ -22,7 +22,7 @@ void token_list_free(TokenList *list);
  * which prints a declaration's doc comment by walking back from its line. That is there because of
  * a measurement: round 3 of the 2026-10-12 benchmark had one task answer wrongly and another spend
  * 14 extra compiles hedging, both over behaviour their function's own doc comment states and
- * `--api` did not show (docs/reviews/tasks.md F89). Valid until the next lex().  */
+ * `--api` did not show (docs/reviews/tasks/ F89). Valid until the next lex().  */
 typedef struct {
     int line;
     const char *text;  /* into the lexed source; not NUL-terminated at the line end */

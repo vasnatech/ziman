@@ -4,7 +4,7 @@
 // above it asserting the guarantee it did not have: "`#[at_least_one]` guarantees the array is
 // non-empty, which is what lets the first element be the accumulator."
 //
-// SYNTAX.md documents the empty spread as deliberate -- "that is how a caller spreads a list that
+// docs/syntax/ documents the empty spread as deliberate -- "that is how a caller spreads a list that
 // may be empty, deliberately rather than by omission" -- so it is ordinary input, not a misuse.
 //
 // **The empty answer is the identity where there is one**, which is the rule the language already

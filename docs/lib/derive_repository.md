@@ -1,6 +1,6 @@
 # `derive_repository`
 
-> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> **Experimental** -- see docs/design/journal/'s "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 `#![derive(Repository(Entity))]`, written in Ziman: the CRUD every repository writes the same way.

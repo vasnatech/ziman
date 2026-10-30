@@ -143,7 +143,7 @@ test-gc-object: src/xalloc.c src/arena.c src/gc_object.c tests/c/gc_object_test.
 # mapobj.c) -- unlike arena.c/gc_object.c this can't stay dependency-free, since it exercises the
 # real Value representation, not a synthetic stand-in. value_hash (normally in src/interpreter.c,
 # not linked here) is stubbed inside the test itself; see its own header comment for why that's fine.
-# value.c's own value_string_copy now allocates through src/gc_thread_heap.c/gc_heap.c (docs/DESIGN.md's
+# value.c's own value_string_copy now allocates through src/gc_thread_heap.c/gc_heap.c (docs/design/journal/'s
 # "narrowest possible slice"), which pulls in gc_lookup.c/gc_scan.c/gc_mark.c transitively too.
 test-gc-copy: src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_copy.c tests/c/gc_copy_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_copy_test src/xalloc.c src/ast.c src/error.c src/stack.c src/bignum.c src/decimal.c src/mapobj.c src/value.c src/value_copy.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/gc_mark.c src/gc_heap.c src/profile.c src/gc_thread_heap.c src/gc_copy.c tests/c/gc_copy_test.c
@@ -169,7 +169,7 @@ test-gc-lookup: src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c tests/c
 # nothing else in this toolchain provides. `make valgrind` instead runs this test, its neighbours
 # and three fixtures with `tools/valgrind.supp`, which suppresses exactly the conservative scan's
 # own reads and leaves that checking on everywhere else -- 0 errors from 0 contexts, 215
-# suppressed (docs/reviews/tasks.md F23).
+# suppressed (docs/reviews/tasks/ F23).
 test-gc-scan: src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/c/gc_scan_test.c
 	$(CC) $(PLAIN_CFLAGS) -o /tmp/ziman_gc_scan_test src/xalloc.c src/arena.c src/gc_object.c src/gc_lookup.c src/gc_scan.c src/stack.c src/error.c tests/c/gc_scan_test.c
 	/tmp/ziman_gc_scan_test

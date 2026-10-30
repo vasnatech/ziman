@@ -37,7 +37,7 @@ type or are looked up by name (`Ord`, `#[derive]`); and the parse family needs o
 
 **Messages in here are `prelude.format`, not `format`.** This module's own `format` has taken the
 bare name, so the interpolating builtin is reached through the `prelude.` qualifier (see
-docs/SYNTAX.md's "Modules"). A plain `concat` is left where there is no message to template --
+docs/syntax/'s "Modules"). A plain `concat` is left where there is no message to template --
 `pad_left`'s per-digit append, the pattern scanner's `literal_buf`, and the two places that join
 already-computed strings with no literal text between them.
 
@@ -151,7 +151,7 @@ work from -- the one place the pattern text itself is ever matched
 character by character.
 `parts` is built via MutableArray<DateTimePart> rather than `push` in
 a loop -- an arbitrarily long/verbose pattern used to mean one
-leaked, ever-growing array per recognized token (see docs/DESIGN.md's
+leaked, ever-growing array per recognized token (see docs/design/journal/'s
 "MutableArray" entry). `literal_buf`, in contrast, is left as plain
 `concat` on purpose: it only ever accumulates the handful of literal
 characters *between* two tokens in a pattern (a "-", a ":", at most a
@@ -171,7 +171,7 @@ default `DateTimeFormat`s their matching `_parse`/`_format` pair
 uses -- one engine, not two independently-maintained implementations
 of "what does an ISO date look like." Compiled exactly once, at
 program start (global vals are evaluated eagerly before `main` runs
--- see docs/DESIGN.md's "Global val" entry), and reused for the rest
+-- see docs/design/journal/'s "Global val" entry), and reused for the rest
 of the process's lifetime; `pub` so application code can also pass
 them straight to `_format`/`_parse_pattern` instead of compiling the
 pattern again itself.
@@ -1037,7 +1037,7 @@ spelling rather than derive's underscored one. `src/derive.c`'s `standard_flat_t
 what emits these names instead of the generated convention, and it lists exactly these seven
 types. It is deliberately *not* extended to derived types: every `#[derive(Json)]` type would
 then join one `to_json` overload set, and `OVL_MAX_CANDIDATES` is 32 against 100 derive(Json)
-sites in the reference backend. See docs/DESIGN.md's "Attributes and derive" entry.
+sites in the reference backend. See docs/design/journal/'s "Attributes and derive" entry.
 
 ### `to_localdate`
 

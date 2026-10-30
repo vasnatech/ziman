@@ -86,7 +86,7 @@ static char *resolve_file_path(const char *project_root, const char *use_path) {
  * eight levels -- a bound rather than a walk to `/`, so a stray marker in a home directory cannot
  * silently claim every file beneath it, the same reasoning as lsp.c's six-level `main.zm` hunt.
  *
- * ROADMAP.md asked for this marker so that a test under `test/` could `use` a module under `src/`,
+ * docs/roadmap/ asked for this marker so that a test under `test/` could `use` a module under `src/`,
  * and so that tooling could find a project's root without hunting for `main.zm`. The first half was
  * already solved by ZIMAN_MODULE_PATH below, so the marker does **not** introduce a second way to
  * resolve a module: its directory simply joins that same search path, which is why it is declared
@@ -331,7 +331,7 @@ static const NamedImport *find_named_import(SelfQualifyCtx *ctx, const char *nam
  * `struct_name`, which is correct only while those two fields have separate storage. An experiment
  * that unioned them (mutually exclusive by kind, so it looked free) would have silently erased the
  * name at exactly those two sites -- the experiment was reverted for unrelated reasons, see
- * docs/DESIGN.md, but the trap it exposed is real and now has only one place to go wrong. */
+ * docs/design/journal/, but the trap it exposed is real and now has only one place to go wrong. */
 static void retype_struct_as_enum(Type *t, char *enum_name) {
     t->struct_name = NULL;
     t->enum_name = enum_name;
@@ -1015,7 +1015,7 @@ void ziman_report_unknown_module_call(const char *qualifier, const char *member,
  * doc comment in ast.h): the bundled standard library is one package, a project is another --
  * `Module.is_corelib`, set once in load_module/load_module_graph from the same `from_disk` check
  * that already decides whether to stamp a declaration's `source_file`. Deliberately coarse (a
- * whole project is one package today, not sub-divided by directory -- see the DESIGN.md entry
+ * whole project is one package today, not sub-divided by directory -- see the docs/design/journal/ entry
  * for why a directory-based boundary would have actually broken the motivating case,
  * `net.zm`/`lib/core` and `client.zm`/`lib/http` sharing internals across different
  * directories). Meant to be the one place a future manifest-based package/crate system redefines
@@ -1070,7 +1070,7 @@ static char *resolve_function_ref(CrossRefCtx *ctx, const char *dotted, int line
          * val` -- was answered with "module 'number' has no function 'float_min_positive'", which
          * sends the reader looking for a function that was never the point. The name is right; the
          * form is wrong, and `use number.float_min_positive` then the bare name is what works. Two
-         * reviews asked for this separately (docs/reviews/tasks.md C20).
+         * reviews asked for this separately (docs/reviews/tasks/ C20).
          *
          * Only vals are checked here. A struct or an enum in this position never reaches the loader
          * at all -- the parser stops first with "expected '{' or '.' after 'net.Socket'", which
@@ -1159,7 +1159,7 @@ static char *resolve_type_ref(CrossRefCtx *ctx, const char *dotted, int line, in
 /* Same shape as resolve_type_ref, but looking up an enum instead of a
  * struct -- the "does the loader's qualified-reference machinery need a
  * second dot for `qualifier.EnumName.Variant`" concern this used to raise
- * (see ROADMAP.md's "Generics" Stage 4) was actually just this: the
+ * (see docs/roadmap/'s "Generics" Stage 4) was actually just this: the
  * *parser* needed a second dot's worth of grammar (parse_primary now
  * has it), but once `enum_name` itself is qualified to
  * `<module_path>::EnumName` here, `check_enum_access` in typecheck.c
@@ -1787,7 +1787,7 @@ static NamedImport *resolve_named_imports(Loader *ldr, Module *mod, const char *
  * says both mechanisms are "two ways to point one search path at a directory", so a module shape
  * that resolves by one and not the other is a bug in the loader, not a rule. It made every
  * directory module in a project unreachable from a test directory of its own; found while writing
- * the backend's first #[test] units (docs/reviews/tasks.md F134). */
+ * the backend's first #[test] units (docs/reviews/tasks/ F134). */
 static int module_file_exists(Loader *ldr, const char *use_path) {
     char *file = resolve_file_path(ldr->project_root, use_path);
     FILE *f = fopen(file, "rb");

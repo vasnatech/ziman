@@ -31,7 +31,7 @@ static void iter_finalizer(void *obj, void *client_data) {
  * the process, and the pointer is dangling the moment the collector takes the object. This is the
  * part of a finalizer that is safe to run for them: no interpreted code, just the removal, which is
  * the same handleset_remove the two existing finalizers already do from this context. What it
- * deliberately does not do is call `release` -- see iter.h for why (docs/reviews/tasks.md F16). */
+ * deliberately does not do is call `release` -- see iter.h for why (docs/reviews/tasks/ F16). */
 static void iter_drop_finalizer(void *obj, void *client_data) {
     (void)client_data;
     handleset_remove(&g_iters, obj);
@@ -148,7 +148,7 @@ int line_source_next(LineSource *ls, const char **line, size_t *len, int64_t *nu
  * reasoning does not reach a buffer the collector never handed out: Boehm cannot reclaim it, so it
  * stayed for the life of the process. 20,000 lines of 60 KB cost 1.27 GB of RSS that way, against
  * 28 MB under ziman-nogc, whose `free` is real -- the collector build leaking where the build that
- * "never frees anything" does not (docs/reviews/tasks.md A17). Suspended rather than undefined, so
+ * "never frees anything" does not (docs/reviews/tasks/ A17). Suspended rather than undefined, so
  * the rest of this file still allocates through the collector; the same idiom as
  * src/native_http.c:15-27, which suspends these macros to read malloc.h. */
 #pragma push_macro("free")

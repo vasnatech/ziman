@@ -14,7 +14,7 @@
 //
 // **Why it is not just `keys(m)`.** That builds an entire `Set<K>` -- every key hashed
 // into a trie -- and then walks it back out into the array that was wanted. Measured at about 10x
-// this on a 100,000-entry map, which is the fused-conversion rule DESIGN.md states being satisfied
+// this on a 100,000-entry map, which is the fused-conversion rule docs/design/journal/ states being satisfied
 // by a wide margin rather than by a judgement call.
 //
 // The immutable member shares one C function with `to_array`'s Set member: a Set is a MapObj whose

@@ -6,7 +6,7 @@ A module says once, in its own source, that it is experimental -- the module-lev
 (tools/gen_corelib_reference.sh, tools/gen_lib_manual.py), so they cannot disagree with it. The
 README's module table is hand-written and marks an experimental module with a `\\*` after its name,
 which can: a module gaining or losing the attribute leaves that table saying the opposite, silently,
-exactly the way docs/ROADMAP.md's own entry was still claiming `format` had no brace escape long
+exactly the way docs/roadmap/'s own entry was still claiming `format` had no brace escape long
 after it grew one.
 
 So this compares the two sets and fails when they differ. It is the cheap half of the problem --

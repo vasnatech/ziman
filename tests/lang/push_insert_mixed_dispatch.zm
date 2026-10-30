@@ -39,7 +39,7 @@ fn main() {
     print(push(a, [3, 4]))
 
     // A nested element type, where a lone array argument is one element and not a spread -- the
-    // ambiguity docs/DESIGN.md's `_all` paragraph guards against, on both halves.
+    // ambiguity docs/design/journal/'s `_all` paragraph guards against, on both halves.
     val nested = [[9]]
     print(push(nested, [1, 2]))
     print(push(nested, [[1, 2], [3]]))

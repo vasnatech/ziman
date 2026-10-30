@@ -24,13 +24,13 @@
  * `n_inst * 2 * (n_groups + 1)` ints, so the *product* is what grows, and a pattern of 6,000 empty
  * groups -- 18,002 instructions, inside the instruction limit, and wide rather than nested, so the
  * nesting limit does not see it either -- asked for about 1.1 GB and got a SIGSEGV instead
- * (docs/reviews/tasks.md A16). 64 MB is far above any real pattern: a 200-character pattern with
+ * (docs/reviews/tasks/ A16). 64 MB is far above any real pattern: a 200-character pattern with
  * 20 capture groups needs about 35 KB. */
 #define MAX_MATCH_BYTES (64u * 1024u * 1024u)
 
 /* A ceiling on the *work* one match may do, which MAX_MATCH_BYTES is a poor proxy for: a pattern
  * just inside the memory budget cost about 9 ms per input byte, roughly 2.5 CPU-hours for a 1 MB
- * subject in a single request (docs/reviews/tasks.md A28). Counted in capture-vector int-copies,
+ * subject in a single request (docs/reviews/tasks/ A28). Counted in capture-vector int-copies,
  * which is what the matcher actually spends its time on -- `ncap` ints per thread parked and per
  * I_SAVE.
  *
@@ -127,7 +127,7 @@ typedef struct {
     /* Every Node this parse has made, in the order it made them. The parser is the owner, not the
      * tree: a parse that fails abandons nodes that were never linked into anything a tree walk
      * could reach, and that is what leaked -- 600 bytes for one malformed pattern, every time,
-     * since a failed compile is not cached (docs/reviews/tasks.md A26). With one list there is one
+     * since a failed compile is not cached (docs/reviews/tasks/ A26). With one list there is one
      * place that frees them, reached identically whether the parse succeeded or not, and no tree
      * walk at all -- so this also retires the recursion A25 had to flatten in free_node. */
     Node **nodes;
@@ -697,7 +697,7 @@ static void gen(Emit *em, const Node *n) {
              * that whole spine before emitting a single instruction, which is why
              * MAX_INSTRUCTIONS could not see it and the post-compile MAX_MATCH_BYTES was never
              * reached: a 20,000-character pattern segfaulted on a 1 MB stack, and a spawned worker
-             * at ZIMAN_THREAD_STACK_MB=1 took the whole process down (docs/reviews/tasks.md A25).
+             * at ZIMAN_THREAD_STACK_MB=1 took the whole process down (docs/reviews/tasks/ A25).
              * Walking the spine in a loop instead leaves `gen`'s recursion bounded by the pattern's
              * *nesting*, which the parser already caps at 200 -- the same move as A16's, one
              * function over, and it refuses no pattern that used to compile.
@@ -786,7 +786,7 @@ static void gen(Emit *em, const Node *n) {
  * `group_names` and every name string behind, which for `(?P<nN>a|b)` x 6000 is **82,898 bytes**
  * (48,008 direct plus 34,890 indirect, measured with valgrind), and a failed compile is not cached,
  * so a client sending a different malformed pattern per request leaked that every time, in the path
- * src/regex.h advertises as safe for request input (docs/reviews/tasks.md A26). One function now,
+ * src/regex.h advertises as safe for request input (docs/reviews/tasks/ A26). One function now,
  * so the three paths cannot drift apart again. */
 static void free_partial_regex(Regex *re) {
     if (re == NULL) return;
@@ -807,7 +807,7 @@ static void free_partial_regex(Regex *re) {
  * Note what this means per build, because it is not the same thing twice: under `nogc` it really
  * frees, and under the default build `zgc.h` has made `free` a no-op, so it does nothing and the
  * collector reclaims the pattern when nothing references it. That is why the pattern cache in
- * native_regex.c does *not* call this on eviction -- see its own comment (docs/reviews/tasks.md
+ * native_regex.c does *not* call this on eviction -- see its own comment (docs/reviews/tasks/
  * A35). */
 void regex_free(Regex *re) {
     free_partial_regex(re);
@@ -947,7 +947,7 @@ static int assertion_holds(const Vm *vm, Op op, size_t pos) {
  * It recursed until 2026-10-08, once per instruction, and each I_SAVE frame carried a
  * variable-length array of the captures. For `("()" * 6000)` that is about 96 KB a frame to a
  * depth of 12,000: roughly 1.1 GB of C stack, which segfaults at every size --stack-mb allows,
- * including the 768 MB ceiling, and from pure Ziman code (docs/reviews/tasks.md A16). Depth now
+ * including the 768 MB ceiling, and from pure Ziman code (docs/reviews/tasks/ A16). Depth now
  * lives in `vm->work` on the heap, and regex_compile has already refused any pattern whose
  * buffers would exceed MAX_MATCH_BYTES, so neither can run away.
  *
@@ -960,7 +960,7 @@ static int assertion_holds(const Vm *vm, Op op, size_t pos) {
  * different captures. An adversarial review measured the difference -- a mark-on-push variant
  * disagrees with this one on 45,626 of 1,500,958 outputs, the smallest case being `c*?|` against
  * "cb xa" (this engine and Python's re both say 0 0; mark-on-push says 0 1). It is the obvious way
- * to shrink the worklist, so it is named here to be refused (docs/reviews/tasks.md A29).
+ * to shrink the worklist, so it is named here to be refused (docs/reviews/tasks/ A29).
  *
  * Two bounds, both from that same mark, which admits each instruction once per generation. A popped
  * entry is processed once and pushes at most two, which is net **+1** per instruction -- so

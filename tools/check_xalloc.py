@@ -6,7 +6,7 @@ ziman_xstrdup -- which report and exit rather than returning NULL. Every `src/*.
 through them, because before 2026-10-08 there were 13 NULL checks across 283 malloc/calloc sites
 and 3 across 80 reallocs, and the worst of them was `src/lsp.c`'s `sb_grow`: a
 `p = realloc(p, n)` that lost the old pointer *and* then wrote through the NULL, in the one process
-a user keeps open all day (docs/reviews/tasks.md A20).
+a user keeps open all day (docs/reviews/tasks/ A20).
 
 A bare `malloc` compiles and works, so nothing but a check like this one keeps the next one out.
 
@@ -16,7 +16,7 @@ here sized by user input and it can report the failure as a Ziman runtime error 
 
 The marker used to exempt the whole file, and that was too wide: `src/regex.c` had five allocations
 that did not check at all, four of them `p = realloc(p, n)` writing through the NULL on the next
-line -- A20's bug exactly, in the one file this checker could not see (docs/reviews/tasks.md F127).
+line -- A20's bug exactly, in the one file this checker could not see (docs/reviews/tasks/ F127).
 So an exempt file is still read, and every allocation in it must carry its own
 `/* xalloc-ok: <reason> */` on the same line. The file-level marker now says only "this file checks
 for itself"; the per-site marker is the claim that this particular site does.

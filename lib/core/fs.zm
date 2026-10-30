@@ -319,7 +319,7 @@ pub fn path_join(pieces: variadic string) -> string {
     // used to call `snapshot(out)` on every piece purely to look at its last character, which
     // copies the whole accumulated path each time: measurably superlinear past a few thousand
     // pieces (0.02s, 0.04s, 0.09s, 0.35s at 2,000 to 16,000), and the shape `--lint` now reports
-    // (docs/reviews/tasks.md F84). A real path has a handful of pieces, so this was never a
+    // (docs/reviews/tasks/ F84). A real path has a handful of pieces, so this was never a
     // practical cost -- it is fixed because the library is the code people read for the idiom.
     var ends_with_slash = false
     for piece in pieces {

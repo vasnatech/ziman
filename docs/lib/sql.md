@@ -1,6 +1,6 @@
 # `sql`
 
-> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> **Experimental** -- see docs/design/journal/'s "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 SQL as a value: a statement tree, a parser that reads one, and a formatter that writes

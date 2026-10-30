@@ -354,7 +354,7 @@ pub struct TraceParent {
 
 W3C Trace Context's `traceparent`, which is how one request is followed across services: the
 caller sends it, the callee reads it and sends its own child onward, and every log line in
-between carries the same `trace_id` (ROADMAP.md's metrics item 4). The header is
+between carries the same `trace_id` (docs/roadmap/'s metrics item 4). The header is
 `version-traceid-spanid-flags`, as in
 `00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01`.
 

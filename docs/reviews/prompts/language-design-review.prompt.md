@@ -8,7 +8,7 @@ You are a senior programming-language designer and implementer (think: someone w
 
 ## Where things are
 - The Ziman repo: /home/mfg/workspace/vasna.tech/repos/ziman (a C interpreter with a static type checker; the binary is ./ziman, build with `make`).
-- Language reference: docs/SYNTAX.md (very long; read it thoroughly), docs/DESIGN.md (principles/non-goals), docs/ROADMAP.md (known gaps and decisions), docs/CORELIB.md and docs/lib/*.md (the generated library manual, one page per module), docs/lib/dependencies.md.
+- Language reference: docs/syntax/ (very long; read it thoroughly), docs/design/journal/ (principles/non-goals), docs/roadmap/ (known gaps and decisions), docs/CORELIB.md and docs/lib/*.md (the generated library manual, one page per module), docs/lib/dependencies.md.
 - Sources of the language: src/*.c (lexer, parser, typecheck.c, interpreter.c, loader.c, derive.c, format.c, lsp.c, native_*.c). The standard library is written mostly in Ziman itself: lib/prelude.zm, lib/core/*.zm, lib/db/*.zm, lib/http/*.zm, lib/time/*.zm. Tests: tests/lang/*.zm with .out/.err expectations, run by `make test`.
 - A real program written in Ziman, useful as evidence of how the language behaves at scale: /home/mfg/workspace/vasna.tech/repos/health-record/health-record-backend-ziman (its README explains it).
 - Earlier reviews are in docs/reviews/*.md. Read them AFTER forming your own view of a topic, not before; then say in your report which earlier findings are now fixed, which still hold, and which you disagree with. Check the fixed/still-holds claims by re-running their reproductions, do not trust the text.

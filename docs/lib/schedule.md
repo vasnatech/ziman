@@ -21,7 +21,7 @@ server.serve(listener, handler, options)
 ```
 
 **Why a due job is `spawn`ed rather than called.** A runtime error ends the thread it happens in
-(docs/DESIGN.md), so a job that aborts -- an `unwrap` on a `None`, a database that went away --
+(docs/design/journal/), so a job that aborts -- an `unwrap` on a `None`, a database that went away --
 would take the scheduler with it and silently stop every *other* job for the life of the
 process. Spawned, it ends only itself and arrives at `on_error` instead. The cost of that choice,
 stated plainly: nothing waits for a job to finish, so a job that takes longer than its own

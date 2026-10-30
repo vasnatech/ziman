@@ -2,7 +2,7 @@
 
 One page per module. Every page is generated from the module's own source -- its header
 comment is the introduction and each `pub` item's comment is its entry -- so it is kept
-true by `make corelib-reference`. For the language itself see [SYNTAX.md](../SYNTAX.md); for
+true by `make corelib-reference`. For the language itself see [syntax/README.md](../syntax/README.md); for
 a bare signature list see [CORELIB.md](../CORELIB.md), and for which module uses which see
 [dependencies.md](dependencies.md).
 
@@ -11,7 +11,7 @@ name (`use db`, `use pg`), whatever folder it lives in. A file of your own with 
 wins over the bundled one.
 
 Everything that can fail returns a `Result`, and an absent value is an `Option`; nothing here
-throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
+throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Option`.
 
 ## Data and formats
 

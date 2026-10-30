@@ -43,7 +43,7 @@ test-mysql: $(BIN)
 # it used to be in this one, which made a gate on *this* repo fail for a file in another, and meant
 # anyone without that checkout could not run `make fmt-check` at all. Found when `make check` first
 # ran the whole set together: it had been failing on three of the backend's files.
-# `--canonical` as well as plain `--fmt`, added 2026-10-12 (docs/reviews/tasks.md F80). Both corpora
+# `--canonical` as well as plain `--fmt`, added 2026-10-12 (docs/reviews/tasks/ F80). Both corpora
 # already passed it, so this changed no file -- what it changes is that they are now *held* to it
 # rather than happening to agree, and that the flag is exercised by something. The consequence worth
 # naming: `--canonical` settles brace placement, so this repo now requires K&R braces where plain
@@ -61,7 +61,7 @@ fmt-check-backend: $(BIN)
 
 # In `make check` since 2026-10-12. It was not, which is how a `len(result) >= 5` assertion on
 # document highlight survived while the handler answered with every word that matched the text:
-# nothing in the gate ran the file that would have been strengthened (docs/reviews/tasks.md F77).
+# nothing in the gate ran the file that would have been strengthened (docs/reviews/tasks/ F77).
 test-lsp: $(BIN)
 	python3 tests/integration/lsp/lsp_test.py ./$(BIN)
 
@@ -72,14 +72,14 @@ test-tls: $(BIN)
 # generates certificates with it and starts two `openssl s_server` processes -- which is why it was
 # left out of `check` in the first place. Leaving it out had a cost: **no TLS code path in this
 # project had ever run under a sanitizer**, and that is how a use-after-free on an `SSL` object
-# survived A24, a review specifically about races in that file (docs/reviews/tasks.md A36, and A32
+# survived A24, a review specifically about races in that file (docs/reviews/tasks/ A36, and A32
 # for the bug). Skipped with a word rather than silently, so a machine without openssl still gets a
 # green `check` and knows what it did not run.
 # Type-checks and runs the North Star application -- the slice of the health-record backend
-# docs/ROADMAP.md's first section names as the target this language exists to reach. It lives in a
+# docs/roadmap/'s first section names as the target this language exists to reach. It lives in a
 # sibling checkout, so this follows tls-if-available: run it when it is there, say so when it is
 # not, never fail for its absence. It had been broken for some time before this existed
-# (docs/reviews/tasks.md F25), which is the argument for having it: nothing here was watching the
+# (docs/reviews/tasks/ F25), which is the argument for having it: nothing here was watching the
 # one application that defines "capable enough".
 # How `use` finds a module that is not beside the importing file: ZIMAN_MODULE_PATH, and a
 # `ziman.toml` marking the project root. A script rather than a fixture because the entry file has
@@ -152,7 +152,7 @@ benchmark-check: $(BIN)
 	    || { echo "benchmark-check: the reference solutions no longer match their expected output"; exit 1; }
 
 # `--lint` over every library module. Two things had to be true before this could exist at all,
-# and neither was (docs/reviews/tasks.md F133).
+# and neither was (docs/reviews/tasks/ F133).
 #
 # `--lint` refused a module with no `main`, so it could only ever be pointed at an entry point.
 # And a module reached through `use` is normally the *bundled* copy, whose declarations carry a

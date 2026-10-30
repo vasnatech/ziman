@@ -209,7 +209,7 @@ static int need_space(const Item *p, const Item *c, const Item *pp, int in_use_l
  * lines passes that check and still blows up -- 764 KB of input at depth 190 formats to 45 MB at
  * 235 MB of peak memory, and a 10 MB document reached 4.78 GB through the language server before
  * its reply cap refused it, because that cap is tested against a string that has already been built
- * (docs/reviews/tasks.md A27, correcting A18). This is the axis that matters, checked as the output
+ * (docs/reviews/tasks/ A27, correcting A18). This is the axis that matters, checked as the output
  * is produced rather than afterwards.
  *
  * 16 MB is about 180x the largest file in this project or the reference backend (`lib/http/server.zm`,
@@ -318,7 +318,7 @@ static void emit_pass(const Items *items, Buf *out, ItemPos *pos) {
              * indenting the third again: `+1, +0, +1, +0`. A five-term sum therefore zigzagged between
              * 8 and 4 spaces, and because the output was *stable*, `--fmt --check` required the zigzag
              * of anyone who had written it aligned. The library only ever escaped it by having no
-             * continuation run longer than one line (docs/reviews/tasks.md F72). */
+             * continuation run longer than one line (docs/reviews/tasks/ F72). */
             if (!first_is_closer && prev_line_continues) level += 1;
             cur_level = level;
             line_is_use = it->kind == K_WORD && word_is(it, "use");
@@ -656,7 +656,7 @@ static void canonicalize_braces(Items *items) {
  * indented by four spaces per open bracket, so the text this produces is O(lines x depth) -- which
  * for input that is *only* nesting is quadratic in its own size: 32 KB of nested blocks formatted
  * to 256 MB, at 9.7 GB of peak RSS, and through the language server a 24 KB document became a
- * 144 MB reply (docs/reviews/tasks.md A18). The quadratic output is correct, so it is the depth
+ * 144 MB reply (docs/reviews/tasks/ A18). The quadratic output is correct, so it is the depth
  * that has to be bounded, not the indenting; 200 is the same limit the regex compiler puts on its
  * own nesting, and real code does not pass about 15. Checked once here rather than inside the
  * emission passes, which run up to 60 times over the same items. Returns 0 and fills `err`. */
@@ -667,7 +667,7 @@ static int nesting_within_limit(const Items *items, char *err, size_t err_size) 
     /* Counted per kind, because "202 brackets open" is not a number anyone can act on: a document
      * reaching the limit is usually a deep call chain *or* a deep block nest, and the reader needs
      * to know which to go and unnest. Snapshotted at the deepest point rather than totalled, so the
-     * three numbers always add up to the one beside them (docs/reviews/tasks.md F17). */
+     * three numbers always add up to the one beside them (docs/reviews/tasks/ F17). */
     int open_paren = 0, open_square = 0, open_brace = 0;
     int worst_paren = 0, worst_square = 0, worst_brace = 0;
     for (int i = 0; i < items->n; i++) {

@@ -27,7 +27,7 @@ fn main() {
     print(sort(items: [3, 1, 2]))
 
     // NEW -- a type argument on an empty literal. `sort<int>([])` was *unspellable* while `sort`
-    // was a builtin (docs/ROADMAP.md's overloading entry names it): a builtin discards explicit
+    // was a builtin (docs/roadmap/'s overloading entry names it): a builtin discards explicit
     // type arguments, so the literal had nothing to infer from. The empty literal is still never
     // checked during resolution -- it is context-dependent -- so it reaches the array overload
     // and takes its element type from there.

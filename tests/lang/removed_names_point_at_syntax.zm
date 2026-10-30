@@ -9,7 +9,7 @@
 // its two documented uses were one-entry label maps, and a map literal names each key beside its
 // value instead of pairing two positional lists whose lengths only a runtime check could compare.
 //
-// The hint matters more than usual for a removal: this one was taught in docs/SYNTAX.md's helper
+// The hint matters more than usual for a removal: this one was taught in docs/syntax/'s helper
 // list, so anybody who learned the vocabulary from that page has it in their fingers.
 fn main() {
     val b = mutable([1, 2])

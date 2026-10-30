@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Compiles the Ziman examples in docs/SYNTAX.md, so one cannot quietly stop being valid Ziman.
+"""Compiles the Ziman examples in docs/syntax/, so one cannot quietly stop being valid Ziman.
 
-docs/SYNTAX.md is hand-written and nothing ever compiled it. When this was added, 2 of its 45
+The syntax reference is hand-written and nothing ever compiled it. When this was added, 2 of its 45
 code blocks did not compile as shown, in the two ways that matter most:
 
   * `struct AddCase { a: int, b: int, expected: int }` -- struct fields are separated by
@@ -38,15 +38,20 @@ signature with no body, a two-file example) are unverifiable this way by constru
 still need a human, the way F5's audit was.
 
 Run directly, or via `make syntax-check`. Exits 1 and names every block that disagrees with its
-tag, by its line in SYNTAX.md.
+tag, by its file and line.
 """
+import glob
 import os
 import re
 import subprocess
 import sys
 import tempfile
 
-DOCS = ["docs/SYNTAX.md", "docs/CHEATSHEET.md"]
+# **The syntax reference is a folder, not a file, since 2026-10-30** (docs/syntax/), so this globs
+# rather than naming it: a chapter added later is compiled without touching this list. README.md
+# carries the front matter and the chapter list and has no examples of its own, but it costs nothing
+# to read, so it is left in rather than special-cased.
+DOCS = sorted(glob.glob("docs/syntax/*.md")) + ["docs/CHEATSHEET.md"]
 ZIMAN = os.environ.get("ZIMAN", "./ziman")
 
 
@@ -82,7 +87,7 @@ def use_order(body, tmp):
 
     `use` order is the opposite case: the formatter sorts these lines, so a block showing another
     order teaches an import list that changes under `--fmt`, with nothing about alignment or taste
-    in it. Five blocks were wrong this way when the check was written (docs/reviews/tasks.md F74).
+    in it. Five blocks were wrong this way when the check was written (docs/reviews/tasks/ F74).
     """
     lines = body.split("\n")
     runs, cur = [], []

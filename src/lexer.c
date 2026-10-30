@@ -17,7 +17,7 @@ typedef struct {
      * end a statement -- if it can, a following newline becomes a real
      * TOK_NEWLINE; otherwise the newline is swallowed. This is a purely
      * lexical rule (like Go's automatic semicolon insertion), never an
-     * indentation rule -- see docs/DESIGN.md. */
+     * indentation rule -- see docs/design/journal/. */
     int prev_can_end_stmt;
     /* A `\` outside a string: the string literal before it continues with the one after it. See
      * `lex_backslash`. Set when the `\` is read, cleared by the string that follows, and an error
@@ -540,7 +540,7 @@ TokenList lex(const char *source) {
                      * `for i in 1..=20` report "expected an expression, found '='" and then a bogus
                      * "expected 'fn'" on the following line, and four later runs avoided ranges
                      * altogether rather than risk an off-by-one the compiler would not settle
-                     * (tasks.md F93). The semantics are the part worth saying: docs/SYNTAX.md has
+                     * (tasks.md F93). The semantics are the part worth saying: docs/syntax/ has
                      * had "`a..b` is exclusive of `b`" all along, and a program may not read it. */
                     if (peek(&lx) == '=') {
                         ziman_error("lexical", line, col,
@@ -557,7 +557,7 @@ TokenList lex(const char *source) {
             case '%': advance(&lx); emit(&lx, TOK_PERCENT, start, 1, line, col); continue;
             case '-':
                 /* `-- a comment`, where the `--` opens a line. Five of the ten cold attempts in the
-                 * 2026-10-09 benchmark pilot wrote comments this way (docs/reviews/tasks.md F28).
+                 * 2026-10-09 benchmark pilot wrote comments this way (docs/reviews/tasks/ F28).
                  * The parser catches the pair when it stops a declaration, but inside a function
                  * body `-- a note` is a legal double negation of `a`, so by the time anything fails
                  * the message is about an undefined variable and the comment is invisible.

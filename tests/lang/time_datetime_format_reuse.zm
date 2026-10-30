@@ -1,5 +1,5 @@
 // DateTimeFormat is a compiled representation of a pattern (see
-// docs/DESIGN.md's "time" formatting/parsing entry) -- this exercises
+// docs/design/journal/'s "time" formatting/parsing entry) -- this exercises
 // compiling one once and reusing it across many calls, a
 // multi-character literal run, and a leading/trailing literal
 // (coalesced correctly around a field token), not just the single

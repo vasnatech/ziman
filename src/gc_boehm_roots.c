@@ -42,7 +42,7 @@ static void push_other_roots(void) {
      * `GC_add_roots` instead, which worked but capped the whole process at `MAX_ROOT_SETS` (2048)
      * simultaneously-registered ranges -- and `value_copy_send` makes one arena per value queued on
      * a `Channel`, so that was a hard ceiling on ordinary, non-leaking concurrent code (arena.h's
-     * own comment on `arena_create_scanned`, and docs/DESIGN.md). Pushed from here instead, the
+     * own comment on `arena_create_scanned`, and docs/design/journal/). Pushed from here instead, the
      * same uncapped way this hook already handles every other root source Boehm cannot find alone. */
     ziman_arena_push_scanned_roots();
 

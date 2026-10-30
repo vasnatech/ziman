@@ -1,5 +1,5 @@
 // A trailing `...` on the type was Ziman's own spelling for a variadic parameter until 2026-10-12,
-// when it became the `variadic` keyword (docs/DESIGN.md, two entries). Every benchmark attempt on
+// when it became the `variadic` keyword (docs/design/journal/, two entries). Every benchmark attempt on
 // 2026-10-12 that declared one wrote the suffix, and one round-1 attempt wrote Go's prefix form
 // instead, so both are still recognised here -- only to be answered with the keyword spelled out,
 // rather than with `expected ')', found '..'` several characters from the real question. The same

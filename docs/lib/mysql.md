@@ -1,6 +1,6 @@
 # `mysql`
 
-> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> **Experimental** -- see docs/design/journal/'s "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 A MySQL / MariaDB client, the third engine behind the `datasource`
@@ -52,7 +52,7 @@ stored-procedure OUT parameters, prepared-statement reuse (each
 parameterised statement is prepared afresh), multiple result sets
 (only the last one is returned) and sending a packet of 16 MiB or more.
 `[byte]` is an array of interpreter values, so very large result sets
-are slow -- see docs/ROADMAP.md.
+are slow -- see docs/roadmap/.
 
 `rows` reads a result lazily through a server-side cursor, 500 rows at a time (see `rows`).
 

@@ -26,7 +26,7 @@
 # SKIP="name1 name2" leaves those fixtures out, reporting each as skipped. For a fixture that
 # cannot hold under a particular build rather than one that is broken: `make asan` uses it for
 # stack_depth_deep_recursion_works, whose frames are several times larger under the sanitizer than
-# the stack its own --stack-mb=256 asks for (docs/reviews/tasks.md F14).
+# the stack its own --stack-mb=256 asks for (docs/reviews/tasks/ F14).
 #
 # Multi-file fixtures: a directory tests/lang/name/ with an entry point at
 # name/main.zm (and whatever other .zm files it `use`s underneath it) is run

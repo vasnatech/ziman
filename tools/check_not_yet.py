@@ -2,17 +2,17 @@
 """Catches a doc claiming a feature is missing once it actually exists.
 
 Three shapes, all of them "the docs say Ziman cannot do X" where the code says otherwise. The
-second was added on 2026-10-09 after the North Star section of docs/ROADMAP.md was found still
+second was added on 2026-10-09 after the North Star section of docs/roadmap/ was found still
 listing "No map/dictionary type. Only `[T]` exists" among the things standing between the
 language and a backend -- long after `Map<K, V>` and `Set<T>` became built-in types. The entry
 two lines below it, for `Option<T>`, had been struck through properly, which is the only reason
 the stale one was visible at all: by contrast, to a human reading the file. Nothing checked it.
 
-The language review found this exact mismatch once already: docs/SYNTAX.md said "Not yet:
+The language review found this exact mismatch once already: docs/syntax/ said "Not yet:
 server-side TLS (`listen_tls`)" after `lib/core/net.zm` had already grown a `pub fn listen_tls`
 (the doc was written first and never revisited once the feature landed). This script guards
 against that specific regression, mechanically: it collects every `pub fn`/`pub native fn`/
-`pub struct`/`pub enum`/`pub val` name declared anywhere under lib/, then scans docs/SYNTAX.md
+`pub struct`/`pub enum`/`pub val` name declared anywhere under lib/, then scans docs/syntax/
 and every lib/**/*.zm doc comment for a "Not yet: ..." phrase and flags one that names an
 already-`pub` identifier in backticks.
 
@@ -22,13 +22,13 @@ name that could ever collide with a real declaration) is unverifiable this way a
 never flagged; that class of staleness still needs a human doc sweep, as F5's own audit was.
 
 A "Not yet" inside double quotes is skipped: that is someone citing a wording (this file's own
-DESIGN.md entry quotes the stale sentence that motivated the check), not claiming it is still true.
+docs/design/journal/ entry quotes the stale sentence that motivated the check), not claiming it is still true.
 
-Scans source only: docs/SYNTAX.md and docs/DESIGN.md (hand-written) and lib/**/*.zm (the doc comments
+Scans source only: docs/syntax/ and docs/design/journal/ (hand-written) and lib/**/*.zm (the doc comments
 docs/lib/*.md and docs/CORELIB.md are generated from) -- not the generated .md files
 themselves, since they can only ever repeat whatever the source already says.
 
-**Shape three: a "Still ahead" list in docs/ROADMAP.md**, added 2026-10-09 after the North Star
+**Shape three: a "Still ahead" list in docs/roadmap/**, added 2026-10-09 after the North Star
 section was found still describing `fs` without directory listing or append, `net` and `http` as
 unwritten, and the pure-Ziman-versus-native database question as open -- all of it shipped, some of
 it months earlier. It needed its own vocabulary because such a list names *modules*, and a module
@@ -37,7 +37,7 @@ An item carrying an "*Update <date>:*" note is skipped, because annotating a sta
 place rather than rewriting it is this file's own convention for recording a resolution -- without
 that, the check would fire precisely on the entries someone had fixed properly.
 
-**Shape two: an absence claim in docs/ROADMAP.md.** A list item whose bold headline starts with
+**Shape two: an absence claim in docs/roadmap/.** A list item whose bold headline starts with
 "No " is a claim about what the language lacks, and it is flagged when the headline names
 something that now exists: a backticked `pub` identifier, or one of the built-in parametric types
 read straight out of src/typecheck.c's HARDCODED_GENERIC_TYPES -- so a sixth built-in type is
@@ -52,14 +52,14 @@ A bare type name is only matched when it is backticked, capitalised, or the head
 the word "type" -- otherwise a future "No result caching" entry would trip over `Result`. That
 deliberately narrows it: "No optional/nullable type" would not be caught, because the word is
 "optional" and the type is `Option`. Like shape one, this catches one shape of drift and is not a
-substitute for reading the file. ROADMAP.md only -- docs/DESIGN.md is a dated log whose "No X"
+substitute for reading the file. docs/roadmap/ only -- docs/design/journal/ is a dated log whose "No X"
 sentences are true of their date by design, so scanning it would report history as staleness.
 
-**Shape four: a "Still missing" list in docs/ROADMAP.md**, added 2026-10-16 after the North Star
+**Shape four: a "Still missing" list in docs/roadmap/**, added 2026-10-16 after the North Star
 section was found still listing `replace` and `index_of` among what the language lacked -- both
 shipped. (The first sweep read that as the North Star prose being the stalest part of the file;
 asking the file one more question turned up four more stale entries in "Larger, needs its own design
-pass", so the pattern is not sectional -- see ROADMAP.md's own preamble for what it actually is.)
+pass", so the pattern is not sectional -- see docs/roadmap/'s own preamble for what it actually is.)
 
 It needed one new vocabulary of its own: a **builtin** is not a `pub fn` either. `replace` and
 `index_of` are registered in C (`native_register("replace", ...)` in src/prelude.c) or dispatched
@@ -100,7 +100,7 @@ ABSENCE_HEADLINE = re.compile(r"^\s*-\s+(~~)?\*\*(No\b[^*]*)\*\*")
 # A ROADMAP list item that says what is still to come. The same shape as a "Not yet" claim, but it
 # names *modules* rather than functions, which is why it needs its own vocabulary below: `net` and
 # `http` are not `pub fn` declarations, so the original check read right past an entry whose whole
-# "still ahead" list had shipped (docs/reviews/tasks.md, the 2026-10-09 North Star correction).
+# "still ahead" list had shipped (docs/reviews/tasks/, the 2026-10-09 North Star correction).
 STILL_AHEAD = re.compile(r"Still ahead\b[:,]?\s*(.*)")
 # "Still missing: `replace`, and a general `index_of`/`find`" -- the same shape as a "Not yet"
 # claim, in the one file where such a list is a roadmap item rather than a doc sentence.
@@ -163,19 +163,42 @@ def builtin_names():
     return found
 
 
+# **The roadmap is a folder, not a file, since 2026-10-30** (docs/roadmap/). Each of the three
+# checks below used to open docs/roadmap/ once; they now walk every part, because an item can sit
+# in any of them and a check that read one file would silently stop covering the rest. README.md is
+# the preamble and the list of parts, so it has no items of its own and is skipped.
+def roadmap_parts():
+    """Every part of the roadmap, as (relative path, lines)."""
+    found = sorted(glob.glob(os.path.join(ROOT, "docs", "roadmap", "*.md")))
+    parts = []
+    for path in found:
+        if os.path.basename(path) == "README.md":
+            continue
+        with open(path) as f:
+            parts.append((os.path.relpath(path, ROOT), f.read().split("\n")))
+    if not parts:
+        print("check_not_yet.py: docs/roadmap/ has no parts -- the roadmap checks would pass "
+              "vacuously", file=sys.stderr)
+        sys.exit(1)
+    return parts
+
+
+def roadmap_items():
+    """Every list item in the roadmap, as (relative path, first line number, body). An item runs to
+    the next one, so an "*Update <date>: ...*" note written under a claim is read with it."""
+    for rel, lines in roadmap_parts():
+        starts = [i for i, l in enumerate(lines) if re.match(r"^\s*-\s", l)]
+        for idx, start in enumerate(starts):
+            end = starts[idx + 1] if idx + 1 < len(starts) else len(lines)
+            yield rel, start + 1, "\n".join(lines[start:end])
+
+
 def still_missing_problems(names):
-    """ROADMAP list items whose "Still missing" names something that now exists."""
-    path = os.path.join(ROOT, "docs", "ROADMAP.md")
-    rel = os.path.relpath(path, ROOT)
-    with open(path) as f:
-        lines = f.read().split("\n")
-    starts = [i for i, l in enumerate(lines) if re.match(r"^\s*-\s", l)]
+    """Roadmap list items whose "Still missing" names something that now exists."""
     problems = []
-    for idx, start in enumerate(starts):
-        end = starts[idx + 1] if idx + 1 < len(starts) else len(lines)
-        body = "\n".join(lines[start:end])
+    for rel, lineno, body in roadmap_items():
         if UPDATE_NOTE.search(body):
-            continue  # answered in place, which is how this file records a resolution
+            continue  # answered in place, which is how the roadmap records a resolution
         m = STILL_MISSING.search(body)
         if m is None:
             continue
@@ -187,26 +210,17 @@ def still_missing_problems(names):
                     "%s:%d: says `%s` is still missing, but it already exists at %s:%d. If it has "
                     "landed, strike the clause through and add an \"*Update <date>: ...*\" note "
                     "saying so, as the other resolved entries do."
-                    % (rel, start + 1, name, decl_file, decl_line)
+                    % (rel, lineno, name, decl_file, decl_line)
                 )
     return problems
 
 
 def still_ahead_problems(modules):
-    """ROADMAP list items whose "Still ahead" names a module that now exists."""
-    path = os.path.join(ROOT, "docs", "ROADMAP.md")
-    rel = os.path.relpath(path, ROOT)
-    with open(path) as f:
-        lines = f.read().split("\n")
-    # Item boundaries first, so a claim can be read together with any Update note under it.
-    starts = [i for i, l in enumerate(lines) if re.match(r"^\s*-\s", l)]
+    """Roadmap list items whose "Still ahead" names a module that now exists."""
     problems = []
-    for idx, start in enumerate(starts):
-        end = starts[idx + 1] if idx + 1 < len(starts) else len(lines)
-        item = lines[start:end]
-        body = "\n".join(item)
+    for rel, lineno, body in roadmap_items():
         if UPDATE_NOTE.search(body):
-            continue  # answered in place, which is how this file records a resolution
+            continue  # answered in place, which is how the roadmap records a resolution
         m = STILL_AHEAD.search(body)
         if m is None:
             continue
@@ -216,18 +230,16 @@ def still_ahead_problems(modules):
                 problems.append(
                     "%s:%d: says `%s` is still ahead, but lib/%s exists. If it has landed, add an "
                     "\"*Update <date>: ...*\" note under the item saying so, as the other resolved "
-                    "entries do." % (rel, start + 1, name, os.path.basename(modules[bare]))
+                    "entries do." % (rel, lineno, name, os.path.basename(modules[bare]))
                 )
     return problems
 
 
 def absence_problems(names, types):
-    """Every unresolved "No ..." headline in ROADMAP.md that names something which now exists."""
-    path = os.path.join(ROOT, "docs", "ROADMAP.md")
-    rel = os.path.relpath(path, ROOT)
+    """Every unresolved "No ..." headline in the roadmap that names something which now exists."""
     problems = []
-    with open(path) as f:
-        for lineno, line in enumerate(f.read().split("\n"), start=1):
+    for rel, lines in roadmap_parts():
+        for lineno, line in enumerate(lines, start=1):
             m = ABSENCE_HEADLINE.match(line)
             if m is None or m.group(1):  # no headline, or struck through, which is the resolved form
                 continue
@@ -274,9 +286,9 @@ def not_yet_claims(path):
     while i < len(lines):
         m = NOT_YET.search(lines[i])
         if m and inside_quotes(lines[i], m.start()):
-            # A *quoted* "Not yet" is a citation of some wording, not a claim about today. DESIGN.md's
+            # A *quoted* "Not yet" is a citation of some wording, not a claim about today. docs/design/journal/'s
             # own entry about this check quotes the stale sentence that motivated it, three times; without
-            # this, adding DESIGN.md to the sources made the check report the entry documenting itself.
+            # this, adding docs/design/journal/ to the sources made the check report the entry documenting itself.
             m = None
         if m:
             text = m.group(1)
@@ -313,8 +325,12 @@ def main():
     # when this was wired in: it adds no findings today (0 of the existing claims name a builtin)
     # and so no false positives either -- it is here to cover the next claim that names one.
     names.update(builtin_names())
-    sources = [os.path.join(ROOT, "docs", "SYNTAX.md"), os.path.join(ROOT, "docs", "DESIGN.md")] + glob.glob(
-        os.path.join(ROOT, "lib", "**", "*.zm"), recursive=True
+    # The hand-written reference and the design journal, both folders since 2026-10-30, plus every
+    # bundled module's doc comments.
+    sources = (
+        sorted(glob.glob(os.path.join(ROOT, "docs", "syntax", "*.md")))
+        + sorted(glob.glob(os.path.join(ROOT, "docs", "design", "journal", "*.md")))
+        + glob.glob(os.path.join(ROOT, "lib", "**", "*.zm"), recursive=True)
     )
     problems = []
     for path in sources:

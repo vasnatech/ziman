@@ -39,7 +39,7 @@ Arena *arena_create(void);
  * `Channel` its own scanned arena, that made 2048 *simultaneously queued messages* a
  * process-wide limit on the language's own `Channel` -- reached by six threads each streaming and
  * fully draining one database cursor, with nothing leaked and nothing wrong with the program (see
- * docs/DESIGN.md, which also records the four separate leaks that hit the same ceiling first and
+ * docs/design/journal/, which also records the four separate leaks that hit the same ceiling first and
  * were each mistaken for the whole problem in turn). A walked list has no such capacity.
  *
  * Needed wherever a value that might contain a native resource handle can end up in this arena
@@ -111,7 +111,7 @@ const ArenaBlock *arena_next_block(const ArenaBlock *b);
  * `src/gc_mark.c`'s `is_gc_heap_object` asks it of essentially every pointer it marks, and before
  * the bitmap existed the only way to answer was to walk the block's objects from its content start
  * -- measured at 827 objects walked per answer, 115 million object steps in one cursor-streaming
- * benchmark run, together 37% of all CPU time in it (docs/DESIGN.md). It is also what makes that
+ * benchmark run, together 37% of all CPU time in it (docs/design/journal/). It is also what makes that
  * answer *exact* rather than a guess at whether the bytes before an address look like a header:
  * writing a mark bit through a false positive corrupts whatever those bytes really belong to,
  * which is a bug this collector has already shipped once and does not intend to again.
@@ -146,7 +146,7 @@ const ArenaBlock *arena_block_containing(const Arena *a, const void *addr);
  * since the block list is exactly what `ziman_arena_push_scanned_roots` walks. Never relocates
  * anything still reachable; only ever called for a block gc_heap's own mark phase found entirely
  * dead, the same non-moving guarantee every other reclaim in this collector already relies on
- * (docs/MEMORY.md, "Phase 3 switches from copying to mark-sweep") -- see docs/DESIGN.md's own entry
+ * (docs/MEMORY.md, "Phase 3 switches from copying to mark-sweep") -- see docs/design/journal/'s own entry
  * on why an ordinary, long-lived thread's own sustained allocation needed this at all.
  *
  * `prev` is whichever block currently has `next == b` in `a`'s own list -- a caller walking blocks

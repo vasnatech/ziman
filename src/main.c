@@ -51,7 +51,7 @@ static void usage(FILE *out) {
           "       ziman test [options] <file.zm> [file2.zm ...]\n"
           "\n"
           "  test             run every #[test] function in the given files (see\n"
-          "                   docs/SYNTAX.md \"Testing\"); PASS/FAIL per test, then a\n"
+          "                   docs/syntax/ \"Testing\"); PASS/FAIL per test, then a\n"
           "                   summary; exit 1 if any failed. Takes --coverage,\n"
           "                   --coverage-lcov=F and --gc-stress, on either side of `test`\n"
           "  --api [module]   what a module offers: its `pub` types and function signatures, in\n"
@@ -128,7 +128,7 @@ static char *read_stdin(size_t *len) {
 /* `ziman --fmt [--width=N] [--canonical] [--write | --check] files...`; a file named `-` is stdin
  * (printed to stdout). A file the formatter refuses is printed back unchanged with the reason on
  * stderr and exit 2, so a buffer filtered through `--fmt -` survives a refusal even if the caller
- * ignores the status (see run_format, and docs/reviews/tasks.md F17). */
+ * ignores the status (see run_format, and docs/reviews/tasks/ F17). */
 static int run_format(char **files, int n_files, int write, int check, int width, int canonical) {
     int changed = 0, failed = 0;
     for (int i = 0; i < n_files; i++) {
@@ -144,7 +144,7 @@ static int run_format(char **files, int n_files, int write, int check, int width
             /* The input, unchanged, on the path that would otherwise print the formatted source.
              * `--fmt -` is a documented stdin filter, and an editor that pipes a buffer through it
              * and replaces the buffer with stdout -- without checking the exit status, which is the
-             * common shape -- would otherwise blank the file (docs/reviews/tasks.md F17). A careful
+             * common shape -- would otherwise blank the file (docs/reviews/tasks/ F17). A careful
              * caller still sees exit 2 and the message on stderr; a careless one gets its text
              * back. Nothing is printed under --check, whose output is a list of filenames, and
              * --write already leaves the file alone. */
@@ -500,7 +500,7 @@ static void print_builtin_entry(FunctionDecl *f) {
      * their arguments, so a reader comparing them needs to know the compiler chooses. */
     if (f->compiler_resolved) printf("\n#[compiler_resolved]");
     /* `builtin fn` keeps its keyword here rather than being flattened to `fn`: which of the two
-     * owns the type rule is a real difference and the one docs/DESIGN.md's "`native` and builtin
+     * owns the type rule is a real difference and the one docs/design/journal/'s "`native` and builtin
      * are two different mechanisms" entry is about. */
     printf(f->is_builtin ? "\nbuiltin fn %s" : "\nfn %s", f->name);
     print_type_params(&f->type_params);
@@ -610,7 +610,7 @@ static int run_api(const char *module_name) {
                  * name a reader would take for a deliberate exception. */
                 printf("  %-16s %s\n", bname, why != NULL ? why : "not yet declared in lib/prelude/");
             }
-            printf("\ndocs/SYNTAX.md \"Builtins\" has what each one takes.\n");
+            printf("\ndocs/syntax/ \"Builtins\" has what each one takes.\n");
         }
         printf("\nbuilt-in types, which are lowercase:\n  int  float  bool  string  byte  bigint  decimal\n"
                "  [T] (an array)  Map<K, V>  Set<T>  Option<T>  Result<T, E>  Channel<T>\n");
@@ -730,7 +730,7 @@ int main(int argc, char **argv) {
     (void)GC_expand_hp(32u * 1024 * 1024);
 #endif
     ziman_gc_install_boehm_root_hook();
-    /* `test` is a subcommand rather than a flag (docs/DESIGN.md, "#[test], ziman test, and the
+    /* `test` is a subcommand rather than a flag (docs/design/journal/, "#[test], ziman test, and the
      * test module"), and it was recognised at argv[1] only -- so an option written before it,
      * `ziman --gc-stress test f.zm`, read `test` as a second source file and died with "more than
      * one file given". That position is the one that matters for a whole-suite run: prepending a

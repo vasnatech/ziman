@@ -141,7 +141,7 @@ def parse(path):
     # "merged bare into every program" paragraph, which would otherwise be printed ten times).
     paths = path if isinstance(path, list) else [path]
     # `builtin fn` belongs here for the same reason it exists: a builtin with no documented
-    # signature is one a reader cannot find. See DESIGN.md's "`native` and builtin are two
+    # signature is one a reader cannot find. See docs/design/journal/'s "`native` and builtin are two
     # different mechanisms".
     # `pub` is required of a prelude declaration too since 2026-10-22: a non-`pub` one cannot be
     # called from outside the prelude, so listing it in the manual would advertise as vocabulary
@@ -234,7 +234,7 @@ def intro(header, name):
 def is_experimental(lines):
     """Whether the module carries `#![experimental]` -- the module-level attribute is the single
     place that claim lives, so this manual and tools/gen_corelib_reference.sh both read it from the
-    source instead of each repeating it by hand (docs/ROADMAP.md)."""
+    source instead of each repeating it by hand (docs/roadmap/)."""
     return any(l.strip() == "#![experimental]" for l in lines)
 
 
@@ -272,7 +272,7 @@ def page(name, path, kind):
     with open(path[0] if isinstance(path, list) else path) as f:
         experimental = is_experimental(f.read().split("\n"))
     if experimental:
-        out += ["> **Experimental** -- see docs/DESIGN.md's \"Experimental modules\" entry. Generated from this",
+        out += ["> **Experimental** -- see docs/design/journal/'s \"Experimental modules\" entry. Generated from this",
                 "> module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.",
                 ""]
     body = render_comment(text)
@@ -327,14 +327,14 @@ def main():
     index = ["# Bundled library manual", "",
              "One page per module. Every page is generated from the module's own source -- its header",
              "comment is the introduction and each `pub` item's comment is its entry -- so it is kept",
-             "true by `make corelib-reference`. For the language itself see [SYNTAX.md](../SYNTAX.md); for",
+             "true by `make corelib-reference`. For the language itself see [syntax/README.md](../syntax/README.md); for",
              "a bare signature list see [CORELIB.md](../CORELIB.md), and for which module uses which see",
              "[dependencies.md](dependencies.md).", "",
              "Any program can `use` these with no local file. Names are flat: a module is called by its file",
              "name (`use db`, `use pg`), whatever folder it lives in. A file of your own with the same name",
              "wins over the bundled one.", "",
              "Everything that can fail returns a `Result`, and an absent value is an `Option`; nothing here",
-             "throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.", ""]
+             "throws. See [syntax/README.md](../syntax/README.md) for `?`, `Result` and `Option`.", ""]
     seen = set()
     for title, folder, names in GROUPS:
         index += ["## %s" % title, "", "| Module | What it is |", "|---|---|"]

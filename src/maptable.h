@@ -14,7 +14,7 @@
  * trie copies only the nodes on the path and shares the rest. A builder needs none of that -- it is
  * `#[thread_bound]`, mutated in place, and its whole purpose is to be the mutable staging area --
  * so it was paying for persistence it does not use. The measurement that sent this here
- * (docs/ROADMAP.md, "Make `Map`/`Set` operations faster"): the trie allocates one `Leaf` per entry,
+ * (docs/roadmap/, "Make `Map`/`Set` operations faster"): the trie allocates one `Leaf` per entry,
  * and per-insert cost therefore rises with the *live set* -- 135 ns/insert building to 1,000
  * entries, 149 to 10,000, 291 to 100,000 -- because a tracing collector prices a short-lived
  * allocation by what is alive. A dense entries array allocates nothing per entry, amortised, which

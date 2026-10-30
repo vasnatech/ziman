@@ -186,14 +186,14 @@ static void mark_interior_capable(const Arena *a, const void *ptr) {
  *
  * Exists because not every ArrayObj/StructObj/ResultObj/EnumObj/ClosureObj/boxed BigNum/Decimal
  * this interpreter ever builds lives in a `GcHeap` arena at all -- most don't yet (only
- * `value_string_copy` has been migrated so far, docs/DESIGN.md's "narrowest possible slice"), and
+ * `value_string_copy` has been migrated so far, docs/design/journal/'s "narrowest possible slice"), and
  * a value that crossed a `spawn`/`Channel` boundary (`value_copy.c`'s own outbound arena) never
  * will, by design. Those objects have no `gc_alloc` header -- `gc_set_marked`/`gc_is_marked` read
  * and write the bytes immediately before an object's own address, and calling them on a pointer
  * with no real header there corrupts whatever those bytes actually belong to (found the hard way:
  * a struct's own `bool` field, sitting where a non-existent header's `marked` bit landed, flipped
  * from `false` to `true` the moment a collection first ran against a program crossing it through
- * `spawn` -- see docs/DESIGN.md's own entry on this incident for the full story). Every per-kind
+ * `spawn` -- see docs/design/journal/'s own entry on this incident for the full story). Every per-kind
  * marking function below checks this before touching an object's own mark bit, but still recurses
  * into its fields regardless: a plain, not-yet-migrated struct can perfectly well hold a field that
  * *is* `gc_heap`-allocated (an ordinary struct with a string field, once any string constructor

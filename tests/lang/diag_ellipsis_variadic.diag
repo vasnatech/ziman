@@ -1,6 +1,6 @@
 # Two diagnostics, not three: both spellings are answered, and neither cascades into a second
 # complaint about the rest of the parameter list or the line after it. Each points at the parameter
 # name and names the type it just parsed, so the fix can be read off the message without opening
-# docs/SYNTAX.md.
+# docs/syntax/.
 syntax 7:10 'ns: variadic int'
 syntax 11:15 'ns: variadic int'

@@ -1,6 +1,6 @@
 // `net.wait_readable` is the primitive a server needs to hold more connections than threads: it
 // answers which sockets have something to read, so an idle keep-alive connection can wait without
-// a thread of its own (docs/reviews/tasks.md F139).
+// a thread of its own (docs/reviews/tasks/ F139).
 use clock
 use net
 

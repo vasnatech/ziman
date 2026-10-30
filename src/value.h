@@ -11,7 +11,7 @@
 /* Checked like every other allocation here (src/xalloc.h): a packed array's buffer is sized by the
  * program, so it is one of the few that can genuinely fail, and it used to come back NULL and be
  * memcpy'd into -- a segfault under a memory limit where the rest of the interpreter now reports
- * (docs/reviews/tasks.md A20). */
+ * (docs/reviews/tasks/ A20). */
 #ifdef ZIMAN_ALLOC_PROFILE
 #define zalloc_atomic(n) ziman_xcheck(ziman_alloc_atomic(__FILE__, __LINE__, (n)))
 #else
@@ -186,7 +186,7 @@ typedef struct EnumObj {
  * empty. Every other Value that ever flows through a channel is safe to
  * share across threads by plain pointer copy with no locking of its own
  * needed: nothing in this interpreter ever frees an ArrayObj/StructObj/
- * EnumObj/ResultObj (see docs/DESIGN.md), and nothing mutates one after
+ * EnumObj/ResultObj (see docs/design/journal/), and nothing mutates one after
  * construction, so there's neither a use-after-free nor a data-race
  * hazard once a Value has crossed the channel's own lock. */
 /* A queued message plus whether `value` is a crossing-safe copy (src/value_copy.c's
@@ -196,7 +196,7 @@ typedef struct EnumObj {
  * it stands (prelude.c's own `guard_finalizer`). Nothing here owns memory: a crossing copy lives on
  * Boehm's shared heap and is reachable through this very struct, so a message nobody ever receives
  * is reclaimed by the collector rather than needing anyone to release it (see value_copy.h, and
- * docs/DESIGN.md for the three distinct ceilings the arena-per-crossing design it replaced hit). */
+ * docs/design/journal/ for the three distinct ceilings the arena-per-crossing design it replaced hit). */
 typedef struct {
     Value value;
     int needs_receive;
@@ -422,7 +422,7 @@ char *value_display_nested(Value v);
 /* The shortest decimal text that reads back as the same double, in plain notation for
  * magnitudes from 1e-7 up to 1e21 and in scientific notation (1.5e+300) outside that;
  * "nan"/"inf"/"-inf" for the non-finite values. Shared by value_display's TY_FLOAT case
- * (str/print/format) and number.float_to_text -- see docs/DESIGN.md's entry on the two
+ * (str/print/format) and number.float_to_text -- see docs/design/journal/'s entry on the two
  * no longer disagreeing. Whole-number magnitudes come back with no '.' or 'e' at all
  * ("10", not "10.0"): float_to_text's own contract, unchanged; value_display adds its
  * own ".0" on top when it wants a float to always look like one. Returns a

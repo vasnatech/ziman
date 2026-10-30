@@ -10,7 +10,7 @@
 #include "xalloc.h"
 
 /* The `bits` core module's natives: bitwise and/or/xor/not/shift on `byte`, `int` and `bigint`.
- * See lib/core/bits.zm and docs/DESIGN.md's "A bits module" entry for why `bigint`'s half
+ * See lib/core/bits.zm and docs/design/journal/'s "A bits module" entry for why `bigint`'s half
  * needs a whole binary-conversion layer that `int`'s and `byte`'s native ops do not. */
 
 static void check_shift_amount(int64_t n, const char *name, int line, int col) {
@@ -100,7 +100,7 @@ static Value native_int_not(Value *args, int argc, int line, int col) {
  * -fstrict-overflow alike. It worked because GCC documents signed `<<` as acting on the bit
  * pattern, an extension no other compiler owes us -- so this converts, which is defined
  * everywhere, costs no instructions, and leaves bit 63 giving the same INT64_MIN it always did
- * (docs/reviews/tasks.md A21). */
+ * (docs/reviews/tasks/ A21). */
 static Value native_int_shift_left(Value *args, int argc, int line, int col) {
     (void)argc;
     check_shift_amount(args[1].as.i, "shift_left", line, col);

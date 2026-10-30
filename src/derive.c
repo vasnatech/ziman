@@ -51,7 +51,7 @@ static char *fmt_str(const char *fmt, ...) {
  * corelib types get their own hand-written _to_json/_from_json wrappers
  * (see lib/core/time.zm, lib/core/uuid.zm) named to match *this*
  * convention, so a struct field of type LocalDate correctly resolves to
- * `local_date_to_json`. See docs/DESIGN.md's "Attributes and derive"
+ * `local_date_to_json`. See docs/design/journal/'s "Attributes and derive"
  * entry. */
 char *ziman_pascal_to_snake(const char *name);
 /* The prelude's `snake_case`, which is where this algorithm lives now: it was written twice, here
@@ -77,7 +77,7 @@ char *ziman_compare_function_name(const char *type_name) {
 }
 
 /* "NetError" -> "net_error_message": where the `error_message` builtin looks for a type's
- * message function (docs/DESIGN.md's "A unified error_message builtin" entry). Same
+ * message function (docs/design/journal/'s "A unified error_message builtin" entry). Same
  * PascalCase-to-snake_case rule as `ziman_compare_function_name`, no "flat" spelling -- unlike
  * `Ord`, this one has no pre-existing bundled types with an established alternate spelling to
  * stay compatible with. */

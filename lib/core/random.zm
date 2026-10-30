@@ -3,7 +3,7 @@
 // `bytes` is the one native, reading real entropy from the OS (`/dev/urandom`). It is the source
 // of all non-determinism a program has besides the clock; there is deliberately no seedable
 // pseudo-random generator (a program that wants one can build it on these bytes). `uuid` is
-// built on it. See docs/DESIGN.md's "random" entry.
+// built on it. See docs/design/journal/'s "random" entry.
 //
 // Everything else here is ordinary Ziman over `bytes`, and they exist because the obvious
 // hand-rolled version -- `x % n` over random bytes -- favours the low residues unless `n` divides

@@ -1,7 +1,7 @@
 use os
 
 // A regression guard for a real bug found migrating MapObj's own wrapper to gc_heap allocation
-// (docs/reviews/tasks.md's F2): mapobj_mut_new (the builder-private MapObj behind MutableMap/
+// (docs/reviews/tasks/'s F2): mapobj_mut_new (the builder-private MapObj behind MutableMap/
 // MutableSet) is just `return mapobj_empty();` -- once mapobj_empty started allocating its wrapper
 // via gc_heap_alloc (GC_MAP), a builder's own `buf->m` gained a real header for the first time.
 // mb_mark_contents (prelude.c), the content-marker already registered for MutableMap/MutableSet,

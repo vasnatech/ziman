@@ -1,6 +1,6 @@
 # Vendored Boehm-Demers-Weiser garbage collector
 
-The collector Ziman links (see `src/zgc.h` and docs/DESIGN.md, "Memory
+The collector Ziman links (see `src/zgc.h` and docs/design/journal/, "Memory
 reclamation"), copied from https://github.com/ivmai/bdwgc at commit `2547e33`,
 trimmed to what `extra/gc.c` (bdwgc's single-file build) includes: the `*.c`
 sources, `include/`, `extra/gc.c` and the license (MIT-style; keep `LICENSE`

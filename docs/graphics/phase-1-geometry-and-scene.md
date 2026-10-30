@@ -55,7 +55,7 @@ construct by accident (`scaling(0.0, 1.0)`), and the backends need to detect it 
 
 The five segments, and nothing else:
 
-A variant holds zero or one payload (docs/SYNTAX.md: "never a tuple or inline struct-shaped one"),
+A variant holds zero or one payload (docs/syntax/: "never a tuple or inline struct-shaped one"),
 so the two curve cases carry a named struct -- which reads better at the use sites anyway:
 
 ```ziman

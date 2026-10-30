@@ -57,7 +57,7 @@
 // `clear` across four, `filter`, `remove`, `mutable`, `set` and `map` across three, `concat`,
 // `get_or`, `update` and `flat_map` across two or one. Nothing is exempt and nothing is left over.
 // `remove_all` was in this list until 2026-10-22, when `remove` went variadic and absorbed it --
-// a set can leave the list by being merged into another, not only by being filed. See docs/DESIGN.md's "Overloading available to a declaration",
+// a set can leave the list by being merged into another, not only by being filed. See docs/design/journal/'s "Overloading available to a declaration",
 // and prelude.zm's header for what collections.zm's own header carried.
 //
 // **result.zm was added the same day, and is the rule read forwards rather than backwards.**
@@ -81,7 +81,7 @@
 // call, since Ziman does not infer them: `map<int, string>(numbers, label)`"* -- until
 // 2026-10-22, and half of it was never true: a named function and a fully annotated lambda have
 // always bound both parameters. What was missing was the *result* type of a lambda that did not
-// write one, which the second inference pass reads off the body; see docs/DESIGN.md's "A lambda
+// write one, which the second inference pass reads off the body; see docs/design/journal/'s "A lambda
 // argument can answer a type parameter". The sort family's own internals here were written in the
 // explicit style this sentence taught, and are the sweep that followed it. The array helpers were promoted out of the `collections` module by F120, so
 // that an array needs no more of an import than a Map's `get` or a Set's `union` does.
@@ -157,7 +157,7 @@
 // invalid sequence) or holds a 0 byte (a string cannot) -- the one real boundary where untrusted
 // bytes (a socket, a file, an HTTP body) become a `string`, so it's the one place this is
 // checked; every other string function keeps working on whatever bytes a `string` already holds,
-// same as always. See docs/DESIGN.md's UTF-8 correctness entry.
+// same as always. See docs/design/journal/'s UTF-8 correctness entry.
 pub native fn bytes_to_string(bytes: [byte]) -> Result<string, string>
 
 // The array counterpart of MutableString: `push` copies the whole array on every call, so
@@ -255,7 +255,7 @@ pub native fn mutable_array_filled<T>(length: int, value: T) -> MutableArray<T>
 // one block.
 //
 // **Nine declarations over one implementation is not a layer**, and the note that used to stand
-// over all of them said it better than this can: SYNTAX.md's "asking a collection its size never
+// over all of them said it better than this can: docs/syntax/'s "asking a collection its size never
 // needs a per-type name or a conversion". There is no ranking, no implicit conversion and no
 // return-type-directed choice -- each member is picked by what argument one is, which is the
 // dispatch the interpreter already had.
@@ -502,7 +502,7 @@ pub native fn to_set<T: Eq + Hash>(items: MutableArray<T>) -> Set<T>
 // It earns a name rather than being spelled `mutable(to_set(xs))`, which is **two** passes and two
 // allocations where this is one. That is the rule for a fused conversion in this library: a name
 // when composing costs an extra full copy, and not otherwise -- which is why there is no
-// `mutable_array_from_set` (see docs/DESIGN.md).
+// `mutable_array_from_set` (see docs/design/journal/).
 //
 // Four declarations across the two names, each taking either world in its one argument that has
 // the choice -- the handle is always a handle. That is what `either_world()` in the type checker
@@ -1010,7 +1010,7 @@ pub native fn remove<T>(items: MutableArray<T>, index: int) -> T
 // Publishing this would publish a value the vocabulary gives you nothing to do with. It stays a
 // plain `fn`, so it is callable with no `use` and documented in `docs/lib/prelude.md`; it is only
 // `ziman --api builtins` that does not claim it. Reopening the question means publishing
-// `permute` with it, as a pair -- see the F172 entry in docs/reviews/tasks.md.
+// `permute` with it, as a pair -- see the F172 entry in docs/reviews/tasks/.
 //
 // `array_sort_indices`/`_desc` were two one-line wrappers over this, one per value of
 // `descending`. They were deleted in F169 having never had a caller outside this file.
@@ -1475,7 +1475,7 @@ pub fn group_by<T, K: Eq + Hash>(items: MutableArray<T>, key: fn(T) -> K) -> Map
 // callers now say `join(separator: s, pieces: a)`, which is exactly what the wrapper expanded to.
 // Its own history argued for this: it had been a hand-written quadratic loop (18.05s on 40,000
 // pieces against 0.01s) kept alive by a comment that wrongly denied `join` could take an array
-// (docs/reviews/tasks.md F35, D17), and when that was corrected nobody asked whether the name
+// (docs/reviews/tasks/ F35, D17), and when that was corrected nobody asked whether the name
 // should outlive the implementation.
 
 // The total of `items`. A left fold with `+`, which is what anyone writes by hand, but `+` on

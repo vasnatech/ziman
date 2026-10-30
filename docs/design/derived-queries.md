@@ -18,7 +18,7 @@ at -- which is also why nothing in §§1-8 needed revising once it was built.
 
 `#![repository(Entity)]` generates nine functions whose bodies the entity decides — `insert`,
 `update`, `find`, `find_or_error`, `exists`, `delete`, `find_all`, `count_all`, `delete_all` — and a
-name the module defines itself wins over the generated one (see DESIGN.md, 2026-10-26).
+name the module defines itself wins over the generated one (see docs/design/journal/, 2026-10-26).
 
 That covers the keyed CRUD and nothing else. Every query with a predicate beyond the key is written
 out: a `repository.query("SELECT v FROM VitalSign v WHERE ..")` val and a body that binds to it.
@@ -192,7 +192,7 @@ The refusals:
 The 49 non-derivable instances are not a gap to close later. They are:
 
 * **Every write but the keyed ones** — the 13 partial updates, `patient.lock`,
-  `notification.mark_all_read`, the two `RETURNING` inserts, `audit_event.save`. DESIGN.md's
+  `notification.mark_all_read`, the two `RETURNING` inserts, `audit_event.save`. docs/design/journal/'s
   2026-10-27 entry records why an entity-shaped update can only express a full-row write.
 * **Domain words**: `find_current_by_patient_id`, `find_recent_by_patient_id`,
   `find_latest_by_patient_id_and_type`, `find_all_expiring_between`. `current` and `recent` are facts
@@ -257,7 +257,7 @@ sections above, so that a reader can see what was chosen *and* what was given up
    `derived` hole that some generator fills" -- which would need an owner, a what-if-nobody rule and
    a what-if-two rule -- but "a bodyless `fn` carrying attribute X is filled by X's generator". One
    consumer exists today; a second costs no new language surface. That is the mechanism
-   `docs/ROADMAP.md`'s code-generation entry asked for, stated as narrowly as it can be.
+   `docs/roadmap/`'s code-generation entry asked for, stated as narrowly as it can be.
 
    Seven declaration attributes already carry behaviour (`effectful`, `compiler_resolved`,
    `when_unmatched`, `deprecated`, `thread_bound`, `at_least_one`, `thread_key`), so this needs no

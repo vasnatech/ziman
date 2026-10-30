@@ -58,7 +58,7 @@ fn main() {
     print(reverse([1b, 2b, 3b]))
     // `reverse<int>([])` is not spellable now that `reverse` is a builtin: a builtin discards
     // explicit type arguments, so the empty literal has nothing to infer from and needs a typed
-    // binding instead. The same rule SYNTAX.md already states for an empty literal in a variadic.
+    // binding instead. The same rule docs/syntax/ already states for an empty literal in a variadic.
     val no_ints: [int] = []
     print(reverse(no_ints))
     print(map<int, int>([], fn(x) { x }))

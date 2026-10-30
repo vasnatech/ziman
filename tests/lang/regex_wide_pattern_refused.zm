@@ -5,7 +5,7 @@ use regex
 // `instructions x 2 x (groups + 1)` ints, so it is the *product* that runs away. 6,000 empty
 // groups is 12,003 instructions -- inside the instruction limit -- and wide rather than nested, so
 // the nesting limit does not see it either. It used to recurse once per instruction with 96 KB of
-// captures per frame and segfault (docs/reviews/tasks.md A16); it is now refused with the size it
+// captures per frame and segfault (docs/reviews/tasks/ A16); it is now refused with the size it
 // would have needed, and the advice in the message is tested here too: the same shape written with
 // non-capturing groups has no capture buffers to speak of and compiles.
 fn show(label: string, pattern: string) {

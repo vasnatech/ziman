@@ -78,7 +78,7 @@ by elevating on input. The reason is that TrueType outlines are quadratic and th
 will rasterise glyph outlines at every size a document uses, so elevating per glyph per use is
 work for nothing. The PDF backend elevates once at serialisation, where it costs one pass over a
 path about to be written out anyway. See docs/graphics/phase-1-geometry-and-scene.md.
-A variant holds zero or one payload (docs/SYNTAX.md), so the two curve segments carry a named
+A variant holds zero or one payload (docs/syntax/), so the two curve segments carry a named
 struct rather than a tuple. That reads better at the use sites anyway: `q.control` beats `q.0`.
 
 ### `Cubic`
@@ -134,7 +134,7 @@ pub struct PathBuilder {
 ```
 
 Building one. Thread-bound by holding a `MutableArray`, which is what makes a builder a builder
-here -- see the mutability discussion in docs/DESIGN.md.
+here -- see the mutability discussion in docs/design/journal/.
 
 ### `path_builder`
 

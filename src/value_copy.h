@@ -32,7 +32,7 @@
  * That was correct and promptly reclaimed, but it made *one scanned arena per value crossing a
  * `Channel`*, and a scanned arena is conservatively scanned root memory. Three separate ceilings
  * followed from that one decision, each discovered as a hard failure in turn and each documented in
- * docs/DESIGN.md: Boehm's `MAX_ROOT_SETS` table (2048 ranges, `GC_add_roots_inner` `abort()`s the
+ * docs/design/journal/: Boehm's `MAX_ROOT_SETS` table (2048 ranges, `GC_add_roots_inner` `abort()`s the
  * process) filled up; four distinct leaks of such arenas were found and fixed, each initially
  * mistaken for the whole problem; and once the root-set ceiling was lifted by pushing those ranges
  * from `GC_set_push_other_roots` instead, Boehm's *mark stack* (4096 entries, which it declines to
@@ -50,7 +50,7 @@
  *
  * One deliberate exception, in both directions: a `Channel` value itself is never deep-copied, even
  * when it appears nested inside something that is (a struct field, an array element -- see
- * docs/ROADMAP.md's own `struct Node { peers: Channel<Node> }` cycle example). A channel is the
+ * docs/roadmap/'s own `struct Node { peers: Channel<Node> }` cycle example). A channel is the
  * language's one identity-based, intentionally-shared-across-threads handle; copying it would
  * silently disconnect two ends of what the program meant to be a single conduit. */
 Value value_copy_send(Value v);

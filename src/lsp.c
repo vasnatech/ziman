@@ -342,7 +342,7 @@ static void analyze(Doc *trigger);
 /* The largest document this server will parse and type-check. There was no limit at all: the
  * server analysed whatever arrived, so a client could hand it an arbitrarily large buffer on
  * `didOpen` and pay for a full parse and typecheck of it on every keystroke afterwards
- * (docs/reviews/tasks.md A27). 4 MB is about 45x the largest file in this project
+ * (docs/reviews/tasks/ A27). 4 MB is about 45x the largest file in this project
  * (`lib/http/server.zm`, 89 KB) and far past anything a person edits.
  *
  * Over the limit the text is still stored -- so hover, formatting and the rest answer rather than
@@ -539,7 +539,7 @@ static int visit_complete_variants(EnumDecl *ed, void *ctx) {
  * Deliberately not `strndup`: zgc.h redirects malloc/calloc/realloc/strdup to the collector but not
  * strndup, so dirname_copy below used to return a libc block on one branch and a collector block on
  * the other -- and the collector build's no-op `free` then leaked whichever was libc's, while a real
- * `free` of the other would have been worse (docs/reviews/tasks.md A17). */
+ * `free` of the other would have been worse (docs/reviews/tasks/ A17). */
 static char *copy_prefix(const char *s, size_t n) {
     char *out = ziman_xmalloc(n + 1);
     if (out == NULL) return NULL;
@@ -1534,7 +1534,7 @@ static void handle_formatting(const JVal *id, const JVal *params) {
      * costs several times its own size in a process the editor keeps open all day. The formatter's
      * own nesting limit (format.c's FORMAT_MAX_NESTING) is what stops a small document from
      * producing a huge answer; this is the backstop for a document that really is enormous, and it
-     * refuses rather than swallowing the memory (docs/reviews/tasks.md A18). */
+     * refuses rather than swallowing the memory (docs/reviews/tasks/ A18). */
     size_t formatted_len = strlen(formatted);
     if (formatted_len > LSP_MAX_FORMAT_REPLY) {
         char too_big[192];
@@ -1624,7 +1624,7 @@ static int looks_like_label(const char *text, size_t word_start, size_t word_end
  *
  * Covers `val` and `var` only. A nested `for` binder or a lambda parameter of the same name can
  * still come back as a use; those are other spellings of the same situation and are recorded in
- * docs/reviews/tasks.md F77 rather than guessed at here. */
+ * docs/reviews/tasks/ F77 rather than guessed at here. */
 static char declaring_keyword(const char *text, size_t word_start);
 
 static int declares_here(const char *text, size_t word_start) {
@@ -1673,7 +1673,7 @@ static void handle_document_highlight(const JVal *id, const JVal *params) {
      * the same declaration -- which is exactly what tells a shadowing `val x` in an inner block
      * apart from the `x` outside it. Before this, the reply was every word that matched the text,
      * so an editor rendered a field declaration, a field label, `p.x` and both sides of a shadow
-     * as "other uses of this symbol" (docs/reviews/tasks.md F77).
+     * as "other uses of this symbol" (docs/reviews/tasks/ F77).
      *
      * A name that is not a local -- a function, a type, a module-level val -- still answers by
      * spelling, because resolving every occurrence of a global would mean doing the type checker's
@@ -1749,8 +1749,8 @@ static void handle_document_highlight(const JVal *id, const JVal *params) {
  *
  * What a TextMate grammar structurally cannot do. A regex sees spelling; these see what a name
  * *refers to*, which is the only way to mark a `var`'s **uses** -- and the use site is where a
- * one-character `val`/`var` typo does its damage, which docs/DESIGN.md asked a future tool to make
- * visible and the grammar could not (docs/reviews/tasks.md F76, F78).
+ * one-character `val`/`var` typo does its damage, which docs/design/journal/ asked a future tool to make
+ * visible and the grammar could not (docs/reviews/tasks/ F76, F78).
  *
  * This is a first cut over identifiers only. Keywords, strings, numbers and attributes are left to
  * the grammar, which already does them well and which an editor layers underneath these: a token

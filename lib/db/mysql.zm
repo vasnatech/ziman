@@ -47,7 +47,7 @@
 // parameterised statement is prepared afresh), multiple result sets
 // (only the last one is returned) and sending a packet of 16 MiB or more.
 // `[byte]` is an array of interpreter values, so very large result sets
-// are slow -- see docs/ROADMAP.md.
+// are slow -- see docs/roadmap/.
 //
 // `rows` reads a result lazily through a server-side cursor, 500 rows at a time (see `rows`).
 //

@@ -47,7 +47,7 @@ struct Arena {
      * every live object and asks that question once per object, so the walk made collection
      * quadratic in live heap size: a 1,000,000-allocation loop with a map alive cost 215ms at zero
      * entries, 1,787ms at 100,000, 6,303ms at 200,000 and 23,852ms at 400,000 -- four times the
-     * cost for twice the heap, which is objects x blocks. (docs/reviews/tasks.md F56.)
+     * cost for twice the heap, which is objects x blocks. (docs/reviews/tasks/ F56.)
      *
      * Deliberately plain, with no atomics and no versioning. Only the thread that owns this arena
      * ever touches these: it is the only one that allocates (arena_alloc), the only one that

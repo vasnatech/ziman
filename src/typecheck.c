@@ -297,7 +297,7 @@ static Type substitute_type(Type t, TypeParamList *params, TypeList *args) {
  * own shape*, and once every payload not of the same type has already
  * checked out comparable, the recursive occurrence contributes nothing
  * further to verify. `depth` remains only as a backstop against a
- * non-cyclic but very deep chain -- see docs/ROADMAP.md's still-open
+ * non-cyclic but very deep chain -- see docs/roadmap/'s still-open
  * "self-referential struct can't be constructed" gap. */
 enum { MAX_TYPE_CHECK_DEPTH = 64, MAX_TYPE_CHECK_STACK = 128 };
 
@@ -508,7 +508,7 @@ static int type_supports_hashing(Module *module, Type t, int depth) {
  * qualified naming every other module-level function has. */
 /* ---- lint: a `var` that is never reassigned ---------------------------------
  * `var` and `val` differ by one letter, and a `var` that never changes is
- * mutability nobody asked for (DESIGN.md flags it as a typo hazard). While
+ * mutability nobody asked for (docs/design/journal/ flags it as a typo hazard). While
  * lint is on, each `var` in user code gets a slot here; STMT_ASSIGN marks it;
  * check_function reports the unmarked ones when the function ends. */
 typedef struct {
@@ -532,7 +532,7 @@ static int g_user_code = 0;
 
 /* Module-level vals carrying `#[deprecated]`. A side table rather than two more fields on
  * `Binding`, which is allocated once per binding per call and was measured as the interpreter's
- * hottest allocation (docs/DESIGN.md's "Binding names are borrowed") -- a rare attribute has no
+ * hottest allocation (docs/design/journal/'s "Binding names are borrowed") -- a rare attribute has no
  * business widening it.
  *
  * Keyed by name alone, which is sound here for two reasons the language guarantees rather than
@@ -568,7 +568,7 @@ static int lint_same_source(const char *a, const char *b) {
  * attribute is to move callers. Warnings never change the exit code, so this cannot break a build
  * that was passing; `--lint` still counts them as findings and still exits 1, because there asking
  * for findings is the whole request. `g_user_code`, not `g_lint_active`, is the gate -- the style
- * lints stay behind the flag (docs/ROADMAP.md's `#[deprecated]` entry, F68). */
+ * lints stay behind the flag (docs/roadmap/'s `#[deprecated]` entry, F68). */
 static void lint_deprecated_use(const FunctionDecl *fn, int line, int col) {
     if (!g_user_code || fn == NULL || !fn->deprecated) return;
     if (lint_same_source(fn->source_file, g_lint_file)) return;
@@ -736,7 +736,7 @@ static void lint_quadratic_accumulation(const Stmt *s) {
  *
  * Found one live instance when it was written: `lib/core/fs.zm`'s `path_join` converted the whole
  * accumulated path on every piece to look at its last character. Measurably superlinear --
- * 0.02s, 0.04s, 0.09s, 0.35s at 2,000 to 16,000 pieces (docs/reviews/tasks.md F84). */
+ * 0.02s, 0.04s, 0.09s, 0.35s at 2,000 to 16,000 pieces (docs/reviews/tasks/ F84). */
 
 /* The lint pairs the one conversion out of a builder -- `snapshot` since F100 -- with the append
  * that makes repeating it quadratic. There used to be four conversion names, so the builder's kind
@@ -971,7 +971,7 @@ static int type_supports_ordering(Module *module, Type t) {
  * rejected here if `Box` were declared `struct Box<T: Eq>`, since
  * `Channel<int>` doesn't support `==`. This is what keeps "a bounded T
  * is always comparable/hashable" true in practice, so a generic
- * declaration's own body can rely on it (see ROADMAP.md's "Generics"
+ * declaration's own body can rely on it (see docs/roadmap/'s "Generics"
  * Stage 5). Assumes `params->count == args->count`, already checked by
  * the caller. */
 static void check_type_args_satisfy_bounds(Module *module, TypeParamList *params, TypeList *args, int line, int col) {
@@ -1200,7 +1200,7 @@ static Type option_type_of(Type elem) {
 /* Rewrites `value` (already type-checked, of type option_elem_type
  * (option_type)) into a synthetic `Option<T>.Some(value)` node, the
  * auto-wrap sugar an Option<T> parameter gives a bare T argument or
- * default value (see docs/DESIGN.md's "Option<T> parameter omission and
+ * default value (see docs/design/journal/'s "Option<T> parameter omission and
  * defaults" entry). Reuses ordinary enum construction (EXPR_ENUM_ACCESS)
  * wholesale -- eval_enum_access in interpreter.c needs no changes at all
  * to evaluate this exactly like a `Some(...)` a person wrote by hand. */
@@ -1230,7 +1230,7 @@ static Expr *make_none_expr(Type option_type, int line, int col) {
 /* Rewrites `value` (already type-checked, of type `*result_type.elem`
  * when `is_ok`, `*result_type.elem_err` otherwise) into a synthetic
  * `ok(value)`/`err(value)` call -- the auto-wrap sugar a Result<T, E>
- * parameter gives a bare T-or-E argument (see docs/DESIGN.md's
+ * parameter gives a bare T-or-E argument (see docs/design/journal/'s
  * "Result<T, E> bare-value auto-wrap" entry). Unlike Option<T>'s own
  * wrap (an ordinary enum, reusing EXPR_ENUM_ACCESS), Result<T, E> is a
  * hardcoded primitive with no enum declaration behind it at all --
@@ -1272,7 +1272,7 @@ static Expr *make_default_ref_expr(Param *param, int line, int col) {
  *     expression (two of this function's callers).
  *   - `Result<T, E>`: a bare `T` value becomes `Ok(T)`; a bare `E`
  *     value becomes `Err(E)`; when `T == E`, always `Ok` (see
- *     wrap_bare_in_result and docs/DESIGN.md's "Result<T, E> bare-value
+ *     wrap_bare_in_result and docs/design/journal/'s "Result<T, E> bare-value
  *     auto-wrap" entry) -- `Result<T, E>` parameters are never
  *     omittable, so this only ever applies to a supplied argument, not
  *     a default (Result<T, E> can't have one).
@@ -1397,7 +1397,7 @@ static int check_value_against_param_type(Module *module, Env *env, Expr **arg_s
  * parameter list here for a named call to reorder against. Named
  * arguments are for real (user or prelude) `fn`/`native fn`
  * declarations only. */
-/* Ziman has no string interpolation (docs/SYNTAX.md: "No interpolation in v0"), so `"total: ${t}"`
+/* Ziman has no string interpolation (docs/syntax/: "No interpolation in v0"), so `"total: ${t}"`
  * is a string containing those characters and prints as them. Round 2 of the 2026-10-12 generation
  * benchmark found that this is the costliest silence in the language: two of fifty attempts printed
  * `${total}` to stdout with --check exiting 0, and two agents reading only --check concluded that
@@ -3217,7 +3217,7 @@ static int type_mentions_any(Type t, TypeParamList *params) {
  * written type and the return type is written too. Such a lambda is exactly as informative to inference
  * as a named function, which already works -- `array_map(xs, double)` infers while
  * `array_map(xs, fn(n: int) -> int { return n * 2 })` did not, for no reason the writer of the
- * second could see. docs/SYNTAX.md said the exclusion applied to a lambda's *result type* not being
+ * second could see. docs/syntax/ said the exclusion applied to a lambda's *result type* not being
  * inferred, which is the unannotated case, so the behaviour was also wider than the promise. */
 static int lambda_is_fully_annotated(const Expr *e) {
     const FunctionDecl *lam = (const FunctionDecl *)e->lambda_decl;
@@ -3962,7 +3962,7 @@ static Type check_call(Module *module, Env *env, Expr *e) {
          * accurate-sounding but nonsensical follow-on error about the real one already raised. Every *other*
          * reference to a poisoned binding already aborts quietly the same way (see check_expr's EXPR_IDENT
          * case); a call through one, going through this earlier, local-name-specific path instead, needs its
-         * own check. See docs/DESIGN.md's "No cascades" entry. */
+         * own check. See docs/design/journal/'s "No cascades" entry. */
         if (fb != NULL && fb->poisoned) ziman_abort_quietly();
         if (fb != NULL && fb->type.kind == TY_FUNC) {
             Type ft = fb->type;
@@ -5440,7 +5440,7 @@ static Type check_enum_access(Module *module, Env *env, Expr *e) {
              * Before this, `Json.JArray([])` was the one place that asymmetry showed: `Holder { items:
              * [] }` worked because a struct literal pushes its field type down, while a variant whose
              * payload type is just as statically fixed did not, and the writer had to bind the empty
-             * array to a separately annotated `val` first (ROADMAP.md, the `Result<T, E>` entry's last
+             * array to a separately annotated `val` first (docs/roadmap/, the `Result<T, E>` entry's last
              * bullet, which found it while simplifying `[Json]`-returning code).
              *
              * The helper raises the void-value error itself, which is why it takes the context word:
@@ -6216,7 +6216,7 @@ static Type check_initializer(Module *module, Env *env, Expr **init_slot, int ha
     return declared;
 }
 
-/* ---- `if`/`switch` used as a value (see docs/DESIGN.md) ------------------
+/* ---- `if`/`switch` used as a value (see docs/design/journal/) ------------------
  * A STMT_VALUE_BLOCK wraps an ordinary if/switch whose arms end in STMT_YIELD.
  * The enclosing statement's expected type (a declared type, the assigned
  * variable's type, the function's return type) is pushed here so each yielded
@@ -7163,7 +7163,7 @@ static void check_type_well_formed(Module *module, Type t, int line, int col) {
 /* Type-checks every module-level `val` in file order (a later one may
  * reference an earlier one, same-module or already-`use`d, the same
  * "must already be declared" rule an ordinary local `val` enforces
- * within one function body -- see docs/DESIGN.md's "Global val" entry
+ * within one function body -- see docs/design/journal/'s "Global val" entry
  * for why this is a deliberate scope cut, not an oversight), building
  * `g_global_env` as it goes by reusing check_stmt's own STMT_VAL case
  * wholesale (via a synthetic Stmt) rather than re-deriving its declared-
@@ -7217,7 +7217,7 @@ static void check_function(Module *module, FunctionDecl *fn) {
          * could ever stand in for, since it can never be omitted from a
          * call at all. Checked against g_global_env, not this
          * function's own `env` above: same restriction a global val's
-         * own initializer already has (see docs/DESIGN.md's "Global
+         * own initializer already has (see docs/design/journal/'s "Global
          * val" entry), since a default is sugar for one, evaluated once
          * before `main` runs -- long before any particular call, or any
          * of this function's *other* parameters, exist to reference. */
@@ -7245,7 +7245,7 @@ static void check_function(Module *module, FunctionDecl *fn) {
      * bare, unsubstituted `T` referenced inside *this* function's own body
      * is bounded by `Eq` -- the one place a generic declaration's bound
      * actually gets exercised, rather than just enforced at instantiation
-     * (see ROADMAP.md's "Generics" Stage 2/5). Set/cleared symmetrically
+     * (see docs/roadmap/'s "Generics" Stage 2/5). Set/cleared symmetrically
      * around this one call: sound as a plain variable rather than a
      * parameter threaded through every check_* function because the type
      * checker processes exactly one function body at a time, single-
@@ -7270,7 +7270,7 @@ static void check_function(Module *module, FunctionDecl *fn) {
         /* Skipped once any statement in the body already errored (a non-exhaustive `switch` is the common
          * case): that statement's own AST is left exactly as written, unrewritten, so a purely structural
          * "does every path return" walk over it is often truthfully "no" -- an accurate but redundant second
-         * finding about the very statement whose real problem was already reported (see docs/DESIGN.md's
+         * finding about the very statement whose real problem was already reported (see docs/design/journal/'s
          * "No cascades" entry). */
         if (fn->return_type.kind != TY_VOID && fn->return_type.kind != TY_UNIT && !stmt_always_returns(fn->body) &&
             ziman_error_count() == errors_before_body) {
@@ -7337,7 +7337,7 @@ void typecheck(Module *module) {
             check_type_well_formed(module, field->type, field->line, field->col);
         }
         /* A type named `Mutable*` has to actually be thread-bound. "Every `Mutable*` type belongs
-         * to the thread that made it" (docs/DESIGN.md, "The builders become mutable collections")
+         * to the thread that made it" (docs/design/journal/, "The builders become mutable collections")
          * is worth stating as a rule only if a plain value cannot wear the name and falsify it --
          * which is not a style matter but a documented guarantee going untrue, and is the line
          * between this and R16's naming convention.
@@ -7480,7 +7480,7 @@ void typecheck(Module *module) {
              * a program, and a program declaring these would be adding overloads to the language's
              * own vocabulary -- the one thing F148's design says `builtin fn` must not become,
              * since it would make this C++ overloading and half-undo "no methods, a function takes
-             * its receiver as an argument". Stage 1 documented this restriction in SYNTAX.md and
+             * its receiver as an argument". Stage 1 documented this restriction in docs/syntax/ and
              * did not implement it; declaring `builtin fn len<T>(a: [T]) -> int` in a program was
              * accepted. It is an error now. */
             if (fn->source_file != NULL) {
@@ -7688,7 +7688,7 @@ void typecheck(Module *module) {
         ziman_error("type", main_fn->line, main_fn->col, "'main' must take no parameters and return nothing");
     }
 
-    /* `#[test]` (see ast.h's FunctionDecl.is_test/test_cases and docs/SYNTAX.md
+    /* `#[test]` (see ast.h's FunctionDecl.is_test/test_cases and docs/syntax/
      * "Testing"): a plain one takes no parameters; a `#[test(cases: NAME)]`
      * one takes exactly the element type of NAME's array, NAME being a val or
      * zero-parameter function declared in this same file (env_lookup on

@@ -1,7 +1,7 @@
 use os
 
 // A regression guard for a real bug found migrating result_obj_new/enum_obj_new to gc_heap
-// allocation (docs/reviews/tasks.md's F2): an Iter's own native state (FromState, src/iter.c) holds
+// allocation (docs/reviews/tasks/'s F2): an Iter's own native state (FromState, src/iter.c) holds
 // whatever Values its `next`/`close` closures were built with (here, an inner Iter captured by
 // `close`), referenced only through `it->state` -- a plain malloc'd struct invisible to both root
 // sources once nothing else references it. The outer Iter's own wrapper struct is safe (the stack

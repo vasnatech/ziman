@@ -104,7 +104,7 @@ static void cache_store(const char *pattern, size_t len, RegexHandle *h) {
     g_cache_next = (g_cache_next + 1) % CACHE_SIZE;
     /* The evicted entry's pattern text, which nothing outside this table ever sees -- cache_lookup
      * only memcmps it -- so this is the one part of an eviction that is safe to release. It was
-     * leaked before (docs/reviews/tasks.md A35).
+     * leaked before (docs/reviews/tasks/ A35).
      *
      * The compiled pattern itself is deliberately *not* freed here, and `regex_free` exists without
      * being called from this line. Two reasons, one per build. Under the default build the Regex is
@@ -113,7 +113,7 @@ static void cache_store(const char *pattern, size_t len, RegexHandle *h) {
      * use-after-free: a handle is handed to Ziman as an integer and cache_lookup hands the same one
      * to every caller, so a program can still be holding a pattern whose slot has been reused, and
      * nothing in that build can tell -- which is the same reason nothing else in this interpreter
-     * is freed there either (docs/DESIGN.md's "Memory reclamation"). */
+     * is freed there either (docs/design/journal/'s "Memory reclamation"). */
     free(slot->pattern);
     slot->pattern = NULL;
     char *copy = ziman_xmalloc(len + 1);
@@ -214,7 +214,7 @@ static Value native_regex_search_raw(Value *args, int argc, int line, int col) {
     /* Neither negative return means "no match", and they mean different things: -1 is a failed
      * allocation inside the matcher, whose size regex_compile has already bounded, so it is a real
      * out-of-memory; -2 is the work ceiling, which a pattern reaches by being expensive per input
-     * byte rather than by being large (regex.c's MATCH_WORK_FLOOR, docs/reviews/tasks.md A28). */
+     * byte rather than by being large (regex.c's MATCH_WORK_FLOOR, docs/reviews/tasks/ A28). */
     if (found == -2) ziman_error("runtime", line, col, "regex: this pattern needs too much work to match a subject of %zu bytes", len);
     if (found < 0) ziman_error("runtime", line, col, "regex: out of memory while matching");
     if (found) {

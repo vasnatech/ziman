@@ -7,7 +7,7 @@ read off the declarations.
 | | |
 |---|---|
 | Status | **Superseded 2026-10-19 by [`full-overloading.md`](full-overloading.md)**, after the user chose full resolution over first-parameter. Kept for §3, which is the measurement that made the choice: the first-parameter rule would have rejected five sets the language already ships. Nothing here was built. |
-| Raised | 2026-10-18, from "now that we have quite a number of overloaded functions, what do you think on relaxing the no-overloading rule?" (`docs/ROADMAP.md`, the entry this expands) |
+| Raised | 2026-10-18, from "now that we have quite a number of overloaded functions, what do you think on relaxing the no-overloading rule?" (`docs/roadmap/`, the entry this expands) |
 | Written | 2026-10-19 |
 | Measurements | taken from `lib/prelude.zm` and `src/typecheck.c` at `6a69848`, by script, not by eye |
 

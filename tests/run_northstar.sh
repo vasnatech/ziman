@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Type-checks and runs the North Star application against this build of the interpreter.
 #
-# docs/ROADMAP.md's first section names a slice of the health-record backend as the target this
+# docs/roadmap/'s first section names a slice of the health-record backend as the target this
 # language exists to reach, and that application lives in a sibling checkout -- so nothing in this
 # repository was watching it. It had been broken for some time when this script was written
-# (docs/reviews/tasks.md F25): two type errors from a signature change, and, underneath them, a
+# (docs/reviews/tasks/ F25): two type errors from a signature change, and, underneath them, a
 # runtime failure from B11, which deliberately stopped registration from issuing a token and left
 # the demo unwrapping a `None`.
 #

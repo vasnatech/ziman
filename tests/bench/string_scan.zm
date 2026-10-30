@@ -1,6 +1,6 @@
 // **The two regimes of character indexing, measured apart.**
 //
-// Text counts characters as of 2026-10-23 (docs/DESIGN.md's entry). Indexing UTF-8 by character
+// Text counts characters as of 2026-10-23 (docs/design/journal/'s entry). Indexing UTF-8 by character
 // means a walk from the start of the string, so the shape of every scanner in the library --
 // `while i < len(s) { char_at(s, i) ... }` -- is quadratic twice over: once for the walk per
 // position, once because `len` rescans per iteration. A string Value carries a known-ASCII bit
@@ -63,7 +63,7 @@ fn main() {
         printf("  {} chars: {} ms\n", size, ms)
     }
 
-    print("non-ASCII (the walking path, quadratic by design -- see DESIGN.md)")
+    print("non-ASCII (the walking path, quadratic by design -- see docs/design/journal/)")
     for size in [4000, 8000, 16000] {
         printf("  {} chars: {} ms\n", size, time_scan("äbcx", size))
     }

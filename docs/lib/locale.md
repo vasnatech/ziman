@@ -1,6 +1,6 @@
 # `locale`
 
-> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> **Experimental** -- see docs/design/journal/'s "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 A `Locale`, and the process-wide default that locale-aware functions use when given
@@ -10,7 +10,7 @@ A `Locale` is the operating system's, opened by name: `locale.of("tr_TR")`. The 
 host's, not a table in this repository, which was measured rather than assumed on 2026-10-23 --
 glibc answers correct month and day names, decimal and grouping separators, per-locale case
 mapping (including the Turkish dotted/dotless `i`) and real collation for every locale the host
-has generated, and this machine had 890 of them. docs/ROADMAP.md's Locale entry carries the
+has generated, and this machine had 890 of them. docs/roadmap/'s Locale entry carries the
 measurements and the limits.
 
 **What this cannot do**, so it is said once here rather than discovered: one-to-many case

@@ -85,7 +85,7 @@ void *ziman_xmalloc_at(const char *file, int line, size_t n) {
 
 void *ziman_xcalloc_at(const char *file, int line, size_t count, size_t size) {
     /* The overflow check libc's calloc makes and zgc.h's `calloc` macro does not: it is
-     * `GC_MALLOC((a) * (b))`, where the product wraps silently (docs/reviews/tasks.md F15). */
+     * `GC_MALLOC((a) * (b))`, where the product wraps silently (docs/reviews/tasks/ F15). */
     if (count != 0 && size > (size_t)-1 / count) die_overflow(count, size, file, line);
     size_t want = count * size;
     if (want == 0) want = 1;

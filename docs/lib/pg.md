@@ -1,6 +1,6 @@
 # `pg`
 
-> **Experimental** -- see docs/DESIGN.md's "Experimental modules" entry. Generated from this
+> **Experimental** -- see docs/design/journal/'s "Experimental modules" entry. Generated from this
 > module's own `#![experimental]` attribute, so this page cannot claim otherwise than the source does.
 
 A PostgreSQL client, the second backend behind the `datasource`
@@ -47,7 +47,7 @@ default in Postgres 14), Kerberos/GSS, client certificates, IPv6
 literals in the URL, the COPY protocol, LISTEN/NOTIFY,
 prepared-statement reuse (every parameterised statement is parsed
 afresh), or SASLprep normalisation of a non-ASCII password. `[byte]` is an array of interpreter values, so
-very large result sets are slow -- see docs/ROADMAP.md.
+very large result sets are slow -- see docs/roadmap/.
 
 `rows` reads a result lazily through an extended-protocol portal, 500 rows at a time (see `rows`).
 

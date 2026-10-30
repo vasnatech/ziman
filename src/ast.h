@@ -19,7 +19,7 @@ typedef enum {
     TY_BYTE, /* unsigned, 0-255 -- deliberately not a number to compute
               * with: no arithmetic operators, no abs/min/max, just
               * construction, ==/!=, hash, str/print/format, and a cast
-              * to/from int. See docs/DESIGN.md's "byte" entry. */
+              * to/from int. See docs/design/journal/'s "byte" entry. */
     TY_ARRAY,
     TY_STRUCT,
     TY_RESULT,
@@ -27,7 +27,7 @@ typedef enum {
     TY_CHANNEL,
     TY_TYPEVAR,
     TY_FUNC,
-    TY_MAP, /* Map<K, V>: `elem` is K, `elem_err` is V. A built-in persistent hash map (see docs/DESIGN.md "Map and Set"). */
+    TY_MAP, /* Map<K, V>: `elem` is K, `elem_err` is V. A built-in persistent hash map (see docs/design/journal/ "Map and Set"). */
     TY_SET, /* Set<T>: `elem` is T. */
 } TypeKind;
 
@@ -47,13 +47,13 @@ typedef enum {
  * -- no need to carry a pointer to the declaration itself).
  *
  * `Result<T, E>` is a second hardcoded parametric type, same trick as
- * `[T]` -- not general user-definable generics (see docs/DESIGN.md).
+ * `[T]` -- not general user-definable generics (see docs/design/journal/).
  * `elem` doubles as "the array's element type" (TY_ARRAY) or "the
  * Result's success type" (TY_RESULT); `elem_err` is the Result's error
  * type and is unused otherwise.
  *
  * `enum` (TY_ENUM) is a *user*-declared tagged union, not hardcoded like
- * `[T]`/`Result<T, E>` -- see EnumDecl below and docs/SYNTAX.md "Enums".
+ * `[T]`/`Result<T, E>` -- see EnumDecl below and docs/syntax/ "Enums".
  * The parser can't tell a bare TYPE_IDENT type reference apart from a
  * struct name vs. an enum name (both are just PascalCase identifiers), so
  * it always provisionally builds a TY_STRUCT; the loader reclassifies it
@@ -66,12 +66,12 @@ typedef enum {
  * same way an array is a sequence of `T`. Unlike `enum`, this one has to
  * be hardcoded: its entire value is native, thread-safe blocking
  * send/receive, which no amount of user-definable generics would ever let
- * you express in pure Ziman. See docs/SYNTAX.md "Concurrency".
+ * you express in pure Ziman. See docs/syntax/ "Concurrency".
  *
  * `fn(A, B) -> R` (TY_FUNC) is a function type: `type_args` holds the
  * parameter types and `elem` the return type (TY_VOID for none). A value of
  * this type is a reference to a named top-level function -- no closures, no
- * capture (see docs/DESIGN.md's function-values entry). Function types are
+ * capture (see docs/design/journal/'s function-values entry). Function types are
  * structural: two are the same when their parameters and return type are.
  *
  * User-declared generics (`struct Box<T> { value: T }`) add two more
@@ -88,7 +88,7 @@ typedef enum {
  * generic declaration's field/variant/param type is actually looked up
  * against a concrete instantiation -- never by generating copies of the
  * declaration itself, since the interpreter's `Value` representation is
- * already uniform regardless of static type. See docs/SYNTAX.md
+ * already uniform regardless of static type. See docs/syntax/
  * "Generics". */
 typedef struct Type Type;
 
@@ -127,7 +127,7 @@ struct Type {
  * literal and every arithmetic result in a running program. This build has no LTO, so out of line
  * it was a real cross-translation-unit call returning a 64-byte struct through a hidden pointer --
  * `perf` put `value_int` alone at 30% of a recursive-fib profile for exactly that reason (see
- * docs/DESIGN.md). Inline, the zeroing collapses to filling in one `kind` field in the caller's
+ * docs/design/journal/). Inline, the zeroing collapses to filling in one `kind` field in the caller's
  * own stack slot. */
 static inline Type type_scalar(TypeKind kind) {
     Type t = {0};
@@ -229,7 +229,7 @@ struct Expr {
      * hops from this expression's own runtime `env`, and which index into that scope's
      * `items`, the type checker's `env_lookup_resolved` found this exact name at. The
      * interpreter uses `env_at_slot` to jump straight there instead of re-searching by name
-     * every time the expression runs -- see docs/DESIGN.md's interpreter-speed entry.
+     * every time the expression runs -- see docs/design/journal/'s interpreter-speed entry.
      * -1 (the default; see expr_new) means "not resolved, use env_lookup by name instead" --
      * the case for any reference that crossed a lambda boundary to be found (a capture, or
      * anything beyond it, including a global): a lambda's runtime call frame is rooted
@@ -264,7 +264,7 @@ struct Expr {
      * Distinct from fn_ref (a function referenced *as a value*, never a call) even though both
      * hold a FunctionDecl* -- a node is exactly one ExprKind, so there is no ambiguity in
      * practice, but they answer different questions and are kept as different fields for that
-     * reason. See docs/DESIGN.md's interpreter-speed entry. */
+     * reason. See docs/design/journal/'s interpreter-speed entry. */
     void *call_fn;
     /* EXPR_CALL, the same "resolve once, reuse every time" idea as call_fn just above, for the
      * other half of the dispatch: which *builtin* this call names, as a small integer, so the
@@ -275,7 +275,7 @@ struct Expr {
      * Needed because builtins were the one call shape paying the chain on every call: an ordinary
      * named call is resolved once into call_fn at type-check time and skips the chain entirely,
      * while a builtin matched a `strcmp` partway down it and so paid for every branch above
-     * itself -- measurably, since `contains` sits 44th and `map_get_or` 22nd (docs/reviews/tasks.md
+     * itself -- measurably, since `contains` sits 44th and `map_get_or` 22nd (docs/reviews/tasks/
      * F140). Filled lazily by the interpreter rather than by the type checker, which recognises
      * builtins in a dispatch of its own well before it reaches call_fn's assignment, and read and
      * written with relaxed atomics: threads share one AST, two of them may resolve the same node
@@ -287,7 +287,7 @@ struct Expr {
      * finds which enclosing `val`s the body uses (captures, by value) and puts
      * them in front of the declared parameters; the first `lambda_ncaptured`
      * parameters of the decl are those captures, filled in when the closure is
-     * created. See docs/DESIGN.md "Closures". */
+     * created. See docs/design/journal/ "Closures". */
     void *lambda_decl;
     int lambda_ncaptured;
     int lambda_checked;
@@ -347,7 +347,7 @@ struct Expr {
                   * declaration of their own has taken the bare name. The loader strips the qualifier
                   * and sets this; `check_call` then ignores both the program's shadow and (the name
                   * being bare rather than `<path>::name`) the module's own declaration, and rejects
-                  * anything that is not in fact implicit. See docs/DESIGN.md's `prelude.` entry. */
+                  * anything that is not in fact implicit. See docs/design/journal/'s `prelude.` entry. */
                  int prelude_qualified; } call;
         struct { Expr *operand; Type target_type; } cast;
         struct { ExprList elements; } array_lit;
@@ -374,7 +374,7 @@ struct Expr {
          * concrete type straight off the argument's own already-known
          * type instead (see check_enum_access in typecheck.c). */
         struct { char *enum_name; char *member_name; ExprList args; int has_parens; TypeList type_args; } enum_access;
-        /* `try inner` -- Option<T>/Result<T, E> unwrap-or-propagate (see docs/DESIGN.md's "try" entries). `inner`'s own type decides which of the two it is at
+        /* `try inner` -- Option<T>/Result<T, E> unwrap-or-propagate (see docs/design/journal/'s "try" entries). `inner`'s own type decides which of the two it is at
          * type-check time; the interpreter re-derives that from the runtime value (an Option's EnumObj vs. a Result's ResultObj). `propagated_type` is
          * check_try_unwrap's one real output beyond `inner`'s own checking: the enclosing function's full, concrete Option<T2>/Result<T2, E> return type, filled in
          * once at type-check time and reused to build the propagated None/Err value at runtime. The interpreter and the checker only accept it as the entire
@@ -477,7 +477,7 @@ struct Stmt {
          * makes sense over a range -- there's nothing to name besides the
          * count itself). !is_range: `for x in arr` (binder2 NULL, binder1
          * gets each element) or `for i, x in arr` (binder1 gets the index,
-         * binder2 gets the element). See docs/SYNTAX.md "for loops". */
+         * binder2 gets the element). See docs/syntax/ "for loops". */
         struct {
             char *binder1;
             char *binder2;
@@ -493,7 +493,7 @@ struct Stmt {
          * flows through the exact same self-qualify/cross-module
          * resolution the loader already has for calls. Statically resolved
          * against an already-declared function, never a first-class
-         * function value -- see docs/SYNTAX.md "Concurrency". */
+         * function value -- see docs/syntax/ "Concurrency". */
         /* `type_args` is non-empty for `spawn f<T>(args)` -- spawning a generic
          * function, with its type arguments written out like any generic call. */
         /* `on_error` is the optional `on_error <handler>` clause: a `fn(string)` called, in the thread that failed, with the message of the runtime error that
@@ -507,7 +507,7 @@ struct Stmt {
         struct { Expr *expr; } expr_stmt;
         /* `defer f(args)` -- runs the call when the enclosing *block* exits,
          * by any path (falling off the end, return, `?`, break, continue),
-         * last-in first-out; see docs/DESIGN.md's "defer" entry. `call` is
+         * last-in first-out; see docs/design/journal/'s "defer" entry. `call` is
          * the call as written. Its arguments are evaluated when the
          * `defer` statement itself runs, into the hidden variables named
          * `hidden` (one per argument, `$`-containing so no source
@@ -533,7 +533,7 @@ struct Stmt {
          * each end in a STMT_YIELD (produces the value) or in a statement that
          * leaves (return/break/continue). Everything else about it -- scoping,
          * control flow, the switch rewrite -- is the existing statement
-         * machinery; see docs/DESIGN.md's "if and switch as expressions". */
+         * machinery; see docs/design/journal/'s "if and switch as expressions". */
         struct { StmtKind target; char *name; Type declared_type; int has_declared_type; Stmt *inner; } value_block;
         /* The trailing expression of a value arm. The interpreter evaluates it
          * into a per-thread register the enclosing STMT_VALUE_BLOCK reads. */
@@ -640,7 +640,7 @@ typedef struct {
 
 /* The two hardcoded bounds a type parameter can carry: "supports '=='"
  * and "supports 'hash'." Not a general trait/interface system (see
- * docs/DESIGN.md's "Generics" entry) -- added specifically so a generic
+ * docs/design/journal/'s "Generics" entry) -- added specifically so a generic
  * `Map<K, V>`/`Set<T>` can compare and hash an abstract key type inside a
  * generic function body; a generic declaration still can't do anything
  * else with an unbounded type parameter beyond storing and passing it
@@ -675,7 +675,7 @@ typedef struct {
  * `VIS_PUBLIC` (`pub`) is visible everywhere, same as always. `VIS_INTERNAL` (`internal`) is
  * new: visible to any module in the same *package* as the declaring one, but not beyond it --
  * see loader.c's `same_package`/`visibility_allows` for what "package" means today (the bundled
- * standard library is one package, a project is another) and docs/DESIGN.md's visibility entry
+ * standard library is one package, a project is another) and docs/design/journal/'s visibility entry
  * for why that definition is deliberately narrow but meant to grow into a real package/crate
  * system later without this type or its enforcement changing. `internal` is a soft keyword
  * (checked by identifier text at the one declaration-prefix position `pub` already occupies,
@@ -695,7 +695,7 @@ typedef struct {
     int is_native;
     /* A `builtin fn`: declared in lib/prelude/ so that its signature can be printed, completed
      * and grepped, while the *rule* stays in typecheck.c. The two are not interchangeable -- see
-     * docs/DESIGN.md's "`native` and builtin are two different mechanisms" entry. Nothing checks
+     * docs/design/journal/'s "`native` and builtin are two different mechanisms" entry. Nothing checks
      * or calls through this declaration: every builtin arm in check_call returns before
      * `find_function` is reached, so `call_fn` is never set for one and the interpreter dispatches
      * it by id as it always has. The declaration is data about the builtin, not the builtin. */
@@ -712,7 +712,7 @@ typedef struct {
      * registered native, and there are 247 of them: resolving on every call cost an average of 205
      * string comparisons per native call, measured at 1,964,293 of them in a single run of
      * tests/lang/yaml_basic.zm, which `perf` put at a fifth of all CPU time (`__strcmp_avx2`
-     * plus `native_lookup`, docs/DESIGN.md). A `FunctionDecl` lives as long as the program and its
+     * plus `native_lookup`, docs/design/journal/). A `FunctionDecl` lives as long as the program and its
      * name never changes, so one resolution per declaration is all that was ever needed. */
     void (*native_impl)(void);
     int line, col;
@@ -794,7 +794,7 @@ typedef struct {
      * body rather than about the kinds that used to be the only bodyless ones. A file read for
      * its text alone -- the formatter, `--api` -- never generates, and must not walk one. */
     int derived_query;
-    /* `#[test]`: `ziman test` runs this function (see docs/SYNTAX.md
+    /* `#[test]`: `ziman test` runs this function (see docs/syntax/
      * "Testing"). Must take no parameters (or, with `test_cases` set,
      * exactly one) and return nothing or `Result<unit, E>`. */
     int is_test;
@@ -809,7 +809,7 @@ typedef struct {
      * ambiguous): the name its own body may call itself by, recursively. NULL for every other
      * function -- an ordinary lambda with no self-reference, and every top-level function, which
      * already supports recursion the ordinary way through `find_function`/`call_fn` and needs
-     * none of this. See docs/DESIGN.md's recursive-lambdas entry. */
+     * none of this. See docs/design/journal/'s recursive-lambdas entry. */
     char *self_name;
     /* Meaningful only when `self_name` is non-NULL: how many of this function's own leading
      * `params` are real captures (computed once, for the same lambda, alongside
@@ -937,7 +937,7 @@ typedef struct {
  * more than one value): Ziman has no tuple type, and anything needing more
  * than one payload value declares a separate `struct` and wraps it
  * (`Rectangle(RectDims)`), the same way `Result<T, E>`'s `Ok`/`Err` each
- * hold exactly one value. See docs/SYNTAX.md "Enums". */
+ * hold exactly one value. See docs/syntax/ "Enums". */
 typedef struct {
     char *name;
     int has_payload;
@@ -1045,7 +1045,7 @@ typedef struct {
  * unambiguous -- unlike an ordinary local `val`, a global one can't be
  * shadowed. There is deliberately no `mod.NAME` *dotted* bare access
  * (unlike a qualified function call/struct literal) -- see
- * docs/DESIGN.md's "Global val" entry for why. */
+ * docs/design/journal/'s "Global val" entry for why. */
 typedef struct {
     char *name;
     Type type; /* only meaningful when has_declared_type */
@@ -1095,7 +1095,7 @@ typedef struct Module {
      * so the one line changing it means editing. Warned about in loader.c's resolve_named_imports,
      * not in typecheck.c, because a module's `use` list belongs to the loader and is already gone
      * from the merged Module the type checker is handed (the same reason the redundant-`as` lint
-     * lives there). See docs/ROADMAP.md, F70. */
+     * lives there). See docs/roadmap/, F70. */
     int deprecated;
     const char *deprecated_message;
     /* `#![repository(Entity)]` at the top of this module's own file: the module is a repository
@@ -1183,7 +1183,7 @@ typedef struct Module {
 } Module;
 
 /* Constructors. All AST nodes are heap-allocated and never freed --
- * the interpreter is a short-lived process (see docs/ROADMAP.md). */
+ * the interpreter is a short-lived process (see docs/roadmap/). */
 Expr *expr_new(ExprKind kind, int line, int col);
 Stmt *stmt_new(StmtKind kind, int line, int col);
 

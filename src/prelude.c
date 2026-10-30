@@ -703,7 +703,7 @@ static int option_string_value(Value opt, Value *out) {
  * Still two linear passes overall (sum the lengths, then copy), one
  * allocation -- the whole point of this function existing natively: a
  * pure-Ziman version accumulating via repeated `concat` would be the
- * same O(N^2) pattern this was written to replace (see docs/DESIGN.md's
+ * same O(N^2) pattern this was written to replace (see docs/design/journal/'s
  * "join" entry). */
 static Value native_join(Value *args, int argc, int line, int col) {
     (void)argc;
@@ -1384,7 +1384,7 @@ static Value mutable_array_element_at(const MutableArrayBuf *buf, size_t i);
 /* O(n): everything after the index moves. `0..len` inclusive, exactly the immutable
  * `insert(arr, i, x)` rule, so inserting at the length appends and "add at the end" needs no second
  * function. A loop of `insert(xs, 0, v)` is quadratic, which is why there is no `push_front` --
- * see docs/DESIGN.md. */
+ * see docs/design/journal/. */
 static Value native_mutable_array_insert(Value *args, int argc, int line, int col) {
     (void)argc;
     MutableArrayBuf *buf = mutable_array_table_get(mutable_array_handle_of(args[0]));
@@ -1523,7 +1523,7 @@ static Value native_string_to_bytes(Value *args, int argc, int line, int col) {
 }
 
 /* ---- UTF-8: a strict validator/decoder, used by bytes_to_string and the codepoint functions
- * below (chars, len over text, truncate) -- see docs/DESIGN.md's UTF-8 correctness entry.
+ * below (chars, len over text, truncate) -- see docs/design/journal/'s UTF-8 correctness entry.
  *
  * Deliberately not shared with regex.c's own decode(): that one is lenient on purpose (an
  * invalid sequence falls back to one raw byte, so a regex never fails to match just because the
@@ -2291,7 +2291,7 @@ static Value native_mutable_map_get_or(Value *args, int argc, int line, int col)
 
 /* `remove` without the `Option`. Same lookup, same tombstone; the only difference is that it does
  * not have to box what it removed, which on a large map is most of the cost -- see map.zm's own
- * comment for the figures, and ROADMAP.md's Map/Set entry for why an allocation's price is set by
+ * comment for the figures, and docs/roadmap/'s Map/Set entry for why an allocation's price is set by
  * the live set rather than by its own size. */
 static Value native_mutable_map_discard(Value *args, int argc, int line, int col) {
     (void)argc;
@@ -2575,7 +2575,7 @@ Value ziman_swap_mutable_array(Value b, int64_t i, int64_t j, int line, int col)
 
 /* `narrow(b, start, end)`: keep only that window, in place, answering nothing. The in-place
  * counterpart of `slice`, which is a query and so copies -- see the split that keeps mutations and
- * queries apart in docs/SYNTAX.md.
+ * queries apart in docs/syntax/.
  *
  * It replaces `mutable_array_truncate(b, n)`, which is `narrow(b, 0, n)`, and adds the half that
  * one could not do: dropping a *prefix*. That was `remove(b, 0)` in a loop, O(n) per
@@ -3086,7 +3086,7 @@ void ziman_builder_clear(Value v) {
 /* --- Mutable<T> -------------------------------------------------------------------------
  * One cell holding one value: the root the other four specialise, and the primitive that makes the
  * mutable layer open to library code instead of needing a new native collection every time a new
- * mutable shape is wanted (docs/DESIGN.md, "`Mutable<T>`: the root of the family"). A ring buffer
+ * mutable shape is wanted (docs/design/journal/, "`Mutable<T>`: the root of the family"). A ring buffer
  * is a struct over a MutableArray plus two `Mutable<int>`s; an LRU adds a MutableMap; a UI signal
  * is a cell plus a MutableArray of subscribers. None of those need C.
  *
@@ -3396,7 +3396,7 @@ static Value native_map_values(Value *args, int argc, int line, int col) {
  *
  * **This said `#[at_least_one]` "guarantees the array is non-empty, which is what lets the first
  * element be the accumulator", and that was false and crashed.** The attribute guarantees at least
- * one *argument*; an empty array spread is one argument, which SYNTAX.md documents as the
+ * one *argument*; an empty array spread is one argument, which docs/syntax/ documents as the
  * deliberate way to spread a list that may be empty. So `merge(xs)` with `xs: [Map<K, V>]` empty
  * reached `array_get(maps, 0)` on an empty buffer and segfaulted -- found 2026-10-22 while checking
  * this same edge for `union`.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Guard the hand-written docs against naming modules and functions that no longer exist.
 
-Why this exists: docs/reviews/tasks.md F138 was a line in docs/TUTORIAL.md that told the reader to
+Why this exists: docs/reviews/tasks/ F138 was a line in docs/TUTORIAL.md that told the reader to
 use `collections.map`/`filter`/`fold` -- a module deleted in F122, months earlier. Nothing noticed,
 because nothing looks. The generated manual under docs/lib/ cannot go stale (`make lib-manual-check`
 regenerates it from lib/ and diffs), and neither can docs/CORELIB.md; the hand-written docs are the
@@ -21,26 +21,31 @@ keeps:
      what catches a rename -- D17 renamed `array_join` to `join`, and the doc comment that described
      the old name was wrong for as long as nobody re-read it.
 
-Scope is the hand-written user-facing docs only. DESIGN.md, ROADMAP.md and MEMORY.md are design and
+Scope is the hand-written user-facing docs only. docs/design/journal/, docs/roadmap/ and MEMORY.md are design and
 history records, where "we used to have a `collections` module" is a true sentence that must stay
 sayable: between them they mention the retired modules 40+ times on purpose.
 
 Exit 0 and print nothing when clean. Run by `make docs-check`, which `make check-fast` runs.
 """
+import glob
 import re
 import subprocess
 import sys
 from pathlib import Path
 
 # The hand-written docs. Everything under docs/lib/ and docs/CORELIB.md is generated.
-HAND_WRITTEN = ["README.md", "docs/TUTORIAL.md", "docs/SYNTAX.md", "docs/CHEATSHEET.md"]
+# docs/syntax/ is a folder since 2026-10-30, so it is globbed rather than named -- a chapter added
+# later is covered without touching this list.
+HAND_WRITTEN = ["README.md", "docs/TUTORIAL.md", "docs/CHEATSHEET.md"] + sorted(
+    glob.glob("docs/syntax/*.md")
+)
 
 # Spans that look like `module.member` but are not. Keep this list short and each entry explained --
 # an entry here is a claim that the guard is wrong, not a way to quiet it.
 ALLOW = {
     # A properties key in the properties section, documenting the env-var mapping
     # `server.port` -> `SERVER_PORT`. It is a config key that happens to share a module's name.
-    ("docs/SYNTAX.md", "server.port"),
+    ("docs/syntax/system.md", "server.port"),
 }
 
 # A span whose right-hand side is a file extension is a filename, not a call: `prelude.zm`,
@@ -57,7 +62,7 @@ FILE_EXTENSIONS = {
 # prelude's declarations and the interpreter-dispatched builtins -- for a file that has taken the
 # bare name for a declaration of its own. There is no `lib/prelude.zm` to look it up in, and
 # `lib/prelude/` is skipped here anyway (see the docstring below), so every `prelude.X` span would
-# otherwise be reported as a reference to a removed module. Documented in SYNTAX.md's "Modules".
+# otherwise be reported as a reference to a removed module. Documented in docs/syntax/modules.md.
 IMPLICIT_QUALIFIER = "prelude"
 
 SPAN = re.compile(r"`([^`\n]+)`")

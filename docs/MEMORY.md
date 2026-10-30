@@ -3,7 +3,7 @@
 Where Ziman's memory story is today: a shared Boehm-collected heap, plus the design of what was
 once meant to replace it (one independently-collected heap per thread) and the measurements that
 parked that design instead of building it. Read this page as history with a live summary on top,
-not as a plan. docs/DESIGN.md has what is actually built and measured in the collector itself.
+not as a plan. docs/design/journal/ has what is actually built and measured in the collector itself.
 
 **Current position (2026-10-15). The problem this document was written to solve does not
 reproduce, so none of the architecture below is scheduled work.** The shared heap now scales: the
@@ -13,9 +13,9 @@ below, which is kept verbatim as the record of what was true in September. Pause
 from 21-30% of wall-clock to 3-15%, by way of roughly ten times fewer collections and six times
 less total pause time.
 
-**None of that is news, and this page is the last document to learn it.** docs/DESIGN.md's "Three
+**None of that is news, and this page is the last document to learn it.** docs/design/journal/'s "Three
 allocation sites, and what they did to F7" (2026-10-07) already states "**the shape F2 and F7 named
-is gone**" with the full sweep behind it, and docs/ROADMAP.md's own entry already warns that "a
+is gone**" with the full sweep behind it, and docs/roadmap/'s own entry already warns that "a
 reader following the design below is following the abandoned path". The cause is recorded there and
 it is not the one it would be natural to guess: **removing allocation, not moving it**. Three sites
 were 74% of all allocation calls on an authenticated-read workload -- `env.c`'s `strdup` of every
@@ -45,7 +45,7 @@ Ziman ships two builds: `ziman` (every allocation routed through the vendored Bo
 collector, `vendor/bdwgc`) and `ziman-nogc` (the original design — nothing is ever freed, kept only
 for measurement and platforms the collector doesn't support). The collector build is the default
 specifically because the no-free design leaks unboundedly the moment a program is meant to run
-forever rather than execute-and-exit — see docs/DESIGN.md's "The collector is now the default
+forever rather than execute-and-exit — see docs/design/journal/'s "The collector is now the default
 build" entry for the measurements that made that decision.
 
 **The collector build genuinely does not leak.** Re-verified directly (2026-09-29): 10,000
@@ -81,9 +81,9 @@ concurrently-handling thread at once, not just one — the "opportunity cost" of
 scales directly with client count on top of the pause itself getting more expensive. That
 compounding is what produces a decline rather than a plateau. Raising the initial heap
 (`GC_INITIAL_HEAP_SIZE=512M`) narrows the gap a lot (a free, already-recommended tuning knob — see
-docs/DESIGN.md's tuning-pass entry) but does not remove the shape: still peaks early, still
+docs/design/journal/'s tuning-pass entry) but does not remove the shape: still peaks early, still
 declines past it, just at higher absolute numbers. This session's raw-dispatch-speed work (slot
-resolution, call-dispatch caching, per-thread `Env` pooling — see docs/DESIGN.md) also measurably
+resolution, call-dispatch caching, per-thread `Env` pooling — see docs/design/journal/) also measurably
 helped here as a side effect of allocating less per call, narrowing the gap at c=16 from 7.1x to
 about 3.5x combined with the heap tuning — real, free progress, but the underlying structural
 problem (one shared heap, stopped for everyone, however briefly, to collect anyone's garbage) is
@@ -96,7 +96,7 @@ this" was a reasonable inference from the measurements available, and it was wro
 
 ## Prior approaches considered and revised
 
-Two designs were proposed earlier in the project's history (docs/ROADMAP.md's "Larger, needs its
+Two designs were proposed earlier in the project's history (docs/roadmap/'s "Larger, needs its
 own design pass" section carries the original reasoning and the corrections below in place, kept
 for the history rather than deleted):
 
@@ -154,7 +154,7 @@ There are exactly three places a `Value` can cross from one thread to another in
 it exists today, and no others:
 
 1. **`spawn f(args) on_error handler`** — `args` and `handler` are evaluated on the *calling*
-   thread (SYNTAX.md is explicit about this), then handed to the new thread to run with.
+   thread (docs/syntax/ is explicit about this), then handed to the new thread to run with.
 2. **`Channel<T>` send/receive** — the language's one designed-in concurrency primitive.
 3. Nothing else. `ThreadLocal<T>` never crosses (`get`/`set` only ever touch the calling thread's
    own slot); `#[thread_bound]` types are refused at compile time anywhere they could cross; a
@@ -266,7 +266,7 @@ is invisible to that scanner by construction (the entire point of not using `GC_
 copied into an unscanned arena still numerically encodes the same address, but nothing keeps the
 real object alive anymore once every *scanned* copy of that same integer is gone — the collector
 correctly (by its own rules) sees no reachable reference left and reclaims it, finalizing (closing)
-the resource a program, through the arena copy, still believes is open. See DESIGN.md's own entry
+the resource a program, through the arena copy, still believes is open. See docs/design/journal/'s own entry
 on this for the full incident, including a methodological note: the first reproduction attempt hit
 a stale server process left over from earlier debugging squatting on the test's fixed port, a
 self-inflicted red herring that had to be ruled out before the real bug was even visible.
@@ -393,7 +393,7 @@ them -- still open, not yet reached by the implementation.
 
 **Phase 1 done (2026-09-29): deep-copy at the two crossing points.** `spawn`'s own `args`/`handler`
 and `send`/`try_send` on a `Channel` now deep-copy (`value_deep_copy`, `src/value_copy.c`) instead
-of handing across a bare pointer — see docs/DESIGN.md's "Deep-copy at the two thread-crossing
+of handing across a bare pointer — see docs/design/journal/'s "Deep-copy at the two thread-crossing
 points" entry for the implementation, what it does and doesn't copy (a `Channel` value itself is
 deliberately never deep-copied — see the invariant section above), and how it was verified safe to
 land before any of the rest of this design exists (it cannot change observable output under
@@ -403,7 +403,7 @@ today's allocators, only what crossing costs).
 anything.** `src/arena.c`/`.h` -- `mmap`-backed, bump-allocated, `arena_destroy` releases every
 block in one shot. Nothing in the interpreter calls it yet; landed with its own test
 (`tests/c/arena_test.c`, `make test-arena`) before the much larger, riskier step of routing the
-interpreter's own allocation sites through it, which is still ahead. See docs/DESIGN.md's "A
+interpreter's own allocation sites through it, which is still ahead. See docs/design/journal/'s "A
 standalone arena allocator, landed inert before anything calls it" entry for what it caught (two
 real bugs the test found before this went anywhere near the interpreter) and why it has to use
 `mmap`/`munmap` rather than `malloc`/`free`.
@@ -417,7 +417,7 @@ immutable value out of it afterward, the same reasoning that already let a `Valu
 with no locking before any of this existed. Every `Value` kind except `Map`/`Set` now has its own
 arena-aware constructor in `src/value_copy.c` (`Map`/`Set` stay on the ordinary allocator for now --
 an explicitly flagged gap, not a regression, since that's exactly how they were allocated before
-this file existed). See docs/DESIGN.md's "`value_deep_copy` gets a real, safe destination" entry.
+this file existed). See docs/design/journal/'s "`value_deep_copy` gets a real, safe destination" entry.
 
 **Caught a real, serious bug before it shipped, from running the actual backend suite, not just
 this interpreter's own tests: a plain `arena_create` silently breaks native resource handles.**
@@ -455,14 +455,14 @@ code, and still comparable in size to writing a small garbage collector from scr
 collector's actual shape now, not a placeholder description of one. Phase 2's own remaining
 allocation-site-rewiring step is deferred until Phase 3 exists to make it worth doing at all; phases
 4-5 (moving globals/AST to the permanent region, re-measuring against the concurrency benchmark)
-remain design-only. Tracked as the concurrency half of F2 (docs/reviews/tasks.md).
+remain design-only. Tracked as the concurrency half of F2 (docs/reviews/tasks/).
 
 **Phase 3, first implementation increment done (2026-09-30): object headers.** `src/gc_object.c`/
 `.h` -- a thin layer on top of `arena.c`, giving every allocation a small header (`kind`, `size`,
 `marked`) that the eventual mark/copy phases will read from a bare pointer found by a stack scan or
 an already-in-progress trace. Nothing calls it yet; landed with its own test
 (`tests/c/gc_object_test.c`, `make test-gc-object`), same discipline `arena.c` itself was built
-with. See docs/DESIGN.md's "Object headers, the foundation Phase 3's mark/copy phases will need"
+with. See docs/design/journal/'s "Object headers, the foundation Phase 3's mark/copy phases will need"
 entry for the seven-kind `GcKind` design and why `GC_VALUES` is its own kind rather than folded
 into `GC_ARRAY`. The actual mark phase (walking a `Value` graph precisely by `type.kind`, using
 these headers) and the copying/relocation phase are the next increments, still ahead.
@@ -485,7 +485,7 @@ than solving it -- the same tradeoff already accepted for strings, extended on p
 re-litigated per case. A packed array's own raw buffers never actually need this treatment in
 practice, because `gc_copy_array` reads every element through `array_get` (which already resolves a
 view's own offset) and always rebuilds the copy boxed, the same simplification `value_copy.c`
-already made. See docs/DESIGN.md's "The copy/relocate primitive" entry for the full reasoning and
+already made. See docs/design/journal/'s "The copy/relocate primitive" entry for the full reasoning and
 the standalone test's 35 checks (`tests/c/gc_copy_test.c`, `make test-gc-copy`), including the
 interior-pointer ambiguity exercised directly (a string and a same-start-address, shorter view of it
 both copy to their own correct content) and sharing preservation verified directly (a struct/array
@@ -518,7 +518,7 @@ walks an arena's blocks (new arena.c accessors: `arena_first_block`/`arena_next_
 finds the one whose span contains the candidate. `arena_block_content` has to skip the one block
 that embeds the `Arena` struct itself past its own reserved bytes -- identified by a property already
 true of the existing code (exactly one block ever has `next == NULL`), not a new invariant added for
-this. See DESIGN.md's "Resolving a bare stack word back to an object" entry for the full reasoning
+this. See docs/design/journal/'s "Resolving a bare stack word back to an object" entry for the full reasoning
 and the standalone test's 18 checks (`tests/c/gc_lookup_test.c`, `make test-gc-lookup`), including
 exact and interior matches, addresses that must resolve to nothing, alignment-padding correctness,
 and walking across multiple `mmap`'d blocks. Still ahead: the actual stack scan (using `stack.c`'s
@@ -544,7 +544,7 @@ unrelated, already-returned call) and treats it as a *possible* pointer -- `valg
 that as "uninitialised value used," the same interaction Boehm's own collector has with valgrind.
 Verified this is the *only* thing found, not cover for something worse, by re-running with
 `--undef-value-errors=no` (every other check -- invalid reads/writes, leaks -- still on): zero errors.
-See DESIGN.md's "The actual conservative stack scan" entry for the full reasoning and the standalone
+See docs/design/journal/'s "The actual conservative stack scan" entry for the full reasoning and the standalone
 test's 6 checks (`tests/c/gc_scan_test.c`, `make test-gc-scan`), run five times deliberately (stack
 contents vary run to run) rather than trusted once, including the interior-pointer-as-root case
 `gc_lookup.c` exists for.
@@ -590,7 +590,7 @@ bytes (the standard trick), which doesn't exist at all for a near-zero-byte requ
 effective payload of `sizeof(void *)` before computing a size class, so even the smallest class always
 has room for its own link once something in it is freed.
 
-See DESIGN.md's "Phase 3 switches from copying to mark-sweep" entry for the full reasoning and the
+See docs/design/journal/'s "Phase 3 switches from copying to mark-sweep" entry for the full reasoning and the
 standalone test's 17 checks (`tests/c/gc_heap_test.c`, `make test-gc-heap`, using `gc_set_marked`
 directly to simulate a mark phase that doesn't exist yet -- the same discipline every earlier layer
 here was proven with first), all passing; `valgrind` clean; full suite (829 fixtures) unchanged on
@@ -617,7 +617,7 @@ worst case. Left as-is until a real end-to-end cycle exists to measure against t
 benchmark, not prematurely optimized on suspicion alone -- the same discipline this whole effort has
 used throughout (profile first, tune second).
 
-See DESIGN.md's "The mark phase" entry for the full reasoning, the standalone test's 18 checks
+See docs/design/journal/'s "The mark phase" entry for the full reasoning, the standalone test's 18 checks
 (`tests/c/gc_mark_test.c`, `make test-gc-mark`, including the interior-pointer case and a shared-
 substructure termination case) all passing, `valgrind` clean, full suite (829 fixtures) unchanged on
 both builds.
@@ -646,7 +646,7 @@ stack the scan reads -- deterministic, not the ordinary run-to-run staleness con
 already expect, which is what gave it away. Fixed by stashing the address in a file-scope `static`
 instead, genuinely invisible to the scan.
 
-See DESIGN.md's "`gc_mark_object`, and the first real end-to-end cycle" entry for the full story;
+See docs/design/journal/'s "`gc_mark_object`, and the first real end-to-end cycle" entry for the full story;
 `gc_mark_test.c` grew to 24 checks, `gc_heap_test.c` to 22, both rerun five times (stack contents vary
 run to run) with zero failures; `valgrind` clean (`--undef-value-errors=no` where conservative
 scanning's own inherent noise applies, same as `gc_scan_test.c`); full suite (829 fixtures) unchanged
@@ -672,7 +672,7 @@ just one handed to it directly), walking `t_defer_envs`/`t_env_pool` the same wa
 once globals are ever routed through a `GcHeap` (Phase 4/5, still design-only). `gc_heap_collect`
 itself is not yet updated to call this.
 
-See DESIGN.md's "The second root source" entry for the full reasoning and the standalone test's 7
+See docs/design/journal/'s "The second root source" entry for the full reasoning and the standalone test's 7
 checks (`tests/c/gc_env_roots_test.c`, `make test-gc-env-roots`), all passing, `valgrind` clean,
 full suite (829 fixtures) unchanged on both builds.
 
@@ -691,7 +691,7 @@ suite (829 fixtures) unchanged on both builds, and the real `health-record-backe
 Python files, 823 checks, including `admin_test.py`'s own case) passes against a freshly built binary
 -- this session's standing rule for anything touching interpreter behavior.
 
-See DESIGN.md's "Wiring error.c's existing frame tracking" entry for the full reasoning. Still ahead:
+See docs/design/journal/'s "Wiring error.c's existing frame tracking" entry for the full reasoning. Still ahead:
 actually calling `gc_mark_env_chain` for every frame this exposes, plus `g_global_env` and
 `t_defer_envs`/`t_env_pool`, from within a real collection cycle -- `gc_heap_collect` itself is
 unchanged by this increment, and the collection trigger and interpreter allocation-site wiring remain
@@ -709,7 +709,7 @@ yet safe to wire into the real interpreter until a caller supplies a complete on
 
 Proven with a genuine case, not just a signature change: a string bound in an `Env`, referenced by
 nothing else, survives a real `gc_heap_collect` cycle specifically because the new callback (calling
-`gc_mark_env_chain`) runs -- the exact shape invisible to conservative scanning alone. See DESIGN.md's
+`gc_mark_env_chain`) runs -- the exact shape invisible to conservative scanning alone. See docs/design/journal/'s
 "`gc_heap_collect` gains a seam" entry; `gc_heap_test.c` grew to 24 checks, rerun five times, zero
 failures, `valgrind` clean, full suite (829 fixtures) unchanged on both builds. Still ahead: the actual
 `interpreter.c`-side caller that supplies a complete `extra_roots` (global env, every frame's env,
@@ -740,7 +740,7 @@ comes once a real per-thread `GcHeap`, a trigger, and the actual `call_function`
 exist -- a fixture surviving a real, triggered collection will be the implicit end-to-end proof, the
 same way `admin_test.py` was for the native-handle bug.
 
-See DESIGN.md's "The interpreter's own root sources, aggregated" entry; standalone test 6 checks
+See docs/design/journal/'s "The interpreter's own root sources, aggregated" entry; standalone test 6 checks
 (`tests/c/gc_interp_roots_test.c`, `make test-gc-interp-roots`) all passing, `valgrind` fully clean
 (this test's `type_scalar`-only `Value`s allocate nothing, unlike every other real-`Value` test here),
 full suite (829 fixtures) unchanged on both builds.
@@ -748,7 +748,7 @@ full suite (829 fixtures) unchanged on both builds.
 **The narrowest possible slice, wired for real -- and a real, live bug it caught before anything
 shipped (2026-09-30).** `src/gc_thread_heap.c` (new) owns a per-thread `GcHeap*`; `value_string_copy`
 (`value.c`) now allocates through it, deliberately the one, smallest, most self-contained allocation
-site (docs/DESIGN.md's "narrowest possible slice"); a collection trigger checks a threshold at the top
+site (docs/design/journal/'s "narrowest possible slice"); a collection trigger checks a threshold at the top
 of `exec_stmt` -- the one point in this interpreter's execution proven safe from the `EXPR_CALL`-style
 temporary-buffer root-source gap (an `args` array built by plain `malloc`, holding `Value`s neither the
 stack scan nor the `Env`-chain walk can see into, but fully unwound and freed by the time any
@@ -790,7 +790,7 @@ interpreter running the new fixture reports zero errors.
 `GC_MALLOC_UNCOLLECTABLE` for `t_defer_envs`/`t_env_pool`. `gc_heap_create` now allocates the `GcHeap`
 struct itself the same way.
 
-See DESIGN.md's "A real, live bug caught by the narrowest possible slice" entry for the full story.
+See docs/design/journal/'s "A real, live bug caught by the narrowest possible slice" entry for the full story.
 Still open: the `EXPR_CALL`-style temporary-buffer gap remains real for any future trigger point less
 restrictive than "only at `exec_stmt`'s own entry"; migrating any allocation site beyond
 `value_string_copy` will need the identical `is_gc_heap_object` care, not assumed safe by extension.
@@ -833,7 +833,7 @@ size 8" inside Boehm's own `GC_mark_from`, reading the thread's own stack, under
 all of this session's Phase 3 work) shows the identical pattern -- a known Boehm/valgrind interaction,
 unrelated to Phase 3.
 
-See DESIGN.md's "Closing the temporary-buffer gap for real" entry. Verified: full suite 830/830 on both
+See docs/design/journal/'s "Closing the temporary-buffer gap for real" entry. Verified: full suite 830/830 on both
 builds, stable across five repeated runs; all nine standalone `gc_*` unit tests pass; the real
 `health-record-backend-ziman` suite (823 checks) passes; `valgrind` clean beyond the confirmed
 pre-existing Boehm interaction.
@@ -848,7 +848,7 @@ and `gc_mark_env_chain` only ever walks a recorded `Env`'s `->parent` upward -- 
 inside any nested `for`/`while`/`if`/block scope has been invisible to root-finding since this frame
 tracking was first built. Fixed in `exec_stmts_in_scope` (the single function every nested scope's
 execution funnels through): it now records the *currently executing* scope for the frame, not just
-the call's own top one, restoring the saved value on exit. See DESIGN.md's "`array_obj_new` migrates,
+the call's own top one, restoring the saved value on exit. See docs/design/journal/'s "`array_obj_new` migrates,
 and a fundamental gap..." entry. Verified against the exact crashing fixture (3 clean runs) and the
 other fixture it broke (`regex_cache`, confirmed matching); full suite 830/830 stable across five runs
 on both builds; all nine standalone `gc_*` unit tests pass.
@@ -867,7 +867,7 @@ since a prior type-less stack-scan visit may have already set it) whenever the m
 `TY_STRUCT` value of that name. `prelude.c` registers one for `"ArrayBuilder"` and one (shared) for
 `"MapBuilder"`/`"SetBuilder"`. Ordinary (non-builder) `Map`/`Set` values were already safe -- a
 pre-existing, documented `gc_mark.c` code path already walks every entry regardless of the `MapObj`'s
-own header status; the gap was specific to the three builders' own disguised handle. See DESIGN.md's
+own header status; the gap was specific to the three builders' own disguised handle. See docs/design/journal/'s
 "A third root-source gap..." entry. Verified: both minimal reproductions pass; the fix confirmed to
 actually discriminate (reverted via `git stash`, reproduced the failure, restored); a new permanent
 regression fixture (`gc_arraybuilder_contents_survive_collection.zm`) added and confirmed to
@@ -901,7 +901,7 @@ a spawned thread's pending `on_error` handler, once safely re-copied, was refere
 plain `malloc`'d struct until `thread_failed` read it -- safe by accident under the old design (Boehm
 scans every `GC_MALLOC`'d block, no explicit rooting needed), a real gap the moment that string moved
 onto this thread's own `gc_heap`. Fixed with `t_pending_handler`, a new root source mirroring
-`t_defer_envs`/`t_env_pool`'s own shape exactly. See DESIGN.md's "A fourth root-source gap becomes a
+`t_defer_envs`/`t_env_pool`'s own shape exactly. See docs/design/journal/'s "A fourth root-source gap becomes a
 hard crash" entry for the full story.
 
 Verified: the fixture that caught the handler race passes ten runs in a row; both `try_send` failure
@@ -937,7 +937,7 @@ where the volume lives. Caller attribution for Boehm's own allocation came back 
 many small call paths to single out one obvious next site the way string/struct/array each were in
 turn. A second, separate, already-acknowledged cost (`__strcmp_avx2` + `native_lookup`, ~11-13%) is
 F2's *other* half -- name-based native dispatch, not yet covered by `env_lookup_resolved`'s own fix
-for ordinary variables -- explicitly out of scope here. See DESIGN.md's ""env_new/call frames" turns
+for ordinary variables -- explicitly out of scope here. See docs/design/journal/'s ""env_new/call frames" turns
 out to be narrower..." entry for the full numbers.
 
 Picked `result_obj_new`/`enum_obj_new` as the next migration anyway (the next simple wrapper
@@ -962,7 +962,7 @@ ever exist, silently shifting every later binding's real slot by one. Caught by 
 sign one bug got traded for another, not fixed. The real fix: `t_active_iters`, a `__thread` stack of
 the `Iter`(s) a for-loop is currently driving on this thread, mirroring `t_defer_envs`'s own exact
 shape, marked directly (type-directed, so the registered marker fires) rather than touching Env/slot
-machinery at all. See DESIGN.md's "`result_obj_new`/`enum_obj_new` migrate..." entry for the full
+machinery at all. See docs/design/journal/'s "`result_obj_new`/`enum_obj_new` migrate..." entry for the full
 story, including the precise `gdb`/`-O0` root-causing of both bugs.
 
 Verified: the crashing fixture passes clean fifteen runs in a row; a new dedicated regression fixture
@@ -993,7 +993,7 @@ has found a native-handle-held Value invisible to both root sources (`ArrayBuild
 `FromState`/`ArrayIterState`, now this), but the first time the handle itself, not something it points
 to, needed protecting. Fixed by reusing existing machinery: wrap `buf->m` in a throwaway `TY_MAP`
 Value and call the already-public `gc_mark_value`, running `gc_mark_map`'s own header handling exactly
-rather than duplicating it. See DESIGN.md's "`Map`/`Set`'s own wrapper migrates..." entry for the full
+rather than duplicating it. See docs/design/journal/'s "`Map`/`Set`'s own wrapper migrates..." entry for the full
 story, including a related pre-existing inconsistency found (not fixed, out of scope) in `gc_copy.c`'s
 own dead-code `Map`/`Set` handling.
 
@@ -1830,9 +1830,9 @@ re-take this table first, and should want a workload where the pause share is th
 Both entries above were written as discoveries. They are not, and the error is worth recording
 more than the measurements were.
 
-**1. F7 was already closed, and already written up, eight days earlier.** docs/DESIGN.md's "Three
+**1. F7 was already closed, and already written up, eight days earlier.** docs/design/journal/'s "Three
 allocation sites, and what they did to F7" (2026-10-07) states "**the shape F2 and F7 named is
-gone**" and carries the sweep that shows it; docs/ROADMAP.md's memory entry carries the same update
+gone**" and carries the sweep that shows it; docs/roadmap/'s memory entry carries the same update
 and even warns a reader that "a reader following the design below is following the abandoned path".
 Re-running `server_concurrency.sh` reproduced a result those two documents already had. What was
 actually wrong was narrower and duller than "the diagnosis is inverted": **this page had not been
@@ -1845,11 +1845,11 @@ The recorded cause is **removing allocation rather than moving it**: three sites
 allocation calls (`env.c`'s per-binding `strdup`, `interpreter.c`'s per-call argument array, and a
 per-map scratch array built inside the mark phase in `mapobj.c`), 9.96M allocation calls down to
 2.57M, plus loop scopes onto the `Env` pool. That the gain *grew* with concurrency is the evidence
-distinguishing them, and it was already in DESIGN.md. The trigger fix is real and matters for the
+distinguishing them, and it was already in docs/design/journal/. The trigger fix is real and matters for the
 `MapBuilder` workloads it was found on; it is not what closed F7.
 
 **3. The one thing that genuinely does not line up: `ziman-nogc` now measures about half what it
-did.** DESIGN.md's 2026-10-07 sweep records `ziman-nogc` at 2711 / 2979 / 2745 / 2652 req/s for
+did.** docs/design/journal/'s 2026-10-07 sweep records `ziman-nogc` at 2711 / 2979 / 2745 / 2652 req/s for
 c=8/16/32/64. Rebuilt from today's source and measured three interleaved rounds, it gives
 1389-1406 / 1254-1285 / 1187-1191 / 1177-1178 -- roughly half, and consistently. The collector
 build's own numbers agree closely across the two dates (c=1 463-535 then against 485-497 now, c=16
@@ -1860,7 +1860,7 @@ That matters because it undercuts the headline the first entry led with. "The co
 evidence is that **`nogc` regressed**, not that the collector overtook it -- and a 2x regression in
 the no-free build is its own bug to find, not a win to report. Candidates worth checking in order:
 that `ziman-nogc` was until today never rebuilt on a header change (fixed in the same session, so
-*every* `nogc` figure on this page and in DESIGN.md predating the fix was taken against a binary of
+*every* `nogc` figure on this page and in docs/design/journal/ predating the fix was taken against a binary of
 uncertain vintage), and that something in the `Value.type` or allocation-removal work interacts
 badly with a build where nothing is ever freed. Until that is settled, treat collector-vs-`nogc`
 comparisons on this page as unresolved, and the collector's own absolute figures -- which reproduce
@@ -1908,7 +1908,7 @@ thing this page was written about.
 
 **What to do differently.** Any future cross-date interpreter comparison uses
 `tests/bench/portable_server.zm`, not the backend. Every dated figure in this page and in
-DESIGN.md that came from `server_concurrency.sh` is a measurement of an interpreter *and* a
+docs/design/journal/ that came from `server_concurrency.sh` is a measurement of an interpreter *and* a
 backend, and the backend is the faster-moving of the two.
 
 ### Item 3 resolved: the falloff is not the collector, and the benchmark was hiding two larger effects

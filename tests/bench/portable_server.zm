@@ -2,7 +2,7 @@
 // interpreter binaries built weeks apart can all run it. That is the point of the file.
 //
 // The real backend cannot do this. `tests/bench/server_concurrency.sh` is the benchmark every
-// concurrency figure in docs/MEMORY.md and docs/DESIGN.md rests on, and it is unusable for
+// concurrency figure in docs/MEMORY.md and docs/design/journal/ rests on, and it is unusable for
 // comparing two interpreters more than a few days apart, in *both* directions: a 2026-10-07 binary
 // cannot run today's backend (no `server.forwarded_for`), and today's binary cannot run the
 // 2026-10-07 backend (`collections` is no longer bundled). The backend also moved by 8,334

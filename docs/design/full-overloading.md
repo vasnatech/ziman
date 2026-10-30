@@ -7,7 +7,7 @@ hand-written in `src/typecheck.c` and starts being read off the declarations.
 | | |
 |---|---|
 | Status | **Built.** Stages 1-3 and 5-7 done (F176-F184); stage 4 void, see §10. |
-| Raised | 2026-10-18, from "now that we have quite a number of overloaded functions, what do you think on relaxing the no-overloading rule?" (`docs/ROADMAP.md`) |
+| Raised | 2026-10-18, from "now that we have quite a number of overloaded functions, what do you think on relaxing the no-overloading rule?" (`docs/roadmap/`) |
 | Scope chosen | 2026-10-19, by the user: **full overloading**, not first-parameter only |
 | Written | 2026-10-19 |
 | Supersedes | `first-argument-overloading.md`, kept beside this for its §3 measurements |
@@ -360,7 +360,7 @@ population it does, the bar is not "exactly two offenders" but **zero**, and
 remains a polymorphic builtin for the reasons in §4.
 
 The distinction matters beyond bookkeeping, because it is the honest answer to "does Ziman have
-overloading": it has 28 overload sets and 22 polymorphic builtins, and `docs/ROADMAP.md`'s
+overloading": it has 28 overload sets and 22 polymorphic builtins, and `docs/roadmap/`'s
 "28 overloaded builtin names" was counting the first group by a method that happened to agree.
 Stage 7 opens the first to library code. The second is a property of a builtin and will stay one.
 
@@ -612,7 +612,7 @@ So `set` stays arm-handled, and now for the F190 reason instead of a bookkeeping
 settled that `insert` is positional only and gave both set worlds `add`; the arm went on accepting
 `insert(aSet, x)` for two passes because it reached the map/set mutator before anything could ask
 whether a `Set` had an `insert` declaration. It was absent from `ziman --api builtins` the whole
-time, and `docs/SYNTAX.md` was still teaching it.
+time, and `docs/syntax/` was still teaching it.
 
 That is the general lesson, and it is sharper than the one about messages: **a hand-written arm can
 keep a spelling alive after the declarations have retired it, and no guard notices, because the arm
@@ -734,7 +734,7 @@ Discarding a non-void prelude overload's result is an error (F182's return-type 
 **rewritten** name, did not recognise it, and said nothing. The fixture asserting that `pop` works
 had been passing for an accidental reason. The fact now lives on the declaration, as
 `#[effectful]`, replacing the pair of type names in `effectful_despite_answering` — see
-docs/DESIGN.md's "The last prefixed appenders go, and a mutation gets to say it answers something"
+docs/design/journal/'s "The last prefixed appenders go, and a mutation gets to say it answers something"
 for why an attribute and not a third entry in the list.
 
 **What is left prefixed is a different case, and this effort should stop here.**
@@ -743,7 +743,7 @@ they are the whole of the prefix now: `mutable_array_get`/`_set` went in F209, w
 this effort because it was not a conversion to an overload set at all. Those two were the target of
 `b[i]`'s rewrite rather than a second spelling of a function, and the answer was to stop rewriting
 — a MutableArray is indexed now, not called — rather than to find them a bare name. See
-docs/DESIGN.md's "`b[i]` stops being a call". `mutable_set_add` is the one remaining `internal`
+docs/design/journal/'s "`b[i]` stops being a call". `mutable_set_add` is the one remaining `internal`
 prefixed native under a bare name (`add`, since F199), and it is the one candidate a §16 would be
 about.
 
@@ -765,7 +765,7 @@ the walls and wrong about the conclusion.
    are two names.
 3. `concat(b, [5], mutable([6]), [7])` mixes an array and a builder in one variadic tail, and a
    variadic parameter has one type. Two declarations can each state half of the tail; neither can
-   state the whole of it, and a single one would need a union type, which docs/DESIGN.md refuses.
+   state the whole of it, and a single one would need a union type, which docs/design/journal/ refuses.
 
 **What they are walls in front of.** All three block *picking a declaration from the arguments*.
 None of them is a reason for the name to keep a builtin **id** — and that was the conflation. A

@@ -4,7 +4,7 @@ use metrics
 // update is a compare-exchange on the double's bits, and a lost update -- a CAS loop that seeds
 // itself with a stale or torn read -- shows up here as a number below 40000. The read that seeds
 // the loop was a plain, non-atomic one until 2026-10-08, which TSan reported as a data race
-// (docs/reviews/tasks.md A19); it was also undefined for a second reason, since the bits were
+// (docs/reviews/tasks/ A19); it was also undefined for a second reason, since the bits were
 // reached by casting `double *` to `unsigned long long *`, so the value is now stored as bits.
 fn worker(n: int, done: Channel<int>) {
     for i in 0..n { metrics.add("hits", 1.0) }

@@ -6,7 +6,7 @@
 // from a `meta.Decl` to a string, so its output is just a value to compare, and the three shapes
 // that matter (a struct, a generic struct, an enum with and without payloads) are three calls.
 //
-// The expected text is what `src/derive.c` emits today, byte for byte. See docs/ROADMAP.md's
+// The expected text is what `src/derive.c` emits today, byte for byte. See docs/roadmap/'s
 // "Derives should be written in Ziman, not in C".
 use derive_ord
 use meta

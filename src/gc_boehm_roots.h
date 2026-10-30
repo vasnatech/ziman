@@ -1,7 +1,7 @@
 #ifndef ZIMAN_GC_BOEHM_ROOTS_H
 #define ZIMAN_GC_BOEHM_ROOTS_H
 
-/* Closes a gap this session's own investigation found and confirmed directly (docs/DESIGN.md,
+/* Closes a gap this session's own investigation found and confirmed directly (docs/design/journal/,
  * "confirm the root cause directly -- main()'s own Env drops off the stack"): Boehm's own
  * conservative collector (`GC_gcollect`, automatic or explicit) has no way to find an `Env` once the
  * one C-level copy of its pointer the optimizer kept on the stack is gone -- `Env` lives on the

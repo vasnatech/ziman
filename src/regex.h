@@ -11,7 +11,7 @@
  * though, so three limits bound the rest: nesting depth, instruction count, and
  * -- because the matcher's capture buffers are instructions x groups, a product
  * neither of the other two sees -- the memory a match would need, refused at
- * compile time (see regex.c's MAX_MATCH_BYTES, and docs/reviews/tasks.md A16 for
+ * compile time (see regex.c's MAX_MATCH_BYTES, and docs/reviews/tasks/ A16 for
  * the wide pattern that segfaulted before it existed).
  * Patterns and text are UTF-8; offsets are byte offsets. Matching is
  * leftmost, with Perl's priority between alternatives and for greedy/lazy
@@ -25,7 +25,7 @@ Regex *regex_compile(const char *pattern, size_t len, char *err, size_t err_size
  * build every allocation here goes through the collector, so this is a no-op and an unreferenced
  * pattern is reclaimed without it. A compiled Regex is immutable and may be shared, so the caller
  * has to know that nothing else is using it -- which is exactly why native_regex.c's cache cannot
- * call this when it evicts one (docs/reviews/tasks.md A35). */
+ * call this when it evicts one (docs/reviews/tasks/ A35). */
 void regex_free(Regex *re);
 
 /* Number of capture groups, not counting the whole match. */
@@ -49,7 +49,7 @@ int regex_search(const Regex *re, const char *text, size_t len, size_t from, int
  * bounded as a single operation. A caller stepping through every match (`find_all`) starts `*spent`
  * at 0 once and passes the same counter to every call; otherwise each step would get a fresh
  * budget and the scan as a whole would be unbounded, which is how the expensive shape used to get
- * through (docs/reviews/tasks.md A28). */
+ * through (docs/reviews/tasks/ A28). */
 int regex_search_budgeted(const Regex *re, const char *text, size_t len, size_t from, int *caps,
                           uint64_t *spent);
 

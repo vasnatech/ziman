@@ -40,7 +40,7 @@
  * concurrent Ziman threads sharing a handle are safe statement by
  * statement. That does *not* make a multi-statement transaction safe to
  * share -- another thread's statements can interleave inside it; see
- * docs/DESIGN.md's "db" entry. */
+ * docs/design/journal/'s "db" entry. */
 
 /* How many statements one connection keeps prepared. Past the cap a statement is prepared and
  * finalized per call, which is what every call did before this existed. */

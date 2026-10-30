@@ -11,7 +11,7 @@
 // on `float` the same as it does on `int`.)
 
 // The ratio of a circle's circumference to its diameter. A global val has no `math.pi` dotted
-// access (see docs/DESIGN.md's "Global val" entry) -- bring it in with `use math.pi`.
+// access (see docs/design/journal/'s "Global val" entry) -- bring it in with `use math.pi`.
 pub val pi = 3.14159265358979323846
 
 // The base of the natural logarithm. Same as `pi`: `use math.e` to use it bare.
@@ -161,7 +161,7 @@ pub native fn ceil(d: decimal, scale: int) -> decimal
 
 // `base` to a non-negative integer `exponent`, exact: `pow(1.5d, 2)` is 2.25. A runtime
 // error if `exponent` is negative -- there's no one right scale to round a negative power's
-// division to (see docs/DESIGN.md); `numerator / pow(base, -exponent)` gets it,
+// division to (see docs/design/journal/); `numerator / pow(base, -exponent)` gets it,
 // `numerator`'s own scale picking `/`'s target the same way it does for any other division
 // (e.g. `1.0000d / pow(2d, 3)` is `0.1250`; a bare `1d`, scale 0, would round to `0`).
 pub native fn pow(base: decimal, exponent: int) -> decimal
