@@ -1,0 +1,18 @@
+// derive(Validate) for 'Account'
+pub fn account_violations(v: Account) -> [validate.Violation] {
+    val found = mutable_array_new<validate.Violation>()
+    if Some(message) = validate.matches(v.sort_code, "^[A-Z]{2}[0-9]{6}$") {
+        push(found, validate.violation("sortCode", message))
+    }
+    if Some(message) = validate.first([
+        validate.not_blank(v.phone),
+        validate.with_message(validate.matches(v.phone, "^\\d{3}-\\d{4}$"), "must look like 123-4567")
+    ]) {
+        push(found, validate.violation("phone", message))
+    }
+    if Some(message) = validate.matches(v.nickname, "^[a-z]+$") {
+        push(found, validate.violation("nickname", message))
+    }
+    return snapshot(found)
+}
+

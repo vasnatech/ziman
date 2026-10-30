@@ -1,0 +1,4 @@
+ziman: syntax error at 9:7 in tests/lang/derive_validate_pattern_refusals.zm: '#[pattern]' needs its 'regex' argument -- it takes: regex: "<text>", message: "<text>"
+  |
+9 |     #[pattern]
+  |       ^

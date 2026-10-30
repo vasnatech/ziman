@@ -1,0 +1,7 @@
+no violations
+--
+sortCode: must match "^[A-Z]{2}[0-9]{6}$"
+phone: must look like 123-4567
+nickname: must match "^[a-z]+$"
+--
+phone: must not be blank

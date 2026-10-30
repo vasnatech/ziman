@@ -1,0 +1,41 @@
+// `#[pattern]` run: the message names the pattern, because nothing else can say what was wanted,
+// and a `message:` replaces it where the pattern would mean nothing to the person reading it.
+use validate
+
+#[derive(Validate)]
+struct Account {
+    #[pattern(regex: "^[A-Z]{2}[0-9]{6}$")]
+    sort_code: string
+
+    #[not_blank]
+    #[pattern(regex: "^\\d{3}-\\d{4}$", message: "must look like 123-4567")]
+    phone: string
+
+    #[pattern(regex: "^[a-z]+$")]
+    nickname: Option<string>
+}
+
+fn report(a: Account) {
+    val found = account_violations(a)
+    if len(found) == 0 {
+        print("no violations")
+        return
+    }
+    for v in found {
+        printf("{}: {}\n", v.field, v.message)
+    }
+}
+
+fn main() {
+    report(Account {
+        sort_code: "GB123456",
+        phone: "123-4567",
+        nickname: Option<string>.None
+    })
+    print("--")
+    report(Account { sort_code: "nope", phone: "x", nickname: Option<string>.Some("ABC") })
+    print("--")
+    // `not_blank` fails first, so the pattern's own message is not the one reported -- one
+    // message per field, the first rule that failed.
+    report(Account { sort_code: "GB123456", phone: "   ", nickname: Option<string>.None })
+}

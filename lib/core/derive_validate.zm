@@ -100,6 +100,10 @@ pub fn attributes() -> [meta.AttrSpec] {
         meta.attr_spec("min", "value:int,message:string?"),
         meta.attr_spec("max", "value:int,message:string?"),
         meta.attr_spec("size", "min:int?,max:int?,message:string?"),
+        // **Named `regex:`, not positional.** `#[pattern("^x$")]` would read fine with one
+        // argument and stop reading the moment a second existed -- and `message:` is that second
+        // argument already. The same reasoning `#[column(name:)]` was decided on.
+        meta.attr_spec("pattern", "regex:string,message:string?"),
         meta.attr_spec("valid", "")
     ]
 }
@@ -108,7 +112,7 @@ pub fn attributes() -> [meta.AttrSpec] {
 // and are not constraints, so they are skipped rather than refused -- an entity that validates its
 // own fields is the ordinary case.
 val constraints: [string] = ["not_blank", "not_empty", "email", "one_of", "size", "min", "max",
-    "positive"]
+    "positive", "pattern"]
 
 // What each constraint accepts, as `shape_of` names it. A constraint on a field it cannot read is
 // refused here, against the field, rather than left to the type checker: the call this would have
@@ -122,7 +126,8 @@ val accepted = Map<string, [string]> {
     "size": ["text"],
     "min": ["int"],
     "max": ["int"],
-    "positive": ["int", "float"]
+    "positive": ["int", "float"],
+    "pattern": ["text"]
 }
 
 val shape_words = Map<string, string> {
@@ -231,6 +236,15 @@ fn rule_for(a: meta.Attr, f: meta.Field, read: string) -> Result<string, string>
     }
     if a.name == "size" {
         return sized(a, f, read)
+    }
+    if a.name == "pattern" {
+        // The pattern is emitted as a string literal, so it is quoted the way a `message:` is: a
+        // regex is mostly backslashes, and `\d` has to reach `regex.compile` as `\d`.
+        val pattern = arg_of(a, "regex")
+        if Some(text) = pattern {
+            return ok(prelude.format("validate.matches({}, {})", read, quoted(text)))
+        }
+        return err("'#[pattern]' needs its 'regex' argument")
     }
     return err(prelude.format("'#[{}]' is not a constraint '#[derive(Validate)]' knows", a.name))
 }

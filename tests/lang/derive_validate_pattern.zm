@@ -1,0 +1,32 @@
+// `#[pattern(regex:)]`, Jakarta's `@Pattern` -- the one constraint docs/design/validation.md
+// designed and deferred ("the ninth, and it arrives when something needs it"). It arrives as the
+// first attribute added **after** `FIELD_ATTRS` was deleted (F250), so it is a line in
+// `derive_validate.zm`'s own `attributes()` and a case in its `rule_for`, and **nothing in the
+// compiler changed** -- which is what the extensibility was for.
+//
+// **Named `regex:`, not positional.** `#[pattern("^x$")]` would read fine with one argument and
+// stop reading the moment a second existed, and `message:` is that second argument already --
+// the reasoning `#[column(name:)]` was decided on.
+//
+// **The pattern is quoted on the way out**, like a `message:`. A regex is mostly backslashes:
+// `"^\\d{3}$"` here is `^\d{3}$` by the time the lexer has finished, is re-escaped into the
+// generated literal, and reaches `regex.compile` as `^\d{3}$` again. Getting that wrong would be
+// invisible until a pattern with a `\d` in it stopped matching.
+#[derive(Validate)]
+struct Account {
+    #[pattern(regex: "^[A-Z]{2}[0-9]{6}$")]
+    sort_code: string
+
+    // Both, and the message overrides only the one it is written on.
+    #[not_blank]
+    #[pattern(regex: "^\\d{3}-\\d{4}$", message: "must look like 123-4567")]
+    phone: string
+
+    // `Option`, so absence passes -- the rule's own overload, not something the attribute says.
+    #[pattern(regex: "^[a-z]+$")]
+    nickname: Option<string>
+}
+
+fn main() {
+    print(1)
+}

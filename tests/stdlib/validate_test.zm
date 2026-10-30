@@ -228,3 +228,36 @@ fn a_cascaded_field_name_is_the_wire_name() {
     test.assert_len(1, found)
     test.assert_eq("ingredients[0].quantityMultiplier", found[0].field)
 }
+
+// ---------------------------------------------------------------- pattern
+
+#[derive(Validate)]
+struct TestCode {
+    #[pattern(regex: "^\\d{3}-\\d{4}$")]
+    phone: string
+
+    #[pattern(regex: "^[a-z]+$", message: "lower case only")]
+    tag: Option<string>
+}
+
+#[test]
+fn a_pattern_attribute_reaches_the_rule_with_its_backslashes_intact() {
+    // The generated literal is re-escaped, so `\d` has to arrive at `regex.compile` as `\d`
+    // rather than as a literal `d`. If it did not, "d12-3456" would match and this would pass for
+    // the wrong reason -- hence a case that is digits and a case that is the letter.
+    test.assert_empty(test_code_violations(TestCode { phone: "123-4567", tag: Option<string>.None }))
+    val found = test_code_violations(TestCode { phone: "ddd-dddd", tag: Option<string>.None })
+    test.assert_len(1, found)
+    test.assert_eq("phone", found[0].field)
+    test.assert_eq("must match \"^\\d{3}-\\d{4}$\"", found[0].message)
+}
+
+#[test]
+fn a_patterns_message_can_be_overridden_and_an_absent_option_passes() {
+    val ok = TestCode { phone: "123-4567", tag: Option<string>.None }
+    test.assert_empty(test_code_violations(ok))
+    val bad = test_code_violations(with ok { tag: Option<string>.Some("ABC") })
+    test.assert_len(1, bad)
+    test.assert_eq("tag", bad[0].field)
+    test.assert_eq("lower case only", bad[0].message)
+}

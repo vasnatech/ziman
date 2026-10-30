@@ -2388,9 +2388,9 @@ fn main() {
 }
 ```
 
-- **Eight constraints**: `#[not_blank]`, `#[not_empty]`, `#[email]`, `#[positive]`,
-  `#[one_of(values: <name>)]`, `#[size(min: <n>, max: <n>)]`, `#[min(<n>)]` and `#[max(<n>)]`,
-  plus `#[valid]` below.
+- **Nine constraints**: `#[not_blank]`, `#[not_empty]`, `#[email]`, `#[positive]`,
+  `#[one_of(values: <name>)]`, `#[size(min: <n>, max: <n>)]`, `#[min(<n>)]`, `#[max(<n>)]` and
+  `#[pattern(regex: "…")]`, plus `#[valid]` below.
   They are named after Jakarta Validation's where the two coincide, so a reader who knows Bean
   Validation needs no table. `#[one_of]`'s `values:` is **a name** -- a `val` of the module's own,
   which the generated code reads -- because a word list is not something an attribute can hold.
@@ -2414,6 +2414,11 @@ fn main() {
   than Java's `"size must be between 8 and 2147483647"`, which is an annotation default leaking;
   and `#[one_of]` has no Jakarta counterpart at all, where Java reaches for an enum type or a
   `@Pattern`. Every constraint takes `message:` to override its own text.
+- **`#[pattern(regex: "…")]`** is Jakarta's `@Pattern`: the value must match, in `regex`'s syntax,
+  and the message names the pattern because nothing else can say what was wanted. The argument is
+  named rather than positional, for `#[column(name:)]`'s reason -- `message:` is already a second
+  one. A pattern that will not compile is a violation naming it, not a crash: the pattern comes
+  from an attribute, so a bad one is a mistake in the source and the field is where a reader looks.
 - **`#[valid]` cascades** into a field whose own type is validated, producing a dotted path:
   `#[valid] ingredients: [IngredientRequest]` reports `ingredients[0].name`. It takes a struct, a
   list of structs, or an `Option` of either, and finds the nested function **by name** --

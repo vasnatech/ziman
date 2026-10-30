@@ -149,6 +149,14 @@ value rather than doing something to it.
 knows Bean Validation reads them without a table. `#[pattern(regex:)]` is the eighth and arrives
 when something needs it — `regex` is already a bundled module, so it costs a line.
 
+> **Arrived 2026-10-30, and the way it arrived is the point.** By the time something needed it,
+> `src/parser.c`'s `FIELD_ATTRS` was gone (F250): adding it was **one line in
+> `derive_validate.zm`'s own `attributes()` and one case in its `rule_for`**, no compiler change at
+> all, and the "a struct field takes one of: …" listing grew by itself. First evidence that a
+> project could add an attribute of its own, which is what user-generators.md §5a was written for.
+> The argument is **named** `regex:`, for `#[column(name:)]`'s reason — a lone positional value
+> reads fine until a second argument exists, and `message:` is that second argument already.
+
 **(f) Attribute arguments grow by one kind.** `#[column(name: "..")]` established named arguments
 with string values (`column-override.md`, `meta.md` §13). This needs two more: an **int** value
 (`size(min: 8)`) and an **identifier** value (`one_of(values: type_words)`). Both fit

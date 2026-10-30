@@ -1,0 +1,15 @@
+// `#[pattern]`'s `regex:` is required -- a pattern constraint with no pattern is not a constraint.
+// The spec says so (`regex:string,message:string?`) and the refusal lists both arguments, which is
+// also how a reader learns `message:` exists.
+//
+// The spec comes from `derive_validate.zm`'s own `attributes()`, so this message is a generator's
+// doing rather than the compiler's: there is no table of field attributes in `src/` (F250).
+#[derive(Validate)]
+struct E {
+    #[pattern]
+    code: string
+}
+
+fn main() {
+    print(1)
+}

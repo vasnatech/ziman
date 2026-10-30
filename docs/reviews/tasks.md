@@ -4759,8 +4759,8 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   from `validate.Violation` to this application's `FieldError`: a library that answered `FieldError`
   would have the dependency upside down.
 
-  `#[pattern(regex:)]` is still the ninth attribute and still arrives when something needs it, but
-  the *rule* is here already (`validate.matches`), `regex` being a bundled module. An unreadable
+  `#[pattern(regex:)]` is the ninth attribute and arrives when something needs it (it did, in F251),
+  but the *rule* is here already (`validate.matches`), `regex` being a bundled module. An unreadable
   pattern is a violation naming the pattern, not a crash.
 
   **Stage 5 followed the same day** (user-raised: "lets use validation on request types in
@@ -4912,3 +4912,32 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   and ten language attributes; it knows no annotation that is a fact about a library.
 
   1,333 fixtures, and the North Star's derived output byte-identical at 34,800 lines.
+
+- [x] **F251** **`#[pattern(regex:)]`, and the proof that adding an attribute no longer touches the
+  compiler.** (user-raised 2026-10-30; XS.)
+
+  Jakarta's `@Pattern`, the one constraint `docs/design/validation.md` designed and deferred as
+  "the ninth, when something needs it". **The interesting part is the diff.** By the time something
+  needed it, `FIELD_ATTRS` was gone (F250), so it was:
+
+  * one line in `lib/core/derive_validate.zm`'s own `attributes()`
+    (`meta.attr_spec("pattern", "regex:string,message:string?")`),
+  * one case in its `rule_for`, and its entry in the `accepted` shape table,
+
+  and **nothing in `src/` at all**. The compiler's "a struct field takes one of: pk, column, …"
+  listing grew by itself, which is the first end-to-end evidence that a project could add an
+  attribute of its own -- what user-generators.md §5a was written for. The rule itself
+  (`validate.matches`) had been there since F246.
+
+  **Named `regex:`, not positional**, for `#[column(name:)]`'s reason: a lone value reads fine
+  until a second argument exists, and `message:` is that second argument already.
+
+  **The pattern is quoted on the way out**, like a `message:`, and that is not cosmetic -- a regex
+  is mostly backslashes. `"^\\d{3}$"` in source is `^\d{3}$` after the lexer, is re-escaped into
+  the generated literal, and reaches `regex.compile` as `^\d{3}$` again. Getting it wrong would
+  have been invisible until a pattern with a `\d` in it stopped matching, so
+  `tests/lang/derive_validate_pattern` carries one on purpose.
+
+  Four fixtures: the generated text, it run (including that `#[not_blank]` failing first means the
+  pattern's message is not the one reported), and the refusal for a missing `regex:` -- whose
+  message comes from the *generator's* spec rather than from the compiler.
