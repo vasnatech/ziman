@@ -20,7 +20,7 @@
 use derive_json
 use meta
 
-val no_attrs: [string] = []
+val no_attrs: [meta.Attr] = []
 
 fn f(name: string, t: meta.Type) -> meta.Field {
     return meta.field(name, t, no_attrs)

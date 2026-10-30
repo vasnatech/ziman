@@ -130,17 +130,39 @@ pub fn named_type(name: string, args: [Type]) -> Type {
 
 // ---- the declaration ----------------------------------------------------------------------
 
+// An argument written on an attribute: `#[column(name: "start_date")]` has one, whose `name` is
+// "start_date".
+//
+// **The value is a `string` because every argument an attribute takes is written as one.** A
+// future `#[column(required: true)]` would arrive here as `"true"`, and the generator that reads
+// it decides what that means -- which is the same division `Decl.arg` already uses for
+// `#[derive(Entity("medications"))]`.
+pub struct AttrArg {
+    name: string
+    value: string
+}
+
+// An attribute written on a field, with its arguments: `#[pk]` has none,
+// `#[column(name: "start_date")]` has one.
+pub struct Attr {
+    name: string
+    args: [AttrArg]
+}
+
 // A struct's field.
 pub struct Field {
     name: string
     type: Type
-    // The attributes written on this field, bare names, in source order: `["pk"]`.
+    // The attributes written on this field, in source order.
     //
-    // **A list of names, not a `pk: bool`.** `#[pk]` is the only field attribute today and a
-    // bool would mean this file changes shape for the second one. An attribute that takes an
-    // argument -- `#[column("patient_id")]` is the obvious next -- is not modelled yet, and
-    // will be when one exists rather than guessed at now.
-    attrs: [string]
+    // **A list of attributes, not a `pk: bool` and a `column: Option<string>`.** `#[pk]` was the
+    // only field attribute when this was `[string]`, and that version said an attribute with an
+    // argument "is not modelled yet, and will be when one exists rather than guessed at now".
+    // One exists: `#[column(name: "start_date")]` (2026-10-29), so the names became
+    // `Attr`s with arguments -- the shape the §13 note deferred, settled by a real reader rather
+    // than guessed. `has_attr` reads the same as it always did, so a generator asking only
+    // whether `#[pk]` is there did not change.
+    attrs: [Attr]
 }
 
 // An enum's variant. **`payload` is an `Option<Type>`**, where the old model carried a
@@ -179,13 +201,65 @@ pub struct Decl {
     body: Body
 }
 
-pub fn field(name: string, type: Type, attrs: [string]) -> Field {
+pub fn field(name: string, type: Type, attrs: [Attr]) -> Field {
     return Field { name: name, type: type, attrs: attrs }
 }
 
-// Whether `f` carries `#[<name>]`.
+pub fn attr(name: string) -> Attr {
+    val none: [AttrArg] = []
+    return Attr { name: name, args: none }
+}
+
+pub fn attr_with(name: string, args: [AttrArg]) -> Attr {
+    return Attr { name: name, args: args }
+}
+
+pub fn attr_arg(name: string, value: string) -> AttrArg {
+    return AttrArg { name: name, value: value }
+}
+
+// Whether `f` carries `#[<name>]`, whatever arguments it was written with.
 pub fn has_attr(f: Field, name: string) -> bool {
-    return contains(f.attrs, name)
+    for a in f.attrs {
+        if a.name == name {
+            return true
+        }
+    }
+    return false
+}
+
+// One argument of one attribute: `attr_value(f, "column", "name")` is the `"start_date"` of
+// `#[column(name: "start_date")]`, and `None` when the attribute or the argument is absent.
+//
+// **Generic on purpose.** A `column_of(f)` belongs to whatever generates SQL, not here: `meta` is
+// the model of a declaration and knows nothing about columns. A caller writes
+// `get_or(meta.attr_value(f, "column", "name"), f.name)` and the SQL meaning stays in the SQL
+// generator.
+pub fn attr_value(f: Field, attr: string, arg: string) -> Option<string> {
+    for a in f.attrs {
+        if a.name != attr {
+            continue
+        }
+        for one in a.args {
+            if one.name == arg {
+                return Option<string>.Some(one.value)
+            }
+        }
+    }
+    return Option<string>.None
+}
+
+// An attribute as source spells it: `pk`, or `column(name: "start_date")`. For a generator that
+// prints what it was handed (`derive_reflect`), and for a refusal that quotes an attribute back.
+pub fn attr_text(a: Attr) -> string {
+    if prelude.len(a.args) == 0 {
+        return a.name
+    }
+    val parts = mutable_array_new<string>()
+    for one in a.args {
+        push(parts, concat(one.name, ": \"", one.value, "\""))
+    }
+    return concat(a.name, "(", join(separator: ", ", pieces: snapshot(parts)), ")")
 }
 
 pub fn unit_variant(name: string) -> Variant {

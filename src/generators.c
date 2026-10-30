@@ -223,13 +223,28 @@ static Value reify_type(Type t, int line, int col) {
     return call_meta("unit_type", NULL, 0, line, col);
 }
 
-/* A field's attributes, as bare names. `#[pk]` is the only one the parser records on a field
- * today -- `is_pk` on `Param` -- so this list is at most one long, and is a list anyway because
- * the second attribute should not change the shape of `meta.Field`. */
+/* A field's attributes, with their arguments. The parser records two on a field -- `is_pk` and
+ * `column_name` on `Param` -- and they arrive here as `meta.Attr`s, which is the shape
+ * docs/design/meta.md §13 deferred until an attribute with an argument existed. One does now
+ * (`#[column(name: "start_date")]`), so the list is of attributes rather than of names.
+ *
+ * **The AST stays two plain fields and the model is general**, which is the same division `#[pk]`
+ * already had: a bool in the compiler, an entry in a list at the boundary. A third field attribute
+ * changes the parser and this function, and nothing in `meta`. */
 static Value reify_field(const Param *f, int line, int col) {
-    Value attrs[1];
+    Value attrs[2];
     int n = 0;
-    if (f->is_pk) attrs[n++] = value_string(ziman_xstrdup("pk"));
+    if (f->is_pk) {
+        Value a[1] = {value_string(ziman_xstrdup("pk"))};
+        attrs[n++] = call_meta("attr", a, 1, line, col);
+    }
+    if (f->column_name != NULL) {
+        Value arg[2] = {value_string(ziman_xstrdup("name")), value_string(ziman_xstrdup(f->column_name))};
+        Value one = call_meta("attr_arg", arg, 2, line, col);
+        Value args_array[1] = {one};
+        Value a[2] = {value_string(ziman_xstrdup("column")), array_of(args_array, 1)};
+        attrs[n++] = call_meta("attr_with", a, 2, line, col);
+    }
 
     Value args[3];
     args[0] = value_string(ziman_xstrdup(f->name));

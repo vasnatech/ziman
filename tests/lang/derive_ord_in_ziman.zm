@@ -11,7 +11,7 @@
 use derive_ord
 use meta
 
-val no_attrs: [string] = []
+val no_attrs: [meta.Attr] = []
 
 fn member(name: string) -> meta.Field {
     return meta.field(name, meta.int_type(), no_attrs)

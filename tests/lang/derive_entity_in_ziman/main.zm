@@ -15,8 +15,8 @@
 use derive_entity
 use meta
 
-val no_attrs: [string] = []
-val key: [string] = ["pk"]
+val no_attrs: [meta.Attr] = []
+val key: [meta.Attr] = [meta.attr("pk")]
 val none: [string] = []
 
 fn f(name: string) -> meta.Field {

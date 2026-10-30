@@ -1,0 +1,1 @@
+ziman: syntax error at 9:14 in tests/lang/field_attribute_column_refusals.zm: unknown '#[column]' argument 'nmae' -- it takes 'name: "<column>"'

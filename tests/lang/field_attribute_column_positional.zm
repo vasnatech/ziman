@@ -1,0 +1,10 @@
+// The positional form is refused: `#[column]` takes `name: "<column>"`. See
+// `field_attribute_column_refusals` for why named arguments were chosen.
+struct E {
+    #[column("x")]
+    a: int
+}
+
+fn main() {
+    print(1)
+}

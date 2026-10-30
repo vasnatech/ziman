@@ -237,19 +237,51 @@ pub fn named_type(name: string, args: [Type]) -> Type
 
 ## The declaration
 
+### `AttrArg`
+
+```
+pub struct AttrArg {
+    name: string
+    value: string
+}
+```
+
+An argument written on an attribute: `#[column(name: "start_date")]` has one, whose `name` is
+"start_date".
+
+**The value is a `string` because every argument an attribute takes is written as one.** A
+future `#[column(required: true)]` would arrive here as `"true"`, and the generator that reads
+it decides what that means -- which is the same division `Decl.arg` already uses for
+`#[derive(Entity("medications"))]`.
+
+### `Attr`
+
+```
+pub struct Attr {
+    name: string
+    args: [AttrArg]
+}
+```
+
+An attribute written on a field, with its arguments: `#[pk]` has none,
+`#[column(name: "start_date")]` has one.
+
 ### `Field`
 
 ```
 pub struct Field {
     name: string
     type: Type
-    // The attributes written on this field, bare names, in source order: `["pk"]`.
+    // The attributes written on this field, in source order.
     //
-    // **A list of names, not a `pk: bool`.** `#[pk]` is the only field attribute today and a
-    // bool would mean this file changes shape for the second one. An attribute that takes an
-    // argument -- `#[column("patient_id")]` is the obvious next -- is not modelled yet, and
-    // will be when one exists rather than guessed at now.
-    attrs: [string]
+    // **A list of attributes, not a `pk: bool` and a `column: Option<string>`.** `#[pk]` was the
+    // only field attribute when this was `[string]`, and that version said an attribute with an
+    // argument "is not modelled yet, and will be when one exists rather than guessed at now".
+    // One exists: `#[column(name: "start_date")]` (2026-10-29), so the names became
+    // `Attr`s with arguments -- the shape the §13 note deferred, settled by a real reader rather
+    // than guessed. `has_attr` reads the same as it always did, so a generator asking only
+    // whether `#[pk]` is there did not change.
+    attrs: [Attr]
 }
 ```
 
@@ -308,7 +340,25 @@ pub struct Decl {
 ### `field`
 
 ```
-pub fn field(name: string, type: Type, attrs: [string]) -> Field
+pub fn field(name: string, type: Type, attrs: [Attr]) -> Field
+```
+
+### `attr`
+
+```
+pub fn attr(name: string) -> Attr
+```
+
+### `attr_with`
+
+```
+pub fn attr_with(name: string, args: [AttrArg]) -> Attr
+```
+
+### `attr_arg`
+
+```
+pub fn attr_arg(name: string, value: string) -> AttrArg
 ```
 
 ### `has_attr`
@@ -317,7 +367,30 @@ pub fn field(name: string, type: Type, attrs: [string]) -> Field
 pub fn has_attr(f: Field, name: string) -> bool
 ```
 
-Whether `f` carries `#[<name>]`.
+Whether `f` carries `#[<name>]`, whatever arguments it was written with.
+
+### `attr_value`
+
+```
+pub fn attr_value(f: Field, attr: string, arg: string) -> Option<string>
+```
+
+One argument of one attribute: `attr_value(f, "column", "name")` is the `"start_date"` of
+`#[column(name: "start_date")]`, and `None` when the attribute or the argument is absent.
+
+**Generic on purpose.** A `column_of(f)` belongs to whatever generates SQL, not here: `meta` is
+the model of a declaration and knows nothing about columns. A caller writes
+`get_or(meta.attr_value(f, "column", "name"), f.name)` and the SQL meaning stays in the SQL
+generator.
+
+### `attr_text`
+
+```
+pub fn attr_text(a: Attr) -> string
+```
+
+An attribute as source spells it: `pk`, or `column(name: "start_date")`. For a generator that
+prints what it was handed (`derive_reflect`), and for a refusal that quotes an attribute back.
 
 ### `unit_variant`
 

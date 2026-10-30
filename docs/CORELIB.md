@@ -1032,16 +1032,29 @@ pub fn some_arg(value: string) -> Option<string> { return Option<string>.Some(va
 
 pub fn named_type(name: string, args: [Type]) -> Type
 
+pub struct AttrArg {
+    name: string
+    value: string
+}
+
+pub struct Attr {
+    name: string
+    args: [AttrArg]
+}
+
 pub struct Field {
     name: string
     type: Type
-    // The attributes written on this field, bare names, in source order: `["pk"]`.
+    // The attributes written on this field, in source order.
     //
-    // **A list of names, not a `pk: bool`.** `#[pk]` is the only field attribute today and a
-    // bool would mean this file changes shape for the second one. An attribute that takes an
-    // argument -- `#[column("patient_id")]` is the obvious next -- is not modelled yet, and
-    // will be when one exists rather than guessed at now.
-    attrs: [string]
+    // **A list of attributes, not a `pk: bool` and a `column: Option<string>`.** `#[pk]` was the
+    // only field attribute when this was `[string]`, and that version said an attribute with an
+    // argument "is not modelled yet, and will be when one exists rather than guessed at now".
+    // One exists: `#[column(name: "start_date")]` (2026-10-29), so the names became
+    // `Attr`s with arguments -- the shape the §13 note deferred, settled by a real reader rather
+    // than guessed. `has_attr` reads the same as it always did, so a generator asking only
+    // whether `#[pk]` is there did not change.
+    attrs: [Attr]
 }
 
 pub struct Variant {
@@ -1073,9 +1086,19 @@ pub struct Decl {
     body: Body
 }
 
-pub fn field(name: string, type: Type, attrs: [string]) -> Field
+pub fn field(name: string, type: Type, attrs: [Attr]) -> Field
+
+pub fn attr(name: string) -> Attr
+
+pub fn attr_with(name: string, args: [AttrArg]) -> Attr
+
+pub fn attr_arg(name: string, value: string) -> AttrArg
 
 pub fn has_attr(f: Field, name: string) -> bool
+
+pub fn attr_value(f: Field, attr: string, arg: string) -> Option<string>
+
+pub fn attr_text(a: Attr) -> string
 
 pub fn unit_variant(name: string) -> Variant
 

@@ -927,7 +927,7 @@ static Expr *parse_primary(Parser *p) {
             for (;;) {
                 Token *name = expect(p, TOK_IDENT, "a parameter name");
                 require_lower_start(name, "a parameter name");
-                Param param = {dup_token_text(name), type_scalar(TY_VOID), 0, NULL, NULL, name->line, name->col, 0, 0};
+                Param param = {dup_token_text(name), type_scalar(TY_VOID), 0, NULL, NULL, name->line, name->col, 0, 0, NULL};
                 if (match(p, TOK_COLON)) param.type = parse_type(p);
                 else param.type_omitted = 1;
                 param_list_push(&fn->params, param);
@@ -1369,7 +1369,7 @@ static Expr *field_accessor_lambda(Parser *p, const char *type_name, Token *at) 
     fn->name = (char *)"lambda";
     fn->line = at->line;
     fn->col = at->col;
-    Param param = {(char *)"$x", type_struct(type_name), 0, NULL, NULL, at->line, at->col, 0, 0};
+    Param param = {(char *)"$x", type_struct(type_name), 0, NULL, NULL, at->line, at->col, 0, 0, NULL};
     param_list_push(&fn->params, param);
     fn->return_type = type_scalar(TY_VOID);
     fn->return_omitted = 1;
@@ -2095,7 +2095,7 @@ static ParamList parse_params(Parser *p) {
                 default_expr = parse_expr(p);
                 default_key = param_default_key(param_name->start, param_name->length);
             }
-            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col, 0, 0};
+            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col, 0, 0, NULL};
             param_list_push(&params, param);
             skip_newlines(p);
             if (!match(p, TOK_COMMA)) break;
@@ -2452,23 +2452,58 @@ static StructDecl *parse_struct_decl(Parser *p) {
     expect(p, TOK_LBRACE, "'{'");
     skip_newlines(p);
     while (!check(p, TOK_RBRACE)) {
-        /* **A field may carry `#[pk]`**, and nothing else yet. Read here rather than in
-         * `parse_attributes` because that one belongs to a whole declaration; this belongs to one
-         * field, and a function parameter must not be able to take it.
+        /* **A field may carry `#[pk]` and `#[column(name: "..")]`**, and nothing else. Read here
+         * rather than in `parse_attributes` because that one belongs to a whole declaration; this
+         * belongs to one field, and a function parameter must not be able to take it.
          *
          * An unknown name is refused rather than ignored, which is the rule the module-level form
          * follows for the reason its comment gives: a silently-ignored attribute is how
-         * `#[deprecated]` managed to parse and do nothing for as long as it did. */
+         * `#[deprecated]` managed to parse and do nothing for as long as it did. **An unknown
+         * *argument* is refused the same way**, which is what makes `#[column(nmae: "x")]` an error
+         * rather than a column override that silently does not happen.
+         *
+         * `#[column(..)]`'s arguments are named rather than positional -- `#[column("start_date")]`
+         * would read fine today and stop reading the moment a second argument exists, which is a
+         * when rather than an if: the `required:` that was asked for alongside `name:` was left out
+         * only because nothing reads it yet (docs/design/column-override.md). */
         int field_is_pk = 0;
+        const char *field_column = NULL;
         while (check(p, TOK_HASH)) {
             expect(p, TOK_HASH, "'#'");
             expect(p, TOK_LBRACKET, "'['");
             Token *attr = expect(p, TOK_IDENT, "a field attribute name");
             if (attr->length == 2 && strncmp(attr->start, "pk", 2) == 0) {
                 field_is_pk = 1;
+            } else if (attr->length == 6 && strncmp(attr->start, "column", 6) == 0) {
+                expect(p, TOK_LPAREN, "'(' and 'name: \"<column>\"' -- #[column] takes named arguments");
+                int seen_name = 0;
+                for (;;) {
+                    Token *arg = expect(p, TOK_IDENT, "an argument name, as in 'name: \"start_date\"'");
+                    if (!(arg->length == 4 && strncmp(arg->start, "name", 4) == 0)) {
+                        ziman_error("syntax", arg->line, arg->col,
+                                    "unknown '#[column]' argument '%.*s' -- it takes 'name: \"<column>\"'",
+                                    (int)arg->length, arg->start);
+                    }
+                    expect(p, TOK_COLON, "':'");
+                    Token *value = expect(p, TOK_STRING_LIT, "a column name in double quotes");
+                    if (value->length == 0) {
+                        ziman_error("syntax", value->line, value->col,
+                                    "'#[column(name: \"\")]' names no column");
+                    }
+                    if (seen_name) {
+                        ziman_error("syntax", arg->line, arg->col,
+                                    "'#[column]' has two 'name' arguments");
+                    }
+                    seen_name = 1;
+                    field_column = dup_token_text(value);
+                    if (!match(p, TOK_COMMA)) break;
+                    skip_newlines(p);
+                }
+                expect(p, TOK_RPAREN, "')'");
             } else {
                 ziman_error("syntax", attr->line, attr->col,
-                            "unknown field attribute '%.*s' -- a struct field takes '#[pk]' and nothing else",
+                            "unknown field attribute '%.*s' -- a struct field takes '#[pk]' and "
+                            "'#[column(name: \"<column>\")]' and nothing else",
                             (int)attr->length, attr->start);
             }
             expect(p, TOK_RBRACKET, "']'");
@@ -2479,7 +2514,7 @@ static StructDecl *parse_struct_decl(Parser *p) {
         expect(p, TOK_COLON, "':'");
         Type field_type = parse_type(p);
         if (sd->type_params.count > 0) reclassify_type_params(&field_type, &sd->type_params);
-        Param field = {dup_token_text(field_name), field_type, 0, NULL, NULL, field_name->line, field_name->col, 0, field_is_pk};
+        Param field = {dup_token_text(field_name), field_type, 0, NULL, NULL, field_name->line, field_name->col, 0, field_is_pk, field_column};
         param_list_push(&sd->fields, field);
         skip_newlines(p);
     }

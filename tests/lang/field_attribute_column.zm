@@ -1,0 +1,27 @@
+// `#[column(name: "start_date")]` on a struct field, as far as `meta` -- the attribute parses,
+// survives reification and reaches a generator with its argument.
+//
+// **This is what settled docs/design/meta.md §13's deferred decision.** `Field.attrs` was
+// `[string]`, bare names, and said an attribute with an argument "is not modelled yet, and will be
+// when one exists rather than guessed at now". One exists, so attributes carry arguments now --
+// `attrs: [Attr]` with `Attr { name, args: [AttrArg] }` -- and `has_attr` still reads the same for
+// a generator that only asks whether `#[pk]` is there.
+//
+// `derive(Reflect)` prints what it was handed and generates nothing, which is why it is the
+// fixture for a boundary question: anything lost between the parser and a generator shows here.
+#[derive(Reflect)]
+struct Event {
+    #[pk]
+    id: int
+    #[column(name: "start_date")]
+    start: string
+    // Two attributes on one field, and the order they are written is the order they arrive.
+    #[pk]
+    #[column(name: "tenant")]
+    owner: int
+    note: string
+}
+
+fn main() {
+    print("reflected")
+}

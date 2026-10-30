@@ -1,0 +1,15 @@
+// `#[column]`'s arguments are **named**, and a wrong one is refused rather than ignored.
+//
+// Named rather than positional was the decision: `#[column("start_date")]` reads fine today and
+// stops reading the moment a second argument exists -- which is a when rather than an if, since
+// `required:` was asked for alongside `name:` and was left out only because nothing reads it yet.
+// A misspelled argument is the case that matters most: ignored, it would be a column override
+// that silently does not happen.
+struct E {
+    #[column(nmae: "x")]
+    a: int
+}
+
+fn main() {
+    print(1)
+}

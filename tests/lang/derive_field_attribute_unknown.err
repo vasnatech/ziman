@@ -1,1 +1,1 @@
-unknown field attribute 'key' -- a struct field takes '#[pk]' and nothing else
+ziman: syntax error at 9:7 in tests/lang/derive_field_attribute_unknown.zm: unknown field attribute 'key' -- a struct field takes '#[pk]' and '#[column(name: "<column>")]' and nothing else

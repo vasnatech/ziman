@@ -1,0 +1,14 @@
+// derive(Reflect) for 'Event'
+// reflect Event
+//   snake_name='event'
+//   type_params=[]
+//   arg=none
+//   struct, fields=4
+//   field[0] name='id' attrs=[pk]
+//   field[0].type int
+//   field[1] name='start' attrs=[column(name: "start_date")]
+//   field[1].type string
+//   field[2] name='owner' attrs=[pk, column(name: "tenant")]
+//   field[2].type int
+//   field[3] name='note' attrs=[]
+//   field[3].type string

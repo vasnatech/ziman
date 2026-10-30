@@ -593,6 +593,15 @@ typedef struct {
      * key is spelled; `#[derive(Entity("t"))]` puts them in the metamodel as `keys`, in field
      * order. See docs/ROADMAP.md's "Code generation from annotations". */
     int is_pk;
+    /* `#[column(name: "start_date")]` on a **struct field**: the column this field is stored in,
+     * when it is not the field's own name. NULL for the overwhelmingly common case, where the two
+     * are the same.
+     *
+     * **The same-name case stays an identity rather than becoming a mapping of one entry**, which
+     * is what `eql.zm` says its column list is built on, and what keeps a query, a `from_row` and
+     * a derived query's name all spelling the field. A field with an override is paired for `eql`
+     * and nowhere else; see docs/design/column-override.md. */
+    const char *column_name;
 } Param;
 
 typedef struct {

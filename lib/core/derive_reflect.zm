@@ -81,6 +81,18 @@ fn walk(path: string, t: meta.Type) -> string {
     return concat(pieces: snapshot(out))
 }
 
+// The attributes of one field, each as source spells it: `pk`, `column(name: "start_date")`.
+// **Printed rather than summarised**, because what this generator exists to show is exactly what
+// it was handed -- an attribute whose argument went missing between the parser and here is the
+// class of bug this file was written to make visible.
+fn attr_texts(f: meta.Field) -> [string] {
+    val out = mutable_array_new<string>()
+    for a in f.attrs {
+        push(out, meta.attr_text(a))
+    }
+    return snapshot(out)
+}
+
 pub fn generate(d: meta.Decl) -> Result<string, string> {
     val out = mutable_array_new<string>()
     push(out, concat("// reflect ", d.name, "\n"))
@@ -101,7 +113,7 @@ pub fn generate(d: meta.Decl) -> Result<string, string> {
                     "] name='",
                     fields[i].name,
                     "' attrs=[",
-                    join(separator: ", ", pieces: fields[i].attrs),
+                    join(separator: ", ", pieces: attr_texts(fields[i])),
                     "]\n"
                 ))
                 push(out, walk(concat("field[", str(i), "].type"), fields[i].type))
