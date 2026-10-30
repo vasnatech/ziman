@@ -5135,3 +5135,30 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   and a second `#![derive(..)]` in one file.
 
   1,339 fixtures; the North Star byte-identical at 34,800 lines.
+
+- [x] **F257** **The sample backend moves onto `#![derive(Repository(E))]`.** (user-raised
+  2026-10-30: "keep goint" -- step 2 of three for docs/design/user-generators.md §12.4; S.)
+
+  24 module attributes and 80 function attributes across 24 files, and **the derived output is
+  byte-identical at 34,800 lines** with the application's own suite green (64 suites, 2,670
+  checks). That is the proof the two spellings are one feature rather than two.
+
+  **The migration found a hole in the attribute grammar**, which is the thing worth keeping.
+  `crud: false` would not parse:
+
+      an attribute argument is a string, a whole number or a name
+
+  `true` and `false` are **keywords, not identifiers**, so `parse_attr_args` had no arm for them.
+  The hand-written `#![repository]` parser matched `TOK_FALSE` directly, so nothing had ever needed
+  the generic reader to. There is a `bool` kind now -- through `check_field_attribute`, the
+  `as_written`/`needed` wording and `field_attr_spec_text`, so a generator can declare
+  `cache:bool?` and a wrong kind reads as *"'#[min]'s 'value' is true or false and has to be a
+  whole number"*.
+
+  **Why it surfaced here and not in F253**, which is the general lesson: F253 replaced two parsers
+  with one and the survivor was the *field-attribute* reader, which had never needed a bool because
+  no field attribute takes one. Unifying two grammars does not reveal what only one of them
+  handled -- migrating real call sites onto the survivor is what does.
+
+  This repository's own 55 fixtures stay on the old spelling on purpose: it still works, and they
+  are the only coverage of it left until step 3, when they all have to move anyway. 1,340 fixtures.

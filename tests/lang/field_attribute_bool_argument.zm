@@ -1,0 +1,19 @@
+// **`true`/`false` are keywords, not identifiers**, so an attribute argument that is a bool needs
+// its own arm in `parse_attr_args`. Found by migrating `#![repository(Patient, crud: false)]` to
+// `#![derive(Repository(Patient, crud: false))]`: the hand-written parser matched `TOK_FALSE`
+// directly and the generic reader refused the same text outright, with "an attribute argument is a
+// string, a whole number or a name".
+//
+// Its kind is `bool` and its text is `true` or `false`, so a generator compares against the text
+// as it does for every other kind -- and a spec can ask for one (`cache:bool?`).
+//
+// The refusal below is the point of recording the kind at all: the lexer would hand over the same
+// text for `#[min("8")]` and `#[min(8)]`, and `#[min(true)]` is a third thing that is not a number.
+struct E {
+    #[min(true)]
+    count: int
+}
+
+fn main() {
+    print(1)
+}

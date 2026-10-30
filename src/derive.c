@@ -415,6 +415,7 @@ static char *field_attr_spec_text(const char *spec) {
             const char *kind = colon + 1;
             strcat(out, strncmp(kind, "int", 3) == 0 ? ": <number>"
                       : strncmp(kind, "name", 4) == 0 ? ": <name>"
+                      : strncmp(kind, "bool", 4) == 0 ? ": true|false"
                       : ": \"<text>\"");
         }
         at = comma != NULL ? comma + 1 : at + len;
@@ -475,12 +476,15 @@ static void check_field_attribute(const FieldAttr *a) {
         const char *spec_kind = at + strlen(wanted);
         const char *wanted_kind = strncmp(spec_kind, "int", 3) == 0 ? "int"
                                 : strncmp(spec_kind, "name", 4) == 0 ? "name"
+                                : strncmp(spec_kind, "bool", 4) == 0 ? "bool"
                                 : "string";
         if (strcmp(given->kind, wanted_kind) != 0) {
             const char *as_written = strcmp(given->kind, "string") == 0 ? "a string"
                                    : strcmp(given->kind, "int") == 0 ? "a number"
+                                   : strcmp(given->kind, "bool") == 0 ? "true or false"
                                    : "a name";
             const char *needed = strcmp(wanted_kind, "int") == 0 ? "a whole number"
+                               : strcmp(wanted_kind, "bool") == 0 ? "true or false"
                                : strcmp(wanted_kind, "name") == 0
                                      ? "a name -- the module's own val, which the generated code reads"
                                      : "a string in double quotes";

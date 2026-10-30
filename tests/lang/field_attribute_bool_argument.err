@@ -1,0 +1,4 @@
+ziman: syntax error at 13:11 in tests/lang/field_attribute_bool_argument.zm: '#[min]'s 'value' is true or false and has to be a whole number
+   |
+13 |     #[min(true)]
+   |           ^

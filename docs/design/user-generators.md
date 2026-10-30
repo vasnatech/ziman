@@ -542,7 +542,24 @@ load-bearing.
       `derived_query_label` with the two spellings changed and the **same output file**.
       `parse_attr_args` reads the arguments, so the entity is the lone positional `value` and
       `label:`/`crud:` are named -- which is how the old spelling already read.
-   2. **Migrate the call sites**, with the North Star's derived output byte-identical as the proof.
+   2. ✅ **Migrate the call sites** (F257, 2026-10-30): 24 module attributes and 80 function
+      attributes across 24 files of the sample backend, with its derived output **byte-identical at
+      34,800 lines** and its own suite green -- which is the proof the two spellings are the same
+      feature and not two.
+
+      **The migration found a hole in the attribute grammar.** `crud: false` would not parse:
+      `true` and `false` are *keywords*, not identifiers, so `parse_attr_args` had no arm for them
+      and answered "an attribute argument is a string, a whole number or a name". The hand-written
+      `#![repository]` parser matched `TOK_FALSE` directly, so nobody had needed the generic reader
+      to. There is a `bool` kind now, through the checker and the spec grammar, so a generator can
+      declare `cache:bool?`. Worth naming why it surfaced here: F253 replaced two parsers with one
+      and the survivor was the *field* reader, which had never needed a bool because no field
+      attribute takes one -- unifying the grammars exposed the gap, and migrating real call sites
+      made it fail loudly rather than stay latent.
+
+      This repository's own 55 fixtures stay on the old spelling deliberately: it still works, and
+      they are the only coverage of it left until step 3 removes it, when they all have to move
+      anyway.
    3. **Remove `#![repository]` and `#[repository]` from the parser**, which is the step that
       actually shrinks what the compiler knows. Until it lands, C knows *both* -- one name more
       than the end state, which is worth saying rather than implying step 1 finished anything.

@@ -222,13 +222,22 @@ static void parse_attr_args(Parser *p, FieldAttr *one, int line, int col) {
                 arg.name = "value";
             }
             Token *value = cur(p);
-            if (check(p, TOK_STRING_LIT) || check(p, TOK_INT_LIT) || check(p, TOK_IDENT)) {
+            /* **`true`/`false` are keywords, not identifiers**, so a bool needs its own arm --
+             * found by `#![repository(Patient, crud: false)]`, whose hand-written parser used
+             * `match(p, TOK_FALSE)` and which this reader refused outright. Its text is `true` or
+             * `false` and its kind is `bool`, so a generator compares against the text as with
+             * every other kind. */
+            if (check(p, TOK_TRUE) || check(p, TOK_FALSE)) {
+                arg.kind = "bool";
+                arg.value = check(p, TOK_TRUE) ? "true" : "false";
+                advance_tok(p);
+            } else if (check(p, TOK_STRING_LIT) || check(p, TOK_INT_LIT) || check(p, TOK_IDENT)) {
                 arg.kind = check(p, TOK_STRING_LIT) ? "string" : check(p, TOK_INT_LIT) ? "int" : "name";
                 advance_tok(p);
                 arg.value = dup_token_text(value);
             } else {
                 ziman_error("syntax", value->line, value->col,
-                            "an attribute argument is a string, a whole number or a name");
+                            "an attribute argument is a string, a whole number, a name, or true/false");
             }
             args[argc++] = arg;
             skip_newlines(p);
