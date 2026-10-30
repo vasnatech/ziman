@@ -1216,10 +1216,33 @@ from source.
   was discarded -- the misspelling of the most-used attribute in the language, compiling to a
   struct that derived nothing. The branch is gated on `is_derive` now and both reach one refusal.
 
-  **Option (2) is still open**: `meta.Decl` carries no attribute list, so nothing can *read* a
-  declaration attribute even deliberately. That is what a project would need to put its own
-  attribute on a declaration rather than on a field, and it waits on the same per-module keying
-  §5a does. Options (2) and (3) below stand as written.
+  **Option (2) is open and should probably stay that way** -- the reason it was wanted no longer
+  holds. It said `meta.Decl` carries no attribute list, so nothing can *read* a declaration
+  attribute, and that this is what a project needs "to put its own attribute on a declaration
+  rather than on a field". **F253 covers that**: a derive target takes named, typed arguments, so a
+  project writes
+
+  ```ziman
+  #[derive(Csv(table: "customers", header: true))]
+  struct Customer { id: int  name: string }
+  ```
+
+  and reads them with `meta.decl_arg(d, "table")`. Tested 2026-10-30, with a generator that is not
+  the compiler's: it works.
+
+  What a *separate* declaration attribute would still buy is narrow, and worth writing down rather
+  than building on faith:
+
+  * **Data read by a generator other than the one named.** `#[derive(Json, Csv)]` with a shared
+    `#[table(name: "x")]` says it once where target arguments say it twice. One repeated argument
+    is a weak case for a new mechanism, a new position in `AttrSpec`, a second deferred check and
+    a `Decl.attrs` to reify.
+  * **Reading the compiler's own nine** -- a generator propagating `#[deprecated]` into what it
+    writes. Plausible, speculative, and nothing asks for it.
+
+  So the shape of a decision here is "wait for a use", not "build the plumbing". Option (3) --
+  reopening the set *through* the generator -- is what either case would need, and it is the same
+  per-module keying §5a wants, so it costs nothing to leave until one of them is real.
  (Raised by the user 2026-10-29, right after F246 closed the field-attribute half: "can I
   just add a random annotation in ziman like `#[foo_bar] struct User`?" The answer is yes, and that
   is the entry.)
