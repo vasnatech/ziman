@@ -148,6 +148,99 @@ caught at a `ThreadBoundary` and reported the same way, with the generator's own
 trace. A generator is code, and code has bugs; what it must not do is take the compiler down
 without saying which declaration it was working on.
 
+## 5a. A generator's own field attributes
+
+`#[derive(Csv)]` alone does not let a project write the derive it wants. The bundled generators
+read **field attributes** — `#[pk]`, `#[column(name:)]`, `#[one_of(values:)]` — and a project's
+would want the same: a `Csv` derive with no `#[csv_column(name: "ID")]` is a derive that can only
+use the field's own name.
+
+Today that is a hard stop, and not a deferral: the attribute is refused by the *parser*.
+
+```ziman
+use derive/csv
+
+#[derive(Csv)]
+struct Customer {
+    #[csv_column(name: "ID")]
+    id: int
+}
+```
+
+> `syntax error: unknown field attribute 'csv_column' -- a struct field takes one of: pk, column,
+> one_of, not_blank, not_empty, email, positive, min, max, size, valid`
+
+**This section exists because §9 did not mention it.** §9 names module-level attributes and
+function attributes as out of scope, so field attributes read as covered — and they are not
+covered anywhere. Found 2026-10-30 by asking the obvious question of a design that had shipped
+eleven field attributes and a generator written in Ziman: *the user will not have access to C code
+to add the new annotation.*
+
+### What makes it tractable
+
+It looks blocked by the reason `FIELD_ATTRS` is in C at all — **the parser is the only thing that
+sees every field**, so a misspelling on a struct that derives nothing can be caught nowhere else
+(`src/parser.c`'s own comment, and the `#[deprecated]` precedent). It is not.
+
+**The parsing is already generic.** `field_attr_list_push` and `field_attr_arg` accept any
+`IDENT(name: value, ...)` shape and record each argument's `kind`; `check_field_attribute` is a
+separate pass over the table. And `FieldAttr`/`FieldAttrArg` already carry `line` and `col`.
+
+So the check can move from parse time to **after module loading**, when the `use` list is known,
+and still report at the field's own position. The thing being checked becomes:
+
+> every struct field in the module, against the built-in names **union** the names declared by the
+> generators this module imports.
+
+Which keeps the whole protection. A typo is still refused on a struct that derives nothing, because
+the check is keyed on the *module*, not on the derive. And `#[csv_column]` in a module that does
+not import `derive/csv` is still refused, which is the case the table was built for.
+
+### How a generator declares them
+
+Symmetrically with `#![generator(X)]` — a `pub val` the compiler reads once the module is loaded,
+in the spec grammar `FIELD_ATTRS` already uses:
+
+```ziman
+// derive/csv.zm
+#![generator(Csv)]
+use meta
+
+pub val attributes = [
+    meta.attr_spec("csv_column", "name:string"),
+    meta.attr_spec("csv_skip", ""),
+    meta.attr_spec("csv_order", "value:int,header:string?")
+]
+
+pub fn generate(d: meta.Decl) -> Result<string, string> { ... }
+```
+
+Most of the machinery is already built: the spec grammar (`"min:int?,max:int?,message:string?"`),
+`field_attr_spec_text` turning a spec into `name: "<text>", value: <number>` for the refusal, the
+three argument kinds (`string`, `int`, `name`), and `resolve_repository`'s walk of the `use` list.
+What is missing is the deferral, a `meta.attr_spec`, and the collision rule below.
+
+### What this gives up
+
+* **The check happens one phase later.** Same file, same line, same column — a different phase.
+  A `--fmt` or a `--lsp` pass that stops before module loading no longer sees a bad field
+  attribute, where today it does.
+* **Two generators may claim one name.** Two imported generators both declaring `csv_column` has to
+  be refused at the importing module, naming both — the same shape as `#![generator(..)]` twice in
+  one file. A generator cannot be asked to namespace its attributes (`#[csv.column]` is not a thing
+  the grammar has, and a prefix convention is not a rule).
+* **A generator must be loaded to check a field it has nothing to do with.** A module importing
+  `derive/csv` pays the generator's initialisation (§6) even if the mistake is in a struct that
+  derives nothing. That cost is already paid by anything that derives at all.
+
+### Where it sits in the order
+
+**After the bridge and `use`-list discovery (§12.1, §12.2), and before a project would call any of
+this usable.** The three are one feature: a target a project can name, a generator that runs, and
+the attributes that generator reads. Shipping the first two without this would mean a project's
+derive can be triggered and can only ever see field *names* — which is `#[derive(Csv)]` without
+`#[csv_column]`, the thing this section started from.
+
 ## 6. Initialisation and ordering, which is the real cost
 
 A generator's `val sheet = template.must_parse(..)` has to be initialised before `generate` is
@@ -209,6 +302,10 @@ per declaration carrying the attribute, and the sample backend has 140 of them.
 * **Module-level attributes of a project's own**, the `#![repository(E)]` shape. Declaration-level
   `#[derive(X)]` is one mechanism; a user-defined module attribute is a second, and the first
   should ship before the second is designed.
+* ~~**Field attributes of a generator's own.**~~ This list said nothing about them, which read as
+  coverage rather than as an omission — §5a now covers them, and they are part of the feature
+  rather than outside it: a derive that cannot read `#[csv_column(name:)]` can only ever see a
+  field's own name.
 * **Attributes on functions**, the `#[repository]` derived-query shape. Same reason.
 * **Determinism.** A generator reading the clock or a file produces a different program per
   build. Nothing here polices that; it is a documented expectation, as it is in every language
@@ -252,5 +349,8 @@ load-bearing.
    a struct today), and per-generator-module initialisation as §6 describes.
 2. **Then `#![generator(X)]` and `use`-list discovery**, which is small once the bridge exists --
    the lookup is `resolve_repository`'s walk with a different attribute.
-3. **Measure `--lsp`** before deciding §8 for good. One generator call per declaration, 140
+3. **Then a generator's own field attributes** (§5a): the deferral of `check_field_attribute` past
+   module loading, `meta.attr_spec`, and the collision rule. It needs (2)'s `use`-list walk and
+   nothing else, and without it a project's derive can only read field names.
+4. **Measure `--lsp`** before deciding §8 for good. One generator call per declaration, 140
    declarations in the sample backend, an interpreter rather than C.
