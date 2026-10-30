@@ -1208,6 +1208,59 @@ from source.
   **Linguist itself is the real fix and is out of reach**: it wants the grammar (we have one) plus
   the language in use across hundreds of repositories (we have one). Revisit if that changes.
 
+- **Declaration attributes are an open set that nothing can read. Decide which half of that to
+  fix.** (Raised by the user 2026-10-29, right after F246 closed the field-attribute half: "can I
+  just add a random annotation in ziman like `#[foo_bar] struct User`?" The answer is yes, and that
+  is the entry.)
+
+  The three attribute positions have three different rules today, and only one of them was
+  designed:
+
+  * **A field attribute is a closed table.** `src/parser.c`'s `FIELD_ATTRS` holds the ten names a
+    field may carry, and anything else is a syntax error naming the whole list. Each is reified into
+    `meta.Field.attrs`, so a generator reads it.
+  * **A module attribute is closed too**: `experimental`, `deprecated`, `repository`, `generator`,
+    and an unknown one is refused with those four named.
+  * **A declaration attribute is open.** Nine names are interpreted — `derive` and `thread_bound` on
+    a type, `test`, `deprecated`, `when_unmatched`, `at_least_one`, `effectful` and
+    `compiler_resolved` on a function — and **every other name parses, means nothing, and says
+    nothing**. `#[foo_bar]` and `#[foo_bar(Baz)]` both compile silently. `--lint` does not mention
+    them either.
+
+  **And nothing can read one even on purpose.** `meta.Decl` carries `arg`, `name`, `snake_name`,
+  `type_params` and `body`, and no attribute list, so a generator cannot see `#[foo_bar]` at all;
+  `#[derive(Reflect)]` on a struct carrying one prints its *field* attributes and no trace of the
+  declaration's. So the open set is not a user-extension point that happens to be undocumented —
+  it is a hole that cannot be reached from either side.
+
+  **This is the `#[deprecated]` shape exactly**, which is the argument already written into
+  `FIELD_ATTRS`' own comment: it parsed and did nothing for years, and an attribute the compiler
+  accepts while nothing reads it is indistinguishable from one that works — the silence is the same
+  either way. F245 and F246 both chose the table for that reason. The declaration position is the
+  last one that did not get the choice.
+
+  Three answers, and they are not exclusive:
+
+  1. **Close the set**, as the other two positions are closed: refuse an unknown declaration
+     attribute, listing the nine. Cheapest, and it is the only one that makes a typo
+     (`#[drive(Json)]`) an error rather than a struct that quietly derives nothing. The cost is that
+     a program carrying a tolerated `#[foo_bar]` today stops compiling, and `#[derive]`'s own
+     comment would need to say where a new name is added.
+  2. **Reify them**, giving `meta.Decl` an `attrs: [meta.Attr]` filled exactly as `meta.Field`'s is.
+     That makes a declaration attribute as useful as a field attribute — `#[table(schema: "audit")]`
+     would stop having to be `#[derive(Entity("..."))]`'s positional argument — and it is the piece
+     `docs/design/user-generators.md` needs if a project's own generator is ever to read an
+     attribute the compiler has no opinion about.
+  3. **Both, in that order**: close the set, then open it again *through* the generator, so a name
+     is known either because the compiler interprets it or because a loaded generator declares it.
+     That is the shape F243's "by name, not by derive" settled on for a different question, and it
+     is the only answer that lets a project add an annotation without a compiler change.
+
+  What to settle before building: whether (1) alone is worth a breaking change on its own, and
+  whether (2) should wait for user-written generators, which is what would actually consume it.
+  Nothing in the North Star carries an uninterpreted declaration attribute, so the migration cost
+  of (1) is currently zero — which argues for doing it before that stops being true.
+
 ## Larger, needs its own design pass
 
 - **`meta`, redesigned.** Designed in [docs/design/meta.md](design/meta.md), not built. The
