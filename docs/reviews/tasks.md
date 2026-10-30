@@ -4941,3 +4941,42 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   Four fixtures: the generated text, it run (including that `#[not_blank]` failing first means the
   pattern's message is not the one reported), and the refusal for a missing `regex:` -- whose
   message comes from the *generator's* spec rather than from the compiler.
+
+- [x] **F252** **A design doc's status line is checked against its own body.** (user-raised
+  2026-10-30, after `expressions.md`'s was found a day stale: "1"; XS.)
+
+  **Three documents drifted the same way.** The work gets recorded where it happened -- a staging
+  step struck through, a decision closed, a section headed "Built 2026-10-30" -- and the `Status:`
+  line at the top, the one thing a reader sees first, is never touched.
+
+  * `expressions.md` said **"design, not built"** for a day after all five of its steps shipped.
+  * `meta.md` said it with `**CLOSED 2026-10-29**` in its own §13 and every one of §11's five steps
+    done (F225-F229).
+  * `user-generators.md` said **"design only. Nothing below is built."** with §11 headed "Partly
+    built, 2026-10-28" and §5a headed "Built for the bundled generators, 2026-10-30".
+
+  Nothing caught any of it: `check_not_yet.py` reads `lib/` and ROADMAP.md and never looks at a
+  design doc's header. **I repeated the staleness myself, twice in one session**, telling the user
+  `expressions.md` §17 was "gating expr steps 2-5" when §16 ends with "This document is complete" --
+  read from a memory note rather than from the section.
+
+  `tools/check_design_status.py`, in `docs-check`. The rule is a **contradiction inside one file**,
+  which is the only thing a script can honestly decide -- it cannot know whether a document
+  describes something built:
+
+  1. every `docs/design/*.md` has a status, and
+  2. a status claiming nothing is built must not sit above a dated "this shipped" marker.
+
+  **The date is required**, and that is what makes it quiet rather than noisy: `**Built as one
+  parameter, not two.**` is a sentence about a design and `**CLOSED: kept, both.**` is a decision
+  that needed no code, so neither counts as evidence that anything shipped.
+
+  Two spellings of a status are accepted, both already in use -- a `Status:` line and the
+  `| Status | .. |` row `full-overloading.md` opens with. The first version knew only the former
+  and reported those two as missing a status they plainly have, which is the shape of false
+  positive that gets a gate disabled.
+
+  Four documents fixed: `meta.md` (built, with the `derive.c` 1,716 -> 947 line count that is its
+  real result), `user-generators.md` (partly built, saying **which** half -- a project still cannot
+  write a derive of its own), and a first status line for `validation.md` and `column-override.md`,
+  which had none. Verified by reintroducing the staleness and watching the gate fail.

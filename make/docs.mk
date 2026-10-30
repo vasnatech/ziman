@@ -109,10 +109,16 @@ showcase-check: $(BIN)
 	$(BIN) --check editors/vscode/showcase.zm
 	$(BIN) --fmt --check editors/vscode/showcase.zm
 
+# Fails when a design doc has no `Status:` and when one claiming nothing is built sits above a
+# dated "this shipped" marker in its own body. Three documents drifted that way before this
+# existed -- see the script's own header.
+design-status-check:
+	python3 tools/check_design_status.py
+
 # Fails when the worked example above a `template.must_parse(` is not text a fixture shows being
 # generated. Those comments are copies of generated output -- see tools/check_template_examples.py
 # for why a copy of generated output is checked here rather than trusted.
 template-example-check:
 	python3 tools/check_template_examples.py
 
-docs-check: lib-manual-check corelib-reference-check not-yet-check experimental-check doc-module-check syntax-check design-index-check vscode-grammar-check showcase-check lib-map-check template-example-check
+docs-check: lib-manual-check corelib-reference-check not-yet-check experimental-check doc-module-check syntax-check design-index-check design-status-check vscode-grammar-check showcase-check lib-map-check template-example-check

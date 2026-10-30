@@ -1,5 +1,10 @@
 # Validation from annotations
 
+Status: **built and closed, 2026-10-30.** All five staging steps of §11 shipped (F246), plus
+`#[valid]` cascading (F248) and `#[pattern(regex:)]` (F251), and every request type in the North
+Star is converted. §10's four questions are decided (and a fifth, `message:`, answered while
+building), and §6's deferral turned out to rest on a corpus claim that was false -- see both.
+
 Asked for on 2026-10-29: *"check jakarta.validation package in Java. lets build a validation lib
 using annotations. lets design it first."*
 

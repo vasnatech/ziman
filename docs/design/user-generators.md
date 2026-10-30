@@ -1,6 +1,13 @@
 # A derive a project can write itself
 
-Status: **design only.** Nothing below is built. Written because the five generators that exist
+Status: **partly built.** Two pieces are in: `#![generator(X)]` is parsed, checked and carried by
+every generator (§11, 2026-10-28), and **§5a's field attributes shipped 2026-10-30** -- each
+generator declares its own set, `src/parser.c`'s `FIELD_ATTRS` is deleted, and `#[pattern(regex:)]`
+was added afterwards with no compiler change at all (F250, F251). What is **not** built is the half
+that makes any of it reachable by a project: the bridge and `use`-list discovery (§12.1-2), §5a's
+per-module keying, and §5b. So a project still cannot write a derive of its own. This line said
+"design only. Nothing below is built." until 2026-10-30. Written because the five generators that
+exist
 are now Ziman (`lib/core/derive_*.zm`) and nothing calls them: the question *"what links
 `#[derive(Properties)]` to `derive_properties.zm`?"* has no answer yet, and answering it for the
 bundled five and for a project's own derive is the same question.

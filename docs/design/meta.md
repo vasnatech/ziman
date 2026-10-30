@@ -1,6 +1,11 @@
 # `meta`: what a generator is allowed to know
 
-Status: **design, not built.** Written because the derives-in-Ziman port finished on 2026-10-28
+Status: **built, 2026-10-29.** All five steps of §11 shipped (F225-F229): `Reflect` and its
+fixture, `Type` and `Decl` as enums, `Field.attrs`, `derive(Entity)` ported, and `Target`/
+`Function`/`Param` with the `generate_module` entry point -- after which **`src/derive.c` went from
+1,716 lines to 947 and generates no code at all**. The line below said "design, not built" until
+2026-10-30, by which time every step had a date in §11; `tools/check_design_status.py` exists so
+that the next one cannot. Written because the derives-in-Ziman port finished on 2026-10-28
 and the thing it left behind is not the generators -- those are done and proved -- but `meta`,
 which was grown one field at a time by whichever generator needed it next and is now the only
 part of the mechanism nobody designed.

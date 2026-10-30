@@ -1,5 +1,10 @@
 # `#[column(name: "..")]`: a field stored in a column of another name
 
+Status: **built, 2026-10-29.** Both halves shipped: the attribute in `meta` (F245) and the SQL
+behaviour through `eql`'s field-to-column pairing (F244), with the North Star's 12,542 generated
+lines byte-identical across the change. `required:` was asked for and deliberately left out; §4 says why. The compiler stopped reading the attribute at all in F249 --
+`Param.column_name` turned out to have been write-only.
+
 Asked for on 2026-10-29: *"let add a new annotation. `[column(name: "start_date"), required: "true"]`
 — both name and required are optional — can be placed on entity fields. optional. used for default
 override."*
