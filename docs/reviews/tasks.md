@@ -4763,6 +4763,29 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   the *rule* is here already (`validate.matches`), `regex` being a bundled module. An unreadable
   pattern is a violation naming the pattern, not a crash.
 
+  **Stage 5 followed the same day** (user-raised: "lets use validation on request types in
+  backend-ziman"): **24 request structs** converted, with `accumulate` going from 37 call sites to
+  3 and `optional_not_one_of` from 30 to 1. Three findings worth carrying:
+
+  * **The shape that does not convert is a rule on something that is not a field.** Six query
+    parameter checks stayed hand-written across four services. It is the only recurring leftover,
+    and stage 4 had already shown it.
+  * **Three rules are not facts about one field** -- a date against today, one field against
+    another, an indexed element -- so `service.broken_rules` grew a sibling, `field_errors`, which
+    answers the list rather than the `Option<ServiceError>`. Generated and hand-written violations
+    then accumulate onto one list, and the client is still told about every field at once. The
+    three want a `#[past]` attribute, a class-level constraint, and §6 cascading respectively.
+  * **`message:` earned itself immediately.** Four password fields keep Spring's "size must be
+    between 8 and 2147483647" -- the artefact §3 of the design argued against inheriting *by
+    default*. Inheriting it **on purpose, visibly, in the attribute** is a different thing from a
+    hand-written check that hides the decision, and the user chose it with both readings in front
+    of them.
+
+  And one rule was not the attribute it looked like: `register`'s password tested `== ""` rather
+  than `is_blank`, so a password of spaces fell through to the length check. `#[not_empty]` with
+  the message overridden, not `#[not_blank]` -- a difference the conversion only found because an
+  attribute forces the question.
+
 - [ ] **F247** **`ziman test a.zm b.zm` fails when more than one file loads a deriving module.**
   (found 2026-10-29 while running the North Star's unit tests two files at a time; S.)
 

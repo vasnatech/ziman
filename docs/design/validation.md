@@ -261,13 +261,33 @@ is told*.
    the scope the generated code reads them in. `service.broken_rules` is the one translation from
    `validate.Violation` to the application's `FieldError`. `src/test/unit/validation_test.zm` pins
    the messages, including that a request breaking two fields still reports two.
-5. Then the rest, or not, as (4) advises. **What (4) advises:** the conversion took four edits and
-   removed more than it added, and the two `not_one_of` calls it kept are both on a query
-   parameter — which is the shape to watch for in the other 22 services, since an attribute needs a
-   field to sit on. The one thing it cost is that a word list has to live beside the struct rather
-   than beside the service, which reads as the better place anyway.
+5. ✅ **The rest**: every request type in the backend, 2026-10-29. **24 request structs** carry
+   attributes now, and the helper counts outside `service/service.zm`'s own definitions went
+   `accumulate` 37 → 3, `optional_not_one_of` 30 → 1, `not_one_of` 18 → 5, `missing_field` 26 → 1,
+   `list_not_one_of` 2 → 0, `validation_result` 32 → 5.
 
-`#[pattern(regex:)]` is still the ninth and still arrives when something needs it — but the *rule*
-is already there (`validate.matches`), since `regex` is a bundled module and the function cost a
-line. An unreadable pattern is a violation naming the pattern, not a crash: the pattern comes from
-an attribute, so a bad one is a mistake in the source and the field is where a reader will look.
+What the rollout found, which is the part worth keeping:
+
+* **The shape that does not convert is a rule on something that is not a field.** Six
+  `?type=`/`?category=`/`?mealType=` **query parameter** checks stayed hand-written across four
+  services, because a query parameter has nothing for an attribute to sit on. That was visible from
+  stage 4 and it is the only recurring leftover.
+* **Three rules are not facts about one field**: a date against *today* (`dateOfBirth` must be
+  past), one field against another (`endDate` not before `startDate`), and an **indexed** element
+  (`ingredients[0].name`). These need `field_errors` — `broken_rules` without the
+  `Option<ServiceError>` — so generated and hand-written violations accumulate onto one list and
+  the client is still told about every field at once. A `#[past]` attribute would take the first;
+  the second wants a rule over the whole struct, which is Jakarta's class-level constraint and is
+  not designed here; the third is §6 cascading.
+* **`message:` earned itself immediately.** Four password fields keep Spring's
+  `"size must be between 8 and 2147483647"` through `#[size(min: 8, message: "..")]`. §3 called that
+  number an annotation default leaking, and so it is — but this backend is a *port*, nothing else
+  sends that text, and an attribute that says "inherit the quirk, deliberately" is better than a
+  hand-written check that hides the decision. The library still says the honest thing by default.
+* **One rule was not the attribute it looked like.** `register`'s password tested `req.password ==
+  ""`, not `is_blank`, so a password of spaces fell through to the length check. That is
+  `#[not_empty(message: "must not be blank")]`, not `#[not_blank]` — the kind of difference a
+  conversion only notices because the attribute forces the question.
+* **A behaviour the conversion improved, deliberately**: `file-attachments` answered the *first* of
+  its two blank fields and stopped. It reports both now, which is what every other resource here
+  already did.
