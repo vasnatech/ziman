@@ -44,8 +44,8 @@ val flat_names = Map<string, string> {
 //         val field_body_raw = try row_get(row, "body")
 //         var field_body = Option<string>.None
 //         if !SqlValue.is_Null(field_body_raw) {
-//         val __derive_opt_inner_0 = try sql_as_text(field_body_raw)
-//         field_body = Option<string>.Some(__derive_opt_inner_0)
+//             val __derive_opt_inner_0 = try sql_as_text(field_body_raw)
+//             field_body = Option<string>.Some(__derive_opt_inner_0)
 //         }
 //         return Note {
 //             id: field_id,
