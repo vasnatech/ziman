@@ -1,0 +1,20 @@
+// **The `else` the declaration-attribute chain went without.** Every other attribute position
+// refuses a name it does not know -- a field attribute against what the generators declare
+// (`derive_validate.zm`'s `attributes()`), a module attribute against its four, a variant
+// attribute against `#[from]` -- and this one simply fell off the end of an `if`/`else if` chain.
+//
+// So `#[foo_bar] struct User` compiled silently, which is `#[deprecated]`'s own history: an
+// attribute the compiler accepts while nothing reads it is indistinguishable from one that works.
+//
+// **Which of the nine applies where is a separate question**, answered after the declaration is
+// known -- `#[test]` on a struct and `#[thread_bound]` on a function are each refused by name
+// further down. This is only "is it an attribute at all", which is the one thing knowable while
+// the attribute is being read.
+#[foo_bar]
+struct User {
+    name: string
+}
+
+fn main() {
+    print(1)
+}

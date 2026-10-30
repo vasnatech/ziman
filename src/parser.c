@@ -2874,7 +2874,13 @@ static DeriveList parse_attributes(Parser *p) {
                     derives.deprecated_message = (const char *)msg->start;
                     expect(p, TOK_RPAREN, "')'");
                 }
-            } else if (match(p, TOK_LPAREN)) {
+            } else if (is_derive && match(p, TOK_LPAREN)) {
+                /* **`is_derive &&`** (2026-10-30). This branch was reached by *any* attribute name
+                 * followed by `(`, so it read the target list and then `if (is_derive)` guarded
+                 * only the push -- which made `#[drive(Json)]` a struct that parsed a derive list
+                 * and derived nothing, silently. That is the realistic typo, and it was the worse
+                 * half of the open set: a bare `#[foo_bar]` fell off the end of the chain, and a
+                 * parenthesised one was actively parsed and discarded. */
                 do {
                     Token *arg = expect(p, TOK_IDENT, "an attribute argument");
                     /* **A target may carry one string**, which only `Entity` reads:
@@ -2901,6 +2907,36 @@ static DeriveList parse_attributes(Parser *p) {
                 derives.thread_bound = 1;
             } else if (item_name->length == 10 && strncmp(item_name->start, "thread_key", 10) == 0) {
                 derives.thread_key = 1;
+            } else {
+                /* **The `else` this chain went without.** Every other attribute position refuses a
+                 * name it does not know -- a field attribute against what the generators declare,
+                 * a module attribute against its four, a variant attribute against `#[from]` --
+                 * and this one simply fell off the end, so `#[foo_bar] struct User` compiled
+                 * silently and `#[drive(Json)]` was a struct that derived nothing. That is
+                 * `#[deprecated]`'s own history: an attribute the compiler accepts while nothing
+                 * reads it is indistinguishable from one that works.
+                 *
+                 * **Which of the nine applies here is checked separately**, after the declaration
+                 * is known -- `#[test]` on a struct and `#[thread_bound]` on a function are each
+                 * refused by name further down. This is only "is it an attribute at all", which is
+                 * the one question available while the attribute is being read.
+                 *
+                 * Closing it cost no migration: nothing in this repository or the sample backend
+                 * carried an uninterpreted one (checked, 2026-10-30 -- `#[into]` is a variant
+                 * attribute and `#[key]`/`#[not_blak]` are fixtures of refusals). A project's own
+                 * attribute goes on a *field*, where a generator declares it
+                 * (docs/design/user-generators.md §5a); there is no mechanism for one here and
+                 * saying so is better than accepting it and doing nothing.
+                 *
+                 * **Both halves land here now.** A bare unknown name fell off the end of the
+                 * chain; one with arguments was read by the `is_derive && match(TOK_LPAREN)`
+                 * branch below and thrown away, which is how `#[drive(Json)]` -- the typo that
+                 * actually happens -- compiled to a struct that derived nothing. */
+                ziman_error("syntax", item_name->line, item_name->col,
+                            "unknown attribute '%.*s' -- a declaration takes one of: derive, test, "
+                            "deprecated, thread_bound, thread_key, at_least_one, effectful, "
+                            "compiler_resolved, when_unmatched (and a field takes its own set)",
+                            item_name->length, item_name->start);
             }
         } while (match(p, TOK_COMMA));
         expect(p, TOK_RBRACKET, "']'");

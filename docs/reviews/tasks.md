@@ -5193,3 +5193,32 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   1,340 fixtures; the sample backend type-checks and generates **byte-identically at 34,800
   lines** against a compiler that no longer has the attribute it was written with.
+
+- [x] **F259** **The declaration-attribute set is closed -- and two things were silent, not one.**
+  (user-raised 2026-10-30: "do 1" -- ROADMAP.md's entry, option (1); XS.)
+
+  Every other attribute position refuses a name it does not know: a field attribute against what
+  the generators declare, a module attribute against its four, a variant attribute against
+  `#[from]`. **The declaration chain had no `else`**, which is `#[deprecated]`'s own history -- an
+  attribute the compiler accepts while nothing reads it is indistinguishable from one that works.
+
+  **The worse half is the one I did not know about going in.** A bare `#[foo_bar]` fell off the end
+  of the `if`/`else if` chain. But `#[drive(Json)]` reached the branch that reads a **derive target
+  list**, because that branch was `} else if (match(p, TOK_LPAREN)) {` -- any name followed by `(`
+  -- and `if (is_derive)` guarded only the *push*. So the misspelling of the most-used attribute in
+  the language parsed a derive list, threw it away, and said nothing: a struct that derived
+  nothing, quietly. Found by testing the realistic typo rather than the synthetic `#[foo_bar]` I
+  had started from. The branch is gated on `is_derive` now and both halves reach one refusal.
+
+  **The migration cost was verified, not asserted**: every `#[..]` name in this repository and the
+  sample backend, 29 distinct, and the only ones outside the known sets were `#[into]` (a variant
+  attribute, already refused), `#[key]`/`#[not_blak]` (fixtures *of* refusals) and `#[name(..)]`
+  inside a comment.
+
+  **Half the roadmap entry remains and says so**: the set is closed, but `meta.Decl` carries no
+  attribute list, so nothing can *read* a declaration attribute even deliberately. That is what a
+  project would need to put its own attribute on a declaration rather than on a field, and it
+  waits on the same per-module keying §5a does.
+
+  `docs/SYNTAX.md`'s "other names parse but have no effect yet" is gone -- that was the last
+  position where it was true. 1,342 fixtures; the sample backend byte-identical.

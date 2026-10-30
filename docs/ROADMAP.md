@@ -1208,8 +1208,19 @@ from source.
   **Linguist itself is the real fix and is out of reach**: it wants the grammar (we have one) plus
   the language in use across hundreds of repositories (we have one). Revisit if that changes.
 
-- **Declaration attributes are an open set that nothing can read. Decide which half of that to
-  fix.** (Raised by the user 2026-10-29, right after F246 closed the field-attribute half: "can I
+- ~~**Declaration attributes are an open set that nothing can read.**~~ **Half done 2026-10-30
+  (F259): the set is closed.** Option (1) below, which cost no migration -- nothing in this
+  repository or the sample backend carried an uninterpreted one, checked rather than assumed.
+  **Two things were silent, not one**: a bare `#[foo_bar]` fell off the end of the `if`/`else if`
+  chain, and `#[drive(Json)]` reached the branch that reads a derive target list, was parsed, and
+  was discarded -- the misspelling of the most-used attribute in the language, compiling to a
+  struct that derived nothing. The branch is gated on `is_derive` now and both reach one refusal.
+
+  **Option (2) is still open**: `meta.Decl` carries no attribute list, so nothing can *read* a
+  declaration attribute even deliberately. That is what a project would need to put its own
+  attribute on a declaration rather than on a field, and it waits on the same per-module keying
+  §5a does. Options (2) and (3) below stand as written.
+ (Raised by the user 2026-10-29, right after F246 closed the field-attribute half: "can I
   just add a random annotation in ziman like `#[foo_bar] struct User`?" The answer is yes, and that
   is the entry.)
 

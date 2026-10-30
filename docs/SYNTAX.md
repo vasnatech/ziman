@@ -1796,10 +1796,19 @@ val by_age = sort_by<Patient, int>(patients, fn(p: Patient) -> int { return p.ag
 
 ## Attributes and derive
 
-`#[...]`, above a declaration, attaches compile-time metadata to it. Eight are interpreted:
-`derive` (below) and `thread_bound` on a `struct`/`enum`, and `test`, `deprecated`,
-`when_unmatched`, `at_least_one`, `effectful` and `compiler_resolved` on a function; other names
-parse but have no effect yet.
+`#[...]`, above a declaration, attaches compile-time metadata to it. **Nine are interpreted and
+anything else is refused**: `derive` (below), `thread_bound` and `thread_key` on a
+`struct`/`enum`, and `test`, `deprecated`, `when_unmatched`, `at_least_one`, `effectful` and
+`compiler_resolved` on a function. Which of the nine applies where is a second question, answered
+after the declaration is known -- `#[test]` on a struct is refused by name.
+
+This paragraph said "other names parse but have no effect yet" until 2026-10-30, and that was the
+last attribute position where it was true. Two things were silent: `#[foo_bar]`, which fell off the
+end of the chain, and `#[drive(Json)]` -- a misspelling of the most-used attribute in the language
+-- which reached the branch that reads a derive target list, was parsed, and was thrown away. An
+attribute the compiler accepts while nothing reads it is indistinguishable from one that works,
+which is `#[deprecated]`'s own history. A project's own attribute goes on a **field**, where its
+generator declares it (see [docs/design/user-generators.md](design/user-generators.md) §5a).
 
 `#[at_least_one]` says the function's trailing `variadic` parameter needs a value — see
 "Variadic parameters". It takes no argument, since a function has at most one variadic parameter

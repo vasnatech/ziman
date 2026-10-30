@@ -1,0 +1,4 @@
+ziman: syntax error at 13:3 in tests/lang/declaration_attribute_unknown.zm: unknown attribute 'foo_bar' -- a declaration takes one of: derive, test, deprecated, thread_bound, thread_key, at_least_one, effectful, compiler_resolved, when_unmatched (and a field takes its own set)
+   |
+13 | #[foo_bar]
+   |   ^
