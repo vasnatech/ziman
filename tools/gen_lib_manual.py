@@ -30,6 +30,10 @@ GROUPS = [
     ("HTTP", "http", ["http", "server", "client"]),
     ("Databases", "db", ["db", "datasource", "migrate", "sqlite", "pg", "mysql", "memdb", "sql", "eql"]),
     ("Testing", "core", ["test"]),
+    # Its own group rather than a line under Data, because the rules and the generator are one
+    # feature: you meet `validate` either by writing `#[derive(Validate)]` on a request struct or
+    # by calling a rule directly, and the two readings want the same page.
+    ("Validation", "core", ["validate", "derive_validate"]),
     # The compiler's own metamodel and the generators written against it -- `meta` is what
     # `src/derive.c` hands a generator, and `derive_ord` is the first generator to be written in
     # Ziman rather than C. A reader reaches these through `#[derive(Ord)]`, not by importing them,

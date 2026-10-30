@@ -1,0 +1,4 @@
+ziman: type error at 6:1 in tests/lang/derive_validate_wrong_type.zm: '#[not_blank]' needs a string and 'count' is int
+  |
+6 | struct E {
+  | ^

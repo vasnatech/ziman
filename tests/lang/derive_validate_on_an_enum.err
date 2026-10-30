@@ -1,0 +1,4 @@
+ziman: syntax error at 5:1 in tests/lang/derive_validate_on_an_enum.zm: derive(Validate) does not support an enum ('Kind') -- a constraint is written on a struct field, and an enum has none
+  |
+5 | enum Kind {
+  | ^

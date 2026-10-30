@@ -23,6 +23,8 @@
 #include "metrics_source.h"
 #include "process_source.h"
 #include "regex_source.h"
+#include "validate_source.h"
+#include "derive_validate_source.h"
 #include "locale_source.h"
 #include "client_source.h"
 #include "random_source.h"
@@ -99,6 +101,8 @@ static const CoreModule CORE_MODULES[] = {
     {"derive_entity", DERIVE_ENTITY_SOURCE},
     {"derive_repository", DERIVE_REPOSITORY_SOURCE},
     {"expr", EXPR_SOURCE},
+    {"validate", VALIDATE_SOURCE},
+    {"derive_validate", DERIVE_VALIDATE_SOURCE},
     {"url", URL_SOURCE},
     {"fs", FS_SOURCE},
     {"log", LOG_SOURCE},

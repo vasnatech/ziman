@@ -1,0 +1,60 @@
+// The generated function, run: a value that breaks several rules, and one that breaks none.
+//
+// **One violation per field**, in field order, with the first failing rule's message -- which is
+// what the response map can carry (docs/design/validation.md §4). The valid value answers an empty
+// list, not an `Ok`: an empty list *is* the success case, and the caller was going to loop anyway.
+use validate
+
+val kinds: [string] = ["WEIGHT", "HEIGHT"]
+
+#[derive(Validate)]
+struct Reading {
+    #[one_of(values: kinds)]
+    kind: string
+
+    #[not_blank]
+    #[size(min: 4)]
+    note: string
+
+    #[positive]
+    value: int
+
+    #[email]
+    reported_by: Option<string>
+}
+
+fn report(r: Reading) {
+    val found = reading_violations(r)
+    if len(found) == 0 {
+        print("no violations")
+        return
+    }
+    for v in found {
+        printf("{}: {}\n", v.field, v.message)
+    }
+}
+
+fn main() {
+    // `note` breaks two rules and reports the first: blank before short.
+    report(Reading {
+        kind: "DEPTH",
+        note: "  ",
+        value: 0,
+        reported_by: Option<string>.Some("nobody@")
+    })
+    print("--")
+    // Short but not blank, so the second rule is the one left to fail.
+    report(Reading {
+        kind: "WEIGHT",
+        note: "ab",
+        value: 7,
+        reported_by: Option<string>.None
+    })
+    print("--")
+    report(Reading {
+        kind: "HEIGHT",
+        note: "fasting",
+        value: 7,
+        reported_by: Option<string>.Some("nurse@example.com")
+    })
+}

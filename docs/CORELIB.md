@@ -338,6 +338,15 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
 
+## `derive_validate`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub fn generate(d: meta.Decl) -> Result<string, string>
+
+```
+
 ## `encoding`
 
 ```
@@ -1035,6 +1044,16 @@ pub fn named_type(name: string, args: [Type]) -> Type
 pub struct AttrArg {
     name: string
     value: string
+    // How it was written: `"string"`, `"int"` or `"name"`.
+    //
+    // **Added after the design said it was unnecessary** (docs/design/validation.md §5f), which
+    // claimed the value's text was enough because "the compiler hands text over and the generator
+    // decides what it means". True of a generator -- and false of anything that has to *show* an
+    // attribute, because the lexer takes the quotes off a string, so `name: "start_date"` and
+    // `values: type_words` arrive identical. `attr_text` printed one of them wrongly whichever way
+    // it guessed, and the generator that exists to show exactly what it was handed
+    // (`derive_reflect`) is the wrong place for a cosmetic lie.
+    kind: string
 }
 
 pub struct Attr {
@@ -1092,7 +1111,7 @@ pub fn attr(name: string) -> Attr
 
 pub fn attr_with(name: string, args: [AttrArg]) -> Attr
 
-pub fn attr_arg(name: string, value: string) -> AttrArg
+pub fn attr_arg(name: string, value: string, kind: string) -> AttrArg
 
 pub fn has_attr(f: Field, name: string) -> bool
 
@@ -1989,6 +2008,80 @@ pub fn uuid_to_sql(u: Uuid) -> SqlValue
 pub fn uuid_from_sql(v: SqlValue) -> Result<Uuid, DbError>
 
 pub fn uuid_compare(a: Uuid, b: Uuid) -> int
+
+```
+
+## `validate`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub struct Violation {
+    field: string
+    message: string
+}
+
+pub fn violation(field: string, message: string) -> Violation
+
+pub fn first(messages: [Option<string>]) -> Option<string>
+
+pub fn with_message(found: Option<string>, message: string) -> Option<string>
+
+pub fn not_blank(value: string) -> Option<string>
+
+pub fn not_blank(value: Option<string>) -> Option<string>
+
+pub fn not_empty(value: string) -> Option<string>
+
+pub fn not_empty<T>(values: [T]) -> Option<string>
+
+pub fn not_empty<T>(values: Option<[T]>) -> Option<string>
+
+pub fn one_of(value: string, allowed: [string]) -> Option<string>
+
+pub fn one_of(value: Option<string>, allowed: [string]) -> Option<string>
+
+pub fn one_of(values: [string], allowed: [string]) -> Option<string>
+
+pub fn one_of(values: Option<[string]>, allowed: [string]) -> Option<string>
+
+pub fn size_at_least(value: string, min: int) -> Option<string>
+
+pub fn size_at_least(value: Option<string>, min: int) -> Option<string>
+
+pub fn size_at_most(value: string, max: int) -> Option<string>
+
+pub fn size_at_most(value: Option<string>, max: int) -> Option<string>
+
+pub fn size_between(value: string, min: int, max: int) -> Option<string>
+
+pub fn size_between(value: Option<string>, min: int, max: int) -> Option<string>
+
+pub fn at_least(value: int, bound: int) -> Option<string>
+
+pub fn at_least(value: Option<int>, bound: int) -> Option<string>
+
+pub fn at_most(value: int, bound: int) -> Option<string>
+
+pub fn at_most(value: Option<int>, bound: int) -> Option<string>
+
+pub fn positive(value: int) -> Option<string>
+
+pub fn positive(value: Option<int>) -> Option<string>
+
+pub fn positive(value: float) -> Option<string>
+
+pub fn positive(value: Option<float>) -> Option<string>
+
+pub fn email(value: string) -> Option<string>
+
+pub fn email(value: Option<string>) -> Option<string>
+
+pub fn is_email(value: string) -> bool
+
+pub fn matches(value: string, pattern: string) -> Option<string>
+
+pub fn matches(value: Option<string>, pattern: string) -> Option<string>
 
 ```
 

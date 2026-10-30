@@ -1,0 +1,13 @@
+// A constraint on a field it cannot read is refused **against the field**, and not left to the
+// type checker: the call this would have written lives in generated text, and "no overload of
+// validate.not_blank takes an int" is a worse place to learn that `#[not_blank]` is on the wrong
+// one. The generator carries what each constraint accepts for this reason alone.
+#[derive(Validate)]
+struct E {
+    #[not_blank]
+    count: int
+}
+
+fn main() {
+    print(1)
+}

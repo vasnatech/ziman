@@ -1,0 +1,175 @@
+// Unit tests for `validate` (F246), the rules `#[derive(Validate)]` writes calls to.
+//
+// **The messages are the assertions.** Two of them are pinned by the North Star's own Python and
+// Ziman suites (`"must not be blank"`, `"must be a well-formed email address"`), because that
+// backend is a port of a Spring one and its clients read Hibernate Validator's text. Changing a
+// string here is a wire change, which is what these tests are for.
+//
+// The `Option` overloads are tested next to their plain ones rather than in a section of their
+// own: that absence passes is the *point* of having both, and reading the pair together is how a
+// person sees that the type decides optionality and the attribute does not.
+use test
+use validate
+
+fn message(found: Option<string>) -> string {
+    return test.assert_some(found)
+}
+
+#[test]
+fn not_blank_refuses_whitespace_only() {
+    test.assert_eq("must not be blank", message(validate.not_blank("")))
+    test.assert_eq("must not be blank", message(validate.not_blank("   \t\n")))
+    test.assert_none(validate.not_blank("x"))
+    test.assert_none(validate.not_blank(" x "))
+}
+
+#[test]
+fn an_absent_optional_is_not_blank() {
+    test.assert_none(validate.not_blank(Option<string>.None))
+    test.assert_eq("must not be blank", message(validate.not_blank(Option<string>.Some(" "))))
+}
+
+#[test]
+fn not_empty_counts_whitespace_as_content() {
+    // The one difference from `not_blank`, and Jakarta's too: `@NotEmpty` is about length.
+    test.assert_eq("must not be empty", message(validate.not_empty("")))
+    test.assert_none(validate.not_empty(" "))
+}
+
+#[test]
+fn not_empty_reads_a_list_of_anything() {
+    val no_words: [string] = []
+    val no_numbers: [int] = []
+    test.assert_eq("must not be empty", message(validate.not_empty(no_words)))
+    test.assert_eq("must not be empty", message(validate.not_empty(no_numbers)))
+    test.assert_none(validate.not_empty(["a"]))
+    test.assert_none(validate.not_empty(Option<[string]>.None))
+}
+
+#[test]
+fn one_of_names_what_it_wanted() {
+    val allowed = ["WEIGHT", "HEIGHT", "BMI"]
+    test.assert_eq("must be one of WEIGHT, HEIGHT, BMI", message(validate.one_of("NOPE", allowed)))
+    test.assert_none(validate.one_of("BMI", allowed))
+    test.assert_none(validate.one_of(Option<string>.None, allowed))
+}
+
+#[test]
+fn one_of_over_a_list_reports_the_first_stranger() {
+    val allowed = ["A", "B"]
+    test.assert_none(validate.one_of(["A", "B", "A"], allowed))
+    // One message per field is all the wire carries, so the first offender is the one named.
+    test.assert_eq("must be one of A, B", message(validate.one_of(["A", "Q", "Z"], allowed)))
+}
+
+#[test]
+fn size_says_which_bound_it_was() {
+    // Not "size must be between 8 and 2147483647", which is what Java prints for a minimum with
+    // no maximum -- that number is its annotation default leaking, and Ziman has no such default.
+    test.assert_eq("size must be at least 8", message(validate.size_at_least("short", 8)))
+    test.assert_eq("size must be at most 3", message(validate.size_at_most("abcd", 3)))
+    test.assert_eq("size must be between 3 and 5", message(validate.size_between("ab", 3, 5)))
+    test.assert_none(validate.size_at_least("abcdefgh", 8))
+    test.assert_none(validate.size_at_most("abc", 3))
+    test.assert_none(validate.size_between("abcd", 3, 5))
+}
+
+#[test]
+fn size_counts_characters_and_not_bytes() {
+    // `len` is characters; a four-character name of eight bytes is four long.
+    test.assert_none(validate.size_at_most("üüüü", 4))
+    test.assert_eq("size must be at least 5", message(validate.size_at_least("üüüü", 5)))
+}
+
+#[test]
+fn bounds_report_the_bound() {
+    test.assert_eq("must be greater than or equal to 5", message(validate.at_least(4, 5)))
+    test.assert_eq("must be less than or equal to 5", message(validate.at_most(6, 5)))
+    test.assert_none(validate.at_least(5, 5))
+    test.assert_none(validate.at_most(5, 5))
+}
+
+#[test]
+fn positive_means_strictly_above_zero() {
+    test.assert_eq("must be greater than 0", message(validate.positive(0)))
+    test.assert_eq("must be greater than 0", message(validate.positive(-1)))
+    test.assert_eq("must be greater than 0", message(validate.positive(0.0)))
+    test.assert_none(validate.positive(1))
+    test.assert_none(validate.positive(0.5))
+}
+
+#[test]
+fn email_rejects_what_spring_rejects() {
+    test.assert_eq("must be a well-formed email address", message(validate.email("@")))
+    test.assert_some(validate.email(""))
+    test.assert_some(validate.email("a@"))
+    test.assert_some(validate.email("@b.c"))
+    test.assert_some(validate.email(".a@b.c"))
+    test.assert_some(validate.email("a.@b.c"))
+    test.assert_some(validate.email("a..b@c.d"))
+    // Split at the *last* `@`, which leaves `a@b` as the local part -- and `@` is not a character
+    // the local part may have.
+    test.assert_some(validate.email("a@b@c.d"))
+    test.assert_some(validate.email("a@-b.c"))
+    test.assert_some(validate.email("a@b-.c"))
+    test.assert_some(validate.email("a@b..c"))
+    test.assert_some(validate.email("a b@c.d"))
+}
+
+#[test]
+fn email_accepts_what_spring_accepts() {
+    test.assert_none(validate.email("a@b.c"))
+    test.assert_none(validate.email("a.b@c.d"))
+    test.assert_none(validate.email("a+tag@c.de"))
+    test.assert_none(validate.email("a!#$%&'*+-/=?^_`{|}~@c.de"))
+    // Hibernate takes a one-label domain, so `user@localhost` is an address. Requiring a dot would
+    // reject what Spring accepts, which is the one thing this must not do.
+    test.assert_none(validate.email("a@localhost"))
+    // ... and a domain that is not a valid hostname, punctuation and all.
+    test.assert_none(validate.email("a@b_c.d"))
+    // `\u0080-￿` is a letter in both halves of Hibernate's pattern.
+    test.assert_none(validate.email("üser@exämple.com"))
+    test.assert_none(validate.email("a@ünïcode.de"))
+    test.assert_none(validate.email(Option<string>.None))
+}
+
+#[test]
+fn email_bounds_both_halves() {
+    val sixty_four = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    test.assert_none(validate.email(concat(sixty_four, "@b.c")))
+    test.assert_some(validate.email(concat(sixty_four, "a@b.c")))
+}
+
+#[test]
+fn matches_names_the_pattern() {
+    test.assert_eq("must match \"^[0-9]+$\"", message(validate.matches("abc", "^[0-9]+$")))
+    test.assert_none(validate.matches("123", "^[0-9]+$"))
+    test.assert_none(validate.matches(Option<string>.None, "^[0-9]+$"))
+}
+
+#[test]
+fn an_unreadable_pattern_is_a_violation_and_not_a_crash() {
+    // The pattern came from an attribute, so a bad one is a mistake in the source: reporting it
+    // against the field is where a reader will look.
+    test.assert_contains(message(validate.matches("abc", "[")), "is not a regex")
+}
+
+#[test]
+fn first_reports_the_rule_that_failed_first() {
+    val none_failed: [Option<string>] = [Option<string>.None, Option<string>.None]
+    test.assert_none(validate.first(none_failed))
+    test.assert_eq("must not be blank", message(validate.first([
+        validate.not_blank(""),
+        validate.size_at_least("", 8)
+    ])))
+    test.assert_eq("size must be at least 8", message(validate.first([
+        validate.not_blank("short"),
+        validate.size_at_least("short", 8)
+    ])))
+}
+
+#[test]
+fn with_message_replaces_the_text_and_not_the_rule() {
+    test.assert_eq("name, please", message(validate.with_message(validate.not_blank(""), "name, please")))
+    test.assert_none(validate.with_message(validate.not_blank("x"), "name, please"))
+}

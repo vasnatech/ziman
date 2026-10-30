@@ -219,30 +219,45 @@ this question.** It also unblocks `#[column(required: true)]`, which was deferre
 this decision was open (`column-override.md` §4) — `required:` is now redundant: `#[not_blank]`
 and a non-`Option` type say it where it belongs.
 
-## 10. Open questions
+## 10. Decided
 
-1. **The `2147483647` artefact** (§3): reproduce Hibernate's message for a `size` with no maximum,
-   or say "size must be at least 8"? Nothing asserts it, so this is free to choose, and the four
-   call sites are hand-written today. Recommendation: say the honest thing.
-2. **Where the library lives.** `lib/core/validate.zm` for the `Violation` type and the message
-   texts, `lib/core/derive_validate.zm` for the generator — `lib/core` rather than `lib/db`,
-   because none of it is SQL (`derive_*` precedent: the SQL three are in `lib/db`).
-3. **`#[email]`'s rule.** The backend's `is_email` is a hand-written check; Hibernate's `@Email`
-   accepts far more than most people expect (it is RFC-ish). Reuse `is_email`'s rule and say so, or
-   match Hibernate? Recommendation: reuse what the backend has, since its tests pin the behaviour.
-4. **Whether the backend adopts it in the same pass.** 106 rule uses across 23 files, with the
-   error text asserted by two test suites — the same shape as the `eql` and derived-query adoptions,
-   which both found real bugs in the code they replaced. Recommendation: build the library and
-   convert **one** service first, then decide.
+1. **The `2147483647` artefact** (§3): **say the honest thing.** `#[size(min: 8)]` with no maximum
+   reports `"size must be at least 8"`, and the three functions `size_at_least`, `size_at_most` and
+   `size_between` exist for that reason rather than one taking two bounds — a sentinel for "no
+   maximum" is exactly the Java default that produced the message.
+2. **Where it lives**: `lib/core/validate.zm` and `lib/core/derive_validate.zm`, as recommended.
+   None of it is SQL.
+3. **`#[email]`'s rule**: the backend's `is_email`, ported — which turns out to be **Hibernate's**
+   `EmailValidator` and `DomainNameUtil` reimplemented, deliberately, so that a port of a Spring
+   application answers 400 to exactly the addresses Spring did. So the two readings of this
+   question were never in conflict. The port is faithful and was checked against the original over
+   38 addresses, which found a crash the original has: `substring(value, at + 1, byte_len(value))`
+   indexes characters with a byte count, so a non-ASCII address (`üser@exämple.com`, 16 characters
+   in 18 bytes) raises "substring index out of bounds" where it should answer `true` — a 500 on
+   `PUT /api/patients/me`. `validate.is_email` uses `len`; the backend's copy goes when the service
+   that holds it is converted.
+4. **Adoption**: library first, then one service, as recommended.
+
+A fifth, answered while building: **`message:`**. Every constraint takes it, as every Jakarta
+constraint does, and it is a parser-level optional argument (`message:string?`) on each — so a
+misspelling is refused rather than ignored. `validate.with_message` is what the generated code
+wraps the rule in, which keeps the rule deciding *whether* and the author deciding *what the reader
+is told*.
 
 ## 11. Staging
 
-1. **The attribute grammar**: int and identifier argument values, refused by name as
+1. ✅ **The attribute grammar**: int and identifier argument values, refused by name as
    `#[column]`'s are. Parser only; `meta` unchanged.
-2. **`lib/core/validate.zm`**: `Violation`, and one function per constraint (`is_blank`,
-   `size_of`, …) so the *rule* is ordinary Ziman that a person can call and a fixture can test
-   without a generator.
-3. **`lib/core/derive_validate.zm`**: `#[derive(Validate)]` over the seven, generating calls into
-   (2). Fixtures pin the generated text, as every other generator's do.
-4. **One service converted**, message-for-message, with its tests unchanged — the proof.
+2. ✅ **`lib/core/validate.zm`**: `Violation`, and one function per constraint, with an `Option`
+   overload wherever absence can be allowed. 17 `#[test]` units in `tests/stdlib/validate_test.zm`
+   pin every message, including the ones the North Star's Python suite asserts.
+3. ✅ **`lib/core/derive_validate.zm`**: `#[derive(Validate)]`, generating calls into (2) and
+   nothing else. `tests/lang/derive_validate.out` pins the generated text; five refusal fixtures
+   pin what it will not generate, and four more pin the attribute grammar.
+4. **One service converted**, message-for-message, with its tests unchanged — the proof. Next.
 5. Then the rest, or not, as (4) advises.
+
+`#[pattern(regex:)]` is still the ninth and still arrives when something needs it — but the *rule*
+is already there (`validate.matches`), since `regex` is a bundled module and the function cost a
+line. An unreadable pattern is a violation naming the pattern, not a crash: the pattern comes from
+an attribute, so a bad one is a mistake in the source and the field is where a reader will look.

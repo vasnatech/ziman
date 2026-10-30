@@ -1,0 +1,4 @@
+ziman: syntax error at 8:7 in tests/lang/field_attribute_validation_unknown.zm: unknown field attribute 'not_blak' -- a struct field takes one of: pk, column, one_of, not_blank, not_empty, email, positive, min, max, size
+  |
+8 |     #[not_blak]
+  |       ^

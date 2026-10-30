@@ -1,0 +1,13 @@
+// A generic struct is refused, as `Row`, `Properties` and `Entity` refuse one: a constraint on a
+// field whose type is a parameter cannot be read, and `Json` and `Ord` are generic only because
+// every operation they need is itself generic.
+#[derive(Validate)]
+struct Box<T> {
+    #[not_blank]
+    label: string
+    value: T
+}
+
+fn main() {
+    print(1)
+}

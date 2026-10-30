@@ -9,6 +9,11 @@
 //
 // `derive(Reflect)` prints what it was handed and generates nothing, which is why it is the
 // fixture for a boundary question: anything lost between the parser and a generator shows here.
+// The argument kinds, one of each: a string, a whole number, and a **name** -- the module's own
+// `val`, which the generated code reads rather than the compiler. `#[test(cases: NAME)]` is the
+// precedent for an attribute argument that is an identifier.
+val kinds = ["A", "B"]
+
 #[derive(Reflect)]
 struct Event {
     #[pk]
@@ -20,6 +25,14 @@ struct Event {
     #[column(name: "tenant")]
     owner: int
     note: string
+    // `#[min(1)]` and `#[min(value: 1)]` are the same attribute: a single unnamed argument is
+    // stored under the name `value`, which is Java's own convention.
+    #[min(1)]
+    #[max(value: 32)]
+    tooth: int
+    #[size(min: 8)]
+    #[one_of(values: kinds)]
+    tag: string
 }
 
 fn main() {

@@ -95,6 +95,13 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 |---|---|
 | [`test`](test.md) | Assertions for #[test] functions. |
 
+## Validation
+
+| Module | What it is |
+|---|---|
+| [`validate`](validate.md) | The rules `#[derive(Validate)]` generates calls to, and the messages they answer. |
+| [`derive_validate`](derive_validate.md) | `#[derive(Validate)]`, written in Ziman. |
+
 ## Deriving
 
 | Module | What it is |

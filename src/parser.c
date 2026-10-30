@@ -128,6 +128,203 @@ static Token *expect(Parser *p, TokenType type, const char *what) {
     ziman_error("syntax", cur(p)->line, cur(p)->col, "expected %s, found %s", what, token_type_name(cur(p)->type));
 }
 
+/* ---- field attributes -------------------------------------------------------------------
+ *
+ * **One table, and the parser refuses anything not in it.** A field attribute is read here rather
+ * than by the generator that acts on it, so that a misspelling is a syntax error at the field and
+ * not a constraint that silently does not run -- the same rule the module-level attributes follow.
+ * The cost is that a new constraint is a line here as well as in its generator, which is the trade
+ * `#[deprecated]`'s years of parsing-and-doing-nothing argues for.
+ *
+ * `args` is the argument spec: `name:kind` entries separated by commas, `?` for one that may be
+ * left out, and an empty string for an attribute that takes none. The kinds are `string`, `int`
+ * and `name` (an identifier the *generated code* will emit, as `#[test(cases: NAME)]` does). */
+typedef struct {
+    const char *attr;
+    const char *args;
+} FieldAttrSpec;
+
+static const FieldAttrSpec FIELD_ATTRS[] = {
+    /* the entity attributes */
+    {"pk", ""},
+    {"column", "name:string"},
+    /* The validation constraints; see docs/design/validation.md. Each takes `message:` to override
+     * the default text for that one field, as every Jakarta constraint does. */
+    {"one_of", "values:name,message:string?"},
+    {"not_blank", "message:string?"},
+    {"not_empty", "message:string?"},
+    {"email", "message:string?"},
+    {"positive", "message:string?"},
+    {"min", "value:int,message:string?"},
+    {"max", "value:int,message:string?"},
+    {"size", "min:int?,max:int?,message:string?"},
+};
+
+static void field_attr_list_push(FieldAttrList *list, FieldAttr one) {
+    if (list->count == list->capacity) {
+        list->capacity = list->capacity == 0 ? 4 : list->capacity * 2;
+        list->items = ziman_xrealloc(list->items, (size_t)list->capacity * sizeof(FieldAttr));
+    }
+    list->items[list->count++] = one;
+}
+
+static const char *field_attr_arg(const FieldAttr *a, const char *name) {
+    for (int i = 0; i < a->arg_count; i++) {
+        if (strcmp(a->args[i].name, name) == 0) return a->args[i].value;
+    }
+    return NULL;
+}
+
+/* Whether `text` is a whole number as the `int` kind means it, so `#[min("8")]` is refused rather
+ * than read as the string "8". A leading `-` is allowed: `#[min(-1)]` is a sensible bound. */
+static int is_whole_number(const char *text) {
+    if (text == NULL || *text == '\0') return 0;
+    const char *at = text;
+    if (*at == '-') at++;
+    if (*at == '\0') return 0;
+    for (; *at != '\0'; at++) {
+        if (*at < '0' || *at > '9') return 0;
+    }
+    return 1;
+}
+
+/* The spec for `name`, or NULL when the attribute is not one a field may carry. */
+static const char *field_attr_spec(const char *name) {
+    for (size_t i = 0; i < sizeof FIELD_ATTRS / sizeof FIELD_ATTRS[0]; i++) {
+        if (strcmp(FIELD_ATTRS[i].attr, name) == 0) return FIELD_ATTRS[i].args;
+    }
+    return NULL;
+}
+
+/* A spec as a message reads it: `min:int?,max:int?` becomes `min: <number>, max: <number>`. The
+ * `?` is dropped, because "it takes" is a list of what is accepted rather than of what is
+ * required, and the one that *is* required says so in its own refusal. */
+static char *field_attr_spec_text(const char *spec) {
+    char *out = ziman_xmalloc(strlen(spec) * 4 + 2);
+    out[0] = '\0';
+    const char *at = spec;
+    int first = 1;
+    while (*at != '\0') {
+        const char *comma = strchr(at, ',');
+        size_t len = comma != NULL ? (size_t)(comma - at) : strlen(at);
+        const char *colon = memchr(at, ':', len);
+        if (colon != NULL) {
+            if (!first) strcat(out, ", ");
+            first = 0;
+            size_t name_len = (size_t)(colon - at);
+            strncat(out, at, name_len);
+            const char *kind = colon + 1;
+            strcat(out, strncmp(kind, "int", 3) == 0 ? ": <number>"
+                      : strncmp(kind, "name", 4) == 0 ? ": <name>"
+                      : ": \"<text>\"");
+        }
+        at = comma != NULL ? comma + 1 : at + len;
+    }
+    return out;
+}
+
+static char *field_attr_names(void) {
+    size_t n = 0;
+    for (size_t i = 0; i < sizeof FIELD_ATTRS / sizeof FIELD_ATTRS[0]; i++) {
+        n += strlen(FIELD_ATTRS[i].attr) + 2;
+    }
+    char *out = ziman_xmalloc(n + 1);
+    out[0] = '\0';
+    for (size_t i = 0; i < sizeof FIELD_ATTRS / sizeof FIELD_ATTRS[0]; i++) {
+        if (i > 0) strcat(out, ", ");
+        strcat(out, FIELD_ATTRS[i].attr);
+    }
+    return out;
+}
+
+/* Checks one attribute against its spec: the name exists, every argument it was given is one the
+ * spec names and of the right kind, and every argument the spec requires was given. */
+static void check_field_attribute(const FieldAttr *a) {
+    const char *spec = field_attr_spec(a->name);
+    if (spec == NULL) {
+        ziman_error("syntax", a->line, a->col,
+                    "unknown field attribute '%s' -- a struct field takes one of: %s",
+                    a->name, field_attr_names());
+        return;
+    }
+    /* Every argument given is named by the spec, and is of the kind it says. */
+    for (int i = 0; i < a->arg_count; i++) {
+        const FieldAttrArg *given = &a->args[i];
+        char wanted[64];
+        snprintf(wanted, sizeof wanted, "%s:", given->name);
+        const char *at = strstr(spec, wanted);
+        int at_start = at != NULL && (at == spec || *(at - 1) == ',');
+        if (!at_start) {
+            if (*spec == '\0') {
+                ziman_error("syntax", given->line, given->col,
+                            "'#[%s]' takes no arguments", a->name);
+            } else if (strcmp(given->name, "value") == 0) {
+                /* Written positionally -- `#[column("x")]` -- where this attribute names its
+                 * arguments. Saying "no argument 'value'" would be true and unhelpful. */
+                ziman_error("syntax", given->line, given->col,
+                            "'#[%s]' takes named arguments: %s", a->name, field_attr_spec_text(spec));
+            } else {
+                ziman_error("syntax", given->line, given->col,
+                            "'#[%s]' has no argument '%s' -- it takes: %s", a->name, given->name,
+                            field_attr_spec_text(spec));
+            }
+            continue;
+        }
+        /* The spec's kind against the kind it was *written* as, not against its text: see
+         * `FieldAttrArg.kind`. */
+        const char *spec_kind = at + strlen(wanted);
+        const char *wanted_kind = strncmp(spec_kind, "int", 3) == 0 ? "int"
+                                : strncmp(spec_kind, "name", 4) == 0 ? "name"
+                                : "string";
+        if (strcmp(given->kind, wanted_kind) != 0) {
+            const char *as_written = strcmp(given->kind, "string") == 0 ? "a string"
+                                   : strcmp(given->kind, "int") == 0 ? "a number"
+                                   : "a name";
+            const char *needed = strcmp(wanted_kind, "int") == 0 ? "a whole number"
+                               : strcmp(wanted_kind, "name") == 0
+                                     ? "a name -- the module's own val, which the generated code reads"
+                                     : "a string in double quotes";
+            ziman_error("syntax", given->line, given->col,
+                        "'#[%s]'s '%s' is %s and has to be %s", a->name, given->name, as_written, needed);
+        }
+        if (strcmp(wanted_kind, "int") == 0 && !is_whole_number(given->value)) {
+            ziman_error("syntax", given->line, given->col,
+                        "'#[%s]'s '%s' is a whole number", a->name, given->name);
+        }
+        if (strcmp(wanted_kind, "string") == 0 && given->value[0] == '\0') {
+            ziman_error("syntax", given->line, given->col,
+                        "'#[%s(%s: \"\")]' names nothing", a->name, given->name);
+        }
+        for (int j = 0; j < i; j++) {
+            if (strcmp(a->args[j].name, given->name) == 0) {
+                ziman_error("syntax", given->line, given->col,
+                            "'#[%s]' has two '%s' arguments", a->name, given->name);
+            }
+        }
+    }
+    /* Every argument the spec requires -- one without a `?` -- was given. */
+    const char *at = spec;
+    while (*at != '\0') {
+        const char *comma = strchr(at, ',');
+        size_t len = comma != NULL ? (size_t)(comma - at) : strlen(at);
+        int optional = len > 0 && at[len - 1] == '?';
+        const char *colon = memchr(at, ':', len);
+        if (colon != NULL && !optional) {
+            char name[64];
+            size_t n = (size_t)(colon - at);
+            if (n >= sizeof name) n = sizeof name - 1;
+            memcpy(name, at, n);
+            name[n] = '\0';
+            if (field_attr_arg(a, name) == NULL) {
+                ziman_error("syntax", a->line, a->col,
+                            "'#[%s]' needs its '%s' argument -- it takes: %s", a->name, name,
+                            field_attr_spec_text(spec));
+            }
+        }
+        at = comma != NULL ? comma + 1 : at + len;
+    }
+}
+
 static char *dup_token_text(Token *t) {
     char *s = ziman_xmalloc((size_t)t->length + 1);
     memcpy(s, t->start, (size_t)t->length);
@@ -927,7 +1124,7 @@ static Expr *parse_primary(Parser *p) {
             for (;;) {
                 Token *name = expect(p, TOK_IDENT, "a parameter name");
                 require_lower_start(name, "a parameter name");
-                Param param = {dup_token_text(name), type_scalar(TY_VOID), 0, NULL, NULL, name->line, name->col, 0, 0, NULL};
+                Param param = {dup_token_text(name), type_scalar(TY_VOID), 0, NULL, NULL, name->line, name->col, 0, 0, {NULL, 0, 0}, NULL};
                 if (match(p, TOK_COLON)) param.type = parse_type(p);
                 else param.type_omitted = 1;
                 param_list_push(&fn->params, param);
@@ -1369,7 +1566,7 @@ static Expr *field_accessor_lambda(Parser *p, const char *type_name, Token *at) 
     fn->name = (char *)"lambda";
     fn->line = at->line;
     fn->col = at->col;
-    Param param = {(char *)"$x", type_struct(type_name), 0, NULL, NULL, at->line, at->col, 0, 0, NULL};
+    Param param = {(char *)"$x", type_struct(type_name), 0, NULL, NULL, at->line, at->col, 0, 0, {NULL, 0, 0}, NULL};
     param_list_push(&fn->params, param);
     fn->return_type = type_scalar(TY_VOID);
     fn->return_omitted = 1;
@@ -2095,7 +2292,7 @@ static ParamList parse_params(Parser *p) {
                 default_expr = parse_expr(p);
                 default_key = param_default_key(param_name->start, param_name->length);
             }
-            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col, 0, 0, NULL};
+            Param param = {dup_token_text(param_name), param_type, is_variadic, default_expr, default_key, param_name->line, param_name->col, 0, 0, {NULL, 0, 0}, NULL};
             param_list_push(&params, param);
             skip_newlines(p);
             if (!match(p, TOK_COMMA)) break;
@@ -2452,60 +2649,85 @@ static StructDecl *parse_struct_decl(Parser *p) {
     expect(p, TOK_LBRACE, "'{'");
     skip_newlines(p);
     while (!check(p, TOK_RBRACE)) {
-        /* **A field may carry `#[pk]` and `#[column(name: "..")]`**, and nothing else. Read here
-         * rather than in `parse_attributes` because that one belongs to a whole declaration; this
-         * belongs to one field, and a function parameter must not be able to take it.
+        /* **The field attributes**, parsed generically and then checked against one table.
          *
          * An unknown name is refused rather than ignored, which is the rule the module-level form
          * follows for the reason its comment gives: a silently-ignored attribute is how
-         * `#[deprecated]` managed to parse and do nothing for as long as it did. **An unknown
-         * *argument* is refused the same way**, which is what makes `#[column(nmae: "x")]` an error
-         * rather than a column override that silently does not happen.
+         * `#[deprecated]` managed to parse and do nothing for as long as it did. **An unknown or
+         * missing *argument* is refused the same way**, which is what makes `#[column(nmae: "x")]`
+         * an error rather than an override that silently does not happen.
          *
-         * `#[column(..)]`'s arguments are named rather than positional -- `#[column("start_date")]`
-         * would read fine today and stop reading the moment a second argument exists, which is a
-         * when rather than an if: the `required:` that was asked for alongside `name:` was left out
-         * only because nothing reads it yet (docs/design/column-override.md). */
+         * Read here rather than in `parse_attributes` because that one belongs to a whole
+         * declaration; this belongs to one field, and a function parameter must not be able to
+         * take one.
+         *
+         * `#[min(8)]` and `#[min(value: 8)]` are the same thing: a single unnamed argument is
+         * stored under the name `value`, which is Java's own convention and what lets a constraint
+         * with one obvious argument read the way a reader of Bean Validation expects. */
+        FieldAttrList field_attrs;
+        memset(&field_attrs, 0, sizeof field_attrs);
         int field_is_pk = 0;
         const char *field_column = NULL;
         while (check(p, TOK_HASH)) {
             expect(p, TOK_HASH, "'#'");
             expect(p, TOK_LBRACKET, "'['");
             Token *attr = expect(p, TOK_IDENT, "a field attribute name");
-            if (attr->length == 2 && strncmp(attr->start, "pk", 2) == 0) {
-                field_is_pk = 1;
-            } else if (attr->length == 6 && strncmp(attr->start, "column", 6) == 0) {
-                expect(p, TOK_LPAREN, "'(' and 'name: \"<column>\"' -- #[column] takes named arguments");
-                int seen_name = 0;
+            FieldAttr one;
+            memset(&one, 0, sizeof one);
+            one.name = dup_token_text(attr);
+            one.line = attr->line;
+            one.col = attr->col;
+            FieldAttrArg args[8];
+            int argc = 0;
+            if (match(p, TOK_LPAREN)) {
+                skip_newlines(p);
                 for (;;) {
-                    Token *arg = expect(p, TOK_IDENT, "an argument name, as in 'name: \"start_date\"'");
-                    if (!(arg->length == 4 && strncmp(arg->start, "name", 4) == 0)) {
-                        ziman_error("syntax", arg->line, arg->col,
-                                    "unknown '#[column]' argument '%.*s' -- it takes 'name: \"<column>\"'",
-                                    (int)arg->length, arg->start);
+                    if (argc == 8) {
+                        ziman_error("syntax", attr->line, attr->col,
+                                    "'#[%s]' has more than eight arguments", one.name);
                     }
-                    expect(p, TOK_COLON, "':'");
-                    Token *value = expect(p, TOK_STRING_LIT, "a column name in double quotes");
-                    if (value->length == 0) {
+                    FieldAttrArg arg;
+                    memset(&arg, 0, sizeof arg);
+                    Token *first = cur(p);
+                    arg.line = first->line;
+                    arg.col = first->col;
+                    /* `name: value` when an identifier is followed by a colon; a lone value
+                     * otherwise, which is `value:` by convention. */
+                    if (check(p, TOK_IDENT) && check_ahead(p, 1, TOK_COLON)) {
+                        Token *arg_name = expect(p, TOK_IDENT, "an argument name");
+                        expect(p, TOK_COLON, "':'");
+                        arg.name = dup_token_text(arg_name);
+                    } else {
+                        arg.name = "value";
+                    }
+                    Token *value = cur(p);
+                    if (check(p, TOK_STRING_LIT) || check(p, TOK_INT_LIT) || check(p, TOK_IDENT)) {
+                        arg.kind = check(p, TOK_STRING_LIT) ? "string"
+                                 : check(p, TOK_INT_LIT) ? "int"
+                                 : "name";
+                        advance_tok(p);
+                        arg.value = dup_token_text(value);
+                    } else {
                         ziman_error("syntax", value->line, value->col,
-                                    "'#[column(name: \"\")]' names no column");
+                                    "an attribute argument is a string, a whole number or a name");
                     }
-                    if (seen_name) {
-                        ziman_error("syntax", arg->line, arg->col,
-                                    "'#[column]' has two 'name' arguments");
-                    }
-                    seen_name = 1;
-                    field_column = dup_token_text(value);
+                    args[argc++] = arg;
+                    skip_newlines(p);
                     if (!match(p, TOK_COMMA)) break;
                     skip_newlines(p);
                 }
                 expect(p, TOK_RPAREN, "')'");
-            } else {
-                ziman_error("syntax", attr->line, attr->col,
-                            "unknown field attribute '%.*s' -- a struct field takes '#[pk]' and "
-                            "'#[column(name: \"<column>\")]' and nothing else",
-                            (int)attr->length, attr->start);
             }
+            if (argc > 0) {
+                one.args = ziman_xmalloc(sizeof(FieldAttrArg) * (size_t)argc);
+                for (int i = 0; i < argc; i++) one.args[i] = args[i];
+                one.arg_count = argc;
+            }
+            check_field_attribute(&one);
+            /* The two the compiler itself reads; see ast.h's note on why both exist. */
+            if (strcmp(one.name, "pk") == 0) field_is_pk = 1;
+            if (strcmp(one.name, "column") == 0) field_column = field_attr_arg(&one, "name");
+            field_attr_list_push(&field_attrs, one);
             expect(p, TOK_RBRACKET, "']'");
             skip_newlines(p);
         }
@@ -2514,7 +2736,7 @@ static StructDecl *parse_struct_decl(Parser *p) {
         expect(p, TOK_COLON, "':'");
         Type field_type = parse_type(p);
         if (sd->type_params.count > 0) reclassify_type_params(&field_type, &sd->type_params);
-        Param field = {dup_token_text(field_name), field_type, 0, NULL, NULL, field_name->line, field_name->col, 0, field_is_pk, field_column};
+        Param field = {dup_token_text(field_name), field_type, 0, NULL, NULL, field_name->line, field_name->col, 0, field_is_pk, field_attrs, field_column};
         param_list_push(&sd->fields, field);
         skip_newlines(p);
     }

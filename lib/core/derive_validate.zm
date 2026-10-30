@@ -1,0 +1,295 @@
+// `#[derive(Validate)]`, written in Ziman.
+//
+// **The generator writes calls and nothing else.** Every rule, and every word of every message,
+// is in `lib/core/validate.zm`, where a person can call it and a fixture can test it without a
+// generator in the way. What is here is the one thing a hand-written check cannot be: the
+// *mapping* from a field's attributes to the calls, in declaration order, with the field's wire
+// name attached. See docs/design/validation.md.
+//
+// **One violation per field.** The response is a map keyed by field name, so a second message on
+// one field would be lost; a field with several constraints goes through `validate.first`, which
+// reports the first rule that failed. §4 of the design argues this from the wire shape.
+//
+// **The type decides whether absence is allowed**, not the attribute: `#[not_blank]` on a
+// `string` requires text, and on an `Option<string>` requires text only when the value is there.
+// That is Jakarta's semantics, and it is why one attribute replaces the `not_one_of` /
+// `optional_not_one_of` / `list_not_one_of` trio the North Star wrote by hand.
+#![experimental]
+#![generator(Validate)]
+
+use meta
+use template
+
+// What it writes, for
+//
+//     #[derive(Validate)]
+//     struct Login {
+//         #[not_blank]
+//         username: string
+//         #[not_blank]
+//         #[size(min: 8)]
+//         new_password: string
+//     }
+//
+// is
+//
+//     pub fn login_violations(v: Login) -> [validate.Violation] {
+//         val found = mutable_array_new<validate.Violation>()
+//         if Some(message) = validate.not_blank(v.username) {
+//             push(found, validate.violation("username", message))
+//         }
+//         if Some(message) = validate.first([
+//             validate.not_blank(v.new_password),
+//             validate.size_at_least(v.new_password, 8)
+//         ]) {
+//             push(found, validate.violation("newPassword", message))
+//         }
+//         return snapshot(found)
+//     }
+//
+// -- `newPassword`, because the key is the name the client sent, computed by `meta.camel_case`
+// exactly as `#[derive(Json)]` computes it (§4 of the design).
+val sheet = template.must_parse("""
+@template violations
+pub fn @{snake}_violations(v: @{self}) -> [validate.Violation] {
+    val found = mutable_array_new<validate.Violation>()
+@for c in checks
+    if Some(message) = @{c.rule} {
+        push(found, validate.violation("@{c.key}", message))
+    }
+@end
+    return snapshot(found)
+}
+
+@end
+""")
+
+// The constraints, in the order the refusals name them. `pk` and `column` are field attributes too
+// and are not constraints, so they are skipped rather than refused -- an entity that validates its
+// own fields is the ordinary case.
+val constraints: [string] = ["not_blank", "not_empty", "email", "one_of", "size", "min", "max",
+    "positive"]
+
+// What each constraint accepts, as `shape_of` names it. A constraint on a field it cannot read is
+// refused here, against the field, rather than left to the type checker: the call this would have
+// written is in generated text, and "no overload of validate.not_blank takes an int" is a worse
+// place to learn that `#[not_blank]` is on the wrong field.
+val accepted = Map<string, [string]> {
+    "not_blank": ["text"],
+    "not_empty": ["text", "strings", "list"],
+    "email": ["text"],
+    "one_of": ["text", "strings"],
+    "size": ["text"],
+    "min": ["int"],
+    "max": ["int"],
+    "positive": ["int", "float"]
+}
+
+val shape_words = Map<string, string> {
+    "text": "a string",
+    "strings": "a list of strings",
+    "list": "a list",
+    "int": "a whole number",
+    "float": "a number"
+}
+
+// How a field type reads to a constraint. **`Option<T>` is `T`'s shape**: optionality is a fact
+// about whether the rule runs, which `validate`'s own overloads answer, and not about which rule
+// applies.
+fn shape_of(t: meta.Type) -> string {
+    switch t {
+        String { return "text" }
+        Int { return "int" }
+        Float { return "float" }
+        Optional(inner) { return shape_of(inner) }
+        Array(elem) { return list_shape(elem) }
+        SetOf(_) { return "other" }
+        Bool { return "other" }
+        Bigint { return "other" }
+        Decimal { return "other" }
+        Byte { return "other" }
+        Unit { return "other" }
+        Void { return "other" }
+        ChannelOf(_) { return "other" }
+        MapOf(_) { return "other" }
+        ResultOf(_) { return "other" }
+        Func(_) { return "other" }
+        Named(_) { return "other" }
+        Var(_) { return "other" }
+    }
+}
+
+// A list is `strings` when `one_of` could walk it and `list` otherwise -- `not_empty` takes either.
+// A list of a type parameter counts as `list`, since `validate.not_empty` is generic in its
+// element.
+fn list_shape(elem: meta.Type) -> string {
+    if shape_of(elem) == "text" {
+        return "strings"
+    }
+    return "list"
+}
+
+// An argument of this attribute by name, or None. `meta.attr_value` answers the same question of a
+// *field*; here the attribute is already in hand, because a field may carry several.
+fn arg_of(a: meta.Attr, name: string) -> Option<string> {
+    for one in a.args {
+        if one.name == name {
+            return Option<string>.Some(one.value)
+        }
+    }
+    return Option<string>.None
+}
+
+// Text as the generated source spells it. The lexer has already taken the escapes out of a
+// `message:`, so a message containing a quote has to have them put back.
+fn quoted(text: string) -> string {
+    return concat("\"", replace(replace(text, "\\", "\\\\"), "\"", "\\\""), "\"")
+}
+
+fn wrong_shape(a: meta.Attr, f: meta.Field, shape: string) -> Result<unit, string> {
+    val wants = get(accepted, a.name)
+    if Some(kinds) = wants {
+        if contains(kinds, shape) {
+            return ok(unit)
+        }
+        val words = mutable_array_new<string>()
+        for k in kinds {
+            push(words, get_or(get(shape_words, k), k))
+        }
+        return err(prelude.format(
+            "'#[{}]' needs {} and '{}' is {}",
+            a.name,
+            join(separator: " or ", pieces: snapshot(words)),
+            f.name,
+            meta.type_text(f.type)
+        ))
+    }
+    return ok(unit)
+}
+
+// The call one constraint writes over `read`, which is `v.<field>`.
+fn rule_for(a: meta.Attr, f: meta.Field, read: string) -> Result<string, string> {
+    try wrong_shape(a, f, shape_of(f.type))
+    if a.name == "not_blank" || a.name == "not_empty" || a.name == "email" || a.name == "positive" {
+        return ok(prelude.format("validate.{}({})", a.name, read))
+    }
+    if a.name == "one_of" {
+        // `values:` is a *name* -- the module's own `val`, which the generated code reads. A
+        // string would have meant one word, and a list literal in an attribute is not a thing the
+        // grammar has (§5f of the design).
+        val values = arg_of(a, "values")
+        if Some(word_list) = values {
+            return ok(prelude.format("validate.one_of({}, {})", read, word_list))
+        }
+        return err("'#[one_of]' needs its 'values' argument")
+    }
+    if a.name == "min" {
+        return bounded(a, read, "at_least")
+    }
+    if a.name == "max" {
+        return bounded(a, read, "at_most")
+    }
+    if a.name == "size" {
+        return sized(a, f, read)
+    }
+    return err(prelude.format("'#[{}]' is not a constraint '#[derive(Validate)]' knows", a.name))
+}
+
+fn bounded(a: meta.Attr, read: string, rule: string) -> Result<string, string> {
+    val bound = arg_of(a, "value")
+    if Some(n) = bound {
+        return ok(prelude.format("validate.{}({}, {})", rule, read, n))
+    }
+    return err(prelude.format("'#[{}]' needs its bound -- '#[{}(8)]'", a.name, a.name))
+}
+
+// **Three rules rather than one taking two bounds**, because the message differs by which bounds
+// were written: "size must be at least 8" is what `#[size(min: 8)]` means, and a `max` defaulted
+// to the largest int is how Java comes to print "size must be between 8 and 2147483647" (§3).
+fn sized(a: meta.Attr, f: meta.Field, read: string) -> Result<string, string> {
+    val low = arg_of(a, "min")
+    val high = arg_of(a, "max")
+    if Some(min) = low {
+        if Some(max) = high {
+            return ok(prelude.format("validate.size_between({}, {}, {})", read, min, max))
+        }
+        return ok(prelude.format("validate.size_at_least({}, {})", read, min))
+    }
+    if Some(max) = high {
+        return ok(prelude.format("validate.size_at_most({}, {})", read, max))
+    }
+    return err(prelude.format(
+        "'#[size]' on '{}' bounds nothing -- it takes 'min:', 'max:', or both",
+        f.name
+    ))
+}
+
+// Every constraint on one field, as the single expression the `if` tests. One rule reads as
+// itself; several go through `validate.first`, one to a line, because that is the shape the
+// generated source is read in.
+fn checks_for(f: meta.Field) -> Result<Option<string>, string> {
+    val read = concat("v.", f.name)
+    val rules = mutable_array_new<string>()
+    for a in f.attrs {
+        if contains(constraints, a.name) {
+            var rule = try rule_for(a, f, read)
+            if Some(text) = arg_of(a, "message") {
+                rule = prelude.format("validate.with_message({}, {})", rule, quoted(text))
+            }
+            push(rules, rule)
+        }
+    }
+    val written = snapshot(rules)
+    if len(written) == 0 {
+        return ok(Option<string>.None)
+    }
+    if len(written) == 1 {
+        return ok(Option<string>.Some(written[0]))
+    }
+    return ok(Option<string>.Some(concat(
+        "validate.first([\n        ",
+        join(separator: ",\n        ", pieces: written),
+        "\n    ])"
+    )))
+}
+
+pub fn generate(d: meta.Decl) -> Result<string, string> {
+    switch d.body {
+        Struct(fields) { return violations(d, fields) }
+        // `src/derive.c` refuses `derive(Validate)` on an enum before this runs. The arm is here
+        // because the `switch` requires one, which is what makes the refusal unforgettable.
+        Enum(_) {
+            return err(prelude.format(
+                "derive(Validate) does not support an enum ('{}') -- a constraint is written on a " \
+                    "struct field, and an enum has none",
+                d.name
+            ))
+        }
+    }
+}
+
+fn violations(d: meta.Decl, fields: [meta.Field]) -> Result<string, string> {
+    val checks = mutable_array_new<template.Row>()
+    for f in fields {
+        if Some(rule) = try checks_for(f) {
+            push(checks, template.row([
+                template.text("rule", rule),
+                template.text("key", meta.camel_case(f.name))
+            ]))
+        }
+    }
+    val found = snapshot(checks)
+    if len(found) == 0 {
+        return err(prelude.format(
+            "derive(Validate) on '{}' has no constrained field -- it would answer an empty list " \
+                "whatever it was given; write a constraint such as '#[not_blank]' on a field, or drop " \
+                "the derive",
+            d.name
+        ))
+    }
+    return template.render(sheet, "violations", [
+        template.text("snake", d.snake_name),
+        template.text("self", meta.type_text(d)),
+        template.rows("checks", found)
+    ])
+}

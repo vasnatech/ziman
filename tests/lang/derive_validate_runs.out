@@ -1,0 +1,8 @@
+kind: must be one of WEIGHT, HEIGHT
+note: must not be blank
+value: must be greater than 0
+reportedBy: must be a well-formed email address
+--
+note: size must be at least 4
+--
+no violations

@@ -1,1 +1,1 @@
-ziman: syntax error at 4:14 in tests/lang/field_attribute_column_positional.zm: expected an argument name, as in 'name: "start_date"', found string literal
+ziman: syntax error at 4:14 in tests/lang/field_attribute_column_positional.zm: '#[column]' takes named arguments: name: "<text>"

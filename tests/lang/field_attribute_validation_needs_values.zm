@@ -1,0 +1,11 @@
+// `#[one_of]` is the one constraint whose argument is required: a word list it does not have is
+// not a constraint at all. The others default -- `#[size]`'s two bounds are both optional, and its
+// "bounds nothing" refusal comes from the generator rather than from the grammar.
+struct E {
+    #[one_of]
+    type: string
+}
+
+fn main() {
+    print(1)
+}

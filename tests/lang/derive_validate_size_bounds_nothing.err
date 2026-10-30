@@ -1,0 +1,4 @@
+ziman: type error at 5:1 in tests/lang/derive_validate_size_bounds_nothing.zm: '#[size]' on 'name' bounds nothing -- it takes 'min:', 'max:', or both
+  |
+5 | struct E {
+  | ^

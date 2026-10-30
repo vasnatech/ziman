@@ -527,6 +527,12 @@ static void import_for_derive(Module *module, const char *target, int line, int 
         for (size_t i = 0; i < sizeof names / sizeof names[0]; i++) ensure_named_import(module, "db", names[i], line, col);
     } else if (strcmp(target, "Properties") == 0) {
         ensure_module_import(module, "properties", line, col);
+    } else if (strcmp(target, "Validate") == 0) {
+        /* Reached **qualified** -- `validate.not_blank`, `validate.Violation` -- because `email`,
+         * `first`, `matches` and `positive` are names an application is entitled to have of its
+         * own, and a per-name import would take them over for the whole file without the author
+         * asking. The same reasoning `Json`'s tree helpers are imported by module for. */
+        ensure_module_import(module, "validate", line, col);
     }
 }
 
@@ -826,6 +832,7 @@ void generate_derived_functions(Module *module) {
             int is_props = strcmp(sd->derives[d], "Properties") == 0;
             int is_ord = strcmp(sd->derives[d], "Ord") == 0;
             int is_entity = strcmp(sd->derives[d], "Entity") == 0;
+            int is_validate = strcmp(sd->derives[d], "Validate") == 0;
             /* `Reflect` prints the reified declaration and generates nothing -- the test
              * instrument for this boundary, see lib/core/derive_reflect.zm. It takes no part in
              * the restrictions below because its whole job is to accept whatever arrives:
@@ -837,10 +844,10 @@ void generate_derived_functions(Module *module) {
                 ziman_recovery_pop();
                 continue;
             }
-            if (!is_json && !is_row && !is_props && !is_ord && !is_entity) {
+            if (!is_json && !is_row && !is_props && !is_ord && !is_entity && !is_validate) {
                 ziman_error("syntax", sd->line, sd->col, "unknown derive target '%s' on struct '%s'", sd->derives[d], sd->name);
             }
-            if (sd->type_params.count > 0 && (is_row || is_props || is_entity)) {
+            if (sd->type_params.count > 0 && (is_row || is_props || is_entity || is_validate)) {
                 ziman_error("syntax", sd->line, sd->col, "derive(%s) does not support a generic struct ('%s') -- only Json and Ord do", sd->derives[d], sd->name);
             }
             const char *label = fmt_str("derive(%s) for '%s'", sd->derives[d], sd->name);
@@ -891,6 +898,12 @@ void generate_derived_functions(Module *module) {
                 parse_and_splice(module,
                                  generated_in_ziman("Entity", sd, NULL, derive_arg(sd, d), sd->line, sd->col),
                                  sd->line, sd->col, label);
+            } else if (is_validate) {
+                /* A struct with no field has no constraint either, so the generator's own refusal
+                 * ("no constrained field") covers it and there is nothing to check here: unlike
+                 * `Entity`, `Validate` needs no other name in scope and no module beyond its own. */
+                parse_and_splice(module, generated_in_ziman("Validate", sd, NULL, derive_arg(sd, d), sd->line, sd->col),
+                                 sd->line, sd->col, label);
             } else if (is_ord) {
                 if (sd->fields.count == 0) {
                     ziman_error("syntax", sd->line, sd->col, "derive(Ord) needs at least one field to compare ('%s' has none)", sd->name);
@@ -937,6 +950,9 @@ void generate_derived_functions(Module *module) {
             }
             if (strcmp(ed->derives[d], "Properties") == 0) {
                 ziman_error("syntax", ed->line, ed->col, "derive(Properties) does not support an enum ('%s') -- configuration binds to a struct", ed->name);
+            }
+            if (strcmp(ed->derives[d], "Validate") == 0) {
+                ziman_error("syntax", ed->line, ed->col, "derive(Validate) does not support an enum ('%s') -- a constraint is written on a struct field, and an enum has none", ed->name);
             }
             if (strcmp(ed->derives[d], "Ord") == 0) {
                 const char *ord_label = fmt_str("derive(Ord) for '%s'", ed->name);

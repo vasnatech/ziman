@@ -2347,6 +2347,69 @@ fn main() {
   stop reading the moment a second argument exists. A misspelled argument is refused, since
   ignoring one would be a column override that silently does not happen.
 
+## Validation
+
+Constraints are field attributes, and `#[derive(Validate)]` turns them into one function. The rules
+live in the `validate` core module, so every one of them is also a function you can call.
+
+```ziman
+val type_words: [string] = ["WEIGHT", "HEIGHT"]
+
+#[derive(Validate)]
+struct Reading {
+    #[one_of(values: type_words)]
+    type: string
+
+    #[not_blank]
+    #[size(min: 4, max: 64)]
+    note: string
+
+    #[positive]
+    value: float
+
+    #[email]
+    reported_by: Option<string>
+}
+
+fn main() {
+    val bad = Reading { type: "DEPTH", note: "  ", value: 0.0,
+                        reported_by: Option<string>.Some("nobody@") }
+    for v in reading_violations(bad) {
+        printf("{}: {}\n", v.field, v.message)    // type: must be one of WEIGHT, HEIGHT
+    }
+}
+```
+
+- **Eight constraints**: `#[not_blank]`, `#[not_empty]`, `#[email]`, `#[positive]`,
+  `#[one_of(values: <name>)]`, `#[size(min: <n>, max: <n>)]`, `#[min(<n>)]` and `#[max(<n>)]`.
+  They are named after Jakarta Validation's where the two coincide, so a reader who knows Bean
+  Validation needs no table. `#[one_of]`'s `values:` is **a name** -- a `val` of the module's own,
+  which the generated code reads -- because a word list is not something an attribute can hold.
+  `#[size]`'s two bounds are both optional and at least one must be given.
+- **The type decides whether absence is allowed**, not the attribute. On a `string`, `#[not_blank]`
+  requires text; on an `Option<string>`, it requires text only when the value is there, as Jakarta's
+  constraints pass on a null and only `@NotNull` rejects one. `#[one_of]` on a `[string]` checks
+  every element. So one attribute covers what a hand-written check needs three of.
+- **`#[derive(Validate)]`** on a struct generates `<snake>_violations(v) -> [validate.Violation]`,
+  where `Violation { field, message }` names the field as the **wire** does -- `newPassword`, not
+  `new_password`, computed exactly as `#[derive(Json)]` computes a key. An empty list is the
+  success case. `use validate` is added for you. A struct with no constraint is refused, as is a
+  generic struct and an enum.
+- **One violation per field**, the first rule that failed in the order they were written: a
+  response keyed by field name cannot carry a second. A field with several constraints goes
+  through `validate.first`, which is an ordinary function doing exactly that.
+- **The messages are Hibernate Validator's** -- `"must not be blank"`,
+  `"must be a well-formed email address"`, `"size must be between 3 and 5"` -- so a Spring
+  application ported field by field keeps telling its clients what it told them before. Two
+  deliberate departures: `#[size(min: 8)]` with no maximum says `"size must be at least 8"` rather
+  than Java's `"size must be between 8 and 2147483647"`, which is an annotation default leaking;
+  and `#[one_of]` has no Jakarta counterpart at all, where Java reaches for an enum type or a
+  `@Pattern`. Every constraint takes `message:` to override its own text.
+- **`validate` is callable on its own**: `validate.email(address)`, `validate.size_at_least(s, 8)`
+  and the rest answer `Option<string>` -- the message, or `None`. `validate.is_email` answers a
+  `bool` for a caller who wants the question rather than the message. See
+  [docs/design/validation.md](docs/design/validation.md).
+
 ## Networking
 
 The `net` core module is blocking TCP; `[byte]` helpers are prelude builtins, plus binary

@@ -1,0 +1,14 @@
+// **A misspelled constraint is a syntax error, not a rule that silently does not run.** The parser
+// reads field attributes against one table (`FIELD_ATTRS`) and refuses anything not in it, so this
+// names every attribute a field takes -- which is also how a reader finds the one they meant.
+//
+// `#[deprecated]`'s years of parsing-and-doing-nothing is the argument for paying this cost: an
+// attribute the compiler accepts and no generator reads is indistinguishable from one that works.
+struct E {
+    #[not_blak]
+    name: string
+}
+
+fn main() {
+    print(1)
+}

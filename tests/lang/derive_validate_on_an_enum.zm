@@ -1,0 +1,12 @@
+// A constraint is written on a struct field. An enum has none, so there is nothing to generate --
+// refused in src/derive.c before the generator runs, which is where every other target's
+// enum-or-struct refusal lives.
+#[derive(Validate)]
+enum Kind {
+    Weight
+    Height
+}
+
+fn main() {
+    print(1)
+}

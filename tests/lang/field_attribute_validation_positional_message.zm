@@ -1,0 +1,12 @@
+// Every constraint takes `message:` to override its text, as every Jakarta constraint does -- and
+// it is **named**, so a constraint that reads as though it took one bare argument is refused
+// rather than guessed at. `#[min(8)]` still works, because Java's own convention is that a lone
+// value is the constraint's main one.
+struct E {
+    #[not_blank("say why")]
+    name: string
+}
+
+fn main() {
+    print(1)
+}

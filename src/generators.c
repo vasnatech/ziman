@@ -15,11 +15,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* The generators, as one program. Named here rather than discovered, because these five are the
+/* The generators, as one program. Named here rather than discovered, because these are the
  * compiler's own; a project's generator is found through the importing module's `use` list,
  * which is docs/design/user-generators.md's design and is not built. */
 static const char *const GENERATOR_MODULES[] = {"derive_ord", "derive_row", "derive_properties",
-                                                "derive_json", "derive_reflect", "derive_entity"};
+                                                "derive_json", "derive_reflect", "derive_entity",
+                                                "derive_validate"};
 
 /* The module generators -- the second kind (docs/design/meta.md §8). One, so far, and the list
  * exists anyway: `load_generators` has to import it, and a second module-level feature should
@@ -223,33 +224,36 @@ static Value reify_type(Type t, int line, int col) {
     return call_meta("unit_type", NULL, 0, line, col);
 }
 
-/* A field's attributes, with their arguments. The parser records two on a field -- `is_pk` and
- * `column_name` on `Param` -- and they arrive here as `meta.Attr`s, which is the shape
- * docs/design/meta.md §13 deferred until an attribute with an argument existed. One does now
- * (`#[column(name: "start_date")]`), so the list is of attributes rather than of names.
+/* A field's attributes, with their arguments -- the whole list the parser read, in source order.
  *
- * **The AST stays two plain fields and the model is general**, which is the same division `#[pk]`
- * already had: a bool in the compiler, an entry in a list at the boundary. A third field attribute
- * changes the parser and this function, and nothing in `meta`. */
+ * **The parser's list rather than the two fields beside it.** `Param` carries `is_pk` and
+ * `column_name` for the C that wants one question answered, and `attrs` for this: a generator sees
+ * every attribute it was given, including ones no C code reads (`#[one_of]`, `#[size]`), which is
+ * what lets a constraint be a generator's business rather than the compiler's. */
 static Value reify_field(const Param *f, int line, int col) {
-    Value attrs[2];
-    int n = 0;
-    if (f->is_pk) {
-        Value a[1] = {value_string(ziman_xstrdup("pk"))};
-        attrs[n++] = call_meta("attr", a, 1, line, col);
-    }
-    if (f->column_name != NULL) {
-        Value arg[2] = {value_string(ziman_xstrdup("name")), value_string(ziman_xstrdup(f->column_name))};
-        Value one = call_meta("attr_arg", arg, 2, line, col);
-        Value args_array[1] = {one};
-        Value a[2] = {value_string(ziman_xstrdup("column")), array_of(args_array, 1)};
-        attrs[n++] = call_meta("attr_with", a, 2, line, col);
+    Value *attrs = ziman_xmalloc(sizeof(Value) * (size_t)(f->attrs.count > 0 ? f->attrs.count : 1));
+    for (int i = 0; i < f->attrs.count; i++) {
+        const FieldAttr *one = &f->attrs.items[i];
+        Value *args = ziman_xmalloc(sizeof(Value) * (size_t)(one->arg_count > 0 ? one->arg_count : 1));
+        for (int a = 0; a < one->arg_count; a++) {
+            Value pair[3] = {value_string(ziman_xstrdup(one->args[a].name)),
+                             value_string(ziman_xstrdup(one->args[a].value)),
+                             value_string(ziman_xstrdup(one->args[a].kind))};
+            args[a] = call_meta("attr_arg", pair, 3, line, col);
+        }
+        if (one->arg_count == 0) {
+            Value a[1] = {value_string(ziman_xstrdup(one->name))};
+            attrs[i] = call_meta("attr", a, 1, line, col);
+        } else {
+            Value a[2] = {value_string(ziman_xstrdup(one->name)), array_of(args, one->arg_count)};
+            attrs[i] = call_meta("attr_with", a, 2, line, col);
+        }
     }
 
     Value args[3];
     args[0] = value_string(ziman_xstrdup(f->name));
     args[1] = reify_type(f->type, line, col);
-    args[2] = array_of(attrs, n);
+    args[2] = array_of(attrs, f->attrs.count);
     return call_meta("field", args, 3, line, col);
 }
 

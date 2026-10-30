@@ -140,6 +140,16 @@ pub fn named_type(name: string, args: [Type]) -> Type {
 pub struct AttrArg {
     name: string
     value: string
+    // How it was written: `"string"`, `"int"` or `"name"`.
+    //
+    // **Added after the design said it was unnecessary** (docs/design/validation.md §5f), which
+    // claimed the value's text was enough because "the compiler hands text over and the generator
+    // decides what it means". True of a generator -- and false of anything that has to *show* an
+    // attribute, because the lexer takes the quotes off a string, so `name: "start_date"` and
+    // `values: type_words` arrive identical. `attr_text` printed one of them wrongly whichever way
+    // it guessed, and the generator that exists to show exactly what it was handed
+    // (`derive_reflect`) is the wrong place for a cosmetic lie.
+    kind: string
 }
 
 // An attribute written on a field, with its arguments: `#[pk]` has none,
@@ -214,8 +224,8 @@ pub fn attr_with(name: string, args: [AttrArg]) -> Attr {
     return Attr { name: name, args: args }
 }
 
-pub fn attr_arg(name: string, value: string) -> AttrArg {
-    return AttrArg { name: name, value: value }
+pub fn attr_arg(name: string, value: string, kind: string) -> AttrArg {
+    return AttrArg { name: name, value: value, kind: kind }
 }
 
 // Whether `f` carries `#[<name>]`, whatever arguments it was written with.
@@ -249,15 +259,23 @@ pub fn attr_value(f: Field, attr: string, arg: string) -> Option<string> {
     return Option<string>.None
 }
 
-// An attribute as source spells it: `pk`, or `column(name: "start_date")`. For a generator that
-// prints what it was handed (`derive_reflect`), and for a refusal that quotes an attribute back.
+// An attribute as source spells it: `pk`, `column(name: "start_date")`, `min(value: 1)`. For a
+// generator that prints what it was handed (`derive_reflect`), and for a refusal that quotes an
+// attribute back.
+//
+// Quoted exactly as the source wrote it, from `AttrArg.kind` -- see that field for why inferring
+// it from the text does not work.
 pub fn attr_text(a: Attr) -> string {
     if prelude.len(a.args) == 0 {
         return a.name
     }
     val parts = mutable_array_new<string>()
     for one in a.args {
-        push(parts, concat(one.name, ": \"", one.value, "\""))
+        push(parts, concat(one.name, ": ", if one.kind == "string" {
+            concat("\"", one.value, "\"")
+        } else {
+            one.value
+        }))
     }
     return concat(a.name, "(", join(separator: ", ", pieces: snapshot(parts)), ")")
 }

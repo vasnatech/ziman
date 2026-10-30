@@ -541,6 +541,35 @@ struct Stmt {
     } as;
 };
 
+/* One argument of a field attribute: `name: "start_date"` or the `8` of `#[min(8)]`, which is
+ * stored under the name `value` -- Java's own convention for a single unnamed element, and what
+ * makes `#[min(8)]` and `#[min(value: 8)]` the same thing. */
+typedef struct {
+    const char *name;
+    const char *value;
+    /* How it was written: `string`, `int` or `name`. **Needed because the text cannot say**: the
+     * lexer takes the quotes off a string literal, so `#[min("8")]` and `#[min(8)]` both arrive as
+     * the text `8` and only the token's kind tells them apart. The `meta` boundary carries the
+     * value alone, as `Decl.arg` does -- a generator knows what kind its own argument is. */
+    const char *kind;
+    int line, col;
+} FieldAttrArg;
+
+/* One attribute written on a struct field: `#[pk]`, `#[column(name: "start_date")]`,
+ * `#[size(min: 1, max: 64)]`. */
+typedef struct {
+    const char *name;
+    FieldAttrArg *args;
+    int arg_count;
+    int line, col;
+} FieldAttr;
+
+typedef struct {
+    FieldAttr *items;
+    int count;
+    int capacity;
+} FieldAttrList;
+
 typedef struct {
     char *name;
     Type type; /* the element type, e.g. `string` for `pieces: string...` --
@@ -593,6 +622,18 @@ typedef struct {
      * key is spelled; `#[derive(Entity("t"))]` puts them in the metamodel as `keys`, in field
      * order. See docs/ROADMAP.md's "Code generation from annotations". */
     int is_pk;
+    /* Every attribute written on this **struct field**, with its arguments, in source order.
+     *
+     * **The general list is for the boundary and the two fields below are for the compiler.**
+     * `meta.Field.attrs` is built from this one, so a generator sees every attribute and its
+     * arguments; `is_pk` and `column_name` are read directly by `src/derive.c` and
+     * `src/loader.c`, which want one question answered rather than a list walked. The parser fills
+     * all three as it reads, so they cannot disagree.
+     *
+     * An argument's value is **the text as written** -- `"start_date"` without its quotes, `8`,
+     * `type_words` -- because the compiler hands text over and the generator decides what it
+     * means, which is what `Decl.arg` already does for `#[derive(Entity("medications"))]`. */
+    FieldAttrList attrs;
     /* `#[column(name: "start_date")]` on a **struct field**: the column this field is stored in,
      * when it is not the field's own name. NULL for the overwhelmingly common case, where the two
      * are the same.

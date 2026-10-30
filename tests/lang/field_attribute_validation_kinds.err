@@ -1,0 +1,4 @@
+ziman: syntax error at 5:11 in tests/lang/field_attribute_validation_kinds.zm: '#[min]'s 'value' is a string and has to be a whole number
+  |
+5 |     #[min("8")]
+  |           ^

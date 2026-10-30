@@ -1,0 +1,4 @@
+ziman: syntax error at 5:7 in tests/lang/field_attribute_validation_needs_values.zm: '#[one_of]' needs its 'values' argument -- it takes: values: <name>, message: "<text>"
+  |
+5 |     #[one_of]
+  |       ^

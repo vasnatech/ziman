@@ -1,0 +1,36 @@
+// derive(Validate) for 'Measurement'
+pub fn measurement_violations(v: Measurement) -> [validate.Violation] {
+    val found = mutable_array_new<validate.Violation>()
+    if Some(message) = validate.one_of(v.type, type_words) {
+        push(found, validate.violation("type", message))
+    }
+    if Some(message) = validate.first([
+        validate.not_blank(v.label),
+        validate.size_between(v.label, 2, 64)
+    ]) {
+        push(found, validate.violation("label", message))
+    }
+    if Some(message) = validate.positive(v.value) {
+        push(found, validate.violation("value", message))
+    }
+    if Some(message) = validate.first([
+        validate.at_least(v.reading_count, 1),
+        validate.at_most(v.reading_count, 300)
+    ]) {
+        push(found, validate.violation("readingCount", message))
+    }
+    if Some(message) = validate.not_empty(v.tags) {
+        push(found, validate.violation("tags", message))
+    }
+    if Some(message) = validate.email(v.reported_by) {
+        push(found, validate.violation("reportedBy", message))
+    }
+    if Some(message) = validate.size_at_most(v.note, 500) {
+        push(found, validate.violation("note", message))
+    }
+    if Some(message) = validate.with_message(validate.not_blank(v.new_password), "say \"why\"") {
+        push(found, validate.violation("newPassword", message))
+    }
+    return snapshot(found)
+}
+

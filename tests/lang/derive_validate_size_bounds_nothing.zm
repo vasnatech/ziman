@@ -1,0 +1,12 @@
+// `#[size]`'s arguments are both optional -- `min:` alone, `max:` alone and both are all written --
+// so neither being given is a shape the grammar accepts and the generator has to refuse. It bounds
+// nothing, which is the one reading that cannot have been meant.
+#[derive(Validate)]
+struct E {
+    #[size]
+    name: string
+}
+
+fn main() {
+    print(1)
+}

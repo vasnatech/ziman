@@ -1,0 +1,4 @@
+ziman: syntax error at 5:1 in tests/lang/derive_validate_generic.zm: derive(Validate) does not support a generic struct ('Box') -- only Json and Ord do
+  |
+5 | struct Box<T> {
+  | ^

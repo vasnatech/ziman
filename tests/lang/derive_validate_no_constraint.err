@@ -1,0 +1,4 @@
+ziman: type error at 5:1 in tests/lang/derive_validate_no_constraint.zm: derive(Validate) on 'E' has no constrained field -- it would answer an empty list whatever it was given; write a constraint such as '#[not_blank]' on a field, or drop the derive
+  |
+5 | struct E {
+  | ^

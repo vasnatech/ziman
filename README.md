@@ -104,6 +104,7 @@ Bundled with the binary (`use name`); every `pub` signature is in
 | `url` | percent-encoding, shared by `http` and `db` |
 | `locale`\* | a `Locale` from the operating system's own locale data, and the process-wide default that locale-aware functions use when given none; the invariant `root()` is what protocol and identifier code folds case with |
 | `db`, `sql`\*, `eql`\*, `sqlite`, `pg`\*, `mysql`\*, `memdb`\* | one database API over SQLite, PostgreSQL, MySQL and an in-memory SQL engine written in Ziman, with pooling, a SQL statement tree and an entity query language over it |
+| `validate`\*, `derive_validate`\* | Jakarta-Validation-shaped constraints as field attributes -- `#[not_blank]`, `#[one_of(values:)]`, `#[size(min:, max:)]` -- where the rule is an ordinary function, the message is Hibernate Validator's, and `Option<T>` is how a field says absence is allowed; see [docs/design/validation.md](docs/design/validation.md) |
 | `meta`\*, `template`\*, `derive_ord`\*, `derive_row`\*, `derive_properties`\*, `derive_json`\*, `derive_reflect`\*, `derive_entity`\*, `derive_repository`\* | a declaration as a generator sees it, and every `#[derive(..)]` written in Ziman rather than in the compiler's C; `derive_reflect` prints what a generator was handed and generates nothing; `derive_repository` is the second generator kind, over a whole module -- see [docs/ROADMAP.md](docs/ROADMAP.md) |
 
 \* Experimental: less real-world use than the rest of the library, so treat a gap or a

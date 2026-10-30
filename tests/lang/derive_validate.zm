@@ -1,0 +1,40 @@
+// What `#[derive(Validate)]` writes, pinned byte for byte -- the generated *text*, since the rules
+// themselves are tested in tests/stdlib/validate_test.zm where a person can read them.
+//
+// Three things this fixture is for: the wire name (`newPassword`, not `new_password`), the shape a
+// field with several constraints takes (`validate.first`, one rule to a line), and the `use
+// validate` nobody wrote, which the derive adds because the generated text names the module.
+val type_words: [string] = ["WEIGHT", "HEIGHT"]
+
+#[derive(Validate)]
+struct Measurement {
+    #[one_of(values: type_words)]
+    type: string
+
+    #[not_blank]
+    #[size(min: 2, max: 64)]
+    label: string
+
+    #[positive]
+    value: float
+
+    #[min(1)]
+    #[max(300)]
+    reading_count: int
+
+    #[not_empty]
+    tags: [string]
+
+    #[email]
+    reported_by: Option<string>
+
+    #[size(max: 500)]
+    note: Option<string>
+
+    #[not_blank(message: "say \"why\"")]
+    new_password: string
+}
+
+fn main() {
+    print(1)
+}

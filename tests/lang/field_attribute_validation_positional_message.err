@@ -1,0 +1,4 @@
+ziman: syntax error at 6:17 in tests/lang/field_attribute_validation_positional_message.zm: '#[not_blank]' takes named arguments: message: "<text>"
+  |
+6 |     #[not_blank("say why")]
+  |                 ^

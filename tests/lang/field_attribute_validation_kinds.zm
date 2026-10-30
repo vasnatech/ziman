@@ -1,0 +1,11 @@
+// An argument is checked against the kind it was **written** as, not against its text. The lexer
+// takes the quotes off a string, so `#[min(value: "8")]` and `#[min(value: 8)]` arrive with the
+// same text and only `FieldAttrArg.kind` tells them apart -- which is why it is recorded.
+struct E {
+    #[min("8")]
+    count: int
+}
+
+fn main() {
+    print(1)
+}
