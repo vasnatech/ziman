@@ -10399,7 +10399,7 @@ one line. Before this there were two ways to write one and both were wrong in a 
   was constant at compile time. It is also *refused* where a literal is required, and `format`'s
   first argument is exactly that: its placeholders are counted against its arguments at compile
   time, which a runtime concatenation cannot support.
-* **One very long line**, which is what the alternative forced: `lib/core/derive_repository.zm`
+* **One very long line**, which is what the alternative forced: `lib/db/derive_repository.zm`
   carried **11 lines over 120 columns, the longest 272**, every one of them a `format` literal
   that had nowhere to break.
 

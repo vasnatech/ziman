@@ -34,7 +34,14 @@ GROUPS = [
     # `src/derive.c` hands a generator, and `derive_ord` is the first generator to be written in
     # Ziman rather than C. A reader reaches these through `#[derive(Ord)]`, not by importing them,
     # which is why they are their own group rather than filed under Data.
-    ("Deriving", "core", ["meta", "template", "derive_ord", "derive_row", "derive_properties", "derive_json", "derive_reflect", "derive_entity", "derive_repository"]),
+    #
+    # **The three SQL generators live in `lib/db/`** (moved 2026-10-29): what `derive_row`,
+    # `derive_entity` and `derive_repository` write is `SqlValue`, `Row`, `eql.Entity` and
+    # queries, so they belong beside `eql` and `db` rather than beside `meta`. They stay in this
+    # group because a reader still reaches them through `#[derive(Row)]` rather than by importing
+    # one -- the group is about how you meet a module, the folder about what it is built on.
+    ("Deriving", "core", ["meta", "template", "derive_ord", "derive_properties", "derive_json", "derive_reflect"]),
+    ("Deriving for SQL", "db", ["derive_row", "derive_entity", "derive_repository"]),
     ("Graphics", "graphics", ["geom", "shape", "paint", "scene", "pdfobj", "pdf", "truetype", "font", "image", "stroker", "raster", "layout"]),
 ]
 

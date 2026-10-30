@@ -100,7 +100,7 @@ that wants a derive imports its generator, exactly as it imports anything else, 
 considered -- a project manifest, a well-known `derive/` directory, a compiler flag -- adds a
 second place for the answer to live.
 
-**The bundled five move onto the same footing**: `lib/core/derive_row.zm` gains `#![generator(Row)]`
+**The bundled five move onto the same footing**: `lib/db/derive_row.zm` gains `#![generator(Row)]`
 and renames its entry point to `generate`. One rule, with corelib as the fallback that keeps
 `#[derive(Row)]` working with no import -- the way the prelude keeps `print` working with no
 import. A project's own generator is not vocabulary and says so by being imported.

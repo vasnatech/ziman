@@ -102,10 +102,15 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`meta`](meta.md) | A declaration, as a generator sees it. |
 | [`template`](template.md) | Templates for generated code: the shape of the output, visible in the source. |
 | [`derive_ord`](derive_ord.md) | `#[derive(Ord)]`, written in Ziman. |
-| [`derive_row`](derive_row.md) | `#[derive(Row)]`, written in Ziman. |
 | [`derive_properties`](derive_properties.md) | `#[derive(Properties)]`, written in Ziman. |
 | [`derive_json`](derive_json.md) | `#[derive(Json)]`, written in Ziman. |
 | [`derive_reflect`](derive_reflect.md) | `#[derive(Reflect)]`: prints the declaration a generator was handed, and generates nothing. |
+
+## Deriving for SQL
+
+| Module | What it is |
+|---|---|
+| [`derive_row`](derive_row.md) | `#[derive(Row)]`, written in Ziman. |
 | [`derive_entity`](derive_entity.md) | `#[derive(Entity)]`, written in Ziman. |
 | [`derive_repository`](derive_repository.md) | `#![repository(Entity)]`, written in Ziman. |
 

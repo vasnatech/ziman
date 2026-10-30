@@ -3727,7 +3727,7 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 - [x] **F221** **`derive(Row)` ported to Ziman, and the scale question answered more narrowly than
   predicted.** (user-raised, "port derive_row"; done 2026-10-28.)
 
-  `lib/core/derive_row.zm` writes `<name>_from_row` and `<name>_to_params`, and is
+  `lib/db/derive_row.zm` writes `<name>_from_row` and `<name>_to_params`, and is
   **byte-identical to `src/derive.c` on the first run** -- a ten-field struct covering a `Uuid`,
   all six scalar kinds, an `Instant` (whose converters are spelled short) and three shapes of
   `Option`: over a string, over a flat-named type, over a user type. `tests/lang/derive_row_in_ziman`
@@ -3993,7 +3993,7 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   declaration kind's loaded program, its `reify_decl` and its collection guard; `src/loader.c`'s
   `check_generator` reads the kind off `generate` vs `generate_module`/`generate_query` and
   refuses a module exporting both (`tests/lang/generator_both_kinds`); and
-  `lib/core/derive_repository.zm` is the nine CRUD functions, with the two refusals that are facts
+  `lib/db/derive_repository.zm` is the nine CRUD functions, with the two refusals that are facts
   about the entity -- no `#[pk]`, an `Option` key -- as its own `Err`s.
 
   **The measurement that says this is a port and not a rewrite: the North Star's 23 repositories
@@ -4565,3 +4565,31 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   went.
 
   1,311 fixtures.
+
+- [x] **F242** **The three SQL generators moved to `lib/db/`.** (user-raised, 2026-10-29: "move
+  derive_entity.zm derive_repository.zm derive_row.zm under db/"; S.)
+
+  What those three write is `SqlValue`, `Row`, `eql.Entity` and SQL queries, so they belong beside
+  `eql`, `db` and `datasource` rather than beside `meta`. `derive_ord`, `derive_properties`,
+  `derive_json` and `derive_reflect` stay in `lib/core` with `meta` and `template`, which are what
+  they are built on and all they depend on.
+
+  **The build needed no change at all**, which is worth recording because it is the design paying
+  off: `vpath %.zm lib lib/core lib/db lib/graphics lib/http lib/time` finds a bundled module
+  wherever it sits, `use` names are flat, `src/corelib.c`'s table is keyed by name, and
+  `generators.c`'s own list is names. `git mv`, rebuild, 1,311 fixtures green.
+
+  What did need changing was everything that *describes* where they live: a new "Deriving for SQL"
+  group in `tools/gen_lib_manual.py` (the group is about how a reader meets a module -- through
+  `#[derive(Row)]`, not an import -- and the folder about what it is built on, so the three keep
+  their own section rather than joining "Databases"), the two Makefile comments that said bundled
+  modules are `lib/core/<name>.zm`, `src/generators.h`'s "`lib/core/derive_*.zm` are the
+  generators", `template.zm`'s note about who it was written for, and nine path references across
+  `src/derive.c`, `docs/DESIGN.md`, two design documents, a fixture's header and this file.
+  `docs/lib/dependencies.md` now labels them `db.derive_row` and so on, from the folder.
+
+  Found and fixed on the way, by the gate rather than by me: `template-example-check` failed after
+  F241's indentation change, because the worked example above `derive_row`'s sheet is a *copy of
+  generated output* and still showed the flat form. That check exists for exactly that staleness
+  and earned itself the same day; the example is regenerated from
+  `tests/lang/derive_row_in_ziman.out`.

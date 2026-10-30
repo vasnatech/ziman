@@ -93,7 +93,7 @@ install-hooks:
 	git config core.hooksPath tools/hooks
 	@echo "install-hooks: core.hooksPath = tools/hooks (pre-push runs check-fast; --no-verify bypasses it)"
 
-# Bundled core modules (see src/corelib.c): each lib/core/<name>.zm file
+# Bundled core modules (see src/corelib.c): each lib/<folder>/<name>.zm file
 # is embedded as a C string constant, generated fresh from its .zm
 # source every build so the two never drift. Declared as a prerequisite
 # of every object file (not just corelib.o) so a from-clean build always
@@ -115,9 +115,10 @@ CORELIB_MODULES := meta template derive_ord derive_row derive_properties derive_
 # what retired `collections` on 2026-10-22 once the last of its names had been
 # filed by type.
 PRELUDE_PARTS := prelude array channel iter map mutable option result set string
-# Bundled modules live in lib/core (general-purpose), lib/db (SQL
-# drivers) lib/http (http, server, client), lib/time (time, zone, schedule) and lib/graphics (the 2D model and
-# its backends); `use` names are flat either way.
+# Bundled modules live in lib/core (general-purpose), lib/db (SQL drivers, and the three
+# generators that write SQL: derive_row, derive_entity, derive_repository), lib/http (http,
+# server, client), lib/time (time, zone, schedule) and lib/graphics (the 2D model and its
+# backends); `use` names are flat either way, which is what `vpath` below is for.
 vpath %.zm lib lib/core lib/db lib/graphics lib/http lib/time
 
 CORELIB_HEADERS := $(CORELIB_MODULES:%=$(BUILD)/%_source.h) $(PRELUDE_PARTS:%=$(BUILD)/prelude_%_source.h)

@@ -5,7 +5,8 @@
 
 Templates for generated code: the shape of the output, visible in the source.
 
-Written for the derive generators (`lib/core/derive_*.zm`), which assemble Ziman source. A
+Written for the derive generators (`lib/core/derive_*.zm` and `lib/db/derive_*.zm`, the
+three that write SQL living beside `eql`), which assemble Ziman source. A
 generator built from `push`/`concat` hides the thing it exists to produce. See
 docs/design/templates.md -- §12 for the comparison this module was built on, §15 for why a
 source is a *sheet* of named templates rather than one anonymous one.

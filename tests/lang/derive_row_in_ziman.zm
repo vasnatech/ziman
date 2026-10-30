@@ -3,7 +3,7 @@
 // The second generator ported out of `src/derive.c`, and the one that says whether templates pay
 // at scale -- see docs/design/templates.md §14. The expected text is what the C emits today, byte
 // for byte, which is also what `tools/check_template_examples.py` holds the worked examples in
-// `lib/core/derive_row.zm` to.
+// `lib/db/derive_row.zm` to.
 //
 // `Note` is the small case the file's own comments show. `Wide` is the one that matters: a
 // `Uuid`, every scalar kind, an `Instant` (whose converters are spelled short) and three shapes

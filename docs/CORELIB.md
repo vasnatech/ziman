@@ -292,15 +292,6 @@ pub fn format(rows: Json, sep: string) -> Result<string, string>
 
 ```
 
-## `derive_entity`
-
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
-
-```
-pub fn generate(d: meta.Decl) -> Result<string, string>
-
-```
-
 ## `derive_json`
 
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
@@ -343,28 +334,6 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
-pub fn generate(d: meta.Decl) -> Result<string, string>
-
-```
-
-## `derive_repository`
-
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
-
-```
-pub fn generate_module(t: meta.Target) -> Result<string, string>
-
-pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string>
-
-```
-
-## `derive_row`
-
-**Experimental** (see docs/DESIGN.md "Experimental modules"). 
-
-```
-pub fn emit_to_sql(t: meta.Type, src: string, dst: string, n: Mutable<int>) -> Result<string, string>
-
 pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
@@ -2257,6 +2226,37 @@ pub struct QueryResult {
 }
 
 pub fn open_rows(
+
+```
+
+## `derive_entity`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub fn generate(d: meta.Decl) -> Result<string, string>
+
+```
+
+## `derive_repository`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub fn generate_module(t: meta.Target) -> Result<string, string>
+
+pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string>
+
+```
+
+## `derive_row`
+
+**Experimental** (see docs/DESIGN.md "Experimental modules"). 
+
+```
+pub fn emit_to_sql(t: meta.Type, src: string, dst: string, n: Mutable<int>) -> Result<string, string>
+
+pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
 

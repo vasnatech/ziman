@@ -5,7 +5,8 @@
 
 /* The bridge from `#[derive(X)]` to a generator written in Ziman.
  *
- * `lib/core/derive_*.zm` are the generators; each declares `#![generator(X)]` and exports
+ * `lib/core/derive_*.zm` and `lib/db/derive_*.zm` are the generators -- the three that write
+ * SQL live beside `eql`; each declares `#![generator(X)]` and exports
  * `generate(d: meta.Decl) -> Result<string, string>`. This loads them as a program of their own,
  * initialises their globals, reifies a declaration as a `meta.Decl` and calls one -- answering
  * the source text to splice, exactly as a C generator's `cb.data` is.

@@ -562,7 +562,7 @@ Status within this document: **design only.** §§1-14 are built; nothing in thi
 
 ### What is wrong now
 
-`lib/core/derive_row.zm` holds **seven `must_parse` vals scattered over a hundred lines**, with
+`lib/db/derive_row.zm` holds **seven `must_parse` vals scattered over a hundred lines**, with
 helper functions between them. Every line of output comes from a template, which §14 was pleased
 about, and the file is still hard to read. Three separate faults, which want three different
 answers:
