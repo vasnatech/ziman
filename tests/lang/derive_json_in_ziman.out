@@ -7,25 +7,25 @@ pub fn wide_to_json(v: Wide) -> Json {
     val field_at_json = to_json(v.at)
     val __derive_ab_2 = mutable_array_new<Json>()
     for __derive_item_0 in v.tags {
-    val __derive_item_json_1 = Json.JString(__derive_item_0)
-    push<Json>(__derive_ab_2, __derive_item_json_1)
+        val __derive_item_json_1 = Json.JString(__derive_item_0)
+        push<Json>(__derive_ab_2, __derive_item_json_1)
     }
     val field_tags_json = Json.JArray(snapshot(__derive_ab_2))
     val __derive_fields_6 = mutable_map_new<string, Json>()
     for __derive_key_3, __derive_entry_4 in v.scores {
-    val __derive_entry_json_5 = int_to_json(__derive_entry_4)
-    set<string, Json>(__derive_fields_6, __derive_key_3, __derive_entry_json_5)
+        val __derive_entry_json_5 = int_to_json(__derive_entry_4)
+        set<string, Json>(__derive_fields_6, __derive_key_3, __derive_entry_json_5)
     }
     val field_scores_json = Json.JObject(snapshot(__derive_fields_6))
     var field_middle_name_json = Json.JNull
     if Option.is_Some(v.middle_name) {
-    val __derive_opt_inner_7 = Json.JString(Option.unwrap_Some(v.middle_name))
-    field_middle_name_json = __derive_opt_inner_7
+        val __derive_opt_inner_7 = Json.JString(Option.unwrap_Some(v.middle_name))
+        field_middle_name_json = __derive_opt_inner_7
     }
     var field_seen_json = Json.JNull
     if Option.is_Some(v.seen) {
-    val __derive_opt_inner_8 = to_json(Option.unwrap_Some(v.seen))
-    field_seen_json = __derive_opt_inner_8
+        val __derive_opt_inner_8 = to_json(Option.unwrap_Some(v.seen))
+        field_seen_json = __derive_opt_inner_8
     }
     return Json.JObject(Map<string, Json> {
         "id": field_id_json,
@@ -73,17 +73,17 @@ pub fn wide_from_json(j: Json) -> Result<Wide, string> {
     if !Json.is_JArray(field_tags_raw) { return err("tags: expected an array") }
     val __derive_ab_8 = mutable_array_new<string>()
     for __derive_item_9 in Json.unwrap_JArray(field_tags_raw) {
-    if !Json.is_JString(__derive_item_9) { return err("expected a string") }
-    val __derive_item_val_10 = Json.unwrap_JString(__derive_item_9)
-    push<string>(__derive_ab_8, __derive_item_val_10)
+        if !Json.is_JString(__derive_item_9) { return err("expected a string") }
+        val __derive_item_val_10 = Json.unwrap_JString(__derive_item_9)
+        push<string>(__derive_ab_8, __derive_item_val_10)
     }
     val field_tags = snapshot(__derive_ab_8)
     val field_scores_raw = try json.require(j, "scores")
     if !Json.is_JObject(field_scores_raw) { return err("scores: expected an object") }
     val __derive_builder_15 = mutable_map_new<string, int>()
     for __derive_key_11, __derive_raw_12 in Json.unwrap_JObject(field_scores_raw) {
-    val __derive_entry_13 = try int_from_json(__derive_raw_12)
-    set<string, int>(__derive_builder_15, __derive_key_11, __derive_entry_13)
+        val __derive_entry_13 = try int_from_json(__derive_raw_12)
+        set<string, int>(__derive_builder_15, __derive_key_11, __derive_entry_13)
     }
     val field_scores = snapshot(__derive_builder_15)
     val field_middle_name_found = json.get(j, "middleName")
@@ -174,9 +174,9 @@ pub fn wide_from_json_all(j: Json) -> Result<Wide, [string]> {
     if !Json.is_JArray(field_tags_raw) { return err("expected an array") }
     val __derive_ab_0 = mutable_array_new<string>()
     for __derive_item_1 in Json.unwrap_JArray(field_tags_raw) {
-    if !Json.is_JString(__derive_item_1) { return err("expected a string") }
-    val __derive_item_val_2 = Json.unwrap_JString(__derive_item_1)
-    push<string>(__derive_ab_0, __derive_item_val_2)
+        if !Json.is_JString(__derive_item_1) { return err("expected a string") }
+        val __derive_item_val_2 = Json.unwrap_JString(__derive_item_1)
+        push<string>(__derive_ab_0, __derive_item_val_2)
     }
     val field_tags = snapshot(__derive_ab_0)
     return ok(field_tags)
@@ -188,8 +188,8 @@ pub fn wide_from_json_all(j: Json) -> Result<Wide, [string]> {
     if !Json.is_JObject(field_scores_raw) { return err("expected an object") }
     val __derive_builder_7 = mutable_map_new<string, int>()
     for __derive_key_3, __derive_raw_4 in Json.unwrap_JObject(field_scores_raw) {
-    val __derive_entry_5 = try int_from_json(__derive_raw_4)
-    set<string, int>(__derive_builder_7, __derive_key_3, __derive_entry_5)
+        val __derive_entry_5 = try int_from_json(__derive_raw_4)
+        set<string, int>(__derive_builder_7, __derive_key_3, __derive_entry_5)
     }
     val field_scores = snapshot(__derive_builder_7)
     return ok(field_scores)
@@ -238,6 +238,43 @@ pub fn wide_from_json_all(j: Json) -> Result<Wide, [string]> {
         middle_name: unwrap(got_middle_name),
         seen: unwrap(got_seen)
     })
+}
+
+
+pub fn shape_to_json(v: Shape) -> Json {
+    if Shape.is_Circle(v) {
+        val payload_json_0 = to_json(Shape.unwrap_Circle(v))
+        return Json.JObject(Map<string, Json> {
+            "type": Json.JString("Circle"),
+            "value": payload_json_0
+        })
+    } else if Shape.is_Square(v) {
+        val payload_json_1 = float_to_json(Shape.unwrap_Square(v))
+        return Json.JObject(Map<string, Json> {
+            "type": Json.JString("Square"),
+            "value": payload_json_1
+        })
+    } else {
+        return Json.JObject(Map<string, Json> { "type": Json.JString("Point") })
+    }
+}
+
+pub fn shape_from_json(j: Json) -> Result<Shape, string> {
+    if !Json.is_JObject(j) { return err("expected a JSON object for Shape") }
+    val __derive_tag = try json.require_string(j, "type")
+    if __derive_tag == "Circle" {
+        val __derive_payload_raw = try json.require(j, "value")
+        val payload_0 = try to_instant(__derive_payload_raw)
+        return Shape.Circle(payload_0)
+    } else if __derive_tag == "Square" {
+        val __derive_payload_raw = try json.require(j, "value")
+        val payload_1 = try float_from_json(__derive_payload_raw)
+        return Shape.Square(payload_1)
+    } else if __derive_tag == "Point" {
+        return Shape.Point
+    } else {
+        return err(concat("unknown variant tag for Shape: ", __derive_tag))
+    }
 }
 
 

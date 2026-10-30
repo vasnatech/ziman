@@ -99,15 +99,15 @@ fn getter_for(t: meta.Type) -> Result<string, string> {
         Byte { return unsupported(t) }
         Unit { return unsupported(t) }
         Void { return unsupported(t) }
-        Array(ignored) { return unsupported(t) }
-        SetOf(ignored) { return unsupported(t) }
-        ChannelOf(ignored) { return unsupported(t) }
-        MapOf(ignored) { return unsupported(t) }
-        ResultOf(ignored) { return unsupported(t) }
-        Func(ignored) { return unsupported(t) }
-        Optional(ignored) { return unsupported(t) }
-        Named(ignored) { return unsupported(t) }
-        Var(ignored) { return unsupported(t) }
+        Array(_) { return unsupported(t) }
+        SetOf(_) { return unsupported(t) }
+        ChannelOf(_) { return unsupported(t) }
+        MapOf(_) { return unsupported(t) }
+        ResultOf(_) { return unsupported(t) }
+        Func(_) { return unsupported(t) }
+        Optional(_) { return unsupported(t) }
+        Named(_) { return unsupported(t) }
+        Var(_) { return unsupported(t) }
     }
 }
 
@@ -125,7 +125,7 @@ pub fn generate(d: meta.Decl) -> Result<string, string> {
         // Unreachable: `src/derive.c` refuses `derive(Properties)` on an enum before a generator
         // is reached. Written as an arm rather than a check because the `switch` requires one,
         // which is the point of `Body` being an enum.
-        Enum(ignored) {
+        Enum(_) {
             return err(concat("derive(Properties) does not support an enum ('", d.name, "')"))
         }
     }

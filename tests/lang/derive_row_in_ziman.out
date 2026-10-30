@@ -4,8 +4,8 @@ pub fn note_from_row(row: Row) -> Result<Note, DbError> {
     val field_body_raw = try row_get(row, "body")
     var field_body = Option<string>.None
     if !SqlValue.is_Null(field_body_raw) {
-    val __derive_opt_inner_0 = try sql_as_text(field_body_raw)
-    field_body = Option<string>.Some(__derive_opt_inner_0)
+        val __derive_opt_inner_0 = try sql_as_text(field_body_raw)
+        field_body = Option<string>.Some(__derive_opt_inner_0)
     }
     return Note {
         id: field_id,
@@ -19,8 +19,8 @@ pub fn note_to_params(v: Note) -> [SqlValue] {
     push<SqlValue>(__derive_params, field_id_sql)
     var field_body_sql = SqlValue.Null
     if Option.is_Some(v.body) {
-    val __derive_opt_inner_0 = SqlValue.Text(Option.unwrap_Some(v.body))
-    field_body_sql = __derive_opt_inner_0
+        val __derive_opt_inner_0 = SqlValue.Text(Option.unwrap_Some(v.body))
+        field_body_sql = __derive_opt_inner_0
     }
     push<SqlValue>(__derive_params, field_body_sql)
     return snapshot(__derive_params)
@@ -45,20 +45,20 @@ pub fn wide_from_row(row: Row) -> Result<Wide, DbError> {
     val field_note_raw = try row_get(row, "note")
     var field_note = Option<string>.None
     if !SqlValue.is_Null(field_note_raw) {
-    val __derive_opt_inner_0 = try sql_as_text(field_note_raw)
-    field_note = Option<string>.Some(__derive_opt_inner_0)
+        val __derive_opt_inner_0 = try sql_as_text(field_note_raw)
+        field_note = Option<string>.Some(__derive_opt_inner_0)
     }
     val field_seen_at_raw = try row_get(row, "seen_at")
     var field_seen_at = Option<Instant>.None
     if !SqlValue.is_Null(field_seen_at_raw) {
-    val __derive_opt_inner_1 = try to_instant(field_seen_at_raw)
-    field_seen_at = Option<Instant>.Some(__derive_opt_inner_1)
+        val __derive_opt_inner_1 = try to_instant(field_seen_at_raw)
+        field_seen_at = Option<Instant>.Some(__derive_opt_inner_1)
     }
     val field_owner_raw = try row_get(row, "owner")
     var field_owner = Option<Uuid>.None
     if !SqlValue.is_Null(field_owner_raw) {
-    val __derive_opt_inner_2 = try uuid_from_sql(field_owner_raw)
-    field_owner = Option<Uuid>.Some(__derive_opt_inner_2)
+        val __derive_opt_inner_2 = try uuid_from_sql(field_owner_raw)
+        field_owner = Option<Uuid>.Some(__derive_opt_inner_2)
     }
     return Wide {
         id: field_id,
@@ -92,20 +92,20 @@ pub fn wide_to_params(v: Wide) -> [SqlValue] {
     push<SqlValue>(__derive_params, field_at_sql)
     var field_note_sql = SqlValue.Null
     if Option.is_Some(v.note) {
-    val __derive_opt_inner_0 = SqlValue.Text(Option.unwrap_Some(v.note))
-    field_note_sql = __derive_opt_inner_0
+        val __derive_opt_inner_0 = SqlValue.Text(Option.unwrap_Some(v.note))
+        field_note_sql = __derive_opt_inner_0
     }
     push<SqlValue>(__derive_params, field_note_sql)
     var field_seen_at_sql = SqlValue.Null
     if Option.is_Some(v.seen_at) {
-    val __derive_opt_inner_1 = to_sql(Option.unwrap_Some(v.seen_at))
-    field_seen_at_sql = __derive_opt_inner_1
+        val __derive_opt_inner_1 = to_sql(Option.unwrap_Some(v.seen_at))
+        field_seen_at_sql = __derive_opt_inner_1
     }
     push<SqlValue>(__derive_params, field_seen_at_sql)
     var field_owner_sql = SqlValue.Null
     if Option.is_Some(v.owner) {
-    val __derive_opt_inner_2 = uuid_to_sql(Option.unwrap_Some(v.owner))
-    field_owner_sql = __derive_opt_inner_2
+        val __derive_opt_inner_2 = uuid_to_sql(Option.unwrap_Some(v.owner))
+        field_owner_sql = __derive_opt_inner_2
     }
     push<SqlValue>(__derive_params, field_owner_sql)
     return snapshot(__derive_params)

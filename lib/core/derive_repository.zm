@@ -220,7 +220,7 @@ pub fn generate_module(t: meta.Target) -> Result<string, string> {
         ))
     }
     for f in keys {
-        if Optional(ignored) = f.type {
+        if Optional(_) = f.type {
             return err(prelude.format(
                 "#![repository({})] cannot use '{}' as a key column: it is an Option, and a key " \
                     "that may be absent does not address a row",
@@ -475,7 +475,10 @@ fn longest_column(fields: [meta.Field], text: string) -> Option<string> {
 // that obvious, since every step consumes at least one column.
 fn why_unreadable(fields: [meta.Field], entity: string, at: string, ordering: bool, read: int) -> string {
     val part = if ordering { "ordering" } else { "predicate" }
-    if None = longest_column(fields, at) {
+    // One scan of the entity's fields, not two: this walks the name a column at a time, the scan
+    // *is* the step, and doing it twice doubled the cost of building a refusal message.
+    val longest = longest_column(fields, at)
+    if None = longest {
         if read == 0 {
             return prelude.format(
                 "nothing in '{}' names a field of {} -- a derived query's {} is made of the " \
@@ -495,7 +498,7 @@ fn why_unreadable(fields: [meta.Field], entity: string, at: string, ordering: bo
             field_list(fields)
         )
     }
-    val col = unwrap(longest_column(fields, at))
+    val col = unwrap(longest)
     var rest = after(at, col)
     if ordering {
         for d in order_dirs {
@@ -1089,14 +1092,16 @@ pub fn generate_query(t: meta.Target, f: meta.Function) -> Result<string, string
     val no_terms: [Term] = []
     val no_orders: [Order] = []
 
-    if None = split_verb(f.name) {
+    // Read once: the name is split, then the split is read -- not split twice.
+    val verb_split = split_verb(f.name)
+    if None = verb_split {
         return err(prelude.format(
             "a derived query's name begins with 'find', 'count', 'exists' or 'delete', and '{}' " \
                 "begins with none of them",
             f.name
         ))
     }
-    val split = unwrap(split_verb(f.name))
+    val split = unwrap(verb_split)
     val verb = split.verb
     val word = verb_word(verb)
     val rest = split.rest

@@ -18,8 +18,13 @@ use template
 
 // The bundled types whose converters are spelled short -- `to_sql(d)` and `to_localdate(v)`
 // rather than `local_date_to_sql` and `local_date_from_sql`. `Uuid` is deliberately absent: its
-// name has nothing to shorten, so it keeps `uuid_to_sql`. See `standard_flat_type_name` in
-// src/derive.c for why the short form stops at these seven.
+// name has nothing to shorten, so it keeps `uuid_to_sql`. `standard_flat_type_name` in
+// src/derive.c says why the short form stops at these seven.
+//
+// **That function and this map are the same table in two languages, on purpose** (F229): this one
+// decides what the generated text *calls*, and the C one decides which names are *imported* for
+// it, so they have to agree. The reason it is survivable is that a disagreement is a missing
+// import -- an error at the deriving declaration -- rather than a wrong answer at run time.
 val flat_names = Map<string, string> {
     "Instant": "instant",
     "LocalDate": "localdate",
@@ -48,10 +53,11 @@ val flat_names = Map<string, string> {
 //         }
 //     }
 //
-// The flat indentation inside the `if` is the C generator's, kept because this port is checked
-// by emitting the same bytes. **`@yield` is what will fix it**: it prefixes the block with its
-// own indentation, so indenting the directive is the whole change -- taken once the bridge lands
-// and the fixtures can move.
+// **The flat indentation inside the `if` was the C generator's and is gone (2026-10-29).** It was
+// kept while this port was checked by emitting the same bytes, with the fix named in advance:
+// `@yield` prefixes the block with its own indentation, so indenting the directive is the whole
+// change. The bridge landed (F225-F229), the fixtures could move, and they did -- generated code
+// inside an `if` is indented like code a person would write.
 val sheet = template.must_parse("""
 @template from_row
 pub fn @{snake}_from_row(row: Row) -> Result<@{name}, DbError> {
@@ -74,8 +80,8 @@ pub fn @{snake}_from_row(row: Row) -> Result<@{name}, DbError> {
 @else
     var @{dst} = Option<@{elem}>.None
     if !SqlValue.is_Null(@{src}) {
-@yield nested
-    @{dst} = Option<@{elem}>.Some(@{inner})
+    @yield nested
+        @{dst} = Option<@{elem}>.Some(@{inner})
     }
 @end
 @end
@@ -100,8 +106,8 @@ pub fn @{snake}_to_params(v: @{name}) -> [SqlValue] {
 @else
     var @{dst} = SqlValue.Null
     if Option.is_Some(@{src}) {
-@yield nested
-    @{dst} = @{inner}
+    @yield nested
+        @{dst} = @{inner}
     }
 @end
 @end
@@ -119,15 +125,15 @@ fn reader_for(t: meta.Type) -> Option<string> {
         Byte { return Option<string>.None }
         Unit { return Option<string>.None }
         Void { return Option<string>.None }
-        Array(ignored) { return Option<string>.None }
-        SetOf(ignored) { return Option<string>.None }
-        ChannelOf(ignored) { return Option<string>.None }
-        MapOf(ignored) { return Option<string>.None }
-        ResultOf(ignored) { return Option<string>.None }
-        Func(ignored) { return Option<string>.None }
-        Optional(ignored) { return Option<string>.None }
-        Named(ignored) { return Option<string>.None }
-        Var(ignored) { return Option<string>.None }
+        Array(_) { return Option<string>.None }
+        SetOf(_) { return Option<string>.None }
+        ChannelOf(_) { return Option<string>.None }
+        MapOf(_) { return Option<string>.None }
+        ResultOf(_) { return Option<string>.None }
+        Func(_) { return Option<string>.None }
+        Optional(_) { return Option<string>.None }
+        Named(_) { return Option<string>.None }
+        Var(_) { return Option<string>.None }
     }
 }
 
@@ -143,15 +149,15 @@ fn writer_for(t: meta.Type) -> Option<string> {
         Byte { return Option<string>.None }
         Unit { return Option<string>.None }
         Void { return Option<string>.None }
-        Array(ignored) { return Option<string>.None }
-        SetOf(ignored) { return Option<string>.None }
-        ChannelOf(ignored) { return Option<string>.None }
-        MapOf(ignored) { return Option<string>.None }
-        ResultOf(ignored) { return Option<string>.None }
-        Func(ignored) { return Option<string>.None }
-        Optional(ignored) { return Option<string>.None }
-        Named(ignored) { return Option<string>.None }
-        Var(ignored) { return Option<string>.None }
+        Array(_) { return Option<string>.None }
+        SetOf(_) { return Option<string>.None }
+        ChannelOf(_) { return Option<string>.None }
+        MapOf(_) { return Option<string>.None }
+        ResultOf(_) { return Option<string>.None }
+        Func(_) { return Option<string>.None }
+        Optional(_) { return Option<string>.None }
+        Named(_) { return Option<string>.None }
+        Var(_) { return Option<string>.None }
     }
 }
 
@@ -255,7 +261,7 @@ pub fn generate(d: meta.Decl) -> Result<string, string> {
         Struct(fields) { return ok(concat(try from_row(d, fields), try to_params(d, fields))) }
         // `src/derive.c` refuses `derive(Row)` on an enum before this runs; the arm exists
         // because the `switch` requires one, which is what makes the refusal unforgettable.
-        Enum(ignored) {
+        Enum(_) {
             return err(concat("derive(Row) does not support an enum ('", d.name, "')"))
         }
     }

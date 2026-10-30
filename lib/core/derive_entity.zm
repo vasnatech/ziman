@@ -67,7 +67,7 @@ pub fn generate(d: meta.Decl) -> Result<string, string> {
         Struct(fields) { return entity(d, fields) }
         // `src/derive.c` refuses `derive(Entity)` on an enum before this runs. The arm is here
         // because the `switch` requires one, which is what makes the refusal unforgettable.
-        Enum(ignored) {
+        Enum(_) {
             return err(concat("derive(Entity) does not support an enum ('", d.name, "')"))
         }
     }

@@ -1,7 +1,16 @@
-// `#[derive(Json)]`'s three struct functions, written in Ziman: `to_json`, `from_json` and the
-// accumulating `from_json_all`. **Still a partial port** -- the two enum halves are in
-// `src/derive.c`, and `derive_json.generate` refuses by name rather than answering a struct and
-// failing an enum, so nothing is wired yet and `#[derive(Json)]` goes through the C.
+// `#[derive(Json)]` written in Ziman: `to_json`, `from_json` and the accumulating
+// `from_json_all` for a struct, and `to_json`/`from_json` for an enum.
+//
+// **The "partly ported" note this file carried is gone** (2026-10-29): it said the enum halves
+// were still in `src/derive.c` and that `generate` refused an enum by name, which was true at
+// F226 and stopped being true when the port finished at F229. `src/derive.c` generates nothing
+// at all now.
+//
+// **The enum half is pinned here for the first time**, which is why it was added: changing the
+// indentation of generated enum code moved no fixture at all, because the enum fixtures that
+// exist (`derive_json_enum_tagged`, `derive_json_generic`) check that a value round-trips rather
+// than what the generator wrote. Round-tripping cannot see a temporary named twice or a block
+// closed in the wrong arm.
 //
 // The struct covers every shape these reach: a `Uuid`, all the scalars, a **module-qualified**
 // `time.Instant` (short-spelled converters, and the one shape whose type name is written out),
@@ -36,4 +45,15 @@ fn main() {
     // `generate` is exactly those three concatenated, and calling it rather than the three
     // keeps this fixture from re-stating the order they are spliced in.
     print(unwrap(derive_json.generate(d)))
+
+    // An enum, with the three variant shapes the generator distinguishes: a payload that needs a
+    // converter call, a payload that is a scalar written inline, and no payload at all. The
+    // opener/closer dance -- `if`, `} else if`, `} else`, and the brace the last arm leaves open --
+    // is what this text is really checking, since it is spread across two templates and a flag.
+    val e = meta.enum_decl("Shape", "shape", meta.no_arg(), none, [
+        meta.payload_variant("Circle", meta.named_type("time.Instant", [])),
+        meta.payload_variant("Square", meta.float_type()),
+        meta.unit_variant("Point")
+    ])
+    print(unwrap(derive_json.generate(e)))
 }

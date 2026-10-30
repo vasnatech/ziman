@@ -4506,3 +4506,62 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   it changes nothing about the language and everything about the ergonomics, and it is what step 1
   was built for. Also still open and not ziman's: whether the North Star's notification text moves
   out of Ziman code into `render_text` (F235).
+
+- [x] **F241** **A pass over the seven `derive_*.zm`: the generated code is indented now, and the
+  generators are lint-clean.** (user-raised, 2026-10-29: "go over derive_*.zm files. optimize and
+  make templates more readable"; S-M.)
+
+  **The generated code's flat indentation is gone, and the fix was named in advance.**
+  `derive_row.zm` carried a note saying the flat lines inside a generated `if` were the C
+  generator's, kept while the port was checked by emitting the same bytes, and that `@yield`
+  prefixing a block with its own indentation meant "indenting the directive is the whole change --
+  taken once the bridge lands and the fixtures can move". The bridge landed at F229, so: eleven
+  templates across `derive_row` and `derive_json` (the option/array/map/set nesting and **both
+  enum halves**) now indent their `@yield`, and generated code inside a block is indented like
+  code a person would write:
+
+      var field_body = Option<string>.None          val payload_json_0 = ... (was at 4)
+      if !SqlValue.is_Null(field_body_raw) {             val payload_json_0 = ... (now at 8)
+          val __derive_opt_inner_0 = try sql_as_text(field_body_raw)
+          field_body = Option<string>.Some(__derive_opt_inner_0)
+      }
+
+  **Verified as whitespace-only across the North Star**: of its **12,542 generated lines, 1,342
+  moved, and the two versions are identical once indentation is stripped.** Three text fixtures
+  were repinned deliberately.
+
+  **A coverage gap found by that change and closed.** Re-indenting generated *enum* code moved no
+  fixture at all: `derive_json_enum_tagged` and `derive_json_generic` check that a value
+  round-trips, which cannot see a temporary named twice or a block closed in the wrong arm, and
+  nothing pinned the text. `derive_json_in_ziman` now generates an enum with the three variant
+  shapes the generator distinguishes -- a converter-call payload, an inline scalar payload, and no
+  payload -- so the opener/closer dance spread across two templates and a flag is pinned for the
+  first time (280 lines).
+
+  **59 bindings named `ignored` became `_`.** Every one was an exhaustive `switch` arm's payload,
+  and `make lint` reported all 59 as "'val ignored' is never read; remove it (or name it '_' to
+  discard on purpose)" -- the lint suggesting the language's own discard. All seven generators are
+  lint-clean now; the remaining `make lint` findings are in `memdb.zm` and `http/server.zm`.
+
+  **Three functions were being called twice to test and then to use**, all introduced earlier the
+  same day:
+
+  * `template.zm`'s `expression` parsed **every hole and every condition in every sheet twice** at
+    module load (`if Err(..) = expr.parse(source)` then `unwrap(expr.parse(source))`);
+  * `derive_repository`'s `generate_query` split a query's name twice;
+  * `why_unreadable` scanned the entity's fields twice per step of its walk, where the scan *is*
+    the step.
+
+  Honest about the effect: loading the generator program measures ~40 ms against ~42 ms before,
+  which is inside the variance of that measurement (F240 saw 42-49 ms across samples). Halving the
+  parse work is right regardless of whether a wall clock can see it.
+
+  **Not changed, with reasons.** The `@{f.comma}` cell in three sheets stays: a struct literal's
+  fields are comma-separated, a trailing comma is a syntax error, and a directive owns its whole
+  line so an `@if` cannot sit inside a list item -- templates.md §16's own limitation. And two
+  comments were corrected rather than kept: `derive_json_in_ziman`'s header still said the enum
+  halves were "in `src/derive.c`" with "nothing wired yet", and `emit_from_json`'s said a fixture
+  held it "to the bytes `src/derive.c` emits" -- which stopped being true when the C generator
+  went.
+
+  1,311 fixtures.

@@ -246,10 +246,14 @@ struct Section {
 // malformed directive is: a generator's sheet is a module-level `val`, so a sheet that cannot be
 // read stops the module rather than the first render (docs/design/expressions.md §10).
 fn expression(source: string, line_no: int) -> Result<Expr, string> {
-    if Err(why) = expr.parse(source) {
+    // Parsed **once**: the first version of this tested `expr.parse(source)` and then unwrapped a
+    // second call of it, so every hole and every condition in every sheet was parsed twice at
+    // module load.
+    val parsed = expr.parse(source)
+    if Err(why) = parsed {
         return err(problem(line_no, prelude.format("'{}' is not an expression: {}", trim(source), why)))
     }
-    return ok(unwrap(expr.parse(source)))
+    return ok(unwrap(parsed))
 }
 
 fn parse_block(lines: [string], start: int) -> Result<Section, string> {

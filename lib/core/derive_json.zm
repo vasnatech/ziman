@@ -67,8 +67,8 @@ pub fn @{snake}_to_json@{params}(v: @{self}@{converters}) -> Json {
 @template to_seq
     val @{acc} = mutable_array_new<Json>()
     for @{item} in @{src} {
-@yield inner
-    push<Json>(@{acc}, @{item_json})
+    @yield inner
+        push<Json>(@{acc}, @{item_json})
     }
     val @{dst} = Json.JArray(snapshot(@{acc}))
 @end
@@ -76,8 +76,8 @@ pub fn @{snake}_to_json@{params}(v: @{self}@{converters}) -> Json {
 @template to_map
     val @{acc} = mutable_map_new<string, Json>()
     for @{key}, @{entry} in @{src} {
-@yield inner
-    set<string, Json>(@{acc}, @{key_expr}, @{entry_json})
+    @yield inner
+        set<string, Json>(@{acc}, @{key_expr}, @{entry_json})
     }
     val @{dst} = Json.JObject(snapshot(@{acc}))
 @end
@@ -85,8 +85,8 @@ pub fn @{snake}_to_json@{params}(v: @{self}@{converters}) -> Json {
 @template to_option
     var @{dst} = Json.JNull
     if Option.is_Some(@{src}) {
-@yield inner
-    @{dst} = @{inner_var}
+    @yield inner
+        @{dst} = @{inner_var}
     }
 @end
 
@@ -173,8 +173,8 @@ pub fn @{snake}_from_json_all@{params}(j: Json@{converters}) -> Result<@{self}, 
 @yield check
     val @{acc} = mutable_array_new<@{elem}>()
     for @{item} in Json.unwrap_JArray(@{src}) {
-@yield inner
-    push<@{elem}>(@{acc}, @{item_val})
+    @yield inner
+        push<@{elem}>(@{acc}, @{item_val})
     }
     val @{dst} = snapshot(@{acc})
 @end
@@ -183,8 +183,8 @@ pub fn @{snake}_from_json_all@{params}(j: Json@{converters}) -> Result<@{self}, 
 @yield check
     val @{acc} = mutable_set_new<@{elem}>()
     for @{item} in Json.unwrap_JArray(@{src}) {
-@yield inner
-    add<@{elem}>(@{acc}, @{item_val})
+    @yield inner
+        add<@{elem}>(@{acc}, @{item_val})
     }
     val @{dst} = snapshot(@{acc})
 @end
@@ -193,12 +193,12 @@ pub fn @{snake}_from_json_all@{params}(j: Json@{converters}) -> Result<@{self}, 
 @yield check
     val @{acc} = mutable_map_new<@{kt}, @{vt}>()
     for @{key}, @{raw} in Json.unwrap_JObject(@{src}) {
-@yield inner
+    @yield inner
 @if key_kind == 'int'
-    val @{key_n} = try parse_int(@{key})
-    set<@{kt}, @{vt}>(@{acc}, @{key_n}, @{entry})
+        val @{key_n} = try parse_int(@{key})
+        set<@{kt}, @{vt}>(@{acc}, @{key_n}, @{entry})
 @else
-    set<@{kt}, @{vt}>(@{acc}, @{key}, @{entry})
+        set<@{kt}, @{vt}>(@{acc}, @{key}, @{entry})
 @end
     }
     val @{dst} = snapshot(@{acc})
@@ -207,8 +207,8 @@ pub fn @{snake}_from_json_all@{params}(j: Json@{converters}) -> Result<@{self}, 
 @template from_option
     var @{dst} = Option<@{elem}>.None
     if !Json.is_JNull(@{src}) {
-@yield inner
-    @{dst} = Option<@{elem}>.Some(@{inner_var})
+    @yield inner
+        @{dst} = Option<@{elem}>.Some(@{inner_var})
     }
 @end
 
@@ -233,7 +233,7 @@ pub fn @{snake}_to_json@{params}(v: @{self}@{converters}) -> Json {
     } else {
 @end
 @if payload
-@yield conv
+    @yield conv
         return Json.JObject(Map<string, Json> {
             "type": Json.JString("@{variant}"),
             "value": @{dst}
@@ -265,7 +265,7 @@ pub fn @{snake}_from_json@{params}(j: Json@{converters}) -> Result<@{self}, stri
 @end
 @if payload
         val __derive_payload_raw = try json.require(j, "value")
-@yield conv
+    @yield conv
         return @{self}.@{variant}(@{dst})
 @else
         return @{self}.@{variant}
@@ -287,15 +287,15 @@ fn is_scalar_call(t: meta.Type) -> Option<string> {
         Byte { return Option<string>.None }
         Unit { return Option<string>.None }
         Void { return Option<string>.None }
-        Array(ignored) { return Option<string>.None }
-        SetOf(ignored) { return Option<string>.None }
-        ChannelOf(ignored) { return Option<string>.None }
-        MapOf(ignored) { return Option<string>.None }
-        ResultOf(ignored) { return Option<string>.None }
-        Func(ignored) { return Option<string>.None }
-        Optional(ignored) { return Option<string>.None }
-        Named(ignored) { return Option<string>.None }
-        Var(ignored) { return Option<string>.None }
+        Array(_) { return Option<string>.None }
+        SetOf(_) { return Option<string>.None }
+        ChannelOf(_) { return Option<string>.None }
+        MapOf(_) { return Option<string>.None }
+        ResultOf(_) { return Option<string>.None }
+        Func(_) { return Option<string>.None }
+        Optional(_) { return Option<string>.None }
+        Named(_) { return Option<string>.None }
+        Var(_) { return Option<string>.None }
     }
 }
 
@@ -366,15 +366,15 @@ fn scalar_name(t: meta.Type) -> string {
         Byte { return "" }
         Unit { return "" }
         Void { return "" }
-        Array(ignored) { return "" }
-        SetOf(ignored) { return "" }
-        ChannelOf(ignored) { return "" }
-        MapOf(ignored) { return "" }
-        ResultOf(ignored) { return "" }
-        Func(ignored) { return "" }
-        Optional(ignored) { return "" }
-        Named(ignored) { return "" }
-        Var(ignored) { return "" }
+        Array(_) { return "" }
+        SetOf(_) { return "" }
+        ChannelOf(_) { return "" }
+        MapOf(_) { return "" }
+        ResultOf(_) { return "" }
+        Func(_) { return "" }
+        Optional(_) { return "" }
+        Named(_) { return "" }
+        Var(_) { return "" }
     }
 }
 
@@ -519,15 +519,15 @@ fn from_reader(t: meta.Type) -> Option<string> {
         Byte { return Option<string>.None }
         Unit { return Option<string>.None }
         Void { return Option<string>.None }
-        Array(ignored) { return Option<string>.None }
-        SetOf(ignored) { return Option<string>.None }
-        ChannelOf(ignored) { return Option<string>.None }
-        MapOf(ignored) { return Option<string>.None }
-        ResultOf(ignored) { return Option<string>.None }
-        Func(ignored) { return Option<string>.None }
-        Optional(ignored) { return Option<string>.None }
-        Named(ignored) { return Option<string>.None }
-        Var(ignored) { return Option<string>.None }
+        Array(_) { return Option<string>.None }
+        SetOf(_) { return Option<string>.None }
+        ChannelOf(_) { return Option<string>.None }
+        MapOf(_) { return Option<string>.None }
+        ResultOf(_) { return Option<string>.None }
+        Func(_) { return Option<string>.None }
+        Optional(_) { return Option<string>.None }
+        Named(_) { return Option<string>.None }
+        Var(_) { return Option<string>.None }
     }
 }
 
@@ -570,9 +570,10 @@ fn from_try(dst: string, call: string, ctx: Option<string>, n: Mutable<int>) -> 
     ])
 }
 
-// `Json` to a value, recursively. **The temporary numbering is part of the contract** -- the
-// fixture holds this to the bytes `src/derive.c` emits -- and it is simply the order the `fresh`
-// calls below appear in.
+// `Json` to a value, recursively. **The temporary numbering is part of the contract** --
+// `tests/lang/derive_json_in_ziman` pins this text byte for byte -- and it is simply the order
+// the `fresh` calls below appear in. (That fixture used to be checked against what
+// `src/derive.c` emitted; the C generator is gone, so the pin is now against the text itself.)
 fn emit_from_json(
     t: meta.Type,
     src: string,

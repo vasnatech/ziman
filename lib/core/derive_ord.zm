@@ -175,7 +175,7 @@ fn enum_compare(d: meta.Decl, variants: [meta.Variant]) -> Result<string, string
     }
     val payloaded = mutable_array_new<template.Row>()
     for m in variants {
-        if Some(ignored_payload) = m.payload {
+        if Some(_) = m.payload {
             push(payloaded, template.row([template.text("variant", m.name)]))
         }
     }
