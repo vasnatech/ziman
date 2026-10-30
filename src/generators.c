@@ -530,6 +530,74 @@ const ZimanAttrSpec *ziman_generator_attr_specs(int *count) {
     return g_attr_specs;
 }
 
+/* The field attributes **this module** may carry: the bundled generators' union, plus the ones
+ * declared by every generator in its own `use` list (§5a's per-module half).
+ *
+ * **Why per module and not one global list.** `#[csv_column(name:)]` means something in a file
+ * that imports `derive/csv` and nothing in a file that does not -- which is the same rule
+ * discovery follows for the target itself (§3), and the thing that keeps a project's attribute
+ * from becoming vocabulary. A global union would make one project's attribute legal everywhere.
+ *
+ * Built fresh per call rather than cached: the answer depends on the module, the list is a dozen
+ * entries, and `ziman_check_field_attributes` asks once per module and only when that module has
+ * a field attribute at all.
+ *
+ * **A name claimed twice is refused at the importing module**, naming both generators. A
+ * generator cannot namespace its attributes -- `#[csv.column]` is not a shape the grammar has --
+ * so the collision is the importer's to resolve, by not importing both. */
+const ZimanAttrSpec *ziman_module_attr_specs(Module *module, int *count) {
+    int bundled_count = 0;
+    const ZimanAttrSpec *bundled = ziman_generator_attr_specs(&bundled_count);
+    if (module == NULL) {
+        *count = bundled_count;
+        return bundled;
+    }
+
+    static ZimanAttrSpec *merged = NULL;
+    static int merged_cap = 0;
+    int n = 0;
+    if (merged_cap < bundled_count) {
+        merged_cap = bundled_count + 32;
+        merged = ziman_xrealloc(merged, (size_t)merged_cap * sizeof *merged);
+    }
+    for (int i = 0; i < bundled_count; i++) merged[n++] = bundled[i];
+
+    for (int u = 0; u < module->uses.count; u++) {
+        Module *used = module->uses.items[u].resolved;
+        if (used == NULL || used->generator_target == NULL || used->is_corelib) continue;
+        Module *program = ready_user_generator(module->uses.items[u].path, used->source_file, 0, 0);
+        if (program == NULL) continue;
+        int before = g_attr_spec_count;
+        /* `collect_attr_specs_from` appends to the global table, which is where the strings live;
+         * the entries it adds for a user generator are read out here and are harmless there. */
+        Module *saved = g_generators;
+        g_generators = program;
+        char *fn = ziman_xmalloc(strlen(module->uses.items[u].path) + 16);
+        sprintf(fn, "%s", module->uses.items[u].path);
+        collect_attr_specs_from(fn);
+        free(fn);
+        g_generators = saved;
+        for (int i = before; i < g_attr_spec_count; i++) {
+            for (int j = 0; j < n; j++) {
+                if (strcmp(merged[j].name, g_attr_specs[i].name) == 0) {
+                    ziman_error("syntax", module->uses.items[u].line, module->uses.items[u].col,
+                                "two generators this module imports both declare the field attribute "
+                                "'%s' -- '%s' is one of them, and a generator cannot qualify its own "
+                                "attributes, so one of the two imports has to go",
+                                g_attr_specs[i].name, module->uses.items[u].path);
+                }
+            }
+            if (n == merged_cap) {
+                merged_cap *= 2;
+                merged = ziman_xrealloc(merged, (size_t)merged_cap * sizeof *merged);
+            }
+            merged[n++] = g_attr_specs[i];
+        }
+    }
+    *count = n;
+    return merged;
+}
+
 char *ziman_generate_in_ziman(Module *module, const char *target, StructDecl *sd, EnumDecl *ed, const FieldAttr *attr, int line, int col) {
     if (!ziman_has_ziman_generator(module, target)) return NULL;
     const char *user_path = NULL;

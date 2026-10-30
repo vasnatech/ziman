@@ -5222,3 +5222,39 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   `docs/SYNTAX.md`'s "other names parse but have no effect yet" is gone -- that was the last
   position where it was true. 1,342 fixtures; the sample backend byte-identical.
+
+- [x] **F261** **A project's generator can have field attributes of its own.** (user-raised
+  2026-10-30, item 3 of six; §5a's per-module half; M.)
+
+      use derive_csv                    // #![generator(Csv)]; attributes() declares csv_column
+      #[derive(Csv)]
+      struct Customer {
+          #[csv_column(name: "ID")]     // this project's attribute, not the language's
+          id: int
+          name: string
+      }
+      // -> pub fn customer_csv_header() -> string { return "ID,name" }
+
+  **This is the gap §5a was written about** -- "a derive that cannot read `#[csv_column(name:)]`
+  can only ever see a field's own name" -- and F250 built only half of it: the spec union was
+  global, collected from the *bundled* generators, so a user generator's `attributes()` was never
+  asked and `#[csv_column]` came back "unknown field attribute". Verified before building, which is
+  what made it worth building.
+
+  `ziman_module_attr_specs(module, ..)` is the bundled union plus every generator in **this
+  module's** `use` list. So the attribute means something exactly where its generator is imported
+  and is refused everywhere else, with the list of what a field there may carry -- the rule
+  discovery already follows for the target itself (§3), and what keeps a project's attribute from
+  becoming vocabulary.
+
+  **A name two imported generators both claim is refused at the second import**, naming the
+  attribute and one claimant: a generator cannot qualify its own attributes (`#[csv.column]` is not
+  a shape the grammar has), so the collision belongs to whoever imported both and the only
+  resolution is to stop.
+
+  Reading needed nothing new -- `meta.Field.attrs` has always carried every attribute generically,
+  so once the check accepts the name, `meta.attr_value(f, "csv_column", "name")` reads it. The
+  spec list is built per call rather than cached, since the answer depends on the module and the
+  check asks once per module and only when one carries a field attribute at all.
+
+  1,344 fixtures; the North Star byte-identical at 34,800 lines.

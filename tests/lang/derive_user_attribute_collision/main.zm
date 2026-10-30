@@ -1,0 +1,18 @@
+// **Two imported generators both declaring `csv_column`**, which has to be refused: a generator
+// cannot qualify its own attributes -- `#[csv.column]` is not a shape the grammar has -- so the
+// collision belongs to whoever imported both, and the only resolution is to stop.
+//
+// It is reported at the **second import**, which is the line to delete, and names the attribute
+// and one of the two claimants.
+use derive_csv
+use derive_tsv
+
+#[derive(Csv)]
+struct Customer {
+    #[csv_column(name: "ID")]
+    id: int
+}
+
+fn main() {
+    print(customer_csv_header())
+}

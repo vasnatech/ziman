@@ -72,3 +72,8 @@ typedef struct {
 /* Every field attribute the loaded generators declare, collected once. Loads the generators, so
  * a caller that has no field attribute to check should not call it. */
 const ZimanAttrSpec *ziman_generator_attr_specs(int *count);
+
+/* The field attributes `module` may carry: the bundled generators' union plus the ones declared by
+ * every generator in its own `use` list. Refuses a name two imported generators both claim. See
+ * the implementation's comment and docs/design/user-generators.md §5a. */
+const ZimanAttrSpec *ziman_module_attr_specs(Module *module, int *count);

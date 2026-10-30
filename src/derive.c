@@ -386,9 +386,16 @@ static int is_whole_number(const char *text) {
 
 /* The spec for `name`, or NULL when the attribute is not one a field may carry. */
 
+/* The spec list the current module's check is running against -- set by
+ * `ziman_check_field_attributes` for the duration of its pass. A file-static rather than a
+ * parameter because `check_field_attribute` is reached through two layers of message building
+ * that have no business carrying it. */
+static const ZimanAttrSpec *g_specs = NULL;
+static int g_spec_count = 0;
+
 static const char *field_attr_spec(const char *name) {
-    int n = 0;
-    const ZimanAttrSpec *specs = ziman_generator_attr_specs(&n);
+    int n = g_spec_count;
+    const ZimanAttrSpec *specs = g_specs;
     for (int i = 0; i < n; i++) {
         if (strcmp(specs[i].name, name) == 0) return specs[i].args;
     }
@@ -425,8 +432,8 @@ static char *field_attr_spec_text(const char *spec) {
 
 /* The names a field may carry, in the order the generators declare them, for the refusal. */
 static char *field_attr_names(void) {
-    int count = 0;
-    const ZimanAttrSpec *specs = ziman_generator_attr_specs(&count);
+    int count = g_spec_count;
+    const ZimanAttrSpec *specs = g_specs;
     size_t n = 1;
     for (int i = 0; i < count; i++) n += strlen(specs[i].name) + 2;
     char *out = ziman_xmalloc(n);
@@ -557,9 +564,15 @@ void ziman_check_field_attributes(Module *module) {
     }
     if (!any) return;
     int count = 0;
+    /* **Per module** (§5a): the bundled generators' attributes plus the ones declared by every
+     * generator this file imports, so `#[csv_column(name:)]` means something here exactly when
+     * `derive/csv` is in the `use` list and nothing anywhere else. */
+    const ZimanAttrSpec *specs = ziman_module_attr_specs(module, &count);
     /* No generators means no answer about what exists, and refusing every attribute would be a
      * worse lie than accepting them: the derive machinery reports its own failure to load. */
-    if (ziman_generator_attr_specs(&count) == NULL || count == 0) return;
+    if (specs == NULL || count == 0) return;
+    g_specs = specs;
+    g_spec_count = count;
     for (int i = 0; i < module->structs.count; i++) {
         StructDecl *sd = module->structs.items[i];
         for (int f = 0; f < sd->fields.count; f++) {
@@ -567,6 +580,8 @@ void ziman_check_field_attributes(Module *module) {
             for (int a = 0; a < attrs->count; a++) check_field_attribute(&attrs->items[a]);
         }
     }
+    g_specs = NULL;
+    g_spec_count = 0;
 }
 
 static int module_binds_name(Module *module, const char *name) {

@@ -1,0 +1,40 @@
+// A generator a **project** wrote, with **a field attribute of its own** -- §5a of
+// docs/design/user-generators.md, which said a derive that cannot read `#[csv_column(name:)]`
+// "can only ever see a field's own name". `attributes()` is how it says the name exists, in the
+// same spec grammar `#[min(8)]` and `#[column(name:)]` are declared with; nothing in `src/` knows
+// `csv_column` any more than it knows `Csv`.
+#![generator(Csv)]
+
+use meta
+use template
+
+val sheet = template.must_parse("""
+@template header
+pub fn @{snake}_csv_header() -> string {
+    return "@{cols}"
+}
+
+@end
+""")
+
+pub fn attributes() -> [meta.AttrSpec] {
+    return [meta.attr_spec("csv_column", "name:string")]
+}
+
+pub fn generate(d: meta.Decl) -> Result<string, string> {
+    switch d.body {
+        Struct(fields) {
+            val names = mutable_array_new<string>()
+            for f in fields {
+                // Read off `meta.Field.attrs`, which carries every attribute generically -- so
+                // once the *check* accepts the name, reading it needs nothing new.
+                push(names, get_or(meta.attr_value(f, "csv_column", "name"), f.name))
+            }
+            return template.render(sheet, "header", [
+                template.text("snake", d.snake_name),
+                template.text("cols", join(separator: ",", pieces: snapshot(names)))
+            ])
+        }
+        Enum(_) { return err("derive(Csv) wants a struct") }
+    }
+}

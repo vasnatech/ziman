@@ -276,9 +276,35 @@ misspelling on a struct that derives nothing is still refused -- which is the wh
 table was in C. And it is refused on the attribute's own line and column, which `FieldAttr` has
 carried all along.
 
-What is **not** built: the per-module part. The union is global, so a project's own generator --
-found through the importing module's `use` list -- needs this keyed per module, and two generators
-claiming one name needs the collision rule below. Both wait on §12.2.
+**The per-module part is built too, 2026-10-30 (F261)** -- which is what makes any of this
+reachable by a project. `ziman_module_attr_specs(module, ..)` is the bundled generators' union plus
+the attributes declared by every generator in *this module's* `use` list, so
+
+```ziman
+use derive_csv                       // #![generator(Csv)], and attributes() declares csv_column
+
+#[derive(Csv)]
+struct Customer {
+    #[csv_column(name: "ID")]        // this project's attribute, not the language's
+    id: int
+    name: string
+}
+// -> pub fn customer_csv_header() -> string { return "ID,name" }
+```
+
+and the same attribute in a file that does **not** import `derive_csv` is refused with the list of
+what a field there may carry. That is the rule discovery already follows for the target (§3), and
+it is what keeps a project's attribute from becoming vocabulary.
+
+**A name two imported generators both claim is refused at the second import**, naming the attribute
+and one claimant. A generator cannot qualify its own attributes -- `#[csv.column]` is not a shape
+the grammar has -- so the collision belongs to whoever imported both, and the only resolution is to
+stop. The list is built per call rather than cached, because the answer depends on the module and
+`ziman_check_field_attributes` asks once per module and only when that module carries a field
+attribute at all.
+
+Reading needs nothing new: `meta.Field.attrs` has always carried every attribute generically, so
+once the *check* accepts the name, `meta.attr_value(f, "csv_column", "name")` reads it.
 
 ### Where it sits in the order
 

@@ -1,0 +1,4 @@
+ziman: syntax error at 8:1 in tests/lang/derive_user_attribute_collision/main.zm: two generators this module imports both declare the field attribute 'csv_column' -- 'derive_tsv' is one of them, and a generator cannot qualify its own attributes, so one of the two imports has to go
+  |
+8 | use derive_tsv
+  | ^

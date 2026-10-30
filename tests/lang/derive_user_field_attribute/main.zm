@@ -1,0 +1,19 @@
+// `#[csv_column(name: "ID")]` is this project's attribute, not the language's: it means something
+// here because this file imports the generator that declares it, and the header below says `ID`
+// rather than `id` because that generator read it.
+//
+// **The same attribute in a file that does not import `derive_csv` is refused**, with the list of
+// what a field there may carry -- which is the rule discovery already follows for the target
+// itself (§3), and what keeps a project's attribute from becoming vocabulary.
+use derive_csv
+
+#[derive(Csv)]
+struct Customer {
+    #[csv_column(name: "ID")]
+    id: int
+    name: string
+}
+
+fn main() {
+    print(customer_csv_header())
+}
