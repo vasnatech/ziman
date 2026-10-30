@@ -82,7 +82,128 @@ static char *generate_name_for(const char *target) {
     return out;
 }
 
-int ziman_has_ziman_generator(const char *target) {
+/* ---- a project's own generator ------------------------------------------------------------
+ *
+ * **Discovery is the importing module's `use` list, and nothing else** (§3 of
+ * docs/design/user-generators.md): `#[derive(Csv)]` finds a loaded module carrying
+ * `#![generator(Csv)]` among this module's imports, and falls back to the bundled set. No
+ * manifest, no search path, no registry -- the file that wants a derive imports its generator the
+ * way it imports anything else, and a reader can see where `Csv` comes from without leaving the
+ * file. `UseDecl.resolved` is what the loader leaves behind so this needs no `Loader`.
+ *
+ * **§6 called initialisation "the real cost" and it is no longer one.** A generator's
+ * `val sheet = template.must_parse(..)` has to be initialised before `generate` runs, and
+ * generation happens *during* loading, so the rule §6 asks for is "a generator module's globals
+ * are initialised on first use, into an environment that outlives the load". That is exactly what
+ * F247 built for the bundled program: `ziman_init_module_globals` records the env on
+ * `Module.globals`, `ziman_keep_globals` keeps it rooted past the program that follows, and
+ * `ziman_call_in_module` swaps to it. So this is three lines rather than the intricate thing §6
+ * expected.
+ *
+ * The ordering §6 relies on is still what makes it safe: generation for a module runs after its
+ * dependencies are loaded to completion, so a generator named in the `use` list is fully parsed
+ * and spliced before anything asks it to generate. */
+/* One loaded program per user generator, keyed by its use path. */
+typedef struct {
+    const char *path;
+    Module *program;
+} UserGenerator;
+
+static UserGenerator g_user_gens[32];
+static int g_user_gen_count = 0;
+
+static Module *user_generator_program(const char *path) {
+    for (int i = 0; i < g_user_gen_count; i++) {
+        if (strcmp(g_user_gens[i].path, path) == 0) return g_user_gens[i].program;
+    }
+    return NULL;
+}
+
+/* The project root a `use <path>` inside the generator resolves against: its file with
+ * `/<path>.zm` taken off the end. `/proj/derive/csv.zm` imported as `derive/csv` gives `/proj`. */
+static char *root_of(const char *source_file, const char *path) {
+    size_t flen = strlen(source_file);
+    size_t plen = strlen(path);
+    if (flen < plen + 4) return NULL;
+    const char *tail = source_file + flen - (plen + 3);
+    if (strncmp(tail, path, plen) != 0 || strcmp(tail + plen, ".zm") != 0) return NULL;
+    size_t rlen = (size_t)(tail - source_file);
+    while (rlen > 1 && source_file[rlen - 1] == '/') rlen--;
+    char *root = ziman_xmalloc(rlen + 1);
+    memcpy(root, source_file, rlen);
+    root[rlen] = '\0';
+    return root;
+}
+
+/* The module among `module`'s imports that claims `target`, or NULL. A module may claim one
+ * target (`#![generator(X)]` twice in a file is refused at the attribute), so the first match is
+ * the only match. */
+static Module *find_user_generator(Module *module, const char *target, const char **out_path) {
+    if (module == NULL || target == NULL) return NULL;
+    for (int i = 0; i < module->uses.count; i++) {
+        Module *used = module->uses.items[i].resolved;
+        if (used == NULL || used->generator_target == NULL) continue;
+        /* A bundled generator reached through `use` is not a *user* generator: it belongs to the
+         * cached generator program, which is already initialised and already the fallback. */
+        if (used->is_corelib) continue;
+        if (strcmp(used->generator_target, target) == 0) {
+            if (out_path != NULL) *out_path = module->uses.items[i].path;
+            return used;
+        }
+    }
+    return NULL;
+}
+
+/* **A user generator is loaded as its own program**, on first use, and that is not an
+ * optimisation -- it is the only thing that works. `typecheck` runs in `main.c` after
+ * `load_module_graph` returns and generation runs *during* loading, so a generator module sitting
+ * in the user's own graph has resolved names and no resolved slots; the interpreter reads
+ * `resolved_depth`/`resolved_slot` and segfaults. Typechecking that one module in place does not
+ * fix it either: `typecheck` needs its dependencies' declarations merged in, so `meta::Decl` comes
+ * back "unknown struct or enum type".
+ *
+ * So it gets what the bundled generators get: a synthetic entry importing it, loaded against the
+ * project root, typechecked in full, then initialised -- `ziman_init_module_globals` records the
+ * env on `Module.globals`, `ziman_keep_globals` keeps it rooted past the program that follows, and
+ * `ziman_call_in_module` swaps to it (all three built by F247). §6 of the design called
+ * initialisation "the real cost" and expected something intricate; the cost turned out to be this
+ * ordering fact, which §6 does not mention.
+ *
+ * Reentrant on purpose: this runs while the user's own graph is mid-load, which `load_generators`
+ * has always done from the same place. */
+static Module *ready_user_generator(const char *path, const char *source_file, int line, int col) {
+    Module *found = user_generator_program(path);
+    if (found != NULL) return found;
+    if (g_user_gen_count == (int)(sizeof g_user_gens / sizeof g_user_gens[0])) return NULL;
+    if (source_file == NULL) return NULL;
+    char *root = root_of(source_file, path);
+    if (root == NULL) return NULL;
+
+    char *whole = ziman_xmalloc(strlen(path) + 32);
+    sprintf(whole, "use %s\nfn main() {\n}\n", path);
+    const char *entry = "<user-generator>";
+    const char *text = whole;
+    const char *caller_file = ziman_error_file();
+    int outer_errors = ziman_errors_begin_nested();
+    loader_set_overrides(&entry, &text, 1);
+    Module *program = load_module_graph(entry, root);
+    loader_set_overrides(NULL, NULL, 0);
+    typecheck(program);
+    ziman_init_module_globals(program);
+    ziman_keep_globals(program->globals);
+    ziman_errors_end_nested(outer_errors);
+    ziman_set_error_file(caller_file);
+    (void)line;
+    (void)col;
+
+    g_user_gens[g_user_gen_count].path = ziman_xstrdup(path);
+    g_user_gens[g_user_gen_count].program = program;
+    g_user_gen_count++;
+    return program;
+}
+
+int ziman_has_ziman_generator(Module *module, const char *target) {
+    if (find_user_generator(module, target, NULL) != NULL) return 1;
     char *snake = ziman_pascal_to_snake(target);
     char *mod = ziman_xmalloc(strlen(snake) + 8);
     sprintf(mod, "derive_%s", snake);
@@ -313,11 +434,11 @@ static Value reify_decl(StructDecl *sd, EnumDecl *ed, const FieldAttr *attr, int
  * to the generator's own module, and a refusal belongs to the user's file. `what` is the subject
  * of the two messages this raises -- "the generator for 'Ord'", "the repository generator" --
  * because the one thing a reader needs from either is which generator was running. */
-static char *run_generator(const char *fn, Value *args, int argc, const char *what,
-                           const char *caller_file, int line, int col) {
+static char *run_generator_in(Module *module, const char *fn, Value *args, int argc,
+                              const char *what, const char *caller_file, int line, int col) {
     Value out;
     const char *problem = NULL;
-    int ok = ziman_call_in_module(g_generators, fn, args, argc, &out, &problem);
+    int ok = ziman_call_in_module(module, fn, args, argc, &out, &problem);
     ziman_set_error_file(caller_file);
     if (!ok) {
         ziman_error("module", line, col, "%s failed: %s", what, problem != NULL ? problem : "unknown");
@@ -329,6 +450,12 @@ static char *run_generator(const char *fn, Value *args, int argc, const char *wh
         ziman_error("type", line, col, "%s", copy_string(out.as.res->value));
     }
     return copy_string(is_result ? out.as.res->value : out);
+}
+
+/* The same, in the cached generator program -- which is where every bundled generator lives. */
+static char *run_generator(const char *fn, Value *args, int argc, const char *what,
+                           const char *caller_file, int line, int col) {
+    return run_generator_in(g_generators, fn, args, argc, what, caller_file, line, col);
 }
 
 /* ---- what attributes exist ---------------------------------------------------------------
@@ -403,8 +530,10 @@ const ZimanAttrSpec *ziman_generator_attr_specs(int *count) {
     return g_attr_specs;
 }
 
-char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, const FieldAttr *attr, int line, int col) {
-    if (!ziman_has_ziman_generator(target)) return NULL;
+char *ziman_generate_in_ziman(Module *module, const char *target, StructDecl *sd, EnumDecl *ed, const FieldAttr *attr, int line, int col) {
+    if (!ziman_has_ziman_generator(module, target)) return NULL;
+    const char *user_path = NULL;
+    Module *user = find_user_generator(module, target, &user_path);
     /* **Captured before anything else runs.** Loading the generator program and then running it
      * both set the error file to a generator's own module, and the declaration being derived is
      * in the *user's* file -- so a refusal reported below would name the wrong file, or none.
@@ -436,10 +565,24 @@ char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, 
     native_gc_unsafe_enter();
     Value decl = reify_decl(sd, ed, attr, line, col);
     native_gc_unsafe_leave();
-    char *fn = generate_name_for(target);
     char what[96];
     snprintf(what, sizeof what, "the generator for '%s'", target);
-    return run_generator(fn, &decl, 1, what, caller_file, line, col);
+    /* A project's own generator is its own program: initialised on first use and called in itself,
+     * where a bundled one is a function of the cached generator program. */
+    if (user != NULL) {
+        Module *program = ready_user_generator(user_path, user->source_file, line, col);
+        if (program == NULL) {
+            ziman_error("module", line, col,
+                        "the generator for '%s' is '%s', which could not be loaded as a program of "
+                        "its own -- a generator is run before the program that derives it, so it is "
+                        "loaded and type-checked separately",
+                        target, user_path);
+        }
+        char *fn = ziman_xmalloc(strlen(user_path) + 16);
+        sprintf(fn, "%s::generate", user_path);
+        return run_generator_in(program, fn, &decl, 1, what, caller_file, line, col);
+    }
+    return run_generator(generate_name_for(target), &decl, 1, what, caller_file, line, col);
 }
 
 /* ---- the second generator kind: a module generator ----------------------------------------

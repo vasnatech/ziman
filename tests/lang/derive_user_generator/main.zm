@@ -1,0 +1,17 @@
+// **The first derive the compiler does not know.** `Csv` is not one of its seven names; it means
+// something here only because this file imports a module claiming `#![generator(Csv)]`.
+//
+// None of the compiler's per-target behaviour applies to it: no imports it did not ask for, no
+// struct-or-enum rule of the compiler's, just its text spliced where the attribute was written.
+use derive_csv
+
+#[derive(Csv)]
+struct Customer {
+    id: int
+    name: string
+    balance: float
+}
+
+fn main() {
+    print(customer_csv_header())
+}

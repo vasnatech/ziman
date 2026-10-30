@@ -1949,6 +1949,16 @@ static void check_repository_names(Module *mod, Module *entity_module) {
                 n == 1 ? "it" : "them");
 }
 
+/* Each `use` paired with the module it names, for anything after loading that needs to walk the
+ * import list without the `Loader` -- today, generator discovery (§3 of
+ * docs/design/user-generators.md). Called immediately before generation, which is the first point
+ * at which every dependency is loaded to completion. */
+static void link_uses(Loader *ldr, Module *mod) {
+    for (int i = 0; i < mod->uses.count; i++) {
+        mod->uses.items[i].resolved = find_loaded(ldr, mod->uses.items[i].path);
+    }
+}
+
 static void resolve_repository(Loader *ldr, Module *mod) {
     if (mod->repository_entity == NULL) {
         /* No entity, so nothing to generate -- except that a `#[repository]` function in such a
@@ -2044,6 +2054,7 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
      * sees -- gets the same corelib-like internal reach its stand-in is shadowing, not a loss. */
     mod->is_corelib = !from_disk || corelib_source_for(use_path) != NULL;
     if (from_disk) {
+        mod->source_file = file_path;
         for (int i = 0; i < mod->functions.count; i++) mod->functions.items[i]->source_file = file_path;
         for (int i = 0; i < mod->structs.count; i++) mod->structs.items[i]->source_file = file_path;
         for (int i = 0; i < mod->enums.count; i++) mod->enums.items[i]->source_file = file_path;
@@ -2070,6 +2081,7 @@ static Module *load_module(Loader *ldr, const char *use_path, int ref_line, int 
      * that was never there. The loop below picks up exactly the uses generation appended. */
     check_generator(mod);
     int uses_before_derive = mod->uses.count;
+    link_uses(ldr, mod);
     generate_derived_functions(mod);
     resolve_repository(ldr, mod);
     ziman_finish_errors();
@@ -2193,6 +2205,7 @@ Module *load_module_graph(const char *entry_path, const char *project_root_overr
      * loaded after it. */
     check_generator(entry_mod);
     int entry_uses_before_derive = entry_mod->uses.count;
+    link_uses(&ldr, entry_mod);
     generate_derived_functions(entry_mod);
     resolve_repository(&ldr, entry_mod);
     ziman_finish_errors();

@@ -1010,6 +1010,13 @@ typedef struct {
      * the word to delete. Zero when no alias was written. */
     int has_alias;
     int alias_line, alias_col;
+    /* The loaded module this import names, filled in by the loader just before generation runs
+     * (`link_uses`). **So that discovery does not need the `Loader`**: `#[derive(Csv)]` finds its
+     * generator by walking this module's own `use` list for one carrying `#![generator(Csv)]`
+     * (docs/design/user-generators.md §3), and generation is handed a `Module` rather than the
+     * loader's table. NULL for an import that did not resolve, which is an error reported
+     * elsewhere. */
+    struct Module *resolved;
 } UseDecl;
 
 typedef struct {
@@ -1057,7 +1064,7 @@ typedef struct {
     int capacity;
 } GlobalValList;
 
-typedef struct {
+typedef struct Module {
     FunctionList functions;
     StructList structs;
     EnumList enums;
@@ -1070,6 +1077,11 @@ typedef struct {
      * today's whole definition of a "package" for `VIS_INTERNAL` visibility -- see
      * `same_package` in loader.c and Visibility's own doc comment above. */
     int is_corelib;
+    /* The file this module was loaded from, or NULL for a bundled one. Set in `load_module` from
+     * the same `from_disk` check that stamps the declarations. **Needed to load a project's own
+     * generator as its own program**: the use path and this together give the project root that
+     * `use`s inside it resolve against (docs/design/user-generators.md §3). */
+    const char *source_file;
     /* `#![experimental]` at the top of this module's own file (before any declaration), the
      * module-level form of an attribute -- `#[...]` applies to the declaration after it, `#![...]`
      * to the file it is in, the same inner/outer split Rust draws. Carries no compile-time or

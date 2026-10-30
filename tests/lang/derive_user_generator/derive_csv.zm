@@ -1,0 +1,35 @@
+// A generator a **project** wrote, not the compiler. Nothing in `src/` knows the name `Csv`: this
+// module claims it with `#![generator(Csv)]`, `main.zm` imports it, and that is the whole of the
+// link (docs/design/user-generators.md §3).
+#![generator(Csv)]
+
+use meta
+use template
+
+val sheet = template.must_parse("""
+@template header
+pub fn @{snake}_csv_header() -> string {
+    return "@{cols}"
+}
+
+@end
+""")
+
+// A module-level `val` initialised before this runs is the thing §6 of the design is about: a
+// generator runs *during* the user program's load, so it is loaded and type-checked as a program
+// of its own and initialised on first use.
+pub fn generate(d: meta.Decl) -> Result<string, string> {
+    switch d.body {
+        Struct(fields) {
+            val names = mutable_array_new<string>()
+            for f in fields {
+                push(names, f.name)
+            }
+            return template.render(sheet, "header", [
+                template.text("snake", d.snake_name),
+                template.text("cols", join(separator: ",", pieces: snapshot(names)))
+            ])
+        }
+        Enum(_) { return err("derive(Csv) wants a struct, and 'Shape' is an enum") }
+    }
+}

@@ -18,11 +18,11 @@
  * Answers NULL when no Ziman generator claims `target`, which is how the four C generators keep
  * running while the port finishes. A generator that *refuses* or *fails* raises a `ziman_error`
  * at `line`/`col` -- the declaration carrying the attribute -- rather than answering NULL. */
-char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, const FieldAttr *attr, int line, int col);
+char *ziman_generate_in_ziman(Module *module, const char *target, StructDecl *sd, EnumDecl *ed, const FieldAttr *attr, int line, int col);
 
 /* Whether any Ziman generator claims `target`, without running it: `derive.c` asks before
  * deciding which path a derive takes. */
-int ziman_has_ziman_generator(const char *target);
+int ziman_has_ziman_generator(Module *module, const char *target);
 
 /* ---- the second generator kind: a module generator ----------------------------------------
  *

@@ -390,6 +390,19 @@ inventing a manifest. The machinery is the same either way -- `interpret_tests` 
 shape: set `g_program` and `g_global_env`, push a `<module initialisation>` frame,
 `init_param_defaults` and `init_global_vals`, then `call_function` under a `ThreadBoundary`.
 
+> **Built 2026-10-30 (F254), and the cost was not where this section put it.** Initialising on
+> first use into an env that outlives the load is three lines, because F247 built exactly that for
+> the bundled program: `ziman_init_module_globals` records the env on `Module.globals`,
+> `ziman_keep_globals` keeps it rooted, `ziman_call_in_module` swaps to it.
+>
+> The real cost is an ordering fact this section does not mention: **generation runs before
+> type-checking.** A generator module in the user's own graph has resolved names and no resolved
+> slots, so calling it segfaults, and type-checking it in place fails because `typecheck` wants its
+> dependencies merged in. A user generator is therefore loaded as **its own program** against the
+> project root -- the use path and the module's `source_file` give the root -- type-checked in
+> full, and cached by path. Which is what `load_generators` does for the bundled set, so there is
+> one mechanism rather than two after all.
+
 The ordering that makes it work is already guaranteed: generation for a module runs **after its
 dependencies are loaded to completion**, so a generator named in the `use` list is fully parsed
 and spliced before anything asks it to generate.
@@ -482,8 +495,23 @@ load-bearing.
    and `load_generators` does §6's per-generator-module initialisation. This step said it was "the
    larger half" and it was; it shipped as part of the derives-in-Ziman port rather than as part of
    this document, which is why it sat here reading as outstanding until 2026-10-30.
-2. **Then `#![generator(X)]` and `use`-list discovery**, which is small once the bridge exists --
-   the lookup is `resolve_repository`'s walk with a different attribute.
+2. ~~**Then `#![generator(X)]` and `use`-list discovery**~~ **DONE 2026-10-30 (F254).** The lookup
+   itself was `resolve_repository`'s walk with a different attribute, as predicted -- `UseDecl`
+   gained a `resolved` module the loader fills in, so discovery needs no `Loader`.
+
+   **What was not predicted is the ordering, and it is the whole of the work.** `typecheck` runs
+   in `main.c` after `load_module_graph` returns and generation runs *during* loading, so a
+   generator module sitting in the user's own graph has resolved names and no resolved slots --
+   calling it **segfaults**, because the interpreter reads `resolved_depth`/`resolved_slot`.
+   Typechecking that one module in place does not fix it either: `typecheck` wants its
+   dependencies' declarations merged, so `meta::Decl` comes back "unknown struct or enum type".
+
+   So a user generator gets exactly what the bundled ones get -- a synthetic entry importing it,
+   loaded against the project root, type-checked in full, then initialised. §6 called
+   initialisation "the real cost" and expected something intricate; the intricacy was this
+   ordering fact, which §6 does not mention, and the *initialisation* was three lines because F247
+   had already built `Module.globals`, `ziman_keep_globals` and the env swap in
+   `ziman_call_in_module`.
 3. ~~**Then the attribute grammar, once, for both positions**~~ **DONE 2026-10-30** (F250, F253).
    `check_field_attribute` deferred past module loading and `meta.attr_spec` shipped as F250, and
    `meta.Decl.arg` became `args: [meta.AttrArg]` as F253 -- one `parse_attr_args` now reads a field

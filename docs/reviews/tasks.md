@@ -5021,3 +5021,47 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   **What is left of §5b** is the larger half: `use`-list discovery, so a target name resolves
   through the importing module's `use` list instead of a `strcmp` over seven, and then
   `#![repository(E)]`/`#[repository]` migrating onto `derive`.
+
+- [x] **F254** **A project can write its own derive: `use`-list discovery.** (user-raised
+  2026-10-30: "do 2" -- docs/design/user-generators.md §12.2; M.)
+
+      // tests/lang/derive_user_generator/
+      #![generator(Csv)]            // derive_csv.zm -- a project's module, not the compiler's
+      use derive_csv                // main.zm
+      #[derive(Csv)]
+      struct Customer { id: int  name: string  balance: float }
+      // -> pub fn customer_csv_header() -> string { return "id,name,balance" }
+
+  **Nothing in `src/` knows the name `Csv`.** `#[derive(X)]` walks the deriving module's own `use`
+  list for a module carrying `#![generator(X)]` and falls back to the bundled set -- §3's rule, no
+  manifest and no search path. `UseDecl` gained a `resolved` module the loader fills in
+  (`link_uses`), so discovery needs no `Loader`; the lookup really was `resolve_repository`'s walk
+  with a different attribute, as §12.2 predicted.
+
+  **What §12.2 did not predict is the ordering, and it was the whole of the work.** `typecheck`
+  runs in `main.c` after `load_module_graph` returns, and generation runs *during* loading. So a
+  generator module sitting in the user's graph has resolved names and **no resolved slots**, and
+  calling it segfaults -- the interpreter reads `resolved_depth`/`resolved_slot`. Type-checking
+  that one module in place does not fix it: `typecheck` wants its dependencies' declarations
+  merged, so `meta::Decl` comes back "unknown struct or enum type".
+
+  A user generator is therefore loaded as **its own program** -- a synthetic `use <path>` entry
+  against the project root, type-checked in full, initialised, cached by path. Which is what
+  `load_generators` has always done for the bundled set, so there is one mechanism and not two.
+  The root comes from the use path and `Module.source_file`, both new.
+
+  **§6 called initialisation "the real cost" and it was three lines**, because F247 had already
+  built every piece: `ziman_init_module_globals` records the env on `Module.globals`,
+  `ziman_keep_globals` keeps it rooted past the program that follows, and `ziman_call_in_module`
+  swaps to it. Fixing a two-file `ziman test` bug this morning is what made this afternoon's
+  feature small.
+
+  None of the compiler's per-target behaviour applies to a discovered target: no imports it did
+  not ask for, no struct-or-enum rule of the compiler's, just its text spliced where the author
+  wrote the attribute. The unknown-target refusal now names the seven the compiler knows *and*
+  says how to add one of your own.
+
+  1,337 fixtures; the North Star byte-identical at 34,800 lines.
+
+  Left of §12: step 4 (`#![repository(E)]`/`#[repository]` onto `derive`) and step 5 (measure
+  `--lsp`), plus §5a's per-module keying and the collision rule.
