@@ -1,0 +1,22 @@
+// What `#![repository(E)]` says when nothing provides the three names its generated functions
+// call. **One error naming all three**, where this used to be nine "use of undefined variable
+// 'note_meta'" errors -- one per generated function that mentioned it, each pointing at the module
+// attribute and naming a symbol the author never wrote.
+//
+// The message names the derives that write them *and* says they may be written by hand, because
+// the check is by name: `tests/lang/repository_handwritten_meta` is a repository over three
+// hand-written definitions and no derives at all.
+#![repository(Note)]
+
+use datasource
+use db.DbError
+
+struct Note {
+    #[pk]
+    id: int
+    body: string
+}
+
+fn main() {
+    print("x")
+}

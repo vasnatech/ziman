@@ -4593,3 +4593,53 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   generated output* and still showed the flat form. That check exists for exactly that staleness
   and earned itself the same day; the example is regenerated from
   `tests/lang/derive_row_in_ziman.out`.
+
+- [x] **F243** **A generator's dependency on another's output is checked by name, not by derive.**
+  (user-raised, 2026-10-29, after asking whether the dependency should be declared in
+  `#![generator(Repository)]`; the user chose by-name; S-M.)
+
+  **The proposal was rejected on evidence, which is the part worth keeping.** Declaring
+  `#![generator(Repository, needs: [Row, Entity])]` would have been declaring the wrong thing: a
+  repository's generated functions do not depend on two *generators*, they call three **names** --
+  `<snake>_meta`, `<snake>_from_row` and `<snake>_to_params`. A repository over three hand-written
+  definitions, with no `#[derive]` on the struct at all, compiles and runs
+  (`tests/lang/repository_handwritten_meta` is now that file). Requiring the derives would have
+  refused it, and the whole feature is built on a hand-written definition winning -- which is what
+  `meta.Target.defined` exists for.
+
+  **And the one place this kind of dependency was already declared had exactly that bug.**
+  `derive(Entity)` required `derive(Row)` *in the derive list*, so it refused a struct whose
+  `<snake>_from_row` was written by hand and present -- while `derive(Entity)`'s own output never
+  calls `<snake>_from_row` at all: the requirement belongs to whoever consumes the entity, and a
+  consumer only needs the name to resolve. It checks the name now (and still accepts the derive
+  list, because `#[derive(Entity, Row)]` with `Entity` first reaches the check before `Row` has
+  spliced anything).
+
+  So the three parts, all by name:
+
+  * **(a) One error instead of nine.** `#![repository(E)]` with nothing providing the names was
+    nine "use of undefined variable 'note_meta'" errors -- one per generated function that
+    mentioned it, each pointing at the module attribute and naming a symbol the author never
+    wrote. `check_repository_names` in `loader.c` now checks before generating anything.
+  * **(b) The message names its source and the rule**: *"#![repository(Note)] generates functions
+    that call 'note_meta', 'note_from_row' and 'note_to_params', and nothing provides them --
+    `#[derive(Row, Entity("<table>"))]` on Note writes all three, or write them by hand. This
+    checks for the names, not for the derives"*, listing only what is missing.
+  * **(c) `derive(Entity)` relaxed** to the same rule, with a message that offers both routes.
+
+  Two defects found while building it, both the same shape as bugs this repo has recorded before:
+
+  * **`module_binds_name` did not look at vals.** It decides whether `ensure_named_import` adds an
+    import, and two of the three names are `val`s -- so a hand-written `pub val <snake>_meta` in a
+    module whose entity lives elsewhere would have had an import added beside it.
+  * **A declaration in an already-loaded module carries the loader's self-qualified name**
+    (`entity/note::note_meta`), so the first version of the check compared a bare name against a
+    qualified one and refused every repository whose entity was in another file -- caught by the
+    two multifile fixtures within a minute. That is the trap `bare_name_of` exists for, paid again.
+
+  Checked by name, the check lives where both modules are known (`resolve_repository`), and the
+  cross-module case requires the names to be **exported** while the same-file case accepts any
+  visibility -- because by then this module's own derives have run and a derived val is already
+  spliced.
+
+  1,314 fixtures.

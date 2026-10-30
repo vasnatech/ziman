@@ -1,0 +1,28 @@
+// `derive(Entity)` needs `<snake>_from_row` **by name**, not `derive(Row)` by list.
+//
+// It used to check the derive list, which refused this file: `note_from_row` is right here, written
+// by hand, and `derive(Entity)`'s own output never calls it -- the requirement belongs to whoever
+// *consumes* the entity, and the consumer only needs the name to resolve. `#![repository(..)]`
+// checks the same way, so the two agree: anything that puts the name in scope will do.
+use db.DbError
+use db.Row
+use db.row_get
+use db.sql_as_int
+use eql
+
+#[derive(Entity("notes"))]
+struct Note {
+    #[pk]
+    id: int
+}
+
+pub fn note_from_row(row: Row) -> Result<Note, DbError> {
+    return Note { id: try sql_as_int(try row_get(row, "id")) }
+}
+
+fn main() {
+    print(note_columns[0])
+    print(note_table)
+    print(note_meta.name)
+    print(note_meta.keys[0])
+}

@@ -1,0 +1,55 @@
+// **`#![repository(E)]` checks for three *names*, not for two derives**, and this file is what that
+// decision protects: `note_meta`, `note_from_row` and `note_to_params` are written by hand here,
+// the struct carries no `#[derive]` at all, and the nine CRUD functions are generated over them.
+//
+// Declaring the dependency instead -- `#![generator(Repository, needs: [Row, Entity])]` was the
+// proposal -- would have refused this file. The feature is built on a hand-written definition
+// winning (`meta.Target.defined` exists for exactly that), so requiring the derives would have
+// contradicted it. The derives are the convenient way to supply these names, not the only one.
+#![repository(Note)]
+
+use datasource
+use db.DbError
+use db.Row
+use db.SqlValue
+use db.row_get
+use db.sql_as_int
+use db.sql_as_text
+use eql
+use memdb
+
+struct Note {
+    #[pk]
+    id: int
+    body: string
+}
+
+pub val note_columns: [string] = ["id", "body"]
+pub val note_meta: eql.Entity = eql.keyed_entity("Note", "notes", note_columns, ["id"])
+
+pub fn note_from_row(row: Row) -> Result<Note, DbError> {
+    val id_raw = try row_get(row, "id")
+    val body_raw = try row_get(row, "body")
+    return Note { id: try sql_as_int(id_raw), body: try sql_as_text(body_raw) }
+}
+
+pub fn note_to_params(v: Note) -> [SqlValue] {
+    return [SqlValue.Int(v.id), SqlValue.Text(v.body)]
+}
+
+fn main() {
+    // The generated functions exist and are callable; that they run against a real table is
+    // `repository_annotation`'s job, not this one's -- this is about what the names may be.
+    print(prelude.len(note_columns))
+    print(note_meta.table)
+    val drivers = datasource.registry([memdb.driver()])
+    val conn = unwrap(datasource.open(drivers, "memdb:"))
+    // `find` is one of the nine, generated over the hand-written three: with no table created it
+    // answers an error, and that it answers at all is the point.
+    if Err(e) = find(conn, 1) {
+        print("find answered an error, as it must with no table")
+    }
+    if Ok(row) = find(conn, 1) {
+        print("find answered a row")
+    }
+}

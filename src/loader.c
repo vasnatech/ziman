@@ -1873,6 +1873,82 @@ static void check_generator(Module *mod) {
                 mod->generator_target, mod->generator_target);
 }
 
+/* Whether `module` provides `name` as a val or a function -- what "in scope" means for the three
+ * names a repository's generated code calls. `exported_only` is for an entity in another file,
+ * where a private val is no use to the repository.
+ *
+ * **Vals as well as functions, and that is the point** (2026-10-29): two of the three names are
+ * `val`s (`<snake>_meta`), and `derive.c`'s own `module_binds_name` looked at uses, functions,
+ * structs and enums but not vals -- so a hand-written metamodel was invisible to it.
+ */
+/* A declaration read out of an **already-loaded** module carries the loader's self-qualified form
+ * -- `entity/note::note_meta`, not `note_meta` -- so a comparison against a bare name has to
+ * strip it. That is the same trap `bare_name_of` in derive.c exists for, and it is what made the
+ * first version of this check refuse every repository whose entity was in another file. */
+static const char *unqualified(const char *name) {
+    if (name == NULL) return NULL;
+    const char *sep = strstr(name, "::");
+    return sep != NULL ? sep + 2 : name;
+}
+
+static int module_provides(Module *module, const char *name, int exported_only) {
+    for (int i = 0; i < module->vals.count; i++) {
+        GlobalValDecl *v = module->vals.items[i];
+        if (v->name == NULL || strcmp(unqualified(v->name), name) != 0) continue;
+        return !exported_only || v->visibility == VIS_PUBLIC;
+    }
+    for (int i = 0; i < module->functions.count; i++) {
+        FunctionDecl *f = module->functions.items[i];
+        if (f->name == NULL || strcmp(unqualified(f->name), name) != 0) continue;
+        return !exported_only || f->visibility == VIS_PUBLIC;
+    }
+    return 0;
+}
+
+/* **The three names `#![repository(E)]`'s generated code calls, checked by name before any of it
+ * is generated.**
+ *
+ * Checked here because this is the one place that holds both modules -- the repository's and the
+ * entity's -- and checked *by name* rather than by asking whether the entity carries
+ * `#[derive(Row, Entity)]`, which was the alternative and is wrong: a repository over hand-written
+ * `<snake>_meta`, `<snake>_from_row` and `<snake>_to_params` compiles and runs, and the whole
+ * feature is built on a hand-written definition winning (`Target.defined`). The derives are the
+ * convenient way to supply these names, not the only one.
+ *
+ * Without this the failure was **nine** "use of undefined variable 'note_meta'" errors, one per
+ * generated function that mentions it, each pointing at the module attribute and naming a symbol
+ * the author never wrote. */
+static void check_repository_names(Module *mod, Module *entity_module) {
+    char *snake = ziman_pascal_to_snake(mod->repository_entity);
+    const char *suffixes[] = {"_meta", "_from_row", "_to_params"};
+    const char *missing[3];
+    int n = 0;
+    for (size_t i = 0; i < sizeof suffixes / sizeof suffixes[0]; i++) {
+        char *name = ziman_xmalloc(strlen(snake) + strlen(suffixes[i]) + 1);
+        sprintf(name, "%s%s", snake, suffixes[i]);
+        /* The entity in another file has to *export* them; in this one, any visibility will do --
+         * and by now this module's own derives have run, so a derived val is already spliced. */
+        int ok = entity_module != mod ? module_provides(entity_module, name, 1)
+                                      : module_provides(mod, name, 0);
+        if (!ok) missing[n++] = name;
+    }
+    if (n == 0) return;
+    char list[256];
+    list[0] = '\0';
+    for (int i = 0; i < n; i++) {
+        if (i > 0) strncat(list, i + 1 == n ? " and " : ", ", sizeof list - strlen(list) - 1);
+        strncat(list, "'", sizeof list - strlen(list) - 1);
+        strncat(list, missing[i], sizeof list - strlen(list) - 1);
+        strncat(list, "'", sizeof list - strlen(list) - 1);
+    }
+    ziman_error("type", mod->repository_line, mod->repository_col,
+                "#![repository(%s)] generates functions that call %s, and nothing provides %s -- "
+                "`#[derive(Row, Entity(\"<table>\"))]` on %s writes all three, or write %s by hand. "
+                "This checks for the names, not for the derives",
+                mod->repository_entity, list, n == 1 ? "it" : "them", mod->repository_entity,
+                n == 1 ? "it" : "them");
+}
+
 static void resolve_repository(Loader *ldr, Module *mod) {
     if (mod->repository_entity == NULL) {
         /* No entity, so nothing to generate -- except that a `#[repository]` function in such a
@@ -1883,6 +1959,7 @@ static void resolve_repository(Loader *ldr, Module *mod) {
     }
     for (int s = 0; s < mod->structs.count; s++) {
         if (strcmp(mod->structs.items[s]->name, mod->repository_entity) == 0) {
+            check_repository_names(mod, mod);
             generate_repository_functions(mod, mod->structs.items[s], NULL);
             generate_derived_queries(mod, mod->structs.items[s]);
             return;
@@ -1899,6 +1976,7 @@ static void resolve_repository(Loader *ldr, Module *mod) {
             const char *sep = strstr(name, "::");
             const char *bare = sep != NULL ? sep + 2 : name;
             if (strcmp(bare, mod->repository_entity) == 0) {
+                check_repository_names(mod, target);
                 generate_repository_functions(mod, target->structs.items[s], mod->uses.items[i].path);
                 generate_derived_queries(mod, target->structs.items[s]);
                 return;

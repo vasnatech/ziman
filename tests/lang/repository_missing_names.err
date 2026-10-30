@@ -1,0 +1,1 @@
+ziman: type error at 9:15 in tests/lang/repository_missing_names.zm: #![repository(Note)] generates functions that call 'note_meta', 'note_from_row' and 'note_to_params', and nothing provides them -- `#[derive(Row, Entity("<table>"))]` on Note writes all three, or write them by hand. This checks for the names, not for the derives

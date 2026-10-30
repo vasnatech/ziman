@@ -379,6 +379,12 @@ static int module_binds_name(Module *module, const char *name) {
         UseDecl *u = &module->uses.items[i];
         if (u->local_name != NULL && strcmp(u->local_name, name) == 0) return 1;
     }
+    /* **Vals as well** (2026-10-29): this decides whether `ensure_named_import` adds an import, and
+     * a hand-written `pub val <snake>_meta` was invisible to it -- so a repository over a
+     * hand-written metamodel in another file would have had an import added beside the val. */
+    for (int i = 0; i < module->vals.count; i++) {
+        if (module->vals.items[i]->name != NULL && strcmp(module->vals.items[i]->name, name) == 0) return 1;
+    }
     for (int i = 0; i < module->functions.count; i++) if (strcmp(module->functions.items[i]->name, name) == 0) return 1;
     for (int i = 0; i < module->structs.count; i++) if (strcmp(module->structs.items[i]->name, name) == 0) return 1;
     for (int i = 0; i < module->enums.count; i++) if (strcmp(module->enums.items[i]->name, name) == 0) return 1;
@@ -856,14 +862,25 @@ void generate_derived_functions(Module *module) {
                 /* An entity is something read back out of a row, and the only thing that reads
                  * one is `<name>_from_row`. Deriving the column list without it leaves half a
                  * metamodel: a query layer could name the columns and could not build the value. */
-                int has_row = 0;
+                /* **By name, not by derive** (2026-10-29). This used to require `derive(Row)` in
+                 * the list, which refused a struct whose `<snake>_from_row` was written by hand and
+                 * present -- and `derive(Entity)`'s own output never calls it: the requirement is
+                 * on whoever *consumes* the entity. `#![repository(..)]` checks the same way (see
+                 * `check_repository_names` in loader.c), so the two now agree: anything that puts
+                 * the name in scope will do.
+                 *
+                 * The derive list is still consulted, because `#[derive(Entity, Row)]` with
+                 * `Entity` first reaches here before `Row` has spliced anything. */
+                char *from_row = fmt_str("%s_from_row", pascal_to_snake(sd->name));
+                int has_row = module_binds_name(module, from_row);
                 for (int other = 0; other < sd->derive_count; other++) {
                     if (strcmp(sd->derives[other], "Row") == 0) has_row = 1;
                 }
                 if (!has_row) {
                     ziman_error("syntax", sd->line, sd->col,
-                                "derive(Entity) on '%s' needs derive(Row) too -- an entity is read from a row, and `%s_from_row` is what reads it",
-                                sd->name, pascal_to_snake(sd->name));
+                                "derive(Entity) on '%s' needs `%s` -- an entity is read from a row, and that "
+                                "is what reads it: add derive(Row), or write `%s` yourself",
+                                sd->name, from_row, from_row);
                 }
                 /* The generated `eql.entity(..)` call needs the module, and a file that wrote
                  * only the attribute has no reason to have imported it. `ensure_module_import` is
