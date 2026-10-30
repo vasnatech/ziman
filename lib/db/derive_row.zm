@@ -62,7 +62,7 @@ val sheet = template.must_parse("""
 @template from_row
 pub fn @{snake}_from_row(row: Row) -> Result<@{name}, DbError> {
 @for f in fields
-    val field_@{f.name}_raw = try row_get(row, "@{f.name}")
+    val field_@{f.name}_raw = try row_get(row, "@{f.column}")
 @yield f.read
 @end
     return @{name} {
@@ -112,6 +112,16 @@ pub fn @{snake}_to_params(v: @{name}) -> [SqlValue] {
 @end
 @end
 """)
+
+// The column a field is stored in: `#[column(name: "start_date")]`'s argument, or the field's own
+// name -- the overwhelmingly common case, and the one `eql` calls an identity "by construction".
+//
+// **The SQL meaning of the attribute lives in the SQL generators**, not in `meta`, which models a
+// declaration and knows nothing about columns. Two generators need it and the function is one
+// line, so it is written in each rather than exported from one to the other.
+fn column_of(f: meta.Field) -> string {
+    return get_or(meta.attr_value(f, "column", "name"), f.name)
+}
 
 // The `sql_as_*` a scalar reads through, or None for a type that is not one.
 fn reader_for(t: meta.Type) -> Option<string> {
@@ -275,6 +285,9 @@ fn from_row(d: meta.Decl, members: [meta.Field]) -> Result<string, string> {
         val m = members[i]
         push(fields, template.row([
             template.text("name", m.name),
+            // **The row is read by column and the local is named for the field**: `row_get` takes
+            // what the database has, and `field_<name>` is Ziman code a person reads.
+            template.text("column", column_of(m)),
             // The block ends with its own newline and the template line supplies one too, so the
             // trailing one is dropped here rather than leaving a blank line per field.
             template.text("read", without_newline(

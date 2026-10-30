@@ -559,5 +559,13 @@ generator depends on it. Two guards: `Target` is one feature's type rather than 
 * **Does `Func` really need its parts**, or would `Named` do? No generator handles a
   function-typed field today and `derive(Json)` refuses one. Including it is for totality, which
   §5 argues is the point and §2 would have argued against.
-* **Attribute arguments** (§8): deferred, but `#[pk]` is unlikely to stay the only field
-  attribute, and `#[column("name")]` is the obvious next one.
+* ~~**Attribute arguments** (§8): deferred, but `#[pk]` is unlikely to stay the only field
+  attribute, and `#[column("name")]` is the obvious next one.~~ **CLOSED 2026-10-29: the obvious
+  next one arrived, so the shape was settled by a reader rather than guessed.** `Field.attrs` is
+  `[Attr]` now, with `Attr { name, args: [AttrArg] }` and an `AttrArg`'s value a `string` -- the
+  same division `Decl.arg` already used for `#[derive(Entity("medications"))]`, where the compiler
+  hands over the text and the generator decides what it means. `has_attr` reads exactly as it did,
+  so a generator that only asks whether `#[pk]` is there did not change, and the AST keeps two
+  plain fields (`is_pk`, `column_name`) because a general model belongs at the boundary rather than
+  inside the compiler. The attribute itself is `#[column(name: "..")]` with **named** arguments, so
+  a second one costs nothing; see docs/design/column-override.md.

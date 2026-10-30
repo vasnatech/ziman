@@ -1,0 +1,8 @@
+3
+2026-11-06
+2026-12-01
+2
+a
+2
+1
+SELECT e.id AS id, e.start_date AS start_date, e.note AS note FROM events AS e WHERE e.start_date = $1

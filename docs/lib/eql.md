@@ -209,15 +209,31 @@ pub struct Entity {
     // More than one is a compound key, which is simply two fields marked. Nothing here objects to
     // that; a *reader* that can only address a single-column key is the thing that has to say so.
     keys: [string]
+    // The struct field each column belongs to, in the same order -- what a *query* names where
+    // `columns` is what the *database* has.
+    //
+    // **Equal to `columns` unless a field carries `#[column(name: "..")]`** (2026-10-29), and the
+    // paragraph above this struct is why that matters: field name, column name, what a query may
+    // write and what `from_row` reads were one list "by construction", and an override makes them
+    // two. So a query still says `e.start`, this pairs it with `start_date`, and the column name
+    // appears in the SQL and nowhere a reader of the struct has to think about it.
+    //
+    // The two lists are parallel. Nothing here enforces that, because the only thing that builds a
+    // mismatched pair is a caller writing one by hand, and `column_for` falls back to the field's
+    // own name rather than reading past the end of `columns`.
+    fields: [string]
 }
 ```
 
 One entity: the name a query calls it, the table it is stored in, and its columns.
 
-The columns are `#[derive(Entity)]`'s `<name>_columns`, which is the struct's own field list, so
-what a query may name and what `from_row` reads are the same list by construction. The table is
-hand-written beside the struct, because no pluralisation rule survives a real schema -- see the
-derive's own comment.
+The columns are `#[derive(Entity)]`'s `<name>_columns`. **They were the struct's own field list,
+so what a query may name and what `from_row` reads were the same list by construction** -- and a
+field carrying `#[column(name: "..")]` makes them two lists (2026-10-29), which is what `fields`
+below pairs. Everything a *reader* writes is still the field: a query says `e.start`, this maps
+it to `start_date`, and the column name appears in the SQL and in the attribute and nowhere
+else. The table is hand-written beside the struct, because no pluralisation rule survives a real
+schema -- see the derive's own comment.
 
 ### `entity`
 
@@ -227,6 +243,17 @@ pub fn entity(name: string, table: string, columns: [string]) -> Entity
 
 An entity with no declared key, for a caller that only names columns.
 
+**The field names are the column names**, which is the case every caller had before an override
+existed and still the overwhelmingly common one: a query names what the struct spells.
+
+```
+pub fn entity(name: string, table: string, columns: [string], fields: [string]) -> Entity
+```
+
+The same where a field is stored in a column of another name: `fields` pairs with `columns`,
+position by position. What `#[derive(Entity("table"))]` writes when any field carries
+`#[column(name: "..")]`.
+
 ### `keyed_entity`
 
 ```
@@ -235,6 +262,19 @@ pub fn keyed_entity(name: string, table: string, columns: [string], keys: [strin
 
 An entity and the columns that identify one of its rows. What `#[derive(Entity("table"))]`
 writes when the struct marks a field `#[pk]`.
+
+```
+pub fn keyed_entity(
+    name: string,
+    table: string,
+    columns: [string],
+    keys: [string],
+    fields: [string]
+) -> Entity
+```
+
+Keyed, and with a field-to-column pairing. `keys` are **column** names, as they are in the form
+above: they go into SQL, and `update_one` compares them against `columns`.
 
 ### `Registry`
 

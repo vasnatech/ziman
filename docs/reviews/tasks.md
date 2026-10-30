@@ -4643,3 +4643,48 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   spliced.
 
   1,314 fixtures.
+
+- [x] **F244** **`#[column(name: "start_date")]`: a field stored in a column of another name.**
+  (user-raised, 2026-10-29; the user chose where the mapping lives; M. Full reasoning in
+  docs/design/column-override.md.)
+
+  The second half of F245's groundwork -- the attribute now changes SQL, not just `meta`.
+
+  **The design question was not the attribute, it was an invariant.** `eql.zm` said its column list
+  is "the struct's own field list, so what a query may name and what `from_row` reads are the same
+  list by construction", and **four** things rode on that identity: `<name>_columns`, `from_row`, a
+  query's `e.x`, and a derived query's *name*. An override makes one list two. Three answers were
+  put side by side -- columns only (the rename leaks into every query and every derived-query
+  name), `eql` learns the pairing, or do not add it -- and the user chose the pairing.
+
+  **What that bought: `derive_repository` needed no change at all.** It writes `e.<field>` and
+  `:<field>` exactly as before and `eql` maps the path, so the nine CRUD functions, the derived
+  queries and their names were untouched. Everything a person writes still names the field --
+  `find_by_start`, `e.start` -- and `start_date` appears in the attribute and in the emitted SQL
+  and nowhere else.
+
+  Where the pieces went: `eql.Entity` gains `fields: [string]` with the old constructor arities
+  still meaning "field == column"; `check_field` became `column_for`, matching on `fields` and
+  answering from `columns`, so a path is mapped where a path is resolved; `keys` stay **column**
+  names, because `eql` puts them straight into SQL and `update_one` compares them against
+  `columns`; `derive_row` reads the row by column and names its local for the field; and
+  `derive_entity` passes the pairing **only when some field overrides**.
+
+  **That last choice is what keeps this invisible to everything that does not use it**: the North
+  Star's **12,542 generated lines are byte-identical**, and 1,317 fixtures passed before the new
+  one was added.
+
+  `tests/lang/field_attribute_column_sql` is the end-to-end proof: a `CREATE TABLE` with
+  `start_date`, a struct with `start`, the nine CRUD functions, a derived query named
+  `find_by_start`, and a hand-written query naming the field -- all against memdb.
+
+  Naming the *column* in a query is refused with the field list ("entity Event has no field
+  'start_date' (it has: id, start)"), which is the right error: the query language is field-based.
+
+  **`required:` was asked for and deliberately left out**, because nothing reads it: `Option<T>`
+  *is* the nullable column, no DDL is generated, and the validation use that might want it is
+  blocked on `expressions.md` §17's open decision -- which `required:` would *be* the answer to, so
+  it should follow that decision rather than pre-empt it. `meta.zm`'s rule decides it: a field
+  nobody reads is a promise that cannot be taken back.
+
+  1,318 fixtures.

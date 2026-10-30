@@ -42,14 +42,28 @@ pub val @{snake}_table: string = "@{table}"
 @end
 
 @template meta
-@if keyed
+@if keyed && mapped
+pub val @{snake}_meta: eql.Entity = eql.keyed_entity("@{name}", "@{table}", @{snake}_columns, [@{keys}], [@{fields}])
+@elif keyed
 pub val @{snake}_meta: eql.Entity = eql.keyed_entity("@{name}", "@{table}", @{snake}_columns, [@{keys}])
+@elif mapped
+pub val @{snake}_meta: eql.Entity = eql.entity("@{name}", "@{table}", @{snake}_columns, [@{fields}])
 @else
 pub val @{snake}_meta: eql.Entity = eql.entity("@{name}", "@{table}", @{snake}_columns)
 @end
 
 @end
 """)
+
+// The column a field is stored in: `#[column(name: "start_date")]`'s argument, or the field's own
+// name -- the overwhelmingly common case, and the one `eql` calls an identity "by construction".
+//
+// **The SQL meaning of the attribute lives in the SQL generators**, not in `meta`, which models a
+// declaration and knows nothing about columns. Two generators need it and the function is one
+// line, so it is written in each rather than exported from one to the other.
+fn column_of(f: meta.Field) -> string {
+    return get_or(meta.attr_value(f, "column", "name"), f.name)
+}
 
 // `"id", "body"` -- a list the generated source spells inline, so it is joined here rather than
 // repeated by a `@for`: a directive owns its whole line and cannot build an inline list
@@ -75,11 +89,21 @@ pub fn generate(d: meta.Decl) -> Result<string, string> {
 
 fn entity(d: meta.Decl, fields: [meta.Field]) -> Result<string, string> {
     val names = mutable_array_new<string>()
+    val field_names = mutable_array_new<string>()
     val keys = mutable_array_new<string>()
+    // **`keys` are column names**, because `eql` puts them straight into SQL and compares them
+    // against `columns` -- see `update_one`. A `#[pk]` field with an override is keyed on its
+    // column, not on the name the struct spells it.
+    var overridden = false
     for f in fields {
-        push(names, f.name)
+        val column = column_of(f)
+        push(names, column)
+        push(field_names, f.name)
+        if column != f.name {
+            overridden = true
+        }
         if meta.has_attr(f, "pk") {
-            push(keys, f.name)
+            push(keys, column)
         }
     }
     val columns = try template.render(sheet, "columns", [
@@ -106,7 +130,13 @@ fn entity(d: meta.Decl, fields: [meta.Field]) -> Result<string, string> {
             template.text("name", d.name),
             template.text("table", table),
             template.flag("keyed", prelude.len(keys) > 0),
-            template.text("keys", quoted(snapshot(keys)))
+            template.text("keys", quoted(snapshot(keys))),
+            // **The pairing is passed only when a field overrides its column.** Where none does,
+            // the call is the one every entity has written until now, byte for byte -- which is
+            // what keeps the North Star's generated text unmoved and says in the output itself
+            // that field and column are the same list here.
+            template.flag("mapped", overridden),
+            template.text("fields", quoted(snapshot(field_names)))
         ])
     ))
 }

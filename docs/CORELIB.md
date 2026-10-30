@@ -2302,11 +2302,28 @@ pub struct Entity {
     // More than one is a compound key, which is simply two fields marked. Nothing here objects to
     // that; a *reader* that can only address a single-column key is the thing that has to say so.
     keys: [string]
+    // The struct field each column belongs to, in the same order -- what a *query* names where
+    // `columns` is what the *database* has.
+    //
+    // **Equal to `columns` unless a field carries `#[column(name: "..")]`** (2026-10-29), and the
+    // paragraph above this struct is why that matters: field name, column name, what a query may
+    // write and what `from_row` reads were one list "by construction", and an override makes them
+    // two. So a query still says `e.start`, this pairs it with `start_date`, and the column name
+    // appears in the SQL and nowhere a reader of the struct has to think about it.
+    //
+    // The two lists are parallel. Nothing here enforces that, because the only thing that builds a
+    // mismatched pair is a caller writing one by hand, and `column_for` falls back to the field's
+    // own name rather than reading past the end of `columns`.
+    fields: [string]
 }
 
 pub fn entity(name: string, table: string, columns: [string]) -> Entity
 
+pub fn entity(name: string, table: string, columns: [string], fields: [string]) -> Entity
+
 pub fn keyed_entity(name: string, table: string, columns: [string], keys: [string]) -> Entity
+
+pub fn keyed_entity(
 
 pub struct Registry {
     // **Keyed on the folded name**, because SQL identifiers are case-insensitive and every lookup

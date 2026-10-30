@@ -1,0 +1,65 @@
+#![repository(Event)]
+
+// `#[column(name: "..")]` end to end: the struct spells `start`, the database column is
+// `start_date`, and everything in between agrees.
+//
+// **What this fixture is really checking is that the override stops at the SQL.** A query names the
+// *field* (`e.start`), `eql` emits the column, `from_row` reads the column, and a derived query is
+// named after the field (`find_by_start_order_by_start_desc`). The only places `start_date` appears
+// are the attribute, the `CREATE TABLE` and the SQL `eql` writes -- see docs/design/meta.md §13 and
+// `eql.Entity`'s own comment on the identity this makes a mapping.
+//
+// **`#![repository(Event)]` needed no change at all for this**, which was the point of putting the
+// mapping in `eql`: it writes `e.<field>` and `:<field>` exactly as before.
+use datasource
+use db.DbError
+use eql
+use memdb
+
+#[derive(Row, Entity("events"))]
+pub struct Event {
+    #[pk]
+    id: int
+    // The field a person reads is `start`; the column a DBA sees is `start_date`.
+    #[column(name: "start_date")]
+    start: string
+    note: string
+}
+
+// A derived query over the overridden field: its *name* is the field's, and so is the `e.start`
+// its generated body hands to `eql`.
+#[repository]
+pub fn find_by_start(conn: datasource.Connection, start: string) -> Result<[Event], DbError>
+
+#[repository]
+pub fn delete_by_start(conn: datasource.Connection, start: string) -> Result<int, DbError>
+
+fn main() {
+    val drivers = datasource.registry([memdb.driver()])
+    val conn = unwrap(datasource.open(drivers, "memdb:"))
+    // The real schema uses the column name, which is the whole reason the attribute exists.
+    unwrap(datasource.execute(
+        conn,
+        "CREATE TABLE events (id INTEGER PRIMARY KEY, start_date TEXT NOT NULL, note TEXT)"
+    ))
+
+    unwrap(insert(conn, Event { id: 1, start: "2026-11-05", note: "a" }))
+    unwrap(insert(conn, Event { id: 2, start: "2026-11-06", note: "b" }))
+    unwrap(insert(conn, Event { id: 3, start: "2026-11-05", note: "c" }))
+
+    // The nine CRUD functions, over a column of another name.
+    print(unwrap(count_all(conn)))
+    print(unwrap(find_or_error(conn, 2)).start)
+    unwrap(update(conn, Event { id: 2, start: "2026-12-01", note: "b2" }))
+    print(unwrap(find_or_error(conn, 2)).start)
+
+    // The derived query, named for the field.
+    print(prelude.len(unwrap(find_by_start(conn, "2026-11-05"))))
+    print(unwrap(find_by_start(conn, "2026-11-05"))[0].note)
+    print(unwrap(delete_by_start(conn, "2026-11-05")))
+    print(unwrap(count_all(conn)))
+
+    // And a query written by hand names the field too, with `eql` emitting the column.
+    val reg = eql.registry([event_meta])
+    print(unwrap(eql.translate(reg, "SELECT e FROM Event e WHERE e.start = :start")).sql)
+}

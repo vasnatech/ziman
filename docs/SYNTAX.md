@@ -2306,11 +2306,12 @@ fn main() {
   struct, array field, or `bigint`/`decimal`/`byte` field is a compile error. The derive imports
   what its generated code calls; a field type of your own needs its conversion imported by the
   deriving module.
-- **`#[derive(Entity)]`** on a struct generates `<name>_columns: [string]` -- the field names in
+- **`#[derive(Entity)]`** on a struct generates `<name>_columns: [string]` -- the column names in
   `to_params` order, which is the order a hand-written `INSERT INTO t (a, b) VALUES ($1, $2)` lists
   its columns in, so the two cannot disagree. It needs `Row` beside it (`#[derive(Row, Entity)]`),
-  since an entity is something read back out of a row and `<name>_from_row` is what reads it; a
-  fieldless struct and an enum are both refused.
+  since an entity is something read back out of a row and `<name>_from_row` is what reads it --
+  checked **by name**, so a hand-written `<name>_from_row` satisfies it as well as the derive does;
+  a fieldless struct and an enum are both refused.
   The table name is never **guessed**, because no pluralisation rule survives real schemas
   (`FamilyHistory` is stored in `family_history`, `MedicalHistory` in `medical_histories`,
   `UserNotificationPreference` in `user_notification_prefs`) and a wrong guess would build SQL
@@ -2326,9 +2327,9 @@ fn main() {
   spelling -- SQL leaking back through the layer whose job is to hide it. The argument must be a
   string; a bare word is refused, since `Entity(patients)` could plausibly name a type.
 - **`#[pk]` on a struct field** marks it as part of the row's key, and `#[derive(Entity("t"))]`
-  puts the marked fields in the metamodel as `keys`, in field order. **The only field attribute**:
-  an unknown name is refused rather than ignored, and a function parameter cannot carry one, since
-  the attribute is read in the struct-field loop and nowhere else.
+  puts the marked fields in the metamodel as `keys`, in field order. An unknown field attribute is
+  refused rather than ignored, and a function parameter cannot carry one, since field attributes
+  are read in the struct-field loop and nowhere else.
   `keys` is **empty when nothing is marked**, which means "no key was declared" and not "the first
   column". A reader that addresses a single row refuses an empty `keys` by name rather than
   guessing -- the guess would have been right for all 27 entities in the North Star application,
@@ -2336,6 +2337,15 @@ fn main() {
   **More than one field may be marked**, and that is the whole syntax for a compound key. Nothing
   about the attribute objects; a reader that can only address a single-column key is what has to
   say so.
+- **`#[column(name: "start_date")]` on a struct field** says the field is stored in a column of
+  another name -- for a schema you do not control, or one whose spelling you would not choose.
+  `<name>_columns` carries the column, `<name>_from_row` reads the column, `keys` uses the column
+  for a `#[pk]` field, and `<name>_meta` carries the pairing so that **everything you write still
+  names the field**: a query says `e.start`, `eql` emits `start_date`, and a derived query is
+  `find_by_start`. Naming the *column* in a query is refused, with the field list.
+  The argument is **named**, not positional: `#[column("start_date")]` would read fine today and
+  stop reading the moment a second argument exists. A misspelled argument is refused, since
+  ignoring one would be a column override that silently does not happen.
 
 ## Networking
 

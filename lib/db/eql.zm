@@ -92,10 +92,13 @@ use uuid.uuid_to_sql
 
 // One entity: the name a query calls it, the table it is stored in, and its columns.
 //
-// The columns are `#[derive(Entity)]`'s `<name>_columns`, which is the struct's own field list, so
-// what a query may name and what `from_row` reads are the same list by construction. The table is
-// hand-written beside the struct, because no pluralisation rule survives a real schema -- see the
-// derive's own comment.
+// The columns are `#[derive(Entity)]`'s `<name>_columns`. **They were the struct's own field list,
+// so what a query may name and what `from_row` reads were the same list by construction** -- and a
+// field carrying `#[column(name: "..")]` makes them two lists (2026-10-29), which is what `fields`
+// below pairs. Everything a *reader* writes is still the field: a query says `e.start`, this maps
+// it to `start_date`, and the column name appears in the SQL and in the attribute and nowhere
+// else. The table is hand-written beside the struct, because no pluralisation rule survives a real
+// schema -- see the derive's own comment.
 pub struct Entity {
     name: string
     table: string
@@ -110,18 +113,54 @@ pub struct Entity {
     // More than one is a compound key, which is simply two fields marked. Nothing here objects to
     // that; a *reader* that can only address a single-column key is the thing that has to say so.
     keys: [string]
+    // The struct field each column belongs to, in the same order -- what a *query* names where
+    // `columns` is what the *database* has.
+    //
+    // **Equal to `columns` unless a field carries `#[column(name: "..")]`** (2026-10-29), and the
+    // paragraph above this struct is why that matters: field name, column name, what a query may
+    // write and what `from_row` reads were one list "by construction", and an override makes them
+    // two. So a query still says `e.start`, this pairs it with `start_date`, and the column name
+    // appears in the SQL and nowhere a reader of the struct has to think about it.
+    //
+    // The two lists are parallel. Nothing here enforces that, because the only thing that builds a
+    // mismatched pair is a caller writing one by hand, and `column_for` falls back to the field's
+    // own name rather than reading past the end of `columns`.
+    fields: [string]
 }
 
 // An entity with no declared key, for a caller that only names columns.
+//
+// **The field names are the column names**, which is the case every caller had before an override
+// existed and still the overwhelmingly common one: a query names what the struct spells.
 pub fn entity(name: string, table: string, columns: [string]) -> Entity {
     val none: [string] = []
-    return Entity { name: name, table: table, columns: columns, keys: none }
+    return Entity { name: name, table: table, columns: columns, keys: none, fields: columns }
+}
+
+// The same where a field is stored in a column of another name: `fields` pairs with `columns`,
+// position by position. What `#[derive(Entity("table"))]` writes when any field carries
+// `#[column(name: "..")]`.
+pub fn entity(name: string, table: string, columns: [string], fields: [string]) -> Entity {
+    val none: [string] = []
+    return Entity { name: name, table: table, columns: columns, keys: none, fields: fields }
 }
 
 // An entity and the columns that identify one of its rows. What `#[derive(Entity("table"))]`
 // writes when the struct marks a field `#[pk]`.
 pub fn keyed_entity(name: string, table: string, columns: [string], keys: [string]) -> Entity {
-    return Entity { name: name, table: table, columns: columns, keys: keys }
+    return Entity { name: name, table: table, columns: columns, keys: keys, fields: columns }
+}
+
+// Keyed, and with a field-to-column pairing. `keys` are **column** names, as they are in the form
+// above: they go into SQL, and `update_one` compares them against `columns`.
+pub fn keyed_entity(
+    name: string,
+    table: string,
+    columns: [string],
+    keys: [string],
+    fields: [string]
+) -> Entity {
+    return Entity { name: name, table: table, columns: columns, keys: keys, fields: fields }
 }
 
 // The entities a program has, and the only thing here that knows one exists -- the same shape as
@@ -366,20 +405,29 @@ fn bound_for(binds: [Bound], alias: string) -> Option<Bound> {
     return Option<Bound>.None
 }
 
-// Whether `entity` has a column `field`, with an error naming what it does have -- which is the
-// whole point of translating rather than writing the SQL by hand.
-fn check_field(e: Entity, field: string) -> Result<unit, DbError> {
+// The column a query's `alias.field` refers to, with an error naming what the entity does have --
+// which is the whole point of translating rather than writing the SQL by hand.
+//
+// **A query names a field and SQL names a column**, and they differ only for a field carrying
+// `#[column(name: "..")]`. Matching is on `fields` and the answer is from `columns`, so the
+// mapping happens in the one place a path is resolved.
+fn column_for(e: Entity, field: string) -> Result<string, DbError> {
     val want = sql.fold_name(field)
-    for c in e.columns {
-        if sql.fold_name(c) == want {
-            return ok(unit)
+    for i in 0..prelude.len(e.fields) {
+        if sql.fold_name(e.fields[i]) != want {
+            continue
         }
+        // Parallel by construction; the field's own name rather than a read past the end.
+        if i < prelude.len(e.columns) {
+            return ok(e.columns[i])
+        }
+        return ok(e.fields[i])
     }
     return err(problem(prelude.format(
         "entity {} has no field '{}' (it has: {})",
         e.name,
         field,
-        join(separator: ", ", pieces: e.columns)
+        join(separator: ", ", pieces: e.fields)
     )))
 }
 
@@ -691,12 +739,12 @@ fn translate_sized(reg: Registry, query: string, sizes: Map<string, int>) -> Res
                         }
                         append(out, expanded(b))
                     } else {
-                        try check_field(b.entity, tokens[i + 2].text)
+                        val column = try column_for(b.entity, tokens[i + 2].text)
                         // The qualifier goes with the alias it refers to; see the entity branch.
                         if deleting {
-                            append(out, tokens[i + 2].text)
+                            append(out, column)
                         } else {
-                            append(out, b.alias, ".", tokens[i + 2].text)
+                            append(out, b.alias, ".", column)
                         }
                     }
                     i = i + 3
