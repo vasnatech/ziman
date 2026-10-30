@@ -322,6 +322,78 @@ static char *run_generator(const char *fn, Value *args, int argc, const char *wh
     return copy_string(is_result ? out.as.res->value : out);
 }
 
+/* ---- what attributes exist ---------------------------------------------------------------
+ *
+ * **The compiler holds no list of field attributes.** `src/parser.c` held one until 2026-10-30 --
+ * eleven names and their argument grammars -- which meant a constraint was a line in the compiler
+ * as well as in its generator, and a project could not have an attribute of its own at all. Each
+ * generator declares its own set instead, as `pub fn attributes() -> [meta.AttrSpec]`, and this
+ * collects them.
+ *
+ * A generator that owns no field attribute simply does not export it, and the call failing is how
+ * that is read -- which does mean a *fault* inside an `attributes()` would look like "this
+ * generator has none". The failure is loud rather than quiet: every attribute it owns becomes
+ * "unknown field attribute" at the first field that carries one.
+ *
+ * Collected once. The bundled generators are a fixed set, so the answer cannot change within a
+ * run; a project's own generator (docs/design/user-generators.md §5a) is found through the
+ * importing module's `use` list and will want this keyed per module rather than globally. */
+static ZimanAttrSpec *g_attr_specs = NULL;
+static int g_attr_spec_count = 0;
+static int g_attr_specs_tried = 0;
+
+static void collect_attr_specs_from(const char *mod) {
+    char *fn = ziman_xmalloc(strlen(mod) + 16);
+    sprintf(fn, "%s::attributes", mod);
+    Value out;
+    const char *problem = NULL;
+    int ok = ziman_call_in_module(g_generators, fn, NULL, 0, &out, &problem);
+    free(fn);
+    if (!ok || out.type == NULL || out.type->kind != TY_ARRAY || out.as.arr == NULL) return;
+    /* An array of structs is never one of the packed buffers, so `boxed_items` is the storage. */
+    if (out.as.arr->boxed_items == NULL) return;
+    for (int i = 0; i < out.as.arr->count; i++) {
+        Value one = out.as.arr->boxed_items[i];
+        if (one.type == NULL || one.type->kind != TY_STRUCT || one.as.st == NULL) continue;
+        char *name = NULL;
+        char *args = NULL;
+        for (int f = 0; f < one.as.st->count; f++) {
+            const char *fname = one.as.st->field_names[f];
+            Value v = one.as.st->fields[f];
+            if (v.type == NULL || v.type->kind != TY_STRING) continue;
+            /* Copied, not borrowed: a Ziman string points into a buffer the generator's
+             * environment owns, and this table outlives the call. `copy_string`'s own comment. */
+            if (strcmp(fname, "name") == 0) name = copy_string(v);
+            if (strcmp(fname, "args") == 0) args = copy_string(v);
+        }
+        if (name == NULL || args == NULL) continue;
+        g_attr_specs = ziman_xrealloc(g_attr_specs, (size_t)(g_attr_spec_count + 1) * sizeof *g_attr_specs);
+        g_attr_specs[g_attr_spec_count].name = name;
+        g_attr_specs[g_attr_spec_count].args = args;
+        g_attr_spec_count++;
+    }
+}
+
+const ZimanAttrSpec *ziman_generator_attr_specs(int *count) {
+    if (!g_attr_specs_tried) {
+        g_attr_specs_tried = 1;
+        const char *caller_file = ziman_error_file();
+        load_generators();
+        ziman_set_error_file(caller_file);
+        if (g_generators != NULL) {
+            for (size_t i = 0; i < sizeof GENERATOR_MODULES / sizeof GENERATOR_MODULES[0]; i++) {
+                collect_attr_specs_from(GENERATOR_MODULES[i]);
+            }
+            for (size_t i = 0; i < sizeof MODULE_GENERATOR_MODULES / sizeof MODULE_GENERATOR_MODULES[0]; i++) {
+                collect_attr_specs_from(MODULE_GENERATOR_MODULES[i]);
+            }
+        }
+        ziman_set_error_file(caller_file);
+    }
+    *count = g_attr_spec_count;
+    return g_attr_specs;
+}
+
 char *ziman_generate_in_ziman(const char *target, StructDecl *sd, EnumDecl *ed, const char *arg, int line, int col) {
     if (!ziman_has_ziman_generator(target)) return NULL;
     /* **Captured before anything else runs.** Loading the generator program and then running it

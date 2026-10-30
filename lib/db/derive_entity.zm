@@ -54,6 +54,16 @@ pub val @{snake}_meta: eql.Entity = eql.entity("@{name}", "@{table}", @{snake}_c
 
 @end
 """)
+// **The two attributes the entity layer owns.** `#[pk]` marks a key column and `#[column]`
+// overrides a column name; `derive_row` and `eql` read them too, and they are declared here
+// because this is the generator the metamodel comes from. The compiler holds no list of field
+// attributes and asks every loaded generator for one (docs/design/user-generators.md §5a).
+pub fn attributes() -> [meta.AttrSpec] {
+    return [
+        meta.attr_spec("pk", ""),
+        meta.attr_spec("column", "name:string")
+    ]
+}
 
 // The column a field is stored in: `#[column(name: "start_date")]`'s argument, or the field's own
 // name -- the overwhelmingly common case, and the one `eql` calls an identity "by construction".

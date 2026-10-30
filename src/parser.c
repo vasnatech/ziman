@@ -130,202 +130,18 @@ static Token *expect(Parser *p, TokenType type, const char *what) {
 
 /* ---- field attributes -------------------------------------------------------------------
  *
- * **One table, and the parser refuses anything not in it.** A field attribute is read here rather
- * than by the generator that acts on it, so that a misspelling is a syntax error at the field and
- * not a constraint that silently does not run -- the same rule the module-level attributes follow.
- * The cost is that a new constraint is a line here as well as in its generator, which is the trade
- * `#[deprecated]`'s years of parsing-and-doing-nothing argues for.
- *
- * `args` is the argument spec: `name:kind` entries separated by commas, `?` for one that may be
- * left out, and an empty string for an attribute that takes none. The kinds are `string`, `int`
- * and `name` (an identifier the *generated code* will emit, as `#[test(cases: NAME)]` does). */
-typedef struct {
-    const char *attr;
-    const char *args;
-} FieldAttrSpec;
-
-static const FieldAttrSpec FIELD_ATTRS[] = {
-    /* the entity attributes */
-    {"pk", ""},
-    {"column", "name:string"},
-    /* The validation constraints; see docs/design/validation.md. Each takes `message:` to override
-     * the default text for that one field, as every Jakarta constraint does. */
-    {"one_of", "values:name,message:string?"},
-    {"not_blank", "message:string?"},
-    {"not_empty", "message:string?"},
-    {"email", "message:string?"},
-    {"positive", "message:string?"},
-    {"min", "value:int,message:string?"},
-    {"max", "value:int,message:string?"},
-    {"size", "min:int?,max:int?,message:string?"},
-    /* Cascading (validation.md §6). Not a rule and so no `message:`: it answers violations about
-     * the *nested* struct's fields, under a dotted path, rather than about this one. */
-    {"valid", ""},
-};
-
+ * **The parser reads them and does not judge them.** A field attribute's name and arguments are
+ * checked against a table that no longer lives here: it is built from what the generators declare
+ * (`ziman_generator_attr_specs`), so a constraint is its generator's business and the compiler
+ * knows none of them. `ziman_check_field_attributes` in src/derive.c does that pass, once per
+ * module after the generators have loaded, off the `line`/`col` these carry -- so a refusal still
+ * lands on the attribute even though it is no longer raised while parsing it. */
 static void field_attr_list_push(FieldAttrList *list, FieldAttr one) {
     if (list->count == list->capacity) {
         list->capacity = list->capacity == 0 ? 4 : list->capacity * 2;
         list->items = ziman_xrealloc(list->items, (size_t)list->capacity * sizeof(FieldAttr));
     }
     list->items[list->count++] = one;
-}
-
-static const char *field_attr_arg(const FieldAttr *a, const char *name) {
-    for (int i = 0; i < a->arg_count; i++) {
-        if (strcmp(a->args[i].name, name) == 0) return a->args[i].value;
-    }
-    return NULL;
-}
-
-/* Whether `text` is a whole number as the `int` kind means it, so `#[min("8")]` is refused rather
- * than read as the string "8". A leading `-` is allowed: `#[min(-1)]` is a sensible bound. */
-static int is_whole_number(const char *text) {
-    if (text == NULL || *text == '\0') return 0;
-    const char *at = text;
-    if (*at == '-') at++;
-    if (*at == '\0') return 0;
-    for (; *at != '\0'; at++) {
-        if (*at < '0' || *at > '9') return 0;
-    }
-    return 1;
-}
-
-/* The spec for `name`, or NULL when the attribute is not one a field may carry. */
-static const char *field_attr_spec(const char *name) {
-    for (size_t i = 0; i < sizeof FIELD_ATTRS / sizeof FIELD_ATTRS[0]; i++) {
-        if (strcmp(FIELD_ATTRS[i].attr, name) == 0) return FIELD_ATTRS[i].args;
-    }
-    return NULL;
-}
-
-/* A spec as a message reads it: `min:int?,max:int?` becomes `min: <number>, max: <number>`. The
- * `?` is dropped, because "it takes" is a list of what is accepted rather than of what is
- * required, and the one that *is* required says so in its own refusal. */
-static char *field_attr_spec_text(const char *spec) {
-    char *out = ziman_xmalloc(strlen(spec) * 4 + 2);
-    out[0] = '\0';
-    const char *at = spec;
-    int first = 1;
-    while (*at != '\0') {
-        const char *comma = strchr(at, ',');
-        size_t len = comma != NULL ? (size_t)(comma - at) : strlen(at);
-        const char *colon = memchr(at, ':', len);
-        if (colon != NULL) {
-            if (!first) strcat(out, ", ");
-            first = 0;
-            size_t name_len = (size_t)(colon - at);
-            strncat(out, at, name_len);
-            const char *kind = colon + 1;
-            strcat(out, strncmp(kind, "int", 3) == 0 ? ": <number>"
-                      : strncmp(kind, "name", 4) == 0 ? ": <name>"
-                      : ": \"<text>\"");
-        }
-        at = comma != NULL ? comma + 1 : at + len;
-    }
-    return out;
-}
-
-static char *field_attr_names(void) {
-    size_t n = 0;
-    for (size_t i = 0; i < sizeof FIELD_ATTRS / sizeof FIELD_ATTRS[0]; i++) {
-        n += strlen(FIELD_ATTRS[i].attr) + 2;
-    }
-    char *out = ziman_xmalloc(n + 1);
-    out[0] = '\0';
-    for (size_t i = 0; i < sizeof FIELD_ATTRS / sizeof FIELD_ATTRS[0]; i++) {
-        if (i > 0) strcat(out, ", ");
-        strcat(out, FIELD_ATTRS[i].attr);
-    }
-    return out;
-}
-
-/* Checks one attribute against its spec: the name exists, every argument it was given is one the
- * spec names and of the right kind, and every argument the spec requires was given. */
-static void check_field_attribute(const FieldAttr *a) {
-    const char *spec = field_attr_spec(a->name);
-    if (spec == NULL) {
-        ziman_error("syntax", a->line, a->col,
-                    "unknown field attribute '%s' -- a struct field takes one of: %s",
-                    a->name, field_attr_names());
-        return;
-    }
-    /* Every argument given is named by the spec, and is of the kind it says. */
-    for (int i = 0; i < a->arg_count; i++) {
-        const FieldAttrArg *given = &a->args[i];
-        char wanted[64];
-        snprintf(wanted, sizeof wanted, "%s:", given->name);
-        const char *at = strstr(spec, wanted);
-        int at_start = at != NULL && (at == spec || *(at - 1) == ',');
-        if (!at_start) {
-            if (*spec == '\0') {
-                ziman_error("syntax", given->line, given->col,
-                            "'#[%s]' takes no arguments", a->name);
-            } else if (strcmp(given->name, "value") == 0) {
-                /* Written positionally -- `#[column("x")]` -- where this attribute names its
-                 * arguments. Saying "no argument 'value'" would be true and unhelpful. */
-                ziman_error("syntax", given->line, given->col,
-                            "'#[%s]' takes named arguments: %s", a->name, field_attr_spec_text(spec));
-            } else {
-                ziman_error("syntax", given->line, given->col,
-                            "'#[%s]' has no argument '%s' -- it takes: %s", a->name, given->name,
-                            field_attr_spec_text(spec));
-            }
-            continue;
-        }
-        /* The spec's kind against the kind it was *written* as, not against its text: see
-         * `FieldAttrArg.kind`. */
-        const char *spec_kind = at + strlen(wanted);
-        const char *wanted_kind = strncmp(spec_kind, "int", 3) == 0 ? "int"
-                                : strncmp(spec_kind, "name", 4) == 0 ? "name"
-                                : "string";
-        if (strcmp(given->kind, wanted_kind) != 0) {
-            const char *as_written = strcmp(given->kind, "string") == 0 ? "a string"
-                                   : strcmp(given->kind, "int") == 0 ? "a number"
-                                   : "a name";
-            const char *needed = strcmp(wanted_kind, "int") == 0 ? "a whole number"
-                               : strcmp(wanted_kind, "name") == 0
-                                     ? "a name -- the module's own val, which the generated code reads"
-                                     : "a string in double quotes";
-            ziman_error("syntax", given->line, given->col,
-                        "'#[%s]'s '%s' is %s and has to be %s", a->name, given->name, as_written, needed);
-        }
-        if (strcmp(wanted_kind, "int") == 0 && !is_whole_number(given->value)) {
-            ziman_error("syntax", given->line, given->col,
-                        "'#[%s]'s '%s' is a whole number", a->name, given->name);
-        }
-        if (strcmp(wanted_kind, "string") == 0 && given->value[0] == '\0') {
-            ziman_error("syntax", given->line, given->col,
-                        "'#[%s(%s: \"\")]' names nothing", a->name, given->name);
-        }
-        for (int j = 0; j < i; j++) {
-            if (strcmp(a->args[j].name, given->name) == 0) {
-                ziman_error("syntax", given->line, given->col,
-                            "'#[%s]' has two '%s' arguments", a->name, given->name);
-            }
-        }
-    }
-    /* Every argument the spec requires -- one without a `?` -- was given. */
-    const char *at = spec;
-    while (*at != '\0') {
-        const char *comma = strchr(at, ',');
-        size_t len = comma != NULL ? (size_t)(comma - at) : strlen(at);
-        int optional = len > 0 && at[len - 1] == '?';
-        const char *colon = memchr(at, ':', len);
-        if (colon != NULL && !optional) {
-            char name[64];
-            size_t n = (size_t)(colon - at);
-            if (n >= sizeof name) n = sizeof name - 1;
-            memcpy(name, at, n);
-            name[n] = '\0';
-            if (field_attr_arg(a, name) == NULL) {
-                ziman_error("syntax", a->line, a->col,
-                            "'#[%s]' needs its '%s' argument -- it takes: %s", a->name, name,
-                            field_attr_spec_text(spec));
-            }
-        }
-        at = comma != NULL ? comma + 1 : at + len;
-    }
 }
 
 static char *dup_token_text(Token *t) {
@@ -2724,10 +2540,9 @@ static StructDecl *parse_struct_decl(Parser *p) {
                 for (int i = 0; i < argc; i++) one.args[i] = args[i];
                 one.arg_count = argc;
             }
-            /* Checked against the table and then **pushed without being read**: the parser decides
-             * whether an attribute is spelled correctly and the generator decides what it means.
-             * Two names used to be pulled out here as well, `pk` and `column`; see ast.h. */
-            check_field_attribute(&one);
+            /* **Pushed without being read or judged.** Whether the name and its arguments are
+             * legal is decided once per module, after the generators have loaded and can say
+             * which attributes exist -- `ziman_check_field_attributes` in src/derive.c. */
             field_attr_list_push(&field_attrs, one);
             expect(p, TOK_RBRACKET, "']'");
             skip_newlines(p);

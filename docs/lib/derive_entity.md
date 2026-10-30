@@ -22,6 +22,30 @@ spelling -- SQL leaking back through the layer whose job is to hide it.
 
 `use derive_entity` -- or `use derive_entity.Name` to bring one item in bare.
 
+### `attributes`
+
+```
+pub fn attributes() -> [meta.AttrSpec]
+```
+
+Everything this generator writes. For `#[derive(Row, Entity("notes"))] struct Note { #[pk] id: Uuid  body: string }`:
+
+
+```
+pub val note_columns: [string] = ["id", "body"]
+
+pub val note_table: string = "notes"
+
+pub val note_meta: eql.Entity = eql.keyed_entity("Note", "notes", note_columns, ["id"])
+```
+
+Written bare -- `#[derive(Entity)]` with no table -- only the column list is emitted, which is
+what an entity whose table is decided elsewhere still wants.
+**The two attributes the entity layer owns.** `#[pk]` marks a key column and `#[column]`
+overrides a column name; `derive_row` and `eql` read them too, and they are declared here
+because this is the generator the metamodel comes from. The compiler holds no list of field
+attributes and asks every loaded generator for one (docs/design/user-generators.md §5a).
+
 ### `generate`
 
 ```

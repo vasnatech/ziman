@@ -233,6 +233,46 @@ What is missing is the deferral, a `meta.attr_spec`, and the collision rule belo
   `derive/csv` pays the generator's initialisation (§6) even if the mistake is in a struct that
   derives nothing. That cost is already paid by anything that derives at all.
 
+### Built for the bundled generators, 2026-10-30
+
+**`FIELD_ATTRS` is gone.** `src/parser.c` held eleven names and their argument grammars; the
+compiler now asks every loaded generator for its own set and refuses a name no generator claims.
+`derive_validate.zm` declares nine (`one_of`, `not_blank`, `not_empty`, `email`, `positive`, `min`,
+`max`, `size`, `valid`) and `derive_entity.zm` two (`pk`, `column`), as
+
+```ziman
+pub fn attributes() -> [meta.AttrSpec] {
+    return [meta.attr_spec("one_of", "values:name,message:string?"), ...]
+}
+```
+
+A **function**, not a `pub val`: C already calls a generator by qualified name
+(`ziman_call_in_module`), so this reuses the one mechanism rather than adding val lookup. A
+generator owning no field attribute simply does not export it.
+
+What moved where:
+
+* **`meta.AttrSpec { name, args }`** and `meta.attr_spec`, the spec a generator declares.
+* **`ziman_generator_attr_specs`** (`src/generators.c`): calls `attributes()` on every loaded
+  generator and caches the union. One call per run, since the bundled set is fixed.
+* **`ziman_check_field_attributes`** (`src/derive.c`): the pass, run once per module from
+  `generate_derived_functions`, which the loader already calls for every module. The checking
+  helpers moved out of `src/parser.c` with it; what stayed there is `field_attr_list_push`, the
+  parsing half.
+
+**The deferral is real and guarded.** Collecting the specs loads the generator program, so the pass
+returns immediately for a module with no field attribute at all -- which is nearly all of them. A
+module that carries one is deriving something in practice and would load them anyway.
+
+**The protection is intact.** The pass walks the module's *structs*, not its derives, so a
+misspelling on a struct that derives nothing is still refused -- which is the whole reason the
+table was in C. And it is refused on the attribute's own line and column, which `FieldAttr` has
+carried all along.
+
+What is **not** built: the per-module part. The union is global, so a project's own generator --
+found through the importing module's `use` list -- needs this keyed per module, and two generators
+claiming one name needs the collision rule below. Both wait on §12.2.
+
 ### Where it sits in the order
 
 **After the bridge and `use`-list discovery (§12.1, §12.2), and before a project would call any of
@@ -290,8 +330,9 @@ up:
 `repository` from both of its positions. **Twelve remain, and not one of them is a library or
 domain name:**
 
-> **Partly done, 2026-10-30.** The eleven field attributes are still *named* in `FIELD_ATTRS` --
-> that is §5a's work -- but the compiler no longer reads what any of them **mean**. `#[pk]` and
+> **Done for the bundled generators, 2026-10-30.** The eleven field attributes are no longer in
+> the compiler at all: `FIELD_ATTRS` is gone and each generator declares its own set (§5a). The
+> compiler stopped reading what any of them **mean** the same day. `#[pk]` and
 > `#[column]` were pulled out of the attribute list into `Param.is_pk`/`column_name` and read by
 > `src/derive.c` to decide a repository's imports; `#[valid]` was read to require a nested
 > `_violations` in scope. All three reads are gone: importing a converter for every field type is a

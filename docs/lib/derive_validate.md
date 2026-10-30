@@ -22,6 +22,21 @@ That is Jakarta's semantics, and it is why one attribute replaces the `not_one_o
 
 `use derive_validate` -- or `use derive_validate.Name` to bring one item in bare.
 
+### `attributes`
+
+```
+pub fn attributes() -> [meta.AttrSpec]
+```
+
+**The nine attributes this generator owns**, which is where their names live: `src/parser.c`
+held a table of them until 2026-10-30, so adding a constraint meant editing the compiler. The
+compiler now asks every loaded generator for this list and refuses a name no generator claims
+(docs/design/user-generators.md §5a).
+
+`message:` on every constraint is Jakarta's `message` attribute: the rule still decides whether
+the field is in violation and the author decides what the reader is told. `valid` has none --
+it answers violations about the *nested* struct's fields rather than about this one.
+
 ### `generate`
 
 ```

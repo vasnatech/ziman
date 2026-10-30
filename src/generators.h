@@ -61,3 +61,14 @@ char *ziman_generate_module_in_ziman(const ZimanTarget *t, int line, int col);
 char *ziman_generate_query_in_ziman(const ZimanTarget *t, FunctionDecl *fn, int line, int col);
 
 #endif
+
+/* One field attribute a generator declares: `meta.AttrSpec` reified. `args` is the spec grammar
+ * `name:kind,other:kind?`; see lib/core/meta.zm's `AttrSpec`. */
+typedef struct {
+    const char *name;
+    const char *args;
+} ZimanAttrSpec;
+
+/* Every field attribute the loaded generators declare, collected once. Loads the generators, so
+ * a caller that has no field attribute to check should not call it. */
+const ZimanAttrSpec *ziman_generator_attr_specs(int *count);

@@ -82,6 +82,28 @@ pub fn @{snake}_violations(v: @{self}) -> [validate.Violation] {
 @end
 """)
 
+// **The nine attributes this generator owns**, which is where their names live: `src/parser.c`
+// held a table of them until 2026-10-30, so adding a constraint meant editing the compiler. The
+// compiler now asks every loaded generator for this list and refuses a name no generator claims
+// (docs/design/user-generators.md §5a).
+//
+// `message:` on every constraint is Jakarta's `message` attribute: the rule still decides whether
+// the field is in violation and the author decides what the reader is told. `valid` has none --
+// it answers violations about the *nested* struct's fields rather than about this one.
+pub fn attributes() -> [meta.AttrSpec] {
+    return [
+        meta.attr_spec("one_of", "values:name,message:string?"),
+        meta.attr_spec("not_blank", "message:string?"),
+        meta.attr_spec("not_empty", "message:string?"),
+        meta.attr_spec("email", "message:string?"),
+        meta.attr_spec("positive", "message:string?"),
+        meta.attr_spec("min", "value:int,message:string?"),
+        meta.attr_spec("max", "value:int,message:string?"),
+        meta.attr_spec("size", "min:int?,max:int?,message:string?"),
+        meta.attr_spec("valid", "")
+    ]
+}
+
 // The constraints, in the order the refusals name them. `pk` and `column` are field attributes too
 // and are not constraints, so they are skipped rather than refused -- an entity that validates its
 // own fields is the ordinary case.

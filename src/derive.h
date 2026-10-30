@@ -54,3 +54,7 @@ char *ziman_message_function_name(const char *type_name);
 extern int g_emit_derived;
 
 #endif
+
+/* Checks every field attribute in the module against what the loaded generators declare. Called
+ * from `generate_derived_functions`; see its comment for why this is not the parser's job. */
+void ziman_check_field_attributes(Module *module);

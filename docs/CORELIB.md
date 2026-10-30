@@ -343,6 +343,8 @@ pub fn generate(d: meta.Decl) -> Result<string, string>
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
+pub fn attributes() -> [meta.AttrSpec]
+
 pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```
@@ -1110,6 +1112,13 @@ pub fn field(name: string, type: Type, attrs: [Attr]) -> Field
 pub fn attr(name: string) -> Attr
 
 pub fn attr_with(name: string, args: [AttrArg]) -> Attr
+
+pub struct AttrSpec {
+    name: string
+    args: string
+}
+
+pub fn attr_spec(name: string, args: string) -> AttrSpec
 
 pub fn attr_arg(name: string, value: string, kind: string) -> AttrArg
 
@@ -2350,6 +2359,8 @@ pub fn open_rows(
 **Experimental** (see docs/DESIGN.md "Experimental modules"). 
 
 ```
+pub fn attributes() -> [meta.AttrSpec]
+
 pub fn generate(d: meta.Decl) -> Result<string, string>
 
 ```

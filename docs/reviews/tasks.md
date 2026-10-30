@@ -4846,3 +4846,44 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   of the derived code was outside every byte-identical claim made for F244 and F246.** Those
   changes were verified by the test suites, which is what actually caught the two dead imports
   F246's cleanup left; the `--emit-derived` diff was weaker evidence than it was presented as.
+
+- [x] **F250** **`FIELD_ATTRS` is gone: a generator declares the field attributes it owns.**
+  (user-raised 2026-10-30, listing the eight validation constraints: "let finish all"; L. §5a of
+  docs/design/user-generators.md, built for the bundled generators.)
+
+  F249 took the *meanings* out of the compiler. This takes the **names**. `src/parser.c` held
+  eleven of them with their argument grammars, so a constraint was a line in the compiler as well
+  as in its generator -- and a project could not have an attribute of its own at all, which is the
+  gap the user found by asking what happens to someone with no access to the C.
+
+  `derive_validate.zm` declares its nine and `derive_entity.zm` its two, as
+  `pub fn attributes() -> [meta.AttrSpec]`. **A function rather than a `pub val`**: C already calls
+  a generator by qualified name, so this reuses `ziman_call_in_module` instead of adding val
+  lookup. A generator owning none does not export it.
+
+  Three pieces: `meta.AttrSpec`/`attr_spec`; `ziman_generator_attr_specs` in `src/generators.c`,
+  which calls `attributes()` on every loaded generator and caches the union; and
+  `ziman_check_field_attributes` in `src/derive.c`, the pass itself, run once per module from
+  `generate_derived_functions` -- which the loader already calls for every module. The checking
+  helpers moved out of the parser with it; `field_attr_list_push` stayed, which is the parsing half.
+
+  **The check could not stay at parse time**, because no generator has loaded while a file is being
+  parsed. It is a pass of its own now, and `FieldAttr` has carried `line`/`col` all along, so a
+  refusal still lands on the attribute itself. Two properties were worth keeping and both are kept:
+
+  * **The pass walks the module's structs, not its derives**, so a misspelling on a struct that
+    derives nothing is still refused. That is the entire reason the table was in C -- a generator
+    only ever sees declarations it is asked to generate for.
+  * **A module with no field attribute never asks**, because collecting the specs loads five
+    thousand lines of Ziman. Nearly every module has none; one that carries an attribute is
+    deriving something in practice and would load the generators anyway.
+
+  What is not built is the per-*module* part: the union is global, and a project's own generator,
+  found through the importing module's `use` list, needs it keyed per module plus a rule for two
+  generators claiming one name. Both wait on the bridge (§12.2).
+
+  **A grep for any of the eleven names in `src/` now finds nothing** but three unrelated hits
+  (`math.min`, `len`/`size` in two did-you-mean suggestions). The compiler knows `derive`, `from`
+  and ten language attributes; it knows no annotation that is a fact about a library.
+
+  1,333 fixtures, and the North Star's derived output byte-identical at 34,800 lines.

@@ -374,6 +374,209 @@ static void parse_and_splice(Module *module, char *source, int line, int col, co
  * import still works and a user's own `Row` is left alone.
  * --------------------------------------------------------------------- */
 
+
+
+static const char *field_attr_arg(const FieldAttr *a, const char *name) {
+    for (int i = 0; i < a->arg_count; i++) {
+        if (strcmp(a->args[i].name, name) == 0) return a->args[i].value;
+    }
+    return NULL;
+}
+
+/* Whether `text` is a whole number as the `int` kind means it, so `#[min("8")]` is refused rather
+ * than read as the string "8". A leading `-` is allowed: `#[min(-1)]` is a sensible bound. */
+static int is_whole_number(const char *text) {
+    if (text == NULL || *text == '\0') return 0;
+    const char *at = text;
+    if (*at == '-') at++;
+    if (*at == '\0') return 0;
+    for (; *at != '\0'; at++) {
+        if (*at < '0' || *at > '9') return 0;
+    }
+    return 1;
+}
+
+/* The spec for `name`, or NULL when the attribute is not one a field may carry. */
+
+static const char *field_attr_spec(const char *name) {
+    int n = 0;
+    const ZimanAttrSpec *specs = ziman_generator_attr_specs(&n);
+    for (int i = 0; i < n; i++) {
+        if (strcmp(specs[i].name, name) == 0) return specs[i].args;
+    }
+    return NULL;
+}
+
+/* A spec as a message reads it: `min:int?,max:int?` becomes `min: <number>, max: <number>`. The
+ * `?` is dropped, because "it takes" is a list of what is accepted rather than of what is
+ * required, and the one that *is* required says so in its own refusal. */
+static char *field_attr_spec_text(const char *spec) {
+    char *out = ziman_xmalloc(strlen(spec) * 4 + 2);
+    out[0] = '\0';
+    const char *at = spec;
+    int first = 1;
+    while (*at != '\0') {
+        const char *comma = strchr(at, ',');
+        size_t len = comma != NULL ? (size_t)(comma - at) : strlen(at);
+        const char *colon = memchr(at, ':', len);
+        if (colon != NULL) {
+            if (!first) strcat(out, ", ");
+            first = 0;
+            size_t name_len = (size_t)(colon - at);
+            strncat(out, at, name_len);
+            const char *kind = colon + 1;
+            strcat(out, strncmp(kind, "int", 3) == 0 ? ": <number>"
+                      : strncmp(kind, "name", 4) == 0 ? ": <name>"
+                      : ": \"<text>\"");
+        }
+        at = comma != NULL ? comma + 1 : at + len;
+    }
+    return out;
+}
+
+/* The names a field may carry, in the order the generators declare them, for the refusal. */
+static char *field_attr_names(void) {
+    int count = 0;
+    const ZimanAttrSpec *specs = ziman_generator_attr_specs(&count);
+    size_t n = 1;
+    for (int i = 0; i < count; i++) n += strlen(specs[i].name) + 2;
+    char *out = ziman_xmalloc(n);
+    out[0] = '\0';
+    for (int i = 0; i < count; i++) {
+        if (i > 0) strcat(out, ", ");
+        strcat(out, specs[i].name);
+    }
+    return out;
+}
+
+/* Checks one attribute against its spec: the name exists, every argument it was given is one the
+ * spec names and of the right kind, and every argument the spec requires was given. */
+static void check_field_attribute(const FieldAttr *a) {
+    const char *spec = field_attr_spec(a->name);
+    if (spec == NULL) {
+        ziman_error("syntax", a->line, a->col,
+                    "unknown field attribute '%s' -- a struct field takes one of: %s",
+                    a->name, field_attr_names());
+        return;
+    }
+    /* Every argument given is named by the spec, and is of the kind it says. */
+    for (int i = 0; i < a->arg_count; i++) {
+        const FieldAttrArg *given = &a->args[i];
+        char wanted[64];
+        snprintf(wanted, sizeof wanted, "%s:", given->name);
+        const char *at = strstr(spec, wanted);
+        int at_start = at != NULL && (at == spec || *(at - 1) == ',');
+        if (!at_start) {
+            if (*spec == '\0') {
+                ziman_error("syntax", given->line, given->col,
+                            "'#[%s]' takes no arguments", a->name);
+            } else if (strcmp(given->name, "value") == 0) {
+                /* Written positionally -- `#[column("x")]` -- where this attribute names its
+                 * arguments. Saying "no argument 'value'" would be true and unhelpful. */
+                ziman_error("syntax", given->line, given->col,
+                            "'#[%s]' takes named arguments: %s", a->name, field_attr_spec_text(spec));
+            } else {
+                ziman_error("syntax", given->line, given->col,
+                            "'#[%s]' has no argument '%s' -- it takes: %s", a->name, given->name,
+                            field_attr_spec_text(spec));
+            }
+            continue;
+        }
+        /* The spec's kind against the kind it was *written* as, not against its text: see
+         * `FieldAttrArg.kind`. */
+        const char *spec_kind = at + strlen(wanted);
+        const char *wanted_kind = strncmp(spec_kind, "int", 3) == 0 ? "int"
+                                : strncmp(spec_kind, "name", 4) == 0 ? "name"
+                                : "string";
+        if (strcmp(given->kind, wanted_kind) != 0) {
+            const char *as_written = strcmp(given->kind, "string") == 0 ? "a string"
+                                   : strcmp(given->kind, "int") == 0 ? "a number"
+                                   : "a name";
+            const char *needed = strcmp(wanted_kind, "int") == 0 ? "a whole number"
+                               : strcmp(wanted_kind, "name") == 0
+                                     ? "a name -- the module's own val, which the generated code reads"
+                                     : "a string in double quotes";
+            ziman_error("syntax", given->line, given->col,
+                        "'#[%s]'s '%s' is %s and has to be %s", a->name, given->name, as_written, needed);
+        }
+        if (strcmp(wanted_kind, "int") == 0 && !is_whole_number(given->value)) {
+            ziman_error("syntax", given->line, given->col,
+                        "'#[%s]'s '%s' is a whole number", a->name, given->name);
+        }
+        if (strcmp(wanted_kind, "string") == 0 && given->value[0] == '\0') {
+            ziman_error("syntax", given->line, given->col,
+                        "'#[%s(%s: \"\")]' names nothing", a->name, given->name);
+        }
+        for (int j = 0; j < i; j++) {
+            if (strcmp(a->args[j].name, given->name) == 0) {
+                ziman_error("syntax", given->line, given->col,
+                            "'#[%s]' has two '%s' arguments", a->name, given->name);
+            }
+        }
+    }
+    /* Every argument the spec requires -- one without a `?` -- was given. */
+    const char *at = spec;
+    while (*at != '\0') {
+        const char *comma = strchr(at, ',');
+        size_t len = comma != NULL ? (size_t)(comma - at) : strlen(at);
+        int optional = len > 0 && at[len - 1] == '?';
+        const char *colon = memchr(at, ':', len);
+        if (colon != NULL && !optional) {
+            char name[64];
+            size_t n = (size_t)(colon - at);
+            if (n >= sizeof name) n = sizeof name - 1;
+            memcpy(name, at, n);
+            name[n] = '\0';
+            if (field_attr_arg(a, name) == NULL) {
+                ziman_error("syntax", a->line, a->col,
+                            "'#[%s]' needs its '%s' argument -- it takes: %s", a->name, name,
+                            field_attr_spec_text(spec));
+            }
+        }
+        at = comma != NULL ? comma + 1 : at + len;
+    }
+}
+
+/* Every field attribute in the module, against what the generators say exists.
+ *
+ * **This used to happen while parsing**, against a table in `src/parser.c`. It cannot any more: a
+ * generator declares the attributes it owns, and no generator has loaded while a file is being
+ * parsed. So it is a pass of its own, run once per module from `generate_derived_functions`, off
+ * the `line`/`col` every `FieldAttr` carries -- a refusal still lands on the attribute itself.
+ *
+ * **The guard matters.** Collecting the specs loads the generator program, so a module with no
+ * field attribute at all must not ask: the overwhelming majority of modules have none, and making
+ * every one of them load five thousand lines of Ziman to learn that would be a real cost for
+ * nothing. A module that *does* carry one is deriving something in practice and would load them
+ * anyway.
+ *
+ * The parser still sees every field, which is the property the table was in C for: a misspelling
+ * on a struct that derives nothing is refused here, because this walks the module's structs rather
+ * than its derives. */
+void ziman_check_field_attributes(Module *module) {
+    int any = 0;
+    for (int i = 0; i < module->structs.count && !any; i++) {
+        for (int f = 0; f < module->structs.items[i]->fields.count; f++) {
+            if (module->structs.items[i]->fields.items[f].attrs.count > 0) {
+                any = 1;
+                break;
+            }
+        }
+    }
+    if (!any) return;
+    int count = 0;
+    /* No generators means no answer about what exists, and refusing every attribute would be a
+     * worse lie than accepting them: the derive machinery reports its own failure to load. */
+    if (ziman_generator_attr_specs(&count) == NULL || count == 0) return;
+    for (int i = 0; i < module->structs.count; i++) {
+        StructDecl *sd = module->structs.items[i];
+        for (int f = 0; f < sd->fields.count; f++) {
+            const FieldAttrList *attrs = &sd->fields.items[f].attrs;
+            for (int a = 0; a < attrs->count; a++) check_field_attribute(&attrs->items[a]);
+        }
+    }
+}
+
 static int module_binds_name(Module *module, const char *name) {
     for (int i = 0; i < module->uses.count; i++) {
         UseDecl *u = &module->uses.items[i];
@@ -823,6 +1026,7 @@ void generate_derived_queries(Module *module, StructDecl *sd) {
 }
 
 void generate_derived_functions(Module *module) {
+    ziman_check_field_attributes(module);
     for (volatile int i = 0; i < module->structs.count; i++) {
         StructDecl *sd = module->structs.items[i];
         for (volatile int d = 0; d < sd->derive_count; d++) {

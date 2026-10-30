@@ -365,6 +365,33 @@ pub fn attr(name: string) -> Attr
 pub fn attr_with(name: string, args: [AttrArg]) -> Attr
 ```
 
+### `AttrSpec`
+
+```
+pub struct AttrSpec {
+    name: string
+    args: string
+}
+```
+
+One field attribute a generator declares: its name and the grammar of its arguments.
+
+**The compiler holds no list of field attributes.** It parses `#[name(a: 1, b: "x")]` into a
+generic list and then asks every loaded generator which names exist, by calling its
+`attributes()`. So `#[not_blank]` is `derive_validate`'s business and `#[pk]` is
+`derive_entity`'s, and neither is a name `src/` knows -- which is what lets a project's own
+generator have attributes of its own (docs/design/user-generators.md §5a).
+
+`args` is the spec: `name:kind` entries separated by commas, `?` for one that may be left out,
+and an empty string for an attribute that takes none. The kinds are `string`, `int` and `name`
+(an identifier the *generated code* will emit, as `#[one_of(values: type_words)]` does).
+
+### `attr_spec`
+
+```
+pub fn attr_spec(name: string, args: string) -> AttrSpec
+```
+
 ### `attr_arg`
 
 ```
