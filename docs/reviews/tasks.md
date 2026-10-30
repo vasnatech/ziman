@@ -4430,3 +4430,54 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   byte-identical.
 
   1,310 fixtures.
+
+- [x] **F238** **ES256 in `jwt`: a token a holder can verify and cannot issue.** (on F236's
+  primitive; done 2026-10-29; S-M.)
+
+  `jwt.sign(claims, private_key_pem)` and `jwt.verify(token, public_key_pem)`, overloaded on the
+  key's type beside the HMAC pair. With it, the one export format health-record could not produce
+  -- SMART Health Cards, which needs an ES256 JWS -- is unblocked.
+
+  **Adding an asymmetric family made algorithm confusion expressible for the first time, and
+  `check`'s own comment said so.** It argued that a trusted `alg` header is only dangerous given a
+  *mix* of symmetric and asymmetric algorithms, and that with HS256/384/512 as the whole set,
+  switching `alg` bought an attacker nothing. True then; the premise is gone now. That comment is
+  corrected in place rather than deleted, because the reasoning was right and it is the premise
+  that moved.
+
+  **What replaces it is structural and not optional: a key's type chooses its family.** A secret is
+  `[byte]`, an EC key is PEM `string`, and one private `enum Key` plus one `signature_holds`
+  pairing table is the only place the two meet -- so a token's header can choose only within the
+  family the caller already chose. Four refusals pin it in `tests/lang/jwt_es256`: an **HS256 token
+  signed with the public key text as its secret** (the attack itself) is "unsupported algorithm
+  'HS256'" rather than verified; `alg: none` likewise; an ES256 token handed to a secret-holder
+  likewise; and pinning still reports a mismatch within a family.
+
+  **A language gap decided the API, and it is worth its own entry (F239).** `verify_claims` is
+  called by name with most of its `Option` parameters omitted, and **a named call that omits
+  optional parameters does not resolve against an overload set**: adding a second `verify_claims`
+  broke every such call, `tests/lang/jwt_claims` included, with "no declaration takes 3
+  argument(s)". So the PEM form is `verify_claims_pem` rather than a third overload. `verify` and
+  `verify_at` are called positionally and overload cleanly.
+
+  1,311 fixtures.
+
+- [ ] **F239** **A named call that omits optional parameters cannot resolve against an overload
+  set.** (found by F238; S-M; needs the user, since it is a type-checker change.)
+
+  `jwt.verify_claims(token: t, key: k, now: n)` resolves while `verify_claims` is one declaration
+  with five further `Option` parameters. Add a second declaration differing only in one
+  parameter's type and **the call stops resolving at all** -- "no declaration of
+  'jwt::verify_claims' takes 3 argument(s)", listing both candidates, each of which takes eight.
+  The resolver is matching arity before names, so the omitted-`Option` rule that makes named calls
+  pleasant is not applied per candidate.
+
+  Worth fixing because the two features are each load-bearing here -- named calls with omitted
+  options are how this library's wide functions stay readable (F167-F202's whole subject), and
+  overloading on a key's type is what makes `jwt`'s families safe -- and they currently cannot be
+  used together. The workaround in `jwt` is a second name (`verify_claims_pem`), which is a cost
+  this would remove.
+
+  Not attempted here: it is `check_call`'s resolution order in `src/typecheck.c`, it affects every
+  overload set rather than one module, and the `overload-sets-check` gate's notion of "told apart
+  by some call" may need to account for named-with-omissions too.

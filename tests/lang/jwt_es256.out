@@ -1,0 +1,14 @@
+a token has three parts: 3
+its header names ES256: true
+it verifies under the public key: ok, sub=ada@example.com
+Err(ecdsa_p256_sign: not a PEM private key)
+another key does not verify it: the signature does not match
+a tampered payload does not verify: the signature does not match
+an expired token: the token has expired
+a wrong issuer: the token has no 'iss' claim
+an HS256 token signed with the public key as a secret: unsupported algorithm 'HS256'
+a token claiming alg none: unsupported algorithm 'none'
+an ES256 token against a secret: unsupported algorithm 'ES256'
+pinned to HS256 while being ES256: unsupported algorithm 'ES256'
+Err(unsupported algorithm 'ES384' for a PEM key: an EC key signs ES256 (a shared secret signs HS256, HS384 or HS512))
+Err(ecdsa_p256_sign: not a PEM private key)

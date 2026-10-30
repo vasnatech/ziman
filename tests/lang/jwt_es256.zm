@@ -1,0 +1,93 @@
+// ES256: a token signed with a P-256 private key, verified with the public one.
+//
+// **What this buys over HS256 is asymmetry**: a holder can check a token and cannot issue one.
+// Every HMAC algorithm this module had needs the same key for both.
+//
+// **And what it costs is that algorithm confusion becomes expressible at all.** The classic JWT
+// attack presents a public key as if it were a shared secret, so that a token the attacker signed
+// with the (public) key verifies. `jwt`'s own comment used to argue the attack needed a mix of
+// families that this module did not have; it has one now. The defence is that a key's **type**
+// chooses the family -- a secret is `[byte]`, an EC key is PEM `string` -- so a token's `alg`
+// header can only choose within the family the caller already chose. The last four cases here are
+// that defence, and they are the reason this fixture exists rather than a round trip alone.
+use crypto
+use encoding
+use json
+use json.Json
+use jwt
+
+fn show(what: string, r: Result<Json, jwt.JwtError>) {
+    if Err(e) = r {
+        print(concat(what, ": ", jwt.jwt_error_message(e)))
+    }
+    if Ok(claims) = r {
+        print(concat(what, ": ok, sub=", get_or(jwt.subject(claims), "(none)")))
+    }
+}
+
+fn main() {
+    val private_pem = unwrap(crypto.ecdsa_p256_generate())
+    val public_pem = unwrap(crypto.ecdsa_p256_public_pem(private_pem))
+    val claims = jwt.with_claim(
+        jwt.claims("ada@example.com", 3600),
+        "role",
+        Json.JString("admin")
+    )
+
+    val token = unwrap(jwt.sign(claims, private_pem))
+    print(concat("a token has three parts: ", str(prelude.len(split(token, ".")))))
+    print(concat("its header names ES256: ", str(contains(
+        unwrap(bytes_to_string(unwrap(encoding.base64url_decode(split(token, ".")[0])))),
+        "\"alg\":\"ES256\""
+    ))))
+    show("it verifies under the public key", jwt.verify(token, public_pem))
+
+    // The private key is not needed to check it, and a public key cannot make one.
+    print(jwt.sign(claims, public_pem))
+
+    // Another key, and a tampered payload.
+    val other_public = unwrap(crypto.ecdsa_p256_public_pem(unwrap(crypto.ecdsa_p256_generate())))
+    show("another key does not verify it", jwt.verify(token, other_public))
+    val parts = split(token, ".")
+    val tampered = concat(parts[0], ".", encoding.base64url_encode(to_bytes(json.format(
+        jwt.with_claim(claims, "role", Json.JString("nurse"))
+    ))), ".", parts[2])
+    show("a tampered payload does not verify", jwt.verify(tampered, public_pem))
+
+    // Expiry is checked on this path exactly as on the other.
+    show("an expired token", jwt.verify_at(token, public_pem, 4000000000, 0))
+
+    // Named checks work over a PEM key too.
+    show("a wrong issuer", jwt.verify_claims_pem(
+        token: token,
+        public_key_pem: public_pem,
+        issuer: "someone-else"
+    ))
+
+    // ---- algorithm confusion, refused four ways --------------------------------------------
+    //
+    // The attack: sign a token with HS256 using the *public key text* as the shared secret, and
+    // present it to a verifier that holds that public key. If the header chose the algorithm, it
+    // would verify.
+    val forged = unwrap(jwt.sign(claims, to_bytes(public_pem), "HS256"))
+    show("an HS256 token signed with the public key as a secret", jwt.verify(forged, public_pem))
+
+    // `alg: none`, the other half of the same family of tricks.
+    val none_header = encoding.base64url_encode(to_bytes("{\"alg\":\"none\",\"typ\":\"JWT\"}"))
+    val none_token = concat(none_header, ".", parts[1], ".")
+    show("a token claiming alg none", jwt.verify(none_token, public_pem))
+
+    // And the mirror: an ES256 token handed to a verifier holding a shared secret.
+    show("an ES256 token against a secret", jwt.verify(token, to_bytes("a shared secret of some length")))
+
+    // Pinning still works, and now says something within the family.
+    show("pinned to HS256 while being ES256", jwt.verify_claims_pem(
+        token: token,
+        public_key_pem: public_pem,
+        algorithm: "HS256"
+    ))
+
+    // Refusals on the signing side.
+    print(jwt.sign(claims, private_pem, "ES384"))
+    print(jwt.sign(claims, "not a key"))
+}

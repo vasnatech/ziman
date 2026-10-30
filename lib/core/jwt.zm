@@ -1,6 +1,15 @@
-// jwt.zm -- JSON Web Tokens (RFC 7519) signed with a shared secret: HS256, HS384 and HS512 (RFC 7518), the
-// algorithms that need only a key. `sign` makes a token from a claims object, `verify` checks one and gives the
-// claims back. Built on `crypto` (HMAC, base64url, a constant-time comparison), `json` and `clock`.
+// jwt.zm -- JSON Web Tokens (RFC 7519), in two families: **a shared secret** (HS256, HS384,
+// HS512) and **a P-256 key pair** (ES256, added 2026-10-29). `sign` makes a token from a claims
+// object, `verify` checks one and gives the claims back. Built on `crypto` (HMAC, ECDSA,
+// base64url, a constant-time comparison), `json` and `clock`.
+//
+// **A key's type chooses its family, and that is a security property rather than a convenience.**
+// A shared secret is `[byte]`; an EC key is PEM `string`. The classic JWT attack is algorithm
+// confusion -- presenting a public key as if it were an HMAC secret, so a token the attacker
+// signed verifies -- and it needs one key parameter that both families read. There is none here,
+// so a token's `alg` header can only choose **within** the family the caller already chose: an
+// `HS256` token handed to a verifier holding a public key is refused by name, never MAC'd with the
+// PEM text as a secret. `tests/lang/jwt_es256` pins that and three more of the same shape.
 //
 //     val key = unwrap(base64_decode(secret))
 //     val token = unwrap(jwt.sign(jwt.with_claim(jwt.claims("ada@example.com", 3600), "role", Json.JString("admin")), key))
@@ -70,6 +79,41 @@ pub fn algorithm_for_key(key: [byte]) -> string {
     return "HS256"
 }
 
+// A key, as this module's two families spell it: a shared secret is bytes and an EC key is PEM
+// text.
+//
+// **This type is the security property, not a convenience.** The classic JWT attack is algorithm
+// confusion -- presenting a public key as if it were a shared secret, so that a token the attacker
+// signed with the (public) key verifies. It needs one key parameter that both families read. Here
+// the families are two types, a caller picks one by which function they call, and the `alg` header
+// can only choose **within** the family the caller already chose: `signature_holds` refuses every
+// other pairing. A token saying `HS256` to a verifier holding a public key is refused by name, and
+// one saying `ES256` to a verifier holding a secret likewise.
+enum Key {
+    Secret([byte])
+    PublicPem(string)
+}
+
+// Whether `algorithm` is one the family can use at all, and the signature over `data`.
+//
+// **The one place a key and an algorithm meet**, so that the pairing table is readable in full and
+// a new algorithm has exactly one place to be wrong.
+fn signature_holds(algorithm: string, key: Key, data: [byte], given: [byte]) -> Option<bool> {
+    if Secret(secret) = key {
+        if Some(expected) = mac(algorithm, secret, data) {
+            return Option<bool>.Some(crypto.bytes_equal(expected, given))
+        }
+        return Option<bool>.None
+    }
+    if PublicPem(pem) = key {
+        if algorithm == "ES256" {
+            return Option<bool>.Some(crypto.ecdsa_p256_verify(pem, data, given))
+        }
+        return Option<bool>.None
+    }
+    return Option<bool>.None
+}
+
 fn mac(algorithm: string, key: [byte], data: [byte]) -> Option<[byte]> {
     if algorithm == "HS256" {
         return Option<[byte]>.Some(crypto.hmac_sha256(key, data))
@@ -121,19 +165,54 @@ pub fn sign(claims: Json, key: [byte], algorithm: string) -> Result<string, stri
     if !Json.is_JObject(claims) {
         return err("the claims of a token must be a JSON object")
     }
-    val header = Json.JObject(Map<string, Json> {
-        "alg": Json.JString(algorithm),
-        "typ": Json.JString("JWT")
-    })
-    val signing_input = format(
-        "{}.{}",
-        encoding.base64url_encode(to_bytes(json.format(header))),
-        encoding.base64url_encode(to_bytes(json.format(claims)))
-    )
+    val signing_input = try signing_input_for(claims, algorithm)
     if Some(signature) = mac(algorithm, key, to_bytes(signing_input)) {
         return ok(format("{}.{}", signing_input, encoding.base64url_encode(signature)))
     }
     return err(format("unsupported algorithm '{}': use HS256, HS384 or HS512", algorithm))
+}
+
+fn signing_input_for(claims: Json, algorithm: string) -> Result<string, string> {
+    val header = Json.JObject(Map<string, Json> {
+        "alg": Json.JString(algorithm),
+        "typ": Json.JString("JWT")
+    })
+    return ok(format(
+        "{}.{}",
+        encoding.base64url_encode(to_bytes(json.format(header))),
+        encoding.base64url_encode(to_bytes(json.format(claims)))
+    ))
+}
+
+// **ES256**: a token signed with a P-256 private key as PEM text, so a holder can verify it
+// without being able to issue one. That is what a shared secret cannot do, and what a verifiable
+// credential needs (2026-10-29).
+//
+// The key is a `string` where an HMAC key is `[byte]`, and that is deliberate: see `Key`. An EC key
+// is never a `[byte]` key here, so there is no call that hands a public key to the HMAC path.
+pub fn sign(claims: Json, private_key_pem: string) -> Result<string, string> {
+    return sign(claims, private_key_pem, "ES256")
+}
+
+// The same with the algorithm written out. `ES256` is the only one an EC key signs here -- P-256 is
+// the only curve `crypto` has -- and anything else is refused by name rather than ignored.
+pub fn sign(claims: Json, private_key_pem: string, algorithm: string) -> Result<string, string> {
+    if !Json.is_JObject(claims) {
+        return err("the claims of a token must be a JSON object")
+    }
+    if algorithm != "ES256" {
+        return err(format(
+            "unsupported algorithm '{}' for a PEM key: an EC key signs ES256 (a shared secret " \
+                "signs HS256, HS384 or HS512)",
+            algorithm
+        ))
+    }
+    val signing_input = try signing_input_for(claims, algorithm)
+    val signature = crypto.ecdsa_p256_sign(private_key_pem, to_bytes(signing_input))
+    if Err(why) = signature {
+        return err(why)
+    }
+    return ok(format("{}.{}", signing_input, encoding.base64url_encode(unwrap(signature))))
 }
 
 fn decode_part(part: string, what: string) -> Result<Json, JwtError> {
@@ -175,7 +254,7 @@ fn seconds_claim(payload: Json, name: string) -> Result<Option<int>, JwtError> {
 pub fn verify_at(token: string, key: [byte], now_seconds: int, leeway_seconds: int) -> Result<Json, JwtError> {
     return check(
         token,
-        key,
+        Key.Secret(key),
         now_seconds,
         leeway_seconds,
         true,
@@ -187,7 +266,53 @@ pub fn verify_at(token: string, key: [byte], now_seconds: int, leeway_seconds: i
 
 // Checks `token` against `key` now and gives back its claims. The token must have an `exp` that is not past.
 pub fn verify(token: string, key: [byte]) -> Result<Json, JwtError> {
-    return check(token, key, now_seconds(), 0, true, Option<string>.None, Option<string>.None, Option<string>.None)
+    return check(
+        token,
+        Key.Secret(key),
+        now_seconds(),
+        0,
+        true,
+        Option<string>.None,
+        Option<string>.None,
+        Option<string>.None
+    )
+}
+
+// **ES256**: checks `token` against a P-256 **public** key as PEM text. The key verifies and
+// cannot issue, which is the whole reason this path exists.
+//
+// A token naming any other algorithm is refused by name rather than verified another way -- see
+// `Key`, where that is the point rather than a precaution.
+pub fn verify(token: string, public_key_pem: string) -> Result<Json, JwtError> {
+    return check(
+        token,
+        Key.PublicPem(public_key_pem),
+        now_seconds(),
+        0,
+        true,
+        Option<string>.None,
+        Option<string>.None,
+        Option<string>.None
+    )
+}
+
+// `verify_at` for a public key: the same clock control, the same family rule.
+pub fn verify_at(
+    token: string,
+    public_key_pem: string,
+    now_seconds: int,
+    leeway_seconds: int
+) -> Result<Json, JwtError> {
+    return check(
+        token,
+        Key.PublicPem(public_key_pem),
+        now_seconds,
+        leeway_seconds,
+        true,
+        Option<string>.None,
+        Option<string>.None,
+        Option<string>.None
+    )
 }
 
 // `verify` with every check chosen, in a named call that leaves out what it does not need. `leeway_seconds` (default 0) is the
@@ -208,7 +333,40 @@ pub fn verify_claims(
 ) -> Result<Json, JwtError> {
     return check(
         token,
-        key,
+        Key.Secret(key),
+        get_or(now, now_seconds()),
+        get_or(leeway_seconds, 0),
+        get_or(require_exp, true),
+        issuer,
+        audience,
+        algorithm
+    )
+}
+
+// `verify_claims` for a public key: every check the HMAC form offers, over the family a PEM key
+// can use. A credential is the case that wants `issuer`/`audience` most, since the point of
+// publishing a verifying key is that several parties hold it.
+//
+// **Why the name differs from `verify`/`verify_at`, which are overloaded on the key's type.** Those
+// are called positionally and overload cleanly. This one is called by name with most of its
+// `Option` parameters left out -- `verify_claims(token: t, key: k, now: n)` -- and **a named call
+// that omits optional parameters does not resolve against an overload set**: adding a second
+// `verify_claims` made every existing such call fail with "no declaration takes 3 argument(s)",
+// including `tests/lang/jwt_claims`. That is a gap in overload resolution rather than a fact about
+// JWTs (recorded 2026-10-29), so this takes a name of its own instead of waiting for it.
+pub fn verify_claims_pem(
+    token: string,
+    public_key_pem: string,
+    leeway_seconds: Option<int>,
+    now: Option<int>,
+    require_exp: Option<bool>,
+    issuer: Option<string>,
+    audience: Option<string>,
+    algorithm: Option<string>
+) -> Result<Json, JwtError> {
+    return check(
+        token,
+        Key.PublicPem(public_key_pem),
         get_or(now, now_seconds()),
         get_or(leeway_seconds, 0),
         get_or(require_exp, true),
@@ -220,7 +378,7 @@ pub fn verify_claims(
 
 fn check(
     token: string,
-    key: [byte],
+    key: Key,
     now: int,
     leeway: int,
     require_exp: bool,
@@ -237,30 +395,39 @@ fn check(
     if Err(_) = algorithm {
         return JwtError.Malformed("the header has no 'alg'")
     }
-    // **Pinning, when the caller asked for it.** Checked before the MAC is computed, so a token
-    // naming an algorithm the caller did not ask for is refused rather than verified under it.
+    // **Pinning, when the caller asked for it.** Checked before any signature is computed, so a
+    // token naming an algorithm the caller did not ask for is refused rather than verified under
+    // it.
     //
-    // Why it is opt-in and not the default: this module signs and verifies with HMAC only, and
-    // the attack that makes a trusted `alg` header dangerous needs a *mix* of symmetric and
-    // asymmetric algorithms -- presenting an RS256 public key as an HS256 secret. With HS256,
-    // HS384 and HS512 as the whole set, switching `alg` buys an attacker nothing: every one of
-    // them still needs the key to produce a matching MAC. What pinning does buy is that a
-    // deployment signing with HS512 stops accepting a valid HS256 token over the same key, which
-    // is worth having and is not a vulnerability being closed.
+    // **Why it is opt-in, corrected 2026-10-29 when ES256 arrived.** This comment used to argue
+    // that a trusted `alg` header needs a *mix* of symmetric and asymmetric algorithms to be
+    // dangerous -- presenting a public key as an HMAC secret -- and that with HS256/384/512 as the
+    // whole set, switching `alg` bought an attacker nothing. The premise is gone: the mix exists
+    // now. What replaces it is stronger than pinning and is not optional: **the key's own type
+    // chooses the family** (`Key`, and the pairing in `signature_holds`), so a token's header can
+    // only choose within the family the caller already chose. An `HS256` token presented to a
+    // verifier holding a public key is refused by name, not verified with the PEM text as a
+    // secret. What pinning still buys is the narrower thing it always bought: a deployment signing
+    // with HS512 stops accepting a valid HS256 token over the same key.
     if Some(wanted_alg) = expect_algorithm {
         if unwrap(algorithm) != wanted_alg {
             return JwtError.UnsupportedAlgorithm(unwrap(algorithm))
         }
     }
-    val expected = switch mac(unwrap(algorithm), key, to_bytes(format("{}.{}", parts[0], parts[1]))) {
-        Some(e) { e }
-        None { return JwtError.UnsupportedAlgorithm(unwrap(algorithm)) }
-    }
     val given = encoding.base64url_decode(parts[2])
     if Err(reason) = given {
         return JwtError.Malformed(format("the signature is not base64url ({})", reason))
     }
-    if !crypto.bytes_equal(expected, unwrap(given)) {
+    val holds = signature_holds(
+        unwrap(algorithm),
+        key,
+        to_bytes(format("{}.{}", parts[0], parts[1])),
+        unwrap(given)
+    )
+    if None = holds {
+        return JwtError.UnsupportedAlgorithm(unwrap(algorithm))
+    }
+    if !unwrap(holds) {
         return JwtError.BadSignature
     }
     val payload = try decode_part(parts[1], "the payload")
