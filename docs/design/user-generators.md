@@ -8,7 +8,8 @@ can write its own derive** (F254); its target takes named typed arguments (F253)
 
 What is **not** built is `#![derive(X(..))]` naming a project's own *module* generator -- §5c says
 why: `meta.Target` is the repository idea reified, so there is nothing decided for a generic one to
-receive, and nothing is asking. §12.5's `--lsp` measurement is also outstanding.
+receive, and nothing is asking. §12.5's `--lsp` measurement is **done** (2026-10-30): §8 carries the numbers
+and keeps its answer, and names a derived-output cache as the follow-on it argues for.
 
 ## 1. What exists today
 
@@ -508,8 +509,44 @@ discovered. Three ways:
    native surface is the lever) and a bigger design than this one, since it needs a story for
    what a restricted module even is.
 
-Recommended: **(1)**, with `--lsp` the part to measure rather than assume -- a generator runs once
-per declaration carrying the attribute, and the sample backend has 140 of them.
+**Measured 2026-10-30, and the answer is (1) with a caveat the measurement found.** The numbers
+first, over the North Star backend -- 227 files, **220 declarations carrying a derive** and
+**292 generator calls** (Json 96, Repository 80, Validate 36, Row 36, Entity 36, Properties 8),
+not the 140 this section guessed:
+
+| what | cost |
+| --- | --- |
+| `--lsp` reparse, a trivial file with no imports | **2.9 ms** |
+| `--lsp` reparse, the graph reached from `main.zm` (141 modules) | **395 ms** |
+| `--lsp` reparse, the graph reached from `serve.zm` (294 modules) | **1,847 ms** |
+
+Per *keystroke*, since `run_analysis` calls `load_module_graph` and `typecheck` afresh on every
+`didChange`. Callgrind on the equivalent `--check serve.zm` says where it goes, of 10.58 billion
+instructions: `load_module_graph` **63.7%** inclusive, of which `generate_derived_functions` is
+**51.7%** and `ziman_call_in_module` -- the interpreter running generator code written in Ziman --
+is **41.3%**; `typecheck` is 37.2%. So **a generator already runs on every reparse** (the pass is
+called from the loader, not from `main`), and **about half of a check is now generators**, four
+fifths of that being interpreted Ziman.
+
+(1) is still right: a check that skips generators cannot report what the program compiles to, and
+the 2.9 ms baseline shows the server itself is not the cost. But "accept it and say so" was
+answered on the assumption that the cost was small, and at 1.8 s per keystroke on the entry module
+it is not -- that is past the point where an editor feels live.
+
+**What the measurement changes is which problem to solve.** The cost is not inherent to generators;
+it is that nothing is reused between reparses. `cache_graph` keeps the last result for go-to-
+definition and does not let analysis skip anything, so a keystroke in one file re-runs all 292
+generator calls, 291 of which produced byte-identical output -- and `--emit-derived` being
+byte-identical across unrelated compiler changes is exactly the property that says so. A derive's
+output is a function of its declaration and its generator, so it is cacheable per
+(module, generator, declaration). That is worth more than either `--no-generators` (2), which buys
+a fast incomplete mode and a second thing for everything downstream to get wrong, or restricting a
+generator's reach (3), which is a bigger design and does not make anything faster.
+
+So: **(1) stands, (2) and (3) stay rejected, and the follow-on is a derived-output cache**, filed
+rather than built here because it is a loader change and this document is about what a project can
+write. Until it lands, the honest statement for the manual is that `--lsp` on a large project
+re-runs its generators on every edit, and that the entry module is the expensive file to sit in.
 
 ## 9. What it deliberately does not cover
 
@@ -633,5 +670,9 @@ load-bearing.
    3. **Remove `#![repository]` and `#[repository]` from the parser**, which is the step that
       actually shrinks what the compiler knows. Until it lands, C knows *both* -- one name more
       than the end state, which is worth saying rather than implying step 1 finished anything.
-5. **Measure `--lsp`** before deciding §8 for good. One generator call per declaration, 140
-   declarations in the sample backend, an interpreter rather than C.
+5. ~~**Measure `--lsp`** before deciding §8 for good.~~ **Done 2026-10-30** -- §8 carries the
+   numbers. 1,847 ms per keystroke on the North Star's entry module, of which the derive pass is
+   51.7% and interpreted generator code 41.3%; 2.9 ms with no imports, so the server is not the
+   cost. The guess of 140 declarations was 220, with 292 generator calls. §8's choice is unchanged
+   and the measurement's own finding -- that nothing is reused between reparses, so a keystroke
+   re-runs 292 generator calls to produce 291 identical answers -- is filed there as the follow-on.

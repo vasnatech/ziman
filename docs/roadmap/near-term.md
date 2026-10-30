@@ -344,6 +344,33 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   `#[deprecated]` should ever become a hard error (a "deny" policy) once a
   removal is actually scheduled, or stay a warning forever.
 
+- **Cache derived output, so `--lsp` stops re-running every generator on every keystroke.** --
+  not started, measured 2026-10-30 (docs/design/user-generators.md §8 carries the numbers).
+  `run_analysis` calls `load_module_graph` and `typecheck` afresh on each `didChange`, and the
+  derive pass runs from the loader, so an edit anywhere re-runs the whole project's generators. On
+  the North Star -- 227 files, 220 declarations carrying a derive, **292 generator calls** -- a
+  reparse of the entry module `serve.zm` costs **1,847 ms**, against 395 ms for the smaller
+  `main.zm` graph and **2.9 ms** for a file with no imports, so the server itself is not the cost.
+  Callgrind on the equivalent `--check`: `generate_derived_functions` is **51.7%** of 10.58 billion
+  instructions and `ziman_call_in_module` -- the interpreter running generators written in Ziman --
+  is **41.3%**.
+
+  The reason this is worth doing rather than accepting is that **291 of those 292 calls produce
+  byte-identical output** after a keystroke in one file. A derive's result is a function of its
+  declaration and its generator and nothing else, which is the same property that makes
+  `--emit-derived serve.zm` byte-identical across unrelated compiler changes -- the check this
+  project already runs on every such change. So the key is (module, generator, declaration) and
+  the invalidation is "that module's text changed", which the LSP already knows because it holds
+  the overrides.
+
+  Not attempted here: it is a loader change, `cache_graph` currently keeps the last result only for
+  go-to-definition and lets analysis skip nothing, and the honest first step is to measure how much
+  of the 51.7% survives caching rather than to assume all of it does. Two things to get right that
+  a fresh attempt would miss -- a generator may read another declaration in its module, so the key
+  cannot be the declaration alone; and `ready_user_generator` already caches a *user* generator by
+  path, so the generator's own identity has to be part of the key or editing a project's derive
+  would silently keep serving the old output.
+
 - **Make `Map`/`Set` operations faster -- constant factors, not complexity.** Measured 2026-10-05
   against CPython 3.14's `dict`, 1,000,000 operations on a 100,000-entry container, in-program
   clocks, pinned (loop overhead ~41ns/iteration in Ziman and ~43ns in Python, so the figures are

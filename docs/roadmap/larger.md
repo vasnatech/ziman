@@ -78,11 +78,76 @@ Part of the [roadmap](README.md) -- see its preamble for what an entry's status 
   initialiser has observable effects is already relying on something the language has never
   promised, and a cycle error is the only case where any of this is visible.
 
-  **To settle before building**: whether the graph is built in `typecheck` (which has the resolved
-  names) or in the loader; whether a cycle is a type error or a load error; and whether the
-  hoisted defaults keep their own pass as a *stage* of the sort or merge into it entirely. F247's
-  fix is unaffected either way -- that was one env slot holding two programs, not an ordering
-  question.
+  ### The design pass, run 2026-10-30
+
+  Six shapes were written and run. Two of the three questions below answer themselves from what
+  they show, one finding corrects this entry, and one is a bug reachable today.
+
+  **The graph needs a call graph, not resolved names -- this entry had that wrong.** "The type
+  checker already resolves every name in every initialiser, which is the information the graph
+  needs" is not enough, because **a lexical forward reference from an initialiser is already a type
+  error**:
+
+  ```ziman
+  val greeting = apply(fn() -> string { return prefix })   // use of undefined variable 'prefix'
+  val prefix = "p:"
+  ```
+
+  `check_global_vals`' deliberate scope cut means an initialiser can only *see* vals above it. So a
+  topological sort over the references in initialisers would sort a graph with no forward edges in
+  it at all -- a no-op. Every forward dependency that exists runs **through a function body**, which
+  is exactly what this entry's own opening example does: `greeting`'s initialiser names `decorated`,
+  and `decorated`'s body names `prefix`. The graph is therefore "for each val, the globals read by
+  the transitive closure of the functions its initialiser can reach", which is a call-graph
+  reachability pass that has to be written, not a by-product of name resolution.
+
+  **And that closure cannot be exact, because a function value carries one too:**
+
+  ```ziman
+  fn maker() -> fn() -> string { return fn() -> string { return prefix } }
+  fn call_it(f: fn() -> string) -> string { return f() }
+  val g = call_it(maker())      // reads prefix at run time, through a value
+  val prefix = "p:"
+  ```
+
+  So a **fourth question** joins the list, and it is the one that decides whether this is worth
+  building: what an indirect call contributes to the graph. Treating it as a dependency on *every*
+  global is sound and would make `val x = apply(f)` refuse to initialise at all; ignoring it is
+  unsound and leaves this case exactly as it is today. The recommendation is to **ignore indirect
+  calls and keep the runtime check as the backstop** -- it already exists, it costs one NULL test
+  on a global read, and it is the only thing that can catch a dependency the call graph cannot see.
+  That means the sort makes the common case work and the runtime error becomes the rare case's
+  report rather than the normal one, which is a smaller claim than "the file-order constraint
+  disappears" but is the true one.
+
+  **The unaddressed half is not unhit. It reproduces, and the message misdiagnoses it:**
+
+  ```ziman
+  val limit = 20
+  fn take(n: Option<int> = limit) -> int { return Option.unwrap_Some(n) }
+  ```
+
+  > `'limit' is read before it is initialised: ... move 'limit' above the val whose initialiser
+  > uses it`
+
+  `limit` **is** above it; file order is already correct and no move fixes this, because the cause
+  is that `init_param_defaults` runs before `init_global_vals` wholesale. The pair is genuinely
+  stuck: `iso_date_format` needs defaults first, this needs vals first, so no fixed order between
+  two eager passes satisfies both and **only the sort (or laziness) fixes it**. That is the
+  strongest argument for this entry that exists, and it was sitting in `init_param_defaults`' own
+  comment as a hypothetical.
+
+  **The answers.** (1) In **`typecheck`** -- the loader has no call graph, and typecheck resolves
+  calls -- while noting the pass is new work rather than a free read of existing information.
+  (2) A **type error**: `--check` passes on every failing shape above today, so these reach a user
+  at run time, and building the graph where the calls are resolved turns them into a `--check` and
+  `--lsp` diagnostic. (3) **Merge entirely.** Each hoisted default already has its own global slot
+  (`Param.default_key`), so it is a node like any other, and the fixed order between the two passes
+  -- the thing that causes the bug above -- is precisely what the sort replaces. A separate stage
+  would keep the defect.
+
+  F247's fix is unaffected either way -- that was one env slot holding two programs, not an
+  ordering question.
 
 
 - **`meta`, redesigned.** Designed in [docs/design/meta.md](../design/meta.md), not built. The
