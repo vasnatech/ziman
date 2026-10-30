@@ -426,17 +426,35 @@ and it is payable precisely because those fixtures exist.
 
 ## 17. Open decisions
 
-* **Does `@if` take the same expression grammar as `@{...}`, or a boolean-only subset?** A
-  subset would mean `template` passing a mode flag into `expr.parse`, which is the first crack in
-  §10's "`template` holds no grammar". Same
-  grammar is simpler to specify; a subset would catch `@if user.name` at parse time rather than at
-  render. Leaning: same grammar, refuse at render, consistent with §5.
-* **Is `expr` the right name** (see the header), and does it belong in `lib/core` beside
-  `json` and `template`, or is it large enough to be its own thing?
-* **Should `parse` be exposed on `template.zm` at all, or only `must_parse`?** A sheet is a
-  literal in a generator; a runtime template is not.
-* **Is `matches` worth the dependency on `regex.zm`?** It is the one function in §6 that pulls in
-  another module.
+Four of these were closed on 2026-10-29, three of them by building the thing and one by measuring
+it. The fifth is the user's and is still open.
+
+* ~~**Does `@if` take the same expression grammar as `@{...}`, or a boolean-only subset?**~~
+  **CLOSED: the same grammar, refused at render.** The leaning held, and the alternative would have
+  meant `template` passing a mode flag into `expr.parse` -- the first crack in §10's "`template`
+  holds no grammar". What a subset would have caught at parse time is caught at render with a
+  message that names the type: *"a condition has to be true or false, found a string"*
+  (`tests/lang/template_refusals`). A comparison is a bool whatever it compares, so in practice the
+  only way to reach that refusal is a bare non-bool condition.
+* ~~**Is `expr` the right name**, and does it belong in `lib/core`?~~ **CLOSED: kept, both.** It is
+  what the module is, it sits beside `json` and `template` -- the only two modules it has anything
+  to do with -- and it is now published in `docs/CORELIB.md` with `template` depending on it, so
+  renaming would cost every reader of both for a matter of taste.
+* ~~**Should `parse` be exposed on `template.zm`, or only `must_parse`?**~~ **CLOSED: both stay.**
+  §13's `render_text` took away the reason to *parse a sheet* at run time, which looked like the
+  argument for removing `parse` -- but it is what reads a sheet **without dying**, which is how
+  `tests/lang/template_refusals` can assert fourteen parse failures in one program, and how a tool
+  that checks a sheet rather than rendering it would work. `must_parse` is for the `val`.
+* ~~**Is `matches` worth the dependency on `regex.zm`?**~~ **CLOSED: yes, and the cost was
+  measured rather than argued.** The dependency runs `template -> expr -> regex`, so every
+  generator program now loads `regex.zm`'s 285 lines. Loading and initialising the whole generator
+  program costs **~36-43 ms** on the first derive in a compile (6 ms for a file with no derive at
+  all, ~42-49 ms with one). Removing `use regex` and stubbing `matches` moved that by **~3 ms,
+  inside the run-to-run variance of the measurement itself** (46 vs 49 ms over 20 runs; single
+  5-run samples ranged 42-47 either way). A documented function in §6's fixed set is worth more
+  than an unmeasurable load.
 * **Where do rules live for the validation use** -- a properties file read by `properties.zm`, an
   attribute on a struct, or a database row? This changes nothing about the language and everything
-  about the ergonomics, and it is the next thing to decide.
+  about the ergonomics, and it is the next thing to decide. **Still open: it is the one decision in
+  this document that is the user's rather than the implementation's**, and it is what `expr` step 1
+  was built for.

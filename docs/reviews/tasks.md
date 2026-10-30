@@ -4481,3 +4481,28 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
   Not attempted here: it is `check_call`'s resolution order in `src/typecheck.c`, it affects every
   overload set rather than one module, and the `overload-sets-check` gate's notion of "told apart
   by some call" may need to account for named-with-omissions too.
+
+- [x] **F240** **The expression language's open decisions, closed -- except the one that is the
+  user's.** (docs/design/expressions.md §17; done 2026-10-29; S.)
+
+  Steps 1-5 shipped (F231-F235) and §17's five open decisions were left as they were written. Four
+  are now closed, three of them by having built the thing and one by measuring it:
+
+  * **`@if` takes the whole grammar**, refused at render, as the leaning said. A subset would have
+    meant `template` passing a mode flag into `expr.parse`, which §10 forbids.
+  * **`expr` keeps its name and its place in `lib/core`**: it is published in `docs/CORELIB.md`
+    with `template` depending on it, so a rename now costs every reader of both for taste.
+  * **`template.parse` stays beside `must_parse`.** `render_text` removed the use case that looked
+    like the argument for it -- parsing a sheet at run time -- but `parse` is what reads a sheet
+    *without dying*, which is how one fixture asserts fourteen parse failures in one program.
+  * **`matches` keeps its `regex` dependency, and this one was measured, not argued.** Loading the
+    generator program costs ~36-43 ms on the first derive (6 ms with no derive, ~42-49 ms with
+    one). Removing `use regex` and stubbing `matches` moved it **~3 ms, inside the measurement's
+    own variance** (46 vs 49 ms over 20 runs each). Unmeasurable, so a documented function in the
+    fixed set wins.
+
+  **Still open and deliberately not decided here: where validation rules live** -- a properties
+  file, a struct attribute, or a database row. The document calls it "the next thing to decide",
+  it changes nothing about the language and everything about the ergonomics, and it is what step 1
+  was built for. Also still open and not ziman's: whether the North Star's notification text moves
+  out of Ziman code into `render_text` (F235).
