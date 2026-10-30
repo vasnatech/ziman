@@ -301,7 +301,7 @@ fn is_scalar_call(t: meta.Type) -> Option<string> {
 
 // `t_to_json` -- the converter parameter a generic declaration threads through for type `T`.
 fn converter_param(type_param: string, is_to: bool) -> string {
-    return concat(meta.snake_case(type_param), if is_to { "_to_json" } else { "_from_json" })
+    return concat(snake_case(type_param), if is_to { "_to_json" } else { "_from_json" })
 }
 
 fn one(dst: string, call: string, src: string) -> Result<string, string> {
@@ -340,7 +340,7 @@ fn converter_for(arg: meta.Type, is_to: bool) -> Result<string, string> {
     }
     if Named(named) = arg {
         if prelude.len(named.args) == 0 {
-            return ok(concat(meta.snake_case(named.name), "_", dir, "_json"))
+            return ok(concat(snake_case(named.name), "_", dir, "_json"))
         }
     }
     val scalar = scalar_name(arg)
@@ -458,14 +458,14 @@ fn emit_to_json(t: meta.Type, src: string, dst: string, n: Mutable<int>) -> Resu
             }
             return one(
                 dst,
-                concat(meta.snake_case(named.name), "_to_json", type_args_text(named.args)),
+                concat(snake_case(named.name), "_to_json", type_args_text(named.args)),
                 concat(src, ", ", join(separator: ", ", pieces: snapshot(convs)))
             )
         }
         if contains(flat_names, meta.bare_name(named.name)) {
             return one(dst, "to_json", src)
         }
-        return one(dst, concat(meta.snake_case(named.name), "_to_json"), src)
+        return one(dst, concat(snake_case(named.name), "_to_json"), src)
     }
     return err(concat("derive(Json) does not support field type '", meta.type_text(t), "' yet"))
 }
@@ -695,7 +695,7 @@ fn emit_from_json(
                 push(convs, try converter_for(a, false))
             }
             return from_try(dst, concat(
-                meta.snake_case(named.name),
+                snake_case(named.name),
                 "_from_json",
                 type_args_text(named.args),
                 "(",
@@ -713,7 +713,7 @@ fn emit_from_json(
                 n
             )
         }
-        return from_try(dst, concat(meta.snake_case(named.name), "_from_json(", src, ")"), ctx, n)
+        return from_try(dst, concat(snake_case(named.name), "_from_json(", src, ")"), ctx, n)
     }
     return err(concat("derive(Json) does not support field type '", meta.type_text(t), "' yet"))
 }
@@ -749,7 +749,7 @@ pub fn from_json(d: meta.Decl, members: [meta.Field]) -> Result<string, string> 
     val last = prelude.len(members) - 1
     for i in 0..prelude.len(members) {
         val m = members[i]
-        val key = meta.camel_case(m.name)
+        val key = camel_case(m.name)
         push(fields, template.row([
             template.text("name", m.name),
             template.text("read", without_newline(try field_read(m, key, Option<string>.Some(key), n))),
@@ -780,10 +780,10 @@ pub fn from_json_all(d: meta.Decl, members: [meta.Field]) -> Result<string, stri
         val m = members[i]
         push(fields, template.row([
             template.text("name", m.name),
-            template.text("key", meta.camel_case(m.name)),
+            template.text("key", camel_case(m.name)),
             template.text("type", meta.type_text(m.type)),
             template.text("read", without_newline(
-                try field_read(m, meta.camel_case(m.name), Option<string>.None, n)
+                try field_read(m, camel_case(m.name), Option<string>.None, n)
             )),
             template.text("comma", if i < last { "," } else { "" })
         ]))
@@ -922,7 +922,7 @@ pub fn to_json(d: meta.Decl, members: [meta.Field]) -> Result<string, string> {
         val m = members[i]
         push(fields, template.row([
             template.text("name", m.name),
-            template.text("key", meta.camel_case(m.name)),
+            template.text("key", camel_case(m.name)),
             template.text("conv", without_newline(
                 try emit_to_json(m.type, concat("v.", m.name), concat("field_", m.name, "_json"), n)
             )),

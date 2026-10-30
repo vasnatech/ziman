@@ -648,3 +648,50 @@ pub fn lines(s: string) -> [string] {
 // `array_reverse` rather than a bare `reverse`, which is the question worth asking first after
 // `char_at` and `last_index_of` both answered it the other way.
 pub native fn reverse(s: string) -> string
+
+// ---- identifier case ------------------------------------------------------------------------
+//
+// **These convert a *name*** -- a field, a type, a configuration key -- and they are **ASCII**: a
+// letter outside it is passed through unchanged rather than guessed at. That is deliberate and it
+// settled a disagreement: `meta.snake_case` used the Unicode-aware `to_lower` while
+// `src/derive.c`'s `pascal_to_snake` used C's `tolower`, so the two differed for a non-ASCII
+// identifier and agreed for every one that exists. They are **one native now**, which is why they
+// are here rather than in a module: the compiler needs `snake_case` before any Ziman has run
+// (`Decl.snake_name`, a generator module's name) and a generator needs the same one afterwards.
+//
+// `snake_case` is the primitive and four of the others are read off it. `camel_case` is the
+// exception and deliberately **not** its inverse -- see its own note.
+
+// `MiddleName` -> `middle_name`, `userID` -> `user_id`, `line1Address` -> `line1_address`.
+//
+// A capital opens a word when what precedes it is lower case or a digit, or when it is the last
+// capital of a run: `ID` in `userID` is one word, and `IDCard` splits before `Card`. A name
+// already in snake_case has no capitals and comes back unchanged.
+pub native fn snake_case(name: string) -> string
+
+// `middle_name` -> `middleName`: the spelling JSON keys use, so a generator writing one does not
+// repeat the rule. An underscore is dropped and raises the letter after it; nothing else changes,
+// so a name with no underscores comes back as it went in.
+//
+// **Not `snake_case`'s inverse, on purpose.** `camel_case("userID")` is `userID`, where a
+// word-splitting version would answer `userId`. The asymmetry is load-bearing: a
+// `#[derive(Json)]` key is this over a snake_case field name, and `json.snake_keys` documents
+// itself as the inverse of exactly what this produces -- a narrower rule than `snake_case`'s,
+// under which `userID` becomes `user_i_d`.
+pub native fn camel_case(name: string) -> string
+
+// `middle_name` -> `MiddleName`: `camel_case` with the first letter raised, which is how a type
+// name is spelled.
+pub native fn pascal_case(name: string) -> string
+
+// `idle_timeout_ms` -> `idle-timeout-ms`: `snake_case` with its underscores as dashes, which is
+// how a configuration key is spelled -- `#[derive(Properties)]` binds a field to one.
+pub native fn kebab_case(name: string) -> string
+
+// `body_weight` -> `BODY_WEIGHT`: `snake_case` in capitals, which is how this codebase spells an
+// enum word (`#[one_of(values: type_words)]`'s lists are all of these).
+pub native fn upper_snake_case(name: string) -> string
+
+// `idle_timeout_ms` -> `IDLE-TIMEOUT-MS`: `kebab_case` in capitals, the same relation
+// `upper_snake_case` has to `snake_case`.
+pub native fn upper_kebab_case(name: string) -> string

@@ -542,27 +542,6 @@ in `derive_row` and `derive_json` -- is keyed by the bare name, and `time.Instan
 `Instant` in it. Writing `bare_name(..)` into generated code instead of looking up with it is
 the bug this exists to make unlikely.
 
-### `snake_case`
-
-```
-pub fn snake_case(name: string) -> string
-```
-
-`LocalDate` -> `local_date`: the spelling generated function names use, so a generator writing
-`<type>_to_sql` does not repeat the compiler's own conversion rule. A capital starts a new word
-when it follows a lower-case letter or a digit, or when it begins the last capital of a run
-(`HTTPServer` -> `http_server`).
-
-### `camel_case`
-
-```
-pub fn camel_case(name: string) -> string
-```
-
-`middle_name` -> `middleName`: the spelling JSON keys use, so a generator writing one does not
-repeat the compiler's own conversion rule. An underscore is dropped and capitalises the letter
-after it; nothing else changes.
-
 ### `fresh`
 
 ```

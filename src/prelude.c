@@ -1649,6 +1649,143 @@ static Value native_truncate(Value *args, int argc, int line, int col) {
  * reversing the bytes. Off it, each character's bytes are copied forward into a position measured
  * from the end -- the whole trick of a UTF-8 reversal is that the sequence stays in order while its
  * position moves. The result inherits ZSTR_ASCII either way, since a reversal changes no byte. */
+/* ---- identifier case ----------------------------------------------------------------------
+ *
+ * **One implementation, where there were two.** `meta.snake_case` and `src/derive.c`'s
+ * `pascal_to_snake` were the same algorithm written twice -- the same `prev_lower_or_digit` and
+ * `prev_upper_next_lower` conditions, in Ziman and in C -- agreeing by inspection and nothing
+ * else. The compiler needs one before any Ziman has run (`Decl.snake_name`, a generator module's
+ * name, a derived query's entity) and a generator needs the same one afterwards, so it is a
+ * native both reach: C calls `ziman_snake_case`, Ziman calls `snake_case`.
+ * `#[derive(Properties)]` had a third, `replace(name, {"_": "-"})`, which is `kebab_case`.
+ *
+ * **These convert a *name*, and they are ASCII.** A field, a type, a configuration key. A letter
+ * outside ASCII is passed through unchanged rather than guessed at: `meta.snake_case` used the
+ * Unicode-aware `to_lower` and the C used `tolower`, so the two disagreed for a non-ASCII
+ * identifier and agreed for every one that exists. This settles it on the C behaviour, which was
+ * already the one governing `Decl.snake_name`. */
+
+/* `MiddleName` -> `middle_name`, `userID` -> `user_id`, `line1Address` -> `line1_address`. A
+ * capital opens a word when what precedes it is lower case or a digit, or when it is the last
+ * capital of a run -- `ID` in `userID` is one word, and `IDCard` splits before `Card`. */
+char *ziman_snake_case(const char *name) {
+    size_t len = strlen(name);
+    char *out = ziman_xmalloc(len * 2 + 1);
+    size_t oi = 0;
+    for (size_t i = 0; i < len; i++) {
+        unsigned char c = (unsigned char)name[i];
+        if (!isupper(c)) {
+            out[oi++] = name[i];
+            continue;
+        }
+        int prev_lower_or_digit = i > 0 && (islower((unsigned char)name[i - 1]) || isdigit((unsigned char)name[i - 1]));
+        int prev_upper_next_lower = i > 0 && isupper((unsigned char)name[i - 1])
+                                    && i + 1 < len && islower((unsigned char)name[i + 1]);
+        if (prev_lower_or_digit || prev_upper_next_lower) out[oi++] = '_';
+        out[oi++] = (char)tolower(c);
+    }
+    out[oi] = '\0';
+    return out;
+}
+
+/* `middle_name` -> `middleName`. An underscore is dropped and raises the letter after it; nothing
+ * else changes, so a name with no underscores comes back as it went in.
+ *
+ * **Deliberately not `snake_case`'s inverse.** `camel_case("userID")` is `userID`, where a
+ * word-splitting version would answer `userId`. That asymmetry is load-bearing: a
+ * `#[derive(Json)]` key is this over a snake_case field name, and `json.snake_keys` documents
+ * itself as the inverse of exactly what this produces -- a narrower rule than `snake_case`'s,
+ * under which `userID` becomes `user_i_d` on purpose. */
+static char *to_camel_name(const char *name) {
+    size_t len = strlen(name);
+    char *out = ziman_xmalloc(len + 1);
+    size_t oi = 0;
+    int raise = 0;
+    for (size_t i = 0; i < len; i++) {
+        if (name[i] == '_') {
+            raise = 1;
+            continue;
+        }
+        out[oi++] = raise ? (char)toupper((unsigned char)name[i]) : name[i];
+        raise = 0;
+    }
+    out[oi] = '\0';
+    return out;
+}
+
+static char *to_pascal_name(const char *name) {
+    char *camel = to_camel_name(name);
+    if (camel[0] != '\0') camel[0] = (char)toupper((unsigned char)camel[0]);
+    return camel;
+}
+
+static char *to_kebab_name(const char *name) {
+    char *snake = ziman_snake_case(name);
+    for (char *p = snake; *p != '\0'; p++) {
+        if (*p == '_') *p = '-';
+    }
+    return snake;
+}
+
+static char *to_upper_kebab_name(const char *name) {
+    char *kebab = to_kebab_name(name);
+    for (char *p = kebab; *p != '\0'; p++) *p = (char)toupper((unsigned char)*p);
+    return kebab;
+}
+
+static char *to_upper_snake_name(const char *name) {
+    char *snake = ziman_snake_case(name);
+    for (char *p = snake; *p != '\0'; p++) *p = (char)toupper((unsigned char)*p);
+    return snake;
+}
+
+/* Each of the five is the same shape: one string in, one string out, through a C function that
+ * wants a NUL-terminated name. A Ziman string is a pointer and a length into a shared buffer and
+ * is not terminated, so the input is copied first. */
+static Value case_native(Value *args, char *(*convert)(const char *)) {
+    size_t n = SLEN(args[0]);
+    char *in = ziman_xmalloc(n + 1);
+    memcpy(in, SPTR(args[0]), n);
+    in[n] = '\0';
+    char *converted = convert(in);
+    free(in);
+    size_t out_len = strlen(converted);
+    char *buf = zalloc_atomic(out_len + 1);
+    memcpy(buf, converted, out_len + 1);
+    free(converted);
+    return value_string_view(buf, out_len, 1);
+}
+
+static Value native_snake_case(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return case_native(args, ziman_snake_case);
+}
+
+static Value native_camel_case(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return case_native(args, to_camel_name);
+}
+
+static Value native_pascal_case(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return case_native(args, to_pascal_name);
+}
+
+static Value native_kebab_case(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return case_native(args, to_kebab_name);
+}
+
+static Value native_upper_kebab_case(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return case_native(args, to_upper_kebab_name);
+}
+
+static Value native_upper_snake_case(Value *args, int argc, int line, int col) {
+    (void)argc; (void)line; (void)col;
+    return case_native(args, to_upper_snake_name);
+}
+
 static Value native_reverse_string(Value *args, int argc, int line, int col) {
     (void)argc;
     const uint8_t *s = (const uint8_t *)SPTR(args[0]);
@@ -3839,6 +3976,12 @@ void prelude_register(void) {
      * would be found by native_lookup first and run the array implementation on text, which is the
      * trap `char_at` and `last_index_of` both fell into. */
     native_register("string_reverse", native_reverse_string);
+    native_register("snake_case", native_snake_case);
+    native_register("camel_case", native_camel_case);
+    native_register("pascal_case", native_pascal_case);
+    native_register("kebab_case", native_kebab_case);
+    native_register("upper_snake_case", native_upper_snake_case);
+    native_register("upper_kebab_case", native_upper_kebab_case);
     native_register("mutable_string_char_at", native_mutable_string_get);
     native_register("mutable_string_set", native_mutable_string_set);
     native_register("mutable_string_index_of", native_mutable_string_index_of);

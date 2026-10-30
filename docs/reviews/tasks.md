@@ -5065,3 +5065,42 @@ chain. The classification change is kept anyway: it removes genuinely redundant 
 
   Left of §12: step 4 (`#![repository(E)]`/`#[repository]` onto `derive`) and step 5 (measure
   `--lsp`), plus §5a's per-module keying and the collision rule.
+
+- [x] **F255** **The identifier-case conversions are native, in the prelude, and there is now one
+  of each.** (user-raised 2026-10-30: "lets move snake_case/camel_case ... to string.zm and make
+  them native", then "add upper_kebab_case too"; S.)
+
+  Six: `snake_case`, `camel_case`, `pascal_case`, `kebab_case`, `upper_snake_case`,
+  `upper_kebab_case`, in `lib/prelude/string.zm`, called bare with nothing imported.
+
+  **Three implementations collapsed into one, which is why native rather than merely moved.**
+
+  * `meta.snake_case` (Ziman) and `src/derive.c`'s `pascal_to_snake` were **the same algorithm
+    written twice** -- the same `prev_lower_or_digit` and `prev_upper_next_lower` conditions, in two
+    languages, agreeing by inspection and nothing else. The compiler needs `snake_case` before any
+    Ziman has run (`Decl.snake_name`, a generator module's name) and a generator needs the same one
+    afterwards, which is exactly what a native is for: C calls `ziman_snake_case`, Ziman calls
+    `snake_case`.
+  * `derive_properties.zm` had a third, `replace(name, Map { "_": "-" })`, which is `kebab_case`.
+
+  **`string` cannot be a module**: it is a reserved type keyword, so `use string` does not parse.
+  The user's answer was better than any of the alternatives offered -- the prelude is already split
+  into parts and `lib/prelude/string.zm` is one of them, so the file has the name without a module
+  needing it, and every caller loses a qualifier instead of gaining one.
+
+  **`camel_case` is deliberately not `snake_case`'s inverse** and was kept that way:
+  `camel_case("userID")` is `userID`, where a word-splitting version would answer `userId`. A
+  `#[derive(Json)]` key is `camel_case` over a snake_case field name, and `json.snake_keys`
+  documents itself as the inverse of *exactly what `camel_case` produces* -- a narrower rule, under
+  which `userID` becomes `user_i_d` on purpose. So `snake_keys` keeps its own rule and is not a
+  fourth copy of this one.
+
+  **ASCII, and that settled a disagreement rather than introducing one.** `meta.snake_case` used
+  the Unicode-aware `to_lower` while the C used `tolower`, so the two differed for a non-ASCII
+  identifier and agreed for every one that exists. It is the C behaviour now -- the one that
+  already governed `Decl.snake_name` -- and `tests/lang/prelude_identifier_case` pins
+  `ünïcode_näme` through all six so the rule is visible rather than implied.
+
+  Evidence the move preserved behaviour rather than my reading of two algorithms: the North Star's
+  derived output is **byte-identical at 34,800 lines**, and `json_snake_keys`' own output is
+  unchanged. 1,338 fixtures.

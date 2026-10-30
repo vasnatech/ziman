@@ -1,7 +1,7 @@
 // `json.snake_keys`: a camelCase tree rekeyed to the spelling a Ziman field has.
 //
 // **The first half of this fixture pins a claim the doc comment makes**: that the rule is the
-// exact inverse of `meta.camel_case` *for what that function produces*. The two live in different
+// exact inverse of the prelude's `camel_case` *for what that function produces*. The two live in different
 // modules and must not import each other -- `json` cannot depend on the derive model -- so they
 // are a pair that can drift, and the only thing that stops the drift being silent is a test that
 // runs both. The names below are real field names from the North Star's entities, including the
@@ -12,7 +12,6 @@
 // `Map` would keep the last of two keys that want to be one, and a field that vanishes quietly is
 // exactly the wrong failure for validating a document against rules.
 use json
-use meta
 
 val field_names = [
     "id",
@@ -40,7 +39,7 @@ val field_names = [
 fn main() {
     var broken = 0
     for name in field_names {
-        val camel = meta.camel_case(name)
+        val camel = camel_case(name)
         val doc = unwrap(json.parse(concat("{\"", camel, "\": 1}")))
         val back = unwrap(json.snake_keys(doc))
         if None = json.get(back, name) {

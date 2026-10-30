@@ -84,7 +84,7 @@ pub fn @{snake}_keys(prefix: string) -> [string] {
 // `idle_timeout_ms` -> `idle-timeout-ms`. The only transform here, and the reason a reader of a
 // generated key does not find the field name in it.
 fn kebab(name: string) -> string {
-    return replace(name, Map<string, string> { "_": "-" })
+    return kebab_case(name)
 }
 
 // The `properties.get_*` a type reads through, or a refusal naming what this derive supports.

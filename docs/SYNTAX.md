@@ -3501,6 +3501,18 @@ reaches the builtin past it, and is the only way to.
 - `starts_with(s, prefix) -> bool` / `ends_with(s, suffix) -> bool`.
 - `is_char_at(s, i, c) -> bool` — whether `c` appears at `i`; `false` (never an error) when `i`
   is out of range or `c` doesn't fit, replacing a guarded `p < len(s) && char_at(s, p) == "x"`.
+- **Identifier case**: `snake_case`, `camel_case`, `pascal_case`, `kebab_case`,
+  `upper_snake_case`, `upper_kebab_case`. `MiddleName` → `middle_name` → `middleName` →
+  `MiddleName` → `middle-name` → `MIDDLE_NAME` → `MIDDLE-NAME`. A capital opens a word after a
+  lower-case letter or a digit, or at the end of a run (`userID` → `user_id`, `IDCard` →
+  `id_card`). **These convert a *name*** — a field, a type, a configuration key — and are
+  **ASCII**: a letter outside it is passed through rather than guessed at.
+  `camel_case` is deliberately **not** `snake_case`'s inverse — it drops underscores and raises
+  what follows, so `userID` passes through untouched — because a `#[derive(Json)]` key is
+  `camel_case` over a snake_case field name, and `json.snake_keys` is the inverse of exactly what
+  it produces (a narrower rule, under which `userID` becomes `user_i_d`).
+  Native, and shared with the compiler: `src/derive.c` calls the same `snake_case` for
+  `Decl.snake_name`, where it used to have its own copy of the algorithm.
 - `replace(s, old, new) -> string` — swaps every non-overlapping `old` (must not be empty).
 - `replace(s, pairs: Map<string, string>) -> string` — **every key replaced by its value in one
   pass**, longest match first, and a replacement is never rescanned. That is the point: a

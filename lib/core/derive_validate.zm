@@ -298,9 +298,9 @@ fn cascade_for(f: meta.Field) -> Result<Option<template.Row>, string> {
     if Some(pair) = shape {
         return ok(Option<template.Row>.Some(template.row([
             template.text("kind", pair.kind),
-            template.text("key", meta.camel_case(f.name)),
+            template.text("key", camel_case(f.name)),
             template.text("read", concat("v.", f.name)),
-            template.text("fn", concat(meta.snake_case(pair.type), "_violations"))
+            template.text("fn", concat(snake_case(pair.type), "_violations"))
         ])))
     }
     return err(prelude.format(
@@ -438,7 +438,7 @@ fn violations(d: meta.Decl, fields: [meta.Field]) -> Result<string, string> {
         if Some(rule) = try checks_for(f) {
             push(checks, template.row([
                 template.text("rule", rule),
-                template.text("key", meta.camel_case(f.name))
+                template.text("key", camel_case(f.name))
             ]))
         }
         if Some(cascade) = try cascade_for(f) {

@@ -448,54 +448,12 @@ pub fn bare_name(name: string) -> string {
     }
     return substring(name, cut + 1, prelude.len(letters))
 }
-
-// `LocalDate` -> `local_date`: the spelling generated function names use, so a generator writing
-// `<type>_to_sql` does not repeat the compiler's own conversion rule. A capital starts a new word
-// when it follows a lower-case letter or a digit, or when it begins the last capital of a run
-// (`HTTPServer` -> `http_server`).
-pub fn snake_case(name: string) -> string {
-    val out = mutable_array_new<string>()
-    val letters = chars(name)
-    for i in 0..prelude.len(letters) {
-        val c = letters[i]
-        if c == to_lower(c) {
-            push(out, c)
-            continue
-        }
-        if i > 0 {
-            val prev = letters[i - 1]
-            val prev_lower_or_digit = prev != to_upper(prev) || (prev >= "0" && prev <= "9")
-            val next_lower = i + 1 < prelude.len(letters) && letters[i + 1] != to_upper(letters[i + 1])
-            val prev_upper_next_lower = prev == to_upper(prev) && prev != to_lower(prev) && next_lower
-            if prev_lower_or_digit || prev_upper_next_lower {
-                push(out, "_")
-            }
-        }
-        push(out, to_lower(c))
-    }
-    return concat(pieces: snapshot(out))
-}
-
-// `middle_name` -> `middleName`: the spelling JSON keys use, so a generator writing one does not
-// repeat the compiler's own conversion rule. An underscore is dropped and capitalises the letter
-// after it; nothing else changes.
-pub fn camel_case(name: string) -> string {
-    val out = mutable_array_new<string>()
-    var capitalise = false
-    for c in chars(name) {
-        if c == "_" {
-            capitalise = true
-            continue
-        }
-        if capitalise {
-            push(out, to_upper(c))
-        } else {
-            push(out, c)
-        }
-        capitalise = false
-    }
-    return concat(pieces: snapshot(out))
-}
+// `snake_case` and `camel_case` **moved to the prelude on 2026-10-30** (`lib/prelude/string.zm`),
+// along with `pascal_case`, `kebab_case`, `upper_snake_case` and `upper_kebab_case`. They were the
+// same algorithm `src/derive.c`'s `pascal_to_snake` already had, written a second time in Ziman and
+// agreeing with the C by inspection; a native is what both can call. A generator calls them bare,
+// with nothing imported -- `camel_case(f.name)` rather than `meta.camel_case(f.name)` -- which is
+// also why they are not `meta`'s business: they convert a name, and `meta` models a declaration.
 
 // A fresh `__derive_<hint>_<n>`, from a counter a whole generation shares. The `__derive_`
 // prefix is the convention `src/derive.c` writes too, so a generated temporary is recognisable

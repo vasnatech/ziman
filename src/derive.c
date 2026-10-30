@@ -1,5 +1,6 @@
 #include "derive.h"
 #include "generators.h"
+#include "prelude.h"
 
 #include <ctype.h>
 #include <stdarg.h>
@@ -53,23 +54,10 @@ static char *fmt_str(const char *fmt, ...) {
  * `local_date_to_json`. See docs/DESIGN.md's "Attributes and derive"
  * entry. */
 char *ziman_pascal_to_snake(const char *name);
+/* The prelude's `snake_case`, which is where this algorithm lives now: it was written twice, here
+ * and in `meta.zm`, agreeing by inspection. See `ziman_snake_case` in src/prelude.c. */
 static char *pascal_to_snake(const char *name) {
-    size_t len = strlen(name);
-    char *out = ziman_xmalloc(len * 2 + 1);
-    size_t oi = 0;
-    for (size_t i = 0; i < len; i++) {
-        unsigned char c = (unsigned char)name[i];
-        if (isupper(c)) {
-            int prev_lower_or_digit = i > 0 && (islower((unsigned char)name[i - 1]) || isdigit((unsigned char)name[i - 1]));
-            int prev_upper_next_lower = i > 0 && isupper((unsigned char)name[i - 1]) && i + 1 < len && islower((unsigned char)name[i + 1]);
-            if (i > 0 && (prev_lower_or_digit || prev_upper_next_lower)) out[oi++] = '_';
-            out[oi++] = (char)tolower(c);
-        } else {
-            out[oi++] = name[i];
-        }
-    }
-    out[oi] = '\0';
-    return out;
+    return ziman_snake_case(name);
 }
 
 char *ziman_pascal_to_snake(const char *name) {

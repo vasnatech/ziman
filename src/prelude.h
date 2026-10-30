@@ -186,3 +186,9 @@ void ziman_mutable_set_combine(Value s, Value source, int source_is_handle, int 
 int ziman_mutable_set_is_subset(Value s, Value source, int source_is_handle);
 
 #endif
+
+/* `snake_case`, for the C that needs it before any Ziman has run -- `Decl.snake_name`, a generator
+ * module's name, a derived query's entity. **The same function the prelude exposes to Ziman**,
+ * which is the point of it being native: `src/derive.c`'s `pascal_to_snake` and `meta.snake_case`
+ * were one algorithm written twice. Caller owns the result. */
+char *ziman_snake_case(const char *name);

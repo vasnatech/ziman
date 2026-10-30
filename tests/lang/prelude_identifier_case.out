@@ -1,0 +1,9 @@
+MiddleName -> middle_name | MiddleName | MiddleName | middle-name | MIDDLE_NAME | MIDDLE-NAME
+middle_name -> middle_name | middleName | MiddleName | middle-name | MIDDLE_NAME | MIDDLE-NAME
+line1Address -> line1_address | line1Address | Line1Address | line1-address | LINE1_ADDRESS | LINE1-ADDRESS
+userID -> user_id | userID | UserID | user-id | USER_ID | USER-ID
+IDCard -> id_card | IDCard | IDCard | id-card | ID_CARD | ID-CARD
+idle_timeout_ms -> idle_timeout_ms | idleTimeoutMs | IdleTimeoutMs | idle-timeout-ms | IDLE_TIMEOUT_MS | IDLE-TIMEOUT-MS
+x -> x | x | X | x | X | X
+ ->  |  |  |  |  | 
+ünïcode_näme -> ünïcode_näme | ünïcodeNäme | ünïcodeNäme | ünïcode-näme | üNïCODE_NäME | üNïCODE-NäME

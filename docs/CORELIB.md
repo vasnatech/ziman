@@ -1154,10 +1154,6 @@ pub fn type_text(t: Type) -> string
 
 pub fn bare_name(name: string) -> string
 
-pub fn snake_case(name: string) -> string
-
-pub fn camel_case(name: string) -> string
-
 pub fn fresh(n: Mutable<int>, hint: string) -> string
 
 pub fn type_params_bounded(d: Decl, bound: string) -> string

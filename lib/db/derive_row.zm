@@ -200,7 +200,7 @@ fn emit_from_sql(t: meta.Type, src: string, dst: string, n: Mutable<int>) -> Res
         if Some(flat) = get(flat_names, meta.bare_name(named.name)) {
             return simple_read(dst, concat("to_", flat), src)
         }
-        return simple_read(dst, concat(meta.snake_case(named.name), "_from_sql"), src)
+        return simple_read(dst, concat(snake_case(named.name), "_from_sql"), src)
     }
     return err(concat("derive(Row) does not support field type '", meta.type_text(t), "'"))
 }
@@ -251,7 +251,7 @@ pub fn emit_to_sql(t: meta.Type, src: string, dst: string, n: Mutable<int>) -> R
         ])
     }
     if Named(named) = t {
-        var call = concat(meta.snake_case(named.name), "_to_sql")
+        var call = concat(snake_case(named.name), "_to_sql")
         if contains(flat_names, meta.bare_name(named.name)) {
             call = "to_sql"
         }

@@ -1,0 +1,45 @@
+// The six identifier-case conversions, which are **one native each and one algorithm between
+// them**: `snake_case` is the primitive, and `kebab_case`, `upper_snake_case` and
+// `upper_kebab_case` are read off it. They were two implementations before 2026-10-30 --
+// `meta.snake_case` in Ziman and `pascal_to_snake` in `src/derive.c`, the same conditions written
+// twice and agreeing by inspection -- plus a third for kebab inside `derive_properties.zm`
+// (`replace(name, {"_": "-"})`).
+//
+// **`camel_case` is deliberately not `snake_case`'s inverse.** `userID` passes through it
+// untouched where a word-splitting version would answer `userId`. That is load-bearing: a
+// `#[derive(Json)]` key is `camel_case` over a snake_case field name, and `json.snake_keys`
+// documents itself as the inverse of exactly what `camel_case` produces -- a narrower rule, under
+// which `userID` becomes `user_i_d` on purpose.
+//
+// **ASCII, deliberately.** These convert a name; a letter outside ASCII is passed through rather
+// than guessed at, which is what the C already did and what settles the disagreement with
+// `meta.snake_case`'s Unicode-aware version.
+fn show(s: string) {
+    printf(
+        "{} -> {} | {} | {} | {} | {} | {}\n",
+        s,
+        snake_case(s),
+        camel_case(s),
+        pascal_case(s),
+        kebab_case(s),
+        upper_snake_case(s),
+        upper_kebab_case(s)
+    )
+}
+
+fn main() {
+    // A capital opens a word after a lower-case letter or a digit.
+    show("MiddleName")
+    show("middle_name")
+    show("line1Address")
+    // A *run* of capitals is one word, and splits before the next lower-case letter.
+    show("userID")
+    show("IDCard")
+    // Already in the target shape: unchanged.
+    show("idle_timeout_ms")
+    show("x")
+    // Nothing to convert, and nothing to crash on.
+    show("")
+    // Not a letter in either case, so passed through by every one of them.
+    show("ünïcode_näme")
+}

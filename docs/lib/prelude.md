@@ -4225,3 +4225,67 @@ build -- every `concat` copies everything accumulated so far, so 16,000 characte
 UTF-8 at all. The registration is `string_reverse`: safe to add only because the array member is
 `array_reverse` rather than a bare `reverse`, which is the question worth asking first after
 `char_at` and `last_index_of` both answered it the other way.
+
+### `snake_case`
+
+```
+pub native fn snake_case(name: string) -> string
+```
+
+`MiddleName` -> `middle_name`, `userID` -> `user_id`, `line1Address` -> `line1_address`.
+
+A capital opens a word when what precedes it is lower case or a digit, or when it is the last
+capital of a run: `ID` in `userID` is one word, and `IDCard` splits before `Card`. A name
+already in snake_case has no capitals and comes back unchanged.
+
+### `camel_case`
+
+```
+pub native fn camel_case(name: string) -> string
+```
+
+`middle_name` -> `middleName`: the spelling JSON keys use, so a generator writing one does not
+repeat the rule. An underscore is dropped and raises the letter after it; nothing else changes,
+so a name with no underscores comes back as it went in.
+
+**Not `snake_case`'s inverse, on purpose.** `camel_case("userID")` is `userID`, where a
+word-splitting version would answer `userId`. The asymmetry is load-bearing: a
+`#[derive(Json)]` key is this over a snake_case field name, and `json.snake_keys` documents
+itself as the inverse of exactly what this produces -- a narrower rule than `snake_case`'s,
+under which `userID` becomes `user_i_d`.
+
+### `pascal_case`
+
+```
+pub native fn pascal_case(name: string) -> string
+```
+
+`middle_name` -> `MiddleName`: `camel_case` with the first letter raised, which is how a type
+name is spelled.
+
+### `kebab_case`
+
+```
+pub native fn kebab_case(name: string) -> string
+```
+
+`idle_timeout_ms` -> `idle-timeout-ms`: `snake_case` with its underscores as dashes, which is
+how a configuration key is spelled -- `#[derive(Properties)]` binds a field to one.
+
+### `upper_snake_case`
+
+```
+pub native fn upper_snake_case(name: string) -> string
+```
+
+`body_weight` -> `BODY_WEIGHT`: `snake_case` in capitals, which is how this codebase spells an
+enum word (`#[one_of(values: type_words)]`'s lists are all of these).
+
+### `upper_kebab_case`
+
+```
+pub native fn upper_kebab_case(name: string) -> string
+```
+
+`idle_timeout_ms` -> `IDLE-TIMEOUT-MS`: `kebab_case` in capitals, the same relation
+`upper_snake_case` has to `snake_case`.
