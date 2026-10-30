@@ -1,8 +1,17 @@
 # `jwt`
 
-JSON Web Tokens (RFC 7519) signed with a shared secret: HS256, HS384 and HS512 (RFC 7518), the
-algorithms that need only a key. `sign` makes a token from a claims object, `verify` checks one and gives the
-claims back. Built on `crypto` (HMAC, base64url, a constant-time comparison), `json` and `clock`.
+JSON Web Tokens (RFC 7519), in two families: **a shared secret** (HS256, HS384,
+HS512) and **a P-256 key pair** (ES256, added 2026-10-29). `sign` makes a token from a claims
+object, `verify` checks one and gives the claims back. Built on `crypto` (HMAC, ECDSA,
+base64url, a constant-time comparison), `json` and `clock`.
+
+**A key's type chooses its family, and that is a security property rather than a convenience.**
+A shared secret is `[byte]`; an EC key is PEM `string`. The classic JWT attack is algorithm
+confusion -- presenting a public key as if it were an HMAC secret, so a token the attacker
+signed verifies -- and it needs one key parameter that both families read. There is none here,
+so a token's `alg` header can only choose **within** the family the caller already chose: an
+`HS256` token handed to a verifier holding a public key is refused by name, never MAC'd with the
+PEM text as a secret. `tests/lang/jwt_es256` pins that and three more of the same shape.
 
 
 ```
@@ -172,6 +181,24 @@ The same with `algorithm` chosen: HS256, HS384 or HS512, an Err for anything els
 and an algorithm is a `string` where nothing else here is -- unlike a bare `true` or a lone
 `int`, a reader of `sign(claims, key, "HS512")` needs no name to tell them what it is.
 
+```
+pub fn sign(claims: Json, private_key_pem: string) -> Result<string, string>
+```
+
+**ES256**: a token signed with a P-256 private key as PEM text, so a holder can verify it
+without being able to issue one. That is what a shared secret cannot do, and what a verifiable
+credential needs (2026-10-29).
+
+The key is a `string` where an HMAC key is `[byte]`, and that is deliberate: see `Key`. An EC key
+is never a `[byte]` key here, so there is no call that hands a public key to the HMAC path.
+
+```
+pub fn sign(claims: Json, private_key_pem: string, algorithm: string) -> Result<string, string>
+```
+
+The same with the algorithm written out. `ES256` is the only one an EC key signs here -- P-256 is
+the only curve `crypto` has -- and anything else is refused by name rather than ignored.
+
 ### `verify_at`
 
 ```
@@ -189,6 +216,29 @@ pub fn verify(token: string, key: [byte]) -> Result<Json, JwtError>
 ```
 
 Checks `token` against `key` now and gives back its claims. The token must have an `exp` that is not past.
+
+```
+pub fn verify(token: string, public_key_pem: string) -> Result<Json, JwtError>
+```
+
+**ES256**: checks `token` against a P-256 **public** key as PEM text. The key verifies and
+cannot issue, which is the whole reason this path exists.
+
+A token naming any other algorithm is refused by name rather than verified another way -- see
+`Key`, where that is the point rather than a precaution.
+
+### `verify_at`
+
+```
+pub fn verify_at(
+    token: string,
+    public_key_pem: string,
+    now_seconds: int,
+    leeway_seconds: int
+) -> Result<Json, JwtError>
+```
+
+`verify_at` for a public key: the same clock control, the same family rule.
 
 ### `verify_claims`
 
@@ -211,6 +261,33 @@ clock difference forgiven on `exp` and `nbf`; `now` (default the current time) i
 that is meant never to expire; `issuer`, when given, must be the token's `iss` (`WrongIssuer`, or `MissingClaim("iss")` when
 there is none); and `audience`, when given, must be the token's `aud` -- a string, or one of an array of strings
 (`WrongAudience`, or `MissingClaim("aud")`). An `exp` or `nbf` that is not a number is `Malformed` whatever `require_exp` says.
+
+### `verify_claims_pem`
+
+```
+pub fn verify_claims_pem(
+    token: string,
+    public_key_pem: string,
+    leeway_seconds: Option<int>,
+    now: Option<int>,
+    require_exp: Option<bool>,
+    issuer: Option<string>,
+    audience: Option<string>,
+    algorithm: Option<string>
+) -> Result<Json, JwtError>
+```
+
+`verify_claims` for a public key: every check the HMAC form offers, over the family a PEM key
+can use. A credential is the case that wants `issuer`/`audience` most, since the point of
+publishing a verifying key is that several parties hold it.
+
+**Why the name differs from `verify`/`verify_at`, which are overloaded on the key's type.** Those
+are called positionally and overload cleanly. This one is called by name with most of its
+`Option` parameters left out -- `verify_claims(token: t, key: k, now: n)` -- and **a named call
+that omits optional parameters does not resolve against an overload set**: adding a second
+`verify_claims` made every existing such call fail with "no declaration takes 3 argument(s)",
+including `tests/lang/jwt_claims`. That is a gap in overload resolution rather than a fact about
+JWTs (recorded 2026-10-29), so this takes a name of its own instead of waiting for it.
 
 ### `subject`
 

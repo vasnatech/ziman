@@ -34,7 +34,7 @@ throws. See [SYNTAX.md](../SYNTAX.md) for `?`, `Result` and `Option`.
 | [`regex`](regex.md) | Regular expressions: a native engine that runs in time linear in the text (no backreferences), with patterns compiled once and cached. |
 | [`compress`](compress.md) | Gzip and zlib (deflate) compression, on zlib. |
 | [`crypto`](crypto.md) | Hashes, message authentication, key derivation, password hashing, one authenticated cipher and base64, on OpenSSL's libcrypto. |
-| [`jwt`](jwt.md) | JSON Web Tokens (RFC 7519) signed with a shared secret: HS256, HS384 and HS512 (RFC 7518), the algorithms that need only a key. |
+| [`jwt`](jwt.md) | JSON Web Tokens (RFC 7519), in two families: **a shared secret** (HS256, HS384, HS512) and **a P-256 key pair** (ES256, added 2026-10-29). |
 | [`otp`](otp.md) | Time-based one-time passwords (RFC 6238, over RFC 4226's HOTP) of the kind authenticator apps show: six digits that change every 30 seconds, from a secret shared once, by QR code or by typing it. |
 | [`mime`](mime.md) | Media types (MIME types, RFC 6838): `application/json`, `text/html; charset=utf-8`. |
 

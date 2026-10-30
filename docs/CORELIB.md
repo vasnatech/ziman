@@ -663,11 +663,21 @@ pub fn sign(claims: Json, key: [byte]) -> Result<string, string>
 
 pub fn sign(claims: Json, key: [byte], algorithm: string) -> Result<string, string>
 
+pub fn sign(claims: Json, private_key_pem: string) -> Result<string, string>
+
+pub fn sign(claims: Json, private_key_pem: string, algorithm: string) -> Result<string, string>
+
 pub fn verify_at(token: string, key: [byte], now_seconds: int, leeway_seconds: int) -> Result<Json, JwtError>
 
 pub fn verify(token: string, key: [byte]) -> Result<Json, JwtError>
 
+pub fn verify(token: string, public_key_pem: string) -> Result<Json, JwtError>
+
+pub fn verify_at(
+
 pub fn verify_claims(
+
+pub fn verify_claims_pem(
 
 pub fn subject(claims: Json) -> Option<string>
 
