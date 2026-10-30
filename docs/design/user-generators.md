@@ -241,6 +241,75 @@ the attributes that generator reads. Shipping the first two without this would m
 derive can be triggered and can only ever see field *names* — which is `#[derive(Csv)]` without
 `#[csv_column]`, the thing this section started from.
 
+## 5b. `derive` is the only target mechanism, at every position
+
+Decided by the user 2026-10-30, after a survey of every annotation `src/` knows by name:
+
+> `#[repository]` should not stay. We can replace it something similar to `#[derive(Repository)]`
+> `#[derive(Endpoint(method: POST, path:"..."))]` — not exactly. derive part can be in C.
+> `#![repository(Entity)]` should not stay.
+
+So the rule is: **C knows `derive`, and knows nothing about any target.** `#[repository]` on a
+function and `#![repository(Entity)]` on a module are the two places a *domain* name is wired into
+the compiler, and both become ordinary targets resolved through the `use` list (§3).
+
+| position | today | after |
+| --- | --- | --- |
+| module | `#![repository(Note)]` | `#![derive(Repository(Note))]` |
+| function | `#[repository]` on a bodyless fn | `#[derive(Repository)]` |
+| struct/enum | `#[derive(Entity("medications"))]` | unchanged in shape |
+| field | `#[pk]`, `#[one_of(..)]` — a table in C | declared by the generator (§5a) |
+
+**The two generator kinds need no attribute of their own.** Which kind a generator is — one
+declaration (`generate`) or a whole module (`generate_module`/`generate_query`) — is read off its
+exported entry point already (meta.md §13), and that is a property of the *generator module*, not
+of the attribute at the use site. So the module form needs no second name: C resolves `Repository`,
+finds `generate_module`, and knows what it is being asked for.
+
+### What `derive` has to grow
+
+**Named arguments with kinds.** `meta.Decl.arg` is `Option<string>` and the grammar takes one
+positional string — `#[derive(Entity("medications"))]` is the only use. `Endpoint(method: POST,
+path: "/orders")` needs a name, a value and a *kind* per argument, which is exactly
+`FieldAttrArg {name, value, kind}` and the `"name:kind,other:kind?"` spec grammar that
+`FIELD_ATTRS` already uses for fields. So this is the same upgrade §5a needs, applied one position
+up:
+
+* `meta.Decl.arg: Option<string>` becomes `args: [meta.AttrArg]`, which `meta.Field.attrs` already
+  carries for fields. `#[derive(Entity("medications"))]` keeps working as one unnamed argument
+  under the name `value`, which is the convention `#[min(8)]` already follows.
+* A generator declares its target's argument spec the way §5a has it declare its field attributes
+  — one `pub val`, one grammar, read after the module loads.
+* Validation defers past module loading for the same reason and with the same guarantee: the spec
+  is not knowable until the generator is resolved, and `line`/`col` on the attribute mean the
+  refusal still lands on the attribute.
+
+### What is left in C
+
+24 annotation names are wired in today. §5a removes the eleven field attributes; this removes
+`repository` from both of its positions. **Twelve remain, and not one of them is a library or
+domain name:**
+
+`derive`, `from`, `test`, `deprecated`, `experimental`, `generator`, `thread_bound`, `thread_key`,
+`at_least_one`, `effectful`, `compiler_resolved`, `when_unmatched`.
+
+Every one changes how the language itself compiles, loads or type-checks — `#[from]` is `try`'s
+error conversion, `#[effectful]` is an overload rule, `#![experimental]` is a diagnostic,
+`#![generator(X)]` is a module's claim about itself. That is the line: **C knows the annotations
+that are facts about the language, and none that are facts about a library.**
+
+### Two questions this does not settle
+
+1. **Does a bodyless function still need a marker?** `#[derive(Repository)]` on each one keeps the
+   explicitness `#[repository]` has, and repeats a word the module attribute already said. The
+   alternative — a bodyless function in a module with a module generator is that generator's to
+   fill — needs no attribute at all, and makes "I forgot a body" indistinguishable from "generate
+   this". The current design chose the marker; nothing has argued the other side yet.
+2. **Is `derive` the right word at module level?** `#![derive(Repository(Note))]` reads as a
+   declaration being derived when what is derived is the *file*. Keeping one word holds C's
+   vocabulary to one entry; a second word (`#![generated_from(..)]`) reads better and costs C a
+   name. Not decided.
+
 ## 6. Initialisation and ordering, which is the real cost
 
 A generator's `val sheet = template.must_parse(..)` has to be initialised before `generate` is
@@ -299,14 +368,16 @@ per declaration carrying the attribute, and the sample backend has 140 of them.
 
 ## 9. What it deliberately does not cover
 
-* **Module-level attributes of a project's own**, the `#![repository(E)]` shape. Declaration-level
-  `#[derive(X)]` is one mechanism; a user-defined module attribute is a second, and the first
-  should ship before the second is designed.
+* ~~**Module-level attributes of a project's own**, the `#![repository(E)]` shape.~~ Overtaken by
+  §5b: there is to be no second mechanism. `#![repository(E)]` itself becomes a `derive` target, so
+  a project's module-level generator is the same feature as its declaration-level one rather than a
+  thing to design after it.
+* **Attributes on functions**, the `#[repository]` derived-query shape. Also §5b now: the function
+  marker becomes a `derive` target too.
 * ~~**Field attributes of a generator's own.**~~ This list said nothing about them, which read as
   coverage rather than as an omission — §5a now covers them, and they are part of the feature
   rather than outside it: a derive that cannot read `#[csv_column(name:)]` can only ever see a
   field's own name.
-* **Attributes on functions**, the `#[repository]` derived-query shape. Same reason.
 * **Determinism.** A generator reading the clock or a file produces a different program per
   build. Nothing here polices that; it is a documented expectation, as it is in every language
   with compile-time code.
@@ -349,8 +420,13 @@ load-bearing.
    a struct today), and per-generator-module initialisation as §6 describes.
 2. **Then `#![generator(X)]` and `use`-list discovery**, which is small once the bridge exists --
    the lookup is `resolve_repository`'s walk with a different attribute.
-3. **Then a generator's own field attributes** (§5a): the deferral of `check_field_attribute` past
-   module loading, `meta.attr_spec`, and the collision rule. It needs (2)'s `use`-list walk and
-   nothing else, and without it a project's derive can only read field names.
-4. **Measure `--lsp`** before deciding §8 for good. One generator call per declaration, 140
+3. **Then the attribute grammar, once, for both positions** (§5a and §5b): `check_field_attribute`
+   deferred past module loading, `meta.attr_spec`, the collision rule, and `meta.Decl.arg` becoming
+   `args: [meta.AttrArg]`. One grammar serves a generator's field attributes and its target's own
+   arguments, and it needs (2)'s `use`-list walk and nothing else.
+4. **Then `#![repository(E)]` and `#[repository]` become `derive` targets** (§5b), which is what
+   takes the last domain name out of the compiler. It is last because it is a migration of a
+   working feature rather than a new one, and because it is the proof that the mechanism carries
+   the harder of the two generator kinds.
+5. **Measure `--lsp`** before deciding §8 for good. One generator call per declaration, 140
    declarations in the sample backend, an interpreter rather than C.
